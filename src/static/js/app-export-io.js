@@ -1943,11 +1943,13 @@ class _ExportIo {
             // not a project field: the same person show after show, and a
             // file handed to another engineer prints theirs (app-pull-list).
             engineerName: '',
-            // The binder's sheet size and the name its title block's
-            // wordmark sets large (app-binder): the same shop show after
-            // show, so preferences like the engineer's name.
+            // The binder's sheet size and the logo its title block heads
+            // with - a PNG / JPEG as a data URL, downscaled to 1200 px on
+            // its long side before it is stored (app-binder): the same
+            // shop show after show, so preferences like the engineer's
+            // name.
             binderSheet: 'tabloid',
-            preparedBy: ''
+            binderLogo: ''
         };
     }
 
@@ -2265,7 +2267,7 @@ class _ExportIo {
             // wipe it.
             engineerName: this.getPreferences().engineerName || defaults.engineerName,
             binderSheet: this.getPreferences().binderSheet || defaults.binderSheet,
-            preparedBy: this.getPreferences().preparedBy || defaults.preparedBy,
+            binderLogo: this.getPreferences().binderLogo || defaults.binderLogo,
         };
     }
 

@@ -7,9 +7,11 @@ Every sheet is a landscape page of one size - Tabloid 17 x 11 by default
 sizes"), Letter, ARCH C, ARCH D, A4, A3 to pick - at 200 px/in in page
 units and inches x 72 in points, with a border a quarter inch in, a TITLE
 BLOCK column 2.4 in wide down the right ("mimic whats in their drawing":
-the compass, the prepared-by wordmark, REVISIONS, NOTES, the show / venue /
-dates, Designer, Project Manager, Drafter, the SHEET TITLE, the Sheet
-Number, the drawing date) and the drawing area to its left. Type sizes are
+the logo when one is set, REVISIONS - the log the exports write - the show
+/ venue / dates, Designer, Project Manager, Drafter, the SHEET TITLE, the
+Sheet Number, the drawing date; 2026-09-08: "we dont need the cardinal
+directions", "You put my name where a logo would go", "remove the notes
+section") and the drawing area to its left. Type sizes are
 in inches: a bigger sheet holds more, it does not print bigger type.
 
 Sheets number by SERIES, by subject: 1.1 the overview (the show map as
@@ -44,7 +46,9 @@ replays in points, the text set in Helvetica as real PDF text.
 
 The title block's fields live in project.binder (the export dialog edits
 them, one undo entry per field; the routes keep them like pullSheet), the
-sheet size and the prepared-by name in the preferences.
+sheet size and the logo in the preferences. A revision is LOGGED ON
+EXPORT: an export at a Rev no row carries yet adds a row (the date, the
+engineer's initials, the Revision note); the same rev again logs nothing.
 
 Run locally (ONE pytest at a time - the browser-test servers use fixed
 ports):
@@ -133,8 +137,12 @@ def test_the_menu_items_the_format_option_and_the_section_are_served(client):
     for field in ('scope', 'sheet', 'colour', 'printer', 'side-power', 'side-data', 'side-both',
                   'cover', 'pull', 'hardware', 'engineer', 'rev',
                   'venue', 'dates', 'designer', 'pm-name', 'pm-phone', 'pm-email', 'drafter',
-                  'prepared-by', 'notes', 'revisions'):
+                  'logo', 'logo-preview', 'logo-remove', 'logo-status', 'revision-note', 'revisions'):
         assert f'id="export-binder-{field}"' in html, field
+    # the wordmark's field and the NOTES box are gone; the logo takes a
+    # PNG or JPEG file
+    assert 'export-binder-prepared-by' not in html and 'export-binder-notes' not in html
+    assert re.search(r'id="export-binder-logo"[^>]*accept="image/png,image/jpeg"', html)
     # the sheet select carries every size, Tabloid picked
     sec = html[html.index('id="export-binder-section"'):html.index('id="export-scale-row"')]
     for key in ('letter', 'tabloid', 'archc', 'archd', 'a4', 'a3'):
@@ -158,9 +166,11 @@ def test_the_menu_items_the_format_option_and_the_section_are_served(client):
     generic = [l for l in literals if BREAKOUT_WORD.search(l) and 'breakout box' not in l.lower()]
     assert not generic, generic
     assert not [l for l in literals if 'Palette' in l], [l for l in literals if 'Palette' in l]
-    # the modal's textareas wear the inset look the fields do
+    # the modal's textareas wear the inset look the fields do; the
+    # revision log's rows and their × have their own recipe
     css = open(os.path.join(HERE, '..', 'src', 'static', 'css', 'theme.css')).read()
     assert '#export-modal textarea' in css
+    assert '.binder-rev-row' in css and '.binder-rev-remove' in css
 
 
 def _png(color=(255, 0, 0, 255), size=(20, 10)):
@@ -201,9 +211,11 @@ def test_project_binder_round_trips_through_the_routes(client):
     whatever the file carries, and a new project has none."""
     binder = {'venue': 'Harbor Field', 'dates': '9/4/26 - 9/6/26', 'designer': 'Northlight',
               'projectManager': {'name': 'Jordan', 'phone': '555', 'email': 'n@x.com'},
-              'drafter': 'Sam', 'notes': 'note', 'revisions': [{'date': '7/24/26', 'by': 'MK', 'description': 'Overview'}]}
+              'drafter': 'Sam',
+              'revisions': [{'no': 1, 'rev': '1.0', 'date': '7/24/26', 'by': 'MK', 'description': 'Overview'}]}
     assert client.post('/api/project', json={'binder': binder}).status_code == 200
-    assert client.get('/api/project').get_json()['binder'] == binder
+    served = client.get('/api/project').get_json()['binder']
+    assert served == binder and 'notes' not in served
     proj = client.get('/api/project').get_json()
     proj['binder'] = {**binder, 'venue': 'Elsewhere'}
     resp = client.put('/api/project', json=proj)
@@ -377,11 +389,16 @@ def _on_map(map_texts, label):
 
 def _title_block(texts, sheet_title, number, show='Untitled Project'):
     """The title block's texts, in the order the column draws them."""
-    for t in ('US', 'DS', 'SR', 'SL', 'Revisions:', 'No.', 'Date', 'By', 'Description', 'Notes',
+    for t in ('Revisions:', 'No.', 'Date', 'By', 'Description',
               show, 'Designer:', 'Project Manager:', 'Drafter:', sheet_title, 'Sheet Number', number, 'Drawing Date'):
         assert t in texts, (t, texts[:60])
-    order = [texts.index(t) for t in ('US', 'Revisions:', 'Notes', show, 'Designer:', sheet_title, 'Sheet Number', number)]
+    order = [texts.index(t) for t in ('Revisions:', show, 'Designer:', sheet_title, 'Sheet Number', number)]
     assert order == sorted(order), order
+    # the block is drawn first: nothing before REVISIONS but a logo (an
+    # image, no text) - no compass letters, no wordmark, no NOTES box
+    assert texts[0] == 'Revisions:', texts[:4]
+    head = texts[:texts.index(show)]
+    assert not [t for t in head if t in ('US', 'DS', 'SL', 'Notes', 'LED RASTER DESIGNER')], head
 
 
 def test_the_sheets_come_in_series_by_subject(page):
@@ -412,9 +429,6 @@ def test_the_power_sheet_carries_its_title_block_and_says_home_run_once_per_box(
     assert out['sheet']['key'] == 'tabloid' and out['sheet']['pt'] == PT
     _title_block(texts, 'WALL-A · POWER', '2.1')
     assert 'rev 1.0' in texts
-    # the wordmark: the prepared-by preference, else the engineer, else the app
-    mark = pg.evaluate("() => window.app.getPreparedBy().toUpperCase()")
-    assert mark in texts and mark in ('LED RASTER DESIGNER', pg.evaluate("() => window.app.getEngineerName().toUpperCase()"))
     bands = [t for t in texts if 'home run' in t]
     assert bands == ["SR1 · Soca 208 · 125' home run · 2 circuits"], texts
     # Multi is a cable row, never a heading and never the breakout's name
@@ -611,15 +625,21 @@ def test_the_pdf_route_receives_one_display_list_per_sheet(page):
                      bitmaps: body.pages.some(p => 'dataUrl' in p || 'data' in p),
                      firstOps: body.pages[0].ops.slice(0, 3),
                      saved: seen.saved, plan: plan.length,
-                     kindsByPage: plan.map(p => p.kind) };
+                     kindsByPage: plan.map(p => p.kind),
+                     logged: JSON.parse(JSON.stringify(app.getBinderInfo().revisions)) };
         } finally {
             window.fetch = realFetch;
             app.saveBlobWithPicker = saved;
             document.getElementById('export-binder-colour').checked = true;
+            // the export logged rev 1.0; the log is the next tests' to write
+            delete app.project.binder;
+            await app._persistBinderInfo();
         }
     }""", None)
     assert out['posts'] == 1 and out['urls'] == ['/api/export/pdf-from-pages']
     assert out['keys'] == ['pages', 'project_name']
+    # the export logged its rev: no engineer set, so blank initials; no note
+    assert out['logged'] == [{'no': 1, 'rev': '1.0', 'date': _today(), 'by': '', 'description': ''}], out['logged']
     assert out['n'] == out['plan'] == out['pages'] == len(PLAN)
     assert all(k == ['height', 'images', 'name', 'ops', 'page_size', 'width'] for k in out['pageKeys']), out['pageKeys']
     assert not out['bitmaps'], 'the export sends no sheet bitmap'
@@ -685,8 +705,8 @@ def test_every_sheet_record_is_a_display_list_of_its_texts(page):
     """Every sheet's record carries ops, its text ops the very texts the
     sheet logged, in order, the title block's first; the map sheets and
     the overview carry one image (the map, the raster) and no other sheet
-    carries any; the wordmark and the brackets' labels are recorded turned
-    a quarter with their anchor, never as a raw transform; every op is in
+    carries any; the brackets' labels are recorded turned a quarter with
+    their anchor, never as a raw transform; every op is in
     page units with its colour as hex; and the record has no bitmap of the
     sheet unless asked."""
     pg, ids = page
@@ -711,9 +731,9 @@ def test_every_sheet_record_is_a_display_list_of_its_texts(page):
             assert re.fullmatch(r'#[0-9a-f]{6}', o['color']) and o['align'] in ('left', 'center', 'right'), o
             assert o['baseline'] == 'alphabetic' and o['weight'] in (400, 600, 700, 800), o
             assert 0 <= o['x'] <= W and 0 <= o['y'] <= H, (title, o)
-        # the title block first: the compass's US, then the sheet number
-        # set large in the corner
-        assert (texts[0]['text'], texts[0]['size'], texts[0]['weight']) == ('US', 24, 700), texts[0]
+        # the title block first: its REVISIONS label, then the sheet
+        # number set large in the corner
+        assert (texts[0]['text'], texts[0]['size'], texts[0]['weight']) == ('Revisions:', 26, 700), texts[0]
         numbers = [o for o in texts if o['size'] == 56]
         assert [(o['text'], o['weight']) for o in numbers] == [(number, 800)], numbers
         assert numbers[0]['x'] > TB_X and numbers[0]['y'] > H - PAD - 150, numbers[0]
@@ -743,12 +763,12 @@ def test_every_sheet_record_is_a_display_list_of_its_texts(page):
         else:
             assert images == [] and rec['imageIds'] == [], (title, images)
             assert out['bubble'] is None
-        # the wordmark is a rotated text op on every sheet; a bracket label
-        # is a rotated text op at its anchor; every other text lies flat
+        # a bracket label is a rotated text op at its anchor; every other
+        # text lies flat (the wordmark, once the block's one turned text,
+        # is gone)
         turned = [o for o in texts if o['rotate']]
-        marks = [o for o in turned if o['weight'] == 800]
-        assert len(marks) == 1 and abs(marks[0]['rotate'] + 1.5707963) < 1e-4 and marks[0]['x'] > TB_X, marks
-        labels = [o for o in turned if o['weight'] != 800]
+        assert not [o for o in turned if o['weight'] == 800], turned
+        labels = list(turned)
         if kind == 'power':
             assert len(labels) == len(out['brackets']) >= 1, (title, labels)
             for o, b in zip(labels, out['brackets']):
@@ -1077,15 +1097,20 @@ def test_the_overview_maps_the_show_and_lists_the_contents(page):
     assert b['y'] - b['r'] >= m['y'] + m['h'] and b['y'] + b['r'] <= DA['y'] + DA['h'] + 1, (b, m)
 
 
+def _today():
+    import datetime
+    d = datetime.date.today()
+    return f"{d.month}/{d.day}/{d.year % 100:02d}"
+
+
 def test_the_title_block_prints_the_projects_fields_and_they_ride_the_project(page):
     """The export dialog's Title block fields commit to project.binder -
     one undo entry per field - and every sheet's title block prints them:
     the VENUE in caps under the show, the dates, the designer, the
     project manager's name / phone / email, the drafter (blank, the
-    engineer), the notes wrapped, the REVISIONS rows numbered; the
-    prepared-by preference sets the wordmark. Blank fields print their
-    labels and nothing else. The block rides the project through the
-    routes and undo."""
+    engineer). Blank fields print their labels and nothing else. There is
+    no NOTES box and no notes field ("remove the notes section"). The
+    block rides the project through the routes and undo."""
     pg, ids = page
     out = pg.evaluate("""async () => {
         const app = window.app;
@@ -1101,91 +1126,350 @@ def test_the_title_block_prints_the_projects_fields_and_they_ride_the_project(pa
         set('export-binder-pm-name', 'Jordan Reyes');
         set('export-binder-pm-phone', '(555) 010-2030');
         set('export-binder-pm-email', 'jreyes@example.com');
-        set('export-binder-notes', 'All socas land SR. Verify the L21-30 legs before the walk.');
-        set('export-binder-revisions', '7/24/26 · MK · Overview\\n7/27/26 | JR | Patch & circuit\\n\\n7/29/26');
         const h1 = app.historyIndex;
         const actions = app.history.slice(h0 + 1, h1 + 1).map(h => h.action);
         const stored = JSON.parse(JSON.stringify(app.project.binder));
-        const revText = document.getElementById('export-binder-revisions').value;
         await app._binderPushQueue;
         const served = (await j('GET', '/api/project')).binder;
-        app.setEngineerName('Matt Knotts');
-        await new Promise(r => setTimeout(r, 300));
+        await app.setEngineerName('Matt Knotts');
         app.syncBinderControls();
         const drafterPlaceholder = document.getElementById('export-binder-drafter').placeholder;
-        return { actions, stored, served, revText, drafterPlaceholder, info: app.getBinderInfo() };
+        return { actions, stored, served, drafterPlaceholder, info: app.getBinderInfo(),
+                 fields: [...document.querySelectorAll('#export-binder-section input, #export-binder-section textarea, #export-binder-section select')].map(e => e.id) };
     }""")
     try:
         assert out['actions'] == ['Set Binder Venue', 'Set Binder Dates', 'Set Binder Designer', 'Set Binder Project Manager',
-                                  'Set Binder Project Manager Phone', 'Set Binder Project Manager Email',
-                                  'Set Binder Notes', 'Set Binder Revisions'], out['actions']
+                                  'Set Binder Project Manager Phone', 'Set Binder Project Manager Email'], out['actions']
         want = {'venue': 'Harbor Field', 'dates': '9/4/26 - 9/6/26', 'designer': 'Northlight Design',
-                'projectManager': {'name': 'Jordan Reyes', 'phone': '(555) 010-2030', 'email': 'jreyes@example.com'},
-                'notes': 'All socas land SR. Verify the L21-30 legs before the walk.',
-                'revisions': [{'date': '7/24/26', 'by': 'MK', 'description': 'Overview'},
-                              {'date': '7/27/26', 'by': 'JR', 'description': 'Patch & circuit'},
-                              {'date': '7/29/26', 'by': '', 'description': ''}]}
+                'projectManager': {'name': 'Jordan Reyes', 'phone': '(555) 010-2030', 'email': 'jreyes@example.com'}}
         assert out['stored'] == want, out['stored']
         assert out['served'] == want, out['served']
-        assert out['revText'] == '7/24/26 · MK · Overview\n7/27/26 · JR · Patch & circuit\n7/29/26 ·  · '
+        assert 'notes' not in out['stored'] and 'notes' not in out['info'] and 'preparedBy' not in out['info']
+        assert 'export-binder-notes' not in out['fields'] and 'export-binder-prepared-by' not in out['fields']
         assert out['drafterPlaceholder'] == 'Matt Knotts'
-        assert out['info']['drafter'] == '' and out['info']['revisions'] == want['revisions']
+        assert out['info']['drafter'] == '' and out['info']['revisions'] == []
         r = _render(pg, SHOW, 'WALL-B - Data')
         texts = r['texts']
         _title_block(texts, 'WALL-B · DATA', '3.2')
         for t in ('HARBOR FIELD', '9/4/26 - 9/6/26', 'Northlight Design', 'Jordan Reyes', '(555) 010-2030',
-                  'jreyes@example.com', 'Matt Knotts', '7/24/26', 'MK', 'Overview', '7/27/26', 'JR', 'Patch & circuit', '7/29/26'):
+                  'jreyes@example.com', 'Matt Knotts'):
             assert t in texts, (t, texts[:60])
         assert texts[texts.index('Drafter:') + 1] == 'Matt Knotts'          # the engineer, no drafter typed
         assert texts[texts.index('Designer:') + 1] == 'Northlight Design'
         assert texts[texts.index('Project Manager:') + 1:texts.index('Project Manager:') + 4] == \
             ['Jordan Reyes', '(555) 010-2030', 'jreyes@example.com']
         assert texts[texts.index('Untitled Project') + 1:texts.index('Untitled Project') + 3] == ['HARBOR FIELD', '9/4/26 - 9/6/26']
-        n = texts.index('Notes')
-        note = ' '.join(t for t in texts[n + 1:n + 4] if t and t != 'Untitled Project')
-        assert note.startswith('All socas land SR.') and 'before the walk.' in note, texts[n:n + 5]
-        assert texts[texts.index('Description') + 1:texts.index('Description') + 5] == ['1', '7/24/26', 'MK', 'Overview']
-        assert 'MATT KNOTTS' in texts                                       # the wordmark: no prepared-by, the engineer
+        assert 'Notes' not in texts and 'MATT KNOTTS' not in texts
         tb = r['titleBlock']
-        assert tb['x'] == TB_X and tb['w'] == TB_W and tb['sections']['revisions']['rows'] == 3
-        assert tb['sections']['notes']['lines'] == 2
-        # a typed drafter and a prepared-by name take over
-        pg.evaluate("""async () => {
-            const app = window.app;
-            app.setBinderField('drafter', 'Sam Okafor', 'Set Binder Drafter');
-            await app.setPreparedBy('Northlight Design');
-        }""")
+        assert tb['x'] == TB_X and tb['w'] == TB_W
+        # top to bottom: REVISIONS (no logo set - no logo box at all), the
+        # show, the people, the title, the number; nothing else
+        assert list(tb['sections']) == ['revisions', 'show', 'people', 'title', 'number'], list(tb['sections'])
+        assert tb['sections']['revisions']['y'] == PAD and tb['sections']['revisions']['rows'] == 0
+        secs = tb['sections']
+        assert secs['revisions']['h'] == H - PAD * 2 - (170 + 330 + 90 + 150), secs['revisions']
+        assert secs['show']['y'] == PAD + secs['revisions']['h'] and secs['number']['y'] + 150 == H - PAD, secs
+        # a typed drafter takes over
+        pg.evaluate("() => window.app.setBinderField('drafter', 'Sam Okafor', 'Set Binder Drafter')")
         texts = _render(pg, SHOW, 'WALL-B - Data')['texts']
-        assert texts[texts.index('Drafter:') + 1] == 'Sam Okafor' and 'NORTHLIGHT DESIGN' in texts and 'MATT KNOTTS' not in texts
-        assert pg.evaluate("() => window.app.getPreferences().preparedBy") == 'Northlight Design'
+        assert texts[texts.index('Drafter:') + 1] == 'Sam Okafor'
         # undo takes the drafter back, one step
         pg.evaluate("() => window.app.undo()")
         pg.wait_for_timeout(500)
         assert pg.evaluate("() => window.app.getBinderInfo().drafter") == ''
         assert pg.evaluate("() => window.app.getBinderInfo().venue") == 'Harbor Field'
-        # a file load (PUT) keeps the block
+        # a file load (PUT) keeps the block, and carries no notes
         loaded = pg.evaluate("""async () => {
             const j = (method, url, body) => fetch(url, {method, headers: {'Content-Type': 'application/json'},
                 body: body === undefined ? undefined : JSON.stringify(body)}).then(r => r.json());
             const p = await j('GET', '/api/project');
             return (await j('PUT', '/api/project', p)).binder;
         }""")
-        assert loaded['venue'] == 'Harbor Field' and loaded['revisions'][1]['by'] == 'JR'
+        assert loaded['venue'] == 'Harbor Field' and 'notes' not in loaded
     finally:
         pg.evaluate("""async () => {
             const app = window.app;
             delete app.project.binder;
             await app._persistBinderInfo();
-            await app.setPreparedBy('');
             await app.setEngineerName('');
             app.syncBinderControls();
         }""")
-    # blank again: the labels print, no invented text
+    # blank again: the labels print, no invented text - and no app name
+    # in a wordmark, there being no wordmark
     texts = _render(pg, SHOW, 'WALL-B - Data')['texts']
     _title_block(texts, 'WALL-B · DATA', '3.2')
     assert texts[texts.index('Designer:') + 1] == '' and texts[texts.index('Drafter:') + 1] == ''
-    assert 'LED RASTER DESIGNER' in texts
+    assert 'LED RASTER DESIGNER' not in texts
     assert not [t for t in texts if 'Harbor' in t or 'Northlight' in t or 'Sam' in t]
+    assert ids['errors'] == []
+
+
+def test_a_revision_is_logged_on_export_and_the_log_edits_in_the_dialog(page):
+    """"Logged on export": exporting at a Rev no row carries yet adds a
+    row - today's date as M/D/YY, the engineer's initials, the Revision
+    note - with one undo entry ('Log Revision'), persisted with the
+    project, the note cleared; the same rev exported again logs nothing;
+    a new rev logs a second row. The rows print in the REVISIONS table in
+    order, No. their position; the dialog's list edits a row in place and
+    × removes one, the rows after it renumbering."""
+    pg, ids = page
+    today = _today()
+    out = pg.evaluate("""async () => {
+        const app = window.app;
+        const j = (method, url, body) => fetch(url, {method, headers: {'Content-Type': 'application/json'},
+            body: body === undefined ? undefined : JSON.stringify(body)}).then(r => r.json());
+        const set = (id, v) => { const el = document.getElementById(id); el.value = v; el.dispatchEvent(new Event('change')); };
+        const note = document.getElementById('export-binder-revision-note');
+        const rows = () => [...document.querySelectorAll('#export-binder-revisions .binder-rev-row')].map(r =>
+            [r.querySelector('.binder-rev-no').textContent, r.querySelector('.binder-rev-date').value,
+             r.querySelector('.binder-rev-by').value, r.querySelector('.binder-rev-description').value]);
+        const revs = () => JSON.parse(JSON.stringify(app.getBinderInfo().revisions));
+        const realFetch = window.fetch;
+        const saved = app.saveBlobWithPicker;
+        window.fetch = async (url, init) => {
+            if (String(url).includes('/api/export/pdf-from-')) {
+                return { ok: true, blob: async () => new Blob(['%PDF-fake'], {type: 'application/pdf'}) };
+            }
+            return realFetch(url, init);
+        };
+        app.saveBlobWithPicker = async () => {};
+        try {
+            document.getElementById('export-format').value = 'binder';
+            document.getElementById('export-format').dispatchEvent(new Event('change'));
+            await app.setEngineerName('Matt Knotts');
+            app.syncBinderControls();
+            const empty = document.getElementById('export-binder-revisions').textContent;
+            // the first export at rev 1.0: one row from the note
+            set('export-binder-rev', '1.0');
+            note.value = 'Overview issued';
+            const h0 = app.historyIndex;
+            await app.exportBinder('Two Positions');
+            const first = { revs: revs(), rows: rows(), note: note.value,
+                            actions: app.history.slice(h0 + 1).map(h => h.action) };
+            await app._binderPushQueue;
+            first.served = (await j('GET', '/api/project')).binder.revisions;
+            // the same rev again: nothing logged, the note left alone
+            note.value = 'should not log';
+            const h1 = app.historyIndex;
+            await app.exportBinder('Two Positions');
+            const same = { revs: revs(), note: note.value, actions: app.history.slice(h1 + 1).map(h => h.action) };
+            note.value = '';
+            // rev 1.1: a second row
+            set('export-binder-rev', '1.1');
+            note.value = 'Patch & circuit';
+            await app.exportBinder('Two Positions');
+            const second = { revs: revs(), rows: rows(), note: note.value };
+            return { empty, first, same, second };
+        } finally {
+            window.fetch = realFetch;
+            app.saveBlobWithPicker = saved;
+        }
+    }""")
+    try:
+        assert 'Nothing logged yet' in out['empty']
+        row1 = {'no': 1, 'rev': '1.0', 'date': today, 'by': 'MK', 'description': 'Overview issued'}
+        row2 = {'no': 2, 'rev': '1.1', 'date': today, 'by': 'MK', 'description': 'Patch & circuit'}
+        assert out['first']['revs'] == [row1], out['first']
+        assert out['first']['served'] == [row1], out['first']['served']
+        assert out['first']['rows'] == [['1', today, 'MK', 'Overview issued']]
+        assert out['first']['note'] == ''
+        assert out['first']['actions'] == ['Log Revision'], out['first']['actions']
+        assert out['same']['revs'] == [row1] and out['same']['note'] == 'should not log' and out['same']['actions'] == []
+        assert out['second']['revs'] == [row1, row2], out['second']
+        assert out['second']['rows'] == [['1', today, 'MK', 'Overview issued'], ['2', today, 'MK', 'Patch & circuit']]
+        assert out['second']['note'] == ''
+        # the sheets print the log: No. · Date · By · Description, in order
+        r = _render(pg, SHOW, 'WALL-B - Data')
+        texts = r['texts']
+        _title_block(texts, 'WALL-B · DATA', '3.2')
+        i = texts.index('Description')
+        assert texts[i + 1:i + 9] == ['1', today, 'MK', 'Overview issued', '2', today, 'MK', 'Patch & circuit'], texts[i:i + 10]
+        assert r['titleBlock']['sections']['revisions']['rows'] == 2
+        assert 'rev 1.1' in texts
+        # the dialog edits a row in place, × removes one and the rest renumber
+        out2 = pg.evaluate("""() => {
+            const app = window.app;
+            const rows = () => [...document.querySelectorAll('#export-binder-revisions .binder-rev-row')].map(r =>
+                [r.querySelector('.binder-rev-no').textContent, r.querySelector('.binder-rev-date').value,
+                 r.querySelector('.binder-rev-by').value, r.querySelector('.binder-rev-description').value]);
+            const h0 = app.historyIndex;
+            const desc = document.querySelector('#export-binder-revisions [data-index="1"] .binder-rev-description');
+            desc.value = 'Patch, SR legs';
+            desc.dispatchEvent(new Event('change', { bubbles: true }));
+            const edited = rows();
+            document.querySelector('#export-binder-revisions [data-index="0"] .binder-rev-remove').click();
+            return { edited, rows: rows(), revs: JSON.parse(JSON.stringify(app.getBinderInfo().revisions)),
+                     actions: app.history.slice(h0 + 1).map(h => h.action), stored: JSON.parse(JSON.stringify(app.project.binder)) };
+        }""")
+        assert out2['edited'][1] == ['2', today, 'MK', 'Patch, SR legs'], out2['edited']
+        assert out2['rows'] == [['1', today, 'MK', 'Patch, SR legs']], out2['rows']
+        assert out2['revs'] == [{'no': 1, 'rev': '1.1', 'date': today, 'by': 'MK', 'description': 'Patch, SR legs'}]
+        assert out2['actions'] == ['Edit Revision', 'Remove Revision'], out2['actions']
+        assert sorted(out2['stored']) == ['revisions'] and 'notes' not in out2['stored']
+        texts = _render(pg, SHOW, 'WALL-B - Data')['texts']
+        i = texts.index('Description')
+        assert texts[i + 1:i + 5] == ['1', today, 'MK', 'Patch, SR legs'], texts[i:i + 6]
+        # undo takes the removal back
+        pg.evaluate("() => window.app.undo()")
+        pg.wait_for_timeout(500)
+        assert [r['no'] for r in pg.evaluate("() => window.app.getBinderInfo().revisions")] == [1, 2]
+        # a blank engineer logs blank initials
+        blank = pg.evaluate("""async () => {
+            const app = window.app;
+            await app.setEngineerName('');
+            return app.logBinderRevision('2.0', '  Final  ');
+        }""")
+        assert blank == {'no': 3, 'rev': '2.0', 'date': today, 'by': '', 'description': 'Final'}
+        assert pg.evaluate("() => window.app.binderInitials('jordan  reyes-ortega jr')") == 'JRJ'
+    finally:
+        pg.evaluate("""async () => {
+            const app = window.app;
+            delete app.project.binder;
+            await app._persistBinderInfo();
+            app.setPullSheetSetting('rev', '1.0', 'Set Pull Sheet Revision');
+            document.getElementById('export-binder-revision-note').value = '';
+            await app.setEngineerName('');
+            app.syncBinderControls();
+        }""")
+    assert pg.evaluate("() => window.app.getBinderInfo().revisions") == []
+    assert ids['errors'] == []
+
+
+def _logo_png(size, color=(20, 60, 140, 255)):
+    """A transparent PNG with an opaque mark in it - the alpha is what
+    mask='auto' keeps clean on the page."""
+    from PIL import Image, ImageDraw
+    img = Image.new('RGBA', size, (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    d.rectangle((size[0] // 10, size[1] // 10, size[0] * 9 // 10, size[1] * 9 // 10), fill=color)
+    buf = io.BytesIO()
+    img.save(buf, format='PNG')
+    return base64.b64encode(buf.getvalue()).decode()
+
+
+def test_a_logo_heads_the_title_block_on_every_sheet_and_reaches_the_pdf(page):
+    """The logo is a preference read from a PNG / JPEG file in the dialog
+    (an SVG is refused with a message - the PDF draws bitmaps), downscaled
+    to 1200 px on its long side before it is stored as a data URL. Set, a
+    box at the top of every sheet's title block holds it fitted and
+    centred, drawn through the recorder's image op so the PDF page carries
+    it as an XObject; not set, there is no box at all. No sheet says
+    Notes, US or DS."""
+    pg, ids = page
+    png64 = _logo_png((2400, 600))
+    svg = '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>'
+    out = pg.evaluate("""async ([png64, svgText]) => {
+        const app = window.app;
+        const toFile = (b64, name, type) => {
+            const bin = atob(b64); const u = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+            return new File([u], name, { type });
+        };
+        const feed = (file) => {
+            const input = document.getElementById('export-binder-logo');
+            const dt = new DataTransfer(); dt.items.add(file);
+            input.files = dt.files;
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+        };
+        const until = async (f, ms) => { const t0 = Date.now(); while (!f()) { if (Date.now() - t0 > ms) throw new Error('timeout'); await new Promise(r => setTimeout(r, 50)); } };
+        const status = document.getElementById('export-binder-logo-status');
+        const preview = document.getElementById('export-binder-logo-preview');
+        const remove = document.getElementById('export-binder-logo-remove');
+        const none = document.getElementById('export-binder-logo-none');
+        document.getElementById('export-format').value = 'binder';
+        document.getElementById('export-format').dispatchEvent(new Event('change'));
+        const before = { logo: app.getBinderLogo(), none: none.style.display !== 'none', preview: preview.style.display !== 'none' };
+        feed(new File([svgText], 'logo.svg', { type: 'image/svg+xml' }));
+        await new Promise(r => setTimeout(r, 300));
+        const refused = { status: status.textContent, shown: status.style.display !== 'none', logo: app.getBinderLogo() };
+        feed(toFile(png64, 'logo.png', 'image/png'));
+        await until(() => app.getBinderLogo() && preview.style.display !== 'none', 8000);
+        await app._ensureBinderLogo();
+        const src = app.getBinderLogo();
+        const img = await app._binderLoadImage(src);
+        return { before, refused, size: [img.naturalWidth, img.naturalHeight], prefix: src.slice(0, 22),
+                 pref: app.getPreferences().binderLogo === src, bytes: src.length,
+                 ui: { preview: preview.getAttribute('src') === src, remove: remove.style.display !== 'none',
+                       none: none.style.display === 'none', status: status.textContent } };
+    }""", [png64, svg])
+    try:
+        assert out['before'] == {'logo': '', 'none': True, 'preview': False}, out['before']
+        assert 'SVG' in out['refused']['status'] and 'PNG or JPEG' in out['refused']['status'] and out['refused']['shown']
+        assert out['refused']['logo'] == ''
+        assert out['size'] == [1200, 300], out['size']                      # downscaled on read
+        assert out['prefix'] == 'data:image/png;base64,' and out['pref'] and out['bytes'] < 400_000
+        assert out['ui'] == {'preview': True, 'remove': True, 'none': True, 'status': ''}, out['ui']
+        # every sheet: the logo box at the top of the block, the image
+        # fitted inside it, REVISIONS under it; the map sheets carry the
+        # map as well
+        plan = _plan(pg, SHOW)
+        h_logo = max(220, min(360, round((H - PAD * 2) * 0.16)))
+        first_full = None
+        for kind, number, title in plan:
+            r = pg.evaluate("""async ([opts, title]) => {
+                const app = window.app;
+                const plan = app.planBinder(opts);
+                const idx = plan.findIndex(p => p.title === title);
+                const r = app.renderBinderPage(opts, idx);
+                let pdf = null;
+                if (idx === 0) {
+                    // sheet 1.1's record through the route, on the live server
+                    // (never the in-process client: its setup resets the
+                    // project these browser tests share)
+                    const rec = { name: r.record.name, width: r.record.width, height: r.record.height,
+                                  page_size: r.record.page_size, ops: r.record.ops, images: r.record.images };
+                    const resp = await fetch('/api/export/pdf-from-pages', { method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ project_name: 'Two Positions', pages: [rec] }) });
+                    const buf = new Uint8Array(await resp.arrayBuffer());
+                    let bin = '';
+                    for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
+                    pdf = { status: resp.status, b64: btoa(bin) };
+                }
+                return { texts: r.texts, logo: r.logo, sections: r.titleBlock.sections,
+                         images: r.record.ops.filter(o => o.op === 'image'), pdf };
+            }""", [json.loads(_SHOW_JSON), title])
+            secs = r['sections']
+            assert list(secs) == ['logo', 'revisions', 'show', 'people', 'title', 'number'], (title, list(secs))
+            assert secs['logo'] == {'y': PAD, 'h': h_logo} and secs['revisions']['y'] == PAD + h_logo, (title, secs)
+            im = r['images'][0]
+            assert (im['x'], im['y'], im['w'], im['h']) == (r['logo']['x'], r['logo']['y'], r['logo']['w'], r['logo']['h']), (title, im, r['logo'])
+            assert im['x'] >= TB_X + 18 and im['x'] + im['w'] <= TB_X + TB_W - 18, (title, im)
+            assert im['y'] >= PAD + 18 and im['y'] + im['h'] <= PAD + h_logo - 18, (title, im)
+            assert im['w'] == TB_W - 36 and abs(im['w'] / im['h'] - 4) < 0.05, (title, im)     # fitted to the width, 4:1
+            assert abs((im['x'] + im['w'] / 2) - (TB_X + TB_W / 2)) <= 1 and abs((im['y'] + im['h'] / 2) - (PAD + h_logo / 2)) <= 1, (title, im)
+            assert len(r['images']) == (2 if kind in ('overview', 'power', 'data') else 1), (title, r['images'])
+            assert not [t for t in r['texts'] if t in ('Notes', 'US', 'DS')], (title, r['texts'][:30])
+            if r['pdf']:
+                first_full = r['pdf']
+        # sheet 1.1's record through the route: the page carries the logo
+        # and the raster as image XObjects
+        assert first_full and first_full['status'] == 200, first_full
+        from pypdf import PdfReader
+        pdf_page = PdfReader(io.BytesIO(base64.b64decode(first_full['b64']))).pages[0]
+        xobjects = pdf_page['/Resources'].get('/XObject', {})
+        images = [x for x in xobjects.values() if x.get_object().get('/Subtype') == '/Image']
+        assert len(images) == 2, len(images)
+        # Remove: the preference cleared, no box, no image on a pull sheet
+        gone = pg.evaluate("""async () => {
+            const app = window.app;
+            document.getElementById('export-binder-logo-remove').click();
+            const t0 = Date.now();
+            while (app.getBinderLogo()) { if (Date.now() - t0 > 5000) break; await new Promise(r => setTimeout(r, 50)); }
+            await new Promise(r => setTimeout(r, 200));
+            const opts = JSON.parse(%r);
+            const idx = app.planBinder(opts).findIndex(p => p.kind === 'pull');
+            const r = app.renderBinderPage(opts, idx);
+            return { logo: app.getBinderLogo(), pref: app.getPreferences().binderLogo,
+                     none: document.getElementById('export-binder-logo-none').style.display !== 'none',
+                     preview: document.getElementById('export-binder-logo-preview').style.display !== 'none',
+                     sections: Object.keys(r.titleBlock.sections), images: r.record.ops.filter(o => o.op === 'image').length,
+                     drawn: r.logo };
+        }""" % _SHOW_JSON)
+        assert gone['logo'] == '' and gone['pref'] == '' and gone['none'] and not gone['preview'], gone
+        assert gone['sections'][0] == 'revisions' and 'logo' not in gone['sections'] and gone['images'] == 0 and gone['drawn'] is None, gone
+    finally:
+        pg.evaluate("async () => { await window.app.setBinderLogo(''); window.app.syncBinderControls(); }")
     assert ids['errors'] == []
 
 

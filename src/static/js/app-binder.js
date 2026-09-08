@@ -5,8 +5,8 @@
 // sheet a landscape page of one size - Tabloid 17 x 11 by default ("17x11
 // i think is great . nice middle gound. but maybe have option for all
 // sizes") - with a thin border, a TITLE BLOCK column down its right edge
-// ("mimic whats in their drawing": the orientation compass, the prepared-by
-// wordmark, REVISIONS, NOTES, the show / venue / dates, Designer, Project
+// ("mimic whats in their drawing": the logo when one is set, REVISIONS -
+// the log the exports write - the show / venue / dates, Designer, Project
 // Manager, Drafter, the SHEET TITLE, the Sheet Number, the drawing date)
 // and the drawing area to its left holding a numbered VIEW - the map with
 // its bubble ("1  OVERVIEW") - and the sheet's tables.
@@ -48,9 +48,10 @@
 // Every figure is read from buildPullSheet (app-pull-list.js) and the same
 // authorities the canvas reads; nothing is recomputed here. The title
 // block's fields live in project.binder (venue, dates, designer, project
-// manager, drafter, notes, revisions - the export dialog edits them, one
-// undo entry per field) and in two preferences (the sheet size, the
-// prepared-by name).
+// manager, drafter, revisions - the export dialog edits them, one undo
+// entry per field; a revision is LOGGED ON EXPORT, 2026-09-08: an export
+// at a rev no row carries yet adds a row) and in two preferences (the
+// sheet size, the logo).
 import { LEDRasterApp } from './app-core.js';
 import { sendClientLog } from './helpers.js';
 
@@ -138,8 +139,10 @@ const REDUNDANCY_WORDS = {
 const BINDER_DEFAULTS = {
     venue: '', dates: '', designer: '',
     projectManager: { name: '', phone: '', email: '' },
-    drafter: '', notes: '', revisions: [],
+    drafter: '', revisions: [],
 };
+// The logo is stored no larger than this on its long side.
+const LOGO_MAX_PX = 1200;
 const SERIES = { overview: 1, power: 2, data: 3, pull: 4, distro: 5, processor: 5, totals: 5 };
 
 class _Binder {
@@ -188,8 +191,22 @@ class _Binder {
                 if (typeof this.updateExportPreview === 'function') this.updateExportPreview();
             });
         }
-        const prepared = document.getElementById('export-binder-prepared-by');
-        if (prepared) prepared.addEventListener('change', () => { this.setPreparedBy(prepared.value); });
+        // The logo: a preference read from a PNG / JPEG file.
+        const logo = document.getElementById('export-binder-logo');
+        if (logo) {
+            logo.addEventListener('change', () => {
+                const file = logo.files && logo.files[0];
+                logo.value = '';
+                if (file) this.readBinderLogoFile(file);
+            });
+        }
+        const logoRemove = document.getElementById('export-binder-logo-remove');
+        if (logoRemove) {
+            logoRemove.addEventListener('click', () => {
+                this.setBinderLogo('').then(() => this.syncBinderControls());
+                this.syncBinderControls();
+            });
+        }
         // The title block's project fields: one undo entry per commit.
         const field = (id, path, action) => {
             const el = document.getElementById(id);
@@ -203,12 +220,20 @@ class _Binder {
         field('export-binder-pm-phone', 'projectManager.phone', 'Set Binder Project Manager Phone');
         field('export-binder-pm-email', 'projectManager.email', 'Set Binder Project Manager Email');
         field('export-binder-drafter', 'drafter', 'Set Binder Drafter');
-        field('export-binder-notes', 'notes', 'Set Binder Notes');
+        // The revision log's rows: a field edits its row in place, × removes
+        // the row and the rows after it renumber.
         const revs = document.getElementById('export-binder-revisions');
         if (revs) {
-            revs.addEventListener('change', () => {
-                this.setBinderField('revisions', this.parseBinderRevisions(revs.value), 'Set Binder Revisions');
-                revs.value = this.formatBinderRevisions(this.getBinderInfo().revisions);
+            revs.addEventListener('change', (e) => {
+                const el = e.target;
+                const row = el && el.closest ? el.closest('[data-index]') : null;
+                if (!row || !el.dataset || !el.dataset.field) return;
+                this.editBinderRevision(+row.dataset.index, el.dataset.field, el.value);
+            });
+            revs.addEventListener('click', (e) => {
+                const btn = e.target && e.target.closest ? e.target.closest('.binder-rev-remove') : null;
+                const row = btn ? btn.closest('[data-index]') : null;
+                if (row) this.removeBinderRevision(+row.dataset.index);
             });
         }
     }
@@ -255,9 +280,7 @@ class _Binder {
         set('export-binder-sheet', this.getBinderSheet());
         set('export-binder-engineer', this.getEngineerName());
         set('export-binder-rev', this.getPullSheetSettings().rev);
-        set('export-binder-prepared-by', this.getPreferences().preparedBy || '');
-        const prepared = document.getElementById('export-binder-prepared-by');
-        if (prepared) prepared.placeholder = this.getEngineerName() || 'LED Raster Designer';
+        this._syncBinderLogoControls();
         const info = this.getBinderInfo();
         set('export-binder-venue', info.venue);
         set('export-binder-dates', info.dates);
@@ -268,8 +291,66 @@ class _Binder {
         set('export-binder-drafter', info.drafter);
         const drafter = document.getElementById('export-binder-drafter');
         if (drafter) drafter.placeholder = this.getEngineerName() || 'Name';
-        set('export-binder-notes', info.notes);
-        set('export-binder-revisions', this.formatBinderRevisions(info.revisions));
+        // the Revision note is this export's and stays as typed
+        this._renderBinderRevisionRows();
+    }
+
+    // The logo row: the preview and Remove when one is set, "None" when not.
+    _syncBinderLogoControls() {
+        const src = this.getBinderLogo();
+        const show = (id, v) => { const el = document.getElementById(id); if (el) el.style.display = v ? '' : 'none'; };
+        const prev = document.getElementById('export-binder-logo-preview');
+        if (prev && prev.getAttribute('src') !== (src || '')) prev.src = src || '';
+        show('export-binder-logo-preview', !!src);
+        show('export-binder-logo-remove', !!src);
+        show('export-binder-logo-none', !src);
+    }
+
+    // The revision log as the dialog shows it: one row per stored
+    // revision - No. (its position), date, by, description, × - built
+    // from the stored values as text, never as markup.
+    _renderBinderRevisionRows() {
+        const box = document.getElementById('export-binder-revisions');
+        if (!box) return;
+        const rows = this.getBinderInfo().revisions;
+        box.innerHTML = '';
+        if (!rows.length) {
+            const empty = document.createElement('div');
+            empty.className = 'binder-rev-empty';
+            empty.textContent = 'Nothing logged yet. An export at a new Rev adds a row.';
+            box.appendChild(empty);
+            return;
+        }
+        rows.forEach((r, i) => {
+            const row = document.createElement('div');
+            row.className = 'binder-rev-row';
+            row.dataset.index = String(i);
+            const no = document.createElement('span');
+            no.className = 'binder-rev-no';
+            no.textContent = String(r.no);
+            row.appendChild(no);
+            const input = (field, value, placeholder, tip) => {
+                const el = document.createElement('input');
+                el.type = 'text';
+                el.value = value;
+                el.placeholder = placeholder;
+                el.dataset.field = field;
+                el.className = 'binder-rev-' + field;
+                el.setAttribute('data-tooltip', tip);
+                row.appendChild(el);
+            };
+            input('date', r.date, 'M/D/YY', 'The date this revision went out.');
+            input('by', r.by, 'By', 'Who issued it - initials.');
+            input('description', r.description, 'Description',
+                  r.rev ? `What changed in rev ${r.rev}.` : 'What changed.');
+            const x = document.createElement('button');
+            x.type = 'button';
+            x.className = 'binder-rev-remove';
+            x.textContent = '×';
+            x.setAttribute('data-tooltip', 'Remove this revision; the rows after it renumber.');
+            row.appendChild(x);
+            box.appendChild(row);
+        });
     }
 
     // What the dialog says, as the set reads it.
@@ -350,10 +431,12 @@ class _Binder {
         return {
             venue: s(stored.venue), dates: s(stored.dates), designer: s(stored.designer),
             projectManager: { name: s(pm.name), phone: s(pm.phone), email: s(pm.email) },
-            drafter: s(stored.drafter), notes: s(stored.notes),
+            drafter: s(stored.drafter),
+            // the log: No. is the row's position; `rev` the number the
+            // export wore, so the same rev exported again logs nothing
             revisions: Array.isArray(stored.revisions)
                 ? stored.revisions.filter(r => r && typeof r === 'object')
-                    .map(r => ({ date: s(r.date), by: s(r.by), description: s(r.description) }))
+                    .map((r, i) => ({ no: i + 1, rev: s(r.rev), date: s(r.date), by: s(r.by), description: s(r.description) }))
                 : [],
         };
     }
@@ -395,26 +478,64 @@ class _Binder {
         return this._binderPushQueue;
     }
 
-    // The revisions as the dialog types them: one per line, "date · by ·
-    // description" (a "|" does as well); a line with fewer parts leaves
-    // the rest blank.
-    parseBinderRevisions(text) {
-        const out = [];
-        for (const raw of String(text == null ? '' : text).split(/\r?\n/)) {
-            const line = raw.trim();
-            if (!line) continue;
-            const parts = line.split(/\s*[·|]\s*/);
-            out.push({ date: parts[0] || '', by: parts[1] || '', description: parts.slice(2).join(' · ') || '' });
-        }
-        return out;
+    // ---- the revision log ---------------------------------------------------
+
+    // Logged on export ("Logged on export", 2026-09-08): the rev the
+    // dialog names, when no row carries it yet, becomes a row - today's
+    // date as M/D/YY, the engineer's initials, the Revision note - with
+    // one undo entry, persisted like every other field. The same rev
+    // exported again logs nothing. Returns the row it added, or null.
+    logBinderRevision(rev, note) {
+        if (!this.project) return null;
+        const r = String(rev == null ? '' : rev).trim();
+        const list = this.getBinderInfo().revisions;
+        if (list.some(x => x.rev === r)) return null;
+        const row = { no: list.length + 1, rev: r, date: this._binderToday(),
+                      by: this.binderInitials(this.getEngineerName()),
+                      description: String(note == null ? '' : note).trim() };
+        this.setBinderField('revisions', [...list, row], 'Log Revision');
+        this._renderBinderRevisionRows();
+        sendClientLog('binder_revision_logged', { rev: r, no: row.no, by: row.by });
+        return row;
     }
 
-    formatBinderRevisions(list) {
-        return (list || []).map(r => `${r.date || ''} · ${r.by || ''} · ${r.description || ''}`).join('\n');
+    // One row's field edited in the dialog.
+    editBinderRevision(index, field, value) {
+        const list = this.getBinderInfo().revisions;
+        if (!list[index] || !['date', 'by', 'description'].includes(field)) return false;
+        list[index][field] = String(value == null ? '' : value).trim();
+        const changed = this.setBinderField('revisions', list, 'Edit Revision');
+        this._renderBinderRevisionRows();
+        return changed;
     }
 
-    // The sheet size and the prepared-by name are preferences (the same
-    // shop show after show), like the engineer's name.
+    // A row removed; the rows after it renumber.
+    removeBinderRevision(index) {
+        const list = this.getBinderInfo().revisions;
+        if (!(index >= 0 && index < list.length)) return false;
+        list.splice(index, 1);
+        const changed = this.setBinderField('revisions', list.map((r, i) => ({ ...r, no: i + 1 })), 'Remove Revision');
+        this._renderBinderRevisionRows();
+        return changed;
+    }
+
+    // Today as M/D/YY, the way the log's dates read.
+    _binderToday() {
+        const d = new Date();
+        return `${d.getMonth() + 1}/${d.getDate()}/${String(d.getFullYear()).slice(-2)}`;
+    }
+
+    // The first letter of each word of a name, upper-case: "Matt Knotts"
+    // is MK; a blank name is ''.
+    binderInitials(name) {
+        return String(name == null ? '' : name).trim().split(/\s+/)
+            .filter(Boolean).map(w => w[0].toUpperCase()).join('');
+    }
+
+    // ---- the preferences: the sheet size, the logo ---------------------------
+
+    // The sheet size and the logo are preferences (the same shop show
+    // after show), like the engineer's name.
     getBinderSheet() {
         const prefs = (typeof this.getPreferences === 'function') ? this.getPreferences() : {};
         return SHEETS[prefs.binderSheet] ? prefs.binderSheet : DEFAULT_SHEET;
@@ -424,15 +545,115 @@ class _Binder {
         return this._setBinderPreference('binderSheet', SHEETS[key] ? key : DEFAULT_SHEET);
     }
 
-    // The name set large in the title block's wordmark box: the
-    // preference, else the engineer, else the app.
-    getPreparedBy() {
+    // The logo as stored: a PNG / JPEG data URL, or ''.
+    getBinderLogo() {
         const prefs = (typeof this.getPreferences === 'function') ? this.getPreferences() : {};
-        return String(prefs.preparedBy || '').trim() || this.getEngineerName() || 'LED Raster Designer';
+        return typeof prefs.binderLogo === 'string' && /^data:image\/(png|jpeg);base64,/.test(prefs.binderLogo)
+            ? prefs.binderLogo : '';
     }
 
-    setPreparedBy(name) {
-        return this._setBinderPreference('preparedBy', String(name == null ? '' : name).trim());
+    // Stores the logo ('' removes it) and has it decoded before resolving,
+    // so the next sheet drawn carries it.
+    setBinderLogo(dataUrl) {
+        const v = String(dataUrl == null ? '' : dataUrl);
+        this._binderLogoImage = null;
+        return Promise.resolve(this._setBinderPreference('binderLogo', v))
+            .then(() => this._ensureBinderLogo())
+            .then(() => true);
+    }
+
+    // A file from the dialog: PNG or JPEG only - an SVG is refused with a
+    // message, since the PDF route draws bitmaps - downscaled to
+    // LOGO_MAX_PX on its long side before it is stored.
+    async readBinderLogoFile(file) {
+        const status = (msg) => {
+            const el = document.getElementById('export-binder-logo-status');
+            if (el) { el.textContent = msg; el.style.display = msg ? '' : 'none'; }
+        };
+        const type = String(file && file.type || '').toLowerCase();
+        const name = String(file && file.name || '');
+        if (type === 'image/svg+xml' || /\.svg$/i.test(name)) {
+            status('SVG is not accepted: the PDF draws bitmaps. Save the logo as a PNG or JPEG.');
+            return false;
+        }
+        if (type !== 'image/png' && type !== 'image/jpeg') {
+            status('Pick a PNG or JPEG.');
+            return false;
+        }
+        let img;
+        try {
+            const dataUrl = await new Promise((resolve, reject) => {
+                const fr = new FileReader();
+                fr.onload = () => resolve(String(fr.result));
+                fr.onerror = () => reject(new Error('unreadable'));
+                fr.readAsDataURL(file);
+            });
+            img = await this._binderLoadImage(dataUrl);
+        } catch (_) {
+            status('That file could not be read as an image.');
+            return false;
+        }
+        const scaled = this._binderScaleLogo(img, type);
+        await this.setBinderLogo(scaled);
+        status('');
+        this.syncBinderControls();
+        sendClientLog('binder_logo_set', { type, w: img.naturalWidth, h: img.naturalHeight, bytes: scaled.length });
+        return true;
+    }
+
+    _binderScaleLogo(img, type) {
+        const w0 = img.naturalWidth || img.width, h0 = img.naturalHeight || img.height;
+        const k = Math.min(1, LOGO_MAX_PX / Math.max(w0, h0, 1));
+        const w = Math.max(1, Math.round(w0 * k)), h = Math.max(1, Math.round(h0 * k));
+        const c = document.createElement('canvas');
+        c.width = w; c.height = h;
+        c.getContext('2d').drawImage(img, 0, 0, w, h);
+        return type === 'image/jpeg' ? c.toDataURL('image/jpeg', 0.9) : c.toDataURL('image/png');
+    }
+
+    _binderLoadImage(src) {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => resolve(img);
+            img.onerror = () => reject(new Error('not an image'));
+            img.src = src;
+        });
+    }
+
+    // The logo decoded onto its own canvas, ready for the recorder (which
+    // takes a bitmap by toDataURL - an HTMLImageElement has none; the
+    // canvas carries its PNG once so seventeen sheets do not encode it
+    // seventeen times). null when none is set or it will not decode.
+    async _ensureBinderLogo() {
+        const src = this.getBinderLogo();
+        if (!src) { this._binderLogoImage = null; return null; }
+        const have = this._binderLogoImage;
+        if (have && have.src === src) return have.canvas;
+        const pending = this._binderLogoImage = { src, canvas: null, loading: true };
+        try {
+            const img = await this._binderLoadImage(src);
+            const c = document.createElement('canvas');
+            c.width = img.naturalWidth; c.height = img.naturalHeight;
+            c.getContext('2d').drawImage(img, 0, 0);
+            c._binderDataUrl = c.toDataURL('image/png');
+            pending.canvas = c;
+        } catch (_) {
+            pending.canvas = null;
+        }
+        pending.loading = false;
+        return pending.canvas;
+    }
+
+    // The logo as a sheet drawn NOW can carry it: the decoded bitmap, or
+    // null - with the decode started for the next look. exportBinder
+    // awaits _ensureBinderLogo first, so the PDF never misses it.
+    _binderLogoNow() {
+        const src = this.getBinderLogo();
+        if (!src) return null;
+        const have = this._binderLogoImage;
+        if (have && have.src === src) return have.canvas;
+        this._ensureBinderLogo();
+        return null;
     }
 
     _setBinderPreference(key, value) {
@@ -458,6 +679,12 @@ class _Binder {
         if (typeof this.refreshPortAssignment === 'function') {
             try { await this.refreshPortAssignment(); } catch (_) {}
         }
+        await this._ensureBinderLogo();
+        // The revision this export wears is logged before the sheets
+        // render, so the REVISIONS table on every sheet carries it.
+        const noteEl = document.getElementById('export-binder-revision-note');
+        const logged = this.logBinderRevision(this.getPullSheetSettings().rev, noteEl ? noteEl.value : '');
+        if (logged && noteEl) noteEl.value = '';
         // The sheets as display lists - no bitmaps of the sheets themselves
         // (encoding seventeen 6800-px PNGs nobody reads is seconds of
         // work); the maps ride along as images inside each record.
@@ -532,6 +759,7 @@ class _Binder {
                  texts: log.texts, textInfo: log.textInfo, mapTexts: log.mapTexts,
                  dashes: log.dashes, map: log.map || null, brackets: log.brackets || [],
                  bubble: log.bubble || null, titleBlock: log.titleBlock || null,
+                 logo: log.logo || null,
                  page: plan[index] || null, pages: plan.length, sheet: book.sheet };
     }
 
@@ -552,7 +780,7 @@ class _Binder {
             rev: settings.rev,
             engineer,
             palette: opts.palette === 'printer' ? 'printer' : 'colour',
-            preparedBy: this.getPreparedBy(),
+            logo: this._binderLogoNow(),
             binder: { ...info, drafter: info.drafter || engineer },
         };
         const sheet = binderSheet(opts.sheet || this.getBinderSheet());
@@ -719,11 +947,12 @@ class _Binder {
 
     // ---- the title block ----------------------------------------------------
 
-    // The column down the sheet's right edge, top to bottom: the compass,
-    // the wordmark, REVISIONS, NOTES, the show block, the people, the
-    // sheet title, the sheet number and the date. Every section a fixed
-    // height in inches but REVISIONS and NOTES, which share what the sheet
-    // leaves. A blank field prints its label and nothing else.
+    // The column down the sheet's right edge, top to bottom: the logo
+    // (only when one is set - without one the box does not exist),
+    // REVISIONS, the show block, the people, the sheet title, the sheet
+    // number and the date. Every section a fixed height in inches but
+    // REVISIONS, which takes what the sheet leaves - the tall box. A blank
+    // field prints its label and nothing else.
     _bTitleBlock(book, page) {
         const ctx = book.ctx;
         const { tb } = book.geo;
@@ -731,12 +960,10 @@ class _Binder {
         const b = m.binder;
         const pad = 18;
         const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-        const hCompass = clamp(Math.round(tb.h * 0.13), 200, 320);
-        const hMark = clamp(Math.round(tb.h * 0.15), 220, 360);
+        const logo = m.logo && m.logo.width > 0 && m.logo.height > 0 ? m.logo : null;
+        const hLogo = logo ? clamp(Math.round(tb.h * 0.16), 220, 360) : 0;
         const hShow = 170, hPeople = 330, hTitle = 90, hNumber = 150;
-        const rest = tb.h - (hCompass + hMark + hShow + hPeople + hTitle + hNumber);
-        const hRev = Math.max(120, Math.floor(rest * 0.5));
-        const hNotes = Math.max(100, rest - hRev);
+        const hRev = Math.max(120, tb.h - (hLogo + hShow + hPeople + hTitle + hNumber));
         const rule = (y) => { ctx.fillStyle = INK; ctx.fillRect(tb.x, y - 1, tb.w, 3); };
         // the column's own left edge
         ctx.fillStyle = INK;
@@ -746,18 +973,14 @@ class _Binder {
         let y = tb.y;
         const sections = {};
 
-        // 1. the compass: US up, DS down, SR left, SL right
-        this._bCompass(book, { x, y, w, h: hCompass });
-        sections.compass = { y, h: hCompass };
-        y += hCompass; rule(y);
+        // 1. the logo, fitted inside its box and centred
+        if (logo) {
+            this._bLogo(book, logo, { x, y, w, h: hLogo }, pad);
+            sections.logo = { y, h: hLogo };
+            y += hLogo; rule(y);
+        }
 
-        // 2. the wordmark: the prepared-by name set large, turned to run
-        //    up the box the way their logo runs
-        this._bWordmark(book, m.preparedBy, { x, y, w, h: hMark }, pad);
-        sections.wordmark = { y, h: hMark };
-        y += hMark; rule(y);
-
-        // 3. REVISIONS: No · Date · By · Description
+        // 2. REVISIONS: No · Date · By · Description, the log in order
         this._bText(book, 'Revisions:', x + pad, y + 32, { size: SZ.tbLabel, weight: 700 });
         const cols = [[0, 'No.'], [0.13, 'Date'], [0.38, 'By'], [0.56, 'Description']];
         const cx = (f) => x + pad + f * inner;
@@ -776,7 +999,7 @@ class _Binder {
         const revRows = Math.max(0, Math.floor((hRev - 96 - 4) / 30));
         b.revisions.slice(0, revRows).forEach((r, i) => {
             const ry = y + 96 + i * 30;
-            this._bText(book, String(i + 1), cx(0) + 4, ry, { size: SZ.tbSmall, maxWidth: 0.13 * inner - 8 });
+            this._bText(book, String(r.no || i + 1), cx(0) + 4, ry, { size: SZ.tbSmall, maxWidth: 0.13 * inner - 8 });
             this._bText(book, r.date, cx(0.13) + 4, ry, { size: SZ.tbSmall, maxWidth: 0.25 * inner - 8 });
             this._bText(book, r.by, cx(0.38) + 4, ry, { size: SZ.tbSmall, maxWidth: 0.18 * inner - 8 });
             this._bText(book, r.description, cx(0.56) + 4, ry, { size: SZ.tbSmall, maxWidth: 0.44 * inner - 8 });
@@ -784,17 +1007,7 @@ class _Binder {
         sections.revisions = { y, h: hRev, rows: Math.min(b.revisions.length, revRows) };
         y += hRev; rule(y);
 
-        // 4. NOTES, wrapped to the box
-        this._bText(book, 'Notes', x + pad, y + 32, { size: SZ.tbLabel, weight: 700 });
-        const noteLines = this._bWrap(book, b.notes, inner, SZ.tbCell, 400);
-        const maxNotes = Math.max(0, Math.floor((hNotes - 52 - 8) / 28));
-        noteLines.slice(0, maxNotes).forEach((t, i) => {
-            this._bText(book, t, x + pad, y + 62 + i * 28, { size: SZ.tbCell, maxWidth: inner });
-        });
-        sections.notes = { y, h: hNotes, lines: Math.min(noteLines.length, maxNotes) };
-        y += hNotes; rule(y);
-
-        // 5. the show: name, VENUE, dates
+        // 3. the show: name, VENUE, dates
         this._bText(book, m.show, x + w / 2, y + 50, { size: SZ.tbShow, weight: 700, align: 'center', maxWidth: inner, shrink: true });
         this._bText(book, b.venue, x + w / 2, y + 88, { size: SZ.tbCell, upper: true, align: 'center', maxWidth: inner, shrink: true });
         ctx.fillStyle = RULE;
@@ -803,7 +1016,7 @@ class _Binder {
         sections.show = { y, h: hShow };
         y += hShow; rule(y);
 
-        // 6. the people
+        // 4. the people
         this._bText(book, 'Designer:', x + pad, y + 34, { size: SZ.tbLabel, weight: 700 });
         this._bText(book, b.designer, x + pad + 40, y + 64, { size: SZ.tbCell, maxWidth: inner - 40 });
         this._bText(book, 'Project Manager:', x + pad, y + 112, { size: SZ.tbLabel, weight: 700 });
@@ -815,13 +1028,13 @@ class _Binder {
         sections.people = { y, h: hPeople };
         y += hPeople; rule(y);
 
-        // 7. the sheet title
+        // 5. the sheet title
         this._bText(book, page.sheetTitle || page.title, x + w / 2, y + 58,
                     { size: SZ.tbTitle, weight: 700, upper: true, align: 'center', maxWidth: inner, shrink: true });
         sections.title = { y, h: hTitle };
         y += hTitle; rule(y);
 
-        // 8. the sheet number and the drawing date, either side of the
+        // 6. the sheet number and the drawing date, either side of the
         //    diagonal
         ctx.strokeStyle = INK;
         ctx.lineWidth = 2;
@@ -838,72 +1051,16 @@ class _Binder {
         if (book.log && page.painting) book.log.titleBlock = { ...tb, sections };
     }
 
-    // The orientation cross: a thick vertical and horizontal, open
-    // arrowheads at the four tips, US / DS / SR / SL beside them.
-    _bCompass(book, box) {
-        const ctx = book.ctx;
-        const cx = box.x + box.w / 2, cy = box.y + box.h / 2;
-        const arm = Math.round(Math.min(box.w, box.h) * 0.30);
-        const head = 18;
-        ctx.strokeStyle = INK;
-        ctx.lineWidth = 7;
-        ctx.setLineDash([]);
-        ctx.beginPath();
-        ctx.moveTo(cx, cy - arm); ctx.lineTo(cx, cy + arm);
-        ctx.moveTo(cx - arm, cy); ctx.lineTo(cx + arm, cy);
-        ctx.stroke();
-        const tips = [[cx, cy - arm, 0, -1], [cx, cy + arm, 0, 1], [cx - arm, cy, -1, 0], [cx + arm, cy, 1, 0]];
-        ctx.beginPath();
-        for (const [tx, ty, dx, dy] of tips) {
-            // the chevron: back along the arm, out to either side
-            ctx.moveTo(tx - dx * head - dy * head * 0.8, ty - dy * head - dx * head * 0.8);
-            ctx.lineTo(tx, ty);
-            ctx.lineTo(tx - dx * head + dy * head * 0.8, ty - dy * head + dx * head * 0.8);
-        }
-        ctx.stroke();
-        const o = { size: SZ.cell, weight: 700 };
-        this._bText(book, 'US', cx, cy - arm - 14, { ...o, align: 'center' });
-        this._bText(book, 'DS', cx, cy + arm + 34, { ...o, align: 'center' });
-        this._bText(book, 'SR', cx - arm - 14, cy + 9, { ...o, align: 'right' });
-        this._bText(book, 'SL', cx + arm + 14, cy + 9, { ...o, align: 'left' });
-    }
-
-    // The prepared-by name turned a quarter to run up the box, as large
-    // as the box's height allows.
-    _bWordmark(book, text, box, pad) {
-        const ctx = book.ctx;
-        const t = String(text || '').toUpperCase();
-        if (!t) return;
-        const room = box.h - pad * 2;
-        let size = 64;
-        ctx.font = this._bFont(size, 800);
-        while (size > 20 && ctx.measureText(t).width > room) {
-            size -= 2;
-            ctx.font = this._bFont(size, 800);
-        }
-        ctx.save();
-        ctx.translate(box.x + box.w / 2, box.y + box.h / 2);
-        ctx.rotate(-Math.PI / 2);
-        this._bText(book, t, 0, size * 0.36, { size, weight: 800, align: 'center', maxWidth: room });
-        ctx.restore();
-    }
-
-    // Words wrapped to a width, explicit line breaks kept.
-    _bWrap(book, text, maxW, size, weight) {
-        const ctxM = book.measureCtx;
-        ctxM.font = this._bFont(size, weight);
-        const out = [];
-        for (const para of String(text == null ? '' : text).split(/\r?\n/)) {
-            let cur = '';
-            for (const word of para.split(' ')) {
-                const test = cur ? cur + ' ' + word : word;
-                if (cur && ctxM.measureText(test).width > maxW) { out.push(cur); cur = word; }
-                else cur = test;
-            }
-            out.push(cur);
-        }
-        while (out.length && out[out.length - 1] === '') out.pop();
-        return out;
+    // The logo fitted inside its box, centred, through the recorder's
+    // image op so it reaches the PDF (mask='auto' there keeps a
+    // transparent PNG clean).
+    _bLogo(book, logo, box, pad) {
+        const iw = logo.width, ih = logo.height;
+        const k = Math.min((box.w - pad * 2) / iw, (box.h - pad * 2) / ih);
+        const w = Math.max(1, Math.round(iw * k)), h = Math.max(1, Math.round(ih * k));
+        const x = Math.round(box.x + (box.w - w) / 2), y = Math.round(box.y + (box.h - h) / 2);
+        book.ctx.drawImage(logo, x, y, w, h);
+        if (book.log && book.page && book.page.painting) book.log.logo = { x, y, w, h };
     }
 
     // ---- the recording context ----------------------------------------------
@@ -921,9 +1078,11 @@ class _Binder {
     //                                     rotate in radians; x, y the anchor
     //                                     where the text is drawn, already
     //                                     through the translate / rotate pair
-    //                                     the brackets and the wordmark use -
-    //                                     the list carries no raw transforms
+    //                                     the brackets' labels use - the list
+    //                                     carries no raw transforms
     //   { op: 'image', id, x, y, w, h }   the bitmap once in page.images[id]
+    //                                     (a canvas carrying _binderDataUrl -
+    //                                     the logo - gives its PNG as is)
     // The transform is tracked in page space: setTransform(scale, …) is the
     // sheet's identity, translate and rotate compose onto it, save and
     // restore stack it. Nothing else the binder draws with needs tracking
@@ -1034,7 +1193,10 @@ class _Binder {
                 const [px, py] = map(x, y);
                 const id = `img${++imageSeq}`;
                 let data = null;
-                try { data = typeof img.toDataURL === 'function' ? img.toDataURL('image/png') : null; } catch (_) {}
+                try {
+                    data = typeof img._binderDataUrl === 'string' ? img._binderDataUrl
+                        : typeof img.toDataURL === 'function' ? img.toDataURL('image/png') : null;
+                } catch (_) {}
                 if (data) {
                     images[id] = data;
                     ops.push({ op: 'image', id, x: round(px), y: round(py), w: round(w), h: round(h) });

@@ -991,6 +991,23 @@ select, .info-select {
 .pull-hidden-row { display:flex; align-items:center; gap:8px; padding:3px 0 3px 12px; }
 .pull-hidden-text { color:var(--ps-faint); text-decoration:line-through; flex:1; }
 .pull-hidden .pull-restore, .pull-stale .pull-forget { padding:1px 8px !important; font-size:11px !important; }
+
+/* ---- the export dialog's revision log (app-binder): one row per logged
+   revision - No. · date · by · description - the fields inset like the
+   rest of the modal, × the pull sheet's raised keycap ---- */
+.binder-rev-list { display:flex; flex-direction:column; gap:4px; }
+.binder-rev-empty { color:var(--ps-faint); font-size:11px; padding:4px 0; }
+.binder-rev-row { display:flex; align-items:center; gap:6px; }
+.binder-rev-no { flex:none; width:18px; text-align:right; color:var(--ps-dim); font-size:11px; }
+.binder-rev-row input { padding:3px 6px !important; border:1px solid #3a3a3a; border-radius:3px; font-size:12px; min-width:0; }
+.binder-rev-row .binder-rev-date { flex:none; width:64px; }
+.binder-rev-row .binder-rev-by { flex:none; width:44px; }
+.binder-rev-row .binder-rev-description { flex:1; }
+.binder-rev-remove { flex:none; color:var(--ps-dim); background:linear-gradient(#454545,#373737);
+  border:1px solid #1a1a1a; border-radius:3px; box-shadow:inset 0 1px 0 #575757, 0 1px 2px rgba(0,0,0,0.45);
+  width:18px; height:18px; line-height:16px; font-size:12px; padding:0; cursor:pointer; }
+.binder-rev-remove:hover { color:#fff; background:linear-gradient(#505050,#404040); }
+.binder-rev-remove:active { transform:translateY(1px); box-shadow:inset 0 2px 3px rgba(0,0,0,0.5); }
 .pull-stale-list { border-top:1px solid #3a3a3a; padding:4px 8px 6px; }
 .pull-stale { display:flex; align-items:center; gap:8px; padding:3px 0; font-size:11px; color:var(--ps-dim); }
 .pull-stale-tag { color:var(--ps-faint); border:1px solid #4a4a4a; border-radius:2px; padding:0 4px; font-size:9px;
