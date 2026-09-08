@@ -63,7 +63,7 @@ def test_project_binder_rides_the_project(client):
     project has none."""
     binder = {'venue': 'Venue', 'dates': '9/4/26 - 9/6/26', 'designer': 'D',
               'projectManager': {'name': 'PM', 'phone': '1', 'email': 'pm@x.com'},
-              'drafter': 'Me', 'notes': 'n', 'revisions': [{'date': '7/24/26', 'by': 'TKE', 'description': 'Overview'}]}
+              'drafter': 'Me', 'notes': 'n', 'revisions': [{'date': '7/24/26', 'by': 'MK', 'description': 'Overview'}]}
     assert client.post('/api/project', json={'binder': binder}).status_code == 200
     assert client.get('/api/project').get_json()['binder'] == binder
     proj = client.get('/api/project').get_json()

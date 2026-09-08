@@ -199,9 +199,9 @@ def test_project_binder_round_trips_through_the_routes(client):
     """project.binder rides the project the way pullSheet does: a POST
     merges it in, a GET serves it back, a PUT (undo, file load) keeps
     whatever the file carries, and a new project has none."""
-    binder = {'venue': 'SeatGeek Stadium', 'dates': '9/4/26 - 9/6/26', 'designer': 'Hauss',
-              'projectManager': {'name': 'Nick', 'phone': '555', 'email': 'n@x.com'},
-              'drafter': 'Tyler', 'notes': 'note', 'revisions': [{'date': '7/24/26', 'by': 'TKE', 'description': 'Overview'}]}
+    binder = {'venue': 'Harbor Field', 'dates': '9/4/26 - 9/6/26', 'designer': 'Northlight',
+              'projectManager': {'name': 'Jordan', 'phone': '555', 'email': 'n@x.com'},
+              'drafter': 'Sam', 'notes': 'note', 'revisions': [{'date': '7/24/26', 'by': 'MK', 'description': 'Overview'}]}
     assert client.post('/api/project', json={'binder': binder}).status_code == 200
     assert client.get('/api/project').get_json()['binder'] == binder
     proj = client.get('/api/project').get_json()
@@ -1095,14 +1095,14 @@ def test_the_title_block_prints_the_projects_fields_and_they_ride_the_project(pa
         document.getElementById('export-format').value = 'binder';
         document.getElementById('export-format').dispatchEvent(new Event('change'));
         const h0 = app.historyIndex;
-        set('export-binder-venue', 'SeatGeek Stadium');
+        set('export-binder-venue', 'Harbor Field');
         set('export-binder-dates', '9/4/26 - 9/6/26');
-        set('export-binder-designer', 'Hauss Collective');
-        set('export-binder-pm-name', 'Nick Maty');
-        set('export-binder-pm-phone', '(815) 207-3901');
-        set('export-binder-pm-email', 'nmaty@example.com');
+        set('export-binder-designer', 'Northlight Design');
+        set('export-binder-pm-name', 'Jordan Reyes');
+        set('export-binder-pm-phone', '(555) 010-2030');
+        set('export-binder-pm-email', 'jreyes@example.com');
         set('export-binder-notes', 'All socas land SR. Verify the L21-30 legs before the walk.');
-        set('export-binder-revisions', '7/24/26 · TKE · Overview\\n7/27/26 | NM | Patch & circuit\\n\\n7/29/26');
+        set('export-binder-revisions', '7/24/26 · MK · Overview\\n7/27/26 | JR | Patch & circuit\\n\\n7/29/26');
         const h1 = app.historyIndex;
         const actions = app.history.slice(h0 + 1, h1 + 1).map(h => h.action);
         const stored = JSON.parse(JSON.stringify(app.project.binder));
@@ -1119,32 +1119,32 @@ def test_the_title_block_prints_the_projects_fields_and_they_ride_the_project(pa
         assert out['actions'] == ['Set Binder Venue', 'Set Binder Dates', 'Set Binder Designer', 'Set Binder Project Manager',
                                   'Set Binder Project Manager Phone', 'Set Binder Project Manager Email',
                                   'Set Binder Notes', 'Set Binder Revisions'], out['actions']
-        want = {'venue': 'SeatGeek Stadium', 'dates': '9/4/26 - 9/6/26', 'designer': 'Hauss Collective',
-                'projectManager': {'name': 'Nick Maty', 'phone': '(815) 207-3901', 'email': 'nmaty@example.com'},
+        want = {'venue': 'Harbor Field', 'dates': '9/4/26 - 9/6/26', 'designer': 'Northlight Design',
+                'projectManager': {'name': 'Jordan Reyes', 'phone': '(555) 010-2030', 'email': 'jreyes@example.com'},
                 'notes': 'All socas land SR. Verify the L21-30 legs before the walk.',
-                'revisions': [{'date': '7/24/26', 'by': 'TKE', 'description': 'Overview'},
-                              {'date': '7/27/26', 'by': 'NM', 'description': 'Patch & circuit'},
+                'revisions': [{'date': '7/24/26', 'by': 'MK', 'description': 'Overview'},
+                              {'date': '7/27/26', 'by': 'JR', 'description': 'Patch & circuit'},
                               {'date': '7/29/26', 'by': '', 'description': ''}]}
         assert out['stored'] == want, out['stored']
         assert out['served'] == want, out['served']
-        assert out['revText'] == '7/24/26 · TKE · Overview\n7/27/26 · NM · Patch & circuit\n7/29/26 ·  · '
+        assert out['revText'] == '7/24/26 · MK · Overview\n7/27/26 · JR · Patch & circuit\n7/29/26 ·  · '
         assert out['drafterPlaceholder'] == 'Matt Knotts'
         assert out['info']['drafter'] == '' and out['info']['revisions'] == want['revisions']
         r = _render(pg, SHOW, 'WALL-B - Data')
         texts = r['texts']
         _title_block(texts, 'WALL-B · DATA', '3.2')
-        for t in ('SEATGEEK STADIUM', '9/4/26 - 9/6/26', 'Hauss Collective', 'Nick Maty', '(815) 207-3901',
-                  'nmaty@example.com', 'Matt Knotts', '7/24/26', 'TKE', 'Overview', '7/27/26', 'NM', 'Patch & circuit', '7/29/26'):
+        for t in ('HARBOR FIELD', '9/4/26 - 9/6/26', 'Northlight Design', 'Jordan Reyes', '(555) 010-2030',
+                  'jreyes@example.com', 'Matt Knotts', '7/24/26', 'MK', 'Overview', '7/27/26', 'JR', 'Patch & circuit', '7/29/26'):
             assert t in texts, (t, texts[:60])
         assert texts[texts.index('Drafter:') + 1] == 'Matt Knotts'          # the engineer, no drafter typed
-        assert texts[texts.index('Designer:') + 1] == 'Hauss Collective'
+        assert texts[texts.index('Designer:') + 1] == 'Northlight Design'
         assert texts[texts.index('Project Manager:') + 1:texts.index('Project Manager:') + 4] == \
-            ['Nick Maty', '(815) 207-3901', 'nmaty@example.com']
-        assert texts[texts.index('Untitled Project') + 1:texts.index('Untitled Project') + 3] == ['SEATGEEK STADIUM', '9/4/26 - 9/6/26']
+            ['Jordan Reyes', '(555) 010-2030', 'jreyes@example.com']
+        assert texts[texts.index('Untitled Project') + 1:texts.index('Untitled Project') + 3] == ['HARBOR FIELD', '9/4/26 - 9/6/26']
         n = texts.index('Notes')
         note = ' '.join(t for t in texts[n + 1:n + 4] if t and t != 'Untitled Project')
         assert note.startswith('All socas land SR.') and 'before the walk.' in note, texts[n:n + 5]
-        assert texts[texts.index('Description') + 1:texts.index('Description') + 5] == ['1', '7/24/26', 'TKE', 'Overview']
+        assert texts[texts.index('Description') + 1:texts.index('Description') + 5] == ['1', '7/24/26', 'MK', 'Overview']
         assert 'MATT KNOTTS' in texts                                       # the wordmark: no prepared-by, the engineer
         tb = r['titleBlock']
         assert tb['x'] == TB_X and tb['w'] == TB_W and tb['sections']['revisions']['rows'] == 3
@@ -1152,17 +1152,17 @@ def test_the_title_block_prints_the_projects_fields_and_they_ride_the_project(pa
         # a typed drafter and a prepared-by name take over
         pg.evaluate("""async () => {
             const app = window.app;
-            app.setBinderField('drafter', 'Tyler Ellis', 'Set Binder Drafter');
-            await app.setPreparedBy('Hauss Collective');
+            app.setBinderField('drafter', 'Sam Okafor', 'Set Binder Drafter');
+            await app.setPreparedBy('Northlight Design');
         }""")
         texts = _render(pg, SHOW, 'WALL-B - Data')['texts']
-        assert texts[texts.index('Drafter:') + 1] == 'Tyler Ellis' and 'HAUSS COLLECTIVE' in texts and 'MATT KNOTTS' not in texts
-        assert pg.evaluate("() => window.app.getPreferences().preparedBy") == 'Hauss Collective'
+        assert texts[texts.index('Drafter:') + 1] == 'Sam Okafor' and 'NORTHLIGHT DESIGN' in texts and 'MATT KNOTTS' not in texts
+        assert pg.evaluate("() => window.app.getPreferences().preparedBy") == 'Northlight Design'
         # undo takes the drafter back, one step
         pg.evaluate("() => window.app.undo()")
         pg.wait_for_timeout(500)
         assert pg.evaluate("() => window.app.getBinderInfo().drafter") == ''
-        assert pg.evaluate("() => window.app.getBinderInfo().venue") == 'SeatGeek Stadium'
+        assert pg.evaluate("() => window.app.getBinderInfo().venue") == 'Harbor Field'
         # a file load (PUT) keeps the block
         loaded = pg.evaluate("""async () => {
             const j = (method, url, body) => fetch(url, {method, headers: {'Content-Type': 'application/json'},
@@ -1170,7 +1170,7 @@ def test_the_title_block_prints_the_projects_fields_and_they_ride_the_project(pa
             const p = await j('GET', '/api/project');
             return (await j('PUT', '/api/project', p)).binder;
         }""")
-        assert loaded['venue'] == 'SeatGeek Stadium' and loaded['revisions'][1]['by'] == 'NM'
+        assert loaded['venue'] == 'Harbor Field' and loaded['revisions'][1]['by'] == 'JR'
     finally:
         pg.evaluate("""async () => {
             const app = window.app;
@@ -1185,7 +1185,7 @@ def test_the_title_block_prints_the_projects_fields_and_they_ride_the_project(pa
     _title_block(texts, 'WALL-B · DATA', '3.2')
     assert texts[texts.index('Designer:') + 1] == '' and texts[texts.index('Drafter:') + 1] == ''
     assert 'LED RASTER DESIGNER' in texts
-    assert not [t for t in texts if 'SeatGeek' in t or 'Hauss' in t or 'Tyler' in t]
+    assert not [t for t in texts if 'Harbor' in t or 'Northlight' in t or 'Sam' in t]
     assert ids['errors'] == []
 
 
