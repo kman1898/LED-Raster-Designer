@@ -328,8 +328,15 @@ class CanvasRenderer {
      * neighboring cabinets. A label with spaces may instead stack at the
      * spaces ("SR" over "A1"), keeping the text at the user's label size
      * AND the circle near its natural size. Rules:
-     *   - break only at whitespace, never inside a token - a single long
-     *     token keeps the old grow-to-fit behaviour unchanged;
+     *   - break at whitespace when the label has any; a label with none
+     *     may break at a hyphen instead, the hyphen staying at the end of
+     *     the upper line the way a hyphenated word breaks ("SR3-" over
+     *     "12"), or where a run of letters meets the digit after it
+     *     ("SR" over "3-5") - "also SR3-5 can be stacked like data if it
+     *     fits better" and, on how: "what about / SR / 3-5" (2026-09-07).
+     *     Spaces win when present, so "SR A-1" still breaks only at its
+     *     space. A label with none of these keeps the old grow-to-fit
+     *     behaviour unchanged;
      *   - a label that fits the natural radius on one line never wraps;
      *   - among the candidate splits the smallest circle wins, and only
      *     beats the single line by a clear margin, so line count balances
@@ -349,8 +356,16 @@ class CanvasRenderer {
             radius: Math.max(minRadius, widthOf(text) / 2 + padding)
         };
         // Fits already, or nowhere legal to break: keep the single line.
+        // The break units are the whitespace-separated tokens, rejoined
+        // with a space; with no whitespace to break at, the pieces cut at
+        // the hyphens and letter-digit seams, rejoined with nothing (a
+        // piece keeps its own hyphen, so the joined lines are the label
+        // exactly).
         const tokens = text.trim().split(/\s+/).filter(t => t.length > 0);
-        if (tokens.length < 2 || oneLine.radius <= minRadius) return oneLine;
+        const spaced = tokens.length >= 2;
+        const units = spaced ? tokens : this._unspacedUnits(text.trim());
+        const joiner = spaced ? ' ' : '';
+        if (units.length < 2 || oneLine.radius <= minRadius) return oneLine;
 
         const lineHeight = this._circleLabelLineHeight(fontPx);
         // Smallest circle containing every line's text box: each line is a
@@ -373,8 +388,8 @@ class CanvasRenderer {
         let best = oneLine;
         // 4 stacked lines is already a tall circle; more never reads well
         // and the radius math would reject it anyway.
-        for (let n = 2; n <= Math.min(tokens.length, 4); n++) {
-            const lines = this._balancedSplit(tokens, n, widthOf, totalWidth);
+        for (let n = 2; n <= Math.min(units.length, 4); n++) {
+            const lines = this._balancedSplit(units, n, widthOf, totalWidth, joiner);
             const r = radiusOfLines(lines);
             // Strictly-better only (half-px margin): ties keep fewer lines,
             // and a wrap that doesn't shrink the circle isn't worth reading
@@ -396,15 +411,19 @@ class CanvasRenderer {
      * a string in the caller's font (ctx.font must already be set);
      * `totalWidth` is the unsplit text's width when the caller has it
      * (a label with doubled spaces measures wider than its joined tokens).
+     * `joiner` is what sits between two tokens on one line: a space
+     * (the default) for word tokens, nothing for the hyphen pieces of an
+     * unspaced label, which carry their own hyphen.
      */
-    _balancedSplit(tokens, n, widthOf, totalWidth) {
+    _balancedSplit(tokens, n, widthOf, totalWidth, joiner) {
+        if (joiner === undefined) joiner = ' ';
         const total = totalWidth !== undefined ? totalWidth
-            : widthOf(tokens.join(' '));
+            : widthOf(tokens.join(joiner));
         const target = total / n;
         const lines = [];
         let cur = tokens[0];
         for (let i = 1; i < tokens.length; i++) {
-            const joined = cur + ' ' + tokens[i];
+            const joined = cur + joiner + tokens[i];
             if (lines.length < n - 1 && widthOf(joined) > target) {
                 lines.push(cur);
                 cur = tokens[i];
@@ -414,6 +433,47 @@ class CanvasRenderer {
         }
         lines.push(cur);
         return lines;
+    }
+
+    /**
+     * The pieces an unspaced label may break between, cut at two kinds
+     * of seam:
+     *   - after a hyphen that sits between two non-empty parts; the
+     *     hyphen stays on the piece before it, the way a hyphenated word
+     *     breaks. A leading or trailing hyphen, or one of a doubled pair,
+     *     is part of the name, not a seam: "-5", "SR-" and "A--B" stay
+     *     whole there;
+     *   - between a letter and the digit right after it ("SR" | "3"), so
+     *     a side-and-number label can stack as its side over its number:
+     *     "what about / SR / 3-5" (2026-09-07). A digit followed by a
+     *     letter is NOT a seam ("3A" stays whole - the user rules only
+     *     on the letters-then-number shape), and nothing cuts inside a
+     *     run of one class.
+     * So "SR3-5" gives ["SR", "3-", "5"], "S1-12-3" gives ["S", "1-",
+     * "12-", "3"] and "A3B4" gives ["A", "3B", "4"]; the balanced split
+     * then picks which seams actually break. Joining the pieces with
+     * nothing reproduces the label exactly.
+     */
+    _unspacedUnits(text) {
+        const isLetter = (c) => /[A-Za-z]/.test(c);
+        const isDigit = (c) => /[0-9]/.test(c);
+        const units = [];
+        let start = 0;
+        for (let i = 1; i < text.length; i++) {
+            const prev = text[i - 1];
+            const cur = text[i];
+            // The hyphen at i-1 ends a piece when the characters either
+            // side of it are both present and neither is another hyphen.
+            const afterHyphen = prev === '-' && i >= 2
+                && text[i - 2] !== '-' && cur !== '-';
+            const letterToDigit = isLetter(prev) && isDigit(cur);
+            if (afterHyphen || letterToDigit) {
+                units.push(text.slice(start, i));
+                start = i;
+            }
+        }
+        units.push(text.slice(start));
+        return units;
     }
 
     /**

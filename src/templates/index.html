@@ -2005,9 +2005,11 @@
                  one PDF. Scope (the whole show, or one screen - the canvas's
                  right-click presets it), the palette (Colour, or Printer: greys
                  and black runs told apart by dash), which maps, and which extra
-                 pages. Shown/hidden by syncBinderControls in app-binder.js. -->
+                 pages. No page size to pick: every page is letter wide and as
+                 tall as its content needs (Auto only, 2026-09-07). Shown/hidden
+                 by syncBinderControls in app-binder.js. -->
             <div id="export-binder-section" style="margin-bottom: 18px; display: none;">
-                <label style="display: block; margin-bottom: 8px; color: #ccc; font-size: 13px;">Binder:</label>
+                <label style="display: block; margin-bottom: 8px; color: #ccc; font-size: 13px;" data-tooltip="Letter-wide pages, each as tall as its screen needs, at print density. Print on any paper and it scales to fit.">Binder:</label>
                 <div class="export-views" style="display: flex; flex-direction: column; gap: 8px;">
                     <div style="display: flex; gap: 8px; align-items: center; font-size: 12px; color: #aaa;">
                         <span style="flex: none; width: 92px;">Scope</span>

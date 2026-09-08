@@ -9,12 +9,18 @@ either - "honestly i dont even think we call it a breakout"; the home run
 said once per unit, in a band row over its circuits), then Circuits ·
 Cables · Facts, and a Gangs table only when the screen has 2fers / 3fers.
 
-The map's size (2026-09-07, "how squished the screen is"): the wall scales
-uniformly to fill the page width between the gutters; the tables take the
-height that leaves, down to a quarter-page floor. A wide-and-tall wall
-whose tables would not fit in the floor anyway (SR - MAIN, 28 x 11) fills
-the width and sends its tables whole to a continuation page; a tall wall
-(SR - Return, 6 x 11) is height-bound and keeps its tables on the page.
+The page grows to its content (2026-09-07, after the user read his
+exported binder - "the circuit info doesnt fit on the same page as the
+screen... the PDF can be any size"; "Auto only - no picker. Every screen
+page is as tall as it needs to be at letter width; the printer scales it
+to whatever paper is loaded"): letter wide, a floor of letter height, no
+ceiling. The wall scales uniformly to fill the page width between the
+gutters, always (capped at 3x for a tiny wall), the tables sit whole
+under it in three columns - block per column, no block ever broken - and
+the page is as tall as its tallest column plus the footer's room. No page
+continues onto another: no "(cont.)". Every page is painted at 2x ("some
+of the text is low resolution") - a 4400-wide bitmap - and the PDF page
+is sized in points at letter width and the page's own height.
 The brackets: one distance per side, a bracket stepping out only when its
 row span truly overlaps another's ("why the socas on the sides are offset"). Colour and Printer palettes - the renderer's
 printerMode (canvas.js) draws greys, black runs told apart by a dash per
@@ -23,9 +29,7 @@ power and data pages, a page per distro and per processor, the show-wide
 pull list; a single screen exports alone from the canvas's right-click.
 
 The beta.20 notes (2026-09-07): the map carries no screen-name plate (the
-header names the screen, and the plate sat over the circuit labels); a
-band never sits at the foot of a column without two of its rows, and a
-band whose rows run on across a break is repeated with "(cont.)"; the data
+header names the screen, and the plate sat over the circuit labels); the data
 page's BACKUP cell is the return end the tray states ("SR-1R · H9 slot 2 ·
 1"), its Processor line names the unit once, and Redundancy reads the
 bar's own words ("Per card"). The 2026-09-07 rulings: the Ports table
@@ -74,9 +78,30 @@ def _generic_breakout(texts):
             and 'breakout box' not in t.lower() and 'Tru-1 Breakout' not in t]
 
 
-# The page (app-binder.js): 2200 x 1700, the content between the header
-# rule and the footer rule, the tables' quarter-page floor.
-PAGE_W, PAGE_H, HEADER_BOTTOM, FOOTER_TOP, TABLE_FLOOR = 2200, 1700, 92, 1642, 425
+# The page (app-binder.js): 2200 wide, as tall as its content with a floor
+# of 1700, painted at 2x; the content between the header rule and the
+# footer's room; the map's width between its gutters, and its zoom cap.
+PAGE_W, PAGE_MIN_H, HEADER_BOTTOM, FOOT_ROOM, SCALE = 2200, 1700, 92, 58, 2
+MAP_W = PAGE_W - 42 * 2 - 200 - 180
+MAP_ZOOM_CAP = 3
+# A wall never draws taller than a letter page's content (header, footer,
+# the map's gutters and the gap to the tables taken out): a tall narrow
+# wall stops there rather than at the 3x cap, so the page grows for the
+# tables, not for a wall drawn larger than it needs to be.
+MAP_TALLEST = PAGE_MIN_H - HEADER_BOTTOM - FOOT_ROOM - 74 - 16 - 8
+
+
+def _zoom(cols, rows, cab_w, cab_h=None):
+    return min(MAP_W / (cols * cab_w), MAP_ZOOM_CAP, MAP_TALLEST / (rows * (cab_h or cab_w)))
+
+
+PAGE_PT = [792, 612]
+
+
+def _page_pt(h):
+    """The PDF page in points for a page h pixels tall: letter wide, as tall
+    as the page grew."""
+    return [792, 612 * h / 1700]
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -132,6 +157,14 @@ def test_the_pdf_route_takes_letter_pages_and_no_stamped_label(client_with_layer
     assert len(re.findall(rb'/Type\s*/Page[^s]', pdf)) == 3
     assert re.search(rb'/MediaBox\s*\[\s*0\s+0\s+792\s+612\s*\]', pdf)
     assert b'Helvetica-Bold' not in pdf
+    # a page that grew: letter wide, taller in points, per image
+    tall = client_with_layer.post('/api/export/pdf-from-images', json={
+        'project_name': 'Show', 'labels': False,
+        'images': [{'name': 'p', 'data': _png(), 'width': 4400, 'height': 5436,
+                    'page_size': [792, 612 * 2718 / 1700]}],
+    })
+    assert tall.status_code == 200
+    assert re.search(rb'/MediaBox\s*\[\s*0\s+0\s+792\s+978\.48\s*\]', tall.data), tall.data[:600]
     # the old shape: page = image pixels, label stamped
     old = client_with_layer.post('/api/export/pdf-from-images', json={
         'project_name': 'Show',
@@ -260,7 +293,8 @@ RENDER_JS = """([opts, title]) => {
     }
     return { texts: r.texts, textInfo: r.textInfo, mapTexts: r.mapTexts, dashes: r.dashes,
              map: r.map, brackets: r.brackets,
-             coloured, samples, pages: r.pages, index: idx, width: c.width, height: c.height };
+             coloured, samples, pages: r.pages, index: idx, width: c.width, height: c.height,
+             h: r.page.h };
 }"""
 
 
@@ -268,6 +302,25 @@ def _render(pg, opts_js, title):
     out = pg.evaluate("(t) => (%s)([%s, t])" % (RENDER_JS, opts_js), title)
     assert 'missing' not in out, out
     return out
+
+
+def _on_map(map_texts, label):
+    """Is `label` drawn on the map - whole, or stacked? How a label disc
+    breaks a label is the renderer's own rule (canvas.js: a spaced label at
+    its spaces, an unspaced one at a hyphen or a letter-digit seam, the
+    pieces rejoining to the label exactly); the binder only asks that the
+    label is there. Consecutive fillText pieces that rejoin to the label,
+    with nothing or a space between, count as the label."""
+    if label in map_texts:
+        return True
+    for i in range(len(map_texts)):
+        for n in range(2, 5):
+            pieces = map_texts[i:i + n]
+            if len(pieces) < n:
+                break
+            if ''.join(pieces) == label or ' '.join(pieces) == label:
+                return True
+    return False
 
 
 def test_the_pages_come_in_order_on_two_positions(page):
@@ -295,7 +348,9 @@ def test_the_power_page_says_home_run_once_per_box_and_never_multi(page):
     pg, ids = page
     out = _render(pg, SHOW, 'WALL-A - Power')
     texts = out['texts']
-    assert out['width'] == 2200 and out['height'] == 1700
+    # painted at 2x, at the page's own height
+    assert out['h'] >= PAGE_MIN_H
+    assert out['width'] == PAGE_W * SCALE and out['height'] == out['h'] * SCALE
     assert texts[0] == 'UNTITLED PROJECT · POWER' or texts[0].endswith('· POWER')
     assert texts[1] == 'WALL-A · SR Beach · page 3 of 12'
     bands = [t for t in texts if 'home run' in t]
@@ -356,14 +411,14 @@ def test_the_printer_page_has_no_colour_and_a_dash_per_circuit(page):
 def test_cable_tags_follow_the_screens_switch(page):
     pg, ids = page
     on = _render(pg, SHOW, 'WALL-A - Power')['mapTexts']
-    assert "10' True1" in on and 'SR1-1' in on
+    assert "10' True1" in on and _on_map(on, 'SR1-1'), on
     off = _render(pg, SHOW, 'WALL-B - Power')['mapTexts']
-    assert 'SR2-1' in off and "6' True1" not in off
+    assert _on_map(off, 'SR2-1') and "6' True1" not in off, off
     # flip WALL-A off, and the tag leaves the map
     pg.evaluate("(id) => { window.app.project.layers.find(l => l.id === id).showPowerCableTags = false; }", ids['a'])
     try:
         flipped = _render(pg, SHOW, 'WALL-A - Power')['mapTexts']
-        assert "10' True1" not in flipped and 'SR1-1' in flipped
+        assert "10' True1" not in flipped and _on_map(flipped, 'SR1-1'), flipped
     finally:
         pg.evaluate("(id) => { window.app.project.layers.find(l => l.id === id).showPowerCableTags = true; }", ids['a'])
 
@@ -436,11 +491,13 @@ def test_the_pdf_route_receives_one_image_per_page(page):
         try {
             const res = await app.exportBinder('Two Positions');
             const body = seen.posts[0];
+            const plan = app.planBinder(app.readBinderOptions());
             return { pages: res.pages, posts: seen.posts.length, n: body.images.length, labels: body.labels,
                      names: body.images.map(i => i.name), sizes: body.images.map(i => i.page_size),
                      dims: body.images.map(i => [i.width, i.height]),
                      png: body.images.every(i => i.data.startsWith('data:image/png;base64,')),
-                     saved: seen.saved, plan: app.planBinder(app.readBinderOptions()).length };
+                     first: body.images[0].data, last: body.images[body.images.length - 1].data,
+                     saved: seen.saved, plan: plan.length, heights: plan.map(p => p.h) };
         } finally {
             window.fetch = realFetch;
             app.saveBlobWithPicker = saved;
@@ -450,8 +507,20 @@ def test_the_pdf_route_receives_one_image_per_page(page):
     assert out['posts'] == 1 and out['labels'] is False
     assert out['n'] == out['plan'] == out['pages'] == 12
     assert out['names'][0] == 'Cover' and out['names'][-1] == 'Pull list - all positions'
-    assert out['sizes'] == [[792, 612]] * 12 and out['dims'] == [[2200, 1700]] * 12
+    # every page at its own height: the bitmap at 2x, the PDF page in
+    # points at letter width and the page's height; short pages (the cover,
+    # the pull pages, the totals) sit exactly at the floor
+    heights = out['heights']
+    assert all(h >= PAGE_MIN_H for h in heights), heights
+    assert heights[0] == PAGE_MIN_H and heights[-1] == PAGE_MIN_H and heights[1] == PAGE_MIN_H, heights
+    assert out['dims'] == [[PAGE_W * SCALE, h * SCALE] for h in heights], (out['dims'], heights)
+    assert out['sizes'] == [_page_pt(h) for h in heights], (out['sizes'], heights)
     assert out['png']
+    # the data URLs decode to the 2x size they claim
+    from PIL import Image
+    for key, h in (('first', heights[0]), ('last', heights[-1])):
+        raw = base64.b64decode(out[key].split(',', 1)[1])
+        assert Image.open(io.BytesIO(raw)).size == (PAGE_W * SCALE, h * SCALE), key
     assert out['saved'] == {'filename': 'Two Positions - binder.pdf', 'mime': 'application/pdf', 'size': 9}
 
 
@@ -468,9 +537,9 @@ def test_the_map_carries_no_screen_name_plate_but_the_export_still_does(page):
     pg, ids = page
     for title in ('WALL-A - Power', 'WALL-A - Data'):
         out = _render(pg, SHOW, title)
-        assert 'WALL-A' not in out['mapTexts'], (title, out['mapTexts'])
+        assert not _on_map(out['mapTexts'], 'WALL-A'), (title, out['mapTexts'])
         assert 'WALL-A' in out['texts'][1]                 # the header names it
-        assert 'SR1-1' in out['mapTexts'] or 'SR-1' in out['mapTexts']
+        assert _on_map(out['mapTexts'], 'SR1-1') or _on_map(out['mapTexts'], 'SR-1'), out['mapTexts']
     # the same exportMode render with the binder's flag pinned off is the
     # ordinary export, and it paints the name
     export = pg.evaluate("""([opts, title]) => {
@@ -484,7 +553,7 @@ def test_the_map_carries_no_screen_name_plate_but_the_export_still_does(page):
             r.hideScreenNames = false;
         }
     }""", [json.loads(_SHOW_JSON), 'WALL-A - Power'])
-    assert 'WALL-A' in export['mapTexts'], export['mapTexts'][:40]
+    assert _on_map(export['mapTexts'], 'WALL-A'), export['mapTexts'][:40]
     assert pg.evaluate("() => window.canvasRenderer.hideScreenNames") is False
 
 
@@ -515,27 +584,36 @@ def _map_of(out):
     return m
 
 
-def test_the_map_fills_the_width_and_keeps_its_aspect(page):
+def test_the_map_fills_the_width_and_the_page_grows_under_it(page):
     """"how squished the screen is": the wall scales UNIFORMLY - its drawn
-    aspect is cols x cabW : rows x cabH - and takes the page's width when
-    the tables keep their quarter-page floor under it. WALL-A (4 x 3 of
-    200 px) is wide-and-tall for the page: filling the width would eat the
-    floor and its tables fit in the floor, so the floor wins and the map is
-    as tall as that allows. CENTER (3 x 5) is height-bound the same way."""
+    aspect is cols x cabW : rows x cabH - and always fills the page's width
+    between the gutters (a tiny wall stops at 3x, and no wall draws taller
+    than a letter page's content); the tables sit whole under it and the
+    page grows to hold them, never under the floor. WALL-A (4 x 3 of 200
+    px) fills the width; CENTER (3 x 5 of 128 px) is tiny and tall, so its
+    height stops it before the 3x cap."""
     pg, ids = page
-    for title, cols, rows in (('WALL-A - Power', 4, 3), ('WALL-A - Data', 4, 3), ('CENTER - Power', 3, 5)):
+    for title, cols, rows, cab in (('WALL-A - Power', 4, 3, 200), ('WALL-A - Data', 4, 3, 200),
+                                   ('CENTER - Power', 3, 5, 128)):
         out = _render(pg, SHOW, title)
         m = _map_of(out)
         want = cols / rows
         assert abs(m['w'] / m['h'] - want) / want < 0.01, (title, m)
-        # the tables keep their floor under the map, on this page
-        assert m['area']['y'] + m['area']['h'] <= FOOTER_TOP - TABLE_FLOOR, (title, m)
+        zoom = _zoom(cols, rows, cab)
+        assert abs(m['w'] - cols * cab * zoom) <= 1 and abs(m['zoom'] - zoom) < 1e-6, (title, m, zoom)
         assert m['x'] >= 42 and m['x'] + m['w'] <= PAGE_W - 42, (title, m)
-        assert 'FACTS' in out['texts'], title
-    a = _map_of(_render(pg, SHOW, 'WALL-A - Power'))
-    # the floor bound it: the map is exactly as tall as the floor leaves
-    assert abs((a['area']['y'] + a['area']['h']) - (FOOTER_TOP - TABLE_FLOOR - 8)) <= 2, a
-    assert a['w'] / PAGE_W > 0.55, a
+        # the map starts under the header, the tables under the map, and
+        # the page is as tall as the content reached plus the footer's room
+        assert m['area']['y'] == HEADER_BOTTOM, m
+        assert out['h'] >= m['area']['y'] + m['area']['h'] + FOOT_ROOM, (title, out['h'], m)
+        assert out['h'] >= PAGE_MIN_H and out['height'] == out['h'] * SCALE, (title, out['h'])
+        assert 'FACTS' in out['texts'] and 'CABLES THIS SCREEN' in out['texts'], title
+        assert not [t for t in out['texts'] if '(cont.)' in t or '(CONT.)' in t], title
+    a = _render(pg, SHOW, 'WALL-A - Power')
+    assert _map_of(a)['w'] / PAGE_W > 0.75, a['map']
+    assert a['h'] > PAGE_MIN_H, a['h']              # the map alone is most of a letter page
+    c = _render(pg, SHOW, 'CENTER - Power')
+    assert abs(_map_of(c)['zoom'] - MAP_TALLEST / (5 * 128)) < 1e-6 and _map_of(c)['zoom'] < MAP_ZOOM_CAP, c['map']
 
 
 def test_brackets_share_one_distance_unless_their_spans_overlap(page):
@@ -586,58 +664,70 @@ def test_brackets_share_one_distance_unless_their_spans_overlap(page):
 H4_H, TH_H, BAND_H, ROW_H = 46, 40, 46, 38
 
 
-def test_a_band_never_ends_a_column_and_a_continued_band_says_cont(page):
-    """"the first example the page gets cut off": the fixture's frame is
-    exactly deep enough that the old filler laid BAND B at the foot of the
-    first column with its rows in the next. Now a band moves with its first
-    two rows, and the rows of BAND B that run past the second column's foot
-    resume under "BAND B (cont.)"."""
+def test_blocks_take_the_columns_in_order_whole_and_the_page_grows(page):
+    """The column rule on a page that grows: block 1 in column 1, block 2
+    in column 2, block 3 in column 3, the fourth stacking under the third;
+    a block is laid whole - a band always straight over its rows, no table
+    continuing anywhere, no "(cont.)" - and the page reaches the tallest
+    column's foot."""
     pg, ids = page
-    bottom = H4_H + TH_H + BAND_H + 5 * ROW_H + BAND_H      # BAND B fits, alone, at the foot
-    out = pg.evaluate("""(bottom) => {
+    out = pg.evaluate("""() => {
         const app = window.app;
         const c = document.createElement('canvas'); c.width = 2200; c.height = 1700;
         const ctx = c.getContext('2d');
-        const book = { ctx, measureCtx: ctx, meta: { palette: 'colour' }, page: { painting: true },
+        const book = { ctx, measureCtx: ctx, meta: { palette: 'colour' }, page: { painting: true, reach: 0 },
                        log: { texts: [], textInfo: [], mapTexts: [], dashes: [] } };
-        const rows = [];
-        const add = (name, n) => { rows.push({ band: name }); for (let i = 1; i <= n; i++) rows.push({ cells: [`${name}-${i}`, 'x'] }); };
-        add('BAND A', 5); add('BAND B', 7); add('BAND C', 3);
-        const lines = app._bTableLines(book, { title: 'T', cols: [{ title: 'a', w: 1 }, { title: 'b', w: 1 }], rows });
+        const table = (title, bands) => {
+            const rows = [];
+            for (const [name, n] of bands) { rows.push({ band: name }); for (let i = 1; i <= n; i++) rows.push({ cells: [`${name}-${i}`, 'x'] }); }
+            return app._bTableLines(book, { title, cols: [{ title: 'a', w: 1 }, { title: 'b', w: 1 }], rows });
+        };
+        const blocks = [{ lines: table('T1', [['BAND A', 5], ['BAND B', 7], ['BAND C', 3]]) },
+                        { lines: table('T2', [['BAND D', 2]]) },
+                        { lines: table('T3', [['BAND E', 1]]) },
+                        { lines: table('T4', [['BAND F', 4]]) }];
         const seen = [];
-        let pageNo = 0;
-        lines.forEach(l => {
+        blocks.forEach((b, bi) => b.lines.forEach(l => {
             const d = l.draw;
-            l.draw = (cx, x, y, w, cont) => {
-                seen.push({ page: pageNo, x, y, h: l.h, band: !!l.band, head: !!l.head, cont: !!cont, text: book.log.texts.length });
-                d(cx, x, y, w, cont);
+            l.draw = (cx, x, y, w) => {
+                seen.push({ block: bi, x, y, h: l.h, band: !!l.band, head: !!l.head, text: book.log.texts.length });
+                d(cx, x, y, w);
             };
-        });
-        const cols = [{ x: 0, w: 600 }, { x: 700, w: 600 }];
-        app._bFlow(book, [{ lines }], { top: 0, bottom, cols }, () => { pageNo++; return { top: 0, bottom, cols }; });
-        return { seen, texts: book.log.texts, pages: pageNo + 1 };
-    }""", bottom)
+        }));
+        const cols = [{ x: 0, w: 600 }, { x: 700, w: 600 }, { x: 1400, w: 600 }];
+        const reach = app._bFlow(book, blocks, { top: 100, cols });
+        return { seen, texts: book.log.texts, reach, pageReach: book.page.reach };
+    }""")
     texts = out['texts']
     for e in out['seen']:
         e['t'] = texts[e['text']]
-        assert e['y'] + e['h'] <= bottom, e
     columns = {}
     for e in out['seen']:
-        columns.setdefault((e['page'], e['x']), []).append(e)
-    for key, col in columns.items():
+        columns.setdefault(e['x'], []).append(e)
+    assert sorted(columns) == [0, 700, 1400]
+    for x, col in columns.items():
         col.sort(key=lambda e: e['y'])
-        assert not col[-1]['band'], (key, [e['t'] for e in col])
-        # a band is followed by two of its rows in its own column (or all it has)
+        # every line follows the one before it with no gap but the block gap
+        for a, b in zip(col, col[1:]):
+            assert b['y'] in (a['y'] + a['h'], a['y'] + a['h'] + 22), (x, a['t'], b['t'])
+        # a band is followed straight by its every row
+        sizes = {'BAND A': 5, 'BAND B': 7, 'BAND C': 3, 'BAND D': 2, 'BAND E': 1, 'BAND F': 4}
         for i, e in enumerate(col):
-            if e['band'] and not e['cont']:
-                rest = [x['t'] for x in col[i + 1:i + 3]]
-                assert len(rest) == 2 and all(r.startswith(e['t'] + '-') for r in rest), (key, e['t'], rest)
-    seq = lambda key: [e['t'] for e in columns[key]]
-    assert seq((0, 0)) == ['T', 'A', 'BAND A', 'BAND A-1', 'BAND A-2', 'BAND A-3', 'BAND A-4', 'BAND A-5']
-    assert seq((0, 700)) == ['T (CONT.)', 'A', 'BAND B'] + [f'BAND B-{i}' for i in range(1, 7)]
-    assert seq((1, 0)) == ['T (CONT.)', 'A', 'BAND B (cont.)', 'BAND B-7', 'BAND C', 'BAND C-1', 'BAND C-2', 'BAND C-3']
-    assert out['pages'] == 2
-    assert texts.count('BAND B (cont.)') == 1 and texts.count('T (CONT.)') == 2
+            if e['band']:
+                n = sizes[e['t']]
+                rest = [r['t'] for r in col[i + 1:i + 1 + n]]
+                assert rest == [f'{e["t"]}-{k}' for k in range(1, n + 1)], (x, e['t'], rest)
+    seq = lambda x: [e['t'] for e in columns[x]]
+    assert seq(0) == ['T1', 'A', 'BAND A'] + [f'BAND A-{i}' for i in range(1, 6)] \
+        + ['BAND B'] + [f'BAND B-{i}' for i in range(1, 8)] + ['BAND C'] + [f'BAND C-{i}' for i in range(1, 4)]
+    assert seq(700) == ['T2', 'A', 'BAND D', 'BAND D-1', 'BAND D-2']
+    assert seq(1400) == ['T3', 'A', 'BAND E', 'BAND E-1', 'T4', 'A', 'BAND F'] + [f'BAND F-{i}' for i in range(1, 5)]
+    assert {e['block'] for e in columns[0]} == {0} and {e['block'] for e in columns[700]} == {1}
+    assert {e['block'] for e in columns[1400]} == {2, 3}
+    # the reach is the tallest column's foot: column 1
+    tallest = max(e['y'] + e['h'] for e in columns[0])
+    assert out['reach'] == tallest == out['pageReach'] == 100 + H4_H + TH_H + 3 * BAND_H + 15 * ROW_H
+    assert not [t for t in texts if 'cont' in t.lower()]
 
 
 def test_the_data_page_prints_the_return_end_and_the_processor_once(page):
@@ -691,7 +781,7 @@ def test_the_data_page_prints_the_return_end_and_the_processor_once(page):
             assert re.fullmatch(r'H9 SR · \d+', primary), (label, primary)
             socket = primary.rsplit(' · ', 1)[-1]
             assert backup == f'{label}R · H9 slot 2 · {socket}', (label, backup)
-            assert f'{label}R' in out['mapTexts'], (label, out['mapTexts'])
+            assert _on_map(out['mapTexts'], f'{label}R'), (label, out['mapTexts'])
             # both ends' runs, whole
             assert home == "SR Primary 100' / SR Backup 150' +25'", (label, home)
         assert not [t for t in texts if t.startswith('slot ') or t.endswith('…')]
@@ -843,21 +933,48 @@ def test_a_box_delivering_the_port_is_listed_instead_of_the_card(page):
     assert ids['errors'] == []
 
 
+def test_the_port_cell_reads_a_long_label_whole(page):
+    """The user's PDF cut "SR A-1" to "SR A…" in the PORT column: the column
+    takes the width its longest label needs. Card SR renamed "SR A" names
+    every port "SR A-n"; the cell reads it whole, and the row's other
+    cells are still whole too."""
+    pg, ids = page
+    rename = """async ([ids, name]) => {
+        const app = window.app;
+        await fetch(`/api/processors/${ids.procId}/cards/${ids.cardId}`, {method: 'PUT',
+            headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name})});
+        await app.refreshProcessors(); await app.refreshPortAssignment(); app.renderLayers();
+    }"""
+    pg.evaluate(rename, [ids, 'SR A'])
+    try:
+        out = _render(pg, SHOW, 'WALL-A - Data')
+        texts = out['texts']
+        assert 'SR A-1' in texts, texts
+        i = texts.index('SR A-1')
+        assert texts[i:i + 3] == ['SR A-1', 'H9 SR A · 1', '—'], texts[i:i + 6]
+        assert not [t for t in texts if t.endswith('…')], [t for t in texts if t.endswith('…')]
+        assert _on_map(out['mapTexts'], 'SR A-1'), out['mapTexts']
+    finally:
+        pg.evaluate(rename, [ids, 'SR'])
+    assert 'SR-1' in _render(pg, SHOW, 'WALL-A - Data')['texts']
+
+
 # ── the smoke: the user's own show ───────────────────────────────────────
 
 @pytest.mark.skipif(not os.path.exists(SCRATCH_FIXTURE),
                     reason='experts-only.json smoke fixture not present')
 def test_smoke_experts_only(page):
     """The real show: SR - MAIN's 22 custom circuits on four socas, SR -
-    Return's six on soca 5 with five 2fers, SL mirroring SR. 19 pages: the
-    MAINs' power pages (28 x 11, 22 circuits) fill the page's width and send
-    their tables to a continuation page; their data pages (four ports) fit
-    the tables in the floor, so the floor holds and the map is as tall as
-    that leaves; the Returns (6 x 11) keep everything on the page."""
+    Return's six on soca 5 with five 2fers, SL mirroring SR. 17 pages, none
+    continued: a MAIN's power page (28 x 11, 22 circuits) is ONE page,
+    taller than letter, the map filling the width and the circuits table
+    whole under it; its data page (four ports) the same; a Return (6 x 11)
+    is a tiny wall at the 3x cap, tall; the pull pages, the hardware pages
+    and the totals sit at the floor."""
     pg, ids = page
     with open(SCRATCH_FIXTURE) as fh:
         project = json.load(fh)
-    plan = pg.evaluate("""async (project) => {
+    pages = pg.evaluate("""async (project) => {
         const app = window.app;
         const j = (method, url, body) => fetch(url, {method,
             headers: {'Content-Type': 'application/json'},
@@ -869,26 +986,39 @@ def test_smoke_experts_only(page):
         await app.refreshProcessors();
         await app.refreshPortAssignment();
         app.renderLayers();
-        return app.planBinder(%s).map(p => p.title);
+        return app.planBinder(%s).map(p => [p.title, p.h]);
     }""" % SHOW, project)
+    plan = [t for t, _h in pages]
+    heights = dict(pages)
     assert plan == [
         'Cover',
-        'SR - MAIN - Pull', 'SR - MAIN - Power', 'SR - MAIN - Power (cont.)', 'SR - MAIN - Data',
+        'SR - MAIN - Pull', 'SR - MAIN - Power', 'SR - MAIN - Data',
         'SR - Return - Pull', 'SR - Return - Power', 'SR - Return - Data',
-        'SL - MAIN - Pull', 'SL - MAIN - Power', 'SL - MAIN - Power (cont.)', 'SL - MAIN - Data',
+        'SL - MAIN - Pull', 'SL - MAIN - Power', 'SL - MAIN - Data',
         'SL - Return - Pull', 'SL - Return - Power', 'SL - Return - Data',
         'SR - Distro', 'SL - Distro', 'H9 - Processor',
         'Pull list - all positions',
     ]
+    assert not [t for t in plan if '(cont.)' in t]
+    # the short pages sit exactly at the floor; every screen page grew
+    for t in ('Cover', 'SR - MAIN - Pull', 'SR - Distro', 'H9 - Processor', 'Pull list - all positions'):
+        assert heights[t] == PAGE_MIN_H, (t, heights[t])
+    for t in ('SR - MAIN - Power', 'SR - MAIN - Data', 'SR - Return - Power', 'SR - Return - Data'):
+        assert heights[t] > PAGE_MIN_H, (t, heights[t])
+    assert heights['SR - MAIN - Power'] == heights['SL - MAIN - Power']
     main = _render(pg, SHOW, 'SR - MAIN - Power')
     texts = main['texts']
-    assert texts[:2] == ['2026 EXPERTS ONLY · POWER', 'SR - MAIN · page 3 of 19']
+    assert texts[:2] == ['2026 EXPERTS ONLY · POWER', 'SR - MAIN · page 3 of 17']
+    # one page, taller than letter, painted at 2x, the PDF page in points to match
+    assert main['h'] == heights['SR - MAIN - Power'] > PAGE_MIN_H
+    assert main['width'] == PAGE_W * SCALE and main['height'] == main['h'] * SCALE
     # the map fills the width, uniformly: 28 x 11 of 60 x 120 px
     m = main['map']
     assert m['w'] >= 0.78 * PAGE_W, m
     want_main = (28 * 60) / (11 * 120)
     assert abs(m['w'] / m['h'] - want_main) / want_main < 0.01, m
-    assert m['x'] >= 42 and m['x'] + m['w'] <= PAGE_W - 42 and m['area']['y'] + m['area']['h'] < FOOTER_TOP, m
+    assert m['x'] >= 42 and m['x'] + m['w'] <= PAGE_W - 42, m
+    assert m['area']['y'] == HEADER_BOTTOM and m['area']['y'] + m['area']['h'] + FOOT_ROOM < main['h'], m
     # the brackets: SR1 and SR2 down the right at ONE distance (rows 1-6 over
     # rows 7-11 share an edge, they do not overlap); SR3 and SR4 down the left
     br = {b['name']: b for b in main['brackets']}
@@ -897,12 +1027,8 @@ def test_smoke_experts_only(page):
     assert all(b['depth'] == 0 for b in br.values()), main['brackets']
     assert br['SR1']['x'] == br['SR2']['x'] and br['SR3']['x'] == br['SR4']['x'], main['brackets']
     assert br['SR1']['x'] > m['x'] + m['w'] and br['SR3']['x'] < m['x']
-    # nothing under the map but the page: the tables went whole to the continuation
-    assert 'CIRCUITS' not in texts and 'FACTS' not in texts
-    cont = _render(pg, SHOW, 'SR - MAIN - Power (cont.)')
-    assert cont['texts'][:2] == ['2026 EXPERTS ONLY · POWER', 'SR - MAIN (cont.) · page 4 of 19']
-    assert cont['map'] is None
-    texts = cont['texts']
+    # the circuits table AND the map on the one page, every band whole
+    assert 'CIRCUITS' in texts and 'FACTS' in texts and 'CABLES THIS SCREEN' in texts
     bands = [t for t in texts if 'home run' in t]
     assert bands == [
         "SR1 · Soca 208 · 125' home run · 6 circuits",
@@ -919,24 +1045,30 @@ def test_smoke_experts_only(page):
     assert ["SR1 · 125'", "SR2 · 100'", "SR3 · 125'", "SR4 · 100'"] == [t for t in main['texts'] if re.fullmatch(r"SR\d · \d+'", t)]
     # the map: every label, and the typed cables as tags (the screen's switch is on);
     # no screen-name plate over them - the header names the screen
-    assert 'SR1-1' in main['mapTexts'] and "10' True1" in main['mapTexts']
-    assert 'SR - MAIN' not in main['mapTexts']
+    assert _on_map(main['mapTexts'], 'SR1-1') and "10' True1" in main['mapTexts'], main['mapTexts'][:20]
+    assert not _on_map(main['mapTexts'], 'SR - MAIN')
     # the band rule: every band is followed straight by its first circuit
     for band in bands:
         assert texts[texts.index(band) + 1] == band.split(' ')[0] + '-' + ('2' if band.startswith('SR2') else '1'), \
             (band, texts[texts.index(band):texts.index(band) + 3])
-    assert not [t for t in texts if t.endswith('(cont.)')]
+    assert not [t for t in texts if '(cont.)' in t or '(CONT.)' in t]
     # printer: no colour, eleven distinct dashes across 22 circuits
     printer = _render(pg, SHOW.replace("palette: 'colour'", "palette: 'printer'"), 'SR - MAIN - Power')
     assert printer['coloured'] == 0
     assert len({tuple(d) for d in printer['dashes'] if d}) == 10    # ten dashed patterns + the solid one
-    # the tall narrow wall (6 x 11): height-bound, the map never past the
-    # page, the wall's aspect kept, and every table on the same page
+    assert printer['h'] == main['h']
+    # the tall narrow wall (6 x 11 of 60 x 120): its height stops it at a
+    # letter page's content, well under the 3x cap and the width, the
+    # aspect kept, the page as tall as the wall and its tables need, every
+    # table on it
     retp = _render(pg, SHOW, 'SR - Return - Power')
     rm = retp['map']
     want = (6 * 60) / (11 * 120)
     assert abs(rm['w'] / rm['h'] - want) / want < 0.01, rm
-    assert rm['area']['y'] + rm['area']['h'] <= FOOTER_TOP - TABLE_FLOOR, rm
+    zoom = _zoom(6, 11, 60, 120)
+    assert zoom == MAP_TALLEST / (11 * 120) and abs(rm['zoom'] - zoom) < 1e-6 \
+        and abs(rm['w'] - 6 * 60 * zoom) <= 1 and abs(rm['h'] - 11 * 120 * zoom) <= 1, (rm, zoom)
+    assert retp['h'] >= rm['area']['y'] + rm['area']['h'] + FOOT_ROOM and retp['h'] > PAGE_MIN_H, (retp['h'], rm)
     assert rm['x'] >= 42 and rm['x'] + rm['w'] <= PAGE_W - 42
     assert len(retp['brackets']) == 1 and retp['brackets'][0]['depth'] == 0
     ret = retp['texts']
@@ -946,12 +1078,13 @@ def test_smoke_experts_only(page):
     assert ret.count('2fer') == 5
     assert "SR5 · Soca 208 · 125' home run · 6 circuits" in ret
     dpage = _render(pg, SHOW, 'SR - MAIN - Data')
-    assert 'SR - MAIN' not in dpage['mapTexts']
-    # four ports fit in the floor, so the floor holds: the same wall, the
-    # same aspect, as tall as the floor leaves, the tables under it
+    assert not _on_map(dpage['mapTexts'], 'SR - MAIN')
+    # the same wall at the same width and aspect; four ports under it, the
+    # page as tall as they come to (less than the power page's 22 circuits)
     dm = dpage['map']
     assert abs(dm['w'] / dm['h'] - want_main) / want_main < 0.01, dm
-    assert abs((dm['area']['y'] + dm['area']['h']) - (FOOTER_TOP - TABLE_FLOOR - 8)) <= 2, dm
+    assert dm['w'] == m['w'] and dm['zoom'] == m['zoom'], (dm, m)
+    assert PAGE_MIN_H < dpage['h'] < main['h'], (dpage['h'], main['h'])
     assert 'PORTS' in dpage['texts']
     data = dpage['texts']
     # the box delivering the ports is the band (2026-09-07: a CVT4K-S on
