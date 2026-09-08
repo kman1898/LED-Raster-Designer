@@ -4,6 +4,7 @@ import json
 import uuid
 import time
 import io
+import math
 import os
 import sys
 import datetime
@@ -2117,6 +2118,171 @@ def export_pdf_from_images():
     c.save()
     pdf_bytes.seek(0)
     
+    return send_file(
+        pdf_bytes,
+        mimetype='application/pdf',
+        as_attachment=True,
+        download_name=f"{project_name}.pdf"
+    )
+
+
+# The binder's page in points: the page is 200 px/in (2200 px = 11 in =
+# 792 pt), so a page px is 72 / 200 pt; each page's own `page_size` is the
+# authority and the scale is read off it.
+_PAGE_OPS = ('rect', 'line', 'text', 'image')
+
+
+def _pdf_page_replay(c, page, ImageReader, pdfmetrics, HexColor):
+    """Replay one binder page - its display list (app-binder.js's _bRecCtx)
+    - onto the reportlab canvas `c`, sized to the page. Raises ValueError
+    on a malformed page."""
+    if not isinstance(page, dict):
+        raise ValueError('a page must be an object')
+    page_size = page.get('page_size')
+    if not (isinstance(page_size, (list, tuple)) and len(page_size) == 2
+            and all(isinstance(v, (int, float)) and v > 0 for v in page_size)):
+        raise ValueError('page_size must be [width, height] in points')
+    width, height = page.get('width'), page.get('height')
+    if not all(isinstance(v, (int, float)) and v > 0 for v in (width, height)):
+        raise ValueError('width and height must be positive page pixels')
+    ops = page.get('ops')
+    if not isinstance(ops, list):
+        raise ValueError('ops must be a list')
+    images = page.get('images') or {}
+    if not isinstance(images, dict):
+        raise ValueError('images must be an object of id -> data URL')
+    pw, ph = float(page_size[0]), float(page_size[1])
+    sx, sy = pw / float(width), ph / float(height)
+    s = sx                                  # one scale: the page keeps its aspect
+    c.setPageSize((pw, ph))
+
+    def num(v, what):
+        if not isinstance(v, (int, float)):
+            raise ValueError(f'{what} must be a number')
+        return float(v)
+
+    def colour(v):
+        try:
+            return HexColor(v if isinstance(v, str) and v else '#000000')
+        except Exception:
+            raise ValueError(f'bad colour {v!r}')
+
+    readers = {}
+    for op in ops:
+        if not isinstance(op, dict) or op.get('op') not in _PAGE_OPS:
+            raise ValueError('every op must be one of ' + ', '.join(_PAGE_OPS))
+        kind = op['op']
+        if kind == 'rect':
+            x, y = num(op.get('x'), 'x') * s, num(op.get('y'), 'y') * sy
+            w, h = num(op.get('w'), 'w') * s, num(op.get('h'), 'h') * sy
+            fill = op.get('fill')
+            stroke = op.get('stroke')
+            if not fill and not stroke:
+                continue
+            if fill:
+                c.setFillColor(colour(fill))
+            if stroke:
+                c.setStrokeColor(colour(stroke))
+                c.setLineWidth(num(op.get('width', 1), 'width') * s)
+                c.setDash([])
+            c.rect(x, ph - y - h, w, h, stroke=1 if stroke else 0, fill=1 if fill else 0)
+        elif kind == 'line':
+            points = op.get('points')
+            if not isinstance(points, list) or len(points) < 2:
+                raise ValueError('a line needs at least two points')
+            c.setStrokeColor(colour(op.get('stroke') or '#000000'))
+            c.setLineWidth(num(op.get('width', 1), 'width') * s)
+            dash = op.get('dash') or []
+            if not isinstance(dash, list):
+                raise ValueError('dash must be a list')
+            c.setDash([num(d, 'dash') * s for d in dash] if dash else [])
+            path = c.beginPath()
+            for i, pt in enumerate(points):
+                if not (isinstance(pt, (list, tuple)) and len(pt) == 2):
+                    raise ValueError('a point is [x, y]')
+                px, py = num(pt[0], 'x') * s, ph - num(pt[1], 'y') * sy
+                (path.moveTo if i == 0 else path.lineTo)(px, py)
+            c.drawPath(path, stroke=1, fill=0)
+        elif kind == 'text':
+            text = op.get('text')
+            if not isinstance(text, str):
+                raise ValueError('text must be a string')
+            size = num(op.get('size', 24), 'size') * s
+            weight = op.get('weight', 400)
+            font = 'Helvetica-Bold' if isinstance(weight, (int, float)) and weight >= 600 else 'Helvetica'
+            x, y = num(op.get('x'), 'x') * s, num(op.get('y'), 'y') * sy
+            align = op.get('align') or 'left'
+            baseline = op.get('baseline') or 'alphabetic'
+            rotate = num(op.get('rotate', 0), 'rotate')
+            tw = pdfmetrics.stringWidth(text, font, size)
+            dx = -tw / 2 if align == 'center' else (-tw if align in ('right', 'end') else 0.0)
+            # the canvas baselines, as an offset from the alphabetic one
+            # (canvas y grows down; these are in page-down terms)
+            dy = {'middle': size * 0.35, 'top': size * 0.8, 'hanging': size * 0.8,
+                  'bottom': -size * 0.2, 'ideographic': -size * 0.2}.get(baseline, 0.0)
+            c.setFillColor(colour(op.get('color') or '#000000'))
+            c.setFont(font, size)
+            if rotate:
+                c.saveState()
+                c.translate(x, ph - y)
+                # a canvas rotation is clockwise in a y-down space: the
+                # same turn in PDF's y-up space is the negative angle
+                c.rotate(-rotate * 180.0 / math.pi)
+                c.drawString(dx, -dy, text)
+                c.restoreState()
+            else:
+                c.drawString(x + dx, ph - (y + dy), text)
+        elif kind == 'image':
+            iid = op.get('id')
+            data = images.get(iid) if isinstance(iid, str) else None
+            if not isinstance(data, str):
+                raise ValueError(f'image {iid!r} has no bitmap')
+            x, y = num(op.get('x'), 'x') * s, num(op.get('y'), 'y') * sy
+            w, h = num(op.get('w'), 'w') * s, num(op.get('h'), 'h') * sy
+            if iid not in readers:
+                try:
+                    readers[iid] = ImageReader(decode_base64_image(data))
+                except Exception:
+                    raise ValueError(f'image {iid!r} is not a PNG data URL')
+            c.drawImage(readers[iid], x, ph - y - h, width=w, height=h, mask='auto')
+
+
+@app.route('/api/export/pdf-from-pages', methods=['POST'])
+def export_pdf_from_pages():
+    """Create a multi-page PDF from client-laid pages sent as DISPLAY LISTS
+    (the binder, app-binder.js): every page is { name, width, height,
+    page_size, ops, images } - rects, lines and text as vector ops in page
+    pixels, the bitmaps (the maps, the cover's raster) by id - so the text
+    in the PDF is real text, set in Helvetica, and only the maps are
+    images. pdf-from-images beside this keeps every other export."""
+    try:
+        from reportlab.pdfgen import canvas as pdf_canvas
+        from reportlab.lib.utils import ImageReader
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.lib.colors import HexColor
+    except ImportError:
+        return jsonify({'error': 'PDF export requires reportlab library'}), 500
+
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({'error': 'Expected a JSON object with pages'}), 400
+    project_name = data.get('project_name') or 'Project'
+    pages = data.get('pages')
+    if not isinstance(pages, list) or not pages:
+        return jsonify({'error': 'pages must be a non-empty list'}), 400
+
+    pdf_bytes = io.BytesIO()
+    c = pdf_canvas.Canvas(pdf_bytes, pagesize=(792, 612))
+    c.setTitle(str(project_name))
+    for i, page in enumerate(pages):
+        try:
+            _pdf_page_replay(c, page, ImageReader, pdfmetrics, HexColor)
+        except ValueError as e:
+            return jsonify({'error': f'page {i + 1}: {e}'}), 400
+        c.showPage()
+    c.save()
+    pdf_bytes.seek(0)
+
     return send_file(
         pdf_bytes,
         mimetype='application/pdf',

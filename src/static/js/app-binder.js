@@ -1,6 +1,11 @@
 // app-binder: the binder packet - the show's power and data maps, one page
 // per screen, with the pull tables under each map, laid out on the client
-// as bitmaps and bound into one PDF through /api/export/pdf-from-images.
+// and bound into one PDF through /api/export/pdf-from-pages: every page
+// goes over as a DISPLAY LIST - its rects, lines and text as vector ops,
+// and only the map and the cover's raster as bitmaps - so the PDF's text is
+// real text (2026-09-08, on the beta.27 binder: "so all the text seems low
+// res still" - bitmap text at 400 dpi still softens at screen scale; the
+// Vectorworks packet he held up has real vector text).
 //
 // The page is binder-mock.html's Type A, as the user picked it (2026-09-06):
 // the screen's map across the top half or more of a landscape letter page
@@ -36,8 +41,9 @@
 // of letter height so a short page keeps the shape, no ceiling: the map
 // fills the width, the tables sit whole under it, and nothing continues
 // onto another page - a band is always over its rows. Every page is
-// painted at 2x ("some of the text is low resolution") and the PDF page
-// is sized in points to the same physical width, so a taller page prints
+// painted at 2x onto the book canvas (the tests and any preview read its
+// pixels) and RECORDED as a display list in page units; the PDF page is
+// sized in points to the same physical width, so a taller page prints
 // as a taller sheet, or scales onto whatever paper is loaded.
 //
 // Pages, in order: cover; per POSITION (a screen group, else the screen
@@ -56,17 +62,22 @@ import { sendClientLog } from './helpers.js';
 // space. The page's HEIGHT is per page - the height its content needs
 // (`book.page.h`), with the letter-landscape height as a floor and no
 // ceiling - so nothing below reads a page height off a constant. The
-// bitmap is painted at PAGE_SCALE (the canvas is 4400 x 2h with the
-// context scaled, so every coordinate here stays 2200-wide), and the PDF
+// book canvas is painted at PAGE_SCALE (4400 x 2h with the context
+// scaled, so every coordinate here stays 2200-wide) while the recording
+// context (_bRecCtx) writes the same ops down in page units; the PDF
 // route sizes the page in points (`page_size`: 792 wide, 612 x h / 1700
-// tall) and scales the bitmap to fill it.
+// tall) and replays the ops at 72 / 200 pt per page px.
 const PAGE_W = 2200;
 const PAGE_MIN_H = 1700;              // the floor: letter landscape
 const PAGE_PT_W = 792;
 const PAGE_PT_H = 612;                // the floor's height in points
 const PAGE_SCALE = 2;                 // print density: 400 px/in
 const PAD = 42;                       // 1.9cqw of the mock
-const FONT = '-apple-system, "Segoe UI", Helvetica, Arial, sans-serif';
+// Helvetica first: the PDF route draws the page's text in reportlab's
+// Helvetica, so the canvas measures with a Helvetica-metric face (Arial is
+// metric-compatible where Helvetica is missing) and the vector page lays
+// out as measured - a cell that fits here fits on paper.
+const FONT = 'Helvetica, Arial, sans-serif';
 const INK = '#111111';
 const RULE = '#333333';
 const FAINT = '#cccccc';
@@ -261,25 +272,26 @@ class _Binder {
         if (typeof this.refreshPortAssignment === 'function') {
             try { await this.refreshPortAssignment(); } catch (_) {}
         }
-        const images = this.renderBinderPages(opts);
-        if (!images.length) throw new Error('Nothing to bind: no screen has circuits or ports');
+        // The pages as display lists - no bitmaps of the pages themselves
+        // (encoding seventeen 4400-px PNGs nobody reads is seconds of
+        // work); the maps ride along as images inside each record.
+        const pages = this.renderBinderPages(opts, { bitmaps: false });
+        if (!pages.length) throw new Error('Nothing to bind: no screen has circuits or ports');
         sendClientLog('export_binder_start', {
-            pages: images.length, palette: opts.palette, scope: opts.scope.kind,
+            pages: pages.length, palette: opts.palette, scope: opts.scope.kind,
         });
-        const response = await fetch('/api/export/pdf-from-images', {
+        const response = await fetch('/api/export/pdf-from-pages', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 project_name: name,
-                labels: false,
-                // Each page at its own height: the bitmap's real pixel
-                // size and the page's size in points (letter width, as
-                // tall as the page grew).
-                images: images.map(i => ({
-                    name: i.name, data: i.dataUrl,
-                    width: i.width, height: i.height, page_size: i.page_size,
+                // Each page at its own height: its size in page units and
+                // in points (letter width, as tall as the page grew), its
+                // ops in page units, its bitmaps by id.
+                pages: pages.map(p => ({
+                    name: p.name, width: p.width, height: p.height, page_size: p.page_size,
+                    ops: p.ops, images: p.images,
                 })),
-                width: PAGE_W * PAGE_SCALE, height: PAGE_MIN_H * PAGE_SCALE,
             }),
         });
         if (!response.ok) {
@@ -289,7 +301,7 @@ class _Binder {
         }
         const blob = await response.blob();
         await this.saveBlobWithPicker(blob, this.binderFileName(name), 'application/pdf');
-        return { pages: images.length };
+        return { pages: pages.length };
     }
 
     // The page list, without drawing anything: [{ kind, title, layerId,
@@ -301,23 +313,30 @@ class _Binder {
                                       subject: p.subject || null, h: p.h }));
     }
 
-    // Every page as a PNG data URL, in order.
-    renderBinderPages(opts) {
+    // Every page's record, in order: { name, width, height, page_size, ops,
+    // images } (see _bClosePage), plus `dataUrl` - the painted page as a
+    // PNG - when `run.bitmaps` is on (the default; the export turns it
+    // off, having no use for it).
+    renderBinderPages(opts, run) {
         const o = opts || this.readBinderOptions();
         const total = this._binderBook(o, { dry: true }).pages.length;
-        const book = this._binderBook(o, { dry: false, total });
-        return book.images;
+        const bitmaps = !run || run.bitmaps !== false;
+        const book = this._binderBook(o, { dry: false, total, bitmaps });
+        return book.records;
     }
 
-    // One page painted for a look (tests, previews): the page's canvas plus
-    // every text the page and its map drew and every dash the map set.
-    renderBinderPage(opts, index) {
+    // One page painted for a look (tests, previews): the page's canvas,
+    // its record (the display list), plus every text the page and its map
+    // drew and every dash the map set.
+    renderBinderPage(opts, index, run) {
         const o = opts || this.readBinderOptions();
         const plan = this._binderBook(o, { dry: true });
         const log = { texts: [], textInfo: [], mapTexts: [], dashes: [] };
-        const book = this._binderBook(o, { dry: false, total: plan.pages.length, only: index, log });
+        const bitmaps = !!(run && run.bitmaps);
+        const book = this._binderBook(o, { dry: false, total: plan.pages.length, only: index, log, bitmaps });
         this._binderLastCanvas = book.canvas;
-        return { canvas: book.canvas, texts: log.texts, textInfo: log.textInfo, mapTexts: log.mapTexts,
+        return { canvas: book.canvas, record: book.records[0] || null,
+                 texts: log.texts, textInfo: log.textInfo, mapTexts: log.mapTexts,
                  dashes: log.dashes, map: log.map || null, brackets: log.brackets || [],
                  page: plan.pages[index] || null, pages: plan.pages.length };
     }
@@ -348,8 +367,8 @@ class _Binder {
         const book = {
             opts, list, meta, layers, run,
             dry: !!run.dry, total: run.total || 0, only: run.only,
-            log: run.log || null,
-            pages: [], images: [], canvas, realCtx, measureCtx, ctx: null, page: null,
+            log: run.log || null, bitmaps: !!run.bitmaps,
+            pages: [], records: [], canvas, realCtx, measureCtx, ctx: null, page: null,
         };
         const scopeLayer = opts.scope && opts.scope.kind === 'screen'
             ? layers.get(String(opts.scope.layerId)) || null : null;
@@ -414,7 +433,9 @@ class _Binder {
     //   PAINT   - on a painting pass, for the page being painted: the book
     //             canvas sized to this page at PAGE_SCALE, the header and
     //             footer drawn at the page's own height, then the body
-    //             again at the same coordinates.
+    //             again at the same coordinates - through the recording
+    //             context, so the page's display list is written as the
+    //             canvas is painted.
     // The plan (dry) and the pages not being painted stop after MEASURE,
     // so every page knows its height either way.
     _bPage(book, kind, title, header, extra, body) {
@@ -434,7 +455,9 @@ class _Binder {
             page.reach = 0;
             book.canvas.width = PAGE_W * PAGE_SCALE;
             book.canvas.height = page.h * PAGE_SCALE;
-            book.ctx = book.realCtx;
+            page.ops = [];
+            page.images = {};
+            book.ctx = this._bRecCtx(book, page);
             this._bPageFrame(book, page);
             body(page);
         }
@@ -477,20 +500,173 @@ class _Binder {
         this._bText(book, foot, PAGE_W - PAD, h - 22, { size: SZ.foot, color: MUTED, align: 'right' });
     }
 
-    // The painted page as its image record: the bitmap's real pixel size
-    // and the PDF page in points - letter wide, as tall as the page grew.
+    // The painted page as its record - what the PDF route replays:
+    //   { name, width: PAGE_W, height: h,            the page in page units
+    //     page_size: [792, 612 x h / 1700],           the PDF page in points
+    //     ops: [...],                                 the display list (_bRecCtx)
+    //     images: { id: 'data:image/png;base64,…' } } the bitmaps its image ops name
+    // plus `dataUrl`, the painted canvas as a PNG, when the book asked for
+    // bitmaps (encoding a 4400-px page is real work, so only a caller that
+    // reads it pays for it).
     _bClosePage(book) {
         const page = book.page;
         if (!page) return;
-        if (page.painting && book.canvas && book.only == null) {
-            book.images.push({
-                name: page.title, dataUrl: book.canvas.toDataURL('image/png'),
-                width: PAGE_W * PAGE_SCALE, height: page.h * PAGE_SCALE,
+        if (page.painting && book.canvas) {
+            const rec = {
+                name: page.title, width: PAGE_W, height: page.h,
                 page_size: [PAGE_PT_W, PAGE_PT_H * page.h / PAGE_MIN_H],
-            });
+                ops: page.ops || [], images: page.images || {},
+            };
+            if (book.bitmaps) rec.dataUrl = book.canvas.toDataURL('image/png');
+            book.records.push(rec);
         }
         book.page = null;
         book.ctx = null;
+    }
+
+    // ---- the recording context ----------------------------------------------
+
+    // A context that paints AND writes down what it painted. It wraps the
+    // book's real context - every call and property goes through, so the
+    // canvas is painted exactly as before (the tests and any preview read
+    // its pixels) - and records each drawing op as an entry of the page's
+    // display list, in PAGE units (PAGE_SCALE undone) with colours as hex:
+    //   { op: 'rect', x, y, w, h, fill }                 fillRect
+    //   { op: 'rect', x, y, w, h, stroke, width }        strokeRect
+    //   { op: 'line', points: [[x, y]…], width, dash, stroke }
+    //                                     one per subpath of beginPath … stroke
+    //   { op: 'text', text, x, y, size, weight, align, baseline, color, rotate }
+    //                                     rotate in radians; x, y the anchor
+    //                                     where the text is drawn, already
+    //                                     through the translate / rotate pair
+    //                                     the brackets use - the list carries
+    //                                     no raw transforms
+    //   { op: 'image', id, x, y, w, h }   the bitmap once in page.images[id]
+    // The transform is tracked in page space: setTransform(PAGE_SCALE, …)
+    // is the page's identity, translate and rotate compose onto it, save
+    // and restore stack it. Nothing else the binder draws with needs
+    // tracking (grep `ctx\.` here: no scale, no arcs, no fills of paths).
+    _bRecCtx(book, page) {
+        const t = book.realCtx;
+        const ops = page.ops;
+        const images = page.images;
+        const S = PAGE_SCALE;
+        // the current transform in page units, and its stack
+        let xf = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
+        const stack = [];
+        const map = (x, y) => [xf.a * x + xf.c * y + xf.e, xf.b * x + xf.d * y + xf.f];
+        const mul = (m, n) => ({
+            a: m.a * n.a + m.c * n.b, b: m.b * n.a + m.d * n.b,
+            c: m.a * n.c + m.c * n.d, d: m.b * n.c + m.d * n.d,
+            e: m.a * n.e + m.c * n.f + m.e, f: m.b * n.e + m.d * n.f + m.f,
+        });
+        const rotation = () => {
+            const r = Math.atan2(xf.b, xf.a);
+            return Math.abs(r) < 1e-9 ? 0 : r;
+        };
+        const round = (v) => Math.round(v * 100) / 100;
+        // a colour as #rrggbb: the binder sets hex; anything else is read
+        // back from the real context, which serialises opaque colours as
+        // hex and the rest as rgb(a)
+        const hex = (v) => {
+            let s = String(v == null ? '' : v).trim();
+            if (/^#[0-9a-f]{6}$/i.test(s)) return s.toLowerCase();
+            if (/^#[0-9a-f]{3}$/i.test(s)) return ('#' + s[1] + s[1] + s[2] + s[2] + s[3] + s[3]).toLowerCase();
+            const m = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/.exec(s);
+            if (m) {
+                return '#' + [m[1], m[2], m[3]].map(n => Math.max(0, Math.min(255, +n)).toString(16).padStart(2, '0')).join('');
+            }
+            return '#000000';
+        };
+        const fillHex = () => hex(t.fillStyle);
+        const strokeHex = () => hex(t.strokeStyle);
+        // the font the real context holds, as it serialises it: "bold 24px
+        // …", "800 24px …", "24px …"
+        const font = () => {
+            const f = String(t.font || '');
+            const m = /(?:^|\s)(bold|bolder|normal|\d{3})\s+(\d+(?:\.\d+)?)px/.exec(f)
+                || /(\d+(?:\.\d+)?)px/.exec(f);
+            if (!m) return { size: SZ.cell, weight: 400 };
+            if (m.length === 2) return { size: parseFloat(m[1]), weight: 400 };
+            const w = m[1] === 'bold' ? 700 : m[1] === 'bolder' ? 900 : m[1] === 'normal' ? 400 : parseInt(m[1], 10);
+            return { size: parseFloat(m[2]), weight: w };
+        };
+        let subpaths = [];
+        let imageSeq = 0;
+        const methods = {
+            setTransform(a, b, c, d, e, f) {
+                xf = { a: a / S, b: b / S, c: c / S, d: d / S, e: e / S, f: f / S };
+                return t.setTransform(a, b, c, d, e, f);
+            },
+            translate(x, y) {
+                xf = mul(xf, { a: 1, b: 0, c: 0, d: 1, e: x, f: y });
+                return t.translate(x, y);
+            },
+            rotate(r) {
+                const cs = Math.cos(r), sn = Math.sin(r);
+                xf = mul(xf, { a: cs, b: sn, c: -sn, d: cs, e: 0, f: 0 });
+                return t.rotate(r);
+            },
+            save() { stack.push({ ...xf }); return t.save(); },
+            restore() { if (stack.length) xf = stack.pop(); return t.restore(); },
+            fillRect(x, y, w, h) {
+                const [px, py] = map(x, y);
+                ops.push({ op: 'rect', x: round(px), y: round(py), w: round(w), h: round(h), fill: fillHex() });
+                return t.fillRect(x, y, w, h);
+            },
+            strokeRect(x, y, w, h) {
+                const [px, py] = map(x, y);
+                ops.push({ op: 'rect', x: round(px), y: round(py), w: round(w), h: round(h),
+                           stroke: strokeHex(), width: round(t.lineWidth) });
+                return t.strokeRect(x, y, w, h);
+            },
+            beginPath() { subpaths = []; return t.beginPath(); },
+            moveTo(x, y) { subpaths.push([map(x, y).map(round)]); return t.moveTo(x, y); },
+            lineTo(x, y) {
+                if (!subpaths.length) subpaths.push([]);
+                subpaths[subpaths.length - 1].push(map(x, y).map(round));
+                return t.lineTo(x, y);
+            },
+            stroke() {
+                const width = round(t.lineWidth), dash = Array.from(t.getLineDash() || []).map(round);
+                const stroke = strokeHex();
+                for (const points of subpaths) {
+                    if (points.length >= 2) ops.push({ op: 'line', points, width, dash, stroke });
+                }
+                return t.stroke();
+            },
+            fillText(text, x, y, maxWidth) {
+                const [px, py] = map(x, y);
+                const f = font();
+                ops.push({ op: 'text', text: String(text), x: round(px), y: round(py),
+                           size: f.size, weight: f.weight,
+                           align: t.textAlign || 'left', baseline: t.textBaseline || 'alphabetic',
+                           color: fillHex(), rotate: rotation() });
+                return maxWidth === undefined ? t.fillText(text, x, y) : t.fillText(text, x, y, maxWidth);
+            },
+            drawImage(img, ...args) {
+                // the binder draws (img, x, y, w, h); the bitmap is taken
+                // now, as the offscreen canvas is reused for the next map
+                const [x, y, w, h] = args.length >= 5 ? args.slice(4) : args;
+                const [px, py] = map(x, y);
+                const id = `img${++imageSeq}`;
+                let data = null;
+                try { data = typeof img.toDataURL === 'function' ? img.toDataURL('image/png') : null; } catch (_) {}
+                if (data) {
+                    images[id] = data;
+                    ops.push({ op: 'image', id, x: round(px), y: round(py), w: round(w), h: round(h) });
+                }
+                return t.drawImage(img, ...args);
+            },
+        };
+        return new Proxy(t, {
+            get(target, k) {
+                if (Object.prototype.hasOwnProperty.call(methods, k)) return methods[k];
+                const v = target[k];
+                return typeof v === 'function' ? v.bind(target) : v;
+            },
+            set(target, k, v) { target[k] = v; return true; },
+        });
     }
 
     // A context that measures and does nothing else.

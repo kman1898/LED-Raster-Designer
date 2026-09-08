@@ -18,9 +18,12 @@ ceiling. The wall scales uniformly to fill the page width between the
 gutters, always (capped at 3x for a tiny wall), the tables sit whole
 under it in three columns - block per column, no block ever broken - and
 the page is as tall as its tallest column plus the footer's room. No page
-continues onto another: no "(cont.)". Every page is painted at 2x ("some
-of the text is low resolution") - a 4400-wide bitmap - and the PDF page
-is sized in points at letter width and the page's own height.
+continues onto another: no "(cont.)". Every page is painted at 2x onto
+the book canvas (the pixels the tests read) and RECORDED as a display
+list - rects, lines, text and the map bitmap in page units - which
+/api/export/pdf-from-pages replays in points at letter width and the
+page's own height, the text set in Helvetica as real PDF text
+(2026-09-08, "so all the text seems low res still").
 The brackets: one distance per side, a bracket stepping out only when its
 row span truly overlaps another's ("why the socas on the sides are offset"). Colour and Printer palettes - the renderer's
 printerMode (canvas.js) draws greys, black runs told apart by a dash per
@@ -467,15 +470,22 @@ def test_a_single_screen_scope_yields_only_that_screens_pages(page):
     assert menu['layer'] in ('WALL-A', 'WALL-B', 'CENTER')
 
 
-def test_the_pdf_route_receives_one_image_per_page(page):
+def test_the_pdf_route_receives_one_display_list_per_page(page):
+    """exportBinder posts every page to /api/export/pdf-from-pages as a
+    display list - { name, width, height, page_size, ops, images } in page
+    units - and no page bitmap at all (the data URL is an option the
+    export leaves off); the maps and the cover's raster ride inside the
+    records as images. The PDF that comes back is saved through the
+    picker under the binder's name."""
     pg, ids = page
     out = pg.evaluate("""async (opts) => {
         const app = window.app;
         const realFetch = window.fetch;
         const saved = app.saveBlobWithPicker;
-        const seen = { posts: [], saved: null };
+        const seen = { posts: [], saved: null, urls: [] };
         window.fetch = async (url, init) => {
-            if (String(url).includes('/api/export/pdf-from-images')) {
+            if (String(url).includes('/api/export/pdf-from-')) {
+                seen.urls.push(String(url));
                 seen.posts.push(JSON.parse(init.body));
                 return { ok: true, blob: async () => new Blob(['%PDF-fake'], {type: 'application/pdf'}) };
             }
@@ -492,36 +502,167 @@ def test_the_pdf_route_receives_one_image_per_page(page):
             const res = await app.exportBinder('Two Positions');
             const body = seen.posts[0];
             const plan = app.planBinder(app.readBinderOptions());
-            return { pages: res.pages, posts: seen.posts.length, n: body.images.length, labels: body.labels,
-                     names: body.images.map(i => i.name), sizes: body.images.map(i => i.page_size),
-                     dims: body.images.map(i => [i.width, i.height]),
-                     png: body.images.every(i => i.data.startsWith('data:image/png;base64,')),
-                     first: body.images[0].data, last: body.images[body.images.length - 1].data,
-                     saved: seen.saved, plan: plan.length, heights: plan.map(p => p.h) };
+            const kinds = (p) => [...new Set(p.ops.map(o => o.op))].sort();
+            return { pages: res.pages, posts: seen.posts.length, urls: seen.urls, keys: Object.keys(body).sort(),
+                     n: body.pages.length, pageKeys: body.pages.map(p => Object.keys(p).sort()),
+                     names: body.pages.map(p => p.name), sizes: body.pages.map(p => p.page_size),
+                     dims: body.pages.map(p => [p.width, p.height]),
+                     kinds: body.pages.map(kinds),
+                     texts: body.pages.map(p => p.ops.filter(o => o.op === 'text').length),
+                     imageIds: body.pages.map(p => Object.keys(p.images)),
+                     imageOps: body.pages.map(p => p.ops.filter(o => o.op === 'image').map(o => o.id)),
+                     png: body.pages.every(p => Object.values(p.images).every(d => d.startsWith('data:image/png;base64,'))),
+                     bitmaps: body.pages.some(p => 'dataUrl' in p || 'data' in p),
+                     firstOps: body.pages[0].ops.slice(0, 3),
+                     saved: seen.saved, plan: plan.length, heights: plan.map(p => p.h),
+                     kindsByPage: plan.map(p => p.kind) };
         } finally {
             window.fetch = realFetch;
             app.saveBlobWithPicker = saved;
             document.getElementById('export-binder-colour').checked = true;
         }
     }""", None)
-    assert out['posts'] == 1 and out['labels'] is False
+    assert out['posts'] == 1 and out['urls'] == ['/api/export/pdf-from-pages']
+    assert out['keys'] == ['pages', 'project_name']
     assert out['n'] == out['plan'] == out['pages'] == 12
+    assert all(k == ['height', 'images', 'name', 'ops', 'page_size', 'width'] for k in out['pageKeys']), out['pageKeys']
+    assert not out['bitmaps'], 'the export sends no page bitmap'
     assert out['names'][0] == 'Cover' and out['names'][-1] == 'Pull list - all positions'
-    # every page at its own height: the bitmap at 2x, the PDF page in
-    # points at letter width and the page's height; short pages (the cover,
-    # the pull pages, the totals) sit exactly at the floor
+    # every page at its own height, in page units, the PDF page in points
+    # at letter width and the page's height; short pages (the cover, the
+    # pull pages, the totals) sit exactly at the floor
     heights = out['heights']
     assert all(h >= PAGE_MIN_H for h in heights), heights
     assert heights[0] == PAGE_MIN_H and heights[-1] == PAGE_MIN_H and heights[1] == PAGE_MIN_H, heights
-    assert out['dims'] == [[PAGE_W * SCALE, h * SCALE] for h in heights], (out['dims'], heights)
+    assert out['dims'] == [[PAGE_W, h] for h in heights], (out['dims'], heights)
     assert out['sizes'] == [_page_pt(h) for h in heights], (out['sizes'], heights)
+    # every page is text and rects at least; the first op is the page's white
+    assert all('text' in k and 'rect' in k for k in out['kinds']), out['kinds']
+    assert all(n > 0 for n in out['texts']), out['texts']
+    assert out['firstOps'][0] == {'op': 'rect', 'x': 0, 'y': 0, 'w': PAGE_W, 'h': PAGE_MIN_H, 'fill': '#ffffff'}
+    # only the map pages and the cover (its raster) carry images - one
+    # each, the op naming the bitmap the record holds, as a PNG
+    for kind, ids_, ops_ in zip(out['kindsByPage'], out['imageIds'], out['imageOps']):
+        if kind in ('cover', 'power', 'data'):
+            assert len(ids_) == 1 and ops_ == ids_, (kind, ids_, ops_)
+        else:
+            assert ids_ == [] and ops_ == [], (kind, ids_, ops_)
     assert out['png']
-    # the data URLs decode to the 2x size they claim
-    from PIL import Image
-    for key, h in (('first', heights[0]), ('last', heights[-1])):
-        raw = base64.b64decode(out[key].split(',', 1)[1])
-        assert Image.open(io.BytesIO(raw)).size == (PAGE_W * SCALE, h * SCALE), key
     assert out['saved'] == {'filename': 'Two Positions - binder.pdf', 'mime': 'application/pdf', 'size': 9}
+
+
+def _record(pg, opts, title, bitmaps=False):
+    """One page's record (the display list) with the texts it logged, from
+    renderBinderPage; `opts` as JSON."""
+    out = pg.evaluate("""([opts, title, bitmaps]) => {
+        const app = window.app;
+        const plan = app.planBinder(opts);
+        const idx = plan.findIndex(p => p.title === title);
+        if (idx < 0) return { missing: title, plan: plan.map(p => p.title) };
+        const r = app.renderBinderPage(opts, idx, { bitmaps });
+        const rec = r.record;
+        return { texts: r.texts, textInfo: r.textInfo, kind: plan[idx].kind, h: r.page.h,
+                 record: rec && { name: rec.name, width: rec.width, height: rec.height, page_size: rec.page_size,
+                                  ops: rec.ops, imageIds: Object.keys(rec.images),
+                                  imageSizes: Object.fromEntries(Object.entries(rec.images).map(([k, v]) => [k, v.length])),
+                                  dataUrl: rec.dataUrl ? rec.dataUrl.slice(0, 22) : null },
+                 map: r.map, brackets: r.brackets };
+    }""", [opts, title, bitmaps])
+    assert 'missing' not in out, out
+    return out
+
+
+def _texts_match(op_texts, log_texts):
+    """The recorded text ops, in order, are the log's texts - save that a
+    two-line cell ("A / B", _bTextTwoLines) is logged once and drawn
+    twice."""
+    i = 0
+    for t in log_texts:
+        if i < len(op_texts) and op_texts[i] == t:
+            i += 1
+            continue
+        parts = t.split(' / ')
+        if len(parts) == 2 and op_texts[i:i + 2] == parts:
+            i += 2
+            continue
+        return False, (t, op_texts[i:i + 3])
+    return i == len(op_texts), (len(op_texts), len(log_texts))
+
+
+def test_every_page_record_is_a_display_list_of_its_texts(page):
+    """Every page's record carries ops, its text ops the very texts the page
+    logged, in order; the map pages and the cover carry one image (the map,
+    the raster) and no other page carries any; the brackets' labels are
+    recorded turned a quarter with their anchor, never as a raw transform;
+    every op is in page units with its colour as hex; and the record has no
+    bitmap of the page unless asked."""
+    pg, ids = page
+    n = pg.evaluate("(o) => window.app.planBinder(o).length", json.loads(_SHOW_JSON))
+    plan = _plan(pg, SHOW)
+    assert n == len(plan) == 12
+    for kind, title in plan:
+        out = _record(pg, json.loads(_SHOW_JSON), title)
+        rec = out['record']
+        assert rec, title
+        assert rec['name'] == title and rec['width'] == PAGE_W and rec['height'] == out['h']
+        assert rec['page_size'] == _page_pt(out['h'])
+        assert rec['dataUrl'] is None
+        ops = rec['ops']
+        assert ops and ops[0] == {'op': 'rect', 'x': 0, 'y': 0, 'w': PAGE_W, 'h': out['h'], 'fill': '#ffffff'}, ops[:2]
+        assert {o['op'] for o in ops} <= {'rect', 'line', 'text', 'image'}, title
+        texts = [o for o in ops if o['op'] == 'text']
+        assert texts, title
+        ok, why = _texts_match([o['text'] for o in texts], out['texts'])
+        assert ok, (title, why)
+        for o in texts:
+            assert set(o) == {'op', 'text', 'x', 'y', 'size', 'weight', 'align', 'baseline', 'color', 'rotate'}, o
+            assert re.fullmatch(r'#[0-9a-f]{6}', o['color']) and o['align'] in ('left', 'center', 'right'), o
+            assert o['baseline'] == 'alphabetic' and o['weight'] in (400, 600, 700, 800), o
+            assert 0 <= o['x'] <= PAGE_W and 0 <= o['y'] <= out['h'], (title, o)
+        # the header's size and weight, as the page set them; the cover has
+        # no header, so its first text is the frame's footer and its title
+        # comes with the body
+        if kind == 'cover':
+            assert (texts[0]['size'], texts[0]['weight'], texts[0]['color']) == (22, 400, '#666666'), texts[0]
+            assert [(o['size'], o['weight']) for o in texts if o['size'] == 96] == [(96, 800)], texts
+        else:
+            assert (texts[0]['size'], texts[0]['weight']) == (35, 800), texts[0]
+        for o in ops:
+            if o['op'] == 'rect':
+                assert re.fullmatch(r'#[0-9a-f]{6}', o.get('fill') or o.get('stroke')), o
+                assert 0 <= o['x'] and o['x'] + o['w'] <= PAGE_W + 1 and o['w'] > 0 and o['h'] > 0, (title, o)
+            elif o['op'] == 'line':
+                assert len(o['points']) >= 2 and o['width'] > 0 and isinstance(o['dash'], list), o
+                assert re.fullmatch(r'#[0-9a-f]{6}', o['stroke']), o
+        images = [o for o in ops if o['op'] == 'image']
+        if kind in ('cover', 'power', 'data'):
+            assert len(images) == 1 and [o['id'] for o in images] == rec['imageIds'], (title, images, rec['imageIds'])
+            im = images[0]
+            assert im['w'] > 0 and im['h'] > 0 and im['x'] >= 42 and im['x'] + im['w'] <= PAGE_W - 41, im
+            assert rec['imageSizes'][im['id']] > 1000
+            if kind != 'cover':
+                assert (im['x'], im['y'], im['w'], im['h']) == (out['map']['area']['x'], out['map']['area']['y'],
+                                                                out['map']['area']['w'], out['map']['area']['h']), (im, out['map'])
+        else:
+            assert images == [] and rec['imageIds'] == [], (title, images)
+        # a bracket label is a rotated text op at its anchor; every other
+        # text lies flat
+        turned = [o for o in texts if o['rotate']]
+        if kind == 'power':
+            assert len(turned) == len(out['brackets']) >= 1, (title, turned)
+            for o, b in zip(turned, out['brackets']):
+                assert abs(abs(o['rotate']) - 1.5707963) < 1e-4 and (o['rotate'] > 0) == (b['side'] == 'R'), (o, b)
+                assert o['align'] == 'center' and o['weight'] == 700 and o['size'] == 28, o
+                # the anchor: 24 out from the bracket, the baseline 9 in
+                # from centre, turned - the text is centred on the span
+                dir_ = 1 if b['side'] == 'R' else -1
+                assert abs(o['x'] - (b['x'] + dir_ * 24 - dir_ * 9)) < 0.6, (o, b)
+                assert abs(o['y'] - (b['y1'] + b['y2']) / 2) < 0.6, (o, b)
+        else:
+            assert turned == [], (title, turned)
+    # asked for, the record carries the painted page as a PNG at 2x
+    out = _record(pg, json.loads(_SHOW_JSON), 'Cover', bitmaps=True)
+    assert out['record']['dataUrl'] == 'data:image/png;base64,'
 
 
 # The whole-show options as JSON, for evaluate() calls that take them as data.
