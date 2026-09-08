@@ -248,6 +248,26 @@ v0.12.0 - September 7, 2026 (BETA)
   whenever that makes its disc smaller - SR3-5 reads SR over 3-5 - on
   the canvas and in the binder.
 
+- CHANGE (IMPORTANT): The binder is a drawing set. Sheets instead of
+  pages - Tabloid 17 x 11 by default, with Letter, ARCH C, ARCH D, A4 and
+  A3 to pick, type the same size in inches on every one. Every sheet
+  carries a border and a title block down its right edge: the SR/SL/US/DS
+  compass, a prepared-by wordmark, revisions, notes, the show with its
+  venue and dates, designer, project manager and drafter, the sheet title,
+  the sheet number and the drawing date - typed once in the export modal
+  and saved with the project. Sheets number by subject (1.x overview, 2.x
+  power, 3.x data, 4.x pull, 5.x hardware), the overview lists them, and
+  each map is a numbered view with its name. The map sits beside its
+  tables where the sheet is wide enough; on Tabloid a 28 x 11 wall and its
+  circuits share one sheet.
+
+- FIX (IMPORTANT): The binder is real text. Every sheet is drawn into the
+  PDF as vector text and lines, with the map as the one bitmap, so type
+  is sharp at any zoom, selectable and searchable, and a show's binder is
+  a third of the size it was.
+
+- CHANGE: The circuits table and the tray's power sheet say no., not tail.
+
 - CHANGE (IMPORTANT): Redundancy is one bar in one place. Behind the
   processor's gear a raised segmented bar - Off, Whole unit, Per card,
   Per port (Off, Backed up, Per port on a standalone unit) - and exactly
