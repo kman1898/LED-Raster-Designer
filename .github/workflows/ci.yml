@@ -36,7 +36,7 @@ jobs:
           python -m venv .venv
           source .venv/bin/activate
           pip install -r src/requirements.txt
-          pip install pytest
+          pip install pytest pypdf
 
       - name: Check version consistency
         run: |
@@ -94,7 +94,7 @@ jobs:
           python -m venv .venv
           source .venv/bin/activate
           pip install -r src/requirements.txt
-          pip install pytest pytest-cov
+          pip install pytest pytest-cov pypdf
 
       - name: Install dependencies (Windows)
         if: runner.os == 'Windows'
@@ -102,7 +102,7 @@ jobs:
           python -m venv .venv
           .venv\Scripts\activate
           pip install -r src/requirements.txt
-          pip install pytest pytest-cov
+          pip install pytest pytest-cov pypdf
 
       - name: Run tests (Unix)
         if: runner.os != 'Windows'
@@ -135,7 +135,7 @@ jobs:
           python -m venv .venv
           source .venv/bin/activate
           pip install -r src/requirements.txt
-          pip install pytest playwright
+          pip install pytest playwright pypdf
 
       - name: Install Chromium browser
         run: |
