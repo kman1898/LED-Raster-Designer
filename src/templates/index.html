@@ -235,6 +235,10 @@
                                 <option value="270">270&deg;</option>
                             </select>
                         </div>
+                        <div class="info-row screen-only" data-tooltip="Beach, Where this screen's gear is pulled to. Pick one of the project's beaches or make a new one; the pull sheet lists the beaches in order and the binder runs the screens in that order.">
+                            <label>Beach</label>
+                            <select id="layer-beach" class="info-select" data-lrd-field="layer-beach"></select>
+                        </div>
                         <div id="screen-grid-settings" class="screen-only">
                             <div class="info-row" data-tooltip="Cabinet Width, Width of a single LED cabinet/panel in pixels.">
                                 <label>Cabinet Width (px)</label>
@@ -1832,6 +1836,7 @@
                         <span style="color:#888; font-size:12px;">Lock Selected</span>
                     </div>
                     <div id="layers-list"></div>
+                    <div id="beaches-panel" data-tooltip="Beaches, The positions the show is pulled to, in pull-sheet and binder order. Drag to reorder, double-click a name to rename, x to remove."></div>
                     <button id="btn-add-canvas" class="btn btn-secondary full-width" style="margin-top: 8px;" data-tooltip="Add a new canvas (a separate raster / processor) to this project">+ Add Canvas</button>
                     <button id="btn-save-preset" class="btn btn-secondary full-width" style="margin-top: 6px;" data-tooltip="Save the currently selected layer's settings as a reusable preset">Save as Preset</button>
                 </div>
@@ -2049,14 +2054,15 @@
                     </div>
                     <div style="display: flex; gap: 8px; align-items: center; font-size: 12px; color: #aaa;">
                         <span style="flex: none; width: 92px;">Engineer</span>
-                        <input type="text" id="export-binder-engineer" placeholder="Name" data-tooltip="The Drafter the title block prints unless one is typed below. Remembered as a preference." style="flex: 1; min-width: 60px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px;">
+                        <input type="text" id="export-binder-engineer" placeholder="Name" data-tooltip="The Drafter the title block prints unless one is typed below, and the initials a logged revision wears. Remembered as a preference." style="flex: 1; min-width: 60px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px;">
                         <span style="flex: none;">Rev</span>
                         <input type="text" id="export-binder-rev" placeholder="1.0" data-tooltip="Printed in every sheet's corner and in the file name." style="flex: none; width: 44px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px; text-align: right;">
                     </div>
                 </div>
                 <!-- The title block's fields: project.binder (one undo entry
-                     per field), the prepared-by name a preference. -->
-                <label style="display: block; margin: 10px 0 8px; color: #ccc; font-size: 13px;" data-tooltip="The column down every sheet's right edge: the show, the venue and dates, who designed, managed and drafted it, notes, revisions.">Title block:</label>
+                     per field), the logo a preference, the revision log
+                     written on export. -->
+                <label style="display: block; margin: 10px 0 8px; color: #ccc; font-size: 13px;" data-tooltip="The column down every sheet's right edge: your logo, the revision log, the show, the venue and dates, who designed, managed and drafted it.">Title block:</label>
                 <div class="export-views" style="display: flex; flex-direction: column; gap: 8px;">
                     <div style="display: flex; gap: 8px; align-items: center; font-size: 12px; color: #aaa;">
                         <span style="flex: none; width: 92px;">Venue</span>
@@ -2084,16 +2090,21 @@
                         <input type="text" id="export-binder-drafter" placeholder="Name" data-tooltip="The Drafter line; blank, the engineer's name prints." style="flex: 1; min-width: 60px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px;">
                     </div>
                     <div style="display: flex; gap: 8px; align-items: center; font-size: 12px; color: #aaa;">
-                        <span style="flex: none; width: 92px;">Prepared by</span>
-                        <input type="text" id="export-binder-prepared-by" placeholder="Company" data-tooltip="The name set large in the wordmark box - the company, or you. Blank, the engineer's name, else the app's. Remembered as a preference." style="flex: 1; min-width: 60px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px;">
+                        <span style="flex: none; width: 92px;">Logo</span>
+                        <img id="export-binder-logo-preview" alt="" style="display: none; flex: none; max-height: 36px; max-width: 120px; background: #1a1a1a; border: 1px solid #3a3a3a; border-radius: 3px; padding: 2px;">
+                        <span id="export-binder-logo-none" style="flex: none; color: #777;">None</span>
+                        <label for="export-binder-logo" class="btn" style="flex: none; padding: 3px 10px; font-size: 12px; cursor: pointer;" data-tooltip="A PNG or JPEG at the top of every sheet's title block (an SVG is refused: the PDF draws bitmaps). Downscaled to 1200 px on its long side before it is stored. Remembered as a preference.">Choose…</label>
+                        <input type="file" id="export-binder-logo" accept="image/png,image/jpeg" style="display: none;">
+                        <button type="button" id="export-binder-logo-remove" class="btn" style="display: none; flex: none; padding: 3px 10px; font-size: 12px;" data-tooltip="Take the logo off the sheets.">Remove</button>
                     </div>
+                    <div id="export-binder-logo-status" style="display: none; font-size: 11px; color: #e0a060; margin: -4px 0 0 100px;"></div>
                     <div style="display: flex; gap: 8px; align-items: center; font-size: 12px; color: #aaa;">
-                        <span style="flex: none; width: 92px;">Notes</span>
-                        <textarea id="export-binder-notes" rows="2" placeholder="Notes printed on every sheet" data-tooltip="The NOTES box, wrapped to fit." style="flex: 1; min-width: 60px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px; font: inherit; resize: vertical;"></textarea>
+                        <span style="flex: none; width: 92px;">Revision note</span>
+                        <input type="text" id="export-binder-revision-note" placeholder="What changed in this rev" data-tooltip="Logged with this export: an export at a Rev no row carries yet adds a row to the REVISIONS table - the date, your initials, this note. The same Rev exported again logs nothing." style="flex: 1; min-width: 60px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px;">
                     </div>
-                    <div style="display: flex; gap: 8px; align-items: center; font-size: 12px; color: #aaa;">
-                        <span style="flex: none; width: 92px;">Revisions</span>
-                        <textarea id="export-binder-revisions" rows="3" placeholder="7/24/26 · MK · Overview&#10;7/27/26 · MK · Patch and circuit" data-tooltip="One revision per line: date · by · description. Numbered in the REVISIONS table in order." style="flex: 1; min-width: 60px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px; font: inherit; resize: vertical;"></textarea>
+                    <div style="display: flex; gap: 8px; align-items: flex-start; font-size: 12px; color: #aaa;">
+                        <span style="flex: none; width: 92px; padding-top: 4px;">Revisions</span>
+                        <div id="export-binder-revisions" class="binder-rev-list" style="flex: 1; min-width: 60px;" data-tooltip="The REVISIONS table on every sheet: No. · Date · By · Description, in the order they were logged. Edit a row here; × removes it and the rows after it renumber."></div>
                     </div>
                 </div>
                 <div style="margin-top: 6px; font-size: 11px; color: #777;">Maps follow each screen's Show Cable Tags and 2fer / 3fer switches. Positions are your screen groups; a screen with no circuits has no power sheet.</div>

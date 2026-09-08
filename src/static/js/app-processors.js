@@ -80,6 +80,8 @@ class _Processors {
             }
         }
         this.renderProcessorPanel();
+        // A box's beach pick changes what the BEACHES line counts.
+        if (typeof this.renderBeaches === 'function') this.renderBeaches();
         // A PROCESSOR EDIT IS A LABEL EDIT. The drawing's port labels come out
         // of the port assignment, and the assignment is resolved against this
         // tree, so naming a card "SR" only reaches the canvas once it has been
@@ -1130,24 +1132,23 @@ class _Processors {
         fiber.appendChild(ftField);
         // Where the box sits (2026-09-07: "We need to be able to put CVT's
         // or prcessor's at beach locations so they can be accounted for
-        // on the pull sheets"): free text, the same field a distro has,
-        // offering every location the project already knows (the groups,
-        // the distros, the other boxes). The pull list files the box's
-        // rows - the data cables of the ports it delivers, its fiber, its
-        // own "CVT4K-S EA" line - under this name. One PUT, one 'Set Box
-        // Location' entry; blank clears.
-        const locField = this._buildTextField(
-            'Location', cvt.location, 'beach / location',
-            `processor-cvt-location-${cvt.id}`,
-            (val) => this._processorRequest(url, 'PUT', { location: val },
-                                            'Set Box Location'));
-        const locInput = locField.querySelector('input');
-        const locListId = `hw-locations-${cvt.id}`;
-        locInput.setAttribute('list', locListId);
-        if (typeof this.pullLocationDatalist === 'function') {
-            locField.appendChild(this.pullLocationDatalist(locListId));
-        }
-        fiber.appendChild(locField);
+        // on the pull sheets"; 2026-09-08: "beach locations need to be
+        // addable for data" - "Replace it with the picker"): the Beach
+        // picker, beside Fiber - one of the project's beaches, or a new
+        // one made right here. The pull list files the box's rows - the
+        // data cables of the ports it delivers, its fiber, its own
+        // "CVT4K-S EA" line - under that beach. One PUT, one 'Set Box
+        // Beach' entry; the blank entry clears.
+        const beachField = this.buildBeachPicker({
+            value: cvt.beachId,
+            fieldKey: `processor-cvt-beach-${cvt.id}`,
+            title: 'The beach this box sits on. Every row it produces - the '
+                + 'cables of the ports it delivers, its fiber, the box itself - '
+                + 'is pulled there.',
+            onPick: (beachId) => this._processorRequest(
+                url, 'PUT', { beachId }, 'Set Box Beach'),
+        });
+        fiber.appendChild(beachField);
         fiber.querySelectorAll(':scope > div').forEach((cell, i) => {
             cell.style.flex = i === 1 ? '1 1 60px' : '2 1 110px';
         });

@@ -2088,7 +2088,7 @@ class _HardwareDock {
     // (_rebuildAfterGesture). The controls sit ABOVE the rows on both
     // sheets ("move snake and quick fill to the top", 2026-09-07).
     _dockBuildCableSheet(d, n, boxSize, byTail) {
-        // The sheet names the unit by its type - "this Soca 208" - the way
+        // The sheet names the unit by its type - "this Multi 208" - the way
         // the type chip does; no generic noun (2026-09-07).
         const typeName = this.distroBoxType(d, n).type.name;
         const sheet = document.createElement('div');

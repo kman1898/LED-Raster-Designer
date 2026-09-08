@@ -281,6 +281,7 @@ def update_layer(layer_id):
     previous_offset_x = layer.get('offset_x', 0)
     previous_offset_y = layer.get('offset_y', 0)
     previous_group_id = layer.get('group_id')
+    previous_beach_id = layer.get('beachId')
 
     for key in ['name', 'columns', 'rows', 'cabinet_width', 'cabinet_height',
                 'offset_x', 'offset_y', 'rotation', 'color1', 'color2',
@@ -362,6 +363,10 @@ def update_layer(layer_id):
                 # every per-layer save the way processorType used to be
                 # dropped. null clears membership.
                 'group_id',
+                # Beaches (2026-09-08): where this screen's gear is pulled.
+                # Names another object like group_id does, so it is taken
+                # off the allow-list path below and resolved, never trusted.
+                'beachId',
                 'showDataFlowPortInfo', 'showDataFlowPortLoad',
                 'showPowerCircuitInfo',
                 # The 2fer / 3fer tag switch on the Nfer bracket (default
@@ -445,6 +450,20 @@ def update_layer(layer_id):
     # layer keeps the membership it had.
     if 'group_id' in data:
         _apply_group_id(layer, previous_group_id, data.get('group_id'))
+
+    # Beaches: null / '' clears; an id that resolves to one of the project's
+    # beaches is taken; anything else leaves the screen where it was (the
+    # rest of the PUT still lands - a whole-layer save must not fail over
+    # one stale pointer). The load funnel clears a pointer nothing answers.
+    if 'beachId' in data:
+        wanted = data.get('beachId')
+        if wanted is None or wanted == '':
+            layer['beachId'] = None
+        elif app._find_beach(app.current_project, wanted):
+            layer['beachId'] = wanted
+        else:
+            layer['beachId'] = previous_beach_id
+            log_event('update_layer_unknown_beach', {'id': layer_id, 'beachId': wanted})
 
     # Log with actual changed values (exclude large arrays for readability)
     changed_values = {}

@@ -1,7 +1,7 @@
 """Distro outputs: the connector is the thing you drag.
 
 A distro declares the connector TYPES it offers (types only, no counts) in
-its ⚙ popover's OUTPUTS checklist - Soca 208 (True1 / powerCON), Soca 120
+its ⚙ popover's OUTPUTS checklist - Multi 208 (True1 / powerCON), Multi 120
 (Edison), L21-30 (3 × 208V). The tray shows one plug chip per ticked type
 on a slim OUTPUTS row under the distro's LEGS line, and dragging a chip onto
 a screen lands one box of that type: the screen's next unassigned multi
@@ -28,7 +28,7 @@ Pinned here, with real pointer drags and real right-clicks:
     one 'Assign Multi Distro' entry, one undo walks it back
   * a second box lands on the NEXT multi (7–12), never the first again
   * mismatches refuse with the sentence naming the screen's breakout -
-    L21-30 against a soca, a soca against L21-30, a Soca 208 against an
+    L21-30 against a soca, a soca against L21-30, a Multi 208 against an
     Edison (110V) screen - and nothing mutates
   * the pill warns amber (still allowed) when the box would push the
     distro's legs past its rating
@@ -324,7 +324,7 @@ def test_the_popover_ticks_three_outputs_inside_its_box_and_writes_them(page):
     pg.wait_for_timeout(300)
     pop = pg.evaluate(POPOVER_JS)
     assert pop, 'the distro gear opened no popover'
-    assert pop['names'] == ['Soca 208', 'Soca 120', 'L21-30'], pop
+    assert pop['names'] == ['Multi 208', 'Multi 120', 'L21-30'], pop
     # legacy shape: no key reads as everything offered
     assert [t['checked'] for t in pop['ticks']] == [True, True, True], pop
     assert not pop['strays'], (
@@ -505,7 +505,7 @@ def test_a_mismatched_connector_is_refused_with_the_fix(page):
     assert mid['pill']['text'].startswith('PD1 → circuits 1–3 ·'), mid
     assert pg.evaluate(POWER_STATE_JS, ids['bId'])['distro'] == {'1': d}
     assert pg.evaluate(HIST_JS, 1) == ['Assign Multi Distro']
-    # a Soca 208 onto an Edison (110V) screen: the voltage mismatch, off
+    # a Multi 208 onto an Edison (110V) screen: the voltage mismatch, off
     # the screen's DEFAULT breakout (nothing stored)
     pg.evaluate(RESET_JS, ids)
     pg.evaluate("""(ids) => {
@@ -524,7 +524,7 @@ def test_a_mismatched_connector_is_refused_with_the_fix(page):
     assert mid['pill']['text'] == \
         'WALL B is set to Edison (110V) — change its breakout first', mid
     assert pg.evaluate(POWER_STATE_JS, ids['bId'])['distro'] == {}
-    # and the Soca 120 chip is what that screen takes
+    # and the Multi 120 chip is what that screen takes
     sx, sy = chip_center(pg, f'plug-{d}-soca120')
     mid = drag(pg, sx, sy, tgt['x'], tgt['y'],
                mid_check=lambda p: p.evaluate(MID_JS, ids['bId']))
@@ -604,11 +604,11 @@ def test_the_submenu_lists_offering_distros_with_loads(page):
         pg.wait_for_timeout(400)
         m = pg.evaluate(MENU_JS)
         assert m['menuShown'] and m['shown'], m
-        assert m['label'] == 'Add Soca 208 from…', m
+        assert m['label'] == 'Add Multi 208 from…', m
         assert [(e['label'], e['disabled']) for e in m['entries']] == [
             ('PD 0/400 A', False),
-            ('SR — does not offer soca 208', True)], m
-        assert 'Tick Soca 208 under SR' in m['entries'][1]['title'], m
+            ('SR — does not offer multi 208', True)], m
+        assert 'Tick Multi 208 under SR' in m['entries'][1]['title'], m
         # hover opens the submenu; the pick is the drop
         pg.locator('#context-menu [data-action="hw-outputs"]').hover()
         pg.wait_for_timeout(200)
@@ -662,7 +662,7 @@ def test_the_submenu_lists_offering_distros_with_loads(page):
         pg.wait_for_timeout(400)
         m = pg.evaluate(MENU_JS)
         assert m['menuShown'] and m['shown'], m
-        assert m['label'] == 'Add Soca 208 from…', m
+        assert m['label'] == 'Add Multi 208 from…', m
         close_menu(pg)
     finally:
         pg.evaluate("(id) => window.app.removeDistro(id)", sr)
@@ -702,14 +702,14 @@ def test_brackets_wear_the_type_badge_on_screen_and_in_export(page):
     }""", ids)
     pg.wait_for_timeout(600)
     on_screen = pg.evaluate(BRACKET_TEXTS_JS, [ids['aId'], False])
-    assert on_screen.count('SOCA 208') == 2, on_screen   # one per multi
+    assert on_screen.count('MULTI 208') == 2, on_screen   # one per multi
     assert any(t.startswith('PD1 · ') and '100ft' not in t
                for t in on_screen), on_screen
     exported = pg.evaluate(BRACKET_TEXTS_JS, [ids['aId'], True])
-    assert exported.count('SOCA 208') == 2, exported
+    assert exported.count('MULTI 208') == 2, exported
     assert any(t.startswith('PD1 · 100ft · ') for t in exported), exported
     assert 'L21-30' in pg.evaluate(BRACKET_TEXTS_JS, [ids['bId'], True])
-    # Edison screen: SOCA 120 off the default breakout
+    # Edison screen: MULTI 120 off the default breakout
     pg.evaluate("""(ids) => {
         const app = window.app;
         const b = app.project.layers.find(x => x.id === ids.bId);
@@ -719,7 +719,7 @@ def test_brackets_wear_the_type_badge_on_screen_and_in_export(page):
         app._restateNaming();
     }""", ids)
     pg.wait_for_timeout(400)
-    assert 'SOCA 120' in pg.evaluate(BRACKET_TEXTS_JS, [ids['bId'], False])
+    assert 'MULTI 120' in pg.evaluate(BRACKET_TEXTS_JS, [ids['bId'], False])
     pg.evaluate(RESET_JS, ids)
 
 
@@ -746,7 +746,7 @@ def test_the_pending_bracket_names_the_box_the_drop_would_make(page):
         finally { cr._fillText = orig; }
         return seen;
     }""", ids['aId'])
-    assert texts == ['SOCA 208', 'PD1 · 46.2A'], texts
+    assert texts == ['MULTI 208', 'PD1 · 46.2A'], texts
     pg.keyboard.press('Escape')
     pg.mouse.up()
     pg.wait_for_timeout(300)
@@ -828,18 +828,18 @@ def test_the_spare_box_wears_the_first_offered_type_and_a_click_cycles_it(page):
     pg.evaluate(RESET_JS, ids)
     pg.wait_for_timeout(400)
     d = ids['distroId']
-    # a legacy distro offers everything: the spare box reads Soca 208, the
+    # a legacy distro offers everything: the spare box reads Multi 208, the
     # catalog's first, stored nowhere yet
     chip = pg.evaluate(TYPECHIP_JS, [d, 1])
     assert chip and chip['tag'] == 'BUTTON' and not chip['ro'], chip
-    assert chip['text'] == 'Soca 208' and chip['chips'] == 6, chip
+    assert chip['text'] == 'Multi 208' and chip['chips'] == 6, chip
     assert chip['payload']['output'] == 'soca208', chip
     assert pg.evaluate(BOX_TYPES_JS, d) is None
     before = pg.evaluate(HIST_LEN_JS)
     pg.locator(f'[data-lrd-field="distro-box-type-{d}-1"]').click()
     pg.wait_for_timeout(400)
     chip = pg.evaluate(TYPECHIP_JS, [d, 1])
-    assert chip['text'] == 'Soca 120' and chip['chips'] == 6, chip
+    assert chip['text'] == 'Multi 120' and chip['chips'] == 6, chip
     assert pg.evaluate(BOX_TYPES_JS, d) == {'1': 'soca120'}
     assert pg.evaluate(HIST_LEN_JS) == before + 1
     assert pg.evaluate(HIST_JS, 1) == ['Set Multi Type']
@@ -854,7 +854,7 @@ def test_the_spare_box_wears_the_first_offered_type_and_a_click_cycles_it(page):
     # wraps
     pg.locator(f'[data-lrd-field="distro-box-type-{d}-1"]').click()
     pg.wait_for_timeout(400)
-    assert pg.evaluate(TYPECHIP_JS, [d, 1])['text'] == 'Soca 208'
+    assert pg.evaluate(TYPECHIP_JS, [d, 1])['text'] == 'Multi 208'
     assert pg.evaluate(BOX_TYPES_JS, d) == {'1': 'soca208'}
     # undo walks one pick back
     pg.evaluate("() => window.app.undo()")
@@ -878,14 +878,14 @@ def test_the_spare_box_wears_the_first_offered_type_and_a_click_cycles_it(page):
         app.renderHardwareDock();
     }""", d)
     pg.wait_for_timeout(400)
-    assert pg.evaluate(TYPECHIP_JS, [d, 1])['text'] == 'Soca 120'
+    assert pg.evaluate(TYPECHIP_JS, [d, 1])['text'] == 'Multi 120'
     pg.locator(f'[data-lrd-field="distro-box-type-{d}-1"]').click()
     pg.wait_for_timeout(400)
     assert pg.evaluate(TYPECHIP_JS, [d, 1])['text'] == 'L21-30'
     pg.locator(f'[data-lrd-field="distro-box-type-{d}-1"]').click()
     pg.wait_for_timeout(400)
-    assert pg.evaluate(TYPECHIP_JS, [d, 1])['text'] == 'Soca 120'
-    # nothing offered: the default is Soca 208
+    assert pg.evaluate(TYPECHIP_JS, [d, 1])['text'] == 'Multi 120'
+    # nothing offered: the default is Multi 208
     pg.evaluate("""(id) => {
         const app = window.app;
         const dd = app.getDistros().find(x => x.id === id);
@@ -894,7 +894,7 @@ def test_the_spare_box_wears_the_first_offered_type_and_a_click_cycles_it(page):
         app.renderHardwareDock();
     }""", d)
     pg.wait_for_timeout(400)
-    assert pg.evaluate(TYPECHIP_JS, [d, 1])['text'] == 'Soca 208'
+    assert pg.evaluate(TYPECHIP_JS, [d, 1])['text'] == 'Multi 208'
     pg.evaluate(RESET_JS, ids)
 
 
@@ -947,8 +947,8 @@ def test_an_occupied_box_chip_is_read_only_and_reads_its_members(page):
     assert pg.evaluate(HIST_JS, 1) == ['Assign Multi Distro']
     chip = pg.evaluate(TYPECHIP_JS, [d, 1])
     assert chip['tag'] == 'SPAN' and chip['ro'], chip
-    assert chip['text'] == 'Soca 208' and chip['chips'] == 6, chip
-    assert 'is a Soca 208 - ' in chip['title'] and 'Clear its circuits' in chip['title'], chip
+    assert chip['text'] == 'Multi 208' and chip['chips'] == 6, chip
+    assert 'is a Multi 208 - ' in chip['title'] and 'Clear its circuits' in chip['title'], chip
     assert 'output' not in chip['payload'], chip
     assert not chip['clash'] and chip['stripTyped'] == [], chip
     # one undo forgets the stamp with the assignment
@@ -977,7 +977,7 @@ def test_an_occupied_box_chip_is_read_only_and_reads_its_members(page):
     assert pg.evaluate(BOX_TYPES_JS, d) is None
     one = pg.evaluate(TYPECHIP_JS, [d, 1])
     two = pg.evaluate(TYPECHIP_JS, [d, 2])
-    assert one['text'] == 'Soca 208' and one['chips'] == 6, one
+    assert one['text'] == 'Multi 208' and one['chips'] == 6, one
     assert two['text'] == 'L21-30' and two['chips'] == 3 and two['ro'], two
     assert not one['clash'] and not two['clash'], (one, two)
     assert two['stripTyped'] == [], two
@@ -989,8 +989,8 @@ def test_an_occupied_box_chip_is_read_only_and_reads_its_members(page):
     }""", d)
     pg.wait_for_timeout(500)
     two = pg.evaluate(TYPECHIP_JS, [d, 2])
-    assert two['text'] == 'Soca 208' and two['clash'] and two['boxClash'], two
-    assert two['stripTyped'] == ['PD 2 is typed Soca 208 but holds L21-30 '
+    assert two['text'] == 'Multi 208' and two['clash'] and two['boxClash'], two
+    assert two['stripTyped'] == ['PD 2 is typed Multi 208 but holds L21-30 '
                                  'circuits.'], two
     # the strip's fix retypes it to follow the circuits, one entry
     n = pg.evaluate(HIST_LEN_JS)
@@ -1011,7 +1011,7 @@ def test_a_typed_spare_box_drags_as_its_plug(page):
     pg.evaluate(RESET_JS, ids)
     pg.wait_for_timeout(400)
     d = ids['distroId']
-    # type the spare box L21-30 by its chip (two clicks from Soca 208)
+    # type the spare box L21-30 by its chip (two clicks from Multi 208)
     pg.locator(f'[data-lrd-field="distro-box-type-{d}-1"]').click()
     pg.wait_for_timeout(300)
     pg.locator(f'[data-lrd-field="distro-box-type-{d}-1"]').click()
@@ -1087,7 +1087,7 @@ def test_a_typed_spare_box_drags_as_its_plug(page):
     assert pg.evaluate(BOX_TYPES_JS, d) is None
     assert pg.evaluate(POWER_STATE_JS, ids['bId'])['distro'] == {}
     pg.evaluate(RESET_JS, ids)
-    # a typed Soca 208 spare box on a soca screen's fourth circuit takes
+    # a typed Multi 208 spare box on a soca screen's fourth circuit takes
     # 1-4 (the anchored span), and the next spare box appears typed
     pg.wait_for_timeout(400)
     sx, sy = chip_center(pg, f'slot-{d}-1')
@@ -1102,5 +1102,5 @@ def test_a_typed_spare_box_drags_as_its_plug(page):
     assert first['circuits'] == [1, 2, 3, 4] and first['number'] == 1, st
     assert pg.evaluate(BOX_TYPES_JS, d) == {'1': 'soca208'}
     two = pg.evaluate(TYPECHIP_JS, [d, 2])
-    assert two and two['tag'] == 'BUTTON' and two['text'] == 'Soca 208', two
+    assert two and two['tag'] == 'BUTTON' and two['text'] == 'Multi 208', two
     pg.evaluate(RESET_JS, ids)

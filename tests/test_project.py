@@ -63,13 +63,16 @@ def test_project_binder_rides_the_project(client):
     project has none."""
     binder = {'venue': 'Venue', 'dates': '9/4/26 - 9/6/26', 'designer': 'D',
               'projectManager': {'name': 'PM', 'phone': '1', 'email': 'pm@x.com'},
-              'drafter': 'Me', 'notes': 'n', 'revisions': [{'date': '7/24/26', 'by': 'MK', 'description': 'Overview'}]}
+              'drafter': 'Me',
+              'revisions': [{'no': 1, 'rev': '1.0', 'date': '7/24/26', 'by': 'MK', 'description': 'Overview'}]}
     assert client.post('/api/project', json={'binder': binder}).status_code == 200
-    assert client.get('/api/project').get_json()['binder'] == binder
+    served = client.get('/api/project').get_json()['binder']
+    assert served == binder
+    assert 'notes' not in served                     # the NOTES box is gone; the log is the record
     proj = client.get('/api/project').get_json()
-    proj['binder']['notes'] = 'changed'
-    assert client.put('/api/project', json=proj).get_json()['binder']['notes'] == 'changed'
-    assert client.get('/api/project').get_json()['binder']['notes'] == 'changed'
+    proj['binder']['revisions'][0]['description'] = 'changed'
+    assert client.put('/api/project', json=proj).get_json()['binder']['revisions'][0]['description'] == 'changed'
+    assert client.get('/api/project').get_json()['binder']['revisions'][0]['description'] == 'changed'
     assert 'binder' not in client.post('/api/project/new').get_json()
 
 

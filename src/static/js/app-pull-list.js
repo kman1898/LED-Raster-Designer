@@ -56,25 +56,36 @@
 //     produces stays in the store, is flagged stale in the editor, and is
 //     never exported. See app-pull-sheet-editor.js for the modal.
 //
-//   * LOCATIONS (2026-09-07, "We need to be able to put CVT's or
-//     prcessor's at beach locations so they can be accounted for on the
-//     pull sheets"): a distro and a breakout box each carry a free-text
-//     `location` (the Location field on its ⚙). Every row a DEVICE
-//     produces is pulled where the device sits - "a screen, when it's
-//     added to a distro or cvt will put all of it's gear at whatever
+//   * BEACHES (2026-09-08, "beach locations need to be addable for data";
+//     "you can either create a beach or you can pick one from the
+//     drop-down of one that you created earlier in the project"): the
+//     project keeps its beaches as a LIST in order (project.beaches, see
+//     app-beaches.js), and a screen, a distro and a breakout box each
+//     PICK one (`beachId`, nullable) - the Beach picker in Screen Info,
+//     on the distro's ⚙ and on the box's ⚙. The positions are the
+//     beaches in that order, each holding the screens on it, then every
+//     screen on no beach as its own position (pullPositions). Every row a
+//     DEVICE produces is pulled where the device sits - "a screen, when
+//     it's added to a distro or cvt will put all of it's gear at whatever
 //     position the device is at": a box's Multi / L21-30 home run, its
 //     Breakout, the cables and 2fer / 3fer of the circuits on it and their
-//     power jumpers go to the DISTRO's location; a port's home run / snake
-//     / extension / backup rows and its data jumpers go to the location of
-//     the BOX delivering the socket; a box's fiber trunk goes to the box's
-//     location. A screen's own position (its group, else itself) is only
-//     the fallback for a device with no location, and the home of a socket
-//     straight off a card (processors have no location). A location name
-//     IS a position: matched trimmed and case-blind against the position
-//     names, a device at "SR Beach" and a group "SR Beach" are ONE
-//     position (the group's key); a name no group carries is its own
-//     position, keyed `loc:<name lower-cased>`, listed only while rows
-//     land on it.
+//     power jumpers go to the DISTRO's beach; a port's home run / snake /
+//     extension / backup rows and its data jumpers go to the beach of the
+//     BOX delivering the socket; a box's fiber trunk goes to the box's
+//     beach. A screen's own position is only the fallback for a device on
+//     no beach, and the home of a socket straight off a card (processors
+//     have no beach). A screen GROUP named like a beach folds INTO that
+//     beach's position (its members with no beachId count as on it), so
+//     the earlier "groups are beaches" files keep working; any other group
+//     is a position of its own as before. Position keys: `beach:<id>`,
+//     the group id, `layer:<id>`. The free-text `location` the ⚙ fields
+//     used to carry is migrated on load into a beach of that name
+//     (app.py _normalize_beaches); pullLocationOf still reads a leftover
+//     `location` on a record nobody migrated, and such a name is its own
+//     position keyed `loc:<name lower-cased>` while rows land on it. Pull
+//     sheet EDITS keyed on those `loc:` keys are STALE after the
+//     migration (the position is `beach:<id>` now) - the editor already
+//     flags a stale key and keeps the edit, it is just never exported.
 //   * GEAR rows, EA (2026-09-07, "processor doesnt need listing, and
 //     neither do the cards, but CVT and distros yes. and list them per
 //     beach location and if there is 2 cvts at one beach list them once
@@ -216,10 +227,9 @@ class _PullList {
         return '48 way';
     }
 
-    // Every location the project already knows, for the ⚙ Location
-    // fields' datalists: the screen groups' names, every distro's
-    // location, every breakout box's location - one spelling each
-    // (trimmed, case-blind, first seen wins), A-Z.
+    // Every location the project knows - the beach names, in beach order.
+    // The ⚙ fields pick from project.beaches directly now (the Beach
+    // picker); this stays for anything that wants the names as text.
     pullKnownLocations() {
         const seen = new Map();
         const add = (name) => {
@@ -228,31 +238,25 @@ class _PullList {
             const norm = text.toLowerCase();
             if (!seen.has(norm)) seen.set(norm, text);
         };
-        for (const g of ((this.project && this.project.groups) || [])) add(g && g.name);
-        const distros = (typeof this.getDistros === 'function') ? this.getDistros() : [];
-        for (const d of distros) add(d && d.location);
-        for (const { box } of this._pullAllBoxes()) add(box.location);
-        // The raw records too: a page that has not resolved yet still
-        // knows what the file says.
-        for (const proc of ((this.project && this.project.processors) || [])) {
-            for (const slot of (proc && proc.slots) || []) {
-                for (const box of (slot && slot.card && slot.card.cvts) || []) add(box && box.location);
-            }
-        }
-        return [...seen.values()].sort((a, b) => this._pullNaturalCompare(a, b));
+        const beaches = (typeof this.getBeaches === 'function')
+            ? this.getBeaches() : ((this.project && this.project.beaches) || []);
+        for (const b of beaches) add(b && b.name);
+        return [...seen.values()];
     }
 
-    // A <datalist> of pullKnownLocations() for a Location field (the
-    // distro's and the box's ⚙ share it).
-    pullLocationDatalist(id) {
-        const list = document.createElement('datalist');
-        list.id = id;
-        for (const name of this.pullKnownLocations()) {
-            const opt = document.createElement('option');
-            opt.value = name;
-            list.appendChild(opt);
+    // Where a device (a distro, a breakout box - raw or resolved) sits, as
+    // the beach's NAME: read through its beachId; a typed `location` is
+    // only read on a record nobody migrated yet.
+    pullLocationOf(rec) {
+        if (!rec) return null;
+        if (rec.beachId) {
+            const beach = (typeof this.beachById === 'function')
+                ? this.beachById(rec.beachId)
+                : (((this.project && this.project.beaches) || []).find(b => b && b.id === rec.beachId) || null);
+            if (beach && String(beach.name || '').trim()) return String(beach.name).trim();
         }
-        return list;
+        const text = String(rec.location == null ? '' : rec.location).trim();
+        return text || null;
     }
 
     // Every breakout box on the resolved tree the dock reads: [{ box,
@@ -421,28 +425,60 @@ class _PullList {
             .filter(l => l && (l.type || 'screen') === 'screen' && l.visible !== false);
     }
 
-    // The screens' own positions: one per screen group (its name, its
-    // visible members in group order), one per ungrouped screen, in order
-    // of first appearance down the layer list. Each carries its editor
-    // key and the location name it answers to (its own name). Device
-    // locations that match none of these are added by buildPullList.
+    // The screens' own positions: the project's beaches in ORDER, each with
+    // the visible screens on it (beachId, or membership of a group named
+    // like the beach), then - as before - one per screen group nobody put
+    // on a beach (its name, its visible members in group order) and one
+    // per loose screen, in order of first appearance down the layer list.
+    // Each carries its editor key (`beach:<id>`, the group id, `layer:<id>`)
+    // and the location name it answers to (its own name). A beach with
+    // nothing on it is listed only while a device's rows land on it
+    // (buildPullList); a device location matching none of these opens its
+    // own position there too.
     pullPositions() {
         const out = [];
+        const screens = this._pullScreens();
+        const beaches = (typeof this.getBeaches === 'function')
+            ? this.getBeaches() : ((this.project && this.project.beaches) || []).filter(b => b && b.id);
+        const beachIds = new Set(beaches.map(b => b.id));
+        const beachByNorm = new Map();
+        for (const b of beaches) {
+            const norm = String(b.name == null ? '' : b.name).trim().toLowerCase();
+            if (norm && !beachByNorm.has(norm)) beachByNorm.set(norm, b.id);
+        }
+        const groupOf = (layer) => (typeof this.getGroupOfLayer === 'function')
+            ? this.getGroupOfLayer(layer) : null;
+        // The beach a screen is on: its own pick first, else its group's name
+        // when a beach is called that (the "groups are beaches" files).
+        const beachOf = (layer) => {
+            if (layer.beachId && beachIds.has(layer.beachId)) return layer.beachId;
+            const group = groupOf(layer);
+            if (group) {
+                const norm = String(group.name == null ? '' : group.name).trim().toLowerCase();
+                if (norm && beachByNorm.has(norm)) return beachByNorm.get(norm);
+            }
+            return null;
+        };
+        for (const beach of beaches) {
+            const name = String(beach.name == null ? '' : beach.name).trim() || beach.id;
+            out.push({ name, groupId: null, beachId: beach.id, key: `beach:${beach.id}`,
+                       location: name, layers: screens.filter(l => beachOf(l) === beach.id) });
+        }
         const seenGroups = new Set();
-        for (const layer of this._pullScreens()) {
-            const group = (typeof this.getGroupOfLayer === 'function')
-                ? this.getGroupOfLayer(layer) : null;
+        for (const layer of screens) {
+            if (beachOf(layer)) continue;
+            const group = groupOf(layer);
             if (group) {
                 if (seenGroups.has(group.id)) continue;
                 seenGroups.add(group.id);
                 const members = (this.getGroupMembers(group) || [])
-                    .filter(l => l.visible !== false);
+                    .filter(l => l.visible !== false && !beachOf(l));
                 const name = group.name || layer.name || '';
-                out.push({ name, groupId: group.id, key: String(group.id), location: name,
+                out.push({ name, groupId: group.id, beachId: null, key: String(group.id), location: name,
                            layers: members.length ? members : [layer] });
             } else {
                 const name = layer.name || `Screen ${layer.id}`;
-                out.push({ name, groupId: null, key: `layer:${layer.id}`, location: name,
+                out.push({ name, groupId: null, beachId: null, key: `layer:${layer.id}`, location: name,
                            layers: [layer] });
             }
         }
@@ -610,7 +646,7 @@ class _PullList {
             if (!type) continue;
             const r = { type, length: 'EA', qty: 1, label: this.pullBoxLabel(box),
                         notes: '', side: 'data' };
-            if (!gearAt(r, box.location, boxFirstLayer.get(box.id))) continue;
+            if (!gearAt(r, this.pullLocationOf(box), boxFirstLayer.get(box.id))) continue;
             hw('processor', proc.id, proc.name || proc.deviceName || proc.id).rows.push({ ...r });
         }
         const boxesOn = new Map();            // String(distroId) -> boxes in use
@@ -623,7 +659,7 @@ class _PullList {
             if (!n) continue;
             const r = { type: this.pullDistroWayType(n), length: 'EA', qty: 1,
                         label: d.name || '', notes: n > 8 ? `${n} multis` : '', side: 'power' };
-            if (!gearAt(r, d.location, distroFirstLayer.get(String(d.id)))) continue;
+            if (!gearAt(r, this.pullLocationOf(d), distroFirstLayer.get(String(d.id)))) continue;
             hw('distro', d.id, d.name).rows.push({ ...r });
         }
 
@@ -673,7 +709,7 @@ class _PullList {
             rows.push(r);
             return r;
         };
-        const locationOf = (d) => (d && d.location) || null;
+        const locationOf = (d) => this.pullLocationOf(d);
         const out = {
             name: layer.name || '', rows, boxes: [], gangs: { twofer: 0, threefer: 0 },
             ports: [], snakes: [], jumpers: { data: 0, power: 0 },
@@ -903,9 +939,11 @@ class _PullList {
     //     rows:  [{ key, qty?, label?, notes?, removed? }],   // engine rows
     //     added: [{ type, length, qty, label, notes, side? }] // free rows
     // } } }
-    // positionKey is the group id for a grouped position, `layer:<id>` for a
-    // loose screen, `loc:<name lower-cased>` for a device location no group
-    // carries (2026-09-07); key is the engine row's `type|length`, which is
+    // positionKey is `beach:<id>` for a beach (2026-09-08), the group id for
+    // a grouped position on no beach, `layer:<id>` for a loose screen, and
+    // `loc:<name lower-cased>` for a typed device location nobody migrated
+    // (2026-09-07 - an edit keyed on one of those is stale once the location
+    // has become a beach); key is the engine row's `type|length`, which is
     // stable across a wall change (the count moves, the override still
     // applies).
 

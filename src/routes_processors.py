@@ -738,9 +738,22 @@ def update_cvt(processor_id, cvt_id):
             cvt['location'] = text
         else:
             cvt.pop('location', None)
+    # Beaches (2026-09-08): the box sits on one of the project's beaches -
+    # picked, never typed. null / blank clears and leaves no key; an id
+    # that names no beach is refused. Setting a beach retires a typed
+    # location left on the record (the beach is where the box is now).
+    if 'beachId' in data:
+        value = data.get('beachId')
+        if value is None or value == '':
+            cvt.pop('beachId', None)
+        elif not isinstance(value, str) or not app._find_beach(app.current_project, value):
+            return jsonify({'error': 'Unknown beach'}), 400
+        else:
+            cvt['beachId'] = value
+            cvt.pop('location', None)
     changed = _apply(cvt, data, ('name', 'portLabelTemplate',
                                  'returnLabelTemplate', 'mode'))
-    for key in ('fiberType', 'fiberFt', 'location'):
+    for key in ('fiberType', 'fiberFt', 'location', 'beachId'):
         if key in data:
             changed[key] = cvt.get(key)
     for key in ('snakes', 'portCables'):

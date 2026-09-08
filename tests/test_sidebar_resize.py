@@ -827,7 +827,7 @@ def test_the_distro_gear_popover_shows_its_controls_inside_its_own_box(page):
     gear now. Clicking the gear must produce a visible popover whose
     controls all sit inside it - the popover's box is the new column the
     old rating row had to fit. The OUTPUTS checklist (2026-08-31, three
-    tick rows: Soca 208, Soca 120, L21-30) is part of the same box and the
+    tick rows: Multi 208, Multi 120, L21-30) is part of the same box and the
     same rule - the concept mock's rows ran past its edge, and this is the
     pin that keeps the real ones inside."""
     reset_widths(page, 'power')

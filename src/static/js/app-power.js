@@ -1564,7 +1564,7 @@ class _Power {
     // 2026-08-31: types only, no counts - the rating already bounds the
     // service and the LEGS line already says where it is). Each type names
     // the screen breakouts it can feed, and that table IS the matching
-    // rule: a Soca 208 lands on a Multi -> True1 / powerCON screen, a Soca
+    // rule: a Multi 208 lands on a Multi -> True1 / powerCON screen, a Multi
     // 120 on an Edison screen, an L21-30 on an L21-30 box. Nothing is
     // extrapolated past the table - a breakout no type names (L6-20) is a
     // mismatch like any other, refused with the fix said out loud, never
@@ -1589,12 +1589,12 @@ class _Power {
             };
         };
         return [
-            { id: 'soca208', name: 'Soca 208', sub: 'True1 / powerCON',
+            { id: 'soca208', name: 'Multi 208', sub: 'True1 / powerCON',
               glyph: 'soca', faces: ['true1', 'powercon'],
-              breakouts: ['soca-true1', 'soca-powercon'], badge: 'SOCA 208' },
-            { id: 'soca120', name: 'Soca 120', sub: 'Edison',
+              breakouts: ['soca-true1', 'soca-powercon'], badge: 'MULTI 208' },
+            { id: 'soca120', name: 'Multi 120', sub: 'Edison',
               glyph: 'soca', faces: ['edison'],
-              breakouts: ['soca-edison'], badge: 'SOCA 120' },
+              breakouts: ['soca-edison'], badge: 'MULTI 120' },
             { id: 'l2130', name: 'L21-30', sub: '3 × 208V',
               glyph: 'l2130', faces: ['true1', 'powercon'],
               breakouts: ['l2130-true1', 'l2130-powercon'], badge: 'L21-30' },
@@ -1640,7 +1640,7 @@ class _Power {
     //                   so a spare on an Edison distro is Edison and never
     //                   needs retyping show after show
     //   4. offered    - the first type the distro offers
-    //   5. default    - Soca 208, when the distro offers nothing yet
+    //   5. default    - Multi 208, when the distro offers nothing yet
     // Returns { type, source, implied, clash }: `implied` is rung 2's
     // reading whenever the box is occupied (null when no member's breakout
     // is named by the table), and `clash` is true when a STORED type
@@ -2025,6 +2025,13 @@ class _Power {
         // Where the box physically sits - the dimmer beach, stage left
         // world. Prints on every power label that names this distro.
         if (patch.location !== undefined) d.location = String(patch.location).trim() || null;
+        // The beach it sits on (2026-09-08, picked from project.beaches -
+        // see app-beaches.js): null clears; a pick retires any typed
+        // location left on the record, the beach is where it is now.
+        if (patch.beachId !== undefined) {
+            d.beachId = patch.beachId || null;
+            if (d.beachId) delete d.location;
+        }
         // The connector types it offers (the ⚙ OUTPUTS checklist). Stored
         // in catalog order, unknown ids dropped; null forgets the key,
         // which reads as "offers everything" again (distroOutputs).
@@ -3525,27 +3532,26 @@ class _Power {
         row3.style.gap = '6px';
         row3.style.alignItems = 'center';
         row3.style.marginTop = '6px';
-        row3.appendChild(cap('Location'));
-        const loc = document.createElement('input');
-        loc.type = 'text';
-        loc.value = d.location || '';
-        loc.placeholder = 'beach / location';
-        loc.style.flex = '1';
-        loc.style.minWidth = '0';
-        loc.dataset.lrdField = `distro-location-${d.id}`;
-        loc.title = 'Where this distro physically sits - the beach, stage '
-            + 'left world, FOH. Prints on every power label that names it, '
-            + 'so a runner can find the other end.';
-        loc.addEventListener('change', () => patch({ location: loc.value }));
-        // Every location the project already knows - the groups, the other
-        // distros, the breakout boxes - offered under the field, so one
-        // beach is spelled one way (pullKnownLocations).
-        if (typeof this.pullLocationDatalist === 'function') {
-            const locListId = `hw-locations-distro-${d.id}`;
-            loc.setAttribute('list', locListId);
-            row3.appendChild(this.pullLocationDatalist(locListId));
-        }
-        row3.appendChild(loc);
+        // The beach this distro sits on (2026-09-08, "Replace it with the
+        // picker"): one of the project's beaches, or a new one made right
+        // here - app-beaches.js builds the same picker the box's gear and
+        // Screen Info use. Every power row the distro produces is pulled
+        // there. One 'Set Distro Beach' entry; the blank entry clears.
+        row3.appendChild(cap('Beach'));
+        const beachSelect = document.createElement('select');
+        beachSelect.style.flex = '1';
+        beachSelect.style.minWidth = '0';
+        beachSelect.dataset.lrdField = `distro-beach-${d.id}`;
+        beachSelect.title = 'The beach this distro sits on - the dimmer beach, '
+            + 'stage left world, FOH. Its multis, breakouts and circuit cables '
+            + 'are pulled there.';
+        this.fillBeachPicker(beachSelect, d.beachId);
+        this.wireBeachPicker(beachSelect, (beachId) => {
+            this.updateDistro(d.id, { beachId }, 'Set Distro Beach');
+            this._restateNaming();
+            if (typeof this.renderBeaches === 'function') this.renderBeaches();
+        });
+        row3.appendChild(beachSelect);
         wrap.appendChild(row3);
 
         // OUTPUTS (2026-08-31): the connector types this distro can hand a
@@ -7623,6 +7629,9 @@ class _Power {
         this.regroupLayersByGroup(container);
 
         this.updateLayerOrderControls();
+        // Beaches (2026-09-08): the BEACHES line under the canvases follows
+        // every list rebuild - load, undo, a beach route's adoption.
+        if (typeof this.renderBeaches === 'function') this.renderBeaches();
     }
 
     // -------------------------------------------------------------------

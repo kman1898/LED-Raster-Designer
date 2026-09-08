@@ -905,6 +905,24 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
     padding: 0 2px;
 }
 .canvas-drag-handle:active { cursor: grabbing; }
+/* The BEACHES line under the canvases (app-beaches.js renderBeaches): the
+   positions the pull sheet lists, in order. Rows read like the canvas
+   headers - a drag handle, the name, a count, the remove. */
+#beaches-panel { margin-top: 10px; }
+.beaches-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.beaches-title { font-size: 11px; color: #aac4ee; text-transform: uppercase; letter-spacing: 0.5px; }
+.beaches-add { font-size: 11px; padding: 3px 8px; }
+.beaches-empty { font-size: 11px; color: #666; line-height: 1.4; }
+.beach-row { display: flex; align-items: center; gap: 6px; padding: 4px 6px; margin-bottom: 4px;
+    background: #1a1a1a; border: 1px solid #3a3a3a; border-radius: 4px; }
+.beach-row.dragging { opacity: 0.5; }
+.beach-row.drag-target { box-shadow: inset 0 2px 0 0 #4A90E2; }
+.beach-order { font-size: 10px; color: #888; min-width: 14px; text-align: right; }
+.beach-name-input { flex: 1; min-width: 0; background: transparent; border: 1px solid transparent; color: #e0e0e0;
+    padding: 2px 4px; border-radius: 3px; font-size: 13px; font-weight: 600; }
+.beach-name-input.editing { border-color: #4A90E2; }
+.beach-count { font-size: 10px; color: #888; min-width: 12px; text-align: right; }
+.beach-remove { font-size: 14px; line-height: 1; }
 .canvas-color-swatch {
     width: 12px;
     height: 12px;

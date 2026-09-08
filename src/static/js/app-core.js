@@ -4080,6 +4080,10 @@ export class LEDRasterApp {
             });
         }
 
+        // Beaches (2026-09-08): the Screen Info picker - pick one of the
+        // project's beaches or make one; one 'Set Beach' entry either way.
+        if (typeof this.setupBeachPicker === 'function') this.setupBeachPicker();
+
         // v0.8.7.8: gradient overlay editor (standard multi-stop).
         this.setupGradientEditor();
         // v0.8.7.8: multi-color cabinet palette editor.
