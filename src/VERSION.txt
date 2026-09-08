@@ -232,6 +232,22 @@ v0.12.0 - September 7, 2026 (BETA)
   backup socket's extension or its own cable now shows on the map and in
   the binder beside the return label, as the primary's always has.
 
+- CHANGE (IMPORTANT): A binder page is as tall as its content. Every
+  page keeps letter width and grows to the height its map and tables
+  need, letter landscape being the floor, so a screen's circuits always
+  share its page and the continuation pages are gone; the printer scales
+  a tall page to whatever paper is loaded. A tall narrow wall stops at a
+  letter page's content height rather than growing the page for itself.
+
+- FIX: The binder prints sharp. Pages paint at twice the pixel density,
+  the map included, so small text no longer goes soft on paper; the ports
+  table's PORT column takes the width its labels need.
+
+- NEW: Labels stack at their seams. A label with no space to break at
+  stacks between its letters and the digit after them, or at a hyphen,
+  whenever that makes its disc smaller - SR3-5 reads SR over 3-5 - on
+  the canvas and in the binder.
+
 - CHANGE (IMPORTANT): Redundancy is one bar in one place. Behind the
   processor's gear a raised segmented bar - Off, Whole unit, Per card,
   Per port (Off, Backed up, Per port on a standalone unit) - and exactly
