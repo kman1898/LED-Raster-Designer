@@ -268,6 +268,32 @@ v0.12.0 - September 7, 2026 (BETA)
 
 - CHANGE: The circuits table and the tray's power sheet say no., not tail.
 
+- NEW (IMPORTANT): Beaches. A show keeps a list of beaches - add one
+  from the Beaches line in the Screens panel or from any picker's "+ New
+  beach", drag to order, rename, remove. Each screen picks its beach in
+  Screen Info; each distro and each breakout box picks in its gear. The
+  typed Location fields are gone, and a location typed in an older file
+  becomes a beach of that name on load. Pull-sheet positions are the
+  beaches in order, and the binder runs its screens the same way, each
+  screen's Power sheet followed by its Data sheet.
+
+- CHANGE (IMPORTANT): A sheet's drawing grows to fill it. The tables set
+  the scale and the map takes the room they leave, so a small wall and its
+  tables stand large on a Tabloid while a full sheet stays at its base
+  size. Pull beaches share a sheet side by side, distros share one, and a
+  processor shares one with the show pull list.
+
+- FIX: The title block carries a logo you choose (no box without one) and
+  a revision log written on export - date, initials, the note you typed;
+  rows edit and remove in the export modal, and a long description wraps.
+  The compass, the name-as-wordmark and the notes box are gone.
+
+- FIX: The overview map outlines every screen, so walls that touch read
+  apart.
+
+- CHANGE: Box types read Multi 208 and Multi 120 everywhere; a band reads
+  the length once, never "home run".
+
 - CHANGE (IMPORTANT): Redundancy is one bar in one place. Behind the
   processor's gear a raised segmented bar - Off, Whole unit, Per card,
   Per port (Off, Backed up, Per port on a standalone unit) - and exactly
