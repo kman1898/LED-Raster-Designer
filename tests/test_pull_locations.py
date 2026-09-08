@@ -282,7 +282,7 @@ def test_the_workbook_and_the_binder_take_a_device_location(page):
         const opts = { palette: 'colour', sides: {power: true, data: true}, scope: {kind: 'show'},
                        cover: true, pull: true, hardware: true };
         const plan = app.planBinder(opts).map(p => p.title);
-        const cover = app.renderBinderPage(opts, 0).texts;
+        const cover = app.renderBinderPage(opts, 0).texts;   // sheet 1.1, the overview
         return { status: resp.status, b64: btoa(bin), plan, cover };
     }""")
     assert out['status'] == 200
@@ -296,7 +296,9 @@ def test_the_workbook_and_the_binder_take_a_device_location(page):
     assert ('Multi', "125'", 1, 'SR 1') in rows, rows
     assert 'Dimmer Beach - Pull' in out['plan'], out['plan']
     assert out['plan'].count('WALL-A - Power') == 1 and out['plan'].count('WALL-B - Power') == 1
-    assert out['plan'].index('SR Beach - Pull') < out['plan'].index('WALL-A - Power') < out['plan'].index('Dimmer Beach - Pull')
+    # the set runs by series: every power sheet (2.x) before the pull
+    # sheets (4.x), the pull sheets in position order
+    assert out['plan'].index('WALL-A - Power') < out['plan'].index('SR Beach - Pull') < out['plan'].index('Dimmer Beach - Pull')
     i = out['cover'].index('Dimmer Beach')
     assert out['cover'][i + 1] == 'gear for WALL-A, WALL-B', out['cover'][i:i + 4]
     _set_distro_location(pg, ids, '')

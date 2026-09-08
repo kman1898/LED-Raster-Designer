@@ -2095,7 +2095,8 @@ class _HardwareDock {
         sheet.className = 'hw-dock-cablesheet';
         const table = document.createElement('table');
         const thead = document.createElement('tr');
-        ['tail', 'circuit', 'screen', 'cable', 'connector'].forEach(h => {
+        // NO. is the circuit's number on this unit (the header names the unit).
+        ['no.', 'circuit', 'screen', 'cable', 'connector'].forEach(h => {
             const th = document.createElement('th');
             th.textContent = h;
             thead.appendChild(th);

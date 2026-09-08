@@ -2000,21 +2000,34 @@
                 <div style="margin-top: 6px; font-size: 11px; color: #777;">Positions are your screen groups; an ungrouped screen is its own position. Fiber trunk home runs are not listed.</div>
             </div>
 
-            <!-- Binder (format binder only): the show's power and data maps, one
-                 page per screen with the pull tables under each map, bound into
-                 one PDF. Scope (the whole show, or one screen - the canvas's
-                 right-click presets it), the palette (Colour, or Printer: greys
-                 and black runs told apart by dash), which maps, and which extra
-                 pages. No page size to pick: every page is letter wide and as
-                 tall as its content needs (Auto only, 2026-09-07). Shown/hidden
-                 by syncBinderControls in app-binder.js. -->
+            <!-- Binder (format binder only): the show as a DRAWING SET - one
+                 sheet per subject on numbered sheets (1.x overview, 2.x power,
+                 3.x data, 4.x pull, 5.x hardware), every sheet with a border
+                 and a title block down its right edge (app-binder.js). Scope
+                 (the whole show, or one screen - the canvas's right-click
+                 presets it), the sheet size (a preference; Tabloid 17 x 11 by
+                 default, any size), the palette (Colour, or Printer: greys and
+                 black runs told apart by dash), which maps, which extra
+                 sheets, and the title block's fields (project.binder). Shown/
+                 hidden by syncBinderControls in app-binder.js. -->
             <div id="export-binder-section" style="margin-bottom: 18px; display: none;">
-                <label style="display: block; margin-bottom: 8px; color: #ccc; font-size: 13px;" data-tooltip="Letter-wide pages, each as tall as its screen needs, at print density. Print on any paper and it scales to fit.">Binder:</label>
+                <label style="display: block; margin-bottom: 8px; color: #ccc; font-size: 13px;" data-tooltip="A drawing set: numbered sheets with a title block, the maps as numbered views, the tables beside them.">Binder:</label>
                 <div class="export-views" style="display: flex; flex-direction: column; gap: 8px;">
                     <div style="display: flex; gap: 8px; align-items: center; font-size: 12px; color: #aaa;">
                         <span style="flex: none; width: 92px;">Scope</span>
-                        <select id="export-binder-scope" data-tooltip="The whole show, or one screen's pages alone." style="flex: 1; min-width: 60px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px;">
+                        <select id="export-binder-scope" data-tooltip="The whole show, or one screen's sheets alone." style="flex: 1; min-width: 60px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px;">
                             <option value="show">Whole show</option>
+                        </select>
+                    </div>
+                    <div style="display: flex; gap: 8px; align-items: center; font-size: 12px; color: #aaa;">
+                        <span style="flex: none; width: 92px;">Sheet</span>
+                        <select id="export-binder-sheet" data-tooltip="The sheet size, landscape. Tabloid 17 x 11 by default; type stays the same size on every sheet, a bigger sheet holds more. Remembered as a preference." style="flex: 1; min-width: 60px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px;">
+                            <option value="letter">Letter 11 × 8.5</option>
+                            <option value="tabloid" selected>Tabloid 17 × 11</option>
+                            <option value="archc">ARCH C 24 × 18</option>
+                            <option value="archd">ARCH D 36 × 24</option>
+                            <option value="a4">A4 11.69 × 8.27</option>
+                            <option value="a3">A3 16.54 × 11.69</option>
                         </select>
                     </div>
                     <div style="display: flex; gap: 14px; align-items: center; font-size: 12px; color: #aaa;">
@@ -2029,19 +2042,61 @@
                         <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;"><input type="radio" name="export-binder-side" id="export-binder-side-both" value="both" checked> Both</label>
                     </div>
                     <div style="display: flex; gap: 14px; align-items: center; font-size: 12px; color: #aaa;">
-                        <span style="flex: none; width: 92px;">Pages</span>
-                        <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;"><input type="checkbox" id="export-binder-cover" checked> Cover</label>
-                        <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;" data-tooltip="A pull page per position with tick boxes, and the show-wide pull list at the back."><input type="checkbox" id="export-binder-pull" checked> Pull pages</label>
-                        <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;" data-tooltip="One page per distro and per processor at the back."><input type="checkbox" id="export-binder-hardware" checked> Hardware</label>
+                        <span style="flex: none; width: 92px;">Sheets</span>
+                        <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;" data-tooltip="Sheet 1.1: the show map with the positions, the show totals and the contents."><input type="checkbox" id="export-binder-cover" checked> Overview</label>
+                        <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;" data-tooltip="A pull sheet per position with tick boxes (4.x), and the show-wide pull list at the back."><input type="checkbox" id="export-binder-pull" checked> Pull sheets</label>
+                        <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;" data-tooltip="One sheet per distro and per processor at the back (5.x)."><input type="checkbox" id="export-binder-hardware" checked> Hardware</label>
                     </div>
                     <div style="display: flex; gap: 8px; align-items: center; font-size: 12px; color: #aaa;">
                         <span style="flex: none; width: 92px;">Engineer</span>
-                        <input type="text" id="export-binder-engineer" placeholder="Name" data-tooltip="Printed on the cover. Remembered as a preference." style="flex: 1; min-width: 60px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px;">
+                        <input type="text" id="export-binder-engineer" placeholder="Name" data-tooltip="The Drafter the title block prints unless one is typed below. Remembered as a preference." style="flex: 1; min-width: 60px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px;">
                         <span style="flex: none;">Rev</span>
-                        <input type="text" id="export-binder-rev" placeholder="1.0" data-tooltip="Printed on the cover and in every footer." style="flex: none; width: 44px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px; text-align: right;">
+                        <input type="text" id="export-binder-rev" placeholder="1.0" data-tooltip="Printed in every sheet's corner and in the file name." style="flex: none; width: 44px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px; text-align: right;">
                     </div>
                 </div>
-                <div style="margin-top: 6px; font-size: 11px; color: #777;">Maps follow each screen's Show Cable Tags and 2fer / 3fer switches. Positions are your screen groups; a screen with no circuits has no power page.</div>
+                <!-- The title block's fields: project.binder (one undo entry
+                     per field), the prepared-by name a preference. -->
+                <label style="display: block; margin: 10px 0 8px; color: #ccc; font-size: 13px;" data-tooltip="The column down every sheet's right edge: the show, the venue and dates, who designed, managed and drafted it, notes, revisions.">Title block:</label>
+                <div class="export-views" style="display: flex; flex-direction: column; gap: 8px;">
+                    <div style="display: flex; gap: 8px; align-items: center; font-size: 12px; color: #aaa;">
+                        <span style="flex: none; width: 92px;">Venue</span>
+                        <input type="text" id="export-binder-venue" placeholder="Venue" data-tooltip="The venue, under the show name." style="flex: 1; min-width: 60px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px;">
+                    </div>
+                    <div style="display: flex; gap: 8px; align-items: center; font-size: 12px; color: #aaa;">
+                        <span style="flex: none; width: 92px;">Dates</span>
+                        <input type="text" id="export-binder-dates" placeholder="9/4/26 - 9/6/26" data-tooltip="The show dates, free text." style="flex: 1; min-width: 60px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px;">
+                    </div>
+                    <div style="display: flex; gap: 8px; align-items: center; font-size: 12px; color: #aaa;">
+                        <span style="flex: none; width: 92px;">Designer</span>
+                        <input type="text" id="export-binder-designer" placeholder="Name" data-tooltip="The Designer line." style="flex: 1; min-width: 60px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px;">
+                    </div>
+                    <div style="display: flex; gap: 8px; align-items: center; font-size: 12px; color: #aaa;">
+                        <span style="flex: none; width: 92px;">Project manager</span>
+                        <input type="text" id="export-binder-pm-name" placeholder="Name" data-tooltip="The Project Manager: name, phone, email on three lines." style="flex: 1; min-width: 60px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px;">
+                    </div>
+                    <div style="display: flex; gap: 8px; align-items: center; font-size: 12px; color: #aaa;">
+                        <span style="flex: none; width: 92px;"></span>
+                        <input type="text" id="export-binder-pm-phone" placeholder="Phone" data-tooltip="The project manager's phone." style="flex: 1; min-width: 60px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px;">
+                        <input type="text" id="export-binder-pm-email" placeholder="Email" data-tooltip="The project manager's email." style="flex: 1; min-width: 60px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px;">
+                    </div>
+                    <div style="display: flex; gap: 8px; align-items: center; font-size: 12px; color: #aaa;">
+                        <span style="flex: none; width: 92px;">Drafter</span>
+                        <input type="text" id="export-binder-drafter" placeholder="Name" data-tooltip="The Drafter line; blank, the engineer's name prints." style="flex: 1; min-width: 60px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px;">
+                    </div>
+                    <div style="display: flex; gap: 8px; align-items: center; font-size: 12px; color: #aaa;">
+                        <span style="flex: none; width: 92px;">Prepared by</span>
+                        <input type="text" id="export-binder-prepared-by" placeholder="Company" data-tooltip="The name set large in the wordmark box - the company, or you. Blank, the engineer's name, else the app's. Remembered as a preference." style="flex: 1; min-width: 60px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px;">
+                    </div>
+                    <div style="display: flex; gap: 8px; align-items: center; font-size: 12px; color: #aaa;">
+                        <span style="flex: none; width: 92px;">Notes</span>
+                        <textarea id="export-binder-notes" rows="2" placeholder="Notes printed on every sheet" data-tooltip="The NOTES box, wrapped to fit." style="flex: 1; min-width: 60px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px; font: inherit; resize: vertical;"></textarea>
+                    </div>
+                    <div style="display: flex; gap: 8px; align-items: center; font-size: 12px; color: #aaa;">
+                        <span style="flex: none; width: 92px;">Revisions</span>
+                        <textarea id="export-binder-revisions" rows="3" placeholder="7/24/26 · MK · Overview&#10;7/27/26 · MK · Patch and circuit" data-tooltip="One revision per line: date · by · description. Numbered in the REVISIONS table in order." style="flex: 1; min-width: 60px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px; font: inherit; resize: vertical;"></textarea>
+                    </div>
+                </div>
+                <div style="margin-top: 6px; font-size: 11px; color: #777;">Maps follow each screen's Show Cable Tags and 2fer / 3fer switches. Positions are your screen groups; a screen with no circuits has no power sheet.</div>
             </div>
 
             <!-- Export Scale (v0.8.7.7.1), multiplies output resolution. Vector

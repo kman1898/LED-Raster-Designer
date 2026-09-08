@@ -1942,7 +1942,12 @@ class _ExportIo {
             // The engineer whose name the pull sheet prints. A preference,
             // not a project field: the same person show after show, and a
             // file handed to another engineer prints theirs (app-pull-list).
-            engineerName: ''
+            engineerName: '',
+            // The binder's sheet size and the name its title block's
+            // wordmark sets large (app-binder): the same shop show after
+            // show, so preferences like the engineer's name.
+            binderSheet: 'tabloid',
+            preparedBy: ''
         };
     }
 
@@ -2259,6 +2264,8 @@ class _ExportIo {
             // Pull Sheet section); carried through so a Save here does not
             // wipe it.
             engineerName: this.getPreferences().engineerName || defaults.engineerName,
+            binderSheet: this.getPreferences().binderSheet || defaults.binderSheet,
+            preparedBy: this.getPreferences().preparedBy || defaults.preparedBy,
         };
     }
 
