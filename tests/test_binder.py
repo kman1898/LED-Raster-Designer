@@ -1317,7 +1317,7 @@ def test_the_title_block_prints_the_projects_fields_and_they_ride_the_project(pa
         const stored = JSON.parse(JSON.stringify(app.project.binder));
         await app._binderPushQueue;
         const served = (await j('GET', '/api/project')).binder;
-        await app.setEngineerName('Matt Knotts');
+        await app.setEngineerName('Morgan Keller');
         app.syncBinderControls();
         const drafterPlaceholder = document.getElementById('export-binder-drafter').placeholder;
         return { actions, stored, served, drafterPlaceholder, info: app.getBinderInfo(),
@@ -1332,15 +1332,15 @@ def test_the_title_block_prints_the_projects_fields_and_they_ride_the_project(pa
         assert out['served'] == want, out['served']
         assert 'notes' not in out['stored'] and 'notes' not in out['info'] and 'preparedBy' not in out['info']
         assert 'export-binder-notes' not in out['fields'] and 'export-binder-prepared-by' not in out['fields']
-        assert out['drafterPlaceholder'] == 'Matt Knotts'
+        assert out['drafterPlaceholder'] == 'Morgan Keller'
         assert out['info']['drafter'] == '' and out['info']['revisions'] == []
         r = _render(pg, SHOW, 'WALL-B - Data')
         texts = r['texts']
         _title_block(texts, 'WALL-B · DATA', '2.5')
         for t in ('HARBOR FIELD', '9/4/26 - 9/6/26', 'Northlight Design', 'Jordan Reyes', '(555) 010-2030',
-                  'jreyes@example.com', 'Matt Knotts'):
+                  'jreyes@example.com', 'Morgan Keller'):
             assert t in texts, (t, texts[:60])
-        assert texts[texts.index('Drafter:') + 1] == 'Matt Knotts'          # the engineer, no drafter typed
+        assert texts[texts.index('Drafter:') + 1] == 'Morgan Keller'          # the engineer, no drafter typed
         assert texts[texts.index('Designer:') + 1] == 'Northlight Design'
         assert texts[texts.index('Project Manager:') + 1:texts.index('Project Manager:') + 4] == \
             ['Jordan Reyes', '(555) 010-2030', 'jreyes@example.com']
@@ -1422,7 +1422,7 @@ def test_a_revision_is_logged_on_export_and_the_log_edits_in_the_dialog(page):
         try {
             document.getElementById('export-format').value = 'binder';
             document.getElementById('export-format').dispatchEvent(new Event('change'));
-            await app.setEngineerName('Matt Knotts');
+            await app.setEngineerName('Morgan Keller');
             app.syncBinderControls();
             const empty = document.getElementById('export-binder-revisions').textContent;
             // the first export at rev 1.0: one row from the note

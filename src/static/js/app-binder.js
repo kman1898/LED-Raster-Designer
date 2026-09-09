@@ -576,7 +576,7 @@ class _Binder {
         return `${d.getMonth() + 1}/${d.getDate()}/${String(d.getFullYear()).slice(-2)}`;
     }
 
-    // The first letter of each word of a name, upper-case: "Matt Knotts"
+    // The first letter of each word of a name, upper-case: "Morgan Keller"
     // is MK; a blank name is ''.
     binderInitials(name) {
         return String(name == null ? '' : name).trim().split(/\s+/)
