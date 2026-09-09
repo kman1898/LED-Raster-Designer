@@ -3045,7 +3045,10 @@ def test_the_glance_reads_the_occupancy_and_never_renumbers(panel_page):
         return {
             sx: byCard[ids.sxCard] || null,
             mx: byCard[ids.mxCard] || null,
-            stripModel: strip.querySelector('span').textContent,
+            // not(.hw-dock-grip): the strip leads with the ⋮⋮ drag grip
+            // (2026-09-09, reorder by drag); the model is the span after it
+            stripModel: strip.querySelector('span:not(.hw-dock-grip)')
+                .textContent,
             stripName: strip.querySelector('input').value,
         };
     }""", ids)

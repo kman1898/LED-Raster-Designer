@@ -9,22 +9,29 @@
 //   the WALL      - the same _bMap render the Power / Data sheets use
 //                   (data-flow view above, power view below), rulers and
 //                   brackets off: the stubs replace them
-//   the STUB ROW  - a small rounded tag on the wall's bottom edge per port
-//                   end / per circuit, under the column where its run
-//                   BEGINS (a primary, a circuit) or ENDS (a return): the
-//                   label the wall's discs wear ("SR A-1", "SR B-1",
-//                   "SR1-1"), green / red / the power label orange. Tags
-//                   that would overlap SPREAD along the row (the cluster
-//                   centred on the columns it belongs to, in column order)
-//                   - on a wall whose runs go across, every port begins in
-//                   column 1 and every circuit of a multi in the same
-//                   column, so a stack there would be as tall as the wall;
-//                   the label names the run, the wall's own disc marks the
-//                   column
+//   the STUBS     - a small rounded tag ON THE PANEL where its run BEGINS
+//                   (a primary, a circuit: the run's first panel) or ENDS
+//                   (a return: its last) - the very panel the wall's label
+//                   disc is drawn on, the tag centred on it: the label the
+//                   disc wears ("SR A-1", "SR B-1", "SR1-1"), green / red /
+//                   the power label orange. "port 1 needs to go touch
+//                   actual port one" (2026-09-09): a stub on the wall's
+//                   bottom edge under the run's column landed nowhere. Two
+//                   tags whose rows meet and whose panels are too narrow
+//                   for both SPREAD along that row (the cluster centred on
+//                   the panels it belongs to); a tag on a row of its own
+//                   never leaves its panel
 //   the WIRING    - an ORTHOGONAL wire from every stub to its socket: down
-//                   to a LEVEL, across, down onto the socket - the levels
+//                   from the tag THROUGH THE WALL (over the wall's bitmap,
+//                   2 px, its colour) to the wall's bottom edge and on to
+//                   a LEVEL, across, down onto the socket - the levels
 //                   allocated so no two horizontals overlap on one level and
-//                   no horizontal crosses another wire's drop (below)
+//                   no horizontal crosses another wire's drop (below).
+//                   Runs that begin in one column (a wall whose runs go
+//                   across: every primary in column 1) share the column's
+//                   vertical LANE side by side, LANE_GAP apart, the wire
+//                   landing farthest right in the rightmost lane, so the
+//                   drops never overprint and the fan below never crosses
 //   the DEVICES   - SCHEMATIC BLOCKS ("Schematic blocks", no product
 //                   photos): a rounded block captioned with the device, a
 //                   row of numbered sockets. Signal: one block per device
@@ -90,13 +97,14 @@ const GUT = { left: 40, right: 40, top: 24, bottom: 0 };
 // The half's head word (SIGNAL / POWER), the rule between the halves.
 const HEAD_H = 44;
 const RULE_GAP = 40;
-// The stubs: on the wall's bottom edge, their type, their padding, their
-// corner, the air between two that spread.
-const STUB_GAP = 4;
+// The stubs: on their panels, their type, their padding, their corner,
+// the air between two that spread along a row.
 const STUB_H = 30;
 const STUB_PADX = 10;
 const STUB_R = 7;
 const STUB_SPREAD_GAP = 6;
+// The lanes: wires dropping from tags in one column sit this far apart.
+const LANE_GAP = 6;
 // The wiring band: its padding, the level pitch (and the least pitch a
 // crowded half may fall to before the wall gives up more room).
 const GAP = 22;
@@ -250,7 +258,7 @@ class _BinderWiring {
         return { stubs, devices, wires };
     }
 
-    // The power half's facts: a stub per circuit under its first column,
+    // The power half's facts: a stub per circuit ON its first panel,
     // a BREAKOUT block per multi the screen's circuits are on (its slots as
     // sockets; a slot another screen uses on a shared multi noted with
     // that screen's name), a wire per circuit.
@@ -347,7 +355,7 @@ class _BinderWiring {
         const blocksH = (rows) => rows.length ? rows.length * blockH + (rows.length - 1) * ROW_GAP : 0;
         let levelPitch = LEVEL_PITCH;
         const bandH = (levels) => nWires ? 2 * BAND_PAD + Math.max(0, levels - 1) * levelPitch : 0;
-        const fixedH = (levels, rows) => HEAD_H + STUB_GAP + STUB_H + (nWires ? GAP + bandH(levels) : 0)
+        const fixedH = (levels, rows) => HEAD_H + (nWires ? GAP + bandH(levels) : 0)
             + (rows.length ? GAP + blocksH(rows) : 0);
         const clamp = (v) => Math.max(1, Math.min(FILL_CAP, Math.floor(v * 1000) / 1000));
 
@@ -385,9 +393,9 @@ class _BinderWiring {
 
     // The half's picture at scale s with a band sized for `bandLevels`
     // levels: the map's area (the room the fixed stack leaves), the wall's
-    // geometry, the stubs under their columns, the blocks under the wall,
-    // the wires with their levels allocated. Returns the lot, with the
-    // levels the wires actually took.
+    // geometry, the stubs on their panels, the blocks under the wall, the
+    // wires with their lanes and their levels allocated. Returns the lot,
+    // with the levels the wires actually took.
     _bwPlace(book, layer, facts, view, A, s, pitch, bandLevels, levelPitch, rows, blockH, bandH, fixedH) {
         const ctxM = book.measureCtx;
         const measure = (text, size, weight) => {
@@ -402,22 +410,36 @@ class _BinderWiring {
         const wallBottom = wall.y + wall.h;
         const wallCx = wall.x + wall.w / 2;
 
-        // the stubs: a tag under its column - `col` is where the column
-        // is, `cx` where the tag's centre lands once the row has spread
+        // the stubs: a tag ON THE PANEL its run begins (or ends) on - "port
+        // 1 needs to go touch actual port one" (2026-09-09). `panel` is
+        // that panel's rect on the page, `col` / `cy` its centre, `cx`
+        // where the tag's centre lands once a row that would overprint has
+        // spread. The tag keeps to the wall's bitmap: a run beginning on
+        // the bottom row lifts its tag off the band.
         const stubs = facts.stubs.map((st, i) => {
             const p = st.panel;
-            const rc = geo ? geo.rect(p.x, p.y, p.width, p.height) : { x: wallCx, w: 0 };
+            const rc = geo ? geo.rect(p.x, p.y, p.width, p.height)
+                : { x: wallCx, y: wall.y, w: 0, h: wall.h };
             const col = rc.x + rc.w / 2;
+            const cy = rc.y + rc.h / 2;
             const w = Math.ceil(measure(st.text, SZW.stub * s, 700) + 2 * STUB_PADX * s);
-            return { kind: st.kind, text: st.text, port: st.port, circuit: st.circuit, col, cx: col, x: col - w / 2,
-                     w, h: STUB_H * s, y: wallBottom + STUB_GAP * s, order: i, src: st };
+            const h = STUB_H * s;
+            let y = cy - h / 2;
+            if (wall.h >= h) y = Math.max(wall.y, Math.min(wallBottom - h, y));
+            return { kind: st.kind, text: st.text, port: st.port, circuit: st.circuit,
+                     col, cy, panel: { x: rc.x, y: rc.y, w: rc.w, h: rc.h },
+                     cx: col, x: col - w / 2, w, h, y, order: i, src: st };
         });
-        this._bwSpread(stubs, A.x, A.x + A.w, STUB_SPREAD_GAP * s);
-        const stubsBottom = wallBottom + STUB_GAP * s + (stubs.length ? STUB_H * s : 0);
+        // a tag stays on its panel when it can: only tags whose rows meet
+        // can overprint, so each band of tags spreads on its own
+        for (const row of this._bwStubRows(stubs)) {
+            this._bwSpread(row, A.x, A.x + A.w, STUB_SPREAD_GAP * s);
+        }
 
-        // the band, the blocks under it
+        // the band, the blocks under it - the stubs are ON the wall now, so
+        // the band starts under the wall itself
         const nWires = facts.wires.length;
-        const bandTop = stubsBottom + (nWires ? GAP * s : 0);
+        const bandTop = wallBottom + (nWires ? GAP * s : 0);
         const bandHeight = bandH(bandLevels) * s;
         const blocksTop = bandTop + bandHeight + (rows.length ? GAP * s : 0);
         const blocks = [];
@@ -442,7 +464,8 @@ class _BinderWiring {
             }
         });
 
-        // the wires: stub bottom to socket top, their levels
+        // the wires: the tag's bottom edge - down THROUGH the wall, over
+        // its bitmap - to the socket's top, their lanes and their levels
         const byStub = new Map(stubs.map(st => [st.src, st]));
         const wires = facts.wires.map(w => {
             const st = byStub.get(w.stub);
@@ -451,12 +474,51 @@ class _BinderWiring {
             const block = blocks.find(b => b.key === w.device.key);
             const y2 = block ? block.y + SOCKET_DY * s - SOCKET_R * s : bandTop + bandHeight;
             return { kind: w.kind, from: st.text, device: w.device.title, socket: w.socket,
-                     x1: st.cx, y1: st.y + st.h, x2, y2, level: null, y: null };
+                     x1: st.cx, y1: st.y + st.h, x2, y2, lane: null, level: null, y: null };
         });
+        this._bwLanes(wires, LANE_GAP * s);
         const levels = this._bwLevels(wires, 6 * s);
         const levelY = (i) => bandTop + BAND_PAD * s + i * levelPitch * s;
         for (const w of wires) if (w.level != null) w.y = levelY(w.level);
         return { mapArea, geo, wall, stubs, blocks, wires, levels, bandLevels, bandTop, bandHeight, blocksTop, scale: s };
+    }
+
+    // The tags in bands that could overprint: sorted by their tops, a new
+    // band begun wherever a tag clears the one before it. Tags on
+    // different rows of the wall never meet, so each band spreads on its
+    // own and a tag whose row is its alone never leaves its panel.
+    _bwStubRows(stubs) {
+        const rows = [];
+        let cur = null, floor = -Infinity;
+        for (const st of [...stubs].sort((a, b) => a.y - b.y || a.order - b.order)) {
+            if (!cur || st.y >= floor) { cur = []; rows.push(cur); floor = -Infinity; }
+            cur.push(st);
+            floor = Math.max(floor, st.y + st.h);
+        }
+        return rows;
+    }
+
+    // Wires that drop from ONE column would print one drop over another -
+    // the Experts Only walls run across, so every primary begins in column
+    // 1. They share the column's vertical LANE side by side, `gap` apart
+    // and still under their tag, in the order they land: the wire landing
+    // farthest right in the rightmost lane, so the fan below never crosses
+    // itself. Sets `lane` and moves `x1`; a column with one wire keeps it.
+    _bwLanes(wires, gap) {
+        const groups = new Map();
+        for (const w of wires) {
+            const key = Math.round(w.x1 * 100) / 100;
+            if (!groups.has(key)) groups.set(key, []);
+            groups.get(key).push(w);
+        }
+        for (const [key, ws] of groups) {
+            if (ws.length < 2) continue;
+            ws.sort((a, b) => a.x2 - b.x2 || a.y2 - b.y2 || a.y1 - b.y1);
+            ws.forEach((w, i) => {
+                w.lane = i;
+                w.x1 = key + (i - (ws.length - 1) / 2) * gap;
+            });
+        }
     }
 
     // Tags along one row, each wanting its centre at `col`, none
@@ -603,7 +665,7 @@ class _BinderWiring {
             }
             ctx.stroke();
             if (log) log.wires.push({ kind: w.kind, from: w.from, device: w.device, socket: w.socket,
-                                      x1: w.x1, y1: w.y1, x2: w.x2, y2: w.y2, level: w.level, y: w.y,
+                                      x1: w.x1, y1: w.y1, x2: w.x2, y2: w.y2, lane: w.lane, level: w.level, y: w.y,
                                       colour: ctx.strokeStyle, dash: printer && w.kind === 'return' ? RETURN_DASH : [] });
         }
         ctx.setLineDash([]);
@@ -612,7 +674,8 @@ class _BinderWiring {
             this._bwRound(ctx, st.x, st.y, st.w, st.h, STUB_R * s, tagFill(st.kind), INK, printer ? 2 : 1.5);
             this._bText(book, st.text, st.x + st.w / 2, st.y + st.h / 2 + 7 * s,
                         { size: SZW.stub * s, weight: 700, align: 'center', color: tagInk(st.kind) });
-            if (log) log.stubs.push({ kind: st.kind, text: st.text, x: st.x, y: st.y, w: st.w, h: st.h, cx: st.cx, col: st.col });
+            if (log) log.stubs.push({ kind: st.kind, text: st.text, x: st.x, y: st.y, w: st.w, h: st.h,
+                                      cx: st.cx, cy: st.y + st.h / 2, col: st.col, panel: st.panel });
         }
         // the blocks
         for (const b of P.blocks) {

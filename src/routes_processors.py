@@ -448,6 +448,36 @@ def add_processor():
     return _state(201)
 
 
+@processors_bp.route('/api/processors/order', methods=['PUT'])
+def set_processor_order():
+    """Reorder the processors (2026-09-09: "also being able to drag them
+    around and reorder them would be nice too").
+
+    The body is the whole order - a PERMUTATION of the ids that exist, so a
+    stale tray cannot silently drop or duplicate a machine; anything else
+    refuses with the reason and stores nothing. Order is the only thing
+    that moves: the records themselves are re-seated, never rewritten, and
+    everything that reads processor order (the tray, the pull list's
+    hardware order, the binder's 'data' screen order, _bFirstPortKey's
+    processor index) follows from this one array.
+
+    A static rule, so it is matched ahead of /api/processors/<id>.
+    """
+    data = request.json or {}
+    ids = data.get('ids')
+    if not isinstance(ids, list) or not all(isinstance(i, str) for i in ids):
+        return jsonify({'error': 'ids must be a list of processor ids.'}), 400
+    have = [p.get('id') for p in _processors()]
+    if sorted(ids) != sorted(have):
+        return jsonify({
+            'error': 'ids must name every processor exactly once - '
+                     f'{len(have)} on file, {len(ids)} given.'}), 400
+    by_id = {p.get('id'): p for p in _processors()}
+    _processors_mut()[:] = [by_id[i] for i in ids]
+    log_event('processor_order', {'ids': ids})
+    return _state()
+
+
 @processors_bp.route('/api/processors/<processor_id>', methods=['PUT'])
 def update_processor(processor_id):
     proc = _find_processor(processor_id)

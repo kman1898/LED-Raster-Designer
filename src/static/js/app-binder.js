@@ -955,9 +955,10 @@ class _Binder {
     // (2026-09-08, his buddy on seven walls "A - OffSR IMAG" … "G - E3
     // Delay": "i'd want raster A first, then in alphabetical order"):
     //   alpha      by name, natural - "A - …" before "B - …", 2 before 10
-    //   layers     the Screens panel's order, top to bottom (the panel
-    //              shows the newest screen on top - the layer list reversed)
-    //   layers-up  the panel bottom to top - the layer list's own order
+    //   layers     the Screens panel's order, top to bottom - the panel as
+    //              it is actually drawn (_bPanelScreenOrder: canvases, then
+    //              newest-on-top inside each, then screen groups gathered)
+    //   layers-up  that list read bottom to top
     //   data       by the screen's first port: processor order, then card
     //              slot, then socket - a screen on card 1 socket 1 first;
     //              screens with no port after those, alphabetical
@@ -970,10 +971,12 @@ class _Binder {
         const name = (l) => String(l.name == null ? '' : l.name);
         const byName = (a, b) => name(a).localeCompare(name(b), undefined, { numeric: true, sensitivity: 'base' })
             || String(a.id).localeCompare(String(b.id), undefined, { numeric: true });
-        const all = (this.project && this.project.layers) || [];
-        const index = (l) => all.indexOf(l);
-        if (order === 'layers') return [...layers].sort((a, b) => (index(b) - index(a)) || byName(a, b));
-        if (order === 'layers-up') return [...layers].sort((a, b) => (index(a) - index(b)) || byName(a, b));
+        if (order === 'layers' || order === 'layers-up') {
+            const panel = this._bPanelScreenOrder();
+            const at = (l) => { const i = panel.indexOf(l); return i < 0 ? panel.length : i; };
+            const dir = order === 'layers' ? 1 : -1;
+            return [...layers].sort((a, b) => (dir * (at(a) - at(b))) || byName(a, b));
+        }
         if (order === 'data' || order === 'power') {
             const keys = new Map(layers.map(l => [l, order === 'data'
                 ? this._bFirstPortKey(l) : this._bFirstCircuitKey(book, l)]));
@@ -988,6 +991,63 @@ class _Binder {
             });
         }
         return [...layers].sort(byName);
+    }
+
+    // The Screens panel's rows in the order the eye reads them, TOP FIRST
+    // (2026-09-09: "top to bottom does bottom to top actually"). The panel
+    // is not the layer array reversed - that was the old assumption, and it
+    // inverted the moment a show had more than one canvas. It is three
+    // passes, and this walks the same three over the model so 'layers'
+    // follows what is on screen whatever the show is built from:
+    //   1. renderLayers reverses the layer array (newest on top)
+    //   2. regroupLayersByCanvas deals the rows into CANVAS groups, the
+    //      canvases in their own array order, each group holding its
+    //      canvas's rows in that reversed order (a Show view groups by
+    //      show_canvas_id || canvas_id, the same as the sidebar)
+    //   3. regroupLayersByGroup lifts a screen group's rows to sit
+    //      together at the FIRST member's place - only the members sharing
+    //      that member's canvas move; one on another canvas stays put
+    // 'layers-up' is this list read the other way.
+    _bPanelScreenOrder() {
+        const all = (this.project && this.project.layers) || [];
+        const reversed = [...all].reverse();
+        const canvases = (this.project && this.project.canvases) || [];
+        const isShow = !!(window.canvasRenderer
+            && window.canvasRenderer.isShowLookView
+            && window.canvasRenderer.isShowLookView());
+        const canvasOf = (l) => ((isShow && l.show_canvas_id)
+            ? l.show_canvas_id : l.canvas_id);
+        let out = [];
+        if (canvases.length) {
+            const placed = new Set();
+            canvases.forEach(c => reversed.forEach(l => {
+                if (canvasOf(l) !== c.id) return;
+                out.push(l);
+                placed.add(l);
+            }));
+            // A row whose canvas is not in the list is not drawn in any
+            // group; it keeps the flat order after them rather than
+            // vanishing from the plan.
+            reversed.forEach(l => { if (!placed.has(l)) out.push(l); });
+        } else {
+            out = reversed;
+        }
+        for (const g of (this.project && this.project.groups) || []) {
+            const ids = new Set((g && g.layer_ids) || []);
+            const members = out.filter(l => ids.has(l.id));
+            if (members.length < 2) continue;
+            const home = canvasOf(members[0]);
+            const own = members.filter(l => canvasOf(l) === home);
+            if (own.length < 2) continue;
+            const mine = new Set(own);
+            const firstAt = out.indexOf(own[0]);
+            out = [
+                ...out.slice(0, firstAt).filter(l => !mine.has(l)),
+                ...own,
+                ...out.slice(firstAt).filter(l => !mine.has(l)),
+            ];
+        }
+        return out;
     }
 
     // [processor index, card slot, socket] of the screen's first placed

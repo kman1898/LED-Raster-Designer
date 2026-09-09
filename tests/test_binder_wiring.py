@@ -6,9 +6,11 @@ was talking about").
 
 The drawing area is split by a rule, SIGNAL over POWER (a screen with one
 side draws that half alone). Each half: the wall (the same _bMap render,
-rulers and brackets off), a STUB ROW on its bottom edge - a rounded tag per
-port end under the column its run begins (primary, green) or ends (return,
-red), per circuit under its first column (the power label orange) - a
+rulers and brackets off), the STUBS - a rounded tag ON THE PANEL its run
+begins on (a primary, green; a circuit, the power label orange) or ends on
+(a return, red), the very panel the wall's label disc is drawn on: "port 1
+needs to go touch actual port one" (2026-09-09), a tag on the wall's bottom
+edge under the run's column landed nowhere - a
 WIRING BAND of orthogonal wires, and the DEVICE BLOCKS: schematic blocks,
 one per device the screen's port ends land on (a box "CVT4K-S SR A · Card 1
 · OPT 1-2", or the card itself "H9 SR · H_16xRJ45+2xfiber"; a backup box
@@ -18,11 +20,13 @@ BREAKOUT ("there are no boxes... it is a breakout also known as a fan out"):
 "SR1 · Multi 208 breakout · 125'", its slots as sockets, this screen's
 orange, another screen's grey with that screen's name under it.
 
-The wires: down from the stub to a LEVEL, across, down onto the socket;
-levels allocated so no two horizontals overlap on one level and no
-horizontal crosses another wire's drop (a stub's drop must stop above a
-horizontal it would cross; a socket's drop must start below one). Tags
-that would overlap spread along the row. The wall takes the zoom the half's
+The wires: down from the tag THROUGH the wall to a LEVEL, across, down
+onto the socket; levels allocated so no two horizontals overlap on one
+level and no horizontal crosses another wire's drop (a stub's drop must
+stop above a horizontal it would cross; a socket's drop must start below
+one). Wires whose runs begin in ONE column share the column's vertical
+lane, LANE_GAP = 6 px apart, in the order they land. Tags whose rows meet
+and would overlap spread along that row. The wall takes the zoom the half's
 width allows and the height it needs; the type and the blocks scale into
 what is left (1 to 2.4). One view per sheet, its bubble under the lower
 half; the sheet numbers 2.n with the screen's others, the CONTENTS follows;
@@ -33,6 +37,7 @@ ports):
     LRD_E2E_PORT=15797 python3 -m pytest tests/test_binder_wiring.py -v --browser chromium
 """
 
+import base64
 import json
 import os
 import re
@@ -51,9 +56,63 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
 # app-binder-wiring.js, in page px at 200 px/in
-STUB_H, SOCKET_R, WIRE_W = 30, 12, 2
+STUB_H, SOCKET_R, WIRE_W, LANE_GAP = 30, 12, 2, 6
 RETURN_DASH = [14, 8]
 GREEN, RED, ORANGE, INK = '#00ff00', '#ff0000', '#d95000', '#111111'
+
+
+def _lands_on_its_panel(stub, scale=1.0):
+    """"port 1 needs to go touch actual port one": the tag's centre is the
+    centre of the panel its run begins (a primary, a circuit) or ends (a
+    return) on - the panel the wall's own label disc wears. A tag lifted
+    off the band (a run beginning on the bottom row) or spread away from a
+    neighbour it would overprint moves, so the centre is allowed a panel's
+    room; an untouched tag is exact."""
+    p = stub['panel']
+    return (abs(stub['cx'] - (p['x'] + p['w'] / 2)) <= p['w'] / 2 + 0.01
+            and abs(stub['cy'] - (p['y'] + p['h'] / 2)) <= max(p['h'] / 2, STUB_H * scale / 2) + 0.01)
+
+
+def _overlap(a, b):
+    return (a['x'] < b['x'] + b['w'] and b['x'] < a['x'] + a['w']
+            and a['y'] < b['y'] + b['h'] and b['y'] < a['y'] + a['h'])
+
+
+def _check_stubs(half):
+    """Every tag on its panel, inside the wall, none printed over another;
+    every wire leaving its own tag's bottom edge; wires that drop from one
+    column in lanes LANE_GAP apart, in the order they land."""
+    s = half['scale']
+    m = half['map']
+    for st in half['stubs']:
+        assert _lands_on_its_panel(st, s), ('a stub must land on its panel', st)
+        assert abs(st['h'] - STUB_H * s) < 0.01, st
+        assert m['y'] - 0.01 <= st['y'] and st['y'] + st['h'] <= m['y'] + m['h'] + 0.01, (
+            'a tag stays on the wall it names', st, m)
+    for i, a in enumerate(half['stubs']):
+        for b in half['stubs'][i + 1:]:
+            assert not _overlap(a, b), ('two tags overprint', a, b)
+    by_text = {st['text']: st for st in half['stubs']}
+    assert len(by_text) == len(half['stubs']), half['stubs']
+    assert len({w['from'] for w in half['wires']}) == len(half['wires']), (
+        'one wire per stub', half['wires'])
+    for w in half['wires']:
+        st = by_text[w['from']]
+        assert abs(w['y1'] - (st['y'] + st['h'])) < 0.01, ('a wire leaves its tag', w, st)
+        assert st['x'] - 0.01 <= w['x1'] <= st['x'] + st['w'] + 0.01, ('a wire leaves its tag', w, st)
+    lanes = {}
+    for w in half['wires']:
+        lanes.setdefault(round(by_text[w['from']]['cx'], 2), []).append(w)
+    for col, ws in lanes.items():
+        if len(ws) < 2:
+            assert ws[0]['lane'] is None and abs(ws[0]['x1'] - col) < 0.01, ws
+            continue
+        ws.sort(key=lambda w: w['lane'])
+        assert [w['lane'] for w in ws] == list(range(len(ws))), ws
+        assert [w['x2'] for w in ws] == sorted(w['x2'] for w in ws), (
+            'the wire landing farthest right takes the rightmost lane', ws)
+        for a, b in zip(ws, ws[1:]):
+            assert abs((b['x1'] - a['x1']) - LANE_GAP * s) < 0.01, ('the lanes are 6 px apart', a, b)
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -98,6 +157,23 @@ WIRING_JS = """([opts, title]) => {
              ops: r.record.ops.map(o => o.op === 'line' ? { op: 'line', n: o.points.length, width: o.width, dash: o.dash, stroke: o.stroke,
                                                               points: o.points }
                                     : o.op === 'image' ? { op: 'image', x: o.x, y: o.y, w: o.w, h: o.h } : { op: o.op }) };
+}"""
+
+
+# One sheet of the set as a PDF, through the same export route the app
+# uses - for LRD_BINDER_PDF_DIR, so the sheet can be looked at (pdftoppm).
+_PDF_JS = """async ([opts, title]) => {
+    const app = window.app;
+    const plan = app.planBinder(opts);
+    const idx = plan.findIndex(p => p.title === title);
+    if (idx < 0) return { status: 0, missing: title };
+    const pages = app.renderBinderPages(opts, { bitmaps: false }).slice(idx, idx + 1);
+    const resp = await fetch('/api/export/pdf-from-pages', { method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ project_name: app.project.name, pages }) });
+    const buf = new Uint8Array(await resp.arrayBuffer());
+    let bin = ''; for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
+    return { status: resp.status, b64: btoa(bin) };
 }"""
 
 
@@ -175,11 +251,11 @@ def _inside(r, area):
 def test_the_sheet_is_the_screens_third_and_wires_its_port_and_its_circuits(page):
     """WALL-A (4 x 3, one port on card SR's socket 1 - no box, no backup -
     two circuits on SR1 at 125'): sheet 2.3 "WALL-A · SIGNAL + POWER", view
-    4, its bubble under the lower half. SIGNAL: one green stub "SR-1" on
-    the wall's bottom edge under its first column, one CARD block "H9 SR ·
-    H_16xRJ45+2xfiber" with 16 sockets - socket 1 green, the rest grey
+    4, its bubble under the lower half. SIGNAL: one green stub "SR-1" ON
+    the panel its run begins on (the wall's top-left), one CARD block "H9
+    SR · H_16xRJ45+2xfiber" with 16 sockets - socket 1 green, the rest grey
     rings - and one wire from the stub onto socket 1. POWER: two orange
-    stubs under each circuit's first column, one BREAKOUT block "SR1 ·
+    stubs on each circuit's first panel, one BREAKOUT block "SR1 ·
     Multi 208 breakout · 125'" with six sockets, 1 and 2 orange, and two
     wires. Both halves inside the drawing area, the signal half over the
     rule, the power half under it; the two walls are the two images; the
@@ -203,9 +279,12 @@ def test_the_sheet_is_the_screens_third_and_wires_its_port_and_its_circuits(page
     assert [(s['text'], s['kind']) for s in sig['stubs']] == [('SR-1', 'primary')]
     stub = sig['stubs'][0]
     m = sig['map']
-    assert abs(stub['y'] - (m['y'] + m['h'] + 4 * sig['scale'])) < 0.01, (stub, m)     # on the wall's bottom edge
+    assert _lands_on_its_panel(stub, sig['scale']), (stub, m)       # ON the run's first panel
     assert abs(stub['h'] - STUB_H * sig['scale']) < 0.01
-    assert m['x'] <= stub['col'] <= m['x'] + m['w'] / 4, (stub, m)                       # under the first column
+    assert m['x'] <= stub['col'] <= m['x'] + m['w'] / 4, (stub, m)                       # the first column
+    assert m['y'] <= stub['cy'] <= m['y'] + m['h'] / 4, (stub, m)                        # the top row
+    _check_stubs(sig)
+    _check_stubs(pwr)
     assert [b['title'] for b in sig['blocks']] == ['H9 SR · H_16xRJ45+2xfiber']
     card = sig['blocks'][0]
     assert [s['n'] for s in card['sockets']] == list(range(1, 17))
@@ -261,8 +340,8 @@ def test_a_return_lands_on_its_own_block_and_a_box_replaces_the_card(page):
     """"one per cvt including backups": a CVT4K-S on card SR delivers WALL-A's
     port, a second card (its 1:1 partner) carries its return through its own
     CVT4K-S named BK. The signal half then has TWO stubs - the primary
-    "SR-1" under the run's first column, the return "BK-1" (the mapped
-    box's own label) under its last, red - and TWO blocks, "CVT4K-S SR · SR
+    "SR-1" on the run's FIRST PANEL, the return "BK-1" (the mapped box's
+    own label) on its LAST, red - and TWO blocks, "CVT4K-S SR · SR
     · OPT 1-2" with socket 1 green and "CVT4K-S BK · slot 2 · OPT 1-2" with
     socket 1 red, the rest grey; two wires, the return's red - dashed on the
     printer sheet, its socket a hollow ring there."""
@@ -292,6 +371,10 @@ def test_a_return_lands_on_its_own_block_and_a_box_replaces_the_card(page):
         m = sig['map']
         first, last = sig['stubs']
         assert first['col'] < m['x'] + m['w'] / 4 and last['col'] > m['x'] + m['w'] * 3 / 4, (first, last, m)
+        # each on the very panel its run begins / ends on, and the run of a
+        # 4 x 3 wall ends on the bottom row: the return's tag is lower
+        _check_stubs(sig)
+        assert last['cy'] > first['cy'], (first, last)
         assert [b['title'] for b in sig['blocks']] == ['CVT4K-S SR · SR · OPT 1-2', 'CVT4K-S BK · slot 2 · OPT 1-2'], sig['blocks']
         a, b = sig['blocks']
         assert len(a['sockets']) == 16 and len(b['sockets']) == 16
@@ -434,9 +517,10 @@ def test_the_tick_takes_the_sheets_out_and_a_side_alone_draws_one_half(page):
 def test_smoke_experts_only_sr_main(page):
     """The frozen Experts Only show, SR - MAIN's SIGNAL + POWER on Tabloid
     (2.9, view 10): four primary stubs SR A-1..4 and four return stubs SR
-    B-1..4 (the runs go across: the primaries begin in column 1, the
-    returns end in column 28, port 4's back in column 1 - the tags spread
-    along the row); two signal
+    B-1..4 (the runs go across: the primaries begin in column 1 at rows 1,
+    4, 7 and 10, the returns end in column 28, port 4's back in column 1 -
+    each tag ON that panel, and the five wires that drop from column 1 in
+    lanes 6 px apart, in the order they land); two signal
     blocks "CVT4K-S SR A · Card 1 · OPT 1-2" and "CVT4K-S SR B · Card 3 ·
     OPT 1-2" of 16 sockets, 1-4 green on A, 1-4 red on B, the rest grey
     (SR - Return's port 5 on box SR A is another screen's: grey); eight
@@ -483,9 +567,17 @@ def test_smoke_experts_only_sr_main(page):
             assert s['col'] < m['x'] + m['w'] / 28 + 1, (s, m)
         else:
             assert s['col'] > m['x'] + m['w'] * 27 / 28 - 1, (s, m)
-        assert abs(s['y'] - (m['y'] + m['h'] + 4 * sig['scale'])) < 0.01
-    xs = sorted(sig['stubs'], key=lambda s: s['x'])
-    assert all(a['x'] + a['w'] < b['x'] for a, b in zip(xs, xs[1:])), 'the tags spread, none overlapping'
+    # every tag ON the panel its run begins (or ends) on - the primaries in
+    # column 1 at rows 1, 4, 7 and 10, the returns at column 28 - none over
+    # another, every wire off its own tag, the five wires that drop from
+    # column 1 in lanes 6 px apart, in the order they land
+    _check_stubs(sig)
+    prim = [s for s in sig['stubs'] if s['kind'] == 'primary']
+    ph = prim[0]['panel']['h']
+    assert all(abs((b['cy'] - a['cy']) - 3 * ph) < 0.02 for a, b in zip(prim, prim[1:])), (
+        'the four primaries begin three rows apart - rows 1, 4, 7, 10', prim)
+    col1 = [w for w in sig['wires'] if w['from'] in ('SR A-1', 'SR A-2', 'SR A-3', 'SR A-4', 'SR B-4')]
+    assert len(col1) == 5 and [w['lane'] for w in sorted(col1, key=lambda w: w['x2'])] == [0, 1, 2, 3, 4], col1
     assert [b['title'] for b in sig['blocks']] == ['CVT4K-S SR A · Card 1 · OPT 1-2', 'CVT4K-S SR B · Card 3 · OPT 1-2']
     a, b = sig['blocks']
     assert [s['state'] for s in a['sockets']] == ['primary'] * 4 + ['free'] * 12
@@ -508,6 +600,13 @@ def test_smoke_experts_only_sr_main(page):
     assert states['SR2'][0] == (1, 'free', None) and states['SR4'][2] == (3, 'free', None), states
     assert not [x for v in states.values() for x in v if x[1] == 'other']
     assert len(pwr['wires']) == 22 and _check_wires(pwr) == []
+    # the circuits run across, so all eleven of a column's wires drop from
+    # that column: two lanes of eleven, 6 px apart, none over another
+    _check_stubs(pwr)
+    cols = {}
+    for s in pwr['stubs']:
+        cols.setdefault(round(s['cx'], 2), []).append(s['text'])
+    assert sorted(len(v) for v in cols.values()) == [11, 11], cols
     assert all(w['colour'] == INK for w in pwr['wires'])
     # everything in the drawing area, the halves apart
     for h in (sig, pwr):
@@ -529,4 +628,12 @@ def test_smoke_experts_only_sr_main(page):
     assert [w['dash'] for w in psig['wires'] if w['kind'] == 'return'] == [RETURN_DASH] * 4
     assert [w['dash'] for w in psig['wires'] if w['kind'] == 'primary'] == [[]] * 4
     assert len([o for o in printer['ops'] if o['op'] == 'line' and o['dash'] == RETURN_DASH]) == 4
+    # the sheet as a PDF, for a look (pdftoppm), when asked - the same
+    # LRD_BINDER_PDF_DIR the other binder sheets are dropped in
+    out_dir = os.environ.get('LRD_BINDER_PDF_DIR')
+    if out_dir:
+        pdf = pg.evaluate(_PDF_JS, [json.loads(_SHOW_JSON), 'SR - MAIN - Signal + Power'])
+        assert pdf['status'] == 200, pdf['status']
+        with open(os.path.join(out_dir, 'sr-main-signal-power.pdf'), 'wb') as fh:
+            fh.write(base64.b64decode(pdf['b64']))
     assert ids['errors'] == []

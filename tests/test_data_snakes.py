@@ -604,28 +604,79 @@ def test_the_sweep_lights_chips_and_a_right_click_snakes_them(page):
     assert st['box']['snakes'][0]['ports'] == [1, 2, 3, 4, 5, 6], st
 
 
+# Two chips, one on each card, measured in the SAME layout: the tray is
+# opened tall enough to hold both and scrolled to their midpoint, then both
+# rects are read. Measuring one at a time and scrolling in between reads a
+# stale point for the first (the tray is one scrolling column of cells).
+TWO_CHIPS_JS = """([ka, kb]) => {
+    const body = document.getElementById('hardware-dock-body');
+    const A = document.querySelector(`[data-hwdock="${ka}"]`);
+    const B = document.querySelector(`[data-hwdock="${kb}"]`);
+    if (!A || !B) return null;
+    const top = (el) => {
+        let y = 0, n = el;
+        while (n && n !== body) { y += n.offsetTop; n = n.offsetParent; }
+        return y;
+    };
+    body.scrollTop = Math.max(
+        0, (top(A) + top(B)) / 2 - body.clientHeight / 2);
+    const ra = A.getBoundingClientRect(), rb = B.getBoundingClientRect();
+    const br = body.getBoundingClientRect();
+    const mid = (r) => [r.left + r.width / 2, r.top + r.height / 2];
+    return {
+        a: mid(ra), b: mid(rb),
+        visible: ra.top >= br.top - 1 && ra.bottom <= br.bottom + 1
+            && rb.top >= br.top - 1 && rb.bottom <= br.bottom + 1,
+    };
+}"""
+
+
 def test_the_sweep_refuses_a_second_card_and_escape_clears(page):
     """A sweep that reaches into the other card's chips keeps its range
     and says so in the status bar; Escape drops it, and a plain click
     elsewhere would too."""
     pg, ids = page
-    x1, y1 = _chip_center(pg, ids['cardId'], 7)
-    x2, y2 = _chip_center(pg, ids['card2Id'], 1)
-    pg.keyboard.down('Alt')
-    pg.mouse.move(x1, y1)
-    pg.mouse.down()
-    pg.mouse.move(x2, y2, steps=6)
-    pg.mouse.up()
-    pg.keyboard.up('Alt')
-    pg.wait_for_timeout(300)
-    tray = pg.evaluate(TRAY_JS, ['cvt', ids['boxId']])
-    assert tray['lit'] == [7], tray
-    assert pg.evaluate(TRAY_JS, ['card', ids['card2Id']])['lit'] == []
-    assert 'one card or box' in pg.locator('#status-message').text_content()
-    pg.keyboard.press('Escape')
-    pg.wait_for_timeout(200)
-    tray = pg.evaluate(TRAY_JS, ['cvt', ids['boxId']])
-    assert tray['lit'] == [] and [b['ghost'] for b in tray['brackets']] == [False]
+    was = pg.evaluate("""() => {
+        const d = document.getElementById('hardware-dock');
+        const h = d.style.height;
+        d.style.height = '760px';
+        if (typeof window.app.settleLayout === 'function') window.app.settleLayout();
+        return h;
+    }""")
+    pg.wait_for_timeout(400)
+    try:
+        pts = pg.evaluate(TWO_CHIPS_JS,
+                          [f'port-{ids["cardId"]}-7',
+                           f'port-{ids["card2Id"]}-1'])
+        assert pts and pts['visible'], pts
+        x1, y1 = pts['a']
+        x2, y2 = pts['b']
+        pg.keyboard.down('Alt')
+        pg.mouse.move(x1, y1)
+        pg.mouse.down()
+        # straight DOWN out of this box's grid first, then across into the
+        # other card: a diagonal would sweep the chips beside 7 on the way
+        # and light them, which is a different gesture from this one
+        pg.mouse.move(x1, y2, steps=6)
+        pg.mouse.move(x2, y2, steps=6)
+        pg.mouse.up()
+        pg.keyboard.up('Alt')
+        pg.wait_for_timeout(300)
+        tray = pg.evaluate(TRAY_JS, ['cvt', ids['boxId']])
+        assert tray['lit'] == [7], tray
+        assert pg.evaluate(TRAY_JS, ['card', ids['card2Id']])['lit'] == []
+        assert 'one card or box' in pg.locator('#status-message').text_content()
+        pg.keyboard.press('Escape')
+        pg.wait_for_timeout(200)
+        tray = pg.evaluate(TRAY_JS, ['cvt', ids['boxId']])
+        assert tray['lit'] == [] and [b['ghost'] for b in tray['brackets']] == [False]
+    finally:
+        pg.evaluate("""(h) => {
+            const d = document.getElementById('hardware-dock');
+            d.style.height = h || '';
+            if (typeof window.app.settleLayout === 'function') window.app.settleLayout();
+        }""", was)
+        pg.wait_for_timeout(300)
 
 
 def test_the_card_sheet_types_loose_lengths_that_read_in_the_corner(page):
@@ -1405,7 +1456,10 @@ SHEET_FIT_JS = """([kind, id]) => {
         units: [...body.querySelectorAll('.hw-dock-unit')].map(u => ({
             name: (u.querySelector('.hw-dock-unit-name') || {}).textContent || '',
             hasSheet: u === unit, ...rect(u)})),
-        sheetMinW: parseFloat(getComputedStyle(sheet).minWidth),
+        sheetMinW: getComputedStyle(sheet).minWidth,
+        tracks: bs.gridTemplateColumns,
+        display: bs.display,
+        sheetScrollW: sheet.scrollWidth,
         tableCssW: getComputedStyle(table).width,
         nameW: (() => { const n = sheet.querySelector('.hw-dock-cable-name');
             return n ? n.getBoundingClientRect().width : null; })(),
@@ -1414,16 +1468,17 @@ SHEET_FIT_JS = """([kind, id]) => {
 }"""
 
 
-def test_a_sheet_sizes_to_its_table_within_the_floor(page):
-    """sheet-fit-mock.html, "i like option A but if we pass a threshold
-    then grow like option B" (2026-09-07). On a 1440x900 window with TWO
-    cards in the tray, a unit whose sheet is open takes what its table
-    needs and no more: the table is never wider than the sheet, the unit
-    is at least the sheet's 480px floor and never wider than the tray
-    body, and the sheet has nothing to scroll sideways for. Then B's
-    growth: the snake renamed to something long - its name field sized to
-    its text - widens the table and the unit with it, still inside the
-    tray; undo puts the name back."""
+def test_a_sheet_fits_its_cell_and_never_widens_its_unit(page):
+    """The sheet fits its CELL (2026-09-09, replacing the 2026-09-07
+    "Option A with B's growth" rule this test used to pin: "still having
+    weirdness in the data hardware screen ... when i try and open the
+    cable sheet it jumps the whole screen around"). The tray is a grid of
+    equal tracks now, so a unit's width is the tray's business alone: an
+    open sheet takes its cell's width, the table lays out at CONTENT width
+    inside it, and a table wider than the cell scrolls the SHEET sideways
+    instead of growing the unit and re-packing the row. The long snake
+    name still widens the field and the table - and the unit does not
+    move a pixel; undo puts the name back."""
     pg, ids = page
     _sheet_open(pg, 'cvt', ids['boxId'], False)
     _sheet_open(pg, 'card', ids['cardId'], False)
@@ -1441,18 +1496,21 @@ def test_a_sheet_sizes_to_its_table_within_the_floor(page):
         assert out['viewport'] == [1440, 900], out['viewport']
         # two cards in the tray, the sheet's on one of them
         assert len(out['units']) >= 2 and sum(1 for u in out['units'] if u['hasSheet']) == 1, out['units']
-        # the table is no wider than the sheet, and lays out at content width
-        assert out['table']['w'] <= out['sheet']['w'] + 1, (out['table'], out['sheet'])
-        assert out['table']['right'] <= out['sheet']['right'] + 1, (out['table'], out['sheet'])
-        assert not out['sheetScrolls'], out
-        # the floor: 480px on the sheet; the unit is at least that and
-        # never wider than the tray body - Option A, not the whole row
-        assert out['sheetMinW'] == 480, out['sheetMinW']
-        assert out['sheet']['w'] >= 480 - 0.5, out['sheet']
-        assert 480 <= out['unit']['w'] <= out['bodyContentW'] + 1, (out['unit'], out['bodyContentW'])
-        assert out['unit']['w'] < out['bodyContentW'] - 100, (
-            'the unit must size to its table, not take the tray row', out['unit'], out['bodyContentW'])
-        # B's growth: a long name widens the field, the table and the unit
+        # the tray is a grid, and the cell holding the sheet is one track
+        assert out['display'] == 'grid', out['display']
+        tracks = [float(t[:-2]) for t in out['tracks'].split()
+                  if t.endswith('px')]
+        assert tracks, out['tracks']
+        # the 480px floor is retired: nothing but the tray sets the width
+        assert out['sheetMinW'] in ('auto', '0px'), out['sheetMinW']
+        assert out['tableCssW'] != '100%', out['tableCssW']
+        assert out['unit']['w'] <= tracks[0] + 1, (out['unit'], tracks)
+        assert out['unit']['w'] <= out['bodyContentW'] + 1, (
+            out['unit'], out['bodyContentW'])
+        # the table is inside the sheet's scroll, never wider than the sheet
+        # can carry
+        assert out['table']['w'] <= out['sheetScrollW'] + 1, out
+        # B's growth: a long name widens the field and the table
         name = pg.locator(f'[data-lrd-field="data-snake-name-{ids["boxId"]}-{snake_id}"]')
         long_name = 'SR PRIMARY SNAKE TO FOH LEFT'
         index = pg.evaluate(STATE_JS, ids)['index']
@@ -1469,10 +1527,16 @@ def test_a_sheet_sizes_to_its_table_within_the_floor(page):
         assert size == len(long_name) + 1, size
         assert grown['nameW'] > out['nameW'] + 40, (grown['nameW'], out['nameW'])
         assert grown['table']['w'] > out['table']['w'] + 40, (grown['table'], out['table'])
-        assert grown['unit']['w'] > out['unit']['w'] + 40, (grown['unit'], out['unit'])
-        assert grown['table']['w'] <= grown['sheet']['w'] + 1, (grown['table'], grown['sheet'])
+        # ...and the UNIT does not move: the cell is the tray's width, and a
+        # table past it scrolls the sheet sideways rather than re-packing
+        # the row.
+        assert abs(grown['unit']['w'] - out['unit']['w']) <= 1, (
+            grown['unit'], out['unit'])
+        assert abs(grown['unit']['x'] - out['unit']['x']) <= 1, (
+            grown['unit'], out['unit'])
         assert grown['unit']['w'] <= grown['bodyContentW'] + 1, (grown['unit'], grown['bodyContentW'])
-        assert not grown['sheetScrolls'], grown
+        if grown['table']['w'] > grown['sheet']['w'] + 1:
+            assert grown['sheetScrolls'], grown
         pg.evaluate('() => window.app.undo()')
         pg.wait_for_timeout(1200)
         st = pg.evaluate(STATE_JS, ids)
@@ -1590,3 +1654,117 @@ def test_a_chip_reads_its_occupant_and_its_length_side_by_side(page):
     st = pg.evaluate(STATE_JS, ids)
     assert '5' not in st['box']['cables'] and st['index'] == index, st
     assert pg.evaluate("(ids) => window.app._portOccupants(ids.cardId, 5).map(o => o.name)", ids) == ['WALL']
+
+
+# Every row's HOME RUN cell, measured: where the ft input's left edge sits
+# and where its "ft" word sits, per row, plus the row's kind and its word
+# slot. One x for all of them or the column zigzags.
+RUN_COLUMN_JS = """([kind, id]) => {
+    const sheet = document.querySelector(
+        `.hw-dock-cablesheet[data-lrd-cable-sheet="${kind}:${id}"]`);
+    if (!sheet) return null;
+    return [...sheet.querySelectorAll('tr')].filter(tr => tr.querySelector('td'))
+        .map(tr => {
+            const ft = tr.querySelector('.hw-dock-cable-ft');
+            const unit = tr.querySelector('.hw-dock-cable-unit');
+            const word = tr.querySelector('.hw-dock-cable-word');
+            const cap = tr.querySelector('.hw-dock-cable-snake-cap');
+            const tds = [...tr.querySelectorAll('td')];
+            return {
+                kind: tr.classList.contains('hw-dock-cable-snake') ? 'snake'
+                    : tr.classList.contains('hw-dock-cable-member') ? 'member'
+                    : tr.classList.contains('hw-dock-cable-free') ? 'free'
+                        : 'port',
+                snakeRow: tr.dataset.lrdSnakeRow || null,
+                label: cap ? cap.textContent : tds[1].textContent,
+                who: tds[2].textContent,
+                word: word ? word.textContent : null,
+                ftX: ft ? ft.getBoundingClientRect().left : null,
+                ftW: ft ? ft.getBoundingClientRect().width : null,
+                unitX: unit ? unit.getBoundingClientRect().left : null,
+            };
+        });
+}"""
+
+
+def test_the_home_run_column_lines_up_and_a_snake_keeps_its_members(page):
+    """"also these columns dont line up" (2026-09-09, on a sheet whose
+    member rows carried an "ext" that pushed their inputs right of the
+    snake rows'). Every row's HOME RUN cell is the same three fixed slots
+    - [word | input | ft] - so every input's left edge and every "ft" sit
+    on one x, whatever the row is. And the snake keeps its members: a
+    snake over the box's 5-8 with screens on 5 and 6 only lists FOUR
+    member rows and reads "4-way"; the free ones say "free" in the SCREEN
+    cell, which is that cell's word for an empty socket - never a row
+    kind."""
+    pg, ids = page
+    was = pg.evaluate("""(ids) => {
+        const app = window.app;
+        const box = app._dockFindCvt(ids.boxId).cvt;
+        return JSON.parse(JSON.stringify(box.snakes || []));
+    }""", ids)
+    made = pg.evaluate("""async (ids) => {
+        const app = window.app;
+        const owner = app._dataCableOwner('cvt', ids.boxId);
+        return await app.snakePorts(owner, [5, 6, 7, 8]);
+    }""", ids)
+    pg.wait_for_timeout(900)
+    try:
+        _sheet_open(pg, 'cvt', ids['boxId'], True)
+        rows = pg.evaluate(RUN_COLUMN_JS, ['cvt', ids['boxId']])
+        print('\nhome run column:', json.dumps(rows))
+        # the snake's row, then its four members - the count and the rows
+        # agree, and every snake on the sheet says as many ways as it has
+        # rows under it
+        at = [i for i, r in enumerate(rows) if r['snakeRow'] == made]
+        assert len(at) == 1, (made, rows)
+        head = rows[at[0]]
+        assert '4-way' in head['label'], head
+        assert head['word'] == '', head
+        members = []
+        for r in rows[at[0] + 1:]:
+            if r['kind'] != 'member':
+                break
+            members.append(r)
+        assert [r['label'].split(' ')[0] for r in members] \
+            == ['5', '6', '7', '8'], members
+        assert all(r['word'] == 'ext' for r in members), members
+        # a screen sits on 5 and 6; 7 and 8 read "free" in the SCREEN cell
+        # and are members all the same
+        assert [r['who'] for r in members][2:] == ['free', 'free'], members
+        assert 'free' not in [r['who'] for r in members][:2], members
+        # every snake row's count is the member rows beneath it
+        for i, r in enumerate(rows):
+            if r['kind'] != 'snake':
+                continue
+            n = 0
+            for m in rows[i + 1:]:
+                if m['kind'] != 'member':
+                    break
+                n += 1
+            assert f'{n}-way' in r['label'], (r, rows)
+        # one x for every input, one for every "ft"
+        xs = [r['ftX'] for r in rows if r['ftX'] is not None]
+        us = [r['unitX'] for r in rows if r['unitX'] is not None]
+        assert len(xs) == len(rows), rows
+        assert max(xs) - min(xs) <= 1, [r for r in rows]
+        assert len(us) == len(rows), rows
+        assert max(us) - min(us) <= 1, [r for r in rows]
+        # every input the same width, so the "ft" words line up because the
+        # inputs do, not by luck
+        ws = [r['ftW'] for r in rows if r['ftW'] is not None]
+        assert max(ws) - min(ws) <= 1, rows
+    finally:
+        # put the box's snake store back exactly as this test found it -
+        # the module's page is shared, and the tests after this one read it
+        pg.evaluate("""async (o) => {
+            const app = window.app;
+            await fetch(`/api/processors/${o.pid}/cvts/${o.box}`, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({snakes: o.was})});
+            await app.refreshProcessors();
+            app.renderHardwareDock();
+        }""", {'pid': ids['procId'], 'box': ids['boxId'], 'was': was})
+        pg.wait_for_timeout(700)
+        _sheet_open(pg, 'cvt', ids['boxId'], False)

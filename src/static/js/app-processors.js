@@ -1422,8 +1422,14 @@ class _Processors {
 
     // The snake's tag as the bracket and the sheet print it:
     // "SNAKE A · 6-way · 100'" (ways = however many ports it holds).
-    snakeTagText(snake, withFt = true) {
-        const ways = (snake.ports || []).length;
+    //
+    // `ways` overrides the count for a reader that shows only PART of the
+    // snake (2026-09-09: "SNAKE C · 4-way" over two member rows - the
+    // count has to be the rows under it, never a number the sheet cannot
+    // show). A sheet lists the sockets its own record delivers, so a snake
+    // whose sockets moved to a breakout box is listed by what is there.
+    snakeTagText(snake, withFt = true, ways = null) {
+        if (ways == null) ways = (snake.ports || []).length;
         let text = `${snake.name || 'snake'} · ${ways}-way`;
         const ft = Number(snake.ft);
         if (withFt && Number.isFinite(ft) && ft > 0) {

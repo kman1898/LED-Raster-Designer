@@ -47,7 +47,7 @@
         { title: 'What&rsquo;s new in 0.12', center: true, before: function () { switchView('data-flow'); },
           body: 'Hardware moved out of the sidebars into a tray under the canvas, wiring became drag &amp; drop, and nothing lands on a card by itself any more. This tour walks the new surfaces; <b>Skip</b> leaves at any point.' },
         { target: '#hardware-dock', place: 'top', title: 'The hardware tray',
-          body: 'All hardware lives here now, in the <b>Data</b> and <b>Power</b> views: processors with their cards, boxes and ports; distros with their multis and circuits. The middle sidebars are gone and the canvas gets the whole width back.' },
+          body: 'All hardware lives here now, in the <b>Data</b> and <b>Power</b> views: processors with their cards, boxes and ports; distros with their multis and circuits. The middle sidebars are gone and the canvas gets the whole width back. The tray is a fixed grid of columns, so opening a cable sheet or folding a unit changes its height and never shifts anything sideways; drag a processor&rsquo;s or a distro&rsquo;s <b>&#8942;&#8942;</b> along the tray to reorder them.' },
         { target: '#hw-dock-data-controls', place: 'bottom', title: 'Add hardware from the header',
           body: 'Pick a processor model and press <b>Add</b> &mdash; its cards, boxes and ports appear in the tray. In Power view this cluster becomes <b>+ Add distro</b>.' },
         { target: '#hardware-dock-body', place: 'top', title: 'Name things on their headers',

@@ -5937,6 +5937,25 @@ class CanvasRenderer {
         // overlay-frame shims but scored on the real cabinets, in processor
         // coords, because load and capacity are processor facts. null means the
         // port cannot be scored honestly at all (see _crossMemberLoadPanels).
+        // The cable tags are drawn AFTER every port's labels are placed, so
+        // a tag can be kept off the other labels of the screen - "the
+        // cables added to the power or data sometimes go under labels and
+        // overlap" (2026-09-09). drawPort collects the discs and the tags
+        // it wants; drawCableTags places and paints them (placeCableTag:
+        // beside its label, the other side, below, above - the first that
+        // covers no other disc and stays inside the screen).
+        const labelDiscs = [];
+        const pendingTags = [];
+        const drawCableTags = () => {
+            const bounds = { left: layerLeft, top: layerTop, right: layerRight, bottom: layerBottom };
+            for (const t of pendingTags) {
+                const at = this.placeCableTag(t.text, t.disc.x, t.disc.y, t.disc.r, labelSize,
+                                              bounds, labelDiscs, t.disc);
+                this.drawCableTag(t.text, at.x, at.y, labelSize, DATA_CABLE_TAG_COLORS, at.opts);
+            }
+            pendingTags.length = 0;
+        };
+
         const drawPort = (portPanels, portNum, loadPanels) => {
             if (portPanels.length === 0) return;
             const scoredPanels = (loadPanels === undefined) ? portPanels : loadPanels;
@@ -6087,25 +6106,24 @@ class CanvasRenderer {
             // default OFF, and the same test in exportMode so the PDF is
             // what was asked for. The power tag's drawer, in the data
             // cable's colours.
+            // Every label disc of this pass, for the tags' placement:
+            // a tag beside one label must never cover another.
+            const primaryDisc = { x: px, y: py, r: primaryFit.radius };
+            const returnDisc = { x: rx, y: ry, r: returnFit.radius };
+            labelDiscs.push(primaryDisc, returnDisc);
+
             if (layer.showDataCableTags === true && window.app
                     && typeof window.app.dataPortCableForScreen === 'function') {
-                // One tag beside one marker. Inside the screen, as on the
-                // power side: right of the circle when that fits, else
-                // left of it. A wrapped tag is taller than its label
-                // circle, so it carries the screen's top and bottom too
-                // and shifts inside them the way the circle's centre was
-                // shifted.
-                const tagBeside = (text, x, y, radius) => {
-                    const w = this.cableTagWidth(text, labelSize);
-                    const flip = x + radius + w > layerRight
-                        && x - radius - w >= layerLeft;
-                    this.drawCableTag(text, flip ? x - radius : x + radius,
-                                      y, labelSize, DATA_CABLE_TAG_COLORS,
-                                      { flip, top: layerTop, bottom: layerBottom });
-                };
+                // One tag beside one marker, drawn in a second pass once
+                // every label of the screen is placed (see drawCableTags
+                // below): right of the circle when that fits, else left
+                // of it, and off any OTHER label's disc. A wrapped tag is
+                // taller than its label circle, so it carries the
+                // screen's top and bottom too and shifts inside them the
+                // way the circle's centre was shifted.
                 const cable = window.app.dataPortCableForScreen(layer, portNum);
                 if (cable && cable.text) {
-                    tagBeside(cable.text, px, py, primaryFit.radius);
+                    pendingTags.push({ text: cable.text, disc: primaryDisc });
                 }
                 // The return marker wears the BACKUP socket's own tag the
                 // same way - the backup box's snake, its extension, or its
@@ -6115,7 +6133,7 @@ class CanvasRenderer {
                 const backup = typeof window.app.dataPortBackupCableForScreen === 'function'
                     ? window.app.dataPortBackupCableForScreen(layer, portNum) : null;
                 if (backup && backup.text) {
-                    tagBeside(backup.text, rx, ry, returnFit.radius);
+                    pendingTags.push({ text: backup.text, disc: returnDisc });
                 }
             }
 
@@ -6156,6 +6174,7 @@ class CanvasRenderer {
                 drawPort(portPanels, portNum);
             });
 
+            drawCableTags();
             this.ctx.restore();
             return;
         }
@@ -6199,7 +6218,8 @@ class CanvasRenderer {
             }
             drawPort(items.map(i => i.panel), portNum);
         });
-        
+
+        drawCableTags();
         this.ctx.restore();
     }
 
@@ -6480,6 +6500,26 @@ class CanvasRenderer {
             if (py + circleRadius > layerBottom) py = layerBottom - circleRadius;
             return { px: this.snap(px), py: this.snap(py) };
         };
+        // The cable tags are drawn AFTER every circuit's label is placed,
+        // so a tag can be kept off the other labels of the screen - "the
+        // cables added to the power or data sometimes go under labels and
+        // overlap" (2026-09-09: a "10' True1" beside S1-1-1 lay across
+        // S1-1-2, the circuits a panel apart). drawLabelBubble collects
+        // the discs and the tags it wants; drawCableTags places and paints
+        // them (placeCableTag: beside its label, the other side, below,
+        // above - the first that covers no other disc and stays inside
+        // the screen). The 2fer / 3fer gang tag is renderNferBrackets' own.
+        const labelDiscs = [];
+        const pendingTags = [];
+        const drawCableTags = () => {
+            const bounds = { left: layerLeft, top: layerTop, right: layerRight, bottom: layerBottom };
+            for (const t of pendingTags) {
+                const at = this.placeCableTag(t.text, t.disc.x, t.disc.y, t.disc.r, labelSize,
+                                              bounds, labelDiscs, t.disc);
+                this.drawCableTag(t.text, at.x, at.y, labelSize, undefined, at.opts);
+            }
+            pendingTags.length = 0;
+        };
         const drawLabelBubble = (layout, px, py, circuitNum) => {
             this.ctx.fillStyle = powerLabelBgColor;
             this.ctx.beginPath();
@@ -6498,28 +6538,23 @@ class CanvasRenderer {
             this.ctx.textAlign = 'center';
             this.ctx.textBaseline = 'middle';
             this._fillWrappedLabel(layout.lines, px, py, labelSize);
+            const disc = { x: px, y: py, r: layout.radius };
+            labelDiscs.push(disc);
             // The circuit's cable, as a small gold tag beside the label -
             // option D of cables-mock.html, "an option when doing the docs
             // per screen" (2026-09-06): per screen, default OFF, and the
             // same test in exportMode so the PDF is what was asked for.
+            // Placed and drawn by drawCableTags once every label is down:
+            // inside the screen, right of the label when that fits, else
+            // left of it, and off any other label's disc. A wrapped tag is
+            // taller than its label circle, so it carries the screen's top
+            // and bottom too and shifts inside them the way the circle's
+            // centre was shifted.
             if (layer.showPowerCableTags === true && circuitNum != null
                     && window.app
                     && typeof window.app.powerCircuitCable === 'function') {
                 const cable = window.app.powerCircuitCable(layer, circuitNum);
-                if (cable) {
-                    // Inside the screen: right of the label when that
-                    // fits, else left of it.
-                    const w = this.cableTagWidth(cable.text, labelSize);
-                    const flip = px + layout.radius + w > layerRight
-                        && px - layout.radius - w >= layerLeft;
-                    // A wrapped tag is taller than its label circle, so it
-                    // carries the screen's top and bottom too and shifts
-                    // inside them the way the circle's centre was shifted.
-                    this.drawCableTag(cable.text,
-                                      flip ? px - layout.radius : px + layout.radius,
-                                      py, labelSize, undefined,
-                                      { flip, top: layerTop, bottom: layerBottom });
-                }
+                if (cable) pendingTags.push({ text: cable.text, disc });
             }
         };
         const drawCircuitLabel = (panelStart, panelNext, circuitNum) => {
@@ -6571,6 +6606,7 @@ class CanvasRenderer {
                 this._dockRunUnderlay(circuitPanels, layer, circuitNum);
                 drawCircuitLabel(circuitPanels[0], circuitPanels[1], circuitNum);
             });
+            drawCableTags();
             this.ctx.restore();
             return;
         }
@@ -6724,6 +6760,7 @@ class CanvasRenderer {
                 }
                 drawCircuit(homePanelsOf(circuitNum), circuitNum);
             });
+            drawCableTags();
             this.ctx.restore();
             return;
         }
@@ -6782,6 +6819,7 @@ class CanvasRenderer {
             drawCircuit(drawPanels, circuitNum);
         });
 
+        drawCableTags();
         this.ctx.restore();
     }
 
@@ -7157,27 +7195,108 @@ class CanvasRenderer {
         };
     }
 
-    // `opts.top` / `opts.bottom` are the screen's edges: a wrapped tag,
-    // taller than the label circle it hangs off, shifts inside them the
-    // way the circle's centre was shifted inside the screen.
+    // The pill a cable tag draws, before anything is painted: its rect in
+    // the caller's frame and the layout it was measured with - the drawer
+    // and the placement read the same rect, so a placement tested clear
+    // of a label is the pill that lands. `opts.side` says where the pill
+    // hangs off the anchor (x, y):
+    //   'right' (the default) - x is the circle's RIGHT edge, y its centre
+    //   'left'  (opts.flip)   - x is the circle's LEFT edge, y its centre
+    //   'below' / 'above'     - x is the circle's CENTRE, y its bottom /
+    //                           top edge; the pill is centred under / over
+    // `opts.top` / `opts.bottom` are the screen's edges: a pill taller than
+    // the room shifts inside them the way the circle's centre was shifted
+    // inside the screen. `opts.left` / `opts.right` do the same for a
+    // below / above pill, which is centred on its label rather than hung
+    // off its edge and so has no side of its own to keep: it slides along
+    // the screen's edge instead of hanging over it. A pill hung LEFT or
+    // RIGHT is never slid - it would leave the label it names.
+    cableTagRect(text, x, y, labelSize, opts) {
+        const tag = this.cableTagLayout(text, labelSize);
+        const side = (opts && opts.side) || ((opts && opts.flip) ? 'left' : 'right');
+        const gap = labelSize * 0.25;
+        const stacked = side === 'below' || side === 'above';
+        let left, top;
+        if (side === 'left') left = x - gap - tag.width;
+        else if (side === 'right') left = x + gap;
+        else left = x - tag.width / 2;
+        if (side === 'below') top = y + gap;
+        else if (side === 'above') top = y - gap - tag.height;
+        else top = y - tag.height / 2;
+        if (opts && Number.isFinite(opts.top) && Number.isFinite(opts.bottom)) {
+            if (top + tag.height > opts.bottom) top = opts.bottom - tag.height;
+            if (top < opts.top) top = opts.top;
+        }
+        if (stacked && opts && Number.isFinite(opts.left) && Number.isFinite(opts.right)) {
+            if (left + tag.width > opts.right) left = opts.right - tag.width;
+            if (left < opts.left) left = opts.left;
+        }
+        return { x: left, y: top, w: tag.width, h: tag.height, side, layout: tag };
+    }
+
+    // Where a cable tag goes so it covers no OTHER label of its screen -
+    // "the cables added to the power or data sometimes go under labels and
+    // overlap" (2026-09-09): a tag beside one label landed on the next
+    // label when two runs began a panel apart. The label circle is at
+    // (cx, cy) with `radius`; `bounds` is the screen ({ left, top, right,
+    // bottom }); `discs` every label circle of the same pass ({ x, y, r }),
+    // the tag's own among them (it is skipped by identity, and a pill
+    // never touches the circle it hangs off anyway - the gap is between
+    // them). Tried in order: the side the tag always took (right, or left
+    // when right would leave the screen and left would not), the other
+    // side, below the label, above it - a below / above pill slides along
+    // the screen's edge rather than hang over it (cableTagRect); the first
+    // pill inside the screen that meets no other disc wins. When none
+    // does, below - and let it be. Returns the anchor and opts for
+    // drawCableTag, with the pill.
+    placeCableTag(text, cx, cy, radius, labelSize, bounds, discs, own) {
+        const w = this.cableTagWidth(text, labelSize);
+        const rightFits = cx + radius + w <= bounds.right;
+        const leftFits = cx - radius - w >= bounds.left;
+        const first = (!rightFits && leftFits) ? 'left' : 'right';
+        const order = [first, first === 'right' ? 'left' : 'right', 'below', 'above'];
+        const anchor = (side) => side === 'right' ? { x: cx + radius, y: cy }
+            : side === 'left' ? { x: cx - radius, y: cy }
+            : side === 'below' ? { x: cx, y: cy + radius }
+            : { x: cx, y: cy - radius };
+        const candidate = (side) => {
+            const a = anchor(side);
+            const opts = { side, flip: side === 'left', top: bounds.top, bottom: bounds.bottom,
+                           left: bounds.left, right: bounds.right };
+            return { x: a.x, y: a.y, opts, rect: this.cableTagRect(text, a.x, a.y, labelSize, opts) };
+        };
+        const eps = 1e-6;
+        const inside = (rc) => rc.x >= bounds.left - eps && rc.x + rc.w <= bounds.right + eps
+            && rc.y >= bounds.top - eps && rc.y + rc.h <= bounds.bottom + eps;
+        const meets = (rc, d) => {
+            const qx = Math.max(rc.x, Math.min(d.x, rc.x + rc.w));
+            const qy = Math.max(rc.y, Math.min(d.y, rc.y + rc.h));
+            return (qx - d.x) * (qx - d.x) + (qy - d.y) * (qy - d.y) < d.r * d.r - eps;
+        };
+        const others = (discs || []).filter(d => d && d !== own);
+        for (const side of order) {
+            const c = candidate(side);
+            if (inside(c.rect) && !others.some(d => meets(c.rect, d))) return c;
+        }
+        return candidate('below');
+    }
+
+    // Draws the pill cableTagRect describes at (x, y) - see it for the
+    // anchor and `opts.side` / `opts.flip` / `opts.top` / `opts.bottom`.
     drawCableTag(text, x, y, labelSize, colors, opts) {
         const c = this.printerMode ? PRINTER_TAG_COLORS : (colors || POWER_CABLE_TAG_COLORS);
-        const flip = !!(opts && opts.flip);
-        const tag = this.cableTagLayout(text, labelSize);
+        const rc = this.cableTagRect(text, x, y, labelSize, opts);
+        const tag = rc.layout;
         const { size, padX, lineHeight } = tag;
         this.ctx.save();
         this.ctx.font = `bold ${size}px ${projectFontFamily()}`;
-        const pillW = tag.width;
-        const pillH = tag.height;
+        const pillW = rc.w;
+        const pillH = rc.h;
         // The corner radius of a ONE-line pill: a taller box keeps a
         // modest rounding rather than turning into a capsule.
         const corner = (size + 4) / 2;
-        const gap = labelSize * 0.25;
-        const left = flip ? x - gap - pillW : x + gap;
-        if (opts && Number.isFinite(opts.top) && Number.isFinite(opts.bottom)) {
-            if (y + pillH / 2 > opts.bottom) y = opts.bottom - pillH / 2;
-            if (y - pillH / 2 < opts.top) y = opts.top + pillH / 2;
-        }
+        const left = rc.x;
+        y = rc.y + pillH / 2;
         this.ctx.beginPath();
         if (this.ctx.roundRect) {
             this.ctx.roundRect(left, y - pillH / 2, pillW, pillH, corner);

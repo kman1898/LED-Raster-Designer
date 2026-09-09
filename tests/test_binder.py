@@ -2521,3 +2521,103 @@ def test_the_screens_run_in_the_order_the_project_keeps(page):
     assert out['loaded'] == {'info': 'power', 'select': 'power', 'screens': ['C - Z', 'B - X', 'A - Y']}, out['loaded']
     assert out['stray'] == 'alpha' and not out['tail'], out
     assert ids['errors'] == []
+
+
+# The Screens panel's rows as the eye reads them, TOP FIRST, straight off
+# the DOM: renderLayers reverses the layer array, regroupLayersByCanvas
+# deals the rows into canvas groups and regroupLayersByGroup gathers a
+# screen group - so the panel is not "the layer array reversed" the moment
+# a show has more than one canvas.
+PANEL_ORDER_JS = """() => {
+    const app = window.app;
+    const byId = new Map((app.project.layers || []).map(
+        l => [String(l.id), l.name]));
+    return [...document.querySelectorAll('#layers-list .layer-item')]
+        .map(el => byId.get(String(el.dataset.layerId)))
+        .filter(Boolean);
+}"""
+
+SECOND_CANVAS_JS = """async (name) => {
+    const app = window.app;
+    const j = (method, url, body) => fetch(url, {method,
+        headers: {'Content-Type': 'application/json'},
+        body: body === undefined ? undefined : JSON.stringify(body)})
+        .then(r => r.json());
+    await app.addCanvas();
+    const p = await j('GET', '/api/project');
+    const cid = p.canvases[p.canvases.length - 1].id;
+    for (const l of p.layers) if (l.name === name) l.canvas_id = cid;
+    await j('PUT', '/api/project', p);
+    app.project = await j('GET', '/api/project');
+    app.dedupeProjectLayers('binder_order_canvas');
+    app.renderLayers();
+    return cid;
+}"""
+
+RESTORE_CANVAS_JS = """async (o) => {
+    const app = window.app;
+    const j = (method, url, body) => fetch(url, {method,
+        headers: {'Content-Type': 'application/json'},
+        body: body === undefined ? undefined : JSON.stringify(body)})
+        .then(r => r.json());
+    const p = await j('GET', '/api/project');
+    const home = p.canvases[0].id;
+    for (const l of p.layers) if (l.canvas_id === o.cid) l.canvas_id = home;
+    p.active_canvas_id = home;
+    await j('PUT', '/api/project', p);
+    await fetch(`/api/canvas/${o.cid}`, {method: 'DELETE'});
+    app.project = await j('GET', '/api/project');
+    app.dedupeProjectLayers('binder_order_canvas_restore');
+    app.renderLayers();
+    return app.project.canvases.length;
+}"""
+
+
+def test_the_layers_order_is_the_screens_panel_read_top_down(page):
+    """"top to bottom does bottom to top actually" (2026-09-09). The
+    'layers' order is the Screens panel EXACTLY as the user reads it -
+    the topmost card first - and 'layers-up' is that list reversed. Pinned
+    against the panel's own DOM, not against a model of it: the panel is
+    the layer array reversed, dealt into canvas groups, with screen groups
+    gathered, and reading the array backwards stopped being the same thing
+    the moment a show had a second canvas."""
+    pg, ids = page
+    seed = pg.evaluate(ORDER_SEED_JS)
+    pg.wait_for_timeout(600)
+    assert seed['layerOrder'] == ['B - X', 'A - Y', 'C - Z'], seed
+    opts = json.loads(_SHOW_JSON)
+    order = lambda: pg.evaluate(SCREENS_JS, opts)  # noqa: E731
+    set_order = lambda v: pg.evaluate(  # noqa: E731
+        "(v) => window.app.setBinderField('screenOrder', v, 'Set Screen Order')", v)
+    cid = None
+    try:
+        for where in ('one canvas', 'two canvases'):
+            panel = pg.evaluate(PANEL_ORDER_JS)
+            print(f'\npanel top-down, {where}:', panel)
+            assert len(panel) == 3, panel
+            set_order('layers')
+            down = order()
+            set_order('layers-up')
+            up = order()
+            print(f'plan under layers, {where}:', down, '| layers-up:', up)
+            # the plan carries the screens the panel shows, in the panel's
+            # own order - and the other way for 'layers-up'
+            kept = [n for n in panel if n in down]
+            assert down == kept, (down, panel)
+            assert up == kept[::-1], (up, panel)
+            if where == 'two canvases':
+                break
+            cid = pg.evaluate(SECOND_CANVAS_JS, 'A - Y')
+            pg.wait_for_timeout(600)
+            assert cid, 'no second canvas'
+            moved = pg.evaluate(PANEL_ORDER_JS)
+            assert moved != panel, (
+                'the second canvas must change the panel, or this proves '
+                'nothing', moved, panel)
+    finally:
+        if cid:
+            left = pg.evaluate(RESTORE_CANVAS_JS, {'cid': cid})
+            pg.wait_for_timeout(500)
+            assert left == 1, left
+        set_order('alpha')
+        pg.wait_for_timeout(300)
