@@ -313,6 +313,43 @@ v0.12.0 - September 7, 2026 (BETA)
   distro circuit - chosen in the export modal and saved with the show.
   Beaches still group first; the choice sorts within each.
 
+- CHANGE (IMPORTANT): The Signal + Power sheet is drawn port to socket.
+  A run leaves the wall's own label disc - no second tag over the panels
+  - travels out at its own row to its socket, then drops straight in.
+  Verticals never share a column and horizontals never share a row, so
+  any line can be followed end to end, and a run whose socket sits under
+  its own column steps out past the wall's edge rather than dropping
+  through the discs below it. The units stand in one row across the foot
+  of the sheet, ordered by where their own runs stand, each named inside
+  itself under its numbers. White casing under every line carries it over
+  the panels; the printer palette drops colour and tells the units apart
+  by a dash pattern each.
+
+- CHANGE (IMPORTANT): A snake belongs to the show, not to the card or box
+  it was typed on, so one snake can hold ports off two boxes, or a card
+  and a box. Ticks hold across cable sheets - tick 5 and 6 on one box and
+  5 and 6 on its backup, press Snake on either, and it is one 4-way - and
+  an Alt-sweep runs along the tray's own chip order, so a sweep from one
+  unit into the next lights both. Each unit draws its own bracket with a
+  double arrow and names the members it cannot show. Rename, length,
+  connector and Unsnake are the one snake wherever they are edited.
+
+- FIX (IMPORTANT): A snake typed on a card follows its sockets when a
+  breakout box is hung on that card. It used to go missing from the tray
+  and the papers.
+
+- FIX (IMPORTANT): Duplicating a group of screens copies every screen in
+  it, not just one. Reported on 0.11.2. Moving a group to another canvas
+  carries the whole wall over the same way.
+
+- CHANGE: The hardware tray is a fixed grid of columns. A unit keeps its
+  place and its width whatever it is doing, so opening a cable sheet or
+  folding a section only changes that unit's height and never shuffles
+  the row - the jumping about is gone. The columns of a cable sheet line
+  up, and the handle on a processor's or a distro's line drags along the
+  tray to reorder them, with the papers following the order you set.
+
+
 - CHANGE (IMPORTANT): Redundancy is one bar in one place. Behind the
   processor's gear a raised segmented bar - Off, Whole unit, Per card,
   Per port (Off, Backed up, Per port on a standalone unit) - and exactly
