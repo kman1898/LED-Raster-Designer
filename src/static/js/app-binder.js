@@ -16,10 +16,17 @@
 // each other … then order them by beach so SR beach screens first"):
 //   1.1  Overview - the show map as view 1, POSITIONS / SHOW TOTALS / CONTENTS
 //   2.n  the SCREENS: in the pull list's position order, a position's own
-//        screens in layer order, each screen's POWER sheet (the map with
-//        rulers and brackets; CIRCUITS / CABLES THIS SCREEN / FACTS /
-//        GANGS) followed by its DATA sheet (PORTS / CABLES / FACTS) - a
-//        screen with only one side has only that sheet
+//        screens in the SCREEN ORDER the project keeps (project.binder
+//        .screenOrder, the export dialog's "Screen order" - alphabetical
+//        unless picked: "i'd want raster A first, then in alphabetical
+//        order"; or the Screens panel's order either way, or by first
+//        port, or by first circuit - _bOrderScreens), each screen's POWER
+//        sheet (the map with rulers and brackets; CIRCUITS / CABLES THIS
+//        SCREEN / FACTS / GANGS) followed by its DATA sheet (PORTS /
+//        CABLES / FACTS) and its SIGNAL + POWER sheet (app-binder-wiring.js:
+//        the wall over the devices its ports and circuits land on, wired
+//        port to socket, circuit to breakout) - a screen with only one
+//        side has only that side's sheet and half
 //   3.n  the PULL sheets - positions side by side, a column each
 //   4.n  hardware - the distros side by side, then the processors with
 //        the show's pull list beside them where it fits
@@ -43,19 +50,25 @@
 // block names the screen, and on a wall of circuits the plate landed on
 // top of the labels ("the main label is over the circuits").
 //
-// Layout inside the drawing area: the map takes the width the tables
-// leave. Map-left / tables-right in as few columns as hold the tables
-// whole; where the tables need more than half the drawing area's width,
-// the map goes on top at full width and the tables below it in columns;
-// what still does not fit continues on the next sheet. The map's zoom is
-// min(fit, 3x). Then the sheet's content GROWS TO FILL IT (_bMapLayout,
-// _bFillScale - "there is still a ton of wasted space … text can be
-// bigger if it fills the space. only get this small when there is tons
-// of info", 2026-09-08): laid out at the base sizes below, the drawing is
-// painted at one uniform scale up to FILL_CAP - text, rows, rules, the
-// map with its rulers, brackets and bubble - the recorder writing the
-// scaled page units so the PDF matches; a sheet that already fills, or
-// continues, stays at 1. The title block never scales.
+// Layout inside the drawing area - COVERAGE DECIDES (_bMapLayout, 2026-
+// 09-08: "there is still a ton of wasted space … screens can enlarge and
+// text can be bigger if it fills the space. only get this small when
+// there is tons of info"): a map sheet is tried both ways - the map left
+// and the tables right in one column (side), the map on top and the
+// tables under it side by side (stack) - each with the TABLES' type
+// scale s, 1 to FILL_CAP, chosen for it, the map taking the room the
+// tables leave (never the other way round; it keeps at least 45 % of the
+// width beside them, of the height over them), its zoom min(fit, 3x);
+// the layout that covers more of the drawing area - the wall with its
+// gutters plus the tables' box - wins. The tables,
+// their bands, the FACTS and the view bubble are painted at s (base
+// sizes below, the context scaled, the recorder writing the scaled page
+// units so the PDF matches); the map's rulers and brackets keep their
+// inch sizes and the renderer's own labels grow with the wall. A sheet
+// whose tables fit at 1 in neither layout is "tons of info": it stays at
+// 1, the map over the tables, and continues on the next sheet. Column
+// sheets (pull, hardware) spread their tables across the width and scale
+// as a whole (_bFillScale). The title block never scales.
 //
 // Every figure is read from buildPullSheet (app-pull-list.js) and the same
 // authorities the canvas reads; nothing is recomputed here. The title
@@ -125,8 +138,8 @@ const COL_W = 700;
 const DATA_COL_W = 1020;              // the Ports table's six columns of whole names
 const COL_GAP = 30;
 const BUBBLE_H = 96;
-// In a stacked layout (map over tables) the map keeps at least this share
-// of the drawing area's height; the tables take the rest and continue.
+// The map keeps at least this share of the drawing area whatever the
+// tables' scale - of the width beside them, of the height over them.
 const MAP_MIN_FRAC = 0.45;
 // The map's gutters: the rulers' and the brackets' room around the wall.
 const MAP_GUTTER = { left: 200, right: 180, top: 74, bottom: 16 };
@@ -154,15 +167,20 @@ const REDUNDANCY_WORDS = {
     fixed: 'On', backup: 'Backed up',
 };
 
-// The title block's fields, as project.binder stores them.
+// The title block's fields, as project.binder stores them - and the
+// screen order, which rides the project the same way.
 const BINDER_DEFAULTS = {
     venue: '', dates: '', designer: '',
     projectManager: { name: '', phone: '', email: '' },
-    drafter: '', revisions: [],
+    drafter: '', revisions: [], screenOrder: 'alpha',
 };
+// The orders a beach's screens can run in (project.binder.screenOrder,
+// the export dialog's "Screen order"): alphabetical by name, the Screens
+// panel's order top-down or bottom-up, by first port, by first circuit.
+const SCREEN_ORDERS = ['alpha', 'layers', 'layers-up', 'data', 'power'];
 // The logo is stored no larger than this on its long side.
 const LOGO_MAX_PX = 1200;
-const SERIES = { overview: 1, power: 2, data: 2, pull: 3, distro: 4, processor: 4, totals: 4 };
+const SERIES = { overview: 1, power: 2, data: 2, wiring: 2, pull: 3, distro: 4, processor: 4, totals: 4 };
 
 class _Binder {
 
@@ -199,6 +217,16 @@ class _Binder {
                 sheet.appendChild(o);
             }
             sheet.addEventListener('change', () => { this.setBinderSheet(sheet.value); });
+        }
+        // The screen order: project state, one undo entry, the same POST
+        // as the title block's fields.
+        const order = document.getElementById('export-binder-screen-order');
+        if (order) {
+            order.addEventListener('change', () => {
+                const v = SCREEN_ORDERS.includes(order.value) ? order.value : 'alpha';
+                this.setBinderField('screenOrder', v, 'Set Screen Order');
+                if (typeof this.updateExportPreview === 'function') this.updateExportPreview();
+            });
         }
         const eng = document.getElementById('export-binder-engineer');
         if (eng) eng.addEventListener('change', () => { this.setEngineerName(eng.value); this.syncBinderControls(); });
@@ -308,6 +336,7 @@ class _Binder {
         set('export-binder-pm-phone', info.projectManager.phone);
         set('export-binder-pm-email', info.projectManager.email);
         set('export-binder-drafter', info.drafter);
+        set('export-binder-screen-order', info.screenOrder);
         const drafter = document.getElementById('export-binder-drafter');
         if (drafter) drafter.placeholder = this.getEngineerName() || 'Name';
         // the Revision note is this export's and stays as typed
@@ -391,6 +420,8 @@ class _Binder {
             cover: on('export-binder-cover', scope.kind === 'show'),
             pull: on('export-binder-pull', scope.kind === 'show'),
             hardware: on('export-binder-hardware', scope.kind === 'show'),
+            // the Signal + Power sheet is a SCREEN sheet: on whatever the scope
+            wiring: on('export-binder-wiring', true),
         };
     }
 
@@ -451,6 +482,7 @@ class _Binder {
             venue: s(stored.venue), dates: s(stored.dates), designer: s(stored.designer),
             projectManager: { name: s(pm.name), phone: s(pm.phone), email: s(pm.email) },
             drafter: s(stored.drafter),
+            screenOrder: SCREEN_ORDERS.includes(stored.screenOrder) ? stored.screenOrder : 'alpha',
             // the log: No. is the row's position; `rev` the number the
             // export wore, so the same rev exported again logs nothing
             revisions: Array.isArray(stored.revisions)
@@ -750,7 +782,9 @@ class _Binder {
         return { kind: p.kind, number: p.number, title: p.title, sheetTitle: p.sheetTitle,
                  view: p.view || null, layerId: p.layerId || null, subject: p.subject || null,
                  layout: p.layout, cols: p.cols || 0, scale: p.scale || 1,
-                 extent: p.extent ? { w: p.extent.w, h: p.extent.h } : null, names: p.names || null,
+                 extent: p.extent ? { w: p.extent.w, h: p.extent.h } : null,
+                 coverage: Number.isFinite(p.coverage) ? Math.round(p.coverage * 1000) / 1000 : null,
+                 names: p.names || null, sides: p.sides || null, halves: p.halves || null,
                  w: book.sheet.w, h: book.sheet.h, sheet: book.sheet.key };
     }
 
@@ -782,7 +816,7 @@ class _Binder {
                  texts: log.texts, textInfo: log.textInfo, mapTexts: log.mapTexts,
                  dashes: log.dashes, map: log.map || null, brackets: log.brackets || [],
                  bubble: log.bubble || null, titleBlock: log.titleBlock || null,
-                 logo: log.logo || null,
+                 logo: log.logo || null, wiring: log.wiring || null,
                  page: plan[index] || null, pages: plan.length, sheet: book.sheet };
     }
 
@@ -838,18 +872,22 @@ class _Binder {
             positions.push({ pos, members, own: scopeLayer ? own.filter(l => l.id === scopeLayer.id) : own });
         }
         // Series by subject: 1 the overview; 2 the screens in BEACH order -
-        // the pull list's position order, a position's own screens in
-        // layer order - each screen's POWER sheet then its DATA sheet; 3
-        // the pull sheets, positions side by side; 4 the hardware - the
-        // distros, the processors, the show's pull list.
+        // the pull list's position order, a position's own screens in the
+        // project's screen order (_bOrderScreens) - each screen's POWER
+        // sheet, its DATA sheet, its SIGNAL + POWER sheet; 3 the pull sheets, positions side by
+        // side; 4 the hardware - the distros, the processors, the show's
+        // pull list.
         if (opts.cover) this._bOverviewPage(book);
-        for (const { pos, own } of positions) {
-            for (const layer of own) {
-                const scr = list.byScreen[layer.id];
-                if (!scr) continue;
-                if (opts.sides.power && this._bHasPower(layer, scr)) this._bScreenPage(book, layer, pos, 'power');
-                if (opts.sides.data && this._bHasData(layer, scr)) this._bScreenPage(book, layer, pos, 'data');
-            }
+        for (const { layer, pos } of this._bScreenRun(book, positions)) {
+            const scr = list.byScreen[layer.id];
+            if (!scr) continue;
+            const sides = { power: !!opts.sides.power && this._bHasPower(layer, scr),
+                            data: !!opts.sides.data && this._bHasData(layer, scr) };
+            if (sides.power) this._bScreenPage(book, layer, pos, 'power');
+            if (sides.data) this._bScreenPage(book, layer, pos, 'data');
+            // the third sheet: the wall wired to its devices, one half per
+            // side the screen has (app-binder-wiring.js)
+            if (opts.wiring !== false && (sides.power || sides.data)) this._bWiringPage(book, layer, pos, sides);
         }
         if (opts.pull) this._bPullSheets(book, positions);
         const hardware = [];
@@ -882,6 +920,118 @@ class _Binder {
         return (scr.ports || []).length > 0;
     }
 
+    // ---- the screen order ---------------------------------------------------
+
+    // The screens in the order the sheets run: the positions in their
+    // order (beaches first, in the Beaches panel's order), a position's
+    // own screens sorted by the project's screen order (_bOrderScreens).
+    // The LOOSE screens - each its own position in the pull list, one per
+    // screen in layer order - are one group here: a run of them sorts
+    // together, so a show with no beaches (his buddy's seven walls) runs
+    // A, B, C … and not the layer list. Each keeps its own position for
+    // the sheet's name. [{ layer, pos }]
+    _bScreenRun(book, positions) {
+        const out = [];
+        let loose = [];
+        const flush = () => {
+            if (!loose.length) return;
+            const byId = new Map(loose.map(e => [e.layer, e.pos]));
+            for (const layer of this._bOrderScreens(book, loose.map(e => e.layer))) out.push({ layer, pos: byId.get(layer) });
+            loose = [];
+        };
+        for (const { pos, own } of positions) {
+            if (String(pos.key || '').startsWith('layer:')) {
+                for (const layer of own) loose.push({ layer, pos });
+                continue;
+            }
+            flush();
+            for (const layer of this._bOrderScreens(book, own)) out.push({ layer, pos });
+        }
+        flush();
+        return out;
+    }
+
+    // A beach's screens in the order project.binder.screenOrder names
+    // (2026-09-08, his buddy on seven walls "A - OffSR IMAG" … "G - E3
+    // Delay": "i'd want raster A first, then in alphabetical order"):
+    //   alpha      by name, natural - "A - …" before "B - …", 2 before 10
+    //   layers     the Screens panel's order, top to bottom (the panel
+    //              shows the newest screen on top - the layer list reversed)
+    //   layers-up  the panel bottom to top - the layer list's own order
+    //   data       by the screen's first port: processor order, then card
+    //              slot, then socket - a screen on card 1 socket 1 first;
+    //              screens with no port after those, alphabetical
+    //   power      by the screen's first circuit: distro order, then multi
+    //              number, then circuit; screens with none after, alphabetical
+    // The beaches come first either way: this sorts WITHIN a beach (and
+    // the loose group). Never the array it is given.
+    _bOrderScreens(book, layers) {
+        const order = (book.meta.binder && book.meta.binder.screenOrder) || 'alpha';
+        const name = (l) => String(l.name == null ? '' : l.name);
+        const byName = (a, b) => name(a).localeCompare(name(b), undefined, { numeric: true, sensitivity: 'base' })
+            || String(a.id).localeCompare(String(b.id), undefined, { numeric: true });
+        const all = (this.project && this.project.layers) || [];
+        const index = (l) => all.indexOf(l);
+        if (order === 'layers') return [...layers].sort((a, b) => (index(b) - index(a)) || byName(a, b));
+        if (order === 'layers-up') return [...layers].sort((a, b) => (index(a) - index(b)) || byName(a, b));
+        if (order === 'data' || order === 'power') {
+            const keys = new Map(layers.map(l => [l, order === 'data'
+                ? this._bFirstPortKey(l) : this._bFirstCircuitKey(book, l)]));
+            return [...layers].sort((a, b) => {
+                const ka = keys.get(a), kb = keys.get(b);
+                if (ka && kb) {
+                    for (let i = 0; i < ka.length; i++) if (ka[i] !== kb[i]) return ka[i] - kb[i];
+                    return byName(a, b);
+                }
+                if (ka || kb) return ka ? -1 : 1;
+                return byName(a, b);
+            });
+        }
+        return [...layers].sort(byName);
+    }
+
+    // [processor index, card slot, socket] of the screen's first placed
+    // port - the least of its ports' - or null when none is placed.
+    _bFirstPortKey(layer) {
+        const asg = ((this._assignment && this._assignment.screens) || [])
+            .find(s => String(s.layerId) === String(layer.id));
+        const procs = this._processorsResolved || [];
+        let best = null;
+        for (const p of (asg && asg.ports) || []) {
+            if (!p || !p.cardId) continue;
+            const home = this._bPortHome(p.cardId, p.port);
+            if (!home) continue;
+            const pi = procs.findIndex(x => x && x.id === home.proc.id);
+            const slot = (home.proc.slots || []).findIndex(s => s && s.card && s.card.id === home.card.id);
+            const socket = parseInt(p.port, 10);
+            const k = [pi < 0 ? procs.length : pi, slot < 0 ? 0 : slot, Number.isFinite(socket) ? socket : 0];
+            if (!best || this._bKeyLess(k, best)) best = k;
+        }
+        return best;
+    }
+
+    // [distro index, multi number, circuit] of the screen's first circuit
+    // on a distro - the least of them - or null when it has none.
+    _bFirstCircuitKey(book, layer) {
+        const scr = book.list.byScreen[layer.id];
+        const distros = (typeof this.getDistros === 'function') ? this.getDistros() : [];
+        let best = null;
+        for (const box of (scr && scr.boxes) || []) {
+            if (!box || !box.distroId) continue;
+            const di = distros.findIndex(d => d && d.id === box.distroId);
+            for (const c of box.circuits || []) {
+                const k = [di < 0 ? distros.length : di, Number(box.number) || 0, Number(c.tail) || 0];
+                if (!best || this._bKeyLess(k, best)) best = k;
+            }
+        }
+        return best;
+    }
+
+    _bKeyLess(a, b) {
+        for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] < b[i];
+        return false;
+    }
+
     // The sheet's frame in page pixels: the border, the title block, the
     // drawing area.
     _bGeo(sheet) {
@@ -895,17 +1045,19 @@ class _Binder {
     // ---- sheets: number, paint, frame, close --------------------------------
 
     // A sheet. `spec` names it ({ kind, title, sheetTitle, view?, layerId,
-    // subject, layout, cols, scale?, extent?, names? }); `body(page)`
-    // draws its drawing area through book.ctx - on a painting pass, for
-    // the sheet being painted: the book canvas sized to the sheet at
-    // book.scale, the frame (border, title block) drawn, then the body -
-    // through the recording context, so the sheet's display list is
-    // written as the canvas is painted. A body laid out at the base sizes
-    // is painted at spec.scale (the fill, > 1), the context scaled about
-    // the drawing area's corner so base coordinates land scaled on the
-    // page - and book.fill says so, for the logs (_bLogXY). The title
-    // block, drawn before, is the same on every sheet. The plan (dry) and
-    // the sheets not being painted only take their number.
+    // subject, layout, cols, scale?, extent?, coverage?, names? });
+    // `body(page, scaled)` draws its drawing area through book.ctx - on a
+    // painting pass, for the sheet being painted: the book canvas sized to
+    // the sheet at book.scale, the frame (border, title block) drawn, then
+    // the body - through the recording context, so the sheet's display
+    // list is written as the canvas is painted. What the body draws inside
+    // `scaled(fn)` is laid out at the base sizes and painted at spec.scale
+    // (the fill, > 1): the context scaled about the drawing area's corner
+    // so base coordinates land scaled on the page - and book.fill says so,
+    // for the logs (_bLogXY); a map sheet paints its map outside it, in
+    // page units. At 1 `scaled` is a plain call. The title block, drawn
+    // before, is the same on every sheet. The plan (dry) and the sheets
+    // not being painted only take their number.
     _bPage(book, spec, body) {
         this._bClosePage(book);
         const index = book.pages.length;
@@ -926,17 +1078,17 @@ class _Binder {
             book.ctx = this._bRecCtx(book, page);
             this._bPageFrame(book, page);
             const s = page.scale || 1;
-            if (s > 1) {
+            const scaled = (fn) => {
+                if (!(s > 1)) { fn(); return; }
                 const da = book.geo.da;
                 book.fill = { s, x: da.x, y: da.y, e: da.x - s * da.x, f: da.y - s * da.y };
                 book.ctx.save();
                 book.ctx.translate(da.x, da.y);
                 book.ctx.scale(s, s);
                 book.ctx.translate(-da.x, -da.y);
-                try { body(page); } finally { book.ctx.restore(); book.fill = null; }
-            } else {
-                body(page);
-            }
+                try { fn(); } finally { book.ctx.restore(); book.fill = null; }
+            };
+            body(page, scaled);
         } else {
             book.ctx = this._bDryCtx(book.measureCtx);
         }
@@ -1663,77 +1815,158 @@ class _Binder {
         try { return spec.measure(area) || null; } finally { book.ctx = savedCtx; book.page = savedPage; }
     }
 
-    // The layout of a map sheet's drawing area for `blocks`, and its fill
-    // scale. Two candidates, laid out at the base sizes:
-    //   side    - map left, tables right in the fewest columns of COL_W
-    //             that hold them whole, never past half the width
-    //   stack   - the map on top at full width (at least MAP_MIN_FRAC of
-    //             the height), the tables under it across the width
-    // and the one that scales larger wins (side on a tie - the wide walls
-    // that fill already keep today's sheet). Whatever the sheet cannot
-    // hold is `pack.rest`, for a continuation - and that sheet stays at 1.
+    // The layout of a map sheet's drawing area for `blocks`, its fill
+    // scale and its coverage. COVERAGE DECIDES (2026-09-08, on his buddy's
+    // 9 x 5 IMAG walls at Tabloid: the map filled the width, the tables
+    // sat at 1x in one column and the lower half of the sheet was empty;
+    // on ARCH C the map was near its cap and the tables tiny under it -
+    // "screens can enlarge and text can be bigger if it fills the space.
+    // only get this small when there is tons of info"). Two layouts are
+    // evaluated, each with the TABLES' type scale s in [1, FILL_CAP]
+    // chosen for it, the map taking the room the tables leave - never the
+    // other way round - and keeping at least MAP_MIN_FRAC of the area:
+    //   side   - map left, tables right in k columns of their base width
+    //            (the fewest that hold them whole, never past half the
+    //            width): s = min(FILL_CAP, da.h / tablesH, the width the
+    //            map's share leaves / (tablesW + gap)); the map fits the
+    //            remaining width and the height over its bubble, zoom
+    //            capped at 3x on the page
+    //   stack  - map on top at full width, the tables under it side by
+    //            side, one column per block (spread over the columns that
+    //            fit when there are more blocks than columns, _bSpread):
+    //            s = min(FILL_CAP, da.w / the row's width, the height the
+    //            map's share leaves / (the tallest column + bubble +
+    //            gap)); the map takes the height the row leaves
+    // coverage = (the map's ink - the wall with its gutters - plus the
+    // tables' box at s - their width by their tallest column) / the
+    // drawing area; the larger wins, stack on a tie. A sheet whose tables fit at 1 in neither is "tons of info": it
+    // stays at 1, the map over the tables in the columns that fit, the
+    // rest (pack.rest) continuing on the next sheet.
     //
-    // The scale: the map's fit fills its area by construction, so the
-    // TABLES set it - they grow until they fill the height or the width
-    // the wall leaves - and the wall keeps the dimension it shares the
-    // sheet with the tables in: its width beside them, its height under
-    // them; the rest of the room at that scale (the drawing area divided
-    // by it) is the map's base area, the wall refit into it, its frame
-    // (gutters, bubble) scaling with the sheet. A wall that already fills
-    // the width beside a column of tables (SR - MAIN) pins the scale at 1;
-    // a tall narrow wall beside three short tables (a Return) lets the
-    // tables grow to the height and keeps its width. The extent is the
-    // union of the map's compact area (the wall and its gutters), the
-    // bubble and the table columns - and the map area is that compact
-    // width, so the tables sit right beside the wall and the whole thing
-    // scales about the area's corner.
+    // The map is painted in PAGE units (its zoom on the page; its rulers
+    // and brackets at their inch sizes - the renderer's own labels grow
+    // with the wall, which IS "screens can enlarge"); the tables and the
+    // bubble are painted under the fill (_bPage's `scaled`) from BASE
+    // coordinates, so `top`, `colW`, `colX` are base units and `toBase`
+    // maps a page point into them. `mapArea` is page units.
     _bMapLayout(book, spec, blocks) {
         const da = book.geo.da;
         const colW = Math.max(COL_W, ...blocks.map(b => (b && b.minW) || 0));
         const across = Math.max(1, Math.floor((da.w + COL_GAP) / (colW + COL_GAP)));
-        const wide = (da.w - (across - 1) * COL_GAP) / across;
         const gutW = MAP_GUTTER.left + MAP_GUTTER.right, gutH = MAP_GUTTER.top + MAP_GUTTER.bottom;
         const tallest = (pack) => pack.cols.reduce((m, c) => Math.max(m, c.h), 0);
-        const measure = (area) => this._bMeasureMap(book, spec, area);
-        const fill = (v) => Math.max(1, Math.min(FILL_CAP, Math.floor(v * 1000) / 1000));
+        const clamp = (v) => Math.max(1, Math.min(FILL_CAP, Math.floor(v * 1000) / 1000));
+        const minW = Math.round(da.w * MAP_MIN_FRAC), minH = Math.round(da.h * MAP_MIN_FRAC);
+        const area = da.w * da.h;
+        // The wall's own size, from one measure; then its fit in a room -
+        // the very arithmetic _bMap does, so the layout's numbers are the
+        // paint's.
+        const probe = this._bMeasureMap(book, spec, { x: da.x, y: da.y, w: da.w, h: da.h });
+        const ww = probe && probe.zoom > 0 ? probe.wall.w / probe.zoom : 0;
+        const wh = probe && probe.zoom > 0 ? probe.wall.h / probe.zoom : 0;
+        const fit = (roomW, roomH) => {
+            if (!(ww > 0 && wh > 0)) return { zoom: 0, w: Math.min(roomW, gutW), h: gutH };
+            const zoom = Math.max(0, Math.min((roomW - gutW) / ww, (roomH - gutH) / wh, MAP_ZOOM_CAP));
+            return { zoom, w: Math.ceil(ww * zoom) + gutW, h: Math.round(wh * zoom + gutH) };
+        };
+        const identity = (x, y) => [x, y];
+        const toBase = (s) => (s > 1 ? (x, y) => [da.x + (x - da.x) / s, da.y + (y - da.y) / s] : identity);
+
+        // side: the fewest columns that hold the tables whole
         let side = null;
         const kmax = Math.floor((da.w / 2 + COL_GAP) / (colW + COL_GAP));
         for (let k = 1; k <= kmax && !side; k++) {
             const pack = this._bPack(blocks, da.h, k);
-            if (pack.rest.length) continue;
+            if (pack.rest.length || !pack.cols.length) continue;
             const tablesW = k * colW + (k - 1) * COL_GAP, tablesH = tallest(pack);
-            const area1 = { x: da.x, y: da.y, w: da.w - tablesW - COL_GAP, h: da.h - BUBBLE_H };
-            const m1 = measure(area1);
-            const scale = m1 ? fill(Math.min((da.w - m1.wall.w) / (COL_GAP + tablesW + gutW), da.h / tablesH)) : 1;
-            const area = scale > 1
-                ? { x: da.x, y: da.y, w: da.w / scale - tablesW - COL_GAP, h: da.h / scale - BUBBLE_H } : area1;
-            const m = scale > 1 ? measure(area) : m1;
-            const mapW = m ? Math.min(area.w, m.extent.w) : area.w;
-            const mapH = m ? m.extent.h : area.h;
-            side = { kind: 'side', cols: k, colW, top: da.y, pack, scale,
-                     mapArea: { ...area, w: mapW },
-                     extent: { w: mapW + COL_GAP + tablesW, h: Math.max(mapH + BUBBLE_H, tablesH) },
-                     colX: (i) => da.x + mapW + COL_GAP + i * (colW + COL_GAP) };
+            const s = clamp(Math.min(FILL_CAP, da.h / tablesH, (da.w - minW) / (tablesW + COL_GAP)));
+            const roomW = da.w - (tablesW + COL_GAP) * s, roomH = da.h - BUBBLE_H * s;
+            const m = fit(roomW, roomH);
+            side = { kind: 'side', cols: k, colW, top: da.y, pack, scale: s,
+                     mapArea: { x: da.x, y: da.y, w: roomW, h: roomH },
+                     extent: { w: da.w, h: Math.max(m.h + BUBBLE_H * s, tablesH * s) },
+                     coverage: (m.w * m.h + tablesW * tablesH * s * s) / area,
+                     map: { zoom: m.zoom, w: m.w, h: m.h },
+                     colX: (i) => da.x + roomW / s + COL_GAP + i * (colW + COL_GAP),
+                     toBase: toBase(s) };
         }
-        const colH = Math.floor(da.h - BUBBLE_H - COL_GAP - Math.round(da.h * MAP_MIN_FRAC));
+
+        // stack: the blocks side by side under the map
+        let stack = null;
+        const spread = this._bSpread(blocks, across);
+        const colH1 = da.h - minH - BUBBLE_H - COL_GAP;
+        if (spread && tallest(spread) <= colH1) {
+            const k = spread.cols.length;
+            const rowW = k * colW + (k - 1) * COL_GAP, tablesH = tallest(spread);
+            const s = clamp(Math.min(FILL_CAP, da.w / rowW, (da.h - minH) / (tablesH + BUBBLE_H + COL_GAP)));
+            const mapH = da.h - (tablesH + BUBBLE_H + COL_GAP) * s;
+            const m = fit(da.w, mapH);
+            const wide = (da.w / s - (k - 1) * COL_GAP) / k;
+            stack = { kind: 'stack', cols: k, colW: wide, top: da.y + m.h / s + BUBBLE_H + COL_GAP, pack: spread, scale: s,
+                      mapArea: { x: da.x, y: da.y, w: da.w, h: mapH },
+                      extent: { w: Math.max(m.w, da.w), h: m.h + (BUBBLE_H + COL_GAP + tablesH) * s },
+                      coverage: (m.w * m.h + rowW * tablesH * s * s) / area,
+                      map: { zoom: m.zoom, w: m.w, h: m.h },
+                      colX: (i) => da.x + i * (wide + COL_GAP),
+                      toBase: toBase(s) };
+        }
+        if (side && stack) return stack.coverage >= side.coverage ? stack : side;
+        if (side || stack) return side || stack;
+
+        // tons of info: neither holds the tables at 1 - the map over the
+        // tables in the columns that fit, the rest continuing
+        const colH = Math.floor(da.h - BUBBLE_H - COL_GAP - minH);
         const pack = this._bPack(blocks, colH, across);
-        const n = pack.cols.length, tablesH = tallest(pack);
-        const tablesW = n * wide + (n - 1) * COL_GAP;
-        const area1 = { x: da.x, y: da.y, w: da.w, h: da.h - BUBBLE_H - COL_GAP - tablesH };
-        const m1 = measure(area1);
-        const scale = m1 && !pack.rest.length
-            ? fill(Math.min((da.h - m1.wall.h) / (BUBBLE_H + COL_GAP + tablesH + gutH), da.w / Math.max(1, tablesW))) : 1;
-        const area = scale > 1
-            ? { x: da.x, y: da.y, w: da.w / scale, h: da.h / scale - BUBBLE_H - COL_GAP - tablesH } : area1;
-        const m = scale > 1 ? measure(area) : m1;
-        const mapH = m ? m.extent.h : area.h;
-        const extW = Math.max(m ? Math.min(area.w, m.extent.w) : area.w, tablesW);
-        const stack = { kind: 'stack', cols: across, colW: wide, top: da.y + mapH + BUBBLE_H + COL_GAP, pack, scale,
-                        mapArea: { x: da.x, y: da.y, w: extW, h: area.h },
-                        extent: { w: extW, h: mapH + BUBBLE_H + COL_GAP + tablesH },
-                        colX: (i) => da.x + i * (wide + COL_GAP) };
-        if (!side) return stack;
-        return stack.scale > side.scale ? stack : side;
+        const wide = (da.w - (across - 1) * COL_GAP) / across;
+        const tablesH = tallest(pack);
+        const mapH = da.h - BUBBLE_H - COL_GAP - tablesH;
+        const m = fit(da.w, mapH);
+        return { kind: 'stack', cols: across, colW: wide, top: da.y + m.h + BUBBLE_H + COL_GAP, pack, scale: 1,
+                 mapArea: { x: da.x, y: da.y, w: da.w, h: mapH },
+                 extent: { w: da.w, h: m.h + BUBBLE_H + COL_GAP + tablesH },
+                 coverage: (m.w * m.h + da.w * tablesH) / area,
+                 map: { zoom: m.zoom, w: m.w, h: m.h },
+                 colX: (i) => da.x + i * (wide + COL_GAP), toBase: identity };
+    }
+
+    // Blocks in order across up to `maxCols` columns, side by side - one
+    // per block where they are few, else the consecutive split whose
+    // tallest column is shortest (a stack's tables under its map). Nothing
+    // splits: a block taller than the column is the caller's to refuse.
+    // Null when there is nothing to lay. Same shape as _bPack's result.
+    _bSpread(blocks, maxCols) {
+        const items = blocks.filter(b => b && (b.lines || []).length)
+            .map(b => ({ lines: b.lines, h: b.lines.reduce((s, l) => s + l.h, 0) }));
+        if (!items.length) return null;
+        const k = Math.min(items.length, Math.max(1, maxCols));
+        const groupH = (i, j) => items.slice(i, j).reduce((s, b) => s + b.h, 0) + (j - i - 1) * BLOCK_GAP;
+        let best = null;
+        const walk = (start, left, cuts, worst) => {
+            if (left === 1) {
+                const h = Math.max(worst, groupH(start, items.length));
+                if (!best || h < best.h) best = { h, cuts: cuts.slice() };
+                return;
+            }
+            for (let end = start + 1; end <= items.length - (left - 1); end++) {
+                cuts.push(end);
+                walk(end, left - 1, cuts, Math.max(worst, groupH(start, end)));
+                cuts.pop();
+            }
+        };
+        walk(0, k, [], 0);
+        const bounds = [0, ...best.cuts, items.length];
+        const cols = [];
+        for (let c = 0; c < bounds.length - 1; c++) {
+            const col = { h: 0, items: [] };
+            let y = 0;
+            for (const b of items.slice(bounds[c], bounds[c + 1])) {
+                if (col.items.length) y += BLOCK_GAP;
+                for (const l of b.lines) { col.items.push({ line: l, y }); y += l.h; }
+                col.h = y;
+            }
+            cols.push(col);
+        }
+        return { cols, rest: [] };
     }
 
     // The packed columns drawn where the layout put them.
@@ -1787,7 +2020,7 @@ class _Binder {
             const heads = placed.map(p => p.group.name + (p.group.cont ? ' (cont.)' : ''));
             const colX = (i) => da.x + i * (colW + COL_GAP);
             this._bPage(book, { ...spec.page(placed.map(p => p.group)), layout: 'tables', cols: used, scale, extent,
-                                names: heads }, () => {
+                                names: heads }, (page, scaled) => scaled(() => {
                 placed.forEach((p, j) => {
                     const w = p.cols.length * colW + (p.cols.length - 1) * COL_GAP;
                     this._bGroupHead(book, heads[j], colX(p.first), da.y, w);
@@ -1795,7 +2028,7 @@ class _Binder {
                         for (const it of col.items) it.line.draw(book.ctx, colX(p.first + i), da.y + GROUP_H + it.y, colW);
                     });
                 });
-            });
+            }));
         }
     }
 
@@ -1807,18 +2040,22 @@ class _Binder {
         ctx.fillRect(x, y + GROUP_H - 10, w, 3);
     }
 
-    // A map sheet: the map as a numbered view, the tables beside or under
-    // it, the whole drawing at the sheet's fill scale (_bMapLayout), the
-    // rest continuing on table-only sheets at 1. `spec.draw(area)` paints
-    // the map into the area and returns the rect it used; `spec.measure
-    // (area)` gives its geometry without painting.
+    // A map sheet: the map as a numbered view in page units, the bubble
+    // and the tables beside or under it at the sheet's fill scale
+    // (_bMapLayout), the rest continuing on table-only sheets at 1.
+    // `spec.draw(area)` paints the map into the area and returns the rect
+    // it used; `spec.measure(area)` gives its geometry without painting.
     _bMapSheets(book, spec, blocks) {
         const L = this._bMapLayout(book, spec, blocks);
         const view = ++book.views;
-        this._bPage(book, { ...spec, view, layout: L.kind, cols: L.cols, scale: L.scale, extent: L.extent }, (page) => {
+        this._bPage(book, { ...spec, view, layout: L.kind, cols: L.cols, scale: L.scale, extent: L.extent,
+                            coverage: L.coverage }, (page, scaled) => {
             const used = spec.draw(L.mapArea) || L.mapArea;
-            this._bViewBubble(book, view, spec.viewName, L.mapArea.x + 20, used.y + used.h + 8);
-            this._bDrawLayout(book, L);
+            scaled(() => {
+                const [bx, by] = L.toBase(L.mapArea.x + 20, used.y + used.h + 8);
+                this._bViewBubble(book, view, spec.viewName, bx, by);
+                this._bDrawLayout(book, L);
+            });
         });
         let rest = L.pack.rest;
         while (rest.length) {
@@ -1879,8 +2116,11 @@ class _Binder {
     // bitmap is laid onto the scaled sheet - never upscaled from a
     // smaller render. geo.extent is the map's compact extent in the area:
     // the wall with its gutters, and the height used.
-    _bMap(book, layer, view, area) {
+    _bMap(book, layer, view, area, gutter) {
         const r = window.canvasRenderer;
+        // the gutters: the rulers' and the brackets' room by default; a
+        // caller that draws neither (the wiring sheet) passes its own
+        const G = gutter || MAP_GUTTER;
         const S = (book.scale || 2) * ((book.fill && book.fill.s) || 1);
         const canvases = (this.project && Array.isArray(this.project.canvases)) ? this.project.canvases : [];
         const saved = {
@@ -1892,9 +2132,9 @@ class _Binder {
             layerVis: (this.project.layers || []).map(l => [l, l.visible]),
         };
         const inner = {
-            x: area.x + MAP_GUTTER.left, y: area.y + MAP_GUTTER.top,
-            w: area.w - MAP_GUTTER.left - MAP_GUTTER.right,
-            h: (Number.isFinite(area.h) ? area.h : Infinity) - MAP_GUTTER.top - MAP_GUTTER.bottom,
+            x: area.x + G.left, y: area.y + G.top,
+            w: area.w - G.left - G.right,
+            h: (Number.isFinite(area.h) ? area.h : Infinity) - G.top - G.bottom,
         };
         let geo = null;
         try {
@@ -1922,14 +2162,14 @@ class _Binder {
             const zoom = Math.min(inner.w / ww, inner.h / wh, MAP_ZOOM_CAP);
             const drawW = wall.w * zoom, drawH = wall.h * zoom;
             const used = { x: area.x, y: area.y, w: area.w,
-                           h: Math.round(drawH + MAP_GUTTER.top + MAP_GUTTER.bottom) };
+                           h: Math.round(drawH + G.top + G.bottom) };
             const ox = inner.x + (inner.w - drawW) / 2;      // wall's sheet origin
             const oy = inner.y;
             const toPage = (lx, ly) => ({ x: ox + (lx - wall.x) * zoom, y: oy + (ly - wall.y) * zoom });
             geo = {
                 zoom, wall: { x: ox, y: oy, w: drawW, h: drawH }, mirrored, area: used,
-                extent: { x: ox - MAP_GUTTER.left, y: area.y,
-                          w: Math.ceil(drawW) + MAP_GUTTER.left + MAP_GUTTER.right, h: used.h },
+                extent: { x: ox - G.left, y: area.y,
+                          w: Math.ceil(drawW) + G.left + G.right, h: used.h },
                 rect: (px, py, pw, ph) => {
                     const l = local(px, py, pw, ph);
                     const p = toPage(l.x, l.y);
@@ -1938,11 +2178,14 @@ class _Binder {
             };
             if (book.page && book.page.painting) {
                 if (book.log) {
-                    // in page units, through the fill: the wall as it lands,
-                    // its zoom on the page (and at base), the area the bitmap
-                    // is laid in - the image op's very rect
+                    // in page units (a map sheet paints its map outside the
+                    // fill, so this is the identity; a fill on the context
+                    // would carry through): the wall as it lands, its zoom
+                    // on the page, the sheet's fill scale, the area the
+                    // bitmap is laid in - the image op's very rect
                     const F = (book.fill && book.fill.s) || 1;
-                    book.log.map = { ...this._bLogRect(book, geo.wall), zoom: zoom * F, baseZoom: zoom, scale: F,
+                    book.log.map = { ...this._bLogRect(book, geo.wall), zoom: zoom * F, baseZoom: zoom,
+                                     scale: (book.page && book.page.scale) || 1,
                                      area: this._bLogRect(book, used) };
                 }
                 const off = this._binderMapCanvas || (this._binderMapCanvas = document.createElement('canvas'));
@@ -2937,3 +3180,8 @@ for (const k of Object.getOwnPropertyNames(_Binder.prototype)) {
             Object.getOwnPropertyDescriptor(_Binder.prototype, k));
     }
 }
+
+// The set's vocabulary the wiring mixin (app-binder-wiring.js) draws with -
+// the same inks, type sizes and fill rules - so its sheet reads as the
+// rest of the set does.
+export const BINDER_STYLE = { INK, RULE, FAINT, MUTED, SZ, FILL_CAP, MAP_ZOOM_CAP, MAP_MIN_FRAC, BUBBLE_H, FONT };
