@@ -15,9 +15,10 @@ section") and the drawing area to its left. Type sizes are
 in inches: a bigger sheet holds more, it does not print bigger type.
 
 Sheets number by SERIES, by subject: 1.1 the overview (the show map as
-view 1, POSITIONS / SHOW TOTALS / CONTENTS), 2.n a POWER sheet per screen,
-3.n a DATA sheet per screen, 4.n a PULL sheet per position, 5.n the
-hardware (a distro, a processor, the totals). A sheet whose tables do not
+view 1, POSITIONS / SHOW TOTALS / CONTENTS), 2.n the screens - each one's
+POWER sheet, its DATA sheet, its SIGNAL + POWER sheet (test_binder_wiring.py)
+- 3.n a PULL sheet per position, 4.n the hardware (a distro, a processor,
+the totals). A sheet whose tables do not
 fit continues on the next number "(cont.)"; the map never splits. Each
 map is a numbered VIEW - a bubble with the number and the name in caps
 under it ("Yes, bubble and view name").
@@ -94,13 +95,18 @@ def _bands(texts):
     return [t for t in texts if BAND.match(t)]
 # "breakout" as the generic noun for the power unit is gone (2026-09-07);
 # the pull list's "Tru-1 Breakout" CABLE row and the data side's "breakout
-# box" keep their names.
+# box" keep their names - and the Signal + Power sheet's block for a multi
+# IS its breakout, the fan-out, named by type ("Multi 208 breakout", user
+# 2026-09-08: "it is a breakout also known as a fan out / but i like the
+# first option").
 BREAKOUT_WORD = re.compile(r'\bbreakouts?\b', re.I)
+POWER_BREAKOUT = re.compile(r'\b(Multi (208|120)|L21-30) breakout\b')
 
 
 def _generic_breakout(texts):
     return [t for t in texts if BREAKOUT_WORD.search(t)
-            and 'breakout box' not in t.lower() and 'Tru-1 Breakout' not in t]
+            and 'breakout box' not in t.lower() and 'Tru-1 Breakout' not in t
+            and not POWER_BREAKOUT.search(t)]
 
 
 # The sheets (app-binder.js): inches x 200 in page pixels, inches x 72 in
@@ -165,7 +171,7 @@ def test_the_menu_items_the_format_option_and_the_section_are_served(client):
     assert '<option value="binder">Binder (PDF)</option>' in html
     assert 'id="export-binder-section"' in html
     for field in ('scope', 'sheet', 'colour', 'printer', 'side-power', 'side-data', 'side-both',
-                  'cover', 'pull', 'hardware', 'engineer', 'rev',
+                  'cover', 'pull', 'hardware', 'wiring', 'engineer', 'rev',
                   'venue', 'dates', 'designer', 'pm-name', 'pm-phone', 'pm-email', 'drafter',
                   'logo', 'logo-preview', 'logo-remove', 'logo-status', 'revision-note', 'revisions'):
         assert f'id="export-binder-{field}"' in html, field
@@ -184,6 +190,7 @@ def test_the_menu_items_the_format_option_and_the_section_are_served(client):
     assert 'Title block:' in sec
     main_js = open(os.path.join(HERE, '..', 'src', 'static', 'js', 'main.js')).read()
     assert "import './app-binder.js';" in main_js
+    assert "import './app-binder-wiring.js';" in main_js
     # the binder's own strings say circuits - never tails, never Multi,
     # never "breakout" as the generic noun (the data side's "breakout box"
     # keeps its name), and never "Palette" on a sheet
@@ -196,6 +203,17 @@ def test_the_menu_items_the_format_option_and_the_section_are_served(client):
     generic = [l for l in literals if BREAKOUT_WORD.search(l) and 'breakout box' not in l.lower()]
     assert not generic, generic
     assert not [l for l in literals if 'Palette' in l], [l for l in literals if 'Palette' in l]
+    # the wiring sheet's own strings the same - save the power block's
+    # caption, which names the multi's BREAKOUT by its type
+    wiring_js = open(os.path.join(HERE, '..', 'src', 'static', 'js', 'app-binder-wiring.js')).read()
+    wcode = '\n'.join(l for l in wiring_js.splitlines() if not l.strip().startswith('//'))
+    wliterals = re.findall(r"'[^'\n]*'|\"[^\"\n]*\"|`[^`]*`", wcode)
+    assert not [l for l in wliterals if re.search(r'\btails?\b', l)], [l for l in wliterals if 'tail' in l]
+    # the one literal naming a multi's breakout by its type reads a
+    # field called box (the pull list's record) - no sheet word
+    caption = re.compile(r"^`\$\{box\.type\} breakout`$")
+    assert not [l for l in wliterals if 'Multi' in l or 'Palette' in l or (BOX_WORD.search(l) and not caption.match(l))], wliterals
+    assert not [l for l in wliterals if BREAKOUT_WORD.search(l) and not caption.match(l)], wliterals
     # the modal's textareas wear the inset look the fields do; the
     # revision log's rows and their × have their own recipe
     css = open(os.path.join(HERE, '..', 'src', 'static', 'css', 'theme.css')).read()
@@ -333,18 +351,18 @@ SHOW = """{ sheet: 'tabloid', palette: 'colour', sides: {power: true, data: true
 _SHOW_JSON = ('{"sheet": "tabloid", "palette": "colour", "sides": {"power": true, "data": true}, "scope": {"kind": "show"},'
               ' "cover": true, "pull": true, "hardware": true}')
 
-# The set on two positions: 10 sheets - the screens in beach order, each
-# screen's POWER then its DATA (2026-09-08); the two positions side by side
-# on one pull sheet; the distro; the processor with the show's pull list
-# beside it.
+# The set on two positions: 13 sheets - the screens in beach order, each
+# screen's POWER, its DATA, its SIGNAL + POWER (2026-09-08); the two
+# positions side by side on one pull sheet; the distro; the processor with
+# the show's pull list beside it.
 PULL = 'Pull - SR Beach, CENTER'
 DISTRO = 'Distro - SR'
 PROC = 'Processor - H9 · Pull list'
 PLAN = [
     ['overview', '1.1', 'Overview'],
-    ['power', '2.1', 'WALL-A - Power'], ['data', '2.2', 'WALL-A - Data'],
-    ['power', '2.3', 'WALL-B - Power'], ['data', '2.4', 'WALL-B - Data'],
-    ['power', '2.5', 'CENTER - Power'], ['data', '2.6', 'CENTER - Data'],
+    ['power', '2.1', 'WALL-A - Power'], ['data', '2.2', 'WALL-A - Data'], ['wiring', '2.3', 'WALL-A - Signal + Power'],
+    ['power', '2.4', 'WALL-B - Power'], ['data', '2.5', 'WALL-B - Data'], ['wiring', '2.6', 'WALL-B - Signal + Power'],
+    ['power', '2.7', 'CENTER - Power'], ['data', '2.8', 'CENTER - Data'], ['wiring', '2.9', 'CENTER - Signal + Power'],
     ['pull', '3.1', PULL],
     ['distro', '4.1', DISTRO],
     ['processor', '4.2', PROC],
@@ -440,24 +458,25 @@ def _title_block(texts, sheet_title, number, show='Untitled Project'):
 
 def test_the_sheets_come_in_series_by_subject(page):
     """1.1 the overview; 2.n the screens in beach order (the pull list's
-    position order), each screen's POWER sheet then its DATA sheet; 3.n
-    the pull sheets, positions side by side; 4.n the hardware - the distro,
-    then the processor with the show's pull list beside it. Every sheet is
-    the Tabloid default."""
+    position order), each screen's POWER sheet, its DATA sheet, its SIGNAL +
+    POWER sheet; 3.n the pull sheets, positions side by side; 4.n the
+    hardware - the distro, then the processor with the show's pull list
+    beside it. Every sheet is the Tabloid default."""
     pg, ids = page
     plan = _plan(pg, SHOW)
     assert plan == PLAN
     full = pg.evaluate("(o) => window.app.planBinder(o)", json.loads(_SHOW_JSON))
     assert all((p['w'], p['h'], p['sheet']) == (W, H, 'tabloid') for p in full), full
-    assert [p['view'] for p in full] == [1, 2, 3, 4, 5, 6, 7, None, None, None]
+    assert [p['view'] for p in full] == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, None, None, None]
     assert all(p['sheetTitle'] == p['sheetTitle'].upper() for p in full)
-    assert [p['sheetTitle'] for p in full][:4] == ['OVERVIEW', 'WALL-A · POWER', 'WALL-A · DATA', 'WALL-B · POWER']
+    assert [p['sheetTitle'] for p in full][:5] == ['OVERVIEW', 'WALL-A · POWER', 'WALL-A · DATA',
+                                                   'WALL-A · SIGNAL + POWER', 'WALL-B · POWER']
     assert [p['sheetTitle'] for p in full][-3:] == ['PULL · SR BEACH, CENTER', 'DISTRO · SR', 'PROCESSOR · H9 · PULL LIST']
     assert [p['names'] for p in full][-3:] == [['SR Beach', 'CENTER'], ['SR'], ['H9', 'All positions']]
     assert ids['errors'] == []
-    # power only, no extras: just the maps, 2.1 - 2.3
+    # power only, no extras, the Signal + Power tick off: just the maps, 2.1 - 2.3
     only = _plan(pg, SHOW.replace("data: true", "data: false")
-                 .replace("cover: true, pull: true, hardware: true", "cover: false, pull: false, hardware: false"))
+                 .replace("cover: true, pull: true, hardware: true", "cover: false, pull: false, hardware: false, wiring: false"))
     assert only == [['power', '2.1', 'WALL-A - Power'], ['power', '2.2', 'WALL-B - Power'], ['power', '2.3', 'CENTER - Power']]
 
 
@@ -554,11 +573,12 @@ def test_a_single_screen_scope_yields_only_that_screens_sheets(page):
     pg, ids = page
     one = _plan(pg, """{ sheet: 'tabloid', palette: 'colour', sides: {power: true, data: true},
                          scope: {kind: 'screen', layerId: '%s'}, cover: false, pull: false, hardware: false }""" % ids['b'])
-    assert one == [['power', '2.1', 'WALL-B - Power'], ['data', '2.2', 'WALL-B - Data']]
+    assert one == [['power', '2.1', 'WALL-B - Power'], ['data', '2.2', 'WALL-B - Data'], ['wiring', '2.3', 'WALL-B - Signal + Power']]
+    # the power side alone: its Signal + Power sheet is the power half alone
     ticked = _plan(pg, """{ sheet: 'tabloid', palette: 'colour', sides: {power: true, data: false},
                             scope: {kind: 'screen', layerId: '%s'}, cover: false, pull: true, hardware: false }""" % ids['b'])
-    assert ticked == [['power', '2.1', 'WALL-B - Power'], ['pull', '3.1', 'Pull - SR Beach'],
-                      ['totals', '4.1', 'Pull list - all positions']]
+    assert ticked == [['power', '2.1', 'WALL-B - Power'], ['wiring', '2.2', 'WALL-B - Signal + Power'],
+                      ['pull', '3.1', 'Pull - SR Beach'], ['totals', '4.1', 'Pull list - all positions']]
     # the dialog: the canvas's right-click presets the scope and unticks the extras
     out = pg.evaluate("""(id) => {
         const app = window.app;
@@ -569,6 +589,7 @@ def test_a_single_screen_scope_yields_only_that_screens_sheets(page):
         const vis = (i) => document.getElementById(i).style.display !== 'none';
         const out = { format: v('export-format'), scope: v('export-binder-scope'), sheet: v('export-binder-sheet'),
                       cover: on('export-binder-cover'), pull: on('export-binder-pull'), hardware: on('export-binder-hardware'),
+                      wiring: on('export-binder-wiring'),
                       section: vis('export-binder-section'), views: vis('export-views-section'),
                       canvases: vis('export-canvases-section'), preview: document.getElementById('export-preview').textContent,
                       opts: app.readBinderOptions() };
@@ -577,6 +598,7 @@ def test_a_single_screen_scope_yields_only_that_screens_sheets(page):
     }""", ids['b'])
     assert out['format'] == 'binder' and out['scope'] == f"screen:{ids['b']}" and out['sheet'] == 'tabloid'
     assert (out['cover'], out['pull'], out['hardware']) == (False, False, False)
+    assert out['wiring'] is True and out['opts']['wiring'] is True, 'the Signal + Power sheet is a screen sheet: it stays ticked'
     assert out['section'] and not out['views'] and not out['canvases']
     assert out['preview'].endswith('WALL-B - binder rev 1.0.pdf')
     assert out['opts']['scope'] == {'kind': 'screen', 'layerId': str(ids['b'])} and out['opts']['sheet'] == 'tabloid'
@@ -705,6 +727,9 @@ def test_the_pdf_route_receives_one_display_list_per_sheet(page):
     for kind, ids_, ops_ in zip(out['kindsByPage'], out['imageIds'], out['imageOps']):
         if kind in ('overview', 'power', 'data'):
             assert len(ids_) == 1 and ops_ == ids_, (kind, ids_, ops_)
+        elif kind == 'wiring':
+            # the two halves' walls - every screen here has both sides
+            assert len(ids_) == 2 and ops_ == ids_, (kind, ids_, ops_)
         else:
             assert ids_ == [] and ops_ == [], (kind, ids_, ops_)
     assert out['png']
@@ -812,6 +837,19 @@ def test_every_sheet_record_is_a_display_list_of_its_texts(page):
             assert b and b['number'] == out['page']['view'] and b['name'] == out['page']['sheetTitle'], (b, out['page'])
             assert b['y'] - b['r'] >= im['y'] + im['h'] and b['y'] + b['r'] <= DA['y'] + DA['h'] + 1, (b, im)
             # the bubble is a polyline circle, a line op of many points
+            circles = [o for o in ops if o['op'] == 'line' and len(o['points']) == 37]
+            assert len(circles) == 1, len(circles)
+        elif kind == 'wiring':
+            # the two halves' walls, in the drawing area, the signal one
+            # over the power one; the one view bubble under the lower half
+            assert len(images) == 2 and [o['id'] for o in images] == rec['imageIds'], (title, images, rec['imageIds'])
+            for im in images:
+                assert im['w'] > 0 and im['h'] > 0 and im['x'] >= DA['x'] and im['x'] + im['w'] <= DA['x'] + DA['w'] + 1, im
+                assert rec['imageSizes'][im['id']] > 1000
+            assert images[0]['y'] + images[0]['h'] <= images[1]['y'], images
+            b = out['bubble']
+            assert b and b['number'] == out['page']['view'] and b['name'] == out['page']['sheetTitle'], (b, out['page'])
+            assert b['y'] - b['r'] >= images[1]['y'] + images[1]['h'] and b['y'] + b['r'] <= DA['y'] + DA['h'] + 1, (b, images)
             circles = [o for o in ops if o['op'] == 'line' and len(o['points']) == 37]
             assert len(circles) == 1, len(circles)
         else:
@@ -1298,7 +1336,7 @@ def test_the_title_block_prints_the_projects_fields_and_they_ride_the_project(pa
         assert out['info']['drafter'] == '' and out['info']['revisions'] == []
         r = _render(pg, SHOW, 'WALL-B - Data')
         texts = r['texts']
-        _title_block(texts, 'WALL-B · DATA', '2.4')
+        _title_block(texts, 'WALL-B · DATA', '2.5')
         for t in ('HARBOR FIELD', '9/4/26 - 9/6/26', 'Northlight Design', 'Jordan Reyes', '(555) 010-2030',
                   'jreyes@example.com', 'Matt Knotts'):
             assert t in texts, (t, texts[:60])
@@ -1345,7 +1383,7 @@ def test_the_title_block_prints_the_projects_fields_and_they_ride_the_project(pa
     # blank again: the labels print, no invented text - and no app name
     # in a wordmark, there being no wordmark
     texts = _render(pg, SHOW, 'WALL-B - Data')['texts']
-    _title_block(texts, 'WALL-B · DATA', '2.4')
+    _title_block(texts, 'WALL-B · DATA', '2.5')
     assert texts[texts.index('Designer:') + 1] == '' and texts[texts.index('Drafter:') + 1] == ''
     assert 'LED RASTER DESIGNER' not in texts
     assert not [t for t in texts if 'Harbor' in t or 'Northlight' in t or 'Sam' in t]
@@ -1429,7 +1467,7 @@ def test_a_revision_is_logged_on_export_and_the_log_edits_in_the_dialog(page):
         # the sheets print the log: No. · Date · By · Description, in order
         r = _render(pg, SHOW, 'WALL-B - Data')
         texts = r['texts']
-        _title_block(texts, 'WALL-B · DATA', '2.4')
+        _title_block(texts, 'WALL-B · DATA', '2.5')
         i = texts.index('Description')
         assert texts[i + 1:i + 9] == ['1', today, 'MK', 'Overview issued', '2', today, 'MK', 'Patch & circuit'], texts[i:i + 10]
         assert r['titleBlock']['sections']['revisions']['rows'] == 2
@@ -1629,7 +1667,7 @@ def test_a_logo_heads_the_title_block_on_every_sheet_and_reaches_the_pdf(page):
             assert im['y'] >= PAD + 18 and im['y'] + im['h'] <= PAD + h_logo - 18, (title, im)
             assert im['w'] == TB_W - 36 and abs(im['w'] / im['h'] - 4) < 0.05, (title, im)     # fitted to the width, 4:1
             assert abs((im['x'] + im['w'] / 2) - (TB_X + TB_W / 2)) <= 1 and abs((im['y'] + im['h'] / 2) - (PAD + h_logo / 2)) <= 1, (title, im)
-            assert len(r['images']) == (2 if kind in ('overview', 'power', 'data') else 1), (title, r['images'])
+            assert len(r['images']) == {'overview': 2, 'power': 2, 'data': 2, 'wiring': 3}.get(kind, 1), (title, r['images'])
             assert not [t for t in r['texts'] if t in ('Notes', 'US', 'DS')], (title, r['texts'][:30])
             if r['pdf']:
                 first_full = r['pdf']
@@ -1903,9 +1941,10 @@ def test_smoke_experts_only(page):
     drifts with every save, the fixture never moves): SR - MAIN's 22
     custom circuits on four multis, SR - Return's six on multi 5 with
     five 2fers, SL mirroring SR; on data, box SR A on Card 1 and its
-    backup end SR B on Card 3 (Card 1's 1:1 partner). 12 Tabloid
+    backup end SR B on Card 3 (Card 1's 1:1 partner). 16 Tabloid
     sheets by series, none continued - the four screens, loose (the file
-    keeps no beaches), alphabetical: SL before SR, power then data each;
+    keeps no beaches), alphabetical: SL before SR, power, data, then
+    signal + power each;
     the four positions on ONE pull sheet, in position order; the two distros
     on one hardware sheet, H9 and the show's pull list on the next. SR -
     MAIN's power sheet (28 x 11, 22 circuits) is ONE sheet, map-left /
@@ -1935,10 +1974,10 @@ def test_smoke_experts_only(page):
     PULL4 = 'Pull - SR - MAIN, SR - Return, SL - MAIN, SL - Return'
     assert plan == [
         ('1.1', 'Overview'),
-        ('2.1', 'SL - MAIN - Power'), ('2.2', 'SL - MAIN - Data'),
-        ('2.3', 'SL - Return - Power'), ('2.4', 'SL - Return - Data'),
-        ('2.5', 'SR - MAIN - Power'), ('2.6', 'SR - MAIN - Data'),
-        ('2.7', 'SR - Return - Power'), ('2.8', 'SR - Return - Data'),
+        ('2.1', 'SL - MAIN - Power'), ('2.2', 'SL - MAIN - Data'), ('2.3', 'SL - MAIN - Signal + Power'),
+        ('2.4', 'SL - Return - Power'), ('2.5', 'SL - Return - Data'), ('2.6', 'SL - Return - Signal + Power'),
+        ('2.7', 'SR - MAIN - Power'), ('2.8', 'SR - MAIN - Data'), ('2.9', 'SR - MAIN - Signal + Power'),
+        ('2.10', 'SR - Return - Power'), ('2.11', 'SR - Return - Data'), ('2.12', 'SR - Return - Signal + Power'),
         ('3.1', PULL4),
         ('4.1', 'Distros - SR, SL'),
         ('4.2', 'Processor - H9 · Pull list'),
@@ -1947,8 +1986,9 @@ def test_smoke_experts_only(page):
     scales = {t: sc for _n, t, _l, _c, _v, sc, *_rest in pages}
     extents = {t: e for _n, t, _l, _c, _v, _s, e, _names in pages}
     names = {t: nm for _n, t, _l, _c, _v, _s, _e, nm in pages}
-    assert layouts['SR - MAIN - Power'] == ('side', 1, 6) and layouts['SR - Return - Power'] == ('side', 1, 8)
-    assert layouts['SR - MAIN - Data'] == ('stack', 2, 7) and layouts['SR - Return - Data'] == ('side', 1, 9)
+    assert layouts['SR - MAIN - Power'] == ('side', 1, 8) and layouts['SR - Return - Power'] == ('side', 1, 11)
+    assert layouts['SR - MAIN - Data'] == ('stack', 2, 9) and layouts['SR - Return - Data'] == ('side', 1, 12)
+    assert layouts['SR - MAIN - Signal + Power'] == ('wiring', 2, 10) and layouts['SR - Return - Signal + Power'] == ('wiring', 2, 13)
     assert layouts['SL - MAIN - Power'] == ('side', 1, 2) and layouts['SL - MAIN - Data'] == ('stack', 2, 3)
     assert layouts['Overview'] == ('overview', 3, 1) and layouts[PULL4] == ('tables', 4, None)
     assert not [t for _n, t in plan if '(cont.)' in t]
@@ -1992,7 +2032,7 @@ def test_smoke_experts_only(page):
     assert letter[k] == ['SR - MAIN - Power', 1] and letter[k + 1][0] == 'SR - MAIN - Power (cont.)', letter
     main = _render(pg, SHOW, 'SR - MAIN - Power')
     texts = main['texts']
-    _title_block(texts, 'SR - MAIN · POWER', '2.5', show='2026 Experts Only')
+    _title_block(texts, 'SR - MAIN · POWER', '2.7', show='2026 Experts Only')
     # one Tabloid sheet, painted at 2x
     assert main['width'] == W * SCALE and main['height'] == H * SCALE
     # the map: the wall 28 x 11 of 60 x 120 px, uniformly, in the width the
@@ -2014,7 +2054,7 @@ def test_smoke_experts_only(page):
     assert heads['CIRCUITS'][1] < heads['CABLES THIS SCREEN'][1] < heads['FACTS'][1]
     # the view bubble under the map
     b = main['bubble']
-    assert b['number'] == 6 and b['name'] == 'SR - MAIN · POWER'
+    assert b['number'] == 8 and b['name'] == 'SR - MAIN · POWER'
     assert b['y'] - b['r'] >= m['area']['y'] + m['area']['h'] and b['y'] + b['r'] <= DA['y'] + DA['h'] + 1
     # the brackets: SR1 and SR2 down the right at ONE distance (rows 1-6 over
     # rows 7-11 share an edge, they do not overlap); SR3 and SR4 down the left
@@ -2085,7 +2125,7 @@ def test_smoke_experts_only(page):
     assert "SR5 · Multi 208 · 125' · 6 circuits" in ret
     dpage = _render(pg, SHOW, 'SR - MAIN - Data')
     assert not _on_map(dpage['mapTexts'], 'SR - MAIN')
-    _title_block(dpage['texts'], 'SR - MAIN · DATA', '2.6', show='2026 Experts Only')
+    _title_block(dpage['texts'], 'SR - MAIN · DATA', '2.8', show='2026 Experts Only')
     # the same wall over its four ports: the Ports table (six columns of
     # whole names) and the cables in one wide column, the facts in the
     # other, the row filling the width at 1.333, the wall the height left
@@ -2136,6 +2176,7 @@ def test_smoke_experts_only(page):
     listed = [(ov[c + 3 + 2 * n], ov[c + 4 + 2 * n]) for n in range(len(plan))]
     assert [n for n, _t in listed] == [n for n, _t in plan]
     assert listed[1] == ('2.1', 'SL - MAIN · POWER') and listed[2] == ('2.2', 'SL - MAIN · DATA')
+    assert listed[3] == ('2.3', 'SL - MAIN · SIGNAL + POWER')
     assert listed[-3:] == [('3.1', 'PULL · SR - MAIN, SR - RETURN, SL - MAIN, SL - RETURN'), ('4.1', 'DISTROS · SR, SL'),
                            ('4.2', 'PROCESSOR · H9 · PULL LIST')], listed[-3:]
     # no sheet says box, none says breakout as the generic noun, none Palette
@@ -2438,13 +2479,13 @@ def test_the_screens_run_in_the_order_the_project_keeps(page):
                  titles: plan.map(x => [x.number, x.sheetTitle]), overview, beaches: app.project.beaches.map(b => b.name) };
     }""" % (_SHOW_JSON, _SHOW_JSON), seed['ids'])
     assert beached['beaches'] == ['SR', 'SL'], beached['beaches']
-    assert beached['screens'] == [['C - Z', '2.1', 2], ['A - Y', '2.3', 4], ['B - X', '2.5', 6]], beached['screens']
+    assert beached['screens'] == [['C - Z', '2.1', 2], ['A - Y', '2.4', 5], ['B - X', '2.7', 8]], beached['screens']
     # the CONTENTS on 1.1 lists them so
     ov = beached['overview']
     k = ov.index('CONTENTS')
     listed = [(ov[k + 3 + 2 * n], ov[k + 4 + 2 * n]) for n in range(len(beached['titles']))]
     assert listed == [tuple(t) for t in beached['titles']], listed
-    assert listed[1:4] == [('2.1', 'C - Z · POWER'), ('2.2', 'C - Z · DATA'), ('2.3', 'A - Y · POWER')], listed
+    assert listed[1:4] == [('2.1', 'C - Z · POWER'), ('2.2', 'C - Z · DATA'), ('2.3', 'C - Z · SIGNAL + POWER')], listed
     # the dialog's select: one undo entry, the same POST as the other
     # fields, read back from a loaded file; a stray value reads as alpha
     out = pg.evaluate("""async () => {

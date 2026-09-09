@@ -23,7 +23,10 @@
 //        port, or by first circuit - _bOrderScreens), each screen's POWER
 //        sheet (the map with rulers and brackets; CIRCUITS / CABLES THIS
 //        SCREEN / FACTS / GANGS) followed by its DATA sheet (PORTS /
-//        CABLES / FACTS) - a screen with only one side has only that sheet
+//        CABLES / FACTS) and its SIGNAL + POWER sheet (app-binder-wiring.js:
+//        the wall over the devices its ports and circuits land on, wired
+//        port to socket, circuit to breakout) - a screen with only one
+//        side has only that side's sheet and half
 //   3.n  the PULL sheets - positions side by side, a column each
 //   4.n  hardware - the distros side by side, then the processors with
 //        the show's pull list beside them where it fits
@@ -177,7 +180,7 @@ const BINDER_DEFAULTS = {
 const SCREEN_ORDERS = ['alpha', 'layers', 'layers-up', 'data', 'power'];
 // The logo is stored no larger than this on its long side.
 const LOGO_MAX_PX = 1200;
-const SERIES = { overview: 1, power: 2, data: 2, pull: 3, distro: 4, processor: 4, totals: 4 };
+const SERIES = { overview: 1, power: 2, data: 2, wiring: 2, pull: 3, distro: 4, processor: 4, totals: 4 };
 
 class _Binder {
 
@@ -417,6 +420,8 @@ class _Binder {
             cover: on('export-binder-cover', scope.kind === 'show'),
             pull: on('export-binder-pull', scope.kind === 'show'),
             hardware: on('export-binder-hardware', scope.kind === 'show'),
+            // the Signal + Power sheet is a SCREEN sheet: on whatever the scope
+            wiring: on('export-binder-wiring', true),
         };
     }
 
@@ -779,7 +784,7 @@ class _Binder {
                  layout: p.layout, cols: p.cols || 0, scale: p.scale || 1,
                  extent: p.extent ? { w: p.extent.w, h: p.extent.h } : null,
                  coverage: Number.isFinite(p.coverage) ? Math.round(p.coverage * 1000) / 1000 : null,
-                 names: p.names || null,
+                 names: p.names || null, sides: p.sides || null, halves: p.halves || null,
                  w: book.sheet.w, h: book.sheet.h, sheet: book.sheet.key };
     }
 
@@ -811,7 +816,7 @@ class _Binder {
                  texts: log.texts, textInfo: log.textInfo, mapTexts: log.mapTexts,
                  dashes: log.dashes, map: log.map || null, brackets: log.brackets || [],
                  bubble: log.bubble || null, titleBlock: log.titleBlock || null,
-                 logo: log.logo || null,
+                 logo: log.logo || null, wiring: log.wiring || null,
                  page: plan[index] || null, pages: plan.length, sheet: book.sheet };
     }
 
@@ -869,15 +874,20 @@ class _Binder {
         // Series by subject: 1 the overview; 2 the screens in BEACH order -
         // the pull list's position order, a position's own screens in the
         // project's screen order (_bOrderScreens) - each screen's POWER
-        // sheet then its DATA sheet; 3 the pull sheets, positions side by
+        // sheet, its DATA sheet, its SIGNAL + POWER sheet; 3 the pull sheets, positions side by
         // side; 4 the hardware - the distros, the processors, the show's
         // pull list.
         if (opts.cover) this._bOverviewPage(book);
         for (const { layer, pos } of this._bScreenRun(book, positions)) {
             const scr = list.byScreen[layer.id];
             if (!scr) continue;
-            if (opts.sides.power && this._bHasPower(layer, scr)) this._bScreenPage(book, layer, pos, 'power');
-            if (opts.sides.data && this._bHasData(layer, scr)) this._bScreenPage(book, layer, pos, 'data');
+            const sides = { power: !!opts.sides.power && this._bHasPower(layer, scr),
+                            data: !!opts.sides.data && this._bHasData(layer, scr) };
+            if (sides.power) this._bScreenPage(book, layer, pos, 'power');
+            if (sides.data) this._bScreenPage(book, layer, pos, 'data');
+            // the third sheet: the wall wired to its devices, one half per
+            // side the screen has (app-binder-wiring.js)
+            if (opts.wiring !== false && (sides.power || sides.data)) this._bWiringPage(book, layer, pos, sides);
         }
         if (opts.pull) this._bPullSheets(book, positions);
         const hardware = [];
@@ -2106,8 +2116,11 @@ class _Binder {
     // bitmap is laid onto the scaled sheet - never upscaled from a
     // smaller render. geo.extent is the map's compact extent in the area:
     // the wall with its gutters, and the height used.
-    _bMap(book, layer, view, area) {
+    _bMap(book, layer, view, area, gutter) {
         const r = window.canvasRenderer;
+        // the gutters: the rulers' and the brackets' room by default; a
+        // caller that draws neither (the wiring sheet) passes its own
+        const G = gutter || MAP_GUTTER;
         const S = (book.scale || 2) * ((book.fill && book.fill.s) || 1);
         const canvases = (this.project && Array.isArray(this.project.canvases)) ? this.project.canvases : [];
         const saved = {
@@ -2119,9 +2132,9 @@ class _Binder {
             layerVis: (this.project.layers || []).map(l => [l, l.visible]),
         };
         const inner = {
-            x: area.x + MAP_GUTTER.left, y: area.y + MAP_GUTTER.top,
-            w: area.w - MAP_GUTTER.left - MAP_GUTTER.right,
-            h: (Number.isFinite(area.h) ? area.h : Infinity) - MAP_GUTTER.top - MAP_GUTTER.bottom,
+            x: area.x + G.left, y: area.y + G.top,
+            w: area.w - G.left - G.right,
+            h: (Number.isFinite(area.h) ? area.h : Infinity) - G.top - G.bottom,
         };
         let geo = null;
         try {
@@ -2149,14 +2162,14 @@ class _Binder {
             const zoom = Math.min(inner.w / ww, inner.h / wh, MAP_ZOOM_CAP);
             const drawW = wall.w * zoom, drawH = wall.h * zoom;
             const used = { x: area.x, y: area.y, w: area.w,
-                           h: Math.round(drawH + MAP_GUTTER.top + MAP_GUTTER.bottom) };
+                           h: Math.round(drawH + G.top + G.bottom) };
             const ox = inner.x + (inner.w - drawW) / 2;      // wall's sheet origin
             const oy = inner.y;
             const toPage = (lx, ly) => ({ x: ox + (lx - wall.x) * zoom, y: oy + (ly - wall.y) * zoom });
             geo = {
                 zoom, wall: { x: ox, y: oy, w: drawW, h: drawH }, mirrored, area: used,
-                extent: { x: ox - MAP_GUTTER.left, y: area.y,
-                          w: Math.ceil(drawW) + MAP_GUTTER.left + MAP_GUTTER.right, h: used.h },
+                extent: { x: ox - G.left, y: area.y,
+                          w: Math.ceil(drawW) + G.left + G.right, h: used.h },
                 rect: (px, py, pw, ph) => {
                     const l = local(px, py, pw, ph);
                     const p = toPage(l.x, l.y);
@@ -3167,3 +3180,8 @@ for (const k of Object.getOwnPropertyNames(_Binder.prototype)) {
             Object.getOwnPropertyDescriptor(_Binder.prototype, k));
     }
 }
+
+// The set's vocabulary the wiring mixin (app-binder-wiring.js) draws with -
+// the same inks, type sizes and fill rules - so its sheet reads as the
+// rest of the set does.
+export const BINDER_STYLE = { INK, RULE, FAINT, MUTED, SZ, FILL_CAP, MAP_ZOOM_CAP, MAP_MIN_FRAC, BUBBLE_H, FONT };
