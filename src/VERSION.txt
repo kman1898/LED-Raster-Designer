@@ -294,6 +294,25 @@ v0.12.0 - September 7, 2026 (BETA)
 - CHANGE: Box types read Multi 208 and Multi 120 everywhere; a band reads
   the length once, never "home run".
 
+- NEW (IMPORTANT): A Signal + Power sheet per screen. The wall with a
+  green stub under each run's first column and a red return stub under
+  its last, wired down in tidy orthogonal runs to a block per CVT or card
+  - backups as their own blocks - with numbered sockets, green where a
+  primary lands, red where a return does. Below it the same wall with a
+  stub per circuit wired to a breakout block per multi, captioned with its
+  type and length. Ticked on by default in the export modal.
+
+- CHANGE: The tables set a sheet's scale. Both layouts - map beside the
+  tables, map above them - are weighed with the tables' type scale chosen
+  first and the map taking the room they leave, and the one that covers
+  more of the sheet wins. A 9 x 5 wall on Tabloid sits across the top with
+  its tables at 1.3x beneath; on ARCH C the same shape at 1.9x.
+
+- NEW: Screen order is yours. Alphabetical unless you say otherwise, layer
+  order top-down or bottom-up, by first sending card port, or by first
+  distro circuit - chosen in the export modal and saved with the show.
+  Beaches still group first; the choice sorts within each.
+
 - CHANGE (IMPORTANT): Redundancy is one bar in one place. Behind the
   processor's gear a raised segmented bar - Off, Whole unit, Per card,
   Per port (Off, Backed up, Per port on a standalone unit) - and exactly
