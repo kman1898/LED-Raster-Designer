@@ -2035,6 +2035,16 @@
                             <option value="a3">A3 16.54 × 11.69</option>
                         </select>
                     </div>
+                    <div style="display: flex; gap: 8px; align-items: center; font-size: 12px; color: #aaa;">
+                        <span style="flex: none; width: 92px;">Screen order</span>
+                        <select id="export-binder-screen-order" data-tooltip="The order a beach's screens run in. Beaches come first, in the Beaches panel's order; this sorts the screens within one - and the CONTENTS and view numbers follow. Saved with the project." style="flex: 1; min-width: 60px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px;">
+                            <option value="alpha" selected>Alphabetical by name</option>
+                            <option value="layers">Screens panel, top to bottom</option>
+                            <option value="layers-up">Screens panel, bottom to top</option>
+                            <option value="data">Data: first port (processor, card, socket)</option>
+                            <option value="power">Power: first circuit (distro, multi, circuit)</option>
+                        </select>
+                    </div>
                     <div style="display: flex; gap: 14px; align-items: center; font-size: 12px; color: #aaa;">
                         <span style="flex: none; width: 92px;">Palette</span>
                         <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;"><input type="radio" name="export-binder-palette" id="export-binder-colour" value="colour" checked> Colour</label>

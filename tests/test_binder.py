@@ -22,10 +22,22 @@ fit continues on the next number "(cont.)"; the map never splits. Each
 map is a numbered VIEW - a bubble with the number and the name in caps
 under it ("Yes, bubble and view name").
 
-Layout inside the drawing area: map-left / tables-right in the fewest
-3.5-in columns that hold the tables whole, never past half the width;
-else the map on top at full width and the tables below in columns; the
-map's zoom min(fit, 3x). The tables are packed by _bPack: a block follows
+Layout inside the drawing area - COVERAGE DECIDES (2026-09-08, "screens
+can enlarge and text can be bigger if it fills the space. only get this
+small when there is tons of info"): a map sheet is tried map-left /
+tables-right (side) and map-over-tables (stack), each with the TABLES'
+type scale s in [1, 2.4] chosen for it - the map taking the room the
+tables leave and keeping at least 45 % of the width beside them, of the
+height over them, its zoom min(fit, 3x) on the page - and the layout that
+covers more of the drawing area (the wall with its gutters plus the
+tables' box) wins, stack on a tie. The map paints in page units, its
+rulers and brackets at their inch sizes; the tables and the bubble at s.
+Tables that fit at 1 in neither layout are "tons of info": the sheet
+stays at 1 and continues. The screens run in beach order and, within a
+beach, in the SCREEN ORDER the project keeps (project.binder.screenOrder:
+alphabetical by default - "i'd want raster A first, then in alphabetical
+order" - the Screens panel's order either way, by first port, by first
+circuit). The tables are packed by _bPack: a block follows
 the one before it in its column, moves whole to the next column where it
 fits there and not here, and is split at a line only where it is taller
 than a column - its head lines repeated where it continues, a band never
@@ -113,6 +125,17 @@ GUT = {'left': 200, 'right': 180, 'top': 74, 'bottom': 16}
 MAP_ZOOM_CAP = 3
 # The filler's line heights (app-binder.js): title, heading, band, row.
 H4_H, TH_H, BAND_H, ROW_H, BLOCK_GAP = 46, 40, 46, 38, 22
+
+
+# The fill: the tables' scale cap, the share of the area the map keeps.
+FILL_CAP = 2.4
+MAP_MIN_FRAC = 0.45
+
+
+def _fit(room_w, room_h, ww, wh):
+    """The wall's page zoom in a room of page units - _bMapLayout's fit,
+    _bMap's own arithmetic."""
+    return min((room_w - GUT['left'] - GUT['right']) / ww, (room_h - GUT['top'] - GUT['bottom']) / wh, MAP_ZOOM_CAP)
 
 
 def _side_area(cols=1, col_w=COL_W):
@@ -470,7 +493,8 @@ def test_the_power_sheet_carries_its_title_block_and_says_home_run_once_per_box(
     assert not [t for t in texts if 'Palette' in t]
     # the view bubble under the map: view 2, the sheet's name
     assert out['bubble']['number'] == 2 and out['bubble']['name'] == 'WALL-A · POWER'
-    assert out['page']['layout'] == 'side' and out['page']['cols'] == 1
+    # a squat wall over three short tables: the stack covers most
+    assert out['page']['layout'] == 'stack' and out['page']['cols'] == 3
 
 
 def test_gangs_are_listed_only_where_a_screen_has_them(page):
@@ -804,13 +828,13 @@ def test_every_sheet_record_is_a_display_list_of_its_texts(page):
             assert len(labels) == len(out['brackets']) >= 1, (title, labels)
             for o, b in zip(labels, out['brackets']):
                 assert abs(abs(o['rotate']) - 1.5707963) < 1e-4 and (o['rotate'] > 0) == (b['side'] == 'R'), (o, b)
-                # the label at its base size times the sheet's fill scale
-                assert o['align'] == 'center' and o['weight'] == 700 and abs(o['size'] - 28 * s) < 0.02, (o, s)
+                # the label at its inch size: the map paints in page
+                # units, whatever the sheet's fill scale
+                assert o['align'] == 'center' and o['weight'] == 700 and abs(o['size'] - 28) < 0.02, (o, s)
                 # the anchor: 24 out from the bracket, the baseline 9 in
-                # from centre, turned - the text is centred on the span -
-                # through the same scale
+                # from centre, turned - the text is centred on the span
                 dir_ = 1 if b['side'] == 'R' else -1
-                assert abs(o['x'] - (b['x'] + dir_ * 15 * s)) < 0.6, (o, b, s)
+                assert abs(o['x'] - (b['x'] + dir_ * 15)) < 0.6, (o, b, s)
                 assert abs(o['y'] - (b['y1'] + b['y2']) / 2) < 0.6, (o, b)
         else:
             assert labels == [], (title, labels)
@@ -876,60 +900,79 @@ def _map_of(out):
     return m
 
 
-def test_the_map_takes_the_width_the_tables_leave(page):
-    """Map-left / tables-right: the tables of these screens hold in one
-    column, so the map has the drawing area less that column, the wall
-    scaled UNIFORMLY to fit it between the gutters (a tiny wall stops at
-    3x). WALL-A (4 x 3 of 200 px) fills the area's width, so its sheet
-    stays at 1; CENTER (3 x 5 of 128 px) is tiny beside three short
-    tables, so the sheet fills - the tables grow toward the height, the
-    wall keeps (nearly) its width. The table headings sit right of the
-    map, never over it; the bubble under the map."""
+def test_the_map_takes_the_room_the_tables_leave(page):
+    """Coverage decides. WALL-A (4 x 3 of 200 px, squat) over three short
+    tables: STACK - the tables side by side at the width-filling scale
+    (2760 / 2160 = 1.277), the map taking the height they leave, the wall
+    centred between its gutters at the fit of that height (well under 3x),
+    the sheet more than 80 % covered. CENTER (3 x 5 of 128 px, tall) beside
+    four short tables: SIDE - the tables grow until the map has 45 % of
+    the width left (s = 2.079), the wall fitting that room. Every heading
+    lies beside or under the map, never over it, inside the drawing area;
+    the bubble sits under the map; the map's rulers and brackets keep
+    their inch sizes while the tables scale."""
     pg, ids = page
-    for title, cols, rows, cab in (('WALL-A - Power', 4, 3, 200), ('WALL-A - Data', 4, 3, 200)):
-        col_w = DATA_COL_W if title.endswith('Data') else COL_W
-        area = _side_area(1, col_w)
+    ww, wh = 4 * 200, 3 * 200
+    for title, cols, col_w in (('WALL-A - Power', 3, COL_W), ('WALL-A - Data', 2, DATA_COL_W)):
         out = _render(pg, SHOW, title)
-        assert out['page']['layout'] == 'side' and out['page']['cols'] == 1, out['page']
-        assert out['page']['scale'] == 1, out['page']
+        p = out['page']
+        s = p['scale']
+        assert p['layout'] == 'stack' and p['cols'] == cols, p
+        # the row of tables sets the scale: (da.w + gap) / (cols x (col + gap))
+        row_w = cols * col_w + (cols - 1) * COL_GAP
+        assert abs(s - int(DA['w'] / row_w * 1000) / 1000) < 1e-9, (s, row_w)
         m = _map_of(out)
-        want = cols / rows
-        assert abs(m['w'] / m['h'] - want) / want < 0.01, (title, m)
-        zoom = _zoom(area, cols, rows, cab)
-        assert abs(m['w'] - cols * cab * zoom) <= 1 and abs(m['zoom'] - zoom) < 1e-6, (title, m, zoom)
-        assert m['area'] == {**area, 'h': m['area']['h']} and m['area']['h'] <= area['h'], (m['area'], area)
-        assert m['x'] >= area['x'] and m['x'] + m['w'] <= area['x'] + area['w'], (title, m)
-        # every table heading right of the map's area, inside the drawing area
+        assert m['area'] == {'x': DA['x'], 'y': DA['y'], 'w': DA['w'], 'h': m['area']['h']}, m['area']
+        assert abs(m['w'] / m['h'] - ww / wh) / (ww / wh) < 0.01, (title, m)
+        zoom = _fit(DA['w'], m['area']['h'], ww, wh)
+        assert abs(m['zoom'] - zoom) < 0.01 and zoom < MAP_ZOOM_CAP and abs(m['w'] - ww * zoom) <= 2, (title, m, zoom)
+        inner_cx = DA['x'] + GUT['left'] + (DA['w'] - GUT['left'] - GUT['right']) / 2
+        assert abs(m['x'] + m['w'] / 2 - inner_cx) <= 1 and m['y'] == DA['y'] + GUT['top'], m
+        assert m['scale'] == s
         heads = out['headings']
-        assert heads and all(x >= area['x'] + area['w'] + COL_GAP - 1 for _t, x, _y in heads), heads
-        assert all(x + col_w <= DA['x'] + DA['w'] + 1 for _t, x, _y in heads), heads
+        assert heads and all(y >= m['area']['y'] + m['area']['h'] for _t, _x, y in heads), (heads, m['area'])
+        xs = sorted({x for _t, x, _y in heads})
+        assert xs[0] == DA['x'] and len(xs) == cols, xs
+        assert all(b - a >= (col_w + COL_GAP) * s - 1 for a, b in zip(xs, xs[1:])), (xs, s)
+        assert xs[-1] + col_w * s <= DA['x'] + DA['w'] + 1, xs
+        ext = p['extent']
+        assert ext['w'] <= DA['w'] + 1 and ext['h'] <= DA['h'] + 1, ext
+        assert p['coverage'] >= 0.75, p
         assert 'FACTS' in out['texts'] and 'CABLES THIS SCREEN' in out['texts'], title
         assert not [t for t in out['texts'] if '(cont.)' in t or '(CONT.)' in t], title
         b = out['bubble']
-        assert b['y'] - b['r'] >= m['area']['y'] + m['area']['h'], (b, m['area'])
-    area = _side_area(1)
+        assert b['y'] - b['r'] >= m['area']['y'] + m['area']['h'] and b['y'] + b['r'] <= min(y for _t, _x, y in heads), (b, m['area'])
+        assert abs(b['r'] - 34 * s) < 0.01, (b, s)
     a = _render(pg, SHOW, 'WALL-A - Power')
-    assert _map_of(a)['w'] / area['w'] > 0.8, a['map']
-    # CENTER: the sheet fills - scaled past 1.3, the wall's page zoom at
-    # least nine tenths of today's fit (the height stopped it, well under
-    # the cap), the extent filling 85 % of the area in one dimension, the
-    # map's bitmap and the headings inside the drawing area still
+    assert a['page']['coverage'] >= 0.8, a['page']
+    # CENTER: side - the map keeps 45 % of the width, the tables the rest
+    # at the scale that leaves it (the height would allow more)
     c = _render(pg, SHOW, 'CENTER - Power')
     s = c['page']['scale']
-    assert 1.3 < s <= 2.4 and c['page']['layout'] == 'side', c['page']
+    assert c['page']['layout'] == 'side' and c['page']['cols'] == 1, c['page']
+    want = int((DA['w'] - round(DA['w'] * MAP_MIN_FRAC)) / (COL_W + COL_GAP) * 1000) / 1000
+    assert abs(s - want) < 1e-9 and 1.3 < s <= FILL_CAP, (s, want)
     m = _map_of(c)
+    room_w = DA['w'] - (COL_W + COL_GAP) * s
+    assert abs(m['area']['w'] - room_w) < 0.01 and m['area']['x'] == DA['x'], (m['area'], room_w)
     assert m['scale'] == s and abs(m['w'] / m['h'] - 3 / 5) < 0.01, m
-    z0 = (area['h'] - GUT['top'] - GUT['bottom']) / (5 * 128)
-    assert z0 < MAP_ZOOM_CAP and 0.9 * z0 <= m['zoom'] <= MAP_ZOOM_CAP * s, (m, z0)
-    assert m['area']['x'] == DA['x'] and m['x'] >= DA['x'] and m['x'] + m['w'] <= DA['x'] + DA['w'] + 1, m
+    zoom = _fit(room_w, DA['h'] - BUBBLE_H * s, 3 * 128, 5 * 128)
+    assert abs(m['zoom'] - zoom) < 0.01 and zoom < MAP_ZOOM_CAP, (m, zoom)
+    assert m['x'] >= DA['x'] and m['x'] + m['w'] <= m['area']['x'] + m['area']['w'] + 1, m
     assert m['area']['y'] + m['area']['h'] <= DA['y'] + DA['h'] + 1, m
     ext = c['page']['extent']
-    assert max(ext['w'] * s / DA['w'], ext['h'] * s / DA['h']) >= 0.85, (ext, s)
+    assert ext['w'] <= DA['w'] + 1 and ext['h'] <= DA['h'] + 1, ext
     heads = c['headings']
     assert heads and all(x >= m['area']['x'] + m['area']['w'] + COL_GAP * s - 1 for _t, x, _y in heads), (heads, m['area'])
     assert all(x + COL_W * s <= DA['x'] + DA['w'] + 1 for _t, x, _y in heads), heads
     b = c['bubble']
     assert b['y'] - b['r'] >= m['area']['y'] + m['area']['h'] and b['y'] + b['r'] <= DA['y'] + DA['h'] + 1, (b, m['area'])
+    # the record: the tables' text at base x s, the rulers (22) and the
+    # bracket labels (28) at their own sizes, the title block at its own
+    rec = _record(pg, json.loads(_SHOW_JSON), 'CENTER - Power')
+    sizes = {o['size'] for o in rec['record']['ops'] if o['op'] == 'text'}
+    assert round(25 * s, 2) in sizes and round(24 * s, 2) in sizes, (s, sizes)
+    assert 22 in sizes and 28 in sizes and 56 in sizes and 25 not in sizes and 24 not in sizes, sizes
 
 
 def test_brackets_share_one_distance_unless_their_spans_overlap(page):
@@ -1861,13 +1904,16 @@ def test_smoke_experts_only(page):
     custom circuits on four multis, SR - Return's six on multi 5 with
     five 2fers, SL mirroring SR; on data, box SR A on Card 1 and its
     backup end SR B on Card 3 (Card 1's 1:1 partner). 12 Tabloid
-    sheets by series, none continued - the screens in beach order, power
-    then data each; the four positions on ONE pull sheet; the two distros
+    sheets by series, none continued - the four screens, loose (the file
+    keeps no beaches), alphabetical: SL before SR, power then data each;
+    the four positions on ONE pull sheet, in position order; the two distros
     on one hardware sheet, H9 and the show's pull list on the next. SR -
-    MAIN's power sheet (28 x 11, 22 circuits) is ONE sheet at scale 1,
-    map-left / tables-right in one column, the map and the CIRCUITS table
-    disjoint; its data sheet the same wall; a Return (6 x 11) is a tall
-    wall whose sheet FILLS - scaled past 1.5, the tables to the height."""
+    MAIN's power sheet (28 x 11, 22 circuits) is ONE sheet, map-left /
+    tables-right in one column - the tables at the scale that fills the
+    height (~1.23), the wall in the width they leave, the map and the
+    CIRCUITS table disjoint; its data sheet, four ports, is the wall over
+    its tables in two columns at 1.333; a Return (6 x 11) is a tall wall
+    beside its tables at ~1.63, the tables to the height."""
     pg, ids = page
     with open(SCRATCH_FIXTURE) as fh:
         project = json.load(fh)
@@ -1889,10 +1935,10 @@ def test_smoke_experts_only(page):
     PULL4 = 'Pull - SR - MAIN, SR - Return, SL - MAIN, SL - Return'
     assert plan == [
         ('1.1', 'Overview'),
-        ('2.1', 'SR - MAIN - Power'), ('2.2', 'SR - MAIN - Data'),
-        ('2.3', 'SR - Return - Power'), ('2.4', 'SR - Return - Data'),
-        ('2.5', 'SL - MAIN - Power'), ('2.6', 'SL - MAIN - Data'),
-        ('2.7', 'SL - Return - Power'), ('2.8', 'SL - Return - Data'),
+        ('2.1', 'SL - MAIN - Power'), ('2.2', 'SL - MAIN - Data'),
+        ('2.3', 'SL - Return - Power'), ('2.4', 'SL - Return - Data'),
+        ('2.5', 'SR - MAIN - Power'), ('2.6', 'SR - MAIN - Data'),
+        ('2.7', 'SR - Return - Power'), ('2.8', 'SR - Return - Data'),
         ('3.1', PULL4),
         ('4.1', 'Distros - SR, SL'),
         ('4.2', 'Processor - H9 · Pull list'),
@@ -1901,18 +1947,25 @@ def test_smoke_experts_only(page):
     scales = {t: sc for _n, t, _l, _c, _v, sc, *_rest in pages}
     extents = {t: e for _n, t, _l, _c, _v, _s, e, _names in pages}
     names = {t: nm for _n, t, _l, _c, _v, _s, _e, nm in pages}
-    assert layouts['SR - MAIN - Power'] == ('side', 1, 2) and layouts['SR - Return - Power'] == ('side', 1, 4)
+    assert layouts['SR - MAIN - Power'] == ('side', 1, 6) and layouts['SR - Return - Power'] == ('side', 1, 8)
+    assert layouts['SR - MAIN - Data'] == ('stack', 2, 7) and layouts['SR - Return - Data'] == ('side', 1, 9)
+    assert layouts['SL - MAIN - Power'] == ('side', 1, 2) and layouts['SL - MAIN - Data'] == ('stack', 2, 3)
     assert layouts['Overview'] == ('overview', 3, 1) and layouts[PULL4] == ('tables', 4, None)
     assert not [t for _n, t in plan if '(cont.)' in t]
-    # the fill: SR - MAIN fills its width already and stays at 1; the
-    # Return's sheet scales past 1.5, its extent filling the height; the
-    # pull sheet (four columns across) and the hardware sheets scale too
-    assert scales['SR - MAIN - Power'] == 1 and scales['SR - MAIN - Data'] == 1, scales
+    # the fill: SR - MAIN's 22 circuits are tons of info - the tables
+    # reach the height at ~1.23 and the wall keeps the width they leave;
+    # its data sheet stacks at the width-filling 1.333; the Return's
+    # tables scale past 1.5 to the height; every extent inside the area;
+    # the pull sheet (four columns across) and the hardware sheets scale
+    # by the column rule, unchanged
+    main_s = scales['SR - MAIN - Power']
+    assert 1.15 < main_s < 1.35 and scales['SR - MAIN - Data'] == 1.333, scales
     ret_s = scales['SR - Return - Power']
     assert 1.5 < ret_s <= 2.4, scales
-    ext = extents['SR - Return - Power']
-    assert max(ext['w'] * ret_s / DA['w'], ext['h'] * ret_s / DA['h']) >= 0.85, (ext, ret_s)
-    assert ext['w'] * ret_s <= DA['w'] + 1 and ext['h'] * ret_s <= DA['h'] + 1, (ext, ret_s)
+    for t in ('SR - MAIN - Power', 'SR - MAIN - Data', 'SR - Return - Power', 'SR - Return - Data'):
+        ext = extents[t]
+        assert ext['w'] <= DA['w'] + 1 and ext['h'] <= DA['h'] + 1, (t, ext)
+        assert ext['h'] / DA['h'] >= 0.95, (t, ext)
     assert scales[PULL4] > 1 and scales['Distros - SR, SL'] > 1.5, scales
     # the positions side by side, the distros side by side, H9 with the
     # show's pull list beside it
@@ -1939,28 +1992,29 @@ def test_smoke_experts_only(page):
     assert letter[k] == ['SR - MAIN - Power', 1] and letter[k + 1][0] == 'SR - MAIN - Power (cont.)', letter
     main = _render(pg, SHOW, 'SR - MAIN - Power')
     texts = main['texts']
-    _title_block(texts, 'SR - MAIN · POWER', '2.1', show='2026 Experts Only')
+    _title_block(texts, 'SR - MAIN · POWER', '2.5', show='2026 Experts Only')
     # one Tabloid sheet, painted at 2x
     assert main['width'] == W * SCALE and main['height'] == H * SCALE
-    # the map: the wall 28 x 11 of 60 x 120 px, uniformly, in the area the
-    # one table column leaves
-    area = _side_area(1)
+    # the map: the wall 28 x 11 of 60 x 120 px, uniformly, in the width the
+    # one table column leaves at its scale - at least 45 % of the area
     m = main['map']
     want_main = (28 * 60) / (11 * 120)
     assert abs(m['w'] / m['h'] - want_main) / want_main < 0.01, m
-    zoom = _zoom(area, 28, 11, 60, 120)
-    assert abs(m['zoom'] - zoom) < 1e-6 and abs(m['w'] - 28 * 60 * zoom) <= 1, (m, zoom)
-    assert m['area']['x'] == area['x'] and m['area']['w'] == area['w'] and m['area']['h'] <= area['h'], (m['area'], area)
-    assert m['w'] / area['w'] > 0.75, m
+    room_w = DA['w'] - (COL_W + COL_GAP) * main_s
+    assert room_w >= round(DA['w'] * MAP_MIN_FRAC) and abs(m['area']['w'] - room_w) < 0.01 and m['area']['x'] == DA['x'], (m['area'], room_w)
+    zoom = _fit(room_w, DA['h'] - BUBBLE_H * main_s, 28 * 60, 11 * 120)
+    assert abs(m['zoom'] - zoom) < 0.01 and abs(m['w'] - 28 * 60 * zoom) <= 2, (m, zoom)
+    assert m['w'] / room_w > 0.75 and m['scale'] == main_s, m
     # the CIRCUITS table beside the map, disjoint from it: every heading
-    # right of the map's area
+    # right of the map's area, at the scale
     heads = {t: (x, y) for t, x, y in main['headings']}
     assert 'CIRCUITS' in heads and 'CABLES THIS SCREEN' in heads and 'FACTS' in heads, heads
-    assert all(x >= m['area']['x'] + m['area']['w'] + COL_GAP - 1 for x, _y in heads.values()), (heads, m['area'])
+    assert all(x >= m['area']['x'] + m['area']['w'] + COL_GAP * main_s - 1 for x, _y in heads.values()), (heads, m['area'])
+    assert all(x + COL_W * main_s <= DA['x'] + DA['w'] + 1 for x, _y in heads.values()), heads
     assert heads['CIRCUITS'][1] < heads['CABLES THIS SCREEN'][1] < heads['FACTS'][1]
     # the view bubble under the map
     b = main['bubble']
-    assert b['number'] == 2 and b['name'] == 'SR - MAIN · POWER'
+    assert b['number'] == 6 and b['name'] == 'SR - MAIN · POWER'
     assert b['y'] - b['r'] >= m['area']['y'] + m['area']['h'] and b['y'] + b['r'] <= DA['y'] + DA['h'] + 1
     # the brackets: SR1 and SR2 down the right at ONE distance (rows 1-6 over
     # rows 7-11 share an edge, they do not overlap); SR3 and SR4 down the left
@@ -2001,22 +2055,24 @@ def test_smoke_experts_only(page):
     printer = _render(pg, SHOW.replace("palette: 'colour'", "palette: 'printer'"), 'SR - MAIN - Power')
     assert printer['coloured'] == 0
     assert len({tuple(d) for d in printer['dashes'] if d}) == 10    # ten dashed patterns + the solid one
-    # the tall narrow wall (6 x 11 of 60 x 120) beside three short tables:
-    # the sheet fills - the wall keeps its aspect and at least 85 % of
-    # today's height-stopped fit, the tables grow with the sheet's scale
-    # (every text op the base size times it), everything inside the area
+    # the tall narrow wall (6 x 11 of 60 x 120) beside four short tables:
+    # the tables grow to the height (every text op the base size times the
+    # scale), the wall keeps its aspect and fits the height over its
+    # bubble in the width they leave, everything inside the area
     retp = _render(pg, SHOW, 'SR - Return - Power')
     rm = retp['map']
     want = (6 * 60) / (11 * 120)
     assert abs(rm['w'] / rm['h'] - want) / want < 0.01, rm
-    zoom = _zoom(area, 6, 11, 60, 120)
-    assert zoom == (area['h'] - GUT['top'] - GUT['bottom']) / (11 * 120)
-    assert rm['scale'] == ret_s and 0.85 * zoom <= rm['zoom'] <= zoom * 1.01, (rm, zoom)
-    assert rm['x'] >= DA['x'] and rm['y'] + rm['h'] <= DA['y'] + DA['h'] and rm['area']['w'] < DA['w'] / 2, rm
+    room_w = DA['w'] - (COL_W + COL_GAP) * ret_s
+    zoom = _fit(room_w, DA['h'] - BUBBLE_H * ret_s, 6 * 60, 11 * 120)
+    assert zoom == (DA['h'] - BUBBLE_H * ret_s - GUT['top'] - GUT['bottom']) / (11 * 120)
+    assert rm['scale'] == ret_s and abs(rm['zoom'] - zoom) < 0.01, (rm, zoom)
+    assert rm['x'] >= DA['x'] and rm['y'] + rm['h'] <= DA['y'] + DA['h'] and abs(rm['area']['w'] - room_w) < 0.01, rm
     assert len(retp['brackets']) == 1 and retp['brackets'][0]['depth'] == 0
     rrec = _record(pg, json.loads(_SHOW_JSON), 'SR - Return - Power')
     rsizes = {o['size'] for o in rrec['record']['ops'] if o['op'] == 'text'}
-    assert round(25 * ret_s, 2) in rsizes and round(24 * ret_s, 2) in rsizes and round(28 * ret_s, 2) in rsizes, (ret_s, rsizes)
+    assert round(25 * ret_s, 2) in rsizes and round(24 * ret_s, 2) in rsizes, (ret_s, rsizes)
+    assert 22 in rsizes and 28 in rsizes, rsizes                          # the rulers and the bracket, inch sizes
     assert 26 in rsizes and 56 in rsizes and 25 not in rsizes, rsizes      # the title block at its own size
     rheads = {t: (x, y) for t, x, y in retp['headings']}
     assert {'CIRCUITS', 'CABLES THIS SCREEN', 'FACTS', 'GANGS'} <= set(rheads), rheads
@@ -2029,14 +2085,16 @@ def test_smoke_experts_only(page):
     assert "SR5 · Multi 208 · 125' · 6 circuits" in ret
     dpage = _render(pg, SHOW, 'SR - MAIN - Data')
     assert not _on_map(dpage['mapTexts'], 'SR - MAIN')
-    _title_block(dpage['texts'], 'SR - MAIN · DATA', '2.2', show='2026 Experts Only')
-    # the same wall beside the wider Ports column (six columns of whole
-    # names), so a little smaller; four ports beside it
+    _title_block(dpage['texts'], 'SR - MAIN · DATA', '2.6', show='2026 Experts Only')
+    # the same wall over its four ports: the Ports table (six columns of
+    # whole names) and the cables in one wide column, the facts in the
+    # other, the row filling the width at 1.333, the wall the height left
     dm = dpage['map']
     assert abs(dm['w'] / dm['h'] - want_main) / want_main < 0.01, dm
-    darea = _side_area(1, DATA_COL_W)
-    assert dm['area']['w'] == darea['w'] and abs(dm['zoom'] - _zoom(darea, 28, 11, 60, 120)) < 1e-6, (dm, darea)
-    assert layouts['SR - MAIN - Data'] == ('side', 1, 3)
+    assert dm['area']['w'] == DA['w'] and abs(dm['zoom'] - _fit(DA['w'], dm['area']['h'], 28 * 60, 11 * 120)) < 0.01, dm
+    dheads = {t: (x, y) for t, x, y in dpage['headings']}
+    assert all(y >= dm['area']['y'] + dm['area']['h'] for _x, y in dheads.values()), (dheads, dm['area'])
+    assert dheads['PORTS'][0] == DA['x'] and dheads['FACTS'][0] > DA['x'] + DATA_COL_W, dheads
     assert 'PORTS' in dpage['texts']
     data = dpage['texts']
     # the box delivering the ports is the band (2026-09-07: a CVT4K-S on
@@ -2077,7 +2135,7 @@ def test_smoke_experts_only(page):
     c = ov.index('CONTENTS')
     listed = [(ov[c + 3 + 2 * n], ov[c + 4 + 2 * n]) for n in range(len(plan))]
     assert [n for n, _t in listed] == [n for n, _t in plan]
-    assert listed[1] == ('2.1', 'SR - MAIN · POWER') and listed[2] == ('2.2', 'SR - MAIN · DATA')
+    assert listed[1] == ('2.1', 'SL - MAIN · POWER') and listed[2] == ('2.2', 'SL - MAIN · DATA')
     assert listed[-3:] == [('3.1', 'PULL · SR - MAIN, SR - RETURN, SL - MAIN, SL - RETURN'), ('4.1', 'DISTROS · SR, SL'),
                            ('4.2', 'PROCESSOR · H9 · PULL LIST')], listed[-3:]
     # no sheet says box, none says breakout as the generic noun, none Palette
@@ -2102,4 +2160,323 @@ def test_smoke_experts_only(page):
     xs = sorted({x for t, x, _y in heads if t == 'POWER CABLES'})
     assert len(xs) == 4 and all(b - a > 600 for a, b in zip(xs, xs[1:])), xs
     assert 'BREAKOUTS' not in distro and 'Breakouts' not in distro
+    assert ids['errors'] == []
+
+
+# The buddy's show, in shape only (2026-09-08: seven IMAG and delay walls on
+# separate canvases, 9 x 5 and 6 x 4 and 5 x 3 of 216 px, no beaches; the
+# file itself is his and stays out of the repo): one 9 x 5 wall of 216 px
+# at 208 V / 20 A / 800 W a panel - a column of five panels a circuit, nine
+# circuits on two multis of one distro - with its ports on one card. Built fresh on the
+# server; the module's guard puts the show back afterwards.
+NINE_BY_FIVE_JS = """async () => {
+    const app = window.app;
+    const j = (method, url, body) => fetch(url, {method,
+        headers: {'Content-Type': 'application/json'},
+        body: body === undefined ? undefined : JSON.stringify(body)}).then(r => r.json());
+    const proj = await j('GET', '/api/project');
+    proj.layers = []; proj.groups = []; proj.processors = []; proj.distros = []; proj.beaches = [];
+    delete proj.port_assignments; delete proj.pullSheet; delete proj.binder;
+    proj.name = 'Nine by Five';
+    await j('PUT', '/api/project', proj);
+    await j('POST', '/api/layer/add', {name: 'D - OffSL IMAG', columns: 9, rows: 5, cabinet_width: 216, cabinet_height: 216,
+               powerVoltage: 208, powerAmperage: 20, panelWatts: 800,
+               powerFlowPattern: 'tl-v', powerOrganized: true, flowPattern: 'tl-h',
+               processorType: 'novastar-armor'});
+    let st = await j('POST', '/api/processors', {deviceId: 'novastar-h9'});
+    const pid = st.processors[0].id;
+    st = await j('PUT', `/api/processors/${pid}/slots/0`, {deviceId: 'novastar-card-h-16xrj45-2xfiber'});
+    const cardId = st.processors[0].slots[0].card.id;
+    app.project = await j('GET', '/api/project');
+    app.dedupeProjectLayers('binder_nine_by_five');
+    const l = app.project.layers.find(x => x.name === 'D - OffSL IMAG');
+    app.selectLayer(l);
+    const d = app.addDistro({name: 'SR'});
+    app.setSocaDistro(l, 1, d.id); app.setSocaNumber(l, 1, 1); app.setSocaLength(l, 1, '125');
+    app.setSocaDistro(l, 2, d.id); app.setSocaNumber(l, 2, 2); app.setSocaLength(l, 2, '100');
+    // the multi edits PUT their layer fire-and-forget: land the whole
+    // project before the processor calls read it back
+    await j('PUT', '/api/project', app.project);
+    await app.refreshProcessors();
+    await app._assignmentRequest('/api/port-assignments/place-overflow', 'POST', {layerId: String(l.id), cardId});
+    await app.refreshProcessors();
+    await app.refreshPortAssignment();
+    app.renderLayers();
+    window.canvasRenderer.render();
+    app.resetHistory('Nine by Five');
+    const plan = app.getSocaPlan(l);
+    return { id: l.id, circuits: app.screenCircuits(l).length, multis: plan.map(s => [s.name, s.legs.length]) };
+}"""
+
+# ARCH C: 24 x 18 in at 200 px/in, its drawing area by the same frame.
+ARCHC_W, ARCHC_H = 4800, 3600
+DA_ARCHC = {'x': PAD + DA_PAD, 'y': PAD + DA_PAD, 'w': ARCHC_W - PAD - TB_W - PAD - DA_PAD * 2, 'h': ARCHC_H - PAD * 2 - DA_PAD * 2}
+def test_the_fill_picks_the_layout_that_covers_most(page):
+    """Coverage decides (2026-09-08, on his buddy's 9 x 5 IMAG walls: the map
+    filled the width, the tables sat at 1x in one column and the lower
+    half of the Tabloid sheet was empty; on ARCH C the map was near its 3x
+    cap over tables at 1x, tiny). Both layouts are tried with the TABLES'
+    scale chosen for each, the map taking the room the tables leave, and
+    the one whose ink covers more of the drawing area wins. The 9 x 5 wall
+    (1944 x 1080 px, nine circuits on two multis) at Tabloid: STACK, the
+    map across the full width, the tables at ~1.28 under it in three
+    columns, coverage past 0.8; at ARCH C: STACK, the map at full width
+    (zoom ~1.94, under the cap), the tables at ~1.93. The map is painted
+    in page units - its rulers and brackets at their inch sizes - and the
+    tables at the scale; nothing reaches past the drawing area."""
+    pg, ids = page
+    seed = pg.evaluate(NINE_BY_FIVE_JS)
+    assert seed['circuits'] == 9 and [n for _name, n in seed['multis']] == [6, 3], seed
+    pg.wait_for_timeout(600)
+    title = 'D - OffSL IMAG - Power'
+    ww, wh = 9 * 216, 5 * 216
+    tabloid = _render(pg, SHOW, title)
+    p = tabloid['page']
+    m = _map_of(tabloid)
+    s = p['scale']
+    assert p['layout'] == 'stack' and p['cols'] == 3, p
+    assert abs(s - 1.278) < 0.1, p
+    assert p['coverage'] >= 0.8, p
+    # the map: full width, the wall centred in it, its zoom the fit of the
+    # height the tables leave (they set it: the row fills the width)
+    assert m['area']['x'] == DA['x'] and m['area']['w'] == DA['w'] and m['area']['y'] == DA['y'], m
+    assert abs(m['w'] / m['h'] - ww / wh) / (ww / wh) < 0.01, m
+    zoom = _fit(DA['w'], m['area']['h'], ww, wh)
+    assert abs(m['zoom'] - zoom) < 0.01 and abs(m['w'] - ww * zoom) <= 2, (m, zoom)
+    inner_cx = DA['x'] + GUT['left'] + (DA['w'] - GUT['left'] - GUT['right']) / 2
+    assert 1150 <= m['area']['h'] <= 1300 and abs(m['x'] + m['w'] / 2 - inner_cx) <= 1, m
+    assert m['scale'] == s
+    # the three tables under it, side by side, at the scale - each heading
+    # below the map, the row across the width, inside the area
+    heads = {t: (x, y) for t, x, y in tabloid['headings']}
+    assert set(heads) == {'CIRCUITS', 'CABLES THIS SCREEN', 'FACTS'}, heads
+    xs = sorted(x for x, _y in heads.values())
+    assert all(y >= m['area']['y'] + m['area']['h'] for _x, y in heads.values()), (heads, m['area'])
+    assert xs[0] == DA['x'] and all(b - a >= (COL_W + COL_GAP) * s - 1 for a, b in zip(xs, xs[1:])), xs
+    assert xs[-1] + COL_W * s <= DA['x'] + DA['w'] + 1, xs
+    ext = p['extent']
+    assert ext['w'] <= DA['w'] + 1 and ext['h'] <= DA['h'] + 1, ext
+    b = tabloid['bubble']
+    assert b['y'] - b['r'] >= m['area']['y'] + m['area']['h'] and b['y'] + b['r'] <= min(y for _x, y in heads.values()), (b, heads)
+    # the bands and the rows say what the wall is
+    texts = tabloid['texts']
+    bands = _bands(texts)
+    assert bands == ["SR1 · Multi 208 · 125' · 6 circuits", "SR2 · Multi 208 · 100' · 3 circuits"], bands
+    assert len([t for t in texts if re.fullmatch(r'SR[12]-\d', t)]) == 9
+    # the record: the tables' text at base x s, the rulers and brackets at
+    # their own sizes, the title block at its own
+    rec = _record(pg, json.loads(_SHOW_JSON), title)
+    sizes = {o['size'] for o in rec['record']['ops'] if o['op'] == 'text'}
+    assert round(25 * s, 2) in sizes and round(24 * s, 2) in sizes and round(21 * s, 2) in sizes, (s, sizes)
+    assert 22 in sizes and 28 in sizes and 56 in sizes and 25 not in sizes, sizes
+    img = [o for o in rec['record']['ops'] if o['op'] == 'image']
+    assert len(img) == 1 and img[0]['x'] == DA['x'] and img[0]['y'] == DA['y'] and img[0]['w'] == DA['w'], img
+    # ARCH C: the same rule, the wall filling the width under the cap
+    archc = _render(pg, SHOW.replace("sheet: 'tabloid'", "sheet: 'archc'"), title)
+    pc = archc['page']
+    mc = _map_of(archc)
+    sc = pc['scale']
+    assert pc['layout'] == 'stack' and pc['cols'] == 3 and 1.85 <= sc <= 2.05, pc
+    assert mc['area']['w'] == DA_ARCHC['w'] and abs(mc['w'] - (DA_ARCHC['w'] - GUT['left'] - GUT['right'])) <= 2, mc
+    assert abs(mc['zoom'] - (DA_ARCHC['w'] - GUT['left'] - GUT['right']) / ww) < 0.01 and mc['zoom'] < MAP_ZOOM_CAP, mc
+    assert pc['coverage'] >= 0.8, pc
+    cheads = {t: (x, y) for t, x, y in archc['headings']}
+    assert all(y >= mc['area']['y'] + mc['area']['h'] for _x, y in cheads.values()), (cheads, mc['area'])
+    assert max(x for x, _y in cheads.values()) + COL_W * sc <= DA_ARCHC['x'] + DA_ARCHC['w'] + 1, cheads
+    assert pc['extent']['w'] <= DA_ARCHC['w'] + 1 and pc['extent']['h'] <= DA_ARCHC['h'] + 1, pc['extent']
+    # the data sheet of the same wall: three short tables - stack too, the
+    # map over them, everything inside the area
+    data = _render(pg, SHOW, 'D - OffSL IMAG - Data')
+    pd = data['page']
+    assert pd['layout'] == 'stack' and pd['scale'] > 1 and pd['coverage'] > 0.6, pd
+    assert pd['extent']['w'] <= DA['w'] + 1 and pd['extent']['h'] <= DA['h'] + 1, pd
+    # the whole set's sheets, every one inside its drawing area
+    plan = pg.evaluate("(o) => window.app.planBinder(o)", json.loads(_SHOW_JSON))
+    for e in plan:
+        if e['extent']:
+            assert e['extent']['w'] <= DA['w'] + 1 and e['extent']['h'] <= DA['h'] + 1, e
+    # the sheets as PDFs, for a look (pdftoppm), when asked
+    out_dir = os.environ.get('LRD_BINDER_PDF_DIR')
+    if out_dir:
+        for key in ('tabloid', 'archc'):
+            pdf = pg.evaluate("""async ([opts, title]) => {
+                const app = window.app;
+                const plan = app.planBinder(opts);
+                const idx = plan.findIndex(p => p.title === title);
+                const pages = app.renderBinderPages(opts, { bitmaps: false }).slice(idx, idx + 1);
+                const resp = await fetch('/api/export/pdf-from-pages', { method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ project_name: app.project.name, pages }) });
+                const buf = new Uint8Array(await resp.arrayBuffer());
+                let bin = ''; for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
+                return { status: resp.status, b64: btoa(bin) };
+            }""", [{**json.loads(_SHOW_JSON), 'sheet': key}, title])
+            assert pdf['status'] == 200
+            with open(os.path.join(out_dir, f'fill-9x5-{key}.pdf'), 'wb') as fh:
+                fh.write(base64.b64decode(pdf['b64']))
+    assert ids['errors'] == []
+
+
+# Three screens, "B - X", "A - Y", "C - Z", added in that order (so the
+# layer list runs B, A, C and the Screens panel, newest on top, shows C, A,
+# B), one distro and one H9 card. Built fresh; the guard restores.
+ORDER_SEED_JS = """async () => {
+    const app = window.app;
+    const j = (method, url, body) => fetch(url, {method,
+        headers: {'Content-Type': 'application/json'},
+        body: body === undefined ? undefined : JSON.stringify(body)}).then(r => r.json());
+    const proj = await j('GET', '/api/project');
+    proj.layers = []; proj.groups = []; proj.processors = []; proj.distros = []; proj.beaches = [];
+    delete proj.port_assignments; delete proj.pullSheet; delete proj.binder;
+    proj.name = 'Three Walls';
+    await j('PUT', '/api/project', proj);
+    let x = 0;
+    for (const name of ['B - X', 'A - Y', 'C - Z']) {
+        await j('POST', '/api/layer/add', {name, columns: 4, rows: 3, cabinet_width: 200, cabinet_height: 200,
+                   powerVoltage: 208, powerAmperage: 10, panelWatts: 200,
+                   powerFlowPattern: 'tl-h', powerOrganized: true, flowPattern: 'tl-h',
+                   processorType: 'novastar-armor', offset_x: x});
+        x += 900;
+    }
+    let st = await j('POST', '/api/processors', {deviceId: 'novastar-h9'});
+    const pid = st.processors[0].id;
+    st = await j('PUT', `/api/processors/${pid}/slots/0`, {deviceId: 'novastar-card-h-16xrj45-2xfiber'});
+    const cardId = st.processors[0].slots[0].card.id;
+    app.project = await j('GET', '/api/project');
+    app.dedupeProjectLayers('binder_order');
+    const L = (n) => app.project.layers.find(l => l.name === n);
+    const b = L('B - X'), a = L('A - Y'), c = L('C - Z');
+    app.selectLayer(b);
+    const d = app.addDistro({name: 'SR'});
+    // power: B on multi 1, A on 2, C on 3 of the one distro
+    app.setSocaDistro(b, 1, d.id); app.setSocaNumber(b, 1, 1); app.setSocaLength(b, 1, '125');
+    app.setSocaDistro(a, 1, d.id); app.setSocaNumber(a, 1, 2); app.setSocaLength(a, 1, '100');
+    app.setSocaDistro(c, 1, d.id); app.setSocaNumber(c, 1, 3); app.setSocaLength(c, 1, '75');
+    await j('PUT', '/api/project', app.project);
+    await app.refreshProcessors();
+    // data: C's ports placed first, then B's, then A's - C on socket 1
+    for (const l of [c, b, a]) {
+        await app._assignmentRequest('/api/port-assignments/place-overflow', 'POST',
+                                     {layerId: String(l.id), cardId});
+    }
+    await app.refreshProcessors();
+    await app.refreshPortAssignment();
+    app.renderLayers();
+    window.canvasRenderer.render();
+    app.resetHistory('Three Walls');
+    return { ids: { a: a.id, b: b.id, c: c.id }, layerOrder: app.project.layers.map(l => l.name),
+             firstSockets: Object.fromEntries(app.project.layers.map(l => {
+                 const asg = (app._assignment.screens || []).find(s => String(s.layerId) === String(l.id));
+                 return [l.name, Math.min(...((asg && asg.ports) || []).map(p => parseInt(p.port, 10)))];
+             })) };
+}"""
+
+SCREENS_JS = """(o) => window.app.planBinder(o).filter(p => p.kind === 'power').map(p => p.subject)"""
+
+
+def test_the_screens_run_in_the_order_the_project_keeps(page):
+    """project.binder.screenOrder (2026-09-08, his buddy's walls "A - OffSR
+    IMAG" … "G - E3 Delay": "i'd want raster A first, then in alphabetical
+    order"): alphabetical by default, natural; the Screens panel's order
+    top-down or bottom-up; by first port (processor, card slot, socket);
+    by first circuit (distro, multi, circuit). Beaches still come first -
+    the order sorts within one. The export dialog's Screen order select
+    sets it with one undo entry, saved through the project like the title
+    block's fields and read back from a loaded file; the CONTENTS and the
+    view numbers follow."""
+    pg, ids = page
+    seed = pg.evaluate(ORDER_SEED_JS)
+    pg.wait_for_timeout(600)
+    assert seed['layerOrder'] == ['B - X', 'A - Y', 'C - Z'], seed
+    assert seed['firstSockets']['C - Z'] == 1 and seed['firstSockets']['B - X'] < seed['firstSockets']['A - Y'], seed
+    opts = json.loads(_SHOW_JSON)
+    order = lambda: pg.evaluate(SCREENS_JS, opts)  # noqa: E731
+    set_order = lambda v: pg.evaluate("(v) => window.app.setBinderField('screenOrder', v, 'Set Screen Order')", v)  # noqa: E731
+    # the default: alphabetical
+    assert pg.evaluate("() => window.app.getBinderInfo().screenOrder") == 'alpha'
+    assert order() == ['A - Y', 'B - X', 'C - Z']
+    # the Screens panel's order, top-down (newest on top) and bottom-up
+    set_order('layers')
+    assert order() == ['C - Z', 'A - Y', 'B - X']
+    set_order('layers-up')
+    assert order() == ['B - X', 'A - Y', 'C - Z']
+    # by first port: C was placed first
+    set_order('data')
+    assert order() == ['C - Z', 'B - X', 'A - Y']
+    # by first circuit: B is on multi 1
+    set_order('power')
+    assert order() == ['B - X', 'A - Y', 'C - Z']
+    # natural: "Wall 2" before "Wall 10"
+    natural = pg.evaluate("""() => {
+        const app = window.app;
+        const L = (n) => app.project.layers.find(l => l.name === n);
+        const [b, a, c] = [L('B - X'), L('A - Y'), L('C - Z')];
+        const names = [b.name, a.name, c.name];
+        [b.name, a.name, c.name] = ['Wall 10', 'Wall 2', 'wall 1'];
+        try {
+            app.setBinderField('screenOrder', 'alpha', 'Set Screen Order');
+            return app.planBinder(%s).filter(p => p.kind === 'power').map(p => p.subject);
+        } finally { [b.name, a.name, c.name] = names; }
+    }""" % _SHOW_JSON)
+    assert natural == ['wall 1', 'Wall 2', 'Wall 10'], natural
+    # beaches first: C on SR, A and B on SL, SR before SL - then alphabetical
+    # within each
+    beached = pg.evaluate("""async (ids) => {
+        const app = window.app;
+        const j = (method, url, body) => fetch(url, {method, headers: {'Content-Type': 'application/json'},
+            body: body === undefined ? undefined : JSON.stringify(body)}).then(r => r.json());
+        const sr = (await j('POST', '/api/beaches', {name: 'SR'})).beach;
+        const sl = (await j('POST', '/api/beaches', {name: 'SL'})).beach;
+        const p = await j('GET', '/api/project');
+        for (const l of p.layers) l.beachId = l.id === ids.c ? sr.id : sl.id;
+        await j('PUT', '/api/project', p);
+        app.project = await j('GET', '/api/project');
+        app.dedupeProjectLayers('binder_order_beaches');
+        app._circuitTailCache = null;
+        const plan = app.planBinder(%s);
+        const overview = app.renderBinderPage(%s, 0).texts;
+        return { screens: plan.filter(x => x.kind === 'power').map(x => [x.subject, x.number, x.view]),
+                 titles: plan.map(x => [x.number, x.sheetTitle]), overview, beaches: app.project.beaches.map(b => b.name) };
+    }""" % (_SHOW_JSON, _SHOW_JSON), seed['ids'])
+    assert beached['beaches'] == ['SR', 'SL'], beached['beaches']
+    assert beached['screens'] == [['C - Z', '2.1', 2], ['A - Y', '2.3', 4], ['B - X', '2.5', 6]], beached['screens']
+    # the CONTENTS on 1.1 lists them so
+    ov = beached['overview']
+    k = ov.index('CONTENTS')
+    listed = [(ov[k + 3 + 2 * n], ov[k + 4 + 2 * n]) for n in range(len(beached['titles']))]
+    assert listed == [tuple(t) for t in beached['titles']], listed
+    assert listed[1:4] == [('2.1', 'C - Z · POWER'), ('2.2', 'C - Z · DATA'), ('2.3', 'A - Y · POWER')], listed
+    # the dialog's select: one undo entry, the same POST as the other
+    # fields, read back from a loaded file; a stray value reads as alpha
+    out = pg.evaluate("""async () => {
+        const app = window.app;
+        const j = (method, url, body) => fetch(url, {method, headers: {'Content-Type': 'application/json'},
+            body: body === undefined ? undefined : JSON.stringify(body)}).then(r => r.json());
+        document.getElementById('export-format').value = 'binder';
+        document.getElementById('export-format').dispatchEvent(new Event('change'));
+        const sel = document.getElementById('export-binder-screen-order');
+        const shown = sel.value;
+        const options = [...sel.options].map(o => [o.value, o.textContent]);
+        const h0 = app.historyIndex;
+        sel.value = 'layers';
+        sel.dispatchEvent(new Event('change'));
+        const actions = app.history.slice(h0 + 1).map(h => h.action);
+        await app._binderPushQueue;
+        const served = (await j('GET', '/api/project')).binder;
+        const p = await j('GET', '/api/project');
+        p.binder = { ...(p.binder || {}), screenOrder: 'power' };
+        await j('PUT', '/api/project', p);
+        app.project = await j('GET', '/api/project');
+        app.syncBinderControls();
+        const loaded = { info: app.getBinderInfo().screenOrder, select: sel.value,
+                         screens: app.planBinder(%s).filter(x => x.kind === 'power').map(x => x.subject) };
+        app.project.binder.screenOrder = 'sideways';
+        const stray = app.getBinderInfo().screenOrder;
+        return { shown, options, actions, served, loaded, stray, tail: options.some(([_v, t]) => /\\btails?\\b/i.test(t)) };
+    }""" % _SHOW_JSON)
+    assert out['shown'] == 'alpha', out['shown']
+    assert [v for v, _t in out['options']] == ['alpha', 'layers', 'layers-up', 'data', 'power'], out['options']
+    assert out['actions'] == ['Set Screen Order'], out['actions']
+    assert out['served']['screenOrder'] == 'layers', out['served']
+    assert out['loaded'] == {'info': 'power', 'select': 'power', 'screens': ['C - Z', 'B - X', 'A - Y']}, out['loaded']
+    assert out['stray'] == 'alpha' and not out['tail'], out
     assert ids['errors'] == []
