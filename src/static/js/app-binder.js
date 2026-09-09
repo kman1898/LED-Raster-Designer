@@ -3181,18 +3181,32 @@ class _Binder {
             ['Device', proc.deviceName || proc.deviceId || ''],
             ['Redundancy', this._bRedundancyText(proc)],
         ]) });
-        // Snakes and home runs on every card and breakout box of this processor.
+        // Snakes and home runs on every card and breakout box of this
+        // processor. A snake is the SHOW's since 2026-09-09 ("Any sockets,
+        // any device"), so it is listed ON EACH DEVICE IT TOUCHES - the
+        // ways it claims are the whole loom's, and the sockets it holds
+        // somewhere else are named in the same cell ("· also on CVT4K-S SR
+        // B") so the count and the sockets under it always add up.
         const runs = [];
         for (const { card } of cards) {
-            const owners = [{ title: card.name || card.deviceName, rec: card }]
-                .concat((card.cvts || []).map(c => ({ title: this._bBoxTitle(c), rec: c })));
+            const owners = [{ kind: 'card', id: card.id,
+                              title: card.name || card.deviceName, rec: card }]
+                .concat((card.cvts || []).map(c => ({
+                    kind: 'cvt', id: c.id, title: this._bBoxTitle(c), rec: c })));
             for (const o of owners) {
-                for (const s of (o.rec.snakes || [])) {
+                for (const s of this.getShowSnakes()) {
+                    const here = this.snakeMembersOn(s, o);
+                    if (!here.length) continue;
                     const connId = this.dataPortConnectorId({ rec: o.rec }, s.connector);
-                    runs.push({ cells: [s.name || 'snake', `${(s.ports || []).length}-way`,
+                    const away = this.snakeElsewhere(s, o)
+                        .map(a => ` · also on ${this.dataOwnerTitle(a.owner)}`)
+                        .join('');
+                    runs.push({ cells: [s.name || 'snake',
+                                        `${(s.members || []).length}-way`,
                                         s.ft ? this.pullLengthText(s.ft) : 'no length',
-                                        `${o.title} ${this._fmtTails(s.ports || [])}`
-                                        + (connId ? ` · ${this.dataCableConnectorName(connId)}` : '')] });
+                                        `${o.title} ${this._fmtTails(here)}`
+                                        + (connId ? ` · ${this.dataCableConnectorName(connId)}` : '')
+                                        + away] });
                 }
                 // A socket's own entry: its home run where it is loose
                 // ('cable'), its EXTENSION off the snake it rides where it
@@ -3201,7 +3215,7 @@ class _Binder {
                     const ft = Number(c && c.ft);
                     if (!Number.isFinite(ft) || ft <= 0) continue;
                     const connId = this.dataPortConnectorId({ rec: o.rec }, c.connector);
-                    const snake = (o.rec.snakes || []).find(s => (s.ports || []).includes(parseInt(socket, 10)));
+                    const snake = this.dataPortSnake(o, socket);
                     if (snake) {
                         runs.push({ cells: [`${o.title} ${socket}`, 'ext', this.pullLengthText(ft),
                                             snake.name || 'snake'] });

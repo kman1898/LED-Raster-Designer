@@ -474,7 +474,8 @@ def sync_next_processor_seq(project):
     if not isinstance(project, dict):
         return 1
     processors = project.get('processors') or []
-    if not processors and 'next_processor_seq' not in project:
+    snakes = project.get('snakes') or []
+    if not processors and not snakes and 'next_processor_seq' not in project:
         return 1
     max_n = 0
 
@@ -498,6 +499,10 @@ def sync_next_processor_seq(project):
                     _note((cvt or {}).get('id'))
                     for snake in (cvt or {}).get('snakes') or []:
                         _note((snake or {}).get('id'))
+    # The show's own snakes draw from the same counter (they hold sockets
+    # from several devices now, so they cannot live on any one of them).
+    for snake in snakes:
+        _note((snake or {}).get('id'))
     try:
         stored = int(project.get('next_processor_seq'))
     except (TypeError, ValueError):
@@ -520,8 +525,15 @@ def sync_next_processor_seq(project):
 # clear forgets it: a port released from a screen KEEPS its snake and cable,
 # since the loom is still hanging off that socket whatever the wall does.
 #
-#   node['snakes']     = [{id, name, ft?, connector?, ports: [socket, ...]}]
 #   node['portCables'] = {str(socket): {ft?, connector?}}
+#
+# A SNAKE is no longer one of those stores. "Any sockets, any device"
+# (user, 2026-09-09): one snake carries A-1..A-4 and B-1..B-4 together, so
+# it belongs to the SHOW and names its members (project['snakes'] - see the
+# show-snake section below). A device PUT may still carry ``snakes`` - old
+# clients, old undo snapshots - and that door is honoured by folding the
+# list straight into the show (apply_cable_store stores it, the route
+# migrates it, and the per-device key never survives the request).
 #
 # Sockets are the CARD-WIDE port numbers (port['number']) - the same key the
 # assignment, the chips and the port-name stores run on - so a box that
@@ -542,7 +554,8 @@ def sync_next_processor_seq(project):
 # what would take fiber is processor to breakout box" (2026-09-07). The
 # fiber trunk lives on the breakout box (cvt.fiberType / fiberFt), and the
 # list here is copper only. A file saved with a 'fiber' pick on a port or
-# a snake reads as "follows the port" (resolved_cable_store).
+# a snake reads as "follows the port" (resolved_port_cables,
+# resolved_show_snakes).
 
 DATA_CABLE_CONNECTORS = (
     {'id': 'cat', 'name': 'CAT'},
@@ -700,35 +713,30 @@ def apply_cable_store(node, data, port_numbers, next_seq):
     """Store a checked ``snakes`` / ``portCables`` payload on a card or box.
 
     Normalises as it stores: sockets sorted and unique per snake, an empty
-    snake dropped, a missing id minted off the processor counter (``snk<N>``
-    - one counter, so undo cannot resurrect a collision), a blank name given
-    the first free default letter (typed names win). A ``portCables`` entry
-    on a snaked socket is KEPT: it is that socket's extension from the
-    snake's fan-out (the module comment above). Either key alone is a
-    valid PUT; the other store is left as it was and re-pruned against the
-    result.
+    snake dropped. A ``portCables`` entry on a snaked socket is KEPT: it is
+    that socket's extension from the snake's fan-out (the module comment
+    above). Either key alone is a valid PUT; the other store is left as it
+    was and re-pruned against the result.
+
+    ``snakes`` is the LEGACY door (the show owns snakes now): the list is
+    parked on the record for the caller to fold into project['snakes']
+    straight away - migrate_device_snakes mints the id and the default name
+    there, show-wide, because ``SNAKE A`` has to be free across the show and
+    not just on this one card.
     """
     if 'snakes' in data:
         out = []
-        taken = set()
-        raw = data.get('snakes') or []
-        for snake in raw:
-            name = (snake.get('name') or '').strip()
-            if name:
-                taken.add(name)
-        for snake in raw:
+        for snake in data.get('snakes') or []:
             ports = sorted({int(p) for p in (snake.get('ports') or [])})
             if not ports:
                 continue
-            rec = {
-                'id': (snake.get('id') or '').strip() or f'snk{next_seq()}',
-                'ports': ports,
-            }
+            rec = {'ports': ports}
+            stored_id = (snake.get('id') or '').strip()
+            if stored_id:
+                rec['id'] = stored_id
             name = (snake.get('name') or '').strip()
-            if not name:
-                name = _snake_letter_name(taken)
-                taken.add(name)
-            rec['name'] = name
+            if name:
+                rec['name'] = name
             ft = _cable_ft(snake.get('ft'))
             if ft is not None:
                 rec['ft'] = ft
@@ -765,26 +773,13 @@ def apply_cable_store(node, data, port_numbers, next_seq):
 
 def prune_cable_store(node, port_numbers):
     """Drop what the device no longer has: sockets past its port range (a
-    card whose mode halved it, a box whose trunk cap shrank it) and the
-    empty snakes that leaves. A cable on a snaked socket stays - it is the
-    socket's extension off the snake, not a second home run. Keys vanish
-    when nothing is left, so a plain card stays a plain card in the file.
+    card whose mode halved it, a box whose trunk cap shrank it). A cable on
+    a snaked socket stays - it is the socket's extension off the snake, not
+    a second home run. Keys vanish when nothing is left, so a plain card
+    stays a plain card in the file. (The show's snakes are pruned against
+    the same ranges by prune_show_snakes.)
     """
     allowed = set(int(n) for n in port_numbers)
-    snaked = set()
-    snakes = []
-    for snake in node.get('snakes') or []:
-        ports = sorted({int(p) for p in (snake.get('ports') or [])
-                        if int(p) in allowed and int(p) not in snaked})
-        if not ports:
-            continue
-        snaked.update(ports)
-        snake = dict(snake, ports=ports)
-        snakes.append(snake)
-    if snakes:
-        node['snakes'] = snakes
-    else:
-        node.pop('snakes', None)
     cables = {}
     for key, rec in (node.get('portCables') or {}).items():
         try:
@@ -800,35 +795,377 @@ def prune_cable_store(node, port_numbers):
         node.pop('portCables', None)
 
 
-def resolved_cable_store(node):
-    """The two stores as the panel reads them: always present (empty when
-    absent) so no reader has to guard the key, ports as ints, keys as
-    strings - the JSON shape either way. A stored connector the list no
-    longer offers (a 'fiber' pick from before 2026-09-07) reads as None -
-    "follows the port" - so an old file opens without a plug the sheet
-    cannot show."""
-    ids = set(data_cable_connector_ids())
+def _stored_connector(rec):
+    """A stored connector the list still offers, else None - "follows the
+    port". A 'fiber' pick from before 2026-09-07 reads as None, so an old
+    file opens without a plug the sheet cannot show."""
+    conn = (rec or {}).get('connector') or None
+    return conn if conn in set(data_cable_connector_ids()) else None
 
-    def _conn(rec):
-        conn = (rec or {}).get('connector') or None
-        return conn if conn in ids else None
 
-    snakes = []
-    for snake in node.get('snakes') or []:
-        snakes.append({
-            'id': snake.get('id'),
-            'name': snake.get('name') or '',
-            'ft': snake.get('ft'),
-            'connector': _conn(snake),
-            'ports': [int(p) for p in (snake.get('ports') or [])],
-        })
+def resolved_port_cables(node):
+    """One device's port cables as the panel reads them: always present
+    (empty when absent) so no reader has to guard the key, keys as strings -
+    the JSON shape either way."""
     cables = {}
     for key, rec in (node.get('portCables') or {}).items():
         cables[str(key)] = {
             'ft': (rec or {}).get('ft'),
-            'connector': _conn(rec),
+            'connector': _stored_connector(rec),
         }
-    return snakes, cables
+    return cables
+
+
+# ── Show snakes: one snake, sockets from any device ───────────────────────
+#
+# "also when i pair things in snakes they need to be able to be able to be
+# grouped together as well as done across cvt's" (user, 2026-09-09), and
+# asked what one snake may hold: "Any sockets, any device". An 8-way carries
+# a card's A-1..A-4 and its backup box's B-1..B-4 in ONE loom, so a snake
+# cannot live on either device - it lives on the show and names its members:
+#
+#   project['snakes'] = [{id, name, ft?, connector?,
+#                         members: [{kind: 'card'|'cvt', id, socket}, ...]}]
+#
+# `socket` is the CARD-WIDE port number, the same key portCables and the
+# chips run on, and `kind`/`id` is the device that DELIVERS that socket
+# right now: the breakout box where one carries it, the card otherwise.
+# That normalisation (prune_show_snakes) is the whole reason a member is a
+# pair rather than a socket: before it, a snake typed on a card went
+# invisible the moment a box was hung on that card, because every reader is
+# routed to the box and the box's store had never heard of it.
+#
+# A socket rides ONE snake. A member's own portCables entry stays where it
+# always was - on its device - and is that socket's EXTENSION from the
+# snake's fan-out.
+
+SNAKE_MEMBER_KINDS = ('card', 'cvt')
+
+
+def show_snakes(project):
+    """The show's snakes, never creating the key on a read."""
+    return (project or {}).get('snakes') or []
+
+
+def snake_device_index(processors):
+    """Every device a snake may name, off the RESOLVED tree.
+
+    Returns (devices, delivers):
+      devices  {(kind, id): {'sockets', 'title', 'cardId', 'procId', 'order'}}
+      delivers {(cardId, socket): boxId} - the box a reader is routed to
+               for that socket (the FIRST box carrying it, resolve_card's
+               own order, which is what _dataPortOwner picks).
+    """
+    devices = {}
+    delivers = {}
+    order = 0
+    for proc in resolve_all(processors or []):
+        for slot in proc.get('slots') or []:
+            card = (slot or {}).get('card')
+            if not card:
+                continue
+            devices[('card', card['id'])] = {
+                'sockets': {p['number'] for p in card.get('ports') or []},
+                'title': (card.get('name') or '').strip()
+                         or card.get('deviceName') or card['id'],
+                'cardId': card['id'], 'procId': proc.get('id'),
+                'order': order,
+            }
+            order += 1
+            for box in card.get('cvts') or []:
+                nums = {p['number'] for p in box.get('ports') or []}
+                devices[('cvt', box['id'])] = {
+                    'sockets': nums,
+                    'title': box.get('displayTitle')
+                             or (box.get('name') or '').strip()
+                             or box.get('deviceName') or box['id'],
+                    'cardId': card['id'], 'procId': proc.get('id'),
+                    'order': order,
+                }
+                order += 1
+                for n in nums:
+                    delivers.setdefault((card['id'], n), box['id'])
+    return devices, delivers
+
+
+def _member(raw):
+    """One member as stored, or None where the shape is not one."""
+    if not isinstance(raw, dict):
+        return None
+    kind = raw.get('kind')
+    ident = raw.get('id')
+    if kind not in SNAKE_MEMBER_KINDS or not isinstance(ident, str) \
+            or not ident:
+        return None
+    try:
+        socket = int(raw.get('socket'))
+    except (TypeError, ValueError):
+        return None
+    return {'kind': kind, 'id': ident, 'socket': socket}
+
+
+def check_snake_members(raw_members, devices, taken, what='snake'):
+    """Why these members cannot form a snake, or None.
+
+    `taken` maps (kind, id, socket) -> the name of the snake already on it,
+    so the refusal can say which one. Every refusal names its reason, the
+    cable stores' rule.
+    """
+    if not isinstance(raw_members, list) or not raw_members:
+        return (f'{what}: members must be a list of '
+                f'{{kind, id, socket}} - a snake holds at least one socket.')
+    seen = set()
+    for raw in raw_members:
+        member = _member(raw)
+        if member is None:
+            return (f'{what}: a member is {{kind: "card" or "cvt", id, '
+                    f'socket}} - got {raw!r}.')
+        device = devices.get((member['kind'], member['id']))
+        if device is None:
+            word = 'breakout box' if member['kind'] == 'cvt' else 'card'
+            return (f'{what}: there is no {word} {member["id"]} in this '
+                    f'project.')
+        if member['socket'] not in device['sockets']:
+            sockets = device['sockets']
+            return (f'{what}: there is no socket {member["socket"]} on '
+                    f'{device["title"]}'
+                    + (f' (sockets {min(sockets)}-{max(sockets)})'
+                       if sockets else '') + '.')
+        key = (member['kind'], member['id'], member['socket'])
+        if key in seen:
+            return (f'{what}: {device["title"]} socket {member["socket"]} '
+                    f'is named twice.')
+        seen.add(key)
+        if key in taken:
+            return (f'{what}: {device["title"]} socket {member["socket"]} '
+                    f'is already in {taken[key]} - a socket rides one '
+                    f'snake.')
+    return None
+
+
+def snake_sockets_taken(project, skip_id=None):
+    """{(kind, id, socket): snake name} over the show, one snake skipped."""
+    taken = {}
+    for snake in show_snakes(project):
+        if skip_id is not None and snake.get('id') == skip_id:
+            continue
+        name = snake.get('name') or 'a snake'
+        for raw in snake.get('members') or []:
+            member = _member(raw)
+            if member:
+                taken[(member['kind'], member['id'], member['socket'])] = name
+    return taken
+
+
+def normalise_snake_members(raw_members, devices):
+    """Members as they are stored: shaped, deduped, in tray order."""
+    out = []
+    seen = set()
+    for raw in raw_members or []:
+        member = _member(raw)
+        if not member:
+            continue
+        key = (member['kind'], member['id'], member['socket'])
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(member)
+    out.sort(key=lambda m: (devices.get((m['kind'], m['id']), {})
+                            .get('order', 0), m['socket']))
+    return out
+
+
+def snake_letter_name(project):
+    """The first free SNAKE letter across the SHOW (not one device)."""
+    taken = {(s.get('name') or '').strip()
+             for s in show_snakes(project)}
+    return _snake_letter_name(taken)
+
+
+def store_show_snake(project, rec, devices, next_seq, snake=None):
+    """Write one show snake's fields onto `snake` (a new one when None).
+
+    Only what the body carried moves; a blank name is given the first free
+    show-wide letter, and an id is minted off the processor counter
+    (``snk<N>`` - one counter, so undo cannot resurrect a collision).
+    """
+    fresh = snake is None
+    if fresh:
+        snake = {'id': (rec.get('id') or '').strip() or f'snk{next_seq()}',
+                 'members': []}
+    if 'members' in rec:
+        snake['members'] = normalise_snake_members(rec.get('members'),
+                                                   devices)
+    if 'name' in rec or fresh:
+        name = (rec.get('name') or '').strip()
+        snake['name'] = name or snake.get('name') \
+            or snake_letter_name(project)
+    if 'ft' in rec or fresh:
+        ft = _cable_ft(rec.get('ft'))
+        if ft is None:
+            snake.pop('ft', None)
+        else:
+            snake['ft'] = ft
+    if 'connector' in rec or fresh:
+        conn = rec.get('connector')
+        if conn in data_cable_connector_ids():
+            snake['connector'] = conn
+        else:
+            snake.pop('connector', None)
+    if fresh:
+        project.setdefault('snakes', []).append(snake)
+    return snake
+
+
+def prune_show_snakes(project, processors=None):
+    """Re-home every member onto the device that DELIVERS its socket, drop
+    what no device delivers any more, and keep a socket on one snake.
+
+    Three jobs, one walk, and idempotent so a project restored twice does
+    not change:
+
+    - RE-HOME. A member on a card whose socket a breakout box now carries
+      becomes that box's, because that is where every reader looks (a box
+      names the sockets it delivers - resolve_card). This is the fix for a
+      snake typed on a card before its box existed, which used to vanish
+      whole. (A box DELETED takes its members with it - the loom was
+      hanging off the box - which is the DROP rule below, not this one.)
+    - DROP. A member naming a device that is not there (a deleted box, a
+      cleared slot) or a socket the device no longer has (a mode that
+      halved the card, a trunk cap that shrank the box) goes, and a snake
+      left with no members goes with it.
+    - ONE SNAKE PER SOCKET. Where re-homing lands two snakes on one socket
+      - a card's leftover snake meeting the box's own - the one already
+      sitting on that device keeps it and the re-homed member is dropped.
+
+    Returns True where anything changed.
+    """
+    snakes = show_snakes(project)
+    if not snakes:
+        if 'snakes' in project and not project['snakes']:
+            return False
+        return False
+    devices, delivers = snake_device_index(project.get('processors') or []
+                                           if processors is None
+                                           else processors)
+    before = json.dumps(snakes, sort_keys=True)
+    taken = set()
+    # Two passes: everything already sitting on the device that delivers it
+    # is placed first, so a re-homed member never displaces a member that
+    # was right where it belongs.
+    placed = {}
+    for pas in (0, 1):
+        for snake in snakes:
+            keep = placed.setdefault(id(snake), [])
+            for raw in snake.get('members') or []:
+                member = _member(raw)
+                if member is None:
+                    continue
+                device = devices.get((member['kind'], member['id']))
+                if device is None:
+                    continue
+                socket = member['socket']
+                if socket not in device['sockets']:
+                    continue
+                box = delivers.get((device['cardId'], socket))
+                home = ('cvt', box) if box else ('card', device['cardId'])
+                at_home = (member['kind'], member['id']) == home
+                if at_home != (pas == 0):
+                    continue
+                key = (home[0], home[1], socket)
+                if key in taken:
+                    continue
+                taken.add(key)
+                keep.append({'kind': home[0], 'id': home[1],
+                             'socket': socket})
+    out = []
+    for snake in snakes:
+        members = normalise_snake_members(placed.get(id(snake)) or [],
+                                          devices)
+        if not members:
+            continue
+        snake['members'] = members
+        out.append(snake)
+    if out:
+        project['snakes'] = out
+    else:
+        project.pop('snakes', None)
+    return json.dumps(out, sort_keys=True) != before
+
+
+def migrate_device_snakes(project):
+    """Fold every per-device ``snakes`` list into the show's own list.
+
+    The 2026-09-09 migration, run on the load funnels (and after the legacy
+    device PUT, which is the same shape arriving live): a card's or a box's
+    snakes become show snakes whose members are that device's sockets, and
+    the per-device key is dropped. Old saves open unchanged in effect - what
+    changes is that a snake typed on a card whose sockets a box now delivers
+    is re-homed onto the box (prune_show_snakes) instead of staying
+    invisible.
+
+    Returns True where anything moved.
+    """
+    if not isinstance(project, dict):
+        return False
+    moved = False
+    seq = [None]
+
+    def next_seq():
+        if seq[0] is None:
+            seq[0] = sync_next_processor_seq(project)
+        n = seq[0]
+        seq[0] = n + 1
+        project['next_processor_seq'] = seq[0]
+        return n
+
+    devices, _delivers = snake_device_index(project.get('processors') or [])
+    known = {s.get('id') for s in show_snakes(project)}
+    for kind, ident, node in _snake_bearing_nodes(project):
+        for snake in node.pop('snakes', None) or []:
+            members = [{'kind': kind, 'id': ident, 'socket': int(p)}
+                       for p in (snake.get('ports') or [])]
+            if not members:
+                continue
+            rec = dict(snake, members=members)
+            if rec.get('id') in known:
+                rec.pop('id', None)
+            store_show_snake(project, rec, devices, next_seq)
+            known.add(project['snakes'][-1]['id'])
+            moved = True
+    if prune_show_snakes(project):
+        moved = True
+    return moved
+
+
+def _snake_bearing_nodes(project):
+    """(kind, id, record) for every card and box that could carry a
+    per-device ``snakes`` list."""
+    for proc in project.get('processors') or []:
+        for slot in (proc or {}).get('slots') or []:
+            card = (slot or {}).get('card')
+            if not card:
+                continue
+            yield 'card', card.get('id'), card
+            for cvt in card.get('cvts') or []:
+                yield 'cvt', cvt.get('id'), cvt
+
+
+def resolved_show_snakes(project):
+    """The show's snakes as every reader takes them: members shaped, a
+    connector the list no longer offers read as "follows the port"."""
+    out = []
+    for snake in show_snakes(project):
+        members = [m for m in (_member(r) for r in snake.get('members') or [])
+                   if m]
+        out.append({
+            'id': snake.get('id'),
+            'name': snake.get('name') or '',
+            'ft': snake.get('ft'),
+            'connector': _stored_connector(snake),
+            'members': members,
+        })
+    return out
 
 
 
@@ -1204,11 +1541,11 @@ def resolve_card(card, proc):
             'beachId': cvt.get('beachId') or None,
             'ports': [],
         }
-        # The box's snakes and port cables ride the resolved box, with the
-        # connector its sockets FOLLOW (the catalog's word for the box,
-        # else the card's, else nothing - see data_port_connector).
-        resolved['snakes'], resolved['portCables'] = \
-            resolved_cable_store(cvt)
+        # The box's port cables ride the resolved box, with the connector
+        # its sockets FOLLOW (the catalog's word for the box, else the
+        # card's, else nothing - see data_port_connector). Snakes are the
+        # show's now (project['snakes']) and ride no device.
+        resolved['portCables'] = resolved_port_cables(cvt)
         resolved['portConnector'] = data_port_connector(
             cvt_device, device, get_device(proc.get('deviceId')))
         cvts.append(resolved)
@@ -1497,10 +1834,10 @@ def resolve_card(card, proc):
         'cvts': cvts,
         'ports': ports,
     }
-    # The card's own snakes and port cables, for the ports on its face;
-    # the connector those sockets follow is the card's documented kind,
-    # else the processor's, else nothing.
-    out['snakes'], out['portCables'] = resolved_cable_store(card)
+    # The card's own port cables, for the ports on its face; the connector
+    # those sockets follow is the card's documented kind, else the
+    # processor's, else nothing. Snakes belong to the show, not the card.
+    out['portCables'] = resolved_port_cables(card)
     out['portConnector'] = data_port_connector(
         None, device, get_device(proc.get('deviceId')))
     return out

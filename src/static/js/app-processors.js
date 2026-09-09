@@ -63,6 +63,15 @@ class _Processors {
         if (Array.isArray(data.dataCableConnectors)) {
             this._dataCableConnectors = data.dataCableConnectors;
         }
+        // The SHOW's snakes ride the same payload (they hold sockets from
+        // several devices, so they belong to no card and no box). Stamped
+        // onto the project under the tree's own rule: never written onto a
+        // project that has none and never had any, so a file that never
+        // met the feature stays byte-for-byte what it was.
+        if (Array.isArray(data.snakes) && this.project
+                && (data.snakes.length || this.project.snakes)) {
+            this.project.snakes = data.snakes;
+        }
         // Only stamp the key onto the project once there is something to
         // store. Writing an empty array here would put `processors: []` into
         // every saved file of every user who never opens this panel, and the
@@ -1248,18 +1257,22 @@ class _Processors {
     // (user, 2026-09-06). Power's distro → multi (one home run) → circuit
     // cable becomes card or box → SNAKE (one name, one home run, N ports)
     // → port cable; a port outside any snake carries its own home run.
-    // Both stores sit on the HARDWARE record (the resolved card for the
+    // A port cable sits on the HARDWARE record (the resolved card for the
     // ports on its face, the resolved box for the ports it delivers):
-    //     rec.snakes     = [{ id, name, ft, connector, ports: [socket…] }]
     //     rec.portCables = { [socket]: { ft, connector } }
     // keyed by the card-wide socket number the chips and the assignment
-    // run on. A home run belongs to the socket, not the screen: unlike a
+    // run on. A SNAKE sits on the SHOW - "Any sockets, any device"
+    // (2026-09-09) - and names its members:
+    //     project.snakes = [{ id, name, ft, connector,
+    //                         members: [{ kind, id, socket }…] }]
+    // A home run belongs to the socket, not the screen: unlike a
     // power circuit's cable (per-screen programming, forgotten by a
     // clear), a port cleared from its screen KEEPS its snake and cable.
-    // The server validates and normalises (processor_catalog
-    // check_cable_store / apply_cable_store); this side only reads the
-    // resolved stores and sends whole stores back through one PUT per
-    // gesture, so every commit is ONE history entry.
+    // The server validates and normalises (processor_catalog's cable
+    // stores and its show-snake section); this side only reads what comes
+    // back resolved and writes through one request per gesture - a device
+    // PUT for a port cable, /api/snakes for a snake - so every commit is
+    // ONE history entry.
 
     // Copper only: fiber is the breakout box's trunk (cvt.fiberType /
     // fiberFt behind the box ⚙), never a port's or a snake's plug -
@@ -1313,11 +1326,117 @@ class _Processors {
             : `/api/processors/${owner.procId}/cards/${owner.id}`;
     }
 
+    // ---- the show's snakes ---------------------------------------------
+    //
+    // "Any sockets, any device" (2026-09-09): one snake carries a card's
+    // A-1..A-4 and its backup box's B-1..B-4 together, so it hangs on the
+    // SHOW and names its members - project.snakes = [{ id, name, ft,
+    // connector, members: [{ kind: 'card'|'cvt', id, socket }…] }]. The
+    // server owns the rules (processor_catalog's show-snake section) and
+    // re-homes every member onto the device that DELIVERS its socket, so
+    // a snake typed on a card before a box was hung on it stays visible -
+    // the bug that made a card's snake disappear the moment a box took
+    // over its sockets.
+    getShowSnakes() {
+        return (this.project && this.project.snakes) || [];
+    }
+
+    getShowSnake(snakeId) {
+        return this.getShowSnakes().find(s => s.id === snakeId) || null;
+    }
+
     // The snake a socket rides on its owner, or null.
     dataPortSnake(owner, socket) {
+        if (!owner) return null;
         const n = parseInt(socket, 10);
-        return ((owner && owner.rec && owner.rec.snakes) || [])
-            .find(s => (s.ports || []).includes(n)) || null;
+        return this.getShowSnakes().find(s => (s.members || []).some(
+            m => m.kind === owner.kind && m.id === owner.id
+                && m.socket === n)) || null;
+    }
+
+    // One member as a pair the routes take.
+    snakeMember(owner, socket) {
+        return { kind: owner.kind, id: owner.id,
+                 socket: parseInt(socket, 10) };
+    }
+
+    // The members of `snake` that sit on one device, in socket order.
+    snakeMembersOn(snake, owner) {
+        return ((snake && snake.members) || [])
+            .filter(m => m.kind === owner.kind && m.id === owner.id)
+            .map(m => m.socket)
+            .sort((a, b) => a - b);
+    }
+
+    // The devices a snake touches, in member order, as owners.
+    snakeOwners(snake) {
+        const out = [];
+        const seen = new Set();
+        ((snake && snake.members) || []).forEach(m => {
+            const key = `${m.kind}:${m.id}`;
+            if (seen.has(key)) return;
+            seen.add(key);
+            const owner = this._dataCableOwner(m.kind, m.id);
+            if (owner) out.push(owner);
+        });
+        return out;
+    }
+
+    // Does this snake reach past one device? (The bracket's "↔" and the
+    // sheet's "+ … on <other device>" both hang off this one question.)
+    snakeSpansOwners(snake) {
+        return this.snakeOwners(snake).length > 1;
+    }
+
+    // What a card or a box is CALLED, the way its own header calls it: the
+    // box's resolved title (trunk letter included), the card's name, else
+    // the device name. One spelling, so a snake row and a section header
+    // never name the same box two ways.
+    dataOwnerTitle(owner) {
+        const rec = (owner && owner.rec) || {};
+        if (owner && owner.kind === 'cvt') {
+            return rec.displayTitle || (rec.name || '').trim()
+                || rec.deviceName || owner.id;
+        }
+        return (rec.name || '').trim() || rec.deviceName
+            || (owner && owner.id) || '';
+    }
+
+    // One socket as the paperwork says it: its port label where it has one
+    // ("SR A-1"), else the silkscreened number on its own device.
+    dataSocketLabel(owner, socket) {
+        const n = parseInt(socket, 10);
+        const port = (((owner && owner.rec) || {}).ports || [])
+            .find(p => p.number === n);
+        if (port && port.label) return port.label;
+        return String((port && port.localNumber) || n);
+    }
+
+    // The members of `snake` that are NOT on `owner`, grouped by the
+    // device they sit on: [{ owner, sockets, text }] - what a sheet says
+    // about the rest of a snake it can only show part of ("+ B-1, B-2 on
+    // CVT4K-S SR B").
+    snakeElsewhere(snake, owner) {
+        return this.snakeOwners(snake)
+            .filter(o => !(o.kind === owner.kind && o.id === owner.id))
+            .map(o => {
+                const sockets = this.snakeMembersOn(snake, o);
+                const title = this.dataOwnerTitle(o);
+                // The device is named once, at the end. Where the port
+                // labels already carry its name - they are templated off
+                // it, so a box called SR A gives SR A-1 - the labels drop
+                // the prefix rather than saying it four more times.
+                const labels = sockets.map(n => {
+                    const label = this.dataSocketLabel(o, n);
+                    return title && label.startsWith(title)
+                        ? label.slice(title.length).replace(/^[-\s]+/, '')
+                        : label;
+                });
+                return {
+                    owner: o, sockets,
+                    text: `${labels.join(', ')} on ${title}`,
+                };
+            });
     }
 
     // The connector a socket's cable FOLLOWS: the stored pick where there
@@ -1421,15 +1540,17 @@ class _Processors {
     }
 
     // The snake's tag as the bracket and the sheet print it:
-    // "SNAKE A · 6-way · 100'" (ways = however many ports it holds).
+    // "SNAKE A · 6-way · 100'". WAYS IS THE WHOLE SNAKE - every member on
+    // every device - because a snake is one loom whatever it is read from:
+    // an 8-way spanning a card and its backup box says "8-way" on both
+    // sheets, and each sheet names the members it cannot show ("+ B-1,
+    // B-2 on CVT4K-S SR B" - snakeElsewhere) so the number and the rows
+    // never disagree.
     //
-    // `ways` overrides the count for a reader that shows only PART of the
-    // snake (2026-09-09: "SNAKE C · 4-way" over two member rows - the
-    // count has to be the rows under it, never a number the sheet cannot
-    // show). A sheet lists the sockets its own record delivers, so a snake
-    // whose sockets moved to a breakout box is listed by what is there.
+    // `ways` still overrides the count for a reader that has its own
+    // answer.
     snakeTagText(snake, withFt = true, ways = null) {
-        if (ways == null) ways = (snake.ports || []).length;
+        if (ways == null) ways = (snake.members || []).length;
         let text = `${snake.name || 'snake'} · ${ways}-way`;
         const ft = Number(snake.ft);
         if (withFt && Number.isFinite(ft) && ft > 0) {
@@ -1440,13 +1561,13 @@ class _Processors {
 
     // ---- writes: whole stores back through one PUT each -----------------
 
+    // One device's PORT CABLES, whole, for the PUT that stores them. The
+    // snakes are not here: they are the show's, and they are written
+    // through /api/snakes so one loom is one record however many devices
+    // it crosses.
     _dataCableStores(owner) {
         const rec = owner.rec || {};
         return {
-            snakes: (rec.snakes || []).map(s => ({
-                id: s.id, name: s.name, ft: s.ft, connector: s.connector,
-                ports: (s.ports || []).slice(),
-            })),
             portCables: JSON.parse(JSON.stringify(rec.portCables || {})),
         };
     }
@@ -1456,77 +1577,121 @@ class _Processors {
                                       stores, action);
     }
 
-    // Snake these sockets: they leave any snake they were in and any own
-    // cable they carried, and form one new snake (name defaulted server-
-    // side to the first free SNAKE letter). The cables they carried were
-    // HOME RUNS (a loose socket's own), not extensions - the snake is the
-    // home run now, so they are forgotten on purpose; an extension is
-    // typed on the member row afterwards. ONE 'Snake Ports' entry.
-    // Resolves to the new snake's id, read off the refreshed tree.
-    snakePorts(owner, sockets, ft = null) {
-        const nums = [...new Set(sockets.map(n => parseInt(n, 10)))]
-            .filter(n => Number.isFinite(n)).sort((a, b) => a - b);
-        if (!nums.length) return Promise.resolve(null);
-        const stores = this._dataCableStores(owner);
-        const chosen = new Set(nums);
-        stores.snakes = stores.snakes
-            .map(s => Object.assign({}, s,
-                { ports: s.ports.filter(n => !chosen.has(n)) }))
-            .filter(s => s.ports.length);
-        nums.forEach(n => { delete stores.portCables[String(n)]; });
-        const fresh = { name: '', ports: nums };
-        if (ft != null) fresh.ft = ft;
-        stores.snakes.push(fresh);
-        const before = new Set((owner.rec.snakes || []).map(s => s.id));
-        return this._dataCablePut(owner, stores, 'Snake Ports').then(() => {
-            const again = this._dataCableOwner(owner.kind, owner.id);
-            const made = again && (again.rec.snakes || [])
-                .find(s => !before.has(s.id)
-                    && s.ports.length === nums.length
-                    && s.ports.every((n, i) => n === nums[i]));
-            return made ? made.id : null;
-        });
+    // The members a gesture gathered, from (owner, sockets) - the shape
+    // every write below takes.
+    snakeMembersOf(owner, sockets) {
+        return [...new Set((sockets || []).map(n => parseInt(n, 10)))]
+            .filter(n => Number.isFinite(n))
+            .sort((a, b) => a - b)
+            .map(n => this.snakeMember(owner, n));
     }
 
-    // Unsnake sockets out of their snakes (a snake left empty goes) -
-    // the sheet's "Unsnake" button, the opposite of "Snake" (2026-09-07:
+    // Snake these members - sockets from ONE device or from several - into
+    // one new snake (name defaulted server-side to the first free SNAKE
+    // letter, show-wide). They leave any snake they were in first, so
+    // "snake these four" always means these four and nothing else. Their
+    // own cables were HOME RUNS (a loose socket's own), not extensions -
+    // the snake is the home run now, so they are forgotten on purpose; an
+    // extension is typed on the member row afterwards. ONE 'Snake Ports'
+    // entry, whatever it crossed. Resolves to the new snake's id.
+    snakePorts(members, ft = null) {
+        const list = (members || []).filter(Boolean);
+        if (!list.length) return Promise.resolve(null);
+        const body = { members: list };
+        if (ft != null) body.ft = ft;
+        const before = new Set(this.getShowSnakes().map(s => s.id));
+        // The sockets leave their old snakes and their own home runs in
+        // the same gesture; the POST that forms the snake is the entry
+        // that carries it, so the clearing rides ahead of it silently.
+        return this._clearForSnake(list)
+            .then(() => this._processorRequest('/api/snakes', 'POST', body,
+                                               'Snake Ports'))
+            .then(() => {
+                const made = this.getShowSnakes()
+                    .find(s => !before.has(s.id));
+                return made ? made.id : null;
+            });
+    }
+
+    // Ahead of a new snake: the members leave whatever snake held them,
+    // and each forgets the cable stored on it - a loose socket's home run
+    // is the snake's home run now. No history entry of its own: it is half
+    // of the one gesture above, so undo takes the whole of it back.
+    _clearForSnake(members) {
+        const riding = members.filter(m => {
+            const owner = this._dataCableOwner(m.kind, m.id);
+            return owner && this.dataPortSnake(owner, m.socket);
+        });
+        const byOwner = new Map();
+        members.forEach(m => {
+            const owner = this._dataCableOwner(m.kind, m.id);
+            if (!owner) return;
+            if (!((owner.rec.portCables || {})[String(m.socket)])) return;
+            const key = `${m.kind}:${m.id}`;
+            if (!byOwner.has(key)) byOwner.set(key, { owner, sockets: [] });
+            byOwner.get(key).sockets.push(m.socket);
+        });
+        let chain = riding.length
+            ? this._processorRequest('/api/snakes/loosen', 'POST',
+                                     { members: riding })
+            : Promise.resolve();
+        byOwner.forEach(({ owner, sockets }) => {
+            chain = chain.then(() => {
+                const again = this._dataCableOwner(owner.kind, owner.id);
+                if (!again) return null;
+                const stores = this._dataCableStores(again);
+                sockets.forEach(n => { delete stores.portCables[String(n)]; });
+                return this._dataCablePut(again, stores);
+            });
+        });
+        return chain;
+    }
+
+    // Unsnake members out of their snakes (a snake left empty goes) - the
+    // sheet's "Unsnake" button, the opposite of "Snake" (2026-09-07:
     // "dont call it loosen"; "Unpair" is the redundancy bar's word).
-    // `sockets` null unsnakes a whole snake by id. A socket that leaves
-    // keeps its portCables entry: what was its extension off the snake
-    // reads as its own home run again - a length somebody typed is not
-    // thrown away, and the sheet shows it where it can be changed. ONE
-    // 'Unsnake' entry.
-    loosenPorts(owner, sockets, snakeId = null) {
-        const stores = this._dataCableStores(owner);
-        const chosen = new Set((sockets || []).map(n => parseInt(n, 10)));
-        stores.snakes = stores.snakes
-            .filter(s => !(snakeId && s.id === snakeId))
-            .map(s => Object.assign({}, s,
-                { ports: s.ports.filter(n => !chosen.has(n)) }))
-            .filter(s => s.ports.length);
-        return this._dataCablePut(owner, stores, 'Unsnake');
+    // `snakeId` alone unsnakes a whole loom, wherever its members sit. A
+    // socket that leaves keeps its portCables entry: what was its
+    // extension off the snake reads as its own home run again - a length
+    // somebody typed is not thrown away, and the sheet shows it where it
+    // can be changed. ONE 'Unsnake' entry, even across devices.
+    loosenPorts(members, snakeId = null) {
+        if (snakeId) {
+            return this._processorRequest(`/api/snakes/${snakeId}`, 'DELETE',
+                                          undefined, 'Unsnake');
+        }
+        const list = (members || []).filter(Boolean);
+        if (!list.length) return Promise.resolve();
+        return this._processorRequest('/api/snakes/loosen', 'POST',
+                                      { members: list }, 'Unsnake');
     }
 
     // Rename / re-length / re-plug one snake. `patch` carries any of
     // name, ft, connector; `action` names the entry ('Rename Snake',
-    // 'Set Snake Home Run').
-    setSnake(owner, snakeId, patch, action) {
-        const stores = this._dataCableStores(owner);
-        const snake = stores.snakes.find(s => s.id === snakeId);
+    // 'Set Snake Home Run'). One snake, wherever it is edited from - the
+    // same row on every sheet that holds a member of it.
+    setSnake(snakeId, patch, action) {
+        const snake = this.getShowSnake(snakeId);
         if (!snake) return Promise.resolve();
-        const before = JSON.stringify(snake);
-        if ('name' in patch) snake.name = (patch.name || '').trim();
+        const body = {};
+        if ('name' in patch) body.name = (patch.name || '').trim();
         if ('ft' in patch) {
             const ft = Number(patch.ft);
-            snake.ft = Number.isFinite(ft) && ft > 0 ? ft : null;
+            body.ft = Number.isFinite(ft) && ft > 0 ? ft : null;
         }
         if ('connector' in patch) {
-            snake.connector = patch.connector
+            body.connector = patch.connector
                 && this.dataCableConnectorName(patch.connector)
                 ? patch.connector : null;
         }
-        if (JSON.stringify(snake) === before) return Promise.resolve();
-        return this._dataCablePut(owner, stores, action);
+        const same = Object.keys(body).every(k => {
+            const was = snake[k] == null ? null : snake[k];
+            const now = body[k] === '' ? null : body[k];
+            return String(was == null ? '' : was) === String(now == null ? '' : now);
+        });
+        if (same) return Promise.resolve();
+        return this._processorRequest(`/api/snakes/${snakeId}`, 'PUT', body,
+                                      action);
     }
 
     // One socket's own cable: { ft, connector } - blank or zero ft with
@@ -1569,7 +1734,9 @@ class _Processors {
     fillPortCables(owner, ft, ports) {
         const stores = this._dataCableStores(owner);
         const snaked = new Set();
-        stores.snakes.forEach(s => s.ports.forEach(n => snaked.add(n)));
+        this.getShowSnakes().forEach(s => (s.members || []).forEach(m => {
+            if (m.kind === owner.kind && m.id === owner.id) snaked.add(m.socket);
+        }));
         const before = JSON.stringify(stores.portCables);
         (ports || owner.rec.ports || []).forEach(p => {
             if (snaked.has(p.number)) return;

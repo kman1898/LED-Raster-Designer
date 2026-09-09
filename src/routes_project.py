@@ -87,6 +87,12 @@ def save_project():
     # payload already holds.
     processor_catalog.sync_next_processor_seq(app.current_project)
     processor_catalog.stock_default_cvts(app.current_project)
+    # Snakes moved to the SHOW (2026-09-09: "Any sockets, any device"), so a
+    # file - or an undo snapshot - that carries them per card or per box is
+    # folded into project['snakes'] here, and every member is re-homed onto
+    # the device that delivers its socket. Idempotent: a project already in
+    # the new shape passes through untouched.
+    processor_catalog.migrate_device_snakes(app.current_project)
     # Same funnel duty for port attachment: see restore_project below.
     if port_assignment.retire_auto(app.current_project):
         log_event('port_assignment_auto_retired', {'at': 'save_project'})
@@ -183,6 +189,12 @@ def restore_project():
     # exists for.
     processor_catalog.sync_next_processor_seq(app.current_project)
     processor_catalog.stock_default_cvts(app.current_project)
+    # Snakes moved to the SHOW (2026-09-09: "Any sockets, any device"), so a
+    # file - or an undo snapshot - that carries them per card or per box is
+    # folded into project['snakes'] here, and every member is re-homed onto
+    # the device that delivers its socket. Idempotent: a project already in
+    # the new shape passes through untouched.
+    processor_catalog.migrate_device_snakes(app.current_project)
     # Auto-numbering retired (user ruling, 2026-09-03): a file saved before
     # it carries no `autoRetired` mark, and its auto-drawn ports have to be
     # frozen into pins ONCE so the drawing does not change on load. The

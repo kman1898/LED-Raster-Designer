@@ -1813,6 +1813,15 @@ button.hw-dock-typechip:focus-visible { outline: 1px solid var(--ps-accent, #ef3
 .hw-dock-cablesheet-data tr.hw-dock-cable-member td { color: #7a8a94; }
 .hw-dock-cablesheet-data .hw-dock-cable-dim { color: #666666; }
 .hw-dock-cable-snake-cap { margin-right: 6px; white-space: nowrap; }
+/* The members of a snake that this sheet cannot show - they sit on
+   another card or box (2026-09-09, "Any sockets, any device"). Dim and
+   after the name field, so the row still reads name-first, and cut to an
+   ellipsis rather than widening the sheet the way the SCREEN cell is. */
+.hw-dock-cable-snake-away {
+    color: var(--ps-faint, #8a8a8a); font-size: 9.5px; margin-left: 6px;
+    display: inline-block; max-width: 22ch; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; vertical-align: middle;
+}
 /* The field's `size` (app-dock.js, max(6, name.length + 1)) sizes it to
    its text so a longer name reads whole, BOUNDED at 20ch (2026-09-09):
    the snake name shares its row with the ft input, and an unbounded field
