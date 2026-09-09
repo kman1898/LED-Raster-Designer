@@ -431,6 +431,20 @@ class _CanvasUi {
     async moveLayersCrossCanvas(layerIds, targetCanvasId, mode) {
         const wantMove = (mode !== 'duplicate');
         if (!Array.isArray(layerIds) || layerIds.length === 0) return;
+        // The whole walls inside this batch, snapshotted BEFORE the first PUT
+        // because the loop below is what destroys them. /api/layer/<id>/canvas
+        // can only ever see ONE layer, so it has to assume the rest of the
+        // wall is staying where it is: the move branch takes the member out of
+        // its group (_detach_from_cross_canvas_group) and the duplicate branch
+        // hands back a loose clone. Run over three members that is three
+        // detaches, and a group of one is dissolved - so dragging a whole wall
+        // onto another canvas delivered three loose screens, and copying one
+        // delivered three loose copies. Only THIS call knows the batch, so it
+        // is where the wall is put back together, once, after every PUT lands.
+        const wholeGroups = this._wholeGroupsInBatch(layerIds);
+        const seenLayerIds = new Set(
+            ((this.project && this.project.layers) || []).map(l => l.id));
+        const cloneOf = new Map();   // source layer id -> its clone's id
         let lastData = null;
         for (const id of layerIds) {
             const r = await fetch(`/api/layer/${id}/canvas`, {
@@ -439,9 +453,26 @@ class _CanvasUi {
                 body: JSON.stringify({ canvas_id: targetCanvasId, mode: wantMove ? 'move' : 'duplicate' })
             });
             lastData = await r.json();
+            if (!wantMove && lastData && Array.isArray(lastData.layers)) {
+                // The response is the whole project, so the clone this PUT
+                // made is whatever layer is in it that was not there before.
+                const created = lastData.layers.filter(l => l && !seenLayerIds.has(l.id));
+                created.forEach(l => seenLayerIds.add(l.id));
+                if (created.length === 1) cloneOf.set(id, created[0].id);
+            }
         }
         if (lastData) {
             this._applyProjectUpdate(lastData);
+            if (wholeGroups.length > 0) {
+                return this._restoreGroupsAfterCrossCanvas({
+                    snapshots: wholeGroups,
+                    wantMove,
+                    cloneOf,
+                    targetCanvasId,
+                    layerIds,
+                    lastData,
+                });
+            }
             if (wantMove && this.project && Array.isArray(this.project.layers)) {
                 // Re-select all moved layers (same ids); set active canvas
                 // to target so the sidebar reflects the destination.
@@ -463,6 +494,105 @@ class _CanvasUi {
             }
         }
         return lastData;
+    }
+
+    /**
+     * The groups every one of whose members is in `layerIds`, as plain
+     * snapshots taken before anything moves.
+     *
+     * HALF A WALL IS NOT A WALL: a group only partly inside the batch is left
+     * alone, so its members detach exactly as they do today and the copies
+     * land loose - the same ruling the server keeps for a canvas duplicate
+     * that catches only some of a group (test_cross_layer_paths.py::
+     * test_canvas_duplicate_leaves_a_half_group_loose).
+     */
+    _wholeGroupsInBatch(layerIds) {
+        const inBatch = new Set(layerIds || []);
+        const out = [];
+        ((this.project && this.project.groups) || []).forEach(group => {
+            if (!group || !group.id) return;
+            const members = (typeof this.getGroupMembers === 'function')
+                ? this.getGroupMembers(group).map(l => l.id) : [];
+            if (members.length < 2) return;
+            if (!members.every(id => inBatch.has(id))) return;
+            const snapshot = { id: group.id, name: group.name, layer_ids: members };
+            // The routing switch describes the wall, and this is the same wall
+            // arriving somewhere else (or again) - so it keeps its answer.
+            if ('routeDataAsOne' in group) snapshot.routeDataAsOne = group.routeDataAsOne;
+            out.push(snapshot);
+        });
+        return out;
+    }
+
+    /**
+     * Put the walls back together after a whole-group cross-canvas batch, and
+     * commit the lot as ONE undo step.
+     *
+     * A MOVE keeps the group it had: same id, same name, same member order -
+     * the wall was never split, the per-layer route just could not see that.
+     * A DUPLICATE gets a new group holding the copies in the same order, named
+     * by the same trailing-number increment duplicateGroup uses ("Wall 1" ->
+     * "Wall 2", _nextDuplicateName), and its wiring
+     * re-derived from the sources onto the COPIES' own peers: the clones came
+     * back loose, so the server pruned every path step naming a peer, and
+     * remapCopiedLayerPaths is what writes them again now that the copies are
+     * one wall.
+     *
+     * Commits through _commitGroupChange - the /api/project funnel that runs
+     * _enforce_group_integrity and records a single history entry - so the
+     * caller's own saveState is deliberately skipped.
+     */
+    _restoreGroupsAfterCrossCanvas({ snapshots, wantMove, cloneOf, targetCanvasId,
+                                     layerIds, lastData }) {
+        const layers = (this.project && this.project.layers) || [];
+        const byId = new Map(layers.map(l => [l.id, l]));
+        if (!Array.isArray(this.project.groups)) this.project.groups = [];
+        snapshots.forEach(snapshot => {
+            if (wantMove) {
+                const members = snapshot.layer_ids.map(id => byId.get(id)).filter(Boolean);
+                if (members.length < 2) return;
+                let group = this.project.groups.find(g => g && g.id === snapshot.id);
+                if (!group) {
+                    group = { id: snapshot.id, name: snapshot.name, layer_ids: [] };
+                    if ('routeDataAsOne' in snapshot) group.routeDataAsOne = snapshot.routeDataAsOne;
+                    this.project.groups.push(group);
+                }
+                group.layer_ids = members.map(m => m.id);
+                members.forEach(m => { m.group_id = group.id; });
+                return;
+            }
+            const pairs = snapshot.layer_ids
+                .map(sourceId => ({
+                    source: byId.get(sourceId),
+                    clone: byId.get(cloneOf.get(sourceId)),
+                }))
+                .filter(p => p.source && p.clone);
+            if (pairs.length < 2) return;   // nothing to call a wall
+            const group = {
+                id: this._nextGroupId(),
+                name: this._nextDuplicateName(snapshot.name),
+                layer_ids: pairs.map(p => p.clone.id),
+            };
+            if ('routeDataAsOne' in snapshot) group.routeDataAsOne = snapshot.routeDataAsOne;
+            this.project.groups.push(group);
+            pairs.forEach(p => { p.clone.group_id = group.id; });
+            this.remapCopiedLayerPaths(pairs);
+        });
+        // A group is ONE row in the Screens list, so its members have to be
+        // one block in the layer order before that row can be drawn.
+        if (typeof this._reflowGroupBlocks === 'function') this._reflowGroupBlocks();
+        // Same bookkeeping the ungrouped path does, and the same restraint:
+        // a MOVE follows the wall to its new canvas and keeps it selected, a
+        // DUPLICATE leaves the user where they were, on the original.
+        if (wantMove) {
+            this.project.active_canvas_id = targetCanvasId;
+            this.selectedLayerIds = new Set(layerIds);
+            const primary = byId.get(layerIds[0]);
+            if (primary) this.currentLayer = primary;
+        }
+        return Promise.resolve(this._commitGroupChange(wantMove
+            ? `Move ${layerIds.length} Layers to Canvas`
+            : `Duplicate ${layerIds.length} Layers to Canvas`)).then(() => lastData);
     }
 
     /**

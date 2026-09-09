@@ -161,6 +161,35 @@ class _ScreenGroups {
         return this.resolveGroup(layer.group_id);
     }
 
+    // Is a whole-layer action aimed at A WHOLE WALL, or at one member picked
+    // out of it? Returns the group when `layer` is a screen in a resolvable
+    // group and EVERY member of that group is currently selected - which is
+    // exactly what clicking the group's row in the Screens list does
+    // (_wireScreenGroupEl: "select the whole wall, which is what every
+    // downstream edit then acts on"). Expanding the group and clicking one
+    // member row selects that member alone, and gets the per-screen
+    // behaviour.
+    //
+    // This is the difference Duplicate was missing. The reported bug
+    // (2026-09-09, v0.11.2): "when he duplicated grouped screens they only
+    // copy 1 screen" - Cmd/Ctrl+J and the context menu both call
+    // duplicateLayer(currentLayer), which knew nothing about groups, so a
+    // three-screen wall came back as one loose screen with its cross-member
+    // wiring pruned. Duplicating ONE member deliberately still does that
+    // (test_cross_layer_paths_lifecycle.py::
+    // test_duplicating_one_member_drops_its_cross_member_entries); what was
+    // missing is that a selected WALL is one screen and copies as one.
+    selectedWholeGroupFor(layer) {
+        if (!layer || (layer.type || 'screen') !== 'screen') return null;
+        const group = this.getGroupOfLayer(layer);
+        if (!group) return null;
+        const members = this.getGroupMembers(group);
+        if (members.length < 2) return null;  // a group of one is not a group
+        const selected = this.selectedLayerIds;
+        if (!selected || !members.every(m => selected.has(m.id))) return null;
+        return group;
+    }
+
     // Grouping needs 2+ screens (a group of one is not a group - the same
     // rule _enforce_group_integrity applies server-side), and there is
     // nothing to make when the selection is already exactly one whole group.

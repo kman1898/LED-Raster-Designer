@@ -586,6 +586,22 @@ class _History {
     // ===== DUPLICATE LAYER =====
 
     duplicateLayer(layer) {
+        // A GROUP IS ONE SCREEN, so Duplicate aimed at a whole selected wall
+        // copies the WALL - every member, into one new group - through the
+        // same duplicateGroup the group ⋮ menu uses. Every path that
+        // duplicates arrives here (Cmd/Ctrl+J in canvas.js, the canvas
+        // context menu and the menu bar via handleMenuAction('duplicate')),
+        // and each of them hands over currentLayer alone; that is why a
+        // three-screen wall used to come back as one loose screen.
+        //
+        // Aimed at ONE member picked out of the wall it still makes a single
+        // ungrouped screen, cross-member path steps and all dropped - see
+        // selectedWholeGroupFor (app-screen-groups.js) for which gesture is
+        // which, and test_cross_layer_paths_lifecycle.py for that ruling.
+        const wall = (typeof this.selectedWholeGroupFor === 'function')
+            ? this.selectedWholeGroupFor(layer) : null;
+        if (wall) return this.duplicateGroup(wall.id);
+
         // Smart name incrementing
         const getNextName = (baseName) => {
             // Check if name ends with a number

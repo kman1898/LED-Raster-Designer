@@ -201,11 +201,36 @@ def _frame(pg, ids, **opts):
 
 
 def _marker(frame_pass, label):
-    """The centre a marker's label was painted at - one fillText, one line
-    (the labels here carry no space, so they never wrap)."""
+    """The centre a marker's label was painted at.
+
+    A label with no space stacks at its seams since the 2026-09-07 rule -
+    "SR-1R" is painted as "SR-" over "1R", two fillText calls at one x -
+    so the pieces at a single x, read down the column, join back to the
+    label and the block's centre is their mean y (_fillWrappedLabel spaces
+    the lines symmetrically about it). A label that fits on one line is
+    that same reading with one piece.
+    """
     hits = [t for t in frame_pass['texts'] if t['t'] == label]
-    assert len(hits) == 1, (label, hits)
-    return hits[0]
+    if len(hits) == 1:
+        return hits[0]
+    assert not hits, (label, hits)
+    columns = {}
+    for t in frame_pass['texts']:
+        columns.setdefault(round(t['x'], 6), []).append(t)
+    for x, column in columns.items():
+        column.sort(key=lambda t: t['y'])
+        for i in range(len(column)):
+            for j in range(i + 2, len(column) + 1):
+                run = column[i:j]
+                joined = ''.join(t['t'] for t in run)
+                if joined == label:
+                    return {'t': label, 'x': x,
+                            'y': sum(t['y'] for t in run) / len(run)}
+                if not label.startswith(joined):
+                    break
+    raise AssertionError(
+        f'{label!r} was painted neither whole nor as a stack: '
+        f'{sorted({t["t"] for t in frame_pass["texts"]})}')
 
 
 def _disc_radius(frame_pass, x, y):
