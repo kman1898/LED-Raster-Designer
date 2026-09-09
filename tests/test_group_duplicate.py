@@ -630,3 +630,157 @@ def test_duplicating_a_canvas_brings_the_whole_group(page):
         {'row': 0, 'col': 0}, {'row': 0, 'col': 1},
         {'row': 0, 'col': 0, 'layerId': copy_b['id']},
     ]}, copy_a
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# 5. the canvas context menu -> "Move to Canvas…"
+# ══════════════════════════════════════════════════════════════════════════
+#
+# The same destination as the Alt/Cmd-drag above, reached by the menu instead
+# of the mouse - and it has to arrive at the same place. User report
+# (2026-09-09): moving a grouped wall through this submenu delivered three
+# loose screens on the target canvas.
+
+
+def open_move_to_canvas(page, ids):
+    """Select `ids` the way clicking a group's row in the Screens list does,
+    then open the context menu's Move to Canvas… submenu."""
+    page.evaluate("""(ids) => {
+        const app = window.app;
+        app.setSelectedLayersByIds(ids, ids[0]);
+        app.openMoveToCanvasMenu();
+    }""", ids)
+    page.wait_for_selector('.canvas-add-popup button')
+
+
+def click_move_target(page, target):
+    page.click(f'.canvas-add-popup button[data-canvas-id="{target}"]')
+    page.wait_for_timeout(1600)
+
+
+def wall_state(page, ids, gid):
+    return page.evaluate("""(args) => {
+        const [ids, gid] = args;
+        const app = window.app;
+        const layers = app.project.layers || [];
+        const members = ids.map(id => layers.find(l => l.id === id));
+        return {
+            count: layers.length,
+            canvases: members.map(l => (l ? l.canvas_id : null)),
+            groupIds: members.map(l => (l ? (l.group_id ?? null) : null)),
+            groups: (app.project.groups || []).map(
+                g => ({id: g.id, layer_ids: g.layer_ids})),
+        };
+    }""", [ids, gid])
+
+
+def test_move_to_canvas_menu_keeps_the_wall_together(page):
+    """A GROUP IS ONE WALL, whichever gesture moves it. Picking the whole wall
+    and sending it to another canvas from the context menu has to land the
+    same wall there - not three loose screens."""
+    ids, gid = build_group(page, 3)
+    target = add_canvas(page)
+    page.wait_for_timeout(300)
+    before_layers = page.evaluate("window.app.project.layers.length")
+
+    open_move_to_canvas(page, ids)
+    click_move_target(page, target)
+
+    out = wall_state(page, ids, gid)
+    assert out['count'] == before_layers, out
+    assert out['canvases'] == [target] * 3, out
+    assert len(out['groups']) == 1, (
+        f'the wall dissolved on the way across: {out}')
+    assert out['groups'][0]['layer_ids'] == ids, out
+    assert out['groupIds'] == [out['groups'][0]['id']] * 3, out
+
+    stored = server_model(page, ids, gid)
+    assert stored['groups'] and stored['groups'][0]['layer_ids'] == ids, stored
+
+
+def test_move_to_canvas_menu_moves_a_lone_screen(page):
+    """The single-layer case the menu was written for still works: one
+    ungrouped screen moves, and no group is invented for it."""
+    ids, gid = build_group(page, 3)
+    solo = page.evaluate("""async () => {
+        const app = window.app;
+        await (await fetch('/api/layer/add', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({name: 'Lonely', columns: 2, rows: 2,
+                                  cabinet_width: 128, cabinet_height: 128,
+                                  offset_x: 3000, offset_y: 0}),
+        })).json();
+        app.project = await (await fetch('/api/project')).json();
+        const l = app.project.layers[app.project.layers.length - 1];
+        return l.id;
+    }""")
+    target = add_canvas(page)
+    page.wait_for_timeout(300)
+    before_layers = page.evaluate("window.app.project.layers.length")
+
+    open_move_to_canvas(page, [solo])
+    click_move_target(page, target)
+
+    out = page.evaluate("""(args) => {
+        const [solo, ids] = args;
+        const app = window.app;
+        const layers = app.project.layers || [];
+        const l = layers.find(x => x.id === solo);
+        return {
+            count: layers.length,
+            canvas: l.canvas_id,
+            group_id: l.group_id ?? null,
+            groups: (app.project.groups || []).map(
+                g => ({id: g.id, layer_ids: g.layer_ids})),
+            wallCanvases: ids.map(
+                id => layers.find(x => x.id === id).canvas_id),
+        };
+    }""", [solo, ids])
+    assert out['count'] == before_layers, out
+    assert out['canvas'] == target, out
+    assert out['group_id'] is None, out
+    # The wall it was standing next to did not follow it.
+    assert len(out['groups']) == 1, out
+    assert out['groups'][0]['layer_ids'] == ids, out
+    assert target not in out['wallCanvases'], out
+
+
+def test_move_to_canvas_menu_detaches_one_member_picked_out_of_the_wall(page):
+    """HALF A WALL IS NOT A WALL: sending ONE member of a three-screen group
+    to another canvas takes that screen out of the group and leaves the other
+    two behind, still a wall (the ruling _detach_from_cross_canvas_group
+    keeps)."""
+    ids, gid = build_group(page, 3)
+    target = add_canvas(page)
+    page.wait_for_timeout(300)
+    before_layers = page.evaluate("window.app.project.layers.length")
+
+    open_move_to_canvas(page, [ids[0]])
+    click_move_target(page, target)
+
+    out = wall_state(page, ids, gid)
+    assert out['count'] == before_layers, out
+    assert out['canvases'][0] == target, out
+    assert out['canvases'][1] == out['canvases'][2] != target, out
+    assert out['groupIds'][0] is None, (
+        f'the member that left kept its group: {out}')
+    assert len(out['groups']) == 1, out
+    assert out['groups'][0]['layer_ids'] == ids[1:], out
+    assert out['groupIds'][1] == out['groupIds'][2] == out['groups'][0]['id'], out
+
+
+def test_move_to_canvas_menu_dissolves_a_two_screen_wall_split_in_half(page):
+    """The same ruling at the smallest size: taking one member out of a group
+    of two leaves a group of one, which is no group at all
+    (_enforce_group_integrity)."""
+    ids, gid = build_group(page, 2)
+    target = add_canvas(page)
+    page.wait_for_timeout(300)
+
+    open_move_to_canvas(page, [ids[0]])
+    click_move_target(page, target)
+
+    out = wall_state(page, ids, gid)
+    assert out['canvases'][0] == target, out
+    assert out['groupIds'] == [None, None], out
+    assert out['groups'] == [], out

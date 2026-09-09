@@ -488,12 +488,21 @@ class _CanvasUi {
             // saveState AFTER all PUTs settle so one Cmd+Z reverts the whole
             // multi-layer cross-canvas move/duplicate.
             if (typeof this.saveState === 'function') {
-                this.saveState(wantMove
-                    ? `Move ${layerIds.length} Layers to Canvas`
-                    : `Duplicate ${layerIds.length} Layers to Canvas`);
+                this.saveState(this._crossCanvasHistoryLabel(layerIds.length, wantMove));
             }
         }
         return lastData;
+    }
+
+    /**
+     * The Undo entry a cross-canvas batch leaves behind. A batch of one is a
+     * batch (the context menu's Move to Canvas... sends a single screen
+     * through this same call), so it gets the singular wording the one-layer
+     * path has always used rather than "Move 1 Layers to Canvas".
+     */
+    _crossCanvasHistoryLabel(count, wantMove) {
+        const what = count === 1 ? 'Layer' : `${count} Layers`;
+        return `${wantMove ? 'Move' : 'Duplicate'} ${what} to Canvas`;
     }
 
     /**
@@ -590,9 +599,8 @@ class _CanvasUi {
             const primary = byId.get(layerIds[0]);
             if (primary) this.currentLayer = primary;
         }
-        return Promise.resolve(this._commitGroupChange(wantMove
-            ? `Move ${layerIds.length} Layers to Canvas`
-            : `Duplicate ${layerIds.length} Layers to Canvas`)).then(() => lastData);
+        return Promise.resolve(this._commitGroupChange(
+            this._crossCanvasHistoryLabel(layerIds.length, wantMove))).then(() => lastData);
     }
 
     /**
