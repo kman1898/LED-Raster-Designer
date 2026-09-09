@@ -576,7 +576,7 @@ class _Binder {
         return `${d.getMonth() + 1}/${d.getDate()}/${String(d.getFullYear()).slice(-2)}`;
     }
 
-    // The first letter of each word of a name, upper-case: "Matt Knotts"
+    // The first letter of each word of a name, upper-case: "Morgan Keller"
     // is MK; a blank name is ''.
     binderInitials(name) {
         return String(name == null ? '' : name).trim().split(/\s+/)
@@ -955,9 +955,10 @@ class _Binder {
     // (2026-09-08, his buddy on seven walls "A - OffSR IMAG" … "G - E3
     // Delay": "i'd want raster A first, then in alphabetical order"):
     //   alpha      by name, natural - "A - …" before "B - …", 2 before 10
-    //   layers     the Screens panel's order, top to bottom (the panel
-    //              shows the newest screen on top - the layer list reversed)
-    //   layers-up  the panel bottom to top - the layer list's own order
+    //   layers     the Screens panel's order, top to bottom - the panel as
+    //              it is actually drawn (_bPanelScreenOrder: canvases, then
+    //              newest-on-top inside each, then screen groups gathered)
+    //   layers-up  that list read bottom to top
     //   data       by the screen's first port: processor order, then card
     //              slot, then socket - a screen on card 1 socket 1 first;
     //              screens with no port after those, alphabetical
@@ -970,10 +971,12 @@ class _Binder {
         const name = (l) => String(l.name == null ? '' : l.name);
         const byName = (a, b) => name(a).localeCompare(name(b), undefined, { numeric: true, sensitivity: 'base' })
             || String(a.id).localeCompare(String(b.id), undefined, { numeric: true });
-        const all = (this.project && this.project.layers) || [];
-        const index = (l) => all.indexOf(l);
-        if (order === 'layers') return [...layers].sort((a, b) => (index(b) - index(a)) || byName(a, b));
-        if (order === 'layers-up') return [...layers].sort((a, b) => (index(a) - index(b)) || byName(a, b));
+        if (order === 'layers' || order === 'layers-up') {
+            const panel = this._bPanelScreenOrder();
+            const at = (l) => { const i = panel.indexOf(l); return i < 0 ? panel.length : i; };
+            const dir = order === 'layers' ? 1 : -1;
+            return [...layers].sort((a, b) => (dir * (at(a) - at(b))) || byName(a, b));
+        }
         if (order === 'data' || order === 'power') {
             const keys = new Map(layers.map(l => [l, order === 'data'
                 ? this._bFirstPortKey(l) : this._bFirstCircuitKey(book, l)]));
@@ -988,6 +991,63 @@ class _Binder {
             });
         }
         return [...layers].sort(byName);
+    }
+
+    // The Screens panel's rows in the order the eye reads them, TOP FIRST
+    // (2026-09-09: "top to bottom does bottom to top actually"). The panel
+    // is not the layer array reversed - that was the old assumption, and it
+    // inverted the moment a show had more than one canvas. It is three
+    // passes, and this walks the same three over the model so 'layers'
+    // follows what is on screen whatever the show is built from:
+    //   1. renderLayers reverses the layer array (newest on top)
+    //   2. regroupLayersByCanvas deals the rows into CANVAS groups, the
+    //      canvases in their own array order, each group holding its
+    //      canvas's rows in that reversed order (a Show view groups by
+    //      show_canvas_id || canvas_id, the same as the sidebar)
+    //   3. regroupLayersByGroup lifts a screen group's rows to sit
+    //      together at the FIRST member's place - only the members sharing
+    //      that member's canvas move; one on another canvas stays put
+    // 'layers-up' is this list read the other way.
+    _bPanelScreenOrder() {
+        const all = (this.project && this.project.layers) || [];
+        const reversed = [...all].reverse();
+        const canvases = (this.project && this.project.canvases) || [];
+        const isShow = !!(window.canvasRenderer
+            && window.canvasRenderer.isShowLookView
+            && window.canvasRenderer.isShowLookView());
+        const canvasOf = (l) => ((isShow && l.show_canvas_id)
+            ? l.show_canvas_id : l.canvas_id);
+        let out = [];
+        if (canvases.length) {
+            const placed = new Set();
+            canvases.forEach(c => reversed.forEach(l => {
+                if (canvasOf(l) !== c.id) return;
+                out.push(l);
+                placed.add(l);
+            }));
+            // A row whose canvas is not in the list is not drawn in any
+            // group; it keeps the flat order after them rather than
+            // vanishing from the plan.
+            reversed.forEach(l => { if (!placed.has(l)) out.push(l); });
+        } else {
+            out = reversed;
+        }
+        for (const g of (this.project && this.project.groups) || []) {
+            const ids = new Set((g && g.layer_ids) || []);
+            const members = out.filter(l => ids.has(l.id));
+            if (members.length < 2) continue;
+            const home = canvasOf(members[0]);
+            const own = members.filter(l => canvasOf(l) === home);
+            if (own.length < 2) continue;
+            const mine = new Set(own);
+            const firstAt = out.indexOf(own[0]);
+            out = [
+                ...out.slice(0, firstAt).filter(l => !mine.has(l)),
+                ...own,
+                ...out.slice(firstAt).filter(l => !mine.has(l)),
+            ];
+        }
+        return out;
     }
 
     // [processor index, card slot, socket] of the screen's first placed
@@ -3121,18 +3181,32 @@ class _Binder {
             ['Device', proc.deviceName || proc.deviceId || ''],
             ['Redundancy', this._bRedundancyText(proc)],
         ]) });
-        // Snakes and home runs on every card and breakout box of this processor.
+        // Snakes and home runs on every card and breakout box of this
+        // processor. A snake is the SHOW's since 2026-09-09 ("Any sockets,
+        // any device"), so it is listed ON EACH DEVICE IT TOUCHES - the
+        // ways it claims are the whole loom's, and the sockets it holds
+        // somewhere else are named in the same cell ("· also on CVT4K-S SR
+        // B") so the count and the sockets under it always add up.
         const runs = [];
         for (const { card } of cards) {
-            const owners = [{ title: card.name || card.deviceName, rec: card }]
-                .concat((card.cvts || []).map(c => ({ title: this._bBoxTitle(c), rec: c })));
+            const owners = [{ kind: 'card', id: card.id,
+                              title: card.name || card.deviceName, rec: card }]
+                .concat((card.cvts || []).map(c => ({
+                    kind: 'cvt', id: c.id, title: this._bBoxTitle(c), rec: c })));
             for (const o of owners) {
-                for (const s of (o.rec.snakes || [])) {
+                for (const s of this.getShowSnakes()) {
+                    const here = this.snakeMembersOn(s, o);
+                    if (!here.length) continue;
                     const connId = this.dataPortConnectorId({ rec: o.rec }, s.connector);
-                    runs.push({ cells: [s.name || 'snake', `${(s.ports || []).length}-way`,
+                    const away = this.snakeElsewhere(s, o)
+                        .map(a => ` · also on ${this.dataOwnerTitle(a.owner)}`)
+                        .join('');
+                    runs.push({ cells: [s.name || 'snake',
+                                        `${(s.members || []).length}-way`,
                                         s.ft ? this.pullLengthText(s.ft) : 'no length',
-                                        `${o.title} ${this._fmtTails(s.ports || [])}`
-                                        + (connId ? ` · ${this.dataCableConnectorName(connId)}` : '')] });
+                                        `${o.title} ${this._fmtTails(here)}`
+                                        + (connId ? ` · ${this.dataCableConnectorName(connId)}` : '')
+                                        + away] });
                 }
                 // A socket's own entry: its home run where it is loose
                 // ('cable'), its EXTENSION off the snake it rides where it
@@ -3141,7 +3215,7 @@ class _Binder {
                     const ft = Number(c && c.ft);
                     if (!Number.isFinite(ft) || ft <= 0) continue;
                     const connId = this.dataPortConnectorId({ rec: o.rec }, c.connector);
-                    const snake = (o.rec.snakes || []).find(s => (s.ports || []).includes(parseInt(socket, 10)));
+                    const snake = this.dataPortSnake(o, socket);
                     if (snake) {
                         runs.push({ cells: [`${o.title} ${socket}`, 'ext', this.pullLengthText(ft),
                                             snake.name || 'snake'] });

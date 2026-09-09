@@ -726,7 +726,15 @@ def test_a_boxs_fiber_is_one_row_and_the_workbook_writes_it(page):
     the first position that meets it, on the processor's hardware list, and
     in the workbook the route lays out. Untyped, the row's type is "Fiber";
     with no length there is no row. The box goes at the end and the card's
-    own cables come back."""
+    own cables come back.
+
+    The card's SNAKE A (typed on the card before this box existed) FOLLOWS
+    the sockets onto the box (2026-09-09): a snake names the device that
+    delivers its sockets, so it reads on the box's sheet and prints on the
+    pull sheet - where before it silently vanished the moment a box was
+    hung on the card, and its sockets printed as loose rows. Deleting the
+    box takes it with them: the loom was hanging off the box. (One undo
+    puts the box and the snake back together.)"""
     pg, ids = page
     out = pg.evaluate("""async (ids) => {
         const app = window.app;
@@ -768,10 +776,14 @@ def test_a_boxs_fiber_is_one_row_and_the_workbook_writes_it(page):
     # its name, at the position of the first screen it delivers (no
     # location typed).
     assert out['typed'] == [['SR Beach', [['12 Tac Fiber', "250'", 1, 'CVT4K-S SR', ''],
-                                          ['CVT4K-S', 'EA', 1, 'SR', '']]], ['CENTER', []]], out['typed']
+                                          ['CVT4K-S', 'EA', 1, 'SR', ''],
+                                          ['Ether-con Snake', "100'", 1, 'SNAKE A', '2-way']]],
+                            ['CENTER', []]], out['typed']
     assert out['unmodelled'] == []
     assert out['boxes'] == [['CVT4K-S SR'], ['CVT4K-S SR'], ['CVT4K-S SR']]
-    assert out['hardware'] == [[['12 Tac Fiber', "250'", 1, 'CVT4K-S SR'], ['CVT4K-S', 'EA', 1, 'SR']]]
+    assert out['hardware'] == [[['12 Tac Fiber', "250'", 1, 'CVT4K-S SR'],
+                                ['CVT4K-S', 'EA', 1, 'SR'],
+                                ['Ether-con Snake', "100'", 1, 'SNAKE A']]]
     assert out['status'] == 200
     import base64
     wb = openpyxl.load_workbook(io.BytesIO(base64.b64decode(out['b64'])))
@@ -780,11 +792,17 @@ def test_a_boxs_fiber_is_one_row_and_the_workbook_writes_it(page):
     rows = [tuple(ws.cell(r, col + i).value for i in range(4)) for r in range(7, 30)]
     assert ('12 Tac Fiber', "250'", 1, 'CVT4K-S SR') in rows, rows
     assert out['untyped'] == [['SR Beach', [['CVT4K-S', 'EA', 1, 'SR', ''],
+                                            ['Ether-con Snake', "100'", 1, 'SNAKE A', '2-way'],
                                             ['Fiber', "250'", 1, 'CVT4K-S SR', '']]], ['CENTER', []]]
-    assert out['noLength'] == [['SR Beach', [['CVT4K-S', 'EA', 1, 'SR', '']]], ['CENTER', []]]
-    # the box gone, the card's snake and CENTER's cable read again
-    assert out['after'] == [['SR Beach', [['Ether-con Snake', "100'", 1, 'SNAKE A', '2-way']]],
-                            ['CENTER', [['Ether-con', "50'", 1, ids['centerPortLabel'], '']]]], out['after']
+    assert out['noLength'] == [['SR Beach', [['CVT4K-S', 'EA', 1, 'SR', ''],
+                                             ['Ether-con Snake', "100'", 1, 'SNAKE A', '2-way']]],
+                               ['CENTER', []]]
+    # the box gone, CENTER's own cable reads again - and the snake that
+    # followed the sockets onto the box went with the box
+    assert out['after'] == [
+        ['SR Beach', []],
+        ['CENTER', [['Ether-con', "50'", 1, ids['centerPortLabel'], '']]],
+    ], out['after']
 
 
 # ── the browser: the settings, the menu, the export ─────────────────────

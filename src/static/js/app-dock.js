@@ -68,6 +68,15 @@ import { sendClientLog } from './helpers.js';
 
 class _HardwareDock {
 
+    // The tray grid's track: 440px is the width a 16-port card's chips wrap
+    // well at, and the gap the CSS gap. Both live here because the column
+    // deal (_dockRenderPower) and the CSS have to agree on the count.
+    get _DOCK_COL() { return 440; }
+    get _DOCK_GAP() { return 10; }
+    // Past this many sockets a device asks for two tracks - a static fact
+    // of the model, read off the port count and nothing else.
+    get _DOCK_WIDE_PORTS() { return 24; }
+
     initHardwareDock() {
         const dock = document.getElementById('hardware-dock');
         if (!dock) return;
@@ -87,11 +96,12 @@ class _HardwareDock {
         this.renderHardwareDock();
     }
 
-    // How many 380px-floor distro columns the tray genuinely holds, 1..3 -
-    // the count _dockRenderPower deals by, and what the resize watcher
-    // below re-checks. Measured from the body's content box; unmeasurable
-    // (hidden tray, no layout yet) falls back to the 3-across default and
-    // the first real resize corrects it.
+    // How many TRACKS the tray grid holds - the same sum the CSS's
+    // repeat(auto-fill, minmax(440px, 1fr)) does, so the columns
+    // _dockRenderPower deals land one per track and none is ever left
+    // empty or wrapped. Measured from the body's content box;
+    // unmeasurable (hidden tray, no layout yet) falls back to the
+    // 3-across default and the first real resize corrects it.
     _dockPickColCount() {
         const body = document.getElementById('hardware-dock-body');
         let w = 0;
@@ -101,10 +111,19 @@ class _HardwareDock {
                 - (parseFloat(cs.paddingRight) || 0);
         }
         if (w <= 0) return 3;
-        const gap = 10;
-        const floor = 380;
-        return Math.max(1, Math.min(3,
-            Math.floor((w + gap) / (floor + gap))));
+        return Math.max(1,
+            Math.floor((w + this._DOCK_GAP) / (this._DOCK_COL + this._DOCK_GAP)));
+    }
+
+    // A single-track tray cannot honour a two-track span (the browser
+    // would invent a second column and push the tray sideways), so the
+    // body wears the fact and the CSS suppresses the span. Stamped on
+    // every render and on every resize, never on a content change.
+    _dockStampTracks() {
+        const body = document.getElementById('hardware-dock-body');
+        if (!body) return;
+        body.classList.toggle('hw-dock-one-col',
+                              this._dockPickColCount() < 2);
     }
 
     // Re-deal the power columns when a tray RESIZE crosses a column-count
@@ -123,6 +142,9 @@ class _HardwareDock {
             this._dockColRedealT = setTimeout(() => {
                 const mode = window.canvasRenderer
                     ? window.canvasRenderer.viewMode : '';
+                // The two-track span follows the tray's WIDTH, so it is
+                // re-decided on a resize - never on a content change.
+                this._dockStampTracks();
                 // The data side's snake brackets sit under their chips by
                 // measurement (2026-09-06): a resize that reflows a grid
                 // without a rebuild moves the chips out from under them,
@@ -148,7 +170,32 @@ class _HardwareDock {
     // toggle - one collapse mechanism, one stored state, just reachable
     // from inside the bar the eye is already on (the hanging tab stays as
     // the way back once the tray is folded to nothing).
+    // Which unit the rebuild about to happen belongs to, by its stable
+    // hwdock key: the thing the user last pressed inside the tray, or the
+    // field focus is standing in. A press older than a few seconds is not
+    // this rebuild's cause any more and anchors nothing.
+    _dockAnchorKey() {
+        const t = this._dockTouched;
+        if (t && Date.now() - t.at < 5000) return t.key;
+        const a = document.activeElement;
+        if (!a || !a.closest) return null;
+        const host = a.closest('#hardware-dock-body [data-hwdock]');
+        return host ? host.dataset.hwdock : null;
+    }
+
     _wireDockChrome() {
+        // Every press inside the tray remembers the unit it landed on, so
+        // a rebuild the press causes - a sheet toggle, a fold, a chip
+        // editor, a name commit - can put that unit back where it was.
+        const trayBody = document.getElementById('hardware-dock-body');
+        if (trayBody) {
+            trayBody.addEventListener('mousedown', (e) => {
+                const host = e.target && e.target.closest
+                    && e.target.closest('[data-hwdock]');
+                this._dockTouched = host
+                    ? { key: host.dataset.hwdock, at: Date.now() } : null;
+            }, true);
+        }
         const fold = document.getElementById('hw-dock-fold');
         if (fold) fold.addEventListener('click', () => {
             const toggle = document.getElementById('hardware-dock-toggle');
@@ -235,7 +282,20 @@ class _HardwareDock {
             && document.activeElement.dataset
             && document.activeElement.dataset.hwdock;
         const before = dock.offsetHeight;
+        // The rebuild must not move the tray under the reader (2026-09-09:
+        // "when i try and open the cable sheet it jumps the whole screen
+        // around"). Two things ride the wipe: the scroll position itself,
+        // and - when the rebuild came from a control ON a unit - that
+        // unit's top in the VIEWPORT, so the thing the user just clicked
+        // stays under the pointer even though the sheet above it grew.
+        const scrollTop = body.scrollTop;
+        const anchorKey = this._dockAnchorKey();
+        const anchorEl = anchorKey && body.querySelector(
+            `[data-hwdock="${CSS.escape(anchorKey)}"]`);
+        const anchorTop = anchorEl
+            ? anchorEl.getBoundingClientRect().top : null;
         body.innerHTML = '';
+        this._dockStampTracks();
         if (mode === 'data-flow') {
             this._dockRenderData(body);
         } else if (mode === 'power') {
@@ -263,6 +323,17 @@ class _HardwareDock {
         // they are placed once the grids have laid out - after the fold
         // state above, which decides what is visible to measure.
         if (mode === 'data-flow') this._dockPlaceSnakeBrackets(body);
+        // Put the scroll back the way it was, then - if a unit anchored
+        // this rebuild - slide it so that unit's top sits where it sat.
+        body.scrollTop = scrollTop;
+        if (anchorEl && anchorTop != null) {
+            const again = body.querySelector(
+                `[data-hwdock="${CSS.escape(anchorKey)}"]`);
+            if (again) {
+                const drift = again.getBoundingClientRect().top - anchorTop;
+                if (Math.abs(drift) > 0.5) body.scrollTop = scrollTop + drift;
+            }
+        }
         if (focused) {
             const again = body.querySelector(
                 `[data-hwdock="${CSS.escape(focused)}"]`);
@@ -741,6 +812,10 @@ class _HardwareDock {
             // a whole processor is not a droppable thing; its cards are.
             const title = document.createElement('div');
             title.className = 'hw-dock-proc-name';
+            const grip = document.createElement('span');
+            grip.className = 'hw-dock-grip';
+            grip.textContent = '⋮⋮';
+            title.appendChild(grip);
             const model = document.createElement('span');
             model.textContent = proc.deviceName;
             title.appendChild(model);
@@ -768,6 +843,18 @@ class _HardwareDock {
                     },
                 },
             });
+            // The processor's strip is a DRAG HANDLE (2026-09-09: "also
+            // being able to drag them around and reorder them would be
+            // nice too"): along the tray it reorders the processors, onto
+            // a screen it assigns the way its first card does. Wired after
+            // the augment so the name field and the ⚙ are already in it -
+            // _dockWireDraggable's guard leaves a press on either alone.
+            title.title = 'Drag onto a screen to assign its ports; drag '
+                + 'along the tray to reorder.';
+            this._dockWireDraggable(title, {
+                type: 'processor', processorId: proc.id,
+                title: proc.name || proc.deviceName,
+            }, `processor-${proc.id}`);
             wrap.appendChild(title);
             (proc.slots || []).forEach(slot => {
                 if (!slot.card) return;
@@ -799,11 +886,29 @@ class _HardwareDock {
                                       procEls.get(proc.id));
             }
         });
+        this._dockApplySpans(host);
+    }
+
+    // The two-track span, decided by PORT COUNT alone: a cell holding a
+    // device with more than 24 sockets takes two of the tray's tracks, so
+    // its chips still wrap into a readable block. A static fact of the
+    // model - no sheet, fold, name or pairing ever changes it - and the
+    // CSS drops it on a one-track tray.
+    _dockApplySpans(host) {
+        [...host.children].forEach(cell => {
+            if (!cell.classList) return;
+            const marked = cell.matches('[data-lrd-ports]')
+                ? [cell] : [...cell.querySelectorAll('[data-lrd-ports]')];
+            cell.classList.toggle('hw-dock-span2', marked.some(
+                u => Number(u.dataset.lrdPorts) > this._DOCK_WIDE_PORTS));
+        });
     }
 
     _dockBuildCard(proc, card) {
         const unit = document.createElement('div');
         unit.className = 'hw-dock-unit';
+        // The static fact the tray's two-track span is decided by.
+        unit.dataset.lrdPorts = String((card.ports || []).length);
 
         const summary = ((this._assignment && this._assignment.cards) || [])
             .find(c => c.cardId === card.id);
@@ -821,7 +926,8 @@ class _HardwareDock {
             card.deviceName + cardTag,
             '',
             'Drag the whole card onto a screen: its ports fill in order from '
-            + 'the first unassigned, or the whole run moves here.',
+            + 'the first unassigned, or the whole run moves here. Cards keep '
+            + 'their slot order - drag the processor’s line to reorder.',
             // The header's glance: how full the card is, the retired
             // panel's per-card usage foot worn as n/N and a fill line - so
             // a card folded away because it is done reads as done (a
@@ -1522,13 +1628,10 @@ class _HardwareDock {
         // the top of this render, is the comparison point).
         const nCols = Math.max(1, Math.min(
             this._dockColPick, distros.length));
-        const colBasis =
-            `calc((100% - ${(nCols - 1) * 10}px) / ${nCols})`;
         const cols = [];
         for (let i = 0; i < nCols; i++) {
             const col = document.createElement('div');
             col.className = 'hw-dock-col';
-            col.style.flexBasis = colBasis;
             cols.push(col);
             host.appendChild(col);
         }
@@ -1572,14 +1675,16 @@ class _HardwareDock {
         // hw-dock-distro is presentation only: the density pass gives the
         // power units a wider no-clip floor than the data cards need.
         unit.className = 'hw-dock-unit hw-dock-distro';
+        // The tray reads its stored order off these (drag-reorder).
+        unit.dataset.lrdDistro = d.id;
         const phase = Number(d.phase) === 3 ? '3φ' : '1φ';
         const head = this._dockBuildHandle(
             { type: 'distro', distroId: d.id, title: d.name || d.id },
             `distro-${d.id}`,
             '',
             `${d.voltage || '?'}V·${phase}`,
-            'Drag the whole distro onto a screen: its unassigned multis all '
-            + 'land on this distro, numbered automatically.',
+            'Drag onto a screen to assign its ports; drag along the tray to '
+            + 'reorder.',
             load && load.ratingA > 0
                 ? { frac: load.amps / load.ratingA, over: !!load.over,
                     text: `${load.amps.toFixed(1)}/${load.ratingA} A` }
@@ -2352,9 +2457,46 @@ class _HardwareDock {
         else this._cableTicks.delete(key);
     }
 
-    _cableTickedSockets(owner, ports) {
-        return ports.map(p => p.number)
-            .filter(n => this._cableTicked(owner, n));
+    // The same tick, addressed as a snake member - a tick lives on
+    // (owner, socket) and a member IS an (owner, socket), so the two are
+    // the same key seen from either end.
+    _cableTickedMember(member) {
+        return this._cableTicked({ kind: member.kind, id: member.id },
+                                 member.socket);
+    }
+
+    _setCableTickMember(member, on) {
+        this._setCableTick({ kind: member.kind, id: member.id },
+                           member.socket, on);
+    }
+
+    // EVERY ticked socket in the tray, on every card and every box, as
+    // snake members. The ticks already live in memory keyed by owner and
+    // socket, so they survive the tray's rebuilds and cross its units -
+    // which is exactly what "ports 1-4 primary is snaked and backup 1-4
+    // are snaked. then i have 5 and 6 that i want to snake" needs: tick
+    // A-5, A-6 on one sheet and B-5, B-6 on another, press Snake on
+    // either, and the four are ONE 4-way. A tick on a socket that has
+    // since gone (a card cleared under it) is dropped here rather than
+    // sent to be refused.
+    _allTickedMembers() {
+        const out = [];
+        (this._cableTicks || new Set()).forEach(key => {
+            const at = key.lastIndexOf(':');
+            const socket = parseInt(key.slice(at + 1), 10);
+            const [kind, id] = [key.slice(0, key.indexOf(':')),
+                                key.slice(key.indexOf(':') + 1, at)];
+            const owner = this._dataCableOwner(kind, id);
+            if (!owner || !Number.isFinite(socket)) return;
+            if (!(owner.rec.ports || []).some(p => p.number === socket)) return;
+            out.push({ kind, id, socket });
+        });
+        return out.sort((a, b) => (a.id === b.id
+            ? a.socket - b.socket : (a.id < b.id ? -1 : 1)));
+    }
+
+    _clearAllCableTicks() {
+        if (this._cableTicks) this._cableTicks.clear();
     }
 
     // One record's sheet: tick · port · screen · home run - FOUR columns
@@ -2408,6 +2550,29 @@ class _HardwareDock {
             ft.title = title;
             return ft;
         };
+        // The HOME RUN cell, the SAME three slots on every row (2026-09-09:
+        // "also these columns dont line up" - the member rows' "ext" pushed
+        // their inputs right of the snake rows', so the inputs and their
+        // "ft" units zigzagged down the column). Fixed-width slots, because
+        // each row is its own table cell and only fixed widths line up
+        // across rows: [word, 30px, right-aligned] [the ft input, one
+        // width for every row] ["ft"].
+        const runCell = (word, ft) => {
+            const td = document.createElement('td');
+            const run = document.createElement('div');
+            run.className = 'hw-dock-cable-run';
+            const slot = document.createElement('span');
+            slot.className = 'hw-dock-cable-word hw-dock-cable-dim';
+            slot.textContent = word || '';
+            run.appendChild(slot);
+            run.appendChild(ft);
+            const unit = document.createElement('span');
+            unit.className = 'hw-dock-cable-unit';
+            unit.textContent = 'ft';
+            run.appendChild(unit);
+            td.appendChild(run);
+            return td;
+        };
         const tick = (key, on, title, onChange) => {
             const box = document.createElement('input');
             box.type = 'checkbox';
@@ -2425,13 +2590,13 @@ class _HardwareDock {
         // CONNECTOR cells off the sheet). The "p1 return" detail rides the
         // row's title instead, read on hover. whoOf feeds the cell, whoDetail
         // the title; a snake row dedupes both across its members.
-        const whoOf = (n) => {
-            const occ = this._portOccupants(owner.cardId, n);
+        const whoOf = (at, n) => {
+            const occ = this._portOccupants(at.cardId, n);
             if (!occ.length) return '';
             return [...new Set(occ.map(o => o.name))].join(', ');
         };
-        const whoDetail = (n) => {
-            const occ = this._portOccupants(owner.cardId, n);
+        const whoDetail = (at, n) => {
+            const occ = this._portOccupants(at.cardId, n);
             if (!occ.length) return '';
             return [...new Set(occ.map(o => `${o.name}${o.role === 'return'
                 ? ` p${o.number} return` : ''}`))].join(', ');
@@ -2452,6 +2617,11 @@ class _HardwareDock {
             if (detail && detail !== text) tr.title = detail;
         };
         const seenSnakes = new Set();
+        // A snake's way count on the sheet is the WHOLE snake (2026-09-09:
+        // "Any sockets, any device"), and a sheet that can only show part
+        // of one says the rest out loud: "+ 5, 6 on BOX B" under the name.
+        // The number and the rows cannot disagree, because everything the
+        // number counts is named on the row one way or the other.
         ports.forEach(port => {
             const n = port.number;
             const spoken = port.localNumber || n;
@@ -2462,12 +2632,18 @@ class _HardwareDock {
                 tr.className = 'hw-dock-cable-snake';
                 tr.dataset.lrdSnakeRow = snake.id;
                 const td0 = document.createElement('td');
-                const all = snake.ports.every(m => this._cableTicked(owner, m));
+                // The whole snake ticks together, members on other devices
+                // included: Unsnake takes the loom apart, not the half of
+                // it this sheet happens to list.
+                const members = (snake.members || []);
+                const all = members.every(
+                    m => this._cableTickedMember(m));
                 td0.appendChild(tick(
                     `data-snake-tick-${owner.id}-s-${snake.id}`, all,
-                    'Tick the whole snake - for Unsnake above.',
-                    (on) => snake.ports.forEach(
-                        m => this._setCableTick(owner, m, on))));
+                    'Tick the whole snake, wherever its sockets sit - for '
+                    + 'Unsnake above.',
+                    (on) => members.forEach(
+                        m => this._setCableTickMember(m, on))));
                 tr.appendChild(td0);
                 const td1 = document.createElement('td');
                 const cap = document.createElement('span');
@@ -2488,29 +2664,47 @@ class _HardwareDock {
                     + 'the tag on the map print. Typed names win over the '
                     + 'SNAKE A default.';
                 name.addEventListener('change', () => {
-                    this.setSnake(owner, snake.id, { name: name.value },
+                    this.setSnake(snake.id, { name: name.value },
                                   'Rename Snake').then(after);
                 });
                 td1.appendChild(name);
+                // The members this sheet cannot show, said plainly and dim
+                // (2026-09-09: a snake spans devices now, and the sheet it
+                // is read from must still account for every way it claims).
+                const away = this.snakeElsewhere(snake, owner);
+                if (away.length) {
+                    const also = document.createElement('span');
+                    also.className = 'hw-dock-cable-snake-away';
+                    also.textContent = ` + ${away.map(a => a.text).join('; ')}`;
+                    also.title = 'This snake also holds these sockets, on '
+                        + 'another card or box. Its name and home run are '
+                        + 'the same row there.';
+                    td1.appendChild(also);
+                }
                 tr.appendChild(td1);
                 const td2 = document.createElement('td');
-                const uniq = (f) => [...new Set(snake.ports.map(f)
+                // The SCREEN cell speaks for the whole snake, its members
+                // elsewhere included - the loom feeds what it feeds.
+                const onAll = (f) => (snake.members || []).map(m => {
+                    const at = this._dataCableOwner(m.kind, m.id);
+                    return at ? f(at, m.socket) : '';
+                });
+                const uniq = (f) => [...new Set(onAll(f)
                     .filter(Boolean))].join(', ');
                 who(td2, tr, uniq(whoOf), uniq(whoDetail));
                 tr.appendChild(td2);
-                const td3 = document.createElement('td');
                 const ft = ftInput(`data-snake-ft-${owner.id}-${snake.id}`,
                                    snake.ft,
                                    'The snake’s home run in feet. '
                                    + 'Blank = no length.');
                 ft.addEventListener('change', () => {
-                    this.setSnake(owner, snake.id, { ft: ft.value.trim() },
+                    this.setSnake(snake.id, { ft: ft.value.trim() },
                                   'Set Snake Home Run').then(after);
                 });
                 walk(ft);
-                td3.appendChild(ft);
-                td3.appendChild(document.createTextNode(' ft'));
-                tr.appendChild(td3);
+                // A snake row's word slot is EMPTY - the slot still takes
+                // its 30px, so the input below it starts at the same x.
+                tr.appendChild(runCell('', ft));
                 table.appendChild(tr);
             }
             const tr = document.createElement('tr');
@@ -2532,9 +2726,9 @@ class _HardwareDock {
                 ? `${spoken} · ${port.label}` : String(spoken);
             tr.appendChild(td1);
             const td2 = document.createElement('td');
-            who(td2, tr, whoOf(n) || (occupied ? '' : 'free'), whoDetail(n));
+            who(td2, tr, whoOf(owner, n) || (occupied ? '' : 'free'),
+                whoDetail(owner, n));
             tr.appendChild(td2);
-            const td3 = document.createElement('td');
             // The same store on both kinds of row: a loose port's entry is
             // its home run, a member's is its EXTENSION from the snake's
             // fan-out to the panel ("ext 25 ft" - the shorter cable a
@@ -2557,15 +2751,7 @@ class _HardwareDock {
             }).then(after);
             ft.addEventListener('change', commit);
             walk(ft);
-            if (snake) {
-                const ext = document.createElement('span');
-                ext.className = 'hw-dock-cable-dim';
-                ext.textContent = 'ext ';
-                td3.appendChild(ext);
-            }
-            td3.appendChild(ft);
-            td3.appendChild(document.createTextNode(' ft'));
-            tr.appendChild(td3);
+            tr.appendChild(runCell(snake ? 'ext' : '', ft));
             table.appendChild(tr);
         });
 
@@ -2590,30 +2776,45 @@ class _HardwareDock {
         const cap = document.createElement('span');
         cap.textContent = 'With ticked:';
         quick.appendChild(cap);
+        // ONE snake of EVERY ticked socket in the tray - this sheet's and
+        // any other's. "Any sockets, any device" (2026-09-09): the ticks
+        // are the gesture, and the button they are pressed on is only
+        // where the hand happened to be.
         quick.appendChild(button('Snake', `data-cable-snake-${owner.id}`,
-            'Form one snake of the ticked ports - one name, one home run. '
-            + 'One undo step.',
+            'Form one snake of every ticked port - on this card or box or '
+            + 'any other. One name, one home run. One undo step.',
             () => {
-                const nums = this._cableTickedSockets(owner, ports);
-                if (nums.length < 1) {
+                const members = this._allTickedMembers();
+                if (members.length < 1) {
                     this._dockSay('Tick the ports first, then Snake.');
                     return;
                 }
-                nums.forEach(n => this._setCableTick(owner, n, false));
-                this.snakePorts(owner, nums).then(after);
+                const away = members.filter(
+                    m => !(m.kind === owner.kind && m.id === owner.id)).length;
+                this._clearAllCableTicks();
+                this.snakePorts(members).then(() => {
+                    if (away) {
+                        this._dockSay(`Snaked ${members.length} ports, `
+                            + `${away} of them on another card or box.`);
+                    }
+                    after();
+                });
             }));
         quick.appendChild(button('Unsnake', `data-cable-loosen-${owner.id}`,
-            'Take the ticked ports out of their snakes. One undo step.',
+            'Take every ticked port out of its snake - on this card or box '
+            + 'or any other. One undo step.',
             () => {
-                const nums = this._cableTickedSockets(owner, ports)
-                    .filter(n => this.dataPortSnake(owner, n));
-                if (!nums.length) {
+                const members = this._allTickedMembers().filter(m => {
+                    const at = this._dataCableOwner(m.kind, m.id);
+                    return at && this.dataPortSnake(at, m.socket);
+                });
+                if (!members.length) {
                     this._dockSay('Tick a port that is in a snake, then '
                         + 'Unsnake.');
                     return;
                 }
-                nums.forEach(n => this._setCableTick(owner, n, false));
-                this.loosenPorts(owner, nums).then(after);
+                this._clearAllCableTicks();
+                this.loosenPorts(members).then(after);
             }));
         const sp = document.createElement('span');
         sp.style.flex = '1';
@@ -2643,6 +2844,12 @@ class _HardwareDock {
     // to the next row, the tag on the first. A grid carrying a snake (or a
     // sweep) opens its rows up to make room. The sweep's ghost is the same
     // bracket dashed, saying what the right-click will make.
+    //
+    // A snake that CROSSES devices (2026-09-09) draws a bracket in every
+    // unit it reaches: each spans that unit's members, and each tag says
+    // the whole snake's ways with a small "↔" - the loom is one, and the
+    // count on a bracket is never the half of it you happen to be looking
+    // at.
     _dockPlaceSnakeBrackets(body) {
         const host = body || document.getElementById('hardware-dock-body');
         if (!host) return;
@@ -2652,12 +2859,14 @@ class _HardwareDock {
                     .forEach(el => el.remove());
                 const [kind, id] = grid.dataset.lrdSnakeOwner.split(':');
                 const owner = this._dataCableOwner(kind, id);
-                const snakes = (owner && owner.rec.snakes) || [];
-                const sweep = this._traySweep
-                    && this._traySweep.ownerKind === kind
-                    && this._traySweep.ownerId === id
-                    && this._traySweep.sockets.length
-                    ? this._traySweep : null;
+                // The show's snakes that reach into THIS unit, each with
+                // the sockets it holds here.
+                const snakes = !owner ? [] : this.getShowSnakes()
+                    .map(s => ({ snake: s,
+                                 here: this.snakeMembersOn(s, owner) }))
+                    .filter(s => s.here.length);
+                const swept = this._traySweepSocketsOn(kind, id);
+                const sweep = swept.length ? swept : null;
                 grid.classList.toggle('hw-dock-grid-snaked',
                                       snakes.length > 0 || !!sweep);
                 if (!snakes.length && !sweep) return;
@@ -2711,31 +2920,46 @@ class _HardwareDock {
                         grid.appendChild(el);
                     });
                 };
-                snakes.forEach(snake => place(
-                    runsFor(new Set(snake.ports)),
-                    this.snakeTagText(snake), snake));
+                snakes.forEach(({ snake, here }) => place(
+                    runsFor(new Set(here)),
+                    this.snakeTagText(snake)
+                    + (this.snakeSpansOwners(snake) ? ' ↔' : ''), snake));
                 if (sweep) {
-                    place(runsFor(new Set(sweep.sockets)),
-                          `snake · ${sweep.sockets.length}-way`, null);
+                    const ways = (this._traySweep.members || []).length;
+                    place(runsFor(new Set(sweep)),
+                          `snake · ${ways}-way`
+                          + (ways > sweep.length ? ' ↔' : ''), null);
                 }
             });
     }
 
     // ── the sweep ────────────────────────────────────────────────────────
     //
-    // Hold Alt and drag across the port chips of ONE card or box: the
-    // chips light, a ghost bracket says "snake · N-way", and a right-click
-    // (or Alt+Enter) forms the snake. The selection is the CONTIGUOUS
-    // range of the grid between the anchor chip and the hovered one, in
-    // the order the chips sit - the canvas sweep's rule, on the tray's own
-    // set (_traySweep, never the canvas's _sweepSelection). A chip on
-    // another card or box refuses with a message and the range stays;
-    // Escape, a plain click elsewhere or the snake itself clears it.
+    // Hold Alt and drag across the port chips: the chips light, a ghost
+    // bracket says "snake · N-way", and a right-click (or Alt+Enter) forms
+    // the snake. The selection is the CONTIGUOUS range between the anchor
+    // chip and the hovered one, in the order the chips sit in the TRAY -
+    // the canvas sweep's rule, on the tray's own set (_traySweep, never
+    // the canvas's _sweepSelection). Since 2026-09-09 that order runs
+    // across units: a sweep that starts on box A and ends on box B lights
+    // both, because "Any sockets, any device" - the range is the chips
+    // between the two, wherever they live. Escape, a plain click elsewhere
+    // or the snake itself clears it.
 
     _traySweepHas(owner, socket) {
         const sw = this._traySweep;
-        return !!(sw && sw.ownerKind === owner.kind && sw.ownerId === owner.id
-            && sw.sockets.includes(parseInt(socket, 10)));
+        const n = parseInt(socket, 10);
+        return !!(sw && (sw.members || []).some(
+            m => m.kind === owner.kind && m.id === owner.id
+                && m.socket === n));
+    }
+
+    // The lit sockets on one unit - what its bracket spans.
+    _traySweepSocketsOn(kind, id) {
+        const sw = this._traySweep;
+        return ((sw && sw.members) || [])
+            .filter(m => m.kind === kind && m.id === id)
+            .map(m => m.socket);
     }
 
     _traySweepOwnerOf(el) {
@@ -2746,16 +2970,38 @@ class _HardwareDock {
         return { kind, id, grid };
     }
 
+    // Every port chip in the tray, in the order they sit - the line a
+    // sweep's range is taken along. Read at sweep start, so the tray's
+    // rebuilds during the drag cannot renumber it under the mouse.
+    _traySweepOrder() {
+        const host = document.getElementById('hardware-dock-body');
+        const out = [];
+        if (!host) return out;
+        host.querySelectorAll('.hw-dock-grid[data-lrd-snake-owner]')
+            .forEach(grid => {
+                const [kind, id] = grid.dataset.lrdSnakeOwner.split(':');
+                grid.querySelectorAll(':scope > .lrd-tile').forEach(t => {
+                    const socket = parseInt(
+                        (t.dataset.lrdTile || '').split('-').pop(), 10);
+                    if (Number.isFinite(socket)) out.push({ kind, id, socket });
+                });
+            });
+        return out;
+    }
+
+    _traySweepIndex(order, member) {
+        return order.findIndex(m => m.kind === member.kind
+            && m.id === member.id && m.socket === member.socket);
+    }
+
     _traySweepStart(e, payload, el) {
         const at = this._traySweepOwnerOf(el);
         if (!at) return;
-        const socket = parseInt(payload.port, 10);
-        const order = [...at.grid.querySelectorAll(':scope > .lrd-tile')]
-            .map(t => parseInt((t.dataset.lrdTile || '').split('-').pop(), 10));
+        const anchor = { kind: at.kind, id: at.id,
+                         socket: parseInt(payload.port, 10) };
         this._traySweepClear(false);
         this._traySweep = {
-            ownerKind: at.kind, ownerId: at.id, cardId: payload.cardId,
-            anchor: socket, sockets: [socket], order, refused: false,
+            anchor, members: [anchor], order: this._traySweepOrder(),
         };
         this._traySweepPaint();
         const move = (ev) => this._traySweepExtend(ev.clientX, ev.clientY);
@@ -2789,24 +3035,19 @@ class _HardwareDock {
         const payload = this._dockChipPayload(chip);
         const at = this._traySweepOwnerOf(chip);
         if (!payload || !at) return;
-        if (at.kind !== sw.ownerKind || at.id !== sw.ownerId) {
-            if (!sw.refused) {
-                sw.refused = true;
-                this._dockSay('A snake stays on one card or box - the '
-                    + 'sweep does not cross to another.');
-            }
-            return;
-        }
-        sw.refused = false;
-        const ai = sw.order.indexOf(sw.anchor);
-        const ci = sw.order.indexOf(parseInt(payload.port, 10));
+        const ai = this._traySweepIndex(sw.order, sw.anchor);
+        const ci = this._traySweepIndex(sw.order, {
+            kind: at.kind, id: at.id, socket: parseInt(payload.port, 10) });
         if (ai < 0 || ci < 0) return;
         const lo = Math.min(ai, ci);
         const hi = Math.max(ai, ci);
         const next = sw.order.slice(lo, hi + 1);
-        if (next.length === sw.sockets.length
-                && next.every((n, i) => n === sw.sockets[i])) return;
-        sw.sockets = next;
+        const same = next.length === sw.members.length
+            && next.every((m, i) => m.kind === sw.members[i].kind
+                && m.id === sw.members[i].id
+                && m.socket === sw.members[i].socket);
+        if (same) return;
+        sw.members = next;
         this._traySweepPaint();
     }
 
@@ -2818,15 +3059,19 @@ class _HardwareDock {
         const sw = this._traySweep;
         body.querySelectorAll('.hw-dock-chip-sel')
             .forEach(t => t.classList.remove('hw-dock-chip-sel'));
-        if (sw && sw.sockets.length) {
-            const grid = body.querySelector(
-                `.hw-dock-grid[data-lrd-snake-owner="${sw.ownerKind}:${sw.ownerId}"]`);
-            if (grid) {
-                grid.querySelectorAll(':scope > .lrd-tile').forEach(t => {
-                    const n = parseInt((t.dataset.lrdTile || '').split('-').pop(), 10);
-                    if (sw.sockets.includes(n)) t.classList.add('hw-dock-chip-sel');
+        if (sw && sw.members.length) {
+            // Every unit the range reaches lights its own share of it.
+            body.querySelectorAll('.hw-dock-grid[data-lrd-snake-owner]')
+                .forEach(grid => {
+                    const [kind, id] = grid.dataset.lrdSnakeOwner.split(':');
+                    const lit = new Set(this._traySweepSocketsOn(kind, id));
+                    if (!lit.size) return;
+                    grid.querySelectorAll(':scope > .lrd-tile').forEach(t => {
+                        const n = parseInt(
+                            (t.dataset.lrdTile || '').split('-').pop(), 10);
+                        if (lit.has(n)) t.classList.add('hw-dock-chip-sel');
+                    });
                 });
-            }
         }
         this._dockPlaceSnakeBrackets(body);
     }
@@ -2885,13 +3130,14 @@ class _HardwareDock {
     // resolves to the new snake's id.
     _traySweepSnake() {
         const sw = this._traySweep;
-        if (!sw || !sw.sockets.length) return Promise.resolve(null);
-        const owner = this._dataCableOwner(sw.ownerKind, sw.ownerId);
-        const sockets = sw.sockets.slice();
+        if (!sw || !sw.members.length) return Promise.resolve(null);
+        const members = sw.members.slice();
         this._traySweepClear(false);
-        if (!owner) return Promise.resolve(null);
-        sendClientLog('data_snake_ports', { owner: sw.ownerId, sockets });
-        return this.snakePorts(owner, sockets).then(id => {
+        sendClientLog('data_snake_ports', {
+            owners: [...new Set(members.map(m => m.id))],
+            sockets: members.map(m => m.socket),
+        });
+        return this.snakePorts(members).then(id => {
             if (window.canvasRenderer) window.canvasRenderer.render();
             return id;
         });
@@ -2922,27 +3168,30 @@ class _HardwareDock {
         const entries = [];
         const snakeEntries = (owner, snake) => {
             const name = snake.name || 'snake';
+            const across = this.snakeSpansOwners(snake)
+                ? ' It crosses cards or boxes; one edit reaches all of it.'
+                : '';
             entries.push({
                 label: `Rename ${name}`,
-                title: 'Open the sheet on the snake’s name.',
+                title: `Open the sheet on the snake’s name.${across}`,
                 run: () => this._dataCableFocusField(owner,
                     `data-snake-name-${owner.id}-${snake.id}`),
             });
             entries.push({
                 label: `Set home run of ${name}…`,
-                title: 'Open the sheet on the snake’s length.',
+                title: `Open the sheet on the snake’s length.${across}`,
                 run: () => this._dataCableFocusField(owner,
                     `data-snake-ft-${owner.id}-${snake.id}`),
             });
             entries.push({
                 label: `Unsnake ${name}`,
-                title: `Take every port out of ${name}; the ports stay `
-                    + 'where they are. One undo step.',
+                title: `Take every port out of ${name}, wherever it sits; `
+                    + 'the ports stay where they are. One undo step.',
                 run: () => {
                     sendClientLog('data_loosen_snake',
                                   { owner: owner.id, snake: snake.id });
                     this._traySweepClear(false);
-                    this.loosenPorts(owner, null, snake.id).then(() => {
+                    this.loosenPorts(null, snake.id).then(() => {
                         if (window.canvasRenderer) window.canvasRenderer.render();
                     });
                 },
@@ -2951,8 +3200,8 @@ class _HardwareDock {
         if (bracket) {
             const [kind, id] = bracket.dataset.lrdSnakeOwner.split(':');
             const owner = this._dataCableOwner(kind, id);
-            const snake = owner && (owner.rec.snakes || [])
-                .find(s => s.id === bracket.dataset.lrdSnakeId);
+            const snake = owner
+                && this.getShowSnake(bracket.dataset.lrdSnakeId);
             if (!snake) return null;
             snakeEntries(owner, snake);
             return { entries };
@@ -2964,21 +3213,30 @@ class _HardwareDock {
         const owner = this._dataCableOwner(at.kind, at.id);
         if (!owner) return null;
         const socket = parseInt(payload.port, 10);
-        const lit = sw && sw.ownerKind === at.kind && sw.ownerId === at.id
-            && sw.sockets.includes(socket) ? sw.sockets.slice() : null;
+        // The lit range, whole - it can reach across units now, so the
+        // menu speaks for every chip in it, not for this grid's share.
+        const lit = this._traySweepHas(owner, socket)
+            ? (sw.members || []).slice() : null;
         if (lit) {
             const n = lit.length;
-            const inside = lit.map(m => this.dataPortSnake(owner, m));
+            const inside = lit.map(m => {
+                const at2 = this._dataCableOwner(m.kind, m.id);
+                return at2 ? this.dataPortSnake(at2, m.socket) : null;
+            });
             const oneSnake = inside[0] && inside.every(
                 s => s && s.id === inside[0].id);
-            const whole = oneSnake && inside[0].ports.length === n;
+            const whole = oneSnake
+                && (inside[0].members || []).length === n;
+            const across = new Set(lit.map(m => `${m.kind}:${m.id}`)).size > 1;
             if (!whole) {
                 entries.push({
                     label: `Snake these ${n}`,
                     shortcut: 'Alt+Enter',
-                    title: `Form one snake of the ${n} lit ports - one `
-                        + 'name, one home run. Alt+Enter does the same. '
-                        + 'One undo step.',
+                    title: `Form one snake of the ${n} lit ports`
+                        + (across ? ', across the cards and boxes they sit '
+                            + 'on' : '')
+                        + ' - one name, one home run. Alt+Enter does the '
+                        + 'same. One undo step.',
                     run: () => this._traySweepSnake(),
                 });
             }
@@ -3009,7 +3267,7 @@ class _HardwareDock {
                         + 'ports stay where they are. One undo step.',
                     run: () => {
                         this._traySweepClear(false);
-                        this.loosenPorts(owner, lit).then(() => {
+                        this.loosenPorts(lit).then(() => {
                             if (window.canvasRenderer) window.canvasRenderer.render();
                         });
                     },
@@ -3555,6 +3813,140 @@ class _HardwareDock {
         return head;
     }
 
+    // ── reorder by drag (2026-09-09) ─────────────────────────────────────
+    //
+    // "also being able to drag them around and reorder them would be nice
+    // too". The things that reorder are the two the tray is a list OF: the
+    // processors (data) and the distros (power). A card inside a processor
+    // is not one of them - its slot is where the metal is - and a
+    // designated backup rides with the main it backs, because a redundant
+    // pair is one thing everywhere else too.
+
+    // The reorderable items of the current view, in STORED order: the
+    // tray's top-level cells on the data side (a cell is a processor wrap
+    // or a pair wrapper), the distro units on the power side (which the
+    // column deal spreads across cells, so the cells are not the list).
+    _dockReorderItems() {
+        const body = document.getElementById('hardware-dock-body');
+        if (!body) return [];
+        const mode = window.canvasRenderer ? window.canvasRenderer.viewMode : '';
+        if (mode === 'power') {
+            const byId = new Map(
+                [...body.querySelectorAll('[data-lrd-distro]')]
+                    .map(el => [el.dataset.lrdDistro, el]));
+            return (typeof this.getDistros === 'function'
+                ? this.getDistros() : [])
+                .map(d => byId.get(d.id)).filter(Boolean);
+        }
+        return [...body.children].filter(el => el.classList
+            && !el.classList.contains('hw-dock-drop-mark')
+            && !el.classList.contains('hw-dock-note'));
+    }
+
+    // Which gap the cursor is nearest, as an insertion index: every item's
+    // leading edge is a candidate, plus the trailing edge of the last. One
+    // rule for both layouts (a wrapped grid of processors, stacked columns
+    // of distros) - the nearest gap wins, so "drop it left of that one"
+    // reads the same either way.
+    _dockReorderIndex(ev) {
+        const items = this._dockReorderItems();
+        if (!items.length) return 0;
+        let best = 0;
+        let bestD = Infinity;
+        const consider = (i, x, y) => {
+            const d = Math.hypot(ev.clientX - x, ev.clientY - y);
+            if (d < bestD) { bestD = d; best = i; }
+        };
+        items.forEach((el, i) => {
+            const r = el.getBoundingClientRect();
+            consider(i, r.left, r.top + r.height / 2);
+        });
+        const last = items[items.length - 1].getBoundingClientRect();
+        consider(items.length, last.right, last.top + last.height / 2);
+        return best;
+    }
+
+    // The 3px accent bar in the gap the drop would land in.
+    _dockMarkReorder(index) {
+        const body = document.getElementById('hardware-dock-body');
+        if (!body) return;
+        const items = this._dockReorderItems();
+        let mark = body.querySelector(':scope > .hw-dock-drop-mark');
+        if (!items.length) {
+            if (mark) mark.remove();
+            return;
+        }
+        if (!mark) {
+            mark = document.createElement('div');
+            mark.className = 'hw-dock-drop-mark';
+            body.appendChild(mark);
+        }
+        const after = index >= items.length;
+        const el = items[after ? items.length - 1 : index];
+        mark.style.top = `${el.offsetTop}px`;
+        mark.style.height = `${el.offsetHeight}px`;
+        mark.style.left = `${after
+            ? el.offsetLeft + el.offsetWidth + 3 : el.offsetLeft - 6}px`;
+        mark.dataset.lrdIndex = String(index);
+    }
+
+    _dockClearReorderMark() {
+        const body = document.getElementById('hardware-dock-body');
+        const mark = body && body.querySelector(':scope > .hw-dock-drop-mark');
+        if (mark) mark.remove();
+    }
+
+    // The processor ids a top-level cell holds, in the order it holds them
+    // - one for a lone processor, main then backup for a pair.
+    _dockCellProcIds(cell) {
+        return [...cell.querySelectorAll('[data-hwdock^="processor-"]')]
+            .map(el => el.dataset.hwdock.slice('processor-'.length));
+    }
+
+    // Move a processor (with its pair, if it is in one) to a cell index.
+    // The stored order is the one thing that changes: the tray, the pull
+    // list's hardware order and the binder's 'data' screen order all read
+    // it, so one PUT moves the lot. ONE 'Reorder Processors' entry.
+    _dockReorderProcessors(procId, index) {
+        const groups = this._dockReorderItems()
+            .map(cell => this._dockCellProcIds(cell))
+            .filter(g => g.length);
+        const gi = groups.findIndex(g => g.includes(procId));
+        if (gi < 0) return null;
+        const before = [].concat(...groups);
+        const moving = groups[gi];
+        const rest = groups.filter((_, i) => i !== gi);
+        const to = Math.max(0, Math.min(rest.length,
+                                        index > gi ? index - 1 : index));
+        rest.splice(to, 0, moving);
+        const ids = [].concat(...rest);
+        if (ids.length === before.length
+                && ids.every((id, i) => id === before[i])) return null;
+        return this._processorRequest('/api/processors/order', 'PUT',
+                                      { ids }, 'Reorder Processors');
+    }
+
+    // The distros live on the project, so their order rides the project's
+    // own push and the project-wide snapshot - the same path every other
+    // distro edit takes. ONE 'Reorder Distros' entry.
+    _dockReorderDistros(distroId, index) {
+        const list = this.getDistros();
+        const from = list.findIndex(d => d.id === distroId);
+        if (from < 0) return;
+        const next = list.slice();
+        const [moved] = next.splice(from, 1);
+        const to = Math.max(0, Math.min(next.length,
+                                        index > from ? index - 1 : index));
+        next.splice(to, 0, moved);
+        if (next.every((d, i) => d.id === list[i].id)) return;
+        this.project.distros = next;
+        this._circuitTailCache = null;
+        this._persistDistros();
+        this.saveState('Reorder Distros');
+        this.renderHardwareDock();
+        if (window.canvasRenderer) window.canvasRenderer.render();
+    }
+
     // ── the drag itself ───────────────────────────────────────────────────
 
     _dockWireDraggable(el, payload, key) {
@@ -3703,6 +4095,11 @@ class _HardwareDock {
             dock.classList.toggle('hw-dock-drop-target',
                 !!(target && target.kind === 'dock'));
         }
+        if (target && target.kind === 'reorder') {
+            this._dockMarkReorder(target.index);
+        } else {
+            this._dockClearReorderMark();
+        }
         if (drag.payload.type === 'plug' || drag.payload.output) {
             this._dockPlugPill(drag, ev, target);
         }
@@ -3727,6 +4124,7 @@ class _HardwareDock {
         }
         document.body.style.cursor = '';
         document.body.style.userSelect = '';
+        this._dockClearReorderMark();
         const dock = document.getElementById('hardware-dock');
         if (dock) dock.classList.remove('hw-dock-drop-target');
         if (window.canvasRenderer) window.canvasRenderer.render();
@@ -3746,6 +4144,20 @@ class _HardwareDock {
             if (ev.clientX >= r.left && ev.clientX <= r.right
                     && ev.clientY >= r.top && ev.clientY <= r.bottom) {
                 const t = drag.payload.type;
+                // A processor's or a distro's own header dragged ALONG the
+                // tray is a reorder: the gap it is nearest is the place it
+                // lands (2026-09-09). Anything else keeps the tray's one
+                // meaning - a chip dropped back on the dock is a clear.
+                if (t === 'processor' || t === 'distro') {
+                    const body = document.getElementById('hardware-dock-body');
+                    const br = body && body.getBoundingClientRect();
+                    if (br && ev.clientX >= br.left && ev.clientX <= br.right
+                            && ev.clientY >= br.top && ev.clientY <= br.bottom) {
+                        return { kind: 'reorder',
+                                 index: this._dockReorderIndex(ev) };
+                    }
+                    return null;
+                }
                 return (t === 'port' || t === 'slot' || t === 'tail')
                     ? { kind: 'dock' } : null;
             }
@@ -4277,6 +4689,30 @@ class _HardwareDock {
 
     _dockPerformDrop(payload, target) {
         sendClientLog('dock_drop', { payload, target });
+        if (target && target.kind === 'reorder') {
+            if (payload.type === 'processor') {
+                return this._dockReorderProcessors(payload.processorId,
+                                                   target.index);
+            }
+            if (payload.type === 'distro') {
+                return this._dockReorderDistros(payload.distroId,
+                                                target.index);
+            }
+            return;
+        }
+        // A processor dropped on a SCREEN assigns the way its first card
+        // does - the tooltip's promise, and the only sense a whole
+        // processor can land on a wall in.
+        if (payload.type === 'processor') {
+            const proc = (this._processorsResolved || [])
+                .find(p => p.id === payload.processorId);
+            const slot = ((proc && proc.slots) || []).find(s => s && s.card);
+            if (!slot) return;
+            return this._dockDropCardOrBox({
+                type: 'card', cardId: slot.card.id,
+                title: slot.card.name || slot.card.deviceName,
+            }, target);
+        }
         if (payload.type === 'port') return this._dockDropPort(payload, target);
         if (payload.type === 'card' || payload.type === 'box') {
             return this._dockDropCardOrBox(payload, target);

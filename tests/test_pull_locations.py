@@ -379,7 +379,10 @@ def test_a_box_at_its_beach_pulls_its_ports_rows_and_two_boxes_list_once(page):
         const c = app.project.layers.find(l => l.id === ids.c);
         results.centerLabel = app.getPortLabelText(c, 1, 'primary');
         results.aLabel = app.getPortLabelText(app.project.layers.find(l => l.id === ids.a), 1, 'primary');
-        results.snakeName = app._dockFindCvt(boxA).cvt.snakes[0].name;
+        // A snake is the show's now (2026-09-09), read from the box by
+        // the socket it holds there.
+        results.snakeName = app.dataPortSnake(
+            app._dataCableOwner('cvt', boxA), 1).name;
         return results;
     }""" % REBUILD_JS, ids)
     # no beach: box A's gear row and fiber sit with the first screen it

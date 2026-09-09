@@ -11,19 +11,25 @@ The shape mirrors power's distro → multi → circuit cable as card or box →
 SNAKE (one name, one home run, N ports) → port cable, with one deliberate
 difference: the stores live on the HARDWARE record, not the screen -
 
-  - card.snakes / card.portCables on a processor card, the same two on a
-    breakout box (cvt) for the ports it delivers; sockets are card-wide port
-    numbers; a port is in at most one snake; a port in a snake rides the
-    snake's home run, and its own portCables entry is its EXTENSION from
-    the snake's fan-out ("when i use a snake i need to be able to add a
-    secondary cable length incase i need an extension", 2026-09-07);
+  - card.portCables on a processor card, the same on a breakout box (cvt)
+    for the ports it delivers; sockets are card-wide port numbers. A SNAKE
+    is the SHOW's since 2026-09-09 ("Any sockets, any device") -
+    project.snakes = [{id, name, ft, connector, members: [{kind, id,
+    socket}…]}], one loom across as many cards and boxes as it was formed
+    over (tests/test_snakes_across.py). A port is in at most one snake; a
+    port in a snake rides the snake's home run, and its own portCables
+    entry is its EXTENSION from the snake's fan-out ("when i use a snake i
+    need to be able to add a secondary cable length incase i need an
+    extension", 2026-09-07);
     connector null follows the port (the catalog's documented kind, else
     nothing). The connector list is CAT only: "panels dont take fiber.
     what would take fiber is processor to breakout box" - fiber is the
     box's trunk (test_box_fiber), never a port's or a snake's plug.
-  - PUT /api/processors/<id>/cards/<cid> and …/cvts/<cvtId> take both,
-    validated (range, no port in two snakes, ft a non-negative number,
-    connector in the list or null) and refuse with the reason.
+  - PUT /api/processors/<id>/cards/<cid> and …/cvts/<cvtId> take
+    portCables (and `snakes` as the legacy door, folded straight into the
+    show's list), validated (range, no port in two snakes, ft a
+    non-negative number, connector in the list or null) and refusing with
+    the reason. Snakes are formed and edited through /api/snakes.
   - A port released from a screen KEEPS its snake and cable: the loom hangs
     off the socket whatever the wall does. (Power's per-screen cable is
     programming and a clear forgets it.)
@@ -83,12 +89,28 @@ def _resolved(client, pid):
     return next(p for p in st['resolved'] if p['id'] == pid)
 
 
+def _snakes(client, kind=None, ident=None):
+    """The show's snakes as served, optionally only the ones a device
+    holds, each with the sockets it holds THERE."""
+    st = client.get('/api/processors').get_json()
+    out = []
+    for snake in st['snakes']:
+        ports = [m['socket'] for m in snake['members']
+                 if kind is None or (m['kind'] == kind and m['id'] == ident)]
+        if kind is not None and not ports:
+            continue
+        out.append(dict(snake, ports=sorted(ports)))
+    return out
+
+
 def test_the_store_round_trips_on_a_card_and_a_box(client):
-    """A PUT of snakes + portCables lands on the card record and comes
-    back resolved: ports sorted, the name defaulted to SNAKE A (the next
-    to SNAKE B), ids minted off the processor counter, a zero length
-    dropped, and the box keeping its own store against the sockets it
-    delivers. GET /api/processors serves the same - a reload keeps it."""
+    """A PUT of snakes + portCables comes back resolved: the card's
+    port cables on the card, and its SNAKES on the show (2026-09-09 -
+    "Any sockets, any device"), sockets sorted, names defaulted to
+    SNAKE A then SNAKE B show-wide, ids minted off the processor
+    counter, a zero length dropped. The device PUT is the legacy door
+    into the same list, so the per-device key never survives it. GET
+    /api/processors serves the same - a reload keeps it."""
     pid, cid, bid = _h9_with_card_and_box(client)
     r = client.put(f'/api/processors/{pid}/cards/{cid}', json={
         'snakes': [{'ports': [11, 9, 10], 'ft': '100'},
@@ -99,37 +121,42 @@ def test_the_store_round_trips_on_a_card_and_a_box(client):
     })
     assert r.status_code == 200, r.get_data(as_text=True)
     card = _raw(client, pid)['slots'][0]['card']
-    assert [s['ports'] for s in card['snakes']] == [[9, 10, 11], [13, 14]]
-    assert [s['name'] for s in card['snakes']] == ['SNAKE A', 'SNAKE B']
-    assert card['snakes'][0]['ft'] == 100 and 'ft' not in card['snakes'][1]
-    assert all(s['id'].startswith('snk') for s in card['snakes'])
+    assert 'snakes' not in card, 'a snake is the show\'s, not the card\'s'
+    snakes = _snakes(client, 'card', cid)
+    assert [s['ports'] for s in snakes] == [[9, 10, 11], [13, 14]]
+    assert [s['name'] for s in snakes] == ['SNAKE A', 'SNAKE B']
+    assert snakes[0]['ft'] == 100 and snakes[1]['ft'] is None
+    assert all(s['id'].startswith('snk') for s in snakes)
     assert card['portCables'] == {
         '15': {'ft': 50}, '16': {'ft': 75, 'connector': 'cat'}}
+    assert snakes[0] == {
+        'id': snakes[0]['id'], 'name': 'SNAKE A', 'ft': 100,
+        'connector': None, 'ports': [9, 10, 11],
+        'members': [{'kind': 'card', 'id': cid, 'socket': n}
+                    for n in (9, 10, 11)]}
     rcard = _resolved(client, pid)['slots'][0]['card']
-    assert rcard['snakes'][0] == {
-        'id': card['snakes'][0]['id'], 'name': 'SNAKE A', 'ft': 100,
-        'connector': None, 'ports': [9, 10, 11]}
+    assert 'snakes' not in rcard
     assert rcard['portCables']['16'] == {'ft': 75, 'connector': 'cat'}
     # the card's sockets follow its documented kind: RJ45 → CAT
     assert rcard['portConnector'] == 'cat'
-    # The box: its own record, its own sockets (the CVT10 on OPT 1 of this
-    # card delivers 1-8 again - copy delivery), its own SNAKE A.
+    # The box: its own sockets (the CVT10 on OPT 1 of this card delivers
+    # 1-8 again - copy delivery), its own snake, and the card's untouched.
     r = client.put(f'/api/processors/{pid}/cvts/{bid}', json={
         'snakes': [{'ports': [1, 2, 3, 4, 5, 6], 'name': ' FOH '}],
         'portCables': {'7': {'ft': 25}},
     })
     assert r.status_code == 200, r.get_data(as_text=True)
     box = _raw(client, pid)['slots'][0]['card']['cvts'][0]
-    assert box['snakes'] == [{'id': box['snakes'][0]['id'], 'name': 'FOH',
-                              'ports': [1, 2, 3, 4, 5, 6]}]
+    assert 'snakes' not in box
+    assert [(s['name'], s['ports']) for s in _snakes(client, 'cvt', bid)] \
+        == [('FOH', [1, 2, 3, 4, 5, 6])]
     assert box['portCables'] == {'7': {'ft': 25}}
     rbox = _resolved(client, pid)['slots'][0]['card']['cvts'][0]
-    assert rbox['snakes'][0]['name'] == 'FOH'
     assert rbox['portConnector'] == 'cat', 'a box with no documented ' \
         'connector follows its card'
-    # the card store never saw the box's PUT
-    assert [s['ports'] for s in _raw(client, pid)['slots'][0]['card']
-            ['snakes']] == [[9, 10, 11], [13, 14]]
+    # the card's snakes never saw the box's PUT
+    assert [s['ports'] for s in _snakes(client, 'card', cid)] \
+        == [[9, 10, 11], [13, 14]]
     # A snaked port's own cable is KEPT: it is the socket's extension from
     # the snake's fan-out (9 rides SNAKE A; 30' is the extension to its
     # panel), stored in the very same key a loose port's home run uses.
@@ -140,12 +167,14 @@ def test_the_store_round_trips_on_a_card_and_a_box(client):
         '9': {'ft': 30}, '15': {'ft': 50}}
     assert _resolved(client, pid)['slots'][0]['card']['portCables']['9'] \
         == {'ft': 30, 'connector': None}
-    # Emptying both stores leaves no key behind.
+    # Emptying both stores leaves no key behind - the card's cables go and
+    # so do the show snakes that held only this card's sockets.
     r = client.put(f'/api/processors/{pid}/cards/{cid}',
                    json={'snakes': [], 'portCables': {}})
     assert r.status_code == 200
     card = _raw(client, pid)['slots'][0]['card']
     assert 'snakes' not in card and 'portCables' not in card
+    assert _snakes(client, 'card', cid) == []
 
 
 @pytest.mark.parametrize('body, reason', [
@@ -174,8 +203,7 @@ def test_the_server_refuses_a_bad_store_with_the_reason(client, body,
     assert r.status_code == 400, r.get_data(as_text=True)
     assert reason in r.get_json()['error'], r.get_json()
     # nothing stored: the earlier snake is exactly what is there
-    assert [s['ports'] for s in _raw(client, pid)['slots'][0]['card']
-            ['snakes']] == [[5, 6]]
+    assert [s['ports'] for s in _snakes(client, 'card', cid)] == [[5, 6]]
 
 
 def test_a_box_refuses_a_socket_it_does_not_deliver(client):
@@ -199,13 +227,14 @@ def test_a_mode_change_prunes_what_the_card_no_longer_has(client):
                    json={'mode': 'copy-backup'})
     assert r.status_code == 200
     card = _raw(client, pid)['slots'][0]['card']
-    assert [s['ports'] for s in card['snakes']] == [[1, 2, 3]]
+    assert [s['ports'] for s in _snakes(client, 'card', cid)] == [[1, 2, 3]]
     assert card['portCables'] == {'4': {'ft': 10}}
 
 
 def test_removing_a_card_or_a_box_drops_its_snakes(client):
-    """The stores ride the record: clear the slot and the card's snakes
-    are gone with it; delete the box and its snake goes too."""
+    """A member goes with the device it names: delete the box and the
+    sockets it delivered leave their snake (one left empty goes with
+    them); clear the slot and the card's members go too."""
     pid, cid, bid = _h9_with_card_and_box(client)
     assert client.put(f'/api/processors/{pid}/cvts/{bid}',
                       json={'snakes': [{'ports': [1, 2]}]}).status_code == 200
@@ -214,11 +243,13 @@ def test_removing_a_card_or_a_box_drops_its_snakes(client):
     r = client.delete(f'/api/processors/{pid}/cvts/{bid}')
     assert r.status_code == 200
     card = _raw(client, pid)['slots'][0]['card']
-    assert card['cvts'] == [] and [s['ports'] for s in card['snakes']] == [
-        [9, 10]]
+    assert card['cvts'] == []
+    assert [s['ports'] for s in _snakes(client)] == [[9, 10]], (
+        'the box went and its snake went with it')
     r = client.put(f'/api/processors/{pid}/slots/0', json={'deviceId': None})
     assert r.status_code == 200
     assert _raw(client, pid)['slots'][0]['card'] is None
+    assert _snakes(client) == []
     # the counter noted the snake ids, so an undo-shaped restore cannot
     # hand one back out (sync_next_processor_seq sees snk ids)
     project = {'processors': [{'id': 'proc1', 'slots': [{'index': 0, 'card': {
@@ -248,9 +279,11 @@ def test_the_connector_list_is_served_and_follows_the_catalog(client):
     assert rcard['portConnector'] is None
     assert rcard['cvts'][0]['portConnector'] is None, (
         'the CVT10 documents no connector and its card is fiber: nothing')
-    snakes, cables = catalog.resolved_cable_store({
-        'snakes': [{'id': 'snk1', 'name': 'OLD', 'ports': [1, 2],
-                    'connector': 'fiber'}],
+    snakes = catalog.resolved_show_snakes({
+        'snakes': [{'id': 'snk1', 'name': 'OLD', 'connector': 'fiber',
+                    'members': [{'kind': 'card', 'id': 'card2',
+                                 'socket': 1}]}]})
+    cables = catalog.resolved_port_cables({
         'portCables': {'3': {'ft': 40, 'connector': 'fiber'},
                        '4': {'ft': 10, 'connector': 'cat'}}})
     assert snakes[0]['connector'] is None
@@ -332,14 +365,23 @@ STATE_JS = """(ids) => {
     const card = app._dockFindCard(ids.cardId).card;
     const box = card.cvts.find(c => c.id === ids.boxId);
     const l = app.project.layers.find(x => x.id === ids.id);
-    const store = (rec) => ({
-        snakes: rec.snakes.map(s => ({name: s.name, ft: s.ft,
-                                      connector: s.connector, ports: s.ports})),
-        ids: rec.snakes.map(s => s.id),
-        cables: rec.portCables,
-    });
+    // A snake is the SHOW's (2026-09-09) and names its members; read from
+    // one device it is the sockets it holds THERE, which is what every
+    // sheet, bracket and corner on that device shows.
+    const store = (rec, kind, id) => {
+        const mine = app.getShowSnakes().filter(
+            s => (s.members || []).some(m => m.kind === kind && m.id === id));
+        return {
+            snakes: mine.map(s => ({name: s.name, ft: s.ft,
+                                    connector: s.connector,
+                                    ports: app.snakeMembersOn(s, {kind, id})})),
+            ids: mine.map(s => s.id),
+            cables: rec.portCables,
+        };
+    };
     return {
-        card: store(card), box: store(box),
+        card: store(card, 'card', ids.cardId),
+        box: store(box, 'cvt', ids.boxId),
         flag: l.showDataCableTags,
         action: app.history[app.historyIndex].action,
         index: app.historyIndex,
@@ -353,9 +395,21 @@ SERVED_JS = """async (ids) => {
     const box = card.cvts.find(c => c.id === ids.boxId);
     const p = await (await fetch('/api/project')).json();
     const l = (p.layers || []).find(x => x.id === ids.id);
+    // The show's snakes as served, each seen from the device asked about:
+    // {ports} is what that card or box holds of it.
+    const on = (kind, id) => {
+        const mine = (st.snakes || []).filter(
+            s => (s.members || []).some(m => m.kind === kind && m.id === id));
+        return mine.length ? mine.map(s => ({
+            id: s.id, name: s.name, ft: s.ft, connector: s.connector,
+            ports: s.members.filter(m => m.kind === kind && m.id === id)
+                .map(m => m.socket).sort((a, b) => a - b),
+        })) : null;
+    };
     return {
-        cardSnakes: card.snakes || null, cardCables: card.portCables || null,
-        boxSnakes: box.snakes || null, boxCables: box.portCables || null,
+        cardSnakes: on('card', ids.cardId), cardCables: card.portCables || null,
+        boxSnakes: on('cvt', ids.boxId), boxCables: box.portCables || null,
+        showSnakes: st.snakes || [],
         flag: l ? l.showDataCableTags : undefined,
     };
 }"""
@@ -604,28 +658,89 @@ def test_the_sweep_lights_chips_and_a_right_click_snakes_them(page):
     assert st['box']['snakes'][0]['ports'] == [1, 2, 3, 4, 5, 6], st
 
 
-def test_the_sweep_refuses_a_second_card_and_escape_clears(page):
-    """A sweep that reaches into the other card's chips keeps its range
-    and says so in the status bar; Escape drops it, and a plain click
-    elsewhere would too."""
+# Two chips, one on each card, measured in the SAME layout: the tray is
+# opened tall enough to hold both and scrolled to their midpoint, then both
+# rects are read. Measuring one at a time and scrolling in between reads a
+# stale point for the first (the tray is one scrolling column of cells).
+TWO_CHIPS_JS = """([ka, kb]) => {
+    const body = document.getElementById('hardware-dock-body');
+    const A = document.querySelector(`[data-hwdock="${ka}"]`);
+    const B = document.querySelector(`[data-hwdock="${kb}"]`);
+    if (!A || !B) return null;
+    const top = (el) => {
+        let y = 0, n = el;
+        while (n && n !== body) { y += n.offsetTop; n = n.offsetParent; }
+        return y;
+    };
+    body.scrollTop = Math.max(
+        0, (top(A) + top(B)) / 2 - body.clientHeight / 2);
+    const ra = A.getBoundingClientRect(), rb = B.getBoundingClientRect();
+    const br = body.getBoundingClientRect();
+    const mid = (r) => [r.left + r.width / 2, r.top + r.height / 2];
+    return {
+        a: mid(ra), b: mid(rb),
+        visible: ra.top >= br.top - 1 && ra.bottom <= br.bottom + 1
+            && rb.top >= br.top - 1 && rb.bottom <= br.bottom + 1,
+    };
+}"""
+
+
+def test_the_sweep_crosses_to_another_card_and_escape_clears(page):
+    """A sweep that reaches into another card's chips LIGHTS BOTH
+    (2026-09-09: "Any sockets, any device" - one snake can hold sockets
+    from several cards or boxes, so the gesture that gathers them may
+    cross). The range is still contiguous, taken along the order the
+    chips sit in the tray: from the box's 7 to the second card's 1 is
+    the box's 7 and 8 and then that card's 1. Each unit draws its own
+    dashed ghost, and the tag says the WHOLE range with a "↔" - the loom
+    is one. Escape drops it, and a plain click elsewhere would too."""
     pg, ids = page
-    x1, y1 = _chip_center(pg, ids['cardId'], 7)
-    x2, y2 = _chip_center(pg, ids['card2Id'], 1)
-    pg.keyboard.down('Alt')
-    pg.mouse.move(x1, y1)
-    pg.mouse.down()
-    pg.mouse.move(x2, y2, steps=6)
-    pg.mouse.up()
-    pg.keyboard.up('Alt')
-    pg.wait_for_timeout(300)
-    tray = pg.evaluate(TRAY_JS, ['cvt', ids['boxId']])
-    assert tray['lit'] == [7], tray
-    assert pg.evaluate(TRAY_JS, ['card', ids['card2Id']])['lit'] == []
-    assert 'one card or box' in pg.locator('#status-message').text_content()
-    pg.keyboard.press('Escape')
-    pg.wait_for_timeout(200)
-    tray = pg.evaluate(TRAY_JS, ['cvt', ids['boxId']])
-    assert tray['lit'] == [] and [b['ghost'] for b in tray['brackets']] == [False]
+    was = pg.evaluate("""() => {
+        const d = document.getElementById('hardware-dock');
+        const h = d.style.height;
+        d.style.height = '760px';
+        if (typeof window.app.settleLayout === 'function') window.app.settleLayout();
+        return h;
+    }""")
+    pg.wait_for_timeout(400)
+    try:
+        pts = pg.evaluate(TWO_CHIPS_JS,
+                          [f'port-{ids["cardId"]}-7',
+                           f'port-{ids["card2Id"]}-1'])
+        assert pts and pts['visible'], pts
+        x1, y1 = pts['a']
+        x2, y2 = pts['b']
+        pg.keyboard.down('Alt')
+        pg.mouse.move(x1, y1)
+        pg.mouse.down()
+        # straight DOWN out of this box's grid first, then across into the
+        # other card: the range is re-taken from the anchor on every move,
+        # so what lands is anchor → the chip under the mouse
+        pg.mouse.move(x1, y2, steps=6)
+        pg.mouse.move(x2, y2, steps=6)
+        pg.mouse.up()
+        pg.keyboard.up('Alt')
+        pg.wait_for_timeout(300)
+        tray = pg.evaluate(TRAY_JS, ['cvt', ids['boxId']])
+        assert tray['lit'] == [7, 8], tray
+        other = pg.evaluate(TRAY_JS, ['card', ids['card2Id']])
+        assert other['lit'] == [1], other
+        ghosts = [b['tag'] for b in tray['brackets'] if b['ghost']] \
+            + [b['tag'] for b in other['brackets'] if b['ghost']]
+        assert ghosts == ['snake · 3-way ↔', 'snake · 3-way ↔'], (
+            tray['brackets'], other['brackets'])
+        pg.keyboard.press('Escape')
+        pg.wait_for_timeout(200)
+        tray = pg.evaluate(TRAY_JS, ['cvt', ids['boxId']])
+        assert tray['lit'] == [] and [b['ghost'] for b in tray['brackets']] == [False]
+        assert pg.evaluate(TRAY_JS, ['card', ids['card2Id']])['lit'] == []
+    finally:
+        pg.evaluate("""(h) => {
+            const d = document.getElementById('hardware-dock');
+            d.style.height = h || '';
+            if (typeof window.app.settleLayout === 'function') window.app.settleLayout();
+        }""", was)
+        pg.wait_for_timeout(300)
 
 
 def test_the_card_sheet_types_loose_lengths_that_read_in_the_corner(page):
@@ -714,11 +829,14 @@ def test_the_card_sheet_types_loose_lengths_that_read_in_the_corner(page):
 
 def test_the_sheet_ticks_and_snakes_and_undo_loosens(page):
     """Option A whole: tick 11, 12, 13 in the card's sheet, press Snake -
-    ONE 'Snake Ports' entry, the card's own SNAKE A (its first; the box's
-    SNAKE A is another record's), the three rows fold under a snake row
+    ONE 'Snake Ports' entry and one new snake, named SNAKE B - the
+    default letter is the first free one ACROSS THE SHOW now (2026-09-09:
+    a snake is the show's, so two of them cannot both be SNAKE A just
+    because they sit on different devices, and the box already holds
+    that one). The three rows fold under a snake row
     as members that each carry an EXTENSION field (blank - "ext ␣ ft"),
     Tab walking the ft column through them in order. 25 on member 12 is
-    ONE 'Set Port Extension' and reads "SNAKE A +25'"; undo takes the
+    ONE 'Set Port Extension' and reads "SNAKE B +25'"; undo takes the
     extension, then the snake."""
     pg, ids = page
     cid = ids['cardId']
@@ -729,13 +847,13 @@ def test_the_sheet_ticks_and_snakes_and_undo_loosens(page):
     pg.locator(f'[data-lrd-field="data-cable-snake-{cid}"]').click()
     pg.wait_for_timeout(900)
     st = pg.evaluate(STATE_JS, ids)
-    assert st['card']['snakes'] == [{'name': 'SNAKE A', 'ft': None,
+    assert st['card']['snakes'] == [{'name': 'SNAKE B', 'ft': None,
                                      'connector': None, 'ports': [11, 12, 13]}]
     assert st['action'] == 'Snake Ports' and st['index'] == index + 1, st
     sheet = pg.evaluate(SHEET_JS, ['card', cid])
     kinds = [(r['kind'], r['label']) for r in sheet['rows']]
     assert kinds[:2] == [('free', '9 · SR-9'), ('free', '10 · SR-10')], kinds
-    assert kinds[2] == ('snake', 'SNAKE A · 3-way'), kinds
+    assert kinds[2] == ('snake', 'SNAKE B · 3-way'), kinds
     assert kinds[3:6] == [('member', '11 · SR-11'), ('member', '12 · SR-12'),
                           ('member', '13 · SR-13')], kinds
     # a member row carries its extension field, blank, keyed like a loose
@@ -744,9 +862,9 @@ def test_the_sheet_ticks_and_snakes_and_undo_loosens(page):
     assert [r['ftKey'] for r in sheet['rows'][3:6]] == [
         f'data-cable-ft-{cid}-{n}' for n in (11, 12, 13)], sheet
     assert sheet['selects'] == 0 and set(sheet['cells']) == {4}, sheet
-    assert sheet['rows'][2]['name'] == 'SNAKE A', sheet
+    assert sheet['rows'][2]['name'] == 'SNAKE B', sheet
     # the snake's name field is sized to its text: max(6, len + 1)
-    assert sheet['rows'][2]['nameSize'] == len('SNAKE A') + 1, sheet['rows'][2]
+    assert sheet['rows'][2]['nameSize'] == len('SNAKE B') + 1, sheet['rows'][2]
     # Tab walks from the snake's ft into its members' ext fields in order
     pg.locator(f'[data-lrd-field="data-snake-ft-{cid}-{st["card"]["ids"][0]}"]').focus()
     pg.keyboard.press('Tab')
@@ -766,7 +884,7 @@ def test_the_sheet_ticks_and_snakes_and_undo_loosens(page):
         const c = window.app.dataPortCable(ids.cardId, 12);
         return [c.kind, c.ext, c.text, window.app.runText(c)];
     }""", ids)
-    assert reading == ['snake', 25, "SNAKE A +25'", "SNAKE A · no length +25'"], reading
+    assert reading == ['snake', 25, "SNAKE B +25'", "SNAKE B · no length +25'"], reading
     pg.evaluate('() => window.app.undo()')
     pg.wait_for_timeout(1200)
     st = pg.evaluate(STATE_JS, ids)
@@ -824,8 +942,7 @@ def test_rename_and_home_run_commit_one_entry_each(page):
         '[data-lrd-field="data-snake-connector-{bid}-{snake_id}"]')"""), (
         'the snake row asks no connector')
     pg.evaluate("""([ids, sid]) => window.app.setSnake(
-        window.app._dataCableOwner('cvt', ids.boxId), sid,
-        {connector: 'cat'}, 'Set Snake Home Run')""", [ids, snake_id])
+        sid, {connector: 'cat'}, 'Set Snake Home Run')""", [ids, snake_id])
     pg.wait_for_timeout(900)
     st = pg.evaluate(STATE_JS, ids)
     assert st['box']['snakes'][0]['connector'] == 'cat', st
@@ -980,7 +1097,8 @@ def test_an_extension_reads_on_the_corner_the_tag_and_survives_loosen(page):
     # unsnake 3 out of FOH: the entry stays and is its own home run now
     pg.evaluate("""(ids) => {
         const app = window.app;
-        return app.loosenPorts(app._dataCableOwner('cvt', ids.boxId), [3]);
+        return app.loosenPorts(
+            [app.snakeMember(app._dataCableOwner('cvt', ids.boxId), 3)]);
     }""", ids)
     pg.wait_for_timeout(900)
     st = pg.evaluate(STATE_JS, ids)
@@ -1309,7 +1427,11 @@ def test_the_backup_boxs_sheet_reads_like_the_primarys(e2e_server, pw_browser):
                 const backup = app._dockFindCard('card3').card;
                 const boxA = card.cvts.find(c => c.name === 'SR A');
                 const boxB = backup.cvts.find(c => c.name === 'SR B');
-                return { a: boxA.id, b: boxB.id, snakeA: boxA.snakes[0].ports, snakeB: boxB.snakes[0].ports,
+                const on = (o) => app.snakeMembersOn(
+                    app.getShowSnakes().find(
+                        s => s.members.some(m => m.id === o.id)),
+                    {kind: 'cvt', id: o.id});
+                return { a: boxA.id, b: boxB.id, snakeA: on(boxA), snakeB: on(boxB),
                          backup: backup.backupFor ? backup.backupFor.title : null };
             }""", project)
             pg.wait_for_timeout(800)
@@ -1405,7 +1527,10 @@ SHEET_FIT_JS = """([kind, id]) => {
         units: [...body.querySelectorAll('.hw-dock-unit')].map(u => ({
             name: (u.querySelector('.hw-dock-unit-name') || {}).textContent || '',
             hasSheet: u === unit, ...rect(u)})),
-        sheetMinW: parseFloat(getComputedStyle(sheet).minWidth),
+        sheetMinW: getComputedStyle(sheet).minWidth,
+        tracks: bs.gridTemplateColumns,
+        display: bs.display,
+        sheetScrollW: sheet.scrollWidth,
         tableCssW: getComputedStyle(table).width,
         nameW: (() => { const n = sheet.querySelector('.hw-dock-cable-name');
             return n ? n.getBoundingClientRect().width : null; })(),
@@ -1414,16 +1539,17 @@ SHEET_FIT_JS = """([kind, id]) => {
 }"""
 
 
-def test_a_sheet_sizes_to_its_table_within_the_floor(page):
-    """sheet-fit-mock.html, "i like option A but if we pass a threshold
-    then grow like option B" (2026-09-07). On a 1440x900 window with TWO
-    cards in the tray, a unit whose sheet is open takes what its table
-    needs and no more: the table is never wider than the sheet, the unit
-    is at least the sheet's 480px floor and never wider than the tray
-    body, and the sheet has nothing to scroll sideways for. Then B's
-    growth: the snake renamed to something long - its name field sized to
-    its text - widens the table and the unit with it, still inside the
-    tray; undo puts the name back."""
+def test_a_sheet_fits_its_cell_and_never_widens_its_unit(page):
+    """The sheet fits its CELL (2026-09-09, replacing the 2026-09-07
+    "Option A with B's growth" rule this test used to pin: "still having
+    weirdness in the data hardware screen ... when i try and open the
+    cable sheet it jumps the whole screen around"). The tray is a grid of
+    equal tracks now, so a unit's width is the tray's business alone: an
+    open sheet takes its cell's width, the table lays out at CONTENT width
+    inside it, and a table wider than the cell scrolls the SHEET sideways
+    instead of growing the unit and re-packing the row. The long snake
+    name still widens the field and the table - and the unit does not
+    move a pixel; undo puts the name back."""
     pg, ids = page
     _sheet_open(pg, 'cvt', ids['boxId'], False)
     _sheet_open(pg, 'card', ids['cardId'], False)
@@ -1441,18 +1567,21 @@ def test_a_sheet_sizes_to_its_table_within_the_floor(page):
         assert out['viewport'] == [1440, 900], out['viewport']
         # two cards in the tray, the sheet's on one of them
         assert len(out['units']) >= 2 and sum(1 for u in out['units'] if u['hasSheet']) == 1, out['units']
-        # the table is no wider than the sheet, and lays out at content width
-        assert out['table']['w'] <= out['sheet']['w'] + 1, (out['table'], out['sheet'])
-        assert out['table']['right'] <= out['sheet']['right'] + 1, (out['table'], out['sheet'])
-        assert not out['sheetScrolls'], out
-        # the floor: 480px on the sheet; the unit is at least that and
-        # never wider than the tray body - Option A, not the whole row
-        assert out['sheetMinW'] == 480, out['sheetMinW']
-        assert out['sheet']['w'] >= 480 - 0.5, out['sheet']
-        assert 480 <= out['unit']['w'] <= out['bodyContentW'] + 1, (out['unit'], out['bodyContentW'])
-        assert out['unit']['w'] < out['bodyContentW'] - 100, (
-            'the unit must size to its table, not take the tray row', out['unit'], out['bodyContentW'])
-        # B's growth: a long name widens the field, the table and the unit
+        # the tray is a grid, and the cell holding the sheet is one track
+        assert out['display'] == 'grid', out['display']
+        tracks = [float(t[:-2]) for t in out['tracks'].split()
+                  if t.endswith('px')]
+        assert tracks, out['tracks']
+        # the 480px floor is retired: nothing but the tray sets the width
+        assert out['sheetMinW'] in ('auto', '0px'), out['sheetMinW']
+        assert out['tableCssW'] != '100%', out['tableCssW']
+        assert out['unit']['w'] <= tracks[0] + 1, (out['unit'], tracks)
+        assert out['unit']['w'] <= out['bodyContentW'] + 1, (
+            out['unit'], out['bodyContentW'])
+        # the table is inside the sheet's scroll, never wider than the sheet
+        # can carry
+        assert out['table']['w'] <= out['sheetScrollW'] + 1, out
+        # B's growth: a long name widens the field and the table
         name = pg.locator(f'[data-lrd-field="data-snake-name-{ids["boxId"]}-{snake_id}"]')
         long_name = 'SR PRIMARY SNAKE TO FOH LEFT'
         index = pg.evaluate(STATE_JS, ids)['index']
@@ -1469,10 +1598,16 @@ def test_a_sheet_sizes_to_its_table_within_the_floor(page):
         assert size == len(long_name) + 1, size
         assert grown['nameW'] > out['nameW'] + 40, (grown['nameW'], out['nameW'])
         assert grown['table']['w'] > out['table']['w'] + 40, (grown['table'], out['table'])
-        assert grown['unit']['w'] > out['unit']['w'] + 40, (grown['unit'], out['unit'])
-        assert grown['table']['w'] <= grown['sheet']['w'] + 1, (grown['table'], grown['sheet'])
+        # ...and the UNIT does not move: the cell is the tray's width, and a
+        # table past it scrolls the sheet sideways rather than re-packing
+        # the row.
+        assert abs(grown['unit']['w'] - out['unit']['w']) <= 1, (
+            grown['unit'], out['unit'])
+        assert abs(grown['unit']['x'] - out['unit']['x']) <= 1, (
+            grown['unit'], out['unit'])
         assert grown['unit']['w'] <= grown['bodyContentW'] + 1, (grown['unit'], grown['bodyContentW'])
-        assert not grown['sheetScrolls'], grown
+        if grown['table']['w'] > grown['sheet']['w'] + 1:
+            assert grown['sheetScrolls'], grown
         pg.evaluate('() => window.app.undo()')
         pg.wait_for_timeout(1200)
         st = pg.evaluate(STATE_JS, ids)
@@ -1590,3 +1725,129 @@ def test_a_chip_reads_its_occupant_and_its_length_side_by_side(page):
     st = pg.evaluate(STATE_JS, ids)
     assert '5' not in st['box']['cables'] and st['index'] == index, st
     assert pg.evaluate("(ids) => window.app._portOccupants(ids.cardId, 5).map(o => o.name)", ids) == ['WALL']
+
+
+# Every row's HOME RUN cell, measured: where the ft input's left edge sits
+# and where its "ft" word sits, per row, plus the row's kind and its word
+# slot. One x for all of them or the column zigzags.
+RUN_COLUMN_JS = """([kind, id]) => {
+    const sheet = document.querySelector(
+        `.hw-dock-cablesheet[data-lrd-cable-sheet="${kind}:${id}"]`);
+    if (!sheet) return null;
+    return [...sheet.querySelectorAll('tr')].filter(tr => tr.querySelector('td'))
+        .map(tr => {
+            const ft = tr.querySelector('.hw-dock-cable-ft');
+            const unit = tr.querySelector('.hw-dock-cable-unit');
+            const word = tr.querySelector('.hw-dock-cable-word');
+            const cap = tr.querySelector('.hw-dock-cable-snake-cap');
+            const tds = [...tr.querySelectorAll('td')];
+            return {
+                kind: tr.classList.contains('hw-dock-cable-snake') ? 'snake'
+                    : tr.classList.contains('hw-dock-cable-member') ? 'member'
+                    : tr.classList.contains('hw-dock-cable-free') ? 'free'
+                        : 'port',
+                snakeRow: tr.dataset.lrdSnakeRow || null,
+                label: cap ? cap.textContent : tds[1].textContent,
+                away: (tr.querySelector('.hw-dock-cable-snake-away')
+                    || {}).textContent || '',
+                who: tds[2].textContent,
+                word: word ? word.textContent : null,
+                ftX: ft ? ft.getBoundingClientRect().left : null,
+                ftW: ft ? ft.getBoundingClientRect().width : null,
+                unitX: unit ? unit.getBoundingClientRect().left : null,
+            };
+        });
+}"""
+
+
+def test_the_home_run_column_lines_up_and_a_snake_keeps_its_members(page):
+    """"also these columns dont line up" (2026-09-09, on a sheet whose
+    member rows carried an "ext" that pushed their inputs right of the
+    snake rows'). Every row's HOME RUN cell is the same three fixed slots
+    - [word | input | ft] - so every input's left edge and every "ft" sit
+    on one x, whatever the row is. And the snake keeps its members: a
+    snake over the box's 5-8 with screens on 5 and 6 only lists FOUR
+    member rows and reads "4-way"; the free ones say "free" in the SCREEN
+    cell, which is that cell's word for an empty socket - never a row
+    kind."""
+    pg, ids = page
+    was = pg.evaluate("""(ids) => {
+        const app = window.app;
+        const owner = app._dataCableOwner('cvt', ids.boxId);
+        return app.getShowSnakes()
+            .filter(s => s.members.some(m => m.kind === 'cvt' && m.id === owner.id))
+            .map(s => ({name: s.name, ft: s.ft, connector: s.connector,
+                        ports: app.snakeMembersOn(s, owner)}));
+    }""", ids)
+    made = pg.evaluate("""async (ids) => {
+        const app = window.app;
+        const owner = app._dataCableOwner('cvt', ids.boxId);
+        return await app.snakePorts(app.snakeMembersOf(owner, [5, 6, 7, 8]));
+    }""", ids)
+    pg.wait_for_timeout(900)
+    try:
+        _sheet_open(pg, 'cvt', ids['boxId'], True)
+        rows = pg.evaluate(RUN_COLUMN_JS, ['cvt', ids['boxId']])
+        print('\nhome run column:', json.dumps(rows))
+        # the snake's row, then its four members - the count and the rows
+        # agree, and every snake on the sheet says as many ways as it has
+        # rows under it
+        at = [i for i, r in enumerate(rows) if r['snakeRow'] == made]
+        assert len(at) == 1, (made, rows)
+        head = rows[at[0]]
+        assert '4-way' in head['label'], head
+        assert head['word'] == '', head
+        members = []
+        for r in rows[at[0] + 1:]:
+            if r['kind'] != 'member':
+                break
+            members.append(r)
+        assert [r['label'].split(' ')[0] for r in members] \
+            == ['5', '6', '7', '8'], members
+        assert all(r['word'] == 'ext' for r in members), members
+        # a screen sits on 5 and 6; 7 and 8 read "free" in the SCREEN cell
+        # and are members all the same
+        assert [r['who'] for r in members][2:] == ['free', 'free'], members
+        assert 'free' not in [r['who'] for r in members][:2], members
+        # every snake row's count is the member rows beneath it PLUS the
+        # sockets it holds on another card or box, which the row names in
+        # its own dim "+ … on …" (2026-09-09: a snake spans devices now, so
+        # the count is the whole loom and the row accounts for all of it)
+        for i, r in enumerate(rows):
+            if r['kind'] != 'snake':
+                continue
+            n = 0
+            for m in rows[i + 1:]:
+                if m['kind'] != 'member':
+                    break
+                n += 1
+            away = 0
+            if r['away']:
+                for part in r['away'].lstrip(' +').split(';'):
+                    away += len(part.split(' on ')[0].split(','))
+            assert f'{n + away}-way' in r['label'], (r, rows)
+        # one x for every input, one for every "ft"
+        xs = [r['ftX'] for r in rows if r['ftX'] is not None]
+        us = [r['unitX'] for r in rows if r['unitX'] is not None]
+        assert len(xs) == len(rows), rows
+        assert max(xs) - min(xs) <= 1, [r for r in rows]
+        assert len(us) == len(rows), rows
+        assert max(us) - min(us) <= 1, [r for r in rows]
+        # every input the same width, so the "ft" words line up because the
+        # inputs do, not by luck
+        ws = [r['ftW'] for r in rows if r['ftW'] is not None]
+        assert max(ws) - min(ws) <= 1, rows
+    finally:
+        # put the box's snake store back exactly as this test found it -
+        # the module's page is shared, and the tests after this one read it
+        pg.evaluate("""async (o) => {
+            const app = window.app;
+            await fetch(`/api/processors/${o.pid}/cvts/${o.box}`, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({snakes: o.was})});
+            await app.refreshProcessors();
+            app.renderHardwareDock();
+        }""", {'pid': ids['procId'], 'box': ids['boxId'], 'was': was})
+        pg.wait_for_timeout(700)
+        _sheet_open(pg, 'cvt', ids['boxId'], False)

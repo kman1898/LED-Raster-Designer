@@ -1478,8 +1478,10 @@ def test_a_project_with_no_processors_is_shaped_exactly_as_before(client):
     # be typed as, 2026-09-06), served with the tree so the sheet's select
     # and the server's refusals name one list - never project state, so
     # the project below stays byte-for-byte what it was.
+    # `snakes` is the show's own list (2026-09-09) and rides the same
+    # payload; empty here, and reading it stamps nothing.
     assert resp.get_json() == {
-        'processors': [], 'resolved': [],
+        'processors': [], 'resolved': [], 'snakes': [],
         'dataCableConnectors': catalog.data_cable_connectors()}
 
     after = client.get('/api/project').get_json()
@@ -3045,7 +3047,10 @@ def test_the_glance_reads_the_occupancy_and_never_renumbers(panel_page):
         return {
             sx: byCard[ids.sxCard] || null,
             mx: byCard[ids.mxCard] || null,
-            stripModel: strip.querySelector('span').textContent,
+            // not(.hw-dock-grip): the strip leads with the ⋮⋮ drag grip
+            // (2026-09-09, reorder by drag); the model is the span after it
+            stripModel: strip.querySelector('span:not(.hw-dock-grip)')
+                .textContent,
             stripName: strip.querySelector('input').value,
         };
     }""", ids)

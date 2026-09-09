@@ -2532,13 +2532,24 @@ class _ExportIo {
                 e.stopPropagation();
                 const canvasId = btn.dataset.canvasId;
                 close();
-                // Sequential, not Promise.all: each move PUTs and the server
-                // answers with the whole project, so overlapping calls would
-                // race and the last response would undo the others.
-                for (const layer of layers) {
-                    if (layer.canvas_id === canvasId) continue;
-                    await this.moveLayerToCanvas(layer.id, canvasId, 'move');
-                }
+                // ONE BATCH, not a layer at a time, because a group is one
+                // wall. /api/layer/<id>/canvas can only ever see ONE layer,
+                // so it has to assume the rest of the wall is staying where
+                // it is: it takes the member out of its group on the way
+                // across (_detach_from_cross_canvas_group), and what is left
+                // of a group of one is dissolved. Run over three members
+                // that delivered three loose screens on the target canvas.
+                // moveLayersCrossCanvas is the same gesture the cross-canvas
+                // DRAG already goes through: it still PUTs sequentially (the
+                // server answers with the whole project, so overlapping calls
+                // would race and the last response would undo the others),
+                // but it snapshots the whole walls inside the batch first and
+                // puts them back together once every PUT has landed. Layers
+                // already sitting on the destination are handed over too - in
+                // a mixed selection they can be members of a wall the rest of
+                // the batch is bringing, and the batch has to see all of it
+                // to recognize a whole wall; the PUT is a no-op move for them.
+                await this.moveLayersCrossCanvas(layers.map(l => l.id), canvasId, 'move');
                 sendClientLog('move_to_canvas', { count: layers.length, canvasId });
             });
         });

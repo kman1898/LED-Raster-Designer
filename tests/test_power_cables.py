@@ -597,6 +597,141 @@ def test_a_tag_on_the_wall_s_edge_flips_inside_the_screen(page):
     assert not box.is_checked()
 
 
+# A cable tag never covers another label. "the cables added to the power or
+# data sometimes go under labels and overlap" (user, 2026-09-09, on a
+# screenshot of "10' True1" tags lying across the S1-1-1 / S1-1-2 discs):
+# when two circuits begin ONE PANEL apart, the tag hanging beside the first
+# label lands on the second. placeCableTag is the rule as built - beside its
+# own label, the other side, below it, above it; the first pill that covers
+# no OTHER disc of the pass and stays inside the screen wins - and this
+# reads it through the renderer: every call's discs, the pill it chose, and
+# the pill it would have drawn had it stayed beside its label.
+TAG_PLACES_JS = """([pattern, labelSize, watts, circuits]) => {
+    const app = window.app, r = window.canvasRenderer, l = app.currentLayer;
+    // nothing here reaches the project or the undo log: the layer is put
+    // back exactly as it was found before this returns
+    const before = { pattern: l.powerFlowPattern, size: l.powerLabelSize, watts: l.panelWatts,
+                     tags: l.showPowerCableTags,
+                     cables: JSON.parse(JSON.stringify(l.powerCircuitCables || null)) };
+    l.powerFlowPattern = pattern;
+    l.powerLabelSize = labelSize;
+    l.panelWatts = watts;
+    l.showPowerCableTags = true;
+    l.powerCircuitCables = {};
+    for (let n = 1; n <= circuits; n++) l.powerCircuitCables[n] = { ft: 10, connector: null };
+    l._powerCircuits = null;
+    l._powerCircuitNumKeys = null;
+    app._circuitTailCache = null;
+    const calls = [];
+    const place = r.placeCableTag;
+    const draw = r.drawCableTag;
+    const pills = [];
+    r.placeCableTag = function (text, cx, cy, rad, size, bounds, discs, own) {
+        const at = place.apply(this, arguments);
+        const beside = r.cableTagRect(text, cx + rad, cy, size,
+                                      { side: 'right', top: bounds.top, bottom: bounds.bottom });
+        calls.push({
+            text, cx, cy, rad, side: at.opts.side,
+            rect: { x: at.rect.x, y: at.rect.y, w: at.rect.w, h: at.rect.h },
+            beside: { x: beside.x, y: beside.y, w: beside.w, h: beside.h },
+            discs: (discs || []).map(d => ({ x: d.x, y: d.y, r: d.r, own: d === own })),
+            bounds: { left: bounds.left, top: bounds.top, right: bounds.right, bottom: bounds.bottom },
+        });
+        return at;
+    };
+    r.drawCableTag = function (text, x, y, size, colors, opts) {
+        const rc = r.cableTagRect(text, x, y, size, opts);
+        pills.push({ text, x: rc.x, y: rc.y, w: rc.w, h: rc.h });
+        return draw.apply(this, arguments);
+    };
+    const prev = r.viewMode, wasExport = r.exportMode;
+    const out = { interactive: null, exported: null, labels: null };
+    try {
+        r.viewMode = 'power';
+        r.render();
+        out.interactive = { calls: calls.slice(), pills: pills.slice() };
+        calls.length = 0; pills.length = 0;
+        r.exportMode = true;
+        r.render();
+        out.exported = { calls: calls.slice(), pills: pills.slice() };
+        out.labels = app.screenCircuits(l).map(c => c.num);
+    } finally {
+        r.exportMode = wasExport;
+        r.viewMode = prev;
+        delete r.placeCableTag;
+        delete r.drawCableTag;
+        l.powerFlowPattern = before.pattern;
+        l.powerLabelSize = before.size;
+        l.panelWatts = before.watts;
+        if (before.tags === undefined) delete l.showPowerCableTags;
+        else l.showPowerCableTags = before.tags;
+        if (before.cables === null) delete l.powerCircuitCables;
+        else l.powerCircuitCables = before.cables;
+        l._powerCircuits = null;
+        l._powerCircuitNumKeys = null;
+        app._circuitTailCache = null;
+        r.render();
+    }
+    return out;
+}"""
+
+
+def _meets(rect, disc):
+    """The pill's rect against a label disc: the nearest point of the rect
+    to the circle's centre inside the circle."""
+    qx = max(rect['x'], min(disc['x'], rect['x'] + rect['w']))
+    qy = max(rect['y'], min(disc['y'], rect['y'] + rect['h']))
+    return (qx - disc['x']) ** 2 + (qy - disc['y']) ** 2 < disc['r'] ** 2 - 1e-6
+
+
+def _inside(rect, b):
+    return (rect['x'] >= b['left'] - 1e-6 and rect['x'] + rect['w'] <= b['right'] + 1e-6
+            and rect['y'] >= b['top'] - 1e-6 and rect['y'] + rect['h'] <= b['bottom'] + 1e-6)
+
+
+def test_a_cable_tag_never_covers_another_label(page):
+    """Circuits ONE PANEL apart - the wall flowed down its columns at 170 W
+    a cabinet (a column is 2040 W, a thirteenth cabinet 2210 - over the
+    2080 W circuit), so a column is a circuit and every label sits on row 1
+    of the next column - labels at 30 px, "10' True1" tags. Beside its own
+    label each tag would lie across its neighbour's disc; placed, no pill
+    meets any disc but the one it hangs off, every pill is inside the
+    screen, and the pill drawn is the pill that was placed. exportMode
+    draws the same tags in the same places - "the same test in exportMode
+    so the PDF is what was asked for". The probe puts the screen back as it
+    found it: no project write, no undo step."""
+    pg, ids = page
+    before = pg.evaluate(STATE_JS, ids['id'])
+    out = pg.evaluate(TAG_PLACES_JS, ['tl-v', 30, 170, 8])
+    after = pg.evaluate(STATE_JS, ids['id'])
+    assert after == before, ('the probe must leave the screen as it found it', before, after)
+    assert out['labels'] == list(range(1, 9)), ('a column a circuit', out['labels'])
+    for pass_name in ('interactive', 'exported'):
+        calls = out[pass_name]['calls']
+        assert len(calls) >= 4, (pass_name, calls)
+        assert all(c['text'].startswith("10' ") for c in calls), calls
+        for c in calls:
+            others = [d for d in c['discs'] if not d['own']]
+            assert others, ('the pass must offer the other labels', pass_name, c)
+            hit = [d for d in others if _meets(c['rect'], d)]
+            assert not hit, (f'{pass_name}: a tag covers another label', c['text'], hit, c)
+            assert _inside(c['rect'], c['bounds']), (pass_name, c)
+        # the fixture must actually exercise the rule: beside its own label
+        # at least one of these tags would have lain across a neighbour
+        would = [c for c in calls
+                 if any(_meets(c['beside'], d) for d in c['discs'] if not d['own'])]
+        assert would, (f'{pass_name}: the wall must put a tag over a neighbour '
+                       f'before the rule moves it', calls)
+        # the pill placed is the pill drawn
+        pills = {(p['text'], round(p['x'], 3), round(p['y'], 3)) for p in out[pass_name]['pills']}
+        for c in calls:
+            assert (c['text'], round(c['rect']['x'], 3), round(c['rect']['y'], 3)) in pills, (
+                pass_name, c, out[pass_name]['pills'])
+    assert ([(c['text'], round(c['rect']['x'], 3), round(c['rect']['y'], 3)) for c in out['interactive']['calls']]
+            == [(c['text'], round(c['rect']['x'], 3), round(c['rect']['y'], 3)) for c in out['exported']['calls']]), (
+        'exportMode must place the tags exactly where the screen does')
+
+
 def test_the_switch_reads_the_selected_screen(page):
     """loadLayerToInputs: the box follows the layer it shows, and an absent
     key reads OFF - the docs option is opted into, never inherited."""

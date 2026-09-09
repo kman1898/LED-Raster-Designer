@@ -1260,30 +1260,68 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 }
 /* The body scrolls VERTICALLY inside whatever height the tray has - the
    canvas is the star of this column. Sideways it reflows (the tile grid's
-   own rule), never scrolls. */
+   own rule), never scrolls.
+
+   ── the FIXED GRID (2026-09-09: "still having weirdness in the data
+   hardware screen ... when i try and open the cable sheet it jumps the
+   whole screen around") ────────────────────────────────────────────────
+   The tray was flex-wrap with content-sized items, so a unit that opened
+   its cable sheet or folded away changed its own width - and wrap re-packed
+   every row around it: the card beside it grew to a whole row, the rows
+   below moved sideways and down. Now the body is a GRID of equal 440px
+   tracks (the width a 16-port card's chips wrap well at; min() so a tray
+   narrower than one track still gives one column that fits rather than
+   overflowing). Every top-level item - a processor wrap, a redundant pair
+   wrapper, a lone unit, a distro column - is ONE cell, and a cell's width
+   is decided by the TRAY's width alone: never by its content, never by a
+   sibling's state. Opening a sheet, folding a section, typing a name,
+   nesting a pair or editing a chip changes a cell's HEIGHT only, which
+   pushes lower rows down and moves nothing sideways.
+   position: relative so the drag-reorder marker (app-dock.js
+   _dockReorderMarker) can place itself against the scrolled body. */
 #hardware-dock-body {
     flex: 1 1 auto; min-height: 0;
     overflow-y: auto; overflow-x: hidden;
     padding: 6px 8px;
-    display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start;
-    align-content: flex-start;
+    position: relative;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(440px, 100%), 1fr));
+    grid-auto-rows: auto;
+    gap: 10px;
+    align-items: start; justify-items: stretch;
+    align-content: start;
+}
+/* A device with more than 24 sockets gets two tracks - by its PORT COUNT,
+   a static fact of the model, never by what its unit is doing. Suppressed
+   while the tray holds a single track (app-dock.js stamps hw-dock-one-col
+   from the measured width), where a span would invent a second column and
+   push the tray sideways. */
+#hardware-dock-body:not(.hw-dock-one-col) > .hw-dock-span2 {
+    grid-column: span 2;
+}
+/* The insertion marker a processor / distro drag shows between cells. */
+.hw-dock-drop-mark {
+    position: absolute; width: 3px; border-radius: 2px;
+    background: var(--ps-accent, #ef3340);
+    pointer-events: none; z-index: 5;
 }
 #hardware-dock .hw-dock-head { font-size: 11px; flex: 0 0 auto; }
 .hw-dock-note { font-size: 11px; color: #888; padding: 2px 0; }
-/* Units GROW along the tray: this is a horizontal strip under a wide canvas,
-   so a 40-port card spreads into a wide shallow grid rather than stacking
-   twenty rows deep and scrolling out of its own body. */
+/* One processor wrap is ONE cell of the tray grid, and its cards STACK
+   inside it: the cell's width is the tray's business, so nothing in here
+   sets a flex basis any more (a basis would let a card's content decide
+   how wide the card is, which is the re-packing the grid retired). */
 .hw-dock-proc {
-    display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start;
-    flex: 1 1 300px; min-width: 0;
+    display: flex; flex-direction: column; gap: 8px; align-items: stretch;
+    min-width: 0;
 }
 .hw-dock-proc-name {
-    flex: 1 1 100%; font-size: 10px; color: #888;
+    font-size: 10px; color: #888;
     text-transform: uppercase; letter-spacing: 0.4px;
 }
 .hw-dock-unit {
     border: 1px solid #262626; border-radius: 3px; background: #0d0d0d;
-    padding: 4px 6px; flex: 1 1 240px; min-width: 170px; max-width: 100%;
+    padding: 4px 6px; min-width: 0; max-width: 100%;
 }
 .hw-dock-head-row {
     display: flex; align-items: baseline; gap: 6px; cursor: grab;
@@ -1326,13 +1364,11 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
     border-left: 2px solid #6b5626 !important;
     padding-left: 6px !important;
 }
-/* In the tray the pair wrapper takes the flex place its main had: a pair
-   of processors sits where one processor sat, a pair of card units where
-   one unit sat, the two halves stacking inside. */
-#hardware-dock-body > .lrd-red-pair { flex: 1 1 300px; }
-.hw-dock-proc > .lrd-red-pair {
-    flex: 1 1 240px; min-width: 170px; max-width: 100%;
-}
+/* In the tray the pair wrapper takes the PLACE its main had: a pair of
+   processors is one cell of the tray grid where one processor was, a pair
+   of card units one stacked block inside its processor's cell, the two
+   halves stacking inside. No flex on either - the grid decides the width. */
+.hw-dock-proc > .lrd-red-pair { min-width: 0; max-width: 100%; }
 /* Dock chips are drag handles first and the cursor says so - and the
    chips are ALSO their things' folding editors, since the dock is the one
    hardware surface: a press released without movement is the click that
@@ -1777,11 +1813,22 @@ button.hw-dock-typechip:focus-visible { outline: 1px solid var(--ps-accent, #ef3
 .hw-dock-cablesheet-data tr.hw-dock-cable-member td { color: #7a8a94; }
 .hw-dock-cablesheet-data .hw-dock-cable-dim { color: #666666; }
 .hw-dock-cable-snake-cap { margin-right: 6px; white-space: nowrap; }
-/* no width: the field's `size` (app-dock.js, max(6, name.length + 1))
-   sizes it to its text, so a longer name grows the sheet */
+/* The members of a snake that this sheet cannot show - they sit on
+   another card or box (2026-09-09, "Any sockets, any device"). Dim and
+   after the name field, so the row still reads name-first, and cut to an
+   ellipsis rather than widening the sheet the way the SCREEN cell is. */
+.hw-dock-cable-snake-away {
+    color: var(--ps-faint, #8a8a8a); font-size: 9.5px; margin-left: 6px;
+    display: inline-block; max-width: 22ch; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; vertical-align: middle;
+}
+/* The field's `size` (app-dock.js, max(6, name.length + 1)) sizes it to
+   its text so a longer name reads whole, BOUNDED at 20ch (2026-09-09):
+   the snake name shares its row with the ft input, and an unbounded field
+   pushed the SCREEN column - which carries its own 24ch cap - along. */
 .hw-dock-cable-name {
     background: #0d0d0d; color: #eeeeee; border: 1px solid #555;
-    border-radius: 3px; padding: 1px 4px;
+    border-radius: 3px; padding: 1px 4px; max-width: 20ch; min-width: 0;
     font: 10.5px ui-monospace, Menlo, monospace;
 }
 .hw-dock-cable-name:focus { outline: none; border-color: var(--ps-accent, #ef3340); }
@@ -1905,11 +1952,14 @@ button.hw-dock-typechip:focus-visible { outline: 1px solid var(--ps-accent, #ef3
    a late scrollbar or rounding squeezes columns a hair instead of
    wrapping an orphan. The cap rides every column identically, so
    sibling columns always render the SAME width - the wrapped orphan's
-   600 next to its siblings' 440 was part of the bug. */
+   600 next to its siblings' 440 was part of the bug.
+
+   2026-09-09: the calc basis and the cap are retired - a column is now one
+   CELL of the tray grid, so every column is the same track width by
+   construction and the count is the grid's own (app-dock.js deals as many
+   columns as the body measures tracks for). */
 .hw-dock-col {
-    flex: 1 1 calc((100% - 20px) / 3);
     min-width: 0;
-    max-width: 600px;
     min-height: 0;
     display: flex; flex-direction: column; gap: 10px;
     align-items: stretch;
@@ -1919,46 +1969,34 @@ button.hw-dock-typechip:focus-visible { outline: 1px solid var(--ps-accent, #ef3
    reclaims a folded unit's room). Restated flex because the unit base
    rule's row-flex basis would read as HEIGHT in the column context. */
 .hw-dock-col > .hw-dock-distro { flex: 0 0 auto; min-width: 0; }
-/* ── fold reflow, data side (2026-08-30) ─────────────────────────────────
-   A folded CARD is just its header, so it stops claiming a grown share
-   of its processor's row: basis auto sits it at its natural width and
-   the expanded neighbours grow into the room. Scoped to the proc wraps -
-   a folded DISTRO stays column-wide, the column stack above handles it.
-   The max-width caps the natural width (a name input's intrinsic size
-   runs wide); the header's own min-widths (name floor, nowrap figures)
-   protect it from clipping, since wrap layout never shrinks an item
-   below its hypothetical size. */
-#hardware-dock-body .hw-dock-proc .hw-dock-unit.lrd-sec-collapsed {
-    flex: 0 1 auto;
-    min-width: 0;
-    max-width: 300px;
-}
-/* A folded card with its cable sheet up (the sheet rides outside the
-   fold, app-dock.js) is the sheet's width, not the header's cap. */
-#hardware-dock-body .hw-dock-proc
-    .hw-dock-unit.lrd-sec-collapsed.hw-dock-sheet-up { max-width: 100%; }
-/* ── the data sheet sizes to its content (2026-09-07, sheet-fit-mock.html:
-   "Option A with B's growth") ──────────────────────────────────────────
-   beta.25 gave a unit with an open sheet the WHOLE tray row, and "when
-   there's not a lot of information" four inputs floated in a field of
-   nothing. Now the unit holding an open DATA sheet takes what its table
-   needs and no more (flex: 0 1 auto), so the chips of the card beside it
-   flow next to it again; as the names grow - a longer snake name, its
-   field sized to its text - the table widens and the unit with it
-   (Option B's growth); a FLOOR of 480px on the sheet keeps a near-empty
-   sheet from crowding its inputs; past the tray's width the sheet's
-   overflow-x: auto scrolls it sideways instead of cutting an input off.
-   The SCREEN cell keeps its 24ch ellipsis cap. The tray is Chromium/
-   Electron, so :has() is safe. The card unit lives in its processor's
-   wrap (and a backup pair's wrapper), so each level on the way to the
-   tray body sizes to its content the same way, capped at the tray's
-   width; a unit straight in the body is covered as well. */
-#hardware-dock-body > .hw-dock-unit:has(.hw-dock-cablesheet-data),
-#hardware-dock-body > .hw-dock-proc:has(.hw-dock-cablesheet-data),
-#hardware-dock-body > .lrd-red-pair:has(.hw-dock-cablesheet-data),
-#hardware-dock-body .hw-dock-proc > .lrd-red-pair:has(.hw-dock-cablesheet-data),
-#hardware-dock-body .hw-dock-proc .hw-dock-unit:has(.hw-dock-cablesheet-data) {
-    flex: 0 1 auto; max-width: 100%;
-}
-.hw-dock-cablesheet-data { min-width: 480px; }
+/* ── fold reflow, data side ──────────────────────────────────────────────
+   2026-08-30 gave a folded card a natural width capped at 300px so its
+   expanded neighbours grew into the room; 2026-09-09 retired it with the
+   flex tray. A folded card is SHORT, not narrow: it keeps its cell's
+   width, and the room it gives back is the height the rows below slide
+   up into. Nothing here sizes a unit by its own state any more.
+
+   ── the data sheet fits its cell (2026-09-09) ────────────────────────
+   The 480px floor and the content-sized unit are retired with it: the
+   sheet lives inside a cell whose width the tray decides, its table lays
+   out at CONTENT width (width: auto, not the power sheet's 100%), and a
+   table wider than the cell scrolls the SHEET sideways (the
+   .hw-dock-cablesheet overflow-x: auto above) instead of widening
+   anything. The SCREEN cell keeps its 24ch ellipsis cap. */
 .hw-dock-cablesheet-data table { width: auto; }
+/* ── the HOME RUN column lines up (2026-09-09: "also these columns dont
+   line up") ────────────────────────────────────────────────────────────
+   Every row's HOME RUN cell is the SAME three fixed slots - [word |
+   input | unit] - so the ft inputs share one left edge and the "ft"
+   words another, whether the row is a snake, a member carrying "ext" or
+   a loose socket carrying nothing. Fixed widths rather than one grid:
+   each row is its own cell, and only fixed tracks line up across rows. */
+.hw-dock-cable-run {
+    display: flex; align-items: baseline; gap: 4px;
+}
+.hw-dock-cable-run > .hw-dock-cable-word {
+    flex: 0 0 30px; width: 30px; text-align: right;
+    color: #666666; white-space: nowrap;
+}
+.hw-dock-cable-run > .hw-dock-cable-ft { flex: 0 0 auto; }
+.hw-dock-cable-run > .hw-dock-cable-unit { flex: 0 0 auto; }

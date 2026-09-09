@@ -4,131 +4,146 @@
 // power and data drawing from a port to port … the last page is what i
 // was talking about").
 //
-// The drawing area is split by a rule: SIGNAL above, POWER below (a screen
-// with one side draws that half alone). Each half, top to bottom:
+// THE DRAWING IS THE PROTOTYPE'S. src/static/wiring-proto.html draws this
+// picture from two real shows' own facts and is what was approved
+// (2026-09-09: "those are fantastic", "that is much more legible", "that
+// looks great") - casing on, fade off, the printer palette for the press.
+// Every number below is in the prototype's page units (it is 1000 wide)
+// and a half scales them by K = its width / 1000, so the sheet carries
+// that drawing across whatever size the paper is.
+//
+// The drawing area is split by a rule: SIGNAL above, POWER below (a
+// screen with one side draws that half alone). Each half, top to bottom:
+//
 //   the WALL      - the same _bMap render the Power / Data sheets use
 //                   (data-flow view above, power view below), rulers and
-//                   brackets off: the stubs replace them
-//   the STUB ROW  - a small rounded tag on the wall's bottom edge per port
-//                   end / per circuit, under the column where its run
-//                   BEGINS (a primary, a circuit) or ENDS (a return): the
-//                   label the wall's discs wear ("SR A-1", "SR B-1",
-//                   "SR1-1"), green / red / the power label orange. Tags
-//                   that would overlap SPREAD along the row (the cluster
-//                   centred on the columns it belongs to, in column order)
-//                   - on a wall whose runs go across, every port begins in
-//                   column 1 and every circuit of a multi in the same
-//                   column, so a stack there would be as tall as the wall;
-//                   the label names the run, the wall's own disc marks the
-//                   column
-//   the WIRING    - an ORTHOGONAL wire from every stub to its socket: down
-//                   to a LEVEL, across, down onto the socket - the levels
-//                   allocated so no two horizontals overlap on one level and
-//                   no horizontal crosses another wire's drop (below)
-//   the DEVICES   - SCHEMATIC BLOCKS ("Schematic blocks", no product
-//                   photos): a rounded block captioned with the device, a
-//                   row of numbered sockets. Signal: one block per device
-//                   the screen's port ends land on, in the order the ports
-//                   meet them - a breakout box ("CVT4K-S SR A · Card 1 ·
-//                   OPT 1-2"), or the card itself where no box delivers the
-//                   port ("H9 Card 1 · H_16xRJ45+2xfiber"); a backup box is
-//                   its own block ("one per cvt including backups so if two
-//                   cvt's or 4 need to be on screen then so be it"); a
-//                   socket is green where a primary lands, red where a
-//                   return does, a grey ring unused. Power: one block per
-//                   multi the screen's circuits are on - its BREAKOUT, the
-//                   fan-out ("there are no boxes... it is a breakout also
-//                   known as a fan out / but i like the first option"):
-//                   "SR1 · Multi 208 breakout · 125'", its circuit slots as
-//                   sockets (6 / 6 / 3), this screen's filled orange, another
-//                   screen's on a shared multi grey with that screen's name
-//                   under it, the rest grey rings. The home run is the
-//                   caption's length, not a wire.
+//                   brackets off. THE WALL'S OWN LABEL DISCS ARE THE
+//                   ORIGIN: no second tag is drawn on it - an earlier
+//                   attempt hung rounded tags off the panels and they
+//                   covered the wall. The disc's place and size are the
+//                   renderer's own (its panel's centre, shifted inside
+//                   the screen by its radius), read here so a run can
+//                   leave its edge.
+//   the BLOCKS    - flat units at the BOTTOM, spread across the width,
+//                   their sockets in a row and THEIR NAME INSIDE on its
+//                   own line UNDER the numbers - a run comes down into
+//                   its socket from above, and on the line above the
+//                   numbers the run's white casing ate the letters,
+//                   ordered by the mean position of their own
+//                   runs. Signal: one per device the screen's port ends
+//                   land on ("CVT4K-S SR A · Card 1 · OPT 1-2", or the
+//                   card itself where no unit delivers the port); a
+//                   backup is its own block ("one per cvt including
+//                   backups"). Power: one per multi the circuits are on -
+//                   its BREAKOUT, the fan out ("there are no boxes... it
+//                   is a breakout also known as a fan out"): "SR1 · Multi
+//                   208 breakout · 125'". The home run is the caption's
+//                   length, not a wire.
+//   the RUNS      - two segments from the disc: out at the run's OWN ROW
+//                   to its socket's x, then straight down into the
+//                   socket. No shared corridor, no lanes, no levels - an
+//                   earlier attempt turned every run down as soon as it
+//                   cleared the wall and the fans knotted.
 //
-// THE LEVELS RULE. A wire is three segments: its stub's drop to level L,
-// the horizontal at L to the socket's x, the drop onto the socket. Two
-// wires a, b conflict where b's STUB drop passes through a's horizontal
-// (b's stub x inside a's span - then b must sit ABOVE a, its drop stopping
-// short of a's level) or where b's SOCKET drop does (b's socket x inside
-// a's span - then b must sit BELOW a). Those pairs are edges of a graph;
-// the wires are taken in a topological order of it (a cycle - a short wire
-// wholly inside a long one's span - is broken at the wire with the least
-// claim, and that one crossing stands) and each takes the highest level
-// that keeps it under every wire it must be under and whose occupied
-// horizontals it does not overlap. A fan that travels right lands its
-// largest socket on top; the mirror fan its smallest; two fans that never
-// overlap share their levels; a wire straight down takes none. That is the
-// example's picture. Levels are 14 px apart at base, the band exactly as
-// tall as it needs.
+// A SOCKET'S NOTE earns its place only when it says something the socket
+// number does not: "SR A-3" against socket 3 of the block called SR A is
+// pure repetition, and repeating it widened the blocks until the pair
+// wrapped to a second row whose runs then crossed the first. A shared
+// multi keeps the other screen's name against its socket, and the pitch
+// is measured from the widest note that survives.
 //
-// THE FILL. The wall comes first: it takes the zoom the half's width allows
-// (capped at 3x like every map) and the height that needs; the half's
-// type - stubs, block captions, sockets - and its blocks then scale by the
-// fill rule (1 to FILL_CAP) into the height the wall cannot use and the
-// width the block row allows. A wall taller than the room (a 28 x 11 on a
-// Tabloid half) leaves the type at 1 and takes what the stack at 1 leaves,
-// never less than MAP_FLOOR_FRAC of the half - past that the wiring band
-// tightens its level pitch instead. The sheet's plan reports the smaller
-// half's scale. Everything is drawn in page units, so the recorder writes the
-// display list as the sheet prints; the PDF gets it as vector. Circles are
-// short polylines (a filled socket is a ring as wide as its radius) - the
-// recorder knows rects, lines, text and images, nothing else.
+// THE PITCH GIVES WAY BEFORE THE LAYOUT DOES. Wrapping to a second row of
+// blocks puts that row's runs across the first, so the socket pitch
+// shrinks - never below its floor, never below what a surviving note
+// needs - until every block fits one row.
 //
-// One view per sheet: "n  SR - MAIN · SIGNAL + POWER", its bubble under the
-// lower half. Every figure is read from the same authorities the Power and
-// Data sheets read - _pullPortRuns, _bPortHome, getPortLabelText, the pull
-// list's byScreen boxes, screenCircuits, getDistroOutputTypes; nothing is
-// recomputed here.
+// THE ESCAPE. A run whose socket sits under its OWN column, with other
+// discs below it on that column, would drop straight through them (SR1's
+// socket 6 ran through five of them). It steps out past the wall's near
+// edge instead, drops clear, and comes back to its socket. A run already
+// above its socket simply drops straight - which is what a vertical flow
+// wants.
+//
+// THE CASING. Every run is drawn twice: a white stroke ~3 units wider
+// underneath, then the run itself. That is what makes a line read where
+// it crosses the wall's dark panels, and it matters more on the printer
+// page than in colour.
+//
+// COLOUR: a hue per breakout on power - its rim, its sockets, its runs,
+// and a ring of that hue around its own discs on the wall (the wall's
+// discs are the renderer's, so the hue is carried to them as a rim
+// rather than by repainting them). On data, the screen's own primary and
+// backup inks, the same the discs wear, a return dashed. PRINTER: no
+// colour at all - the runs are black and told apart by a dash pattern per
+// device; on data a primary is solid into a filled socket and a return
+// finely dashed into a hollow one; the wall's greys and its white discs
+// with black rims are the renderer's printer mode.
+//
+// A stub on no card draws its disc and no run, and the half prints
+// "n of m not placed on any card" once.
+//
+// Everything is drawn in page units through the recorder, so the PDF gets
+// the sheet as vector; circles are short polylines and the casing is
+// simply the same path stroked white first (the recorder knows rects,
+// lines, text and images, nothing else).
+//
+// One view per sheet: "n  SR - MAIN · SIGNAL + POWER", its bubble under
+// the lower half. Every figure is read from the same authorities the
+// Power and Data sheets read - _pullPortRuns, _bPortHome,
+// getPortLabelText, the pull list's byScreen units, screenCircuits,
+// getDistroOutputTypes; nothing is recomputed here.
 import { LEDRasterApp } from './app-core.js';
 import { BINDER_STYLE } from './app-binder.js';
 
-const { INK, RULE, MUTED, FILL_CAP, MAP_ZOOM_CAP, BUBBLE_H } = BINDER_STYLE;
+const { INK, RULE, MUTED, BUBBLE_H } = BINDER_STYLE;
 
-// The wall's gutters on this sheet: no rulers, no brackets - a little air
-// for the renderer's own discs and arrowheads at the edges.
-const GUT = { left: 40, right: 40, top: 24, bottom: 0 };
-// The half's head word (SIGNAL / POWER), the rule between the halves.
-const HEAD_H = 44;
+// The wall takes the whole of the room it is given: this sheet draws no
+// rulers and no brackets, and the discs are the renderer's own, inside it.
+const GUT = { left: 0, right: 0, top: 0, bottom: 0 };
+// The air between the two halves, where the rule between them runs.
 const RULE_GAP = 40;
-// The stubs: on the wall's bottom edge, their type, their padding, their
-// corner, the air between two that spread.
-const STUB_GAP = 4;
-const STUB_H = 30;
-const STUB_PADX = 10;
-const STUB_R = 7;
-const STUB_SPREAD_GAP = 6;
-// The wiring band: its padding, the level pitch (and the least pitch a
-// crowded half may fall to before the wall gives up more room).
-const GAP = 22;
-const BAND_PAD = 20;
-const LEVEL_PITCH = 14;
-const LEVEL_PITCH_MIN = 8;
-const WIRE_W = 2;
-const RETURN_DASH = [14, 8];
-// The blocks: the socket disc, the pitch between sockets (shrunk before a
-// row wraps), the block's padding, caption, corner, the gaps.
-const SOCKET_R = 12;
-const SOCKET_PITCH = 44;
-const SOCKET_MIN_PITCH = 28;
-const BLOCK_PADX = 22;
-const CAPTION_H = 42;
-const SOCKET_DY = CAPTION_H + 20;           // the socket row's centre under the block's top
-const NUMBER_DY = SOCKET_R + 18;            // the socket number's baseline under its centre
-const NOTE_DY = SOCKET_R + 36;              // another screen's name under that
-const BLOCK_H = SOCKET_DY + NUMBER_DY + 10;
-const NOTE_H = 20;
-const BLOCK_GAP = 60;
-const ROW_GAP = 26;
-const BLOCK_R = 12;
-// Type, in page px at 200 px/in.
-const SZW = { head: 26, stub: 20, caption: 22, socket: 15, note: 14 };
-// Inks the palette does not set.
-const GREY_RING = '#9a9a9a';
-const GREY_FILL = '#bdbdbd';
+
+// ---- the prototype's page, in its own units (it is 1000 wide) -----------
+const PROTO_W = 1000;
+const MARGIN = 22;
+const HEAD = 22;                 // the SIGNAL / POWER word over the wall
+const HEAD_SZ = 11;
+const MAX_WALL_H = 360;
+const BAND_GAP = 26;             // the wall's foot to the first block row
+const FOOT_PAD = 6;              // the air under the last block row
+const FOOT_LINE = 14;            // and the "not placed" line's own room
+// The rails: the room outside the wall the sideways runs and the escape
+// need, so a wide wall never leaves them nowhere to travel.
+const RAIL_BASE = 16, RAIL_GAP = 12, RAIL_MAX = 190;
+// The blocks: the socket disc, the pitch between sockets and its floor,
+// the block's padding, its height, the gaps, its corner.
+const SOCK = 10, PITCH = 32, MIN_PITCH = 21, PAD = 15;
+const BOX_H = 60, MIN_BOX_GAP = 16, ROW_GAP = 38, BOX_R = 7;
+// The name sits UNDER the numbers. A run comes down into its socket
+// from above, so anything on the line above the sockets is crossed -
+// and the run's white casing was eating the letters, on the printer
+// sheet taking the very digit that tells SR3 from SR1. Below the
+// sockets nothing crosses it.
+const TITLE_DY = 50, NOTE_DY = 13, SOCKET_DY = 26;
+const CAPTION_SZ = 10, NUMBER_SZ = 8, NOTE_SZ = 7.5, NOTE_PAD = 8;
+// The runs: their pen, the white casing under them, the rims.
+const RUN_W = 1.4, CASE_EXTRA = 3.2;
+const BOX_RIM = 1.8, SOCKET_RIM = 1.3, DISC_RIM = 1.6;
+// The escape: how far past the wall's edge it steps, how far above the
+// socket row it comes back, how far apart two escapes stand.
+const ESC_OUT = 14, ESC_LIFT = 14, ESC_NEAR = 6, ESC_STEP = 5;
+// A run whose socket is this close to its own column drops straight.
+const STRAIGHT = 1.2;
+
+// A hue per breakout; a dash per device where the press has no hue.
+const HUES = ['#c2410c', '#0f766e', '#6d28d9', '#a16207',
+              '#b91c1c', '#1d4ed8', '#4d7c0f', '#9d174d'];
+const DASHES = [[], [9, 5], [2, 5], [13, 5, 2, 5], [18, 6], [1, 6], [6, 4, 1, 4], [22, 7]];
+const RETURN_DASH = [6, 4];              // a return in colour
+const PRINTER_RETURN_DASH = [3, 4];      // a return on the press
+const GREY_RING = '#aaaaaa';
+const GREY_INK = '#999999';
 const WHITE = '#ffffff';
-// The wall's least share of a half's height, at 1; past that a crowded
-// band tightens its pitch instead.
-const MAP_FLOOR_FRAC = 0.4;
 
 class _BinderWiring {
 
@@ -147,15 +162,16 @@ class _BinderWiring {
         if (!order.length) return;
         const areas = this._bwAreas(book, order.length);
         const plans = order.map((side, i) => this._bwPlanHalf(book, layer, scr, side, areas.halves[i]));
-        const scale = Math.min(...plans.map(p => p.scale));
+        const scale = Math.min(...plans.map(p => p.K));
         const view = ++book.views;
         this._bPage(book, {
             kind: 'wiring', title, sheetTitle, viewName: sheetTitle, view,
             layerId: layer.id, subject: layer.name, position: pos ? pos.name : null,
             layout: 'wiring', cols: order.length, scale,
             sides: { power: !!sides.power, data: !!sides.data },
-            halves: plans.map(p => ({ side: p.side, scale: p.scale, levels: p.levels,
-                                      stubs: p.stubs.length, wires: p.wires.length, blocks: p.blocks.length })),
+            halves: plans.map(p => ({ side: p.side, scale: p.K, rows: p.rows,
+                                      discs: p.discs.length, runs: p.runs.length,
+                                      blocks: p.blocks.length, unplaced: p.unplaced })),
         }, () => {
             if (book.log) book.log.wiring = { halves: [] };
             if (areas.ruleY != null) {
@@ -250,7 +266,7 @@ class _BinderWiring {
         return { stubs, devices, wires };
     }
 
-    // The power half's facts: a stub per circuit under its first column,
+    // The power half's facts: a stub per circuit ON its first panel,
     // a BREAKOUT block per multi the screen's circuits are on (its slots as
     // sockets; a slot another screen uses on a shared multi noted with
     // that screen's name), a wire per circuit.
@@ -299,356 +315,447 @@ class _BinderWiring {
         return { stubs, devices, wires };
     }
 
+    // ---- the wall's own discs -----------------------------------------------
+
+    // What the renderer needs to place a label disc on this view: the
+    // label's own size, the natural radius its site gives it, its text
+    // padding, and the bounds a disc is shifted inside. Read from the very
+    // fields renderDataFlowArrows / renderPowerArrows read, so the disc
+    // this sheet aims at is the disc the wall draws.
+    _bwDiscRule(layer, side) {
+        const r = window.canvasRenderer || null;
+        const bounds = r && typeof r.getLayerBounds === 'function' ? r.getLayerBounds(layer) : null;
+        const family = (typeof this.getProjectFont === 'function') ? this.getProjectFont() : 'Arial';
+        if (side === 'signal') {
+            const size = layer.dataFlowLabelSize || 30;
+            return { r, bounds, family, size, minRadius: size * 1.2, padding: Math.max(4, size * 0.2) };
+        }
+        const size = layer.powerLabelSize || 14;
+        const pen = Math.max(1, Math.round(layer.powerLineWidth || 8));
+        return { r, bounds, family, size,
+                 minRadius: Math.max(size * 0.7, pen * 1.4), padding: Math.max(6, size * 0.25) };
+    }
+
+    // One label disc, in page units: its radius the renderer's own
+    // (_layoutCircleLabel, measured on the dry context so nothing on the
+    // page is disturbed), its centre the panel's centre shifted inside the
+    // screen by that radius, both carried onto the sheet through the map's
+    // own rect(). A renderer that cannot be asked falls back to a third of
+    // the panel.
+    _bwDisc(book, rule, geo, panel, text) {
+        const p = panel;
+        let rad = Math.min(p.width, p.height) / 3;
+        if (rule.r && typeof rule.r._layoutCircleLabel === 'function') {
+            const saved = rule.r.ctx;
+            try {
+                rule.r.ctx = book.measureCtx;
+                book.measureCtx.font = `bold ${rule.size}px ${rule.family}`;
+                const out = rule.r._layoutCircleLabel(String(text), rule.size, rule.minRadius, rule.padding);
+                if (out && Number.isFinite(out.radius)) rad = out.radius;
+            } catch (_) { /* the fallback stands */ } finally { rule.r.ctx = saved; }
+        }
+        let cx = p.x + p.width / 2, cy = p.y + p.height / 2;
+        const b = rule.bounds;
+        if (b && b.width > 2 * rad) cx = Math.min(Math.max(cx, b.x + rad), b.x + b.width - rad);
+        if (b && b.height > 2 * rad) cy = Math.min(Math.max(cy, b.y + rad), b.y + b.height - rad);
+        const rc = geo ? geo.rect(cx - rad, cy - rad, 2 * rad, 2 * rad)
+                       : { x: cx, y: cy, w: 0, h: 0 };
+        const pr = geo ? geo.rect(p.x, p.y, p.width, p.height) : { x: cx, y: cy, w: 0, h: 0 };
+        return { x: rc.x + rc.w / 2, y: rc.y + rc.h / 2, r: rc.w / 2,
+                 panel: { x: pr.x, y: pr.y, w: pr.w, h: pr.h } };
+    }
+
     // ---- the geometry -------------------------------------------------------
 
-    // One half laid out in page units, nothing painted: the map's area
-    // and the wall's geometry (from a dry measure), the stubs, the wires
-    // with their levels, the blocks with their sockets, and the half's
-    // type scale.
+    // One half laid out in page units, nothing painted. The prototype's
+    // page is 1000 wide; K carries its every number onto this half.
     _bwPlanHalf(book, layer, scr, side, A) {
         const facts = side === 'signal' ? this._bwSignalFacts(book, layer) : this._bwPowerFacts(book, layer, scr);
         const view = side === 'signal' ? 'data-flow' : 'power';
+        const isData = side === 'signal';
+        const printer = book.meta.palette === 'printer';
+        const K = A.w / PROTO_W;
+        const availW = PROTO_W - 2 * MARGIN;
         const ctxM = book.measureCtx;
+        // a width in the PROTOTYPE's units, measured in the type the page
+        // will really be set in
         const measure = (text, size, weight) => {
-            ctxM.font = this._bFont(size, weight);
-            return ctxM.measureText(String(text)).width;
+            ctxM.font = this._bFont(size * K, weight);
+            return ctxM.measureText(String(text)).width / K;
         };
+
         const devices = facts.devices;
-        for (const d of devices) {
-            d.n = Math.max(1, Number(d.n) || 0, ...d.sockets.keys());
-            d.captionW = measure(d.title, SZW.caption, 700);
-            d.hasNotes = d.notes.size > 0;
-        }
-        const anyNotes = devices.some(d => d.hasNotes);
-        const blockH = BLOCK_H + (anyNotes ? NOTE_H : 0);
-        const widthOf = (d, pitch) => Math.max(d.captionW + 2 * BLOCK_PADX, d.n * pitch + 2 * BLOCK_PADX);
-        const rowW = (pitch) => devices.reduce((sum, d) => sum + widthOf(d, pitch), 0)
-            + Math.max(0, devices.length - 1) * BLOCK_GAP;
-        // the socket pitch: the base pitch, shrunk (never under its floor)
-        // until the row fits the half's width at 1
-        let pitch = SOCKET_PITCH;
-        while (pitch > SOCKET_MIN_PITCH && rowW(pitch) > A.w) pitch -= 1;
-        // the blocks in rows, greedily, at a scale s
-        const rowsAt = (s) => {
+        for (const d of devices) d.n = Math.max(1, Number(d.n) || 0, ...d.sockets.keys());
+        const wiresOf = (key) => facts.wires.filter(w => w.device.key === key);
+
+        // A note earns its place only when it says something the socket
+        // number does not.
+        const noteOf = (text, socket) => {
+            const t = String(text == null ? '' : text);
+            if (!t || t === String(socket) || t.endsWith('-' + socket)) return '';
+            return t;
+        };
+        const noteFloor = (d) => Math.ceil(Math.max(0,
+            ...wiresOf(d.key).map(w => measure(noteOf(w.stub.text, w.socket), NOTE_SZ, 400))) + NOTE_PAD);
+        const capW = (d) => measure(d.title, CAPTION_SZ, 700);
+        const rowWidthAt = (pitch) => devices.reduce((s, d) =>
+            s + Math.max(d.n * Math.max(pitch, noteFloor(d)) + PAD * 2, capW(d) + PAD * 2), 0)
+            + MIN_BOX_GAP * Math.max(0, devices.length - 1);
+        // The pitch gives way before the layout does.
+        let fit = PITCH;
+        while (fit > MIN_PITCH && rowWidthAt(fit) > availW) fit -= 1;
+        const pitchOf = (d) => Math.max(fit, noteFloor(d));
+        const boxW = (d) => Math.max(d.n * pitchOf(d) + PAD * 2, capW(d) + PAD * 2);
+
+        // the block rows, greedily; the row count is what the wall's room
+        // is measured against
+        const pack = (order) => {
             const rows = [];
-            let cur = null;
-            for (const d of devices) {
-                const w = widthOf(d, pitch) * s;
-                if (!cur || (cur.blocks.length && cur.w + BLOCK_GAP * s + w > A.w)) {
-                    cur = { blocks: [], w: 0 };
-                    rows.push(cur);
-                }
-                cur.w += (cur.blocks.length ? BLOCK_GAP * s : 0) + w;
-                cur.blocks.push({ device: d, w });
+            let row = [];
+            let w = 0;
+            for (const d of order) {
+                const dw = boxW(d);
+                if (row.length && w + MIN_BOX_GAP + dw > availW) { rows.push(row); row = []; w = 0; }
+                w += (row.length ? MIN_BOX_GAP : 0) + dw;
+                row.push(d);
             }
+            if (row.length) rows.push(row);
             return rows;
         };
-        const nWires = facts.wires.length;
-        const blocksH = (rows) => rows.length ? rows.length * blockH + (rows.length - 1) * ROW_GAP : 0;
-        let levelPitch = LEVEL_PITCH;
-        const bandH = (levels) => nWires ? 2 * BAND_PAD + Math.max(0, levels - 1) * levelPitch : 0;
-        const fixedH = (levels, rows) => HEAD_H + STUB_GAP + STUB_H + (nWires ? GAP + bandH(levels) : 0)
-            + (rows.length ? GAP + blocksH(rows) : 0);
-        const clamp = (v) => Math.max(1, Math.min(FILL_CAP, Math.floor(v * 1000) / 1000));
 
-        // pass A at 1 with every wire on its own level (the most the band
-        // can need) - to learn how many levels the picture really takes
-        const rows1 = rowsAt(1);
-        let P = this._bwPlace(book, layer, facts, view, A, 1, pitch, nWires, levelPitch, rows1, blockH, bandH, fixedH);
-        const F = fixedH(P.levels, rows1);
-        // the wall first: the height it takes at the zoom the width allows
-        // (the wall's world size from the probe; the cap like every map)
-        const g = P.geo;
-        const ww = g && g.zoom > 0 ? g.wall.w / g.zoom : 0, wh = g && g.zoom > 0 ? g.wall.h / g.zoom : 0;
-        const zoomW = ww > 0 ? Math.min(MAP_ZOOM_CAP, (A.w - GUT.left - GUT.right) / ww) : 0;
-        const wallH = HEAD_H + GUT.top + GUT.bottom + wh * zoomW;
-        // pass B: the type and blocks fill the height the wall cannot use
-        // and the width the block row allows
-        let s = clamp(Math.min(FILL_CAP, devices.length ? A.w / rowW(pitch) : FILL_CAP,
-                               (A.h - wallH) / Math.max(1, F)));
-        // a crowded band at 1 (a wall of many circuits on a small sheet)
-        // tightens its level pitch rather than squeezing the wall past its
-        // floor
-        if (s === 1 && F > A.h * (1 - MAP_FLOOR_FRAC) && P.levels > 1) {
-            const budget = A.h * (1 - MAP_FLOOR_FRAC) - (F - bandH(P.levels)) - 2 * BAND_PAD;
-            levelPitch = Math.max(LEVEL_PITCH_MIN, Math.min(LEVEL_PITCH, Math.floor(budget / (P.levels - 1))));
-        }
-        let rows = rowsAt(s);
-        P = this._bwPlace(book, layer, facts, view, A, s, pitch, P.levels, levelPitch, rows, blockH, bandH, fixedH);
-        // pass C, only when the picture at s needs more levels than the band
-        // was sized for: the band grows and everything under it moves down
-        if (P.levels > P.bandLevels) {
-            P = this._bwPlace(book, layer, facts, view, A, s, pitch, P.levels, levelPitch, rows, blockH, bandH, fixedH);
-        }
-        return { ...P, side, view, scale: s, A, pitch: pitch * s, levelPitch, facts, anyNotes, blockH: blockH * s };
-    }
-
-    // The half's picture at scale s with a band sized for `bandLevels`
-    // levels: the map's area (the room the fixed stack leaves), the wall's
-    // geometry, the stubs under their columns, the blocks under the wall,
-    // the wires with their levels allocated. Returns the lot, with the
-    // levels the wires actually took.
-    _bwPlace(book, layer, facts, view, A, s, pitch, bandLevels, levelPitch, rows, blockH, bandH, fixedH) {
-        const ctxM = book.measureCtx;
-        const measure = (text, size, weight) => {
-            ctxM.font = this._bFont(size, weight);
-            return ctxM.measureText(String(text)).width;
+        // the wall: bounded on both axes and centred in what is left
+        const nRuns = facts.wires.length;
+        const railRoom = Math.min(RAIL_MAX, RAIL_BASE + Math.ceil(nRuns / 2) * RAIL_GAP);
+        const wallRoomW = Math.max(80, availW - 2 * railRoom);
+        const spec = { measure: (area) => this._bMap(book, layer, view, area, GUT) };
+        const foot = FOOT_PAD + (facts.stubs.length > facts.wires.length ? FOOT_LINE : 0);
+        const wallAt = (nRows) => {
+            const boxesH = nRows ? nRows * BOX_H + (nRows - 1) * ROW_GAP : 0;
+            const roomH = Math.max(40, A.h / K - HEAD - BAND_GAP - boxesH - foot);
+            const room = { x: A.x + (MARGIN + railRoom) * K, y: A.y + HEAD * K,
+                           w: wallRoomW * K, h: Math.min(MAX_WALL_H, roomH) * K };
+            const probe = this._bMeasureMap(book, spec, room);
+            const h = probe ? probe.area.h : 0;
+            const mapArea = { ...room, y: room.y + Math.max(0, (roomH * K - h) / 2), h: Math.max(1, h) };
+            return { mapArea, geo: this._bMeasureMap(book, spec, mapArea), roomH };
         };
-        const F = fixedH(bandLevels, rows) * s;
-        const mapH = Math.max(Math.round(A.h * MAP_FLOOR_FRAC), A.h - F);
-        const mapArea = { x: A.x, y: A.y + HEAD_H * s, w: A.w, h: Math.max(1, mapH - HEAD_H * s) };
-        const geo = this._bMeasureMap(book, { measure: (area) => this._bMap(book, layer, view, area, GUT) }, mapArea);
-        const wall = geo ? geo.wall : { x: A.x, y: mapArea.y, w: A.w, h: 0 };
-        const wallBottom = wall.y + wall.h;
-        const wallCx = wall.x + wall.w / 2;
 
-        // the stubs: a tag under its column - `col` is where the column
-        // is, `cx` where the tag's centre lands once the row has spread
-        const stubs = facts.stubs.map((st, i) => {
-            const p = st.panel;
-            const rc = geo ? geo.rect(p.x, p.y, p.width, p.height) : { x: wallCx, w: 0 };
-            const col = rc.x + rc.w / 2;
-            const w = Math.ceil(measure(st.text, SZW.stub * s, 700) + 2 * STUB_PADX * s);
-            return { kind: st.kind, text: st.text, port: st.port, circuit: st.circuit, col, cx: col, x: col - w / 2,
-                     w, h: STUB_H * s, y: wallBottom + STUB_GAP * s, order: i, src: st };
+        // pass one in the facts' own order, only to learn how many rows the
+        // blocks take; then the order the runs ask for, and the wall again
+        // if that changed the count
+        let rows = pack(devices);
+        let W = wallAt(rows.length);
+        const discOf = new Map();
+        const rule = this._bwDiscRule(layer, side);
+        const placeDiscs = (geo) => {
+            discOf.clear();
+            for (const st of facts.stubs) discOf.set(st, this._bwDisc(book, rule, geo, st.panel, st.text));
+        };
+        placeDiscs(W.geo);
+        const meanOf = (key) => {
+            const ws = wiresOf(key);
+            if (!ws.length) return 0;
+            return ws.reduce((s, w) => s + (discOf.get(w.stub) || { x: 0 }).x, 0) / ws.length;
+        };
+        const rank = new Map(devices.map((d, i) => [d.key, i]));
+        const order = devices.slice().sort((a, b) =>
+            (meanOf(a.key) - meanOf(b.key)) || (rank.get(a.key) - rank.get(b.key)));
+        const rows2 = pack(order);
+        if (rows2.length !== rows.length) { W = wallAt(rows2.length); placeDiscs(W.geo); }
+        rows = rows2;
+
+        const geo = W.geo;
+        const wall = geo ? geo.wall : { x: A.x, y: W.mapArea.y, w: A.w, h: 0 };
+
+        // the blocks are spread across the width rather than packed
+        // shoulder to shoulder: a run reads better when its block is under
+        // the part of the wall it serves
+        const nRows = rows.length;
+        const boxesH = nRows ? nRows * BOX_H + (nRows - 1) * ROW_GAP : 0;
+        const bottom = A.y + A.h - foot * K;
+        const rowY = (ri) => bottom - (boxesH - ri * (BOX_H + ROW_GAP)) * K;
+        const hue = new Map(), dash = new Map();
+        devices.forEach((d, i) => {
+            hue.set(d.key, printer ? INK : HUES[i % HUES.length]);
+            dash.set(d.key, DASHES[i % DASHES.length]);
         });
-        this._bwSpread(stubs, A.x, A.x + A.w, STUB_SPREAD_GAP * s);
-        const stubsBottom = wallBottom + STUB_GAP * s + (stubs.length ? STUB_H * s : 0);
-
-        // the band, the blocks under it
-        const nWires = facts.wires.length;
-        const bandTop = stubsBottom + (nWires ? GAP * s : 0);
-        const bandHeight = bandH(bandLevels) * s;
-        const blocksTop = bandTop + bandHeight + (rows.length ? GAP * s : 0);
+        const primaryInk = printer ? INK : (layer.primaryColor || '#00FF00');
+        const backupInk = printer ? INK : (layer.backupColor || '#FF0000');
         const blocks = [];
-        const socketAt = new Map();      // device key -> Map(socket n -> x)
+        const socketX = new Map();
         rows.forEach((row, ri) => {
-            let x = Math.max(A.x, Math.min(A.x + A.w - row.w, wallCx - row.w / 2));
-            const y = blocksTop + ri * (blockH + ROW_GAP) * s;
-            for (const { device: d, w } of row.blocks) {
-                const socketsW = d.n * pitch * s;
-                const sx0 = x + (w - socketsW) / 2;
-                const cy = y + SOCKET_DY * s;
-                const sockets = [];
+            const sum = row.reduce((s, d) => s + boxW(d), 0);
+            // spread across the width - and never past it: a crowded row
+            // takes the room it really has rather than a fixed gap and a
+            // block hanging off the sheet's edge
+            const gap = row.length > 1
+                ? Math.max(MIN_BOX_GAP, (availW - sum) / (row.length - 1)) : 0;
+            const span = sum + gap * (row.length - 1);
+            let x = MARGIN + Math.max(0, (availW - span) / 2);
+            const y = rowY(ri);
+            for (const d of row) {
+                const w = boxW(d), p = pitchOf(d);
+                const bx = A.x + x * K;
+                const used = new Map(wiresOf(d.key).map(w2 => [w2.socket, w2]));
                 const xs = new Map();
+                const sockets = [];
                 for (let k = 1; k <= d.n; k++) {
-                    const cx = sx0 + (k - 0.5) * pitch * s;
-                    xs.set(k, cx);
-                    sockets.push({ n: k, x: cx, y: cy, state: d.sockets.get(k) || 'free', note: d.notes.get(k) || null });
+                    const sx = A.x + (x + PAD + p / 2 + (k - 1) * p) * K;
+                    xs.set(k, sx);
+                    const on = used.get(k) || null;
+                    const state = on ? (on.kind === 'power' ? 'power' : on.kind)
+                                     : (d.sockets.get(k) === 'other' ? 'other' : 'free');
+                    const note = on ? noteOf(on.stub.text, k) : (d.notes.get(k) || '');
+                    sockets.push({ n: k, x: sx, y: y + SOCKET_DY * K, r: SOCK * K,
+                                   state, note: note || null, on: !!on,
+                                   kind: on ? on.kind : null });
                 }
-                socketAt.set(d.key, xs);
-                blocks.push({ key: d.key, title: d.title, x, y, w, h: blockH * s, sockets, device: d });
-                x += w + BLOCK_GAP * s;
+                socketX.set(d.key, xs);
+                blocks.push({ key: d.key, title: d.title, x: bx, y, w: w * K, h: BOX_H * K,
+                              row: ri, pitch: p * K, sockets,
+                              rim: isData ? INK : hue.get(d.key),
+                              hue: hue.get(d.key), dash: dash.get(d.key) });
+                x += w + gap;
             }
         });
+        const blockOf = new Map(blocks.map(b => [b.key, b]));
 
-        // the wires: stub bottom to socket top, their levels
-        const byStub = new Map(stubs.map(st => [st.src, st]));
-        const wires = facts.wires.map(w => {
-            const st = byStub.get(w.stub);
-            const xs = socketAt.get(w.device.key);
-            const x2 = xs ? xs.get(w.socket) : st.cx;
-            const block = blocks.find(b => b.key === w.device.key);
-            const y2 = block ? block.y + SOCKET_DY * s - SOCKET_R * s : bandTop + bandHeight;
-            return { kind: w.kind, from: st.text, device: w.device.title, socket: w.socket,
-                     x1: st.cx, y1: st.y + st.h, x2, y2, level: null, y: null };
-        });
-        const levels = this._bwLevels(wires, 6 * s);
-        const levelY = (i) => bandTop + BAND_PAD * s + i * levelPitch * s;
-        for (const w of wires) if (w.level != null) w.y = levelY(w.level);
-        return { mapArea, geo, wall, stubs, blocks, wires, levels, bandLevels, bandTop, bandHeight, blocksTop, scale: s };
-    }
+        // The discs on the wall and the runs that leave them. Taken as one
+        // step so it can be done again with the discs the wall REALLY drew
+        // (the paint reads them off the render - a splitter circuit's label
+        // sits at its fan-out, not on its first panel, and only the
+        // renderer knows that).
+        const draw = (placed) => {
+            const discs = facts.stubs.map((st) => {
+                const d = placed.get(st) || discOf.get(st);
+                const w = facts.wires.find(x => x.stub === st) || null;
+                return { kind: st.kind, text: st.text, x: d.x, y: d.y, r: d.r, panel: d.panel,
+                         placed: !!w,
+                         hue: isData ? (st.kind === 'return' ? backupInk : primaryInk)
+                                     : hue.get(w ? w.device.key : ''),
+                         src: st };
+            });
+            const discFor = new Map(discs.map(d => [d.src, d]));
 
-    // Tags along one row, each wanting its centre at `col`, none
-    // overlapping, all between lo and hi: tags in column order (ties in
-    // their own order), a run of tags that would overlap merged into one
-    // CLUSTER centred on the mean of its columns, clusters merged again
-    // where they touch, until none do - the usual one-dimensional label
-    // spread. Sets x and cx on every tag.
-    _bwSpread(tags, lo, hi, gap) {
-        if (!tags.length) return;
-        const sorted = [...tags].sort((a, b) => a.col - b.col || a.order - b.order);
-        let clusters = sorted.map(t => ({ items: [t], w: t.w, want: t.col - t.w / 2, x: 0 }));
-        const settle = (c) => {
-            c.w = c.items.reduce((sum, t) => sum + t.w, 0) + (c.items.length - 1) * gap;
-            // where the cluster's left edge wants to be: the mean of each
-            // tag's wish less its offset inside the cluster
-            let off = 0, sum = 0;
-            for (const t of c.items) { sum += t.col - t.w / 2 - off; off += t.w + gap; }
-            c.want = sum / c.items.length;
-            c.x = Math.max(lo, Math.min(hi - c.w, c.want));
-        };
-        clusters.forEach(settle);
-        for (let guard = 0; guard < tags.length + 1; guard++) {
-            let merged = false;
-            const next = [];
-            for (const c of clusters) {
-                const prev = next[next.length - 1];
-                if (prev && prev.x + prev.w + gap > c.x) {
-                    prev.items.push(...c.items);
-                    settle(prev);
-                    merged = true;
+            // the runs: out of the disc at its OWN row to its socket's x,
+            // then straight down into it - unless it is already above its
+            // socket, or its own column stands in the way
+            const sameCol = (a, b) => Math.abs((a.panel.x + a.panel.w / 2) - (b.panel.x + b.panel.w / 2))
+                < Math.max(1, Math.min(a.panel.w, b.panel.w) / 2);
+            let escapes = 0;
+            const runs = facts.wires.map((w) => {
+                const disc = discFor.get(w.stub);
+                const b = blockOf.get(w.device.key);
+                const tx = (socketX.get(w.device.key) || new Map()).get(w.socket);
+                const ty = b ? b.y + (SOCKET_DY - SOCK) * K : bottom;
+                const colour = isData ? (w.kind === 'return' ? backupInk : primaryInk) : hue.get(w.device.key);
+                const pattern = printer
+                    ? (isData ? (w.kind === 'return' ? PRINTER_RETURN_DASH : []) : dash.get(w.device.key))
+                    : (isData && w.kind === 'return' ? RETURN_DASH : []);
+                const below = discs.some(o => o !== disc && sameCol(o, disc) && o.y > disc.y);
+                let points;
+                if (Math.abs(tx - disc.x) < (disc.r + ESC_NEAR * K) && below) {
+                    // the escape: out past the wall's near edge, down clear
+                    // of every disc under it, and back to its socket
+                    const right = disc.x - wall.x > wall.w / 2;
+                    const step = escapes++;
+                    const out = (ESC_OUT + step * ESC_STEP) * K;
+                    const clear = right ? wall.x + wall.w + out : wall.x - out;
+                    const lift = ty - (ESC_LIFT + step * ESC_STEP) * K;
+                    points = [[right ? disc.x + disc.r : disc.x - disc.r, disc.y],
+                              [clear, disc.y], [clear, lift], [tx, lift], [tx, ty]];
+                } else if (Math.abs(tx - disc.x) < STRAIGHT * K) {
+                    // already above its socket: straight down, off the disc's
+                    // own edge and onto the socket's very centre
+                    const off = Math.sqrt(Math.max(0, disc.r * disc.r - (tx - disc.x) * (tx - disc.x)));
+                    points = [[tx, disc.y + off], [tx, ty]];
                 } else {
-                    next.push(c);
+                    const outX = tx < disc.x ? disc.x - disc.r : disc.x + disc.r;
+                    points = [[outX, disc.y], [tx, disc.y], [tx, ty]];
                 }
-            }
-            clusters = next;
-            if (!merged) break;
+                return { kind: w.kind, from: w.stub.text, device: w.device.title, socket: w.socket,
+                         colour, dash: pattern.map(v => v * K), width: RUN_W * K, points };
+            });
+            return { discs, runs };
+        };
+
+        const first = draw(new Map());
+        const unplaced = facts.stubs.length - facts.wires.length;
+        return { side, view, K, A, mapArea: W.mapArea, geo, wall, printer, isData,
+                 blocks, discs: first.discs, runs: first.runs, redraw: draw,
+                 rows: nRows, pitch: fit * K,
+                 unplaced, total: facts.stubs.length, facts };
+    }
+
+    // ---- the discs the wall really drew -------------------------------------
+
+    // The map painted for this half, with every label disc the renderer laid
+    // down noted as it went. The renderer sizes a disc through
+    // _layoutCircleLabel and then sets its lines through _fillWrappedLabel at
+    // the disc's own centre - the same `lines` array travels between the
+    // two - so wrapping that pair for the length of one paint reports every
+    // disc's centre and radius without a word of the placement being
+    // guessed here. A renderer that cannot be wrapped simply reports none.
+    _bwPaintMap(book, layer, view, area) {
+        const r = window.canvasRenderer;
+        if (!r || typeof r._layoutCircleLabel !== 'function' || typeof r._fillWrappedLabel !== 'function') {
+            return { geo: this._bMap(book, layer, view, area, GUT), discs: null };
         }
-        for (const c of clusters) {
-            let x = c.x;
-            for (const t of c.items) { t.x = x; t.cx = x + t.w / 2; x += t.w + gap; }
+        const radii = new WeakMap();
+        const seen = [];
+        const layout = r._layoutCircleLabel, lines = r._fillWrappedLabel;
+        // put back exactly what was there: an own property is restored, an
+        // inherited one is uncovered
+        const own = [Object.getOwnPropertyDescriptor(r, '_layoutCircleLabel'),
+                     Object.getOwnPropertyDescriptor(r, '_fillWrappedLabel')];
+        r._layoutCircleLabel = function (...a) {
+            const out = layout.apply(this, a);
+            if (out && Array.isArray(out.lines) && Number.isFinite(out.radius)) radii.set(out.lines, out.radius);
+            return out;
+        };
+        r._fillWrappedLabel = function (ls, x, y) {
+            if (Array.isArray(ls) && radii.has(ls) && Number.isFinite(x) && Number.isFinite(y)) {
+                seen.push({ key: ls.join('').replace(/\s+/g, ''), x, y, r: radii.get(ls) });
+            }
+            return lines.apply(this, arguments);
+        };
+        try {
+            return { geo: this._bMap(book, layer, view, area, GUT), discs: seen };
+        } finally {
+            delete r._layoutCircleLabel;
+            delete r._fillWrappedLabel;
+            if (own[0]) Object.defineProperty(r, '_layoutCircleLabel', own[0]);
+            if (own[1]) Object.defineProperty(r, '_fillWrappedLabel', own[1]);
         }
     }
 
-    // The levels: see THE LEVELS RULE above. Sets `level` on every wire
-    // that turns (null on a straight drop) and returns how many levels the
-    // half takes. `margin` is the air two horizontals on one level keep.
-    _bwLevels(wires, margin) {
-        const eps = 0.5;
-        const turning = wires.filter(w => Math.abs(w.x1 - w.x2) >= eps);
-        for (const w of wires) w.level = null;
-        if (!turning.length) return 0;
-        const lo = (w) => Math.min(w.x1, w.x2), hi = (w) => Math.max(w.x1, w.x2);
-        const inside = (x, w) => x > lo(w) + eps && x < hi(w) - eps;
-        // over.get(w) = the wires that must sit OVER w
-        const over = new Map(turning.map(w => [w, new Set()]));
-        for (const a of turning) {
-            for (const b of turning) {
-                if (a === b) continue;
-                if (inside(b.x1, a)) over.get(a).add(b);     // b's stub drop through a: b over a
-                if (inside(b.x2, a)) over.get(b).add(a);     // b's socket drop through a: b under a
+    // Each stub against the disc the wall drew for it: the one whose label
+    // reads the same (spaces are the wrap's, not the label's) and whose
+    // centre is nearest the panel the stub belongs to. A stub the render
+    // never labelled keeps the measured disc.
+    _bwSeat(facts, geo, seen) {
+        const placed = new Map();
+        if (!geo || !seen || !seen.length) return placed;
+        const by = new Map();
+        for (const d of seen) {
+            if (!by.has(d.key)) by.set(d.key, []);
+            by.get(d.key).push(d);
+        }
+        for (const st of facts.stubs) {
+            const list = by.get(String(st.text).replace(/\s+/g, ''));
+            if (!list || !list.length) continue;
+            const p = st.panel;
+            const cx = p.x + p.width / 2, cy = p.y + p.height / 2;
+            let best = null, bestD = Infinity;
+            for (const d of list) {
+                const v = (d.x - cx) * (d.x - cx) + (d.y - cy) * (d.y - cy);
+                if (v < bestD) { best = d; bestD = v; }
             }
+            const rc = geo.rect(best.x - best.r, best.y - best.r, 2 * best.r, 2 * best.r);
+            const pr = geo.rect(p.x, p.y, p.width, p.height);
+            placed.set(st, { x: rc.x + rc.w / 2, y: rc.y + rc.h / 2, r: rc.w / 2,
+                             panel: { x: pr.x, y: pr.y, w: pr.w, h: pr.h } });
         }
-        // the topological order, top down: a wire is ready when everything
-        // that must sit over it is placed; among the ready, a right-
-        // travelling fan lands its largest socket first, a left-travelling
-        // one its smallest (the mirror); a cycle is broken at the readiest
-        // wire
-        const rank = (w) => (w.x2 > w.x1 ? -w.x2 : w.x2 - 1e9);
-        const pending = new Set(turning);
-        const order = [];
-        while (pending.size) {
-            let ready = [...pending].filter(w => [...over.get(w)].every(u => !pending.has(u)));
-            if (!ready.length) {
-                // a cycle: take the wire with the fewest unplaced constraints
-                let best = null, bestN = Infinity;
-                for (const w of pending) {
-                    const n = [...over.get(w)].filter(u => pending.has(u)).length;
-                    if (n < bestN || (n === bestN && rank(w) < rank(best))) { best = w; bestN = n; }
-                }
-                ready = [best];
-            }
-            ready.sort((a, b) => rank(a) - rank(b));
-            const w = ready[0];
-            order.push(w);
-            pending.delete(w);
-        }
-        // the levels: the highest that sits under every wire it must and
-        // overlaps no horizontal already there
-        const spans = [];        // per level: [{ lo, hi }]
-        for (const w of order) {
-            let min = 0;
-            for (const u of over.get(w)) if (u.level != null) min = Math.max(min, u.level + 1);
-            let L = min;
-            const l = lo(w) - margin, h = hi(w) + margin;
-            while (spans[L] && spans[L].some(sp => sp.lo < h && l < sp.hi)) L++;
-            (spans[L] || (spans[L] = [])).push({ lo: l, hi: h });
-            w.level = L;
-        }
-        return spans.length;
+        return placed;
     }
 
     // ---- the paint ----------------------------------------------------------
 
     _bwDrawHalf(book, layer, P) {
         const ctx = book.ctx;
-        const s = P.scale;
-        const printer = book.meta.palette === 'printer';
+        const K = P.K;
         const A = P.A;
+        const printer = P.printer;
         // the head word
-        this._bText(book, P.side === 'signal' ? 'SIGNAL' : 'POWER', A.x, A.y + 30 * s,
-                    { size: SZW.head * s, weight: 700, color: MUTED });
-        // the wall - the same render, painted now
-        const geo = this._bMap(book, layer, P.view, P.mapArea, GUT);
-        const log = book.log && book.page && book.page.painting ? {
-            side: P.side, scale: s, levels: P.levels, levelPitch: P.levelPitch * s,
-            map: geo ? { x: geo.wall.x, y: geo.wall.y, w: geo.wall.w, h: geo.wall.h, zoom: geo.zoom, area: geo.area } : null,
-            stubs: [], wires: [], blocks: [], bandTop: P.bandTop, bandHeight: P.bandHeight,
-        } : null;
-        // the palette
-        const primary = printer ? INK : (layer.primaryColor || '#00FF00');
-        const primaryInk = printer ? INK : (layer.primaryTextColor || '#000000');
-        const backup = printer ? INK : (layer.backupColor || '#FF0000');
-        const backupInk = printer ? INK : (layer.backupTextColor || '#FFFFFF');
-        const orange = printer ? INK : (layer.powerLabelBgColor || '#D95000');
-        const orangeInk = printer ? INK : (layer.powerLabelTextColor || '#000000');
-        const wireColour = (kind) => kind === 'primary' ? primary : kind === 'return' ? backup : INK;
-        const tagFill = (kind) => printer ? WHITE : kind === 'primary' ? primary : kind === 'return' ? backup : orange;
-        const tagInk = (kind) => printer ? INK : kind === 'primary' ? primaryInk : kind === 'return' ? backupInk : orangeInk;
-
-        // the wires first, so the tags and the blocks sit over their ends
-        for (const w of P.wires) {
-            ctx.strokeStyle = wireColour(w.kind);
-            ctx.lineWidth = WIRE_W;
-            ctx.setLineDash(printer && w.kind === 'return' ? RETURN_DASH : []);
-            ctx.beginPath();
-            ctx.moveTo(w.x1, w.y1);
-            if (w.level != null) {
-                ctx.lineTo(w.x1, w.y);
-                ctx.lineTo(w.x2, w.y);
-                ctx.lineTo(w.x2, w.y2);
-            } else {
-                ctx.lineTo(w.x2, w.y2);
+        this._bText(book, P.side === 'signal' ? 'SIGNAL' : 'POWER', A.x, A.y + (HEAD - 6) * K,
+                    { size: HEAD_SZ * K, weight: 700, color: MUTED });
+        // the wall - the same render, painted now, its own discs on it and
+        // noted as they go, so the runs leave the discs that are really there
+        const painted = this._bwPaintMap(book, layer, P.view, P.mapArea);
+        const geo = painted.geo;
+        if (P.redraw) {
+            const seated = this._bwSeat(P.facts, geo, painted.discs);
+            if (seated.size) {
+                const again = P.redraw(seated);
+                P = { ...P, discs: again.discs, runs: again.runs };
             }
-            ctx.stroke();
-            if (log) log.wires.push({ kind: w.kind, from: w.from, device: w.device, socket: w.socket,
-                                      x1: w.x1, y1: w.y1, x2: w.x2, y2: w.y2, level: w.level, y: w.y,
-                                      colour: ctx.strokeStyle, dash: printer && w.kind === 'return' ? RETURN_DASH : [] });
         }
-        ctx.setLineDash([]);
-        // the stubs
-        for (const st of P.stubs) {
-            this._bwRound(ctx, st.x, st.y, st.w, st.h, STUB_R * s, tagFill(st.kind), INK, printer ? 2 : 1.5);
-            this._bText(book, st.text, st.x + st.w / 2, st.y + st.h / 2 + 7 * s,
-                        { size: SZW.stub * s, weight: 700, align: 'center', color: tagInk(st.kind) });
-            if (log) log.stubs.push({ kind: st.kind, text: st.text, x: st.x, y: st.y, w: st.w, h: st.h, cx: st.cx, col: st.col });
-        }
-        // the blocks
+        const log = book.log && book.page && book.page.painting ? {
+            side: P.side, scale: K, rows: P.rows, pitch: P.pitch,
+            map: geo ? { x: geo.wall.x, y: geo.wall.y, w: geo.wall.w, h: geo.wall.h,
+                         zoom: geo.zoom, area: geo.area } : null,
+            discs: [], runs: [], blocks: [], unplaced: P.unplaced, total: P.total,
+        } : null;
+
+        // the blocks: the name INSIDE, on its own line under the sockets
         for (const b of P.blocks) {
-            this._bwRound(ctx, b.x, b.y, b.w, b.h, BLOCK_R * s, null, INK, 2.5);
-            const title = this._bText(book, b.title, b.x + b.w / 2, b.y + 30 * s,
-                                      { size: SZW.caption * s, weight: 700, align: 'center',
-                                        maxWidth: b.w - 2 * BLOCK_PADX * s, shrink: true });
-            const entry = log ? { title, x: b.x, y: b.y, w: b.w, h: b.h, sockets: [] } : null;
+            this._bwRound(ctx, b.x, b.y, b.w, b.h, BOX_R * K, WHITE, b.rim, BOX_RIM * K);
+            const title = this._bText(book, b.title, b.x + PAD * K, b.y + TITLE_DY * K,
+                                      { size: CAPTION_SZ * K, weight: 700, color: b.rim,
+                                        maxWidth: b.w - 2 * PAD * K, shrink: true });
+            const entry = log ? { title, key: b.key, x: b.x, y: b.y, w: b.w, h: b.h,
+                                  rim: b.rim, hue: b.hue, dash: b.dash, sockets: [] } : null;
             for (const sk of b.sockets) {
-                const r = SOCKET_R * s;
-                if (sk.state === 'primary' || sk.state === 'power') {
-                    this._bwDisc(ctx, sk.x, sk.y, r, sk.state === 'primary' ? primary : orange);
-                    this._bwRing(ctx, sk.x, sk.y, r, INK, 1.5);
-                } else if (sk.state === 'return') {
-                    // a return's socket: red - on the printer page a hollow
-                    // ring, the way its wire is dashed
-                    if (printer) this._bwRing(ctx, sk.x, sk.y, r, INK, 3);
-                    else { this._bwDisc(ctx, sk.x, sk.y, r, backup); this._bwRing(ctx, sk.x, sk.y, r, INK, 1.5); }
-                } else if (sk.state === 'other') {
-                    this._bwDisc(ctx, sk.x, sk.y, r, GREY_FILL);
-                    this._bwRing(ctx, sk.x, sk.y, r, GREY_RING, 1.5);
-                } else {
-                    this._bwRing(ctx, sk.x, sk.y, r, GREY_RING, 2);
-                }
-                this._bText(book, String(sk.n), sk.x, sk.y + NUMBER_DY * s,
-                            { size: SZW.socket * s, weight: 400, align: 'center', color: INK });
+                const fill = !sk.on ? WHITE
+                    : printer ? ((P.isData && sk.kind === 'return') ? WHITE : INK)
+                    : (P.isData ? (sk.kind === 'return' ? (layer.backupColor || '#FF0000')
+                                                        : (layer.primaryColor || '#00FF00'))
+                                : b.hue);
+                const rim = sk.on ? (fill === WHITE ? INK : fill) : GREY_RING;
+                if (fill !== WHITE) this._bwSolid(ctx, sk.x, sk.y, sk.r, fill);
+                this._bwRing(ctx, sk.x, sk.y, sk.r, rim, SOCKET_RIM * K);
+                this._bText(book, String(sk.n), sk.x, sk.y + NUMBER_SZ * K * 0.375,
+                            { size: NUMBER_SZ * K, weight: 700, align: 'center',
+                              color: sk.on ? (fill === WHITE ? INK : WHITE) : GREY_INK });
                 if (sk.note) {
-                    this._bText(book, sk.note, sk.x, sk.y + NOTE_DY * s,
-                                { size: SZW.note * s, weight: 400, align: 'center', color: MUTED,
-                                  maxWidth: P.pitch * 2.4, shrink: true });
+                    this._bText(book, sk.note, sk.x, b.y + NOTE_DY * K,
+                                { size: NOTE_SZ * K, weight: 400, align: 'center',
+                                  color: sk.on ? MUTED : GREY_INK,
+                                  maxWidth: b.pitch * 2.4, shrink: true });
                 }
-                if (entry) entry.sockets.push({ n: sk.n, x: sk.x, y: sk.y, state: sk.state, note: sk.note });
+                if (entry) entry.sockets.push({ n: sk.n, x: sk.x, y: sk.y, r: sk.r,
+                                                state: sk.state, note: sk.note, fill, rim });
             }
             if (log) log.blocks.push(entry);
         }
+
+        // the wall's own discs are the origin - no second tag is drawn. On
+        // power the breakout's hue is carried to them as a ring, so a run
+        // and the disc it leaves read as one.
+        for (const d of P.discs) {
+            if (!printer && !P.isData && d.hue && d.r > 0) {
+                this._bwRing(ctx, d.x, d.y, d.r, d.hue, DISC_RIM * K);
+            }
+            if (log) log.discs.push({ kind: d.kind, text: d.text, x: d.x, y: d.y, r: d.r,
+                                      panel: d.panel, placed: d.placed });
+        }
+
+        // the runs, last, so a line can be followed over everything it
+        // crosses - each drawn twice, the white casing first
+        for (const r of P.runs) {
+            this._bwPath(ctx, r.points, WHITE, r.width + CASE_EXTRA * K, []);
+            this._bwPath(ctx, r.points, r.colour, r.width, r.dash);
+            if (log) log.runs.push({ kind: r.kind, from: r.from, device: r.device, socket: r.socket,
+                                     colour: r.colour, dash: r.dash, width: r.width,
+                                     points: r.points.map(p => [p[0], p[1]]) });
+        }
+
+        if (P.unplaced) {
+            this._bText(book, `${P.unplaced} of ${P.total} not placed on any card — no run to draw`,
+                        A.x, A.y + A.h - 4 * K, { size: NOTE_SZ * K * 1.15, weight: 400, color: MUTED });
+        }
         if (log) book.log.wiring.halves.push(log);
+    }
+
+    // A run's path, one polyline through the recorder.
+    _bwPath(ctx, points, colour, width, dash) {
+        ctx.strokeStyle = colour;
+        ctx.lineWidth = width;
+        ctx.setLineDash(dash || []);
+        ctx.beginPath();
+        points.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])));
+        ctx.stroke();
+        ctx.setLineDash([]);
     }
 
     // A rounded rectangle through the recorder's vocabulary: the fill as
@@ -707,21 +814,23 @@ class _BinderWiring {
         ctx.stroke();
     }
 
-    // A filled disc: a closed polyline at half the radius stroked as wide
-    // as the radius (24 segments).
-    _bwDisc(ctx, cx, cy, r, colour) {
+    // A solid disc: a closed polyline at half the radius stroked as wide
+    // as the radius. It runs a segment PAST its own start - a stroke that
+    // stops exactly where it began leaves a wedge of a notch at the join,
+    // and a notch in a socket reads as a mark that means something.
+    _bwSolid(ctx, cx, cy, r, colour) {
         ctx.strokeStyle = colour;
         ctx.lineWidth = r;
         ctx.setLineDash([]);
-        this._bwArc(ctx, cx, cy, r / 2, 0, 2 * Math.PI, 24);
+        this._bwArc(ctx, cx, cy, r / 2, 0, 2 * Math.PI * (25 / 24), 25);
     }
 
-    // A ring: a closed polyline at the radius (24 segments).
+    // A ring: the same closed polyline at the radius.
     _bwRing(ctx, cx, cy, r, colour, width) {
         ctx.strokeStyle = colour;
         ctx.lineWidth = width;
         ctx.setLineDash([]);
-        this._bwArc(ctx, cx, cy, r, 0, 2 * Math.PI, 24);
+        this._bwArc(ctx, cx, cy, r, 0, 2 * Math.PI * (25 / 24), 25);
     }
 }
 

@@ -108,6 +108,13 @@ def _take_cable_store(node, data, card_id, cvt_id=None):
     Validated, not allow-listed (the redundancy fields' rule): a socket the
     device does not have, a port in two snakes, a bad length or connector
     refuses the whole body with the reason and stores nothing.
+
+    ``snakes`` is the LEGACY door - a snake is the show's now, formed
+    through /api/snakes - kept because old undo snapshots and old clients
+    still speak it, and because it says exactly what a device-scoped
+    replacement means: every member THIS device has leaves the show's
+    snakes, and the list given comes back in their place. The per-device
+    key never survives the request; _migrate_snakes folds it in.
     """
     if 'snakes' not in data and 'portCables' not in data:
         return None
@@ -116,8 +123,45 @@ def _take_cable_store(node, data, card_id, cvt_id=None):
                                     'box' if cvt_id else 'card')
     if why:
         return why
+    if 'snakes' in data:
+        _drop_snake_members(('cvt', cvt_id) if cvt_id else ('card', card_id))
     catalog.apply_cable_store(node, data, ports, _next_seq)
     return None
+
+
+def _drop_snake_members(device):
+    """Take one device's sockets out of every show snake (an emptied snake
+    goes with them) - the legacy device PUT's "these are my snakes now"."""
+    kind, ident = device
+    out = []
+    for snake in catalog.show_snakes(app.current_project):
+        members = [m for m in snake.get('members') or []
+                   if not (m.get('kind') == kind and m.get('id') == ident)]
+        if not members:
+            continue
+        snake['members'] = members
+        out.append(snake)
+    if out:
+        app.current_project['snakes'] = out
+    else:
+        app.current_project.pop('snakes', None)
+
+
+def _migrate_snakes():
+    """Fold any per-device snakes into the show's list and re-home every
+    member onto the device that delivers its socket. Run at the end of every
+    mutating route (in _state), so a card that just lost its slot, a box
+    that just went, or a legacy PUT all leave one consistent list."""
+    catalog.migrate_device_snakes(app.current_project)
+
+
+def _snake_devices():
+    return catalog.snake_device_index(_processors())
+
+
+def _find_snake(snake_id):
+    return next((s for s in catalog.show_snakes(app.current_project)
+                 if s.get('id') == snake_id), None)
 
 
 def _prune_backup_refs(removed_ids):
@@ -396,6 +440,13 @@ def _state(status=200):
     add a machine, get proc3 again, then undo the delete and two machines
     both answer to it. Same lesson sync_next_group_seq records for groups,
     whose counter lives on the project for exactly this reason."""
+    # Every mutating route ends here, so this is the one place the show's
+    # snakes are settled against the tree that just changed: a legacy
+    # device PUT folded in, a member re-homed onto the box that now
+    # delivers its socket, a member of a deleted card dropped, an emptied
+    # snake gone. Idempotent, so a route that changed nothing changes
+    # nothing here either.
+    _migrate_snakes()
     app.current_project['is_pristine'] = False
     socketio.emit('project_updated', app.current_project)
     return jsonify({
@@ -403,6 +454,10 @@ def _state(status=200):
         'resolved': catalog.resolve_all(_processors()),
         'next_processor_seq': app.current_project.get('next_processor_seq'),
         'dataCableConnectors': catalog.data_cable_connectors(),
+        # The show's snakes ride the processor state: they hold sockets
+        # from several devices, so the tray, the sheet and the paperwork
+        # all read them beside the tree they point into.
+        'snakes': catalog.resolved_show_snakes(app.current_project),
     }), status
 
 
@@ -431,6 +486,7 @@ def get_processors():
         # DATA_CABLE_CONNECTORS) - served, so the sheet's select and the
         # server's refusals name the same list.
         'dataCableConnectors': catalog.data_cable_connectors(),
+        'snakes': catalog.resolved_show_snakes(app.current_project),
     })
 
 
@@ -446,6 +502,36 @@ def add_processor():
     _processors_mut().append(proc)
     log_event('processor_add', {'id': proc['id'], 'device': device_id})
     return _state(201)
+
+
+@processors_bp.route('/api/processors/order', methods=['PUT'])
+def set_processor_order():
+    """Reorder the processors (2026-09-09: "also being able to drag them
+    around and reorder them would be nice too").
+
+    The body is the whole order - a PERMUTATION of the ids that exist, so a
+    stale tray cannot silently drop or duplicate a machine; anything else
+    refuses with the reason and stores nothing. Order is the only thing
+    that moves: the records themselves are re-seated, never rewritten, and
+    everything that reads processor order (the tray, the pull list's
+    hardware order, the binder's 'data' screen order, _bFirstPortKey's
+    processor index) follows from this one array.
+
+    A static rule, so it is matched ahead of /api/processors/<id>.
+    """
+    data = request.json or {}
+    ids = data.get('ids')
+    if not isinstance(ids, list) or not all(isinstance(i, str) for i in ids):
+        return jsonify({'error': 'ids must be a list of processor ids.'}), 400
+    have = [p.get('id') for p in _processors()]
+    if sorted(ids) != sorted(have):
+        return jsonify({
+            'error': 'ids must name every processor exactly once - '
+                     f'{len(have)} on file, {len(ids)} given.'}), 400
+    by_id = {p.get('id'): p for p in _processors()}
+    _processors_mut()[:] = [by_id[i] for i in ids]
+    log_event('processor_order', {'ids': ids})
+    return _state()
 
 
 @processors_bp.route('/api/processors/<processor_id>', methods=['PUT'])
@@ -786,4 +872,154 @@ def delete_cvt(processor_id, cvt_id):
         if other.get('backupOf') == cvt_id:
             other.pop('backupOf', None)
     log_event('processor_cvt_delete', {'id': cvt_id})
+    return _state()
+
+
+# ── Show snakes ───────────────────────────────────────────────────────────
+#
+# "Any sockets, any device" (2026-09-09). A snake holds members - (device,
+# socket) pairs - and lives on the project, so one loom can carry a card's
+# A-1..A-4 and its backup box's B-1..B-4 together. The rules are the cable
+# stores': validated, never allow-listed, every refusal names its reason and
+# stores nothing; every answer is the whole resolved state, so one gesture is
+# one request and one undo step.
+
+
+def _take_snake_members(data, snake_id=None):
+    """Check a body's `members` against the tree, or say why not."""
+    devices, _delivers = _snake_devices()
+    taken = catalog.snake_sockets_taken(app.current_project, snake_id)
+    return catalog.check_snake_members(data.get('members'), devices, taken)
+
+
+def _check_snake_cable(data):
+    """The snake's own length and plug, checked the way a port cable is."""
+    if 'ft' in data and data['ft'] not in (None, ''):
+        try:
+            ft = float(data['ft'])
+        except (TypeError, ValueError):
+            return 'ft must be a number of feet.'
+        if ft != ft or ft < 0 or ft in (float('inf'), float('-inf')):
+            return 'ft must be a non-negative number.'
+    conn = data.get('connector')
+    ids = catalog.data_cable_connector_ids()
+    if 'connector' in data and conn not in (None, '') and conn not in ids:
+        return (f'unknown connector {conn!r} - one of '
+                f'{", ".join(sorted(ids))}, or null to follow the port.')
+    if 'name' in data and data.get('name') is not None \
+            and not isinstance(data.get('name'), str):
+        return 'name must be text.'
+    return None
+
+
+@processors_bp.route('/api/snakes', methods=['POST'])
+def add_snake():
+    """Form one snake of the members given - sockets from as many cards and
+    boxes as the gesture gathered."""
+    data = request.json or {}
+    why = _check_snake_cable(data) or _take_snake_members(data)
+    if why:
+        return jsonify({'error': why}), 400
+    devices, _delivers = _snake_devices()
+    snake = catalog.store_show_snake(app.current_project, data, devices,
+                                     _next_seq)
+    log_event('snake_add', {'id': snake['id'],
+                            'members': len(snake['members'])})
+    return _state(201)
+
+
+@processors_bp.route('/api/snakes/loosen', methods=['POST'])
+def loosen_snake_members():
+    """Take the members given out of whatever snakes hold them, in ONE
+    request: the sheet's "Unsnake" can tick sockets on several devices and
+    so touch several snakes, and one gesture has to be one undo step. An
+    emptied snake goes with its last member. A member no snake holds is
+    quietly nothing - unsnaking a loose socket is not an error.
+
+    A static rule, so it is matched ahead of /api/snakes/<snake_id>.
+    """
+    data = request.json or {}
+    members = data.get('members')
+    if not isinstance(members, list):
+        return jsonify({'error': 'members must be a list of '
+                                 '{kind, id, socket}.'}), 400
+    drop = set()
+    for raw in members:
+        if not isinstance(raw, dict):
+            continue
+        try:
+            drop.add((raw.get('kind'), raw.get('id'), int(raw.get('socket'))))
+        except (TypeError, ValueError):
+            continue
+    out = []
+    for snake in catalog.show_snakes(app.current_project):
+        kept = [m for m in snake.get('members') or []
+                if (m.get('kind'), m.get('id'), m.get('socket')) not in drop]
+        if not kept:
+            continue
+        snake['members'] = kept
+        out.append(snake)
+    if out:
+        app.current_project['snakes'] = out
+    else:
+        app.current_project.pop('snakes', None)
+    log_event('snake_loosen', {'members': len(drop)})
+    return _state()
+
+
+@processors_bp.route('/api/snakes/<snake_id>', methods=['PUT'])
+def update_snake(snake_id):
+    """Rename / re-length / re-plug one snake, and set its members where the
+    body carries them. One snake, wherever it was edited from."""
+    snake = _find_snake(snake_id)
+    if not snake:
+        return jsonify({'error': 'Snake not found'}), 404
+    data = request.json or {}
+    why = _check_snake_cable(data)
+    if not why and 'members' in data:
+        why = _take_snake_members(data, snake_id)
+    if why:
+        return jsonify({'error': why}), 400
+    devices, _delivers = _snake_devices()
+    catalog.store_show_snake(app.current_project, data, devices, _next_seq,
+                             snake)
+    log_event('snake_update', {'id': snake_id, 'changed': list(data)})
+    return _state()
+
+
+@processors_bp.route('/api/snakes/<snake_id>/members', methods=['PUT'])
+def set_snake_members(snake_id):
+    """The whole membership of one snake at once - the bulk door the sheet's
+    tick + Snake and the tray's sweep both write through when they are
+    adding to a snake that already exists."""
+    snake = _find_snake(snake_id)
+    if not snake:
+        return jsonify({'error': 'Snake not found'}), 404
+    data = request.json or {}
+    why = _take_snake_members(data, snake_id)
+    if why:
+        return jsonify({'error': why}), 400
+    devices, _delivers = _snake_devices()
+    catalog.store_show_snake(app.current_project, {'members':
+                                                   data.get('members')},
+                             devices, _next_seq, snake)
+    log_event('snake_members', {'id': snake_id,
+                                'members': len(snake['members'])})
+    return _state()
+
+
+@processors_bp.route('/api/snakes/<snake_id>', methods=['DELETE'])
+def delete_snake(snake_id):
+    """Unsnake the whole loom: the sockets stay where they are, and each
+    keeps the portCables entry it had - what was its extension off the
+    snake reads as its own home run again."""
+    snake = _find_snake(snake_id)
+    if not snake:
+        return jsonify({'error': 'Snake not found'}), 404
+    app.current_project['snakes'] = [
+        s for s in catalog.show_snakes(app.current_project)
+        if s.get('id') != snake_id]
+    if not app.current_project['snakes']:
+        app.current_project.pop('snakes', None)
+    log_event('snake_delete', {'id': snake_id})
     return _state()

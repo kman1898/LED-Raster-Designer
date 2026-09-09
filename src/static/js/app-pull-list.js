@@ -20,7 +20,11 @@
 //   * data: `Ether-con` + length for a loose CAT port cable, one
 //     `Ether-con Snake` row per snake (qty 1, "6-way" in Notes - snakes of
 //     different way counts are never merged), lengths as the snake's ONE
-//     home run. A snaked port's EXTENSION (the shorter cable from the
+//     home run. A snake is said ONCE for the show, keyed by the snake
+//     itself: since 2026-09-09 one holds sockets from as many cards and
+//     boxes as it was formed across ("Any sockets, any device"), and it is
+//     still one cable to pull - its hardware rows land on every processor
+//     it touches. A snaked port's EXTENSION (the shorter cable from the
 //     snake's fan-out to the panel, 2026-09-07) is one `Ether-con` +
 //     length row under the port's label with "ext · <snake>" in Notes,
 //     and ONE `Ether-con Barrel` EA row under the same label beside it -
@@ -538,6 +542,22 @@ class _PullList {
 
     // ---- the list ----------------------------------------------------------
 
+    // Every processor a snake reaches, through its members' devices. A
+    // loom that crosses two machines is listed on both their hardware
+    // sheets - the cable is really there twice over - and still counted
+    // once on the show's totals, because the row is keyed by the snake.
+    _snakeProcessorIds(snake) {
+        const out = [];
+        for (const m of (snake && snake.members) || []) {
+            const owner = typeof this._dataCableOwner === 'function'
+                ? this._dataCableOwner(m.kind, m.id) : null;
+            if (owner && owner.procId && !out.includes(owner.procId)) {
+                out.push(owner.procId);
+            }
+        }
+        return out;
+    }
+
     // The one authority. Shape:
     //   { positions: [{ name, key, groupId, location, memberIds, layerIds, rows }],
     //     totals: [rows],
@@ -860,7 +880,7 @@ class _PullList {
                 const s = cable.snake;
                 const connId = this.dataPortConnectorId(owner, s.connector);
                 const word = this.pullDataConnectorWord(connId);
-                const ways = (s.ports || []).length;
+                const ways = (s.members || []).length;
                 into.snake = s.name || '';
                 if (cable.ext != null) {
                     into.ext = cable.ext;
@@ -877,17 +897,35 @@ class _PullList {
                     // extension takes one as well.
                     push(row(extWord ? `${extWord} Barrel` : 'Barrel', 'EA', 1, label, '', at));
                 }
-                const snakeKey = `${owner.kind}:${owner.id}:${s.id}`;
+                // ONE row for the loom, keyed by the SNAKE (2026-09-09:
+                // "Any sockets, any device" - one snake can hold sockets
+                // from several cards and boxes, and it is still one cable
+                // to pull). Its hardware rows land on every processor it
+                // touches, so a snake shared between two machines is on
+                // both their sheets and counted once on the show's.
+                const snakeKey = `snake:${s.id}`;
                 if (snakesSeen.has(snakeKey)) return;
                 snakesSeen.add(snakeKey);
                 out.snakes.push({ name: s.name || '', ways, ft: s.ft || null,
                                   connector: connId || null, owner: owner.kind,
-                                  ownerId: owner.id });
+                                  ownerId: owner.id, id: s.id });
                 const type = word ? `${word} Snake` : 'Snake';
                 const ft = Number(s.ft);
-                push(row(type, this.pullLengthText(ft), 1, s.name || '',
-                         [`${ways}-way`, (Number.isFinite(ft) && ft > 0) ? '' : 'no length']
-                             .filter(Boolean).join('; '), at));
+                const snakeRow = { type, length: this.pullLengthText(ft),
+                                   qty: 1, label: s.name || '',
+                                   notes: [`${ways}-way`,
+                                           (Number.isFinite(ft) && ft > 0)
+                                               ? '' : 'no length']
+                                       .filter(Boolean).join('; ') };
+                const r = row(snakeRow.type, snakeRow.length, snakeRow.qty,
+                              snakeRow.label, snakeRow.notes, at);
+                for (const pid of this._snakeProcessorIds(s)) {
+                    const p2 = (this.project.processors || [])
+                        .find(x => x.id === pid) || null;
+                    if (!p2) continue;
+                    hw('processor', pid,
+                       p2.name || p2.deviceName || p2.id).rows.push({ ...r });
+                }
             } else {
                 const word = this.pullDataConnectorWord(cable.id);
                 into.cable = cable.text;
