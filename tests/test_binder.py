@@ -1289,6 +1289,37 @@ def _today():
     return f"{d.month}/{d.day}/{d.year % 100:02d}"
 
 
+def test_the_sheets_row_keeps_every_box_inside_the_panel_on_one_line(page):
+    """Four sheet boxes are wider than the modal. The row wraps, and each
+    box keeps its own words on one line - "Signal + Power" was breaking
+    mid-phrase and hanging off the right edge of the panel."""
+    pg, ids = page
+    out = pg.evaluate("""() => {
+        document.getElementById('export-format').value = 'binder';
+        document.getElementById('export-format').dispatchEvent(new Event('change'));
+        const panel = document.getElementById('export-binder-section');
+        const p = panel.getBoundingClientRect();
+        const boxes = ['export-binder-cover', 'export-binder-pull',
+                       'export-binder-hardware', 'export-binder-wiring'];
+        return { overflowX: panel.scrollWidth - panel.clientWidth,
+                 labels: boxes.map(id => {
+                     const el = document.getElementById(id).closest('label');
+                     const r = el.getBoundingClientRect();
+                     const line = parseFloat(getComputedStyle(el).lineHeight);
+                     return { id, text: el.textContent.trim(), height: r.height,
+                              line, past: r.right - p.right, before: p.left - r.left };
+                 }) };
+    }""")
+    assert out['overflowX'] <= 0, ('the panel scrolls sideways', out)
+    for lab in out['labels']:
+        assert lab['past'] <= 0, ('a box hangs off the right edge', lab)
+        assert lab['before'] <= 0, ('a box hangs off the left edge', lab)
+        # one line: a wrapped label would be two line-heights tall
+        assert lab['height'] < lab['line'] * 1.6, ('a box broke mid-phrase', lab)
+    assert [l['text'] for l in out['labels']] == \
+        ['Overview', 'Pull sheets', 'Hardware', 'Signal + Power'], out['labels']
+
+
 def test_the_title_block_prints_the_projects_fields_and_they_ride_the_project(page):
     """The export dialog's Title block fields commit to project.binder -
     one undo entry per field - and every sheet's title block prints them:
