@@ -45,14 +45,17 @@ ports):
 """
 
 import os
+import re
 import sys
 
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from test_binder import SEED_JS, SCRATCH_FIXTURE  # noqa: E402
-from test_binder_wiring import LOAD_JS  # noqa: E402
+from test_binder import SEED_JS, SCRATCH_FIXTURE, _SHOW_JSON  # noqa: E402
+from test_binder_wiring import (  # noqa: E402
+    LOAD_JS, _covers_lettering, _probe, _through_the_wall,
+)
 
 pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
@@ -304,18 +307,26 @@ def test_kelly_live_prints_nothing_on_its_own_maps(page, palette):
     assert not bad, '\n' + '\n'.join('  ' + b for b in bad)
 
 
+"""A wiring sheet's runs cross ONE kind of string by design: the socket
+NUMBER inside a block, which a run passes over on its way down into the
+socket beside it. Nothing else - the exemption used to be the whole sheet,
+and that is how runs drawn straight through the map's own lettering
+shipped twice."""
+SOCKET_NUMBER = re.compile(r'^\d{1,2}$')
+
+
 def _struck(report):
     """Every string a binder rule is drawn through.
 
-    A wiring sheet is exempt: its runs cross the wall and its blocks by
-    design, and a run passing over the grey number of a socket it does not
-    land on is what the approved drawing does.
+    On a wiring sheet a bare socket number is exempt (see above); every
+    other string is not, because a run over LETTERING is the fault this
+    file exists to catch.
     """
     bad = []
     for page in report:
-        if page['kind'] == 'wiring':
-            continue
         for h in page['hits']:
+            if page['kind'] == 'wiring' and SOCKET_NUMBER.match(h['t'].strip()):
+                continue
             bad.append('%s %s: a binder rule from (%d,%d) to (%d,%d) is drawn '
                        'through %r' % (page['n'], page['title'], h['line'][0],
                                        h['line'][1], h['line'][2], h['line'][3],
@@ -344,4 +355,39 @@ def test_kelly_live_has_no_rule_through_a_string(page, palette):
     report = pg.evaluate(RULE_JS, [_opts(palette)])
     assert report, 'the binder planned no pages at all'
     bad = _struck(report)
+    assert not bad, '\n' + '\n'.join('  ' + b for b in bad)
+
+
+# The other half of the narrowed exemption. A wiring sheet's runs may pass
+# over the wall's BARE CABINETS - that is what the white casing is for, and
+# the pixel pass above cannot tell a cabinet from a letter, so it judges no
+# line at all. canvas.js's label registry can: it knows a disc from a tag
+# from a plain panel. So the sheet keeps its exemption for cabinets and
+# loses it for LETTERING, which is the fault that shipped twice.
+@pytest.mark.parametrize('palette', ['colour', 'printer'])
+def test_no_wiring_run_is_drawn_over_the_maps_own_lettering(page, palette):
+    """Kelly Clarkson as the user exported her, and the seeded show:
+    on every SIGNAL + POWER sheet not one run is drawn over a label disc,
+    a cable tag, a gang pill, a multi band or a ruler label - and not one
+    is inside the wall at all but for the stub out of its own disc."""
+    import json
+    pg, _ids = page
+    shows = [(None, ['WALL-A - Signal + Power', 'WALL-B - Signal + Power',
+                     'CENTER - Signal + Power'])]
+    if os.path.exists(KELLY_LIVE):
+        shows.append((KELLY_LIVE, ['SR - Signal + Power', 'SL - Signal + Power',
+                                   'UPSTAGE - Signal + Power']))
+    bad, runs = [], 0
+    for fixture, titles in shows:
+        if fixture is None:
+            pg.evaluate(SEED_JS)
+        else:
+            pg.evaluate(LOAD_JS, json.load(open(fixture)))
+        opts = {**json.loads(_SHOW_JSON), 'palette': palette}
+        for title in titles:
+            for h in _probe(pg, opts, title):
+                runs += len(h['runs'])
+                bad += ['%s %s: %s' % (title, h['side'], s)
+                        for s in _covers_lettering(h) + _through_the_wall(h)]
+    assert runs > 20, ('the sweep read almost no runs at all', runs)
     assert not bad, '\n' + '\n'.join('  ' + b for b in bad)
