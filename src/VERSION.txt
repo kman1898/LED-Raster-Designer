@@ -389,6 +389,31 @@ v0.12.0 - September 7, 2026 (BETA)
   "Signal + Power" mid-phrase and hanging it off the right edge.
 
 
+- FIX (IMPORTANT): A Signal + Power run never crosses the wall, so it
+  never covers what the wall says. A run used to leave its label disc,
+  travel the inside of its own row the whole width of the wall and turn
+  down through it, striking through that port's own cable tag, cutting
+  the screen's daisy-chain arrows for the row and clipping label discs -
+  "IMAG SR-6" printed "IMAG R-6", "S1-1-4" printed "S1-1-". On a screen
+  with a tag beside every port, all four were struck through.
+  A run now leaves by an edge the map left clear, travels outside the
+  wall - down a rail past its edge, along a lane under its foot or over
+  its head - and drops into its socket. Where the socket already stands
+  outside on that side, the rail is the drop and the run is two segments
+  as before. Runs whose block sits under the wall now go around it, and
+  a wall gives up a little height so the lanes are not crushed.
+
+- CHANGE (IMPORTANT): A snake states its home run once, over the ports
+  that ride it. The Ports table printed the same run again on every port
+  on the snake - four ports read it four times, and the repetition was
+  wide enough that the backup column shrank its type to fit. The snake
+  now heads the ports beneath it with its name, its ways and its run,
+  and each row carries only what is that port's own: its extension, and
+  which end carries it, so a screen that extends its primary and one
+  that extends its return no longer read alike. A port on no snake is
+  unchanged, and the columns got their width back.
+
+
 - CHANGE (IMPORTANT): Redundancy is one bar in one place. Behind the
   processor's gear a raised segmented bar - Off, Whole unit, Per card,
   Per port (Off, Backed up, Per port on a standalone unit) - and exactly
