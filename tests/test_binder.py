@@ -944,10 +944,15 @@ def test_the_map_takes_the_room_the_tables_leave(page):
     (2760 / 2160 = 1.277), the map taking the height they leave, the wall
     centred between its gutters at the fit of that height (well under 3x),
     the sheet more than 80 % covered. CENTER (3 x 5 of 128 px, tall) beside
-    four short tables: SIDE - the tables grow until the map has 45 % of
-    the width left (s = 2.079), the wall fitting that room. Every heading
-    lies beside or under the map, never over it, inside the drawing area;
-    the bubble sits under the map; the map's rulers and brackets keep
+    four short tables: SIDE - and here THE SHEET IS FILLED FIRST
+    (2026-09-09): the tables used to grow until the map had only its 45 %
+    of the width left (s = 2.079), which on a tall wall left the map short
+    of the foot of the sheet and the bottom of the page empty. The scale is
+    swept for the largest type that still COVERS the area, so the tables
+    give a little width back and the map reaches both edges of its room -
+    the wall's fit is the same on the width and on the height. Every
+    heading lies beside or under the map, never over it, inside the drawing
+    area; the bubble sits under the map; the map's rulers and brackets keep
     their inch sizes while the tables scale."""
     pg, ids = page
     ww, wh = 4 * 200, 3 * 200
@@ -988,14 +993,24 @@ def test_the_map_takes_the_room_the_tables_leave(page):
     c = _render(pg, SHOW, 'CENTER - Power')
     s = c['page']['scale']
     assert c['page']['layout'] == 'side' and c['page']['cols'] == 1, c['page']
-    want = int((DA['w'] - round(DA['w'] * MAP_MIN_FRAC)) / (COL_W + COL_GAP) * 1000) / 1000
-    assert abs(s - want) < 1e-9 and 1.3 < s <= FILL_CAP, (s, want)
+    cap = int((DA['w'] - round(DA['w'] * MAP_MIN_FRAC)) / (COL_W + COL_GAP) * 1000) / 1000
+    assert 1.3 < s <= cap, (s, cap)
     m = _map_of(c)
     room_w = DA['w'] - (COL_W + COL_GAP) * s
     assert abs(m['area']['w'] - room_w) < 0.01 and m['area']['x'] == DA['x'], (m['area'], room_w)
     assert m['scale'] == s and abs(m['w'] / m['h'] - 3 / 5) < 0.01, m
     zoom = _fit(room_w, DA['h'] - BUBBLE_H * s, 3 * 128, 5 * 128)
     assert abs(m['zoom'] - zoom) < 0.01 and zoom < MAP_ZOOM_CAP, (m, zoom)
+    # the sweep's own answer: the map fills its room BOTH ways (the width
+    # it was given and the height under the bubble are the same fit), and
+    # the sheet is covered - no half-empty page under a small map
+    room_h = DA['h'] - BUBBLE_H * s
+    assert abs((room_w - GUT['left'] - GUT['right']) / (3 * 128)
+               - (room_h - GUT['top'] - GUT['bottom']) / (5 * 128)) < 0.05, (s, room_w, room_h)
+    assert c['page']['extent']['h'] >= DA['h'] * 0.98, c['page']['extent']
+    # a step of type up would cost the map more than it gains: at the old
+    # 45 %-width scale the sheet lost a sixth of its height
+    assert cap - s > 0.2, (s, cap)
     assert m['x'] >= DA['x'] and m['x'] + m['w'] <= m['area']['x'] + m['area']['w'] + 1, m
     assert m['area']['y'] + m['area']['h'] <= DA['y'] + DA['h'] + 1, m
     ext = c['page']['extent']
@@ -1287,6 +1302,37 @@ def _today():
     import datetime
     d = datetime.date.today()
     return f"{d.month}/{d.day}/{d.year % 100:02d}"
+
+
+def test_the_sheets_row_keeps_every_box_inside_the_panel_on_one_line(page):
+    """Four sheet boxes are wider than the modal. The row wraps, and each
+    box keeps its own words on one line - "Signal + Power" was breaking
+    mid-phrase and hanging off the right edge of the panel."""
+    pg, ids = page
+    out = pg.evaluate("""() => {
+        document.getElementById('export-format').value = 'binder';
+        document.getElementById('export-format').dispatchEvent(new Event('change'));
+        const panel = document.getElementById('export-binder-section');
+        const p = panel.getBoundingClientRect();
+        const boxes = ['export-binder-cover', 'export-binder-pull',
+                       'export-binder-hardware', 'export-binder-wiring'];
+        return { overflowX: panel.scrollWidth - panel.clientWidth,
+                 labels: boxes.map(id => {
+                     const el = document.getElementById(id).closest('label');
+                     const r = el.getBoundingClientRect();
+                     const line = parseFloat(getComputedStyle(el).lineHeight);
+                     return { id, text: el.textContent.trim(), height: r.height,
+                              line, past: r.right - p.right, before: p.left - r.left };
+                 }) };
+    }""")
+    assert out['overflowX'] <= 0, ('the panel scrolls sideways', out)
+    for lab in out['labels']:
+        assert lab['past'] <= 0, ('a box hangs off the right edge', lab)
+        assert lab['before'] <= 0, ('a box hangs off the left edge', lab)
+        # one line: a wrapped label would be two line-heights tall
+        assert lab['height'] < lab['line'] * 1.6, ('a box broke mid-phrase', lab)
+    assert [l['text'] for l in out['labels']] == \
+        ['Overview', 'Pull sheets', 'Hardware', 'Signal + Power'], out['labels']
 
 
 def test_the_title_block_prints_the_projects_fields_and_they_ride_the_project(page):
@@ -1771,11 +1817,12 @@ def test_the_data_sheet_prints_the_return_end_and_the_processor_once(page):
         proc = _render(pg, SHOW, PROC)['texts']
         assert proc[proc.index('Redundancy') + 1] == 'Per card'
         assert not [t for t in proc if BOX_WORD.search(t)]
-        # the unnamed card's device name is what the run column shrinks and
-        # cuts (an unnamed card has no shorter name to print); the row is
-        # its socket, 'ext', the length and the snake it hangs off
+        # an unnamed card goes by its SLOT on its own processor, never by
+        # the device's long model string (_bCardShort's rule, 2026-09-09 -
+        # the model was being shrunk and cut); the row is its socket,
+        # 'ext', the length and the snake it hangs off
         k = proc.index('ext')
-        assert proc[k - 1].startswith('H_16xRJ') and proc[k:k + 3] == ['ext', "25'", 'SR Backup'], proc[k - 3:k + 4]
+        assert proc[k - 1] == 'H9 slot 2 1' and proc[k:k + 3] == ['ext', "25'", 'SR Backup'], proc[k - 3:k + 4]
         assert proc[proc.index('SR Backup') : proc.index('SR Backup') + 3] == ['SR Backup', '1-way', "150'"], proc
     finally:
         pg.evaluate("""async ([ids, backupId]) => {

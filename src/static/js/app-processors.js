@@ -1388,16 +1388,58 @@ class _Processors {
         return this.snakeOwners(snake).length > 1;
     }
 
+    // THE UNIT A SOCKET SITS ON, NAMED ONCE (2026-09-09, off the Kelly
+    // Clarkson binder: "IMAG SR IMAG SR · NovaPro UHD Jr · 16 ports").
+    // A processor with no slots - a NovaPro UHD Jr, a Tessera S8 - carries
+    // ONE fixed card that IS its face, so the processor's name and the
+    // card's are two spellings of one unit: the paperwork says it once. A
+    // real slot card is a part inside a processor and reads as both, "H9
+    // SR" - but never twice over, and never the model standing in for a
+    // name only for the model to be printed again beside it: a title that
+    // falls back to the model tells the caller so (`named` is false) and
+    // the caller drops its own model column rather than saying it twice.
+    dataUnitTitle(proc, card) {
+        const p = (((proc || {}).name) || '').trim();
+        const c = (((card || {}).name) || '').trim();
+        if (!card || card.fixed) {
+            const title = p || c || (proc || {}).deviceName
+                || (card || {}).deviceName || (proc || {}).id || '';
+            return { title, named: !!(p || c) };
+        }
+        const slot = (((proc || {}).slots) || [])
+            .find(s => s && s.card && s.card.id === card.id);
+        const host = p || proc.deviceName || proc.id || '';
+        const part = c || (slot ? `slot ${(slot.index || 0) + 1}` : card.deviceName || '');
+        const named = !!(p || c);
+        if (!host || !part) return { title: host || part, named };
+        const a = host.toLowerCase(), b = part.toLowerCase();
+        if (a === b || b.startsWith(a + ' ')) return { title: part, named };
+        if (a.startsWith(b + ' ')) return { title: host, named };
+        return { title: `${host} ${part}`, named };
+    }
+
+    // The same reading from a card id alone, for a caller holding one.
+    dataUnitTitleForCard(cardId) {
+        const found = typeof this._dockFindCard === 'function'
+            ? this._dockFindCard(cardId) : null;
+        return found ? this.dataUnitTitle(found.proc, found.card)
+            : { title: cardId || '', named: false };
+    }
+
     // What a card or a box is CALLED, the way its own header calls it: the
-    // box's resolved title (trunk letter included), the card's name, else
-    // the device name. One spelling, so a snake row and a section header
-    // never name the same box two ways.
+    // box's resolved title (trunk letter included), the card's unit title
+    // (dataUnitTitle - one name for a card that IS its processor), else the
+    // device name. One spelling, so a snake row and a section header never
+    // name the same box two ways.
     dataOwnerTitle(owner) {
         const rec = (owner && owner.rec) || {};
         if (owner && owner.kind === 'cvt') {
             return rec.displayTitle || (rec.name || '').trim()
                 || rec.deviceName || owner.id;
         }
+        const unit = owner && owner.kind === 'card' && owner.id
+            ? this.dataUnitTitleForCard(owner.id) : null;
+        if (unit && unit.title) return unit.title;
         return (rec.name || '').trim() || rec.deviceName
             || (owner && owner.id) || '';
     }

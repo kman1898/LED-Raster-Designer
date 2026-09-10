@@ -62,6 +62,18 @@ class CanvasRenderer {
         this._fallbackShowRasterWidth = 1920;
         this._fallbackShowRasterHeight = 1080;
         this._activeRenderCanvas = null;
+        // The LABEL REGISTRY (2026-09-09). A screen map reaches a binder
+        // sheet as ONE BITMAP: its band pills, its own L ruler, its label
+        // discs, its cable tags and its gang tags are pixels inside that
+        // image, not ops in the binder's display list, so no audit of the
+        // sheet's ops can see the map writing on top of itself. Set this
+        // to [] for ONE render (the same one-flag-for-one-render shape
+        // hideScreenNames and printerMode use) and every piece of
+        // lettering, every pill and the wall's own edges land in it as
+        // { kind, text, x, y, w, h } in the bitmap's own pixels; leave it
+        // null and the whole registry costs one null test per label.
+        this.labelProbe = null;
+        this._labelProbeRadii = null;
         this.showGrid = true;
         this.viewMode = 'pixel-map'; // Default view mode
         this.exportMode = false; // When true, hides grid and raster boundary for clean export
@@ -312,6 +324,73 @@ class CanvasRenderer {
         }
     }
 
+    // ---- the label registry -------------------------------------------
+    //
+    // Start collecting for ONE render, then read what the map wrote.
+    // `startLabelProbe()` / `endLabelProbe()` bracket a render the way
+    // hideScreenNames brackets a binder map; nothing else in the renderer
+    // changes, so what the registry reports IS what the bitmap got.
+    startLabelProbe() {
+        this.labelProbe = [];
+        this._labelProbeRadii = new WeakMap();
+        return this.labelProbe;
+    }
+
+    endLabelProbe() {
+        const out = this.labelProbe || [];
+        this.labelProbe = null;
+        this._labelProbeRadii = null;
+        return out;
+    }
+
+    /**
+     * Note one box the map drew, in the BITMAP's pixels. The renderer
+     * paints in world units under a zoom/pan transform and, inside a
+     * layer, under that layer's own translate (and a mirror on a Back
+     * view), so the box is carried through ctx.getTransform() rather than
+     * multiplied by this.zoom - a Back view's boxes would otherwise land
+     * on the wrong side of the wall from the ink they describe. The
+     * corners are transformed and the axis-aligned hull kept, which is
+     * the box a rotated screen's label really covers.
+     * A no-op, and no allocation at all, when the probe is off.
+     */
+    _noteLabelBox(kind, text, x, y, w, h) {
+        const probe = this.labelProbe;
+        if (!probe) return;
+        if (!Number.isFinite(x) || !Number.isFinite(y)
+                || !Number.isFinite(w) || !Number.isFinite(h)) return;
+        let m = null;
+        try { m = this.ctx.getTransform(); } catch (e) { m = null; }
+        const at = (px, py) => (m
+            ? { x: m.a * px + m.c * py + m.e, y: m.b * px + m.d * py + m.f }
+            : { x: px, y: py });
+        const pts = [at(x, y), at(x + w, y), at(x, y + h), at(x + w, y + h)];
+        let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+        for (const p of pts) {
+            x1 = Math.min(x1, p.x); x2 = Math.max(x2, p.x);
+            y1 = Math.min(y1, p.y); y2 = Math.max(y2, p.y);
+        }
+        probe.push({ kind, text: (text === undefined || text === null) ? '' : String(text),
+                     x: x1, y: y1, w: x2 - x1, h: y2 - y1 });
+    }
+
+    /**
+     * The wall's own edges, as the four lines the cabinets' outline draws
+     * (zero thickness on the axis they run along). A pill or a tag that
+     * STRADDLES one of these is a label sitting on the wall's boundary
+     * rather than clear of it - the 2fer pills' fault, 2026-09-09.
+     */
+    _noteWallEdges(layer) {
+        if (!this.labelProbe) return;
+        if ((layer.type || 'screen') !== 'screen') return;
+        const b = this.getLayerBounds(layer);
+        if (!b || !(b.width > 0) || !(b.height > 0)) return;
+        this._noteLabelBox('wallEdge', 'top', b.x, b.y, b.width, 0);
+        this._noteLabelBox('wallEdge', 'bottom', b.x, b.y + b.height, b.width, 0);
+        this._noteLabelBox('wallEdge', 'left', b.x, b.y, 0, b.height);
+        this._noteLabelBox('wallEdge', 'right', b.x + b.width, b.y, 0, b.height);
+    }
+
     // Leading for a label stacked inside a circular marker. Kept as one
     // definition because _layoutCircleLabel sizes the circle from it and
     // _fillWrappedLabel places the lines with it - if the two disagreed a
@@ -351,6 +430,19 @@ class CanvasRenderer {
     _layoutCircleLabel(label, fontPx, minRadius, padding) {
         const text = String(label);
         const widthOf = (s) => this.ctx.measureText(s).width;
+        // The registry rides the pair the way app-binder-wiring.js's own
+        // probe does: the SAME `lines` array travels from here to
+        // _fillWrappedLabel, so noting the radius against it there reports
+        // every disc's real centre and size without a word of the
+        // placement being guessed. Free when the probe is off.
+        const keep = (out) => {
+            if (this._labelProbeRadii) {
+                // the label as the CALLER wrote it: the wrap's own spaces
+                // are the split's, not the name's
+                this._labelProbeRadii.set(out.lines, { r: out.radius, text });
+            }
+            return out;
+        };
         const oneLine = {
             lines: [text],
             radius: Math.max(minRadius, widthOf(text) / 2 + padding)
@@ -365,7 +457,7 @@ class CanvasRenderer {
         const spaced = tokens.length >= 2;
         const units = spaced ? tokens : this._unspacedUnits(text.trim());
         const joiner = spaced ? ' ' : '';
-        if (units.length < 2 || oneLine.radius <= minRadius) return oneLine;
+        if (units.length < 2 || oneLine.radius <= minRadius) return keep(oneLine);
 
         const lineHeight = this._circleLabelLineHeight(fontPx);
         // Smallest circle containing every line's text box: each line is a
@@ -396,7 +488,7 @@ class CanvasRenderer {
             // the label in pieces.
             if (r < best.radius - 0.5) best = { lines, radius: r };
         }
-        return best;
+        return keep(best);
     }
 
     /**
@@ -487,6 +579,13 @@ class CanvasRenderer {
      * its own (its lines are left-aligned at x, through ctx.textAlign).
      */
     _fillWrappedLabel(lines, x, y, fontPx, lineHeight) {
+        // A disc: lines _layoutCircleLabel sized, drawn at their circle's
+        // centre. The cable tag's lines come from cableTagLayout instead
+        // and are noted by drawCableTag with the pill they land in.
+        if (this._labelProbeRadii && this._labelProbeRadii.has(lines)) {
+            const k = this._labelProbeRadii.get(lines);
+            this._noteLabelBox('disc', k.text, x - k.r, y - k.r, k.r * 2, k.r * 2);
+        }
         if (lines.length === 1) {
             this._fillText(lines[0], x, y);
             return;
@@ -4525,6 +4624,10 @@ class CanvasRenderer {
                         this.renderPanel(panel, layer);
                     });
 
+                    // The wall's own edges, for the label registry: noted
+                    // in the very frame the cabinets were drawn in.
+                    if (this.labelProbe) this._noteWallEdges(layer);
+
                     // Render Circle with X test pattern. Every condition lives
                     // inside, because a group draws ONE pattern across its
                     // members and the decision about which member draws it
@@ -5948,9 +6051,13 @@ class CanvasRenderer {
         const pendingTags = [];
         const drawCableTags = () => {
             const bounds = { left: layerLeft, top: layerTop, right: layerRight, bottom: layerBottom };
+            // The pills already down: a tag is placed clear of them as
+            // well as of the discs - see placeCableTag.
+            const taken = [];
             for (const t of pendingTags) {
                 const at = this.placeCableTag(t.text, t.disc.x, t.disc.y, t.disc.r, labelSize,
-                                              bounds, labelDiscs, t.disc);
+                                              bounds, labelDiscs, t.disc, taken);
+                taken.push(at.rect);
                 this.drawCableTag(t.text, at.x, at.y, labelSize, DATA_CABLE_TAG_COLORS, at.opts);
             }
             pendingTags.length = 0;
@@ -6513,9 +6620,13 @@ class CanvasRenderer {
         const pendingTags = [];
         const drawCableTags = () => {
             const bounds = { left: layerLeft, top: layerTop, right: layerRight, bottom: layerBottom };
+            // The pills already down: a tag is placed clear of them as
+            // well as of the discs - see placeCableTag.
+            const taken = [];
             for (const t of pendingTags) {
                 const at = this.placeCableTag(t.text, t.disc.x, t.disc.y, t.disc.r, labelSize,
-                                              bounds, labelDiscs, t.disc);
+                                              bounds, labelDiscs, t.disc, taken);
+                taken.push(at.rect);
                 this.drawCableTag(t.text, at.x, at.y, labelSize, undefined, at.opts);
             }
             pendingTags.length = 0;
@@ -6858,9 +6969,45 @@ class CanvasRenderer {
         const top = bounds.y;
         const labelSize = Math.max(11, (layer.powerLabelSize || 14) * 0.9);
         const legFont = Math.max(8, labelSize * 0.62);
+        const pillH = labelSize + 6;
+        // THE BAND'S OWN STRIP (2026-09-09). The pill used to straddle the
+        // bracket line - and the bracket line is also where the leg ruler
+        // hangs from, so every leg tick under the pill ran through it and
+        // the ruler broke off wherever a band stood. On the user's own
+        // export "S1-1 · 250 · 65.8A" read "S1-4". The pill now sits ON
+        // the line, its bottom edge the line itself, and the ruler keeps
+        // the strip beneath: two strips, never a shared pixel, and every
+        // tick of the ruler reads at its full length.
+        // The assembly gets exactly the height it has always had: the
+        // binder's map gutter was cut for that, and a taller stack is not
+        // clipped politely - it is simply lost off the top of the map's
+        // bitmap, band and all. So the band's strip comes OUT of that
+        // height and the ruler takes what is left, SHRINKING to fit it
+        // where it must. The spacing gives way before the layout does,
+        // the same instinct as the wiring sheet's adaptive pitch.
+        // The row pitch is untouched for the same reason. A bracket only
+        // draws a ruler when its legs sit on DISTINCT column groups (see
+        // `distinct` below), and brackets that share a row's columns
+        // outright draw none at all, so a stacked bracket's ruler and the
+        // band under it do not meet in practice - and the map's label
+        // registry (tests/test_map_label_collisions.py) is what says so
+        // on real shows rather than this comment.
+        const stack = 12 + legFont * 1.9 + pillH / 2;   // the room, as always
+        const baseGap = Math.max(pillH * 0.4, stack - pillH);
+        // The ruler shares out what is left under the line, and it does
+        // not share it evenly: the L LABEL is the reading, so it keeps
+        // its size as long as it can, and the TICK - which only points
+        // at the columns - gives way first, down to a third of its
+        // length. Both stop a pad short of the cabinets: a ruler label
+        // with the wall's own edge line through it is the fault this
+        // work is about, one strip further down.
+        const legPad = Math.max(1, legFont * 0.15);
+        const fullTick = labelSize * 0.45;
+        const legTick = Math.max(fullTick * 0.35,
+                                 Math.min(fullTick, (baseGap - legPad - legFont) / 1.5));
+        const legSize = Math.min(legFont,
+                                 Math.max(legFont * 0.7, baseGap - legPad - legTick * 1.5));
         const rowH = labelSize + 14;
-        // clear space under the bracket line for the leg ticks + L labels
-        const baseGap = 12 + legFont * 1.9;
         // assign stacking rows: first bracket whose x-span is free on a row
         const rows = [];   // per row: list of [x1, x2]
         const placed = plan.map(s => {
@@ -6908,15 +7055,23 @@ class CanvasRenderer {
             if (distinct) {
                 this.ctx.save();
                 this.ctx.lineWidth = Math.max(1, labelSize * 0.07);
-                this.ctx.font = `600 ${legFont}px ${projectFontFamily()}`;
+                this.ctx.font = `600 ${legSize}px ${projectFontFamily()}`;
                 this.ctx.textAlign = 'center';
                 this.ctx.textBaseline = 'top';
+                const lw = this.ctx.lineWidth;
                 for (const l of legs) {
                     this.ctx.beginPath();
                     this.ctx.moveTo(l.cx, y);
-                    this.ctx.lineTo(l.cx, y + tick * 1.5);
+                    this.ctx.lineTo(l.cx, y + legTick * 1.5);
                     this.ctx.stroke();
-                    this._fillText('L' + l.leg, l.cx, y + tick * 1.6);
+                    this._noteLabelBox('rulerTick', 'L' + l.leg,
+                                       l.cx - lw / 2, y, lw, legTick * 1.5);
+                    if (this.labelProbe) {
+                        const lwid = this.ctx.measureText('L' + l.leg).width;
+                        this._noteLabelBox('rulerLabel', 'L' + l.leg,
+                                           l.cx - lwid / 2, y + legTick * 1.6, lwid, legSize);
+                    }
+                    this._fillText('L' + l.leg, l.cx, y + legTick * 1.6);
                 }
                 this.ctx.restore();
             }
@@ -6940,19 +7095,24 @@ class CanvasRenderer {
                 this.ctx.restore();
             }
             const gap = badgeText ? labelSize * 0.3 : 0;
-            // knock out a gap in the bracket line behind the label
+            // The band's own strip: the pill RESTS on the bracket line
+            // (its bottom edge IS the line) instead of straddling it, so
+            // the leg ruler hanging under the line keeps a clear strip -
+            // see baseGap above.
             this.ctx.save();
             this.ctx.textAlign = 'center';
             this.ctx.textBaseline = 'middle';
             this.ctx.globalCompositeOperation = 'source-over';
             const padX = labelSize * 0.4;
-            const pillH = labelSize + 6;
             const pillW = tw + bw + gap + padX * 2;
             const px0 = cx - pillW / 2;
+            const pillY = y - pillH;         // the pill's top; its foot is y
+            const yText = y - pillH / 2;     // the middle of the pill
+            this._noteLabelBox('band', label, px0, pillY, pillW, pillH);
             this.ctx.fillStyle = dashed ? 'rgba(0, 0, 0, 0.6)' : (this.printerMode ? '#ffffff' : orange);
             this.ctx.beginPath();
-            if (this.ctx.roundRect) this.ctx.roundRect(px0, y - pillH / 2, pillW, pillH, pillH / 2);
-            else this.ctx.rect(px0, y - pillH / 2, pillW, pillH);
+            if (this.ctx.roundRect) this.ctx.roundRect(px0, pillY, pillW, pillH, pillH / 2);
+            else this.ctx.rect(px0, pillY, pillW, pillH);
             this.ctx.fill();
             if (this.printerMode && !dashed) {
                 this.ctx.strokeStyle = PRINTER_INK;
@@ -6976,18 +7136,18 @@ class CanvasRenderer {
                     ? 'rgba(217, 80, 0, 0.22)'
                     : (this.printerMode ? '#e9e9e9' : 'rgba(0, 0, 0, 0.28)');
                 this.ctx.beginPath();
-                if (this.ctx.roundRect) this.ctx.roundRect(cursor, y - bh / 2, bw, bh, bh / 2);
-                else this.ctx.rect(cursor, y - bh / 2, bw, bh);
+                if (this.ctx.roundRect) this.ctx.roundRect(cursor, yText - bh / 2, bw, bh, bh / 2);
+                else this.ctx.rect(cursor, yText - bh / 2, bw, bh);
                 this.ctx.fill();
                 this.ctx.save();
                 this.ctx.font = badgeFont;
                 this.ctx.fillStyle = ink;
-                this._fillText(badgeText, cursor + bw / 2, y + 0.5);
+                this._fillText(badgeText, cursor + bw / 2, yText + 0.5);
                 this.ctx.restore();
                 cursor += bw + gap;
             }
             this.ctx.fillStyle = ink;
-            this._fillText(label, cursor + tw / 2, y);
+            this._fillText(label, cursor + tw / 2, yText);
             this.ctx.restore();
         }
         this.ctx.restore();
@@ -7060,6 +7220,7 @@ class CanvasRenderer {
             // column runs (the clean mock look), ON the row seam for
             // horizontal runs - either way, the line under "these runs
             // share one feed".
+            const pillH = labelSize + 6;
             const y = yBot + labelSize * 0.25;
             const tick = labelSize * 0.45;
             this.ctx.lineWidth = Math.max(1.5, labelSize * 0.12);
@@ -7086,17 +7247,28 @@ class CanvasRenderer {
             const cx = (x1 + x2) / 2;
             const tw = this.ctx.measureText(label).width;
             const padX = labelSize * 0.4;
-            const pillH = labelSize + 6;
             // Printer page: a white pill with a black rim and black text -
             // OVER still says OVER, in the text rather than in red.
             const printer = this.printerMode;
+            // THE PILL STANDS CLEAR OF THE EDGE (2026-09-09). It used to
+            // be centred on the bracket line, so the boundary the bracket
+            // hugs - on a column gang, the WALL'S OWN BOTTOM EDGE - ran
+            // through the middle of the tag and it read as part of the
+            // last row. It cannot drop below that edge to get clear: the
+            // binder's map gutter under a wall is a sixth of the room
+            // this pill needs, so a pill hung under the edge is not
+            // nudged, it is cut off the bitmap. So it rests INSIDE the
+            // edge, its foot a hair above the line, with its bracket
+            // still on the feet under it.
+            const pillY = yBot - labelSize * 0.15 - pillH;
+            const yText = pillY + pillH / 2;
             this.ctx.fillStyle = printer ? '#ffffff' : (over ? color : NFER_TAG_COLORS.fill);
             this.ctx.beginPath();
             if (this.ctx.roundRect) {
-                this.ctx.roundRect(cx - tw / 2 - padX, y - pillH / 2,
+                this.ctx.roundRect(cx - tw / 2 - padX, pillY,
                                    tw + padX * 2, pillH, pillH / 2);
             } else {
-                this.ctx.rect(cx - tw / 2 - padX, y - pillH / 2,
+                this.ctx.rect(cx - tw / 2 - padX, pillY,
                               tw + padX * 2, pillH);
             }
             this.ctx.fill();
@@ -7106,7 +7278,9 @@ class CanvasRenderer {
             this.ctx.fillStyle = printer ? PRINTER_INK : NFER_TAG_COLORS.ink;
             this.ctx.textAlign = 'center';
             this.ctx.textBaseline = 'middle';
-            this._fillText(label, cx, y);
+            this._noteLabelBox('gang', label, cx - tw / 2 - padX, pillY,
+                               tw + padX * 2, pillH);
+            this._fillText(label, cx, yText);
         }
         this.ctx.restore();
     }
@@ -7214,8 +7388,16 @@ class CanvasRenderer {
     cableTagRect(text, x, y, labelSize, opts) {
         const tag = this.cableTagLayout(text, labelSize);
         const side = (opts && opts.side) || ((opts && opts.flip) ? 'left' : 'right');
-        const gap = labelSize * 0.25;
         const stacked = side === 'below' || side === 'above';
+        // A pill hung off a label's SIDE stands a quarter-label away, as
+        // it always has. One hung UNDER or OVER stands further off
+        // (2026-09-09): a disc is at its widest exactly where a stacked
+        // pill is centred, so the quarter-label that reads as a gap
+        // beside a label read as a pill welded to it on a dense wall -
+        // "the label discs and their cable tags are jammed into each
+        // other". More than the pill's own corner radius, so the two
+        // rounded rims never look joined.
+        const gap = labelSize * (stacked ? 0.6 : 0.25);
         let left, top;
         if (side === 'left') left = x - gap - tag.width;
         else if (side === 'right') left = x + gap;
@@ -7246,10 +7428,19 @@ class CanvasRenderer {
     // when right would leave the screen and left would not), the other
     // side, below the label, above it - a below / above pill slides along
     // the screen's edge rather than hang over it (cableTagRect); the first
-    // pill inside the screen that meets no other disc wins. When none
-    // does, below - and let it be. Returns the anchor and opts for
-    // drawCableTag, with the pill.
-    placeCableTag(text, cx, cy, radius, labelSize, bounds, discs, own) {
+    // pill inside the screen that meets no other disc AND NO PILL ALREADY
+    // PLACED wins. `taken` is those pills, in the order they were placed:
+    // without it a tag hung right off one label and a tag hung left off
+    // the next printed clean through each other, each of them clear of
+    // every DISC and neither of them aware of the other (Kelly, SL ·
+    // POWER, 2026-09-09: "5' True1" and "10' True1" overprinted by 185 x
+    // 51 pixels of the map).
+    // When no side is clear the spacing gives way before the layout does:
+    // the candidate that covers the LEAST of anything else wins, rather
+    // than a flat fall back to below that could have been the worst of
+    // the four. Returns the anchor and opts for drawCableTag, with the
+    // pill.
+    placeCableTag(text, cx, cy, radius, labelSize, bounds, discs, own, taken) {
         const w = this.cableTagWidth(text, labelSize);
         const rightFits = cx + radius + w <= bounds.right;
         const leftFits = cx - radius - w >= bounds.left;
@@ -7274,11 +7465,29 @@ class CanvasRenderer {
             return (qx - d.x) * (qx - d.x) + (qy - d.y) * (qy - d.y) < d.r * d.r - eps;
         };
         const others = (discs || []).filter(d => d && d !== own);
+        const placed = (taken || []).filter(Boolean);
+        const overlaps = (a, b) => Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x))
+            * Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
+        // What a candidate would cover: the discs it meets, the pills
+        // already down, and any part of it outside the screen.
+        const cost = (rc) => {
+            let c = 0;
+            for (const d of others) {
+                if (!meets(rc, d)) continue;
+                c += overlaps(rc, { x: d.x - d.r, y: d.y - d.r, w: d.r * 2, h: d.r * 2 });
+            }
+            for (const t of placed) c += overlaps(rc, t);
+            if (!inside(rc)) c += rc.w * rc.h;
+            return c;
+        };
+        let best = null, bestCost = Infinity;
         for (const side of order) {
             const c = candidate(side);
-            if (inside(c.rect) && !others.some(d => meets(c.rect, d))) return c;
+            const k = cost(c.rect);
+            if (k <= eps) return c;
+            if (k < bestCost) { bestCost = k; best = c; }
         }
-        return candidate('below');
+        return best || candidate('below');
     }
 
     // Draws the pill cableTagRect describes at (x, y) - see it for the
@@ -7286,6 +7495,7 @@ class CanvasRenderer {
     drawCableTag(text, x, y, labelSize, colors, opts) {
         const c = this.printerMode ? PRINTER_TAG_COLORS : (colors || POWER_CABLE_TAG_COLORS);
         const rc = this.cableTagRect(text, x, y, labelSize, opts);
+        this._noteLabelBox('tag', text, rc.x, rc.y, rc.w, rc.h);
         const tag = rc.layout;
         const { size, padX, lineHeight } = tag;
         this.ctx.save();
