@@ -1806,18 +1806,26 @@ class _Binder {
         } });
         for (const r of spec.rows || []) {
             if (r.band !== undefined) {
+                // A SUB-BAND is a second level inside a band: the snake a
+                // run of ports rides, named once over them (2026-09-09).
+                // It is set in from the band's own edge and carries no
+                // fill, so a reader sees at a glance which heading is the
+                // unit and which is the loom hanging off it.
+                const sub = !!r.sub;
+                const ind = sub ? 22 : 0;
                 lines.push({ h: BAND_H, band: true, draw: (ctx, x, y, w) => {
                     if (book.meta.palette === 'printer') {
                         ctx.fillStyle = INK;
-                        ctx.fillRect(x, y + 2, w, 3);
-                    } else {
+                        ctx.fillRect(x + ind, y + 2, w - ind, sub ? 2 : 3);
+                    } else if (!sub) {
                         ctx.fillStyle = BAND_BG;
                         ctx.fillRect(x, y, w, BAND_H - 4);
                     }
-                    this._bText(book, r.band, x + padX, y + 31,
-                                { size: SZ.cell, weight: 700, maxWidth: w - padX * 2 });
+                    this._bText(book, r.band, x + ind + padX, y + 31,
+                                { size: SZ.cell, weight: 700, shrink: true,
+                                  maxWidth: w - ind - padX * 2 });
                     ctx.fillStyle = RULE;
-                    ctx.fillRect(x, y + BAND_H - 4, w, 4);
+                    ctx.fillRect(x + ind, y + BAND_H - 4, w - ind, sub ? 2 : 4);
                 } });
                 continue;
             }
@@ -2869,7 +2877,8 @@ class _Binder {
     // same snake carrying both ends, or the same reading on both - so a
     // cell never says one thing twice. Where one end is a longer reading of
     // the other (the same snake plus an extension) the fuller one stands.
-    _bHomeRunText(primary, backup) {
+    _bHomeRunText(primary, backup, headed = false) {
+        if (headed) return this._bHomeRunRest(primary, backup);
         const a = this.runText(primary);
         if (!backup) return a;
         const b = this.runText(backup);
@@ -2878,6 +2887,58 @@ class _Binder {
             && primary.snake && backup.snake && primary.snake.id === backup.snake.id;
         if (oneSnake) return a.length >= b.length ? a : b;
         return `${a} / ${b}`;
+    }
+
+    // WHAT IS LEFT TO SAY once the snake heading above has said the run.
+    // A snake is ONE home run carrying several ports - "why is the same
+    // data written multiple times under the snake under a specific port
+    // number" (2026-09-09) - so under its heading a row carries only what
+    // is the PORT'S OWN: its extension from the fan-out to the panel,
+    // typed on the member row and nobody else's. An end with no extension
+    // has nothing left to say; an end that is NOT on a snake still reads
+    // its whole run, because no heading said it.
+    _bHomeRunRest(primary, backup) {
+        const rest = (c) => (c && c.kind === 'snake' && c.snake
+            ? (c.ext != null ? `+${this.cableText(c.ext, '')}` : '')
+            : this.runText(c));
+        const a = rest(primary);
+        if (!backup) return a || '—';
+        const b = rest(backup);
+        // Which end it belongs to is said in words rather than by
+        // position where only one end has anything: "+25' primary" cannot
+        // be read as the backup's, and "+10' both ends" is not the same
+        // reading printed twice.
+        if (a && b) return a === b ? `${a} both ends` : `${a} / ${b}`;
+        if (a) return `${a} primary`;
+        if (b) return `${b} backup`;
+        return '—';
+    }
+
+    // THE HEADING OVER A RUN OF PORTS ON A SNAKE: the loom as the bracket,
+    // the tray and the pull sheet already name it - "SNAKE A · 6-way ·
+    // 100'" (snakeTagText) - once, over every port riding it. Null where
+    // neither end of the row is on a snake.
+    //
+    // The two ends are two different looms, so both are named: the
+    // primary's first, the backup's after it in the order the columns
+    // stand. ONE snake carrying both ends says so ("· both ends") instead
+    // of printing itself twice, and a snake reaching past this unit names
+    // the sockets it holds elsewhere, so its ways and the rows under it
+    // never disagree.
+    _bSnakeHeadText(primary, backup) {
+        const on = (c) => (c && c.kind === 'snake' && c.snake ? c : null);
+        const p = on(primary), b = on(backup);
+        if (!p && !b) return null;
+        const one = (c) => this.snakeTagText(c.snake)
+            + (typeof this.snakeElsewhere === 'function' && c.owner
+                ? this.snakeElsewhere(c.snake, c.owner)
+                      .map(a => ` · also ${a.text}`).join('')
+                : '');
+        if (p && b) {
+            return p.snake.id === b.snake.id
+                ? `${one(p)} · both ends` : `${one(p)} / backup ${one(b)}`;
+        }
+        return p ? one(p) : `backup ${one(b)}`;
     }
 
     // The band over a card's ports: the unit, its model, how many ports -
@@ -2907,11 +2968,19 @@ class _Binder {
         const asg = ((this._assignment && this._assignment.screens) || [])
             .find(s => String(s.layerId) === String(layer.id));
         const runs = this._pullPortRuns(layer);
-        const bands = new Map();      // key -> { text, rows }
+        // Two levels: the UNIT a port lands on (a card or a breakout box),
+        // and inside it the SNAKE a run of its ports rides - one heading
+        // each, in the order the ports come.
+        const bands = new Map();      // key -> { text, groups: Map }
         const band = (key, text) => {
             let b = bands.get(key);
-            if (!b) { b = { text, rows: [] }; bands.set(key, b); }
+            if (!b) { b = { text, groups: new Map() }; bands.set(key, b); }
             return b;
+        };
+        const group = (b, key, text) => {
+            let g = b.groups.get(key);
+            if (!g) { g = { text, rows: [] }; b.groups.set(key, g); }
+            return g;
         };
         let procs = new Map();
         for (const run of runs) {
@@ -2953,12 +3022,29 @@ class _Binder {
             // fuller reading wins, so an extension is not lost.
             const backupCable = bb && typeof this.dataPortCable === 'function'
                 ? this.dataPortCable(bb.cardId, bb.port) : null;
-            const homeRun = this._bHomeRunText(cable, bb ? backupCable : null);
-            b.rows.push({ cells: [run.label, primary, backup, this._bNum((run.panels || []).length, 0),
+            const other = bb ? backupCable : null;
+            // A SNAKE IS ONE HOME RUN, SAID ONCE. The ports riding it sit
+            // under a heading that names it (the shape the tray and the
+            // pull sheet use), and their rows then carry only their own
+            // extensions - the four rows of "USC A 100' +10' / SNAKE A
+            // 100' +10'" the user marked (2026-09-09). A port on no snake
+            // is grouped with the rest of them under no heading at all and
+            // reads exactly as it did.
+            const snakeId = (c) => (c && c.kind === 'snake' && c.snake ? c.snake.id : '');
+            const head = this._bSnakeHeadText(cable, other);
+            const g = group(b, `${snakeId(cable)}|${snakeId(other)}`, head);
+            const homeRun = this._bHomeRunText(cable, other, !!head);
+            g.rows.push({ cells: [run.label, primary, backup, this._bNum((run.panels || []).length, 0),
                                   this._bNum(px, 0), homeRun] });
         }
         const rows = [];
-        for (const b of bands.values()) { rows.push({ band: b.text }); rows.push(...b.rows); }
+        for (const b of bands.values()) {
+            rows.push({ band: b.text });
+            for (const g of b.groups.values()) {
+                if (g.text) rows.push({ band: g.text, sub: true });
+                rows.push(...g.rows);
+            }
+        }
         // PORT takes the width its longest label needs, whole - "SR A-1"
         // was cut to "SR A…" at a fixed share (2026-09-07) - measured
         // against the tables' column, and never under its old share; the

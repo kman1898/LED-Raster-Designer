@@ -75,6 +75,28 @@ SHEETS_JS = """async ([project, opts]) => {
     await app.refreshProcessors();
     await app.refreshPortAssignment();
     app.renderLayers();
+    // The snakes a screen's ports actually ride, both ends, read off the
+    // show's own helpers (app-processors.js) rather than off the sheet -
+    // so what the sheet says can be held against them.
+    const snakesOn = (page) => {
+        const layer = (app.project.layers || [])
+            .find(l => String(l.id) === String(page.layerId));
+        if (!layer) return [];
+        const scr = ((app._assignment && app._assignment.screens) || [])
+            .find(s => String(s.layerId) === String(layer.id));
+        const out = new Map();
+        for (const p of ((scr && scr.ports) || [])) {
+            for (const c of [app.dataPortCableForScreen(layer, p.number),
+                             app.dataPortBackupCableForScreen(layer, p.number)]) {
+                if (!c || c.kind !== 'snake' || !c.snake) continue;
+                const ft = Number(c.snake.ft);
+                if (!(ft > 0) || !c.snake.name) continue;
+                out.set(c.snake.id, { id: c.snake.id, name: c.snake.name,
+                                      ft, ftText: app.cableText(ft, '') });
+            }
+        }
+        return [...out.values()];
+    };
     const plan = app.planBinder(opts);
     const pages = [];
     for (let i = 0; i < plan.length; i++) {
@@ -82,6 +104,7 @@ SHEETS_JS = """async ([project, opts]) => {
         pages.push({
             number: plan[i].number, title: plan[i].title, kind: plan[i].kind,
             layout: plan[i].layout, scale: plan[i].scale, extent: plan[i].extent,
+            snakes: plan[i].kind === 'data' ? snakesOn(plan[i]) : [],
             texts: r.record.ops.filter(o => o.op === 'text' && String(o.text).trim())
                     .map(o => ({ t: o.text, x: Math.round(o.x * 100) / 100,
                                  y: Math.round(o.y * 100) / 100, size: o.size })),
@@ -251,6 +274,36 @@ def test_a_home_run_cell_never_says_one_run_twice(shows):
         stacked, indent=1, ensure_ascii=False)
     assert not repeats, 'a home run cell said one run twice: ' + json.dumps(
         repeats, indent=1, ensure_ascii=False)
+
+
+def test_a_snake_states_its_home_run_once_on_a_data_sheet(shows):
+    """A SNAKE IS ONE HOME RUN, SO THE SHEET SAYS IT ONCE.
+
+    "Why is the same data written multiple times under the snake under a
+    specific port number" (2026-09-09). The UPSTAGE data sheet printed
+    "USC A 100' +10' / SNAKE A 100' +10'" on four rows in a row: A-1..A-4
+    all ride the one 4-way, and its return end all rides the one backup
+    4-way, so the pair of runs was printed four times over. The ports on a
+    snake belong under a GROUP HEADING that names it once - the way the
+    circuits table already heads a multi's circuits - and each port row
+    then carries only what is its own (its extension).
+
+    The rule: for every snake either end of a screen's ports rides, its
+    reading - the name and the run together - appears on that sheet
+    EXACTLY ONCE. More than once is the repetition; none at all would mean
+    the run had been dropped rather than stated.
+    """
+    bad = {}
+    for nm, show in shows.items():
+        for page in show['pages']:
+            for snake in page.get('snakes', []):
+                hits = [o['t'] for o in page['texts']
+                        if snake['name'] in o['t'] and snake['ftText'] in o['t']]
+                if len(hits) != 1:
+                    bad.setdefault(f"{nm} {page['number']} {page['title']}", {})[
+                        f"{snake['name']} {snake['ftText']}"] = hits
+    assert not bad, ("a snake's home run must be stated once, as a heading: "
+                     + json.dumps(bad, indent=1, ensure_ascii=False))
 
 
 # ── 4. a map sheet fills its sheet ───────────────────────────────────────
