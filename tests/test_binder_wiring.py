@@ -24,13 +24,25 @@ side draws that half alone). Each half:
                 itself), a backup its own block; a multi's BREAKOUT, the
                 fan out ("there are no boxes... it is a breakout also
                 known as a fan out"): "SR1 · Multi 208 breakout · 125'".
-  the RUNS    - two segments: out of the disc at the run's OWN ROW to its
-                socket's x, then straight down into the socket. A run
-                already above its socket drops straight; a run whose
-                socket sits under its own column, with discs below it
-                there, ESCAPES past the wall's near edge and comes back
-                (four segments). Every run is drawn twice - a white casing
+  the RUNS    - OUT OF THE WALL AND ROUND IT. A run leaves its disc at
+                its own row, crosses to the WALL'S NEAREST EDGE and no
+                further, and travels in the clear space beside and under
+                the wall: down a rail past the wall's edge, along a lane
+                under its foot, and into its socket from there. Where the
+                socket already stands outside the wall on the side the run
+                leaves by, the rail IS the drop and two segments suffice -
+                the drawing that was approved. Nothing but that one stub
+                is ever inside the wall, so a run can cover no disc, no
+                cable tag, no gang pill, no band and none of the screen's
+                own arrows. Every run is drawn twice - a white casing
                 under it - so it reads over the wall's dark panels.
+
+The fault this replaced shipped twice: on the user's own DJ BOOTH sheet
+every run left its disc, travelled the whole width of the wall along the
+INSIDE of its own row - straight through that port's own "25'" cable tag,
+and over the screen's daisy-chain arrows - and then turned down through
+the wall's second row. On SR, "IMAG SR-6" printed as "IMAG R-6", the S
+eaten by the white casing of the run leaving it.
 
 A socket's note is drawn only where it says something the socket number
 does not; a shared multi keeps the other screen's name against its socket.
@@ -67,6 +79,10 @@ pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 # ports are on no card at all.
 KELLY_FIXTURE = os.environ.get('LRD_KELLY_JSON') or os.path.join(
     os.path.dirname(SCRATCH_FIXTURE), 'kelly.json')
+# Kelly as the USER EXPORTED HER - the show the fault was seen on (UPSTAGE
+# 22 x 7, SR and SL 9 x 6), frozen beside the Experts Only fixture.
+KELLY_LIVE = os.environ.get('LRD_KELLY_LIVE_JSON') or os.path.join(
+    os.path.dirname(SCRATCH_FIXTURE), 'kelly-live-fixture.json')
 
 # app-binder-wiring.js, in the prototype's units; a half scales them by K.
 PROTO_W = 1000
@@ -88,7 +104,10 @@ def _js_consts(*names):
 MARGIN, SOCK, SOCKET_DY, BOX_H, TITLE_DY, NOTE_DY = _js_consts(
     'MARGIN', 'SOCK', 'SOCKET_DY', 'BOX_H', 'TITLE_DY', 'NOTE_DY')
 RUN_W, CASE_EXTRA = 1.4, 3.2
-STRAIGHT, ESC_NEAR = 1.2, 6
+# Half the white casing: the width a run really takes out of the paper, and
+# so the width at which it covers a label rather than passing beside it.
+CASE_PAD = (RUN_W + CASE_EXTRA) / 2
+STRAIGHT = 1.2
 RETURN_DASH = [6, 4]
 PRINTER_RETURN_DASH = [3, 4]
 HUES = ['#c2410c', '#0f766e', '#6d28d9', '#a16207',
@@ -179,7 +198,8 @@ def _casing_of(out, run):
 
 def _check_runs(half, out=None):
     """Every run leaves its own disc's edge, lands on its socket's top, is
-    two segments (four where it escapes, one where it drops straight), and
+    two segments where two suffice and four where it must go round the
+    wall (one where it is already outside and above its socket), and
     prints over no other run: no two horizontals overlap, no two verticals
     do, and there is not a diagonal on the sheet."""
     s = half['scale']
@@ -197,18 +217,196 @@ def _check_runs(half, out=None):
             'a run lands on its socket', r, sk)
         shape = _segs(r)
         assert 'x' not in shape, ('the drawing has no diagonals', r)
-        assert shape in (['v'], ['h', 'v'], ['h', 'v', 'h', 'v']), (r, shape)
+        assert shape in (['v'], ['h', 'v'], ['h', 'v', 'h', 'v'],
+                         ['v', 'h', 'v'], ['v', 'h', 'v', 'h', 'v']), (r, shape)
         if shape == ['v']:
             assert abs(sk['x'] - d['x']) < STRAIGHT * s + 0.01, (
                 'only a run already above its socket drops straight', r, d, sk)
             assert abs(head[0] - sk['x']) < 0.01, ('straight down onto the socket', r, sk)
+        elif shape[0] == 'h':
+            assert abs(head[1] - d['y']) <= d['r'] + 0.01, ('out at the run OWN row', r, d)
         else:
-            assert abs(head[1] - d['y']) < 0.01, ('out at the run OWN row', r, d)
+            assert abs(head[0] - d['x']) <= d['r'] + 0.01, ('out of the run OWN column', r, d)
     assert _crossings(half['runs'], 'h') == [], _crossings(half['runs'], 'h')
     assert _crossings(half['runs'], 'v') == [], _crossings(half['runs'], 'v')
     if out is not None:
         for r in half['runs']:
             assert _casing_of(out, r), ('every run has a white casing under it', r)
+
+
+# ---- the wall, and the map's own lettering on it -------------------------
+#
+# A screen map reaches this sheet as ONE BITMAP: its label discs, its cable
+# tags, its gang pills, its multi band and its circuit ruler are pixels
+# inside that image and no op in the display list can see them. canvas.js's
+# label registry is the only thing that knows where they are - the same
+# startLabelProbe() / endLabelProbe() pair tests/test_map_label_collisions.py
+# reads - and it records them in the BITMAP'S OWN PIXELS. The bitmap is laid
+# at the half's `map.area` at SCALE offscreen pixels to the page unit, so a
+# box converts with  page = area + pixel / SCALE.
+
+def _wall(half):
+    m = half['map']
+    return {'x': m['x'], 'y': m['y'], 'w': m['w'], 'h': m['h']}
+
+
+def _labels(half):
+    """The map's own lettering on this half, in the sheet's page units.
+
+    The sheet gives the map NO gutter, so its bitmap is the wall and
+    nothing else: the multi band pill and the circuit ruler the map draws
+    over the wall's head fall outside it and are clipped away. Ink that
+    never reaches the paper cannot be covered, so it is not lettering here.
+    """
+    a = half['map']['area']
+    w, h = a['w'] * SCALE, a['h'] * SCALE
+    return [{'kind': b['kind'], 'text': b['text'],
+             'x': a['x'] + b['x'] / SCALE, 'y': a['y'] + b['y'] / SCALE,
+             'w': b['w'] / SCALE, 'h': b['h'] / SCALE}
+            for b in half['labels']
+            if b['kind'] != 'wallEdge' and b['x'] + b['w'] > 0 and b['y'] + b['h'] > 0
+            and b['x'] < w and b['y'] < h]
+
+
+def _box_over(a, b, hair):
+    return (min(a['x'] + a['w'], b['x'] + b['w']) - max(a['x'], b['x']) > hair
+            and min(a['y'] + a['h'], b['y'] + b['h']) - max(a['y'], b['y']) > hair)
+
+
+def _seg_box(a, b, pad):
+    return {'x': min(a[0], b[0]) - pad, 'y': min(a[1], b[1]) - pad,
+            'w': abs(a[0] - b[0]) + 2 * pad, 'h': abs(a[1] - b[1]) + 2 * pad}
+
+
+def _own_disc(box, d):
+    """The one label a run is allowed to touch: the very disc it leaves."""
+    return (box['kind'] == 'disc'
+            and abs(box['x'] + box['w'] / 2 - d['x']) < 1.5
+            and abs(box['y'] + box['h'] / 2 - d['y']) < 1.5)
+
+
+def _is_stub(a, b, d, w):
+    """The one crossing of the wall a run is allowed: straight off its own
+    disc's edge, out to one of the wall's four edges - reaching it, and
+    never running past the disc the other way. A run whose middle is
+    covered leaves a hair to one side of it, so the line is anywhere on the
+    disc rather than exactly through its centre."""
+    if abs(b[1] - a[1]) < 0.01 and abs(b[0] - a[0]) >= 0.01:      # out at its own row
+        if abs(a[1] - d['y']) > d['r'] + 0.01:
+            return False
+        if b[0] < a[0]:
+            return min(a[0], b[0]) <= w['x'] + 0.5 and a[0] <= d['x'] + 0.01
+        return max(a[0], b[0]) >= w['x'] + w['w'] - 0.5 and a[0] >= d['x'] - 0.01
+    if abs(b[0] - a[0]) < 0.01 and abs(b[1] - a[1]) >= 0.01:      # up or down its column
+        if abs(a[0] - d['x']) > d['r'] + 0.01:
+            return False
+        if b[1] < a[1]:
+            return min(a[1], b[1]) <= w['y'] + 0.5 and a[1] <= d['y'] + 0.01
+        return max(a[1], b[1]) >= w['y'] + w['h'] - 0.5 and a[1] >= d['y'] - 0.01
+    return False
+
+
+def _through_the_wall(half):
+    """Every run segment with ink inside the wall's rectangle but for that
+    one stub. This is the fault the user pointed at: a run travelling the
+    inside of its own row across the whole wall, and turning down through
+    the wall's other rows."""
+    s = half['scale']
+    w = _wall(half)
+    discs = {d['text']: d for d in half['discs']}
+    bad = []
+    for r in half['runs']:
+        d = discs[r['from']]
+        for i, (a, b) in enumerate(zip(r['points'], r['points'][1:])):
+            if not _box_over(_seg_box(a, b, 0.75 * s), w, 0.5 * s):
+                continue
+            if i == 0 and _is_stub(a, b, d, w):
+                continue
+            bad.append('%s: segment %d, (%.0f,%.0f)-(%.0f,%.0f), is inside the wall'
+                       % (r['from'], i, a[0], a[1], b[0], b[1]))
+    return bad
+
+
+def _clear_ways_out(half, d):
+    """The edges this disc could leave by without a mark on the map's own
+    lettering, trying the run a hair to either side of the disc's middle -
+    the way the sheet itself does."""
+    s = half['scale']
+    pad = CASE_PAD * s
+    w = _wall(half)
+    room = half['room']
+    lab = [k for k in _labels(half) if not _own_disc(k, d)]
+    out = []
+    for edge in ('left', 'right', 'top', 'bottom'):
+        for f in (0, 0.45, -0.45, 0.7, -0.7, 0.9, -0.9):
+            t = f * d['r']
+            q = math.sqrt(max(0.0, d['r'] ** 2 - t ** 2))
+            if edge in ('left', 'right'):
+                head = (d['x'] - q if edge == 'left' else d['x'] + q, d['y'] + t)
+                far = (room['x0'] if edge == 'left' else room['x1'], d['y'] + t)
+                gap = abs(head[0] - (w['x'] if edge == 'left' else w['x'] + w['w']))
+            else:
+                head = (d['x'] + t, d['y'] - q if edge == 'top' else d['y'] + q)
+                far = (d['x'] + t, room['y0'] if edge == 'top' else room['y1'])
+                gap = abs(head[1] - (w['y'] if edge == 'top' else w['y'] + w['h']))
+            box = _seg_box(head, far, pad)
+            if not [k for k in lab if _box_over(box, k, 0.5)]:
+                out.append((edge, gap))
+                break
+    return out
+
+
+def _covers_lettering(half):
+    """Every piece of the map's own lettering a run is drawn over - a disc,
+    a cable tag, a gang pill, a multi band or a ruler label - with its white
+    casing counted, because the casing is what ate the S of "IMAG SR-6"."""
+    s = half['scale']
+    pad = CASE_PAD * s
+    lab = _labels(half)
+    discs = {d['text']: d for d in half['discs']}
+    bad = []
+    for r in half['runs']:
+        d = discs[r['from']]
+        for i, (a, b) in enumerate(zip(r['points'], r['points'][1:])):
+            box = _seg_box(a, b, pad)
+            for k in lab:
+                if _own_disc(k, d) or not _box_over(box, k, 0.5):
+                    continue
+                bad.append('%s: segment %d is drawn over the %s "%s"'
+                           % (r['from'], i, k['kind'], k['text']))
+    return bad
+
+
+def _dearer_way_out(half):
+    """A run leaves by an edge the map left CLEAR - the nearer SIDE by
+    preference, because a run beside the wall reads best and it is the
+    drawing that was approved; an end only where both sides are blocked."""
+    discs = {d['text']: d for d in half['discs']}
+    bad = []
+    for r in half['runs']:
+        d = discs[r['from']]
+        clear = _clear_ways_out(half, d)
+        if not clear:
+            continue                       # boxed in; the cheapest way stands
+        a, b = r['points'][0], r['points'][1]
+        took = ('left' if b[0] < a[0] else 'right') if abs(a[1] - b[1]) < 0.01 \
+            else ('top' if b[1] < a[1] else 'bottom')
+        if took not in [e for e, _g in clear]:
+            bad.append('%s leaves by its %s, which the map had written on' % (r['from'], took))
+            continue
+        sides = [(e, g) for e, g in clear if e in ('left', 'right')]
+        if sides and took not in ('left', 'right'):
+            bad.append('%s leaves over the wall with its %s side clear' % (r['from'], sides[0][0]))
+        elif sides and min(g for _e, g in sides) < dict(sides)[took] - 0.5:
+            bad.append('%s leaves by the far side with the near one clear' % r['from'])
+    return bad
+
+
+def _check_off_the_wall(half):
+    """The whole of the new rule on one half, so one failure names every
+    fault on it."""
+    bad = _through_the_wall(half) + _covers_lettering(half) + _dearer_way_out(half)
+    assert not bad, '\n'.join(['', 'the %s half:' % half['side']] + ['  ' + b for b in bad])
 
 
 def _check_blocks(half):
@@ -315,6 +513,32 @@ _PDF_JS = """async ([opts, title]) => {
 }"""
 
 
+# The same sheet, rendered with canvas.js's label registry running, so what
+# the map wrote is readable beside what the sheet drew. A wiring sheet
+# paints one map per half, in order, and r.render() is called once per map -
+# so a mark taken at each call tells the two halves' boxes apart.
+PROBE_JS = """([opts, title]) => {
+    const app = window.app, r = window.canvasRenderer;
+    const plan = app.planBinder(opts);
+    const idx = plan.findIndex(p => p.title === title);
+    if (idx < 0) return { missing: title, plan: plan.map(p => p.title) };
+    const marks = [];
+    const render = r.render;
+    r.startLabelProbe();
+    r.render = function (...a) {
+        marks.push(r.labelProbe ? r.labelProbe.length : 0);
+        return render.apply(this, a);
+    };
+    let res = null, boxes = [];
+    try { res = app.renderBinderPage(opts, idx); }
+    finally { r.render = render; boxes = r.endLabelProbe() || []; }
+    const halves = (res.wiring && res.wiring.halves) || [];
+    return { halves: halves.map((h, k) => ({ ...h,
+        labels: boxes.slice(marks[k] == null ? 0 : marks[k],
+                            marks[k + 1] == null ? boxes.length : marks[k + 1]) })) };
+}"""
+
+
 LOAD_JS = """async (project) => {
     const app = window.app;
     const j = (method, url, body) => fetch(url, {method,
@@ -334,6 +558,25 @@ def _sheet(pg, opts, title):
     out = pg.evaluate(WIRING_JS, [opts, title])
     assert 'missing' not in out, out
     return out
+
+
+def _probe(pg, opts, title):
+    """One wiring sheet's halves, each with the map's own label boxes on
+    it. The registry must have reached both maps, and every disc the sheet
+    logged must be a disc the map really drew - which is also the check
+    that the pixels-to-page-units conversion above is the right one."""
+    out = pg.evaluate(PROBE_JS, [opts, title])
+    assert 'missing' not in out, out
+    halves = out['halves']
+    assert halves, out
+    for h in halves:
+        assert [b for b in h['labels'] if b['kind'] == 'wallEdge'], (
+            'the label registry never reached the %s half of %s' % (h['side'], title))
+        lab = _labels(h)
+        for d in h['discs']:
+            assert [k for k in lab if _own_disc(k, d)], (
+                'the sheet says there is a disc the map never drew', title, h['side'], d)
+    return halves
 
 
 def _half(out, side):
@@ -649,10 +892,11 @@ def test_smoke_experts_only_sr_main(page):
     the foot, ordered by the mean position of their own circuits - SR3 and
     SR4 stand on the wall's left column, SR1 and SR2 on its right, so the
     row reads SR3 SR4 SR1 SR2 - and none of them over the wall or over
-    another. Every run is two segments but for the one that ESCAPES (four),
-    and that one clears every disc under it on its own column. No two
-    horizontals overlap, no two verticals do. A white casing under every
-    run.
+    another. Fifteen runs are TWO SEGMENTS, out at their own row and
+    straight down into a socket already clear of the wall; the seven whose
+    sockets stand UNDER the wall come down a rail beside it and back along
+    a lane under its foot. No two horizontals overlap, no two verticals do.
+    A white casing under every run.
 
     SIGNAL: four primaries and four returns onto TWO blocks in ONE row
     (the wrap-and-cross regression: a note that only repeated its socket
@@ -702,22 +946,22 @@ def test_smoke_experts_only_sr_main(page):
     _check_runs(pwr, out)
     _check_blocks(pwr)
     shapes = [_segs(r) for r in pwr['runs']]
-    assert shapes.count(['h', 'v']) == 21 and shapes.count(['h', 'v', 'h', 'v']) == 1, shapes
-    # THE ESCAPE: the one run whose socket sits under its own column, with
-    # discs below it there - it steps past the wall's near edge, drops
-    # clear and comes back, passing within a disc's radius of none of them
-    esc = next(r for r in pwr['runs'] if len(r['points']) == 5)
-    mine = next(d for d in pwr['discs'] if d['text'] == esc['from'])
-    same = [d for d in pwr['discs']
-            if abs(d['panel']['x'] - mine['panel']['x']) < mine['panel']['w'] / 2 and d['y'] > mine['y']]
-    assert same, ('the escape is only for a column with discs below', esc, mine)
-    assert abs(esc['points'][-1][0] - mine['x']) < mine['r'] + ESC_NEAR * pwr['scale'], (esc, mine)
+    # TWO SEGMENTS WHERE TWO SUFFICE: SR3's and SR2's blocks stand clear of
+    # the wall on the side their circuits leave by, so those fifteen runs go
+    # out at their own row and straight down - the drawing that was
+    # approved. SR4's and SR1's stand UNDER the wall, so their seven come
+    # down a rail beside it and back along a lane under its foot.
+    assert shapes.count(['h', 'v']) == 15 and shapes.count(['h', 'v', 'h', 'v']) == 7, shapes
+    assert not [s for s in shapes if s[0] != 'h'], ('every circuit leaves by a side', shapes)
     m = pwr['map']
-    out_x = esc['points'][1][0]
-    assert out_x < m['x'] or out_x > m['x'] + m['w'], ('the escape steps past the wall', esc, m)
-    for d in same:
-        for a, b in zip(esc['points'], esc['points'][1:]):
-            assert _dist_to_seg(d, a, b) > d['r'], ('the escape clears every disc under it', esc, d)
+    for r, s in zip(pwr['runs'], shapes):
+        if s != ['h', 'v', 'h', 'v']:
+            continue
+        rail = r['points'][1][0]
+        assert rail < m['x'] or rail > m['x'] + m['w'], ('the rail stands past the wall', r, m)
+        lane = r['points'][2][1]
+        assert m['y'] + m['h'] < lane < min(b['y'] for b in pwr['blocks']), (
+            'the lane runs under the wall and over the blocks', r, m)
 
     # ---- signal ---------------------------------------------------------
     assert [d['text'] for d in sig['discs'] if d['kind'] == 'primary'] == ['SR A-1', 'SR A-2', 'SR A-3', 'SR A-4']
@@ -798,26 +1042,17 @@ def test_smoke_experts_only_sr_main(page):
     assert ids['errors'] == []
 
 
-def _dist_to_seg(disc, a, b):
-    ax, ay = a
-    bx, by = b
-    px, py = disc['x'], disc['y']
-    dx, dy = bx - ax, by - ay
-    if dx == 0 and dy == 0:
-        return math.hypot(px - ax, py - ay)
-    t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)))
-    return math.hypot(px - (ax + t * dx), py - (ay + t * dy))
-
-
 @pytest.mark.skipif(not os.path.exists(KELLY_FIXTURE),
                     reason='kelly.json smoke fixture not present')
-def test_a_vertical_flow_drops_straight_and_an_unplaced_port_draws_no_run(page):
+def test_a_row_of_circuits_leaves_by_the_top_and_an_unplaced_port_draws_no_run(page):
     """Kelly Clarkson's SR, frozen: a VERTICAL FLOW - every circuit begins
-    on the wall's top row, so no disc has another below it on its column.
-    No run escapes; the one whose socket stands under its own disc DROPS
-    STRAIGHT, one segment, and the rest come out at their own row. And the
-    screen's six ports are on no card: the half draws their discs, no run
-    at all, and prints "6 of 6 not placed on any card" once."""
+    on the wall's TOP ROW, so the discs stand shoulder to shoulder along it
+    with a cable tag between each pair. Only the two at the ends can leave
+    by a side; the rest are blocked both ways by their neighbours and go up
+    out of their own column instead, and not one of them crosses the wall
+    to get out. And the screen's six ports are on no card: the half draws
+    their discs, no run at all, and prints "6 of 6 not placed on any card"
+    once."""
     pg, ids = page
     with open(KELLY_FIXTURE) as fh:
         project = json.load(fh)
@@ -827,7 +1062,6 @@ def test_a_vertical_flow_drops_straight_and_an_unplaced_port_draws_no_run(page):
     sig, pwr = out['wiring']['halves']
 
     # the vertical flow
-    s = pwr['scale']
     m = pwr['map']
     assert len(pwr['discs']) == 5 and len(pwr['blocks']) == 1
     assert len({round(d['y'], 2) for d in pwr['discs']}) == 1, ('every circuit on the top row', pwr['discs'])
@@ -835,15 +1069,16 @@ def test_a_vertical_flow_drops_straight_and_an_unplaced_port_draws_no_run(page):
     _check_runs(pwr, out)
     _check_blocks(pwr)
     shapes = [_segs(r) for r in pwr['runs']]
-    assert ['h', 'v', 'h', 'v'] not in shapes, ('a vertical flow needs no escape', shapes)
-    straight = [r for r, sh in zip(pwr['runs'], shapes) if sh == ['v']]
-    assert len(straight) == 1, shapes
-    r = straight[0]
-    d = next(x for x in pwr['discs'] if x['text'] == r['from'])
-    sk = _socket(pwr['blocks'][0], r['socket'])
-    assert abs(sk['x'] - d['x']) < STRAIGHT * s + 0.01, (r, d, sk)
-    assert abs(r['points'][0][0] - r['points'][1][0]) < 0.01 and abs(r['points'][0][0] - sk['x']) < 0.01
-    assert abs(r['points'][0][1] - (d['y'] + d['r'])) < 0.05, ('straight down off the disc', r, d)
+    assert shapes.count(['h', 'v']) == 2, ('the two on the ends leave by their side', shapes)
+    assert len([s for s in shapes if s[0] == 'v']) == 3, (
+        'the three shut in leave by an end of their own column', shapes)
+    for r, sh in zip(pwr['runs'], shapes):
+        if sh[0] != 'v':
+            continue
+        head, turn = r['points'][0], r['points'][1]
+        assert head[1] < m['y'] + m['h'] / 4, ('off a disc on the top row', r, m)
+        assert turn[1] < m['y'] or turn[1] > m['y'] + m['h'], (
+            'and clear of the wall before it turns', r, m)
 
     # the ports on no card
     assert len(sig['discs']) == 6 and not any(d['placed'] for d in sig['discs'])
@@ -852,4 +1087,101 @@ def test_a_vertical_flow_drops_straight_and_an_unplaced_port_draws_no_run(page):
     line = [t for t in out['texts'] if 'not placed on any card' in t]
     assert len(line) == 1 and line[0].startswith('6 of 6 not placed on any card'), out['texts']
     _drop_pdf(pg, opts, 'SR - Signal + Power', 'kelly-sr-signal-power.pdf')
+    assert ids['errors'] == []
+
+
+@pytest.mark.skipif(not os.path.exists(KELLY_FIXTURE),
+                    reason='kelly.json smoke fixture not present')
+@pytest.mark.parametrize('palette', ['colour', 'printer'])
+def test_the_dj_booth_sheet_the_user_pointed_at(page, palette):
+    """Page 4 of the user's own rev 1.3 export. A 9 x 2 wall whose label
+    discs sit at the ENDS of its rows - DJ-1 and DJ-3 at the left, DJ-2 and
+    DJ-4 at the right - with the card block under the middle of it. Every
+    run used to leave its disc and travel the INSIDE of its own row the
+    whole width of the wall, straight through that port's own "25'" cable
+    tag and over the screen's daisy-chain arrows, and then turn down through
+    the second row: all four tags cut and unreadable. Now each one goes
+    STRAIGHT OUT to the end of the wall it is already at, down a rail beside
+    it, and back along a lane under its foot - four segments, and nothing of
+    the wall crossed but the stub off its own disc."""
+    pg, ids = page
+    with open(KELLY_FIXTURE) as fh:
+        pg.evaluate(LOAD_JS, json.load(fh))
+    opts = {**json.loads(_SHOW_JSON), 'palette': palette}
+    halves = _probe(pg, opts, 'DJ Booth - Signal + Power')
+    sig = next(h for h in halves if h['side'] == 'signal')
+    assert [d['text'] for d in sig['discs']] == ['DJ-1', 'DJ-2', 'DJ-3', 'DJ-4'], sig['discs']
+    assert len({round(d['y'], 2) for d in sig['discs']}) == 2, ('two rows of discs', sig['discs'])
+    w = _wall(sig)
+    ends = sorted(round((d['x'] - w['x']) / w['w'], 2) for d in sig['discs'])
+    assert ends[1] < 0.15 and ends[2] > 0.85, ('the discs sit at the ends of their rows', ends)
+    for h in halves:
+        _check_off_the_wall(h)
+        _check_runs(h)
+        _check_blocks(h)
+        assert [_segs(r) for r in h['runs']] == [['h', 'v', 'h', 'v']] * len(h['runs']), (
+            h['side'], [_segs(r) for r in h['runs']])
+    assert ids['errors'] == []
+
+
+# ---- a run never crosses the wall, and never covers a label --------------
+#
+# The user's own export, rev 1.3: on page 4, DJ BOOTH · SIGNAL + POWER, the
+# label discs sit at the ENDS of a 9 x 2 wall's rows and the blocks under
+# its middle, so every run left its disc and travelled the INSIDE of its
+# own row the whole width of the wall - through that port's own "25'" cable
+# tag, over the screen's daisy-chain arrows - and then turned down through
+# the second row. On page 7, SR, the same fault ate the S of "IMAG SR-6".
+# "We still have lines going over text labels"; "extensions shouldnt be
+# covered either".
+
+def _sweep_off_the_wall(pg, fixture, palette, titles):
+    with open(fixture) as fh:
+        pg.evaluate(LOAD_JS, json.load(fh))
+    opts = {**json.loads(_SHOW_JSON), 'palette': palette}
+    seen = 0
+    for title in titles:
+        for h in _probe(pg, opts, title):
+            _check_off_the_wall(h)
+            _check_runs(h)
+            _check_blocks(h)
+            if h['runs']:
+                assert h['rows'] == 1, ('the blocks stand in one row', title, h['side'], h['rows'])
+            seen += len(h['runs'])
+    return seen
+
+
+@pytest.mark.skipif(not os.path.exists(KELLY_LIVE),
+                    reason='kelly-live-fixture.json smoke fixture not present')
+@pytest.mark.parametrize('palette', ['colour', 'printer'])
+def test_kelly_live_runs_travel_outside_the_wall(page, palette):
+    """Kelly Clarkson as the user exported her - UPSTAGE 22 x 7, SR and SL
+    9 x 6, both palettes.
+
+    SR's signal half is where it was clearest: the card block spans the
+    sheet's width, so sockets 9-14 stand directly beneath the wall and
+    every return dropped through the wall's interior, across the "SR B" and
+    "SR C" tags and through the disc it had just left. Not one segment of
+    any run may be inside the wall now but the stub from its own disc out
+    to the nearest edge, and not one may be drawn over a disc, a cable tag,
+    a gang pill, a band or a ruler label."""
+    pg, ids = page
+    n = _sweep_off_the_wall(pg, KELLY_LIVE, palette,
+                            ['SR - Signal + Power', 'SL - Signal + Power',
+                             'UPSTAGE - Signal + Power'])
+    assert n >= 40, ('the sweep read almost no runs at all', n)
+    assert ids['errors'] == []
+
+
+@pytest.mark.skipif(not os.path.exists(SCRATCH_FIXTURE),
+                    reason='experts-only-fixture.json smoke fixture not present')
+@pytest.mark.parametrize('palette', ['colour', 'printer'])
+def test_experts_only_runs_travel_outside_the_wall(page, palette):
+    """The frozen Experts Only show, SR - MAIN: 22 circuits on four multis
+    and eight port ends on two cards, on a 28-column wall whose blocks
+    stand right across the sheet - two of the four breakouts sit under the
+    wall itself, so their runs are the ones that must go round it."""
+    pg, ids = page
+    n = _sweep_off_the_wall(pg, SCRATCH_FIXTURE, palette, ['SR - MAIN - Signal + Power'])
+    assert n == 30, ('22 circuits and eight port ends', n)
     assert ids['errors'] == []

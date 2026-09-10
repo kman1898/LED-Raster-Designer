@@ -1789,8 +1789,17 @@ def test_the_data_sheet_prints_the_return_end_and_the_processor_once(page):
         i = texts.index('H9 SR · H_16xRJ45+2xfiber · 16 ports')
         assert texts[texts.index('PORTS') + 1:texts.index('PORTS') + 7] == \
             ['PORT', 'PRIMARY', 'BACKUP', 'PANELS', 'PX', 'HOME RUN']
+        # A snake states its home run ONCE, as a heading under the unit's
+        # band, and the rows beneath carry only what is the port's own
+        # (2026-09-10: "Why is the same data written multiple times under
+        # the snake under a specific port number"). So the walk steps over
+        # the heading rather than assuming the rows start immediately.
+        assert texts[i + 1] == \
+            "SR Primary · 1-way · 100' / backup SR Backup · 1-way · 150'", texts[i:i + 4]
         rows = []
         j = i + 1
+        while j < len(texts) and not re.fullmatch(r'SR-\d+', texts[j]):
+            j += 1
         while j + 5 < len(texts) and re.fullmatch(r'SR-\d+', texts[j]):
             rows.append(texts[j:j + 6]); j += 6
         assert rows, texts[i:i + 20]
@@ -1800,8 +1809,9 @@ def test_the_data_sheet_prints_the_return_end_and_the_processor_once(page):
             socket = primary.rsplit(' · ', 1)[-1]
             assert backup == f'{label}R · H9 slot 2 · {socket}', (label, backup)
             assert _on_map(out['mapTexts'], f'{label}R'), (label, out['mapTexts'])
-            # both ends' runs, whole
-            assert home == "SR Primary 100' / SR Backup 150' +25'", (label, home)
+            # the run itself is in the heading; the row says only the
+            # extension this port adds, and which end carries it
+            assert home == "+25' backup", (label, home)
         assert not [t for t in texts if t.startswith('slot ') or t.endswith('…')]
         cables = texts[texts.index('CABLES THIS SCREEN'):texts.index('Screen')]
         assert ['Ether-con', "25'", '1'] == cables[cables.index('Ether-con'):cables.index('Ether-con') + 3], cables
@@ -2194,13 +2204,20 @@ def test_smoke_experts_only(page):
     assert [t for t in data if re.fullmatch(r'SR B-\d · CVT4K-S SR B · \d', t)] == [
         'SR B-1 · CVT4K-S SR B · 1', 'SR B-2 · CVT4K-S SR B · 2', 'SR B-3 · CVT4K-S SR B · 3', 'SR B-4 · CVT4K-S SR B · 4']
     assert not [t for t in data if t.startswith('slot ')]
-    # both ends' runs - each snake's one home run, the port's extension on
-    # it - and one barrel per extension, primary and backup (six), in
-    # Cables this screen
-    assert data[data.index('SR A-1') + 5] == "SR A 150' +10' / SR B 100' +10'", data
-    assert data[data.index('SR A-2') + 5] == "SR A 150' / SR B 100'", data
-    assert data[data.index('SR A-3') + 5] == "SR A 150' +25' / SR B 100' +10'", data
-    assert data[data.index('SR A-4') + 5] == "SR A 150' +25' / SR B 100' +75'", data
+    # Each snake's home run is stated ONCE, as a heading over the ports
+    # that ride it, and a row carries only the extension that port adds
+    # (2026-09-10: "Why is the same data written multiple times under the
+    # snake under a specific port number"). Where only one end extends,
+    # the row says which end, so two mirrored screens do not both read
+    # "+25'". One barrel per extension, primary and backup, six in all,
+    # still counted in Cables this screen.
+    heading = "SR A · 4-way · 150' / backup SR B · 4-way · 100'"
+    assert data.count(heading) == 1, [t for t in data if 'SR A ·' in t]
+    assert data.index(heading) < data.index('SR A-1'), data
+    assert data[data.index('SR A-1') + 5] == "+10' both ends", data
+    assert data[data.index('SR A-2') + 5] == '—', data
+    assert data[data.index('SR A-3') + 5] == "+25' / +10'", data
+    assert data[data.index('SR A-4') + 5] == "+25' / +75'", data
     cables = data[data.index('CABLES THIS SCREEN'):data.index('FACTS')]
     k = cables.index('Ether-con Barrel')
     assert cables[k:k + 3] == ['Ether-con Barrel', 'EA', '6'], cables

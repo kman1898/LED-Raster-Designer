@@ -39,11 +39,20 @@
 //                   is a breakout also known as a fan out"): "SR1 · Multi
 //                   208 breakout · 125'". The home run is the caption's
 //                   length, not a wire.
-//   the RUNS      - two segments from the disc: out at the run's OWN ROW
-//                   to its socket's x, then straight down into the
-//                   socket. No shared corridor, no lanes, no levels - an
-//                   earlier attempt turned every run down as soon as it
-//                   cleared the wall and the fans knotted.
+//   the RUNS      - OUT OF THE WALL AND ROUND IT. A run leaves its disc
+//                   by the nearest edge whose way out is clear of the
+//                   map's own lettering - a side by preference, the top
+//                   or the foot where both sides are blocked - and from
+//                   there travels in the CLEAR SPACE beside and under the
+//                   wall: down a rail past the wall's edge, along a lane
+//                   under its foot (or across one over its head), and
+//                   into its socket. Where the socket already stands
+//                   outside the wall on the side the run leaves by, the
+//                   rail IS the drop and two segments suffice - which is
+//                   the drawing that was approved. Nothing but that one
+//                   stub is ever inside the wall, so a run can cover no
+//                   disc, no cable tag, no gang pill, no band and none of
+//                   the screen's own arrows.
 //
 // A SOCKET'S NOTE earns its place only when it says something the socket
 // number does not: "SR A-3" against socket 3 of the block called SR A is
@@ -57,12 +66,20 @@
 // shrinks - never below its floor, never below what a surviving note
 // needs - until every block fits one row.
 //
-// THE ESCAPE. A run whose socket sits under its OWN column, with other
-// discs below it on that column, would drop straight through them (SR1's
-// socket 6 ran through five of them). It steps out past the wall's near
-// edge instead, drops clear, and comes back to its socket. A run already
-// above its socket simply drops straight - which is what a vertical flow
-// wants.
+// THE FAULT THIS REPLACED, on the user's own export (rev 1.3, page 4, DJ
+// BOOTH): the label discs sit at the ENDS of a 9 x 2 wall's rows and the
+// blocks under its middle, so every run left its disc and travelled the
+// whole width of the wall along the INSIDE of its own row - straight
+// through that port's own "25'" cable tag, over the screen's daisy-chain
+// arrows - and then turned down through the second row. On page 7 the same
+// fault ate a letter: "IMAG SR-6" printed "IMAG R-6", the S taken by the
+// white casing of the run leaving it. "We still have lines going over text
+// labels, and where the heck are these lines ending?"; "extensions
+// shouldnt be covered either". The old ESCAPE - a step out past the wall's
+// near edge for a run that would otherwise drop through the discs under it
+// - is not a special case any more: going round the wall is what every run
+// now does, and a run already outside and above its socket still drops
+// straight in.
 //
 // THE CASING. Every run is drawn twice: a white stroke ~3 units wider
 // underneath, then the run itself. That is what makes a line read where
@@ -129,9 +146,10 @@ const CAPTION_SZ = 10, NUMBER_SZ = 8, NOTE_SZ = 7.5, NOTE_PAD = 8;
 // The runs: their pen, the white casing under them, the rims.
 const RUN_W = 1.4, CASE_EXTRA = 3.2;
 const BOX_RIM = 1.8, SOCKET_RIM = 1.3, DISC_RIM = 1.6;
-// The escape: how far past the wall's edge it steps, how far above the
-// socket row it comes back, how far apart two escapes stand.
-const ESC_OUT = 14, ESC_LIFT = 14, ESC_NEAR = 6, ESC_STEP = 5;
+// The way round the wall: how far past its edge the first rail stands,
+// how far apart two rails stand, and the room one lane wants - a lane is
+// the run's pen and its casing, and a little white either side of them.
+const RAIL_OUT = 12, RAIL_STEP = 7, LANE_STEP = 6;
 // A run whose socket is this close to its own column drops straight.
 const STRAIGHT = 1.2;
 
@@ -368,6 +386,109 @@ class _BinderWiring {
                  panel: { x: pr.x, y: pr.y, w: pr.w, h: pr.h } };
     }
 
+    // ---- the way out of the wall --------------------------------------------
+
+    // The one crossing of the wall a run is allowed: straight from its own
+    // disc's edge to one of the wall's four edges. `off` slides the start
+    // round the disc, across the way it leaves by - a ruler's leg label
+    // sits directly over the disc of the circuit whose column it names, and
+    // a run leaving a hair to one side of the disc's middle is past it and
+    // still on the disc it belongs to. `at` is the row (or the column) the
+    // run then travels on; `gap` is how much wall it has to cross, negative
+    // where the disc already hangs over that edge.
+    _bwStub(d, edge, wall, off) {
+        const t = Math.max(-0.95, Math.min(0.95, off || 0)) * d.r;
+        const s = Math.sqrt(Math.max(0, d.r * d.r - t * t));
+        if (edge === 'left') return { head: [d.x - s, d.y + t], out: [wall.x, d.y + t],
+                                      at: d.y + t, gap: (d.x - s) - wall.x };
+        if (edge === 'right') return { head: [d.x + s, d.y + t], out: [wall.x + wall.w, d.y + t],
+                                       at: d.y + t, gap: (wall.x + wall.w) - (d.x + s) };
+        if (edge === 'top') return { head: [d.x + t, d.y - s], out: [d.x + t, wall.y],
+                                     at: d.x + t, gap: (d.y - s) - wall.y };
+        return { head: [d.x + t, d.y + s], out: [d.x + t, wall.y + wall.h],
+                 at: d.x + t, gap: (wall.y + wall.h) - (d.y + s) };
+    }
+
+    // What a mark of this footprint costs in the map's own lettering, its
+    // own disc apart: nothing where it is clear, and otherwise a price per
+    // kind. Covering a NEIGHBOUR'S DISC is the fault the user saw - "IMAG
+    // SR-6" printed "IMAG R-6" - and a cable tag or a gang pill is a figure
+    // he needs ("extensions shouldnt be covered either"); a thin line across
+    // a multi band or a ruler leg is the least of them. The boxes are the
+    // ones canvas.js's label registry recorded for this very render.
+    _bwCost(a, b, pad, labels, own) {
+        const PRICE = { disc: 1000, tag: 120, gang: 120, band: 30, rulerLabel: 10, rulerTick: 3 };
+        const x0 = Math.min(a[0], b[0]) - pad, x1 = Math.max(a[0], b[0]) + pad;
+        const y0 = Math.min(a[1], b[1]) - pad, y1 = Math.max(a[1], b[1]) + pad;
+        // a HAIR of overlap is a rounding artefact of a rim's half width,
+        // not ink on ink - the same reading tests/test_map_label_collisions
+        // takes of the map against itself
+        const HAIR = 0.5;
+        let cost = 0;
+        for (const k of labels) {
+            if (k === own) continue;
+            if (Math.min(x1, k.x + k.w) - Math.max(x0, k.x) > HAIR
+                    && Math.min(y1, k.y + k.h) - Math.max(y0, k.y) > HAIR) cost += PRICE[k.kind] || 50;
+        }
+        return cost;
+    }
+
+    // Where the run is slid round its disc when the middle is covered - a
+    // ruler's leg label sits directly over the disc of the circuit whose
+    // column it names, and a hair to one side is past it.
+    static get OFFSETS() { return [0, 0.45, -0.45, 0.7, -0.7, 0.9, -0.9]; }
+
+    // The way a run leaves the wall. The WHOLE first leg is weighed, not
+    // just the stub: a run leaving by the top has to cross the strip where
+    // the map keeps its multi band and its circuit ruler, and a way out
+    // that is clear of the wall is no use if it is drawn through those.
+    //
+    // The nearer SIDE that is clear wins, because a run beside the wall
+    // reads best and it is the drawing that was approved; then the nearer
+    // end - a row of discs blocks its own neighbours, and then the way out
+    // is up or down its own column. Where nothing is clear the cheapest
+    // way out stands, and a disc is never the thing given up.
+    _bwExit(d, wall, labels, own, pad, room) {
+        const far = (e, at) => e === 'left' ? [room.x0, at] : e === 'right' ? [room.x1, at]
+            : e === 'top' ? [at, room.y0] : [at, room.y1];
+        const by = (names) => names
+            .map(e => ({ e, s: this._bwStub(d, e, wall, 0) }))
+            .sort((p, q) => p.s.gap - q.s.gap);
+        const sides = by(['left', 'right']), ends = by(['top', 'bottom']);
+        let best = null;
+        for (const list of [sides, ends]) {
+            for (const c of list) {
+                for (const off of _BinderWiring.OFFSETS) {
+                    const s = this._bwStub(d, c.e, wall, off);
+                    const cost = this._bwCost(s.head, far(c.e, s.at), pad, labels, own);
+                    if (!cost) return { edge: c.e, stub: s, cost: 0 };
+                    if (!best || cost < best.cost) best = { edge: c.e, stub: s, cost };
+                }
+            }
+        }
+        return best;
+    }
+
+    // The lanes: every run that has to travel along one is given the lowest
+    // lane whose marks it does not lie on top of, so two runs share a lane
+    // wherever their stretches do not meet and the sheet spends no room it
+    // does not need. Returns the lane each took and how many there are.
+    _bwLanes(items) {
+        const taken = [];
+        for (const it of items) {
+            let k = 0;
+            for (; ; k++) {
+                const on = taken[k] || (taken[k] = []);
+                if (on.every(([lo, hi]) => it.hi <= lo + 0.01 || it.lo >= hi - 0.01)) {
+                    on.push([it.lo, it.hi]);
+                    break;
+                }
+            }
+            it.lane = k;
+        }
+        return taken.length;
+    }
+
     // ---- the geometry -------------------------------------------------------
 
     // One half laid out in page units, nothing painted. The prototype's
@@ -432,10 +553,13 @@ class _BinderWiring {
         const wallRoomW = Math.max(80, availW - 2 * railRoom);
         const spec = { measure: (area) => this._bMap(book, layer, view, area, GUT) };
         const foot = FOOT_PAD + (facts.stubs.length > facts.wires.length ? FOOT_LINE : 0);
-        const wallAt = (nRows) => {
+        // The room over the wall's head and under its foot: the head word's
+        // strip and the air before the blocks, plus a lane apiece for the
+        // runs that have to travel along one.
+        const wallAt = (nRows, head, band) => {
             const boxesH = nRows ? nRows * BOX_H + (nRows - 1) * ROW_GAP : 0;
-            const roomH = Math.max(40, A.h / K - HEAD - BAND_GAP - boxesH - foot);
-            const room = { x: A.x + (MARGIN + railRoom) * K, y: A.y + HEAD * K,
+            const roomH = Math.max(40, A.h / K - head - band - boxesH - foot);
+            const room = { x: A.x + (MARGIN + railRoom) * K, y: A.y + head * K,
                            w: wallRoomW * K, h: Math.min(MAX_WALL_H, roomH) * K };
             const probe = this._bMeasureMap(book, spec, room);
             const h = probe ? probe.area.h : 0;
@@ -447,7 +571,8 @@ class _BinderWiring {
         // blocks take; then the order the runs ask for, and the wall again
         // if that changed the count
         let rows = pack(devices);
-        let W = wallAt(rows.length);
+        let head = HEAD, band = BAND_GAP;
+        let W = wallAt(rows.length, head, band);
         const discOf = new Map();
         const rule = this._bwDiscRule(layer, side);
         const placeDiscs = (geo) => {
@@ -464,11 +589,8 @@ class _BinderWiring {
         const order = devices.slice().sort((a, b) =>
             (meanOf(a.key) - meanOf(b.key)) || (rank.get(a.key) - rank.get(b.key)));
         const rows2 = pack(order);
-        if (rows2.length !== rows.length) { W = wallAt(rows2.length); placeDiscs(W.geo); }
+        if (rows2.length !== rows.length) { W = wallAt(rows2.length, head, band); placeDiscs(W.geo); }
         rows = rows2;
-
-        const geo = W.geo;
-        const wall = geo ? geo.wall : { x: A.x, y: W.mapArea.y, w: A.w, h: 0 };
 
         // the blocks are spread across the width rather than packed
         // shoulder to shoulder: a run reads better when its block is under
@@ -525,10 +647,14 @@ class _BinderWiring {
 
         // The discs on the wall and the runs that leave them. Taken as one
         // step so it can be done again with the discs the wall REALLY drew
-        // (the paint reads them off the render - a splitter circuit's label
-        // sits at its fan-out, not on its first panel, and only the
-        // renderer knows that).
-        const draw = (placed) => {
+        // and the lettering it REALLY laid down (the paint reads both off
+        // the render - a splitter circuit's label sits at its fan-out, not
+        // on its first panel, and only the renderer knows that).
+        const draw = (placed, letters, W2) => {
+            const wall = (W2 || W).geo ? (W2 || W).geo.wall
+                                       : { x: A.x, y: (W2 || W).mapArea.y, w: A.w, h: 0 };
+            const labels = letters || [];
+            const pad = (RUN_W + CASE_EXTRA) / 2 * K;
             const discs = facts.stubs.map((st) => {
                 const d = placed.get(st) || discOf.get(st);
                 const w = facts.wires.find(x => x.stub === st) || null;
@@ -539,55 +665,194 @@ class _BinderWiring {
                          src: st };
             });
             const discFor = new Map(discs.map(d => [d.src, d]));
+            // A disc the map drew stands in for the run's own disc, so its
+            // own stub is not read as covering it. Where the registry was
+            // not to be had, the discs the sheet measured stand in for the
+            // lettering, which is enough to keep a run off its neighbours.
+            const ink = labels.length ? labels
+                : discs.map(d => ({ kind: 'disc', text: d.text,
+                                    x: d.x - d.r, y: d.y - d.r, w: 2 * d.r, h: 2 * d.r }));
+            const ownOf = (d) => {
+                let best = null, bestD = Infinity;
+                for (const k of ink) {
+                    if (k.kind !== 'disc') continue;
+                    const v = Math.abs(k.x + k.w / 2 - d.x) + Math.abs(k.y + k.h / 2 - d.y);
+                    if (v < bestD) { best = k; bestD = v; }
+                }
+                return bestD <= 1.5 ? best : null;
+            };
 
-            // the runs: out of the disc at its OWN row to its socket's x,
-            // then straight down into it - unless it is already above its
-            // socket, or its own column stands in the way
-            const sameCol = (a, b) => Math.abs((a.panel.x + a.panel.w / 2) - (b.panel.x + b.panel.w / 2))
-                < Math.max(1, Math.min(a.panel.w, b.panel.w) / 2);
-            let escapes = 0;
-            const runs = facts.wires.map((w) => {
+            // the clear space the runs travel in: over the wall's head,
+            // under its foot, and beside it either way
+            const overTop = A.y + 2 * K, overBot = wall.y - 2 * K;
+            const underTop = wall.y + wall.h + 2 * K, underBot = rowY(0) - 2 * K;
+            const room = { x0: A.x + 3 * K, x1: A.x + (PROTO_W - 3) * K,
+                           y0: overTop, y1: underBot };
+
+            // What each run wants: where it leaves the wall, where its
+            // socket is, and whether it can drop straight into it from the
+            // side it leaves by.
+            const plans = facts.wires.map((w) => {
                 const disc = discFor.get(w.stub);
                 const b = blockOf.get(w.device.key);
                 const tx = (socketX.get(w.device.key) || new Map()).get(w.socket);
                 const ty = b ? b.y + (SOCKET_DY - SOCK) * K : bottom;
-                const colour = isData ? (w.kind === 'return' ? backupInk : primaryInk) : hue.get(w.device.key);
+                const { edge, stub } = this._bwExit(disc, wall, ink, ownOf(disc), pad, room);
+                // is the socket already clear of the wall on the side this
+                // run can come down? then the rail IS the drop
+                const left = tx < wall.x - 0.5, right = tx > wall.x + wall.w + 0.5;
+                const out = edge === 'left' ? left : edge === 'right' ? right : (left || right);
+                // and if it is not, the side it comes down is the one its
+                // socket is nearer to, so the lane under the wall is short
+                const side = edge === 'left' || edge === 'right' ? edge
+                    : (tx - wall.x <= wall.x + wall.w - tx ? 'left' : 'right');
+                return { w, disc, tx, ty, edge, stub, side, out };
+            });
+
+            // The rails, one per run that has to come down beside the wall,
+            // nested so the fan does not knot: on the left the socket
+            // furthest right takes the rail nearest the wall, on the right
+            // the mirror of that.
+            const bySide = (s) => plans
+                .filter(p => p.side === s && !p.out && p.edge !== 'bottom')
+                .sort((a, b) => s === 'left' ? b.tx - a.tx : a.tx - b.tx);
+            const railX = new Map();
+            const railed = { left: bySide('left'), right: bySide('right') };
+            for (const s of ['left', 'right']) {
+                const beside = s === 'left' ? wall.x - room.x0 : room.x1 - (wall.x + wall.w);
+                const step = Math.min(RAIL_STEP * K,
+                    Math.max(2 * K, (beside - RAIL_OUT * K) / Math.max(1, railed[s].length)));
+                railed[s].forEach((p, i) => {
+                    const d = RAIL_OUT * K + i * step;
+                    railX.set(p, s === 'left' ? wall.x - d : wall.x + wall.w + d);
+                });
+            }
+
+            // The lanes: one over the wall's head for a run that left by
+            // its top, one under its foot for a run coming down a rail or
+            // out of its foot. The two sides are woven together and the
+            // lanes handed out greedily, so a left lane and a right lane
+            // that never meet are one lane and cost the sheet no room.
+            const weave = (l, r) => {
+                const out2 = [];
+                for (let i = 0; i < Math.max(l.length, r.length); i++) {
+                    if (i < l.length) out2.push(l[i]);
+                    if (i < r.length) out2.push(r[i]);
+                }
+                return out2;
+            };
+            const span = (p, a, b) => ({ p, lo: Math.min(a, b), hi: Math.max(a, b) });
+            const overOf = new Map(), underOf = new Map();
+            // over the wall's head: every run that left by its top, from its
+            // own column across to its socket or to the rail it comes down
+            const overAt = (p) => (p.out ? p.tx : railX.get(p));
+            const over = plans.filter(p => p.edge === 'top');
+            const overs = weave(
+                over.filter(p => overAt(p) < p.stub.at).sort((a, b) => a.stub.at - b.stub.at)
+                    .map(p => span(p, p.stub.at, overAt(p))),
+                over.filter(p => overAt(p) >= p.stub.at).sort((a, b) => b.stub.at - a.stub.at)
+                    .map(p => span(p, p.stub.at, overAt(p))));
+            // under its foot: every run coming down a rail, and every run
+            // that left by the foot and is not straight over its socket
+            const dropped = (s) => plans.filter(p => p.edge === 'bottom' && p.side === s
+                && Math.abs(p.tx - p.disc.x) >= STRAIGHT * K);
+            const unders = weave(
+                railed.left.map(p => span(p, railX.get(p), p.tx))
+                    .concat(dropped('left').map(p => span(p, p.stub.at, p.tx))),
+                railed.right.map(p => span(p, railX.get(p), p.tx))
+                    .concat(dropped('right').map(p => span(p, p.stub.at, p.tx))));
+            const nOver = this._bwLanes(overs);
+            const nUnder = this._bwLanes(unders);
+            for (const it of overs) overOf.set(it.p, it.lane);
+            for (const it of unders) underOf.set(it.p, it.lane);
+
+            // and where those lanes lie: evenly through the room the wall's
+            // head and foot were given
+            const laneAt = (lo, hi, i, n) => lo + (hi - lo) * (i + 1) / (n + 1);
+
+            const runs = plans.map((p) => {
+                const { w, disc, tx, ty } = p;
+                const colour = isData ? (w.kind === 'return' ? backupInk : primaryInk)
+                                      : hue.get(w.device.key);
                 const pattern = printer
                     ? (isData ? (w.kind === 'return' ? PRINTER_RETURN_DASH : []) : dash.get(w.device.key))
                     : (isData && w.kind === 'return' ? RETURN_DASH : []);
-                const below = discs.some(o => o !== disc && sameCol(o, disc) && o.y > disc.y);
-                let points;
-                if (Math.abs(tx - disc.x) < (disc.r + ESC_NEAR * K) && below) {
-                    // the escape: out past the wall's near edge, down clear
-                    // of every disc under it, and back to its socket
-                    const right = disc.x - wall.x > wall.w / 2;
-                    const step = escapes++;
-                    const out = (ESC_OUT + step * ESC_STEP) * K;
-                    const clear = right ? wall.x + wall.w + out : wall.x - out;
-                    const lift = ty - (ESC_LIFT + step * ESC_STEP) * K;
-                    points = [[right ? disc.x + disc.r : disc.x - disc.r, disc.y],
-                              [clear, disc.y], [clear, lift], [tx, lift], [tx, ty]];
+                const under = () => laneAt(underTop, underBot, underOf.get(p), nUnder);
+                const at = p.stub.at;
+                const pts = [p.stub.head];
+                if (p.edge === 'left' || p.edge === 'right') {
+                    // out at its own row, and down - at its socket where the
+                    // socket is already outside the wall on this side, else
+                    // down the rail and along a lane under the wall's foot
+                    if (p.out) pts.push([tx, at]);
+                    else {
+                        const rx = railX.get(p);
+                        pts.push([rx, at], [rx, under()], [tx, under()]);
+                    }
+                } else if (p.edge === 'top') {
+                    // up out of its own column, across over the wall's head,
+                    // and down - beside the wall to its socket, or down the
+                    // rail and back along a lane under the wall's foot
+                    const oy = laneAt(overTop, overBot, overOf.get(p), nOver);
+                    const toX = p.out ? tx : railX.get(p);
+                    pts.push([at, oy], [toX, oy]);
+                    if (!p.out) pts.push([toX, under()], [tx, under()]);
                 } else if (Math.abs(tx - disc.x) < STRAIGHT * K) {
-                    // already above its socket: straight down, off the disc's
-                    // own edge and onto the socket's very centre
+                    // already outside and above its socket: straight down,
+                    // off the disc's own edge and onto the socket's centre
                     const off = Math.sqrt(Math.max(0, disc.r * disc.r - (tx - disc.x) * (tx - disc.x)));
-                    points = [[tx, disc.y + off], [tx, ty]];
+                    pts.length = 0;
+                    pts.push([tx, disc.y + off]);
                 } else {
-                    const outX = tx < disc.x ? disc.x - disc.r : disc.x + disc.r;
-                    points = [[outX, disc.y], [tx, disc.y], [tx, ty]];
+                    pts.push([at, under()], [tx, under()]);
                 }
+                pts.push([tx, ty]);
                 return { kind: w.kind, from: w.stub.text, device: w.device.title, socket: w.socket,
-                         colour, dash: pattern.map(v => v * K), width: RUN_W * K, points };
+                         colour, dash: pattern.map(v => v * K), width: RUN_W * K,
+                         points: this._bwTidy(pts) };
             });
-            return { discs, runs };
+            return { discs, runs, over: nOver, under: nUnder, room };
         };
 
-        const first = draw(new Map());
+        // The wall's head and foot are given the lanes the runs really
+        // want, and a couple over - the discs the sheet measured are all it
+        // knows of the lettering here, and the paint may find a tag beside
+        // one of them and send that run round the top instead.
+        const est = draw(new Map(), null, W);
+        if (est.over || est.under) {
+            head = HEAD + (est.over ? (est.over + 2) * LANE_STEP : 0);
+            band = Math.max(BAND_GAP, (est.under + 2) * LANE_STEP);
+            W = wallAt(rows.length, head, band);
+            placeDiscs(W.geo);
+        }
+        const geo = W.geo;
+        const wall = geo ? geo.wall : { x: A.x, y: W.mapArea.y, w: A.w, h: 0 };
+        const first = draw(new Map(), null, W);
         const unplaced = facts.stubs.length - facts.wires.length;
         return { side, view, K, A, mapArea: W.mapArea, geo, wall, printer, isData,
-                 blocks, discs: first.discs, runs: first.runs, redraw: draw,
+                 blocks, discs: first.discs, runs: first.runs, room: first.room,
+                 redraw: (placed, letters) => draw(placed, letters, W),
                  rows: nRows, pitch: fit * K,
                  unplaced, total: facts.stubs.length, facts };
+    }
+
+    // A path with its useless points taken out: a corner that goes nowhere,
+    // and a bend that is no bend at all. Two segments where two suffice.
+    _bwTidy(points) {
+        const out = [];
+        for (const p of points) {
+            const last = out[out.length - 1];
+            if (last && Math.abs(last[0] - p[0]) < 0.01 && Math.abs(last[1] - p[1]) < 0.01) continue;
+            out.push(p);
+        }
+        for (let i = 1; i < out.length - 1;) {
+            const a = out[i - 1], b = out[i], c = out[i + 1];
+            if ((Math.abs(a[0] - b[0]) < 0.01 && Math.abs(b[0] - c[0]) < 0.01)
+                    || (Math.abs(a[1] - b[1]) < 0.01 && Math.abs(b[1] - c[1]) < 0.01)) {
+                out.splice(i, 1);
+            } else i++;
+        }
+        return out;
     }
 
     // ---- the discs the wall really drew -------------------------------------
@@ -602,8 +867,36 @@ class _BinderWiring {
     _bwPaintMap(book, layer, view, area) {
         const r = window.canvasRenderer;
         if (!r || typeof r._layoutCircleLabel !== 'function' || typeof r._fillWrappedLabel !== 'function') {
-            return { geo: this._bMap(book, layer, view, area, GUT), discs: null };
+            return { geo: this._bMap(book, layer, view, area, GUT), discs: null, labels: [] };
         }
+        // Every piece of lettering the map lays down, so a run can be kept
+        // off it: canvas.js's own label registry, which knows a disc from a
+        // cable tag from a plain cabinet. It records in the BITMAP's pixels
+        // and the bitmap is laid at `area` at S of them to the page unit,
+        // so the boxes come back in page units. _bMap is re-entrant on the
+        // probe, so starting one here simply lends it the same array.
+        const S = (book.scale || 2) * ((book.fill && book.fill.s) || 1);
+        // Re-entrant, exactly as _bMap's own probe is: a caller already
+        // probing this render (the label-collision suite is one) keeps its
+        // array and we read the stretch this map added to it.
+        const outer = r.labelProbe;
+        const outerLen = outer ? outer.length : 0;
+        const probe = outer || (typeof r.startLabelProbe === 'function' ? r.startLabelProbe() : null);
+        // This sheet gives the map NO gutter, so the bitmap is the wall and
+        // nothing else: the multi band pill and the circuit ruler the map
+        // draws over the wall's head fall outside it and are clipped away.
+        // Ink that never reaches the paper cannot be covered, so it is not
+        // read as lettering here.
+        const carry = (used) => {
+            if (!probe) return [];
+            const boxes = outer ? outer.slice(outerLen) : r.endLabelProbe();
+            const w = (used ? used.w : area.w) * S, h = (used ? used.h : area.h) * S;
+            return (boxes || [])
+                .filter(b => b && b.kind !== 'wallEdge'
+                    && b.x + b.w > 0 && b.y + b.h > 0 && b.x < w && b.y < h)
+                .map(b => ({ kind: b.kind, text: b.text, x: area.x + b.x / S, y: area.y + b.y / S,
+                             w: b.w / S, h: b.h / S }));
+        };
         const radii = new WeakMap();
         const seen = [];
         const layout = r._layoutCircleLabel, lines = r._fillWrappedLabel;
@@ -623,12 +916,14 @@ class _BinderWiring {
             return lines.apply(this, arguments);
         };
         try {
-            return { geo: this._bMap(book, layer, view, area, GUT), discs: seen };
+            const geo = this._bMap(book, layer, view, area, GUT);
+            return { geo, discs: seen, labels: carry(geo && geo.area) };
         } finally {
             delete r._layoutCircleLabel;
             delete r._fillWrappedLabel;
             if (own[0]) Object.defineProperty(r, '_layoutCircleLabel', own[0]);
             if (own[1]) Object.defineProperty(r, '_fillWrappedLabel', own[1]);
+            if (!outer && r.labelProbe) r.endLabelProbe();
         }
     }
 
@@ -677,16 +972,22 @@ class _BinderWiring {
         const painted = this._bwPaintMap(book, layer, P.view, P.mapArea);
         const geo = painted.geo;
         if (P.redraw) {
+            // The runs are laid again on what the wall REALLY drew: the
+            // discs where the renderer put them, and its own lettering from
+            // the label registry, so a run's way out of the wall is chosen
+            // knowing what is beside it.
             const seated = this._bwSeat(P.facts, geo, painted.discs);
-            if (seated.size) {
-                const again = P.redraw(seated);
-                P = { ...P, discs: again.discs, runs: again.runs };
+            const letters = painted.labels || [];
+            if (seated.size || letters.length) {
+                const again = P.redraw(seated, letters);
+                P = { ...P, discs: again.discs, runs: again.runs, room: again.room };
             }
         }
         const log = book.log && book.page && book.page.painting ? {
             side: P.side, scale: K, rows: P.rows, pitch: P.pitch,
             map: geo ? { x: geo.wall.x, y: geo.wall.y, w: geo.wall.w, h: geo.wall.h,
                          zoom: geo.zoom, area: geo.area } : null,
+            room: P.room || null,
             discs: [], runs: [], blocks: [], unplaced: P.unplaced, total: P.total,
         } : null;
 
