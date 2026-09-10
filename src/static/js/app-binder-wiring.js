@@ -223,9 +223,12 @@ class _BinderWiring {
             const key = home.box ? 'cvt:' + home.box.id : 'card:' + home.card.id;
             let d = byKey.get(key);
             if (!d) {
+                // The unit named ONCE and its model said once beside it -
+                // _bPortHome's unitTitle, the very string the Data sheet's
+                // band carries.
                 const title = home.box
                     ? [this._bBoxTitle(home.box), home.cardTitle, home.box.trunkTitle || ''].filter(Boolean).join(' · ')
-                    : `${home.procTitle} ${home.cardTitle} · ${home.card.deviceName}`;
+                    : [home.unitTitle, home.named ? home.card.deviceName : ''].filter(Boolean).join(' · ');
                 const n = home.box
                     ? (home.box.portCount || (home.box.ports || []).length)
                     : (home.card.ceiling || (home.card.ports || []).length);
