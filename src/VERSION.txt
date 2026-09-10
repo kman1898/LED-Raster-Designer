@@ -350,6 +350,45 @@ v0.12.0 - September 7, 2026 (BETA)
   tray to reorder them, with the papers following the order you set.
 
 
+- FIX (IMPORTANT): Nothing on a binder sheet prints on top of anything
+  else. A sheet draws in three layers that could not see each other: the
+  screen map arrives as one bitmap, the binder strokes its own rulers and
+  brackets over that rectangle, and the tables and title block are drawn
+  beside it. Each layer now has a check that fails when it writes on
+  itself or on a neighbour, run against real shows.
+  What that found and fixed: a leg tick of the map's own circuit ruler ran
+  through the multi band pill, so "S1-1 - 250 - 65.8A" read "S1-4"; the
+  binder's bold column number printed inside that same pill; the 2fer
+  pills sat on the wall's bottom edge; two cable tags, each clear of every
+  label disc and neither aware of the other, printed straight through one
+  another; and the row ticks crossed a label disc that overhangs the wall.
+  Where a power sheet's map draws its own ruler above the wall there is no
+  room for the binder's as well, so the binder leaves that one to the map;
+  a data sheet keeps its column numbers as before.
+
+- FIX (IMPORTANT): No cell on a sheet is cut off. 69 cells on one show and
+  57 on another ended in an ellipsis; both are zero, and every page of
+  both is checked so a new long string cannot bring it back. A list cell
+  wraps and then says how many more, rather than printing half a circuit
+  name - half a circuit name on a pull sheet is worse than none.
+
+- FIX (IMPORTANT): A unit is named once. A device with no name of its own
+  had its model stood in for it and the sheet then printed the model again
+  beside it, so a header read "NovaPro UHD Jr USC A - NovaPro UHD Jr - 16
+  ports" and every cell under it ran out of room. A fixed card that is its
+  processor's face reads as one unit; a card in a slot still reads as its
+  own. Where a port's two ends are the same run it is stated once, with
+  the fuller reading kept so an extension is not lost.
+
+- CHANGE: A screen's data and power sheets fill their page. The map took
+  the largest type that still fills the drawing area, so a wall that sat
+  in the top-left corner now runs the height of the sheet. Sheets that
+  already filled their page are untouched.
+
+- FIX: The export dialog's Sheets row wraps instead of breaking
+  "Signal + Power" mid-phrase and hanging it off the right edge.
+
+
 - CHANGE (IMPORTANT): Redundancy is one bar in one place. Behind the
   processor's gear a raised segmented bar - Off, Whole unit, Per card,
   Per port (Off, Backed up, Per port on a standalone unit) - and exactly
