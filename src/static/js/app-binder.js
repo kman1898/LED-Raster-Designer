@@ -154,6 +154,9 @@ const MAP_MIN_FRAC = 0.45;
 // whatever the map put down, rather than the gutter growing for both:
 // growing it moved every map on every sheet and broke the approved fill.
 const MAP_GUTTER = { left: 200, right: 180, top: 74, bottom: 16 };
+// The sheet the column ruler needs above the map's own lettering:
+// its tick, and its numbers over that.
+const COL_RULER_H = 34;
 const MAP_ZOOM_CAP = 3;               // a tiny wall never blows up past 3x
 // The fill: a sheet's drawing scales up to this to fill its area.
 const FILL_CAP = 2.4;
@@ -2472,6 +2475,7 @@ class _Binder {
                     }
                     geo.mapInkTop = minY === Infinity ? null : area.y + minY / S;
                     geo.mapInkLeft = minX === Infinity ? null : area.x + minX / S;
+                    geo.mapArea = { x: area.x, y: area.y, w: used.w, h: used.h };
                 }
                 // Laid at the map's sheet size: on the scaled sheet that is
                 // one offscreen pixel per sheet pixel.
@@ -2521,10 +2525,24 @@ class _Binder {
         const top = Math.min(geo.wall.y,
                              typeof geo.mapInkTop === 'number' ? geo.mapInkTop - 4
                                                                : geo.wall.y);
+        // ...and inside the drawing area, never over its head rule. The
+        // column ruler needs COL_RULER_H of clear sheet above whatever the
+        // map drew. A power sheet's map draws a multi band and its own leg
+        // ruler up there and leaves about 14 of the 74 the gutter holds, so
+        // there is no room for a second ruler: the map's own names those
+        // columns already, and printing ours anyway put the numbers through
+        // the band pill, then through the sheet's head rule when they moved
+        // clear of it. Growing the gutter to hold both was the obvious fix
+        // and the wrong one - it moved every map on every sheet and broke
+        // the fill. A data sheet draws nothing above its wall and keeps its
+        // ruler exactly as it was.
+        const areaTop = (geo.mapArea && typeof geo.mapArea.y === 'number')
+            ? geo.mapArea.y : null;
+        const roomForCols = areaTop === null || (top - areaTop) >= COL_RULER_H;
         ctx.strokeStyle = INK;
         ctx.lineWidth = 2;
         ctx.setLineDash([]);
-        colKeys.forEach((k, i) => {
+        if (roomForCols) colKeys.forEach((k, i) => {
             const c = cols.get(k);
             const cx = (c.x1 + c.x2) / 2;
             const bold = (k + 1) % 5 === 0 || i === 0 || i === colKeys.length - 1;
@@ -2538,10 +2556,12 @@ class _Binder {
             }
         });
         // A thin baseline over the wall ties the ticks together.
-        ctx.beginPath();
-        ctx.moveTo(geo.wall.x, top - 6);
-        ctx.lineTo(geo.wall.x + geo.wall.w, top - 6);
-        ctx.stroke();
+        if (roomForCols) {
+            ctx.beginPath();
+            ctx.moveTo(geo.wall.x, top - 6);
+            ctx.lineTo(geo.wall.x + geo.wall.w, top - 6);
+            ctx.stroke();
+        }
         // Beside the map's own lettering, never through it: a label disc on
         // the first column overhangs the wall's left edge, and the row ticks
         // were being drawn straight across it.

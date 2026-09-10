@@ -64,6 +64,74 @@ KELLY_LIVE = os.environ.get('LRD_KELLY_LIVE_JSON') or os.path.join(
 # more; a rule that grazes a cabinet seam covers a few percent.
 TEXT_LIMIT = 0.05
 
+# The second guard, and the one that caught the ruler numbers running
+# through the sheet's head rule: within the VECTOR layer, a stroked line
+# must not cross a string. Both are ops, so this needs no pixels and no
+# guesswork about what the ink belongs to.
+RULE_JS = """([opts]) => {
+    const app = window.app;
+    const plan = app.planBinder(opts);
+    const mc = document.createElement('canvas').getContext('2d');
+    const widthOf = (o) => {
+        mc.font = `${o.weight || 400} ${o.size}px Helvetica, Arial, sans-serif`;
+        return mc.measureText(o.text).width;
+    };
+    const out = [];
+    for (let i = 0; i < plan.length; i++) {
+        const r = app.renderBinderPage(opts, i);
+        const texts = [], lines = [];
+        for (const o of r.record.ops) {
+            if (o.op === 'text') {
+                const t = String(o.text);
+                if (!t.trim() || o.rotate) continue;
+                const w = widthOf(o);
+                let x = o.x;
+                if (o.align === 'center') x -= w / 2;
+                else if (o.align === 'right') x -= w;
+                let top = o.y - o.size * 0.78;
+                if (o.baseline === 'middle') top = o.y - o.size * 0.5;
+                else if (o.baseline === 'top') top = o.y;
+                else if (o.baseline === 'bottom') top = o.y - o.size;
+                // the box is pulled in a little on every side: a rule that
+                // runs along a cell's edge is a table, not a strike-through
+                const inset = Math.min(2.5, o.size * 0.18);
+                texts.push({ t, x: x + inset, y: top + inset,
+                             w: Math.max(1, w - 2 * inset),
+                             h: Math.max(1, o.size * 0.92 - 2 * inset) });
+            } else if (o.op === 'line') {
+                lines.push(o.points || []);
+            }
+        }
+        const hits = [];
+        for (const t of texts) {
+            if (t.t.length < 1) continue;
+            let struck = null;
+            for (const pts of lines) {
+                for (let k = 0; k < pts.length - 1 && !struck; k++) {
+                    const [x0, y0] = pts[k], [x1, y1] = pts[k + 1];
+                    // Liang-Barsky against the inset box
+                    const dx = x1 - x0, dy = y1 - y0;
+                    let t0 = 0, t1 = 1, ok = true;
+                    const P = [-dx, dx, -dy, dy];
+                    const Q = [x0 - t.x, t.x + t.w - x0, y0 - t.y, t.y + t.h - y0];
+                    for (let e = 0; e < 4 && ok; e++) {
+                        if (P[e] === 0) { if (Q[e] < 0) ok = false; continue; }
+                        const rr = Q[e] / P[e];
+                        if (P[e] < 0) { if (rr > t1) ok = false; else t0 = Math.max(t0, rr); }
+                        else { if (rr < t0) ok = false; else t1 = Math.min(t1, rr); }
+                    }
+                    if (ok && t0 <= t1) struck = [Math.round(x0), Math.round(y0),
+                                                  Math.round(x1), Math.round(y1)];
+                }
+                if (struck) break;
+            }
+            if (struck) hits.push({ t: t.t, x: Math.round(t.x), y: Math.round(t.y), line: struck });
+        }
+        out.push({ n: plan[i].number, title: plan[i].title, kind: plan[i].kind, hits });
+    }
+    return out;
+}"""
+
 INK_JS = """([opts]) => {
     const app = window.app;
     const plan = app.planBinder(opts);
@@ -233,4 +301,47 @@ def test_kelly_live_prints_nothing_on_its_own_maps(page, palette):
     report = pg.evaluate(INK_JS, [_opts(palette)])
     assert report, 'the binder planned no pages at all'
     bad = _complaints(report)
+    assert not bad, '\n' + '\n'.join('  ' + b for b in bad)
+
+
+def _struck(report):
+    """Every string a binder rule is drawn through.
+
+    A wiring sheet is exempt: its runs cross the wall and its blocks by
+    design, and a run passing over the grey number of a socket it does not
+    land on is what the approved drawing does.
+    """
+    bad = []
+    for page in report:
+        if page['kind'] == 'wiring':
+            continue
+        for h in page['hits']:
+            bad.append('%s %s: a binder rule from (%d,%d) to (%d,%d) is drawn '
+                       'through %r' % (page['n'], page['title'], h['line'][0],
+                                       h['line'][1], h['line'][2], h['line'][3],
+                                       h['t'][:32]))
+    return bad
+
+
+@pytest.mark.parametrize('palette', ['colour', 'printer'])
+def test_no_binder_rule_is_drawn_through_a_string(palette):
+    """The seeded show: nothing the binder strokes crosses anything it
+    writes. This is the guard that catches a ruler number pushed up into
+    the sheet's own head rule."""
+    pytest.importorskip("playwright.sync_api")
+
+
+@pytest.mark.parametrize('palette', ['colour', 'printer'])
+def test_kelly_live_has_no_rule_through_a_string(page, palette):
+    """Kelly Clarkson as the user exported her. Her power sheets are where
+    the column ruler ran out of room: moved clear of the map's band pill it
+    went straight into the head rule at the top of the sheet."""
+    if not os.path.exists(KELLY_LIVE):
+        pytest.skip('kelly-live-fixture.json not present')
+    pg, _ids = page
+    import json
+    pg.evaluate(LOAD_JS, json.load(open(KELLY_LIVE)))
+    report = pg.evaluate(RULE_JS, [_opts(palette)])
+    assert report, 'the binder planned no pages at all'
+    bad = _struck(report)
     assert not bad, '\n' + '\n'.join('  ' + b for b in bad)
