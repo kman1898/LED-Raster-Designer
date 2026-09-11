@@ -52,6 +52,8 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
+HERE = os.path.dirname(os.path.abspath(__file__))
+
 from test_binder import SEED_JS, SCRATCH_FIXTURE, _SHOW_JSON  # noqa: E402
 from test_binder_wiring import (  # noqa: E402
     LOAD_JS, _covers_lettering, _probe, _through_the_wall,
@@ -59,8 +61,17 @@ from test_binder_wiring import (  # noqa: E402
 
 pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
-KELLY_LIVE = os.environ.get('LRD_KELLY_LIVE_JSON') or os.path.join(
-    os.path.dirname(SCRATCH_FIXTURE), 'kelly-live-fixture.json')
+# The real shows are a bonus, never the whole test: they live outside the
+# repo and the session scratchpad they used to sit in was cleared between
+# sessions, which silently skipped every case that needed them. Look in
+# tests/fixtures-local (git-ignored, survives a session) first, then the
+# old scratchpad path, and skip cleanly when neither is there.
+_LOCAL_FIXTURES = os.path.join(HERE, 'fixtures-local')
+KELLY_LIVE = os.environ.get('LRD_KELLY_LIVE_JSON') or next(
+    (p for p in (os.path.join(_LOCAL_FIXTURES, 'kelly-live-fixture.json'),
+                 os.path.join(os.path.dirname(SCRATCH_FIXTURE), 'kelly-live-fixture.json'))
+     if os.path.exists(p)),
+    os.path.join(_LOCAL_FIXTURES, 'kelly-live-fixture.json'))
 
 # How much of a mark's own footprint may sit on map ink before it is a
 # collision. A number printed inside a pill covers a quarter of itself or
@@ -377,7 +388,7 @@ def test_no_wiring_run_is_drawn_over_the_maps_own_lettering(page, palette):
     if os.path.exists(KELLY_LIVE):
         shows.append((KELLY_LIVE, ['SR - Signal + Power', 'SL - Signal + Power',
                                    'UPSTAGE - Signal + Power']))
-    bad, runs = [], 0
+    bad, per_sheet = [], {}
     for fixture, titles in shows:
         if fixture is None:
             pg.evaluate(SEED_JS)
@@ -385,9 +396,17 @@ def test_no_wiring_run_is_drawn_over_the_maps_own_lettering(page, palette):
             pg.evaluate(LOAD_JS, json.load(open(fixture)))
         opts = {**json.loads(_SHOW_JSON), 'palette': palette}
         for title in titles:
-            for h in _probe(pg, opts, title):
-                runs += len(h['runs'])
+            halves = _probe(pg, opts, title)
+            per_sheet[title] = sum(len(h['runs']) for h in halves)
+            for h in halves:
                 bad += ['%s %s: %s' % (title, h['side'], s)
                         for s in _covers_lettering(h) + _through_the_wall(h)]
-    assert runs > 20, ('the sweep read almost no runs at all', runs)
+    # This rule can only be broken by a run, so a sweep that read no runs
+    # proves nothing. Hold EVERY sheet named to having drawn some, rather
+    # than a total floor - a total was calibrated against a show that is
+    # not in the repo, so it turned red wherever that show was absent
+    # (2026-09-11) and said nothing about the rule either way.
+    assert per_sheet, 'the sweep named no sheets at all'
+    empty = sorted(t for t, n in per_sheet.items() if not n)
+    assert not empty, ('these sheets drew no runs, so they tested nothing', empty)
     assert not bad, '\n' + '\n'.join('  ' + b for b in bad)
