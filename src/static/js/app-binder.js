@@ -235,6 +235,15 @@ class _Binder {
             }
             sheet.addEventListener('change', () => { this.setBinderSheet(sheet.value); });
         }
+        // The border and the title block column, remembered like the sheet
+        // size.
+        const block = document.getElementById('export-binder-title-block');
+        if (block) {
+            block.addEventListener('change', () => {
+                this.setBinderTitleBlock(block.checked);
+                if (typeof this.updateExportPreview === 'function') this.updateExportPreview();
+            });
+        }
         // The screen order: project state, one undo entry, the same POST
         // as the title block's fields.
         const order = document.getElementById('export-binder-screen-order');
@@ -342,6 +351,8 @@ class _Binder {
         }
         const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
         set('export-binder-sheet', this.getBinderSheet());
+        const block = document.getElementById('export-binder-title-block');
+        if (block) block.checked = this.getBinderTitleBlock();
         set('export-binder-engineer', this.getEngineerName());
         set('export-binder-rev', this.getPullSheetSettings().rev);
         this._syncBinderLogoControls();
@@ -439,6 +450,10 @@ class _Binder {
             hardware: on('export-binder-hardware', scope.kind === 'show'),
             // the Signal + Power sheet is a SCREEN sheet: on whatever the scope
             wiring: on('export-binder-wiring', true),
+            // the border, the title block column and the rev line: on
+            // unless the box says otherwise (a preference, so the dialog
+            // opens the way it was left)
+            titleBlock: on('export-binder-title-block', this.getBinderTitleBlock()),
         };
     }
 
@@ -611,6 +626,19 @@ class _Binder {
 
     setBinderSheet(key) {
         return this._setBinderPreference('binderSheet', SHEETS[key] ? key : DEFAULT_SHEET);
+    }
+
+    // The border, the title block column and the rev line: a preference
+    // too - a shop that prints plain sheets prints them every show. ON
+    // unless it was stored off, so an app that has never seen the switch
+    // keeps the sheet it has always had.
+    getBinderTitleBlock() {
+        const prefs = (typeof this.getPreferences === 'function') ? this.getPreferences() : {};
+        return prefs.binderTitleBlock !== false;
+    }
+
+    setBinderTitleBlock(on) {
+        return this._setBinderPreference('binderTitleBlock', on !== false);
     }
 
     // The logo as stored: a PNG / JPEG data URL, or ''.
@@ -865,7 +893,7 @@ class _Binder {
             || (this._binderMeasureCtx = document.createElement('canvas').getContext('2d')));
         const book = {
             opts, list, meta, layers, run, sheet,
-            geo: this._bGeo(sheet),
+            geo: this._bGeo(sheet, opts.titleBlock !== false),
             scale: sheet.w * sheet.h > SCALE_PX_BUDGET ? 1 : 2,
             dry: !!run.dry, total: run.total || 0, only: run.only, plan: run.plan || null,
             log: run.log || null, bitmaps: !!run.bitmaps,
@@ -1111,12 +1139,22 @@ class _Binder {
 
     // The sheet's frame in page pixels: the border, the title block, the
     // drawing area.
-    _bGeo(sheet) {
+    //
+    // With the title block switched off ("so we need to have a way to turn
+    // off the frame and extra text like overview and designer on the
+    // binder. Sometime having more screen real estate is better that way
+    // the screens fill the pdf", 2026-09-11) the column is not there at
+    // all: `tb` has no width, and the drawing area takes the whole sheet
+    // inside the same small margin - TB_W wider than before. The sheet
+    // keeps its own naming at the foot (the view bubble and the subject
+    // heading); nothing else of the block survives.
+    _bGeo(sheet, titleBlock) {
         const W = sheet.w, H = sheet.h;
+        const on = titleBlock !== false;
         const border = { x: PAD, y: PAD, w: W - PAD * 2, h: H - PAD * 2 };
-        const tb = { x: W - PAD - TB_W, y: PAD, w: TB_W, h: H - PAD * 2 };
+        const tb = { x: W - PAD - (on ? TB_W : 0), y: PAD, w: on ? TB_W : 0, h: H - PAD * 2 };
         const da = { x: PAD + DA_PAD, y: PAD + DA_PAD, w: tb.x - PAD - DA_PAD * 2, h: H - PAD * 2 - DA_PAD * 2 };
-        return { W, H, border, tb, da };
+        return { W, H, border, tb, da, titleBlock: on };
     }
 
     // ---- sheets: number, paint, frame, close --------------------------------
@@ -1174,13 +1212,17 @@ class _Binder {
     }
 
     // The sheet's white, its border, the title block, the rev in the
-    // corner.
+    // corner. With the title block off the sheet is the white and the
+    // drawing alone: no border rule, no column, no rev line - the sheet
+    // names itself at the foot, where its body draws the view bubble and
+    // the subject heading.
     _bPageFrame(book, page) {
         const ctx = book.ctx;
-        const { W, H, border, da } = book.geo;
+        const { W, H, border, da, titleBlock } = book.geo;
         ctx.setTransform(book.scale, 0, 0, book.scale, 0, 0);
         ctx.fillStyle = '#ffffff';
         ctx.fillRect(0, 0, W, H);
+        if (!titleBlock) return;
         ctx.strokeStyle = INK;
         ctx.lineWidth = 3;
         ctx.setLineDash([]);

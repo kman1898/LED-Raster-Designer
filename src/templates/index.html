@@ -2068,6 +2068,13 @@
                         <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; flex: none; white-space: nowrap; line-height: 20px;" data-tooltip="A third sheet per screen after its Data sheet (2.x): the wall over the devices its ports and circuits land on, every port wired to its socket and every circuit to its breakout."><input type="checkbox" id="export-binder-wiring" checked> Signal + Power</label>
                         </div>
                     </div>
+                    <!-- The border, the title block column and the rev line, or
+                         none of them: off, the drawing takes the whole sheet and
+                         only the view bubble and its heading name it, at the foot. -->
+                    <div style="display: flex; gap: 14px; align-items: center; font-size: 12px; color: #aaa;">
+                        <span style="flex: none; width: 92px;">Frame</span>
+                        <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; flex: none; white-space: nowrap;" data-tooltip="On, every sheet wears the border and the title block column down its right edge. Off, the drawing and its tables take the whole sheet inside a small margin - no border, no column, no rev line - and the numbered view bubble with its heading at the foot is what names the sheet. Remembered as a preference."><input type="checkbox" id="export-binder-title-block" checked> Border and title block</label>
+                    </div>
                     <div style="display: flex; gap: 8px; align-items: center; font-size: 12px; color: #aaa;">
                         <span style="flex: none; width: 92px;">Engineer</span>
                         <input type="text" id="export-binder-engineer" placeholder="Name" data-tooltip="The Drafter the title block prints unless one is typed below, and the initials a logged revision wears. Remembered as a preference." style="flex: 1; min-width: 60px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px;">

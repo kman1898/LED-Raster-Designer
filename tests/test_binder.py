@@ -121,7 +121,30 @@ SCALE = 2
 # The frame: the border PAD in, the title block TB_W wide inside it on the
 # right, the drawing area DA_PAD in from both.
 PAD, TB_W, DA_PAD = 50, 480, 30
-DA = {'x': PAD + DA_PAD, 'y': PAD + DA_PAD, 'w': W - PAD - TB_W - PAD - DA_PAD * 2, 'h': H - PAD * 2 - DA_PAD * 2}
+
+
+def _da(w, h, block=True):
+    """The drawing area on a sheet of `w` x `h` page pixels, with the title
+    block column standing or not."""
+    return {'x': PAD + DA_PAD, 'y': PAD + DA_PAD,
+            'w': w - PAD * 2 - (TB_W if block else 0) - DA_PAD * 2,
+            'h': h - PAD * 2 - DA_PAD * 2}
+
+
+# The title block switch (the export dialog's Binder block, default ON).
+# OFF, the sheet loses its border, the whole title block column and the rev
+# line, and the drawing area takes the sheet inside the same small margin -
+# exactly TB_W wider. A run with LRD_BINDER_NO_TITLE_BLOCK=1 puts the SHOW
+# options and the drawing area below into that state, so the suites that
+# import them (test_binder_ink, test_binder_wiring,
+# test_map_label_collisions) can be run the other way without a second copy
+# of themselves. This module is run in the default state; its own
+# both-ways tests carry the switch in their options instead.
+TITLE_BLOCK = os.environ.get('LRD_BINDER_NO_TITLE_BLOCK', '').strip().lower() \
+    not in ('1', 'true', 'yes', 'on')
+DA_BLOCK = _da(W, H, True)
+DA_PLAIN = _da(W, H, False)
+DA = DA_BLOCK if TITLE_BLOCK else DA_PLAIN
 TB_X = W - PAD - TB_W
 # The tables' column, the gap, the view bubble's room under a map; the
 # map's gutters (the rulers' and the brackets' room) and its zoom cap.
@@ -171,7 +194,7 @@ def test_the_menu_items_the_format_option_and_the_section_are_served(client):
     assert '<option value="binder">Binder (PDF)</option>' in html
     assert 'id="export-binder-section"' in html
     for field in ('scope', 'sheet', 'colour', 'printer', 'side-power', 'side-data', 'side-both',
-                  'cover', 'pull', 'hardware', 'wiring', 'engineer', 'rev',
+                  'cover', 'pull', 'hardware', 'wiring', 'title-block', 'engineer', 'rev',
                   'venue', 'dates', 'designer', 'pm-name', 'pm-phone', 'pm-email', 'drafter',
                   'logo', 'logo-preview', 'logo-remove', 'logo-status', 'revision-note', 'revisions'):
         assert f'id="export-binder-{field}"' in html, field
@@ -185,6 +208,8 @@ def test_the_menu_items_the_format_option_and_the_section_are_served(client):
         assert f'<option value="{key}"' in sec, key
     assert '<option value="tabloid" selected>' in sec
     assert 'tail' not in sec.lower()
+    # the title block switch stands in the Binder block, ticked
+    assert re.search(r'id="export-binder-title-block"[^>]*checked', sec)
     # the title block's fields sit in their own raised group
     assert sec.count('class="export-views"') == 2
     assert 'Title block:' in sec
@@ -345,11 +370,17 @@ SEED_JS = """async () => {
              aCircuits: app.screenCircuits(a).length };
 }"""
 
+_TB_JS = 'true' if TITLE_BLOCK else 'false'
 SHOW = """{ sheet: 'tabloid', palette: 'colour', sides: {power: true, data: true}, scope: {kind: 'show'},
-            cover: true, pull: true, hardware: true }"""
+            cover: true, pull: true, hardware: true, titleBlock: %s }""" % _TB_JS
 # The whole-show options as JSON, for evaluate() calls that take them as data.
 _SHOW_JSON = ('{"sheet": "tabloid", "palette": "colour", "sides": {"power": true, "data": true}, "scope": {"kind": "show"},'
-              ' "cover": true, "pull": true, "hardware": true}')
+              ' "cover": true, "pull": true, "hardware": true, "titleBlock": %s}' % _TB_JS)
+# The same set with the title block the other way, for the both-ways tests.
+PLAIN_JSON = _SHOW_JSON.replace('"titleBlock": true', '"titleBlock": false')
+BLOCK_JSON = _SHOW_JSON.replace('"titleBlock": false', '"titleBlock": true')
+PLAIN = SHOW.replace('titleBlock: true', 'titleBlock: false')
+BLOCK = SHOW.replace('titleBlock: false', 'titleBlock: true')
 
 # The set on two positions: 13 sheets - the screens in beach order, each
 # screen's POWER, its DATA, its SIGNAL + POWER (2026-09-08); the two
@@ -442,8 +473,24 @@ def _on_map(map_texts, label):
     return False
 
 
+# The title block's own strings - every one of them, on every sheet - and
+# the rev line in the sheet's corner.
+TB_STRINGS = ('Revisions:', 'No.', 'Date', 'By', 'Description', 'Designer:',
+              'Project Manager:', 'Drafter:', 'Sheet Number', 'Drawing Date')
+REV_LINE = re.compile(r'^rev \S+$')
+
+
 def _title_block(texts, sheet_title, number, show='Untitled Project'):
-    """The title block's texts, in the order the column draws them."""
+    """The title block's texts, in the order the column draws them - or,
+    on a run made with the block switched off, their absence: the same
+    call reads the sheet either way, so the suites that import this
+    helper hold the plain sheet to the mirror of the same rule."""
+    if not TITLE_BLOCK:
+        for t in ('Revisions:', 'Designer:', 'Project Manager:', 'Drafter:',
+                  'Sheet Number', 'Drawing Date', show):
+            assert t not in texts, (t, texts[:60])
+        assert not [t for t in texts if REV_LINE.match(t)], texts[:60]
+        return
     for t in ('Revisions:', 'No.', 'Date', 'By', 'Description',
               show, 'Designer:', 'Project Manager:', 'Drafter:', sheet_title, 'Sheet Number', number, 'Drawing Date'):
         assert t in texts, (t, texts[:60])
@@ -1986,6 +2033,198 @@ def test_the_port_cell_reads_a_long_label_whole(page):
     finally:
         pg.evaluate(rename, [ids, 'SR'])
     assert 'SR-1' in _render(pg, SHOW, 'WALL-A - Data')['texts']
+
+
+# ── the plain sheet: the title block switched off ─────────────────────────
+# "so we need to have a way to turn off the frame and extra text like
+# overview and designer on the binder. Sometime having more screen real
+# estate is better that way the screens fill the pdf" (2026-09-11).
+#
+# The switch is in the export dialog's Binder block and rides the options
+# as `titleBlock`. OFF, a sheet loses three things and nothing else:
+#   * the border rule round the sheet,
+#   * the whole title block column - logo, REVISIONS, the show, the
+#     people, the sheet title, the sheet number, the drawing date,
+#   * the "rev 1.3" line in the corner.
+# It KEEPS its own naming at the foot: the numbered view bubble and the
+# subject heading beside it. Without the title block that line is the only
+# thing saying which sheet this is and what order the sheets run in - "if
+# you loose that naming then we just keep the naming at the bottom for
+# page numbering essentially" - so both halves are asserted here. A test
+# that only checked what disappeared would pass on a sheet with no name at
+# all, which is the thing the user asked not to happen.
+# Default is ON: every sheet is exactly the sheet it is today.
+
+# Every sheet of the set, rendered: what it drew, the bubble it logged, the
+# title block it logged, and the sheet-wide border rectangle if any.
+SWEEP_JS = """([opts, borderW, borderH]) => {
+    const app = window.app;
+    const plan = app.planBinder(opts);
+    return plan.map((p, i) => {
+        const r = app.renderBinderPage(opts, i);
+        const ops = (r.record && r.record.ops) || [];
+        const border = ops.filter(o => o.op === 'rect' && o.stroke && !o.fill
+                                       && Math.abs(o.w - borderW) < 2 && Math.abs(o.h - borderH) < 2)
+                          .map(o => [o.x, o.y, o.w, o.h]);
+        return { number: p.number, title: p.title, kind: p.kind, view: p.view || null,
+                 names: p.names || null, sheetTitle: p.sheetTitle, extent: p.extent,
+                 texts: r.texts, border,
+                 bubble: r.bubble ? { number: r.bubble.number, name: r.bubble.name,
+                                      x: r.bubble.x, y: r.bubble.y, r: r.bubble.r } : null,
+                 titleBlock: r.titleBlock ? { x: r.titleBlock.x, w: r.titleBlock.w } : null };
+    });
+}"""
+
+
+def _sweep(pg, opts):
+    return pg.evaluate(SWEEP_JS, [opts, W - PAD * 2, H - PAD * 2])
+
+
+def test_the_title_block_is_on_by_default_and_every_sheet_is_as_it_was(page):
+    """Default ON. Options that say nothing about the switch plan and
+    paint the very same set as options that say titleBlock: true, and every
+    sheet of the show carries what it carries today - the border a quarter
+    inch in, the title block's fields and rules, the rev line in the
+    corner, and, on a map sheet, its numbered bubble and subject heading at
+    the foot."""
+    pg, ids = page
+    bare = json.loads(_SHOW_JSON)
+    bare.pop('titleBlock', None)
+    on = json.loads(BLOCK_JSON)
+    assert pg.evaluate("(o) => window.app.planBinder(o).map(p => [p.number, p.title, p.layout, p.cols, p.scale])", bare) \
+        == pg.evaluate("(o) => window.app.planBinder(o).map(p => [p.number, p.title, p.layout, p.cols, p.scale])", on)
+    sheets = _sweep(pg, on)
+    assert [s['number'] for s in sheets] == [n for _k, n, _t in PLAN], sheets
+    for s in sheets:
+        where = (s['number'], s['title'])
+        assert s['border'] == [[PAD, PAD, W - PAD * 2, H - PAD * 2]], (where, s['border'])
+        for t in TB_STRINGS:
+            assert t in s['texts'], (where, t)
+        assert 'Untitled Project' in s['texts'], where
+        assert s['sheetTitle'] in s['texts'] and s['number'] in s['texts'], where
+        assert [t for t in s['texts'] if REV_LINE.match(t)] == ['rev 1.0'], where
+        assert s['titleBlock'] == {'x': TB_X, 'w': TB_W}, (where, s['titleBlock'])
+        # the naming at the foot: a map sheet's bubble, a column sheet's
+        # subject heads
+        if s['view']:
+            assert s['bubble'] and s['bubble']['number'] == s['view'], (where, s['bubble'])
+            assert s['bubble']['name'] == s['sheetTitle'].replace(' (CONT.)', ''), (where, s['bubble'])
+        else:
+            assert s['names'], where
+            for n in s['names']:
+                assert n.upper() in s['texts'], (where, n)
+
+
+def test_the_plain_sheet_drops_the_block_and_keeps_its_naming(page):
+    """The switch OFF: on NO sheet of the show is a title block string, a
+    rev line, the sheet-wide border rectangle or the block's logged column
+    drawn at all - AND every sheet still names itself, a map sheet by its
+    numbered view bubble and its subject heading at the foot of the
+    drawing, a column sheet by its subject heads. Both halves: the naming
+    is the only thing left saying which sheet this is."""
+    pg, ids = page
+    sheets = _sweep(pg, json.loads(PLAIN_JSON))
+    assert [s['number'] for s in sheets] == [n for _k, n, _t in PLAN], sheets
+    for s in sheets:
+        where = (s['number'], s['title'])
+        # what goes
+        assert s['border'] == [], (where, s['border'])
+        assert s['titleBlock'] is None, where
+        for t in TB_STRINGS:
+            assert t not in s['texts'], (where, t, s['texts'][:40])
+        assert not [t for t in s['texts'] if REV_LINE.match(t)], where
+        assert 'Drawing Date' not in s['texts'] and 'Sheet Number' not in s['texts'], where
+        # what stays - the sheet's own naming, at the foot
+        if s['view']:
+            b = s['bubble']
+            assert b and b['number'] == s['view'], (where, b)
+            assert b['name'] == s['sheetTitle'].replace(' (CONT.)', ''), (where, b)
+            assert b['y'] + b['r'] <= DA_PLAIN['y'] + DA_PLAIN['h'] + 1, (where, b)
+            assert b['y'] - b['r'] >= DA_PLAIN['y'] + DA_PLAIN['h'] * 0.4, (where, b)
+        else:
+            assert s['names'], where
+            for n in s['names']:
+                assert n.upper() in s['texts'], (where, n)
+    # the whole show is still named somewhere the reader can find it: every
+    # sheet number and every sheet title is on the overview's CONTENTS
+    contents = sheets[0]['texts']
+    for s in sheets:
+        assert s['number'] in contents and s['sheetTitle'] in contents, s['number']
+
+
+def test_the_plain_sheet_gives_the_drawing_the_blocks_width(page):
+    """The room is real: with the block off the drawing area is the sheet
+    inside the same small margin - exactly TB_W (480 page px, 2.4 in)
+    wider than with it on - and a map sheet spends it, its map area the
+    full width and its extent covering more of the sheet than before."""
+    pg, ids = page
+    assert DA_PLAIN['w'] - DA_BLOCK['w'] == TB_W
+    # the drawing area itself, read off the sheet: the overview lays its
+    # map across the whole of it
+    a = _map_of(_render(pg, BLOCK, 'Overview'))['area']
+    b = _map_of(_render(pg, PLAIN, 'Overview'))['area']
+    assert a['w'] == DA_BLOCK['w'] and b['w'] == DA_PLAIN['w'], (a, b)
+    assert b['w'] - a['w'] == TB_W and b['x'] == a['x'] == DA_PLAIN['x'], (a, b)
+    # and a map sheet spends the room: WALL-A's wall is drawn bigger and
+    # the sheet's own content covers more of the page (the layout is free
+    # to change - a wider area can make map-left / tables-right the
+    # covering one - so this measures area, not width)
+    on = _render(pg, BLOCK, 'WALL-A - Power')
+    off = _render(pg, PLAIN, 'WALL-A - Power')
+    ma, mb = _map_of(on), _map_of(off)
+    assert mb['w'] * mb['h'] > ma['w'] * ma['h'] * 1.1, (ma, mb)
+    ea, eb = on['page']['extent'], off['page']['extent']
+    assert eb['w'] * eb['h'] > ea['w'] * ea['h'], (ea, eb)
+    assert eb['w'] > ea['w'] and eb['w'] == DA_PLAIN['w'], (ea, eb)
+    # nothing of the drawing crosses into the sheet's margin
+    for s in _sweep(pg, json.loads(PLAIN_JSON)):
+        if s['extent']:
+            assert s['extent']['w'] <= DA_PLAIN['w'] + 1 and s['extent']['h'] <= DA_PLAIN['h'] + 1, s
+
+
+def test_the_title_block_switch_is_a_preference_the_dialog_reflects(page):
+    """The switch is remembered beside the sheet size and the logo, so it
+    survives a restart: the dialog's box writes binderTitleBlock to the
+    preferences, the preferences come back through syncBinderControls into
+    the box, and readBinderOptions reads the box."""
+    pg, ids = page
+    try:
+        out = pg.evaluate("""async () => {
+            const app = window.app;
+            const fmt = document.getElementById('export-format');
+            fmt.value = 'binder';
+            fmt.dispatchEvent(new Event('change'));
+            const box = document.getElementById('export-binder-title-block');
+            const prefs = () => fetch('/api/preferences').then(r => r.json());
+            const start = box.checked;
+            // the box, changed the way a click changes it
+            box.checked = false;
+            box.dispatchEvent(new Event('change', { bubbles: true }));
+            await new Promise(r => setTimeout(r, 250));
+            const saved = (await prefs()).binderTitleBlock;
+            const readOff = app.readBinderOptions().titleBlock;
+            // as if the app had just started: the preferences into the dialog
+            box.checked = true;
+            app.syncBinderControls();
+            const reflectedOff = box.checked;
+            box.checked = true;
+            box.dispatchEvent(new Event('change', { bubbles: true }));
+            await new Promise(r => setTimeout(r, 250));
+            const savedOn = (await prefs()).binderTitleBlock;
+            const readOn = app.readBinderOptions().titleBlock;
+            box.checked = false;
+            app.syncBinderControls();
+            return { start, saved, readOff, reflectedOff, savedOn, readOn,
+                     reflectedOn: box.checked, getter: app.getBinderTitleBlock() };
+        }""")
+    finally:
+        pg.evaluate("() => window.app.setBinderTitleBlock(true)")
+        pg.wait_for_timeout(250)
+    assert out['start'] is True, out                 # default ON
+    assert out['saved'] is False and out['readOff'] is False, out
+    assert out['reflectedOff'] is False, out
+    assert out['savedOn'] is True and out['readOn'] is True, out
+    assert out['reflectedOn'] is True and out['getter'] is True, out
 
 
 # ── the smoke: the user's own show ───────────────────────────────────────
