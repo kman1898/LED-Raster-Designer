@@ -2417,6 +2417,7 @@ class _Binder {
             canvas: r.canvas, ctx: r.ctx, exportMode: r.exportMode, transparent: r.exportTransparentBg,
             printer: r.printerMode, viewMode: r.viewMode, zoom: r.zoom, panX: r.panX, panY: r.panY,
             hideNames: r.hideScreenNames,
+            ignoreRaster: r.ignoreRasterBounds,
             active: this.project ? this.project.active_canvas_id : null,
             canvasVis: canvases.map(c => [c, c.visible]),
             layerVis: (this.project.layers || []).map(l => [l, l.visible]),
@@ -2492,6 +2493,11 @@ class _Binder {
                 r.exportMode = true;
                 r.exportTransparentBg = true;
                 r.hideScreenNames = true;
+                // This sheet is ONE screen on its own page: the processor's
+                // raster is not what bounds it, and clipping panels to the
+                // raster cut the wall wherever a screen stood further down or
+                // across the canvas than the raster reaches (2026-09-11).
+                r.ignoreRasterBounds = true;
                 r.printerMode = book.meta.palette === 'printer';
                 // The renderer draws at S times the sheet zoom (its world
                 // transform is zoom and pan alone, so a scaled context
@@ -2540,6 +2546,7 @@ class _Binder {
             r.exportMode = saved.exportMode;
             r.exportTransparentBg = saved.transparent;
             r.hideScreenNames = saved.hideNames;
+            r.ignoreRasterBounds = saved.ignoreRaster;
             r.printerMode = saved.printer;
             r.viewMode = saved.viewMode;
             r.zoom = saved.zoom;

@@ -1382,6 +1382,73 @@ def test_the_sheets_row_keeps_every_box_inside_the_panel_on_one_line(page):
         ['Overview', 'Pull sheets', 'Hardware', 'Signal + Power'], out['labels']
 
 
+RASTER_JS = """([opts, title, rh]) => {
+    const app = window.app, r = window.canvasRenderer;
+    const plan = app.planBinder(opts);
+    const idx = plan.findIndex(p => p.title === title);
+    if (idx < 0) return { missing: title, plan: plan.map(p => p.title) };
+    const cv = (app.project.canvases || [])[0] || null;
+    const was = cv ? { rw: cv.raster_width, rh: cv.raster_height,
+                       srw: cv.show_raster_width, srh: cv.show_raster_height } : null;
+    const ink = () => {
+        const off = app._binderMapCanvas;
+        if (!off || !off.width) return { hits: 0, samples: 0 };
+        const d = off.getContext('2d').getImageData(0, 0, off.width, off.height).data;
+        let hits = 0, samples = 0;
+        for (let k = 3; k < d.length; k += 4 * 97) { samples++; if (d[k] > 0) hits++; }
+        return { hits, samples, w: off.width, h: off.height };
+    };
+    try {
+        app.renderBinderPage(opts, idx);
+        const before = ink();
+        if (cv) {
+            // A raster far shorter than the wall - the same shape as a screen
+            // standing further down the canvas than the raster reaches.
+            cv.raster_height = rh; cv.show_raster_height = rh;
+        }
+        app.renderBinderPage(opts, idx);
+        const after = ink();
+        return { before, after, raster: rh };
+    } finally {
+        if (cv && was) {
+            cv.raster_width = was.rw; cv.raster_height = was.rh;
+            cv.show_raster_width = was.srw; cv.show_raster_height = was.srh;
+        }
+        app.renderBinderPage(opts, idx);
+    }
+}"""
+
+
+def test_a_screens_map_does_not_depend_on_the_processors_raster(page):
+    """A binder sheet draws ONE screen on its own page, so the processor's
+    raster is not what bounds it.
+
+    It used to be. renderPanel clipped every panel to the raster rect and
+    returned early when the intersection was empty, and the outer loop
+    skipped panels against the raster too - so a screen standing further
+    down or across the canvas than the raster reaches lost its cabinets on
+    its own sheet. A wall at offset 1900 printed NOTHING, 0 of 54 panels,
+    while its outline, its rulers and its labels all drew; one at 800 lost
+    every row past the raster's height and came out half empty
+    (2026-09-11). Nothing said so: the sheet had ink, a title block and a
+    map rect, and only the cabinets were gone.
+
+    Shrinking the raster under the wall is that fault's shape without
+    moving the show about, and the map must not notice.
+    """
+    pg, _ids = page
+    out = pg.evaluate("([t, rh]) => (%s)([%s, t, rh])" % (RASTER_JS, _SHOW_JSON),
+                      ['WALL-A - Data', 120])
+    assert 'missing' not in out, out
+    before, after = out['before'], out['after']
+    assert before['samples'] > 0 and before['hits'] > 0, ('no map bitmap to begin with', out)
+    # the whole point: a raster shorter than the wall changes nothing
+    assert after['hits'] == before['hits'], (
+        'the raster trimmed the map: %d of %d samples inked with a full raster, '
+        '%d with a %d-tall one' % (before['hits'], before['samples'],
+                                   after['hits'], out['raster']))
+
+
 def test_the_title_block_prints_the_projects_fields_and_they_ride_the_project(page):
     """The export dialog's Title block fields commit to project.binder -
     one undo entry per field - and every sheet's title block prints them:
