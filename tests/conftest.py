@@ -97,8 +97,10 @@ def e2e_server():
 # ── Inter-suite isolation guards ──────────────────────────────────────────
 # The e2e server is ONE in-process Flask app shared by every browser suite in
 # the session, and the Flask `client` fixture rebuilds the same module-global
-# project. A module that mutates the served project (groups, layers, distros,
-# per-layer fields) and does not put it back poisons every module after it:
+# project and the server's preferences. A module that mutates either - groups,
+# layers, distros, per-layer fields; or a preference like the engineer's name,
+# the binder's sheet size, the logo - and does not put it back poisons every
+# module after it:
 # test_screen_group_totals' regression guard reads the live project and trips
 # on a leftover group_id, and an emptied layer list kills it outright.
 #
@@ -120,11 +122,24 @@ def e2e_server():
 
 def _snapshot_project():
     import copy
-    return copy.deepcopy(app_module.current_project), app_module.next_layer_id
+    # server_preferences is shared state too, and leaks the same way the
+    # project does: test_pull_list types an engineer into the pull-sheet
+    # dialog, which is stored as a PREFERENCE rather than on the project,
+    # and every binder sheet after it printed that engineer's initials in
+    # its revision row and his name in the overview's contents
+    # (2026-09-11). Snapshotting the project alone left that behind.
+    return (copy.deepcopy(app_module.current_project),
+            app_module.next_layer_id,
+            copy.deepcopy(getattr(app_module, 'server_preferences', None)))
 
 
 def _restore_project(snapshot):
-    app_module.current_project, app_module.next_layer_id = snapshot
+    project, next_id, prefs = snapshot
+    app_module.current_project, app_module.next_layer_id = project, next_id
+    # save_preferences REASSIGNS app.server_preferences rather than mutating
+    # it, so putting the old dict back is what restores it.
+    if prefs is not None:
+        app_module.server_preferences = prefs
 
 
 @pytest.fixture(scope="module")
