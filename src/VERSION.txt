@@ -414,6 +414,35 @@ v0.12.0 - September 7, 2026 (BETA)
   unchanged, and the columns got their width back.
 
 
+- FIX (IMPORTANT): A screen's own binder sheet draws the whole screen. A
+  screen standing further down or across its canvas than the processor's
+  raster reaches lost its cabinets on its sheet - one wall printed none of
+  its panels at all while its outline, rulers and tables drew, and another
+  lost every row past the raster's height and came out half empty. The
+  sheet draws one screen on its own page, so the raster no longer trims
+  it. A Pixel Map export still stops at the raster, where a panel outside
+  it really is outside the picture.
+
+- NEW: Border and title block, a tick in the Binder block of the export
+  dialog, on by default. Turn it off and a sheet drops its border, the
+  title block column down its right edge and the rev line in the corner,
+  and the drawing takes that room - 17 per cent more width on Tabloid - so
+  the screens fill the page. The numbered bubble and the sheet's name stay
+  at the foot, so the set is still named and in order. Remembered as a
+  preference.
+
+- CHANGE: The port shape that was called Halves is OPT Split on a card
+  whose trunks are OPTs - two CVT10s on a 16-port NovaStar card, one OPT
+  carrying 1-8 and the other their returns on 9-16 - and Split on a card
+  whose trunks are not. Saved projects are unchanged.
+
+- FIX: Adding a breakout box offers only the boxes that can go on that
+  card. It already stopped at the trunks left and the trunk rate; it now
+  stops at the vendor too, so a Brompton box is no longer offered on a
+  NovaStar card, and the server refuses the same mismatch. The picker
+  also keeps the box you chose after adding one, instead of clearing.
+
+
 - CHANGE (IMPORTANT): Redundancy is one bar in one place. Behind the
   processor's gear a raised segmented bar - Off, Whole unit, Per card,
   Per port (Off, Backed up, Per port on a standalone unit) - and exactly
