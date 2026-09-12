@@ -42,8 +42,8 @@ test_screen_group_totals.py: window.app.project is swapped for a hand-built
 one inside a single page.evaluate and restored in a finally. The backend
 tests use the Flask test client, like test_multi_canvas.py.
 
-Run locally (ONE pytest at a time - the browser-test servers use fixed
-ports):
+Run locally (each session takes its own free port, so it runs beside
+any other):
     python -m pytest tests/test_authority_reconciliation.py -v --browser chromium
 """
 

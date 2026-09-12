@@ -16,8 +16,8 @@ Each tour is then driven for real - startTour(), then #qs-next through every
 step - so each step's before() hook (view switches) runs exactly as it does
 for a user, and the anchor is checked in the view the step shows it in.
 
-Run locally (ONE pytest at a time - the browser-test server uses a fixed
-port):
+Run locally (each session takes its own free port, so it runs beside
+any other):
     python -m pytest tests/test_tour_anchors.py -v --browser chromium
 """
 

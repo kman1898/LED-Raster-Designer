@@ -1949,7 +1949,13 @@ class _ExportIo {
             // shop show after show, so preferences like the engineer's
             // name.
             binderSheet: 'tabloid',
-            binderLogo: ''
+            binderLogo: '',
+            // Whether a binder sheet wears its border, its title block
+            // column and its rev line at all. On: the sheet as it has
+            // always been. Off: the drawing takes the whole sheet inside a
+            // small margin, named at the foot by its view bubble and
+            // subject heading alone.
+            binderTitleBlock: true
         };
     }
 
@@ -2268,6 +2274,9 @@ class _ExportIo {
             engineerName: this.getPreferences().engineerName || defaults.engineerName,
             binderSheet: this.getPreferences().binderSheet || defaults.binderSheet,
             binderLogo: this.getPreferences().binderLogo || defaults.binderLogo,
+            // a boolean: `||` would turn a stored false back into the
+            // default every time the Preferences modal was saved
+            binderTitleBlock: this.getPreferences().binderTitleBlock !== false,
         };
     }
 

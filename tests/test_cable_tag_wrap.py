@@ -25,8 +25,8 @@ Everything calls the renderer directly on the shared page (no project is
 touched), spying on ctx.fillText / ctx.roundRect the way test_nfer_tags.py
 does.
 
-Run locally (ONE pytest at a time - the browser-test servers use fixed
-ports):
+Run locally (each session takes its own free port, so it runs beside
+any other):
     python -m pytest tests/test_cable_tag_wrap.py -v --browser chromium
 """
 

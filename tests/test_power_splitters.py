@@ -37,8 +37,8 @@ rather than skipped, so nothing sits here rotting:
     (buildProductionReportData) for its per-circuit "<N>fer" gear tally.
 Restore them from the source branch when those features land.
 
-Run locally (ONE pytest at a time - the browser-test servers use fixed
-ports):
+Run locally (each session takes its own free port, so it runs beside
+any other):
     python -m pytest tests/test_power_splitters.py -v --browser chromium
 """
 

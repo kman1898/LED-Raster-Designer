@@ -27,8 +27,8 @@ connector, stored like the label overrides:
     screen and in exportMode alike.
   - A cleared circuit forgets its cable the way it forgets its label.
 
-Run locally (ONE pytest at a time - the browser-test servers use fixed
-ports):
+Run locally (each session takes its own free port, so it runs beside
+any other):
     python -m pytest tests/test_power_cables.py -v --browser chromium
 """
 

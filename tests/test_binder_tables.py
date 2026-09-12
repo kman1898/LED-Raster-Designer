@@ -29,9 +29,9 @@ the repo):
     LRD_KELLY_LIVE_JSON   kelly-live-fixture.json
     LRD_PULL_SMOKE_JSON   experts-only-fixture.json
 
-Run locally (ONE pytest at a time - the browser-test servers use fixed
-ports):
-    LRD_E2E_PORT=15803 python3 -m pytest tests/test_binder_tables.py -v --browser chromium
+Run locally (each session takes its own free port, so it runs beside
+any other):
+    python3 -m pytest tests/test_binder_tables.py -v --browser chromium
 """
 
 import json

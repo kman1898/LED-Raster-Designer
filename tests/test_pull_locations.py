@@ -28,9 +28,9 @@ need to be able to be listed in the pullsheets as well" (user, 2026-09-07).
     "36 way" 5-6, "48 way" 7-8 - past 8 the type stays "48 way" and Notes
     say how many).
 
-Run locally (ONE pytest at a time - the browser-test servers use fixed
-ports):
-    LRD_E2E_PORT=15793 python3 -m pytest tests/test_pull_locations.py -v --browser chromium
+Run locally (each session takes its own free port, so it runs beside
+any other):
+    python3 -m pytest tests/test_pull_locations.py -v --browser chromium
 """
 
 import base64

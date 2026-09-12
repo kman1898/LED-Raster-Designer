@@ -18,8 +18,8 @@ the list into a copy of the user's workbook: positions side by side in the
 six blocks the hidden calc tab scans, GEAR LIST grown to accept every type
 and length written, TOTALS / Spares / calc formulas untouched.
 
-Run locally (ONE pytest at a time - the browser-test servers use fixed
-ports):
+Run locally (each session takes its own free port, so it runs beside
+any other):
     python3 -m pytest tests/test_pull_list.py -v --browser chromium
 """
 

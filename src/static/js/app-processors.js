@@ -732,8 +732,11 @@ class _Processors {
                   + 'port - the second sending card. Pick it below.',
             card: 'Per card: each card is mirrored 1:1 by a card you pick, '
                 + 'one row per slot.',
+            // One processor can hold copper cards and fiber cards at once,
+            // so this line names no trunk: the CARD's chip does that, in
+            // the word its own face prints (_portShapeSplitLabel).
             port: 'Per port: ports pair inside each card - sequential, '
-                + 'halves, or picked by hand on each chip.',
+                + 'split, or picked by hand on each chip.',
         };
         segments.forEach(([level, text]) => {
             const seg = document.createElement('button');
@@ -962,13 +965,35 @@ class _Processors {
             // else, and the 10G boxes stay off it - so where both rates are
             // documented, only the matching boxes are offered. The server
             // refuses the same mismatch; the picker just stops asking.
+            // And the VENDOR is part of the metal, the same way: a box only
+            // hangs off its own vendor's trunks, so a Brompton box is not
+            // offered on a NovaStar card. One rule, written once on the
+            // server (processor_catalog.vendor_mismatch, which _fills_the_card
+            // has always advised by and can_add_cvt now refuses by) and read
+            // the same way here - including its no-inference half: where
+            // either sheet names no vendor, nothing is filtered out.
             const fits = this._processorDevices('cvt')
                 .filter(d => (d.trunksIn || 1) <= card.trunksFree)
                 .filter(d => !d.trunkRate || !card.trunkRate
-                             || d.trunkRate === card.trunkRate);
-            const picker = this._buildDeviceSelect(fits, '',
+                             || d.trunkRate === card.trunkRate)
+                .filter(d => !d.vendor || !card.vendor
+                             || d.vendor === card.vendor);
+            // THE PICK SURVIVES THE ADD: "i added one cvt 10 and after i
+            // added it it cleared the dropdown but it shouldn't clear the
+            // drop down". Adding rebuilds this whole panel, so the chosen
+            // box is remembered per card and re-selected here - a second
+            // identical box is then one click. Only while it still FITS:
+            // once its trunks are gone the picker falls back to its
+            // placeholder rather than showing something it cannot add.
+            const picks = (this._procCvtPick = this._procCvtPick || {});
+            const held = fits.some(d => d.id === picks[card.id])
+                ? picks[card.id] : '';
+            const picker = this._buildDeviceSelect(fits, held,
                                                    'Add a breakout box...');
             picker.dataset.lrdField = `processor-cvt-add-${card.id}`;
+            picker.addEventListener('change', () => {
+                picks[card.id] = picker.value;
+            });
             const btn = document.createElement('button');
             btn.className = 'btn';
             btn.textContent = '+';
@@ -976,6 +1001,7 @@ class _Processors {
             btn.disabled = !fits.length;
             btn.addEventListener('click', () => {
                 if (!picker.value) return;
+                picks[card.id] = picker.value;
                 this._processorRequest(
                     `/api/processors/${proc.id}/cards/${card.id}/cvts`, 'POST',
                     { deviceId: picker.value }, 'Add Breakout Box');
@@ -1847,8 +1873,12 @@ class _Processors {
             fact.textContent = 'Redundancy: not supported on this card';
             return fact;
         }
+        // One name for the shape wherever it prints: the chip and this
+        // line read the same words - see _portShapeSplitLabel.
+        const named = shape.mode === 'halves'
+            ? this._portShapeSplitLabel(card) : shape.mode;
         if (shape.forced) {
-            fact.textContent = `Redundancy: ${shape.mode} - fixed by the `
+            fact.textContent = `Redundancy: ${named} - fixed by the `
                 + 'device';
             return fact;
         }
@@ -1862,15 +1892,53 @@ class _Processors {
                 : 'Redundancy: 1:1, no backup unit picked';
             return fact;
         }
-        fact.textContent = `Redundancy: ${shape.mode}`;
+        fact.textContent = `Redundancy: ${named}`;
         return fact;
     }
 
+    // What the `halves` shape is CALLED on this card. "halves works but we
+    // need a better name for it" (2026-09-11), and the name he reached for
+    // was "OPT Split" - which is exactly what it is on the card he works in:
+    // two CVT10s on a 16-port NovaStar card, one OPT carrying 1-8 and the
+    // other carrying their returns on 9-16.
+    //
+    // OPT is a word printed on a card's face, not a word for trunks in
+    // general, so the chip uses the word THIS card's sheet documents
+    // (trunkWord - the same field a box's trunkTitle names its trunk by) and
+    // says a plain "Split" wherever no sheet prints one: a copper-only card
+    // has no trunk to name, and a Megapixel HELIOS has eight trunks that
+    // nobody calls OPTs. Naming an OPT on either is the extrapolation the
+    // standing rule forbids.
+    //
+    // The STORED id stays `halves` - this is a label, and a project saved
+    // before today opens exactly as it was.
+    _portShapeSplitLabel(card) {
+        const word = (card && card.trunkWord || '').trim();
+        return word ? `${word} Split` : 'Split';
+    }
+
+    // The sentence the split's tip adds where the split really is the
+    // trunks backing each other, and nothing at all where it is not.
+    // Derived, never assumed: the ports fill the trunks in blocks of
+    // portsPerTrunk, so the front half is whole trunks only when the half
+    // divides by that block. Two trunks say it in the singular, because
+    // that is the card the user is working in.
+    _splitTrunkClause(card, half) {
+        const word = (card && card.trunkWord || '').trim();
+        const per = card && card.portsPerTrunk;
+        const trunks = (card && card.trunks) || 0;
+        if (!word || !per || !half || trunks < 2 || half % per) return '';
+        const n = half / per;
+        return n === 1
+            ? ` One ${word}’s ports, backed by the other’s.`
+            : ` The back ${n} ${word}s carry the returns of the front ${n}.`;
+    }
+
     // The card's port-shape chips, in the bar's Per port zone: Sequential ·
-    // Halves · Manual, three raised chips with exactly one lit, replacing
+    // Split · Manual, three raised chips with exactly one lit, replacing
     // the four-way select the user found "wayyy too busy" (2026-09-04).
     // The three port shapes are the user's own: sequential ("1 is backed
-    // up by 2 on the same unit/sending card"), halves (the 2026-08-27
+    // up by 2 on the same unit/sending card"), the split (the 2026-08-27
     // shape: "1-8 on processor 1 and 9-16 as backups") and manual ("1 is
     // backed up to whatever port you want"). 1:1 is not a chip: it is the
     // bar's own Per card level. A vendor-fixed pairing (Brompton
@@ -1895,10 +1963,16 @@ class _Processors {
          // The same split the server maps: mains are the front ceil(n/2),
          // returns the back floor(n/2) - port 1 comes back on 9 of 16.
          // Both spans named, because this is the one shape whose main
-         // and return wear different numbers.
-         ['halves', 'Halves', half
+         // and return wear different numbers. Where the split lands on a
+         // trunk boundary - and only there - it is also the trunks
+         // backing each other, which is the whole reason the chip wears
+         // the trunk's name: on the user's 16-port card OPT 2's ports
+         // carry OPT 1's returns. On an MX20, whose two OPTs each carry
+         // all six ports, the split is INSIDE one of them, and the tip
+         // says nothing it cannot show.
+         ['halves', this._portShapeSplitLabel(card), half
              ? `Ports ${card.ceiling - half + 1}-${card.ceiling} carry the `
-               + `returns of 1-${half}.`
+               + `returns of 1-${half}.` + this._splitTrunkClause(card, half)
              : 'The back half of the ports are the front half’s '
                + 'returns.'],
          ['manual', 'Manual',

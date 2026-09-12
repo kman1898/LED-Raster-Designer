@@ -4617,8 +4617,12 @@ class CanvasRenderer {
                     layer.panels.forEach(panel => {
                         // Cheap early skip for panels entirely outside the raster.
                         // Skip this optimization while rotating, a rotated panel
-                        // may land inside the view even if its unrotated pos is out.
-                        if (!_rotating && (panel.x + dx >= this.rasterWidth || panel.y + dy >= this.rasterHeight)) return;
+                        // may land inside the view even if its unrotated pos is out
+                        // - and skip it for a drawing the raster does not bound,
+                        // see ignoreRasterBounds in renderPanel.
+                        if (!_rotating && !this.ignoreRasterBounds
+                            && (panel.x + dx >= this.rasterWidth
+                                || panel.y + dy >= this.rasterHeight)) return;
 
                         // Render all panels - visible and hidden (hidden as ghost outlines)
                         this.renderPanel(panel, layer);
@@ -5335,7 +5339,17 @@ class CanvasRenderer {
         const dy = this._renderDy || 0;
         // v0.9.3: while the layer is rotated, skip the raster clip (its rect would
         // be wrong in rotated space); the panel still draws inside its own bounds.
-        if (this._layerRotating) {
+        //
+        // `ignoreRasterBounds` skips it for the same reason from the other
+        // direction: the binder draws ONE screen on its own sheet, where the
+        // processor's raster is not what bounds the drawing. Clipping to it
+        // there silently cut the wall - a screen standing 1900 units down the
+        // canvas printed no cabinets at all on its sheet while its outline,
+        // its rulers and its labels drew, and one at 800 lost every row past
+        // the raster's height (2026-09-11). A Pixel Map export still clips,
+        // because there a panel outside the raster really is outside the
+        // picture.
+        if (this._layerRotating || this.ignoreRasterBounds) {
             this.ctx.save();
         } else {
             const rasterLeft = -dx;

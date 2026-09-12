@@ -34,8 +34,8 @@ The model under test:
   - Separation is re-picking: another number, Auto, or another distro.
   - No pins = byte-identical numbering, tails and labels to before.
 
-Run locally (ONE pytest at a time - the browser-test servers use fixed
-ports):
+Run locally (each session takes its own free port, so it runs beside
+any other):
     python -m pytest tests/test_power_shared_socas.py -v --browser chromium
 """
 

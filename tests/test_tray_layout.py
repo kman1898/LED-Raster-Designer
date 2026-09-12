@@ -28,9 +28,9 @@ STORED order every reader follows - the tray, the binder's 'data' screen
 order and its hardware sheets. A pair moves with its main. Undo restores it.
 A drag that ends on the canvas still assigns.
 
-Run locally (ONE pytest at a time - the browser-test servers use fixed
-ports):
-    LRD_E2E_PORT=15793 python -m pytest tests/test_tray_layout.py -v
+Run locally (each session takes its own free port, so it runs beside
+any other):
+    python -m pytest tests/test_tray_layout.py -v
 """
 
 import json

@@ -63,8 +63,8 @@ power view is open, so the page fixture switches to it up front.
 
 Browser tests use the synthetic-project style of test_power_splitters.py.
 
-Run locally (ONE pytest at a time - the browser-test servers use fixed
-ports):
+Run locally (each session takes its own free port, so it runs beside
+any other):
     python -m pytest tests/test_power_phase_labels.py -v --browser chromium
 """
 
