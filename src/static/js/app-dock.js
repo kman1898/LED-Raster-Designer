@@ -3730,7 +3730,16 @@ class _HardwareDock {
                     ? `R 1:1 → ${this._backupUnitTitle(found.proc, found.card)}`
                     : 'R 1:1 — no partner';
             } else {
-                text = `R ${shape.mode === 'sequential' ? 'seq' : shape.mode}`;
+                // The pill says what the card's own face says, in the pill's
+                // own register - the split reads "OPT split" on a
+                // card whose trunks are OPTs and "split" on one whose are
+                // not, never the stored id "halves" (2026-09-11: the mode
+                // was renamed everywhere the user reads it, and this pill
+                // was the last place still printing the id).
+                const named = shape.mode === 'halves'
+                    ? this._portShapeSplitLabel(card).replace('Split', 'split')
+                    : (shape.mode === 'sequential' ? 'seq' : shape.mode);
+                text = `R ${named}`;
             }
         } else {
             const level = this._procRedundancyLevel(proc);

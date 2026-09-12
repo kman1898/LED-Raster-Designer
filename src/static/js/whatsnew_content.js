@@ -22,7 +22,7 @@ window.WHATS_NEW_CONTENT = {
             { h: 'Nothing lands by itself',
               d: 'Auto-numbering is retired: a port is on a card only because you dragged it there, Clear always releases it, and the flag counts what is left. An attached port prints the socket it sits on - 6, 7, 8, 9 on an unnamed card, H9-6 on a named one - the same numbers the tray shows.' },
             { h: 'Redundancy, one bar and a pill',
-              d: 'One raised bar behind the processor’s gear sets it - Off, Whole unit, Per card, Per port - with exactly one thing beneath: a mirrored-by pick, a partner per slot, or Sequential / Halves / Manual chips. Every tray header wears a gold pill that reads the shape in force; click it to open the bar.' },
+              d: 'One raised bar behind the processor’s gear sets it - Off, Whole unit, Per card, Per port - with exactly one thing beneath: a mirrored-by pick, a partner per slot, or Sequential / Split / Manual chips. Every tray header wears a gold pill that reads the shape in force; click it to open the bar.' },
             { h: 'The type chip',
               d: 'Every number on a distro carries a chip - Multi 208, Multi 120, L21-30. Click the spare one’s chip to pick, drag it onto a screen and it lands as that plug; the distro’s OUTPUTS row holds the same plugs. While you drag, the circuits the drop will feed light up with a pill, and a screen set to a different breakout refuses with the reason.' },
             { h: 'A multi takes what is free',

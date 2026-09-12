@@ -4679,7 +4679,10 @@ def test_off_per_card_and_per_port_are_each_one_history_entry(panel_page):
     assert all(c and c['role'] == 'radiogroup' for c in chips), chips
     assert all(c['modes'] == ['sequential', 'halves', 'manual']
                for c in chips), chips
-    assert all(c['texts'] == ['Sequential', 'Halves', 'Manual']
+    # The chips' stored ids never move; their LABELS name the trunk where
+    # the card's own face names one - these are 16xRJ45+2xfiber cards, and
+    # NovaStar's face says OPT. See section 16.
+    assert all(c['texts'] == ['Sequential', 'OPT Split', 'Manual']
                for c in chips), chips
     assert [c['lit'] for c in chips] == ['sequential', 'sequential'], chips
     assert all(c['raised'] for c in chips), chips
@@ -4957,3 +4960,420 @@ def test_a_redundant_pair_presents_as_one_group_on_the_dock(panel_page):
         return getComputedStyle(body).display === 'none';
     }""", ids)
     assert folded, 'the nested backup unit\'s card no longer folds'
+
+
+# ── 16. The split shape's name, the picker's vendor, the picker's memory ──
+#
+# Three fixes that meet on one card's gear (2026-09-11):
+#
+# * "Halves" was a shape with no name anybody says out loud. It reads as the
+#   trunk split it IS on a card whose face names the trunk - two CVT10s on a
+#   16-port NovaStar card, one OPT carrying 1-8 and the other their returns -
+#   and as a plain "Split" everywhere else. The STORED id never moves: a
+#   project saved as `halves` opens as `halves`.
+# * The box picker offered every box in the catalog on every card, so a
+#   Brompton box was offered on a NovaStar card. The rule already existed on
+#   the server, in _fills_the_card; now it is one rule, enforced at both ends.
+# * Adding a box cleared the pick that had just been made, so adding a second
+#   identical box was three gestures instead of one.
+
+
+def test_the_vendor_rule_is_one_rule_and_refuses_nothing_unstated():
+    """`vendor_mismatch` IS the rule, in one place, for both ends to call:
+    two stated vendors that differ, and nothing else. Where either sheet
+    names no vendor it refuses nothing - the same no-inference rule the
+    trunk rates and the port ceilings live by."""
+    assert catalog.vendor_mismatch({'vendor': 'NovaStar'},
+                                   {'vendor': 'Brompton'}) is True
+    assert catalog.vendor_mismatch({'vendor': 'NovaStar'},
+                                   {'vendor': 'NovaStar'}) is False
+    for pair in (({'vendor': 'NovaStar'}, {}), ({}, {'vendor': 'Brompton'}),
+                 ({}, {}), (None, None), ({'vendor': ''}, {'vendor': 'X'})):
+        assert catalog.vendor_mismatch(*pair) is False, pair
+
+
+def test_a_box_only_hangs_off_its_own_vendors_trunks():
+    """The rule _fills_the_card has always stated - "naming a Brompton box
+    on a NovaStar card would be advice nobody can take" - now refuses the
+    add as well as declining to advise it, and names BOTH vendors, because
+    which side is the wrong one is the whole question."""
+    sx = catalog.new_card('brompton-sx40', 'v1', fixed=True)
+    ok, why = catalog.can_add_cvt(sx, 'brompton-xd')
+    assert ok, f"the SX40 refused its own vendor's box: {why}"
+    ok, why = catalog.can_add_cvt(sx, 'novastar-cvt10')
+    assert not ok, 'a NovaStar box went onto a Brompton trunk'
+    assert 'NovaStar' in why and 'Brompton' in why, why
+    helios = catalog.new_card('megapixel-helios-8k', 'v2', fixed=True)
+    ok, why = catalog.can_add_cvt(helios, 'megapixel-rs12')
+    assert ok, f"the HELIOS refused its own vendor's box: {why}"
+    for box in ('novastar-cvt10', 'brompton-xd'):
+        ok, why = catalog.can_add_cvt(helios, box)
+        assert not ok, f'{box} went onto a Megapixel trunk'
+        assert 'Megapixel' in why, why
+    h4 = catalog.new_card('novastar-card-h-4xfiber', 'v3')
+    ok, why = catalog.can_add_cvt(h4, 'brompton-xd')
+    assert not ok, 'a Brompton box went onto a NovaStar card'
+    assert 'NovaStar' in why and 'Brompton' in why, why
+    # And the rule the server already advised by stays advising by it.
+    assert 'Tessera XD' not in str(
+        catalog._fills_the_card(catalog.get_device(
+            'novastar-card-h-4xfiber'), 32))
+
+
+def test_the_route_refuses_the_cross_vendor_box(client):
+    """The picker stops offering it and the server stops taking it - one
+    rule, both ends, so a hand-made POST is refused the same way."""
+    state = add_processor(client, 'megapixel-helios-8k')
+    proc = only(state)
+    pid, card_id = proc['id'], first_card(proc)['id']
+    resp = client.post(f'/api/processors/{pid}/cards/{card_id}/cvts',
+                       json={'deviceId': 'novastar-cvt10'})
+    assert resp.status_code == 400, 'a NovaStar box landed on a HELIOS'
+    why = resp.get_json()['error']
+    assert 'NovaStar' in why and 'Megapixel' in why, why
+    good = client.post(f'/api/processors/{pid}/cards/{card_id}/cvts',
+                       json={'deviceId': 'megapixel-rs12'})
+    assert good.status_code == 201, good.get_data(as_text=True)
+
+
+def test_a_device_that_names_no_vendor_is_refused_nothing_on_that_ground(
+        monkeypatch):
+    """The no-inference half of the rule, end to end: a card whose sheet
+    names no vendor takes any box, and a box whose sheet names none goes
+    anywhere it fits. Nothing is refused on a vendor nobody wrote down."""
+    import copy
+    cat = copy.deepcopy(catalog.load_catalog())
+    cat['devices'].append({
+        'id': 'test-vendorless-card', 'kind': 'card', 'name': 'Anon card',
+        'family': 'test', 'trunks': 2, 'portsPerTrunk': 8,
+        'ports': {'defaultMode': 'default',
+                  'modes': [{'id': 'default', 'label': '', 'count': 16}]}})
+    cat['devices'].append({
+        'id': 'test-vendorless-box', 'kind': 'cvt', 'name': 'Anon box',
+        'trunksIn': 1,
+        'ports': {'defaultMode': 'default',
+                  'modes': [{'id': 'default', 'label': '', 'count': 8}]}})
+    monkeypatch.setattr(catalog, '_catalog_cache', cat)
+    anon = catalog.new_card('test-vendorless-card', 'v9')
+    ok, why = catalog.can_add_cvt(anon, 'novastar-cvt10')
+    assert ok, f'a card that names no vendor refused a stated one: {why}'
+    nova = catalog.new_card('novastar-card-h-4xfiber', 'v9')
+    ok, why = catalog.can_add_cvt(nova, 'test-vendorless-box')
+    assert ok, f'a box that names no vendor was refused: {why}'
+
+
+def test_the_card_view_carries_the_trunks_own_word(client):
+    """The chip can only name the trunk if the card tells it what the
+    trunk is called, so the card view carries the catalog's trunkWord -
+    the same field trunkTitle names a box's trunk by ("OPT 1-2"), and
+    blank wherever no sheet prints a word."""
+    state = add_processor(client, 'novastar-h9')
+    proc = only(state)
+    pid = proc['id']
+    state = client.put(f'/api/processors/{pid}/slots/0',
+                       json={'deviceId': 'novastar-card-h-16xrj45-2xfiber'}
+                       ).get_json()
+    assert only(state)['slots'][0]['card']['trunkWord'] == 'OPT'
+    state = client.put(f'/api/processors/{pid}/slots/1',
+                       json={'deviceId': 'novastar-card-h-20xrj45'}
+                       ).get_json()
+    assert only(state)['slots'][1]['card']['trunkWord'] == ''
+    helios = add_processor(client, 'megapixel-helios-8k')
+    card = first_card(helios['resolved'][-1])
+    assert card['trunks'] == 8 and card['trunkWord'] == '', (
+        'a Megapixel trunk was handed NovaStar\'s word for it')
+
+
+SHAPE_SEED_JS = """
+async () => {
+    const state = await (await fetch('/api/processors')).json();
+    for (const p of state.processors) {
+        await fetch(`/api/processors/${p.id}`, { method: 'DELETE' });
+    }
+    const send = (url, method, body) => fetch(url, {
+        method, headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    }).then(r => r.json());
+    let st = await send('/api/processors', 'POST',
+                        { deviceId: 'novastar-h9' });
+    const proc = st.resolved[st.resolved.length - 1];
+    await send(`/api/processors/${proc.id}/slots/0`, 'PUT',
+               { deviceId: 'novastar-card-h-16xrj45-2xfiber' });
+    st = await send(`/api/processors/${proc.id}/slots/1`, 'PUT',
+                    { deviceId: 'novastar-card-h-20xrj45' });
+    const made = st.resolved.find(p => p.id === proc.id);
+    const cards = made.slots.filter(s => s.card).map(s => s.card.id);
+    st = await send('/api/processors', 'POST',
+                    { deviceId: 'megapixel-helios-8k' });
+    const helios = st.resolved[st.resolved.length - 1];
+    const heliosCard = helios.slots[0].card.id;
+    for (const id of cards.concat([heliosCard])) {
+        try {
+            localStorage.removeItem(
+                'ledRasterPanelCollapsed_hwdock-card-' + id);
+        } catch (e) { /* blocked storage never held the key */ }
+    }
+    for (const [pid, ids] of [[proc.id, cards], [helios.id, [heliosCard]]]) {
+        await send(`/api/processors/${pid}`, 'PUT', { redundancy: true });
+        for (const id of ids) {
+            await send(`/api/processors/${pid}/cards/${id}`, 'PUT',
+                       { redundancyMode: 'halves' });
+        }
+    }
+    await window.app.refreshProcessors();
+    window.app.saveState('Seed Port Shapes');
+    return { id: proc.id, opt: cards[0], copper: cards[1],
+             heliosId: helios.id, helios: heliosCard };
+}
+"""
+
+READ_CHIPS_JS = """(cardId) => {
+    const pop = document.getElementById('hw-gear-popover');
+    const g = pop && pop.querySelector(
+        `[data-lrd-field="processor-card-shape-${cardId}"]`);
+    if (!g) return null;
+    const chip = g.querySelector('[data-mode="halves"]');
+    if (!chip) return null;
+    return {
+        text: chip.textContent,
+        tip: chip.title,
+        lit: chip.classList.contains('hw-pop-chip-on'),
+        texts: Array.from(g.children).map(c => c.textContent),
+        modes: Array.from(g.children).map(c => c.dataset.mode),
+    };
+}"""
+
+
+def test_the_split_chip_names_the_trunk_only_where_the_card_does(panel_page):
+    """The rename, and the one thing it must never do. On a card whose face
+    names the trunk - the 16xRJ45+2xfiber, OPT 1 carrying 1-8 and OPT 2
+    their returns, the user's own case - the chip reads "OPT Split". On a
+    copper card there is no trunk to name and it reads "Split"; on a
+    Megapixel HELIOS, which HAS trunks and no documented word for them,
+    it reads "Split" too, because OPT is NovaStar's silkscreen and putting
+    it on another vendor's metal is the extrapolation the standing rule
+    forbids. The stored id is `halves` in every case - a saved project
+    keeps working."""
+    pytest.importorskip("playwright.sync_api",
+                        reason="playwright is not installed")
+    page = panel_page
+    ids = page.evaluate(SHAPE_SEED_JS)
+    page.wait_for_timeout(900)
+    assert page.evaluate(OPEN_GEAR_JS, f"proc-{ids['id']}"), (
+        'the chassis gear did not open')
+    opt = page.evaluate(READ_CHIPS_JS, ids['opt'])
+    copper = page.evaluate(READ_CHIPS_JS, ids['copper'])
+    assert opt and copper, (opt, copper)
+    assert opt['text'] == 'OPT Split', opt
+    assert opt['texts'] == ['Sequential', 'OPT Split', 'Manual'], opt
+    assert opt['modes'] == ['sequential', 'halves', 'manual'], opt
+    assert opt['lit'], opt
+    assert 'Ports 9-16 carry the returns of 1-8' in opt['tip'], opt
+    assert 'OPT' in opt['tip'], opt
+    assert copper['text'] == 'Split', copper
+    assert copper['texts'] == ['Sequential', 'Split', 'Manual'], copper
+    assert 'Ports 11-20 carry the returns of 1-10' in copper['tip'], copper
+    assert 'OPT' not in copper['tip'], (
+        'a copper card was told about an OPT it has not got')
+    page.keyboard.press('Escape')
+    page.wait_for_timeout(100)
+    assert page.evaluate(OPEN_GEAR_JS, f"proc-{ids['heliosId']}"), (
+        'the HELIOS gear did not open')
+    helios = page.evaluate(READ_CHIPS_JS, ids['helios'])
+    assert helios, 'the HELIOS drew no port-shape chips'
+    assert helios['text'] == 'Split', helios
+    assert 'OPT' not in helios['tip'], (
+        "a Megapixel trunk was handed NovaStar's word for it")
+    page.keyboard.press('Escape')
+    page.wait_for_timeout(100)
+    # The label moved; the STORED value did not.
+    stored = page.evaluate("""async (ids) => {
+        const state = await (await fetch('/api/processors')).json();
+        const out = {};
+        for (const p of state.processors) {
+            for (const s of p.slots) {
+                if (s.card) out[s.card.id] = s.card.redundancyMode || null;
+            }
+        }
+        return out;
+    }""", ids)
+    assert stored[ids['opt']] == 'halves', stored
+    assert stored[ids['copper']] == 'halves', stored
+    assert stored[ids['helios']] == 'halves', stored
+    page.evaluate("""async (ids) => {
+        for (const id of [ids.id, ids.heliosId]) {
+            await fetch(`/api/processors/${id}`, { method: 'DELETE' });
+        }
+        await window.app.refreshProcessors();
+    }""", ids)
+    page.wait_for_timeout(600)
+
+
+PICKER_SEED_JS = """
+async () => {
+    const state = await (await fetch('/api/processors')).json();
+    for (const p of state.processors) {
+        await fetch(`/api/processors/${p.id}`, { method: 'DELETE' });
+    }
+    const send = (url, method, body) => fetch(url, {
+        method, headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    }).then(r => r.json());
+    let st = await send('/api/processors', 'POST',
+                        { deviceId: 'novastar-h9' });
+    const h9 = st.resolved[st.resolved.length - 1];
+    await send(`/api/processors/${h9.id}/slots/0`, 'PUT',
+               { deviceId: 'novastar-card-h-4xfiber' });
+    st = await send(`/api/processors/${h9.id}/slots/1`, 'PUT',
+                    { deviceId: 'novastar-card-h-4xfiber-enhanced' });
+    const h9cards = st.resolved.find(p => p.id === h9.id)
+        .slots.filter(s => s.card).map(s => s.card.id);
+    const novaCard = h9cards[0];
+    st = await send('/api/processors', 'POST',
+                    { deviceId: 'megapixel-helios-8k' });
+    const helios = st.resolved[st.resolved.length - 1];
+    st = await send('/api/processors', 'POST',
+                    { deviceId: 'brompton-sx40' });
+    const sx = st.resolved[st.resolved.length - 1];
+    // The SX40 arrives with four XDs on four trunks, so nothing fits until
+    // one comes off - the picker only draws where a box could go.
+    st = await send(`/api/processors/${sx.id}/cvts/`
+                    + sx.slots[0].card.cvts[0].id, 'DELETE');
+    for (const id of h9cards.concat([helios.slots[0].card.id,
+                                     sx.slots[0].card.id])) {
+        try {
+            localStorage.removeItem(
+                'ledRasterPanelCollapsed_hwdock-card-' + id);
+        } catch (e) { /* blocked storage never held the key */ }
+    }
+    await window.app.refreshProcessors();
+    window.app.saveState('Seed Box Pickers');
+    return { h9: h9.id, novaCard: novaCard, novaCard2: h9cards[1],
+             heliosId: helios.id, heliosCard: helios.slots[0].card.id,
+             sxId: sx.id, sxCard: sx.slots[0].card.id };
+}
+"""
+
+READ_PICKER_JS = """(cardId) => {
+    const pop = document.getElementById('hw-gear-popover');
+    const sel = pop && pop.querySelector(
+        `[data-lrd-field="processor-cvt-add-${cardId}"]`);
+    if (!sel) return null;
+    const btn = sel.parentElement.querySelector('button');
+    return {
+        value: sel.value,
+        vendors: Array.from(sel.querySelectorAll('optgroup'))
+            .map(g => g.label),
+        ids: Array.from(sel.querySelectorAll('option'))
+            .map(o => o.value).filter(Boolean),
+        placeholder: sel.querySelector('option').textContent,
+        addDisabled: btn ? btn.disabled : null,
+    };
+}"""
+
+PICK_BOX_JS = """([cardId, deviceId]) => {
+    const sel = document.getElementById('hw-gear-popover').querySelector(
+        `[data-lrd-field="processor-cvt-add-${cardId}"]`);
+    if (!sel) return false;
+    sel.value = deviceId;
+    if (sel.value !== deviceId) return false;
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+}"""
+
+ADD_BOX_JS = """(cardId) => {
+    const sel = document.getElementById('hw-gear-popover').querySelector(
+        `[data-lrd-field="processor-cvt-add-${cardId}"]`);
+    const btn = sel && sel.parentElement.querySelector('button');
+    if (!btn || btn.disabled) return false;
+    btn.click();
+    return true;
+}"""
+
+
+def test_the_box_picker_offers_only_the_cards_own_vendor(panel_page):
+    """The rule the server already stated, now where the offer is made: a
+    NovaStar card lists NovaStar boxes, a HELIOS lists Megapixel ones and
+    an SX40 with a free trunk lists Brompton's. One vendor per picker -
+    offering a Brompton box on a NovaStar card is advice nobody can
+    take."""
+    pytest.importorskip("playwright.sync_api",
+                        reason="playwright is not installed")
+    page = panel_page
+    ids = page.evaluate(PICKER_SEED_JS)
+    page.wait_for_timeout(900)
+    for card, vendor in ((ids['novaCard'], 'NovaStar'),
+                         (ids['heliosCard'], 'Megapixel'),
+                         (ids['sxCard'], 'Brompton')):
+        assert page.evaluate(OPEN_GEAR_JS, f"card-{card}"), (
+            f'the card gear did not open for {card}')
+        out = page.evaluate(READ_PICKER_JS, card)
+        assert out, f'no box picker on {vendor}\'s card'
+        assert out['vendors'] == [vendor], out
+        assert out['ids'], out
+        assert all(i.startswith(vendor.lower()) for i in out['ids']), out
+        page.keyboard.press('Escape')
+        page.wait_for_timeout(150)
+
+
+def test_the_picker_keeps_its_pick_until_the_pick_stops_fitting(panel_page):
+    """"i added one cvt 10 and after i added it it cleared the dropdown but
+    it shouldn't clear the drop down". So a successful add leaves the box
+    chosen and the second identical box is one click. When the pick stops
+    fitting - a CVT4K-S wants two trunks and one is left - the picker falls
+    back to its placeholder rather than showing what it cannot add, and the
+    boxes that DO still fit stay on offer."""
+    pytest.importorskip("playwright.sync_api",
+                        reason="playwright is not installed")
+    page = panel_page
+    ids = page.evaluate(PICKER_SEED_JS)
+    page.wait_for_timeout(900)
+    card = ids['novaCard']
+    assert page.evaluate(OPEN_GEAR_JS, f"card-{card}"), 'the gear stayed shut'
+    assert page.evaluate(READ_PICKER_JS, card)['value'] == '', (
+        'the picker opened on something nobody chose')
+    assert page.evaluate(PICK_BOX_JS, [card, 'novastar-cvt10'])
+    assert page.evaluate(ADD_BOX_JS, card)
+    page.wait_for_timeout(900)
+    out = page.evaluate(READ_PICKER_JS, card)
+    assert out, 'the picker went away with three trunks free'
+    assert out['value'] == 'novastar-cvt10', out
+    assert out['addDisabled'] is False, out
+    # A second identical box is now one click - no re-pick in between.
+    assert page.evaluate(ADD_BOX_JS, card)
+    page.wait_for_timeout(900)
+    assert page.evaluate(READ_PICKER_JS, card)['value'] == 'novastar-cvt10'
+    boxes = page.evaluate("""(ids) => window.app._processorsResolved
+        .find(p => p.id === ids.h9).slots[0].card.cvts
+        .map(c => c.deviceId)""", ids)
+    assert boxes == ['novastar-cvt10'] * 2, boxes
+    page.keyboard.press('Escape')
+    page.wait_for_timeout(150)
+
+    # The other card, for the pick that stops fitting: one CVT10 leaves
+    # three trunks, a CVT4K-S takes two of them, and the CVT4K-S no longer
+    # goes on the one that is left - so the picker drops back to its
+    # placeholder while the boxes that DO fit stay on offer.
+    other = ids['novaCard2']
+    assert page.evaluate(OPEN_GEAR_JS, f"card-{other}"), 'the gear stayed shut'
+    assert page.evaluate(PICK_BOX_JS, [other, 'novastar-cvt10'])
+    assert page.evaluate(ADD_BOX_JS, other)
+    page.wait_for_timeout(900)
+    assert page.evaluate(PICK_BOX_JS, [other, 'novastar-cvt4k-s'])
+    assert page.evaluate(ADD_BOX_JS, other)
+    page.wait_for_timeout(900)
+    out = page.evaluate(READ_PICKER_JS, other)
+    assert out, 'the picker went away with a trunk still free'
+    assert out['value'] == '', out
+    assert 'novastar-cvt4k-s' not in out['ids'], out
+    assert 'novastar-cvt10' in out['ids'], out
+    assert out['addDisabled'] is False, out
+    page.keyboard.press('Escape')
+    page.wait_for_timeout(100)
+    page.evaluate("""async (ids) => {
+        for (const id of [ids.h9, ids.heliosId, ids.sxId]) {
+            await fetch(`/api/processors/${id}`, { method: 'DELETE' });
+        }
+        await window.app.refreshProcessors();
+    }""", ids)
+    page.wait_for_timeout(600)

@@ -1859,13 +1859,13 @@ def test_the_redundancy_pill_reads_the_state_and_opens_the_processor_gear(
         assert out['backCards'] == [None, None], out
         out = pills({'partner': '', 'modes': ['sequential', 'halves']})
         assert out['main'] == 'R per port', out
-        assert out['mainCards'] == ['R seq', 'R halves'], out
+        assert out['mainCards'] == ['R seq', 'R OPT split'], out
         assert out['back'] is None, out
         out = pills({'modes': ['manual', 'halves']})
-        assert out['mainCards'] == ['R manual', 'R halves'], out
+        assert out['mainCards'] == ['R manual', 'R OPT split'], out
         out = pills({'modes': ['1to1', 'halves']})
         assert out['main'] == 'R per card', out
-        assert out['mainCards'] == ['R 1:1 — no partner', 'R halves'], out
+        assert out['mainCards'] == ['R 1:1 — no partner', 'R OPT split'], out
 
         # Measured: a plugged socket in the backup gold, a button, titled.
         style = page.evaluate("""(made) => {

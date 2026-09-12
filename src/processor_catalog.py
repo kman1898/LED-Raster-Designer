@@ -274,6 +274,26 @@ def default_backup_pair(card):
     return ((ceiling + per_trunk - 1) // per_trunk) < trunks
 
 
+def vendor_mismatch(card_device, box_device):
+    """Whether these two are different vendors' metal, with both sheets
+    saying so.
+
+    The rule is one sentence and this is the one place it is written: a box
+    only hangs off its own vendor's trunks, because - as _fills_the_card has
+    always put it - "naming a Brompton box on a NovaStar card would be advice
+    nobody can take". It reads the same whether the answer stops the picker
+    OFFERING the box (app-processors.js's box picker) or stops can_add_cvt
+    TAKING it.
+
+    Both vendors must be stated. Where either sheet names none, nothing is
+    refused on a vendor nobody wrote down - the same no-inference rule the
+    trunk rates and the port ceilings live by.
+    """
+    card_vendor = (card_device or {}).get('vendor')
+    box_vendor = (box_device or {}).get('vendor')
+    return bool(card_vendor and box_vendor and card_vendor != box_vendor)
+
+
 def can_add_cvt(card, device_id):
     """Whether one more box will physically go on this card.
 
@@ -297,6 +317,15 @@ def can_add_cvt(card, device_id):
     box = get_device(device_id)
     if not box:
         return False, f'Unknown device: {device_id}'
+    # A BOX ONLY HANGS OFF ITS OWN VENDOR'S TRUNKS - vendor_mismatch above,
+    # the same rule _fills_the_card declines to advise by, now refusing the
+    # add as well. Both vendors go in the reason: which side is the wrong one
+    # is the whole question, and the answer might be "swap the card".
+    if vendor_mismatch(device, box):
+        return False, (f'{box.get("name", device_id)} is a '
+                       f'{box.get("vendor")} box and {name} is '
+                       f'{device.get("vendor")} - a box only hangs off its '
+                       f'own vendor’s trunks.')
     # THE TRUNK'S LINE RATE IS PART OF THE METAL, the same way the trunk
     # count is. The user's ruling, verbatim: "40g fiber ports only worjks
     # with cvt 8 f5 boxes" - a 40G OPT takes the CVT8-5G and nothing else,
@@ -327,14 +356,15 @@ def _fills_the_card(card_device, ceiling):
     Derived, never listed: the answer moves with the card's ports-per-trunk, so
     a hand-written list would be right for the H_4xfiber and wrong for the
     enhanced one. Same vendor only - naming a Brompton box on a NovaStar card
-    would be advice nobody can take.
+    would be advice nobody can take - and that rule is vendor_mismatch, shared
+    with can_add_cvt so the list advises by exactly what the server takes.
     """
     trunks = card_device.get('trunks') or 0
     if not trunks or not ceiling:
         return []
     out = []
     for box in devices('cvt'):
-        if box.get('vendor') != card_device.get('vendor'):
+        if vendor_mismatch(card_device, box):
             continue
         # Never name a box the rate rule refuses: a CVT8-5G's 8-out would
         # arithmetically fill a plain H_4xfiber, and it does not go there.
@@ -1780,6 +1810,13 @@ def resolve_card(card, proc):
         'ceilingKnown': cap['known'],
         'ceilingReason': cap['reason'],
         'trunks': device.get('trunks'),
+        # THE TRUNK AS THE CARD'S OWN FACE PRINTS IT, or blank where no sheet
+        # prints a word - the same field, and the same rule, box['trunkTitle']
+        # names a box's trunk by ("OPT 1-2" on a NovaStar H card, "trunk A"
+        # where the word is not documented, nothing where there is nothing to
+        # name). The panel's port-shape chip needs it to say "OPT Split"
+        # without ever saying OPT about a trunk nobody silkscreens OPT.
+        'trunkWord': (device.get('trunkWord') or '').strip(),
         'portsPerTrunk': device.get('portsPerTrunk'),
         # The trunks' line rate, where the sheet states one. The panel's box
         # picker filters on it the same way the server refuses on it - a
