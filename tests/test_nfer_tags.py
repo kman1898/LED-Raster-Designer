@@ -19,8 +19,8 @@ These tests drive a REAL project on the shared e2e server (not a synthetic
 withProject tree) because the round trip - /api/layer PUT allow-list,
 preservedKeys, undo snapshot - is half of what a per-screen switch is.
 
-Run locally (ONE pytest at a time - the browser-test servers use fixed
-ports):
+Run locally (each session takes its own free port, so it runs beside
+any other):
     python -m pytest tests/test_nfer_tags.py -v --browser chromium
 """
 

@@ -10,7 +10,8 @@ app-core.js and re-derives every cell.
 Part 2 drives the real app in a browser, using the synthetic-project pattern
 from tests/test_screen_group_totals.py.
 
-Run alone (the harness hard-codes port 15789):
+Each pytest session takes its own free port (conftest), so this runs
+beside any other session:
     python -m pytest tests/test_audit_numbers.py -v --browser chromium
 """
 

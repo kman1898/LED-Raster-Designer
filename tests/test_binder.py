@@ -64,9 +64,9 @@ sheet size and the logo in the preferences. A revision is LOGGED ON
 EXPORT: an export at a Rev no row carries yet adds a row (the date, the
 engineer's initials, the Revision note); the same rev again logs nothing.
 
-Run locally (ONE pytest at a time - the browser-test servers use fixed
-ports):
-    LRD_E2E_PORT=15797 python3 -m pytest tests/test_binder.py -v --browser chromium
+Run locally (each session takes its own free port, so it runs beside
+any other):
+    python3 -m pytest tests/test_binder.py -v --browser chromium
 """
 
 import base64

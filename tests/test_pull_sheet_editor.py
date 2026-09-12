@@ -12,8 +12,8 @@ hidden and restored; a free row can be added with pickers fed by the
 template's GEAR LIST (a value outside it warns, never blocks); an override
 the show no longer answers to is kept, flagged stale, never exported.
 
-Run locally (ONE pytest at a time - the browser-test servers use fixed
-ports):
+Run locally (each session takes its own free port, so it runs beside
+any other):
     python3 -m pytest tests/test_pull_sheet_editor.py -v --browser chromium
 """
 

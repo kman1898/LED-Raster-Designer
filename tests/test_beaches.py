@@ -24,9 +24,9 @@ earlier in the project" / the typed Location on the distro and box gears:
     them, then every screen on no beach as its own; a device's rows are
     pulled to its beach; a group named like a beach folds into it.
 
-Run locally (ONE pytest at a time - the browser-test servers use fixed
-ports):
-    LRD_E2E_PORT=15796 python3 -m pytest tests/test_beaches.py -v --browser chromium
+Run locally (each session takes its own free port, so it runs beside
+any other):
+    python3 -m pytest tests/test_beaches.py -v --browser chromium
 """
 
 import os

@@ -69,3 +69,36 @@ def test_the_snapshot_is_a_copy_not_a_handle():
     assert project is not app_module.current_project
     if prefs is not None:
         assert prefs is not app_module.server_preferences
+
+
+def test_the_server_a_session_is_handed_is_its_own(e2e_server, flask_project_guard):
+    """The address e2e_server yields must lead back to THIS process.
+
+    Every session used to share port 15789, and a second session's bind
+    failed silently on a background thread - so its browser drove the first
+    session's server, and pointed at a port something else held, eight tests
+    passed against a server that was not the app at all (2026-09-12). Each
+    session now takes a free port of its own. This proves the one thing that
+    matters: plant a mark in this process's project and read it back over
+    HTTP. Another process's server cannot know it.
+    """
+    import json
+    import urllib.request
+    import uuid
+    mark = 'guard-' + uuid.uuid4().hex
+    app_module.current_project['name'] = mark
+    with urllib.request.urlopen(e2e_server + '/api/project', timeout=5) as reply:
+        served = json.loads(reply.read().decode('utf-8'))
+    assert served.get('name') == mark, (
+        'the e2e server answering at %s is not this session\'s own - it '
+        'returned project %r' % (e2e_server, served.get('name')))
+
+
+def test_a_session_does_not_sit_on_the_old_shared_port(e2e_server):
+    """Unless a run pins one with LRD_E2E_PORT, it takes a free port rather
+    than 15789 - the fixed port every session used to fight over."""
+    if os.environ.get('LRD_E2E_PORT'):
+        import pytest
+        pytest.skip('LRD_E2E_PORT pins the port for this run')
+    port = int(e2e_server.rsplit(':', 1)[1])
+    assert port != 15789, e2e_server

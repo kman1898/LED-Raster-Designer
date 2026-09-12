@@ -52,7 +52,8 @@ The findings, most severe first:
      the other three use:
        test_pattern_order_on_a_rotated_member_matches_where_it_draws
 
-Run ALONE (conftest hardcodes port 15789):
+Each pytest session takes its own free port (conftest), so this runs
+beside any other session:
     python -m pytest tests/test_audit_cross_member.py -v
 """
 

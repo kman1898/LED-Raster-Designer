@@ -33,8 +33,8 @@ names its members:
 Port cables stay per device: a snaked socket's entry is its EXTENSION from
 the snake's fan-out, and that is a fact about the socket.
 
-Run locally (ONE pytest at a time - the browser-test servers use fixed
-ports):
+Run locally (each session takes its own free port, so it runs beside
+any other):
     python -m pytest tests/test_snakes_across.py -v --browser chromium
 """
 

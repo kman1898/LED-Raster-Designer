@@ -37,8 +37,8 @@ difference: the stores live on the HARDWARE record, not the screen -
     Port Load %; on, a blue tag beside the port's label on screen and in
     exportMode alike: the snake's name, or "50' CAT".
 
-Run locally (ONE pytest at a time - the browser-test servers use fixed
-ports):
+Run locally (each session takes its own free port, so it runs beside
+any other):
     python -m pytest tests/test_data_snakes.py -v --browser chromium
 """
 

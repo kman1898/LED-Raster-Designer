@@ -65,8 +65,8 @@ Two rulings, pinned here:
      are ONE rule (takeSocaOnto), ONE history entry ('Assign Multi
      Distro'); the pip drop (_dockDropTail) stays the finest grain.
 
-Run locally (ONE pytest at a time - the browser-test servers use fixed
-ports; LRD_E2E_PORT picks another):
+Run locally (each session takes its own free port, so it runs beside
+any other; LRD_E2E_PORT pins one):
     python -m pytest tests/test_power_take_rule.py -v --browser chromium
 """
 
