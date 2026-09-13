@@ -563,7 +563,7 @@ def test_the_distro_picker_pulls_the_power_rows_to_its_beach(page):
     jumps = [r for r in sl_rows if r[0] == 'Tru-1 Power Jump']
     assert len(jumps) == 1 and 'WALL-A' in jumps[0][3] and 'WALL-B' in jumps[0][3], sl_rows
     assert not [r for r in _rows(pos['SR']['rows']) if r[0] in ('12 way', 'Multi', 'Tru-1 Breakout')]
-    assert ('Ether-con Snake', "100'", 1, 'SNAKE A', '2-way') in _rows(pos['SR']['rows'])
+    assert ('Ether-con Snake', "100'", 1, 'SNAKE A', '2 channel') in _rows(pos['SR']['rows'])
     assert set(pos['SL']['layerIds']) >= {ids['a'], ids['b'], ids['c']}
     counts = lambda rows: sorted((t, l, q) for t, l, q, _, _ in _rows(rows))
     assert counts(out['totals']) == counts(before['totals'])

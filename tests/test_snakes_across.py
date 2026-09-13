@@ -5,7 +5,7 @@ grouped together as well as done across cvt's" (user, 2026-09-09), and,
 asked what one snake may hold: "Any sockets, any device". His example, from
 the Kelly Clarkson show (IMAG A backed 1:1 by IMAG B): "i have ... ports 1-6
 on a screen so ports 1-4 primary is snaked and backup 1-4 are snaked. then i
-have 5 and 6 that i want to snake" - A-5, A-6, B-5 and B-6 as ONE 4-way,
+have 5 and 6 that i want to snake" - A-5, A-6, B-5 and B-6 as ONE 4 channel snake,
 across two breakout boxes on two cards.
 
 So a snake cannot live on a card or a box any more. It lives on the SHOW and
@@ -327,7 +327,7 @@ def test_the_migration_folds_per_device_snakes_into_the_show(client):
                     reason='experts-only-fixture.json smoke fixture not present')
 def test_the_smoke_fixture_migrates_to_the_show(client):
     """The user's own show, FROZEN as experts-only-fixture.json (his save
-    of 2026-09-07 23:43): four boxes each carrying a four-way snake, and
+    of 2026-09-07 23:43): four boxes each carrying a 4 channel snake, and
     - on Card 1 and Card 3 - a snake left on the CARD from before the box
     existed. Those two were already invisible everywhere the sockets are
     read, because the box delivers all 16: the migration re-homes them
@@ -542,8 +542,8 @@ def _sheet_open(page, kind, owner_id, want_open=True):
 
 def test_five_and_six_at_both_ends_are_one_four_way(page):
     """His example, whole. Tick A-5 and A-6 on box A's sheet, tick B-5 and
-    B-6 on box B's, press Snake on either: ONE 4-way, ONE 'Snake Ports'
-    entry. Both sheets show the SAME row - the same name field, "4-way",
+    B-6 on box B's, press Snake on either: ONE 4 channel snake, ONE 'Snake Ports'
+    entry. Both sheets show the SAME row - the same name field, "4 channel",
     and the members from the other box named dim beside it - and both
     grids draw its bracket with a "↔". The pull list says the snake ONCE
     (its key is the snake, not the device it was met on) and lands its
@@ -572,8 +572,8 @@ def test_five_and_six_at_both_ends_are_one_four_way(page):
     rows_a = pg.evaluate(SHEET_JS, ['cvt', ids['boxA']])
     rows_b = pg.evaluate(SHEET_JS, ['cvt', ids['boxB']])
     assert len(rows_a) == 1 and len(rows_b) == 1, (rows_a, rows_b)
-    assert rows_a[0]['cap'] == 'SNAKE A · 4-way', rows_a
-    assert rows_b[0]['cap'] == 'SNAKE A · 4-way', rows_b
+    assert rows_a[0]['cap'] == 'SNAKE A · 4 channel', rows_a
+    assert rows_b[0]['cap'] == 'SNAKE A · 4 channel', rows_b
     assert rows_a[0]['name'] == rows_b[0]['name'] == 'SNAKE A'
     # the members it cannot show, named - the box once, its sockets by
     # the part of their label that is not the box's own name
@@ -603,19 +603,19 @@ def test_five_and_six_at_both_ends_are_one_four_way(page):
         cell.fill('25')
         cell.press('Tab')
         pg.wait_for_timeout(900)
-    # The brackets: one per unit, the whole snake's ways, and the "↔".
+    # The brackets: one per unit, the whole snake's channels, and the "↔".
     _sheet_open(pg, 'cvt', ids['boxA'], False)
     _sheet_open(pg, 'cvt', ids['boxB'], False)
     pg.wait_for_timeout(500)
     tags_a = [b['tag'] for b in pg.evaluate(TRAY_JS, ['cvt', ids['boxA']])]
     tags_b = [b['tag'] for b in pg.evaluate(TRAY_JS, ['cvt', ids['boxB']])]
-    assert tags_a == ["5-6 PAIR · 4-way · 150' ↔"], tags_a
-    assert tags_b == ["5-6 PAIR · 4-way · 150' ↔"], tags_b
+    assert tags_a == ["5-6 PAIR · 4 channel snake · 150' ↔"], tags_a
+    assert tags_b == ["5-6 PAIR · 4 channel snake · 150' ↔"], tags_b
     # The pull list: the snake said ONCE, two extensions, two barrels.
     pull = pg.evaluate(PULL_JS)
     rows = [r for _name, rs in pull['rows'] for r in rs]
     snakes = [r for r in rows if r[0] == 'Ether-con Snake']
-    assert snakes == [['Ether-con Snake', "150'", 1, '5-6 PAIR', '4-way']], rows
+    assert snakes == [['Ether-con Snake', "150'", 1, '5-6 PAIR', '4 channel']], rows
     barrels = [r for r in rows if r[0] == 'Ether-con Barrel']
     assert [r[2] for r in barrels] == [2], barrels
     exts = [r for r in rows if r[0] == 'Ether-con' and 'ext' in r[4]]

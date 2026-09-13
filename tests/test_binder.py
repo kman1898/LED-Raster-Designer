@@ -1863,14 +1863,17 @@ def test_a_logo_heads_the_title_block_on_every_sheet_and_reaches_the_pdf(page):
 
 
 def test_the_data_sheet_prints_the_return_end_and_the_processor_once(page):
-    """Card SR backed 1:1 by a second (unnamed) card: the BACKUP cell is the
-    return end the tray states - the backup port's label and where it lands,
-    "SR-1R · H9 slot 2 · 1" - never "slot 2 1"; the Processor line names the
-    unit once ("H9", not "H9 · H9"); Redundancy reads the bar ("Per card").
-    HOME RUN says both ends' runs as each card's own ≡ sheet typed them
-    ("SR Primary 100' / SR Backup 150' +25'" - the backup's snake and the
-    extension on its socket, 2026-09-07: "i have no way of putting lengths
-    for redundancy cables"), never cut to "…"; Cables this screen lists the
+    """Card SR backed 1:1 by a second (unnamed) card: the backup card is its
+    own section (2026-09-12), banded "H9 slot 2 · …" - never "slot 2 1" -
+    after SR's. SR's row says "backup SR-1R", the backup's row is the return
+    port on its own socket ("SR-1R", "H9 slot 2 · 1") and says "backs up
+    SR-1", with PANELS and PX "—" so the pixels are counted once; the
+    Processor line names the unit once ("H9", not "H9 · H9"); Redundancy
+    reads the bar ("Per card"). Each card's snake heads its own section
+    ("SR Primary · 1 channel snake · 100'", "SR Backup · 1 channel snake ·
+    150'") and each row's HOME RUN is its own end's extension ("+25'" on
+    the backup's socket, 2026-09-07: "i have no way of putting lengths for
+    redundancy cables"), never cut to "…"; Cables this screen lists the
     backup's snake, the extension and the extension's `Ether-con Barrel`
     (one per extension, 2026-09-07); the processor sheet lists the
     extension as an `ext` row under its snake."""
@@ -1906,26 +1909,36 @@ def test_the_data_sheet_prints_the_return_end_and_the_processor_once(page):
         # A snake states its home run ONCE, as a heading under the unit's
         # band, and the rows beneath carry only what is the port's own
         # (2026-09-10: "Why is the same data written multiple times under
-        # the snake under a specific port number"). So the walk steps over
-        # the heading rather than assuming the rows start immediately.
-        assert texts[i + 1] == \
-            "SR Primary · 1-way · 100' / backup SR Backup · 1-way · 150'", texts[i:i + 4]
+        # the snake under a specific port number"). The backup card is its
+        # OWN section (2026-09-12: "They should be different sections as if
+        # it was a second cvt, since it is"), so each band heads only its
+        # own card's snake.
+        assert texts[i + 1] == "SR Primary · 1 channel snake · 100'", texts[i:i + 4]
+        j = texts.index('H9 slot 2 · H_16xRJ45+2xfiber · 16 ports')
+        assert j > i and texts[j + 1] == "SR Backup · 1 channel snake · 150'", texts[j:j + 4]
         rows = []
-        j = i + 1
-        while j < len(texts) and not re.fullmatch(r'SR-\d+', texts[j]):
-            j += 1
-        while j + 5 < len(texts) and re.fullmatch(r'SR-\d+', texts[j]):
-            rows.append(texts[j:j + 6]); j += 6
-        assert rows, texts[i:i + 20]
-        for label, primary, backup, _panels, _px, home in rows:
-            # the sending card the primary lands on, and the one the backup does
+        k = i + 2
+        while k + 5 < j and re.fullmatch(r'SR-\d+', texts[k]):
+            rows.append(texts[k:k + 6]); k += 6
+        assert rows and k == j, texts[i:j]
+        back = []
+        k = j + 2
+        while k + 5 < len(texts) and re.fullmatch(r'SR-\d+R', texts[k]):
+            back.append(texts[k:k + 6]); k += 6
+        assert len(back) == len(rows), texts[j:j + 20]
+        for (label, primary, backup, panels, px, home), b in zip(rows, back):
+            # the sending card the primary lands on, and the pairing said
+            # from both sides
             assert re.fullmatch(r'H9 SR · \d+', primary), (label, primary)
             socket = primary.rsplit(' · ', 1)[-1]
-            assert backup == f'{label}R · H9 slot 2 · {socket}', (label, backup)
+            assert backup == f'backup {label}R', (label, backup)
+            assert b[:3] == [f'{label}R', f'H9 slot 2 · {socket}', f'backs up {label}'], b
             assert _on_map(out['mapTexts'], f'{label}R'), (label, out['mapTexts'])
-            # the run itself is in the heading; the row says only the
-            # extension this port adds, and which end carries it
-            assert home == "+25' backup", (label, home)
+            # PANELS and PX are counted once, on the primary's row
+            assert panels != '—' and px != '—' and b[3:5] == ['—', '—'], (rows, back)
+            # the run itself is in each heading; each row says only its own
+            # end's extension - none at the primary, 25' at the backup
+            assert home == '—' and b[5] == "+25'", (label, home, b)
         assert not [t for t in texts if t.startswith('slot ') or t.endswith('…')]
         cables = texts[texts.index('CABLES THIS SCREEN'):texts.index('Screen')]
         assert ['Ether-con', "25'", '1'] == cables[cables.index('Ether-con'):cables.index('Ether-con') + 3], cables
@@ -1947,7 +1960,8 @@ def test_the_data_sheet_prints_the_return_end_and_the_processor_once(page):
         # 'ext', the length and the snake it hangs off
         k = proc.index('ext')
         assert proc[k - 1] == 'H9 slot 2 1' and proc[k:k + 3] == ['ext', "25'", 'SR Backup'], proc[k - 3:k + 4]
-        assert proc[proc.index('SR Backup') : proc.index('SR Backup') + 3] == ['SR Backup', '1-way', "150'"], proc
+        assert proc[proc.index('SR Backup · 1 channel') : proc.index('SR Backup · 1 channel') + 3] == \
+            ['SR Backup · 1 channel', 'snake', "150'"], proc
     finally:
         pg.evaluate("""async ([ids, backupId]) => {
             const app = window.app;
@@ -2051,8 +2065,13 @@ def test_a_box_delivering_the_port_is_listed_instead_of_the_card(page):
         }""", ids)
         try:
             texts = _render(pg, SHOW, 'WALL-A - Data')['texts']
+            # and the backup box is its own section after the primary's,
+            # its row the return port on its own socket
             i = texts.index('SR-1')
-            assert texts[i:i + 3] == ['SR-1', 'CVT4K-S SR · 1', 'BK-1 · CVT4K-S BK · 1'], texts[i:i + 6]
+            assert texts[i:i + 3] == ['SR-1', 'CVT4K-S SR · 1', 'backup BK-1'], texts[i:i + 6]
+            j = texts.index('CVT4K-S BK · OPT 1-2 · 16 ports · no fiber length')
+            assert j > i and texts[j + 1:j + 7] == ['BK-1', 'CVT4K-S BK · 1', 'backs up SR-1', '—', '—', '—'], \
+                texts[j:j + 8]
             assert not [t for t in texts if t.endswith('…')]
         finally:
             pg.evaluate("""async ([ids, b]) => {
@@ -2505,25 +2524,33 @@ def test_smoke_experts_only(page):
     # "CVT4K-S SR A" - the ports its own labels
     assert 'CVT4K-S SR A · OPT 1-2 · 16 ports · no fiber length' in data
     assert ['SR A-1', 'SR A-2', 'SR A-3', 'SR A-4'] == [t for t in data if re.fullmatch(r'SR A-\d', t)]
-    # the return end, whole: the backup port's label and where it lands -
-    # box SR B on Card 3, Card 1's 1:1 partner
-    assert [t for t in data if re.fullmatch(r'SR B-\d · CVT4K-S SR B · \d', t)] == [
-        'SR B-1 · CVT4K-S SR B · 1', 'SR B-2 · CVT4K-S SR B · 2', 'SR B-3 · CVT4K-S SR B · 3', 'SR B-4 · CVT4K-S SR B · 4']
+    # the return end: box SR B on Card 3, Card 1's 1:1 partner, is its OWN
+    # section after SR A's (2026-09-12: "They should be different sections
+    # as if it was a second cvt, since it is"), its rows the return ports
+    # on its own sockets, the pairing said from both sides
+    band_b = 'CVT4K-S SR B · OPT 1-2 · 16 ports · no fiber length'
+    assert data.index(band_b) > data.index('SR A-4'), data
+    assert ['SR B-1', 'SR B-2', 'SR B-3', 'SR B-4'] == [t for t in data if re.fullmatch(r'SR B-\d', t)]
+    assert [t for t in data if re.fullmatch(r'backup SR B-\d', t)] == [
+        'backup SR B-1', 'backup SR B-2', 'backup SR B-3', 'backup SR B-4']
+    assert [t for t in data if re.fullmatch(r'backs up SR A-\d', t)] == [
+        'backs up SR A-1', 'backs up SR A-2', 'backs up SR A-3', 'backs up SR A-4']
     assert not [t for t in data if t.startswith('slot ')]
     # Each snake's home run is stated ONCE, as a heading over the ports
-    # that ride it, and a row carries only the extension that port adds
-    # (2026-09-10: "Why is the same data written multiple times under the
-    # snake under a specific port number"). Where only one end extends,
-    # the row says which end, so two mirrored screens do not both read
-    # "+25'". One barrel per extension, primary and backup, six in all,
-    # still counted in Cables this screen.
-    heading = "SR A · 4-way · 150' / backup SR B · 4-way · 100'"
-    assert data.count(heading) == 1, [t for t in data if 'SR A ·' in t]
-    assert data.index(heading) < data.index('SR A-1'), data
-    assert data[data.index('SR A-1') + 5] == "+10' both ends", data
-    assert data[data.index('SR A-2') + 5] == '—', data
-    assert data[data.index('SR A-3') + 5] == "+25' / +10'", data
-    assert data[data.index('SR A-4') + 5] == "+25' / +75'", data
+    # that ride it - in its own unit's section - and a row carries only
+    # the extension its own end adds (2026-09-10: "Why is the same data
+    # written multiple times under the snake under a specific port
+    # number"). PANELS and PX are counted once, on the primary's row. One
+    # barrel per extension, primary and backup, six in all, still counted
+    # in Cables this screen.
+    heading_a = "SR A · 4 channel snake · 150'"
+    heading_b = "SR B · 4 channel snake · 100'"
+    assert data.count(heading_a) == 1 and data.count(heading_b) == 1, [t for t in data if 'channel' in t]
+    assert data.index(heading_a) < data.index('SR A-1') < data.index(band_b) < data.index(heading_b) \
+        < data.index('SR B-1'), data
+    assert [data[data.index(f'SR A-{n}') + 5] for n in (1, 2, 3, 4)] == ["+10'", '—', "+25'", "+25'"], data
+    assert [data[data.index(f'SR B-{n}') + 5] for n in (1, 2, 3, 4)] == ["+10'", '—', "+10'", "+75'"], data
+    assert [data[data.index(f'SR B-{n}') + 3:data.index(f'SR B-{n}') + 5] for n in (1, 2, 3, 4)] == [['—', '—']] * 4
     cables = data[data.index('CABLES THIS SCREEN'):data.index('FACTS')]
     k = cables.index('Ether-con Barrel')
     assert cables[k:k + 3] == ['Ether-con Barrel', 'EA', '6'], cables

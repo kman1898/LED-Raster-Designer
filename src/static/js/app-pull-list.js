@@ -18,9 +18,10 @@
 //     its length; a 2fer / 3fer is `<connector> 2fer` EA; a box on a distro
 //     takes one `<connector> Breakout` EA.
 //   * data: `Ether-con` + length for a loose CAT port cable, one
-//     `Ether-con Snake` row per snake (qty 1, "6-way" in Notes - snakes of
-//     different way counts are never merged), lengths as the snake's ONE
-//     home run. A snake is said ONCE for the show, keyed by the snake
+//     `Ether-con Snake` row per snake (qty 1, "6 channel" in Notes - the
+//     type already says Snake, so snakeSizeText does not say it again -
+//     snakes of different channel counts are never merged), lengths as
+//     the snake's ONE home run. A snake is said ONCE for the show, keyed by the snake
 //     itself: since 2026-09-09 one holds sockets from as many cards and
 //     boxes as it was formed across ("Any sockets, any device"), and it is
 //     still one cable to pull - its hardware rows land on every processor
@@ -913,7 +914,9 @@ class _PullList {
                 const ft = Number(s.ft);
                 const snakeRow = { type, length: this.pullLengthText(ft),
                                    qty: 1, label: s.name || '',
-                                   notes: [`${ways}-way`,
+                                   notes: [typeof this.snakeSizeText === 'function'
+                                               ? this.snakeSizeText(`${type} ${s.name || ''}`, ways)
+                                               : `${ways} channel`,
                                            (Number.isFinite(ft) && ft > 0)
                                                ? '' : 'no length']
                                        .filter(Boolean).join('; ') };

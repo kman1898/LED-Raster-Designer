@@ -2476,7 +2476,7 @@ class _HardwareDock {
     // which is exactly what "ports 1-4 primary is snaked and backup 1-4
     // are snaked. then i have 5 and 6 that i want to snake" needs: tick
     // A-5, A-6 on one sheet and B-5, B-6 on another, press Snake on
-    // either, and the four are ONE 4-way. A tick on a socket that has
+    // either, and the four are ONE 4 channel snake. A tick on a socket that has
     // since gone (a card cleared under it) is dropped here rather than
     // sent to be refused.
     _allTickedMembers() {
@@ -2504,7 +2504,7 @@ class _HardwareDock {
     // we have in the app", so the plug is a fact of the port and not
     // asked; the stores keep `connector`, the pull list reads it through
     // dataPortConnectorId, nothing here writes it). A snake is a folded
-    // row (tick · "SNAKE A · 6-way" · name · ft) with its members dim
+    // row (tick · "SNAKE A · 6 channel" · name · ft) with its members dim
     // under it carrying their extensions, a free socket dim. ABOVE the
     // rows: "With ticked: Snake / Unsnake" and the quick fills. Each
     // commit is ONE entry ('Set Port Cable' / 'Set Snake Home Run' /
@@ -2617,7 +2617,7 @@ class _HardwareDock {
             if (detail && detail !== text) tr.title = detail;
         };
         const seenSnakes = new Set();
-        // A snake's way count on the sheet is the WHOLE snake (2026-09-09:
+        // A snake's channel count on the sheet is the WHOLE snake (2026-09-09:
         // "Any sockets, any device"), and a sheet that can only show part
         // of one says the rest out loud: "+ 5, 6 on BOX B" under the name.
         // The number and the rows cannot disagree, because everything the
@@ -2838,7 +2838,7 @@ class _HardwareDock {
     // ── the brackets ─────────────────────────────────────────────────────
     //
     // A snake reads as a blue bracket under its ports with a tag "SNAKE A
-    // · 6-way · 100'" (snake-mock.html, "How a snake reads"). Placed by
+    // · 6 channel · 100'" (snake-mock.html, "How a snake reads"). Placed by
     // measurement after layout: one bracket per contiguous run of the
     // snake's chips in grid order, split again where the grid wraps a run
     // to the next row, the tag on the first. A grid carrying a snake (or a
@@ -2847,7 +2847,7 @@ class _HardwareDock {
     //
     // A snake that CROSSES devices (2026-09-09) draws a bracket in every
     // unit it reaches: each spans that unit's members, and each tag says
-    // the whole snake's ways with a small "↔" - the loom is one, and the
+    // the whole snake's channels with a small "↔" - the loom is one, and the
     // count on a bracket is never the half of it you happen to be looking
     // at.
     _dockPlaceSnakeBrackets(body) {
@@ -2927,7 +2927,7 @@ class _HardwareDock {
                 if (sweep) {
                     const ways = (this._traySweep.members || []).length;
                     place(runsFor(new Set(sweep)),
-                          `snake · ${ways}-way`
+                          this.snakeSizeText('', ways)
                           + (ways > sweep.length ? ' ↔' : ''), null);
                 }
             });
@@ -2936,7 +2936,7 @@ class _HardwareDock {
     // ── the sweep ────────────────────────────────────────────────────────
     //
     // Hold Alt and drag across the port chips: the chips light, a ghost
-    // bracket says "snake · N-way", and a right-click (or Alt+Enter) forms
+    // bracket says "N channel snake", and a right-click (or Alt+Enter) forms
     // the snake. The selection is the CONTIGUOUS range between the anchor
     // chip and the hovered one, in the order the chips sit in the TRAY -
     // the canvas sweep's rule, on the tray's own set (_traySweep, never
