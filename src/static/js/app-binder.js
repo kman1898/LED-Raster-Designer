@@ -22,11 +22,13 @@
 //        order"; or the Screens panel's order either way, or by first
 //        port, or by first circuit - _bOrderScreens), each screen's POWER
 //        sheet (the map with rulers and brackets; CIRCUITS / CABLES THIS
-//        SCREEN / FACTS / GANGS) followed by its DATA sheet (PORTS /
-//        CABLES / FACTS) and its SIGNAL + POWER sheet (app-binder-wiring.js:
-//        the wall over the devices its ports and circuits land on, wired
-//        port to socket, circuit to breakout) - a screen with only one
-//        side has only that side's sheet and half
+//        SCREEN / FACTS / GANGS) and its POWER WIRING sheet, then its DATA
+//        sheet (PORTS / CABLES / FACTS) and its DATA WIRING sheet - grouped
+//        by system, each wiring sheet right behind the map it wires
+//        (app-binder-wiring.js: the wall over the devices its circuits or
+//        its ports land on, circuit to breakout, port to socket, one side
+//        on a whole page) - a screen with only one side has only that
+//        side's two sheets
 //   3.n  the PULL sheets - positions side by side, a column each
 //   4.n  hardware - the distros side by side, then the processors with
 //        the show's pull list beside them where it fits
@@ -448,7 +450,9 @@ class _Binder {
             cover: on('export-binder-cover', scope.kind === 'show'),
             pull: on('export-binder-pull', scope.kind === 'show'),
             hardware: on('export-binder-hardware', scope.kind === 'show'),
-            // the Signal + Power sheet is a SCREEN sheet: on whatever the scope
+            // the Wiring tick - one for both wiring sheets, each following
+            // its own map through the Maps choice - is a SCREEN sheet's: on
+            // whatever the scope
             wiring: on('export-binder-wiring', true),
             // the border, the title block column and the rev line: on
             // unless the box says otherwise (a preference, so the dialog
@@ -919,8 +923,8 @@ class _Binder {
         // Series by subject: 1 the overview; 2 the screens in BEACH order -
         // the pull list's position order, a position's own screens in the
         // project's screen order (_bOrderScreens) - each screen's POWER
-        // sheet, its DATA sheet, its SIGNAL + POWER sheet; 3 the pull sheets, positions side by
-        // side; 4 the hardware - the distros, the processors, the show's
+        // sheet and its POWER WIRING sheet, its DATA sheet and its DATA
+        // WIRING sheet; 3 the pull sheets, positions side by side; 4 the hardware - the distros, the processors, the show's
         // pull list.
         if (opts.cover) this._bOverviewPage(book);
         for (const { layer, pos } of this._bScreenRun(book, positions)) {
@@ -928,11 +932,19 @@ class _Binder {
             if (!scr) continue;
             const sides = { power: !!opts.sides.power && this._bHasPower(layer, scr),
                             data: !!opts.sides.data && this._bHasData(layer, scr) };
-            if (sides.power) this._bScreenPage(book, layer, pos, 'power');
-            if (sides.data) this._bScreenPage(book, layer, pos, 'data');
-            // the third sheet: the wall wired to its devices, one half per
-            // side the screen has (app-binder-wiring.js)
-            if (opts.wiring !== false && (sides.power || sides.data)) this._bWiringPage(book, layer, pos, sides);
+            // grouped by system: a map, then the sheet that wires it - the
+            // wall wired to its breakouts or its devices, that one side on
+            // a page of its own (app-binder-wiring.js). No map, no wiring
+            // sheet: a screen with no circuits has neither power sheet.
+            const wiring = opts.wiring !== false;
+            if (sides.power) {
+                this._bScreenPage(book, layer, pos, 'power');
+                if (wiring) this._bWiringPage(book, layer, pos, { power: true, data: false });
+            }
+            if (sides.data) {
+                this._bScreenPage(book, layer, pos, 'data');
+                if (wiring) this._bWiringPage(book, layer, pos, { power: false, data: true });
+            }
         }
         if (opts.pull) this._bPullSheets(book, positions);
         const hardware = [];
@@ -1369,7 +1381,16 @@ class _Binder {
         ctx.lineTo(x + w, y);
         ctx.stroke();
         this._bText(book, 'Sheet Number', x + pad, y + 34, { size: SZ.tbCell });
-        this._bText(book, page.number, x + pad, y + 108, { size: SZ.tbNumber, weight: 800 });
+        // The number stands high enough in its triangle that two digits
+        // after the point clear the diagonal: at y + 108 "2.10" ran its 0
+        // into the line, and with a wiring sheet behind every map three
+        // screens reach 2.10. Its room is the width left of the diagonal a
+        // little under the baseline; a longer number than that shrinks.
+        const numberY = y + 96;
+        const under = numberY + SZ.tbNumber * 0.14 - y;
+        const numberRoom = w * (1 - under / hNumber) - pad - 8;
+        this._bText(book, page.number, x + pad, numberY,
+                    { size: SZ.tbNumber, weight: 800, maxWidth: numberRoom, shrink: true });
         this._bText(book, m.date, x + w - pad, y + hNumber - 40, { size: SZ.tbSmall, weight: 700, align: 'right' });
         this._bText(book, 'Drawing Date', x + w - pad, y + hNumber - 14, { size: SZ.tbSmall, align: 'right' });
         sections.number = { y, h: hNumber };

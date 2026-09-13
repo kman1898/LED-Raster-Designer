@@ -56,7 +56,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 
 from test_binder import SEED_JS, SCRATCH_FIXTURE, _SHOW_JSON  # noqa: E402
 from test_binder_wiring import (  # noqa: E402
-    LOAD_JS, _covers_lettering, _probe, _through_the_wall,
+    LOAD_JS, _covers_lettering, _probe, _through_the_wall, _wiring,
 )
 
 pytest.importorskip("playwright.sync_api", reason="playwright not installed")
@@ -346,11 +346,22 @@ def _struck(report):
 
 
 @pytest.mark.parametrize('palette', ['colour', 'printer'])
-def test_no_binder_rule_is_drawn_through_a_string(palette):
+def test_no_binder_rule_is_drawn_through_a_string(page, palette):
     """The seeded show: nothing the binder strokes crosses anything it
     writes. This is the guard that catches a ruler number pushed up into
-    the sheet's own head rule."""
-    pytest.importorskip("playwright.sync_api")
+    the sheet's own head rule - and a sheet number of two digits after the
+    point ("2.10") run into the title block's diagonal, which every show
+    with ten sheets in a series reaches: with a Power Wiring and a Data
+    Wiring sheet per screen, three screens are enough. (This test used to
+    take no page and so ran nothing at all.)"""
+    pg, _ids = page
+    pg.evaluate(SEED_JS)
+    report = pg.evaluate(RULE_JS, [_opts(palette)])
+    assert report, 'the binder planned no pages at all'
+    assert [p['n'] for p in report if p['n'] == '2.10'], (
+        'the seeded show no longer reaches a two-digit sheet number', [p['n'] for p in report])
+    bad = _struck(report)
+    assert not bad, '\n' + '\n'.join('  ' + b for b in bad)
 
 
 @pytest.mark.parametrize('palette', ['colour', 'printer'])
@@ -378,16 +389,17 @@ def test_kelly_live_has_no_rule_through_a_string(page, palette):
 @pytest.mark.parametrize('palette', ['colour', 'printer'])
 def test_no_wiring_run_is_drawn_over_the_maps_own_lettering(page, palette):
     """Kelly Clarkson as the user exported her, and the seeded show:
-    on every SIGNAL + POWER sheet not one run is drawn over a label disc,
-    a cable tag, a gang pill, a multi band or a ruler label - and not one
-    is inside the wall at all but for the stub out of its own disc."""
+    on every POWER WIRING and DATA WIRING sheet - each one side on a whole
+    page, so the wall is drawn bigger than the half it used to have, which
+    is exactly when things start to overprint - not one run is drawn over a
+    label disc, a cable tag, a gang pill, a multi band or a ruler label, and
+    not one is inside the wall at all but for the stub out of its own
+    disc."""
     import json
     pg, _ids = page
-    shows = [(None, ['WALL-A - Signal + Power', 'WALL-B - Signal + Power',
-                     'CENTER - Signal + Power'])]
+    shows = [(None, _wiring('WALL-A') + _wiring('WALL-B') + _wiring('CENTER'))]
     if os.path.exists(KELLY_LIVE):
-        shows.append((KELLY_LIVE, ['SR - Signal + Power', 'SL - Signal + Power',
-                                   'UPSTAGE - Signal + Power']))
+        shows.append((KELLY_LIVE, _wiring('SR') + _wiring('SL') + _wiring('UPSTAGE')))
     bad, per_sheet = [], {}
     for fixture, titles in shows:
         if fixture is None:
@@ -397,6 +409,8 @@ def test_no_wiring_run_is_drawn_over_the_maps_own_lettering(page, palette):
         opts = {**json.loads(_SHOW_JSON), 'palette': palette}
         for title in titles:
             halves = _probe(pg, opts, title)
+            want = 'power' if title.endswith('Power Wiring') else 'signal'
+            assert [h['side'] for h in halves] == [want], (title, [h['side'] for h in halves])
             per_sheet[title] = sum(len(h['runs']) for h in halves)
             for h in halves:
                 bad += ['%s %s: %s' % (title, h['side'], s)

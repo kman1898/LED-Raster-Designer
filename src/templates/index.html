@@ -2057,15 +2057,15 @@
                         <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;"><input type="radio" name="export-binder-side" id="export-binder-side-both" value="both" checked> Both</label>
                     </div>
                     <!-- Four boxes are wider than the modal, so this row wraps and each
-                         box keeps its own words on one line - "Signal + Power" was
-                         breaking mid-phrase and hanging off the right edge. -->
+                         box keeps its own words on one line - a two-word box once broke
+                         mid-phrase and hung off the right edge. -->
                     <div style="display: flex; gap: 14px; align-items: flex-start; font-size: 12px; color: #aaa;">
                         <span style="flex: none; width: 92px; line-height: 20px;">Sheets</span>
                         <div style="flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 4px 14px;">
                         <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; flex: none; white-space: nowrap; line-height: 20px;" data-tooltip="Sheet 1.1: the show map with the positions, the show totals and the contents."><input type="checkbox" id="export-binder-cover" checked> Overview</label>
                         <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; flex: none; white-space: nowrap; line-height: 20px;" data-tooltip="A pull sheet per position with tick boxes (3.x), and the show-wide pull list at the back."><input type="checkbox" id="export-binder-pull" checked> Pull sheets</label>
                         <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; flex: none; white-space: nowrap; line-height: 20px;" data-tooltip="One sheet per distro and per processor at the back (4.x)."><input type="checkbox" id="export-binder-hardware" checked> Hardware</label>
-                        <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; flex: none; white-space: nowrap; line-height: 20px;" data-tooltip="A third sheet per screen after its Data sheet (2.x): the wall over the devices its ports and circuits land on, every port wired to its socket and every circuit to its breakout."><input type="checkbox" id="export-binder-wiring" checked> Signal + Power</label>
+                        <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; flex: none; white-space: nowrap; line-height: 20px;" data-tooltip="A wiring sheet behind each map (2.x): Power Wiring right after a screen's Power sheet, every circuit wired to its breakout; Data Wiring right after its Data sheet, every port wired to its socket. Each follows its own map - Maps on Power gives no Data Wiring sheet, and the other way round."><input type="checkbox" id="export-binder-wiring" checked> Wiring</label>
                         </div>
                     </div>
                     <!-- The border, the title block column and the rev line, or
