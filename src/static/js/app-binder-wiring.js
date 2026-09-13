@@ -584,16 +584,31 @@ class _BinderWiring {
         const rank = new Map(devices.map((d, i) => [d.key, i]));
         // Two breakouts whose circuits stand in the same column of the wall
         // have all but the same mean, and the tie-break only ever fired on an
-        // EXACT tie - so rounding decided the order. On Experts Only's
-        // SR - MAIN, SR1 and SR2 share the right column: with the title
-        // block on they came out SR1 SR2, with it off SR2 SR1, from nothing
-        // but the sheet's width moving the discs a fraction of a unit. Means
-        // closer than a disc's own radius are one column, and the facts'
-        // order settles it the same way every time.
+        // EXACT tie - so rounding decided the order, and it flipped with the
+        // title block. Means closer than a disc's own radius are one column.
+        //
+        // Within a column, the breakout whose circuits stand HIGHER goes
+        // further OUT: first on the wall's left half, last on its right. Its
+        // runs leave above the other's, so standing outside them they nest
+        // round the other fan instead of cutting through it. On Experts
+        // Only's SR - MAIN power sheet that puts SR2 before SR1 - the runs
+        // between the two breakouts stop crossing altogether, 55 crossings
+        // become 25, and the 25 left are each fan's own. The user, shown
+        // both: "the less crosings is better" (2026-09-13). Two breakouts at
+        // the same height as well keep the facts' order.
         const TIE = SOCK * K;
+        const meanYOf = (key) => {
+            const ws = wiresOf(key);
+            if (!ws.length) return 0;
+            return ws.reduce((s, w) => s + (discOf.get(w.stub) || { y: 0 }).y, 0) / ws.length;
+        };
+        const midX = W.mapArea.x + W.mapArea.w / 2;
         const order = devices.slice().sort((a, b) => {
             const d = meanOf(a.key) - meanOf(b.key);
-            return Math.abs(d) < TIE ? (rank.get(a.key) - rank.get(b.key)) : d;
+            if (Math.abs(d) >= TIE) return d;
+            const dy = meanYOf(a.key) - meanYOf(b.key);
+            if (Math.abs(dy) < TIE) return rank.get(a.key) - rank.get(b.key);
+            return meanOf(a.key) < midX ? dy : -dy;
         });
         const rows2 = pack(order);
         if (rows2.length !== rows.length) { W = wallAt(rows2.length, head, band); placeDiscs(W.geo); }
