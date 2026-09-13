@@ -443,6 +443,34 @@ v0.12.0 - September 7, 2026 (BETA)
   also keeps the box you chose after adding one, instead of clearing.
 
 
+- CHANGE (IMPORTANT): Power Wiring and Data Wiring are sheets of their own.
+  A screen's wiring used to share one Signal + Power sheet, a half page
+  each, so a big screen was squeezed under blocks that towered over it.
+  Each side now has a whole page, and a screen's set runs as a power pair
+  then a data pair - POWER, POWER WIRING, DATA, DATA WIRING - so each
+  wiring sheet sits behind the map it wires. The runs route exactly as
+  before. The export dialog's tick is now Wiring and follows the Maps
+  choice, so Power alone makes no Data Wiring sheet.
+
+- CHANGE (IMPORTANT): A backup box is its own section in the Ports table.
+  A second CVT on a second card appeared only inside the backup cells, so
+  the sheet did not tell CVT A from CVT B. Every unit that carries a port
+  now has its own band and snake heading, a backup exactly as a primary;
+  the primary's rows read "backup SR B-1" and the backup's "backs up SR
+  A-1". A backup carries the same pixels, so PANELS and PX print once, on
+  the primary's row, and each end's own extension is on its own row. A
+  pairing inside one card is still one section.
+
+- CHANGE: A snake's size reads "4 channel snake" instead of "4-way", and
+  where the snake's own name already says snake it reads "SNAKE A · 4
+  channel", so the word is never written twice. The tray, pull sheet,
+  binder and processor sheet all read it the same way. A multi's fan and a
+  distro's size are power and unchanged.
+
+- FIX: Two breakouts whose circuits share a column of the wall no longer
+  swap places depending on whether the title block is on.
+
+
 - CHANGE (IMPORTANT): Redundancy is one bar in one place. Behind the
   processor's gear a raised segmented bar - Off, Whole unit, Per card,
   Per port (Off, Backed up, Per port on a standalone unit) - and exactly
