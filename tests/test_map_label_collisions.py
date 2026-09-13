@@ -66,12 +66,18 @@ PILLS = ('band', 'gang', 'tag')
 # ruler's L labels.
 OFF_THE_EDGE = PILLS + ('rulerLabel',)
 
-PROBE_JS = """([opts]) => {
+# Every sheet that draws a screen's map: its Power and Data sheets, and its
+# Power Wiring and Data Wiring sheets - each of those one side on a whole
+# page, so the wall there is drawn BIGGER than on any other sheet, which is
+# exactly when a map starts to write on top of itself.
+MAP_KINDS = ('power', 'data', 'wiring')
+
+PROBE_JS = """([opts, kinds]) => {
     const app = window.app, r = window.canvasRenderer;
     const plan = app.planBinder(opts);
     const out = {};
     for (let i = 0; i < plan.length; i++) {
-        if (plan[i].kind !== 'power' && plan[i].kind !== 'data') continue;
+        if (!kinds.includes(plan[i].kind)) continue;
         r.startLabelProbe();
         try { app.renderBinderPage(opts, i); }
         finally { out[plan[i].number + ' ' + plan[i].title] = r.endLabelProbe(); }
@@ -124,6 +130,26 @@ def _pairs_over(boxes):
     return out
 
 
+def _is_wiring(name):
+    return name.endswith(' - Power Wiring') or name.endswith(' - Data Wiring')
+
+
+def _on_paper(boxes):
+    """A wiring sheet gives its map NO gutter, so the bitmap is the wall and
+    nothing else: the band pill and the circuit ruler the map lays over the
+    wall's head fall outside it and are clipped away. Ink that never reaches
+    the paper cannot collide, so only what lies over the wall is judged."""
+    edges = _edges(boxes)
+    if len(edges) != 4:
+        return boxes
+    x0 = min(e['x'] for e in edges)
+    y0 = min(e['y'] for e in edges)
+    x1 = max(e['x'] + e['w'] for e in edges)
+    y1 = max(e['y'] + e['h'] for e in edges)
+    return [b for b in boxes if b['kind'] == 'wallEdge'
+            or (b['x'] + b['w'] > x0 and b['y'] + b['h'] > y0 and b['x'] < x1 and b['y'] < y1)]
+
+
 def _check_map(name, boxes):
     """Every rule this file exists for, on one screen's map. Returns the
     faults as lines, so one failure names all of them."""
@@ -131,6 +157,8 @@ def _check_map(name, boxes):
     assert boxes, ('the registry recorded nothing for ' + name
                    + ' - the probe is not reaching the map')
     assert len(_edges(boxes)) == 4, (name, 'the wall drew no edges', boxes)
+    if _is_wiring(name):
+        boxes = _on_paper(boxes)
 
     # 1. no two pieces of the map's lettering overlap by more than a hair
     bad += ['%s: %s' % (name, s) for s in _pairs_over(boxes)]
@@ -210,12 +238,13 @@ def _maps(pg, fixture, palette):
     pg.evaluate(LOAD_JS, project)
     opts = json.loads(_SHOW_JSON)
     opts['palette'] = palette
-    return pg.evaluate(PROBE_JS, [opts])
+    return pg.evaluate(PROBE_JS, [opts, list(MAP_KINDS)])
 
 
 def _sweep(pg, fixture, palette):
     maps = _maps(pg, fixture, palette)
     assert maps, 'the show planned no power or data sheet'
+    assert [n for n in maps if _is_wiring(n)], ('the sweep reached no wiring sheet', list(maps))
     bad = []
     for name, boxes in maps.items():
         bad += _check_map(name, boxes)
@@ -226,10 +255,12 @@ def _sweep(pg, fixture, palette):
 def test_the_registry_records_the_map_the_seeded_show_drew(page):
     """The probe reaches the map at all: the seeded WALL-A's power sheet
     records its own circuit discs, the wall's four edges, and nothing that
-    is not one of the kinds the registry knows."""
+    is not one of the kinds the registry knows. Every map sheet of the
+    seeded show is held to the rules - its Power Wiring and Data Wiring
+    sheets too, each one wall on a page of its own."""
     pg, ids = page
     opts = json.loads(_SHOW_JSON)
-    boxes = pg.evaluate(PROBE_JS, [opts])
+    boxes = pg.evaluate(PROBE_JS, [opts, list(MAP_KINDS)])
     power = [v for k, v in boxes.items() if k.endswith('WALL-A - Power')]
     assert len(power) == 1, list(boxes)
     kinds = {}
@@ -243,6 +274,13 @@ def test_the_registry_records_the_map_the_seeded_show_drew(page):
     for b in power[0]:
         assert b['w'] >= 0 and b['h'] >= 0, b
         assert b['kind'] == 'wallEdge' or (b['w'] > 0 and b['h'] > 0), b
+    wiring = sorted(k.split(' ', 1)[1] for k in boxes if _is_wiring(k))
+    assert wiring == sorted(['WALL-A - Power Wiring', 'WALL-A - Data Wiring', 'WALL-B - Power Wiring',
+                             'WALL-B - Data Wiring', 'CENTER - Power Wiring', 'CENTER - Data Wiring']), list(boxes)
+    for name in wiring:
+        key = next(k for k in boxes if k.endswith(' ' + name))
+        # one wall on the sheet: its four edges once, not twice
+        assert len(_edges(boxes[key])) == 4, (name, _edges(boxes[key]))
     for name, bs in boxes.items():
         assert not _check_map(name, bs), _check_map(name, bs)
     assert ids['errors'] == []

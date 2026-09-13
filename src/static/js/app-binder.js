@@ -22,11 +22,13 @@
 //        order"; or the Screens panel's order either way, or by first
 //        port, or by first circuit - _bOrderScreens), each screen's POWER
 //        sheet (the map with rulers and brackets; CIRCUITS / CABLES THIS
-//        SCREEN / FACTS / GANGS) followed by its DATA sheet (PORTS /
-//        CABLES / FACTS) and its SIGNAL + POWER sheet (app-binder-wiring.js:
-//        the wall over the devices its ports and circuits land on, wired
-//        port to socket, circuit to breakout) - a screen with only one
-//        side has only that side's sheet and half
+//        SCREEN / FACTS / GANGS) and its POWER WIRING sheet, then its DATA
+//        sheet (PORTS / CABLES / FACTS) and its DATA WIRING sheet - grouped
+//        by system, each wiring sheet right behind the map it wires
+//        (app-binder-wiring.js: the wall over the devices its circuits or
+//        its ports land on, circuit to breakout, port to socket, one side
+//        on a whole page) - a screen with only one side has only that
+//        side's two sheets
 //   3.n  the PULL sheets - positions side by side, a column each
 //   4.n  hardware - the distros side by side, then the processors with
 //        the show's pull list beside them where it fits
@@ -448,7 +450,9 @@ class _Binder {
             cover: on('export-binder-cover', scope.kind === 'show'),
             pull: on('export-binder-pull', scope.kind === 'show'),
             hardware: on('export-binder-hardware', scope.kind === 'show'),
-            // the Signal + Power sheet is a SCREEN sheet: on whatever the scope
+            // the Wiring tick - one for both wiring sheets, each following
+            // its own map through the Maps choice - is a SCREEN sheet's: on
+            // whatever the scope
             wiring: on('export-binder-wiring', true),
             // the border, the title block column and the rev line: on
             // unless the box says otherwise (a preference, so the dialog
@@ -919,8 +923,8 @@ class _Binder {
         // Series by subject: 1 the overview; 2 the screens in BEACH order -
         // the pull list's position order, a position's own screens in the
         // project's screen order (_bOrderScreens) - each screen's POWER
-        // sheet, its DATA sheet, its SIGNAL + POWER sheet; 3 the pull sheets, positions side by
-        // side; 4 the hardware - the distros, the processors, the show's
+        // sheet and its POWER WIRING sheet, its DATA sheet and its DATA
+        // WIRING sheet; 3 the pull sheets, positions side by side; 4 the hardware - the distros, the processors, the show's
         // pull list.
         if (opts.cover) this._bOverviewPage(book);
         for (const { layer, pos } of this._bScreenRun(book, positions)) {
@@ -928,11 +932,19 @@ class _Binder {
             if (!scr) continue;
             const sides = { power: !!opts.sides.power && this._bHasPower(layer, scr),
                             data: !!opts.sides.data && this._bHasData(layer, scr) };
-            if (sides.power) this._bScreenPage(book, layer, pos, 'power');
-            if (sides.data) this._bScreenPage(book, layer, pos, 'data');
-            // the third sheet: the wall wired to its devices, one half per
-            // side the screen has (app-binder-wiring.js)
-            if (opts.wiring !== false && (sides.power || sides.data)) this._bWiringPage(book, layer, pos, sides);
+            // grouped by system: a map, then the sheet that wires it - the
+            // wall wired to its breakouts or its devices, that one side on
+            // a page of its own (app-binder-wiring.js). No map, no wiring
+            // sheet: a screen with no circuits has neither power sheet.
+            const wiring = opts.wiring !== false;
+            if (sides.power) {
+                this._bScreenPage(book, layer, pos, 'power');
+                if (wiring) this._bWiringPage(book, layer, pos, { power: true, data: false });
+            }
+            if (sides.data) {
+                this._bScreenPage(book, layer, pos, 'data');
+                if (wiring) this._bWiringPage(book, layer, pos, { power: false, data: true });
+            }
         }
         if (opts.pull) this._bPullSheets(book, positions);
         const hardware = [];
@@ -1369,7 +1381,16 @@ class _Binder {
         ctx.lineTo(x + w, y);
         ctx.stroke();
         this._bText(book, 'Sheet Number', x + pad, y + 34, { size: SZ.tbCell });
-        this._bText(book, page.number, x + pad, y + 108, { size: SZ.tbNumber, weight: 800 });
+        // The number stands high enough in its triangle that two digits
+        // after the point clear the diagonal: at y + 108 "2.10" ran its 0
+        // into the line, and with a wiring sheet behind every map three
+        // screens reach 2.10. Its room is the width left of the diagonal a
+        // little under the baseline; a longer number than that shrinks.
+        const numberY = y + 96;
+        const under = numberY + SZ.tbNumber * 0.14 - y;
+        const numberRoom = w * (1 - under / hNumber) - pad - 8;
+        this._bText(book, page.number, x + pad, numberY,
+                    { size: SZ.tbNumber, weight: 800, maxWidth: numberRoom, shrink: true });
         this._bText(book, m.date, x + w - pad, y + hNumber - 40, { size: SZ.tbSmall, weight: 700, align: 'right' });
         this._bText(book, 'Drawing Date', x + w - pad, y + hNumber - 14, { size: SZ.tbSmall, align: 'right' });
         sections.number = { y, h: hNumber };
@@ -2848,6 +2869,15 @@ class _Binder {
     // one delivers it, else the backup card's name (or its slot on its
     // processor) - and the socket, "SR-1R · H9 BACKUP · 1".
     _bBackupText(layer, portNum, bb) {
+        const end = this._bBackupEnd(layer, portNum, bb);
+        return [end.label, end.socketText].filter(Boolean).join(' · ');
+    }
+
+    // The return end's parts: its label, the unit it lands on and that
+    // unit's band key and band text (the key the primary's unit would
+    // have, so an end on the SAME unit is known to be one), and the socket
+    // as PRIMARY prints one, "CVT4K-S SR B · 1".
+    _bBackupEnd(layer, portNum, bb) {
         const label = (typeof this.getPortLabelText === 'function')
             ? this.getPortLabelText(layer, portNum, 'return') : '';
         const home = this._bPortHome(bb.cardId, bb.port);
@@ -2856,7 +2886,16 @@ class _Binder {
             where = home ? home.unitTitle : (bb.cardTitle || this._bCardShort(bb.cardId));
         }
         const socket = bb.localPort != null ? bb.localPort : bb.port;
-        return [label, `${where} · ${socket}`].filter(Boolean).join(' · ');
+        const socketText = `${where} · ${socket}`;
+        let key, bandText;
+        if (home && home.box) {
+            key = `box:${home.box.id}`; bandText = this._bBoxBandText(home.box);
+        } else if (home) {
+            key = `card:${home.card.id}`; bandText = this._bCardBandText(home);
+        } else {
+            key = `card:${bb.cardId}`; bandText = bb.cardTitle || this._bCardShort(bb.cardId);
+        }
+        return { label, socketText, name: label || socketText, key, bandText };
     }
 
     // What a sheet calls a breakout box: "CVT4K-S SR" - the model and the
@@ -2964,25 +3003,36 @@ class _Binder {
     }
 
     // THE HEADING OVER A RUN OF PORTS ON A SNAKE: the loom as the bracket,
-    // the tray and the pull sheet already name it - "SNAKE A · 6-way ·
+    // the tray and the pull sheet already name it - "SNAKE A · 6 channel ·
     // 100'" (snakeTagText) - once, over every port riding it. Null where
     // neither end of the row is on a snake.
     //
-    // The two ends are two different looms, so both are named: the
-    // primary's first, the backup's after it in the order the columns
-    // stand. ONE snake carrying both ends says so ("· both ends") instead
-    // of printing itself twice, and a snake reaching past this unit names
-    // the sockets it holds elsewhere, so its ways and the rows under it
-    // never disagree.
-    _bSnakeHeadText(primary, backup) {
+    // A heading names its OWN unit's snake: a backup unit is its own
+    // section with its own heading (2026-09-12), so `backup` is only given
+    // where both ends sit on ONE unit (sequential, halves). There the two
+    // looms are both named, the primary's first; one snake carrying both
+    // ends says so ("· both ends") instead of printing itself twice. A
+    // snake reaching past this unit names the sockets it holds elsewhere,
+    // so its channels and the rows under it never disagree.
+    //
+    // A SNAKE'S HOME RUN IS SAID ONCE ON A SHEET: a loom holding sockets on
+    // a primary box and its backup heads both sections, and `said` (the
+    // snakes already headed, in the order the sheet prints) keeps the
+    // length to the first of them - the second names the loom and where
+    // the rest of it is.
+    _bSnakeHeadText(primary, backup, said = null) {
         const on = (c) => (c && c.kind === 'snake' && c.snake ? c : null);
         const p = on(primary), b = on(backup);
         if (!p && !b) return null;
-        const one = (c) => this.snakeTagText(c.snake)
-            + (typeof this.snakeElsewhere === 'function' && c.owner
-                ? this.snakeElsewhere(c.snake, c.owner)
-                      .map(a => ` · also ${a.text}`).join('')
-                : '');
+        const one = (c) => {
+            const again = !!(said && said.has(c.snake.id));
+            if (said) said.add(c.snake.id);
+            return this.snakeTagText(c.snake, !again)
+                + (typeof this.snakeElsewhere === 'function' && c.owner
+                    ? this.snakeElsewhere(c.snake, c.owner)
+                          .map(a => ` · also ${a.text}`).join('')
+                    : '');
+        };
         if (p && b) {
             return p.snake.id === b.snake.id
                 ? `${one(p)} · both ends` : `${one(p)} / backup ${one(b)}`;
@@ -3020,17 +3070,32 @@ class _Binder {
         // Two levels: the UNIT a port lands on (a card or a breakout box),
         // and inside it the SNAKE a run of its ports rides - one heading
         // each, in the order the ports come.
-        const bands = new Map();      // key -> { text, groups: Map }
-        const band = (key, text) => {
+        //
+        // EVERY UNIT THAT CARRIES A PORT IS ITS OWN SECTION, a backup unit
+        // exactly as a primary one (2026-09-12, Experts Only: "They should
+        // be different sections as if it was a second cvt, since it is").
+        // A port whose return lands on another card or box puts a row in
+        // each: the primary's reads "backup SR B-1", the backup's "backs up
+        // SR A-1". The backup section follows the section of the primary
+        // that first sent a port to it (`after`), so a reader meets SR A
+        // then SR B. A port whose two ends sit on ONE unit (sequential,
+        // halves) is one unit and one row, read as before.
+        const bands = new Map();      // key -> { text, groups: Map, after }
+        const band = (key, text, after = null) => {
             let b = bands.get(key);
-            if (!b) { b = { text, groups: new Map() }; bands.set(key, b); }
+            if (!b) { b = { text, groups: new Map(), after }; bands.set(key, b); }
             return b;
         };
-        const group = (b, key, text) => {
+        // A group keeps the cables its heading is read from, and the
+        // heading is worded when the sheet is laid out, in print order -
+        // so a snake heading two sections states its length in the first.
+        const group = (b, key, primary, backup = null) => {
             let g = b.groups.get(key);
-            if (!g) { g = { text, rows: [] }; b.groups.set(key, g); }
+            if (!g) { g = { primary, backup, rows: [] }; b.groups.set(key, g); }
             return g;
         };
+        const snakeId = (c) => (c && c.kind === 'snake' && c.snake ? c.snake.id : '');
+        const headed = (c, o = null) => !!(snakeId(c) || snakeId(o));
         let procs = new Map();
         for (const run of runs) {
             const placed = asg && (asg.ports || []).find(p => p.number === run.num);
@@ -3038,59 +3103,81 @@ class _Binder {
             const cable = (typeof this.dataPortCableForScreen === 'function')
                 ? this.dataPortCableForScreen(layer, run.num) : null;
             const px = (run.panels || []).reduce((s, p) => s + this.getPanelPixelArea(p), 0);
+            const panelsText = this._bNum((run.panels || []).length, 0);
+            const pxText = this._bNum(px, 0);
+            if (!home) {
+                const g = group(band('none', 'Not placed'), `${snakeId(cable)}|`, cable);
+                g.rows.push({ cells: [run.label, '—', '—', panelsText, pxText,
+                                      this._bHomeRunText(cable, null, headed(cable))] });
+                continue;
+            }
             // PRIMARY is where the port lands - the sending card ("H9 SR ·
             // 1") or, where a breakout box delivers it, the BOX instead
-            // ("CVT4K-S SR · 3", its own silkscreen number); BACKUP is the
-            // return end the same way (2026-09-07: "list the sending card
-            // order on primary and backup … if cvt's are used then we will
-            // list those instead of sending card").
-            let primary = '—', backup = '—', b, bb = null;
-            if (home) {
-                procs.set(home.proc.id, home.proc);
-                const socket = String(home.port && home.port.localNumber != null ? home.port.localNumber : placed.port);
-                if (home.box) {
-                    b = band(`box:${home.box.id}`, this._bBoxBandText(home.box));
-                    primary = `${this._bBoxTitle(home.box)} · ${socket}`;
-                } else {
-                    b = band(`card:${home.card.id}`, this._bCardBandText(home));
-                    primary = `${home.unitTitle} · ${socket}`;
-                }
-                bb = (home.port && home.port.backedBy) || null;
-                if (bb) backup = this._bBackupText(layer, run.num, bb);
+            // ("CVT4K-S SR · 3", its own silkscreen number) (2026-09-07:
+            // "list the sending card order on primary and backup … if
+            // cvt's are used then we will list those instead of sending
+            // card").
+            procs.set(home.proc.id, home.proc);
+            const socket = String(home.port && home.port.localNumber != null ? home.port.localNumber : placed.port);
+            let key, primary, b;
+            if (home.box) {
+                key = `box:${home.box.id}`;
+                b = band(key, this._bBoxBandText(home.box));
+                primary = `${this._bBoxTitle(home.box)} · ${socket}`;
             } else {
-                b = band('none', 'Not placed');
+                key = `card:${home.card.id}`;
+                b = band(key, this._bCardBandText(home));
+                primary = `${home.unitTitle} · ${socket}`;
             }
-            // HOME RUN says both ends where there are two: the primary's
-            // run, then the backup's, as the backup card's or box's own ≡
-            // sheet typed it ("SR Primary 150' / SR Backup 150'"; a side
-            // with nothing reads "—"). One end alone reads alone - and so
-            // do two ends that are ONE run: a port whose return rides the
-            // very snake its primary does states that snake once, not
-            // "SR C 200' +25' / SR C 200'" (2026-09-09, the Kelly binder's
-            // home run column read as the same thing said twice). The
-            // fuller reading wins, so an extension is not lost.
+            const bb = (home.port && home.port.backedBy) || null;
+            const end = bb ? this._bBackupEnd(layer, run.num, bb) : null;
+            // The backup end's own run, as the backup card's or box's own ≡
+            // sheet typed it.
             const backupCable = bb && typeof this.dataPortCable === 'function'
                 ? this.dataPortCable(bb.cardId, bb.port) : null;
-            const other = bb ? backupCable : null;
-            // A SNAKE IS ONE HOME RUN, SAID ONCE. The ports riding it sit
-            // under a heading that names it (the shape the tray and the
-            // pull sheet use), and their rows then carry only their own
-            // extensions - the four rows of "USC A 100' +10' / SNAKE A
-            // 100' +10'" the user marked (2026-09-09). A port on no snake
-            // is grouped with the rest of them under no heading at all and
-            // reads exactly as it did.
-            const snakeId = (c) => (c && c.kind === 'snake' && c.snake ? c.snake.id : '');
-            const head = this._bSnakeHeadText(cable, other);
-            const g = group(b, `${snakeId(cable)}|${snakeId(other)}`, head);
-            const homeRun = this._bHomeRunText(cable, other, !!head);
-            g.rows.push({ cells: [run.label, primary, backup, this._bNum((run.panels || []).length, 0),
-                                  this._bNum(px, 0), homeRun] });
+            if (!end || end.key === key) {
+                // ONE unit: BACKUP is the return end whole, and HOME RUN
+                // says both ends where there are two - the run ONCE where
+                // they are one (a return riding the very snake its primary
+                // does), the fuller reading winning so an extension is not
+                // lost.
+                const other = end ? backupCable : null;
+                const g = group(b, `${snakeId(cable)}|${snakeId(other)}`, cable, other);
+                g.rows.push({ cells: [run.label, primary,
+                                      end ? this._bBackupText(layer, run.num, bb) : '—',
+                                      panelsText, pxText,
+                                      this._bHomeRunText(cable, other, headed(cable, other))] });
+                continue;
+            }
+            // TWO units, two sections. PANELS and PX are counted once, on
+            // the primary's row - the backup carries the same pixels, and a
+            // total down PX must not double them - and HOME RUN on each row
+            // is that end's own.
+            group(b, `${snakeId(cable)}|`, cable).rows.push({ cells: [
+                run.label, primary, `backup ${end.name}`, panelsText, pxText,
+                this._bHomeRunText(cable, null, headed(cable))] });
+            const bBand = band(end.key, end.bandText, key);
+            group(bBand, `${snakeId(backupCable)}|`, backupCable).rows.push({ cells: [
+                end.label || end.socketText, end.socketText, `backs up ${run.label}`, '—', '—',
+                this._bHomeRunText(backupCable, null, headed(backupCable))] });
         }
+        // Print order: each section, then the backup sections that follow
+        // it.
+        const order = [];
+        const emit = (k) => {
+            order.push(bands.get(k));
+            for (const [k2, b2] of bands) if (b2.after === k) emit(k2);
+        };
+        for (const [k, b] of bands) {
+            if (!b.after || !bands.has(b.after)) emit(k);
+        }
+        const said = new Set();
         const rows = [];
-        for (const b of bands.values()) {
+        for (const b of order) {
             rows.push({ band: b.text });
             for (const g of b.groups.values()) {
-                if (g.text) rows.push({ band: g.text, sub: true });
+                const head = this._bSnakeHeadText(g.primary, g.backup, said);
+                if (head) rows.push({ band: head, sub: true });
                 rows.push(...g.rows);
             }
         }
@@ -3612,7 +3699,7 @@ class _Binder {
         // Snakes and home runs on every card and breakout box of this
         // processor. A snake is the SHOW's since 2026-09-09 ("Any sockets,
         // any device"), so it is listed ON EACH DEVICE IT TOUCHES - the
-        // ways it claims are the whole loom's, and the sockets it holds
+        // channels it claims are the whole loom's, and the sockets it holds
         // somewhere else are named in the same cell ("· also on CVT4K-S SR
         // B") so the count and the sockets under it always add up.
         const runs = [];
@@ -3630,8 +3717,13 @@ class _Binder {
                     const away = this.snakeElsewhere(s, o)
                         .map(a => ` · also on ${this.dataOwnerTitle(a.owner)}`)
                         .join('');
-                    runs.push({ cells: [s.name || 'snake',
-                                        `${(s.members || []).length}-way`,
+                    // TYPE says what the run is - snake, ext, cable - so
+                    // the snake's size rides its name, "SR A · 4
+                    // channel", and the word snake is not said again
+                    // beside the TYPE that already says it (2026-09-12:
+                    // "call it 4 channel snake", and never snake twice).
+                    runs.push({ cells: [`${s.name || 'snake'} · ${this.snakeSizeText('snake', (s.members || []).length)}`,
+                                        'snake',
                                         s.ft ? this.pullLengthText(s.ft) : 'no length',
                                         `${o.title} ${this._fmtTails(here)}`
                                         + (connId ? ` · ${this.dataCableConnectorName(connId)}` : '')
@@ -3657,7 +3749,9 @@ class _Binder {
         }
         blocks.push({ lines: this._bTableLines(book, {
             title: 'Snakes & home runs',
-            cols: [{ title: 'run', w: 1 }, { title: 'ways', w: 0.6 }, { title: 'home run', w: 0.8 },
+            // RUN wraps at its " · " rather than cutting a long snake
+            // name off its channels.
+            cols: [{ title: 'run', w: 1, list: 2 }, { title: 'type', w: 0.6 }, { title: 'home run', w: 0.8 },
                    { title: 'ports', w: 1.6, list: true }],
             rows: runs.length ? runs : [{ cells: ['none', '', '', ''] }],
         }) });

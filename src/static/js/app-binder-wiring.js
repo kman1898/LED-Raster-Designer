@@ -1,23 +1,36 @@
-// app-binder-wiring: the SIGNAL + POWER sheet - a screen's third sheet,
-// after its Power and Data sheets (2026-09-08, on the last page of the
-// NACUBO packet: "he gave an example his binder and we could do this for
-// power and data drawing from a port to port … the last page is what i
-// was talking about").
+// app-binder-wiring: the WIRING sheets - a screen's POWER WIRING sheet right
+// behind its Power sheet, its DATA WIRING sheet right behind its Data sheet
+// (2026-09-08, on the last page of the NACUBO packet: "he gave an example
+// his binder and we could do this for power and data drawing from a port to
+// port … the last page is what i was talking about").
+//
+// ONE SIDE, ONE SHEET. They began as one "Signal + Power" sheet, signal
+// over power, each side half a page tall - and a big screen and its blocks
+// were squeezed into it (2026-09-12: "when the screens get too big we will
+// need to split the pages. or better yet we just should split them up").
+// Now each side has the whole drawing area, and the set runs grouped by
+// system: 2.1 SR · POWER, 2.2 SR · POWER WIRING, 2.3 SR · DATA, 2.4 SR ·
+// DATA WIRING. A screen with no circuits has no Power sheet and so no
+// Power Wiring sheet; the same for data. The sheet's own title names the
+// side, so no SIGNAL / POWER head is drawn over it, and the reader's word
+// is "data" - the side keeps its internal id `signal` in the log only.
 //
 // THE DRAWING IS THE PROTOTYPE'S. src/static/wiring-proto.html draws this
 // picture from two real shows' own facts and is what was approved
 // (2026-09-09: "those are fantastic", "that is much more legible", "that
 // looks great") - casing on, fade off, the printer palette for the press.
 // Every number below is in the prototype's page units (it is 1000 wide)
-// and a half scales them by K = its width / 1000, so the sheet carries
-// that drawing across whatever size the paper is.
+// and the sheet scales them by K = its drawing area's width / 1000, so it
+// carries that drawing across whatever size the paper is. The wall is
+// sized by the room the sheet leaves it and nothing else - the
+// prototype's MAX_WALL_H, a bound for an SVG page of no fixed height,
+// would have held a whole-page wall to the height of the old half.
 //
-// The drawing area is split by a rule: SIGNAL above, POWER below (a
-// screen with one side draws that half alone). Each half, top to bottom:
+// The side, top to bottom (the code and the log still call it a "half"):
 //
 //   the WALL      - the same _bMap render the Power / Data sheets use
-//                   (data-flow view above, power view below), rulers and
-//                   brackets off. THE WALL'S OWN LABEL DISCS ARE THE
+//                   (the data-flow view on data, the power view on
+//                   power), rulers and brackets off. THE WALL'S OWN LABEL DISCS ARE THE
 //                   ORIGIN: no second tag is drawn on it - an earlier
 //                   attempt hung rounded tags off the panels and they
 //                   covered the wall. The disc's place and size are the
@@ -96,7 +109,7 @@
 // finely dashed into a hollow one; the wall's greys and its white discs
 // with black rims are the renderer's printer mode.
 //
-// A stub on no card draws its disc and no run, and the half prints
+// A stub on no card draws its disc and no run, and the sheet prints
 // "n of m not placed on any card" once.
 //
 // Everything is drawn in page units through the recorder, so the PDF gets
@@ -104,27 +117,29 @@
 // simply the same path stroked white first (the recorder knows rects,
 // lines, text and images, nothing else).
 //
-// One view per sheet: "n  SR - MAIN · SIGNAL + POWER", its bubble under
-// the lower half. Every figure is read from the same authorities the
+// One view per sheet: "n  SR - MAIN · DATA WIRING", its bubble at the
+// foot. Every figure is read from the same authorities the
 // Power and Data sheets read - _pullPortRuns, _bPortHome,
 // getPortLabelText, the pull list's byScreen units, screenCircuits,
 // getDistroOutputTypes; nothing is recomputed here.
 import { LEDRasterApp } from './app-core.js';
 import { BINDER_STYLE } from './app-binder.js';
 
-const { INK, RULE, MUTED, BUBBLE_H } = BINDER_STYLE;
+const { INK, MUTED, BUBBLE_H } = BINDER_STYLE;
 
 // The wall takes the whole of the room it is given: this sheet draws no
 // rulers and no brackets, and the discs are the renderer's own, inside it.
 const GUT = { left: 0, right: 0, top: 0, bottom: 0 };
-// The air between the two halves, where the rule between them runs.
-const RULE_GAP = 40;
 
 // ---- the prototype's page, in its own units (it is 1000 wide) -----------
 const PROTO_W = 1000;
 const MARGIN = 22;
-const HEAD = 22;                 // the SIGNAL / POWER word over the wall
-const HEAD_SZ = 11;
+// The wall's height is held to what rev 1.1 drew it at, even on a page of its
+// own. Grown to fill the page, the wall spread under its own blocks and the
+// runs to them had to go round it - 55 crossings on Experts Only's SR - MAIN
+// power became 73, and the fans that used to leave at their row and drop
+// straight into the socket below had to travel. The user, shown both:
+// "The original way we had it was the best" (2026-09-12).
 const MAX_WALL_H = 360;
 const BAND_GAP = 26;             // the wall's foot to the first block row
 const FOOT_PAD = 6;              // the air under the last block row
@@ -167,61 +182,41 @@ class _BinderWiring {
 
     // ---- the sheet ----------------------------------------------------------
 
-    // The screen's SIGNAL + POWER sheet: one numbered view, a half per side
-    // the screen has (`sides` = { power, data }, already true only where
-    // the screen has that side and the dialog asked for it).
+    // One side's WIRING sheet: one numbered view, the side on the whole
+    // drawing area. `sides` = { power, data } names the ONE side this sheet
+    // draws - the caller asks once per side, and only for a side the screen
+    // has and the dialog's Maps choice wants; anything else draws no sheet.
     _bWiringPage(book, layer, pos, sides) {
+        const power = !!(sides && sides.power), data = !!(sides && sides.data);
+        if (power === data) return;
+        const side = power ? 'power' : 'signal';
         const scr = book.list.byScreen[layer.id] || {};
-        const title = `${layer.name} - Signal + Power`;
-        const sheetTitle = `${layer.name} · SIGNAL + POWER`;
-        const order = [];
-        if (sides.data) order.push('signal');
-        if (sides.power) order.push('power');
-        if (!order.length) return;
-        const areas = this._bwAreas(book, order.length);
-        const plans = order.map((side, i) => this._bwPlanHalf(book, layer, scr, side, areas.halves[i]));
-        const scale = Math.min(...plans.map(p => p.K));
+        const title = `${layer.name} - ${power ? 'Power' : 'Data'} Wiring`;
+        const sheetTitle = `${layer.name} · ${power ? 'POWER' : 'DATA'} WIRING`;
+        const area = this._bwArea(book);
+        const plan = this._bwPlanHalf(book, layer, scr, side, area.half);
         const view = ++book.views;
         this._bPage(book, {
             kind: 'wiring', title, sheetTitle, viewName: sheetTitle, view,
             layerId: layer.id, subject: layer.name, position: pos ? pos.name : null,
-            layout: 'wiring', cols: order.length, scale,
-            sides: { power: !!sides.power, data: !!sides.data },
-            halves: plans.map(p => ({ side: p.side, scale: p.K, rows: p.rows,
-                                      discs: p.discs.length, runs: p.runs.length,
-                                      blocks: p.blocks.length, unplaced: p.unplaced })),
+            layout: 'wiring', cols: 1, scale: plan.K,
+            sides: { power, data },
+            halves: [{ side: plan.side, scale: plan.K, rows: plan.rows,
+                       discs: plan.discs.length, runs: plan.runs.length,
+                       blocks: plan.blocks.length, unplaced: plan.unplaced }],
         }, () => {
             if (book.log) book.log.wiring = { halves: [] };
-            if (areas.ruleY != null) {
-                const ctx = book.ctx;
-                const da = book.geo.da;
-                ctx.strokeStyle = RULE;
-                ctx.lineWidth = 2;
-                ctx.setLineDash([]);
-                ctx.beginPath();
-                ctx.moveTo(da.x, areas.ruleY);
-                ctx.lineTo(da.x + da.w, areas.ruleY);
-                ctx.stroke();
-            }
-            for (const p of plans) this._bwDrawHalf(book, layer, p);
-            this._bViewBubble(book, view, sheetTitle, book.geo.da.x + 20, areas.bubbleY);
+            this._bwDrawHalf(book, layer, plan);
+            this._bViewBubble(book, view, sheetTitle, book.geo.da.x + 20, area.bubbleY);
         });
     }
 
-    // The drawing area cut for `n` halves: the bubble's room at the foot,
-    // a rule between two halves.
-    _bwAreas(book, n) {
+    // The drawing area for the one side: all of it but the bubble's room
+    // at the foot.
+    _bwArea(book) {
         const da = book.geo.da;
-        const total = da.h - BUBBLE_H;
-        const bubbleY = da.y + da.h - BUBBLE_H + 12;
-        if (n < 2) return { halves: [{ x: da.x, y: da.y, w: da.w, h: total }], ruleY: null, bubbleY };
-        const halfH = (total - RULE_GAP) / 2;
-        return {
-            halves: [{ x: da.x, y: da.y, w: da.w, h: halfH },
-                     { x: da.x, y: da.y + halfH + RULE_GAP, w: da.w, h: halfH }],
-            ruleY: da.y + halfH + RULE_GAP / 2,
-            bubbleY,
-        };
+        return { half: { x: da.x, y: da.y, w: da.w, h: da.h - BUBBLE_H },
+                 bubbleY: da.y + da.h - BUBBLE_H + 12 };
     }
 
     // ---- the facts ----------------------------------------------------------
@@ -553,9 +548,10 @@ class _BinderWiring {
         const wallRoomW = Math.max(80, availW - 2 * railRoom);
         const spec = { measure: (area) => this._bMap(book, layer, view, area, GUT) };
         const foot = FOOT_PAD + (facts.stubs.length > facts.wires.length ? FOOT_LINE : 0);
-        // The room over the wall's head and under its foot: the head word's
-        // strip and the air before the blocks, plus a lane apiece for the
-        // runs that have to travel along one.
+        // The room over the wall's head and under its foot: the air before
+        // the blocks, plus a lane apiece for the runs that have to travel
+        // along one. The wall takes what is left of the side's own area -
+        // its height is read from that area and bounded by nothing else.
         const wallAt = (nRows, head, band) => {
             const boxesH = nRows ? nRows * BOX_H + (nRows - 1) * ROW_GAP : 0;
             const roomH = Math.max(40, A.h / K - head - band - boxesH - foot);
@@ -564,14 +560,14 @@ class _BinderWiring {
             const probe = this._bMeasureMap(book, spec, room);
             const h = probe ? probe.area.h : 0;
             const mapArea = { ...room, y: room.y + Math.max(0, (roomH * K - h) / 2), h: Math.max(1, h) };
-            return { mapArea, geo: this._bMeasureMap(book, spec, mapArea), roomH };
+            return { mapArea, geo: this._bMeasureMap(book, spec, mapArea), roomH, room };
         };
 
         // pass one in the facts' own order, only to learn how many rows the
         // blocks take; then the order the runs ask for, and the wall again
         // if that changed the count
         let rows = pack(devices);
-        let head = HEAD, band = BAND_GAP;
+        let head = 0, band = BAND_GAP;
         let W = wallAt(rows.length, head, band);
         const discOf = new Map();
         const rule = this._bwDiscRule(layer, side);
@@ -586,8 +582,19 @@ class _BinderWiring {
             return ws.reduce((s, w) => s + (discOf.get(w.stub) || { x: 0 }).x, 0) / ws.length;
         };
         const rank = new Map(devices.map((d, i) => [d.key, i]));
-        const order = devices.slice().sort((a, b) =>
-            (meanOf(a.key) - meanOf(b.key)) || (rank.get(a.key) - rank.get(b.key)));
+        // Two breakouts whose circuits stand in the same column of the wall
+        // have all but the same mean, and the tie-break only ever fired on an
+        // EXACT tie - so rounding decided the order. On Experts Only's
+        // SR - MAIN, SR1 and SR2 share the right column: with the title
+        // block on they came out SR1 SR2, with it off SR2 SR1, from nothing
+        // but the sheet's width moving the discs a fraction of a unit. Means
+        // closer than a disc's own radius are one column, and the facts'
+        // order settles it the same way every time.
+        const TIE = SOCK * K;
+        const order = devices.slice().sort((a, b) => {
+            const d = meanOf(a.key) - meanOf(b.key);
+            return Math.abs(d) < TIE ? (rank.get(a.key) - rank.get(b.key)) : d;
+        });
         const rows2 = pack(order);
         if (rows2.length !== rows.length) { W = wallAt(rows2.length, head, band); placeDiscs(W.geo); }
         rows = rows2;
@@ -820,7 +827,7 @@ class _BinderWiring {
         // one of them and send that run round the top instead.
         const est = draw(new Map(), null, W);
         if (est.over || est.under) {
-            head = HEAD + (est.over ? (est.over + 2) * LANE_STEP : 0);
+            head = est.over ? (est.over + 2) * LANE_STEP : 0;
             band = Math.max(BAND_GAP, (est.under + 2) * LANE_STEP);
             W = wallAt(rows.length, head, band);
             placeDiscs(W.geo);
@@ -829,7 +836,7 @@ class _BinderWiring {
         const wall = geo ? geo.wall : { x: A.x, y: W.mapArea.y, w: A.w, h: 0 };
         const first = draw(new Map(), null, W);
         const unplaced = facts.stubs.length - facts.wires.length;
-        return { side, view, K, A, mapArea: W.mapArea, geo, wall, printer, isData,
+        return { side, view, K, A, mapArea: W.mapArea, wallRoom: W.room, geo, wall, printer, isData,
                  blocks, discs: first.discs, runs: first.runs, room: first.room,
                  redraw: (placed, letters) => draw(placed, letters, W),
                  rows: nRows, pitch: fit * K,
@@ -964,9 +971,7 @@ class _BinderWiring {
         const K = P.K;
         const A = P.A;
         const printer = P.printer;
-        // the head word
-        this._bText(book, P.side === 'signal' ? 'SIGNAL' : 'POWER', A.x, A.y + (HEAD - 6) * K,
-                    { size: HEAD_SZ * K, weight: 700, color: MUTED });
+        // no head word over the wall: the sheet's own title names the side
         // the wall - the same render, painted now, its own discs on it and
         // noted as they go, so the runs leave the discs that are really there
         const painted = this._bwPaintMap(book, layer, P.view, P.mapArea);
@@ -985,6 +990,8 @@ class _BinderWiring {
         }
         const log = book.log && book.page && book.page.painting ? {
             side: P.side, scale: K, rows: P.rows, pitch: P.pitch,
+            area: { x: A.x, y: A.y, w: A.w, h: A.h },
+            wallRoom: P.wallRoom ? { x: P.wallRoom.x, y: P.wallRoom.y, w: P.wallRoom.w, h: P.wallRoom.h } : null,
             map: geo ? { x: geo.wall.x, y: geo.wall.y, w: geo.wall.w, h: geo.wall.h,
                          zoom: geo.zoom, area: geo.area } : null,
             room: P.room || null,

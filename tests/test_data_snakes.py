@@ -44,6 +44,7 @@ any other):
 
 import json
 import os
+import re
 import sys
 
 import pytest
@@ -611,10 +612,10 @@ def _served(page, ids, want, timeout_ms=4000):
 
 def test_the_sweep_lights_chips_and_a_right_click_snakes_them(page):
     """Alt+drag across the box's chips 1-6: the six light, the grid opens
-    its bracket lane and a dashed ghost says "snake · 6-way". Right-click
+    its bracket lane and a dashed ghost says "6 channel snake". Right-click
     a lit chip: "Snake these 6 (Alt+Enter)" and "Set home run…" - no Unsnake,
     nothing is in a snake yet. Take it: ONE 'Snake Ports' entry, the store
-    holds SNAKE A on 1-6, the bracket wears "SNAKE A · 6-way", the server
+    holds SNAKE A on 1-6, the bracket wears "SNAKE A · 6 channel", the server
     has it, and undo loosens the lot; redo brings it back."""
     pg, ids = page
     st = pg.evaluate(STATE_JS, ids)
@@ -625,7 +626,7 @@ def test_the_sweep_lights_chips_and_a_right_click_snakes_them(page):
     assert tray['lit'] == [1, 2, 3, 4, 5, 6], tray
     assert tray['snaked'] and tray['brackets'], tray
     assert tray['brackets'][0]['ghost'] and tray['brackets'][0]['tag'] \
-        == 'snake · 6-way', tray
+        == '6 channel snake', tray
     x, y = _chip_center(pg, ids['cardId'], 6)
     menu = _right_click(pg, x, y)
     assert [i['action'] for i in menu['items']] == [
@@ -642,7 +643,7 @@ def test_the_sweep_lights_chips_and_a_right_click_snakes_them(page):
     assert st['action'] == 'Snake Ports' and st['index'] == index + 1, st
     tray = pg.evaluate(TRAY_JS, ['cvt', ids['boxId']])
     assert tray['lit'] == [], 'the snake takes the selection with it'
-    assert [b['tag'] for b in tray['brackets']] == ['SNAKE A · 6-way'], tray
+    assert [b['tag'] for b in tray['brackets']] == ['SNAKE A · 6 channel'], tray
     assert not tray['brackets'][0]['ghost'] and tray['brackets'][0]['width'] > 300
     assert tray['corners'] == {str(n): None for n in range(1, 9)}, tray
     served = _served(pg, ids, lambda s: bool(s['boxSnakes']))
@@ -727,7 +728,7 @@ def test_the_sweep_crosses_to_another_card_and_escape_clears(page):
         assert other['lit'] == [1], other
         ghosts = [b['tag'] for b in tray['brackets'] if b['ghost']] \
             + [b['tag'] for b in other['brackets'] if b['ghost']]
-        assert ghosts == ['snake · 3-way ↔', 'snake · 3-way ↔'], (
+        assert ghosts == ['3 channel snake ↔', '3 channel snake ↔'], (
             tray['brackets'], other['brackets'])
         pg.keyboard.press('Escape')
         pg.wait_for_timeout(200)
@@ -853,7 +854,7 @@ def test_the_sheet_ticks_and_snakes_and_undo_loosens(page):
     sheet = pg.evaluate(SHEET_JS, ['card', cid])
     kinds = [(r['kind'], r['label']) for r in sheet['rows']]
     assert kinds[:2] == [('free', '9 · SR-9'), ('free', '10 · SR-10')], kinds
-    assert kinds[2] == ('snake', 'SNAKE B · 3-way'), kinds
+    assert kinds[2] == ('snake', 'SNAKE B · 3 channel'), kinds
     assert kinds[3:6] == [('member', '11 · SR-11'), ('member', '12 · SR-12'),
                           ('member', '13 · SR-13')], kinds
     # a member row carries its extension field, blank, keyed like a loose
@@ -904,7 +905,7 @@ def test_rename_and_home_run_commit_one_entry_each(page):
     plug - the data sheet asks none). FOH is 'Rename Snake', 100 is 'Set
     Snake Home Run' - one entry each; a plug set on the snake through the
     model (setSnake, 'Set Snake Home Run') is served and kept - and the
-    bracket's tag follows: "FOH · 6-way · 100'"."""
+    bracket's tag follows: "FOH · 6 channel snake · 100'"."""
     pg, ids = page
     bid = ids['boxId']
     snake_id = pg.evaluate(STATE_JS, ids)['box']['ids'][0]
@@ -953,7 +954,7 @@ def test_rename_and_home_run_commit_one_entry_each(page):
         'id': snake_id, 'name': 'FOH', 'ft': 100, 'connector': 'cat',
         'ports': [1, 2, 3, 4, 5, 6]}, served
     tray = _sheet_open(pg, 'cvt', bid, False)
-    assert [b['tag'] for b in tray['brackets']] == ["FOH · 6-way · 100'"], tray
+    assert [b['tag'] for b in tray['brackets']] == ["FOH · 6 channel snake · 100'"], tray
 
 
 def test_a_port_cleared_from_its_screen_keeps_its_snake(page):
@@ -1069,7 +1070,7 @@ def test_an_extension_reads_on_the_corner_the_tag_and_survives_loosen(page):
     tray = pg.evaluate(TRAY_JS, ['cvt', bid])
     assert tray['corners'] == {'1': None, '2': None, '3': "+25'", '4': None,
                                '5': None, '6': None, '7': None, '8': None}, tray
-    assert [b['tag'] for b in tray['brackets']] == ["FOH · 6-way · 100'"], (
+    assert [b['tag'] for b in tray['brackets']] == ["FOH · 6 channel snake · 100'"], (
         'the bracket tag is the snake\'s alone')
     reading = pg.evaluate("""(ids) => {
         const app = window.app;
@@ -1183,7 +1184,7 @@ def test_unsnake_from_the_bracket_menu_and_from_lit_chips(page):
     assert st['box']['snakes'][0]['ports'] == [1, 2, 3, 4], st
     assert st['action'] == 'Unsnake' and st['index'] == index + 1, st
     tray = pg.evaluate(TRAY_JS, ['cvt', bid])
-    assert [b['tag'] for b in tray['brackets']] == ["FOH · 4-way · 100'"], tray
+    assert [b['tag'] for b in tray['brackets']] == ["FOH · 4 channel snake · 100'"], tray
     # "Set home run…" on a fresh selection snakes it and lands on its ft
     _alt_sweep(pg, ids['cardId'], 7, 8)
     x, y = _chip_center(pg, ids['cardId'], 8)
@@ -1767,7 +1768,7 @@ def test_the_home_run_column_lines_up_and_a_snake_keeps_its_members(page):
     - [word | input | ft] - so every input's left edge and every "ft" sit
     on one x, whatever the row is. And the snake keeps its members: a
     snake over the box's 5-8 with screens on 5 and 6 only lists FOUR
-    member rows and reads "4-way"; the free ones say "free" in the SCREEN
+    member rows and reads "4 channel"; the free ones say "free" in the SCREEN
     cell, which is that cell's word for an empty socket - never a row
     kind."""
     pg, ids = page
@@ -1790,12 +1791,12 @@ def test_the_home_run_column_lines_up_and_a_snake_keeps_its_members(page):
         rows = pg.evaluate(RUN_COLUMN_JS, ['cvt', ids['boxId']])
         print('\nhome run column:', json.dumps(rows))
         # the snake's row, then its four members - the count and the rows
-        # agree, and every snake on the sheet says as many ways as it has
+        # agree, and every snake on the sheet says as many channels as it has
         # rows under it
         at = [i for i, r in enumerate(rows) if r['snakeRow'] == made]
         assert len(at) == 1, (made, rows)
         head = rows[at[0]]
-        assert '4-way' in head['label'], head
+        assert '· 4 channel' in head['label'] and '-way' not in head['label'], head
         assert head['word'] == '', head
         members = []
         for r in rows[at[0] + 1:]:
@@ -1825,7 +1826,7 @@ def test_the_home_run_column_lines_up_and_a_snake_keeps_its_members(page):
             if r['away']:
                 for part in r['away'].lstrip(' +').split(';'):
                     away += len(part.split(' on ')[0].split(','))
-            assert f'{n + away}-way' in r['label'], (r, rows)
+            assert f'· {n + away} channel' in r['label'] and '-way' not in r['label'], (r, rows)
         # one x for every input, one for every "ft"
         xs = [r['ftX'] for r in rows if r['ftX'] is not None]
         us = [r['unitX'] for r in rows if r['unitX'] is not None]
@@ -1851,3 +1852,40 @@ def test_the_home_run_column_lines_up_and_a_snake_keeps_its_members(page):
         }""", {'pid': ids['procId'], 'box': ids['boxId'], 'was': was})
         pg.wait_for_timeout(700)
         _sheet_open(pg, 'cvt', ids['boxId'], False)
+
+
+def test_a_snake_is_n_channel_never_n_way_and_says_snake_once(page):
+    """"dont call it 4 way. call it 4 channel snake if it is 4 channel"
+    (2026-09-12), and "Snake A if that's what it's named is going to have
+    it written twice": a snake's size is its CHANNELS, and the word snake
+    is written exactly once in the tag. A name that already says it as a
+    whole word ("SNAKE A", "Snake 2", "SR snake") reads "N channel"; any
+    other name ("SR A", and "SNAKEPIT", which is not the word) reads "N
+    channel snake". One channel is "1 channel", no plural. The count is
+    the whole snake's members, and no tag ever contains "-way"."""
+    pg, _ids = page
+    tags = pg.evaluate("""() => {
+        const app = window.app;
+        const s = (name, n, ft) => ({ name, ft, members: Array.from({length: n}, (_, i) => ({socket: i + 1})) });
+        return [
+            app.snakeTagText(s('SNAKE A', 4, 100)),
+            app.snakeTagText(s('Snake 2', 6, null)),
+            app.snakeTagText(s('SR snake', 2, 50)),
+            app.snakeTagText(s('SR A', 4, 150)),
+            app.snakeTagText(s('SNAKEPIT', 1, null)),
+            app.snakeTagText(s('SR A', 1, 150), false),
+            app.snakeTagText(s('SNAKE B', 3, 100), false),
+        ];
+    }""")
+    assert tags == [
+        "SNAKE A · 4 channel · 100'",
+        'Snake 2 · 6 channel',
+        "SR snake · 2 channel · 50'",
+        "SR A · 4 channel snake · 150'",
+        'SNAKEPIT · 1 channel snake',
+        'SR A · 1 channel snake',
+        'SNAKE B · 3 channel',
+    ], tags
+    for t in tags:
+        assert '-way' not in t and 'channels' not in t, t
+        assert len(re.findall(r'(?<![a-z0-9])snake(?![a-z0-9])', t, re.I)) == 1, t

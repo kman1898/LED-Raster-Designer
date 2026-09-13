@@ -53,7 +53,8 @@ pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 # upstage wall. Experts Only is the show test_binder.py already smokes.
 KELLY_FIXTURE = os.environ.get('LRD_KELLY_LIVE_JSON') or os.path.join(
     os.path.dirname(SCRATCH_FIXTURE), 'kelly-live-fixture.json')
-EXPERTS_FIXTURE = SCRATCH_FIXTURE
+# The user's own save, "2026 Experts Only.json", where it is given.
+EXPERTS_FIXTURE = os.environ.get('LRD_EXPERTS_JSON') or SCRATCH_FIXTURE
 FIXTURES = {'kelly': KELLY_FIXTURE, 'experts only': EXPERTS_FIXTURE}
 
 # The whole set, both sides, every extra sheet on.
@@ -341,3 +342,238 @@ def test_the_sheets_are_the_sheet_size(shows):
             for op in page['texts']:
                 assert -1 <= op['x'] <= W + 1 and -1 <= op['y'] <= H + 1, (
                     nm, page['title'], op)
+
+
+
+# ── 5. a backup unit is its own section ──────────────────────────────────
+#
+# "this doesn't really differentiate between CVT A and B. They should be
+# different sections as if it was a second cvt, since it is" (2026-09-12,
+# Experts Only rev 1.1, SR - MAIN - DATA). Every unit that carries a port -
+# a backup box or card exactly as a primary one - is its own band, with its
+# own snake heading and its own rows. The pairing is said from both sides
+# ("backup SR B-1" / "backs up SR A-1"); PANELS and PX are counted once, on
+# the primary's row, so a total down PX is never doubled; HOME RUN on a row
+# is that end's own extension; the backup's section follows its primary's.
+
+def _ports_table(page):
+    """The Ports table of a data sheet, read off its text ops: a list of
+    sections {band, groups: [{head, rows}]}, a row being a dict keyed by the
+    column headings. The band is drawn at the PORT column's x, a snake
+    heading indented past it, and a row puts a cell under every heading."""
+    texts = page['texts']
+    port = next(o for o in texts if o['t'] == 'PORT')
+    heads = [o for o in texts if abs(o['y'] - port['y']) < 0.5
+             and o['t'] in ('PORT', 'PRIMARY', 'BACKUP', 'PANELS', 'PX', 'HOME RUN')]
+    assert [h['t'] for h in heads] == ['PORT', 'PRIMARY', 'BACKUP', 'PANELS', 'PX', 'HOME RUN'], heads
+    xs = {round(h['x'], 1): h['t'] for h in heads}
+    # the next table's column starts where its own headings do, on the
+    # same line as these
+    last = max(h['x'] for h in heads)
+    right = min([o['x'] for o in texts if o['x'] > last + 1 and (
+                     abs(o['y'] - port['y']) < 0.5 or o['t'] in ('CABLES THIS SCREEN', 'FACTS'))]
+                + [float('inf')])
+    # the table's own ops: below the headings, left of the next column's
+    ops = [o for o in texts if o['y'] > port['y'] + 1 and port['x'] - 1 <= o['x'] < right]
+    stop = next((o['y'] for o in sorted(texts, key=lambda o: o['y'])
+                 if o['y'] > port['y'] and o['x'] < right
+                 and o['t'] in ('CABLES THIS SCREEN', 'FACTS')), None)
+    if stop is not None:
+        ops = [o for o in ops if o['y'] < stop]
+    lines = {}
+    for o in ops:
+        lines.setdefault(round(o['y'], 1), []).append(o)
+    sections = []
+    for y in sorted(lines):
+        line = sorted(lines[y], key=lambda o: o['x'])
+        cells = {xs.get(round(o['x'], 1)): o['t'] for o in line}
+        if len(line) == 1 and None not in cells and len(cells) == 1 and 'PORT' in cells:
+            sections.append({'band': line[0]['t'], 'groups': [{'head': None, 'rows': []}]})
+        elif len(line) == 1 and None in cells:
+            assert sections, (y, line)
+            sections[-1]['groups'].append({'head': line[0]['t'], 'rows': []})
+        else:
+            assert None not in cells and len(cells) == 6, ('a row puts a cell under every heading', line)
+            sections[-1]['groups'][-1]['rows'].append(cells)
+    for sec in sections:
+        sec['groups'] = [g for g in sec['groups'] if g['head'] or g['rows']]
+    return sections
+
+
+def _px(cell):
+    return int(cell.replace(',', ''))
+
+
+def _assert_two_sections(sections, a, b, a_head, b_head, a_runs, b_runs, panels, px):
+    """SR A's band, then SR B's, each with its own snake heading and its own
+    rows, the pairing said from both sides, the pixels counted once."""
+    bands = [s['band'] for s in sections]
+    ia = next(i for i, t in enumerate(bands) if t.startswith(f'CVT4K-S {a} · '))
+    ib = next(i for i, t in enumerate(bands) if t.startswith(f'CVT4K-S {b} · '))
+    assert ib == ia + 1, ('the backup section follows its primary', bands)
+    sa, sb = sections[ia], sections[ib]
+    assert [g['head'] for g in sa['groups']] == [a_head], sa
+    assert [g['head'] for g in sb['groups']] == [b_head], sb
+    ra, rb = sa['groups'][0]['rows'], sb['groups'][0]['rows']
+    n = len(a_runs)
+    assert [r['PORT'] for r in ra] == [f'{a}-{i}' for i in range(1, n + 1)], ra
+    assert [r['PRIMARY'] for r in ra] == [f'CVT4K-S {a} · {i}' for i in range(1, n + 1)], ra
+    assert [r['BACKUP'] for r in ra] == [f'backup {b}-{i}' for i in range(1, n + 1)], ra
+    assert [r['PANELS'] for r in ra] == panels, ra
+    assert [r['PX'] for r in ra] == px, ra
+    assert [r['HOME RUN'] for r in ra] == a_runs, ra
+    assert [r['PORT'] for r in rb] == [f'{b}-{i}' for i in range(1, n + 1)], rb
+    assert [r['PRIMARY'] for r in rb] == [f'CVT4K-S {b} · {i}' for i in range(1, n + 1)], rb
+    assert [r['BACKUP'] for r in rb] == [f'backs up {a}-{i}' for i in range(1, n + 1)], rb
+    assert [r['PANELS'] for r in rb] == ['—'] * n, rb
+    assert [r['PX'] for r in rb] == ['—'] * n, rb
+    assert [r['HOME RUN'] for r in rb] == b_runs, rb
+
+
+def _all_rows(sections):
+    return [r for s in sections for g in s['groups'] for r in g['rows']]
+
+
+def test_a_backup_box_is_its_own_section_on_experts_only(shows):
+    """The user's own show: one H9, per-card 1:1, Card 1's box SR A backed
+    by Card 3's box SR B. SR - MAIN's Ports table is the shape he chose -
+    SR A's band, its own snake, rows that say "backup SR B-n"; then SR B's
+    band, its own snake, rows that say "backs up SR A-n" with "—" for
+    PANELS and PX; each end's own extension on its own row. The same for
+    SL A / SL B on SL - MAIN. The PX column sums to the wall once."""
+    if 'experts only' not in shows:
+        pytest.skip('the Experts Only save is not present (LRD_EXPERTS_JSON)')
+    pages = {p['title']: p for p in shows['experts only']['pages']}
+    sr = _ports_table(pages['SR - MAIN - Data'])
+    _assert_two_sections(
+        sr, 'SR A', 'SR B', "SR A · 4 channel snake · 150'", "SR B · 4 channel snake · 100'",
+        ["+10'", '—', "+25'", "+25'"], ["+10'", '—', "+10'", "+75'"],
+        ['84', '84', '84', '56'], ['604,800', '604,800', '604,800', '403,200'])
+    assert sum(_px(r['PX']) for r in _all_rows(sr) if r['PX'] != '—') == 1680 * 1320
+    sl = _ports_table(pages['SL - MAIN - Data'])
+    _assert_two_sections(
+        sl, 'SL A', 'SL B', "SL A · 4 channel snake · 100'", "SL B · 4 channel snake · 150'",
+        ["+10'", '—', "+25'", "+25'"], ["+10'", '—', "+10'", "+100'"],
+        ['84', '84', '84', '56'], ['604,800', '604,800', '604,800', '403,200'])
+    # the loose return: SR - Return's one port, a cable at each end
+    ret = _ports_table(pages['SR - Return - Data'])
+    assert [s['band'].split(' · ')[0] for s in ret] == ['CVT4K-S SR A', 'CVT4K-S SR B'], ret
+    (a5,), (b5,) = [_all_rows([s]) for s in ret]
+    assert (a5['PORT'], a5['BACKUP'], b5['PORT'], b5['BACKUP']) == (
+        'SR A-5', 'backup SR B-5', 'SR B-5', 'backs up SR A-5'), ret
+    assert b5['PANELS'] == '—' and b5['PX'] == '—' and a5['PX'] != '—', ret
+    # no heading anywhere names the other end's snake
+    for page in shows['experts only']['pages']:
+        if page['kind'] != 'data':
+            continue
+        for sec in _ports_table(page):
+            for g in sec['groups']:
+                assert not g['head'] or (' / ' not in g['head'] and not g['head'].startswith('backup ')
+                                         and 'both ends' not in g['head']), (page['title'], g['head'])
+
+
+# The suite's own show, so the rule runs where the user's save is absent: a
+# 28 x 11 wall of 60 x 120 panels (four ports: 84, 84, 84, 56 panels) on
+# one H9, card 1's CVT4K-S "SR A" backed 1:1 by card 2's CVT4K-S "SR B",
+# each box's sockets 1-4 on its own snake with extensions where the user's
+# show has them; and a second wall on a card in HALVES mode, whose returns
+# come back on the same card - one unit, one section.
+SEED_BACKUP_JS = """async () => {
+    const app = window.app;
+    const j = (method, url, body) => fetch(url, {method,
+        headers: {'Content-Type': 'application/json'},
+        body: body === undefined ? undefined : JSON.stringify(body)}).then(r => r.json());
+    const proj = await j('GET', '/api/project');
+    proj.layers = []; proj.groups = []; proj.processors = []; proj.distros = [];
+    delete proj.port_assignments; delete proj.pullSheet; delete proj.binder; delete proj.snakes;
+    await j('PUT', '/api/project', proj);
+    await j('POST', '/api/layer/add', {name: 'MAIN', columns: 28, rows: 11, cabinet_width: 60, cabinet_height: 120,
+            powerVoltage: 208, powerAmperage: 20, panelWatts: 100, flowPattern: 'tl-h',
+            processorType: 'novastar-armor'});
+    await j('POST', '/api/layer/add', {name: 'SOLO', columns: 10, rows: 5, cabinet_width: 100, cabinet_height: 100,
+            powerVoltage: 208, powerAmperage: 20, panelWatts: 100, flowPattern: 'tl-h',
+            processorType: 'novastar-armor', offset_x: 2000});
+    let st = await j('POST', '/api/processors', {deviceId: 'novastar-h9'});
+    const pid = st.processors[0].id;
+    const card = 'novastar-card-h-16xrj45-2xfiber';
+    await j('PUT', `/api/processors/${pid}/slots/0`, {deviceId: card});
+    await j('PUT', `/api/processors/${pid}/slots/1`, {deviceId: card});
+    st = await j('PUT', `/api/processors/${pid}/slots/2`, {deviceId: 'novastar-card-h-20xrj45'});
+    const [c1, c2, c3] = st.processors[0].slots.slice(0, 3).map(s => s.card.id);
+    st = await j('POST', `/api/processors/${pid}/cards/${c1}/cvts`, {deviceId: 'novastar-cvt4k-s', pair: false});
+    const boxA = st.processors[0].slots[0].card.cvts[0].id;
+    st = await j('POST', `/api/processors/${pid}/cards/${c2}/cvts`, {deviceId: 'novastar-cvt4k-s', pair: false});
+    const boxB = st.processors[0].slots[1].card.cvts[0].id;
+    await j('PUT', `/api/processors/${pid}/cvts/${boxA}`, {name: 'SR A'});
+    await j('PUT', `/api/processors/${pid}/cvts/${boxB}`, {name: 'SR B'});
+    await j('PUT', `/api/processors/${pid}/cards/${c3}`, {name: 'SOLO'});
+    await j('PUT', `/api/processors/${pid}`, {redundancy: true});
+    await j('PUT', `/api/processors/${pid}/cards/${c1}`, {backupCardId: c2});
+    await j('PUT', `/api/processors/${pid}/cards/${c3}`, {redundancyMode: 'halves'});
+    let p = await j('GET', '/api/project');
+    app.project = p;
+    app.dedupeProjectLayers('binder_tables_seed');
+    const main = app.project.layers.find(l => l.name === 'MAIN');
+    const solo = app.project.layers.find(l => l.name === 'SOLO');
+    app.selectLayer(main);
+    await app.refreshProcessors();
+    await app._assignmentRequest('/api/port-assignments/place-overflow', 'POST', {layerId: String(main.id), cardId: c1});
+    await app._assignmentRequest('/api/port-assignments/place-overflow', 'POST', {layerId: String(solo.id), cardId: c3});
+    await j('PUT', `/api/processors/${pid}/cvts/${boxA}`,
+            {snakes: [{ports: [1, 2, 3, 4], ft: 150, name: 'SR A'}],
+             portCables: {'1': {ft: 10}, '3': {ft: 25}, '4': {ft: 25}}});
+    await j('PUT', `/api/processors/${pid}/cvts/${boxB}`,
+            {snakes: [{ports: [1, 2, 3, 4], ft: 100, name: 'SR B'}],
+             portCables: {'1': {ft: 10}, '3': {ft: 10}, '4': {ft: 75}}});
+    await app.refreshProcessors();
+    await app.refreshPortAssignment();
+    return await j('GET', '/api/project');
+}"""
+
+
+@pytest.fixture(scope="module")
+def seeded(e2e_server, pw_browser):
+    """The suite's own backup show, every sheet rendered once."""
+    context = pw_browser.new_context(viewport={'width': 1700, 'height': 950})
+    context.add_init_script(
+        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+    pg = context.new_page()
+    errors = []
+    pg.on('pageerror', lambda e: errors.append(str(e)))
+    pg.goto(e2e_server, wait_until='domcontentloaded')
+    pg.wait_for_timeout(2000)
+    project = pg.evaluate(SEED_BACKUP_JS)
+    out = pg.evaluate(SHEETS_JS, [project, OPTS])
+    assert not errors, errors[:3]
+    yield {p['title']: p for p in out['pages']}
+    context.close()
+
+
+def test_a_backup_box_is_its_own_section(seeded):
+    """The rule on the suite's own show: two sections, SR B's after SR A's,
+    each snake heading its own, the pairing from both sides, PANELS and PX
+    "—" on the backup's rows and summing to the wall once, each end's own
+    extension on its own row."""
+    sections = _ports_table(seeded['MAIN - Data'])
+    assert len(sections) == 2, sections
+    _assert_two_sections(
+        sections, 'SR A', 'SR B', "SR A · 4 channel snake · 150'", "SR B · 4 channel snake · 100'",
+        ["+10'", '—', "+25'", "+25'"], ["+10'", '—', "+10'", "+75'"],
+        ['84', '84', '84', '56'], ['604,800', '604,800', '604,800', '403,200'])
+    rows = _all_rows(sections)
+    assert sum(_px(r['PX']) for r in rows if r['PX'] != '—') == 28 * 60 * 11 * 120
+    assert sum(int(r['PANELS']) for r in rows if r['PANELS'] != '—') == 28 * 11
+
+
+def test_a_same_unit_pairing_is_one_section(seeded):
+    """A card in HALVES mode returns each port on its own other half: the
+    primary and the return are ONE unit, so the sheet has one section - no
+    second band is invented - and every row counts its own pixels."""
+    sections = _ports_table(seeded['SOLO - Data'])
+    assert len(sections) == 1, sections
+    rows = _all_rows(sections)
+    assert rows and all(r['PANELS'] != '—' and r['PX'] != '—' for r in rows), rows
+    # every port has its return - on the same card, SOLO's other half
+    assert all(r['BACKUP'] != '—' and 'SOLO' in r['BACKUP'] for r in rows), rows
+    assert not [r for r in rows if r['BACKUP'].startswith('backs up')], rows
+    assert sum(_px(r['PX']) for r in rows) == 10 * 100 * 5 * 100

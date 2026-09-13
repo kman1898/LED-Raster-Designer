@@ -1608,23 +1608,39 @@ class _Processors {
     }
 
     // The snake's tag as the bracket and the sheet print it:
-    // "SNAKE A · 6-way · 100'". WAYS IS THE WHOLE SNAKE - every member on
-    // every device - because a snake is one loom whatever it is read from:
-    // an 8-way spanning a card and its backup box says "8-way" on both
-    // sheets, and each sheet names the members it cannot show ("+ B-1,
-    // B-2 on CVT4K-S SR B" - snakeElsewhere) so the number and the rows
-    // never disagree.
+    // "SNAKE A · 6 channel · 100'". CHANNELS ARE THE WHOLE SNAKE - every
+    // member on every device - because a snake is one loom whatever it is
+    // read from: an 8 channel snake spanning a card and its backup box
+    // says "8 channel" on both sheets, and each sheet names the members
+    // it cannot show ("+ B-1, B-2 on CVT4K-S SR B" - snakeElsewhere) so
+    // the number and the rows never disagree.
     //
     // `ways` still overrides the count for a reader that has its own
     // answer.
     snakeTagText(snake, withFt = true, ways = null) {
         if (ways == null) ways = (snake.members || []).length;
-        let text = `${snake.name || 'snake'} · ${ways}-way`;
+        const name = snake.name || 'snake';
+        let text = `${name} · ${this.snakeSizeText(name, ways)}`;
         const ft = Number(snake.ft);
         if (withFt && Number.isFinite(ft) && ft > 0) {
             text += ` · ${this.cableText(ft, '')}`;
         }
         return text;
+    }
+
+    // A snake's SIZE, the one place it is worded: "4 channel snake" - "dont
+    // call it 4 way. call it 4 channel snake if it is 4 channel"
+    // (2026-09-12). The word snake is written once in whatever it is
+    // printed beside: where `beside` (the snake's name, or whatever else
+    // the reading already prints) already says it as a whole word - "SNAKE
+    // A", "Snake 2", "SR snake" - the size is "4 channel" ("Snake A if
+    // that's what it's named is going to have it written twice"). A word
+    // that merely starts with it ("SNAKEPIT") is not the word. One channel
+    // is "1 channel". Snakes only: a multi's fan and a distro's holes are
+    // power sizing and never read through here.
+    snakeSizeText(beside, channels) {
+        const says = /(^|[^a-z0-9])snake(?![a-z0-9])/i.test(String(beside || ''));
+        return `${channels} channel${says ? '' : ' snake'}`;
     }
 
     // ---- writes: whole stores back through one PUT each -----------------

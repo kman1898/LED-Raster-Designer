@@ -113,7 +113,7 @@ def test_the_route_lays_the_list_into_the_workbook(client):
             {'type': 'Widget Cable', 'length': "12'", 'qty': 1, 'label': 'X', 'notes': 'new'},
         ]},
         {'name': 'CENTER', 'rows': [
-            {'type': 'Ether-con Snake', 'length': "100'", 'qty': 1, 'label': 'SNAKE A', 'notes': '6-way'},
+            {'type': 'Ether-con Snake', 'length': "100'", 'qty': 1, 'label': 'SNAKE A', 'notes': '6 channel'},
         ]},
     ]
     r = _post_sheet(client, positions, engineer='Eng Name', rev='2.0',
@@ -135,7 +135,7 @@ def test_the_route_lays_the_list_into_the_workbook(client):
         ['Widget Cable', "12'", 1, 'X', 'new'],
     ]
     assert ws.cell(10, 1).value is None
-    assert [ws.cell(7, c).value for c in range(7, 12)] == ['Ether-con Snake', "100'", 1, 'SNAKE A', '6-way']
+    assert [ws.cell(7, c).value for c in range(7, 12)] == ['Ether-con Snake', "100'", 1, 'SNAKE A', '6 channel']
     assert ws.cell(7, 13).value is None
     gear = wb['GEAR LIST']
     types = [gear.cell(r, 1).value for r in range(4, 100) if gear.cell(r, 1).value]
@@ -359,7 +359,7 @@ def test_positions_are_the_groups_and_the_rows_read_in_the_sheets_vocabulary(pag
     assert sr == [
         ('12 way', 'EA', 1, 'SR', ''),
         ('Data Jump', "6'", 4, 'WALL-A, WALL-B', ''),
-        ('Ether-con Snake', "100'", 1, 'SNAKE A', '2-way'),
+        ('Ether-con Snake', "100'", 1, 'SNAKE A', '2 channel'),
         ('Multi', "100'", 1, 'SR 2', ''),
         ('Multi', "125'", 1, 'SR 1', ''),
         ('Tru-1', "6'", 1, 'SR2-1', ''),
@@ -425,7 +425,7 @@ def test_the_per_screen_readings_the_packet_will_print(page):
         ('Tru-1 Breakout', 'EA', 2, 'SR 1-2', '')]
     proc_rows = next(v for (k, n), v in kinds.items() if k == 'processor')
     assert proc_rows == [('Ether-con', "50'", 1, ids['centerPortLabel'], ''),
-                         ('Ether-con Snake', "100'", 1, 'SNAKE A', '2-way')]
+                         ('Ether-con Snake', "100'", 1, 'SNAKE A', '2 channel')]
 
 
 def test_a_snaked_ports_extension_is_an_ether_con_row_with_notes(page):
@@ -471,7 +471,7 @@ def test_a_snaked_ports_extension_is_an_ether_con_row_with_notes(page):
     assert _rows(out['sr']) == [
         ('Ether-con', "25'", 1, out['aLabel'], 'ext · SNAKE A'),
         ('Ether-con Barrel', 'EA', 1, out['aLabel'], ''),
-        ('Ether-con Snake', "100'", 1, 'SNAKE A', '2-way')], out['sr']
+        ('Ether-con Snake', "100'", 1, 'SNAKE A', '2 channel')], out['sr']
     assert (out['port']['snake'], out['port']['ext'], out['port']['cable']) == ('SNAKE A', 25, None), out['port']
     assert ('Ether-con', "25'", 1, out['aLabel'], 'ext · SNAKE A') in _rows(out['hw'][0]), out['hw']
     assert ('Ether-con Barrel', 'EA', 1, out['aLabel'], '') in _rows(out['hw'][0]), out['hw']
@@ -479,7 +479,7 @@ def test_a_snaked_ports_extension_is_an_ether_con_row_with_notes(page):
     assert _rows(out['barrels']) == [('Ether-con Barrel', 'EA', 1, out['aLabel'], '')], out['barrels']
     # the loose home run: no barrel
     assert _rows(out['center']) == [('Ether-con', "50'", 1, ids['centerPortLabel'], '')], out['center']
-    assert _rows(out['after']) == [('Ether-con Snake', "100'", 1, 'SNAKE A', '2-way')]
+    assert _rows(out['after']) == [('Ether-con Snake', "100'", 1, 'SNAKE A', '2 channel')]
 
 
 def test_a_snake_of_two_with_two_extensions_is_two_barrels(page):
@@ -530,7 +530,7 @@ def test_a_snake_of_two_with_two_extensions_is_two_barrels(page):
             {'type': 'Ether-con', 'length': "10'", 'qty': 1, 'label': lb, 'notes': 'ext · SNAKE A', 'side': 'data'},
             {'type': 'Ether-con', 'length': "25'", 'qty': 1, 'label': la, 'notes': 'ext · SNAKE A', 'side': 'data'},
             {'type': 'Ether-con Barrel', 'length': 'EA', 'qty': 2, 'label': both, 'notes': '', 'side': 'data'},
-            {'type': 'Ether-con Snake', 'length': "100'", 'qty': 1, 'label': 'SNAKE A', 'notes': '2-way', 'side': 'data'}]],
+            {'type': 'Ether-con Snake', 'length': "100'", 'qty': 1, 'label': 'SNAKE A', 'notes': '2 channel', 'side': 'data'}]],
         ['CENTER', [
             {'type': 'Ether-con', 'length': "50'", 'qty': 1, 'label': ids['centerPortLabel'], 'notes': '', 'side': 'data'}]],
     ], out['positions']
@@ -540,12 +540,12 @@ def test_a_snake_of_two_with_two_extensions_is_two_barrels(page):
         ('Ether-con', "25'", 1, la, 'ext · SNAKE A'),
         ('Ether-con', "50'", 1, ids['centerPortLabel'], ''),
         ('Ether-con Barrel', 'EA', 2, both, ''),
-        ('Ether-con Snake', "100'", 1, 'SNAKE A', '2-way')], out['totals']
+        ('Ether-con Snake', "100'", 1, 'SNAKE A', '2 channel')], out['totals']
     # each screen's own share: one barrel each, under its own label
     assert [r for r in _rows(out['byScreen'][0]) if r[0] == 'Ether-con Barrel'] == [('Ether-con Barrel', 'EA', 1, la, '')]
     assert [r for r in _rows(out['byScreen'][1]) if r[0] == 'Ether-con Barrel'] == [('Ether-con Barrel', 'EA', 1, lb, '')]
     assert out['after'] == [
-        ['SR Beach', [{'type': 'Ether-con Snake', 'length': "100'", 'qty': 1, 'label': 'SNAKE A', 'notes': '2-way', 'side': 'data'}]],
+        ['SR Beach', [{'type': 'Ether-con Snake', 'length': "100'", 'qty': 1, 'label': 'SNAKE A', 'notes': '2 channel', 'side': 'data'}]],
         ['CENTER', [{'type': 'Ether-con', 'length': "50'", 'qty': 1, 'label': ids['centerPortLabel'], 'notes': '', 'side': 'data'}]]], out['after']
     assert out['afterTotals'] == []
 
@@ -626,7 +626,7 @@ def test_a_backup_end_is_walked_like_the_primary_under_the_return_label(page):
     ws = wb['Pull Sheet']
     col = pull_sheet.BLOCK_COLS[0]
     block = [tuple(ws.cell(r, col + i).value for i in range(5)) for r in range(7, 30)]
-    assert ('Ether-con Snake', "150'", 1, 'SR Backup', '2-way') in block, block
+    assert ('Ether-con Snake', "150'", 1, 'SR Backup', '2 channel') in block, block
     assert ('Ether-con', "10'", 1, out['labels']['a'], 'ext · SR Backup') in block, block
     assert ('Ether-con Barrel', 'EA', 1, out['labels']['a'], None) in block, block
     col = pull_sheet.BLOCK_COLS[1]
@@ -639,8 +639,8 @@ def test_a_backup_end_is_walked_like_the_primary_under_the_return_label(page):
     assert _rows(out['sr']) == [
         ('Ether-con', "10'", 1, la, 'ext · SR Backup'),
         ('Ether-con Barrel', 'EA', 1, la, ''),
-        ('Ether-con Snake', "100'", 1, 'SNAKE A', '2-way'),
-        ('Ether-con Snake', "150'", 1, 'SR Backup', '2-way')], out['sr']
+        ('Ether-con Snake', "100'", 1, 'SNAKE A', '2 channel'),
+        ('Ether-con Snake', "150'", 1, 'SR Backup', '2 channel')], out['sr']
     assert _rows(out['center']) == [
         ('Ether-con', "50'", 1, ids['centerPortLabel'], ''),
         ('Ether-con', "60'", 1, lc, '')], out['center']
@@ -650,12 +650,12 @@ def test_a_backup_end_is_walked_like_the_primary_under_the_return_label(page):
     hw = _rows(out['hw'])
     for want in (('Ether-con', "10'", 1, la, 'ext · SR Backup'), ('Ether-con', "60'", 1, lc, ''),
                  ('Ether-con Barrel', 'EA', 1, la, ''),
-                 ('Ether-con Snake', "150'", 1, 'SR Backup', '2-way')):
+                 ('Ether-con Snake', "150'", 1, 'SR Backup', '2 channel')):
         assert want in hw, (want, hw)
     assert out['totals'] == [['Ether-con', "10'", 1], ['Ether-con', "50'", 1], ['Ether-con', "60'", 1],
                              ['Ether-con Barrel', 'EA', 1],
                              ['Ether-con Snake', "100'", 1], ['Ether-con Snake', "150'", 1]], out['totals']
-    assert out['after'] == [['SR Beach', [{'type': 'Ether-con Snake', 'length': "100'", 'qty': 1, 'label': 'SNAKE A', 'notes': '2-way', 'side': 'data'}]],
+    assert out['after'] == [['SR Beach', [{'type': 'Ether-con Snake', 'length': "100'", 'qty': 1, 'label': 'SNAKE A', 'notes': '2 channel', 'side': 'data'}]],
                             ['CENTER', [{'type': 'Ether-con', 'length': "50'", 'qty': 1, 'label': ids['centerPortLabel'], 'notes': '', 'side': 'data'}]]], out['after']
 
 
@@ -777,7 +777,7 @@ def test_a_boxs_fiber_is_one_row_and_the_workbook_writes_it(page):
     # location typed).
     assert out['typed'] == [['SR Beach', [['12 Tac Fiber', "250'", 1, 'CVT4K-S SR', ''],
                                           ['CVT4K-S', 'EA', 1, 'SR', ''],
-                                          ['Ether-con Snake', "100'", 1, 'SNAKE A', '2-way']]],
+                                          ['Ether-con Snake', "100'", 1, 'SNAKE A', '2 channel']]],
                             ['CENTER', []]], out['typed']
     assert out['unmodelled'] == []
     assert out['boxes'] == [['CVT4K-S SR'], ['CVT4K-S SR'], ['CVT4K-S SR']]
@@ -792,10 +792,10 @@ def test_a_boxs_fiber_is_one_row_and_the_workbook_writes_it(page):
     rows = [tuple(ws.cell(r, col + i).value for i in range(4)) for r in range(7, 30)]
     assert ('12 Tac Fiber', "250'", 1, 'CVT4K-S SR') in rows, rows
     assert out['untyped'] == [['SR Beach', [['CVT4K-S', 'EA', 1, 'SR', ''],
-                                            ['Ether-con Snake', "100'", 1, 'SNAKE A', '2-way'],
+                                            ['Ether-con Snake', "100'", 1, 'SNAKE A', '2 channel'],
                                             ['Fiber', "250'", 1, 'CVT4K-S SR', '']]], ['CENTER', []]]
     assert out['noLength'] == [['SR Beach', [['CVT4K-S', 'EA', 1, 'SR', ''],
-                                             ['Ether-con Snake', "100'", 1, 'SNAKE A', '2-way']]],
+                                             ['Ether-con Snake', "100'", 1, 'SNAKE A', '2 channel']]],
                                ['CENTER', []]]
     # the box gone, CENTER's own cable reads again - and the snake that
     # followed the sockets onto the box went with the box
@@ -1012,8 +1012,8 @@ def test_smoke_experts_only(page):
         ('Ether-con', "25'", 2, 'SR A-3, SR A-4', 'ext · SR A'),
         ('Ether-con', "75'", 1, 'SR B-4', 'ext · SR B'),
         ('Ether-con Barrel', 'EA', 6, 'SR A-1, SR B-1, SR A-3, SR B-3, SR A-4, SR B-4', ''),
-        ('Ether-con Snake', "100'", 1, 'SR B', '4-way'),
-        ('Ether-con Snake', "150'", 1, 'SR A', '4-way'),
+        ('Ether-con Snake', "100'", 1, 'SR B', '4 channel'),
+        ('Ether-con Snake', "150'", 1, 'SR A', '4 channel'),
         ('Multi', "100'", 2, 'SR 2, 4', ''),
         ('Multi', "125'", 2, 'SR 1, 3', ''),
         ('Tru-1', "6'", 8, 'SR1-2, SR1-5, SR2-3, SR2-6, SR3-2, SR3-5, SR4-2, SR4-6', ''),
@@ -1047,8 +1047,8 @@ def test_smoke_experts_only(page):
         ('Ether-con', "25'", 2, 'SL A-3, SL A-4', 'ext · SL A'),
         ('Ether-con', "100'", 1, 'SL B-4', 'ext · SL B'),
         ('Ether-con Barrel', 'EA', 6, 'SL A-1, SL B-1, SL A-3, SL B-3, SL A-4, SL B-4', ''),
-        ('Ether-con Snake', "100'", 1, 'SL A', '4-way'),
-        ('Ether-con Snake', "150'", 1, 'SL B', '4-way'),
+        ('Ether-con Snake', "100'", 1, 'SL A', '4 channel'),
+        ('Ether-con Snake', "150'", 1, 'SL B', '4 channel'),
         ('Multi', "100'", 2, 'SL 2, 4', ''),
         ('Multi', "125'", 2, 'SL 1, 3', ''),
         ('Tru-1 Breakout', 'EA', 4, 'SL 1-4', ''),
@@ -1074,8 +1074,8 @@ def test_smoke_experts_only(page):
         ('Ether-con', "75'", 1, 'SR B-4', 'ext · SR B'),
         ('Ether-con', "100'", 3, 'SR A-5, SL B-4, SL A-5', 'ext · SL B'),
         ('Ether-con Barrel', 'EA', 12, 'SR A-1 … SL B-4 (12)', ''),
-        ('Ether-con Snake', "100'", 2, 'SR B, SL A', '4-way'),
-        ('Ether-con Snake', "150'", 2, 'SR A, SL B', '4-way'),
+        ('Ether-con Snake', "100'", 2, 'SR B, SL A', '4 channel'),
+        ('Ether-con Snake', "150'", 2, 'SR A, SL B', '4 channel'),
         ('Multi', "100'", 4, 'SR 2, 4, SL 2, 4', ''),
         ('Multi', "125'", 6, 'SR 1, 3, 5, SL 1, 3, 5', ''),
         ('Tru-1', "6'", 9, 'SR1-2 … SR5-3 (9)', ''),
