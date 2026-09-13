@@ -451,6 +451,36 @@ def _check_off_the_wall(half):
     assert not bad, '\n'.join(['', 'the %s half:' % half['side']] + ['  ' + b for b in bad])
 
 
+
+def _crossings_between_devices(runs):
+    """Every place a run crosses a run of a DIFFERENT breakout or card: a
+    vertical segment and a horizontal one meeting strictly inside both. A
+    fan's crossings with itself are not counted - two runs into the same
+    breakout, leaving top to bottom onto sockets numbered left to right,
+    cannot all avoid each other."""
+    def segs(r):
+        p = r['points']
+        return [(p[i], p[i + 1]) for i in range(len(p) - 1)]
+    out = []
+    for i in range(len(runs)):
+        for k in range(i + 1, len(runs)):
+            if runs[i].get('device') == runs[k].get('device'):
+                continue
+            for a in segs(runs[i]):
+                for b in segs(runs[k]):
+                    av = abs(a[0][0] - a[1][0]) < 1e-6
+                    bv = abs(b[0][0] - b[1][0]) < 1e-6
+                    if av == bv:
+                        continue
+                    v, h = (a, b) if av else (b, a)
+                    vx = v[0][0]
+                    vy0, vy1 = sorted((v[0][1], v[1][1]))
+                    hy = h[0][1]
+                    hx0, hx1 = sorted((h[0][0], h[1][0]))
+                    if hx0 + .5 < vx < hx1 - .5 and vy0 + .5 < hy < vy1 - .5:
+                        out.append((runs[i].get('from'), runs[k].get('from'), round(vx), round(hy)))
+    return out
+
 def _check_blocks(half):
     """The blocks are flat units at the foot, spread across the width, none
     over the wall or over another, their sockets in a row inside them."""
@@ -1045,18 +1075,20 @@ def test_smoke_experts_only_sr_main(page):
 
     POWER: 22 circuits on four multis; FOUR BREAKOUT BLOCKS IN ONE ROW at
     the foot, ordered by the mean position of their own circuits - SR3 and
-    SR4 stand on the wall's left column, SR1 and SR2 on its right, so the
-    row reads SR3 SR4 SR1 SR2 - and none of them over the wall or over
-    another. A run is TWO SEGMENTS exactly where its socket stands clear of
+    SR4 stand on the wall's left column, SR1 and SR2 on its right - and
+    within a column the breakout whose circuits stand higher goes further
+    out, so the row reads SR3 SR4 SR2 SR1 - and none of them over the wall
+    or over another. A run is TWO SEGMENTS exactly where its socket stands clear of
     the wall on the side it leaves by - out at its own row and straight
     down; a run whose socket stands UNDER the wall comes down a rail beside
     it and back along a lane under its foot. The wall is held to the height
     rev 1.1 drew it at, so it stays narrow and centred and the outer fans
-    have room: all six SR3 circuits and all five SR2 circuits drop straight,
-    and SR4's and SR1's go round - the same with the frame on or off, now
-    that two breakouts sharing a column are ordered the same way every time.
-    No two horizontals overlap, no two verticals do. A white casing under
-    every run.
+    have room: all six SR3 circuits and all six SR1 circuits drop straight,
+    and SR4's and SR2's go round, nesting inside them - so NO RUN CROSSES A
+    RUN OF ANOTHER BREAKOUT. The 25 crossings left are each fan's own; in
+    rev 1.1's order (SR1 before SR2) there were 55, and the user chose
+    fewer. The same with the frame on or off. No two horizontals overlap, no
+    two verticals do. A white casing under every run.
 
     SIGNAL: four primaries and four returns onto TWO blocks in ONE row
     (the wrap-and-cross regression: a note that only repeated its socket
@@ -1092,7 +1124,7 @@ def test_smoke_experts_only_sr_main(page):
                                                              ((1, range(1, 7)), (2, range(2, 7)), (3, range(1, 7)), (4, (1, 2, 4, 5, 6)))
                                                              for n in ns)
     assert [b['title'] for b in pwr['blocks']] == ["SR3 · Multi 208 breakout · 125'", "SR4 · Multi 208 breakout · 100'",
-                                                   "SR1 · Multi 208 breakout · 125'", "SR2 · Multi 208 breakout · 100'"], pwr['blocks']
+                                                   "SR2 · Multi 208 breakout · 100'", "SR1 · Multi 208 breakout · 125'"], pwr['blocks']
     assert pwr['rows'] == 1 and len({round(b['y'], 2) for b in pwr['blocks']}) == 1
     # ordered by where their own circuits stand on the wall
     mean = {}
@@ -1100,7 +1132,10 @@ def test_smoke_experts_only_sr_main(page):
         mean.setdefault(d['text'].split('-')[0], []).append(d['x'])
     order = [b['title'][:3] for b in pwr['blocks']]
     means = [sum(mean[k]) / len(mean[k]) for k in order]
-    assert all(a <= b + 1e-6 for a, b in zip(means, means[1:])), (order, means)
+    # two breakouts in one column share a mean to within a disc's radius, and
+    # the drawing orders those by height instead - so "in order" allows that
+    one_column = SOCK * pwr['scale']
+    assert all(a <= b + one_column for a, b in zip(means, means[1:])), (order, means)
     # a hue per breakout, in the order the facts read them
     assert {b['title'][:3]: _c(b['hue']) for b in pwr['blocks']} == \
         {'SR1': HUES[0], 'SR2': HUES[1], 'SR3': HUES[2], 'SR4': HUES[3]}
@@ -1125,12 +1160,15 @@ def test_smoke_experts_only_sr_main(page):
         assert sh == (['h', 'v'] if clear else ['h', 'v', 'h', 'v']), (r['from'], sh, tail, m)
     straight = sorted(r['from'] for r, sh in zip(pwr['runs'], shapes) if sh == ['h', 'v'])
     # The two OUTER fans drop straight - every SR3 circuit off the left column
-    # and every SR2 circuit off the right - and the two middle fans, whose
-    # blocks stand under the wall, come round. That is rev 1.1's drawing, the
-    # one the user pointed back to ("whatever was in here"), and it is the
-    # same with the title block on or off.
-    want = ['SR2-%d' % n for n in (2, 3, 4, 5, 6)] + ['SR3-%d' % n for n in (1, 2, 3, 4, 5, 6)]
+    # and every SR1 circuit off the right - and the two middle fans, whose
+    # blocks stand under the wall, come round inside them. The same with the
+    # title block on or off.
+    want = ['SR1-%d' % n for n in (1, 2, 3, 4, 5, 6)] + ['SR3-%d' % n for n in (1, 2, 3, 4, 5, 6)]
     assert straight == sorted(want), straight
+    # The reason for that order: no run crosses a run of ANOTHER breakout.
+    # In rev 1.1's order every SR1 run crossed every SR2 run - 30 of them.
+    between = _crossings_between_devices(pwr['runs'])
+    assert not between, between
     for r, s in zip(pwr['runs'], shapes):
         if s != ['h', 'v', 'h', 'v']:
             continue
