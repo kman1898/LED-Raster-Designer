@@ -467,8 +467,14 @@ v0.12.0 - September 7, 2026 (BETA)
   binder and processor sheet all read it the same way. A multi's fan and a
   distro's size are power and unchanged.
 
-- FIX: Two breakouts whose circuits share a column of the wall no longer
-  swap places depending on whether the title block is on.
+- CHANGE: Breakouts that share a column of the wall stand so their fans
+  never cross. Within a column, the breakout whose circuits sit higher
+  goes further out - first on the wall's left half, last on its right - so
+  its runs nest round the other fan instead of cutting through it. On a
+  sheet with two breakouts off each side column, no run now crosses a run
+  of another breakout: one show's power wiring went from 55 crossings to
+  25, and the 25 left are each fan's own. The order is the same whether
+  the title block is on or off.
 
 
 - CHANGE (IMPORTANT): Redundancy is one bar in one place. Behind the
