@@ -134,6 +134,13 @@ const GUT = { left: 0, right: 0, top: 0, bottom: 0 };
 // ---- the prototype's page, in its own units (it is 1000 wide) -----------
 const PROTO_W = 1000;
 const MARGIN = 22;
+// The wall's height is held to what rev 1.1 drew it at, even on a page of its
+// own. Grown to fill the page, the wall spread under its own blocks and the
+// runs to them had to go round it - 55 crossings on Experts Only's SR - MAIN
+// power became 73, and the fans that used to leave at their row and drop
+// straight into the socket below had to travel. The user, shown both:
+// "The original way we had it was the best" (2026-09-12).
+const MAX_WALL_H = 360;
 const BAND_GAP = 26;             // the wall's foot to the first block row
 const FOOT_PAD = 6;              // the air under the last block row
 const FOOT_LINE = 14;            // and the "not placed" line's own room
@@ -549,7 +556,7 @@ class _BinderWiring {
             const boxesH = nRows ? nRows * BOX_H + (nRows - 1) * ROW_GAP : 0;
             const roomH = Math.max(40, A.h / K - head - band - boxesH - foot);
             const room = { x: A.x + (MARGIN + railRoom) * K, y: A.y + head * K,
-                           w: wallRoomW * K, h: roomH * K };
+                           w: wallRoomW * K, h: Math.min(MAX_WALL_H, roomH) * K };
             const probe = this._bMeasureMap(book, spec, room);
             const h = probe ? probe.area.h : 0;
             const mapArea = { ...room, y: room.y + Math.max(0, (roomH * K - h) / 2), h: Math.max(1, h) };
@@ -575,8 +582,19 @@ class _BinderWiring {
             return ws.reduce((s, w) => s + (discOf.get(w.stub) || { x: 0 }).x, 0) / ws.length;
         };
         const rank = new Map(devices.map((d, i) => [d.key, i]));
-        const order = devices.slice().sort((a, b) =>
-            (meanOf(a.key) - meanOf(b.key)) || (rank.get(a.key) - rank.get(b.key)));
+        // Two breakouts whose circuits stand in the same column of the wall
+        // have all but the same mean, and the tie-break only ever fired on an
+        // EXACT tie - so rounding decided the order. On Experts Only's
+        // SR - MAIN, SR1 and SR2 share the right column: with the title
+        // block on they came out SR1 SR2, with it off SR2 SR1, from nothing
+        // but the sheet's width moving the discs a fraction of a unit. Means
+        // closer than a disc's own radius are one column, and the facts'
+        // order settles it the same way every time.
+        const TIE = SOCK * K;
+        const order = devices.slice().sort((a, b) => {
+            const d = meanOf(a.key) - meanOf(b.key);
+            return Math.abs(d) < TIE ? (rank.get(a.key) - rank.get(b.key)) : d;
+        });
         const rows2 = pack(order);
         if (rows2.length !== rows.length) { W = wallAt(rows2.length, head, band); placeDiscs(W.geo); }
         rows = rows2;
@@ -707,30 +725,14 @@ class _BinderWiring {
                 .sort((a, b) => s === 'left' ? b.tx - a.tx : a.tx - b.tx);
             const railX = new Map();
             const railed = { left: bySide('left'), right: bySide('right') };
-            // A rail never stands on another run's drop. A run whose socket
-            // is already clear of the wall comes straight down at that
-            // socket, and on a whole-page sheet the wall is wide enough that
-            // those sockets stand where the rails do: a rail a hair beside
-            // one reads as one line with it, the white casings merged. So a
-            // rail steps on outward past any drop closer than a lane.
-            const clear = LANE_STEP * K;
             for (const s of ['left', 'right']) {
                 const beside = s === 'left' ? wall.x - room.x0 : room.x1 - (wall.x + wall.w);
                 const step = Math.min(RAIL_STEP * K,
                     Math.max(2 * K, (beside - RAIL_OUT * K) / Math.max(1, railed[s].length)));
-                const drops = plans.filter(p => p.out && (p.edge === s || p.edge === 'top')
-                                                && (s === 'left' ? p.tx < wall.x : p.tx > wall.x + wall.w))
-                                   .map(p => p.tx);
-                const xAt = (k) => {
-                    const d = RAIL_OUT * K + k * step;
-                    return s === 'left' ? wall.x - d : wall.x + wall.w + d;
-                };
-                let k = 0;
-                for (const p of railed[s]) {
-                    while (drops.some(tx => Math.abs(tx - xAt(k)) < clear)) k++;
-                    railX.set(p, xAt(k));
-                    k++;
-                }
+                railed[s].forEach((p, i) => {
+                    const d = RAIL_OUT * K + i * step;
+                    railX.set(p, s === 'left' ? wall.x - d : wall.x + wall.w + d);
+                });
             }
 
             // The lanes: one over the wall's head for a run that left by

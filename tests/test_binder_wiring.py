@@ -1050,13 +1050,13 @@ def test_smoke_experts_only_sr_main(page):
     another. A run is TWO SEGMENTS exactly where its socket stands clear of
     the wall on the side it leaves by - out at its own row and straight
     down; a run whose socket stands UNDER the wall comes down a rail beside
-    it and back along a lane under its foot. On the whole page the wall is
-    wide - nearly three times the old half's - so more sockets stand under
-    it than did: SR3's first four and SR2's last four drop straight, the
-    other fourteen go round (with the frame off, the wall a little narrower
-    against a wider sheet, SR3's first five and SR2's last five). No two
-    horizontals overlap, no two verticals do, no rail stands on a drop. A
-    white casing under every run.
+    it and back along a lane under its foot. The wall is held to the height
+    rev 1.1 drew it at, so it stays narrow and centred and the outer fans
+    have room: all six SR3 circuits and all five SR2 circuits drop straight,
+    and SR4's and SR1's go round - the same with the frame on or off, now
+    that two breakouts sharing a column are ordered the same way every time.
+    No two horizontals overlap, no two verticals do. A white casing under
+    every run.
 
     SIGNAL: four primaries and four returns onto TWO blocks in ONE row
     (the wrap-and-cross regression: a note that only repeated its socket
@@ -1124,8 +1124,12 @@ def test_smoke_experts_only_sr_main(page):
         clear = tail[0] < m['x'] if turn[0] < head[0] else tail[0] > m['x'] + m['w']
         assert sh == (['h', 'v'] if clear else ['h', 'v', 'h', 'v']), (r['from'], sh, tail, m)
     straight = sorted(r['from'] for r, sh in zip(pwr['runs'], shapes) if sh == ['h', 'v'])
-    want = (['SR2-%d' % n for n in (3, 4, 5, 6)] + ['SR3-%d' % n for n in (1, 2, 3, 4)] if TITLE_BLOCK
-            else ['SR2-%d' % n for n in (2, 3, 4, 5, 6)] + ['SR3-%d' % n for n in (1, 2, 3, 4, 5)])
+    # The two OUTER fans drop straight - every SR3 circuit off the left column
+    # and every SR2 circuit off the right - and the two middle fans, whose
+    # blocks stand under the wall, come round. That is rev 1.1's drawing, the
+    # one the user pointed back to ("whatever was in here"), and it is the
+    # same with the title block on or off.
+    want = ['SR2-%d' % n for n in (2, 3, 4, 5, 6)] + ['SR3-%d' % n for n in (1, 2, 3, 4, 5, 6)]
     assert straight == sorted(want), straight
     for r, s in zip(pwr['runs'], shapes):
         if s != ['h', 'v', 'h', 'v']:
