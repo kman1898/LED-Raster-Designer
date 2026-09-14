@@ -503,7 +503,15 @@ def e2e_server():
     app_module.next_layer_id = 1
     flask_app.config['TESTING'] = True
 
-    port = 15794
+    # A free port of this session's own, the way conftest's e2e_server takes
+    # one: a fixed number here made two sweeps in flight at once drive the
+    # same server (2026-09-14: 89 of 190 fields "failed" against a foreign
+    # process while another session's sweep ran).
+    import socket
+    probe = socket.socket()
+    probe.bind(('127.0.0.1', 0))
+    port = probe.getsockname()[1]
+    probe.close()
     threading.Thread(
         target=lambda: socketio.run(flask_app, host='127.0.0.1', port=port,
                                     allow_unsafe_werkzeug=True,
