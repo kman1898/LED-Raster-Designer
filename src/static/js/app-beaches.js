@@ -133,7 +133,10 @@ class _Beaches {
         };
         opt('', mixed ? '-' : '— no beach —');
         for (const b of this.getBeaches()) opt(b.id, b.name || b.id);
-        opt(NEW_BEACH, '+ New beach…');
+        // An action, not a value: picking it prompts for a name. Marked so
+        // a sweep over the app's fields (tests/test_all_fields_sweep.py)
+        // knows not to "pick" it as a beach.
+        opt(NEW_BEACH, '+ New beach…').dataset.lrdAction = 'new';
         const known = value != null && value !== '' && !!this.beachById(value);
         select.value = known && !mixed ? value : '';
         select.dataset.beachValue = known && !mixed ? value : '';

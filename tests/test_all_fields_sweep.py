@@ -375,8 +375,12 @@ PROBE_JS = """(selector) => {
         // Disabled options are left out: a person cannot pick one, so the
         // sweep may not either (the breakout select disables entries the
         // screen's voltage rules out, and select_option hangs on them).
+        // So are action entries (data-lrd-action): the beach picker's
+        // "+ New beach…" opens a prompt rather than setting a value, and
+        // an automated browser dismisses the prompt, so the pick reverts.
         options: el.tagName === 'SELECT'
-            ? [...el.options].filter(o => !o.disabled).map(o => o.value) : null,
+            ? [...el.options].filter(o => !o.disabled && !o.dataset.lrdAction)
+                .map(o => o.value) : null,
     };
 }"""
 
@@ -578,7 +582,18 @@ def _open_tab(page, tab):
 # The screen is put at 208V first: at 110V the eligibility rule (110V screens
 # take Edison only) disables every alternative, and a select with one pickable
 # option has nothing for the round-trip to change to.
+#
+# layer-beach lists the project's beaches, and this sweep's project has
+# none: its only entries would be "no beach" and the "+ New beach…" action
+# (which prompts, and an automated browser dismisses the prompt). One beach
+# is made through the app's own createBeach so the picker has a value to
+# change to; the picker is then refilled for the selected screen.
 _PREPARE_JS = {
+    'layer-beach': """async () => {
+        const app = window.app;
+        if (!app.getBeaches().length) await app.createBeach('Sweep Beach', null);
+        app.loadBeachPicker(app.getSelectedLayers());
+    }""",
     'power-breakout-type': """() => {
         const v = document.getElementById('power-voltage-select');
         if (v && v.value !== '208') {
