@@ -11,7 +11,7 @@ tile, through a 3fer. The feature under test:
     static controls in the LEFT sidebar's Power Settings "Multis &
     Splitters" block, synced by refreshSplitterPanel; the manual lever is
     the right-click Share / Un-share on the circuit itself - a drawn run
-    or its occupied dock chip (app-dock.js _prepareShareMenus).
+    or its occupied dock chip (app-dock-menus.js _prepareShareMenus).
   - The engine (calculatePowerAssignments) forms one RUN per row/column unit
     and gangs CONSECUTIVE runs while the branch count stays within maxWays
     and the summed load fits the circuit - never skipping a run to pair two
@@ -720,7 +720,7 @@ PIN_ASSIGNMENTS = {
 #     panel wore as absence, the static row wears as display:none, and
 #     VISIBILITY is the contract these tests pin.
 #   - The per-circuit Merge/Split rows became the right-click Share /
-#     Un-share on the circuit itself (app-dock.js _prepareShareMenus):
+#     Un-share on the circuit itself (app-dock-menus.js _prepareShareMenus):
 #     armed in power view on a drawn circuit run or an occupied circuit
 #     chip, and only when packing is on OR the screen routes custom - the
 #     old rows' gate, unchanged. A hand-merge on a custom-drawn screen

@@ -3515,7 +3515,7 @@ def test_5g_penalty_stacks_on_the_low_latency_derate_in_that_order(page):
     Penalty first, derate second would instead give
         floor(0.975 x (2,951,200 - 179,200)) = 2,702,700
     which is 4,480 px more capacity. If the owner wants that ordering, it is
-    this test and the portLimit() helper in app-export-io.js that change."""
+    this test and the portLimit() helper in app-port-routing.js that change."""
     res = port_load(page, rows=300, columns=1, cw=120, ch=100,
                     processorType='novastar-5g', mode='organized',
                     pattern='tl-v', lowLatency=True,
