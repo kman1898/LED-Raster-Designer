@@ -469,7 +469,7 @@ def test_a_restored_peer_reference_that_is_no_longer_reachable_is_dropped(page):
     ids = reset_project(page, 3)
     a, b = ids[0], ids[1]
     if not page.evaluate("typeof window.app.canPathReachLayer === 'function'"):
-        pytest.skip('canPathReachLayer (app-power.js) not present in this build')
+        pytest.skip('canPathReachLayer (app-cross-layer-paths.js) not present in this build')
 
     group(page, [a, b])
     set_paths(page, a,

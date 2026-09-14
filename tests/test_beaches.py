@@ -60,7 +60,7 @@ def test_the_beaches_module_is_imported_and_defines_the_picker():
     html = open(os.path.join(HERE, '..', 'src', 'templates', 'index.html')).read()
     assert 'id="layer-beach"' in html and 'id="beaches-panel"' in html
     # the typed Location fields are gone with the picker
-    for name in ('app-power.js', 'app-processors.js'):
+    for name in ('app-power.js', 'app-distros.js', 'app-processors.js'):
         js = open(os.path.join(HERE, '..', 'src', 'static', 'js', name), errors='replace').read()
         assert 'distro-location-' not in js and 'processor-cvt-location-' not in js, name
         assert 'pullLocationDatalist' not in js, name

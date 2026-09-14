@@ -522,7 +522,7 @@ def test_clicking_a_peer_still_selects_it_when_not_drawing_a_path(page):
 # ── 6. The wall lattice the flow patterns order by ────────────────────────
 #
 # getGroupLattice is the extracted form of the step-5 numbering ranks, and the
-# ONE implementation both the cabinet IDs and app-power.js's cross-member flow
+# ONE implementation both the cabinet IDs and app-custom-runs.js's cross-member flow
 # patterns order by. Its contract is asserted here because a second copy of it
 # appearing anywhere is the failure mode.
 
@@ -585,7 +585,7 @@ def test_the_lattice_ranks_cabinets_by_where_they_sit_not_by_index(page):
 
 def test_the_lattice_is_the_same_one_whichever_door_it_is_reached_through(page):
     """getPositionLattice(members) is the implementation; getGroupLattice(layer)
-    is the group's members handed to it. app-power.js calls the first with its
+    is the group's members handed to it. app-custom-runs.js calls the first with its
     own path scope, the cabinet numbering calls the second - one lattice, so
     the order a wall is wired in and the numbers written on it agree."""
     by_group = _lattice(page, RANKS_JS)

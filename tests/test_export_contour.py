@@ -320,7 +320,7 @@ def test_blank_panels_are_excluded_like_hidden_ones():
 
     Every count that answers "where is the LED surface" filters on
     ``not blank and not hidden`` - cabinet totals (canvas.js:4640), weight,
-    and power (app-power.js:1517). The contour used to consider only
+    and power (app-power.js:278). The contour used to consider only
     ``hidden``, so a blank corner was traced as if it were lit.
     """
     blank = _compute_panel_contour(_screen(3, 4, states={(2, 3): {'blank': True}}))

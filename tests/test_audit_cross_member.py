@@ -12,7 +12,7 @@ asserted the correct behaviour pass unchanged, and the two that pinned the
 WRONG behaviour by asserting it are marked FLIPPED in their own docstrings.
 The findings, most severe first:
 
-  A. HIDDEN MEMBER LEAK - FIXED. getPathScopeLayers (app-power.js) deliberately
+  A. HIDDEN MEMBER LEAK - FIXED. getPathScopeLayers (app-cross-layer-paths.js) deliberately
      keeps hidden members so already-drawn paths survive a hide. The SELECTION
      side reused the same scope, so a marquee, an arrow handoff and Apply
      Pattern all reached a screen that is not drawn and cannot be clicked:

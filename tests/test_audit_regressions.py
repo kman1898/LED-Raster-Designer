@@ -637,7 +637,7 @@ def test_panel_state_edits_undo_with_their_geometry(page):
 
     Half-tiles and blanking resize the whole screen, and that math only exists
     server-side. Both bulk paths wait for the rebuilt layer before snapshotting
-    (app-power.js setPanelsHalfTileBulk / setPanelsBlankBulk), so undo must
+    (app-pixel-select.js setPanelsHalfTileBulk / setPanelsBlankBulk), so undo must
     restore panel x/y/width/height, not just the flags.
     """
     _fresh(page)

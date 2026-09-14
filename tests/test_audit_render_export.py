@@ -1107,7 +1107,7 @@ def test_canvas_ok_a_peer_on_another_canvas_is_dropped_from_the_cable(canvas):
 def test_canvas_ok_a_crossing_cable_stops_at_a_hidden_member(canvas):
     """WAS A BUG, FIXED. _renderCrossMemberPaths only checks the OWNER's
     visibility; getResolvedPathPanels deliberately keeps entries pointing at
-    hidden members (app-power.js) so that hiding a member and showing it again
+    hidden members (app-cross-layer-paths.js) so that hiding a member and showing it again
     does not destroy wiring already drawn onto it. The DRAWING side now drops
     them (_crossMemberDrawPanels), so the cable stops at the last cabinet that
     is actually drawn - the same way the circle-and-X shrinks to what is lit.

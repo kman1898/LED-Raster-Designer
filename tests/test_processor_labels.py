@@ -586,7 +586,7 @@ def test_the_processor_is_consulted_before_any_per_layer_override():
     a stale override typed on a screen months ago would quietly outrank the
     machine now driving it, and the port would print one thing on the wall and
     another on the card."""
-    body = function_body(js('app-power.js'),
+    body = function_body(js('app-naming.js'),
                          'getPortLabelText(layer, portNum, type) {')
     processor = body.index('getProcessorPortLabel')
     returned = body.index('return assigned;')
@@ -608,7 +608,7 @@ def test_the_layer_template_is_still_the_fallback():
     with no processor and every port with no card arrives here, including
     drawings already issued. (A card with no name no longer does: since the
     2026-09-03 ruling its sockets arrive as labels of their own.)"""
-    body = function_body(js('app-power.js'),
+    body = function_body(js('app-naming.js'),
                          'getPortLabelText(layer, portNum, type) {')
     assert "layer.portLabelTemplateReturn || 'R#'" in body
     assert "layer.portLabelTemplatePrimary || 'P#'" in body
@@ -623,7 +623,7 @@ def test_the_label_lookup_never_resolves_anything_itself():
     for signature in ('getPortLabelText(layer, portNum, type) {',
                       'getProcessorPortLabel(layer, portNum) {',
                       'getProcessorPortReturnLabel(layer, portNum) {'):
-        body = function_body(js('app-power.js'), signature)
+        body = function_body(js('app-naming.js'), signature)
         for banned in ('fetch(', 'refreshPortAssignment', 'getLayerPortsRequired',
                        '.forEach(', '.filter(', '.find('):
             assert banned not in body, (
@@ -693,7 +693,7 @@ def run_labels(assigned, layer, ports, returns=None):
     `returns` is the return-end index, shaped exactly like `assigned`. Left
     off, it is the empty map every project without a typed return name has.
     """
-    source = js('app-power.js')
+    source = js('app-naming.js')
     methods = '\n'.join(
         function_body(source, signature) + '\n    }'
         for signature in ('getProcessorPortLabel(layer, portNum) {',
@@ -719,7 +719,7 @@ def test_the_return_label_is_derived_inside_the_assigned_branch():
     """Source-level, so it runs everywhere: the R belongs to the processor's
     label and must not reach a port the processor never named - that port's
     return is the layer's own R# template and always has been."""
-    body = function_body(js('app-power.js'),
+    body = function_body(js('app-naming.js'),
                          'getPortLabelText(layer, portNum, type) {')
     assert body.index('this.deriveReturnLabel(assigned)') \
         < body.index("layer.portLabelTemplateReturn || 'R#'"), (
@@ -932,7 +932,7 @@ def test_the_client_copy_of_the_rule_matches_the_server_byte_for_byte():
     inputs = ['P1-1', 'p1-1', 'P3', 'PORT-3', 'PANEL-2', 'P-1', 'P', 'p',
               'Px', 'P1x', 'PORT-7', 'SR-1', 'HOUSE-LEFT', 'R1', 'r1', '1P',
               ' P1', 'P_1', 'P.1', 'pX', '', None]
-    body = function_body(js('app-power.js'), 'deriveReturnLabel(primary) {')
+    body = function_body(js('app-naming.js'), 'deriveReturnLabel(primary) {')
     script = (
         'class Probe {\n' + body + '\n    }\n}\n'
         f'const out = {json.dumps(inputs)}.map('
@@ -943,7 +943,7 @@ def test_the_client_copy_of_the_rule_matches_the_server_byte_for_byte():
     on_client = json.loads(done.stdout)
     on_server = [catalog.derive_return_label(p) for p in inputs]
     assert on_client == on_server, (
-        'deriveReturnLabel (app-power.js) and derive_return_label '
+        'deriveReturnLabel (app-naming.js) and derive_return_label '
         '(processor_catalog.py) disagree')
 
 
@@ -1043,7 +1043,7 @@ def test_no_surface_spells_a_return_label_by_hand():
         if not filename.endswith('.js'):
             continue
         source = js(filename)
-        if filename == 'app-power.js':
+        if filename == 'app-naming.js':
             # deriveReturnLabel IS the authority (held byte-identical to the
             # server's copy by its own test); its one `${primary}R` is the
             # rule, not a fork of it.
@@ -1305,7 +1305,7 @@ def test_the_template_placeholder_is_the_rule_applied_to_the_real_name(
     methods = '\n'.join(
         function_body(source, signature) + '\n    }'
         for source, signature in (
-            (js('app-power.js'), 'deriveReturnLabel(primary) {'),
+            (js('app-naming.js'), 'deriveReturnLabel(primary) {'),
             (js('app-processors.js'),
              '_derivedReturnPlaceholder(template, name) {')))
     script = (
@@ -1528,7 +1528,7 @@ def test_the_client_reads_the_label_back_under_the_same_number():
     body = function_body(src, '_indexAssignmentLabels() {')
     assert 'byPort[port.number] = port.label' in body
     assert 'returnsByPort[port.number] = port.returnLabel' in body
-    power = js('app-power.js')
+    power = js('app-naming.js')
     lookup = function_body(power, 'getProcessorPortLabel(layer, portNum) {')
     assert 'onProcessor[portNum]' in lookup
     fallback = function_body(power, 'getPortLabelText(layer, portNum, type) {')
