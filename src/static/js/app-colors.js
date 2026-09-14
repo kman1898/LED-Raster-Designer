@@ -780,14 +780,6 @@ class _Colors {
         window.canvasRenderer.render();
     }
 
-    clearLayerSelection() {
-        this.selectedLayerIds = new Set();
-        this.currentLayer = null;
-        this.renderLayers();
-        this.loadLayerToInputs();
-        window.canvasRenderer.render();
-    }
-
     getFullPanelPixels(layer) {
         if (!layer) return 0;
         return (Number(layer.cabinet_width) || 0) * (Number(layer.cabinet_height) || 0);

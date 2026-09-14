@@ -1406,15 +1406,6 @@ class _ExportIo {
         return new Promise(resolve => setTimeout(resolve, ms));
     }
 
-    blobToDataUrl(blob) {
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result);
-            reader.onerror = (e) => reject(e);
-            reader.readAsDataURL(blob);
-        });
-    }
-
     // Returns { path, cancelled, unavailable } - the same contract as
     // nativeSelectDirectory, and for the same reason.
     //
@@ -2526,19 +2517,6 @@ class _ExportIo {
             'Georgia', 'Times New Roman', 'Courier New', 'Impact', 'Monaco',
             'system-ui'];
     }
-    _allFontOptions() {
-        const system = Array.isArray(this._systemFonts) ? this._systemFonts : [];
-        // De-dupe while preserving order: web-safe quick-picks, then installed.
-        const seen = new Set();
-        const out = [];
-        [...this._webSafeFonts(), ...system].forEach(f => {
-            const name = (f || '').trim();
-            if (!name || seen.has(name.toLowerCase())) return;
-            seen.add(name.toLowerCase()); out.push(name);
-        });
-        return out;
-    }
-
     // Fetch the list of fonts installed on the machine running the app (once).
     // The server enumerates them; the browser can render any of them in canvas.
     _loadSystemFonts() {
@@ -2588,11 +2566,6 @@ class _ExportIo {
         ].filter(g => g.fonts.length);
     }
 
-    // Flat list of every selectable font name (used for de-dupe/validation).
-    _fontOptionsForPicker() {
-        return this._fontOptionGroups().reduce((acc, g) => acc.concat(g.fonts), []);
-    }
-
     _refreshFontPrefsUI(selectedFont) {
         const sel = document.getElementById('pref-font');
         if (sel) {
@@ -2621,23 +2594,6 @@ class _ExportIo {
             });
             if (opts.some(o => o.toLowerCase() === want.toLowerCase())) sel.value = want;
         }
-    }
-
-    applyPreferencesToRaster(prefs) {
-        if (!window.canvasRenderer) return;
-        window.canvasRenderer.rasterWidth = prefs.rasterWidth;
-        window.canvasRenderer.rasterHeight = prefs.rasterHeight;
-        const widthInput = document.getElementById('toolbar-raster-width');
-        const heightInput = document.getElementById('toolbar-raster-height');
-        if (widthInput) widthInput.value = prefs.rasterWidth;
-        if (heightInput) heightInput.value = prefs.rasterHeight;
-        if (this.project) {
-            this.project.raster_width = prefs.rasterWidth;
-            this.project.raster_height = prefs.rasterHeight;
-            this.saveProject();
-        }
-        this.saveRasterSize();
-        window.canvasRenderer.render();
     }
 
     setupMenuBar() {

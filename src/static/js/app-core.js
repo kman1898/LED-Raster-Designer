@@ -81,17 +81,11 @@ export class LEDRasterApp {
             // loads its own catalog and its own tree rather than waiting on a
             // selection. A project with no processors leaves it empty and
             // touches nothing else.
-            if (typeof this.initProcessorPanel === 'function') {
-                try { this.initProcessorPanel(); } catch (_) {}
-            }
-            if (typeof this.initPortAssignmentPanel === 'function') {
-                try { this.initPortAssignmentPanel(); } catch (_) {}
-            }
+            this.initProcessorPanel();
+            this.initPortAssignmentPanel();
             // The hardware dock draws the same processor and distro state
             // the panels do, so it initialises alongside them.
-            if (typeof this.initHardwareDock === 'function') {
-                try { this.initHardwareDock(); } catch (_) {}
-            }
+            this.initHardwareDock();
             sendClientLog('app_init', { ua: navigator.userAgent });
             // Background-check upstream panel catalog after the rest of boot
             // settles so we don't slow first paint. Failure is silent.
@@ -1656,20 +1650,6 @@ export class LEDRasterApp {
         }
     }
     
-    /**
-     * Clean-slate reset before loading a new project or creating a new one.
-     * Clears selection state, stale client props, and undo history so that
-     * sidebar inputs cannot leak old values into the incoming project.
-     */
-    resetApplicationState() {
-        this.selectedLayerIds = new Set();
-        this.currentLayer = null;
-        this.lastSelectedLayerId = null;
-        this.selectionAnchorLayerId = null;
-        localStorage.removeItem('ledRasterClientProps');
-        this.resetHistory('Initial State');
-    }
-
     createNewProject() {
         this.resetApplicationState();
         fetch('/api/project/new', {
@@ -1779,23 +1759,6 @@ export class LEDRasterApp {
         this.currentLayer.powerFlowPattern = prefs.powerFlowPattern || 'tl-h';
         this.loadLayerToInputs();
         this.updateLayer();
-    }
-
-    isFactoryDefaultLayer(layer) {
-        if (!layer) return false;
-        return (
-            (layer.name || '') === 'Screen1' &&
-            (Number(layer.columns) || 0) === 8 &&
-            (Number(layer.rows) || 0) === 5 &&
-            (Number(layer.cabinet_width) || 0) === 128 &&
-            (Number(layer.cabinet_height) || 0) === 128 &&
-            (Number(layer.offset_x) || 0) === 0 &&
-            (Number(layer.offset_y) || 0) === 0 &&
-            !layer.halfFirstColumn &&
-            !layer.halfLastColumn &&
-            !layer.halfFirstRow &&
-            !layer.halfLastRow
-        );
     }
 
     shouldApplyStartupPreferences() {

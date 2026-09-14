@@ -51,17 +51,6 @@ class _Beaches {
         return this.getBeaches().find(b => b.id === id) || null;
     }
 
-    beachName(id) {
-        const b = this.beachById(id);
-        return b ? String(b.name || '') : '';
-    }
-
-    beachByName(name) {
-        const norm = String(name == null ? '' : name).trim().toLowerCase();
-        if (!norm) return null;
-        return this.getBeaches().find(b => String(b.name || '').trim().toLowerCase() === norm) || null;
-    }
-
     // ---- the routes ---------------------------------------------------------
 
     // Every beach route answers with the whole project; adopt it, re-render

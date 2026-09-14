@@ -15,7 +15,7 @@
 // side, so no SIGNAL / POWER head is drawn over it, and the reader's word
 // is "data" - the side keeps its internal id `signal` in the log only.
 //
-// THE DRAWING IS THE PROTOTYPE'S. src/static/wiring-proto.html draws this
+// THE DRAWING IS THE PROTOTYPE'S. mocks/wiring-proto.html draws this
 // picture from two real shows' own facts and is what was approved
 // (2026-09-09: "those are fantastic", "that is much more legible", "that
 // looks great") - casing on, fade off, the printer palette for the press.

@@ -52,3 +52,6 @@ desktop.ini
 # scripts/generate_release_notes.py - never hand-maintained.
 RELEASE_NOTES.md
 tests/fixtures-local/
+
+# Design mocks / prototypes (local only, never shipped: PyInstaller copies src/static wholesale)
+mocks/

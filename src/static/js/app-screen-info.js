@@ -1274,22 +1274,6 @@ class _ScreenInfo {
         this.setLockOnSelected(anyUnlocked);
     }
 
-    toggleLayerLock(layerId) {
-        const layer = this.project.layers.find(l => l.id === layerId);
-        if (!layer) return;
-        layer.locked = !layer.locked;
-        fetch(`/api/layer/${layer.id}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ locked: layer.locked })
-        });
-        if (typeof sendClientLog === 'function') {
-            sendClientLog('layer_lock_toggle', { layerId: layer.id, locked: layer.locked });
-        }
-        this.renderLayers();
-        this.saveState(layer.locked ? 'Lock Layer' : 'Unlock Layer');
-    }
-    
     togglePanelBlank(layerId, panelId) {
         fetch(`/api/layer/${layerId}/panel/${panelId}/toggle`, {
             method: 'POST'

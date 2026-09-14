@@ -310,15 +310,6 @@ class _PortAssignment {
             });
     }
 
-    _buildAssignmentNote(text, color) {
-        const row = document.createElement('div');
-        row.style.fontSize = '11px';
-        row.style.lineHeight = '1.4';
-        row.style.color = color || '#888';
-        row.textContent = text;
-        return row;
-    }
-
     // One issue as one slim strip row: the message and its offer buttons on
     // the same line, wrapping only when the tray is genuinely too narrow.
     // Same machinery as the old panel boxes (_buildOffer / _takeOffer are

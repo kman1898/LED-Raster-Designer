@@ -953,13 +953,6 @@ class _Presets {
         });
     }
 
-    escapeHtml(s) {
-        if (s == null) return '';
-        return String(s).replace(/[&<>"']/g, ch => (
-            { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]
-        ));
-    }
-
     addImageLayer(imageData, imageWidth, imageHeight) {
         const name = this.getNextImageLayerName();
         fetch('/api/layer/add-image', {

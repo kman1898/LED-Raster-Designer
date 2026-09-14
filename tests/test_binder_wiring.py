@@ -17,7 +17,7 @@ A screen with no circuits has no Power sheet and so no Power Wiring sheet;
 the same for data. The export dialog's one "Wiring" tick takes both, and
 they follow the Maps choice exactly as the map sheets do.
 
-The drawing is the one src/static/wiring-proto.html prototyped against two
+The drawing is the one mocks/wiring-proto.html prototyped against two
 real shows and the one that was approved (2026-09-09: "those are
 fantastic", "that is much more legible", "that looks great"). The
 prototype's page is 1000 units wide and a sheet carries every one of its

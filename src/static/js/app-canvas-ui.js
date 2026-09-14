@@ -765,16 +765,6 @@ class _CanvasUi {
     }
 
     /**
-     * Slice 6: deprecated, kept as a no-op so any lingering callers don't
-     * crash during the deprecation window. The renderer reads straight from
-     * the active canvas via accessors now, so there is no project-root copy
-     * to keep in sync.
-     */
-    _syncRootRasterFromActiveCanvas() {
-        // intentionally empty, see syncRasterFromProject().
-    }
-
-    /**
      * Slice 4: when a layer becomes the user-selected layer, also activate
      * its canvas (if different). Idempotent, setActiveCanvas short-circuits
      * when already active, so we won't spam PUTs from re-selecting the same
@@ -1030,13 +1020,6 @@ class _CanvasUi {
             if (up) up.disabled = idx <= 0;
             if (down) down.disabled = idx < 0 || idx >= ids.length - 1;
         });
-    }
-
-    moveLayerById(layerId, delta) {
-        // Kept for backward compatibility (keyboard shortcuts may call this).
-        // Delegates to within-canvas reorder so cross-canvas hops never
-        // happen via arrow-key reorder either.
-        this.moveLayerWithinCanvas(layerId, delta);
     }
 
     // v0.8 Slice 2.5: reorder a layer up/down by one slot, but only within
@@ -1372,6 +1355,11 @@ class _CanvasUi {
         input.click();
     }
 
+    /**
+     * Clean-slate reset before loading a new project or creating a new one.
+     * Clears selection state, stale client props, and undo history so that
+     * sidebar inputs cannot leak old values into the incoming project.
+     */
     resetApplicationState() {
         this.selectedLayerIds = new Set();
         this.currentLayer = null;

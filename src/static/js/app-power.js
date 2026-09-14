@@ -5154,18 +5154,6 @@ class _Power {
         }
     }
 
-    // Which multi and which PHYSICAL TAIL of its 6-way fan a circuit lands
-    // on, resolved through the soca plan (screenCircuits order) and the
-    // per-circuit fan positions (phase balancing / breaker offset).
-    //
-    // `moved` is per-soca: true only when that soca's circuits sit on
-    // non-natural positions. The label editor's number column uses it to show
-    // the true tail instead of the row's own ordinal.
-    _circuitTailSlot(layer, circuitNum) {
-        if (!layer) return null;
-        return this._powerNaming(layer).slots.get(parseInt(circuitNum, 10)) || null;
-    }
-
     // THE ONE PLACE A CIRCUIT'S LABEL IS DECIDED. The canvas bubbles, the soca
     // panel, the splitter rows, the distro feeds list, the label editor and
     // every export come through here, so a rule added here reaches all of them

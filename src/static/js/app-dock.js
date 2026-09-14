@@ -2096,7 +2096,7 @@ class _HardwareDock {
             len.classList.add('hw-dock-name-len');
             namesRow.appendChild(len);
             // The cable sheet's switch (user pick, 2026-09-06, option B of
-            // src/static/cables-mock.html: "Option B is the Best for
+            // mocks/cables-mock.html: "Option B is the Best for
             // overall use case"): a small raised ≡ that flips the box
             // between its chips and one row per circuit with a length and
             // connector. A button, so the header's drag guard treats the
@@ -2394,7 +2394,7 @@ class _HardwareDock {
     //
     // "we need to have the same option for data homeruns. we can combine
     // ports into a snake as well as adding lengths to each if not snakes."
-    // (user, 2026-09-06). Of src/static/snake-mock.html the pick was "B to
+    // (user, 2026-09-06). Of mocks/snake-mock.html the pick was "B to
     // form it and A to type it but can be made with both": the Alt-sweep
     // across port chips (the canvas 2fer's own gesture) forms a snake by
     // right-click, and the ≡ on a card's or box's header flips its chips
@@ -3699,7 +3699,7 @@ class _HardwareDock {
     }
 
     // The read-only redundancy pill on a tray header - the user's pick of
-    // option D's cheap half (2026-09-04, src/static/redundancy-mock.html):
+    // option D's cheap half (2026-09-04, mocks/redundancy-mock.html):
     // "a read-only state pill on each header that opens the ⚙ to the
     // redundancy section, so the tray reports the state without growing
     // a second editing surface." It states the shape in force - on a
