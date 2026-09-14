@@ -3262,17 +3262,45 @@ class _Binder {
                    { title: 'circuits', w: 0.6, align: 'right' }, { title: 'ports', w: 0.5, align: 'right' }],
             rows,
         }) });
-        // The show's totals.
+        // The show's totals. The Load reads the way a screen sheet's own
+        // does - amps 1φ · amps 3φ · kW, each screen's amps the ones
+        // _bScreenFacts prints on its sheet, summed. Amps never blend
+        // across voltages (800 W at 110 V and 800 W at 208 V are not
+        // 1600 W at either): the screens group by their voltage, one
+        // voltage prints the one line, more than one prints a line per
+        // voltage naming it, the way the canvas readout does (app-core.js
+        // "Amps (1φ) @ 208V"), and the show's kW - the one figure that
+        // does add up across voltages - keeps its own line under them. A
+        // screen with no circuits draws nothing and joins no voltage.
         const screens = (this.project.layers || []).filter(l => (l.type || 'screen') === 'screen');
         let panels = 0, watts = 0, circuits = 0, ports = 0;
+        const byVoltage = new Map();
         for (const l of screens) {
             const f = this._bScreenFacts(l);
             panels += f.active; watts += f.watts;
             const scr = list.byScreen[l.id];
+            let mine = 0;
             if (scr) {
-                circuits += (scr.boxes || []).reduce((a, b) => a + (b.circuits || []).length, 0);
+                mine = (scr.boxes || []).reduce((a, b) => a + (b.circuits || []).length, 0);
+                circuits += mine;
                 ports += (scr.ports || []).length;
             }
+            if (!(mine > 0) || !(f.voltage > 0)) continue;
+            const bucket = byVoltage.get(f.voltage) || { voltage: f.voltage, watts: 0, amps1: 0, amps3: 0 };
+            bucket.watts += f.watts; bucket.amps1 += f.amps1; bucket.amps3 += f.amps3;
+            byVoltage.set(f.voltage, bucket);
+        }
+        const loadText = (b) => `${this._bNum(b.amps1, 1)} A 1φ · ${this._bNum(b.amps3, 1)} A 3φ · ${this._bNum(b.watts / 1000, 1)} kW`;
+        const loads = [];
+        const one = byVoltage.size === 1 ? [...byVoltage.values()][0] : null;
+        if (one && Math.abs(one.watts - watts) < 0.5) {
+            loads.push(['Load', loadText(one)]);
+        } else {
+            // Two voltages - or a screen with watts and no circuits, whose
+            // kW is the show's but whose amps are nobody's: the voltage's
+            // own line, then the show's kW.
+            for (const b of byVoltage.values()) loads.push([`Load @ ${b.voltage} V`, loadText(b)]);
+            loads.push(['Load', `${this._bNum(watts / 1000, 1)} kW`]);
         }
         const distros = (typeof this.getDistros === 'function') ? this.getDistros() : [];
         const procs = this._processorsResolved || [];
@@ -3281,7 +3309,7 @@ class _Binder {
             ['Panels', this._bNum(panels, 0)],
             ['Circuits', String(circuits)],
             ['Ports', String(ports)],
-            ['Load', `${this._bNum(watts / 1000, 1)} kW`],
+            ...loads,
             ['Distros', String(distros.length)],
             ['Processors', String(procs.length)],
         ]) });
