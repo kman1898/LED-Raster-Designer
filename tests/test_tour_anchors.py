@@ -8,13 +8,16 @@ window.QuickStart.tours(), so a tour or step added later is covered without
 touching this file.
 
 Seeding: dock-anchored steps (processor headers, gears, distro legs, multi
-slots, circuit chips) need hardware to exist, so the module seeds one wall,
-one processor (platform-matched, per the platform wall) and one 3-phase
-distro - the same shape test_hardware_dock.py uses.
+slots, circuit chips, the cable sheet's ext column) need hardware to exist,
+so the module seeds one wall, one processor with a named card whose ports
+are placed on the wall and four of them snaked (platform-matched, per the
+platform wall), and one 3-phase distro with a multi landed on the wall.
 
 Each tour is then driven for real - startTour(), then #qs-next through every
-step - so each step's before() hook (view switches) runs exactly as it does
-for a user, and the anchor is checked in the view the step shows it in.
+step - so each step's before() hook (view switches, opening the cable sheet
+or the export dialog) runs exactly as it does for a user, and the anchor is
+checked in the view the step shows it in. A step's after() hook puts back
+what before() opened; test_skip_puts_back_what_a_step_opened proves it.
 
 Run locally (each session takes its own free port, so it runs beside
 any other):
@@ -50,45 +53,59 @@ def page(e2e_server, pw_browser):
     context.close()
 
 
-# One wall on a platform-matched processor plus one 3-phase distro: enough
-# hardware that every dock-anchored selector (proc name, gear, slot, legs
-# line, chip grid) has something to resolve to.
+# One wall on a platform-matched processor with a named card, its ports
+# placed on the wall and four of them on a snake, plus one 3-phase distro
+# with a multi landed: enough hardware that every dock-anchored selector
+# (proc name, grip, gear, slot, legs line, chip grid, the open cable sheet
+# and its ext column) has something to resolve to.
 SEED_JS = """async () => {
-    const proj = await (await fetch('/api/project')).json();
+    const j = (method, url, body) => fetch(url, {method,
+        headers: {'Content-Type': 'application/json'},
+        body: body === undefined ? undefined : JSON.stringify(body)}).then(r => r.json());
+    const proj = await j('GET', '/api/project');
     proj.layers = [];
     proj.groups = [];
     proj.processors = [];
     proj.distros = [];
     delete proj.port_assignments;
-    await fetch('/api/project', {method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(proj)});
-    await fetch('/api/layer/add', {method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({name: 'TOUR WALL', columns: 10, rows: 5,
-                              cabinet_width: 200, cabinet_height: 200})});
-    await fetch('/api/processors', {method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({deviceId: 'novastar-mx40-pro'})});
+    await j('PUT', '/api/project', proj);
+    await j('POST', '/api/layer/add', {name: 'TOUR WALL', columns: 10, rows: 5,
+                                       cabinet_width: 200, cabinet_height: 200});
+    let st = await j('POST', '/api/processors', {deviceId: 'novastar-h9'});
+    const pid = st.processors[0].id;
+    st = await j('PUT', `/api/processors/${pid}/slots/0`,
+                 {deviceId: 'novastar-card-h-16xrj45-2xfiber'});
+    const cardId = st.processors[0].slots[0].card.id;
+    await j('PUT', `/api/processors/${pid}/cards/${cardId}`, {name: 'SR'});
     const app = window.app;
-    const p1 = await (await fetch('/api/project')).json();
+    const p1 = await j('GET', '/api/project');
     for (const l of p1.layers) {
-        // The MX40 Pro is COEX gear; since the platform wall a screen only
-        // lands on gear its Processing setting matches.
-        await fetch(`/api/layer/${l.id}`, {method: 'PUT',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({powerVoltage: 208, powerAmperage: 20,
-                                  processorType: 'novastar-coex-1g'})});
+        // The H9 is Armor-platform gear; since the platform wall a screen
+        // only lands on gear its Processing setting matches.
+        await j('PUT', `/api/layer/${l.id}`,
+                {powerVoltage: 208, powerAmperage: 20, panelWatts: 200,
+                 processorType: 'novastar-armor'});
     }
-    const p = await (await fetch('/api/project')).json();
+    const p = await j('GET', '/api/project');
     app.project = p;
-    app.currentLayer = p.layers[0];
-    app.selectedLayerIds = new Set([p.layers[0].id]);
-    app.addDistro({name: 'PD'});
+    app.dedupeProjectLayers('tour_anchor_seed');
+    const wall = app.project.layers[0];
+    app.selectLayer(wall);
+    const d = app.addDistro({name: 'PD'});
+    app.setSocaDistro(wall, 1, d.id);
+    app.setSocaNumber(wall, 1, 1);
+    await app.refreshProcessors();
+    await app._assignmentRequest('/api/port-assignments/place-overflow', 'POST',
+                                 {layerId: String(wall.id), cardId});
+    await app.refreshProcessors();
+    await app.refreshPortAssignment();
+    const owner = app._dataCableOwner('card', cardId);
+    const snakeId = await app.snakePorts(app.snakeMembersOf(owner, [5, 6, 7, 8]), 100);
     await app.refreshProcessors();
     app.renderLayers();
+    app.renderHardwareDock();
     app.resetHistory('Tour Anchor Seed');
-    return p.layers[0].id;
+    return {layerId: wall.id, cardId, snakeId};
 }"""
 
 CHECK_TARGET_JS = """(t) => {
@@ -101,19 +118,53 @@ CHECK_TARGET_JS = """(t) => {
 }"""
 
 
-def test_tour_copy_says_circuits_not_tails():
-    """'tails' is banned display language (user ruling, 2026-08-30 -
-    circuits, not tails). quickstart.js is tour copy plus a little
-    machinery that never says the word, so the whole file must stay
-    clean of it."""
+QUICKSTART_JS = os.path.join(os.path.dirname(__file__), '..', 'src', 'static',
+                             'js', 'quickstart.js')
+
+# Words the app no longer says, and where each was retired:
+#   tails            - circuits, not tails (user ruling, 2026-08-30)
+#   Signal + Power   - the export tick is Wiring; Power Wiring and Data
+#                      Wiring are sheets of their own (2026-09-12)
+#   N-way            - a snake is an "N channel snake" (2026-09-12)
+#   Halves           - the port shape reads OPT Split / Split (2026-09-11)
+RETIRED_WORDING = [
+    (r'\btails?\b', 'circuits, not tails'),
+    (r'Signal \+ Power', 'the wiring sheets are Power Wiring and Data Wiring; '
+                         'the tick is Wiring'),
+    (r'-way\b', 'a snake is an N channel snake, never N-way'),
+    (r'\bhalves\b', 'the port shape is OPT Split / Split, never Halves'),
+]
+
+
+def _retired_wording_hits(src):
     import re
-    path = os.path.join(os.path.dirname(__file__), '..', 'src', 'static',
-                        'js', 'quickstart.js')
-    with open(path, encoding='utf-8') as f:
+    hits = []
+    for pattern, rule in RETIRED_WORDING:
+        for m in re.finditer(pattern, src, re.I):
+            line = src.count('\n', 0, m.start()) + 1
+            hits.append('line %d: %r (%s)' % (line, m.group(0), rule))
+    return hits
+
+
+def test_tour_copy_never_says_retired_words():
+    """Every step body must say what the app says today. quickstart.js is
+    tour copy plus a little machinery that never uses these words, so the
+    whole file must stay clean of them - a step still saying "Signal +
+    Power", "4-way", "Halves" or "tails" fails here with its line."""
+    with open(QUICKSTART_JS, encoding='utf-8') as f:
         src = f.read()
-    hits = re.findall(r'\btails?\b', src, re.I)
-    assert not hits, (
-        'quickstart.js says %r; UI copy says circuits, not tails' % hits)
+    hits = _retired_wording_hits(src)
+    assert not hits, 'quickstart.js still says:\n' + '\n'.join(hits)
+
+
+def test_retired_wording_guard_catches_each_word():
+    """The guard itself: each retired word, in a sentence shaped like a
+    step body, is caught - so a silently broken pattern cannot pass."""
+    for sample in ('one Signal + Power sheet', 'a 4-way snake',
+                   'Halves the ports', 'circuits, not tails'):
+        assert _retired_wording_hits(sample), sample
+    assert not _retired_wording_hits(
+        'SNAKE A · 4 channel; OPT Split; Power Wiring and Data Wiring')
 
 
 def test_tour_registry_exposes_all_tours(page):
@@ -157,6 +208,71 @@ def test_every_tour_step_anchor_resolves(page):
         page.wait_for_timeout(200)
     assert not problems, "\n".join(problems)
     # leave the app back on the pixel map for anything after us
+    page.locator('[data-mode="pixel-map"]').click()
+    page.wait_for_timeout(200)
+
+
+def _step_index(page, tour, title_part):
+    titles = page.evaluate(
+        "(n) => window.QuickStart.tours()[n].map(s => s.title)", tour)
+    hits = [i for i, t in enumerate(titles) if title_part in t]
+    assert hits, f'{tour}: no step titled like {title_part!r} in {titles}'
+    return hits[0]
+
+
+def _drive_to(page, tour, index):
+    page.evaluate("(n) => window.QuickStart.startTour(n)", tour)
+    page.wait_for_timeout(600)
+    for _ in range(index):
+        page.locator('#qs-next').click()
+        page.wait_for_timeout(450)
+    title = page.locator('#qs-callout h3').text_content() or ''
+    return title
+
+
+SHEET_OPEN_JS = ("!!document.querySelector('#hardware-dock-body "
+                 ".hw-dock-cablebtn-data.hw-dock-cablebtn-on')")
+EXPORT_OPEN_JS = ("(() => { const m = document.getElementById('export-modal');"
+                  " return !!m && m.style.display === 'block'; })()")
+
+
+def test_skip_puts_back_what_a_step_opened(page):
+    """A step that opens the cable sheet or the export dialog to point into
+    it closes it again when the tour leaves the step - by Skip as much as
+    by Next - so a tour never leaves a sheet or a dialog standing."""
+    page.evaluate(SEED_JS)
+    page.wait_for_timeout(600)
+
+    # the ext column: the data cable sheet opens for the step, closes on Skip
+    i = _step_index(page, 'whatsNew', 'ext column')
+    title = _drive_to(page, 'whatsNew', i)
+    assert 'ext' in title, title
+    assert page.evaluate(SHEET_OPEN_JS), 'the ext step did not open the sheet'
+    res = page.evaluate(CHECK_TARGET_JS, page.evaluate(
+        "(i) => window.QuickStart.tours().whatsNew[i].target", i))
+    assert res['found'] and res['visible'], res
+    page.locator('#qs-skip').click()
+    page.wait_for_timeout(200)
+    assert not page.evaluate(SHEET_OPEN_JS), 'Skip left the cable sheet open'
+
+    # the binder steps: the export dialog opens on Binder, closes on Skip
+    i = _step_index(page, 'advanced', 'Screen order')
+    title = _drive_to(page, 'advanced', i)
+    assert 'Screen order' in title, title
+    assert page.evaluate(EXPORT_OPEN_JS), 'the Screen order step did not open the export dialog'
+    assert page.evaluate("document.getElementById('export-format').value") == 'binder'
+    page.locator('#qs-skip').click()
+    page.wait_for_timeout(200)
+    assert not page.evaluate(EXPORT_OPEN_JS), 'Skip left the export dialog open'
+
+    # and Next past the last binder step closes it too
+    i = _step_index(page, 'advanced', 'Border and title block')
+    _drive_to(page, 'advanced', i)
+    assert page.evaluate(EXPORT_OPEN_JS)
+    page.locator('#qs-next').click()
+    page.wait_for_timeout(450)
+    assert not page.evaluate(EXPORT_OPEN_JS), 'Next left the export dialog open'
+    page.evaluate("window.QuickStart.end()")
     page.locator('[data-mode="pixel-map"]').click()
     page.wait_for_timeout(200)
 
