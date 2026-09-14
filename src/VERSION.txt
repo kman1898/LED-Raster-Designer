@@ -477,6 +477,34 @@ v0.12.0 - September 7, 2026 (BETA)
   the title block is on or off.
 
 
+- NEW (IMPORTANT): Preferences in seven tabs, with many more defaults.
+  The dialog was one long scroll under a single heading. It is seven tabs
+  now - Wall, Look, Data, Power, Distros and multis, Binder, Pull sheet
+  and cables - one section at a time, Save and Cancel at the foot, and a
+  Reset Defaults button that puts every tab back to its shipped value
+  after a yes or no, on Save. Every setting you had keeps its place.
+  New defaults: a distro's rating, voltage and phase; the multi type a
+  fresh box takes; a new screen's breakout type and splitter packing; the
+  binder's sheet, palette, maps, sheets, screen order, border and title
+  block, designer, project manager, drafter and logo; the pull sheet's
+  engineer and rev, jump names and lengths, and the length a new snake,
+  loose port cable or power cable starts with. A default applies only to
+  what you create next - a show's own value always wins, and nothing you
+  already set is rewritten.
+
+- NEW: The Overview's Show Totals say the show's amps, not only its kW -
+  amps at one phase, amps at three, then kW, the way each screen's power
+  sheet reads, summed over the show. A show that mixes voltages prints a
+  Load line per voltage and never adds two voltages' amps together.
+
+- CHANGE: The three tours say what the app does today. Every step of
+  Quick Start, What's New and The full tour was walked against the app;
+  stale wording is rewritten, and what no tour showed has a step - the
+  beaches, the tray's grip, the cable sheet's ext column, the binder,
+  screen order, the two wiring sheets, the border and title block. A
+  step can open a sheet or the export dialog to point inside it.
+
+
 - CHANGE (IMPORTANT): Redundancy is one bar in one place. Behind the
   processor's gear a raised segmented bar - Off, Whole unit, Per card,
   Per port (Off, Backed up, Per port on a standalone unit) - and exactly
