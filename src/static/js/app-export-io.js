@@ -996,6 +996,10 @@ class _ExportIo {
             formatSelect.dispatchEvent(new Event('change'));
         }
         if (typeof this.syncPullSheetControls === 'function') this.syncPullSheetControls();
+        // The Binder block's palette, maps and sheet ticks start from the
+        // preferences each time the dialog OPENS - not on every later
+        // sync, which would undo what was ticked in this dialog.
+        this._binderSeedFromPrefs = true;
         if (typeof this.syncBinderControls === 'function') this.syncBinderControls();
         this.updateExportPreview();
     }
@@ -1955,7 +1959,49 @@ class _ExportIo {
             // always been. Off: the drawing takes the whole sheet inside a
             // small margin, named at the foot by its view bubble and
             // subject heading alone.
-            binderTitleBlock: true
+            binderTitleBlock: true,
+            // ---- Distros & multis: what Add distro makes (app-power
+            // addDistro), the type a box reads when nothing on the distro
+            // says otherwise (distroBoxType's last rung), and what a NEW
+            // screen starts with for its breakout and splitter packing
+            // (app-core addLayer). Applied at creation only.
+            distroRatingA: 400,
+            distroVoltage: 208,
+            distroPhase: 3,
+            multiType: 'soca208',
+            breakoutType: 'soca-true1',
+            splittersEnabled: false,
+            // ---- Binder: what the export dialog's Binder block opens with
+            // where the project has no value of its own (app-binder
+            // getBinderInfo fills the blanks; the palette, maps and sheet
+            // ticks are seeded on open).
+            binderScreenOrder: 'alpha',
+            binderPalette: 'colour',
+            binderMaps: 'both',
+            binderCover: true,
+            binderPull: true,
+            binderHardware: true,
+            binderWiring: true,
+            binderDesigner: '',
+            binderPmName: '',
+            binderPmPhone: '',
+            binderPmEmail: '',
+            binderDrafter: '',
+            // ---- Pull sheet & cables: the pull-sheet settings a project
+            // starts from (app-pull-list getPullSheetDefaults; the
+            // project's own pullSheet wins where set), and the length a
+            // NEW snake (app-processors snakePorts), the loose-port quick
+            // fill (app-dock) and the power-cable quick fill (app-dock)
+            // write. A blank snake length means a new snake starts with
+            // none, as it always has.
+            pullRev: '1.0',
+            powerJumpName: 'Tru-1 Power Jump',
+            powerJumpLength: 6,
+            dataJumpName: 'Data Jump',
+            dataJumpLength: 6,
+            snakeHomeRunFt: null,
+            loosePortCableFt: 100,
+            powerCableFt: 10
         };
     }
 
@@ -2016,9 +2062,71 @@ class _ExportIo {
         });
     }
 
+    // The seven tabs, in strip order. The strip remembers the last tab
+    // opened within the session (not across reloads).
+    _prefsTabKeys() {
+        return ['wall', 'look', 'data', 'power', 'distros', 'binder', 'pull'];
+    }
+
+    showPreferencesTab(key) {
+        const modal = document.getElementById('preferences-modal');
+        if (!modal) return;
+        const want = this._prefsTabKeys().includes(key) ? key : 'wall';
+        modal.querySelectorAll('.pm-tabstrip .view-tab').forEach(t => {
+            t.classList.toggle('active', t.dataset.key === want);
+            t.setAttribute('aria-selected', t.dataset.key === want ? 'true' : 'false');
+        });
+        modal.querySelectorAll('.pm-section').forEach(s => {
+            s.classList.toggle('active', s.dataset.key === want);
+        });
+        this._prefsTab = want;
+    }
+
+    // The Distros & multis pickers list what the app itself offers - the
+    // box types the distro OUTPUTS row names, the breakouts the Power
+    // panel's #power-breakout-type names - built once from the catalogs
+    // in app-power, never restated here.
+    _fillPreferenceCatalogs() {
+        const fill = (id, list) => {
+            const sel = document.getElementById(id);
+            if (!sel || sel.options.length || !Array.isArray(list)) return;
+            list.forEach(t => {
+                const o = document.createElement('option');
+                o.value = t.id;
+                o.textContent = t.name;
+                sel.appendChild(o);
+            });
+        };
+        if (typeof this.getDistroOutputTypes === 'function') {
+            fill('pref-multi-type', this.getDistroOutputTypes());
+        }
+        if (typeof this.getPowerBreakoutTypes === 'function') {
+            fill('pref-breakout-type', this.getPowerBreakoutTypes());
+        }
+    }
+
+    // The Binder tab's logo row: the preview and Remove when one is
+    // pending, "None" when not. The pending logo is what Save stores;
+    // Cancel forgets it like any other edit.
+    _syncPreferenceLogoRow() {
+        const src = this._prefsPendingLogo || '';
+        const show = (id, v) => { const el = document.getElementById(id); if (el) el.style.display = v ? '' : 'none'; };
+        const prev = document.getElementById('pref-binder-logo-preview');
+        if (prev && prev.getAttribute('src') !== src) prev.src = src;
+        show('pref-binder-logo-preview', !!src);
+        show('pref-binder-logo-remove', !!src);
+        show('pref-binder-logo-none', !src);
+    }
+
+    _sayPreferenceLogoStatus(msg) {
+        const el = document.getElementById('pref-binder-logo-status');
+        if (el) { el.textContent = msg || ''; el.style.display = msg ? '' : 'none'; }
+    }
+
     setupPreferences() {
         this.renderPreferencePatternButtons('pref-data-flow-pattern-grid', 'pref-data-flow-pattern-btn');
         this.renderPreferencePatternButtons('pref-power-flow-pattern-grid', 'pref-power-flow-pattern-btn');
+        this._fillPreferenceCatalogs();
         const saveBtn = document.getElementById('preferences-save');
         const cancelBtn = document.getElementById('preferences-cancel');
         const resetBtn = document.getElementById('preferences-reset');
@@ -2051,6 +2159,13 @@ class _ExportIo {
             }
         };
 
+        // The strip: one section up at a time.
+        if (modal) {
+            modal.querySelectorAll('.pm-tabstrip .view-tab').forEach(t => {
+                t.addEventListener('click', () => this.showPreferencesTab(t.dataset.key));
+            });
+        }
+
         if (saveBtn) {
             saveBtn.addEventListener('click', () => {
                 const prefs = this.readPreferencesFromUI();
@@ -2062,11 +2177,15 @@ class _ExportIo {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(prefs)
                 });
+                // the binder logo changed: the decoded copy is stale
+                this._binderLogoImage = null;
                 sendClientLog('preferences_saved', {
                     projectName: this.project ? this.project.name : null,
                     layers: this.project && this.project.layers ? this.project.layers.length : 0,
+                    reset: !!this._prefsResetPending,
                     appliesToCurrentProject: !!(this.project && this.project.name === 'Untitled Project' && this.project.layers && this.project.layers.length === 1)
                 });
+                this._prefsResetPending = false;
                 // Preferences are defaults for future/new projects.
                 // Only apply to the current project when it is the startup default untitled project.
                 this.applyPreferencesToDefaultLayerIfMatch(false);
@@ -2079,27 +2198,24 @@ class _ExportIo {
         }
         if (cancelBtn) {
             cancelBtn.addEventListener('click', () => {
+                this._prefsResetPending = false;
                 modal.style.display = 'none';
             });
         }
+        // Reset Defaults asks first. Yes puts every field on every tab
+        // back to its shipped value - in the dialog only: Save writes them,
+        // Cancel discards the reset like any other edit.
         if (resetBtn) {
             resetBtn.addEventListener('click', () => {
+                if (!window.confirm('Put every preference back to its default?')) return;
                 const defaults = this.getPreferencesDefaults();
-                localStorage.setItem('appPreferences', JSON.stringify(defaults));
-                // Sync reset to server
-                this._serverPreferences = defaults;
-                fetch('/api/preferences', {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(defaults)
-                });
+                this._prefsPendingLogo = '';
+                this.fillPreferencesUI(defaults);
+                this._prefsResetPending = true;
                 sendClientLog('preferences_reset', {
                     projectName: this.project ? this.project.name : null,
-                    layers: this.project && this.project.layers ? this.project.layers.length : 0,
-                    appliesToCurrentProject: !!(this.project && this.project.name === 'Untitled Project' && this.project.layers && this.project.layers.length === 1)
+                    layers: this.project && this.project.layers ? this.project.layers.length : 0
                 });
-                this.openPreferencesModal();
-                this.applyPreferencesToDefaultLayerIfMatch(false);
             });
         }
         if (modal) {
@@ -2108,6 +2224,7 @@ class _ExportIo {
             });
             modal.addEventListener('click', (e) => {
                 if (e.target === modal && prefsBackdropDown) {
+                    this._prefsResetPending = false;
                     modal.style.display = 'none';
                 }
                 prefsBackdropDown = false;
@@ -2137,15 +2254,58 @@ class _ExportIo {
                 btn.classList.add('active');
             });
         });
+        // The binder logo: a PNG / JPEG read and downscaled the way the
+        // export dialog reads one (app-binder), held until Save.
+        const logo = document.getElementById('pref-binder-logo');
+        if (logo) {
+            logo.addEventListener('change', async () => {
+                const file = logo.files && logo.files[0];
+                logo.value = '';
+                if (!file || typeof this.readBinderLogoDataUrl !== 'function') return;
+                const r = await this.readBinderLogoDataUrl(file);
+                if (r.error) { this._sayPreferenceLogoStatus(r.error); return; }
+                this._sayPreferenceLogoStatus('');
+                this._prefsPendingLogo = r.dataUrl;
+                this._syncPreferenceLogoRow();
+            });
+        }
+        const logoRemove = document.getElementById('pref-binder-logo-remove');
+        if (logoRemove) {
+            logoRemove.addEventListener('click', () => {
+                this._prefsPendingLogo = '';
+                this._sayPreferenceLogoStatus('');
+                this._syncPreferenceLogoRow();
+            });
+        }
         syncVoltageCustom();
         syncAmperageCustom();
     }
 
     openPreferencesModal() {
         const prefs = this.getPreferences();
+        this._prefsResetPending = false;
+        this._prefsPendingLogo = (typeof this.getBinderLogo === 'function') ? this.getBinderLogo() : (prefs.binderLogo || '');
+        this._sayPreferenceLogoStatus('');
+        this._fillPreferenceCatalogs();
+        this.fillPreferencesUI(prefs);
+        // Hydrate the Fonts picker, then pull in the machine's installed fonts
+        // (refreshes the picker again when they arrive).
+        this._loadSystemFonts();
+        this.showPreferencesTab(this._prefsTab || 'wall');
+        const modal = document.getElementById('preferences-modal');
+        if (modal) modal.style.display = 'block';
+    }
+
+    // Every field on every tab from one preferences object - the stored
+    // set on open, the shipped set after a Reset Defaults.
+    fillPreferencesUI(prefs) {
         const setVal = (id, value) => {
             const el = document.getElementById(id);
-            if (el) el.value = value;
+            if (el) el.value = value == null ? '' : value;
+        };
+        const setChecked = (id, on) => {
+            const el = document.getElementById(id);
+            if (el) el.checked = !!on;
         };
         setVal('pref-raster-width', prefs.rasterWidth);
         setVal('pref-raster-height', prefs.rasterHeight);
@@ -2164,10 +2324,7 @@ class _ExportIo {
         setVal('pref-color1', prefs.color1);
         setVal('pref-color2', prefs.color2);
         setVal('pref-border-color', prefs.borderColor);
-        // Hydrate the Fonts picker, then pull in the machine's installed fonts
-        // (refreshes the picker again when they arrive).
         this._refreshFontPrefsUI(prefs.font || 'Arial');
-        this._loadSystemFonts();
         const prefDataPatternButtons = document.querySelectorAll('.pref-data-flow-pattern-btn');
         prefDataPatternButtons.forEach(btn => {
             btn.classList.toggle('active', btn.getAttribute('data-pattern') === (prefs.flowPattern || 'tl-h'));
@@ -2179,8 +2336,7 @@ class _ExportIo {
         setVal('pref-data-line-width', prefs.dataLineWidth);
         setVal('pref-power-line-width', prefs.powerLineWidth);
         setVal('pref-processor-type', prefs.processorType);
-        const prefLowLatency = document.getElementById('pref-low-latency');
-        if (prefLowLatency) prefLowLatency.checked = !!prefs.lowLatency;
+        setChecked('pref-low-latency', prefs.lowLatency);
         setVal('pref-bit-depth', prefs.bitDepth);
         setVal('pref-frame-rate', prefs.frameRate);
         const voltageSelect = document.getElementById('pref-power-voltage-select');
@@ -2207,8 +2363,43 @@ class _ExportIo {
         }
         setVal('pref-power-watts', prefs.powerWatts);
         setVal('pref-canvas-gap', prefs.canvasGap);
-        const modal = document.getElementById('preferences-modal');
-        if (modal) modal.style.display = 'block';
+        // Distros & multis
+        setVal('pref-distro-rating', prefs.distroRatingA);
+        setVal('pref-distro-voltage', String(prefs.distroVoltage));
+        setVal('pref-distro-phase', Number(prefs.distroPhase) === 1 ? '1' : '3');
+        setVal('pref-multi-type', prefs.multiType);
+        setVal('pref-breakout-type', prefs.breakoutType);
+        setChecked('pref-splitters-enabled', prefs.splittersEnabled);
+        // Binder
+        setVal('pref-binder-sheet', prefs.binderSheet || 'tabloid');
+        setVal('pref-binder-screen-order', prefs.binderScreenOrder || 'alpha');
+        setChecked('pref-binder-printer', prefs.binderPalette === 'printer');
+        setChecked('pref-binder-colour', prefs.binderPalette !== 'printer');
+        const maps = prefs.binderMaps === 'power' || prefs.binderMaps === 'data' ? prefs.binderMaps : 'both';
+        setChecked('pref-binder-side-power', maps === 'power');
+        setChecked('pref-binder-side-data', maps === 'data');
+        setChecked('pref-binder-side-both', maps === 'both');
+        setChecked('pref-binder-cover', prefs.binderCover !== false);
+        setChecked('pref-binder-pull', prefs.binderPull !== false);
+        setChecked('pref-binder-hardware', prefs.binderHardware !== false);
+        setChecked('pref-binder-wiring', prefs.binderWiring !== false);
+        setChecked('pref-binder-title-block', prefs.binderTitleBlock !== false);
+        setVal('pref-binder-designer', prefs.binderDesigner);
+        setVal('pref-binder-pm-name', prefs.binderPmName);
+        setVal('pref-binder-pm-phone', prefs.binderPmPhone);
+        setVal('pref-binder-pm-email', prefs.binderPmEmail);
+        setVal('pref-binder-drafter', prefs.binderDrafter);
+        this._syncPreferenceLogoRow();
+        // Pull sheet & cables
+        setVal('pref-pull-engineer', prefs.engineerName);
+        setVal('pref-pull-rev', prefs.pullRev);
+        setVal('pref-pull-power-jump-name', prefs.powerJumpName);
+        setVal('pref-pull-power-jump-length', prefs.powerJumpLength);
+        setVal('pref-pull-data-jump-name', prefs.dataJumpName);
+        setVal('pref-pull-data-jump-length', prefs.dataJumpLength);
+        setVal('pref-snake-home-run-length', prefs.snakeHomeRunFt);
+        setVal('pref-loose-port-cable-length', prefs.loosePortCableFt);
+        setVal('pref-power-cable-length', prefs.powerCableFt);
     }
 
     readPreferencesFromUI() {
@@ -2219,9 +2410,28 @@ class _ExportIo {
             const val = parseFloat(el.value);
             return Number.isFinite(val) && val > 0 ? val : fallback;
         };
+        // A length that may be left blank on purpose: blank is null.
+        const readOptNum = (id, fallback) => {
+            const el = document.getElementById(id);
+            if (!el) return fallback;
+            if (String(el.value).trim() === '') return null;
+            const val = parseFloat(el.value);
+            return Number.isFinite(val) && val > 0 ? val : fallback;
+        };
         const readStr = (id, fallback) => {
             const el = document.getElementById(id);
             return el && el.value ? el.value : fallback;
+        };
+        // Free text that may be blank on purpose (a name nobody has typed).
+        // Read with the dialog CLOSED (a save from elsewhere carrying the
+        // set through), a field nobody filled means the stored value, not
+        // a blank - the engineer typed into the export dialog survives.
+        const modal = document.getElementById('preferences-modal');
+        const dialogOpen = !!modal && getComputedStyle(modal).display !== 'none';
+        const readText = (id, fallback) => {
+            const el = document.getElementById(id);
+            if (!el || !dialogOpen) return fallback;
+            return String(el.value).trim();
         };
         const readBool = (id, fallback) => {
             const el = document.getElementById(id);
@@ -2237,6 +2447,7 @@ class _ExportIo {
         const amperageVal = amperageSelect && amperageSelect.value !== 'custom'
             ? parseInt(amperageSelect.value, 10)
             : readNum('pref-power-amperage-custom', defaults.powerAmperage);
+        const stored = this.getPreferences();
         return {
             rasterWidth: readNum('pref-raster-width', defaults.rasterWidth),
             rasterHeight: readNum('pref-raster-height', defaults.rasterHeight),
@@ -2268,15 +2479,43 @@ class _ExportIo {
             powerWatts: readNum('pref-power-watts', defaults.powerWatts),
             canvasGap: readNum('pref-canvas-gap', defaults.canvasGap),
             font: readStr('pref-font', defaults.font),
-            // Not on the Preferences modal (edited in the export dialog's
-            // Pull Sheet section); carried through so a Save here does not
-            // wipe it.
-            engineerName: this.getPreferences().engineerName || defaults.engineerName,
-            binderSheet: this.getPreferences().binderSheet || defaults.binderSheet,
-            binderLogo: this.getPreferences().binderLogo || defaults.binderLogo,
-            // a boolean: `||` would turn a stored false back into the
-            // default every time the Preferences modal was saved
-            binderTitleBlock: this.getPreferences().binderTitleBlock !== false,
+            // Distros & multis
+            distroRatingA: readNum('pref-distro-rating', defaults.distroRatingA),
+            distroVoltage: readNum('pref-distro-voltage', defaults.distroVoltage),
+            distroPhase: readNum('pref-distro-phase', defaults.distroPhase) === 1 ? 1 : 3,
+            multiType: readStr('pref-multi-type', defaults.multiType),
+            breakoutType: readStr('pref-breakout-type', defaults.breakoutType),
+            splittersEnabled: readBool('pref-splitters-enabled', defaults.splittersEnabled),
+            // Binder
+            binderSheet: readStr('pref-binder-sheet', defaults.binderSheet),
+            binderScreenOrder: readStr('pref-binder-screen-order', defaults.binderScreenOrder),
+            binderPalette: readBool('pref-binder-printer', false) ? 'printer' : 'colour',
+            binderMaps: readBool('pref-binder-side-power', false) ? 'power'
+                : readBool('pref-binder-side-data', false) ? 'data' : 'both',
+            binderCover: readBool('pref-binder-cover', defaults.binderCover),
+            binderPull: readBool('pref-binder-pull', defaults.binderPull),
+            binderHardware: readBool('pref-binder-hardware', defaults.binderHardware),
+            binderWiring: readBool('pref-binder-wiring', defaults.binderWiring),
+            binderTitleBlock: readBool('pref-binder-title-block', defaults.binderTitleBlock),
+            binderDesigner: readText('pref-binder-designer', stored.binderDesigner != null ? stored.binderDesigner : defaults.binderDesigner),
+            binderPmName: readText('pref-binder-pm-name', stored.binderPmName != null ? stored.binderPmName : defaults.binderPmName),
+            binderPmPhone: readText('pref-binder-pm-phone', stored.binderPmPhone != null ? stored.binderPmPhone : defaults.binderPmPhone),
+            binderPmEmail: readText('pref-binder-pm-email', stored.binderPmEmail != null ? stored.binderPmEmail : defaults.binderPmEmail),
+            binderDrafter: readText('pref-binder-drafter', stored.binderDrafter != null ? stored.binderDrafter : defaults.binderDrafter),
+            // the logo chosen in the dialog, else the one stored (the
+            // dialog opens with it pending, so Remove clears it on Save)
+            binderLogo: this._prefsPendingLogo != null ? this._prefsPendingLogo : (stored.binderLogo || defaults.binderLogo),
+            // Pull sheet & cables
+            engineerName: readText('pref-pull-engineer', stored.engineerName != null ? stored.engineerName : defaults.engineerName),
+            pullRev: readStr('pref-pull-rev', defaults.pullRev),
+            powerJumpName: readStr('pref-pull-power-jump-name', defaults.powerJumpName),
+            powerJumpLength: readNum('pref-pull-power-jump-length', defaults.powerJumpLength),
+            dataJumpName: readStr('pref-pull-data-jump-name', defaults.dataJumpName),
+            dataJumpLength: readNum('pref-pull-data-jump-length', defaults.dataJumpLength),
+            snakeHomeRunFt: dialogOpen ? readOptNum('pref-snake-home-run-length', defaults.snakeHomeRunFt)
+                : (stored.snakeHomeRunFt != null ? stored.snakeHomeRunFt : defaults.snakeHomeRunFt),
+            loosePortCableFt: readNum('pref-loose-port-cable-length', defaults.loosePortCableFt),
+            powerCableFt: readNum('pref-power-cable-length', defaults.powerCableFt),
         };
     }
 

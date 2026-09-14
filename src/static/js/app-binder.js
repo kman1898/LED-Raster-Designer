@@ -329,6 +329,26 @@ class _Binder {
         show('export-views-section', false);
         show('export-options-section', false);
         show('export-pull-sheet-section', false);
+        // On open (openExportModal raises the flag): the palette, the
+        // maps and the sheet ticks start from the Binder preferences, the
+        // way the sheet size does. Ahead of the scope logic below, which
+        // still unticks the show sheets for a single screen.
+        if (this._binderSeedFromPrefs) {
+            this._binderSeedFromPrefs = false;
+            const prefs = (typeof this.getPreferences === 'function') ? this.getPreferences() : {};
+            const tick = (id, on) => { const el = document.getElementById(id); if (el) el.checked = !!on; };
+            const printer = prefs.binderPalette === 'printer';
+            tick('export-binder-printer', printer);
+            tick('export-binder-colour', !printer);
+            const maps = prefs.binderMaps === 'power' || prefs.binderMaps === 'data' ? prefs.binderMaps : 'both';
+            tick('export-binder-side-power', maps === 'power');
+            tick('export-binder-side-data', maps === 'data');
+            tick('export-binder-side-both', maps === 'both');
+            tick('export-binder-cover', prefs.binderCover !== false);
+            tick('export-binder-pull', prefs.binderPull !== false);
+            tick('export-binder-hardware', prefs.binderHardware !== false);
+            tick('export-binder-wiring', prefs.binderWiring !== false);
+        }
         const scope = document.getElementById('export-binder-scope');
         if (scope) {
             const want = this._binderPresetScope != null
@@ -509,16 +529,26 @@ class _Binder {
 
     // The stored fields, defaults filled. Never the stored object itself:
     // readers must not mutate the project.
+    // The project's value wins where it has one; where it is blank the
+    // PREFERENCE fills it (the Binder tab's designer, project manager,
+    // drafter and screen order - the same shop show after show). The
+    // venue and the dates are per show and have no preference.
     getBinderInfo() {
         const s = (v) => String(v == null ? '' : v);
         const stored = (this.project && this.project.binder && typeof this.project.binder === 'object')
             ? this.project.binder : {};
         const pm = (stored.projectManager && typeof stored.projectManager === 'object') ? stored.projectManager : {};
+        const prefs = (typeof this.getPreferences === 'function') ? this.getPreferences() : {};
+        const fill = (v, pref) => s(v).trim() ? s(v) : s(pref);
         return {
-            venue: s(stored.venue), dates: s(stored.dates), designer: s(stored.designer),
-            projectManager: { name: s(pm.name), phone: s(pm.phone), email: s(pm.email) },
-            drafter: s(stored.drafter),
-            screenOrder: SCREEN_ORDERS.includes(stored.screenOrder) ? stored.screenOrder : 'alpha',
+            venue: s(stored.venue), dates: s(stored.dates),
+            designer: fill(stored.designer, prefs.binderDesigner),
+            projectManager: { name: fill(pm.name, prefs.binderPmName),
+                              phone: fill(pm.phone, prefs.binderPmPhone),
+                              email: fill(pm.email, prefs.binderPmEmail) },
+            drafter: fill(stored.drafter, prefs.binderDrafter),
+            screenOrder: SCREEN_ORDERS.includes(stored.screenOrder) ? stored.screenOrder
+                : (SCREEN_ORDERS.includes(prefs.binderScreenOrder) ? prefs.binderScreenOrder : 'alpha'),
             // the log: No. is the row's position; `rev` the number the
             // export wore, so the same rev exported again logs nothing
             revisions: Array.isArray(stored.revisions)
@@ -670,15 +700,29 @@ class _Binder {
             const el = document.getElementById('export-binder-logo-status');
             if (el) { el.textContent = msg; el.style.display = msg ? '' : 'none'; }
         };
+        const r = await this.readBinderLogoDataUrl(file);
+        if (r.error) {
+            status(r.error);
+            return false;
+        }
+        await this.setBinderLogo(r.dataUrl);
+        status('');
+        this.syncBinderControls();
+        sendClientLog('binder_logo_set', { type: r.type, w: r.width, h: r.height, bytes: r.dataUrl.length });
+        return true;
+    }
+
+    // The file read, checked and downscaled - what the export dialog
+    // stores at once and the Preferences dialog holds until Save. Resolves
+    // to { dataUrl, type, width, height } or { error }.
+    async readBinderLogoDataUrl(file) {
         const type = String(file && file.type || '').toLowerCase();
         const name = String(file && file.name || '');
         if (type === 'image/svg+xml' || /\.svg$/i.test(name)) {
-            status('SVG is not accepted: the PDF draws bitmaps. Save the logo as a PNG or JPEG.');
-            return false;
+            return { error: 'SVG is not accepted: the PDF draws bitmaps. Save the logo as a PNG or JPEG.' };
         }
         if (type !== 'image/png' && type !== 'image/jpeg') {
-            status('Pick a PNG or JPEG.');
-            return false;
+            return { error: 'Pick a PNG or JPEG.' };
         }
         let img;
         try {
@@ -690,15 +734,10 @@ class _Binder {
             });
             img = await this._binderLoadImage(dataUrl);
         } catch (_) {
-            status('That file could not be read as an image.');
-            return false;
+            return { error: 'That file could not be read as an image.' };
         }
-        const scaled = this._binderScaleLogo(img, type);
-        await this.setBinderLogo(scaled);
-        status('');
-        this.syncBinderControls();
-        sendClientLog('binder_logo_set', { type, w: img.naturalWidth, h: img.naturalHeight, bytes: scaled.length });
-        return true;
+        return { dataUrl: this._binderScaleLogo(img, type), type,
+                 width: img.naturalWidth, height: img.naturalHeight };
     }
 
     _binderScaleLogo(img, type) {

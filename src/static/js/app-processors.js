@@ -1682,6 +1682,10 @@ class _Processors {
         const list = (members || []).filter(Boolean);
         if (!list.length) return Promise.resolve(null);
         const body = { members: list };
+        // No length asked for: the Snake home run preference, when one is
+        // set (blank as shipped - a new snake starts with no length, as
+        // it always has). Read here, at creation, and nowhere else.
+        if (ft == null) ft = this.defaultSnakeHomeRunFt();
         if (ft != null) body.ft = ft;
         const before = new Set(this.getShowSnakes().map(s => s.id));
         // The sockets leave their old snakes and their own home runs in
@@ -1695,6 +1699,21 @@ class _Processors {
                     .find(s => !before.has(s.id));
                 return made ? made.id : null;
             });
+    }
+
+    // The Pull sheet & cables preferences the data cables are made with:
+    // the home run a new snake takes (null = none), and the length the
+    // sheet's loose-port quick fill writes (100' as shipped).
+    defaultSnakeHomeRunFt() {
+        const prefs = (typeof this.getPreferences === 'function') ? this.getPreferences() : {};
+        const n = Number(prefs.snakeHomeRunFt);
+        return prefs.snakeHomeRunFt != null && Number.isFinite(n) && n > 0 ? n : null;
+    }
+
+    defaultLoosePortCableFt() {
+        const prefs = (typeof this.getPreferences === 'function') ? this.getPreferences() : {};
+        const n = Number(prefs.loosePortCableFt);
+        return Number.isFinite(n) && n > 0 ? n : 100;
     }
 
     // Ahead of a new snake: the members leave whatever snake held them,

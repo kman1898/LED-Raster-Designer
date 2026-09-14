@@ -2185,182 +2185,414 @@
         </div>
     </div>
 
+    <!-- Preferences: seven tabs across the top, one section up at a time,
+         Reset Defaults / Cancel / Save fixed at the foot. The body keeps one
+         height (the tallest tab's) so the dialog never jumps between tabs.
+         A tab's fields sit in a .pm-section the strip shows or hides;
+         app-export-io.js setupPreferences drives the strip, the reset and
+         the save. -->
     <div id="preferences-modal" class="modal" style="display: none;">
-        <div class="modal-content" style="background: #252525; border-radius: 8px; padding: 24px; max-width: 520px; margin: 60px auto; border: 1px solid #3a3a3a;">
-            <h2 style="margin-top: 0; color: #fff; margin-bottom: 20px;">Preferences</h2>
-            <div class="prefs-grid">
-                <div class="prefs-group">
-                    <label>Default Canvas Size</label>
-                    <div class="prefs-row">
-                        <input type="text" id="pref-raster-width" placeholder="1920">
-                        <span>×</span>
-                        <input type="text" id="pref-raster-height" placeholder="1080">
-                    </div>
-                    <div style="font-size: 11px; color: #888; margin-top: 4px;">Used for new projects and each new canvas added via + Add Canvas.</div>
-                </div>
-                <div class="prefs-group">
-                    <label>Default Grid</label>
-                    <div class="prefs-row">
-                        <input type="text" id="pref-columns" placeholder="8">
-                        <span>Cols</span>
-                        <input type="text" id="pref-rows" placeholder="5">
-                        <span>Rows</span>
-                    </div>
-                </div>
-                <div class="prefs-group">
-                    <label>Default Panel Size (px)</label>
-                    <div class="prefs-row">
-                        <input type="text" id="pref-panel-width" placeholder="128">
-                        <span>×</span>
-                        <input type="text" id="pref-panel-height" placeholder="128">
-                    </div>
-                </div>
-                <div class="prefs-group">
-                    <label>Default Panel Size (mm)</label>
-                    <div class="prefs-row">
-                        <input type="text" id="pref-panel-width-mm" placeholder="500">
-                        <span>×</span>
-                        <input type="text" id="pref-panel-height-mm" placeholder="500">
-                    </div>
-                </div>
-                <div class="prefs-group">
-                    <label>Default Panel Weight</label>
-                    <div class="prefs-row">
-                        <input type="number" id="pref-panel-weight" placeholder="20" step="0.1">
-                        <select id="pref-weight-unit">
-                            <option value="kg">kg</option>
-                            <option value="lb">lb</option>
-                        </select>
-                    </div>
-                </div>
-                <div class="prefs-group">
-                    <label>Default Cabinet ID Font Size</label>
-                    <div class="prefs-row">
-                        <input type="text" id="pref-cabinet-font-size" placeholder="30">
-                        <span>px</span>
-                    </div>
-                </div>
-                <div class="prefs-group">
-                    <label>Default Pixel Map Label Font Size</label>
-                    <div class="prefs-row">
-                        <input type="text" id="pref-label-font-size" placeholder="30">
-                        <span>px</span>
-                    </div>
-                </div>
-                <div class="prefs-group">
-                    <label>Default Colors</label>
-                    <div class="prefs-row">
-                        <input type="color" id="pref-color1">
-                        <input type="color" id="pref-color2">
-                        <input type="color" id="pref-border-color">
-                    </div>
-                </div>
-                <div class="prefs-group">
-                    <label>Fonts</label>
-                    <div class="prefs-row" style="align-items: center; gap: 8px;">
-                        <span style="font-size: 11px; color: #888;">Project font</span>
-                        <select id="pref-font" style="flex: 1;"></select>
-                    </div>
-                    <div style="font-size: 11px; color: #888; margin-top: 6px;">Lists the fonts installed on this computer. Used for all on-canvas text.</div>
-                </div>
-                <div class="prefs-group">
-                    <label>Default Data Pattern</label>
-                    <div id="pref-data-flow-pattern-grid" class="prefs-flow-grid"></div>
-                </div>
-                <div class="prefs-group">
-                    <label>Default Power Flow Pattern</label>
-                    <div id="pref-power-flow-pattern-grid" class="prefs-flow-grid"></div>
-                </div>
-                <div class="prefs-group">
-                    <label>Default Line Widths</label>
-                    <div class="prefs-row">
-                        <input type="text" id="pref-data-line-width" placeholder="6">
-                        <span>Data</span>
-                        <input type="text" id="pref-power-line-width" placeholder="8">
-                        <span>Power</span>
-                    </div>
-                </div>
-                <div class="prefs-group">
-                    <label>Default Label Sizes</label>
-                    <div class="prefs-row">
-                        <input type="text" id="pref-data-label-size" placeholder="30">
-                        <span>Data</span>
-                        <input type="text" id="pref-power-label-size" placeholder="14">
-                        <span>Power</span>
-                    </div>
-                </div>
-                <div class="prefs-group">
-                    <label>Default Processing (Data)</label>
-                    <select id="pref-processor-type">
-                        <option value="novastar-armor">NovaStar (Legacy)</option>
-                        <option value="novastar-coex-1g">NovaStar COEX A10s/A8s (1G)</option>
-                        <option value="novastar-5g">NovaStar COEX CX40 (5G)</option>
-                        <option value="brompton">Brompton Tessera</option>
-                        <option value="megapixel-1g">Megapixel HELIOS (1G)</option>
-                        <option value="megapixel-2.5g">Megapixel HELIOS (2.5G)</option>
-                    </select>
-                </div>
-                <div class="prefs-group">
-                    <label>Default Low Latency</label>
-                    <div class="prefs-row" style="align-items: center; gap: 8px;">
-                        <input type="checkbox" id="pref-low-latency">
-                        <span style="font-size: 11px; color: #888;">New screens start with Low Latency on</span>
-                    </div>
-                </div>
-                <div class="prefs-group">
-                    <label>Default Bit Depth / Frame Rate</label>
-                    <div class="prefs-row">
-                        <select id="pref-bit-depth">
-                            <option value="8">8-bit</option>
-                            <option value="10">10-bit</option>
-                            <option value="12">12-bit</option>
-                        </select>
-                        <select id="pref-frame-rate">
-                            <option value="24">24 Hz</option>
-                            <option value="25">25 Hz</option>
-                            <option value="30">30 Hz</option>
-                            <option value="50">50 Hz</option>
-                            <option value="60">60 Hz</option>
-                            <option value="120">120 Hz</option>
-                            <option value="144">144 Hz</option>
-                            <option value="240">240 Hz</option>
-                        </select>
-                    </div>
-                </div>
-                <div class="prefs-group">
-                    <label>Canvas gap (px)</label>
-                    <div class="prefs-row">
-                        <input type="number" id="pref-canvas-gap" placeholder="50" min="0" step="1">
-                        <span>px between auto-placed canvases</span>
-                    </div>
-                </div>
-                <div class="prefs-group">
-                    <label>Default Power (V / A / W)</label>
-                    <div class="prefs-row">
-                        <select id="pref-power-voltage-select">
-                            <option value="110">110V</option>
-                            <option value="208">208V</option>
-                            <option value="220">220V</option>
-                            <option value="230">230V</option>
-                            <option value="240">240V</option>
-                            <option value="custom">Custom</option>
-                        </select>
-                        <input type="text" id="pref-power-voltage-custom" placeholder="Custom V" style="display:none;">
-                        <select id="pref-power-amperage-select">
-                            <option value="15">15A</option>
-                            <option value="20">20A</option>
-                            <option value="custom">Custom</option>
-                        </select>
-                        <input type="text" id="pref-power-amperage-custom" placeholder="Custom A" style="display:none;">
-                        <input type="text" id="pref-power-watts" placeholder="200">
-                        <span>W</span>
-                    </div>
-                </div>
+        <div class="modal-content pm-modal pm-tabs">
+            <h2>Preferences</h2>
+            <div class="pm-tabstrip" role="tablist">
+                <button type="button" class="view-tab active" data-key="wall">Wall</button>
+                <button type="button" class="view-tab" data-key="look">Look</button>
+                <button type="button" class="view-tab" data-key="data">Data</button>
+                <button type="button" class="view-tab" data-key="power">Power</button>
+                <button type="button" class="view-tab" data-key="distros">Distros &amp; multis</button>
+                <button type="button" class="view-tab" data-key="binder">Binder</button>
+                <button type="button" class="view-tab" data-key="pull">Pull sheet &amp; cables</button>
             </div>
-            <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
-                <button id="preferences-reset" class="btn" style="background: #2f2f2f; padding: 10px 20px; margin-right: auto;">Reset Defaults</button>
-                <button id="preferences-cancel" class="btn" style="background: #3a3a3a; padding: 10px 20px;">Cancel</button>
-                <button id="preferences-save" class="btn" style="background: #4A90E2; padding: 10px 20px;">Save</button>
+            <div class="pm-body">
+                <section class="pm-section active" id="pm-sec-wall" data-key="wall">
+                    <div class="prefs-group">
+                        <div class="pm-row">
+                            <label>Canvas size</label>
+                            <div class="prefs-row">
+                                <input type="text" id="pref-raster-width" placeholder="1920">
+                                <span>×</span>
+                                <input type="text" id="pref-raster-height" placeholder="1080">
+                            </div>
+                            <div class="pm-note">Used for new projects and each new canvas added via + Add Canvas.</div>
+                        </div>
+                        <div class="pm-row">
+                            <label>Grid</label>
+                            <div class="prefs-row">
+                                <input type="text" id="pref-columns" placeholder="8">
+                                <span>Cols</span>
+                                <input type="text" id="pref-rows" placeholder="5">
+                                <span>Rows</span>
+                            </div>
+                        </div>
+                        <div class="pm-row">
+                            <label>Panel size (px)</label>
+                            <div class="prefs-row">
+                                <input type="text" id="pref-panel-width" placeholder="128">
+                                <span>×</span>
+                                <input type="text" id="pref-panel-height" placeholder="128">
+                            </div>
+                        </div>
+                        <div class="pm-row">
+                            <label>Panel size (mm)</label>
+                            <div class="prefs-row">
+                                <input type="text" id="pref-panel-width-mm" placeholder="500">
+                                <span>×</span>
+                                <input type="text" id="pref-panel-height-mm" placeholder="500">
+                            </div>
+                        </div>
+                        <div class="pm-row">
+                            <label>Panel weight</label>
+                            <div class="prefs-row">
+                                <input type="number" id="pref-panel-weight" placeholder="20" step="0.1">
+                                <select id="pref-weight-unit" class="pm-fit">
+                                    <option value="kg">kg</option>
+                                    <option value="lb">lb</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="pm-row">
+                            <label>Canvas gap</label>
+                            <div class="prefs-row">
+                                <input type="number" id="pref-canvas-gap" placeholder="50" min="0" step="1">
+                                <span>px between auto-placed canvases</span>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                <section class="pm-section" id="pm-sec-look" data-key="look">
+                    <div class="prefs-group">
+                        <div class="pm-row">
+                            <label>Colors</label>
+                            <div class="prefs-row">
+                                <input type="color" id="pref-color1">
+                                <input type="color" id="pref-color2">
+                                <input type="color" id="pref-border-color">
+                            </div>
+                        </div>
+                        <div class="pm-row">
+                            <label>Project font</label>
+                            <div class="prefs-row">
+                                <select id="pref-font"></select>
+                            </div>
+                            <div class="pm-note">Lists the fonts installed on this computer. Used for all on-canvas text.</div>
+                        </div>
+                        <div class="pm-row">
+                            <label>Cabinet ID font size</label>
+                            <div class="prefs-row">
+                                <input type="text" id="pref-cabinet-font-size" placeholder="30">
+                                <span>px</span>
+                            </div>
+                        </div>
+                        <div class="pm-row">
+                            <label>Pixel map label size</label>
+                            <div class="prefs-row">
+                                <input type="text" id="pref-label-font-size" placeholder="30">
+                                <span>px</span>
+                            </div>
+                        </div>
+                        <div class="pm-row">
+                            <label>Label sizes</label>
+                            <div class="prefs-row">
+                                <input type="text" id="pref-data-label-size" placeholder="30">
+                                <span>Data</span>
+                                <input type="text" id="pref-power-label-size" placeholder="14">
+                                <span>Power</span>
+                            </div>
+                        </div>
+                        <!-- theme.js drops its Appearance / accent picker right
+                             after the first .prefs-grid it finds in this modal;
+                             this empty one puts it at the foot of the Look tab. -->
+                        <div class="prefs-grid pm-appearance-anchor"></div>
+                    </div>
+                </section>
+                <section class="pm-section" id="pm-sec-data" data-key="data">
+                    <div class="prefs-group">
+                        <div class="pm-row">
+                            <label>Processor</label>
+                            <div class="prefs-row">
+                                <select id="pref-processor-type">
+                                    <option value="novastar-armor">NovaStar (Legacy)</option>
+                                    <option value="novastar-coex-1g">NovaStar COEX A10s/A8s (1G)</option>
+                                    <option value="novastar-5g">NovaStar COEX CX40 (5G)</option>
+                                    <option value="brompton">Brompton Tessera</option>
+                                    <option value="megapixel-1g">Megapixel HELIOS (1G)</option>
+                                    <option value="megapixel-2.5g">Megapixel HELIOS (2.5G)</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="pm-row">
+                            <label>Low latency</label>
+                            <div class="prefs-row">
+                                <label class="pm-check"><input type="checkbox" id="pref-low-latency"> New screens start with Low Latency on</label>
+                            </div>
+                        </div>
+                        <div class="pm-row">
+                            <label>Bit depth / frame rate</label>
+                            <div class="prefs-row">
+                                <select id="pref-bit-depth">
+                                    <option value="8">8-bit</option>
+                                    <option value="10">10-bit</option>
+                                    <option value="12">12-bit</option>
+                                </select>
+                                <select id="pref-frame-rate">
+                                    <option value="24">24 Hz</option>
+                                    <option value="25">25 Hz</option>
+                                    <option value="30">30 Hz</option>
+                                    <option value="50">50 Hz</option>
+                                    <option value="60">60 Hz</option>
+                                    <option value="120">120 Hz</option>
+                                    <option value="144">144 Hz</option>
+                                    <option value="240">240 Hz</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="pm-row">
+                            <label>Data pattern</label>
+                            <div class="prefs-row">
+                                <div id="pref-data-flow-pattern-grid" class="prefs-flow-grid"></div>
+                            </div>
+                        </div>
+                        <div class="pm-row">
+                            <label>Data line width</label>
+                            <div class="prefs-row">
+                                <input type="text" id="pref-data-line-width" placeholder="6">
+                                <span>px</span>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                <section class="pm-section" id="pm-sec-power" data-key="power">
+                    <div class="prefs-group">
+                        <div class="pm-row">
+                            <label>Power flow pattern</label>
+                            <div class="prefs-row">
+                                <div id="pref-power-flow-pattern-grid" class="prefs-flow-grid"></div>
+                            </div>
+                        </div>
+                        <div class="pm-row">
+                            <label>Power line width</label>
+                            <div class="prefs-row">
+                                <input type="text" id="pref-power-line-width" placeholder="8">
+                                <span>px</span>
+                            </div>
+                        </div>
+                        <div class="pm-row">
+                            <label>Power (V / A / W)</label>
+                            <div class="prefs-row">
+                                <select id="pref-power-voltage-select">
+                                    <option value="110">110V</option>
+                                    <option value="208">208V</option>
+                                    <option value="220">220V</option>
+                                    <option value="230">230V</option>
+                                    <option value="240">240V</option>
+                                    <option value="custom">Custom</option>
+                                </select>
+                                <input type="text" id="pref-power-voltage-custom" placeholder="Custom V" style="display:none;">
+                                <select id="pref-power-amperage-select">
+                                    <option value="15">15A</option>
+                                    <option value="20">20A</option>
+                                    <option value="custom">Custom</option>
+                                </select>
+                                <input type="text" id="pref-power-amperage-custom" placeholder="Custom A" style="display:none;">
+                                <input type="text" id="pref-power-watts" placeholder="200">
+                                <span>W</span>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                <section class="pm-section" id="pm-sec-distros" data-key="distros">
+                    <div class="prefs-group">
+                        <div class="pm-row">
+                            <label>Distro</label>
+                            <div class="prefs-row">
+                                <input type="number" id="pref-distro-rating" placeholder="400" min="1">
+                                <span>A</span>
+                                <select id="pref-distro-voltage" class="pm-fit">
+                                    <option value="110">110V</option>
+                                    <option value="120">120V</option>
+                                    <option value="208">208V</option>
+                                    <option value="220">220V</option>
+                                    <option value="230">230V</option>
+                                    <option value="240">240V</option>
+                                    <option value="400">400V</option>
+                                    <option value="415">415V</option>
+                                </select>
+                                <select id="pref-distro-phase" class="pm-fit">
+                                    <option value="3">3φ</option>
+                                    <option value="1">1φ</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="pm-row">
+                            <label>Multi type</label>
+                            <div class="prefs-row">
+                                <select id="pref-multi-type"></select>
+                            </div>
+                        </div>
+                        <div class="pm-row">
+                            <label>Breakout</label>
+                            <div class="prefs-row">
+                                <select id="pref-breakout-type"></select>
+                            </div>
+                        </div>
+                        <div class="pm-row">
+                            <label>Splitters</label>
+                            <div class="prefs-row">
+                                <label class="pm-check"><input type="checkbox" id="pref-splitters-enabled"> Share circuits via splitters</label>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                <section class="pm-section" id="pm-sec-binder" data-key="binder">
+                    <div class="prefs-group">
+                        <div class="pm-row">
+                            <label>Sheet</label>
+                            <div class="prefs-row">
+                                <select id="pref-binder-sheet">
+                                    <option value="letter">Letter 11 × 8.5</option>
+                                    <option value="tabloid">Tabloid 17 × 11</option>
+                                    <option value="archc">ARCH C 24 × 18</option>
+                                    <option value="archd">ARCH D 36 × 24</option>
+                                    <option value="a4">A4 11.69 × 8.27</option>
+                                    <option value="a3">A3 16.54 × 11.69</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="pm-row">
+                            <label>Screen order</label>
+                            <div class="prefs-row">
+                                <select id="pref-binder-screen-order">
+                                    <option value="alpha">Alphabetical by name</option>
+                                    <option value="layers">Screens panel, top to bottom</option>
+                                    <option value="layers-up">Screens panel, bottom to top</option>
+                                    <option value="data">Data: first port (processor, card, socket)</option>
+                                    <option value="power">Power: first circuit (distro, multi, circuit)</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="pm-row">
+                            <label>Palette</label>
+                            <div class="prefs-row pm-choices">
+                                <label class="pm-check"><input type="radio" name="pref-binder-palette" id="pref-binder-colour" value="colour"> Colour</label>
+                                <label class="pm-check"><input type="radio" name="pref-binder-palette" id="pref-binder-printer" value="printer"> Printer</label>
+                            </div>
+                        </div>
+                        <div class="pm-row">
+                            <label>Maps</label>
+                            <div class="prefs-row pm-choices">
+                                <label class="pm-check"><input type="radio" name="pref-binder-side" id="pref-binder-side-power" value="power"> Power</label>
+                                <label class="pm-check"><input type="radio" name="pref-binder-side" id="pref-binder-side-data" value="data"> Data</label>
+                                <label class="pm-check"><input type="radio" name="pref-binder-side" id="pref-binder-side-both" value="both"> Both</label>
+                            </div>
+                        </div>
+                        <div class="pm-row">
+                            <label>Sheets</label>
+                            <div class="prefs-row pm-choices">
+                                <label class="pm-check"><input type="checkbox" id="pref-binder-cover"> Overview</label>
+                                <label class="pm-check"><input type="checkbox" id="pref-binder-pull"> Pull sheets</label>
+                                <label class="pm-check"><input type="checkbox" id="pref-binder-hardware"> Hardware</label>
+                                <label class="pm-check"><input type="checkbox" id="pref-binder-wiring"> Wiring</label>
+                            </div>
+                        </div>
+                        <div class="pm-row">
+                            <label>Frame</label>
+                            <div class="prefs-row">
+                                <label class="pm-check"><input type="checkbox" id="pref-binder-title-block"> Border and title block</label>
+                            </div>
+                        </div>
+                        <div class="pm-row">
+                            <label>Designer</label>
+                            <div class="prefs-row">
+                                <input type="text" id="pref-binder-designer" placeholder="Name" class="pm-wide">
+                            </div>
+                        </div>
+                        <div class="pm-row">
+                            <label>Project manager</label>
+                            <div class="prefs-row">
+                                <input type="text" id="pref-binder-pm-name" placeholder="Name" class="pm-wide">
+                            </div>
+                        </div>
+                        <div class="pm-row">
+                            <label></label>
+                            <div class="prefs-row">
+                                <input type="text" id="pref-binder-pm-phone" placeholder="Phone" class="pm-wide">
+                                <input type="text" id="pref-binder-pm-email" placeholder="Email" class="pm-wide">
+                            </div>
+                        </div>
+                        <div class="pm-row">
+                            <label>Drafter</label>
+                            <div class="prefs-row">
+                                <input type="text" id="pref-binder-drafter" placeholder="Name" class="pm-wide">
+                            </div>
+                        </div>
+                        <div class="pm-row">
+                            <label>Logo</label>
+                            <div class="prefs-row">
+                                <img id="pref-binder-logo-preview" alt="" style="display: none;">
+                                <span id="pref-binder-logo-none" class="pm-logo-none">None</span>
+                                <label for="pref-binder-logo" class="btn" style="cursor: pointer;">Choose…</label>
+                                <input type="file" id="pref-binder-logo" accept="image/png,image/jpeg" style="display: none;">
+                                <button type="button" id="pref-binder-logo-remove" class="btn" style="display: none;">Remove</button>
+                                <span id="pref-binder-logo-status" class="pm-logo-status" style="display: none;"></span>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                <section class="pm-section" id="pm-sec-pull" data-key="pull">
+                    <div class="prefs-group">
+                        <div class="pm-row">
+                            <label>Engineer</label>
+                            <div class="prefs-row">
+                                <input type="text" id="pref-pull-engineer" placeholder="Name" class="pm-wide">
+                                <span>Rev</span>
+                                <input type="text" id="pref-pull-rev" placeholder="1.0" class="pm-short">
+                            </div>
+                        </div>
+                        <div class="pm-row">
+                            <label>Power jumper</label>
+                            <div class="prefs-row">
+                                <input type="text" id="pref-pull-power-jump-name" placeholder="Tru-1 Power Jump" class="pm-wide">
+                                <input type="text" id="pref-pull-power-jump-length" placeholder="6" class="pm-short">
+                                <span>ft</span>
+                            </div>
+                        </div>
+                        <div class="pm-row">
+                            <label>Data jumper</label>
+                            <div class="prefs-row">
+                                <input type="text" id="pref-pull-data-jump-name" placeholder="Data Jump" class="pm-wide">
+                                <input type="text" id="pref-pull-data-jump-length" placeholder="6" class="pm-short">
+                                <span>ft</span>
+                            </div>
+                        </div>
+                        <div class="pm-row">
+                            <label>Snake home run</label>
+                            <div class="prefs-row">
+                                <input type="text" id="pref-snake-home-run-length" placeholder="—" class="pm-short">
+                                <span>ft</span>
+                            </div>
+                            <div class="pm-note">Blank: a new snake starts with no length.</div>
+                        </div>
+                        <div class="pm-row">
+                            <label>Loose port cable</label>
+                            <div class="prefs-row">
+                                <input type="text" id="pref-loose-port-cable-length" placeholder="100" class="pm-short">
+                                <span>ft</span>
+                            </div>
+                        </div>
+                        <div class="pm-row">
+                            <label>Power cable</label>
+                            <div class="prefs-row">
+                                <input type="text" id="pref-power-cable-length" placeholder="10" class="pm-short">
+                                <span>ft</span>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+            <div class="pm-foot">
+                <button id="preferences-reset" class="btn">Reset Defaults</button>
+                <button id="preferences-cancel" class="btn">Cancel</button>
+                <button id="preferences-save" class="btn btn-primary">Save</button>
             </div>
         </div>
     </div>

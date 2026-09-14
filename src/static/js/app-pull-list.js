@@ -131,15 +131,32 @@ class _PullList {
 
     // ---- project settings -------------------------------------------------
 
+    // What a project starts from: the shipped values, under the Pull
+    // sheet & cables preferences (rev, the two jumpers' names and
+    // lengths) where those are set. The project's own pullSheet wins
+    // over both (getPullSheetSettings).
     getPullSheetDefaults() {
-        return { ...PULL_SHEET_DEFAULTS };
+        const prefs = (typeof this.getPreferences === 'function') ? this.getPreferences() : {};
+        const out = { ...PULL_SHEET_DEFAULTS };
+        const map = { rev: 'pullRev', powerJumpName: 'powerJumpName', powerJumpLength: 'powerJumpLength',
+                      dataJumpName: 'dataJumpName', dataJumpLength: 'dataJumpLength' };
+        for (const k of Object.keys(map)) {
+            const v = prefs[map[k]];
+            if (/Length$/.test(k)) {
+                const n = parseFloat(v);
+                if (Number.isFinite(n) && n > 0) out[k] = n;
+            } else if (v != null && String(v).trim()) {
+                out[k] = String(v).trim();
+            }
+        }
+        return out;
     }
 
     // The project's pull-sheet settings, defaults filled in. Never returns
     // the stored object itself: readers must not mutate the project.
     getPullSheetSettings() {
         const stored = (this.project && this.project.pullSheet) || {};
-        const out = { ...PULL_SHEET_DEFAULTS };
+        const out = this.getPullSheetDefaults();
         for (const k of Object.keys(PULL_SHEET_DEFAULTS)) {
             if (stored[k] === undefined || stored[k] === null) continue;
             out[k] = stored[k];
@@ -152,12 +169,13 @@ class _PullList {
     // something changed.
     setPullSheetSetting(key, value, action = 'Edit Pull Sheet Settings') {
         if (!this.project || !(key in PULL_SHEET_DEFAULTS)) return false;
+        const defaults = this.getPullSheetDefaults();
         let v = value;
         if (/Length$/.test(key)) {
             const n = parseFloat(v);
-            v = Number.isFinite(n) && n > 0 ? n : PULL_SHEET_DEFAULTS[key];
+            v = Number.isFinite(n) && n > 0 ? n : defaults[key];
         } else {
-            v = String(v == null ? '' : v).trim() || PULL_SHEET_DEFAULTS[key];
+            v = String(v == null ? '' : v).trim() || defaults[key];
         }
         const current = this.getPullSheetSettings()[key];
         if (current === v) return false;

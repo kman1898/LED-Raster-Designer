@@ -176,7 +176,7 @@
         { target: '#project-name', place: 'bottom', title: 'Projects',
           body: 'Name your project here. <b>File &rsaquo; Save / Open</b> store your work as <b>.lrd</b> files, and recent projects appear in the File menu.' },
         { target: '#btn-preferences', place: 'bottom', title: 'Preferences',
-          body: 'App-wide defaults for new screens and canvases: canvas size and grid, panel size and weight, colors and fonts, the Data and Power flow patterns, line widths and label sizes, <b>Processing</b>, bit depth and frame rate for Data, and voltage, amperage and watts for Power.' },
+          body: 'App-wide defaults in seven tabs: <b>Wall</b>, <b>Look</b> (including the interface <b>accent color</b>), <b>Data</b>, <b>Power</b>, <b>Distros &amp; multis</b>, <b>Binder</b> and <b>Pull sheet &amp; cables</b>. A default applies only to what you create next; <b>Reset Defaults</b> puts every tab back to its shipped value after a yes/no, on Save.' },
         { target: '#left-sidebar', place: 'right', title: 'Screen Info',
           body: 'Each screen&rsquo;s core settings: cabinet pixel size, <b>Columns &times; Rows</b>, its <b>Offset</b> (position in the raster), physical panel size (mm) and weight for the totals.' },
         { target: '#screen-rotation', place: 'right', title: 'Rotation',
