@@ -2,9 +2,17 @@
  * quickstart.js: in-app guided tours.
  *   - Quick Start: short first-run tour, auto-shows once, skippable, with a
  *     "Don't show on startup" checkbox. Reopen from Help -> Quick Start Guide.
- *   - Advanced Guide: an optional full walkthrough of the whole app, offered at
- *     the end of the quick tour and from Help -> Advanced Guide.
+ *   - What's New in 0.12: the surfaces that changed. Help -> What's New in
+ *     0.12, and the splash's walkthrough button.
+ *   - Advanced Guide: an optional full walkthrough of the whole app, offered
+ *     at the end of the quick tour and from Help -> Advanced Guide.
  * Fully self-contained and offline (no CDN).
+ *
+ * A step is { target, place, title, body, center?, before?, after? }.
+ * before() runs as the step is entered (a view switch, opening a sheet or
+ * the export dialog); after() runs as it is left - by Next, Back, Skip or
+ * Done - and puts back what before() opened. tests/test_tour_anchors.py
+ * drives every tour and proves each target resolves in the step's view.
  */
 (function () {
     'use strict';
@@ -16,12 +24,60 @@
         if (t) t.click();
     }
 
+    // The export dialog, opened on its Binder format so the binder's own
+    // controls (Screen order, Wiring, Border and title block) are there to
+    // point at. Closed only if the tour opened it.
+    var exportOpenedByTour = false;
+    function openExport() {
+        var app = window.app;
+        var modal = document.getElementById('export-modal');
+        if (!app || !modal || typeof app.openExportModal !== 'function') return;
+        if (modal.style.display === 'block' && !exportOpenedByTour) return;
+        app.openExportModal('binder');
+        exportOpenedByTour = true;
+    }
+    function closeExport() {
+        if (!exportOpenedByTour) return;
+        var modal = document.getElementById('export-modal');
+        if (modal) modal.style.display = 'none';
+        exportOpenedByTour = false;
+    }
+
+    // The first card's or box's data cable sheet in the tray. Opened on the
+    // way into the steps that read it; the tray re-renders a beat after a
+    // view switch, so the open retries until the button is there. Closed
+    // only if the tour opened it.
+    var sheetOpenedByTour = false;
+    function sheetButton() {
+        return document.querySelector('#hardware-dock-body .hw-dock-cablebtn-data');
+    }
+    function openSheet() {
+        var tries = 0;
+        (function attempt() {
+            var btn = sheetButton();
+            if (btn) {
+                if (!btn.classList.contains('hw-dock-cablebtn-on')) {
+                    btn.click();
+                    sheetOpenedByTour = true;
+                }
+                return;
+            }
+            if (++tries < 6) setTimeout(attempt, 60);
+        })();
+    }
+    function closeSheet() {
+        if (!sheetOpenedByTour) return;
+        var btn = document.querySelector('#hardware-dock-body .hw-dock-cablebtn-data.hw-dock-cablebtn-on');
+        if (btn) btn.click();
+        sheetOpenedByTour = false;
+    }
+
     // Short first-run tour.
     var QUICK_STEPS = [
         {
             title: 'Welcome to LED Raster Designer',
-            body: 'Design LED walls, plan data &amp; power, and export production maps for your processor. Here&rsquo;s a quick tour, and you can skip it at any time.',
-            center: true
+            body: 'Design LED walls, wire their data and power to real hardware, and export the maps and papers for the show. Here&rsquo;s a quick tour, and you can skip it at any time.',
+            center: true, before: function () { switchView('pixel-map'); }
         },
         { target: '#left-sidebar', place: 'right', title: 'Set up your wall',
           body: 'Enter one cabinet&rsquo;s pixel size (e.g. 128 &times; 128), then how many panels wide and tall your wall is under <b>Columns</b> and <b>Rows</b>.' },
@@ -29,25 +85,29 @@
           body: 'Your wall renders here on the <b>Pixel Map</b>, where each square is one cabinet. Scroll to zoom, <b>Space</b>+drag to pan, and <b>Fit</b> to recenter.' },
         { target: '#view-tabs', place: 'bottom', title: 'Five views',
           body: 'Switch between <b>Pixel Map</b>, <b>Cabinet ID</b>, <b>Show Look</b> (real-world stage layout), <b>Data</b> (signal &amp; ports), and <b>Power</b> (circuits).' },
-        { target: '#right-sidebar', place: 'left', title: 'Screens &amp; canvases',
+        { target: '#hardware-dock', place: 'top', title: 'The hardware tray', before: function () { switchView('data-flow'); },
+          body: 'In <b>Data</b> and <b>Power</b> the tray under the canvas holds your processors and distros. Drag a <b>port</b> or a <b>multi</b> from it onto a screen and that screen is wired to that socket; nothing lands on hardware by itself.' },
+        { target: '#right-sidebar', place: 'left', title: 'Screens &amp; canvases', before: function () { switchView('pixel-map'); },
           body: 'Manage your screens here. Add more with <b>+ Add</b>, or add another canvas (one per processor or stage) with <b>+ Add Canvas</b>.' },
         { target: '#btn-export', place: 'bottom', title: 'Export',
-          body: 'When it looks right, click <b>Export</b> to save production maps (PNG, PSD, or Resolume XML) for your processor.' },
+          body: 'When it looks right, click <b>Export</b> to save the maps as PNG, PSD, PDF or Resolume XML, the <b>Pull Sheet</b> workbook, or the <b>Binder</b> &mdash; a drawing set with a wiring sheet behind every map.' },
         { target: '[data-menu="help"]', place: 'bottom', title: 'You&rsquo;re all set',
           body: 'Reopen this guide any time from <b>Help &rsaquo; Quick Start Guide</b>, or take the full walkthrough below.' }
     ];
 
     // What's New in 0.12: the hardware tray, drag-to-wire, redundancy in
-    // one bar, boxes that wear their type, cables and snakes, and drawing
-    // that stops at capacity. Launched from Help > What's New in 0.12 and
-    // from the splash. Steps that point at hardware inside the tray anchor
-    // to elements that exist once a processor or distro has been added; on
+    // one bar, cables and snakes, drawing that stops at capacity, beaches
+    // and the binder. Launched from Help > What's New in 0.12 and from the
+    // splash. Steps that point at hardware inside the tray anchor to
+    // elements that exist once a processor or distro has been added; on
     // an empty project the callout centers (the machinery's fallback).
     var WHATSNEW_STEPS = [
         { title: 'What&rsquo;s new in 0.12', center: true, before: function () { switchView('data-flow'); },
-          body: 'Hardware moved out of the sidebars into a tray under the canvas, wiring became drag &amp; drop, and nothing lands on a card by itself any more. This tour walks the new surfaces; <b>Skip</b> leaves at any point.' },
+          body: 'Hardware moved out of the sidebars into a tray under the canvas, wiring became drag &amp; drop, nothing lands on a card by itself any more, and the papers became a drawing set. This tour walks the new surfaces; <b>Skip</b> leaves at any point.' },
         { target: '#hardware-dock', place: 'top', title: 'The hardware tray',
-          body: 'All hardware lives here now, in the <b>Data</b> and <b>Power</b> views: processors with their cards, boxes and ports; distros with their multis and circuits. The middle sidebars are gone and the canvas gets the whole width back. The tray is a fixed grid of columns, so opening a cable sheet or folding a unit changes its height and never shifts anything sideways; drag a processor&rsquo;s or a distro&rsquo;s <b>&#8942;&#8942;</b> along the tray to reorder them.' },
+          body: 'All hardware lives here now, in the <b>Data</b> and <b>Power</b> views: processors with their cards, boxes and ports; distros with their multis and circuits. The middle sidebars are gone and the canvas gets the whole width back.' },
+        { target: '#hardware-dock-body .hw-dock-grip', place: 'top', title: 'A tray that holds still',
+          body: 'The tray is a fixed grid of columns: opening a cable sheet or folding a unit changes its height and never shifts anything sideways. Drag a processor&rsquo;s or a distro&rsquo;s <b>&#8942;&#8942;</b> along the tray to reorder them, and the pull list and binder follow that order.' },
         { target: '#hw-dock-data-controls', place: 'bottom', title: 'Add hardware from the header',
           body: 'Pick a processor model and press <b>Add</b> &mdash; its cards, boxes and ports appear in the tray. In Power view this cluster becomes <b>+ Add distro</b>.' },
         { target: '#hardware-dock-body', place: 'top', title: 'Name things on their headers',
@@ -61,21 +121,22 @@
         { target: '#hardware-dock-body [data-hwpop^="proc-"]', place: 'top', title: 'Redundancy, one bar',
           body: 'Behind the <b>processor&rsquo;s</b> &#9881; one raised bar under a <b>REDUNDANCY</b> caption sets it: <b>Off &middot; Whole unit &middot; Per card &middot; Per port</b> (<b>Off &middot; Backed up &middot; Per port</b> on a standalone unit; <b>Off &middot; On</b> where the maker pairs the ports itself). For a NovaStar, the second sending card is the <b>Backed up</b> pick.' },
         { target: '#hardware-dock-body .hw-dock-proc-name', place: 'top', title: 'One zone beneath, and a gold pill',
-          body: 'Exactly one thing sits under the bar: a <b>mirrored by</b> pick for the whole unit, one partner per slot for cards, or <b>Sequential &middot; Split &middot; Manual</b> chips per slot for ports. Once set, every tray header wears a gold pill that reads the shape &mdash; <b>R &rarr; H9 BACKUP</b>, <b>R seq</b>, <b>backs up SR</b> &mdash; and clicking it opens the bar. A card&rsquo;s own &#9881; only states its shape.' },
+          body: 'Exactly one thing sits under the bar: a <b>mirrored by</b> pick for the whole unit, one partner per slot for cards, or <b>Sequential &middot; Split &middot; Manual</b> chips per slot for ports &mdash; the split chip reads <b>OPT Split</b> on a card whose face names its trunks OPTs, and plain <b>Split</b> elsewhere. Once set, every tray header wears a gold pill that reads the shape &mdash; <b>R &rarr; H9 BACKUP</b>, <b>R seq</b>, <b>backs up SR</b> &mdash; and clicking it opens the bar. A card&rsquo;s own &#9881; only states its shape.' },
         { target: '#hardware-dock-body .hw-dock-grid', place: 'top', title: 'Snake the ports',
           body: 'Hold <b>Alt</b> and sweep across the port chips, then right-click &rsaquo; <b>Snake these N</b>. The snake reads as a blue bracket under its ports &mdash; <b>SNAKE A &middot; 6 channel &middot; 100&rsquo;</b> &mdash; one name, one home run, however many ports ride it. One snake can hold sockets from any device: sweep across two boxes and both light, and each unit draws its own bracket with a <b>&#8596;</b>. A snake belongs to the socket, so clearing a port off a wall keeps it.' },
         { target: '#hardware-dock-body .hw-dock-cablebtn-data', place: 'top', title: 'Every port carries its home run',
-          body: 'The <b>&#8801;</b> on a card or box flips its chips into a cable sheet: tick ports and press <b>Snake</b> to make one here too &mdash; ticks hold across sheets, so tick 5 and 6 on one box and 5 and 6 on its backup box and press <b>Snake</b> on either for one 4 channel snake &mdash; name it, type its home run, give each loose port its own length, and give a snaked port an <b>ext</b> length where the fan-out needs a shorter extension &mdash; <b>Tab</b> walks the column. A backup port&rsquo;s run is typed the same way on the backup card&rsquo;s or box&rsquo;s own sheet, and the papers count both ends. A loose port wears its length beside its screen on its chip, and <b>Show Cable Tags</b> in the Data panel prints <b>SNAKE A</b> or <b>50&rsquo; CAT</b> beside the port on the wall and in the export.' },
+          body: 'The <b>&#8801;</b> on a card or box flips its chips into a cable sheet: tick ports and press <b>Snake</b> to make one here too &mdash; ticks hold across sheets, so tick 5 and 6 on one box and 5 and 6 on its backup box and press <b>Snake</b> on either for one 4 channel snake. Name it, type its home run, and give each loose port its own length; <b>Tab</b> walks the column. A loose port wears its length on its chip, and <b>Show Cable Tags</b> in the Data panel prints <b>SNAKE A</b> or <b>50&rsquo; CAT</b> beside the port on the wall and in the export.' },
+        { target: '#hardware-dock-body .hw-dock-cablesheet .hw-dock-cable-word:not(:empty)', place: 'top', title: 'The ext column',
+          before: openSheet, after: closeSheet,
+          body: 'A port that rides a snake has no home run of its own, so its row reads <b>ext</b>: the shorter extension from the snake&rsquo;s fan-out to the panel, blank when there is none. A backup port&rsquo;s run is typed the same way on the backup card&rsquo;s or box&rsquo;s own sheet, and the papers count both ends.' },
         { target: '[data-mode="power"]', place: 'bottom', title: 'Power works the same way', before: function () { switchView('power'); },
           body: 'Distros sit in the tray with their multis, and circuits are chips with meters. Drag a <b>multi</b> onto a screen to land it, drag one <b>chip</b> to put a single circuit on one circuit of the wall, or drag the whole <b>distro</b> to feed every unassigned multi at once.' },
         { target: '#hardware-dock-body .hw-dock-multi', place: 'top', title: 'A multi takes what is free',
-          body: 'Drag a multi over a wall and the span starts at the <b>first circuit</b> of that six and grows to the one under your cursor &mdash; one, then two, then six, in order &mdash; capped at what is free: six on an empty Multi 208, three on an L21-30, less whatever is already on it. Short, it says <b>took 5 of 6</b>. Clear a multi and the wall welds back to its natural six-circuit grid; one undo restores it all.' },
+          body: 'Drag a multi over a wall and the span starts at the <b>first circuit</b> of that six and grows to the one under your cursor &mdash; capped at what is free: six on an empty Multi 208, three on an L21-30, less whatever is already on it. Short, it says <b>took 5 of 6</b>. Clearing has three grains: right-click a chip (or drag it back to the tray) and <b>Clear circuit SR1-6</b> takes that one circuit off while the other five stay put; the header clears the whole multi and the wall welds back to its natural six-circuit grid; the distro clears the lot. One undo restores it all.' },
         { target: '#hardware-dock-body .hw-dock-typechip', place: 'top', title: 'The type chip',
           body: 'Every number on the tray carries a chip &mdash; <b>Multi 208</b>, <b>Multi 120</b>, <b>L21-30</b>. On the spare one the chip is the picker: click it to cycle, drag it onto a screen and it lands as that plug. Occupied, the chip reads the type its circuits imply; spare, it follows the distro&rsquo;s others, so an Edison distro&rsquo;s next number is a Multi 120 without a click.' },
         { target: '#hardware-dock-body .hw-dock-outputs', place: 'top', title: 'OUTPUTS: the plugs you drag',
           body: 'Tick the connector types a distro offers behind its &#9881; and each becomes a plug on this row. Drag one onto a screen: the circuits the drop will feed light up with a pending bracket and a pill &mdash; <b>SL 3 &rarr; circuits 7-12 &middot; 81 A</b>. A screen set to a different breakout refuses with the reason, and the pill warns when the drop would push the distro&rsquo;s legs past rating.' },
-        { target: '#hardware-dock-body .hw-dock-tile', place: 'top', title: 'Three grains, three clears',
-          body: 'Right-click a circuit chip (or drag it back onto the tray) and <b>Clear circuit SR1-6</b> takes that one circuit off the multi; the other five stay put and keep their labels. The header clears the whole multi, and the distro clears everything. Chip = circuit, header = multi, distro = the lot.' },
         { target: '#hardware-dock-body .hw-dock-multi', place: 'top', title: 'Every circuit carries its cable',
           body: 'The multi&rsquo;s name and its one home-run length live on its header. Where circuits are on it, a raised <b>&#8801;</b> flips the chips into a cable sheet &mdash; a row per circuit with its screen, <b>feet</b> and <b>connector</b>, <b>Tab</b> walking the column, quick fills for every circuit and a count by length and connector at the foot. The connector follows the type chip, so mostly you type a number; a chip wears its cable in its corner when the sheet is closed.' },
         { target: '#show-power-cable-tags', place: 'right', title: 'Show Cable Tags',
@@ -88,7 +149,21 @@
           body: 'The run you are drawing and its count &mdash; <b>S4-4 &middot; 14/14 on circuit &middot; full</b> &mdash; now sits here beside <b>Fit</b> and <b>1:1</b>, green with room to spare and yellow at full, with <b>+N selected</b> while a selection is pending. Nothing is drawn over a cabinet any more.' },
         { target: 'canvas', place: 'top', title: 'Take over one run',
           body: 'Hold <b>Alt</b> and the run under your cursor lights up. <b>Alt+click</b> takes over just that port or circuit: you redraw it by clicking and the rest of the screen re-flows around it; <b>Esc</b> when done. Right-click a run for <b>Redraw</b> or, on a hand-drawn run, <b>back to auto</b>.' },
-        { target: '[data-menu="help"]', place: 'bottom', title: 'That&rsquo;s 0.12',
+        { target: '#beaches-panel', place: 'left', title: 'Beaches',
+          body: 'A beach is a position the show keeps: <b>+ Add beach</b> here, drag to reorder, double-click to rename. Each screen picks its beach in <b>Screen Info</b>, each distro and breakout box behind its &#9881; &mdash; or make one on the spot with <b>+ New beach</b>. The pull sheet lists the beaches in this order and the binder runs its screens the same way.' },
+        { target: '#export-format', place: 'right', title: 'The binder',
+          before: openExport, after: closeExport,
+          body: 'Export &rsaquo; <b>Binder (PDF)</b> is a drawing set: numbered sheets that grow to fill their page &mdash; 1.x the overview, 2.x the screens, 3.x the pull sheets, 4.x the hardware &mdash; each map a numbered view with its tables beside it, on <b>Tabloid 17 &times; 11</b> by default or any sheet size, and a title block down the right edge with your logo, the revision log, venue, dates and who drew it.' },
+        { target: '#export-binder-screen-order', place: 'right', title: 'Screen order',
+          before: openExport, after: closeExport,
+          body: 'Beaches come first, in the Beaches panel&rsquo;s order; this sorts the screens within one &mdash; alphabetical, the Screens panel top to bottom or bottom to top, by first port, or by first circuit &mdash; and the contents and view numbers follow. Saved with the project.' },
+        { target: '#export-binder-wiring', place: 'left', title: 'Two wiring sheets',
+          before: openExport, after: closeExport,
+          body: 'One <b>Wiring</b> tick puts a wiring sheet behind each map, on a page of its own: <b>Power Wiring</b> right after a screen&rsquo;s Power sheet, every circuit wired to its slot on the multi&rsquo;s breakout; <b>Data Wiring</b> right after its Data sheet, every port to its socket on its card or box, backups included. A run leaves the wall&rsquo;s own label disc by an edge the map left clear and drops into its socket on the unit across the foot; it never crosses a label. The printer palette tells the units apart by a dash pattern each.' },
+        { target: '#export-binder-title-block', place: 'left', title: 'Border and title block',
+          before: openExport, after: closeExport,
+          body: 'On, every sheet wears its border and the title block column. Turn it off and the drawing takes the whole sheet inside a small margin &mdash; no border, no column, no rev line &mdash; and the numbered view bubble with its heading at the foot is what names the sheet. Remembered as a preference.' },
+        { target: '[data-menu="help"]', place: 'bottom', title: 'That&rsquo;s 0.12', before: closeExport,
           body: 'Reopen this any time from <b>Help &rsaquo; What&rsquo;s New in 0.12</b>. For the whole app in depth, take the <b>Advanced Guide</b> in the same menu.' }
     ];
 
@@ -101,29 +176,31 @@
         { target: '#project-name', place: 'bottom', title: 'Projects',
           body: 'Name your project here. <b>File &rsaquo; Save / Open</b> store your work as <b>.lrd</b> files, and recent projects appear in the File menu.' },
         { target: '#btn-preferences', place: 'bottom', title: 'Preferences',
-          body: 'App-wide defaults: the interface <b>accent color</b>, default panel size, default <b>Processing</b> for Data, default voltage, amperage and watts for Power, units, and label font size for new screens.' },
+          body: 'App-wide defaults in seven tabs: <b>Wall</b>, <b>Look</b> (including the interface <b>accent color</b>), <b>Data</b>, <b>Power</b>, <b>Distros &amp; multis</b>, <b>Binder</b> and <b>Pull sheet &amp; cables</b>. A default applies only to what you create next; <b>Reset Defaults</b> puts every tab back to its shipped value after a yes/no, on Save.' },
         { target: '#left-sidebar', place: 'right', title: 'Screen Info',
           body: 'Each screen&rsquo;s core settings: cabinet pixel size, <b>Columns &times; Rows</b>, its <b>Offset</b> (position in the raster), physical panel size (mm) and weight for the totals.' },
         { target: '#screen-rotation', place: 'right', title: 'Rotation',
           body: 'Rotate a screen <b>90 / 180 / 270</b> for physically-rotated walls. The cabinets and labels rotate across every view; off-canvas content is clipped.' },
+        { target: '#layer-beach', place: 'right', title: 'Beach',
+          body: 'Where this screen&rsquo;s gear is pulled to. Pick one of the project&rsquo;s beaches or make one with <b>+ New beach</b>; a distro or breakout box picks its beach behind its &#9881;. The pull sheet groups by beach and the binder runs the screens in beach order.' },
         { target: '#color1-picker', place: 'right', title: 'Colors &amp; test pattern',
           body: 'The two checkerboard colors distinguish cabinets. Below them you can pick palette patterns or overlay a gradient. Each screen keeps its own colors.' },
         { target: '#transparent-fill', place: 'right', title: 'Transparent fill',
           body: 'Render a screen with no fill (see-through) so only borders and labels draw. Pairs with the export <b>Transparent Background</b> option for overlays.' },
         { target: 'canvas', place: 'top', title: 'Per-panel editing',
-          body: 'On the Pixel Map: <b>Alt+Click</b> blanks a cabinet (non-rectangular walls), <b>Alt+Shift+Click</b> makes a half-tile, and dragging a box selects many cabinets to edit at once.' },
+          body: 'On the Pixel Map: <b>Alt+Click</b> blanks a cabinet (non-rectangular walls), <b>Alt+Shift+Click</b> makes a half-tile, and dragging a box selects many cabinets to blank or half-tile at once from the buttons that appear in Screen Info.' },
         { target: '#right-sidebar', place: 'left', title: 'Screen groups',
           body: 'Select two or more screens and right-click for <b>Group Screens</b>. A group moves as one, its name can draw across the whole wall, and totals combine &mdash; per-cabinet figures stay per screen.' },
         { target: '[data-mode="cabinet-id"]', place: 'bottom', title: 'Cabinet ID view', before: function () { switchView('cabinet-id'); },
-          body: 'Numbers every cabinet for the install crew. Choose a numbering style (A1, 1&#44;1, 01&hellip;) and label position in the sidebar. Matches the Pixel Map layout.' },
+          body: 'Numbers every cabinet for the install crew. Choose a numbering style in the sidebar &mdash; <b>A1, A2, A3</b> along a row, <b>1,1 1,2 1,3</b>, or <b>A1, B1, C1</b> down a column &mdash; and a label position. Matches the Pixel Map layout.' },
         { target: '[data-mode="show-look"]', place: 'bottom', title: 'Show Look view', before: function () { switchView('show-look'); },
           body: 'Arrange screens to match the real-world stage. Shift+drag a screen to reposition it. Show Look drives the Data and Power layouts, and has its own raster size.' },
         { target: '[data-mode="data-flow"]', place: 'bottom', title: 'Data view', before: function () { switchView('data-flow'); },
           body: 'Plan signal routing. The left panel holds this screen&rsquo;s capacity math and styling; the <b>hardware tray</b> under the canvas holds the processors, and dragging from it is how ports are placed.' },
         { target: '#processor-type', place: 'right', title: 'Processing &amp; capacity',
-          body: '<b>Processing</b>, bit depth and frame rate set <b>Pixels/Port</b> and <b>Ports Required</b>. Processing is also the <b>platform wall</b>: a screen only lands on gear this setting can drive.' },
+          body: '<b>Processing</b>, bit depth and frame rate set <b>Pixels/Port</b>, <b>Panels/Port</b> and <b>Ports Required</b>. Processing is also the <b>platform wall</b>: a screen only lands on gear this setting can drive.' },
         { target: '#mapping-organized', place: 'right', title: 'Port mapping &amp; groups',
-          body: '<b>Organized</b> fills clean rows or columns per port; <b>Max Capacity</b> fills to the pixel limit. A grouped screen adds <b>Route group as one screen</b>: the serpentine crosses every member as a single wall.' },
+          body: '<b>Organized</b> fills clean rows or columns per port; <b>Max Capacity</b> fills to the pixel limit. A grouped screen adds <b>Route &lsaquo;group&rsaquo; as one screen</b>: the serpentine crosses every member as a single wall.' },
         { target: '#custom-flow-toggle', place: 'right', title: 'Flow patterns &amp; custom paths',
           body: 'The eight <b>Flow Pattern</b> buttons pick the serpentine. <b>Enable Custom Mode</b> hand-draws the whole screen, port by port &mdash; click or arrow-key through cabinets, with Prev / Next and per-port clears. A port takes only what its capacity allows, and a pattern applied to a selected block deals it out at capacity, every port starting from the same side; the run&rsquo;s readout sits in the strip beside <b>Fit</b> and <b>1:1</b>.' },
         { target: 'canvas', place: 'top', title: 'Per-run overrides',
@@ -133,11 +210,14 @@
         { target: '#hw-dock-data-controls', place: 'bottom', title: 'The hardware tray',
           body: 'Pick a model, press <b>Add</b>, and the processor&rsquo;s cards, boxes and ports appear below. Drag a <b>port</b> onto a run to place it, a whole <b>card</b> or <b>box</b> onto a screen to fill in order, or drag back to the tray to release.' },
         { target: '#hardware-dock-body', place: 'top', title: 'Headers name their thing',
-          body: 'Every card, box and port names itself inline: name a card <b>SR</b> and its ports read SR-1, SR-2. A port&rsquo;s chip is also its editor &mdash; click to rename that one port, and its return name derives from it (P1-1 &rarr; R1-1). Hold <b>Alt</b> and sweep across port chips &mdash; one card or box or several &mdash; then right-click &rsaquo; <b>Snake these N</b> to put them on one home run (a blue bracket: SNAKE A &middot; 6 channel &middot; 100&rsquo;); the header&rsquo;s <b>&#8801;</b> opens a cable sheet for snake names, home runs and each loose port&rsquo;s length, and <b>Show Cable Tags</b> prints them on the wall.' },
-        { target: '#hardware-dock-body .hw-dock-gear', place: 'top', title: 'The &#9881; popover',
-          body: 'Each header&rsquo;s <b>&#9881;</b> holds its configuration: label and return templates, card slots and breakout boxes. <b>Redundancy</b> is one bar behind the <b>processor&rsquo;s</b> &#9881;.' },
-        { target: '#hardware-dock-body .hw-dock-gear', place: 'top', title: 'Redundancy, one bar',
-          body: 'Behind the processor&rsquo;s &#9881; one bar under a <b>REDUNDANCY</b> caption sets it: <b>Off &middot; Whole unit &middot; Per card &middot; Per port</b> (a standalone unit reads <b>Off &middot; Backed up &middot; Per port</b>; for a NovaStar the second sending card is the Backed up pick). <b>Whole unit</b> &mdash; pick the unit that mirrors this one, card for card. <b>Per card</b> &mdash; a partner per slot. <b>Per port</b> &mdash; <b>Sequential</b> (1 backed by 2, 3 by 4), <b>Split</b> (the back half carries the front half&rsquo;s returns; on a card whose face names its trunks the chip names them too &mdash; <b>OPT Split</b>) or <b>Manual</b> (each port picks its backup on its chip). The gold pill on a header reads the state; click it to open the bar.' },
+          body: 'Every card, box and port names itself inline: name a card <b>SR</b> and its ports read SR-1, SR-2. A port&rsquo;s chip is also its editor &mdash; click to rename that one port, and its return name derives from it (P1-1 &rarr; R1-1).' },
+        { target: '#hardware-dock-body .hw-dock-grip', place: 'top', title: 'Reorder the tray',
+          body: 'The tray is a fixed grid: a unit keeps its place and width whatever it is doing, so a sheet or a fold only changes height. Drag a processor&rsquo;s or a distro&rsquo;s <b>&#8942;&#8942;</b> along the tray to reorder them; the pull list and the binder&rsquo;s hardware sheets follow.' },
+        { target: '#hardware-dock-body .hw-dock-cablesheet', place: 'top', title: 'Snakes and the cable sheet',
+          before: openSheet, after: closeSheet,
+          body: 'Hold <b>Alt</b> and sweep across port chips &mdash; one card or box or several &mdash; then right-click &rsaquo; <b>Snake these N</b> to put them on one home run: a blue bracket, <b>SNAKE A &middot; 6 channel &middot; 100&rsquo;</b>. The header&rsquo;s <b>&#8801;</b> opens this sheet: tick ports and press <b>Snake</b>, name the snake and type its home run, give a loose port its own length and a snaked port an <b>ext</b> where the fan-out needs a shorter extension; <b>Tab</b> walks the column. <b>Show Cable Tags</b> prints them on the wall.' },
+        { target: '#hardware-dock-body .hw-dock-gear', place: 'top', title: 'The &#9881; and the redundancy bar',
+          body: 'Each header&rsquo;s <b>&#9881;</b> holds its configuration: label and return templates, card slots, a beach, and the breakout box picker &mdash; which offers only boxes that fit this card, its vendor and its trunks, and keeps your pick after an add. Behind the <b>processor&rsquo;s</b> &#9881; one bar under <b>REDUNDANCY</b> sets it: <b>Off &middot; Whole unit &middot; Per card &middot; Per port</b> (a standalone unit reads <b>Off &middot; Backed up &middot; Per port</b>; for a NovaStar the second sending card is the Backed up pick). <b>Whole unit</b> picks the unit that mirrors this one card for card; <b>Per card</b> a partner per slot; <b>Per port</b> is <b>Sequential</b> (1 backed by 2), <b>Split</b> (the back half carries the front half&rsquo;s returns &mdash; <b>OPT Split</b> where the card names its trunks) or <b>Manual</b>. The gold pill on a header reads the state; click it to open the bar.' },
         { target: 'canvas', place: 'top', title: 'Nothing lands by itself',
           body: 'A port is on a card only because you put it there: a <b>drop pins</b> it to the socket you chose, and it stays until you clear it. Right-click &rsaquo; <b>Clear</b> or a drag back to the tray releases it, and the flag counts what is still unattached. An attached port prints the socket it sits on (6, 7, 8 on an unnamed card, H9-6 on a named one); a port on no hardware keeps the screen&rsquo;s P1, P2. Nothing is ever moved or unpinned silently.' },
         { target: '#hw-dock-flag', place: 'bottom', title: 'The attachment flag &amp; issues',
@@ -147,13 +227,13 @@
         { target: '#power-panel-watts', place: 'right', title: 'The electrical math',
           body: '<b>Voltage</b>, <b>Amperage</b> and <b>Watts per Panel</b> set Panels/Circuit and Circuits Required, plus total amps single- and three-phase. A 110V screen&rsquo;s circuits ride <b>one leg each</b>; 208V circuits take a leg pair.' },
         { target: '#power-breakout-type', place: 'right', title: 'Breakouts',
-          body: 'How the multi terminates: <b>True1</b> / <b>powerCON</b> feed panels directly, <b>Edison</b> is the 110V option, <b>L6-20</b> adds L6-20-to-panel cables per circuit, and <b>L21-30 (3 &times; 208V)</b> is three circuits at 30&nbsp;A per leg. Drives the gear checklist.' },
+          body: 'How the multi terminates: <b>Multi &rarr; True1</b> or <b>powerCON</b> feed panels directly, <b>Multi &rarr; Edison (110V)</b> is the 110V option, <b>Multi &rarr; L6-20</b> adds L6-20-to-panel cables per circuit, and <b>L21-30 (3 &times; 208V)</b> is three circuits at 30&nbsp;A per leg. Drives the gear checklist.' },
         { target: '#power-splitters-enabled', place: 'right', title: 'Splitter packing',
-          body: '<b>Share circuits via splitters</b> gangs adjacent runs onto one circuit through the smallest Y-cable that fits, up to <b>Max splitter</b>. Right-click one circuit on the map or its chip to <b>Share</b> / <b>Un-share</b> by hand. Or hold <b>Alt</b>, drag across cabinets on the wall and right-click &rsaquo; <b>2fer</b> / <b>3fer</b> to gang those runs in one gesture. A shared circuit wears a bracket and a <b>2fer / 3fer</b> tag on the map; <b>Show 2fer / 3fer Tags</b> drops the text and keeps the bracket, and a gang past the amps still prints <b>OVER</b>.' },
+          body: '<b>Share circuits via splitters</b> gangs adjacent runs onto one circuit through the smallest Y-cable that fits, up to <b>Max splitter</b>. By hand: right-click a circuit to <b>Share</b> / <b>Un-share</b>, or hold <b>Alt</b>, drag across cabinets and right-click &rsaquo; <b>2fer</b> / <b>3fer</b>. A shared circuit wears a bracket and a tag; <b>Show 2fer / 3fer Tags</b> drops the text and keeps the bracket, and a gang past the amps still prints <b>OVER</b>.' },
         { target: '#power-label-template', place: 'right', title: 'Circuit labels',
           body: 'One ladder, top wins: a hand-typed label on a chip &rsaquo; the multi&rsquo;s own name &rsaquo; its distro&rsquo;s name and number (SL &rarr; SL1-1&hellip;) &rsaquo; this <b>Template</b> (S1-#) for multis on no distro. <b>Apply</b> stamps overrides on the selected screens.' },
         { target: '#power-distro-add', place: 'bottom', title: 'Distros &amp; multis',
-          body: '<b>+ Add distro</b> puts a power source in the tray. Drag a <b>multi</b> over a wall and it takes from the <b>first circuit</b> of that six up to the one under your cursor, capped at what is free (<b>took 5 of 6</b> when short); clearing a multi welds the wall back to its natural six-circuit grid. Every number on the tray wears its connector as a <b>type chip</b> &mdash; Multi 208, Multi 120, L21-30 &mdash; click the spare one&rsquo;s chip to pick, and it lands as that plug; the distro&rsquo;s <b>OUTPUTS</b> row holds the same plugs with a live drop preview. Drag a whole distro onto a screen to feed all its unassigned multis at once.' },
+          body: '<b>+ Add distro</b> puts a power source in the tray. Drag a <b>multi</b> over a wall and it takes from the <b>first circuit</b> of that six up to the one under your cursor, capped at what is free (<b>took 5 of 6</b> when short); clearing a multi welds the wall back to its natural six-circuit grid. Every number wears its connector as a <b>type chip</b> &mdash; Multi 208, Multi 120, L21-30 &mdash; click the spare one&rsquo;s to pick, and the distro&rsquo;s <b>OUTPUTS</b> row holds the same plugs with a live drop preview. Drag a whole distro onto a screen to feed all its unassigned multis at once.' },
         { target: '#hardware-dock-body [data-hwdock^="slot-"]', place: 'top', title: 'One soca, two screens',
           body: 'Drop a multi onto an <b>occupied</b> number and they become one physical soca: same distro, same number. The incumbents keep their circuits, the joiner takes the free ones, and every label derives from the one name.' },
         { target: '#hardware-dock-body .hw-dock-legs', place: 'top', title: 'Leg meters &amp; Balance',
@@ -164,15 +244,29 @@
           body: 'The multi&rsquo;s name and home-run length live on its header. Where circuits are on it the raised <b>&#8801;</b> flips the chips into a cable sheet &mdash; feet and connector per circuit, <b>Tab</b> down the column, quick fills and a count at the foot; a chip wears its cable in its corner when the sheet is closed. <b>Show Cable Tags</b> (per screen, off by default, in both the Power and Data panels) prints them beside the labels on the wall and in the export.' },
         { target: '#right-sidebar', place: 'left', title: 'Screens panel', before: function () { switchView('pixel-map'); },
           body: 'Every screen in the project, grouped by canvas. Rename, reorder, lock, or hide a screen, and drag to reorder. The active screen is highlighted.' },
+        { target: '#beaches-panel', place: 'left', title: 'Beaches',
+          body: 'The positions the show is pulled to, in pull-sheet and binder order. <b>+ Add beach</b> makes one; drag to reorder, double-click a name to rename, <b>&times;</b> to remove. Screens, distros and boxes pick their beach where they are set up; the count on a row is what stands on it.' },
         { target: '#btn-add-canvas', place: 'left', title: 'Multiple canvases',
           body: 'Add a canvas for each processor, stage, or tour leg. Each canvas has its own raster size and layers, and is tinted with its own identity color.' },
         { target: '#btn-fit', place: 'bottom', title: 'Zoom &amp; snap',
           body: '<b>Fit</b> frames the raster, <b>1:1</b> is actual size. While you draw a custom run in Data or Power, its readout (S4-4 &middot; 14/14 on circuit &middot; full) sits beside them. The <b>Snap</b> toggle magnetically aligns screens to each other and to the raster edges as you drag.' },
         { target: '#left-sidebar-toggle', place: 'right', title: 'Panels',
           body: 'Collapse a side panel with its chevron, or drag its inner edge to resize it &mdash; the hardware tray folds and resizes the same way from its top edge. Each remembers its size.' },
-        { target: '#btn-export', place: 'bottom', title: 'Exporting',
-          body: 'Pick which <b>canvases</b> and <b>views</b> to output &mdash; Pixel, Cabinet, Show Look, Data and Power maps &mdash; the <b>format</b> (PNG, PSD, PDF, or Resolume XML), a transparent background, and a resolution scale. Exports save straight to file. The <b>Pull Sheet</b> and binder pull gear where its distro or breakout box sits (the <b>Beach</b> picker on the &#9881;, and on each screen in Screen Info &mdash; a project keeps its beaches as a list, in the order the sheets run), and list the CVTs and distros themselves. The <b>Binder</b> is a drawing set: numbered sheets with a title block down the right edge (your logo, the revision log, venue, dates, who drew it), each map a numbered view with its tables beside it, and behind each map its <b>wiring</b> sheet on a page of its own &mdash; <b>Power Wiring</b> after a screen&rsquo;s Power sheet, <b>Data Wiring</b> after its Data sheet, one <b>Wiring</b> tick for both: every run leaves the wall&rsquo;s own label disc, travels out at its own row and drops into its socket on the unit across the foot of the sheet &mdash; every port to its socket, every circuit to its breakout &mdash; Tabloid 17 &times; 11 by default, any sheet size. Turn <b>Border and title block</b> off and a sheet is the drawing alone &mdash; no border, no column down the right edge &mdash; with the numbered view bubble and its heading at the foot naming the sheet.' },
-        { target: '[data-menu="help"]', place: 'bottom', title: 'Help &amp; shortcuts',
+        { target: '#btn-export', place: 'bottom', title: 'Exporting', before: closeExport,
+          body: 'Pick which <b>canvases</b> and <b>views</b> to output &mdash; Pixel, Cabinet, Show Look, Data and Power maps &mdash; and the <b>format</b>: PNG, PSD or PDF, Resolume XML, the <b>Pull Sheet</b> workbook, or the <b>Binder</b>. Transparent background and a resolution scale where the format takes them. Exports save straight to file. The pull sheet and binder pull gear where its beach is and list the CVTs and distros themselves.' },
+        { target: '#export-binder-sheet', place: 'right', title: 'The binder',
+          before: openExport, after: closeExport,
+          body: 'A drawing set: numbered sheets by subject &mdash; 1.x the overview, 2.x each screen&rsquo;s Power, Power Wiring, Data and Data Wiring, 3.x the pull sheets, 4.x the hardware &mdash; each map a numbered view with its tables beside it (in the Ports table every card and box is its own section, a backup box as its own), and a title block down the right edge with your logo, the revision log, venue, dates and who drew it. <b>Tabloid 17 &times; 11</b> by default; any sheet size, and the text is real text in the PDF.' },
+        { target: '#export-binder-screen-order', place: 'right', title: 'Screen order',
+          before: openExport, after: closeExport,
+          body: 'Beaches come first, in the Beaches panel&rsquo;s order; this sorts the screens within one &mdash; alphabetical, the Screens panel top to bottom or bottom to top, by first port, or by first circuit &mdash; and the contents and view numbers follow. Saved with the project.' },
+        { target: '#export-binder-wiring', place: 'left', title: 'Two wiring sheets',
+          before: openExport, after: closeExport,
+          body: 'One <b>Wiring</b> tick puts a wiring sheet behind each map, on a page of its own: <b>Power Wiring</b> after a screen&rsquo;s Power sheet, every circuit wired to its slot on the multi&rsquo;s breakout; <b>Data Wiring</b> after its Data sheet, every port to its socket on its card or box, backups included. Each follows the <b>Maps</b> choice. A run leaves the wall&rsquo;s own label disc by an edge the map left clear, travels outside the wall and drops into its socket on the unit across the foot; it never crosses a label.' },
+        { target: '#export-binder-title-block', place: 'left', title: 'Border and title block',
+          before: openExport, after: closeExport,
+          body: 'On, every sheet wears its border and the title block column. Off, the drawing and its tables take the whole sheet inside a small margin &mdash; no border, no column, no rev line &mdash; and the numbered view bubble with its heading at the foot is what names the sheet. Remembered as a preference beside the sheet size and the logo.' },
+        { target: '[data-menu="help"]', place: 'bottom', title: 'Help &amp; shortcuts', before: closeExport,
           body: 'Under <b>Help</b> you&rsquo;ll find the full <b>Keyboard Shortcuts</b> list, this guide, the Quick Start, and <b>What&rsquo;s New in 0.12</b>.' },
         { title: 'That&rsquo;s the tour', center: true,
           body: 'You&rsquo;ve seen the whole app. Reopen any guide from the <b>Help</b> menu. Now go build something.' }
@@ -316,8 +410,15 @@
         place(step);
     }
 
+    // Leaving a step puts back what its before() opened.
+    function leaveCurrent() {
+        var step = idx >= 0 && idx < activeSteps.length ? activeSteps[idx] : null;
+        if (step && step.after) { try { step.after(); } catch (e) {} }
+    }
+
     function go(i) {
         if (i < 0 || i >= activeSteps.length) return;
+        leaveCurrent();
         idx = i;
         var step = activeSteps[i];
         if (step.before) { try { step.before(); } catch (e) {} setTimeout(render, 260); }
@@ -326,6 +427,7 @@
 
     function show(list) {
         if (!els) build();
+        if (els.callout.style.display !== 'none') leaveCurrent();
         if (list) activeSteps = list;
         els.catch.style.display = 'block';
         els.spot.style.display = 'block';
@@ -336,6 +438,7 @@
 
     function end() {
         if (!els) return;
+        leaveCurrent();
         els.catch.style.display = 'none';
         els.spot.style.display = 'none';
         els.callout.style.display = 'none';

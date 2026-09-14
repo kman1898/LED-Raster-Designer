@@ -4403,6 +4403,15 @@ export class LEDRasterApp {
             if (appliedPreset) {
                 this.applyPresetClientProps(layer, presetData);
             }
+            // A NEW screen's breakout and splitter packing come from the
+            // Distros & multis preferences - here, at creation, and never
+            // on a screen that exists (initializeLayerDefaults runs on
+            // every load, so it is not the place). A preset that carries
+            // its own wins. The breakout is stored only where the
+            // screen's voltage allows it (a 110 V screen can only have
+            // Edison on it); otherwise the screen stays unset and reads
+            // the voltage's own default, as it always has.
+            this.applyNewScreenPowerPreferences(layer, appliedPreset ? presetData : null);
 
             this.upsertProjectLayer(layer);
             this.selectLayer(layer);
@@ -4427,6 +4436,24 @@ export class LEDRasterApp {
                 this.updateLayers([layer]);
             }
         });
+    }
+
+    applyNewScreenPowerPreferences(layer, presetData) {
+        if (!layer || (layer.type || 'screen') !== 'screen') return;
+        const prefs = this.getPreferences();
+        const preset = presetData || {};
+        if (preset.powerBreakoutType == null && typeof this.getPowerBreakoutTypes === 'function') {
+            const want = this.getPowerBreakoutTypes().find(t => t.id === prefs.breakoutType);
+            if (want && (typeof this._breakoutEligible !== 'function'
+                         || this._breakoutEligible(want, layer.powerVoltage))) {
+                layer.powerBreakoutType = want.id;
+            }
+        }
+        if (preset.powerSplitters == null) {
+            const cur = (layer.powerSplitters && typeof layer.powerSplitters === 'object')
+                ? layer.powerSplitters : { enabled: false, maxWays: 3, manual: { merge: [], split: [] } };
+            layer.powerSplitters = { ...cur, enabled: !!prefs.splittersEnabled };
+        }
     }
 
     // Properties excluded from presets (identity, runtime position, cached computations).

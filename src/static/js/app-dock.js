@@ -2373,10 +2373,16 @@ class _HardwareDock {
             });
             return b;
         };
-        quick.appendChild(fill("all 10'", 10,
-            `Every circuit on this ${typeName} gets a 10 ft cable. One undo step.`));
-        quick.appendChild(fill("all 6'", 6,
-            `Every circuit on this ${typeName} gets a 6 ft cable. One undo step.`));
+        // The first fill is the Power cable preference (10' as shipped),
+        // read here where the cables are made; the 6' beside it stays
+        // unless the preference is 6' itself.
+        const prefFt = this.defaultPowerCableFt();
+        quick.appendChild(fill(`all ${prefFt}'`, prefFt,
+            `Every circuit on this ${typeName} gets a ${prefFt} ft cable. One undo step.`));
+        if (prefFt !== 6) {
+            quick.appendChild(fill("all 6'", 6,
+                `Every circuit on this ${typeName} gets a 6 ft cable. One undo step.`));
+        }
         quick.appendChild(fill('none', null,
             `Every circuit on this ${typeName} forgets its cable. One undo step.`));
         sheet.insertBefore(quick, table);
@@ -2822,10 +2828,13 @@ class _HardwareDock {
         const cap2 = document.createElement('span');
         cap2.textContent = 'Quick fill:';
         quick.appendChild(cap2);
-        quick.appendChild(button("all 100'", `data-cable-fill-${owner.id}-100`,
-            'Every loose port here gets a 100 ft home run; snakes keep '
+        // The fill's length is the Loose port cable preference (100' as
+        // shipped) - read here, where the cables are made.
+        const fillFt = this.defaultLoosePortCableFt();
+        quick.appendChild(button(`all ${fillFt}'`, `data-cable-fill-${owner.id}-${fillFt}`,
+            `Every loose port here gets a ${fillFt} ft home run; snakes keep `
             + 'theirs. One undo step.',
-            () => this.fillPortCables(owner, 100, ports).then(after)));
+            () => this.fillPortCables(owner, fillFt, ports).then(after)));
         quick.appendChild(button('none', `data-cable-fill-${owner.id}-none`,
             'Every loose port here forgets its cable; snakes keep theirs. '
             + 'One undo step.',

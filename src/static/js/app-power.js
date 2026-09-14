@@ -1674,13 +1674,32 @@ class _Power {
             return { type: neighbour, source: 'neighbour', implied: null,
                      clash: false };
         }
-        const offered = this.distroOutputs(d);
-        if (offered.length) {
-            return { type: offered[0], source: 'offered', implied: null,
-                     clash: false };
+        // Rungs 4 and 5 read the Multi type PREFERENCE (Distros & multis
+        // tab): a distro with an explicit OUTPUTS list offers the
+        // preferred type if it is on the list, else its first; a distro
+        // offering everything (no list - a fresh one) reads the
+        // preference outright. Nothing stored is touched - a box stamped
+        // by a drop or typed by its chip has already settled on rung 1.
+        const preferred = this._preferredBoxType();
+        if (d && Array.isArray(d.outputs)) {
+            const offered = this.distroOutputs(d);
+            if (offered.length) {
+                const pick = offered.find(t => t.id === preferred.id) || offered[0];
+                return { type: pick, source: 'offered', implied: null,
+                         clash: false };
+            }
         }
-        return { type: types[0], source: 'default', implied: null,
+        return { type: preferred, source: 'default', implied: null,
                  clash: false };
+    }
+
+    // The type a box reads when nothing on its distro says otherwise: the
+    // Multi type preference, Multi 208 when it names nothing the catalog
+    // has.
+    _preferredBoxType() {
+        const types = this.getDistroOutputTypes();
+        const prefs = (typeof this.getPreferences === 'function') ? this.getPreferences() : {};
+        return types.find(t => t.id === prefs.multiType) || types[0];
     }
 
     // Rung 3: what the distro's OTHER boxes are. Only boxes that settle by
@@ -1864,6 +1883,15 @@ class _Power {
     // the box. `record` false is the sheet's quick-fill, which issues ONE
     // updateLayers over every layer it touched itself, so a fill is one
     // undo step the way a length commit is.
+    // The length the box sheet's quick fill writes on every circuit: the
+    // Power cable preference (10' as shipped). Read where the cables are
+    // made; a cable already typed is never rewritten by it.
+    defaultPowerCableFt() {
+        const prefs = (typeof this.getPreferences === 'function') ? this.getPreferences() : {};
+        const n = Number(prefs.powerCableFt);
+        return Number.isFinite(n) && n > 0 ? n : 10;
+    }
+
     setCircuitCable(layer, circuitNum, cable, record = true) {
         if (!layer) return false;
         const store = layer.powerCircuitCables
@@ -1991,15 +2019,30 @@ class _Power {
         return this._distroPushQueue;
     }
 
+    // What a new distro is, short of what the caller says: the Distros &
+    // multis preferences (rating, voltage, phase), read here at creation
+    // and nowhere else - a distro that exists keeps what it has.
+    _distroPreferenceDefaults() {
+        const prefs = (typeof this.getPreferences === 'function') ? this.getPreferences() : {};
+        const rating = Number(prefs.distroRatingA);
+        const voltage = Number(prefs.distroVoltage);
+        return {
+            ratingA: Number.isFinite(rating) && rating > 0 ? rating : 400,
+            voltage: Number.isFinite(voltage) && voltage > 0 ? voltage : 208,
+            phase: Number(prefs.distroPhase) === 1 ? 1 : 3,
+        };
+    }
+
     addDistro(opts = {}) {
         const list = this.getDistros();
         const n = list.reduce((m, d) => Math.max(m, Number(String(d.id).replace('d', '')) || 0), 0) + 1;
+        const dflt = this._distroPreferenceDefaults();
         const d = {
             id: 'd' + n,
             name: opts.name || `DISTRO ${n}`,
-            ratingA: Number(opts.ratingA) || 400,
-            voltage: Number(opts.voltage) || 208,
-            phase: Number(opts.phase) === 1 ? 1 : 3
+            ratingA: Number(opts.ratingA) || dflt.ratingA,
+            voltage: Number(opts.voltage) || dflt.voltage,
+            phase: opts.phase == null ? dflt.phase : (Number(opts.phase) === 1 ? 1 : 3)
         };
         list.push(d);
         // Adding a distro adds a bucket the numbering runs over, and its name

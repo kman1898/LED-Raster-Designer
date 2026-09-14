@@ -1275,8 +1275,7 @@ def test_the_overview_maps_the_show_and_lists_the_contents(page):
     circuits = int(texts[p + 7]) + int(texts[p + 11])
     ports = int(texts[p + 8]) + int(texts[p + 12])
     assert circuits >= 5 and ports == 3, texts[p:p + 14]
-    s = texts.index('SHOW TOTALS')
-    totals = dict(zip(texts[s + 1:s + 15:2], texts[s + 2:s + 16:2]))
+    totals = dict(_show_totals(texts))
     assert totals['Screens'] == '3' and totals['Circuits'] == str(circuits) and totals['Ports'] == str(ports)
     assert totals['Panels'] == '39' and totals['Distros'] == '1' and totals['Processors'] == '1'
     assert totals['Load'].endswith(' kW')
@@ -1298,6 +1297,112 @@ def test_the_overview_maps_the_show_and_lists_the_contents(page):
     b = out['bubble']
     assert b['y'] - b['r'] >= m['y'] + m['h'] and b['y'] + b['r'] <= DA['y'] + DA['h'] + 1, (b, m)
 
+
+# The Overview's SHOW TOTALS Load line(s) - "the main overview screen
+# needs to include the total number of amps for the whole project. not
+# just Kw" (user 2026-09-14). The line reads like a screen sheet's own
+# Facts Load line - amps 1φ · amps 3φ · kW - summed over the show. Amps
+# never blend across voltages: 800 W at 110 V plus 800 W at 208 V is not
+# 1600 W at either, so a show on two voltages prints a Load line PER
+# VOLTAGE, each naming its voltage, and no line adds the two together;
+# the kW total still prints either way.
+LOAD_LINE = re.compile(r'^(\d+\.\d) A 1φ · (\d+\.\d) A 3φ · (\d+\.\d) kW$')
+LOAD_AT = re.compile(r'^Load @ (\d+) V$')
+
+
+def _show_totals(texts):
+    """The SHOW TOTALS pairs in the order they print, up to CONTENTS."""
+    s = texts.index('SHOW TOTALS')
+    c = texts.index('CONTENTS')
+    body = texts[s + 1:c]
+    return [(body[i], body[i + 1]) for i in range(0, len(body) - 1, 2)]
+
+
+def _screen_amps(pg, ids):
+    """Every screen's amps and watts as _bScreenFacts reads them - the
+    same watts and voltage the screen sheet's Load line is printed from."""
+    return pg.evaluate("""() => window.app.project.layers
+        .filter(l => (l.type || 'screen') === 'screen')
+        .map(l => { const f = window.app._bScreenFacts(l);
+                    return { name: l.name, voltage: f.voltage, watts: f.watts, amps1: f.amps1, amps3: f.amps3 }; })""")
+
+
+def _kw_today(facts):
+    """Today's kW figure: every screen's watts summed, to one decimal."""
+    return '%.1f kW' % (sum(f['watts'] for f in facts) / 1000)
+
+
+def test_the_overview_load_line_carries_the_shows_amps_on_one_voltage(page):
+    """A show on one voltage: SHOW TOTALS' Load reads `<A> A 1φ · <A> A 3φ
+    · <kW> kW`, the amps the sum of the screens' own (watts / V and
+    watts / (V x 1.73), the screen sheet's formula) to 0.1 A, the kW the
+    figure it printed before."""
+    pg, ids = page
+    before = pg.evaluate("(id) => window.app.project.layers.find(l => l.id === id).powerVoltage", ids['c'])
+    assert int(before) == 110, before
+    pg.evaluate("(id) => { window.app.project.layers.find(l => l.id === id).powerVoltage = 208; }", ids['c'])
+    try:
+        facts = _screen_amps(pg, ids)
+        assert {f['voltage'] for f in facts} == {208}, facts
+        out = _render(pg, SHOW, 'Overview')
+        totals = _show_totals(out['texts'])
+    finally:
+        pg.evaluate("([id, v]) => { window.app.project.layers.find(l => l.id === id).powerVoltage = v; }",
+                    [ids['c'], before])
+    keys = [k for k, _v in totals]
+    loads = [(k, v) for k, v in totals if k.startswith('Load')]
+    assert loads and [k for k, _v in loads] == ['Load'], totals
+    m = LOAD_LINE.match(loads[0][1])
+    assert m, loads[0][1]
+    amps1 = sum(f['amps1'] for f in facts)
+    amps3 = sum(f['amps3'] for f in facts)
+    assert abs(float(m.group(1)) - amps1) <= 0.1, (m.group(1), amps1)
+    assert abs(float(m.group(2)) - amps3) <= 0.1, (m.group(2), amps3)
+    assert loads[0][1].endswith(' ' + _kw_today(facts)), (loads[0][1], _kw_today(facts))
+    assert amps1 > 0 and amps3 > 0 and abs(amps1 / amps3 - 1.73) < 0.01
+    # the other totals stand where they were, the Load in their midst
+    assert keys[:4] == ['Screens', 'Panels', 'Circuits', 'Ports'] and keys[-2:] == ['Distros', 'Processors'], keys
+    assert not [k for k in keys if LOAD_AT.match(k)], keys
+
+
+def test_the_overview_prints_a_load_line_per_voltage_and_never_blends_them(page):
+    """The fixture as seeded: WALL-A and WALL-B at 208 V, CENTER at
+    110 V. SHOW TOTALS prints `Load @ 208 V` and `Load @ 110 V`, each with
+    its own amps and kW from its own screens; no line's amps equal the two
+    voltages' amps added together, and the kW total still prints, the
+    figure it printed before."""
+    pg, ids = page
+    facts = _screen_amps(pg, ids)
+    volts = sorted({f['voltage'] for f in facts})
+    assert volts == [110, 208], facts
+    out = _render(pg, SHOW, 'Overview')
+    totals = _show_totals(out['texts'])
+    keys = [k for k, _v in totals]
+    per = {int(LOAD_AT.match(k).group(1)): v for k, v in totals if LOAD_AT.match(k)}
+    assert sorted(per) == [110, 208], totals
+    amps1 = sum(f['amps1'] for f in facts)
+    amps3 = sum(f['amps3'] for f in facts)
+    for v, line in per.items():
+        m = LOAD_LINE.match(line)
+        assert m, line
+        mine = [f for f in facts if f['voltage'] == v]
+        a1, a3, kw = sum(f['amps1'] for f in mine), sum(f['amps3'] for f in mine), sum(f['watts'] for f in mine) / 1000
+        assert abs(float(m.group(1)) - a1) <= 0.1, (v, line, a1)
+        assert abs(float(m.group(2)) - a3) <= 0.1, (v, line, a3)
+        assert m.group(3) == '%.1f' % kw, (v, line, kw)
+        # this voltage's amps are its own screens', not the show's
+        assert abs(float(m.group(1)) - amps1) > 0.2 and abs(float(m.group(2)) - amps3) > 0.2, (v, line)
+    # no line anywhere adds the two voltages' amps together
+    for t in out['texts']:
+        m = LOAD_LINE.match(t)
+        if m:
+            assert abs(float(m.group(1)) - amps1) > 0.2 and abs(float(m.group(2)) - amps3) > 0.2, t
+    blended = ['%.1f A' % amps1, '%.1f A' % amps3]
+    assert not [t for t in out['texts'] if any(b in t for b in blended)], blended
+    # the kW total, as today, still on the sheet
+    kw_lines = [v for k, v in totals if k == 'Load']
+    assert kw_lines == [_kw_today(facts)], (kw_lines, _kw_today(facts))
+    assert keys[:4] == ['Screens', 'Panels', 'Circuits', 'Ports'] and keys[-2:] == ['Distros', 'Processors'], keys
 
 
 def _outlines(ops, screens):

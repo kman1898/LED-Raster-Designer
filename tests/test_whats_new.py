@@ -101,15 +101,30 @@ def test_content_is_plain_text_no_emoji():
             assert '<' not in m.group(1), '%s entry contains markup: %r' % (key, m.group(1))
 
 
-def test_content_says_circuits_not_tails():
-    """'tails' is banned display language (user ruling, 2026-08-30 -
-    circuits, not tails). The splash is pure display text, so the whole
-    file must stay clean of the word."""
-    src = _read(CONTENT_JS)
-    hits = re.findall(r'\btails?\b', src, re.I)
-    assert not hits, (
-        'whatsnew_content.js says %r; UI copy says circuits, not tails'
-        % hits)
+def test_content_never_says_retired_words():
+    """The splash is pure display text, so the whole file must stay clean
+    of the words the app no longer says: 'tails' (circuits, not tails -
+    user ruling, 2026-08-30), 'Signal + Power' (the tick is Wiring; Power
+    Wiring and Data Wiring are sheets of their own), 'N-way' (a snake is an
+    N channel snake) and 'Halves' (the port shape is OPT Split / Split).
+    Same guard as tests/test_tour_anchors.py runs over the tours."""
+    from test_tour_anchors import _retired_wording_hits
+    hits = _retired_wording_hits(_read(CONTENT_JS))
+    assert not hits, 'whatsnew_content.js still says:\n' + '\n'.join(hits)
+
+
+def test_every_item_is_its_own_subject():
+    """One entry per thing that changed for the user, none twice: no two
+    items share a heading, and no item is the run-on that grew by
+    accretion - each d stays under a short paragraph."""
+    for key, body in _content_entries().items():
+        heads = re.findall(r"h:\s*'([^']*)'", body)
+        assert len(heads) == len(set(heads)), '%s repeats a heading: %r' % (key, heads)
+        for m in re.finditer(r"d:\s*'([^']*)'", body):
+            d = m.group(1)
+            assert len(d) <= 1000, (
+                '%s item %r runs to %d characters; split it into entries a '
+                'reader can scan' % (key, d[:40], len(d)))
 
 
 # ── the wiring (new files must not rot) ──────────────────────────────────
