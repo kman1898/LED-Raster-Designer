@@ -117,14 +117,20 @@ class _LayersPanel {
                 }
             });
 
-            // Right-click context menu on layer list
+            // Right-click context menu on layer list. A row already in the
+            // selection keeps the selection (the canvas's rule, so "Put on
+            // beach" over one of three selected rows means all three); a
+            // row outside it becomes the selection first.
             layerDiv.addEventListener('contextmenu', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
                 const isToggle = e.metaKey || e.ctrlKey;
+                const inSelection = !!(this.selectedLayerIds
+                    && this.selectedLayerIds.size > 0
+                    && this.selectedLayerIds.has(layer.id));
                 if (isToggle) {
                     this.toggleLayerSelection(layer);
-                } else {
+                } else if (!inSelection) {
                     this.selectLayer(layer);
                 }
                 this.showContextMenu(e.clientX, e.clientY);

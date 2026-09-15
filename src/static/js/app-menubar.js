@@ -413,6 +413,21 @@ class _MenuBar {
                         en.run();
                     }
                 }
+                // "Put on beach" submenu (app-beaches.js): beach-new makes
+                // one and puts the selection on it; beach-<n> is the n-th
+                // beach armed at open time. 'beach-menu' itself is the
+                // submenu's parent and never reaches here.
+                if (action === 'beach-new') {
+                    const nb = this._beachMenuActions
+                        && this._beachMenuActions.newBeach;
+                    if (nb && typeof nb.run === 'function') nb.run();
+                } else if (action && /^beach-\d+$/.test(action)) {
+                    const i = parseInt(action.replace('beach-', ''), 10);
+                    const en = this._beachMenuActions
+                        && this._beachMenuActions.entries
+                        && this._beachMenuActions.entries[i];
+                    if (en && typeof en.run === 'function') en.run();
+                }
                 break;
         }
     }
