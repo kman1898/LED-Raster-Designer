@@ -337,10 +337,10 @@ class _DockMenus {
                 + (next.runIds || [next.num]).length;
             out.share = {
                 label: `Share with next run via ${ways}fer`,
-                title: `Gang ${label} and `
-                    + `${this.getPowerCircuitLabel(layer, next.num)} onto `
+                title: `Share ${label} and `
+                    + `${this.getPowerCircuitLabel(layer, next.num)} on `
                     + 'one circuit through a splitter. Honored even over '
-                    + 'capacity - the chip flags OVER. Undo un-gangs it.',
+                    + 'capacity - the chip flags OVER. Undo un-shares it.',
                 run: () => {
                     sendClientLog('dock_share',
                                   { layerId: layer.id, num: c.num });
@@ -351,7 +351,7 @@ class _DockMenus {
         if ((c.runIds || []).length > 1) {
             out.unshare = {
                 label: 'Un-share',
-                title: `Un-gang ${label}'s runs back onto circuits of `
+                title: `Un-share ${label}'s runs back onto circuits of `
                     + 'their own, and pin them out of auto packing. Undo '
                     + 'restores the share.',
                 run: () => {
@@ -444,7 +444,7 @@ class _DockMenus {
                     label, disabled: true,
                     title: `Sharing is off for ${layer.name} - turn on `
                         + '"Share circuits via splitters" in Power Settings '
-                        + '(or route its circuits custom) to gang runs.',
+                        + '(or route its circuits custom) to share runs.',
                 });
                 return;
             }
@@ -453,7 +453,8 @@ class _DockMenus {
                 title: `Deal ${runCount} run${runCount === 1 ? '' : 's'} `
                     + `left to right as ${this.batchNferLabel(runCount, n)} `
                     + '- adjacent groups, each its own circuit. Honored '
-                    + 'even over capacity - a heavy gang flags OVER. One '
+                    + 'even over capacity - a shared circuit past its amps '
+                    + 'flags OVER. One '
                     + 'undoable step.',
                 run: () => {
                     sendClientLog('power_batch_nfer',
@@ -472,7 +473,7 @@ class _DockMenus {
             out.unshare = {
                 label: scope === 'screen'
                     ? 'Un-share this screen' : 'Un-share all',
-                title: 'Un-gang every shared circuit '
+                title: 'Un-share every shared circuit '
                     + (scope === 'screen'
                         ? 'on this screen' : 'in the selection')
                     + ' back onto runs of their own. One undoable step.',

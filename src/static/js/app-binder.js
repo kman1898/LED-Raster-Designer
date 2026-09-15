@@ -1841,7 +1841,7 @@ class _Binder {
                 // A list column asks for its WIDEST MEMBER, not for the whole
                 // list: the list wraps, but a member that will not fit a line
                 // has nowhere to go and would be cut ("28× 2fer" in the
-                // Screens table's GANGS column).
+                // Screens table's SHARED column).
                 if (c.list) {
                     for (const piece of this._bCellPieces(cell)) {
                         n = Math.max(n, ctxM.measureText(piece.trim()).width + padX * 2);
@@ -2894,8 +2894,8 @@ class _Binder {
             const amps = new Map(circuits.map(c => [c.num, c.amps]));
             const shared = this.screenCircuits(layer).filter(c => Array.isArray(c.runIds) && c.runIds.length > 1);
             blocks.push({ lines: this._bTableLines(book, {
-                title: 'Gangs',
-                cols: [{ title: 'circuit', w: 1.3 }, { title: 'gang', w: 0.8 }, { title: 'amps', w: 0.8, align: 'right' }],
+                title: 'Shared circuits',
+                cols: [{ title: 'circuit', w: 1.3 }, { title: 'splitter', w: 0.8 }, { title: 'amps', w: 0.8, align: 'right' }],
                 rows: shared.map(c => ({ cells: [this.getPowerCircuitLabel(layer, c.num),
                                                  `${c.runIds.length}fer`, this._bNum(amps.get(c.num), 1)] })),
             }) });
@@ -3570,7 +3570,7 @@ class _Binder {
             width: PULL_COL_W,
             cols: [tick, { title: 'screen', w: 1.3 }, { title: 'size', w: 0.7 },
                    { title: 'panels', w: 0.6, align: 'right' }, { title: 'circuits', w: 0.6, align: 'right' },
-                   { title: 'ports', w: 0.5, align: 'right' }, { title: 'gangs', w: 0.9 }],
+                   { title: 'ports', w: 0.5, align: 'right' }, { title: 'shared', w: 0.9 }],
             rows: screens,
             // Seven columns in the pull sheet's narrow column: the headings
             // take the room their neighbours spare (_bColWidths) and the

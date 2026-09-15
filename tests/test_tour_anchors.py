@@ -184,6 +184,7 @@ RETIRED_WORDING = [
                          'the tick is Wiring'),
     (r'-way\b', 'a snake is an N channel snake, never N-way'),
     (r'\bhalves\b', 'the port shape is OPT Split / Split, never Halves'),
+    (r'\bgangs?\b|un-gang', 'shared circuits, never gangs (Matt, 2026-09-15)'),
 ]
 
 
@@ -211,7 +212,8 @@ def test_retired_wording_guard_catches_each_word():
     """The guard itself: each retired word, in a sentence shaped like a
     step body, is caught - so a silently broken pattern cannot pass."""
     for sample in ('one Signal + Power sheet', 'a 4-way snake',
-                   'Halves the ports', 'circuits, not tails'):
+                   'Halves the ports', 'circuits, not tails',
+                   'Gang runs through a 2fer', 'Undo un-gangs it'):
         assert _retired_wording_hits(sample), sample
     assert not _retired_wording_hits(
         'SNAKE A · 4 channel; OPT Split; Power Wiring and Data Wiring')
