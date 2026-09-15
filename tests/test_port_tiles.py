@@ -80,9 +80,14 @@ SEED_JS = """async () => {
         // without the stamp the occupied tile this module tells apart
         // from the free ones would never be occupied.
         screen.processorType = 'novastar-coex-1g';
+        // The name is written through as well: a test that re-reads the
+        // project from the server (the clash test does, to pick up a
+        // screen it just added) must find Screen1 there too, whatever an
+        // earlier module left the shared screen called.
         await fetch(`/api/layer/${screen.id}`, {
             method: 'PUT', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ processorType: 'novastar-coex-1g' }),
+            body: JSON.stringify({ name: 'Screen1',
+                                   processorType: 'novastar-coex-1g' }),
         });
     }
     const state = await (await fetch('/api/processors')).json();
@@ -646,17 +651,32 @@ def test_the_tile_grid_fits_closed_and_open(panel_page, width):
         panel_page.wait_for_timeout(300)
 
 
+TRACKS_JS = "() => window.app._dockPickColCount()"
+
+
 def test_a_wider_tray_reflows_to_more_columns(panel_page):
+    """A wider window gives the tray more room, and the tray uses it by
+    adding TRACKS - 440px columns of units - not by widening a unit. Since
+    the tray became a fixed grid (2026-09-09, "the tray holds still") a
+    unit's width comes from its track alone, so the chip grid inside the
+    first card may even lose a column when a third track opens and the
+    tracks narrow. What must hold: more tracks at 1700 than at 1280, and
+    nothing clips or hangs past the tray at either width."""
     seed(panel_page)
     narrow = panel_page.evaluate(GRID_FIT_JS)
+    narrow_tracks = panel_page.evaluate(TRACKS_JS)
     panel_page.set_viewport_size({'width': 1700, 'height': 720})
     panel_page.wait_for_timeout(500)
     try:
         wide = panel_page.evaluate(GRID_FIT_JS)
-        assert wide['columns'] > narrow['columns'], (
-            f'the grid did not reflow: {narrow["columns"]} columns at 1280, '
-            f'{wide["columns"]} at 1700')
-        assert not wide['clipped'] and not wide['strays'], wide
+        wide_tracks = panel_page.evaluate(TRACKS_JS)
+        assert wide_tracks > narrow_tracks, (
+            f'the tray did not gain a track: {narrow_tracks} at 1280, '
+            f'{wide_tracks} at 1700 (chip columns {narrow["columns"]} -> '
+            f'{wide["columns"]})')
+        assert wide['columns'] >= 1, wide
+        assert not wide['clipped'] and not wide['gridClipped'], wide
+        assert not wide['strays'], wide
     finally:
         panel_page.set_viewport_size({'width': 1280, 'height': 720})
         panel_page.wait_for_timeout(300)

@@ -312,7 +312,7 @@ def test_add_layer_does_not_accept_group_id(client):
 
 def test_a_duplicate_does_not_join_the_group(client):
     """The client's duplicate/paste payload carries no group_id (see
-    app-history.js), and the server would ignore it anyway."""
+    app-clipboard.js), and the server would ignore it anyway."""
     project, gid, ids = _grouped_project(client)
     source = _layer(project, ids[0])
     payload = {k: v for k, v in source.items()

@@ -360,7 +360,7 @@ class _PullList {
         const byKey = new Map();
         for (const r of rows) {
             if (!r || !r.type) continue;
-            const key = `${r.type} ${r.length}`;
+            const key = `${r.type}\u0000${r.length}`;
             let hit = byKey.get(key);
             if (!hit) {
                 hit = { type: r.type, length: r.length, qty: 0, _labels: [], _notes: [] };
@@ -1031,11 +1031,6 @@ class _PullList {
             };
         }
         return { positions };
-    }
-
-    pullSheetHasEdits() {
-        const e = this.getPullSheetEdits();
-        return Object.values(e.positions).some(p => p.rows.length || p.added.length);
     }
 
     // The live store for one position (created on demand when `create`).

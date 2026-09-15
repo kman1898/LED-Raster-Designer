@@ -467,11 +467,6 @@ class _LogsRecent {
         this.updateRecentFilesMenu();
     }
 
-    clearRecentFiles() {
-        this.saveRecentFiles([]);
-        this.updateRecentFilesMenu();
-    }
-
     updateRecentFilesMenu() {
         const list = document.getElementById('recent-files-list');
         const divider = document.getElementById('recent-files-divider');
@@ -505,10 +500,14 @@ class _LogsRecent {
         });
     }
 
-    escapeHtml(str) {
-        const div = document.createElement('div');
-        div.textContent = str;
-        return div.innerHTML;
+    // The one escapeHtml on the prototype (a second, in app-presets.js, was
+    // silently overwritten by this one). Escapes quotes too, so it is safe
+    // inside an attribute value as well as in text.
+    escapeHtml(s) {
+        if (s == null) return '';
+        return String(s).replace(/[&<>"']/g, ch => (
+            { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]
+        ));
     }
 
     loadRecentFile(idx) {

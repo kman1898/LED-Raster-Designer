@@ -561,7 +561,7 @@ class _Processors {
     // user's verdict on what shipped before (2026-09-04): "redundancy
     // toggling needs work. right now it's wayyy too busy" - a switch, a
     // level select, then per slot a caption, a four-way mode select, a
-    // partner select and a hint. His pick from src/static/redundancy-mock
+    // partner select and a hint. His pick from mocks/redundancy-mock
     // .html is option A: ONE segmented bar - Off · Whole unit · Per card ·
     // Per port on a chassis, Off · Backed up · Per port on a standalone
     // unit, Off · On where the vendor fixes the pairing - and exactly one

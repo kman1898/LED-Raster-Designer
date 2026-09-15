@@ -1434,6 +1434,36 @@ def test_a_balanced_multi_under_a_named_distro_reads_true_tails(page):
         'the middle three name their tails, not a renumbered 1, 2, 3'
 
 
+def _discs_read(painted, labels):
+    """Read the canvas's painted text the way a person reads the discs.
+    `painted` is every fillText of one renderPowerArrows, in paint order;
+    a disc paints one string per LINE, and a label with no space stacks
+    at a hyphen or a letter-digit seam with nothing between its lines
+    (canvas.js _layoutCircleLabel / _unspacedUnits). For each label in
+    `labels`, in order, the next run of painted pieces that concatenates
+    to it is that disc; text between discs (a badge, a tag) is skipped.
+    Returns the labels found, in paint order."""
+    read, i = [], 0
+    for label in labels:
+        found = None
+        j = i
+        while j < len(painted) and found is None:
+            joined = ''
+            for k in range(j, len(painted)):
+                joined += painted[k]
+                if joined == label:
+                    found = k + 1
+                    break
+                if not label.startswith(joined):
+                    break
+            j += 1
+        if found is None:
+            break
+        read.append(label)
+        i = found
+    return read
+
+
 def test_the_wall_the_dock_and_the_plan_all_read_the_same_names(page):
     """One authority, four surfaces. A wall on two distros named SL and SR:
     the canvas bubbles, the soca plan's leg labels, the dock chips' faces
@@ -1494,7 +1524,12 @@ def test_the_wall_the_dock_and_the_plan_all_read_the_same_names(page):
     assert out['authority'] == expected, (
         f"two multis on two named distros: {out['authority']}")
     assert out['planLegs'] == expected, 'the soca plan disagrees with the wall'
-    assert [t for t in out['canvas'] if t in expected] == expected, (
+    # A bubble may stack its label at a letter-digit seam when that shrinks
+    # the disc ("SR" over "1-1", canvas.js _layoutCircleLabel - the wide R
+    # tips SR1-1 over the natural radius where the narrow L does not), so
+    # the paint arrives as one fillText per LINE. A person reads the stack
+    # top to bottom as one label; read it the same way.
+    assert _discs_read(out['canvas'], expected) == expected, (
         f"the canvas bubbles do not read the authority: {out['canvas']}")
     assert out['chips'] == expected, \
         'the dock chips disagree with the wall'

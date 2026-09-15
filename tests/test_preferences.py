@@ -19,7 +19,7 @@ def _guard(server_project_guard):
 
 # The seven tabs, in the order the strip shows them, with the field ids
 # each holds. Every id today's dialog had keeps its id; the new ones are
-# the mock's (src/static/preferences-mock.html?layout=tabs).
+# the mock's (mocks/preferences-mock.html?layout=tabs).
 TABS = {
     'wall': ['pref-raster-width', 'pref-raster-height', 'pref-columns', 'pref-rows',
              'pref-panel-width', 'pref-panel-height', 'pref-panel-width-mm',

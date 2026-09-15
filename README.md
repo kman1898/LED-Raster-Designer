@@ -200,6 +200,51 @@ If you want to build the app yourself instead of downloading the release:
 
 Source code is in the `src/` folder.
 
+### Where things live
+
+Front end (`src/static/js/`):
+
+| File | Owns |
+|---|---|
+| `app-core.js` | the App class: state, socket, initial UI setup |
+| `app-wiring.js` | every DOM listener, one `_wire*` method per area |
+| `app-client-props.js`, `app-preferences.js` | per-layer client settings in localStorage; preference defaults, storage, the tabbed modal |
+| `app-screen-info.js`, `app-capacity.js` | the Screen Info panel, totals, layer updates; port capacity rules (bit depth, frame rate, low latency) |
+| `app-selection.js`, `app-pixel-select.js`, `app-colors.js` | the multi-select set and bulk edits; cabinet selection and Pixel Map bulk edits; gradient and palette editors |
+| `app-layers-panel.js`, `app-context-menu.js` | the Screens panel rows; the canvas right-click menu |
+| `app-screen-groups.js`, `app-beaches.js`, `app-presets.js` | screen groups and group-wide actions; beach list and picker; screen presets and the cabinet catalog picker |
+| `app-canvas-ui.js`, `app-project-io.js` | canvas tabs (add, rename, delete, reorder); save and open project files, reset, normalize |
+| `app-history.js`, `app-clipboard.js` | undo/redo and snapshots; duplicate, copy and paste layers |
+| `app-export-io.js`, `app-menubar.js`, `app-logs-recent.js` | export dialog, preview, writing files; menu bar, shortcuts, About; log viewer and recent files |
+| `app-processors.js`, `app-port-routing.js`, `app-port-assignment.js` | the processor tree and gear popovers; walking cabinets into per-port runs; port-numbering issues and their fixes |
+| `app-custom-runs.js`, `app-run-overrides.js`, `app-cross-layer-paths.js` | hand-drawn runs (capacity, stepping, pattern fill); a port or circuit taken over by hand; paths across group members |
+| `app-power.js`, `app-distros.js`, `app-phase-balance.js`, `app-naming.js` | circuits, soca splits, outputs, breakouts, cables; the distro model; three-phase balancing; port, circuit and multi labels |
+| `app-dock.js`, `app-dock-cable-sheets.js`, `app-dock-sweep.js`, `app-dock-drag.js`, `app-dock-menus.js` | the hardware tray: rendering, cable sheets, snake brackets and the Alt sweep, the drag engine, right-click menus |
+| `app-binder.js`, `app-binder-wiring.js` | the binder drawing set, sheets and title blocks; the Power Wiring and Data Wiring sheets |
+| `app-pull-list.js`, `app-pull-sheet-editor.js` | the cable pull list every paper reads; per-row edits over it |
+| `canvas.js` | the renderer class (classic script): viewport, view modes, base drawing |
+| `canvas-input.js`, `canvas-images.js`, `canvas-data.js`, `canvas-power.js`, `canvas-labels.js`, `canvas-selection.js`, `canvas-math.js` | renderer mixins: gestures and hit-testing; image and text layers; the Data view; the Power view; labels and cabinet IDs; selection overlays; port load math |
+| `helpers.js`, `main.js` | shared utilities and client logging; the entry point that imports every module |
+| `color_picker.js`, `theme.js`, `quickstart.js`, `updater.js`, `whatsnew.js`, `whatsnew_content.js` | the colour popover; accent colour; guided tours; update banner; the What's New splash and its text |
+
+Back end (`src/`):
+
+| File | Owns |
+|---|---|
+| `app.py` | Flask app and sockets, logging, the project/layer/group/beach model and live state, `/` and `/static` |
+| `routes_export.py`, `resolume_geometry.py` | every `/api/export/*` route and its render helpers; contours, islands and the Resolume XML (pure functions) |
+| `routes_project.py`, `routes_canvas.py`, `routes_layers.py` | get, new, save, restore project and beaches; canvases; layers and per-panel state |
+| `routes_processors.py`, `routes_port_assignment.py`, `routes_panel_catalog.py`, `routes_presets.py` | the processor tree; which socket each screen port uses; the cabinet catalog; preset files |
+| `routes_preferences.py`, `routes_logs.py`, `routes_system.py`, `routes_version.py`, `routes_dialog.py`, `routes_pull_sheet.py` | preferences; logs; system fonts; version and update check; native save dialogs (loopback only); the pull sheet workbook |
+| `processor_catalog.py`, `port_assignment.py`, `pull_sheet.py` | the processor catalog and its rules; pins, clashes, overflow and offers; writing the pull list into the workbook |
+| `scr_decoder.py`, `scr_encoder.py`, `scr_project.py` | sending-card configuration files |
+| `launcher_mac.py`, `launcher_pc.py`, `launcher_settings.py`, `launcher_window.py`, `updater.py` | the launchers; the release check |
+
+Two rules keep this layout honest:
+
+- **The mixin idiom.** A feature module is a private class whose own methods are copied onto `LEDRasterApp.prototype`; `app-core.js` holds the class itself. A new `app-*.js` file must be imported in `main.js` or it never loads (`app-binder.js` must precede `app-binder-wiring.js`). `canvas.js` is a classic script (`window.CanvasRenderer`); each `canvas-*.js` mixes onto `CanvasRenderer.prototype` with `Object.assign` and is a `<script>` tag in `index.html` after `canvas.js` and before `main.js`. Python route files are Flask blueprints registered at the bottom of `app.py`; they read live state as `app.current_project` via `import app`, never through `from app import`.
+- **One home per method.** `tests/test_js_modules.py` fails when a method name is defined in more than one module (prototype mixing is silent: the later file wins), when an `app-*.js` is not imported by `main.js`, or when a script tag in `index.html` points at a missing file. Move a method; don't copy it.
+
 ---
 
 ## Reporting Bugs and Requesting Features

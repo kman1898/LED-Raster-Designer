@@ -5,7 +5,7 @@ where it reads back.
 soca length or l620 length etc. like say circuit 1 needs a 10ft true 1 and
 circuit 2 needs 6ft and 3/4 need nothing and 5 needs 6ft and 6 needs a 10 ft.
 since we are going to have those pdf docs we need to be able to have that
-info if i want to add it." (user, 2026-09-06). Of src/static/cables-mock.html
+info if i want to add it." (user, 2026-09-06). Of mocks/cables-mock.html
 the user picked B for the typing ("Option B is the Best for overall use case")
 and D as a per-screen switch ("i like having D as an option when doing the
 docs per screen").

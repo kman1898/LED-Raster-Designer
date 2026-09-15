@@ -299,7 +299,7 @@ def test_two_group_commits_in_flight_both_land(page):
 
 def test_selectable_frame_rates_match_the_sidebar_select(page):
     """getSelectableFrameRates (app-core.js) and updateFrameRateOptions
-    (app-export-io.js) are twins. If one grows a rate the other has to."""
+    (app-port-routing.js) are twins. If one grows a rate the other has to."""
     out = page.evaluate(r"""async () => {
       const ids = await window.__gi.fresh(1);
       const l = window.__gi.layer(ids[0]);

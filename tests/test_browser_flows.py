@@ -270,23 +270,35 @@ def test_quickstart_manual_start_and_navigation(page):
 
 
 def test_advanced_guide_switches_views(page):
-    """The Advanced Guide's view-switching steps drive the real view tabs."""
+    """The Advanced Guide's view-switching steps drive the real view tabs.
+
+    Every step now performs its action live, so a step is only judged once
+    its act has settled (the callout's data-qs-state leaves 'running');
+    Next is disabled while an act runs. tests/test_tour_anchors.py holds
+    every step to acting and checking; this proves the view tab itself.
+    """
+    page.evaluate("window.QuickStart.setSpeed(3)")
     page.evaluate("window.QuickStart.startAdvanced()")
-    page.wait_for_timeout(400)
-    # advance until the Data view step (step 11 of 19) or give up after 14
+    settled = ("() => ['done', 'failed', 'idle'].includes("
+               "document.getElementById('qs-callout').getAttribute('data-qs-state'))")
     reached_data = False
     for _ in range(14):
+        page.wait_for_function(settled, timeout=20000)
         title = page.locator('#qs-callout h3').text_content() or ''
-        if 'Data' in title:
+        if 'Data view' in title:
             reached_data = True
             break
         page.locator('#qs-next').click()
-        page.wait_for_timeout(350)
+        page.wait_for_timeout(200)
     assert reached_data, "never reached the Data view step"
     active = page.evaluate(
         "document.querySelector('[data-mode=\"data-flow\"]').classList.contains('active')")
     assert active, "Data view step did not switch the app to the Data view"
     page.evaluate("window.QuickStart.end()")
+    page.wait_for_function(
+        "() => !window.QuickStart.state().visible && !window.QuickStart.state().running",
+        timeout=20000)
+    page.evaluate("window.QuickStart.setSpeed(1)")
     # return to pixel map for any later tests
     page.locator('[data-mode="pixel-map"]').click()
     page.wait_for_timeout(300)
@@ -3503,7 +3515,7 @@ def test_5g_penalty_stacks_on_the_low_latency_derate_in_that_order(page):
     Penalty first, derate second would instead give
         floor(0.975 x (2,951,200 - 179,200)) = 2,702,700
     which is 4,480 px more capacity. If the owner wants that ordering, it is
-    this test and the portLimit() helper in app-export-io.js that change."""
+    this test and the portLimit() helper in app-port-routing.js that change."""
     res = port_load(page, rows=300, columns=1, cw=120, ch=100,
                     processorType='novastar-5g', mode='organized',
                     pattern='tl-v', lowLatency=True,

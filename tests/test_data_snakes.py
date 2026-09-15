@@ -2,7 +2,7 @@
 
 "we need to have the same option for data homeruns. we can combine ports
 into a snake as well as adding lengths to each if not snakes." (user,
-2026-09-06). Of src/static/snake-mock.html the pick was "B to form it and A
+2026-09-06). Of mocks/snake-mock.html the pick was "B to form it and A
 to type it but can be made with both": the Alt-sweep across port chips forms
 a snake by right-click (B), and the card's / box's cable sheet types the
 names, home runs and the loose ports' lengths (A).

@@ -563,7 +563,7 @@ select, .info-select {
 }
 
 /* ---- chips: MACHINED SOCKETS with keycap legibility ----
-   The user's pick (2026-08-29, from src/static/chip-mock.html): "C but
+   The user's pick (2026-08-29, from mocks/chip-mock.html): "C but
    with the legibility of A". A free chip is a recessed well in the
    connector panel - deep inset shadow, near-black bore, a machined rim
    highlight under its bottom edge - and an occupied chip is PLUGGED: its
@@ -632,7 +632,7 @@ select, .info-select {
 }
 /* ---- the redundancy pill: a PLUGGED socket in the backup role's gold,
    at keycap contrast. The user's pick of option D's cheap half
-   (2026-09-04, src/static/redundancy-mock.html): a read-only pill on the
+   (2026-09-04, mocks/redundancy-mock.html): a read-only pill on the
    processor and card headers that states the shape in force - R → H9
    BACKUP, R per card, R seq - and opens the processor's ⚙ where it is
    set. Same geometry as the occupied chip above (top light, drop shadow,
@@ -846,7 +846,7 @@ select, .info-select {
 #balance-modal .balance-apply:hover { filter:brightness(1.08); }
 
 /* ---- the redundancy bar and its rows (the user's pick, 2026-09-04,
-   from src/static/redundancy-mock.html - option A: "one segmented bar,
+   from mocks/redundancy-mock.html - option A: "one segmented bar,
    one line under it" - after "redundancy toggling needs work. right now
    it's wayyy too busy"; "remember our raised formatting"). The segments
    ARE the raised popover buttons above, butted into one bar with the

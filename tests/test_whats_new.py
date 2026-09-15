@@ -10,7 +10,7 @@ Two halves:
       someone writes the 0.13/1.0 entry.
     - every entry is 4-8 items, plain text, no emoji;
     - index.html loads both scripts and carries the Help menu item, and
-      app-export-io.js dispatches it - the new files cannot silently rot.
+      app-menubar.js dispatches it - the new files cannot silently rot.
 
   Browser (Playwright, shared e2e server) - the gating matrix and the modal:
     - decide(): patch change silent, minor/major change shows, first run
@@ -39,7 +39,7 @@ SRC = os.path.join(ROOT, 'src')
 CONTENT_JS = os.path.join(SRC, 'static', 'js', 'whatsnew_content.js')
 LOGIC_JS = os.path.join(SRC, 'static', 'js', 'whatsnew.js')
 INDEX_HTML = os.path.join(SRC, 'templates', 'index.html')
-EXPORT_IO_JS = os.path.join(SRC, 'static', 'js', 'app-export-io.js')
+MENUBAR_JS = os.path.join(SRC, 'static', 'js', 'app-menubar.js')
 VERSION_TXT = os.path.join(SRC, 'VERSION.txt')
 
 
@@ -147,7 +147,7 @@ def test_help_menu_has_whats_new():
 
 
 def test_menu_action_dispatches_to_whatsnew():
-    src = _read(EXPORT_IO_JS)
+    src = _read(MENUBAR_JS)
     assert "case 'whats-new':" in src
     assert 'WhatsNew.open()' in src
 
@@ -293,8 +293,8 @@ def test_modal_fits_theme_and_offers_walkthrough(page):
         " return !!h && h.textContent.length > 0; }")
     first_title = page.evaluate(
         "() => document.querySelector('#qs-callout h3').textContent")
-    # Matched apostrophe-free: the title's curly quote is not the fact under
-    # test, the destination tour is.
-    assert "new in 0.12" in first_title, (
+    # Matched apostrophe-free and case-free: the title's curly quote and
+    # its capitals are not the fact under test, the destination tour is.
+    assert "new in 0.12" in first_title.lower(), (
         f'the splash handed off to the wrong tour: {first_title!r}')
     page.evaluate("window.QuickStart.end()")

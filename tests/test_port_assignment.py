@@ -1598,9 +1598,10 @@ def test_both_surfaces_place_a_port_through_the_one_request():
     """Two request builders would be two sets of rules about what may land on
     an occupied socket, and they would disagree the first time one was
     changed. The placement lives in the assignment module (_placePort) and the
-    hardware dock - the only surface that still sends it - calls it."""
+    hardware dock - the only surface that still sends it - calls it from its
+    drop engine (app-dock-drag.js)."""
     panel = js('app-port-assignment.js')
-    dock = js('app-dock.js')
+    dock = js('app-dock-drag.js')
     assert panel.count("'/api/port-assignments/place'") == 1
     assert '_placePort(spot, confirmed) {' in panel
     assert 'this._placePort(' in dock, (

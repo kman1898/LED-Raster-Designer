@@ -238,7 +238,7 @@ def undo(page):
 
 def _next_duplicate_name(name):
     """The app's own convention (app-screen-groups.js _nextDuplicateName /
-    app-history.js getNextName): a trailing number increments, otherwise " 1"
+    app-clipboard.js getNextName): a trailing number increments, otherwise " 1"
     is appended."""
     import re
     m = re.match(r'^(.*?)(\d+)$', name)
