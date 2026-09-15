@@ -121,6 +121,17 @@
         return (a && typeof a.getShowSnakes === 'function' ? a.getShowSnakes() : [])[0] || null;
     }
     function beach() { var a = A(); return (a && a.getBeaches ? a.getBeaches() : [])[0] || null; }
+    // The first breakout box on the card (the resolved tree's `cvts`).
+    function box() { var c = card(); return ((c && c.cvts) || [])[0] || null; }
+    // What the distro's tray header prints: the load against the rating
+    // ("0.0/400 A"), the supply ("208V·3φ"), and the OUTPUTS row's plugs.
+    function distroUnit(d) { return d ? $('[data-lrd-distro="' + d.id + '"]') : null; }
+    function distroUse(d) { var u = distroUnit(d); var e = u && u.querySelector('.hw-dock-unit-use'); return e ? e.textContent.trim() : ''; }
+    function distroInfo(d) { var u = distroUnit(d); var e = u && u.querySelector('.hw-dock-unit-info'); return e ? e.textContent.trim() : ''; }
+    function distroLegs(d) { var u = distroUnit(d); return !!(u && u.querySelector('.hw-dock-legs')); }
+    function distroPlugs(d) { var u = distroUnit(d); return u ? $$('.hw-dock-outputs .hw-dock-plug', u) : []; }
+    // The open gear popover, or null.
+    function popover() { var pop = $('#hw-gear-popover'); return pop && pop.style.display === 'block' ? pop : null; }
     function mode() { var t = $('.view-tab.active[data-mode]'); return t ? t.dataset.mode : null; }
     function switchView(m) {
         if (mode() === m) return;
@@ -2199,6 +2210,67 @@
                 return 'Port 2 is hand-drawn (' + path.length + ' cabinets); the rest of the screen re-flows around it.';
             }
         },
+        // A breakout box (Matt, 2026-09-15: "show how to set breakout
+        // boxes"). Behind the CARD's gear (app-processors.js
+        // _buildCardGearContent): a picker of the boxes that fit its trunks
+        // and a + that adds one. On the demo MX40 Pro a CVT10 takes ports
+        // 1-10 onto its own strip in the tray, so the box lands AFTER the
+        // data steps that read those ports off the card - see TOURS.
+        addBreakoutBox: {
+            target: function () { var c = card(); return c ? '[data-hwpop="card-' + c.id + '"]' : '#hardware-dock-body .hw-dock-gear'; },
+            place: 'top', title: 'Add a breakout box',
+            avoid: [function () { var c = card(); return c ? '[data-lrd-field="processor-cvt-add-' + c.id + '"]' : null; },
+                    function () { var c = card(); var p = c && $('[data-lrd-field="processor-cvt-add-' + c.id + '"]'); return p ? p.nextElementSibling : null; }],
+            body: 'Behind the card&rsquo;s &#9881; the picker lists only the boxes that fit its trunks. Pick a CVT10 and press +: the box appears in the tray with its ten sockets, numbered as its face reads.',
+            before: function () { switchView('data-flow'); closePopover(); },
+            act: function (t) {
+                var c = card();
+                var picker = '[data-lrd-field="processor-cvt-add-' + c.id + '"]';
+                return t.click('[data-hwpop="card-' + c.id + '"]').then(function () {
+                    return t.wait(popover);
+                }).then(function (pop) {
+                    if (!pop) throw new Error('the card\'s gear popover did not open');
+                    return t.spot(pop).then(function () { return t.pause(900); });
+                }).then(function () {
+                    var sel = $(picker);
+                    if (!sel) throw new Error('no box picker on this card');
+                    t.mem.offered = Array.prototype.slice.call(sel.options).filter(function (o) { return o.value; }).length;
+                    return t.select(sel, 'novastar-cvt10');
+                }).then(function () {
+                    return t.pause(400);
+                }).then(function () {
+                    var sel = $(picker);
+                    var add = sel && sel.nextElementSibling;
+                    if (!add) throw new Error('no + beside the picker');
+                    return t.click(add);
+                }).then(function () {
+                    return t.wait(box, 6000);
+                }).then(function (b) {
+                    // The box's strip lands at the tray's fold: the hand
+                    // goes to its header (moveTo scrolls it into view), the
+                    // popover follows its gear, and the ring is measured
+                    // again where it now stands.
+                    if (!b) return;
+                    var head = $('[data-hwdock="box-' + b.id + '"]');
+                    if (!head) return;
+                    return t.moveTo(head).then(function () {
+                        if (A()._hwPopoverReflow) A()._hwPopoverReflow();
+                        var pop = popover();
+                        return pop ? t.spot(pop) : null;
+                    });
+                }).then(function () { return t.pause(1000); });
+            },
+            check: function (mem) {
+                var b = box(), p = proc();
+                if (!b) return null;
+                var n = (b.ports || []).length;
+                var locals = (b.ports || []).map(function (q) { return q.localNumber || q.number; });
+                var span = locals.length ? Math.min.apply(null, locals) + '–' + Math.max.apply(null, locals) : '';
+                return (b.displayTitle || b.deviceName) + ' is on ' + (p && p.name ? p.name : 'the unit') + ' with ' + n + ' sockets'
+                    + (span ? ', ' + span + ' on its face' : '') + '; the picker offered ' + mem.offered + ' boxes that fit this unit.';
+            },
+            after: function () { closePopover(); }
+        },
         panelWatts: {
             target: '#power-panel-watts', place: 'right', title: 'Power view and the math',
             avoid: ['[data-mode="power"]', '#power-panel-watts'],
@@ -2257,6 +2329,119 @@
                 });
             },
             check: function () { var d = distro(); return d && d.name === 'SL' ? 'Its multis are SL1, SL2 …' : null; }
+        },
+        // The distro's gear (Matt, 2026-09-15: "setting the capacity of
+        // the distro and different things like that"): rating, voltage and
+        // phase, OUTPUTS - app-power.js _buildDistroGearContent. Each step
+        // opens the gear again: one action per step.
+        distroRating: {
+            target: function () { var d = distro(); return d ? '[data-hwpop="distro-' + d.id + '"]' : '#hardware-dock-body .hw-dock-gear'; },
+            place: 'top', title: 'Set the distro&rsquo;s rating',
+            avoid: [function () { var d = distro(); return d ? '[data-lrd-field="distro-rating-' + d.id + '"]' : null; }],
+            body: 'Behind the distro&rsquo;s &#9881;, Rating is the service in amps. Type 200 and the header&rsquo;s load bar reads against 200 A from now on.',
+            before: function () { switchView('power'); closePopover(); },
+            act: function (t) {
+                var d = distro();
+                t.mem.before = distroUse(d);
+                return t.click('[data-hwpop="distro-' + d.id + '"]').then(function () {
+                    return t.wait(popover);
+                }).then(function (pop) {
+                    if (!pop) throw new Error('the distro\'s gear popover did not open');
+                    return t.spot(pop).then(function () { return t.pause(900); });
+                }).then(function () {
+                    return t.type('[data-lrd-field="distro-rating-' + d.id + '"]', '200');
+                }).then(function () {
+                    return t.wait(function () { var q = distro(); return q && Number(q.ratingA) === 200 && /\/200 A$/.test(distroUse(q)); });
+                }).then(function () { return t.pause(1000); });
+            },
+            check: function (mem) {
+                var d = distro();
+                if (!d || Number(d.ratingA) !== 200) return null;
+                var use = distroUse(d);
+                if (!/\/200 A$/.test(use)) return null;
+                return (d.name || 'The distro') + ' is rated 200 A: the header read ' + mem.before + ', now ' + use + '.';
+            },
+            after: function () { closePopover(); }
+        },
+        distroPhase: {
+            target: function () { var d = distro(); return d ? '[data-hwpop="distro-' + d.id + '"]' : '#hardware-dock-body .hw-dock-gear'; },
+            place: 'top', title: 'Voltage and phase',
+            avoid: [function () { var d = distro(); return d ? '[data-lrd-field="distro-phase-' + d.id + '"]' : null; },
+                    function () { var d = distro(); return d ? '[data-lrd-field="distro-voltage-' + d.id + '"]' : null; }],
+            body: 'Voltage and phase sit beside the rating and the header wears them. Pick 1&phi; and the LEGS line and Balance leave; pick 3&phi; and they are back, with the phasing row under it.',
+            before: function () { switchView('power'); closePopover(); },
+            act: function (t) {
+                var d = distro();
+                var phase = '[data-lrd-field="distro-phase-' + d.id + '"]';
+                t.mem.start = distroInfo(d);
+                return t.click('[data-hwpop="distro-' + d.id + '"]').then(function () {
+                    return t.wait(popover);
+                }).then(function (pop) {
+                    if (!pop) throw new Error('the distro\'s gear popover did not open');
+                    return t.spot(pop).then(function () { return t.pause(900); });
+                }).then(function () {
+                    return t.select(phase, '1');
+                }).then(function () {
+                    return t.wait(function () { var q = distro(); return q && Number(q.phase) === 1 && /1φ/.test(distroInfo(q)); });
+                }).then(function () {
+                    return t.pause(800);
+                }).then(function () {
+                    // Read while the supply stands at 1φ: the header's tag,
+                    // and whether the LEGS line is there.
+                    var q = distro();
+                    t.mem.mid = distroInfo(q);
+                    t.mem.midLegs = distroLegs(q);
+                    // The popover was rebuilt with the change; the select is
+                    // found again by its key.
+                    return t.select(phase, '3');
+                }).then(function () {
+                    return t.wait(function () { var q = distro(); return q && Number(q.phase) === 3 && /3φ/.test(distroInfo(q)); });
+                }).then(function () { return t.pause(800); });
+            },
+            check: function (mem) {
+                var d = distro();
+                if (!d || Number(d.phase) !== 3 || !mem.mid || !/1φ/.test(mem.mid)) return null;
+                var now = distroInfo(d);
+                if (!/3φ/.test(now)) return null;
+                return 'At 1φ the header read ' + mem.mid + (mem.midLegs ? '' : ' with no LEGS line') + '; back on 3φ it reads ' + now
+                    + (distroLegs(d) ? ' and the legs are metered again.' : '.');
+            },
+            after: function () { closePopover(); }
+        },
+        distroOutputs: {
+            target: function () { var d = distro(); return d ? '[data-hwpop="distro-' + d.id + '"]' : '#hardware-dock-body .hw-dock-gear'; },
+            place: 'top', title: 'The plugs a distro offers',
+            avoid: [function () { var d = distro(); return d ? '[data-lrd-field="distro-out-l2130-' + d.id + '"]' : null; }],
+            body: 'OUTPUTS ticks the connector types this distro can hand a screen. Untick L21-30 and its plug leaves the OUTPUTS row under the header; nothing else on the distro changes.',
+            before: function () { switchView('power'); closePopover(); },
+            act: function (t) {
+                var d = distro();
+                t.mem.before = distroPlugs(d).length;
+                return t.click('[data-hwpop="distro-' + d.id + '"]').then(function () {
+                    return t.wait(popover);
+                }).then(function (pop) {
+                    if (!pop) throw new Error('the distro\'s gear popover did not open');
+                    return t.spot(pop).then(function () { return t.pause(900); });
+                }).then(function () {
+                    var cb = $('[data-lrd-field="distro-out-l2130-' + d.id + '"]');
+                    if (!cb || !cb.checked) throw new Error('L21-30 is not ticked on this distro');
+                    return t.click(cb, { rest: PACE.acted });
+                }).then(function () {
+                    return t.wait(function () {
+                        var q = distro();
+                        return q && Array.isArray(q.outputs) && q.outputs.indexOf('l2130') < 0 && distroPlugs(q).length < t.mem.before;
+                    });
+                }).then(function () { return t.pause(400); });
+            },
+            check: function (mem) {
+                var d = distro();
+                if (!d || !Array.isArray(d.outputs) || d.outputs.indexOf('l2130') >= 0) return null;
+                var plugs = distroPlugs(d);
+                if (plugs.length !== mem.before - 1) return null;
+                var names = A().distroOutputs(d).map(function (x) { return x.name; });
+                return (d.name || 'The distro') + ' offers ' + names.join(' and ') + '; the L21-30 plug is off its OUTPUTS row.';
+            },
+            after: function () { closePopover(); }
         },
         dropMulti: {
             target: function () { var d = distro(); return d ? '[data-hwdock="slot-' + d.id + '-1"]' : '[data-hwdock^="slot-"]'; },
@@ -2574,6 +2759,55 @@
             },
             check: function () { return wall2() ? 'DEMO WALL 2 stands beside the first: same size, same processing.' : null; }
         },
+        // "Put on beach" on the right-click menu (app-beaches.js
+        // _prepareBeachMenu, 2026-09-15): every selected screen onto one
+        // beach in one undoable step. The submenu opens on the item's CSS
+        // :hover, which the ghost hand cannot raise, so the act opens it
+        // while the hand rests on the item and lets it go on the way out.
+        beachByMenu: {
+            target: '#main-canvas', place: 'top', title: 'Put screens on a beach together',
+            avoid: [function () { var w2 = wall2(); return w2 ? T.cabinetPoint(w2, { index: 0 }) : null; }],
+            body: 'Select several screens, right-click one and Put on beach lands them all on a beach in one step. + New beach makes one right there.',
+            before: function () { switchView('pixel-map'); frameWalls(); },
+            act: function (t) {
+                var a = A(), w = wall(), w2 = wall2(), b = beach();
+                if (!w2 || !b) throw new Error('two screens and a beach are needed');
+                var sub = $('#beach-submenu');
+                var letGo = function () { if (sub) sub.style.display = ''; };
+                a.setSelectedLayersByIds([w.id, w2.id], w.id);
+                return t.pause(PACE.rest).then(function () {
+                    return t.rightClick(t.cabinetPoint(w2, { index: 0 }));
+                }).then(function () {
+                    var item = $('#context-menu [data-action="beach-menu"]');
+                    if (!item || item.style.display === 'none') throw new Error('Put on beach is not on the menu');
+                    return t.hover(item, { speed: PACE.menuTravel, hover: 600 });
+                }).then(function () {
+                    if (sub) sub.style.display = 'block';
+                    var rows = $$('#beach-submenu .menu-option');
+                    var row = rows.find(function (r) { return r.dataset.action !== 'beach-new' && r.textContent.trim() === b.name; })
+                        || $('#beach-submenu [data-action="beach-0"]');
+                    if (!row) { letGo(); throw new Error('the beach is not on the submenu'); }
+                    return t.hover(row, { speed: PACE.menuTravel, hover: PACE.menuHover }).then(function (p) {
+                        ripple(p.x, p.y);
+                        row.click();
+                        return t.pause(PACE.rest);
+                    });
+                }).then(function () {
+                    return t.wait(function () {
+                        var l1 = wall(), l2 = wall2();
+                        return l1 && l2 && l1.beachId === b.id && l2.beachId === b.id;
+                    });
+                }).then(letGo, function (e) { letGo(); throw e; });
+            },
+            check: function () {
+                var w = wall(), w2 = wall2(), b = beach();
+                if (!w || !w2 || !b || w.beachId !== b.id || w2.beachId !== b.id) return null;
+                var cnt = $('#beaches-panel .beach-row[data-beach-id="' + b.id + '"] .beach-count');
+                if (!cnt || cnt.textContent.trim() !== '2') return null;
+                return w.name + ' and ' + w2.name + ' stand on ' + b.name + '; the Beaches panel counts 2.';
+            },
+            after: function () { var sub = $('#beach-submenu'); if (sub) sub.style.display = ''; }
+        },
         groupScreens: {
             target: '#layers-list', place: 'left', title: 'Group the screens',
             avoid: ['#layers-list'],
@@ -2790,9 +3024,9 @@
             steps: ['introWhatsNew', 'addProcessor', 'nameProcessor', 'redundancy', 'dropProcessor', 'releasePort',
                     'attachmentFlag', 'pinPort', 'clearPortByMenu', 'clearCard', 'dropProcessorAgain',
                     'snakePorts', 'cableSheet', 'snakeHomeRun',
-                    'dataCableTags', 'panelWatts', 'addDistro', 'dropMulti', 'typeChip',
+                    'dataCableTags', 'addBreakoutBox', 'panelWatts', 'addDistro', 'distroRating', 'dropMulti', 'typeChip',
                     'clearCircuit', 'clearMultiByMenu', 'dropMultiAgain', 'multiCableSheet', 'powerCableTags',
-                    'splitters', 'addBeach', 'exportBinder', 'wiringTick', 'titleBlock', 'outroWhatsNew']
+                    'splitters', 'addBeach', 'addScreen', 'beachByMenu', 'exportBinder', 'wiringTick', 'titleBlock', 'outroWhatsNew']
         },
         advanced: {
             title: 'Advanced Guide',
@@ -2802,10 +3036,11 @@
                     'nameProcessor', 'redundancy', 'dropProcessor', 'releasePort', 'attachmentFlag', 'pinPort',
                     'clearPortByMenu', 'clearCard', 'dropProcessorAgain',
                     'snakePorts', 'cableSheet', 'snakeHomeRun', 'loosePortLength', 'dataCableTags',
-                    'overrideRun', 'panelWatts', 'breakoutType', 'addDistro', 'nameDistro',
+                    'overrideRun', 'addBreakoutBox', 'panelWatts', 'breakoutType', 'addDistro', 'nameDistro',
+                    'distroRating', 'distroPhase', 'distroOutputs',
                     'dropMulti', 'typeChip', 'clearCircuit', 'clearMultiByMenu', 'dropMultiAgain',
                     'multiCableSheet', 'powerCableTags',
-                    'splitters', 'balance', 'addBeach', 'screenBeach', 'addScreen', 'groupScreens',
+                    'splitters', 'balance', 'addBeach', 'screenBeach', 'addScreen', 'beachByMenu', 'groupScreens',
                     'exportBinder', 'screenOrder', 'wiringTick', 'titleBlock', 'preferences',
                     'helpMenu', 'outroAdvanced']
         }
