@@ -14,19 +14,19 @@
  *   h - short heading, d - one or two plain sentences. No markup, no emoji.
  */
 window.WHATS_NEW_CONTENT = {
-    '0.12': {
-        title: 'The hardware tray, and papers that match the rack',
+    '1.0': {
+        title: 'Hardware in a tray, tours that show you, papers that match the rack',
         items: [
             { h: 'Hardware lives in a tray',
               d: 'Processors and power distros sit in a tray along the bottom of the window, and the middle sidebars are gone. Wire a screen by dragging a port, card, box, multi or distro onto it, so there is one place to see the whole patch; a red flag on the tray header counts what is still unattached, and a row flies you to the screen. The tray is a fixed grid, so opening a sheet never shuffles the row, and the ⋮⋮ on a processor or distro drags along the tray to reorder them.' },
             { h: 'Nothing lands by itself',
-              d: 'Auto-numbering is retired: a port is on a card only because you dragged it there, Clear always releases it, and the flag counts what is left. An attached port prints the socket it sits on - 6, 7, 8, 9 on an unnamed card, H9-6 on a named one - the same numbers the tray shows.' },
+              d: 'Auto-numbering is retired: a port is on a card only because you dragged it there, Clear always releases it, and the flag counts what is left. An attached port prints the socket it sits on - 6, 7, 8, 9 on an unnamed card, H9-6 on a named one - the same numbers the tray shows. In custom mode a circuit or port takes only as many cabinets as its settings allow, a flow pattern applied to a block deals it out at capacity with every run starting from the same side, and the readout ("S4-4 · 14/14 on circuit · full") sits in the strip beside Fit and 1:1 instead of over the wall.' },
             { h: 'Redundancy, one bar and a pill',
               d: 'One raised bar behind the processor’s gear sets it - Off, Whole unit, Per card, Per port - with exactly one thing beneath: a mirrored-by pick, a partner per slot, or Sequential / Split / Manual chips, the split reading OPT Split on a card whose face names its trunks. Every tray header wears a gold pill that reads the shape in force; click it to open the bar. A card’s breakout box picker offers only boxes that fit it - its vendor and its trunks - and keeps your pick after an add.' },
             { h: 'A multi lands as its plug and takes what is free',
               d: 'Every number on a distro carries a type chip - Multi 208, Multi 120, L21-30; click the spare one’s to pick, drag it onto a screen and it lands as that plug, and the distro’s OUTPUTS row holds the same plugs with a live preview of the circuits the drop will feed. The span starts at the first circuit of the six and grows to the one under your cursor, capped at what is free - it says "took 5 of 6" when short. Clear circuit takes one circuit off while the other five stay put; clearing a multi welds the wall back to its natural six-circuit grid.' },
-            { h: 'Drawing stops at capacity',
-              d: 'In custom mode a circuit or port takes only as many cabinets as its settings allow, and a flow pattern applied to a block deals it out at capacity, every run starting from the same side. The readout ("S4-4 · 14/14 on circuit · full") now sits in the strip beside Fit and 1:1 instead of over the wall.' },
+            { h: 'Tours that show each action',
+              d: 'The Quick Start, What’s New and Advanced Guide no longer describe the app - they run it. Every step performs one real action in front of you on a scratch Demo Show: a cursor travels to the control, the wall is sized, the processor dragged onto it, the ports snaked, the multi landed, the binder ticked, and a line under the step says what just happened. Back and Replay do a step again. Your own project, history, view and preferences come back the moment you leave, and if a tour is interrupted they are put back on the next launch.' },
             { h: 'Every circuit and every port carries its cable',
               d: 'The ≡ beside the chips flips them into a cable sheet - a length and connector per circuit, Tab walking the column, a count at the foot - and a chip wears its cable in its corner. On the data side, hold Alt and sweep port chips and right-click Snake these N, or tick them in the sheet and press Snake: a snake reads as a blue bracket (SNAKE A · 6 channel · 100’) and can hold sockets off any unit, a snaked port carries an ext length for a shorter extension off the fan-out, and a backup port’s run is typed on the backup card’s or box’s own sheet. Show Cable Tags, per screen and off by default, prints them beside the labels on the wall and in the export; Show 2fer / 3fer Tags drops the gang text and keeps the bracket.' },
             { h: 'Beaches, and the papers that follow them',

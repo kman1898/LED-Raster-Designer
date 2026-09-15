@@ -188,30 +188,31 @@ def _decide(page, current, stamped):
 
 
 def test_decide_patch_change_is_silent(page):
-    assert _decide(page, '0.12.2', '0.12') == {'show': False, 'stamp': None}
-    assert _decide(page, '0.12.2', '0.12.0') == {'show': False, 'stamp': None}
+    assert _decide(page, '1.0.2', '1.0') == {'show': False, 'stamp': None}
+    assert _decide(page, '1.0.2', '1.0.0') == {'show': False, 'stamp': None}
 
 
 def test_decide_minor_change_shows(page):
-    assert _decide(page, '0.12.0', '0.11') == {'show': True, 'stamp': None}
+    # 0.11 -> 1.0 is the entry the content carries (0.12 never shipped; its
+    # highlights became the 1.0 entry), and the rule is the same code path
+    # for a minor and a major step.
+    assert _decide(page, '1.0.0', '0.11') == {'show': True, 'stamp': None}
 
 
 def test_decide_major_change_shows(page):
-    # 1.0 has no entry yet, so use versions the content covers: the rule is
-    # the same code path either way, and 0.11 -> 0.12 crosses MAJOR.MINOR.
     d = page.evaluate("window.WhatsNew._majorMinor('1.0.3')")
     assert d == '1.0'
-    assert _decide(page, '0.12.1', '0.11.2') == {'show': True, 'stamp': None}
+    assert _decide(page, '1.0.1', '0.11.2') == {'show': True, 'stamp': None}
 
 
 def test_decide_first_run_stamps_silently(page):
     """No stamp = brand-new install: never show (the tour owns first run)."""
-    assert _decide(page, '0.12.0', None) == {'show': False, 'stamp': '0.12'}
+    assert _decide(page, '1.0.0', None) == {'show': False, 'stamp': '1.0'}
 
 
 def test_decide_unknown_version_stamps_silently(page):
     """Feature version changed but no curated entry: quiet, stamped."""
-    assert _decide(page, '0.99.0', '0.12') == {'show': False, 'stamp': '0.99'}
+    assert _decide(page, '1.99.0', '1.0') == {'show': False, 'stamp': '1.99'}
 
 
 def test_decide_garbage_version_is_silent(page):
@@ -295,6 +296,6 @@ def test_modal_fits_theme_and_offers_walkthrough(page):
         "() => document.querySelector('#qs-callout h3').textContent")
     # Matched apostrophe-free and case-free: the title's curly quote and
     # its capitals are not the fact under test, the destination tour is.
-    assert "new in 0.12" in first_title.lower(), (
+    assert "new in 1.0" in first_title.lower(), (
         f'the splash handed off to the wrong tour: {first_title!r}')
     page.evaluate("window.QuickStart.end()")
