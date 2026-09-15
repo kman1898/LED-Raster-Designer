@@ -1,7 +1,7 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
-v0.12.0 - September 7, 2026 (BETA)
+v1.0.0 - September 15, 2026 (BETA)
 ----------------------------
 
 - NEW: A distro says what it offers. Tick the connector types a distro
@@ -521,6 +521,15 @@ v0.12.0 - September 7, 2026 (BETA)
   their own, with a guard test that keeps every method in one place.
   Nothing you use changes; the preset picker's hover text now escapes
   quotes correctly.
+- NOTE: This is the 1.0 beta. The 0.12 series was only ever a beta, so
+  everything below ships as 1.0; the What's New splash, the Help menu and
+  the tour that walks the new surfaces say 1.0 now.
+- FIX: The tour's callout holds still. After every action it used to be
+  re-placed from scratch and leap to the far corner of the screen; it is
+  placed once as a step opens, with room kept for the line that says what
+  happened, and moves again only when something the action opened - a
+  popover, a menu, a dialog - or the cursor's destination has come to sit
+  under it.
 - CHANGE (IMPORTANT): Redundancy is one bar in one place. Behind the
   processor's gear a raised segmented bar - Off, Whole unit, Per card,
   Per port (Off, Backed up, Per port on a standalone unit) - and exactly
