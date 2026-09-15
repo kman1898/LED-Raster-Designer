@@ -606,7 +606,17 @@
         if (!target) return null;
         if (target.nodeType === 1) {
             try { target.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (e) {}
-            var c = centerOf(target);
+            // An element that measures zero-size (a chip's face that is
+            // laid out by its tile, a hidden handle) would send the cursor
+            // to the top-left corner; aim at the nearest ancestor with a
+            // size instead. The events still go to the element itself.
+            var sized = target;
+            while (sized && sized.nodeType === 1) {
+                var rr = sized.getBoundingClientRect();
+                if (rr.width > 0 || rr.height > 0) break;
+                sized = sized.parentElement;
+            }
+            var c = centerOf(sized && sized.nodeType === 1 ? sized : target);
             return { el: target, x: c.x, y: c.y };
         }
         if (typeof target.x === 'number' && typeof target.y === 'number') {
@@ -1304,6 +1314,10 @@
         var tour = TOURS[name];
         if (!tour) return Promise.resolve();
         if (!els) build();
+        // The ghost cursor starts from the middle of the window, not from
+        // the corner it is born in, so the first act's travel reads as a
+        // hand reaching from where a person would be looking.
+        if (!cur.shown) setCursor(window.innerWidth / 2, window.innerHeight / 2);
         if (S.visible) leaveCurrent(null);
         S.name = name;
         S.list = tour.steps.map(function (k) {
@@ -2055,7 +2069,7 @@
             }
         },
         splitters: {
-            target: '#power-splitters-enabled', place: 'right', title: 'Gang runs through a 2fer',
+            target: '#power-splitters-enabled', place: 'right', title: 'Share two runs through a 2fer',
             avoid: ['#power-splitters-enabled', '#main-canvas'],
             body: 'Turn sharing on, then hold Alt, sweep across two circuits on the wall and right-click 2fer them: two runs on one circuit.',
             before: function () { switchView('power'); },

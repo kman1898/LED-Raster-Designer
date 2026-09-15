@@ -49,7 +49,7 @@ wall (numbering "2"), a bracket per soca / L21-30 outside it with its
 home run (the unit named by its TYPE - "Multi 208", "L21-30" - never by a
 generic noun: not "Box", not "Breakout"; the type's word is Multi, user
 2026-09-08), then Circuits ·
-Cables · Facts, and a Gangs table only when the screen has 2fers / 3fers.
+Cables · Facts, and a Shared circuits table only when the screen has 2fers / 3fers.
 The brackets: one distance per side, a bracket stepping out only when its
 row span truly overlaps another's. Colour and Printer palettes - the
 renderer's printerMode (canvas.js) draws greys, black runs told apart by a
@@ -560,7 +560,7 @@ def test_the_power_sheet_carries_its_title_block_and_says_home_run_once_per_box(
     assert 'CABLES THIS SCREEN' in texts and 'FACTS' in texts
     assert 'Multi' in texts and "125'" in texts      # the breakout's cable, in the GEAR LIST's word
     assert 'Tru-1 Breakout' in texts
-    assert 'GANGS' not in texts
+    assert 'SHARED CIRCUITS' not in texts
     assert not [t for t in texts if 'Palette' in t]
     # the view bubble under the map: view 2, the sheet's name
     assert out['bubble']['number'] == 2 and out['bubble']['name'] == 'WALL-A · POWER'
@@ -568,14 +568,14 @@ def test_the_power_sheet_carries_its_title_block_and_says_home_run_once_per_box(
     assert out['page']['layout'] == 'stack' and out['page']['cols'] == 3
 
 
-def test_gangs_are_listed_only_where_a_screen_has_them(page):
+def test_shared_circuits_are_listed_only_where_a_screen_has_them(page):
     pg, ids = page
     plain = _render(pg, SHOW, 'WALL-B - Power')['texts']
-    assert 'GANGS' not in plain and '2fer' not in plain
+    assert 'SHARED CIRCUITS' not in plain and '2fer' not in plain
     ganged = _render(pg, SHOW, 'CENTER - Power')['texts']
-    assert 'GANGS' in ganged
-    i = ganged.index('GANGS')
-    assert ganged[i:i + 7] == ['GANGS', 'CIRCUIT', 'GANG', 'AMPS', ganged[i + 4], '2fer', ganged[i + 6]]
+    assert 'SHARED CIRCUITS' in ganged
+    i = ganged.index('SHARED CIRCUITS')
+    assert ganged[i:i + 7] == ['SHARED CIRCUITS', 'CIRCUIT', 'SPLITTER', 'AMPS', ganged[i + 4], '2fer', ganged[i + 6]]
     assert ganged[i + 4].endswith('1') or ganged[i + 4]   # the shared circuit's label
     assert 'Edison 2fer' in ganged
 
@@ -2568,7 +2568,7 @@ def test_smoke_experts_only(page):
     ]
     assert not [t for t in texts if 'home run' in t.lower()]
     assert len([t for t in texts if re.fullmatch(r'SR[1-4]-\d', t)]) == 22
-    assert 'FACTS' in texts and 'GANGS' not in texts
+    assert 'FACTS' in texts and 'SHARED CIRCUITS' not in texts
     assert not any(t.strip() == 'MULTI' for t in texts), [t for t in texts if t.strip() == 'MULTI']
     assert '22 at 208 V / 20 A · 14 panels each' in texts
     rulers = [t['text'] for t in main['textInfo'] if t['size'] == 22 and t['weight'] == 700]
@@ -2607,11 +2607,11 @@ def test_smoke_experts_only(page):
     assert 22 in rsizes and 28 in rsizes, rsizes                          # the rulers and the bracket, inch sizes
     assert 26 in rsizes and 56 in rsizes and 25 not in rsizes, rsizes      # the title block at its own size
     rheads = {t: (x, y) for t, x, y in retp['headings']}
-    assert {'CIRCUITS', 'CABLES THIS SCREEN', 'FACTS', 'GANGS'} <= set(rheads), rheads
+    assert {'CIRCUITS', 'CABLES THIS SCREEN', 'FACTS', 'SHARED CIRCUITS'} <= set(rheads), rheads
     assert all(x >= rm['area']['x'] + rm['area']['w'] for x, _y in rheads.values()), (rheads, rm['area'])
     ret = retp['texts']
-    assert 'GANGS' in ret
-    i = ret.index('GANGS')
+    assert 'SHARED CIRCUITS' in ret
+    i = ret.index('SHARED CIRCUITS')
     assert ret[i + 4:i + 4 + 15:3] == ['SR5-1', 'SR5-2', 'SR5-3', 'SR5-4', 'SR5-5']
     assert ret.count('2fer') == 5
     assert "SR5 · Multi 208 · 125' · 6 circuits" in ret
