@@ -179,14 +179,14 @@ SKIP = {
     'power-label-bulk':
         'staging box for the Apply button (which stamps every circuit of '
         'the current screen)',
-    # The circuit-colour trio is the same shape, and app-core.js proves it:
+    # The circuit-colour trio is the same shape, and app-wiring.js proves it:
     # the preset <select> handler only copies its value into the two sibling
     # boxes, and the picker is wired with setupColorPickerWithHex(..., () => {})
     # - an EMPTY callback. Nothing touches powerCircuitColors until "Apply to
     # selected circuits" is clicked, which is a button, not a field.
     'power-circuit-color-preset':
         'fills the custom colour boxes; the Apply button is what writes '
-        'powerCircuitColors (app-core.js: the picker callback is empty)',
+        'powerCircuitColors (app-wiring.js: the picker callback is empty)',
     'power-circuit-color-custom':
         'staging colour for the Apply button; its picker callback is empty',
     'power-circuit-color-custom-hex':

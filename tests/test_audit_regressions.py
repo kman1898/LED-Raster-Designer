@@ -386,8 +386,8 @@ def test_panel_borders_checkbox_is_one_undo_step(page):
 
     #show-panel-borders had TWO change listeners that both called
     updateLayerFromInputs() -> saveState('Update Properties'):
-      src/static/js/app-core.js:2013  (the Pixel Map "Border settings" block)
-      src/static/js/app-core.js:2112  (the cross-tab border-visibility sync)
+      src/static/js/app-wiring.js:575  (the Pixel Map "Border settings" block)
+      src/static/js/app-wiring.js:673  (the cross-tab border-visibility sync)
     One click pushed two identical snapshots and the first Ctrl+Z appeared to
     do nothing. The standalone listener is gone; the cross-tab one, which also
     mirrors the state onto the other three tabs, is the only wiring left.
@@ -413,9 +413,9 @@ def test_labels_colour_is_one_undo_step(page):
     """FLIPPED. Was: ASSERTS A BUG (two undo steps for one colour commit).
 
     #labels-color was wired twice:
-      app-core.js:2044  setupColorPickerWithHex -> debouncedSaveState('Change Label Color')
-      app-core.js:3310  a plain change listener -> updateLayerFromInputs()
-                        -> saveState('Update Properties')
+      app-wiring.js:606   setupColorPickerWithHex -> debouncedSaveState('Change Label Color')
+      app-wiring.js:1922  a plain change listener -> updateLayerFromInputs()
+                          -> saveState('Update Properties')
     saveState() flushes the pending debounce first, so ONE colour commit landed
     two snapshots that BOTH already held the new colour - the first Ctrl+Z was
     a no-op. The plain listener is gone; the picker is now wired exactly like

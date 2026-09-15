@@ -2,9 +2,13 @@
 // Load order matters only in that app-core must come first; the feature
 // modules each attach their methods to LEDRasterApp.prototype on import.
 import { LEDRasterApp } from './app-core.js';
+import './app-wiring.js';
+import './app-client-props.js';
 import './app-presets.js';
 import './app-colors.js';
+import './app-selection.js';
 import './app-screen-info.js';
+import './app-capacity.js';
 import './app-export-io.js';
 import './app-port-routing.js';
 import './app-preferences.js';
@@ -26,6 +30,7 @@ import './app-pull-sheet-editor.js';
 import './app-binder.js';
 import './app-binder-wiring.js';
 import './app-canvas-ui.js';
+import './app-project-io.js';
 import './app-screen-groups.js';
 import './app-processors.js';
 import './app-port-assignment.js';
@@ -35,6 +40,7 @@ import './app-dock-sweep.js';
 import './app-dock-drag.js';
 import './app-dock-menus.js';
 import './app-history.js';
+import './app-clipboard.js';
 import { registerGlobalClientLogging, sendClientLog } from './helpers.js';
 
 document.addEventListener('DOMContentLoaded', () => {
