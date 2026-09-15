@@ -2851,6 +2851,16 @@
          client needing internet access. Must match the python-socketio server. -->
     <script src="/static/js/socket.io.min.js"></script>
     <script src="/static/js/canvas.js"></script>
+    <!-- CanvasRenderer mixins: classic scripts that Object.assign onto
+         CanvasRenderer.prototype. They must follow canvas.js and precede
+         main.js, which constructs the renderer. -->
+    <script src="/static/js/canvas-math.js"></script>
+    <script src="/static/js/canvas-input.js"></script>
+    <script src="/static/js/canvas-images.js"></script>
+    <script src="/static/js/canvas-data.js"></script>
+    <script src="/static/js/canvas-power.js"></script>
+    <script src="/static/js/canvas-labels.js"></script>
+    <script src="/static/js/canvas-selection.js"></script>
     <script src="/static/js/color_picker.js"></script>
     <!-- The app is ES modules (main.js pulls in app-core + the app-* feature
          modules). Classic scripts above/below stay non-module: they define /
