@@ -378,6 +378,47 @@ def test_back_replays_the_previous_step(page):
     _end(page)
 
 
+def test_enter_is_next_and_a_typed_step_jumps(page):
+    """Enter advances a settled step (Matt: "hit enter aka next on each
+    step so i dont have to keep clicking"), and a number typed into the
+    Go-to box jumps: ahead, the steps between run first so the show is in
+    the right state when it lands; back, the step's snapshot is restored
+    and replayed - and nothing is duplicated either way."""
+    st = _start(page, 'advanced', speed=3)
+    assert st['qs']['index'] == 0, st
+    page.keyboard.press('Enter')
+    st = _wait_step(page, 1)
+    assert st['qs']['index'] == 1 and st['state'] == 'done', st
+    # ahead: to "Name it on its header", past the add-processor step
+    i = _step_index(page, 'advanced', 'Name it on its header')
+    page.fill('#qs-jump', str(i + 1))
+    page.press('#qs-jump', 'Enter')
+    page.wait_for_function(
+        "(i) => window.QuickStart.state().index === i", arg=i, timeout=120000)
+    st = _wait_step(page, i)
+    assert st['state'] == 'done' and not st['fail'], st
+    assert 'SR-1' in st['note'], st['note']
+    assert not page.evaluate("document.getElementById('qs-fast').style.display === 'block'")
+    procs = page.evaluate("() => (window.app._processorsResolved || []).map(p => p.name)")
+    assert procs == ['SR'], procs
+    # back: to the add-processor step, restored and replayed, still one
+    page.fill('#qs-jump', str(i))
+    page.press('#qs-jump', 'Enter')
+    st = _wait_step(page, i - 1)
+    assert st['state'] == 'done' and not st['fail'], st
+    procs = page.evaluate("() => (window.app._processorsResolved || []).length")
+    assert procs == 1, procs
+    # Enter in an empty Go-to box only blurs it; Enter on the callout is Next
+    page.fill('#qs-jump', '')
+    page.press('#qs-jump', 'Enter')
+    page.wait_for_timeout(300)
+    assert page.evaluate("window.QuickStart.state().index") == i - 1
+    page.keyboard.press('Enter')
+    st = _wait_step(page, i)
+    assert st['qs']['index'] == i, st
+    _end(page)
+
+
 def test_exit_puts_the_users_project_back(page):
     """Skip mid-tour: the user's own project comes back deep-equal, with
     the same history, view and cable-sheet flags, and nothing the tour

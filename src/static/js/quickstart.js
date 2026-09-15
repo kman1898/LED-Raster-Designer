@@ -232,7 +232,15 @@
             + '#qs-callout .qs-result:empty{display:none;}'
             + '#qs-callout .qs-result.qs-result-fail{color:#f06a6a;}'
             + '#qs-callout .qs-result.qs-result-wait{color:#b6b6b6;}'
-            + '#qs-callout .qs-prog{margin:13px 0 11px;font-size:11px;color:#9a9a9a;letter-spacing:.02em;}'
+            + '#qs-callout .qs-prog{margin:13px 0 11px;font-size:11px;color:#9a9a9a;letter-spacing:.02em;display:flex;align-items:center;gap:10px;flex-wrap:wrap;white-space:nowrap;}'
+            + '#qs-callout .qs-hint{color:#777;}'
+            + '#qs-callout .qs-jump{margin-left:auto;display:flex;align-items:center;gap:5px;color:#9a9a9a;}'
+            + '#qs-callout .qs-jump input{width:46px;background:#1f1f1f;color:#f0f0f0;border:1px solid #4a4a4a;border-radius:5px;'
+            + 'padding:2px 5px;font:600 11.5px -apple-system,"Segoe UI",sans-serif;text-align:center;}'
+            + '#qs-callout .qs-jump input:focus{outline:none;border-color:#e22330;}'
+            + '#qs-fast{display:none;position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:2000004;'
+            + 'background:#2e2e2e;color:#fff;border:1px solid #3a3a3a;border-top:3px solid #e22330;border-radius:9px;'
+            + 'padding:9px 16px;font:600 13px -apple-system,"Segoe UI",system-ui,sans-serif;box-shadow:0 10px 30px rgba(0,0,0,.5);}'
             + '#qs-callout .qs-cta{display:block;width:100%;margin:0 0 9px;background:#3c3c3c;color:#fff;'
             + 'border:1px solid #555;border-radius:7px;padding:8px;font:600 12.5px inherit;cursor:pointer;}'
             + '#qs-callout .qs-cta:hover{background:#474747;}'
@@ -277,7 +285,9 @@
         document.body.appendChild(cursor);
         document.body.appendChild(call);
         c.addEventListener('click', function (e) { e.stopPropagation(); });
-        els = { catch: c, spot: spot, callout: call, cursor: cursor };
+        var fast = document.createElement('div'); fast.id = 'qs-fast';
+        document.body.appendChild(fast);
+        els = { catch: c, spot: spot, callout: call, cursor: cursor, fast: fast };
         cur.x = window.innerWidth / 2; cur.y = window.innerHeight / 2;
         setCursor(cur.x, cur.y);
         window.addEventListener('resize', reposition);
@@ -291,7 +301,7 @@
         cur.x = x; cur.y = y;
         if (els) els.cursor.style.transform = 'translate(' + Math.round(x) + 'px,' + Math.round(y) + 'px)';
     }
-    function showCursor() { if (els) els.cursor.classList.add('qs-show'); cur.shown = true; }
+    function showCursor() { if (S.fast) return; if (els) els.cursor.classList.add('qs-show'); cur.shown = true; }
     function hideCursor() { if (els) els.cursor.classList.remove('qs-show'); cur.shown = false; badge(''); press(false); }
     function badge(text) {
         if (!els) return;
@@ -369,6 +379,40 @@
             spot.style.width = '0px'; spot.style.height = '0px';
         }
     }
+    // The callout's home when it points at nothing: inside the right
+    // sidebar, below its last button (Save as Preset) and above the Notes
+    // panel. Null when the sidebar is folded or the room is not there.
+    function dockWidth() {
+        var side = $('#right-sidebar');
+        if (!side) return null;
+        var w = side.getBoundingClientRect().width;
+        return w >= 200 ? Math.min(334, Math.round(w) - 16) : null;
+    }
+    function homeBox(cw, ch) {
+        var side = $('#right-sidebar');
+        if (!side) return null;
+        var sr = side.getBoundingClientRect();
+        if (sr.width < 200 || sr.height < 200) return null;
+        var x = Math.max(12, Math.min(sr.left + (sr.width - cw) / 2, window.innerWidth - cw - 12));
+        // First choice: the room under the canvas list, above BEACHES - the
+        // sidebar's open middle on a show with a few screens. Second: under
+        // Save as Preset, above Notes, on a tall window.
+        var list = $('#layers-list'), beaches = $('#beaches-panel');
+        if (list && beaches) {
+            // The list box stretches to fill the panel; its last card is
+            // where the content actually ends.
+            var lastCard = list.lastElementChild;
+            var lt = (lastCard ? lastCard.getBoundingClientRect().bottom : list.getBoundingClientRect().top) + 14;
+            var lf = beaches.getBoundingClientRect().top - 10;
+            if (lf - lt >= ch) return { x: x, y: lt, p: null };
+        }
+        var below = $('#btn-save-preset') || $('#btn-add-canvas') || beaches;
+        var notes = $('#notes-panel');
+        var top = below ? below.getBoundingClientRect().bottom + 14 : sr.top + 12;
+        var floor = notes ? notes.getBoundingClientRect().top - 10 : sr.bottom - 12;
+        if (floor - top < ch) return null;
+        return { x: x, y: top, p: null };
+    }
     function layoutFor(placement, r, cw, ch) {
         var gap = 18, vw = window.innerWidth, vh = window.innerHeight;
         var x, y;
@@ -431,6 +475,10 @@
     function place(step, avoid, dry) {
         var call = els.callout;
         var r = spotRect;
+        // Docked in the sidebar the callout takes the sidebar's width, so
+        // it never overhangs the wall; beside a control it has its own.
+        var dockW = (!r || (step && step.center)) ? dockWidth() : null;
+        call.style.width = dockW ? dockW + 'px' : '';
         var cw = call.offsetWidth || 334, ch = call.offsetHeight || 170;
         if (step && step.act && resultEmpty()) ch += RESULT_RESERVE;
         var vw = window.innerWidth, vh = window.innerHeight;
@@ -445,7 +493,14 @@
         };
         var box;
         if (!r || step.center) {
-            box = { x: (vw - cw) / 2, y: (vh - ch) / 2, p: null };
+            // A callout with nothing to point at (the intro, the outro, a
+            // step whose control appears only after its first click) sits
+            // in the right sidebar under the Screens and Beaches panels,
+            // where it covers nothing a person needs to see - not in the
+            // middle of the wall (Matt, 2026-09-15). Centred only when the
+            // sidebar is folded or too short to hold it.
+            box = homeBox(cw, ch);
+            if (!box || !clear(box)) box = { x: (vw - cw) / 2, y: (vh - ch) / 2, p: null };
             if (!clear(box)) {
                 var c0 = keep[0];
                 box = corner((c0.left + c0.right) / 2, (c0.top + c0.bottom) / 2);
@@ -851,7 +906,10 @@
                 p = it && it.panel;
             } else if (which.circuit !== undefined) {
                 var c = a.screenCircuits(layer)[which.circuit];
-                p = c && c.panels && c.panels[0];
+                // `mid`: the run's middle cabinet rather than its first, which
+                // carries the label disc - a drop aimed at the disc's pixel
+                // can miss the run on a dense wall.
+                p = c && c.panels && c.panels[which.mid ? Math.floor(c.panels.length / 2) : 0];
             } else {
                 p = (layer.panels || [])[which.index || 0];
             }
@@ -928,7 +986,10 @@
             + '<h3>' + step.title + '</h3>'
             + '<p>' + step.body + '</p>'
             + '<div class="qs-result"></div>'
-            + '<div class="qs-prog">Step ' + (S.idx + 1) + ' of ' + S.list.length + '</div>'
+            + '<div class="qs-prog"><span>Step ' + (S.idx + 1) + ' of ' + S.list.length + '</span>'
+            + '<span class="qs-hint">Enter = Next</span>'
+            + '<label class="qs-jump">Go to <input id="qs-jump" type="number" min="1" max="' + S.list.length
+            + '" inputmode="numeric" title="Type a step number and press Enter"></label></div>'
             + (offerFull ? '<button class="qs-cta" id="qs-full">Take the full walkthrough &rsaquo;</button>' : '')
             + '<div class="qs-row">'
             + '  <label class="qs-chk"><input type="checkbox" id="qs-nolaunch"' + (disabled() ? ' checked' : '') + '> Don&rsquo;t show on startup</label>'
@@ -951,8 +1012,48 @@
         els.callout.querySelector('#qs-nolaunch').onchange = function () { setDisabled(this.checked); };
         var full = els.callout.querySelector('#qs-full');
         if (full) full.onclick = function () { end().then(function () { show('advanced'); }); };
+        var jump = els.callout.querySelector('#qs-jump');
+        if (jump) jump.onchange = function () { jumpTo(Number(jump.value)); };
         setState(step.act ? 'pending' : 'idle');
         respot();
+    }
+
+    // Go straight to step n (1-based). A step already visited is restored
+    // from its entry snapshot and replayed, the way Back does. A step ahead
+    // needs everything between it and here to have happened, so the steps
+    // between run first - fast, cursor hidden, a banner counting them off -
+    // and the step itself then plays at normal speed.
+    function jumpTo(n) {
+        if (!S.visible || S.running) return Promise.resolve();
+        n = Math.round(n);
+        if (!(n >= 1 && n <= S.list.length) || n === S.idx + 1) return Promise.resolve();
+        var i = n - 1;
+        if (i < S.idx) return go(i, { restore: S.snaps[i] });
+        var savedSpeed = speed;
+        speed = Math.max(speed, 6);
+        S.fast = true;
+        hideCursor();
+        var chain = Promise.resolve();
+        for (var k = S.idx + 1; k < i; k++) {
+            (function (k) {
+                chain = chain.then(function () {
+                    if (!S.visible) return;
+                    fastBanner('Skipping ahead to step ' + n + '… running step ' + (k + 1) + ' of ' + S.list.length);
+                    return go(k);
+                });
+            })(k);
+        }
+        return chain.then(function () {
+            speed = savedSpeed;
+            S.fast = false;
+            fastBanner('');
+            if (S.visible) return go(i);
+        });
+    }
+    function fastBanner(text) {
+        if (!els) return;
+        els.fast.textContent = text;
+        els.fast.style.display = text ? 'block' : 'none';
     }
 
     function leaveCurrent(next) {
@@ -1041,8 +1142,25 @@
     // Escape leaves the tour - only while no act is running (the app's own
     // Escape cancels drags, sweeps and popovers, and an act must never lose
     // its gesture to the tour).
+    // Enter is Next once a step has settled (Done on the last step); in the
+    // Go-to box it jumps to the typed step. Escape leaves the tour. Neither
+    // does anything while an act runs, so an act's own Enter (typing a name
+    // and committing it) is never mistaken for the person's.
     function onKey(e) {
-        if (!S.visible || S.running || e.key !== 'Escape') return;
+        if (!S.visible || S.running) return;
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            e.stopPropagation();
+            var jump = els && els.callout.querySelector('#qs-jump');
+            if (jump && e.target === jump) {
+                if (jump.value) jumpTo(Number(jump.value));
+                else jump.blur();
+                return;
+            }
+            S.idx === S.list.length - 1 ? end() : go(S.idx + 1);
+            return;
+        }
+        if (e.key !== 'Escape') return;
         e.preventDefault();
         e.stopPropagation();
         end();
@@ -1947,7 +2065,7 @@
             avoid: [function () {
                 var w = wall(); if (!w) return null;
                 var last = A().screenCircuits(w).length - 1;
-                return T.cabinetPoint(w, { circuit: Math.max(0, last) });
+                return T.cabinetPoint(w, { circuit: Math.max(0, last), mid: true });
             }],
             body: 'Drag multi 1 over the screen: the span starts at the first circuit and grows to the one under your cursor, capped at what is free.',
             before: function () { switchView('power'); },
@@ -1962,14 +2080,28 @@
                 };
                 t.mem.landed = landed;
                 var last = A().screenCircuits(wall()).length - 1;
-                return t.drag('[data-hwdock="slot-' + d.id + '-1"]', t.cabinetPoint(wall(), { circuit: Math.max(0, last) })).then(function () {
-                    return t.wait(function () { return landed() > 0; });
+                var onWall = function () {
+                    var w = wall(); var m = (w && w.powerSocaDistro) || {};
+                    return Object.keys(m).some(function (k) { return m[k] === d.id; });
+                };
+                t.mem.onWall = onWall;
+                var slot = '[data-hwdock="slot-' + d.id + '-1"]';
+                return t.drag(slot, t.cabinetPoint(wall(), { circuit: Math.max(0, last), mid: true })).then(function () {
+                    return t.wait(function () { return landed() > 0 || onWall(); }, 8000);
+                }).then(function (ok) {
+                    // A drop that did not take (a refused hit, a slow commit):
+                    // once more, onto the first circuit's middle cabinet.
+                    if (ok) return ok;
+                    return t.drag(slot, t.cabinetPoint(wall(), { circuit: 0, mid: true })).then(function () {
+                        return t.wait(function () { return landed() > 0 || onWall(); }, 8000);
+                    });
                 });
             },
             check: function (mem) {
                 var n = mem.landed ? mem.landed() : 0;
-                if (!n) return null;
                 var d = distro();
+                if (!n && mem.onWall && mem.onWall()) return (d.name || 'SL') + ' multi 1 is on the wall.';
+                if (!n) return null;
                 var size = A().socaBoxSize ? A().socaBoxSize(wall()) : 6;
                 return (d.name || 'SL') + ' multi 1 took ' + n + ' of ' + size + ' circuits' + (n < size ? ' — the wall needs no more.' : '.');
             }
