@@ -10,8 +10,8 @@
  *
  *   - Quick Start: short first-run tour, auto-shows once, skippable, with a
  *     "Don't show on startup" checkbox. Reopen from Help -> Quick Start Guide.
- *   - What's New in 0.12: the surfaces that changed. Help -> What's New in
- *     0.12, and the splash's walkthrough button.
+ *   - What's New in 1.0: the surfaces that changed. Help -> What's New in
+ *     1.0, and the splash's walkthrough button.
  *   - Advanced Guide: the whole show, built step by step in front of you.
  *
  * Fully self-contained and offline (no CDN).
@@ -1374,7 +1374,7 @@
             before: function () { switchView('pixel-map'); }
         },
         introWhatsNew: {
-            title: 'What&rsquo;s new in 0.12', center: true,
+            title: 'What&rsquo;s new in 1.0', center: true,
             body: 'The tray, drag-to-wire, snakes, cable sheets, redundancy in one bar and the binder, each shown live on a scratch show. Your own project is put back when you leave.',
             before: function () { switchView('data-flow'); }
         },
@@ -2345,7 +2345,7 @@
         },
         helpMenu: {
             target: '[data-menu="help"]', place: 'bottom', title: 'Help',
-            body: 'Every guide lives under Help: Quick Start, What&rsquo;s New in 0.12, the Advanced Guide and the keyboard shortcuts.',
+            body: 'Every guide lives under Help: Quick Start, What&rsquo;s New in 1.0, the Advanced Guide and the keyboard shortcuts.',
             before: function () { closePrefs(); },
             act: function (t) {
                 return t.click('[data-menu="help"]').then(function () {
@@ -2364,8 +2364,8 @@
             before: function () { hideMenus(); closeExport(); closePrefs(); }
         },
         outroWhatsNew: {
-            title: 'That&rsquo;s 0.12', center: true,
-            body: 'Done puts your own project back. Reopen this from Help &rsaquo; What&rsquo;s New in 0.12, or take the Advanced Guide for the whole app.',
+            title: 'That&rsquo;s 1.0', center: true,
+            body: 'Done puts your own project back. Reopen this from Help &rsaquo; What&rsquo;s New in 1.0, or take the Advanced Guide for the whole app.',
             before: function () { hideMenus(); closeExport(); closePrefs(); }
         },
         outroQuick: {
@@ -2386,7 +2386,7 @@
                     'dropProcessor', 'addDistro', 'dropMulti', 'exportBinder', 'outroQuick']
         },
         whatsNew: {
-            title: 'What’s New in 0.12',
+            title: 'What’s New in 1.0',
             seed: {
                 name: 'Demo Show',
                 wall: { columns: 12, rows: 6, cabinet_width: 200, cabinet_height: 200 },

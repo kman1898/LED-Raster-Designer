@@ -517,7 +517,7 @@ def test_whats_new_launches_from_help_menu(page):
     ), "Help menu has no What's New entry"
     page.evaluate("window.app.handleMenuAction('whats-new-tour')")
     st = _wait_step(page, 0)
-    assert 'new in 0.12' in st['title'].lower(), st
+    assert 'new in 1.0' in st['title'].lower(), st
     _end(page)
     page.locator('[data-mode="pixel-map"]').click()
     page.wait_for_timeout(200)
