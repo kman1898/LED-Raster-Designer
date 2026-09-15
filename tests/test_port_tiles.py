@@ -80,9 +80,14 @@ SEED_JS = """async () => {
         // without the stamp the occupied tile this module tells apart
         // from the free ones would never be occupied.
         screen.processorType = 'novastar-coex-1g';
+        // The name is written through as well: a test that re-reads the
+        // project from the server (the clash test does, to pick up a
+        // screen it just added) must find Screen1 there too, whatever an
+        // earlier module left the shared screen called.
         await fetch(`/api/layer/${screen.id}`, {
             method: 'PUT', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ processorType: 'novastar-coex-1g' }),
+            body: JSON.stringify({ name: 'Screen1',
+                                   processorType: 'novastar-coex-1g' }),
         });
     }
     const state = await (await fetch('/api/processors')).json();
