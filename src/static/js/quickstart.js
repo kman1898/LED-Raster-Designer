@@ -244,10 +244,10 @@
             + '#qs-callout .qs-cta{display:block;width:100%;margin:0 0 9px;background:#3c3c3c;color:#fff;'
             + 'border:1px solid #555;border-radius:7px;padding:8px;font:600 12.5px inherit;cursor:pointer;}'
             + '#qs-callout .qs-cta:hover{background:#474747;}'
-            + '#qs-callout .qs-row{display:flex;align-items:center;justify-content:space-between;gap:10px;}'
-            + '#qs-callout .qs-chk{display:flex;align-items:center;gap:7px;font-size:11.5px;color:#b6b6b6;cursor:pointer;user-select:none;}'
+            + '#qs-callout .qs-row{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 10px;}'
+            + '#qs-callout .qs-chk{display:flex;align-items:center;gap:7px;font-size:11.5px;color:#b6b6b6;cursor:pointer;user-select:none;white-space:nowrap;}'
             + '#qs-callout .qs-chk input{width:14px;height:14px;accent-color:#e22330;cursor:pointer;}'
-            + '#qs-callout .qs-btns{display:flex;gap:6px;}'
+            + '#qs-callout .qs-btns{display:flex;gap:6px;margin-left:auto;}'
             + '#qs-callout button{font:600 12.5px -apple-system,"Segoe UI",sans-serif;border-radius:7px;padding:7px 11px;cursor:pointer;border:1px solid #4a4a4a;}'
             + '#qs-callout .qs-skip{background:transparent;color:#9a9a9a;border-color:transparent;padding:7px 6px;}'
             + '#qs-callout .qs-skip:hover{color:#e0e0e0;}'
@@ -364,6 +364,23 @@
         if (!sel) return null;
         try { return $(sel); } catch (e) { return null; }
     }
+    // The ring for a step: its target's rectangle, or - when the step names
+    // several controls in `ring` (the two fields of a size, the columns and
+    // the rows) - the one rectangle that holds them all.
+    function stepRect(step, el) {
+        if (!step) return null;
+        var list = (step.ring || []).map(function (q) { return typeof q === 'string' ? $(q) : q; }).filter(Boolean);
+        if (!list.length) return rectOf(el);
+        var u = null;
+        list.forEach(function (e) {
+            var r = rectOf(e);
+            if (!r) return;
+            u = u ? { left: Math.min(u.left, r.left), top: Math.min(u.top, r.top),
+                      right: Math.max(u.right, r.right), bottom: Math.max(u.bottom, r.bottom) } : { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
+        });
+        if (!u) return rectOf(el);
+        return { left: u.left, top: u.top, right: u.right, bottom: u.bottom, width: u.right - u.left, height: u.bottom - u.top };
+    }
     function setSpot(r) {
         var spot = els.spot;
         spotRect = r;
@@ -387,6 +404,39 @@
         if (!side) return null;
         var w = side.getBoundingClientRect().width;
         return w >= 200 ? Math.min(334, Math.round(w) - 16) : null;
+    }
+    // The one spot the callout keeps for the whole tour (Matt, 2026-09-15:
+    // "it needs to stay in the same spot at all times"): the sidebar home,
+    // measured once when the tour first leaves the intro, then held. Only
+    // when that spot would cover the control a step is showing does the
+    // box slide along the same column - below the control, or above it -
+    // and it comes back to the spot on the next step.
+    function lockedBox(cw, ch, r, keep) {
+        if (!S.home) {
+            var h = homeBox(cw, ch);
+            if (!h) return null;
+            S.home = { x: h.x, y: h.y };
+        }
+        var box = { x: S.home.x, y: S.home.y, p: null };
+        var blockers = (keep || []).slice();
+        if (r) blockers.push(r);
+        var inWay = blockers.filter(function (b) { return hits(box, cw, ch, b, 8); });
+        if (!inWay.length) { box.clear = true; return box; }
+        var side = $('#right-sidebar');
+        var sr = side ? side.getBoundingClientRect() : { top: 12, bottom: window.innerHeight - 12 };
+        var notes = $('#notes-panel');
+        var floor = (notes ? notes.getBoundingClientRect().top : sr.bottom) - 10;
+        var below = Math.max.apply(null, inWay.map(function (b) { return b.bottom; })) + 12;
+        var above = Math.min.apply(null, inWay.map(function (b) { return b.top; })) - ch - 12;
+        var tryY = function (y) {
+            if (y < sr.top + 8 || y + ch > floor) return null;
+            var cand = { x: box.x, y: y, p: null };
+            return blockers.some(function (b) { return hits(cand, cw, ch, b, 8); }) ? null : cand;
+        };
+        var slid = tryY(below) || tryY(above);
+        if (slid) { slid.clear = true; return slid; }
+        box.clear = false;
+        return box;
     }
     function homeBox(cw, ch) {
         var side = $('#right-sidebar');
@@ -477,7 +527,7 @@
         var r = spotRect;
         // Docked in the sidebar the callout takes the sidebar's width, so
         // it never overhangs the wall; beside a control it has its own.
-        var dockW = (!r || (step && step.center)) ? dockWidth() : null;
+        var dockW = dockWidth();
         call.style.width = dockW ? dockW + 'px' : '';
         var cw = call.offsetWidth || 334, ch = call.offsetHeight || 170;
         if (step && step.act && resultEmpty()) ch += RESULT_RESERVE;
@@ -493,13 +543,11 @@
         };
         var box;
         if (!r || step.center) {
-            // A callout with nothing to point at (the intro, the outro, a
-            // step whose control appears only after its first click) sits
-            // in the right sidebar under the Screens and Beaches panels,
-            // where it covers nothing a person needs to see - not in the
-            // middle of the wall (Matt, 2026-09-15). Centred only when the
-            // sidebar is folded or too short to hold it.
-            box = homeBox(cw, ch);
+            // The intro sits in the middle of the window; the first Next
+            // moves the callout to its locked spot and it stays there. A
+            // later step with nothing to ring yet (a control that appears
+            // after its first click, the outro) uses the locked spot too.
+            box = S.idx > 0 ? lockedBox(cw, ch, null, keep) : null;
             if (!box || !clear(box)) box = { x: (vw - cw) / 2, y: (vh - ch) / 2, p: null };
             if (!clear(box)) {
                 var c0 = keep[0];
@@ -508,6 +556,20 @@
             box.clear = clear(box);
             if (dry) return box;
         } else {
+            // The locked spot, for every step after the intro. The arrow
+            // stays off - the ring is what points. Beside-the-control
+            // placement below is only for a window whose sidebar cannot
+            // hold the box at all.
+            var locked = lockedBox(cw, ch, r, keep);
+            if (locked) {
+                if (dry) return locked;
+                call.style.left = locked.x + 'px';
+                call.style.top = locked.y + 'px';
+                S.boxAt = { x: locked.x, y: locked.y };
+                return;
+            }
+            call.style.width = '';
+            cw = call.offsetWidth || 334;
             var pref = step.place || 'bottom';
             var opp = { bottom: 'top', top: 'bottom', left: 'right', right: 'left' }[pref];
             var order = [pref, opp].concat(['bottom', 'top', 'right', 'left'].filter(function (p) {
@@ -572,7 +634,7 @@
         if (!step) return;
         var keep = S.spotEl && S.spotEl.isConnected && rectOf(S.spotEl) ? S.spotEl : null;
         var target = el || keep || stepTargetEl(step);
-        setSpot(step.center ? null : rectOf(target));
+        setSpot(step.center ? null : (el || keep ? rectOf(target) : stepRect(step, target)));
         // Whether the callout was placed beside a real target: a step whose
         // target only exists after its first click (a view tab, a menu)
         // starts centred and earns ONE move beside the target when it appears.
@@ -599,7 +661,7 @@
         if (!step || !els) return;
         var keep = S.spotEl && S.spotEl.isConnected && rectOf(S.spotEl) ? S.spotEl : null;
         var target = keep || stepTargetEl(step);
-        var r = step.center ? null : rectOf(target);
+        var r = step.center ? null : (keep ? rectOf(target) : stepRect(step, target));
         setSpot(r);
         if (!S.placedWithTarget && r) {
             S.placedWithTarget = true;
@@ -619,7 +681,11 @@
     // A window resize (the app fires one after a view switch re-lays the
     // canvas out) re-measures the ring but moves the callout only if it
     // must - the same rule as after an act.
-    function reposition() { if (els && els.callout.style.display !== 'none' && S.idx >= 0) settle(); }
+    function reposition() {
+        if (!els || els.callout.style.display === 'none' || S.idx < 0) return;
+        S.home = null;   // the sidebar moved with the window; measure the spot again
+        settle();
+    }
 
     // ── events the app's handlers understand ─────────────────────────────
     function mouse(type, el, x, y, init) {
@@ -1445,6 +1511,7 @@
         });
         S.snaps = [];
         S.idx = -1;
+        S.home = null;
         S.visible = true;
         els.catch.style.display = 'block';
         els.spot.style.display = 'block';
@@ -1523,7 +1590,7 @@
             check: function () { return A().project.name === 'Demo Show' ? 'The project is called Demo Show.' : null; }
         },
         cabinetSize: {
-            target: '#cabinet-width', place: 'right', title: 'Cabinet size',
+            target: '#cabinet-width', ring: ['#cabinet-width', '#cabinet-height'], place: 'right', title: 'Cabinet size',
             avoid: ['#cabinet-width', '#cabinet-height'],
             body: 'The pixel size of one cabinet, width then height. Every cabinet on the wall takes it.',
             before: function () { switchView('pixel-map'); },
@@ -1545,7 +1612,7 @@
             }
         },
         gridSize: {
-            target: '#screen-columns', place: 'right', title: 'Columns and rows',
+            target: '#screen-columns', ring: ['#screen-columns', '#screen-rows'], place: 'right', title: 'Columns and rows',
             avoid: ['#screen-columns', '#screen-rows'],
             body: 'How many cabinets wide and tall the wall is. The wall redraws as each number lands.',
             before: function () { switchView('pixel-map'); },
