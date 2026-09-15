@@ -396,6 +396,9 @@
         var out = [];
         if (avoid) out.push(pointRect(avoid, 24));
         ((step && step.avoid) || []).forEach(function (a) {
+            // A function computes its point or element at placement time
+            // (a cabinet's client point depends on the zoom of the moment).
+            if (typeof a === 'function') { try { a = a(); } catch (e) { a = null; } }
             var el = typeof a === 'string' ? $(a) : a;
             if (el && el.nodeType === 1) {
                 var rr = el.getBoundingClientRect();
@@ -411,10 +414,25 @@
     // The preferred side is tried first, then the opposite side, then the
     // rest; when nothing is clear the callout goes to the corner farthest
     // from the cursor's destination.
-    function place(step, avoid) {
+    // The callout is placed ONCE per step, before the cursor moves, and holds
+    // still through the act: room for the result line that lands when the
+    // act is done is reserved now, so the box grows in place instead of
+    // being re-placed (a re-placement after every action sent it to the far
+    // corner - Matt, 2026-09-14: "too much jumping after an action is done").
+    var RESULT_RESERVE = 48;
+    function resultEmpty() {
+        var box = els && els.callout.querySelector('.qs-result');
+        return !box || !box.textContent;
+    }
+    // `dry` computes the box and returns it without moving the callout;
+    // the box carries `clear` - whether it sits clear of the ring and every
+    // avoid rect - so a caller can decline to move when nothing better
+    // exists (a wall that fills the screen leaves no clear corner).
+    function place(step, avoid, dry) {
         var call = els.callout;
         var r = spotRect;
         var cw = call.offsetWidth || 334, ch = call.offsetHeight || 170;
+        if (step && step.act && resultEmpty()) ch += RESULT_RESERVE;
         var vw = window.innerWidth, vh = window.innerHeight;
         var arrow = call.querySelector('.qs-arrow');
         if (arrow) arrow.style.display = 'none';
@@ -432,15 +450,21 @@
                 var c0 = keep[0];
                 box = corner((c0.left + c0.right) / 2, (c0.top + c0.bottom) / 2);
             }
+            box.clear = clear(box);
+            if (dry) return box;
         } else {
             var pref = step.place || 'bottom';
             var opp = { bottom: 'top', top: 'bottom', left: 'right', right: 'left' }[pref];
             var order = [pref, opp].concat(['bottom', 'top', 'right', 'left'].filter(function (p) {
                 return p !== pref && p !== opp;
             }));
+            // An element a step spotted itself (a popover, a menu) is still
+            // growing when it is first measured; keep well clear of it so
+            // its final size never reaches the callout.
+            var ringPad = S.spotEl ? 56 : 4;
             for (var i = 0; i < order.length; i++) {
                 var b = layoutFor(order[i], r, cw, ch);
-                if (hits(b, cw, ch, r, 4)) continue;
+                if (hits(b, cw, ch, r, ringPad)) continue;
                 if (!clear(b)) continue;
                 box = b; break;
             }
@@ -449,7 +473,11 @@
                 var ay = avoid ? avoid.y : r.top + r.height / 2;
                 box = corner(ax, ay);
                 if (!clear(box)) box = corner(vw - ax, vh - ay);
+                box.clear = clear(box) && !hits(box, cw, ch, r, 4);
+            } else {
+                box.clear = true;
             }
+            if (dry) return box;
             if (arrow && box.p) {
                 var p = box.p, x = box.x, y = box.y;
                 arrow.style.display = 'block';
@@ -460,8 +488,25 @@
                 else { arrow.style.top = '-8px'; arrow.style.left = Math.max(14, Math.min(r.left + r.width / 2 - x - 7, cw - 28)) + 'px'; arrow.style.borderRight = 'none'; arrow.style.borderBottom = 'none'; }
             }
         }
+        // A trace hook for the placement tests: who moved the callout, where.
+        if (window.__qsTrace) {
+            var rr = function (q) { return q ? [q.left, q.top, q.right, q.bottom].map(Math.round) : null; };
+            window.__qsTrace.push({ step: S.idx, x: Math.round(box.x), y: Math.round(box.y), clear: !!box.clear,
+                                    spot: rr(r), avoid: keep.map(rr), size: [cw, ch],
+                                    by: String(new Error().stack || '').split('\n').slice(2, 5).join(' < ') });
+        }
+        S.boxAt = { x: box.x, y: box.y };
         call.style.left = box.x + 'px';
         call.style.top = box.y + 'px';
+    }
+    // Where the callout IS or is on its way to: the box slides over 0.22 s,
+    // and a check that read its rectangle mid-slide saw it covering things
+    // it had already left.
+    function calloutBox() {
+        var c = els.callout.getBoundingClientRect();
+        if (!S.boxAt) return c;
+        return { left: S.boxAt.x, top: S.boxAt.y, right: S.boxAt.x + c.width, bottom: S.boxAt.y + c.height,
+                 width: c.width, height: c.height };
     }
     // Ring the step's own target (or `el`) and place the callout beside it.
     // An element a step spotted itself (a popover, a menu, a dialog) stays
@@ -473,18 +518,53 @@
         var keep = S.spotEl && S.spotEl.isConnected && rectOf(S.spotEl) ? S.spotEl : null;
         var target = el || keep || stepTargetEl(step);
         setSpot(step.center ? null : rectOf(target));
+        // Whether the callout was placed beside a real target: a step whose
+        // target only exists after its first click (a view tab, a menu)
+        // starts centred and earns ONE move beside the target when it appears.
+        S.placedWithTarget = !!spotRect;
         place(step, avoid);
     }
-    // The callout must never cover the point the cursor is heading for.
+    // The callout must never cover the point the cursor is heading for. It
+    // moves only when that point is actually under the box - a near miss
+    // is not interference, and every move is a jump the person watches.
     function keepClear(p) {
         if (!els || !p) return;
-        var c = els.callout.getBoundingClientRect();
-        var pad = 14;
+        var c = calloutBox();
+        var pad = 2;
         if (p.x >= c.left - pad && p.x <= c.right + pad && p.y >= c.top - pad && p.y <= c.bottom + pad) {
             place(S.list[S.idx] || {}, p);
         }
     }
-    function reposition() { if (els && els.callout.style.display !== 'none' && S.idx >= 0) respot(); }
+    // After an act (or when a step spots a popover, a menu or a dialog it
+    // opened): ring the current target, measured fresh, but leave the
+    // callout where it is unless it now covers the ring or has grown off
+    // the screen.
+    function settle() {
+        var step = S.list[S.idx];
+        if (!step || !els) return;
+        var keep = S.spotEl && S.spotEl.isConnected && rectOf(S.spotEl) ? S.spotEl : null;
+        var target = keep || stepTargetEl(step);
+        var r = step.center ? null : rectOf(target);
+        setSpot(r);
+        if (!S.placedWithTarget && r) {
+            S.placedWithTarget = true;
+            place(step);
+            return;
+        }
+        var c = calloutBox();
+        var off = c.right > window.innerWidth - 12 || c.bottom > window.innerHeight - 12;
+        if (!off && !(r && hits({ x: c.left, y: c.top }, c.width, c.height, r, 4))) return;
+        // Move only to a spot that is actually clear, and only when it is a
+        // real move; when none exists the box stays put rather than trading
+        // one overlap for another, and a nudge of a few pixels is not worth
+        // the slide.
+        var better = place(step, null, true);
+        if (better.clear && (Math.abs(better.x - c.left) > 40 || Math.abs(better.y - c.top) > 40)) place(step);
+    }
+    // A window resize (the app fires one after a view switch re-lays the
+    // canvas out) re-measures the ring but moves the callout only if it
+    // must - the same rule as after an act.
+    function reposition() { if (els && els.callout.style.display !== 'none' && S.idx >= 0) settle(); }
 
     // ── events the app's handlers understand ─────────────────────────────
     function mouse(type, el, x, y, init) {
@@ -558,11 +638,35 @@
             });
         },
         say: function (note) { showResult(note, null, 'wait'); },
+        // Ring an element the act opened (a popover, a sheet, a dialog).
+        // The ring waits a beat for the element to finish laying out - a
+        // dialog measured on its first paint is a fraction of its size, and
+        // a callout placed clear of that fraction is under the dialog a
+        // moment later. Resolves once the ring is set; chain the next
+        // gesture on it.
         spot: function (target) {
             var el = typeof target === 'string' ? $(target) : target;
-            if (!el) return;
+            if (!el) return Promise.resolve();
             S.spotEl = el;
-            respot(el);
+            // Wait until the element's rectangle has held still across two
+            // measurements (a dialog fills in its sections after a fetch;
+            // a popover grows past its first paint), up to about a second.
+            // The step's avoid list (the controls the act will visit inside
+            // the element) must have held still too, or the box is placed
+            // clear of where a control was, not where it ends up.
+            var step = S.list[S.idx];
+            var last = null, tries = 0;
+            return new Promise(function (res) {
+                (function tick() {
+                    var rects = [rectOf(el)].concat(avoidRects(step, null));
+                    var key = rects.map(function (r) {
+                        return r ? [r.left, r.top, r.width, r.height].map(Math.round).join(',') : '';
+                    }).join('|');
+                    if (key === last || ++tries > 8) return res();
+                    last = key;
+                    setTimeout(tick, ms(120));
+                })();
+            }).then(function () { settle(); });
         },
         mem: {},
         moveTo: function (target, o) {
@@ -596,7 +700,7 @@
                     }
                     var tab = el.matches && el.matches('.view-tab[data-mode]');
                     return T.pause(tab ? 320 : 120).then(function () {
-                        if (tab) respot();
+                        if (tab) settle();
                         return el;
                     });
                 });
@@ -683,7 +787,7 @@
                 return T.pause(180).then(function () {
                     badge('');
                     var m = $('#context-menu');
-                    if (m && m.style.display === 'block') respot(m, p);
+                    if (m && m.style.display === 'block') { S.spotEl = m; settle(); }
                     return m;
                 });
             });
@@ -882,6 +986,11 @@
         var token = ++S.token;
         var err = null;
         return sleep(ms(500)).then(function () {
+            // The canvas may have re-framed a beat after the callout was
+            // placed (a view switch resizes it); ring the target where it is
+            // now and move the box only if it has come to cover it - once,
+            // before the cursor starts, so the act itself never shoves it.
+            settle();
             return Promise.resolve().then(function () { return step.act(T); });
         }).catch(function (e) {
             err = e;
@@ -896,7 +1005,7 @@
             badge('');
             press(false);
             showResult(note, err);
-            respot(null, { x: cur.x, y: cur.y });
+            settle();
             setState(note ? 'done' : 'failed');
             return afterStep();
         });
@@ -1380,6 +1489,7 @@
         },
         showLook: {
             target: '#main-canvas', place: 'top', title: 'Show Look view',
+            avoid: ['[data-mode="show-look"]'],
             body: 'Show Look is the real stage layout. Shift+drag a screen to put it where it stands; Data and Power follow this layout.',
             act: function (t) {
                 return t.click('[data-mode="show-look"]').then(function () {
@@ -1476,6 +1586,7 @@
         dropProcessor: {
             target: function () { var p = proc(); return p ? '[data-hwdock="processor-' + p.id + '"]' : '[data-hwdock^="processor-"]'; },
             place: 'top', title: 'Drag it onto the wall',
+            avoid: [function () { var w = wall(); return w ? T.cabinetPoint(w, { index: 0 }) : null; }],
             body: 'Drag the processor onto the screen and its ports fill in order from the first free socket. Nothing lands on hardware by itself.',
             before: function () { switchView('data-flow'); },
             act: function (t) {
@@ -1526,7 +1637,7 @@
             act: function (t) {
                 return t.click('#hw-dock-flag').then(function () {
                     return t.wait(function () { return flagRows().length ? flagRows() : null; }, 2500);
-                }).then(function () { var row = $('#hw-dock-attach'); if (row) t.spot(row); });
+                }).then(function () { return t.spot($('#hw-dock-attach')); });
             },
             check: function () {
                 var rows = flagRows();
@@ -1540,6 +1651,7 @@
         pinPort: {
             target: function () { var c = card(); return c ? '[data-hwdock="port-' + c.id + '-' + sparePinSocket() + '"]' : '#hardware-dock-body .hw-dock-tile'; },
             place: 'top', title: 'Pin a port by hand',
+            avoid: [function () { var w = wall(); return w ? T.cabinetPoint(w, { port: unpinnedScreenPort() }) : null; }],
             body: 'Drag a spare port chip onto the run that lost its port and that screen port is pinned to this socket, wherever it is on the card.',
             before: function () { switchView('data-flow'); },
             act: function (t) {
@@ -1606,7 +1718,7 @@
             act: function (t) {
                 return t.click('#hardware-dock-body .hw-dock-cablebtn-data').then(function () {
                     return t.wait(sheetOpen);
-                }).then(function () { var s = $('#hardware-dock-body .hw-dock-cablesheet-data'); if (s) t.spot(s); });
+                }).then(function () { return t.spot($('#hardware-dock-body .hw-dock-cablesheet-data')); });
             },
             check: function () { return sheetOpen() ? 'The chips are a sheet now; the snake reads as one folded row.' : null; },
             after: function (next) { if (!next || !next.sheetStep) closeSheet(); }
@@ -1685,7 +1797,8 @@
                     return t.wait(function () { var pop = $('#hw-gear-popover'); return pop && pop.style.display === 'block' ? pop : null; });
                 }).then(function (pop) {
                     if (!pop) throw new Error('the gear popover did not open');
-                    t.spot(pop);
+                    return t.spot(pop);
+                }).then(function () {
                     var bar = '[data-lrd-field="processor-redundancy-' + p.id + '"]';
                     var seg = $(bar + ' [data-level="port"]') || $$(bar + ' [data-level]').filter(function (b) { return b.dataset.level !== 'off'; }).pop();
                     if (!seg) throw new Error('no redundancy bar on this unit');
@@ -1817,6 +1930,11 @@
         dropMulti: {
             target: function () { var d = distro(); return d ? '[data-hwdock="slot-' + d.id + '-1"]' : '[data-hwdock^="slot-"]'; },
             place: 'top', title: 'Drag a multi onto the wall',
+            avoid: [function () {
+                var w = wall(); if (!w) return null;
+                var last = A().screenCircuits(w).length - 1;
+                return T.cabinetPoint(w, { circuit: Math.max(0, last) });
+            }],
             body: 'Drag multi 1 over the screen: the span starts at the first circuit and grows to the one under your cursor, capped at what is free.',
             before: function () { switchView('power'); },
             act: function (t) {
@@ -1899,10 +2017,9 @@
                     return t.wait(function () { return $('#hardware-dock-body [data-lrd-field^="power-cable-ft-"]'); });
                 }).then(function (ft) {
                     if (!ft) throw new Error('the sheet did not open');
-                    t.spot(ft.closest('.hw-dock-cablesheet') || ft);
                     var m = ft.dataset.lrdField.match(/^power-cable-ft-(\d+)-(\d+)$/);
                     t.mem.circuit = m ? Number(m[2]) : null;
-                    return t.type(ft, '25');
+                    return t.spot(ft.closest('.hw-dock-cablesheet') || ft).then(function () { return t.type(ft, '25'); });
                 }).then(function () {
                     return t.wait(function () {
                         var w = wall(); var c = w && w.powerCircuitCables && w.powerCircuitCables[t.mem.circuit];
@@ -2008,8 +2125,7 @@
                     if (!m) throw new Error('the Balance dialog did not open');
                     t.mem.opened = true;
                     t.mem.apply = !!m.querySelector('.balance-apply');
-                    t.spot(m.querySelector('.modal-content') || m);
-                    return t.pause(1100);
+                    return t.spot(m.querySelector('.modal-content') || m).then(function () { return t.pause(900); });
                 }).then(function () {
                     var m = $('#balance-modal');
                     if (!m) return;
@@ -2127,8 +2243,8 @@
                 return t.click('#btn-export').then(function () {
                     return t.wait(exportOpen);
                 }).then(function () {
-                    var mc = $('#export-modal .modal-content'); if (mc) t.spot(mc);
-                    return t.select('#export-format', 'binder');
+                    var mc = $('#export-modal .modal-content');
+                    return t.spot(mc).then(function () { return t.select('#export-format', 'binder'); });
                 }).then(function () { return t.pause(250); });
             },
             check: function () {
@@ -2216,8 +2332,9 @@
                     return t.wait(function () { var m = $('#preferences-modal'); return m && m.style.display === 'block' ? m : null; });
                 }).then(function (m) {
                     if (!m) throw new Error('Preferences did not open');
-                    t.spot(m.querySelector('.modal-content') || m);
-                    return t.click('#preferences-modal .pm-tabstrip .view-tab[data-key="binder"]');
+                    return t.spot(m.querySelector('.modal-content') || m).then(function () {
+                        return t.click('#preferences-modal .pm-tabstrip .view-tab[data-key="binder"]');
+                    });
                 }).then(function () { return t.pause(250); });
             },
             check: function () {
@@ -2233,7 +2350,7 @@
             act: function (t) {
                 return t.click('[data-menu="help"]').then(function () {
                     return t.wait(function () { var m = $('#menu-help'); return m && m.style.display === 'block' ? m : null; });
-                }).then(function (m) { if (m) t.spot(m); return t.pause(200); });
+                }).then(function (m) { return t.spot(m).then(function () { return t.pause(200); }); });
             },
             check: function () {
                 var m = $('#menu-help');

@@ -314,6 +314,9 @@ def test_every_step_acts_and_checks(page):
     names = page.evaluate("Object.keys(window.QuickStart.tours())")
     for name in names:
         n = page.evaluate("(n) => window.QuickStart.tours()[n].length", name)
+        # The engine records every placement of the callout (where and by
+        # whom) when this hook is armed - see quickstart.js place().
+        page.evaluate("window.__qsTrace = []")
         st = _start(page, name, speed=2)
         for i in range(n):
             st = _wait_step(page, i)
@@ -332,6 +335,24 @@ def test_every_step_acts_and_checks(page):
                 problems.append(f"{where}: no result note")
             if i < n - 1:
                 page.locator('#qs-next').click()
+        # The callout holds still: placed once as the step opens, and moved
+        # at most once more - only when something the act opened (a
+        # popover, a menu, a dialog) or the cursor's destination came to
+        # sit under it. A callout that leapt to a corner after every action
+        # was the complaint of 2026-09-14 ("too much jumping after an
+        # action is done").
+        trace = page.evaluate("window.__qsTrace || []")
+        titles = page.evaluate("(n) => window.QuickStart.tours()[n].map(s => s.title)", name)
+        moves = {}
+        for e in trace:
+            pos = (e['x'], e['y'])
+            seq = moves.setdefault(e['step'], [])
+            if not seq or seq[-1][0] != pos:
+                seq.append((pos, e['by'].split('(')[0].strip()))
+        for step, seq in sorted(moves.items()):
+            if len(seq) > 2:
+                problems.append(f"{name} step {step + 1} ({titles[step]!r}): the callout "
+                                f"moved {len(seq) - 1} times after it was placed: {seq}")
         _end(page)
     assert not problems, "\n".join(problems)
 
