@@ -536,6 +536,14 @@ v1.0.0 - September 15, 2026 (BETA)
   the binder's Shared circuits table with its splitter column.
 - FIX: The tour's cursor no longer reaches in from the top-left corner
   on the clear-one-circuit step, or on the first action of a tour.
+- NEW: In the tours, Enter is Next, and a Go to box in the step line
+  takes a step number - ahead, the steps between run first so the show is
+  in the right state when it lands; back, the step is restored and
+  replayed. A callout with nothing to point at sits in the right sidebar
+  under the canvas cards instead of over the wall.
+- FIX: The Drag a multi step no longer reports "did not take" on a slow
+  commit; it aims at the run's middle cabinet, tries once more if the
+  drop is refused, and reads the wall as well as the chips.
 - CHANGE (IMPORTANT): Redundancy is one bar in one place. Behind the
   processor's gear a raised segmented bar - Off, Whole unit, Per card,
   Per port (Off, Backed up, Per port on a standalone unit) - and exactly
