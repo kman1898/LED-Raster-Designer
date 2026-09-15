@@ -549,6 +549,22 @@ v1.0.0 - September 15, 2026 (BETA)
   right sidebar under the canvas cards and it stays there for the whole
   tour, the ring alone travelling to each control. The Cabinet size and
   Columns and rows steps ring both of their fields.
+- NEW: Select any screens, right-click one on the canvas or in the
+  Screens panel, and Put on beach lists the project's beaches with a
+  tick on the one they all stand on, then + New beach - one undo for
+  the lot. The Screen Info picker takes the same path.
+- CHANGE: The tours move at a person's pace: the cursor travels at a
+  hand's speed, rests on a control before it presses and after, types a
+  character at a time, holds a drag over its target so the pending
+  bracket is read, holds a menu open before picking, sweeps the chips
+  one by one, and leaves the redundancy bar on screen before and after
+  the click.
+- NEW: Ten more tour steps. Clear a port with a right-click, clear the
+  whole card, put it all back, clear the whole multi and land it again;
+  add a breakout box behind the unit's gear, set the distro's rating,
+  take it to one phase and back, untick a plug on its OUTPUTS row, and
+  put two screens on a beach from the right-click menu. Advanced is 55
+  steps, What's New 34.
 - CHANGE (IMPORTANT): Redundancy is one bar in one place. Behind the
   processor's gear a raised segmented bar - Off, Whole unit, Per card,
   Per port (Off, Backed up, Per port on a standalone unit) - and exactly
