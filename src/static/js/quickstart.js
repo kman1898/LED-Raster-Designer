@@ -17,9 +17,9 @@
  * Fully self-contained and offline (no CDN).
  *
  * A step is { target, place, title, body, center?, before?, after?, act?,
- * check? }. `act(t)` is the demonstration and `t` the toolkit (moveTo, click,
- * type, select, drag, rightClick, pickMenu, cabinetPoint, wait, pause, say,
- * spot). `check(mem)` returns the result note when the action took, or null
+ * check? }. `act(t)` is the demonstration and `t` the toolkit (moveTo, hover,
+ * click, type, select, drag, rightClick, pickMenu, cabinetPoint, wait, pause,
+ * say, spot; `t.pace` is the timing table). `check(mem)` returns the result note when the action took, or null
  * when it did not. The three tours are composed from ONE step library (STEPS)
  * so copy lives once; tests/test_tour_anchors.py drives every tour and proves
  * each step's anchor resolves AND its check returns a note.
@@ -48,11 +48,36 @@
     }
     function sleep(ms) { return new Promise(function (res) { setTimeout(res, ms); }); }
 
-    // Playback speed. 1 is the shipped pace (a step's act takes 2-6 s);
+    // Playback speed. 1 is the shipped pace (a step's act takes 3-10 s);
     // QuickStart.setSpeed(3) runs the same gestures three times faster for
     // an automated drive. Every wait scales with it.
     var speed = 1;
     function ms(n) { return Math.max(0, Math.round(n / speed)); }
+
+    // The pace of the ghost hand at speed 1: the pace a person works at,
+    // not a script's (Matt, 2026-09-15: "make sure all the animations are
+    // at a normal pace that a user might do"). Every figure goes through
+    // ms(), so setSpeed scales the lot.
+    var PACE = {
+        travel: 450,        // px/s of cursor travel, with the easing
+        travelMin: 350,     // ms: the shortest hop still reads as a move
+        hover: 300,         // ms on the control, badge shown, before a press
+        rest: 450,          // ms after a click, a select, a drop, a typed value
+        key: 90,            // ms per typed character
+        typed: 300,         // ms after the last character, before Enter/change
+        dragPress: 200,     // ms held before the chip starts to move
+        dragTravel: 350,    // px/s while dragging
+        dragHover: 700,     // ms over the drop target, so the pending bracket reads
+        dragRest: 400,      // ms after the release
+        menuHold: 800,      // ms with a context menu open before the hand moves
+        menuTravel: 350,    // px/s onto the menu item
+        menuHover: 400,     // ms on the item before the click
+        sweep: 220,         // px/s across chips or cabinets with Alt held
+        sweepRest: 400,     // ms at the end of a sweep before the right-click
+        view: 500,          // ms after a view tab lands
+        opened: 800,        // ms after a popover, sheet, menu or dialog opens
+        acted: 800          // ms after the action inside it, before the step settles
+    };
 
     // ── live lookups (never hold references: the tray rebuilds wholesale) ──
     function screens() {
@@ -143,6 +168,25 @@
         var list = wallPins().map(function (p) { return Number(p.port); })
             .filter(function (s) { return !on[s]; }).sort(function (a, b) { return a - b; });
         return list[0] || 5;
+    }
+    // The screen port pinned by hand: the wall pin on the highest socket
+    // (Pin a port by hand parks one on a spare socket from 20 up).
+    function handPinnedScreenPort() {
+        var top = null;
+        wallPins().forEach(function (p) { if (!top || Number(p.port) > Number(top.port)) top = p; });
+        return top ? Number(top.index) + 1 : null;
+    }
+    function flagOk() { var f = $('#hw-dock-flag'); return !!f && f.classList.contains('hw-dock-flag-ok'); }
+    function flagCount() { var b = $('#hw-dock-flag .hw-dock-flag-n'); return b ? b.textContent.trim() : ''; }
+    // The Clear item's label as the open menu prints it ("Clear port SR-20",
+    // "Clear SR", "Clear SL 1"): it names the thing under the cursor.
+    function clearLabel() { var i = $('#context-menu [data-action="hw-clear"]'); return i ? i.textContent.trim() : ''; }
+    // The circuits landed on multi `n` of distro `d`, read off its chips.
+    function multiHeld(d, n) {
+        if (!d) return 0;
+        return $$('[data-hwdock^="tail-' + d.id + '-' + n + '-"]').filter(function (f) {
+            var x = f.closest('.lrd-tile'); return x && x.classList.contains('lrd-tile-occupied');
+        }).length;
     }
     function flagRows() { return $$('#hw-dock-attach .hw-dock-attach-row'); }
     function sheetButton() { return $('#hardware-dock-body .hw-dock-cablebtn-data'); }
@@ -317,13 +361,14 @@
         document.body.appendChild(r);
         setTimeout(function () { r.remove(); }, 480);
     }
-    // Eased travel at ~700 px/s, resolved on arrival; `onFrame` sees every
+    // Eased travel at PACE.travel px/s (or `pxPerSec`), never shorter than
+    // PACE.travelMin, resolved on arrival; `onFrame` sees every
     // intermediate point (a drag dispatches its mousemoves from it).
-    function animateTo(x, y, onFrame) {
+    function animateTo(x, y, onFrame, pxPerSec) {
         return new Promise(function (resolve) {
             var x0 = cur.x, y0 = cur.y;
             var dist = Math.hypot(x - x0, y - y0);
-            var dur = ms(Math.max(160, Math.min(1300, dist / 700 * 1000)));
+            var dur = ms(Math.max(PACE.travelMin, dist / (pxPerSec || PACE.travel) * 1000));
             var t0 = performance.now();
             function frame(now) {
                 var k = dur <= 0 ? 1 : Math.min(1, (now - t0) / dur);
@@ -807,15 +852,25 @@
             keepClear(p);
             showCursor();
             badge(o.badge || '');
-            return animateTo(p.x, p.y).then(function () { return p; });
+            return animateTo(p.x, p.y, null, o.speed).then(function () { return p; });
         },
-        // A real click: the press (mousedown/mouseup at the point, so the
-        // app's mousedown-driven handlers see the gesture) and the click.
-        // `init` carries modifiers; with a modifier the click is dispatched
-        // as an event so the handler reads the keys.
-        click: function (target, o) {
+        // Arrive on the control and hold there a beat (badge shown) before
+        // the press - the hover every click, select, type and drag opens
+        // with. `o.hover` overrides the beat.
+        hover: function (target, o) {
             o = o || {};
             return T.moveTo(target, o).then(function (p) {
+                return T.pause(o.hover == null ? PACE.hover : o.hover).then(function () { return p; });
+            });
+        },
+        // A real click: the hover, the press (mousedown/mouseup at the
+        // point, so the app's mousedown-driven handlers see the gesture),
+        // the click, then the rest before the next gesture. `init` carries
+        // modifiers; with a modifier the click is dispatched as an event so
+        // the handler reads the keys. `o.rest` overrides the rest.
+        click: function (target, o) {
+            o = o || {};
+            return T.hover(target, o).then(function (p) {
                 var el = p.el || document.elementFromPoint(p.x, p.y);
                 if (!el) throw new Error('click: nothing at ' + describe(target));
                 press(true);
@@ -830,7 +885,7 @@
                         else el.click();
                     }
                     var tab = el.matches && el.matches('.view-tab[data-mode]');
-                    return T.pause(tab ? 320 : 120).then(function () {
+                    return T.pause(tab ? PACE.view : (o.rest == null ? PACE.rest : o.rest)).then(function () {
                         if (tab) settle();
                         return el;
                     });
@@ -841,7 +896,7 @@
         // builds, then commit with `change` (and Enter first when asked).
         type: function (target, text, o) {
             o = o || {};
-            return T.moveTo(target).then(function (p) {
+            return T.hover(target).then(function (p) {
                 var el = p.el;
                 if (!el) throw new Error('type: nothing at ' + describe(target));
                 ripple(p.x, p.y);
@@ -854,27 +909,29 @@
                     (function next() {
                         if (i >= chars.length) return res();
                         setValue(el, el.value + chars[i++]);
-                        setTimeout(next, ms(45));
+                        setTimeout(next, ms(PACE.key));
                     })();
+                }).then(function () {
+                    return T.pause(PACE.typed);
                 }).then(function () {
                     if (o.enter) {
                         keyEvent('keydown', el, 'Enter');
                         keyEvent('keyup', el, 'Enter');
                     }
                     el.dispatchEvent(new Event('change', { bubbles: true }));
-                    return T.pause(120);
+                    return T.pause(PACE.rest);
                 }).then(function () { return el; });
             });
         },
         select: function (target, value) {
-            return T.moveTo(target).then(function (p) {
+            return T.hover(target).then(function (p) {
                 var el = p.el;
                 if (!el) throw new Error('select: nothing at ' + describe(target));
                 ripple(p.x, p.y);
                 el.focus();
                 el.value = value;
                 el.dispatchEvent(new Event('change', { bubbles: true }));
-                return T.pause(160).then(function () { return el; });
+                return T.pause(PACE.rest).then(function () { return el; });
             });
         },
         // The tray's drag engine is mousedown on the chip, then mousemove /
@@ -885,41 +942,45 @@
             o = o || {};
             var dest = resolve(to);
             if (!dest) return Promise.reject(new Error('drag: no destination'));
-            return T.moveTo(from, o).then(function (p) {
+            return T.hover(from, o).then(function (p) {
                 var el = p.el;
                 if (!el) throw new Error('drag: nothing at ' + describe(from));
                 press(true);
                 mouse('mousedown', el, p.x, p.y, { buttons: 1 });
-                return T.pause(60).then(function () {
+                return T.pause(PACE.dragPress).then(function () {
                     mouse('mousemove', document, p.x + 6, p.y + 6, { buttons: 1 });
                     keepClear(dest);
                     return animateTo(dest.x, dest.y, function (x, y) {
                         mouse('mousemove', document, x, y, { buttons: 1 });
-                    });
+                    }, PACE.dragTravel);
                 }).then(function () {
+                    // Over the target, held: the app's pending bracket and
+                    // pill are what the person reads before the release.
                     mouse('mousemove', document, dest.x, dest.y, { buttons: 1 });
-                    return T.pause(o.hover == null ? 380 : o.hover);
+                    return T.pause(o.dropHover == null ? PACE.dragHover : o.dropHover);
                 }).then(function () {
                     mouse('mouseup', document, dest.x, dest.y, { buttons: 0 });
                     press(false);
                     ripple(dest.x, dest.y);
-                    return T.pause(160);
+                    return T.pause(PACE.dragRest);
                 });
             });
         },
-        // The app's own menu at the point, with the ghost parked there.
+        // The app's own menu at the point, with the ghost parked there: the
+        // hover, the press, then the menu held open long enough to read
+        // before pickMenu moves onto an item.
         rightClick: function (point, o) {
             o = o || {};
-            return T.moveTo(point, { badge: 'Right-click' }).then(function (p) {
+            return T.hover(point, { badge: 'Right-click' }).then(function (p) {
                 press(true);
                 ripple(p.x, p.y);
                 A().showContextMenu(p.x, p.y);
                 press(false);
-                return T.pause(180).then(function () {
+                return T.pause(120).then(function () {
                     badge('');
                     var m = $('#context-menu');
                     if (m && m.style.display === 'block') { S.spotEl = m; settle(); }
-                    return m;
+                    return T.pause(PACE.menuHold).then(function () { return m; });
                 });
             });
         },
@@ -930,10 +991,10 @@
                 return (m && m.style.display === 'block' && item && item.style.display !== 'none') ? item : null;
             }, 1500).then(function (item) {
                 if (!item) throw new Error('pickMenu: ' + action + ' is not on the menu');
-                return T.moveTo(item).then(function (p) {
+                return T.hover(item, { speed: PACE.menuTravel, hover: PACE.menuHover }).then(function (p) {
                     ripple(p.x, p.y);
                     item.click();
-                    return T.pause(180);
+                    return T.pause(PACE.rest);
                 });
             });
         },
@@ -946,13 +1007,17 @@
         canvasDown: function (p, init) { mouse('mousedown', R().canvas, p.x, p.y, Object.assign({ buttons: 1 }, init || {})); },
         canvasMove: function (p, init) { mouse('mousemove', R().canvas, p.x, p.y, Object.assign({ buttons: 1 }, init || {})); },
         canvasUp: function (p, init) { mouse('mouseup', R().canvas, p.x, p.y, Object.assign({ buttons: 0 }, init || {})); },
-        // Travel while pressed, dispatching a canvas mousemove per frame.
-        canvasGlide: function (to, init) {
+        // Travel while pressed at a drag's pace (or `pxPerSec`), dispatching
+        // a canvas mousemove per frame.
+        canvasGlide: function (to, init, pxPerSec) {
             keepClear(to);
             return animateTo(to.x, to.y, function (x, y) {
                 mouse('mousemove', R().canvas, x, y, Object.assign({ buttons: 1 }, init || {}));
-            });
+            }, pxPerSec || PACE.dragTravel);
         },
+        // The pace table, for an act that dispatches its own press (a canvas
+        // Alt+click, a Shift+drag) and keeps the same hover-press-rest shape.
+        pace: PACE,
         // The client point of a cabinet on the wall - the same world-to-
         // client walk every canvas gesture makes (tests/test_hardware_dock.py
         // PANEL_POINT_JS). {port: n} the first cabinet of screen port n,
@@ -1574,7 +1639,7 @@
         },
         introWhatsNew: {
             title: 'What&rsquo;s new in 1.0', center: true,
-            body: 'The tray, drag-to-wire, snakes, cable sheets, redundancy in one bar and the binder, each shown live on a scratch show. Your own project is put back when you leave.',
+            body: 'The tray, drag-to-wire, right-click clears, snakes, cable sheets, redundancy in one bar and the binder, each shown live on a scratch show. Your own project is put back when you leave.',
             before: function () { switchView('data-flow'); }
         },
         introQuick: {
@@ -1652,7 +1717,7 @@
             act: function (t) {
                 var w = wall();
                 var pt = t.cabinetPoint(w, { index: 14 });
-                return t.moveTo(pt, { badge: 'Alt' }).then(function () {
+                return t.hover(pt, { badge: 'Alt' }).then(function () {
                     press(true);
                     t.canvasDown(pt, { altKey: true });
                     return t.pause(90);
@@ -1661,7 +1726,7 @@
                     press(false);
                     ripple(pt.x, pt.y);
                     return t.wait(function () { var l = wall(); return l && l.panels.some(function (p) { return p.hidden; }); });
-                });
+                }).then(function () { return t.pause(PACE.rest); });
             },
             check: function () {
                 var w = wall();
@@ -1695,19 +1760,19 @@
                     var w = wall();
                     t.mem.x = Number(w.showOffsetX != null ? w.showOffsetX : w.offset_x) || 0;
                     var pt = t.cabinetPoint(w, { index: 0 });
-                    return t.moveTo(pt, { badge: 'Shift' }).then(function () {
+                    return t.hover(pt, { badge: 'Shift' }).then(function () {
                         press(true);
                         t.canvasDown(pt, { shiftKey: true });
-                        return t.pause(80);
+                        return t.pause(PACE.dragPress);
                     }).then(function () {
                         return t.canvasGlide({ x: pt.x + 60, y: pt.y }, { shiftKey: true });
                     }).then(function () {
-                        return t.pause(120);
+                        return t.pause(PACE.dragHover);
                     }).then(function () {
                         t.canvasUp({ x: pt.x + 60, y: pt.y }, { shiftKey: true });
                         press(false);
                         return t.wait(function () { var l = wall(); return l && Number(l.showOffsetX) !== t.mem.x; });
-                    });
+                    }).then(function () { return t.pause(PACE.dragRest); });
                 });
             },
             check: function (mem) {
@@ -1836,7 +1901,8 @@
             act: function (t) {
                 return t.click('#hw-dock-flag').then(function () {
                     return t.wait(function () { return flagRows().length ? flagRows() : null; }, 2500);
-                }).then(function () { return t.spot($('#hw-dock-attach')); });
+                }).then(function () { return t.spot($('#hw-dock-attach')); })
+                .then(function () { return t.pause(PACE.opened); });
             },
             check: function () {
                 var rows = flagRows();
@@ -1870,6 +1936,60 @@
                 return 'Screen port ' + mem.num + ' is pinned to socket ' + mem.sock + (ok ? '; the flag is green again.' : '.');
             }
         },
+        // The right-click clears (Matt, 2026-09-15: "Release port also
+        // needs to have a right click function in the tutorial ... clear
+        // the entire breakout or breakout box or sending card/processor").
+        // The app's own context menu (app-dock-menus.js _prepareClearMenu)
+        // offers one Clear per target: a run on the wall clears that screen
+        // port; a card or a breakout box header clears every port on it;
+        // a circuit chip clears that circuit; a multi header clears the
+        // multi; a distro header clears every multi on it.
+        clearPortByMenu: {
+            target: '#main-canvas', place: 'top', title: 'Clear a port with a right-click',
+            avoid: [function () { var w = wall(), n = handPinnedScreenPort(); return w && n ? T.cabinetPoint(w, { port: n }) : null; }],
+            body: 'Right-click a run on the wall and pick Clear port: that screen port comes off its socket and the flag turns red. Undo puts it back.',
+            before: function () { switchView('data-flow'); },
+            act: function (t) {
+                var w = wall(), n = handPinnedScreenPort();
+                if (!n) throw new Error('no pinned port to clear');
+                t.mem.num = n;
+                t.mem.before = wallPins().length;
+                return t.rightClick(t.cabinetPoint(w, { port: n })).then(function () {
+                    t.mem.label = clearLabel();
+                    return t.pickMenu('hw-clear');
+                }).then(function () {
+                    return t.wait(function () { return wallPins().length < t.mem.before; });
+                });
+            },
+            check: function (mem) {
+                var still = wallPins().some(function (p) { return Number(p.index) + 1 === mem.num; });
+                if (still || wallPins().length !== mem.before - 1) return null;
+                return (mem.label || 'Clear port') + ': screen port ' + mem.num + ' is off its socket'
+                    + (flagOk() ? '.' : '; the flag is red, ' + flagCount() + ' screen not all attached.');
+            }
+        },
+        clearCard: {
+            target: function () { var c = card(); return c ? '[data-hwdock="card-' + c.id + '"]' : '[data-hwdock^="card-"]'; },
+            place: 'top', title: 'Clear the whole card',
+            avoid: [function () { var c = card(); return c ? '[data-hwdock="card-' + c.id + '"]' : null; }],
+            body: 'Right-click the card&rsquo;s header and pick Clear: every port on it comes off in one undoable step, and the flag counts what is unattached.',
+            before: function () { switchView('data-flow'); },
+            act: function (t) {
+                var c = card();
+                t.mem.before = wallPins().length;
+                return t.rightClick('[data-hwdock="card-' + c.id + '"]').then(function () {
+                    t.mem.label = clearLabel();
+                    return t.pickMenu('hw-clear');
+                }).then(function () {
+                    return t.wait(function () { return wallPins().length === 0; });
+                });
+            },
+            check: function (mem) {
+                if (!mem.before || wallPins().length) return null;
+                return (mem.label || 'Clear') + ': ' + mem.before + ' ports came off; the wall holds none'
+                    + (flagOk() ? '.' : ', and the flag reads ' + flagCount() + ' screen not all attached.');
+            }
+        },
         snakePorts: {
             target: '#hardware-dock-body .hw-dock-grid', place: 'top', title: 'Snake the ports',
             body: 'Hold Alt and sweep across port chips, then right-click and pick Snake. Four ports ride one home run.',
@@ -1878,23 +1998,29 @@
                 var c = card();
                 var face = function (n) { return $('[data-hwdock="port-' + c.id + '-' + n + '"]'); };
                 var last;
-                return t.moveTo(face(1), { badge: 'Alt' }).then(function (p) {
+                // The press on the first chip, then a slow pass across the
+                // next three with a mousemove per frame (app-dock-sweep.js
+                // _traySweepExtend lights each chip as the cursor crosses
+                // it), a rest with the four lit, then the right-click.
+                return t.hover(face(1), { badge: 'Alt' }).then(function (p) {
                     press(true);
                     mouse('mousedown', face(1), p.x, p.y, { altKey: true, buttons: 1 });
+                    return t.pause(PACE.dragPress);
+                }).then(function () {
                     return [2, 3, 4].reduce(function (chain, n) {
                         return chain.then(function () {
                             var q = centerOf(face(n));
                             last = q;
                             return animateTo(q.x, q.y, function (x, y) {
                                 mouse('mousemove', document, x, y, { altKey: true, buttons: 1 });
-                            }).then(function () { return t.pause(120); });
+                            }, PACE.sweep);
                         });
                     }, Promise.resolve());
                 }).then(function () {
                     mouse('mousemove', document, last.x, last.y, { altKey: true, buttons: 1 });
                     mouse('mouseup', document, last.x, last.y, { altKey: true, buttons: 0 });
                     press(false);
-                    return t.pause(250);
+                    return t.pause(PACE.sweepRest);
                 }).then(function () {
                     return t.rightClick(last);
                 }).then(function () {
@@ -1917,7 +2043,8 @@
             act: function (t) {
                 return t.click('#hardware-dock-body .hw-dock-cablebtn-data').then(function () {
                     return t.wait(sheetOpen);
-                }).then(function () { return t.spot($('#hardware-dock-body .hw-dock-cablesheet-data')); });
+                }).then(function () { return t.spot($('#hardware-dock-body .hw-dock-cablesheet-data')); })
+                .then(function () { return t.pause(PACE.opened); });
             },
             check: function () { return sheetOpen() ? 'The chips are a sheet now; the snake reads as one folded row.' : null; },
             after: function (next) { if (!next || !next.sheetStep) closeSheet(); }
@@ -1938,9 +2065,9 @@
                 }).then(function (el) {
                     if (!el) return;
                     el.focus();
-                    return t.moveTo(el, { badge: 'Tab' }).then(function () {
+                    return t.hover(el, { badge: 'Tab' }).then(function () {
                         t.key('Tab', {}, el);
-                        return t.pause(350);
+                        return t.pause(PACE.rest);
                     });
                 });
             },
@@ -1996,16 +2123,19 @@
                     return t.wait(function () { var pop = $('#hw-gear-popover'); return pop && pop.style.display === 'block' ? pop : null; });
                 }).then(function (pop) {
                     if (!pop) throw new Error('the gear popover did not open');
-                    return t.spot(pop);
+                    // The bar as it stands, read before anything moves.
+                    return t.spot(pop).then(function () { return t.pause(1000); });
                 }).then(function () {
                     var bar = '[data-lrd-field="processor-redundancy-' + p.id + '"]';
                     var seg = $(bar + ' [data-level="port"]') || $$(bar + ' [data-level]').filter(function (b) { return b.dataset.level !== 'off'; }).pop();
                     if (!seg) throw new Error('no redundancy bar on this unit');
                     t.mem.level = seg.dataset.level;
-                    return t.click(seg);
+                    // Then the lit segment, the Sequential / Split / Manual
+                    // chips and the gold pill, all seen before the step settles.
+                    return t.click(seg, { hover: 400, rest: 1200 });
                 }).then(function () {
                     return t.wait(function () { var q = proc(); return q && q.redundancy; });
-                }).then(function () { return t.pause(300); });
+                });
             },
             check: function (mem) {
                 var p = proc();
@@ -2026,7 +2156,7 @@
                 var others = A().calculatePortAssignments(w).filter(function (i) { return i.port === 3; }).slice(0, 2);
                 return t.moveTo(pt, { badge: 'Alt' }).then(function () {
                     A().updateOverrideHover(true, pt.worldX, pt.worldY);
-                    return t.pause(450);
+                    return t.pause(PACE.hover + 150);   // the lit run, read
                 }).then(function () {
                     press(true);
                     t.canvasDown(pt, { altKey: true });
@@ -2038,11 +2168,13 @@
                     return t.wait(function () { return A()._overrideEditing; }, 2500);
                 }).then(function () {
                     badge('');
+                    return t.pause(PACE.rest);
+                }).then(function () {
                     return others.reduce(function (chain, it) {
                         return chain.then(function () {
                             var q = t.cabinetPoint(w, { index: w.panels.indexOf(it.panel) });
                             if (!q) return;
-                            return t.moveTo(q).then(function () {
+                            return t.hover(q).then(function () {
                                 press(true);
                                 t.canvasDown(q, {});
                                 return t.pause(70);
@@ -2050,13 +2182,13 @@
                                 t.canvasUp(q, {});
                                 press(false);
                                 ripple(q.x, q.y);
-                                return t.pause(320);
+                                return t.pause(PACE.rest);
                             });
                         });
                     }, Promise.resolve());
                 }).then(function () {
                     t.key('Escape', {}, document);
-                    return t.pause(250);
+                    return t.pause(PACE.rest);
                 });
             },
             check: function () {
@@ -2219,6 +2351,28 @@
                 return 'Circuit 3 is free; ' + held + ' circuits stay on ' + (d.name || 'SL') + ' 1.';
             }
         },
+        clearMultiByMenu: {
+            target: function () { var d = distro(); return d ? '[data-hwdock="slot-' + d.id + '-1"]' : '[data-hwdock^="slot-"]'; },
+            place: 'top', title: 'Clear the whole multi',
+            avoid: [function () { var d = distro(); return d ? '[data-hwdock="slot-' + d.id + '-1"]' : null; }],
+            body: 'Right-click the multi&rsquo;s header and pick Clear: every circuit on it comes off at once, one undoable step. The multi keeps its number and its type.',
+            before: function () { switchView('power'); },
+            act: function (t) {
+                var d = distro();
+                t.mem.before = multiHeld(d, 1);
+                return t.rightClick('[data-hwdock="slot-' + d.id + '-1"]').then(function () {
+                    t.mem.label = clearLabel();
+                    return t.pickMenu('hw-clear');
+                }).then(function () {
+                    return t.wait(function () { return multiHeld(distro(), 1) === 0; });
+                });
+            },
+            check: function (mem) {
+                var d = distro();
+                if (!mem.before || multiHeld(d, 1)) return null;
+                return (mem.label || 'Clear') + ': ' + mem.before + ' circuits came off ' + (d.name || 'SL') + ' 1; it is free again.';
+            }
+        },
         multiCableSheet: {
             target: function () { var d = distro(); return d ? '[data-lrd-field="power-cable-sheet-' + d.id + '-1"]' : '#hardware-dock-body .hw-dock-cablebtn'; },
             place: 'top', title: 'The multi&rsquo;s cable sheet',
@@ -2232,7 +2386,9 @@
                     if (!ft) throw new Error('the sheet did not open');
                     var m = ft.dataset.lrdField.match(/^power-cable-ft-(\d+)-(\d+)$/);
                     t.mem.circuit = m ? Number(m[2]) : null;
-                    return t.spot(ft.closest('.hw-dock-cablesheet') || ft).then(function () { return t.type(ft, '25'); });
+                    return t.spot(ft.closest('.hw-dock-cablesheet') || ft).then(function () {
+                        return t.pause(PACE.opened);
+                    }).then(function () { return t.type(ft, '25'); });
                 }).then(function () {
                     return t.wait(function () {
                         var w = wall(); var c = w && w.powerCircuitCables && w.powerCircuitCables[t.mem.circuit];
@@ -2277,24 +2433,22 @@
                 return t.click('#power-splitters-enabled').then(function () {
                     return t.wait(function () { return A().getPowerSplitters(wall()).enabled; });
                 }).then(function () {
-                    return t.pause(250);
-                }).then(function () {
                     w = wall();
                     var circuits = A().screenCircuits(w);
                     if (circuits.length < 2) throw new Error('fewer than two circuits to sweep');
                     var c0 = t.cabinetPoint(w, { circuit: 0 });
                     var c1 = t.cabinetPoint(w, { circuit: 1 });
                     t.mem.nums = [circuits[0].num, circuits[1].num];
-                    return t.moveTo(c0, { badge: 'Alt' }).then(function () {
+                    return t.hover(c0, { badge: 'Alt' }).then(function () {
                         press(true);
                         t.canvasDown(c0, { altKey: true });
-                        return t.pause(80);
+                        return t.pause(PACE.dragPress);
                     }).then(function () {
                         t.canvasMove({ x: c0.x + 6, y: c0.y + 6 }, { altKey: true });
-                        return t.canvasGlide(c1, { altKey: true });
+                        return t.canvasGlide(c1, { altKey: true }, PACE.sweep);
                     }).then(function () {
                         t.canvasMove(c1, { altKey: true });
-                        return t.pause(200);
+                        return t.pause(PACE.hover);
                     }).then(function () {
                         t.canvasUp(c1, { altKey: true });
                         press(false);
@@ -2305,7 +2459,7 @@
                             A()._sweepSelection = { layerId: w.id, nums: t.mem.nums.slice() };
                             R().render();
                         }
-                        return t.pause(250);
+                        return t.pause(PACE.sweepRest);
                     }).then(function () {
                         return t.rightClick(c1);
                     }).then(function () {
@@ -2338,12 +2492,12 @@
                     if (!m) throw new Error('the Balance dialog did not open');
                     t.mem.opened = true;
                     t.mem.apply = !!m.querySelector('.balance-apply');
-                    return t.spot(m.querySelector('.modal-content') || m).then(function () { return t.pause(900); });
+                    return t.spot(m.querySelector('.modal-content') || m).then(function () { return t.pause(1000); });
                 }).then(function () {
                     var m = $('#balance-modal');
                     if (!m) return;
                     var btn = m.querySelector('.balance-apply') || $$('.balance-close', m).pop();
-                    return t.click(btn);
+                    return t.click(btn, { rest: PACE.acted });
                 });
             },
             check: function (mem) {
@@ -2356,7 +2510,7 @@
             target: '#beaches-panel .beaches-add', place: 'left', title: 'Beaches',
             body: 'A beach is a position the show is pulled to. Add beach asks for a name; here it is filled in as Stage Left.',
             act: function (t) {
-                return t.moveTo('#beaches-panel .beaches-add').then(function (p) {
+                return t.hover('#beaches-panel .beaches-add').then(function (p) {
                     press(true); ripple(p.x, p.y);
                     return t.pause(200);
                 }).then(function () {
@@ -2364,7 +2518,7 @@
                     return A().createBeach('Stage Left');
                 }).then(function () {
                     return t.wait(function () { return beach(); });
-                });
+                }).then(function () { return t.pause(PACE.rest); });
             },
             check: function () {
                 var b = beach();
@@ -2392,7 +2546,7 @@
             before: function () { switchView('pixel-map'); },
             act: function (t) {
                 var a = A(), w = wall();
-                return t.moveTo('#layers-list .canvas-add-btn').then(function (p) {
+                return t.hover('#layers-list .canvas-add-btn').then(function (p) {
                     press(true); ripple(p.x, p.y);
                     return t.pause(200);
                 }).then(function () {
@@ -2416,7 +2570,7 @@
                     a.saveState('Add Layer');
                     a.saveClientSideProperties();
                     return t.wait(function () { return wall2(); });
-                });
+                }).then(function () { return t.pause(PACE.rest); });
             },
             check: function () { return wall2() ? 'DEMO WALL 2 stands beside the first: same size, same processing.' : null; }
         },
@@ -2457,8 +2611,9 @@
                     return t.wait(exportOpen);
                 }).then(function () {
                     var mc = $('#export-modal .modal-content');
-                    return t.spot(mc).then(function () { return t.select('#export-format', 'binder'); });
-                }).then(function () { return t.pause(250); });
+                    return t.spot(mc).then(function () { return t.pause(PACE.opened); })
+                        .then(function () { return t.select('#export-format', 'binder'); });
+                }).then(function () { return t.pause(PACE.acted); });
             },
             check: function () {
                 var f = $('#export-format');
@@ -2546,9 +2701,11 @@
                 }).then(function (m) {
                     if (!m) throw new Error('Preferences did not open');
                     return t.spot(m.querySelector('.modal-content') || m).then(function () {
-                        return t.click('#preferences-modal .pm-tabstrip .view-tab[data-key="binder"]');
+                        return t.pause(PACE.opened);
+                    }).then(function () {
+                        return t.click('#preferences-modal .pm-tabstrip .view-tab[data-key="binder"]', { rest: PACE.acted });
                     });
-                }).then(function () { return t.pause(250); });
+                });
             },
             check: function () {
                 var tab = $('#preferences-modal .pm-tabstrip .view-tab[data-key="binder"]');
@@ -2563,7 +2720,7 @@
             act: function (t) {
                 return t.click('[data-menu="help"]').then(function () {
                     return t.wait(function () { var m = $('#menu-help'); return m && m.style.display === 'block' ? m : null; });
-                }).then(function (m) { return t.spot(m).then(function () { return t.pause(200); }); });
+                }).then(function (m) { return t.spot(m).then(function () { return t.pause(PACE.opened); }); });
             },
             check: function () {
                 var m = $('#menu-help');
@@ -2587,6 +2744,31 @@
             before: function () { hideMenus(); closeExport(); closePrefs(); }
         }
     };
+    // The recoveries after a clear: the same drags as the first landing,
+    // told as the way back. The act is shared; the check asks for the
+    // whole unit, since the clear left nothing to build on.
+    STEPS.dropProcessorAgain = Object.assign({}, STEPS.dropProcessor, {
+        title: 'Put it all back',
+        body: 'Drag the processor onto the wall again and every port lands from the first free socket. A cleared card is one drag from whole.',
+        check: function (mem) {
+            var ps = wallPins();
+            if (ps.length <= mem.before || ps.length !== portsNeeded()) return null;
+            var socks = ps.map(function (p) { return Number(p.port); }).sort(function (a, b) { return a - b; });
+            return 'All ' + ps.length + ' ports are back on sockets ' + socks[0] + '–' + socks[socks.length - 1]
+                + (flagOk() ? '; the flag is green.' : '.');
+        }
+    });
+    STEPS.dropMultiAgain = Object.assign({}, STEPS.dropMulti, {
+        title: 'Land it again',
+        body: 'Drag multi 1 over the screen once more and its circuits fill from the first. A cleared multi is one drag from whole.',
+        check: function (mem) {
+            var n = mem.landed ? mem.landed() : 0;
+            var d = distro();
+            var size = A().socaBoxSize ? A().socaBoxSize(wall()) : 6;
+            if (!n || n < Math.min(size, A().screenCircuits(wall()).length)) return null;
+            return (d.name || 'SL') + ' multi 1 holds ' + n + ' of ' + size + ' circuits again.';
+        }
+    });
 
     // ── the tours: ordered step keys, plus what each seeds silently ──────
     // A tour that skips a step another depends on seeds that prerequisite
@@ -2606,10 +2788,11 @@
                 layer: { processorType: 'novastar-coex-1g', panelWatts: 100 }
             },
             steps: ['introWhatsNew', 'addProcessor', 'nameProcessor', 'redundancy', 'dropProcessor', 'releasePort',
-                    'attachmentFlag', 'pinPort', 'snakePorts', 'cableSheet', 'snakeHomeRun',
+                    'attachmentFlag', 'pinPort', 'clearPortByMenu', 'clearCard', 'dropProcessorAgain',
+                    'snakePorts', 'cableSheet', 'snakeHomeRun',
                     'dataCableTags', 'panelWatts', 'addDistro', 'dropMulti', 'typeChip',
-                    'clearCircuit', 'multiCableSheet', 'powerCableTags', 'splitters', 'addBeach',
-                    'exportBinder', 'wiringTick', 'titleBlock', 'outroWhatsNew']
+                    'clearCircuit', 'clearMultiByMenu', 'dropMultiAgain', 'multiCableSheet', 'powerCableTags',
+                    'splitters', 'addBeach', 'exportBinder', 'wiringTick', 'titleBlock', 'outroWhatsNew']
         },
         advanced: {
             title: 'Advanced Guide',
@@ -2617,9 +2800,11 @@
             steps: ['introAdvanced', 'projectName', 'cabinetSize', 'gridSize', 'fit', 'blankCabinet',
                     'cabinetIdStyle', 'showLook', 'processing', 'flowPattern', 'addProcessor',
                     'nameProcessor', 'redundancy', 'dropProcessor', 'releasePort', 'attachmentFlag', 'pinPort',
+                    'clearPortByMenu', 'clearCard', 'dropProcessorAgain',
                     'snakePorts', 'cableSheet', 'snakeHomeRun', 'loosePortLength', 'dataCableTags',
                     'overrideRun', 'panelWatts', 'breakoutType', 'addDistro', 'nameDistro',
-                    'dropMulti', 'typeChip', 'clearCircuit', 'multiCableSheet', 'powerCableTags',
+                    'dropMulti', 'typeChip', 'clearCircuit', 'clearMultiByMenu', 'dropMultiAgain',
+                    'multiCableSheet', 'powerCableTags',
                     'splitters', 'balance', 'addBeach', 'screenBeach', 'addScreen', 'groupScreens',
                     'exportBinder', 'screenOrder', 'wiringTick', 'titleBlock', 'preferences',
                     'helpMenu', 'outroAdvanced']
