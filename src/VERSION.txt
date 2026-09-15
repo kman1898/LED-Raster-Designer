@@ -505,6 +505,22 @@ v0.12.0 - September 7, 2026 (BETA)
   step can open a sheet or the export dialog to point inside it.
 
 
+- NEW (IMPORTANT): The tours show each action instead of describing it.
+  Every step of the Quick Start, What's New and Advanced Guide now
+  performs one real action in front of you: a cursor travels to the
+  control, the wall is sized, the processor dragged onto it, the ports
+  snaked, the multi landed, the binder ticked - and a line under the step
+  says what just happened. It all runs on a scratch Demo Show; your own
+  project, history, view and preferences come back the moment you leave,
+  and if a tour is ever interrupted they are put back on the next launch.
+  Back and Replay redo a step. Advanced is 45 steps, What's New 25, Quick
+  Start 10.
+- CHANGE: Under the hood, the app's code is arranged by concern ahead of
+  1.0 - the wall renderer, the hardware tray, the power model, the
+  export dialog and the server's export routes each live in files of
+  their own, with a guard test that keeps every method in one place.
+  Nothing you use changes; the preset picker's hover text now escapes
+  quotes correctly.
 - CHANGE (IMPORTANT): Redundancy is one bar in one place. Behind the
   processor's gear a raised segmented bar - Off, Whole unit, Per card,
   Per port (Off, Backed up, Per port on a standalone unit) - and exactly
