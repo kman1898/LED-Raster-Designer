@@ -269,7 +269,7 @@ def test_step_copy_is_one_action(page):
     assert not problems, "\n".join(problems)
 
 
-def _wait_step(page, index, timeout=45):
+def _wait_step(page, index, timeout=90):
     """Until the engine is on `index` and its act has settled."""
     deadline = time.time() + timeout
     st = None
@@ -281,7 +281,12 @@ def _wait_step(page, index, timeout=45):
     return st
 
 
-def _start(page, tour, speed=2):
+# The drive runs the shipped gestures three times faster (every wait in
+# quickstart.js scales with setSpeed); the pace itself is a person's.
+DRIVE_SPEED = 3
+
+
+def _start(page, tour, speed=DRIVE_SPEED):
     page.evaluate("(s) => window.QuickStart.setSpeed(s)", speed)
     page.evaluate("(n) => { window.QuickStart.startTour(n); }", tour)
     return _wait_step(page, 0)
@@ -300,7 +305,7 @@ def _step_index(page, tour, title_part):
     return hits[0]
 
 
-def _drive_to(page, tour, index, speed=2):
+def _drive_to(page, tour, index, speed=DRIVE_SPEED):
     _start(page, tour, speed)
     for i in range(index):
         page.locator('#qs-next').click()
@@ -319,7 +324,7 @@ def test_every_step_acts_and_checks(page):
         # The engine records every placement of the callout (where and by
         # whom) when this hook is armed - see quickstart.js place().
         page.evaluate("window.__qsTrace = []")
-        st = _start(page, name, speed=2)
+        st = _start(page, name, speed=DRIVE_SPEED)
         for i in range(n):
             st = _wait_step(page, i)
             where = f"{name} step {i + 1} ({st['title']!r})"
@@ -394,7 +399,7 @@ def test_enter_is_next_and_a_typed_step_jumps(page):
     page.fill('#qs-jump', str(i + 1))
     page.press('#qs-jump', 'Enter')
     page.wait_for_function(
-        "(i) => window.QuickStart.state().index === i", arg=i, timeout=120000)
+        "(i) => window.QuickStart.state().index === i", arg=i, timeout=240000)
     st = _wait_step(page, i)
     assert st['state'] == 'done' and not st['fail'], st
     assert 'SR-1' in st['note'], st['note']

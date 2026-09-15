@@ -208,12 +208,104 @@ class _Beaches {
         if (!select || select.dataset.beachWired) return;
         select.dataset.beachWired = '1';
         this.fillBeachPicker(select, null);
-        this.wireBeachPicker(select, (beachId) => {
-            this.applyToSelectedLayers(layer => { layer.beachId = beachId; });
-            this._circuitTailCache = null;
-            this.updateLayers(this.getSelectedLayers(), true, 'Set Beach');
-            this.renderLayers();
+        this.wireBeachPicker(select, (beachId) => this.putSelectionOnBeach(beachId));
+    }
+
+    // The one funnel a pick lands in, from the Screen Info picker or the
+    // right-click menu: every selected SCREEN takes `beachId` (null: off any
+    // beach; an id no beach answers to counts as null), image and text
+    // layers are left alone, and the whole gesture is ONE 'Set Beach'
+    // entry. The BEACHES line re-counts through renderLayers.
+    putSelectionOnBeach(beachId) {
+        const screens = this.getSelectedScreenLayers();
+        if (!screens.length) return false;
+        const id = this.beachById(beachId) ? beachId : null;
+        this.applyToSelectedLayers(layer => {
+            if ((layer.type || 'screen') === 'screen') layer.beachId = id;
         });
+        this._circuitTailCache = null;
+        this.updateLayers(screens, true, 'Set Beach');
+        this.renderLayers();
+        return true;
+    }
+
+    // "+ New beach…" from the menu: prompt for a name, make the beach
+    // (createBeach with a null action takes no entry of its own - the same
+    // shape wireBeachPicker gives the picker's last entry) and put the
+    // selection on it, so the create-and-put is one undo: Ctrl+Z takes the
+    // screens back off it AND takes the beach away, because the snapshot
+    // before the 'Set Beach' entry is the project without that beach.
+    // Resolves to the beach, or null when the prompt was cancelled or
+    // blank or nothing is selected.
+    async putSelectionOnNewBeach() {
+        if (!this.getSelectedScreenLayers().length) return null;
+        const name = (window.prompt('New beach name:') || '').trim();
+        if (!name) return null;
+        const beach = await this.createBeach(name, null);
+        if (!beach) return null;
+        // The adoption inside createBeach replaced the layer objects;
+        // putSelectionOnBeach re-reads the selection off the new ones.
+        this.putSelectionOnBeach(beach.id);
+        return beach;
+    }
+
+    // ---- the right-click menu (2026-09-15) ----------------------------------
+
+    // "Put on beach", armed by showContextMenu whenever one or more SCREEN
+    // layers are selected - on the canvas or on a Screens panel row - and
+    // never over the hardware dock (a chip is hardware, not a screen).
+    // Answers null (no item) or the submenu's content: one entry per beach
+    // in the project's order, `checked` on the beach the WHOLE selection
+    // already stands on (a mixed selection ticks nothing), and the
+    // "+ New beach…" entry. With no beaches the submenu holds only that.
+    _prepareBeachMenu(x, y) {
+        const under = document.elementFromPoint(x, y);
+        if (under && under.closest && under.closest('#hardware-dock')) return null;
+        const screens = this.getSelectedScreenLayers();
+        if (!screens.length) return null;
+        const first = screens[0].beachId || null;
+        const same = screens.every(l => (l.beachId || null) === first);
+        const entries = this.getBeaches().map(b => ({
+            label: b.name || b.id,
+            checked: same && first === b.id,
+            title: `Put ${screens.length === 1 ? screens[0].name || 'this screen'
+                : `these ${screens.length} screens`} on ${b.name || b.id}. One undoable step.`,
+            run: () => this.putSelectionOnBeach(b.id),
+        }));
+        return {
+            entries,
+            newBeach: {
+                label: '+ New beach…',
+                title: 'Make a beach and put the selection on it - one undoable step.',
+                run: () => this.putSelectionOnNewBeach(),
+            },
+        };
+    }
+
+    // Write the submenu's rows from what _prepareBeachMenu answered: the
+    // beaches as beach-<n> (ticked where `checked`), a divider when there
+    // are any, then "+ New beach…" as beach-new. Dispatched through
+    // handleMenuAction like every hw-<n> slot.
+    _fillBeachSubmenu(sub, beach) {
+        if (!sub) return;
+        sub.innerHTML = '';
+        if (!beach) return;
+        const row = (action, en) => {
+            const item = document.createElement('div');
+            item.className = 'menu-option' + (en.checked ? ' menu-checked' : '');
+            item.dataset.action = action;
+            item.textContent = en.label;
+            item.title = en.title || '';
+            sub.appendChild(item);
+            return item;
+        };
+        (beach.entries || []).forEach((en, i) => row(`beach-${i}`, en));
+        if ((beach.entries || []).length) {
+            const div = document.createElement('div');
+            div.className = 'menu-divider';
+            sub.appendChild(div);
+        }
+        row('beach-new', beach.newBeach);
     }
 
     // Called from loadLayerToInputs: show the selection's beach.

@@ -86,6 +86,13 @@ class _ContextMenu {
         // cursor on the canvas, else the selected screen; never on the dock.
         this._binderMenuLayer = (!inDock && typeof this._prepareBinderMenu === 'function')
             ? this._prepareBinderMenu(x, y) : null;
+        // "Put on beach" (app-beaches.js _prepareBeachMenu): a submenu of
+        // the project's beaches whenever one or more screen layers are
+        // selected; never on the dock. Entries act through beach-<n> and
+        // beach-new, stored here at open time like the outputs'.
+        const beach = (!inDock && typeof this._prepareBeachMenu === 'function')
+            ? this._prepareBeachMenu(x, y) : null;
+        this._beachMenuActions = beach;
         if (inDock && !clear && !merge && !sharing.share
                 && !sharing.unshare && !outs && !snake) {
             this.hideContextMenu();
@@ -147,6 +154,12 @@ class _ContextMenu {
             menu.querySelectorAll('.move-canvas-only').forEach(el => {
                 el.style.display = canMove ? '' : 'none';
             });
+            menu.querySelectorAll('.beach-menu-only').forEach(el => {
+                el.style.display = beach ? '' : 'none';
+            });
+            if (typeof this._fillBeachSubmenu === 'function') {
+                this._fillBeachSubmenu(menu.querySelector('#beach-submenu'), beach);
+            }
         }
         menu.querySelectorAll('.hw-clear-only').forEach(el => {
             el.style.display = clear ? '' : 'none';

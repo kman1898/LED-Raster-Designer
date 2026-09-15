@@ -101,6 +101,19 @@
                  somewhere else to move it to. -->
             <div class="menu-divider move-canvas-only"></div>
             <div class="menu-option move-canvas-only" data-action="move-to-canvas" data-label="Move to Canvas…"></div>
+            <!-- Put on beach (2026-09-15, "select multiple screens right
+                 click them and add them to a beach"). Armed by
+                 _prepareBeachMenu (app-beaches.js) whenever one or more
+                 SCREEN layers are selected, on the canvas or a Screens
+                 panel row; never on the dock. The submenu is written at
+                 open time: every beach (a tick on the one the whole
+                 selection stands on) as beach-<n>, a divider, then
+                 "+ New beach…" as beach-new. -->
+            <div class="menu-divider beach-menu-only" style="display: none;"></div>
+            <div class="menu-option menu-has-submenu beach-menu-only" data-action="beach-menu" style="display: none;">
+                <span class="menu-label-text">Put on beach</span>
+                <div id="beach-submenu" class="menu-submenu"></div>
+            </div>
             <!-- The binder, for one screen (app-binder.js). Shown when the
                  right-click lands on a screen on the canvas. -->
             <div class="menu-divider screen-export-only"></div>

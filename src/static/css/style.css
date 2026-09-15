@@ -701,6 +701,19 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 .menu-has-submenu:hover > .menu-submenu {
     display: block;
 }
+/* A ticked submenu row (the beach the whole selection stands on). Every
+   row in a submenu that can tick keeps the tick's column, so the names
+   line up whether or not one is ticked. */
+#beach-submenu .menu-option {
+    position: relative;
+    padding-left: 30px;
+}
+#beach-submenu .menu-option.menu-checked::before {
+    content: '\2713';
+    position: absolute;
+    left: 12px;
+    color: inherit;
+}
 .recent-file-item {
     display: flex;
     justify-content: space-between;

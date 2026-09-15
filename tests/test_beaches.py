@@ -732,3 +732,248 @@ def test_round_trip_through_save_and_load_in_the_browser(page):
     assert out['distro'] == 'b2'
     assert out['positions'] == [['SR', 'beach:b1'], ['Stage Left', 'beach:b2'], ['SPARE', f"layer:{ids['names']['SPARE']}"]]
     assert ids['errors'] == []
+
+
+# ── the right-click menu: "Put on beach" (2026-09-15) ────────────────────
+#
+# "we should be able to select multiple screens right click them and add
+# them to a beach." With one or more SCREEN layers selected - on the canvas
+# or on a Screens panel row - the context menu carries a "Put on beach"
+# submenu: every beach (a tick on the one the whole selection stands on),
+# a divider, "+ New beach…". A pick stamps every selected screen in ONE
+# 'Set Beach' entry; the new-beach entry prompts, creates and puts in one
+# undo, the shape the Screen Info picker's last entry has.
+
+# A client point on a screen's first cabinet, the way the dock tests find
+# one (test_hardware_dock PANEL_POINT_JS), so a real right-click lands
+# where the user's would.
+LAYER_POINT_JS = """(layerId) => {
+    const app = window.app;
+    const r = window.canvasRenderer;
+    const layer = app.project.layers.find(l => l.id === layerId);
+    const p = layer.panels[0];
+    const {dx, dy} = r.getLayerRenderOffset(layer);
+    const off = r._layerCanvasOffset(layer);
+    const wx = p.x + p.width / 2 + dx + off.wx;
+    const wy = p.y + p.height / 2 + dy + off.wy;
+    const rect = r.canvas.getBoundingClientRect();
+    const x = rect.left + wx * r.zoom + r.panX;
+    const y = rect.top + wy * r.zoom + r.panY;
+    return {x, y, inside: x > rect.left && x < rect.right && y > rect.top && y < rect.bottom};
+}"""
+
+# The menu as the user sees it: whether it is up, whether "Put on beach"
+# is on it and what it says, and the submenu's rows - [action, text,
+# ticked] - the beaches then the maker.
+BEACH_MENU_JS = """() => {
+    const menu = document.getElementById('context-menu');
+    const item = menu.querySelector('[data-action="beach-menu"]');
+    return {
+        menuShown: menu.style.display === 'block',
+        shown: getComputedStyle(item).display !== 'none',
+        label: item.querySelector('.menu-label-text').textContent,
+        rows: [...menu.querySelectorAll('#beach-submenu .menu-option')].map(el => [
+            el.dataset.action, el.textContent, el.classList.contains('menu-checked')]),
+        dividers: menu.querySelectorAll('#beach-submenu .menu-divider').length,
+        selected: [...window.app.selectedLayerIds].sort((a, b) => a - b),
+    };
+}"""
+
+BEACH_OF_JS = "(ids) => ids.map(id => window.app.project.layers.find(l => l.id === id).beachId || null)"
+SERVED_BEACH_OF_JS = """async (ids) => {
+    const p = await (await fetch('/api/project')).json();
+    return { beaches: p.beaches, of: ids.map(id => p.layers.find(l => l.id === id).beachId || null) };
+}"""
+
+
+def _right_click_screen(pg, layer_id):
+    # Bring the screen under the viewport first (the dock's own way of
+    # pointing the canvas at a screen), then a real right-click on it.
+    pg.evaluate("(id) => { window.app.centerCanvasOnLayer(id); window.canvasRenderer.render(); }", layer_id)
+    pg.wait_for_timeout(150)
+    pt = pg.evaluate(LAYER_POINT_JS, layer_id)
+    assert pt['inside'], f'the screen is off the visible canvas: {pt}'
+    pg.mouse.click(pt['x'], pt['y'], button='right')
+    pg.wait_for_timeout(300)
+    return pg.evaluate(BEACH_MENU_JS)
+
+
+def _pick_beach_row(pg, action):
+    pg.hover('#context-menu [data-action="beach-menu"]')
+    pg.locator(f'#beach-submenu [data-action="{action}"]').click()
+    pg.wait_for_timeout(700)
+
+
+def _close_menu(pg):
+    pg.keyboard.press('Escape')
+    pg.evaluate("() => window.app.hideContextMenu()")
+    pg.wait_for_timeout(100)
+
+
+def test_the_menu_puts_a_multi_selection_on_a_beach_in_one_step(page):
+    pg, ids = page
+    left, spare = ids['names']['LEFT'], ids['names']['SPARE']
+    pg.locator('[data-mode="pixel-map"]').click()
+    pg.wait_for_timeout(400)
+    # LEFT stands on Stage Left, SPARE on nothing: a mixed selection
+    assert pg.evaluate(BEACH_OF_JS, [left, spare]) == ['b2', None]
+    pg.evaluate("(ids) => window.app.setSelectedLayersByIds(ids, ids[0])", [left, spare])
+    pg.wait_for_timeout(200)
+    before = _history(pg)
+    st = _right_click_screen(pg, spare)
+    assert st['menuShown'] and st['shown'], st
+    assert st['label'] == 'Put on beach'
+    # the right-click on a selected screen kept the selection
+    assert st['selected'] == sorted([left, spare])
+    # every beach in the project's order, none ticked (mixed), then the maker
+    assert st['rows'] == [['beach-0', 'SR', False], ['beach-1', 'Stage Left', False],
+                          ['beach-new', '+ New beach…', False]]
+    assert st['dividers'] == 1
+    _pick_beach_row(pg, 'beach-0')
+    assert pg.evaluate(BEACH_OF_JS, [left, spare]) == ['b1', 'b1']
+    served = pg.evaluate(SERVED_BEACH_OF_JS, [left, spare])
+    assert served['of'] == ['b1', 'b1']
+    after = _history(pg)
+    assert after['action'] == 'Set Beach' and after['index'] == before['index'] + 1
+    # the BEACHES line re-counted: SR holds WALL-A, WALL-B, LEFT, SPARE;
+    # Stage Left keeps CENTER and the distro
+    assert pg.evaluate(PANEL_JS)['rows'] == [['b1', 'SR', '4'], ['b2', 'Stage Left', '2']]
+    assert not pg.evaluate(BEACH_MENU_JS)['menuShown']
+    # reopened, the beach the whole selection stands on is ticked
+    st = _right_click_screen(pg, left)
+    assert st['rows'][0] == ['beach-0', 'SR', True] and st['rows'][1][2] is False
+    _close_menu(pg)
+    assert ids['errors'] == []
+
+
+def test_the_item_needs_a_screen_selected(page):
+    pg, ids = page
+    center = ids['c']
+    pg.locator('[data-mode="pixel-map"]').click()
+    pg.wait_for_timeout(400)
+    # one screen: the item is there, its beach ticked
+    _select_layer(pg, center)
+    st = _right_click_screen(pg, center)
+    assert st['shown'] and st['selected'] == [center], st
+    assert st['rows'] == [['beach-0', 'SR', False], ['beach-1', 'Stage Left', True],
+                          ['beach-new', '+ New beach…', False]]
+    _close_menu(pg)
+    # no screen selected: hidden (the menu itself still opens on the canvas)
+    pg.evaluate("(id) => { window.app.centerCanvasOnLayer(id); window.canvasRenderer.render(); }", center)
+    pg.wait_for_timeout(150)
+    pt = pg.evaluate(LAYER_POINT_JS, center)
+    pg.evaluate("() => { window.app.setSelectedLayersByIds([]); }")
+    pg.wait_for_timeout(200)
+    pg.evaluate("(pt) => window.app.showContextMenu(pt.x, pt.y)", pt)
+    st = pg.evaluate(BEACH_MENU_JS)
+    assert st['menuShown'] and not st['shown'], st
+    _close_menu(pg)
+    # an image layer alone: hidden - a beach is a screen's position
+    pg.evaluate("""() => {
+        const app = window.app;
+        app.project.layers.push({id: 999001, type: 'image', name: 'PIC', visible: true,
+            offset_x: 0, offset_y: 0, imageWidth: 10, imageHeight: 10, imageScale: 1, panels: []});
+        app.setSelectedLayersByIds([999001], 999001);
+    }""")
+    pg.wait_for_timeout(200)
+    pg.evaluate("(pt) => window.app.showContextMenu(pt.x, pt.y)", pt)
+    st = pg.evaluate(BEACH_MENU_JS)
+    assert st['menuShown'] and not st['shown'], st
+    _close_menu(pg)
+    pg.evaluate("""(id) => {
+        const app = window.app;
+        app.project.layers = app.project.layers.filter(l => l.id !== 999001);
+        app.selectLayer(app.project.layers.find(l => l.id === id));
+    }""", center)
+    pg.wait_for_timeout(200)
+    # a project with no beaches offers only the maker, under the same label
+    pg.evaluate("(pt) => { const app = window.app; app._beachesKept = app.project.beaches; "
+                "app.project.beaches = []; app.showContextMenu(pt.x, pt.y); }", pt)
+    st = pg.evaluate(BEACH_MENU_JS)
+    assert st['shown'] and st['label'] == 'Put on beach', st
+    assert st['rows'] == [['beach-new', '+ New beach…', False]] and st['dividers'] == 0
+    _close_menu(pg)
+    pg.evaluate("() => { const app = window.app; app.project.beaches = app._beachesKept; delete app._beachesKept; }")
+    assert len(pg.evaluate(PANEL_JS)['beaches']) == 2
+    assert ids['errors'] == []
+
+
+def test_new_beach_from_the_menu_creates_and_puts_in_one_undo(page):
+    pg, ids = page
+    left, spare = ids['names']['LEFT'], ids['names']['SPARE']
+    pg.locator('[data-mode="pixel-map"]').click()
+    pg.wait_for_timeout(400)
+    assert pg.evaluate(BEACH_OF_JS, [left, spare]) == ['b1', 'b1']
+    pg.evaluate("(ids) => window.app.setSelectedLayersByIds(ids, ids[0])", [left, spare])
+    pg.wait_for_timeout(200)
+    before = _history(pg)
+    st = _right_click_screen(pg, left)
+    assert st['shown'], st
+    pg.once('dialog', lambda d: d.accept('Stage Right'))
+    _pick_beach_row(pg, 'beach-new')
+    pg.wait_for_timeout(500)
+    st = pg.evaluate(PANEL_JS)
+    # the id comes off the counter (an earlier test made and removed one)
+    assert [b['name'] for b in st['beaches']] == ['SR', 'Stage Left', 'Stage Right']
+    nb = st['beaches'][2]['id']
+    assert nb not in ('b1', 'b2')
+    assert pg.evaluate(BEACH_OF_JS, [left, spare]) == [nb, nb]
+    served = pg.evaluate(SERVED_BEACH_OF_JS, [left, spare])
+    assert served['of'] == [nb, nb] and [b['id'] for b in served['beaches']] == ['b1', 'b2', nb]
+    # ONE entry for the create-and-put, the picker's shape (wireBeachPicker:
+    # createBeach(name, null) takes none of its own)
+    after = _history(pg)
+    assert after['action'] == 'Set Beach' and after['index'] == before['index'] + 1
+    assert st['rows'] == [['b1', 'SR', '2'], ['b2', 'Stage Left', '2'], [nb, 'Stage Right', '2']]
+    # one undo: the screens are back where they were AND the beach is gone,
+    # because the snapshot before the entry is the project without it
+    pg.evaluate("() => window.app.undo()")
+    pg.wait_for_timeout(900)
+    assert pg.evaluate(BEACH_OF_JS, [left, spare]) == ['b1', 'b1']
+    assert [b['id'] for b in pg.evaluate(PANEL_JS)['beaches']] == ['b1', 'b2']
+    assert _history(pg) == before
+    pg.evaluate("() => window.app.redo()")
+    pg.wait_for_timeout(900)
+    assert pg.evaluate(BEACH_OF_JS, [left, spare]) == [nb, nb]
+    assert [b['id'] for b in pg.evaluate(PANEL_JS)['beaches']] == ['b1', 'b2', nb]
+    # a cancelled prompt makes nothing and takes no entry
+    at = _history(pg)
+    st = _right_click_screen(pg, left)
+    assert st['rows'][2] == ['beach-2', 'Stage Right', True], st
+    pg.once('dialog', lambda d: d.dismiss())
+    _pick_beach_row(pg, 'beach-new')
+    assert _history(pg) == at
+    assert len(pg.evaluate(PANEL_JS)['beaches']) == 3
+    assert ids['errors'] == []
+
+
+def test_the_screens_panel_row_offers_the_same_menu(page):
+    pg, ids = page
+    center, spare = ids['c'], ids['names']['SPARE']
+    wall_a = ids['a']
+    # a right-click on a row INSIDE the selection keeps the selection
+    pg.evaluate("(ids) => window.app.setSelectedLayersByIds(ids, ids[0])", [wall_a, center])
+    pg.wait_for_timeout(200)
+    pg.locator(f'#layers-list .layer-item[data-layer-id="{center}"] .layer-header').click(button='right')
+    pg.wait_for_timeout(300)
+    st = pg.evaluate(BEACH_MENU_JS)
+    assert st['menuShown'] and st['shown'], st
+    assert st['selected'] == sorted([wall_a, center])
+    # WALL-A on SR, CENTER on Stage Left: mixed, nothing ticked
+    assert [r[2] for r in st['rows']] == [False, False, False, False]
+    _close_menu(pg)
+    # a right-click on a row OUTSIDE the selection selects that row first
+    # (the panel's existing rule), and a pick from there lands on it alone
+    before = _history(pg)
+    pg.locator(f'#layers-list .layer-item[data-layer-id="{spare}"] .layer-header').click(button='right')
+    pg.wait_for_timeout(300)
+    st = pg.evaluate(BEACH_MENU_JS)
+    assert st['shown'] and st['selected'] == [spare], st
+    assert st['rows'][2] == ['beach-2', 'Stage Right', True]
+    _pick_beach_row(pg, 'beach-1')
+    assert pg.evaluate(BEACH_OF_JS, [spare, wall_a, center]) == ['b2', 'b1', 'b2']
+    after = _history(pg)
+    assert after['action'] == 'Set Beach' and after['index'] == before['index'] + 1
+    rows = pg.evaluate(PANEL_JS)['rows']
+    assert [r[1:] for r in rows] == [['SR', '2'], ['Stage Left', '3'], ['Stage Right', '1']]
+    assert ids['errors'] == []
