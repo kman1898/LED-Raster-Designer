@@ -544,6 +544,11 @@ v1.0.0 - September 15, 2026 (BETA)
 - FIX: The Drag a multi step no longer reports "did not take" on a slow
   commit; it aims at the run's middle cabinet, tries once more if the
   drop is refused, and reads the wall as well as the chips.
+- CHANGE: The tour's callout keeps one spot. The intro sits in the middle
+  of the window; the first Next moves the callout to its place in the
+  right sidebar under the canvas cards and it stays there for the whole
+  tour, the ring alone travelling to each control. The Cabinet size and
+  Columns and rows steps ring both of their fields.
 - CHANGE (IMPORTANT): Redundancy is one bar in one place. Behind the
   processor's gear a raised segmented bar - Off, Whole unit, Per card,
   Per port (Off, Backed up, Per port on a standalone unit) - and exactly
