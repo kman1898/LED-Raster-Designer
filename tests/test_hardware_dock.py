@@ -4236,11 +4236,19 @@ SPLITTER_STATE_JS = """(layerId) => {
     };
 }"""
 
+# Sharing on, with screen A on a 30 A circuit and 2fers only: the deals the
+# batch tests make - five packed runs as [1,2,3] + [4,5], 28.8 A - are past
+# the seed's 20 A, which the amps rule (Matt, 2026-09-15: "a shared circuit
+# shouldn't be able to go past its amps unless in custom mode") refuses in
+# automatic mode. At 30 A the 3fer fits, and capping the packer at 2fers
+# keeps the five runs dealt as [1,2] [3,4] [5] - every number below is what
+# it was at 20 A with 3fers.
 SPLITTERS_ON_JS = """(ids) => {
     const app = window.app;
     const a = app.project.layers.find(x => x.id === ids.aId);
-    a.powerSplitters = { enabled: true, maxWays: 3,
+    a.powerSplitters = { enabled: true, maxWays: 2,
                          manual: { merge: [], split: [] } };
+    a.powerAmperage = 30;
     app._circuitTailCache = null;
     app.updateLayers([a]);
     app.resetHistory('Dock Seed');
@@ -4251,6 +4259,7 @@ SPLITTERS_OFF_JS = """(ids) => {
     const a = app.project.layers.find(x => x.id === ids.aId);
     a.powerSplitters = { enabled: false, maxWays: 3,
                          manual: { merge: [], split: [] } };
+    a.powerAmperage = 20;
     app._circuitTailCache = null;
     app.updateLayers([a]);
     app._sweepSelection = null;
@@ -4368,7 +4377,8 @@ def test_sweep_right_click_deals_nfers_in_one_entry(dock_page):
     """Sweep three circuits (five packed runs), right-click: the menu
     offers the sizes with the group math, suppresses the single-run share
     item, and '3fer them' deals [1,2,3] + [4,5] as ONE '3fer Selection'
-    entry. One undo heals the whole deal."""
+    entry. One undo heals the whole deal. (A 30 A circuit - see
+    SPLITTERS_ON_JS - so the 3fer is within the amps.)"""
     page, ids = dock_page
     open_view(page, 'power')
     page.evaluate(RESET_POWER_JS, ids)
@@ -4420,7 +4430,8 @@ def test_sweep_right_click_deals_nfers_in_one_entry(dock_page):
 def test_whole_wall_right_click_batches_and_keeps_single_run_items(dock_page):
     """No selection: right-click a run and the batch entries act on the
     whole screen ('3fer this screen'), beside the single-run share item,
-    which keeps working unchanged."""
+    which keeps working unchanged. (A 30 A circuit, as above: the deal
+    is within the amps.)"""
     page, ids = dock_page
     open_view(page, 'power')
     page.evaluate(RESET_POWER_JS, ids)

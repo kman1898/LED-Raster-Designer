@@ -1055,11 +1055,28 @@ class _Power {
         return { touched: [...touched], removedIdx: idxOf[o] };
     }
 
+    // The watts a set of cabinets draws on `layer`'s circuit: each cabinet
+    // at its own screen's Watts per Panel (a cross-member circuit carries a
+    // peer's cabinets, and `srcLayers` - index-aligned with `panels`, as
+    // screenCircuits hands it back - names the peer; absent or same-layer
+    // entries take the owner's figure), derated by the half-tile load
+    // factor. The one load sum behind the soca plan's leg amps, the chip's
+    // fill and the share rule below - so they can never disagree.
+    _circuitWatts(layer, panels, srcLayers) {
+        const panelWatts = parseFloat(layer.panelWatts) || 0;
+        const src = srcLayers || [];
+        return (panels || []).reduce((s, p, pi) => {
+            const from = src[pi];
+            const w = (from && from !== layer)
+                ? (parseFloat(from.panelWatts) || 0) : panelWatts;
+            return s + w * this.getPanelLoadFactor(from || layer, p);
+        }, 0);
+    }
+
     getSocaPlan(layer) {
         if (!layer) return [];
         const circuits = this.screenCircuits(layer);   // [{num, panels}] in circuit order
         if (!circuits.length) return [];
-        const panelWatts = parseFloat(layer.panelWatts) || 0;
         const voltage = parseFloat(layer.powerVoltage) || 0;
         // `soca` is the multi's STABLE INDEX within this screen, which is what
         // the per-multi stores are keyed by; `number` and `name` come off the
@@ -1082,13 +1099,7 @@ class _Power {
             // carries no `layers`) keep the owner's figure, byte-identical to
             // before. Voltage stays the OWNER's: the circuit is the owner's
             // cable on the owner's distro, whatever it feeds.
-            const srcLayers = c.layers || [];
-            const watts = c.panels.reduce((s, p, pi) => {
-                const src = srcLayers[pi];
-                const w = (src && src !== layer)
-                    ? (parseFloat(src.panelWatts) || 0) : panelWatts;
-                return s + w * this.getPanelLoadFactor(src || layer, p);
-            }, 0);
+            const watts = this._circuitWatts(layer, c.panels, c.layers);
             const info = nm.socas.get(n);
             const s = socas.get(n) || {
                 soca: n,
@@ -2324,20 +2335,117 @@ class _Power {
         }
     }
 
-    // Merge the selected circuits into one manual group.
+    // ---- the amps rule ------------------------------------------------------
+    //
+    // Matt, 2026-09-15: "a shared circuit shouldn't be able to go past its
+    // amps unless in custom mode." A share is a manual merge of runs onto
+    // one circuit, and in AUTOMATIC mode (the custom toggle off) the model
+    // refuses one whose runs together draw more than the screen's Amperage:
+    // the menu item stays on the menu disabled with the reason as its hover
+    // title, the batch verb refuses as a whole naming the first group that
+    // does not fit, and the packer never made an over group on its own
+    // (_packPowerRuns closes a circuit before the load passes
+    // wattsPerCircuit). In CUSTOM mode the user owns the runs, so a share
+    // past the amps is honored and the chip and the wall flag OVER - a
+    // warning, not a label. A screen leaving custom mode with such a share
+    // in place has it un-shared on the way out (toggleCustomPowerMode).
+    //
+    // The load is the soca plan's own leg figure: each run's cabinets at
+    // their Watts per Panel over the screen's Voltage (110 V rides one
+    // leg, so amps = watts / voltage on every voltage) - never a formula of
+    // this rule's own.
+
+    // Amps per run in the id space the screen reads right now - the run
+    // ordinals of an auto screen (a packed circuit's branches, in runId
+    // order), the drawn circuit numbers of a custom one.
+    _splitterRunAmps(layer) {
+        const voltage = parseFloat(layer.powerVoltage) || 0;
+        const amps = new Map();
+        this.screenCircuits(layer).forEach(c => {
+            const ids = c.runIds || [c.num];
+            const branches = c.branches || [c.panels];
+            let off = 0;
+            ids.forEach((id, i) => {
+                const panels = branches[i] || [];
+                const srcLayers = c.layers
+                    ? c.layers.slice(off, off + panels.length) : null;
+                off += panels.length;
+                const watts = this._circuitWatts(layer, panels, srcLayers);
+                amps.set(id, voltage > 0 ? watts / voltage : 0);
+            });
+        });
+        return amps;
+    }
+
+    // What one group of runs would draw on one circuit: { amps, cap, over }.
+    // `over` is the rule's verdict - past the amps AND not in custom mode -
+    // so a caller that only wants the figure reads amps/cap. `runAmps` lets
+    // a batch reuse one _splitterRunAmps walk across its groups.
+    shareLoad(layer, runIds, runAmps) {
+        const cap = parseFloat(layer && layer.powerAmperage) || 0;
+        const byRun = runAmps || this._splitterRunAmps(layer);
+        const amps = (runIds || []).reduce((s, id) => s + (byRun.get(id) || 0), 0);
+        const over = cap > 0 && amps > cap + 1e-9 && !this.isCustomPower(layer);
+        return { amps, cap, over };
+    }
+
+    // "Runs 5 and 6", "Runs 1, 2 and 3" - the runs a refusal names.
+    _runListText(runIds) {
+        const ids = (runIds || []).slice();
+        if (ids.length <= 1) return `Run ${ids[0]}`;
+        return `Runs ${ids.slice(0, -1).join(', ')} and ${ids[ids.length - 1]}`;
+    }
+
+    // The refusal for a share of `groups` (arrays of run ids, each one
+    // circuit), or null when every group fits or the screen is in custom
+    // mode: { runs, amps, cap, text } for the FIRST group past the amps,
+    // `text` the reason the menu item wears as its hover title.
+    shareRefusal(layer, groups) {
+        if (!layer || this.isCustomPower(layer)) return null;
+        const runAmps = this._splitterRunAmps(layer);
+        for (const g of groups || []) {
+            if (!Array.isArray(g) || g.length < 2) continue;
+            const load = this.shareLoad(layer, g, runAmps);
+            if (!load.over) continue;
+            return {
+                runs: g.slice(), amps: load.amps, cap: load.cap,
+                text: `${this._runListText(g)} together draw `
+                    + `${load.amps.toFixed(1)} A on a ${+load.cap.toFixed(1)} A `
+                    + 'circuit - share past the amps only in custom mode',
+            };
+        }
+        return null;
+    }
+
+    // The shared circuits on the screen that the rule would refuse today -
+    // empty in custom mode, and on an auto screen whose every share fits.
+    // Read by the custom toggle on the way out, once the pattern has
+    // flipped back, to see what the switch left past the amps.
+    overSharedCircuits(layer) {
+        if (!layer || this.isCustomPower(layer)) return [];
+        const runAmps = this._splitterRunAmps(layer);
+        return this.screenCircuits(layer)
+            .filter(c => Array.isArray(c.runIds) && c.runIds.length > 1)
+            .map(c => ({ num: c.num, runIds: c.runIds.slice(),
+                         load: this.shareLoad(layer, c.runIds, runAmps) }))
+            .filter(x => x.load.over);
+    }
+
     // Merge the selected circuits into one manual group. The group is stored
     // as RUN ids: for auto screens the run ordinals the selected circuits
     // currently carry, for custom screens the drawn circuit numbers. Members
-    // leave any previous group and lose their split pins.
+    // leave any previous group and lose their split pins. Returns false -
+    // and writes nothing - when the amps rule refuses the share.
     mergeSplitterCircuits(layer, circuitNums) {
-        if (!layer || !Array.isArray(circuitNums) || circuitNums.length < 2) return;
+        if (!layer || !Array.isArray(circuitNums) || circuitNums.length < 2) return false;
         const chosen = new Set(circuitNums);
         const runIds = [];
         this.screenCircuits(layer).forEach(c => {
             if (!chosen.has(c.num)) return;
             (c.runIds || [c.num]).forEach(id => runIds.push(id));
         });
-        if (runIds.length < 2) return;
+        if (runIds.length < 2) return false;
+        if (this.shareRefusal(layer, [runIds])) return false;
         this._writeSplitterManual(layer, (manual) => {
             const inNew = new Set(runIds);
             manual.merge = manual.merge
@@ -2346,6 +2454,7 @@ class _Power {
             manual.split = manual.split.filter(n => !inNew.has(n));
             manual.merge.push([...runIds].sort((a, b) => a - b));
         });
+        return true;
     }
 
     // Un-merge the selected circuits. Auto runs are additionally PINNED out
@@ -2353,7 +2462,9 @@ class _Power {
     // custom circuits just fall back to their drawn numbering.
     // `action` (optional) names the history entry - the batch verb's
     // "Un-share all" passes its own so the step reads as what it was.
-    splitSplitterCircuits(layer, circuitNums, action) {
+    // `opts.silent` (the custom toggle's way out) edits the store and
+    // nothing else: the caller owns the history entry and the refresh.
+    splitSplitterCircuits(layer, circuitNums, action, opts) {
         if (!layer || !Array.isArray(circuitNums) || !circuitNums.length) return;
         const chosen = new Set(circuitNums);
         const runIds = [];
@@ -2372,7 +2483,7 @@ class _Power {
                 manual.split = [...new Set([...manual.split, ...runIds])]
                     .sort((a, b) => a - b);
             }
-        }, action);
+        }, action, opts);
     }
 
     // ---- the batch verb: "3fer them" ---------------------------------------
@@ -2383,8 +2494,9 @@ class _Power {
     // spelled out. The verb PARTITIONS - consecutive adjacent groups dealt
     // left to right along the wall - so 18 circuits under "3fer them"
     // become six separate 3fers, never one mega-gang. Adjacency is the
-    // splitter doctrine (never skip a run); over-capacity groups are
-    // honored and flag OVER like every manual merge.
+    // splitter doctrine (never skip a run). A deal with any group past the
+    // amps is refused as a whole in automatic mode (the amps rule above);
+    // in custom mode it is honored and the group flags OVER.
 
     // Group sizes for `count` runs dealt as Nfers. The REMAINDER RE-DEALS
     // so nothing is orphaned (user-vetoable choice, mock option (i)):
@@ -2432,17 +2544,33 @@ class _Power {
     // quietly gang what the deal left plain (custom circuits need no pin -
     // they never auto-pack). Same id-space rules as every manual edit:
     // _writeSplitterManual stamps the space the screen currently reads.
-    batchShareCircuits(layer, circuitNums, n, action) {
-        if (!layer || !Array.isArray(circuitNums)) return false;
+    // Returns false - nothing written - when the amps rule refuses a group.
+
+    // The deal itself, pure: the run ids of `circuitNums` in wall order cut
+    // into Nfer groups. Read by the menu (to refuse a deal before it is
+    // offered) and by batchShareCircuits (to make it).
+    batchShareGroups(layer, circuitNums, n) {
         const size = Math.max(2, Number(n) || 0);
-        const chosen = new Set(circuitNums);
+        const chosen = new Set(circuitNums || []);
         const runIds = [];
         this.screenCircuits(layer).forEach(c => {
             if (!chosen.has(c.num)) return;
             (c.runIds || [c.num]).forEach(id => runIds.push(id));
         });
+        const groups = [];
+        let off = 0;
+        this.batchNferGroups(runIds.length, size).forEach(sz => {
+            groups.push(runIds.slice(off, off + sz));
+            off += sz;
+        });
+        return { runIds, groups };
+    }
+
+    batchShareCircuits(layer, circuitNums, n, action) {
+        if (!layer || !Array.isArray(circuitNums)) return false;
+        const { runIds, groups } = this.batchShareGroups(layer, circuitNums, n);
         if (runIds.length < 2) return false;
-        const sizes = this.batchNferGroups(runIds.length, size);
+        if (this.shareRefusal(layer, groups)) return false;
         const custom = this.usesCustomCircuits(layer);
         this._writeSplitterManual(layer, (manual) => {
             const hit = new Set(runIds);
@@ -2450,10 +2578,7 @@ class _Power {
                 .map(g => (Array.isArray(g) ? g.filter(x => !hit.has(x)) : []))
                 .filter(g => g.length >= 2);
             manual.split = manual.split.filter(x => !hit.has(x));
-            let off = 0;
-            sizes.forEach(sz => {
-                const g = runIds.slice(off, off + sz);
-                off += sz;
+            groups.forEach(g => {
                 if (g.length >= 2) {
                     manual.merge.push([...g].sort((a, b) => a - b));
                 } else if (!custom) {
@@ -2636,7 +2761,10 @@ class _Power {
     // `action` names the history entry; the default keeps every existing
     // caller's entry byte-identical. The batch verb passes its own name
     // ('3fer Selection') so one commit is one legible undo step.
-    _writeSplitterManual(layer, fn, action) {
+    // `opts.silent`: edit and stamp the store, but neither PUT nor snapshot
+    // nor refresh - for a caller folding the edit into its own history
+    // entry and its own rebuild (the custom toggle's way out).
+    _writeSplitterManual(layer, fn, action, opts) {
         const cur = this.getPowerSplitters(layer);
         // An edit is made in the CURRENT id space. Groups stored from the
         // other space cannot be edited alongside it - one store, one space -
@@ -2653,6 +2781,7 @@ class _Power {
         fn(manual);
         manual.space = space;
         layer.powerSplitters = { ...cur, manual };
+        if (opts && opts.silent) return;
         this.updateLayers([layer], true, action || 'Edit Splitter Groups');
         this._rebuildAfterGesture(() => {
             this.refreshSplitterPanel();
@@ -2778,8 +2907,10 @@ class _Power {
     // that fits: none, then 2fer, then 3fer). A run that does not fit closes
     // the circuit and starts the next. Manual overrides ride the same walk:
     // a merge group is emitted whole as one circuit when its first member is
-    // reached (honored even over capacity - the soca `over` convention flags
-    // it); a split-pinned run is its own circuit and a boundary.
+    // reached (the amps rule keeps an auto screen's stored groups within
+    // the amps - a custom screen's, or a file's older group past them, the
+    // soca `over` convention flags); a split-pinned run is its own circuit
+    // and a boundary.
     // Returns { circuits, runs, runIds } index-aligned: circuits[i] is the
     // concatenated panels, runs[i] the per-branch panel counts, runIds[i]
     // the run ordinals ganged into that circuit.
@@ -2836,6 +2967,19 @@ class _Power {
         return g.flatMap(n => paths[n] || []);
     }
 
+    // The pattern the AUTOMATIC walk routes by. A screen in custom mode with
+    // nothing drawn yet falls back to auto routing (screenCircuits), and it
+    // routes by the pattern it had when custom mode went on - the toggle
+    // keeps it as lastPowerFlowPattern - not by the word 'custom' read as
+    // a pattern string (no '-h', no 'l-': organized column units dealt
+    // right to left, which re-routed a wall the moment the toggle went on).
+    autoPowerPattern(layer) {
+        const raw = (layer && layer.powerFlowPattern) || 'tl-h';
+        if (raw !== 'custom') return raw;
+        const last = layer.lastPowerFlowPattern;
+        return (last && last !== 'custom') ? last : 'tl-h';
+    }
+
     calculatePowerAssignments(layer) {
         if (!layer || (layer.type || 'screen') === 'image' || !Array.isArray(layer.panels)) return { circuits: [], error: null };
 
@@ -2860,7 +3004,7 @@ class _Power {
         const amperage = parseFloat(layer.powerAmperage) || 0;
         const panelWatts = parseFloat(layer.panelWatts) || 0;
         const wattsPerCircuit = voltage * amperage;
-        const pattern = layer.powerFlowPattern || 'tl-h';
+        const pattern = this.autoPowerPattern(layer);
         const maximize = !!layer.powerMaximize;
         const organized = !!layer.powerOrganized && !maximize;
         const isHorizontalFirst = pattern.includes('-h');
