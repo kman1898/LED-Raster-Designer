@@ -332,3 +332,262 @@ def test_experts_only_writes_on_top_of_nothing(page, palette):
     assert any(len([b for b in bs if b['kind'] == 'disc']) >= 22 for bs in maps.values()), \
         {k: len(v) for k, v in maps.items()}
     assert ids['errors'] == []
+
+
+# ---- cabinet ids -----------------------------------------------------------
+#
+# The Cabinet ID view numbers every cabinet, and the number used to be drawn
+# at the user's label size whatever the cabinet's size on the bitmap: a
+# label size of 200 on a wall of 64 px cabinets painted one white smear
+# across the whole wall and past its edge, and even a sane size ran "1,10"
+# into the cabinet next door once the view was zoomed out. "cabinet ids
+# should not be able to extend to the panel next to it even if the text is
+# too large" (2026-09-15). canvas-labels.js now fits each id to its own
+# cabinet, drops it below a legibility floor judged on the bitmap it lands
+# on, and clips it to the cabinet regardless; the registry records the id
+# ('cabinetId', with the font size it was painted at) and the cabinet it
+# belongs to ('cabinet'), both in the bitmap's pixels, so these tests read
+# the geometry the ink got. The size is ONE per screen - the widest id fits
+# the smallest cabinet - so neighbours never carry two sizes of type.
+
+# The wall: 12 x 6 of 64 px cabinets, at (40, 40) so its top-left edge is
+# not the raster's.
+CAB_COLS, CAB_ROWS, CAB_PX = 12, 6, 64
+# The label panel's maximum (index.html #number-size max="200").
+CAB_LABEL_MAX = 200
+# canvas-labels.js's CABINET_ID_PAD / CABINET_ID_CORNER: the id's box is
+# the cabinet inset by 12% of its smaller side; at the top-left the corner
+# keeps a 5 px stand-off where that is smaller.
+CAB_PAD = max(1.0, 0.12 * CAB_PX)
+CAB_CORNER = min(5.0, CAB_PAD)
+# a cabinet ~18 px on screen, and ~60 px
+CAB_ZOOM_SMALL = 18 / CAB_PX
+CAB_ZOOM_NORMAL = 60 / CAB_PX
+# a cabinet ~4 px on screen: every id is under the 5 px floor (at 6 px the
+# narrow "I1".."I6" still fit at 5.2 px tall, and are rightly drawn)
+CAB_ZOOM_TINY = 4 / CAB_PX
+CAB_STYLES = ('row-col', 'column-row')
+CAB_POSITIONS = ('center', 'top-left')
+CAB_ROTATIONS = (0, 90)
+
+CAB_SEED_JS = """async () => {
+    const app = window.app;
+    const j = (method, url, body) => fetch(url, {method,
+        headers: {'Content-Type': 'application/json'},
+        body: body === undefined ? undefined : JSON.stringify(body)}).then(r => r.json());
+    const proj = await j('GET', '/api/project');
+    proj.layers = []; proj.groups = [];
+    await j('PUT', '/api/project', proj);
+    await j('POST', '/api/layer/add', {name: 'SMALL', columns: %d, rows: %d,
+                                       cabinet_width: %d, cabinet_height: %d,
+                                       offset_x: 40, offset_y: 40});
+    app.project = await j('GET', '/api/project');
+    app.dedupeProjectLayers('cabinet_ids');
+    app.selectLayer(app.project.layers.find(l => l.name === 'SMALL'));
+    app.renderLayers();
+    document.querySelector('[data-mode="cabinet-id"]').click();
+    const l = app.project.layers.find(l => l.name === 'SMALL');
+    return { id: l.id, panels: l.panels.length, view: window.canvasRenderer.viewMode };
+}""" % (CAB_COLS, CAB_ROWS, CAB_PX, CAB_PX)
+
+# One render of the working view with the probe on, at the given style,
+# position, rotation and zoom, the label size at the panel's maximum.
+CAB_PROBE_JS = """([style, pos, rot, zoom, size]) => {
+    const r = window.canvasRenderer, app = window.app;
+    const l = app.project.layers.find(l => l.name === 'SMALL');
+    l.number_size = size; l.cabinetIdStyle = style; l.cabinetIdPosition = pos; l.rotation = rot;
+    r.zoom = zoom; r.panX = 20; r.panY = 20;
+    r.startLabelProbe();
+    try { r.render(); } finally { var out = r.endLabelProbe(); }
+    return out;
+}"""
+
+# The export path, as performExport drives it: the renderer swapped onto a
+# canvas of the raster's size, exportMode on, zoom = the export scale (1 for
+# PNG and PDF), the pan putting the canvas's workspace origin at (0, 0).
+# Returns the registry AND a scan of the bitmap for the id's own colour -
+# magenta, which nothing else on the wall wears (the default cabinet colours
+# are blue-greys, the borders white) - counted inside the cabinets' inner
+# boxes and outside them.
+CAB_EXPORT_JS = """([style, pos, rot, size, inset]) => {
+    const r = window.canvasRenderer, app = window.app;
+    const l = app.project.layers.find(l => l.name === 'SMALL');
+    const keep = { zoom: r.zoom, panX: r.panX, panY: r.panY, canvas: r.canvas, ctx: r.ctx,
+                   colour: l.cabinetIdColor };
+    l.number_size = size; l.cabinetIdStyle = style; l.cabinetIdPosition = pos; l.rotation = rot;
+    l.cabinetIdColor = '#ff00ff';
+    const canvases = Array.isArray(app.project.canvases) ? app.project.canvases : [];
+    const cv = canvases.find(c => c && c.id === app.project.active_canvas_id) || canvases[0] || null;
+    const W = r.rasterWidth, H = r.rasterHeight;
+    const ex = document.createElement('canvas');
+    ex.width = W; ex.height = H;
+    r.canvas = ex; r.ctx = ex.getContext('2d');
+    r.exportMode = true;
+    r.zoom = 1;
+    r.panX = -((cv && cv.workspace_x) || 0);
+    r.panY = -((cv && cv.workspace_y) || 0);
+    let boxes;
+    try {
+        r.startLabelProbe();
+        try { r.render(); } finally { boxes = r.endLabelProbe(); }
+        const px = r.ctx.getImageData(0, 0, W, H).data;
+        const cabs = boxes.filter(b => b.kind === 'cabinet');
+        let inside = 0, outside = 0, first = null;
+        for (let y = 0; y < H; y++) {
+            for (let x = 0; x < W; x++) {
+                const k = (y * W + x) * 4;
+                // magenta-ness: the id's colour, and its blends with the
+                // cabinet colours at a glyph's anti-aliased edge
+                if ((px[k] + px[k + 2]) / 2 - px[k + 1] < 60) continue;
+                const home = cabs.some(c => x + 0.5 >= c.x + inset && x + 0.5 <= c.x + c.w - inset
+                                         && y + 0.5 >= c.y + inset && y + 0.5 <= c.y + c.h - inset);
+                if (home) inside++;
+                else { outside++; if (!first) first = [x, y]; }
+            }
+        }
+        return { boxes, inside, outside, first, width: W, height: H };
+    } finally {
+        r.exportMode = false;
+        r.canvas = keep.canvas; r.ctx = keep.ctx;
+        r.zoom = keep.zoom; r.panX = keep.panX; r.panY = keep.panY;
+        l.cabinetIdColor = keep.colour;
+        r.render();
+    }
+}"""
+
+
+def _inside(box, home, clearance):
+    """The box lies within `home` with at least `clearance` to every side."""
+    return (box['x'] >= home['x'] + clearance - HAIR
+            and box['y'] >= home['y'] + clearance - HAIR
+            and box['x'] + box['w'] <= home['x'] + home['w'] - clearance + HAIR
+            and box['y'] + box['h'] <= home['y'] + home['h'] - clearance + HAIR)
+
+
+def _check_cabinet_ids(name, boxes, scale, present):
+    """Every id the registry recorded sits inside the cabinet that carries
+    its text, clear of the pad, and over no other cabinet; with `present`,
+    every cabinet has its id. Returns the faults as lines."""
+    cabs = [b for b in boxes if b['kind'] == 'cabinet']
+    ids = [b for b in boxes if b['kind'] == 'cabinetId']
+    bad = []
+    if len(cabs) != CAB_COLS * CAB_ROWS:
+        bad.append('%s: %d cabinets recorded, not %d' % (name, len(cabs), CAB_COLS * CAB_ROWS))
+    by_text = {}
+    for c in cabs:
+        by_text.setdefault(c['text'], []).append(c)
+    if present and len(ids) != len(cabs):
+        missing = sorted(set(by_text) - set(b['text'] for b in ids))
+        bad.append('%s: %d ids drawn for %d cabinets - missing %s'
+                   % (name, len(ids), len(cabs), missing[:8]))
+    # one size of type per screen: the layer's size is the user's size
+    # shrunk until its widest id fits its smallest cabinet, and every id
+    # on the layer is painted at it
+    sizes = sorted(set(round(b.get('size', 0), 3) for b in ids))
+    if ids and (len(sizes) != 1 or sizes[0] <= 0):
+        bad.append('%s: the ids wear %d sizes: %s' % (name, len(sizes), sizes[:6]))
+    for b in ids:
+        assert b['w'] > 0 and b['h'] > 0, (name, b)
+        homes = by_text.get(b['text'], [])
+        if len(homes) != 1:
+            bad.append('%s: id "%s" has %d cabinets' % (name, b['text'], len(homes)))
+            continue
+        home = homes[0]
+        for other in cabs:
+            if other is home:
+                continue
+            if _over(b, other):
+                dx, dy = _overlap(b, other)
+                bad.append('%s: id "%s" over cabinet "%s" by %.1f x %.1f px'
+                           % (name, b['text'], other['text'], dx, dy))
+        if not _inside(b, home, 0):
+            bad.append('%s: id "%s" leaves its cabinet: id %s, cabinet %s' % (
+                name, b['text'],
+                [round(b[k], 1) for k in 'xywh'], [round(home[k], 1) for k in 'xywh']))
+        elif not _inside(b, home, scale * CAB_CORNER):
+            bad.append('%s: id "%s" sits closer than %.1f px to its cabinet\'s edge: id %s, cabinet %s' % (
+                name, b['text'], scale * CAB_CORNER,
+                [round(b[k], 1) for k in 'xywh'], [round(home[k], 1) for k in 'xywh']))
+    return bad
+
+
+def _cabinet_sweep(pg, zoom, size, present):
+    bad = []
+    seen = 0
+    for style in CAB_STYLES:
+        for pos in CAB_POSITIONS:
+            for rot in CAB_ROTATIONS:
+                name = '%s %s rot%d zoom%.2f' % (style, pos, rot, zoom)
+                boxes = pg.evaluate(CAB_PROBE_JS, [style, pos, rot, zoom, size])
+                seen += len([b for b in boxes if b['kind'] == 'cabinetId'])
+                bad += _check_cabinet_ids(name, boxes, zoom, present)
+    return bad, seen
+
+
+@pytest.fixture(scope="module")
+def cabinet_page(page):
+    pg, ids = page
+    seed = pg.evaluate(CAB_SEED_JS)
+    pg.wait_for_timeout(600)
+    assert seed['panels'] == CAB_COLS * CAB_ROWS, seed
+    assert seed['view'] == 'cabinet-id', seed
+    return pg, ids
+
+
+def test_cabinet_ids_never_leave_their_cabinet(cabinet_page):
+    """The wall zoomed out to ~18 px cabinets, the label size at the panel's
+    maximum, the widest style ("1,10") and the column style ("A1"), both
+    positions, unrotated and turned 90: every id the map drew lies inside
+    its own cabinet, clear of the pad, and over no neighbour, and all of
+    them at one size. And at ~4 px
+    cabinets, where no id could be read, none is drawn at all - the cabinets
+    are recorded, the ids are not.
+
+    Before the fix the first sweep failed on every one of the 72 cabinets
+    in every combination: "1,1" at 200 px covered the cabinets three to the
+    right and two below it."""
+    pg, ids = cabinet_page
+    bad, seen = _cabinet_sweep(pg, CAB_ZOOM_SMALL, CAB_LABEL_MAX, present=True)
+    assert not bad, '\n'.join([''] + bad)
+    assert seen == CAB_COLS * CAB_ROWS * len(CAB_STYLES) * len(CAB_POSITIONS) * len(CAB_ROTATIONS)
+    bad, seen = _cabinet_sweep(pg, CAB_ZOOM_TINY, CAB_LABEL_MAX, present=False)
+    assert not bad, '\n'.join([''] + bad)
+    assert seen == 0, 'ids drawn under the legibility floor: %d' % seen
+    assert ids['errors'] == []
+
+
+def test_cabinet_ids_all_show_at_a_working_zoom(cabinet_page):
+    """At ~60 px cabinets every one of the 72 ids is drawn and inside its
+    cabinet - in every style, position and rotation, at the panel's maximum
+    size and at the default 30."""
+    pg, ids = cabinet_page
+    for size in (CAB_LABEL_MAX, 30):
+        bad, seen = _cabinet_sweep(pg, CAB_ZOOM_NORMAL, size, present=True)
+        assert not bad, '\n'.join([''] + bad)
+        assert seen == CAB_COLS * CAB_ROWS * len(CAB_STYLES) * len(CAB_POSITIONS) * len(CAB_ROTATIONS)
+    assert ids['errors'] == []
+
+
+@pytest.mark.parametrize('pos', CAB_POSITIONS)
+@pytest.mark.parametrize('rot', CAB_ROTATIONS)
+def test_cabinet_ids_stay_home_in_the_export(cabinet_page, pos, rot):
+    """The export is the same renderer on a hidden canvas at the export
+    scale (performExport: exportMode on, zoom = 1 for PNG and PDF), so the
+    legibility floor is judged at THAT scale: a 64 px cabinet prints its id
+    even when the working view, zoomed out, shows none. Checked two ways on
+    the export bitmap - the registry, and the pixels: every pixel of the
+    id's colour lies inside some cabinet's inner box, none in the pad or
+    over the cabinet next door."""
+    pg, ids = cabinet_page
+    # pixels of the id's colour must lie this far inside a cabinet's edge:
+    # the corner stand-off, less a pixel for the glyph's anti-aliased fringe
+    inset = CAB_CORNER - 1
+    out = pg.evaluate(CAB_EXPORT_JS, ['row-col', pos, rot, CAB_LABEL_MAX, inset])
+    assert (out['width'], out['height']) == (1920, 1080), out
+    name = 'export row-col %s rot%d' % (pos, rot)
+    bad = _check_cabinet_ids(name, out['boxes'], 1.0, present=True)
+    assert not bad, '\n'.join([''] + bad)
+    assert out['inside'] > CAB_COLS * CAB_ROWS * 20, out['inside']
+    assert out['outside'] == 0, 'id ink outside every cabinet\'s inner box: %d px, first at %s' % (
+        out['outside'], out['first'])
+    assert ids['errors'] == []
