@@ -157,7 +157,10 @@
                  or a circuit chip, and only while the screen's splitters are
                  on (or its circuits are drawn custom) - the same gate the
                  panel rows had. Share puts the clicked circuit and the
-                 next run on one shared circuit; Un-share appears only on a circuit that is
+                 next run on one shared circuit - disabled with the reason
+                 when the runs together would pass the circuit's amps in
+                 automatic mode (custom mode allows it and flags OVER);
+                 Un-share appears only on a circuit that is
                  currently shared. -->
             <div class="menu-option hw-share-only" data-action="hw-share" style="display: none;"></div>
             <div class="menu-option hw-unshare-only" data-action="hw-unshare" style="display: none;"></div>
@@ -1199,7 +1202,7 @@
                                 <label style="font-weight: 400;">Breakout</label>
                                 <select id="power-breakout-type" data-lrd-field="power-breakout-type" class="info-select" style="flex: 1 1 100px; min-width: 0; max-width: 150px;"></select>
                             </div>
-                            <div class="info-row checkbox-row" data-tooltip="Circuit sharing, Put consecutive row/column runs onto one shared circuit through a 2fer or 3fer, up to the splitter size and the circuit capacity. Only adjacent runs share - a run is never skipped to pair two non-neighbours. Share or un-share one circuit by right-clicking it on the map or its chip in the Hardware tray.">
+                            <div class="info-row checkbox-row" data-tooltip="Circuit sharing, Put consecutive row/column runs onto one shared circuit through a 2fer or 3fer, up to the splitter size and the circuit capacity. Only adjacent runs share - a run is never skipped to pair two non-neighbours. Share or un-share one circuit by right-clicking it on the map or its chip in the Hardware tray. A share past the circuit's amps is refused in automatic mode; custom mode allows it and flags it OVER.">
                                 <input type="checkbox" id="power-splitters-enabled" data-lrd-field="power-splitters-enabled">
                                 <label for="power-splitters-enabled">Share circuits via splitters</label>
                             </div>

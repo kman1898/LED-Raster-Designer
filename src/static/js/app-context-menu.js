@@ -263,6 +263,9 @@ class _ContextMenu {
             if (item && armed) {
                 item.textContent = armed.label;
                 item.title = armed.title || '';
+                // A share the amps rule refuses stays on the menu to be
+                // read, disabled with the reason (app-dock-menus.js).
+                item.classList.toggle('menu-disabled', !!armed.disabled);
             }
         });
 

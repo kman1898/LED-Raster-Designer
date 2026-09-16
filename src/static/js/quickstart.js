@@ -2871,10 +2871,88 @@
                 return has ? 'The 25 ft cable prints as a gold tag beside its circuit.' : 'Each circuit’s cable prints as a gold tag beside its label.';
             }
         },
+        // Custom mode first, two steps of its own (2026-09-15): the amps
+        // rule refuses a share past a circuit's amps in automatic mode, and
+        // on the demo wall two full circuits at 200 W are well past 20 A -
+        // so the share the third step makes is only allowed in custom
+        // mode. Custom mode draws nothing until the person draws, so the
+        // toggle (one click) and the drawing (a drag and a pattern press)
+        // are each a gesture the hand makes, not a silent before() the
+        // body would then have to explain away.
+        customPower: {
+            target: '#power-custom-toggle', place: 'right', title: 'Custom mode for power',
+            body: 'Custom mode hands you the runs: nothing is drawn until you draw it, and a share may go past a circuit&rsquo;s amps. Turn it on here.',
+            before: function () { switchView('power'); },
+            act: function (t) {
+                return t.click('#power-custom-toggle').then(function () {
+                    return t.wait(function () { var w = wall(); return w && A().isCustomPower(w); });
+                });
+            },
+            check: function () {
+                var w = wall();
+                return w && A().isCustomPower(w) ? 'Custom mode is on: the runs are yours to draw, and a share may pass the amps.' : null;
+            }
+        },
+        // The fill: drag across the wall (custom mode's own drag selects
+        // cabinets), press a pattern button, and _applyPatternFill lays the
+        // selection into circuits each filled to customRunCapacity.
+        customDraw: {
+            target: '.power-flow-pattern-btn[data-pattern="tl-h"]', place: 'right', title: 'Draw the circuits',
+            avoid: ['.power-flow-pattern-btn[data-pattern="tl-h"]', '#main-canvas'],
+            body: 'Drag across the cabinets to select them, then press a pattern: the selection is laid into circuits, each filled to its capacity.',
+            before: function () { switchView('power'); },
+            act: function (t) {
+                var w = wall();
+                if (!w || !A().isCustomPower(w)) throw new Error('custom mode is not on');
+                var p0 = t.cabinetPoint(w, { index: 0 });
+                var p1 = t.cabinetPoint(w, { index: w.panels.length - 1 });
+                return t.hover(p0).then(function () {
+                    press(true);
+                    t.canvasDown(p0);
+                    return t.pause(PACE.dragPress);
+                }).then(function () {
+                    t.canvasMove({ x: p0.x + 6, y: p0.y + 6 });
+                    return t.canvasGlide(p1, null, PACE.dragTravel);
+                }).then(function () {
+                    t.canvasMove(p1);
+                    return t.pause(PACE.hover);
+                }).then(function () {
+                    t.canvasUp(p1);
+                    press(false);
+                    return t.wait(function () { return A().powerCustomSelection && A().powerCustomSelection.size > 0; }, 1500);
+                }).then(function (sel) {
+                    if (!sel) throw new Error('the drag selected no cabinets');
+                    return t.pause(PACE.sweepRest);
+                }).then(function () {
+                    return t.click('.power-flow-pattern-btn[data-pattern="tl-h"]');
+                }).then(function () {
+                    return t.wait(function () { return A().usesCustomCircuits(wall()); });
+                });
+            },
+            check: function () {
+                var w = wall();
+                if (!w || !A().usesCustomCircuits(w)) return null;
+                var circuits = A().screenCircuits(w);
+                var cap = A().customRunCapacity(w, 'power');
+                return circuits.length + ' circuits drawn by hand, ' + (cap.known ? cap.count + ' cabinets a circuit at ' + cap.at : 'each to its capacity') + '.';
+            },
+            // The fill leaves the selection standing (a person may press
+            // another pattern); the app's own Esc drops it. Dropped here on
+            // the way out, the way a sheet a step opened is closed, so the
+            // wall the next step sweeps is not dimmed under 72 lit cabinets.
+            after: function () {
+                var a = A();
+                if (a && a.powerCustomSelection && a.powerCustomSelection.size) {
+                    a.powerCustomSelection.clear();
+                    a.updateCustomPowerUI();
+                    if (R()) R().render();
+                }
+            }
+        },
         splitters: {
             target: '#power-splitters-enabled', place: 'right', title: 'Share two runs through a 2fer',
             avoid: ['#power-splitters-enabled', '#main-canvas'],
-            body: 'Turn sharing on, then hold Alt, sweep across two circuits on the wall and right-click 2fer them: two runs on one circuit.',
+            body: 'A share past a circuit&rsquo;s amps is refused in automatic mode. In custom mode, where you own the runs, turn sharing on, sweep two runs and 2fer them; the chip flags OVER.',
             before: function () { switchView('power'); },
             act: function (t) {
                 var w = wall();
@@ -2924,7 +3002,15 @@
                 var w = wall(); var sp = w && w.powerSplitters;
                 var merge = sp && sp.manual && sp.manual.merge;
                 if (!merge || !merge.length) return null;
-                return 'Circuits ' + merge[0].join(' and ') + ' share one circuit through a 2fer.';
+                if (!A().isCustomPower(w)) return null;
+                // The share the wall reads, and its OVER - the canvas's own
+                // registry, the one the bracket and the pill draw from.
+                var shared = (R()._nferGangs ? R()._nferGangs(w) : [])
+                    .find(function (g) { return g.runIds.length > 1; });
+                if (!shared || !shared.over) return null;
+                var load = A().shareLoad(w, shared.runIds);
+                return 'Runs ' + shared.runIds.join(' and ') + ' share one circuit through a 2fer: '
+                    + load.amps.toFixed(1) + ' A on a ' + (+load.cap.toFixed(1)) + ' A circuit, flagged OVER.';
             }
         },
         balance: {
@@ -3308,7 +3394,7 @@
                     'snakePorts', 'cableSheet', 'snakeHomeRun',
                     'dataCableTags', 'addBreakoutBox', 'panelWatts', 'addDistro', 'distroRating', 'dropMulti', 'typeChip',
                     'clearCircuit', 'clearMultiByMenu', 'dropMultiAgain', 'multiCableSheet', 'powerCableTags',
-                    'splitters', 'addBeach', 'addScreen', 'beachByMenu', 'exportBinder', 'wiringTick', 'titleBlock', 'outroWhatsNew']
+                    'customPower', 'customDraw', 'splitters', 'addBeach', 'addScreen', 'beachByMenu', 'exportBinder', 'wiringTick', 'titleBlock', 'outroWhatsNew']
         },
         advanced: {
             title: 'Advanced Guide',
@@ -3322,7 +3408,7 @@
                     'distroRating', 'distroPhase', 'distroOutputs',
                     'dropMulti', 'typeChip', 'clearCircuit', 'clearMultiByMenu', 'dropMultiAgain',
                     'multiCableSheet', 'powerCableTags',
-                    'splitters', 'balance', 'addBeach', 'screenBeach', 'addScreen', 'beachByMenu', 'groupScreens',
+                    'customPower', 'customDraw', 'splitters', 'balance', 'addBeach', 'screenBeach', 'addScreen', 'beachByMenu', 'groupScreens',
                     'exportBinder', 'screenOrder', 'wiringTick', 'titleBlock', 'preferences',
                     'helpMenu', 'outroAdvanced']
         }

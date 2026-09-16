@@ -102,8 +102,19 @@ class _PixelSelect {
         if (!layer.powerCustomIndex) layer.powerCustomIndex = 1;
     }
 
+    // The way OUT of custom mode carries the amps rule (app-power.js, "the
+    // amps rule"): a share past the circuit's amps holds only in custom
+    // mode, so one still in place once the pattern has flipped back is
+    // un-shared here - the app's own un-share (splitSplitterCircuits: the
+    // runs back onto circuits of their own, pinned out of re-packing),
+    // folded into the toggle's one history entry, and a toast says why.
+    // Shares drawn against custom circuit numbers are not touched: they go
+    // dormant with the drawn paths (the id-space doctrine) and come back
+    // with custom mode, where they are allowed. Only a share the auto
+    // screen actually reads can be past the amps here.
     toggleCustomPowerMode(enabled) {
         if (!this.currentLayer) return;
+        const undone = [];
         this.applyToSelectedLayers(layer => {
             if (enabled) {
                 if (layer.powerFlowPattern && layer.powerFlowPattern !== 'custom') {
@@ -115,6 +126,12 @@ class _PixelSelect {
             } else {
                 layer.powerFlowPattern = layer.lastPowerFlowPattern || 'tl-h';
                 layer.powerCustomPath = false;
+                const over = this.overSharedCircuits(layer);
+                if (over.length) {
+                    this.splitSplitterCircuits(layer, over.map(o => o.num),
+                                               null, { silent: true });
+                    undone.push({ layer, over });
+                }
             }
         });
         if (!enabled) {
@@ -125,6 +142,27 @@ class _PixelSelect {
         this.updateLayers(this.getSelectedLayers());
         this.updatePowerCapacityDisplay();
         this.updateCustomPowerUI();
+        if (undone.length) {
+            this._circuitTailCache = null;
+            this._rebuildAfterGesture(() => {
+                this.refreshSplitterPanel();
+                this.refreshSocaRuns();
+                this.refreshDistroPanel();
+                if (window.canvasRenderer) window.canvasRenderer.render();
+            });
+            const first = undone[0].over[0];
+            const count = undone.reduce((s, u) => s + u.over.length, 0);
+            const who = undone.length > 1 || this.getSelectedLayers().length > 1
+                ? `${undone[0].layer.name}: ` : '';
+            this._toast(
+                `Custom mode off - ${who}${this._runListText(first.runIds)
+                    .toLowerCase()} drew ${first.load.amps.toFixed(1)} A on a `
+                + `${+first.load.cap.toFixed(1)} A circuit, so the share was `
+                + 'undone'
+                + (count > 1 ? ` (${count - 1} more like it)` : '')
+                + '. A share past the amps holds only in custom mode.',
+                false, 6000);
+        }
         window.canvasRenderer.render();
     }
 

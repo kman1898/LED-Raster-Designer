@@ -339,7 +339,7 @@ class _MenuBar {
             // Circuit sharing, same doctrine: armed at open time on the
             // circuit the cursor named, re-checked here.
             case 'hw-share':
-                if (this._shareMenuAction
+                if (this._shareMenuAction && !this._shareMenuAction.disabled
                         && typeof this._shareMenuAction.run === 'function') {
                     this._shareMenuAction.run();
                 }

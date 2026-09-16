@@ -598,8 +598,11 @@ class _ScreenInfo {
         if (owner.id !== layer.id) {
             return { kind, members, owner, isOwner: false };
         }
+        // The power walk's pattern is the automatic one (app-power.js
+        // autoPowerPattern): an owner in custom mode with nothing drawn
+        // routes the wall by the pattern it had, not by the word 'custom'.
         const pattern = kind === 'power'
-            ? (owner.powerFlowPattern || 'tl-h') : (owner.flowPattern || 'tl-h');
+            ? this.autoPowerPattern(owner) : (owner.flowPattern || 'tl-h');
 
         const picks = [];
         members.forEach(m => (m.panels || []).forEach(panel => picks.push({ layer: m, panel })));

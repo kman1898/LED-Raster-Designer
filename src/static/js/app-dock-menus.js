@@ -333,20 +333,40 @@ class _DockMenus {
         if (next) {
             // The splitter the merge would need: every run already ganged
             // on either side, plus the join.
-            const ways = (c.runIds || [c.num]).length
-                + (next.runIds || [next.num]).length;
-            out.share = {
-                label: `Share with next run via ${ways}fer`,
-                title: `Share ${label} and `
-                    + `${this.getPowerCircuitLabel(layer, next.num)} on `
-                    + 'one circuit through a splitter. Honored even over '
-                    + 'capacity - the chip flags OVER. Undo un-shares it.',
-                run: () => {
-                    sendClientLog('dock_share',
-                                  { layerId: layer.id, num: c.num });
-                    this.mergeSplitterCircuits(layer, [c.num, next.num]);
-                },
-            };
+            const joined = (c.runIds || [c.num])
+                .concat(next.runIds || [next.num]);
+            const ways = joined.length;
+            const shareLabel = `Share with next run via ${ways}fer`;
+            // The amps rule (app-power.js): in automatic mode a share whose
+            // runs together draw past the screen's amps stays on the menu
+            // DISABLED, the reason as its title - the gesture is found, the
+            // rule is read. Custom mode honors it and flags OVER.
+            const refusal = this.shareRefusal(layer, [joined]);
+            if (refusal) {
+                out.share = { label: shareLabel, disabled: true,
+                              title: refusal.text };
+            } else {
+                const load = this.shareLoad(layer, joined);
+                const figure = load.cap > 0
+                    ? ` - ${load.amps.toFixed(1)} A of ${+load.cap.toFixed(1)} A`
+                    : '';
+                out.share = {
+                    label: shareLabel,
+                    title: `Share ${label} and `
+                        + `${this.getPowerCircuitLabel(layer, next.num)} on `
+                        + `one circuit through a splitter${figure}. `
+                        + (this.isCustomPower(layer)
+                            ? 'Custom mode: a share past the amps is '
+                                + 'honored and the chip flags OVER. '
+                            : '')
+                        + 'Undo un-shares it.',
+                    run: () => {
+                        sendClientLog('dock_share',
+                                      { layerId: layer.id, num: c.num });
+                        this.mergeSplitterCircuits(layer, [c.num, next.num]);
+                    },
+                };
+            }
         }
         if ((c.runIds || []).length > 1) {
             out.unshare = {
@@ -448,14 +468,25 @@ class _DockMenus {
                 });
                 return;
             }
+            // The amps rule: a deal with ANY group past the amps is
+            // refused as a whole in automatic mode, the first group that
+            // does not fit named in the title. Custom mode honors it.
+            const refusal = this.shareRefusal(
+                layer, this.batchShareGroups(layer, nums, n).groups);
+            if (refusal) {
+                entries.push({ label, disabled: true, title: refusal.text });
+                return;
+            }
             entries.push({
                 label,
                 title: `Deal ${runCount} run${runCount === 1 ? '' : 's'} `
                     + `left to right as ${this.batchNferLabel(runCount, n)} `
-                    + '- adjacent groups, each its own circuit. Honored '
-                    + 'even over capacity - a shared circuit past its amps '
-                    + 'flags OVER. One '
-                    + 'undoable step.',
+                    + '- adjacent groups, each its own circuit'
+                    + (this.isCustomPower(layer)
+                        ? '. Custom mode: a group past the amps is honored '
+                            + 'and flags OVER'
+                        : ', every group within the amps')
+                    + '. One undoable step.',
                 run: () => {
                     sendClientLog('power_batch_nfer',
                                   { layerId: layer.id, n, scope,

@@ -521,7 +521,13 @@ def test_a_manual_edit_writes_its_own_space_and_clears_the_foreign_one(page):
     tower still holding legacy custom-space merges, a Share gesture over
     the packed auto circuits starts from a clean store, records the ganged
     run ordinals, and stamps space 'auto' - the retired custom groups do
-    not survive into the new space."""
+    not survive into the new space.
+
+    The tower rides a 40 A circuit here (8320 W): at 20 A every packed
+    circuit is nearly full, so any hand-merge of two would pass the amps
+    and the amps rule (section 12) would refuse it before the store was
+    touched. At 40 A the packer deals [1,2,3] [4,5,6] [7,8,9] [10,11] and
+    merging circuits 3 and 4 (rows 6-10, 35.7 A) fits."""
     out = page.evaluate("""() => {
         const sp = window.__sp;
         const app = window.app;
@@ -530,6 +536,7 @@ def test_a_manual_edit_writes_its_own_space_and_clears_the_foreign_one(page):
             paths[r + 1] = [0, 1, 2, 3, 4, 5].map(c => ({ row: r, col: c }));
         }
         const S = sp.srrr_tower({
+            powerAmperage: 40,
             powerCustomPaths: paths,
             powerSplitters: sp.splitters(3, {
                 merge: [[7, 8, 9], [10, 11, 12]], split: [] }),
@@ -540,7 +547,7 @@ def test_a_manual_edit_writes_its_own_space_and_clears_the_foreign_one(page):
         app._rebuildAfterGesture = () => {};
         try {
             return sp.withProject({ layers: [S] }, () => {
-                app.mergeSplitterCircuits(S, [4, 5]);   // gang rows 6-10
+                app.mergeSplitterCircuits(S, [3, 4]);   // gang rows 6-10
                 return {
                     manual: S.powerSplitters.manual,
                     runIds: app.calculatePowerAssignments(S).runIds,
@@ -554,7 +561,7 @@ def test_a_manual_edit_writes_its_own_space_and_clears_the_foreign_one(page):
     assert out['manual'] == {'merge': [[7, 8, 9, 10, 11]], 'split': [],
                              'space': 'auto'}, \
         'the edit stamps its space and drops the foreign-space groups'
-    assert out['runIds'] == [[1, 2], [3, 4], [5, 6], [7, 8, 9, 10, 11]], \
+    assert out['runIds'] == [[1, 2, 3], [4, 5, 6], [7, 8, 9, 10, 11]], \
         'the new auto-space gang steers the packer'
 
 
@@ -1054,3 +1061,222 @@ def test_mixed_selection_shows_the_panel_screen_and_the_tick_settles_both(page, 
     assert after['enabledFlags'] == [True, True], (
         f"the tick did not reach every selected screen: {after}")
     assert after['checked'] and after['sizeRow'], after
+
+
+# ── 12. the amps rule ─────────────────────────────────────────────────────
+#
+# Matt, 2026-09-15: "a shared circuit shouldn't be able to go past its amps
+# unless in custom mode." A share (the single Share item, the swept "2fer
+# them" batch) is REFUSED in automatic mode when its runs together draw
+# more than the screen's Amperage - the item stays on the menu disabled
+# with the reason as its title, and the model writes nothing. Custom mode
+# honors the share and the chip and the wall flag OVER. A screen leaving
+# custom mode with such a share in place has it un-shared on the way out,
+# in the toggle's one history entry, with a toast saying why.
+#
+# The column wall: 3 column runs of 5 tiles at 100 W = 500 W = 5 A each on
+# 100 V. Two runs are 10 A - past an 8 A circuit, within a 12 A one.
+
+# The share entry at circuit `num`'s chip in full: label, disabled, title,
+# and whether .run() exists (a refused entry carries none).
+SHARE_FULL_PROBE_JS = """(num) => {
+    const app = window.app;
+    const l = app.currentLayer;
+    const fld = document.querySelector(
+        '[data-lrd-field="power-label-' + l.id + '-' + num + '"]');
+    const tile = fld && fld.closest('[data-lrd-tile]');
+    const face = tile && tile.querySelector('[data-hwdock-payload]');
+    if (!face) return { found: false };
+    face.scrollIntoView({ block: 'nearest' });
+    const rect = face.getBoundingClientRect();
+    const m = app._prepareShareMenus(rect.left + rect.width / 2,
+                                     rect.top + rect.height / 2);
+    const s = m.share;
+    return { found: true,
+             label: s ? s.label : null,
+             disabled: !!(s && s.disabled),
+             title: s ? s.title : null,
+             runnable: !!(s && typeof s.run === 'function') };
+}"""
+
+# The batch verb over a sweep selection of `nums`, armed at the canvas's
+# centre (the selection names the screen; the point only has to be off
+# the dock): the entries' label / disabled / title.
+BATCH_PROBE_JS = """(nums) => {
+    const app = window.app, r = window.canvasRenderer;
+    const l = app.currentLayer;
+    app._sweepSelection = { layerId: l.id, nums };
+    const rect = r.canvas.getBoundingClientRect();
+    try {
+        const b = app._prepareBatchMenu(rect.left + rect.width / 2,
+                                        rect.top + rect.height / 2);
+        return b ? b.entries.map(e => ({ label: e.label, disabled: !!e.disabled,
+                                         title: e.title })) : null;
+    } finally { app._sweepSelection = null; }
+}"""
+
+SPLIT_STATE_JS = """() => {
+    const app = window.app, l = app.currentLayer;
+    const sp = app.getPowerSplitters(l);
+    return { merge: sp.manual.merge, split: sp.manual.split,
+             nums: app.screenCircuits(l).map(c => c.num),
+             runIds: app.screenCircuits(l).map(c => c.runIds),
+             custom: app.isCustomPower(l),
+             over: window.canvasRenderer._nferGangs(l).map(g => g.over) };
+}"""
+
+OVER_TEXT = 'share past the amps only in custom mode'
+
+
+def test_auto_mode_refuses_a_share_past_the_amps(page, panel):
+    """Automatic mode, an 8 A circuit, 5 A runs: the Share item is on the
+    menu disabled, its title the reason with the figures; the swept "2fer
+    them" refuses the same way naming the group; and the model writes
+    nothing for either - the store stays empty."""
+    panel({'powerAmperage': 8,
+           'powerSplitters': {'enabled': True, 'maxWays': 3,
+                              'manual': {'merge': [], 'split': []}}})
+    assert page.evaluate(DOCK_INSTALL_JS) == 3, 'fixture: three circuit chips'
+    before = page.evaluate(SPLIT_STATE_JS)
+    assert before['nums'] == [1, 2, 3] and before['merge'] == [], (
+        f"fixture: the packer must leave 5 A runs alone on 8 A: {before}")
+
+    share = page.evaluate(SHARE_FULL_PROBE_JS, 1)
+    assert share['found'] and share['label'] == 'Share with next run via 2fer', share
+    assert share['disabled'] and not share['runnable'], (
+        f"a share past the amps must be refused in automatic mode: {share}")
+    assert share['title'] == ('Runs 1 and 2 together draw 10.0 A on a 8 A '
+                              'circuit - ' + OVER_TEXT), share
+
+    batch = page.evaluate(BATCH_PROBE_JS, [1, 2])
+    assert batch and batch[0]['label'].startswith('2fer them'), batch
+    assert batch[0]['disabled'], f"the batch deal must refuse as a whole: {batch}"
+    assert batch[0]['title'] == ('Runs 1 and 2 together draw 10.0 A on a 8 A '
+                                 'circuit - ' + OVER_TEXT), batch
+
+    # a 3fer over all three runs names the first group that does not fit
+    batch3 = page.evaluate(BATCH_PROBE_JS, [1, 2, 3])
+    three = [e for e in batch3 if e['label'].startswith('3fer')]
+    assert three and three[0]['disabled'], batch3
+    assert three[0]['title'].startswith('Runs 1, 2 and 3 together draw 15.0 A'), three
+
+    # the model refuses too, whatever surface asks
+    refused = page.evaluate("""() => {
+        const app = window.app, l = app.currentLayer;
+        return [app.mergeSplitterCircuits(l, [1, 2]),
+                app.batchShareCircuits(l, [1, 2], 2, 'x')];
+    }""")
+    assert refused == [False, False], refused
+    after = page.evaluate(SPLIT_STATE_JS)
+    assert after['merge'] == [] and after['split'] == [], (
+        f"a refused share must write nothing: {after}")
+
+
+def test_auto_mode_shares_runs_that_fit(page, panel):
+    """Automatic mode, a 12 A circuit, the runs pinned apart: two 5 A runs
+    fit, so Share is live with the figure in its title and a click shares
+    them; the batch deal is live too."""
+    panel({'powerAmperage': 12,
+           'powerSplitters': {'enabled': True, 'maxWays': 3,
+                              'manual': {'merge': [], 'split': [1, 2, 3]}}})
+    assert page.evaluate(DOCK_INSTALL_JS) == 3
+    share = page.evaluate(SHARE_FULL_PROBE_JS, 1)
+    assert share['found'] and not share['disabled'] and share['runnable'], share
+    assert '10.0 A of 12 A' in share['title'], share
+    assert 'OVER' not in share['title'], (
+        f"automatic mode never promises an OVER share: {share}")
+    batch = page.evaluate(BATCH_PROBE_JS, [1, 2])
+    assert batch and not batch[0]['disabled'], batch
+    assert 'within the amps' in batch[0]['title'], batch
+
+    assert page.evaluate(SHARE_RUN_JS, [1, 'share']) is True
+    state = page.evaluate(SPLIT_STATE_JS)
+    assert state['merge'] == [[1, 2]] and state['runIds'] == [[1, 2], [3]], state
+    assert state['over'] == [False], state
+
+
+def test_custom_mode_honors_a_share_past_the_amps_and_flags_over(page, panel):
+    """Custom mode, a 3 A circuit, drawn 2 A circuits: Share is live and
+    says so, the share lands, the wall's registry reads OVER and the chip
+    wears the over fill."""
+    panel(dict(CUSTOM3, powerAmperage=3))
+    assert page.evaluate(DOCK_INSTALL_JS) == 3
+    share = page.evaluate(SHARE_FULL_PROBE_JS, 1)
+    assert share['found'] and not share['disabled'] and share['runnable'], (
+        f"custom mode must honor a share past the amps: {share}")
+    assert '4.0 A of 3 A' in share['title'] and 'flags OVER' in share['title'], share
+    batch = page.evaluate(BATCH_PROBE_JS, [1, 2])
+    assert batch and not batch[0]['disabled'], batch
+
+    assert page.evaluate(SHARE_RUN_JS, [1, 'share']) is True
+    state = page.evaluate(SPLIT_STATE_JS)
+    assert state['merge'] == [[1, 2]] and state['custom'], state
+    assert state['over'] == [True], f"the wall must flag the share OVER: {state}"
+
+    page.wait_for_timeout(100)
+    page.evaluate("() => window.app.renderHardwareDock()")
+    chip = page.evaluate("""() => {
+        const l = window.app.currentLayer;
+        const fld = document.querySelector(
+            '[data-lrd-field="power-label-' + l.id + '-1"]');
+        const tile = fld && fld.closest('[data-lrd-tile]');
+        const face = tile && tile.querySelector('[data-hwdock-payload]');
+        return face ? { over: !!face.querySelector('.hw-dock-fill-over'),
+                        title: face.title } : null;
+    }""")
+    assert chip and chip['over'], f"the chip must wear the over fill: {chip}"
+    assert '4.0 A / 3 A' in chip['title'], chip
+
+
+def test_leaving_custom_mode_unshares_a_share_past_the_amps(page, panel):
+    """Custom mode on with nothing drawn (the wall still routes by the
+    pattern it had), a share of two 5 A runs on an 8 A circuit honored and
+    OVER. The toggle off: the share is undone the app's own way (the runs
+    back on circuits of their own, pinned), in the toggle's ONE history
+    entry, and a toast says why. A share that fits rides through."""
+    def install(amps):
+        return panel({'powerFlowPattern': 'custom', 'lastPowerFlowPattern': 'tl-v',
+                      'powerCustomPaths': {}, 'powerCustomIndex': 1,
+                      'powerAmperage': amps,
+                      'powerSplitters': {'enabled': True, 'maxWays': 3,
+                                         'manual': {'merge': [[1, 2]], 'split': [],
+                                                    'space': 'auto'}}})
+    install(8)
+    before = page.evaluate(SPLIT_STATE_JS)
+    assert before['custom'] and before['merge'] == [[1, 2]], before
+    assert before['runIds'][0] == [1, 2] and before['over'] == [True], (
+        f"fixture: custom mode honors the over share: {before}")
+
+    out = page.evaluate("""() => {
+        const app = window.app;
+        const h0 = app.history.length;
+        app.toggleCustomPowerMode(false);
+        const host = document.getElementById('app-toast-host');
+        const toast = host && host.lastElementChild
+            ? host.lastElementChild.textContent : null;
+        return { added: app.history.length - h0,
+                 action: app.history[app.historyIndex].action,
+                 toast, pattern: app.currentLayer.powerFlowPattern };
+    }""")
+    after = page.evaluate(SPLIT_STATE_JS)
+    assert out['pattern'] == 'tl-v' and not after['custom'], out
+    assert after['merge'] == [] and after['split'] == [1, 2], (
+        f"the over share must be un-shared and pinned on the way out: {after}")
+    assert after['nums'] == [1, 2, 3] and after['over'] == [], after
+    assert out['added'] == 1 and out['action'] == 'Power Custom Mode Toggle', (
+        f"the un-share rides in the toggle's one history entry: {out}")
+    assert out['toast'] and 'runs 1 and 2 drew 10.0 A on a 8 A circuit' in out['toast'], out
+    assert 'holds only in custom mode' in out['toast'], out
+
+    # a share within the amps survives the switch untouched, no toast
+    install(12)
+    kept = page.evaluate("""() => {
+        const app = window.app;
+        const host = document.getElementById('app-toast-host');
+        const n0 = host ? host.childElementCount : 0;
+        app.toggleCustomPowerMode(false);
+        return { toasts: (host ? host.childElementCount : 0) - n0 };
+    }""")
+    state = page.evaluate(SPLIT_STATE_JS)
+    assert state['merge'] == [[1, 2]] and not state['custom'], state
+    assert kept['toasts'] == 0, kept
