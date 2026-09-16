@@ -35,6 +35,29 @@ OUTPUT
     fixed. The IMPORTANT fixes are lifted into their own section - they are
     the ones that change figures someone may have already ordered against,
     and they must not be buried among routine fixes.
+
+A RELEASE POST (the second shape)
+    A feature release reads better as a post than as a sorted list: a lede,
+    then a section per thing with a paragraph or two saying what it does and
+    why, then the fix list at the end. An entry that OPENS WITH PROSE - any
+    line before its first heading or bullet - is rendered in that order, as
+    written:
+
+    v1.0.0 - September 16, 2026
+    ----------------------------
+
+    The lede. One or more paragraphs, blank line between them.
+
+    THE HARDWARE TRAY
+    Prose under the heading, as many paragraphs as it needs.
+    - NEW: a bullet, rendered as a plain bullet (the kind is not printed)
+
+    FIX LIST
+    - FIX: one line each
+
+    Headings are written in caps (so the parser knows them) and printed in
+    sentence case, so keep product names out of them. Nothing is regrouped
+    and no section is invented; what you wrote is what ships.
 """
 
 import argparse
@@ -216,6 +239,82 @@ def build(version, items, summary=None):
     return "\n".join(md)
 
 
+def has_lede(lines):
+    """True when the entry opens with prose: a release post, not a list."""
+    for raw in lines:
+        line = raw.rstrip()
+        if not line.strip():
+            continue
+        if BULLET.match(line) or SECTION_HEADING.match(line) or line.startswith(" "):
+            return False
+        return True
+    return False
+
+
+def parse_post(lines):
+    """The entry as blocks IN DOCUMENT ORDER: heading, prose, item.
+
+    Prose is a run of column-0 lines that are neither heading nor bullet,
+    split into paragraphs at blank lines; an item is a bullet with its
+    continuation, exactly as parse_entry reads one.
+    """
+    blocks, para, cur = [], [], None
+
+    def flush():
+        if para:
+            blocks.append({"type": "p", "text": " ".join(para)})
+            para.clear()
+
+    for raw in lines:
+        line = raw.rstrip()
+        if not line.strip():
+            flush()
+            cur = None
+            continue
+        m = BULLET.match(line)
+        if m:
+            flush()
+            cur = {"type": "item", "kind": m.group(1), "important": bool(m.group(2)),
+                   "parts": [{"type": "p", "text": m.group(3)}]}
+            blocks.append(cur)
+        elif line.startswith("  - ") and cur:
+            if cur["parts"][-1]["type"] != "ul":
+                cur["parts"].append({"type": "ul", "items": []})
+            cur["parts"][-1]["items"].append(line[4:])
+        elif line.startswith("    ") and cur and cur["parts"][-1]["type"] == "ul":
+            cur["parts"][-1]["items"][-1] += " " + line.strip()
+        elif line.startswith("  ") and cur:
+            if cur["parts"][-1]["type"] == "p":
+                cur["parts"][-1]["text"] += " " + line.strip()
+            else:
+                cur["parts"].append({"type": "p", "text": line.strip()})
+        elif SECTION_HEADING.match(line):
+            flush()
+            cur = None
+            head, _, tail = line.partition(" - ")
+            blocks.append({"type": "h", "text": head[0] + head[1:].lower()})
+            if tail.strip():
+                blocks.append({"type": "p", "text": tail.strip()})
+        else:
+            cur = None
+            para.append(line.strip())
+    flush()
+    return blocks
+
+
+def build_post(version, blocks):
+    md = [f"# LED Raster Designer v{version}", ""]
+    for b in blocks:
+        if b["type"] == "h":
+            md += [f"## {b['text']}", ""]
+        elif b["type"] == "p":
+            md += [wrap(b["text"]), ""]
+        else:
+            md += [render_item({"area": None, "parts": b["parts"]}), ""]
+    md.append(INSTALL)
+    return "\n".join(md)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--version-file", default="src/VERSION.txt")
@@ -242,17 +341,26 @@ def main():
                 f"Add the v{want} entry to {args.version_file}, or tag v{version}."
             )
 
-    summary = args.summary or derive_summary(body)
-    items = parse_entry(body)
-    if not items:
-        sys.exit(f"REFUSING TO BUILD NOTES: no entries parsed for v{version}. "
-                 f"Has the VERSION.txt bullet format changed?")
-
-    Path(args.out).write_text(build(version, items, summary), encoding="utf-8")
+    if has_lede(body):
+        blocks = parse_post(body)
+        items = [b for b in blocks if b["type"] == "item"]
+        if not items:
+            sys.exit(f"REFUSING TO BUILD NOTES: the v{version} post has no entries. "
+                     f"Has the VERSION.txt bullet format changed?")
+        Path(args.out).write_text(build_post(version, blocks), encoding="utf-8")
+        shape = "post"
+    else:
+        summary = args.summary or derive_summary(body)
+        items = parse_entry(body)
+        if not items:
+            sys.exit(f"REFUSING TO BUILD NOTES: no entries parsed for v{version}. "
+                     f"Has the VERSION.txt bullet format changed?")
+        Path(args.out).write_text(build(version, items, summary), encoding="utf-8")
+        shape = "list"
     kinds = {}
     for i in items:
         kinds[i["kind"]] = kinds.get(i["kind"], 0) + 1
-    print(f"wrote {args.out} for v{version}: {len(items)} entries "
+    print(f"wrote {args.out} for v{version} as a {shape}: {len(items)} entries "
           f"({', '.join(f'{v} {k}' for k, v in sorted(kinds.items()))})")
 
 
