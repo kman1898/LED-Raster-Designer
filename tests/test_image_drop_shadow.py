@@ -24,6 +24,8 @@ Pinned behaviours:
 * It is in the EXPORT render, not just the on-screen one: performExport() is
   driven for real and the resulting PNG's pixels are decoded and sampled.
   (PDF is assembled server-side from these same PNGs.)
+* Layer Opacity (imageOpacity, 0-100) fades the image AND its shadow as one,
+  on the canvas and in the export, and rides the same persistence roads.
 
 Run locally:
     python3 -m pytest tests/test_image_drop_shadow.py -v --browser chromium
@@ -559,6 +561,191 @@ def test_shadow_is_baked_into_the_exported_png(page):
     assert image_px[0] > 200 and image_px[2] < 60, image_px
     assert shadow_px[2] > 200, shadow_px       # white shadow in the PNG
     assert clear_px[2] < 40, clear_px          # export background
+
+
+# ── Opacity: the image and its shadow fade as one ─────────────────────────
+
+# imageOpacity (0-100, missing = 100) is applied through ctx.globalAlpha
+# around BOTH the shadow composite and the image draw (canvas-images.js
+# renderImageLayer), so the shadow fades with the image instead of standing at
+# full strength under a ghost. Sampled inside the image and inside the shadow,
+# against the "nothing drawn" background read off the same frame.
+
+def _between(v, lo, hi):
+    return lo < v < hi
+
+
+def test_opacity_fades_image_and_shadow_together(page):
+    reset_project(page)
+    draw(page, SHADOW_OFF)
+    bg = background(page)
+    in_image = [IMG_X + 50, IMG_Y + 50]
+    in_shadow = [IMG_X + IMG_W + 20, IMG_Y + 50]
+    # A hard white shadow so the shadow point IS its alpha in the blue
+    # channel, and the red image so the image point is its alpha in red.
+    full = white_shadow(imageShadowSpread=100)
+    full['imageOpacity'] = 100
+    draw(page, full)
+    ink_img, ink_sh = sample(page, [in_image, in_shadow])
+    assert ink_img[0] > 245 and ink_sh[2] > 245, (ink_img, ink_sh)
+
+    half = dict(full, imageOpacity=50)
+    draw(page, half)
+    half_img, half_sh = sample(page, [in_image, in_shadow])
+    # Both blended: neither full ink nor the bare background.
+    assert _between(half_img[0], bg[0] + 30, 235), (half_img, bg)
+    assert _between(half_sh[2], bg[2] + 30, 235), (half_sh, bg)
+    # And in proportion - the shadow did not stay at full strength.
+    assert half_sh[2] < ink_sh[2] - 40, (half_sh, ink_sh)
+    assert half_img[0] < ink_img[0] - 40, (half_img, ink_img)
+    # As ONE layer: the white shadow sits under the whole image (distance 0)
+    # and must not show through the translucent red. Fading the two
+    # separately would put ~64 of white into the blue channel here.
+    assert half_img[2] <= bg[2] + 8, (half_img, bg)
+
+    # 0 draws nothing at all, image and shadow alike.
+    draw(page, dict(full, imageOpacity=0))
+    none_img, none_sh = sample(page, [in_image, in_shadow])
+    assert none_img == bg and none_sh == bg, (none_img, none_sh, bg)
+
+    # A layer with NO imageOpacity (every project from before the slider)
+    # renders exactly as 100 does.
+    draw(page, dict(full, imageOpacity=None))
+    legacy = sample(page, [in_image, in_shadow])
+    assert legacy == [ink_img, ink_sh], (legacy, ink_img, ink_sh)
+
+
+def test_opacity_is_baked_into_the_exported_png(page):
+    reset_project(page)
+    props = white_shadow(imageShadowSpread=100)
+    props['imageOpacity'] = 50
+    draw(page, props)
+    probes = [
+        [IMG_X + 50, IMG_Y + 50],           # the image itself
+        [IMG_X + IMG_W + 20, IMG_Y + 50],   # inside the shadow
+        [IMG_X + IMG_W + 60, IMG_Y + 50],   # past its 40px reach
+    ]
+    out = page.evaluate(EXPORT_JS, probes)
+    assert 'error' not in out, out
+    # The export may be on black or on a transparent ground (the dialog's
+    # checkbox); a decoded transparent PNG hands back un-premultiplied
+    # colour with the blend in the alpha. Flatten over black so the same
+    # assertion holds either way: 50% red reads mid-red, 50% white mid-grey.
+    over_black = lambda px: [round(c * px[3] / 255) for c in px[:3]]
+    image_px, shadow_px, clear_px = [over_black(p) for p in out['pixels']]
+    assert _between(image_px[0], 60, 235), (image_px, out['pixels'])
+    assert image_px[2] < 30, (image_px, out['pixels'])   # no shadow through the image
+    assert _between(shadow_px[2], 60, 235), (shadow_px, out['pixels'])
+    assert clear_px[2] < 40, (clear_px, out['pixels'])
+
+
+def test_opacity_survives_a_reload(page):
+    reset_project(page)
+    draw(page, {'imageOpacity': 40})
+    page.evaluate("""async () => {
+        const app = window.app;
+        const l = app.project.layers.find(x => (x.type || 'screen') === 'image');
+        await app.updateLayers([l]);
+    }""")
+    page.wait_for_timeout(600)
+    page.reload(wait_until='domcontentloaded')
+    page.wait_for_timeout(2500)
+    stored = page.evaluate("""() => {
+        const l = window.app.project.layers.find(x => (x.type || 'screen') === 'image');
+        return l ? l.imageOpacity : null;
+    }""")
+    assert stored == 40, stored
+
+
+COPY_OPACITY_JS = """(before) => fetch('/api/project')
+    .then(r => r.json())
+    .then(p => {
+        const fresh = p.layers.filter(l => !before.includes(l.id));
+        if (fresh.length !== 1) return {error: `${fresh.length} new layers`};
+        return {imageOpacity: fresh[0].imageOpacity};
+    })"""
+
+
+def test_opacity_survives_duplicate_and_paste(page):
+    """Duplicate and paste both go through /api/layer/add-image with a
+    hand-built body (app-clipboard.js); a key left out of it reaches the
+    browser and never the server, and the copy is opaque again on reload."""
+    reset_project(page)
+    draw(page, {'imageOpacity': 35})
+    state = page.evaluate("""async () => {
+        const app = window.app;
+        const l = app.project.layers.find(x => (x.type || 'screen') === 'image');
+        await app.updateLayers([l]);
+        return {id: l.id, before: app.project.layers.map(x => x.id)};
+    }""")
+    page.wait_for_timeout(500)
+
+    page.evaluate("""(id) => {
+        const l = window.app.project.layers.find(x => x.id === id);
+        window.app.duplicateLayer(l);
+    }""", state['id'])
+    page.wait_for_timeout(1200)
+    dup = page.evaluate(COPY_OPACITY_JS, state['before'])
+    assert dup == {'imageOpacity': 35}, f'Duplicate: {dup}'
+
+    before = page.evaluate("() => window.app.project.layers.map(x => x.id)")
+    page.evaluate("""(id) => {
+        const app = window.app;
+        app.currentLayer = app.project.layers.find(x => x.id === id);
+        app.copyLayer();
+        app.pasteLayer();
+    }""", state['id'])
+    page.wait_for_timeout(1200)
+    pasted = page.evaluate(COPY_OPACITY_JS, before)
+    assert pasted == {'imageOpacity': 35}, f'Paste: {pasted}'
+
+
+def test_opacity_slider_reaches_canvas_server_and_one_history_entry(page):
+    """Dragging fires many `input` events and one `change`: the canvas follows
+    every input, the readout follows too, and the commit records exactly ONE
+    'Change Image Opacity' step (debounced), the way the scale slider does."""
+    reset_project(page)
+    page.evaluate("""() => {
+        const app = window.app;
+        app.selectLayer(app.project.layers.find(l => (l.type || 'screen') === 'image'));
+        if (typeof app._flushPendingSaveState === 'function') app._flushPendingSaveState();
+    }""")
+    page.wait_for_timeout(300)
+    draw(page, SHADOW_OFF)
+    bg = background(page)
+    in_image = [IMG_X + 50, IMG_Y + 50]
+    assert page.evaluate("() => document.getElementById('image-opacity-value').textContent") == '100%'
+    history_before = page.evaluate("() => window.app.history.length")
+
+    page.evaluate("""() => {
+        const el = document.getElementById('image-opacity-range');
+        for (const v of [90, 75, 60, 45, 30]) {
+            el.value = String(v);
+            el.dispatchEvent(new Event('input', {bubbles: true}));
+        }
+    }""")
+    page.wait_for_timeout(150)
+    live = sample(page, [in_image])[0]
+    assert _between(live[0], bg[0] + 20, 200), (live, bg)
+    assert page.evaluate("() => document.getElementById('image-opacity-value').textContent") == '30%'
+
+    page.evaluate("""() => {
+        const el = document.getElementById('image-opacity-range');
+        el.dispatchEvent(new Event('change', {bubbles: true}));
+    }""")
+    page.wait_for_timeout(1200)
+    stored = page.evaluate("""async () => {
+        const project = await (await fetch('/api/project')).json();
+        const l = project.layers.find(x => (x.type || 'screen') === 'image');
+        return l ? l.imageOpacity : null;
+    }""")
+    assert stored == 30, stored
+    hist = page.evaluate("""() => ({
+        length: window.app.history.length,
+        last: window.app.history[window.app.history.length - 1].action,
+    })""")
+    assert hist['length'] == history_before + 1, (hist, history_before)
+    assert hist['last'] == 'Change Image Opacity', hist
 
 
 # ── The raster is built once, not once a frame ───────────────────────────

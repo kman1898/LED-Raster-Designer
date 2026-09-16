@@ -6,14 +6,15 @@
 import { LEDRasterApp } from './app-core.js';
 import { sendClientLog } from './helpers.js';
 
-// Carry an image layer's Drop Shadow onto its duplicate / paste. /api/layer/
-// add-image only stores what it is sent, so a field left out here gives the
-// copy a shadow in the browser and none on the server - right until the next
-// reload, the way the gradient block used to be lost.
+// Carry an image layer's Drop Shadow and Opacity onto its duplicate / paste.
+// /api/layer/add-image only stores what it is sent, so a field left out here
+// gives the copy a shadow in the browser and none on the server - right until
+// the next reload, the way the gradient block used to be lost.
 const IMAGE_SHADOW_KEYS = [
     'imageShadowEnabled', 'imageShadowColor', 'imageShadowOpacity',
     'imageShadowAngle', 'imageShadowDistance', 'imageShadowSpread',
     'imageShadowSize',
+    'imageOpacity',
 ];
 
 function _carryImageShadow(layer) {

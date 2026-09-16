@@ -24,10 +24,86 @@ Object.assign(CanvasRenderer.prototype, {
         const y = Number(layer.offset_y) || 0;
         const prevSmoothing = this.ctx.imageSmoothingEnabled;
         this.ctx.imageSmoothingEnabled = true;
+        // Layer opacity, 0-100 (missing = 100, so every project from before
+        // the slider draws byte for byte as it did). Applied through
+        // globalAlpha - one multiply per draw, never per pixel - and every
+        // export (PNG, PDF, PSD, the binder's maps) runs this same renderer,
+        // so they carry it too.
+        const opacity = this._imageLayerOpacity(layer);
         const shadow = this._imageDropShadowParams(layer);
-        if (shadow) this._drawImageDropShadow(img, x, y, w, h, shadow);
-        this.ctx.drawImage(img, x, y, w, h);
+        if (opacity < 1 && shadow) {
+            // Image AND shadow fade as ONE: composite the pair offscreen at
+            // full strength, then draw that once at the layer's alpha.
+            // Fading each separately would let the shadow show through the
+            // translucent image where the two overlap - a 40% white logo
+            // over its own black shadow came out grey (176) instead of white.
+            this._drawImageWithShadowFaded(img, x, y, w, h, shadow, opacity);
+        } else {
+            this.ctx.save();
+            this.ctx.globalAlpha = this.ctx.globalAlpha * opacity;
+            if (shadow) this._drawImageDropShadow(img, x, y, w, h, shadow);
+            this.ctx.drawImage(img, x, y, w, h);
+            this.ctx.restore();
+        }
         this.ctx.imageSmoothingEnabled = prevSmoothing;
+    },
+
+    // 0..1 from the layer's imageOpacity (0-100). Anything unset or unreadable
+    // is fully opaque.
+    _imageLayerOpacity(layer) {
+        const v = layer ? layer.imageOpacity : null;
+        if (v === null || v === undefined || v === '') return 1;
+        const n = Number(v);
+        if (!Number.isFinite(n)) return 1;
+        return Math.max(0, Math.min(100, n)) / 100;
+    },
+
+    // Shadow + image drawn at full strength onto a scratch canvas in DEVICE
+    // pixels (the scratch's transform is the main context's scale alone, so
+    // _drawImageDropShadow measures the same k and reuses its cached raster),
+    // then that one bitmap goes onto the main context at `opacity`. The
+    // placement is in world units, so the main transform - zoom, pan, and a
+    // mirrored canvas's flip - lands it exactly where the direct draw would.
+    _drawImageWithShadowFaded(img, x, y, w, h, p, opacity) {
+        const ctx = this.ctx;
+        let k = 1;
+        if (typeof ctx.getTransform === 'function') {
+            const t = ctx.getTransform();
+            k = Math.hypot(t.a, t.b);
+        } else {
+            k = this.zoom || 1;
+        }
+        if (!Number.isFinite(k) || k <= 0) k = 1;
+        // Everything the shadow can reach: its raster pad, plus the offset.
+        const reach = p.size + 2 + p.distance;
+        const bx = x - reach;
+        const by = y - reach;
+        const bw = w + reach * 2;
+        const bh = h + reach * 2;
+        const MAX_DIM = 4096;
+        if (bw * k > MAX_DIM || bh * k > MAX_DIM) {
+            k = k * Math.min(MAX_DIM / (bw * k), MAX_DIM / (bh * k));
+        }
+        const cw = Math.max(1, Math.ceil(bw * k));
+        const chh = Math.max(1, Math.ceil(bh * k));
+        // Index 2: the shadow pass owns 0 and 1.
+        const off = this._imageShadowScratch(2, cw, chh);
+        off.ctx.setTransform(k, 0, 0, k, -bx * k, -by * k);
+        off.ctx.imageSmoothingEnabled = true;
+        const saved = this.ctx;
+        this.ctx = off.ctx;
+        try {
+            this._drawImageDropShadow(img, x, y, w, h, p);
+            off.ctx.drawImage(img, x, y, w, h);
+        } finally {
+            this.ctx = saved;
+            off.ctx.setTransform(1, 0, 0, 1, 0, 0);
+        }
+        ctx.save();
+        ctx.globalAlpha = ctx.globalAlpha * opacity;
+        ctx.imageSmoothingEnabled = true;
+        ctx.drawImage(off.canvas, bx, by, bw, bh);
+        ctx.restore();
     },
 
     // Read + clamp the per-layer Drop Shadow settings. Returns null when the

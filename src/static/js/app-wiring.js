@@ -433,6 +433,37 @@ class _Wiring {
             });
         }
 
+        // Opacity (image layers). Same shape as Image Scale: the slider's
+        // `input` mutates the layer and re-renders as it moves, `change`
+        // pushes to the server and records ONE history entry, debounced.
+        const imageOpacityRange = document.getElementById('image-opacity-range');
+        const imageOpacityValue = document.getElementById('image-opacity-value');
+        if (imageOpacityRange) {
+            const readOpacity = () => {
+                const n = Math.round(parseFloat(imageOpacityRange.value));
+                if (Number.isNaN(n)) return 100;
+                return Math.max(0, Math.min(100, n));
+            };
+            const imageTargets = () => (this.getSelectedLayers ? this.getSelectedLayers() : [])
+                .filter(l => (l.type || 'screen') === 'image');
+            const applyLiveOpacity = () => {
+                const pct = readOpacity();
+                if (imageOpacityValue) imageOpacityValue.textContent = `${pct}%`;
+                const targets = imageTargets();
+                if (targets.length === 0) return;
+                targets.forEach(l => { l.imageOpacity = pct; });
+                window.canvasRenderer.render();
+            };
+            imageOpacityRange.addEventListener('input', applyLiveOpacity);
+            imageOpacityRange.addEventListener('change', () => {
+                applyLiveOpacity();
+                const targets = imageTargets();
+                if (targets.length === 0) return;
+                this.updateLayers(targets);
+                this.debouncedSaveState('Change Image Opacity');
+            });
+        }
+
         // Drop Shadow (image layers). Same shape as the Image Scale wiring
         // above: mutate the layer, re-render live, then push to the server and
         // record one history entry on commit.

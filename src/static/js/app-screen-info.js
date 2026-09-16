@@ -1456,7 +1456,8 @@ class _ScreenInfo {
                     imageData: this.currentLayer.imageData,
                     imageWidth: this.currentLayer.imageWidth,
                     imageHeight: this.currentLayer.imageHeight,
-                    imageScale: this.currentLayer.imageScale
+                    imageScale: this.currentLayer.imageScale,
+                    imageOpacity: this.currentLayer.imageOpacity
                 };
                 
                 console.log('PRESERVING PROPS:', preservedProps);
@@ -1583,6 +1584,7 @@ class _ScreenInfo {
                 'imageShadowOpacity', 'imageShadowAngle',
                 'imageShadowDistance', 'imageShadowSpread',
                 'imageShadowSize',
+                'imageOpacity',
                 // Production suite: the soca plan must survive the round-trip
                 // or the power map loses its home runs.
                 'powerSocaLengths', 'powerSocaPhaseOffset',
@@ -2055,6 +2057,8 @@ class _ScreenInfo {
         const imageScaleEl = document.getElementById('image-scale');
         const imageScaleRangeEl = document.getElementById('image-scale-range');
         const imageSizeEl = document.getElementById('image-size-display');
+        const imageOpacityRangeEl = document.getElementById('image-opacity-range');
+        const imageOpacityValueEl = document.getElementById('image-opacity-value');
         if (allImages) {
             const scaleCommon = getCommon(l => Math.round((l.imageScale || 1) * 100));
             if (imageScaleEl) {
@@ -2068,6 +2072,16 @@ class _ScreenInfo {
                 const w = primary.imageWidth || 0;
                 const h = primary.imageHeight || 0;
                 imageSizeEl.textContent = `${w}×${h}px`;
+            }
+            // Opacity. A layer made before the slider existed carries no
+            // value and reads as 100, which is exactly how it renders.
+            const opacityCommon = getCommon(l => (l.imageOpacity == null ? 100
+                : Math.max(0, Math.min(100, Math.round(Number(l.imageOpacity))))));
+            if (imageOpacityRangeEl) {
+                imageOpacityRangeEl.value = opacityCommon.mixed ? '100' : String(opacityCommon.value);
+            }
+            if (imageOpacityValueEl) {
+                imageOpacityValueEl.textContent = opacityCommon.mixed ? '-' : `${opacityCommon.value}%`;
             }
             // Drop Shadow. Read straight off the layer so a reload, an undo or
             // a selection change all show what is actually being rendered.
@@ -2104,6 +2118,12 @@ class _ScreenInfo {
             }
             if (imageScaleRangeEl) {
                 imageScaleRangeEl.value = '100';
+            }
+            if (imageOpacityRangeEl) {
+                imageOpacityRangeEl.value = '100';
+            }
+            if (imageOpacityValueEl) {
+                imageOpacityValueEl.textContent = '100%';
             }
             if (imageSizeEl) {
                 imageSizeEl.textContent = '-';

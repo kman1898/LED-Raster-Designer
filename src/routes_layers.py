@@ -114,6 +114,8 @@ def add_layer():
         'imageShadowEnabled', 'imageShadowColor', 'imageShadowOpacity',
         'imageShadowAngle', 'imageShadowDistance', 'imageShadowSpread',
         'imageShadowSize',
+        # Image layer opacity (0-100), same road as the shadow block.
+        'imageOpacity',
     ]
 
     half_fields = {'halfFirstColumn', 'halfLastColumn', 'halfFirstRow', 'halfLastRow'}
@@ -188,7 +190,7 @@ def add_image_layer():
     # not /api/layer/add, so the fields have to be carried here as well.
     for key in ('imageShadowEnabled', 'imageShadowColor', 'imageShadowOpacity',
                 'imageShadowAngle', 'imageShadowDistance', 'imageShadowSpread',
-                'imageShadowSize'):
+                'imageShadowSize', 'imageOpacity'):
         if key in data:
             layer[key] = data[key]
     _assign_canvas_id(layer, data)
@@ -319,6 +321,9 @@ def update_layer(layer_id):
                 'imageShadowEnabled', 'imageShadowColor', 'imageShadowOpacity',
                 'imageShadowAngle', 'imageShadowDistance', 'imageShadowSpread',
                 'imageShadowSize',
+                # Image layer opacity (0-100). Same trap as the shadow block:
+                # leave it out and the slider looks right until the reload.
+                'imageOpacity',
                 'locked', 'screenNameSizeCabinet', 'screenNameSizeDataFlow', 'screenNameSizePower',
                 'textContent', 'textContentPixelMap', 'textContentCabinetId',
                 'textContentShowLook', 'textContentDataFlow', 'textContentPower',
