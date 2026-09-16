@@ -569,3 +569,115 @@ def test_whats_new_launches_from_help_menu(page):
     _end(page)
     page.locator('[data-mode="pixel-map"]').click()
     page.wait_for_timeout(200)
+
+
+# The person's tray as Matt found it on his own machine (2026-09-15): the
+# tray folded to nothing, 100 px tall when open, and a multi strip
+# remembered folded under the very id the demo mints (folds persist per
+# section id in localStorage, so the demo's SL 1 would come up folded).
+TRAY_INIT_JS = """try {
+    localStorage.setItem('lrd_quickstart_disabled', '1');
+    localStorage.setItem('ledRasterSidebarCollapsed_dock', '1');
+    localStorage.setItem('lrd_dock_h', '100');
+    localStorage.setItem('ledRasterPanelCollapsed_hwdock-multi-d1-1', '1');
+} catch (e) {}"""
+
+TRAY_STATE_JS = """() => {
+    const dock = document.getElementById('hardware-dock');
+    const ls = {};
+    for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (/^(ledRasterSidebarCollapsed_dock|lrd_dock_h|ledRasterPanelCollapsed_hwdock-)/.test(k)) ls[k] = localStorage.getItem(k);
+    }
+    return {
+        collapsed: !!dock && dock.classList.contains('collapsed'),
+        height: getComputedStyle(document.documentElement).getPropertyValue('--lrd-dock-h').trim(),
+        folded: [...document.querySelectorAll('#hardware-dock .lrd-sec-collapsed')].map(e => e.dataset.lrdSecId),
+        ls,
+    };
+}"""
+
+# Fold SL 1 and its distro through the app's own fold machinery, the way a
+# person folds a section mid-tour.
+FOLD_SL1_JS = """() => {
+    const a = window.app;
+    const d = a.getDistros()[0];
+    const out = [];
+    for (const id of ['hwdock-multi-' + d.id + '-1', 'hwdock-distro-' + d.id]) {
+        const sec = document.querySelector('[data-lrd-sec-id="' + id + '"]');
+        if (sec) { a._setSectionCollapsed(sec, true); out.push(id); }
+    }
+    return out;
+}"""
+
+
+def test_a_folded_tray_and_a_small_window_do_not_break_the_tour(e2e_server, pw_browser):
+    """A 1440x850 window, the tray folded and 100 px tall, SL 1 remembered
+    folded, and - once the distro exists - SL 1 and the distro folded by
+    hand: the Advanced tour's power steps (Add a distro through the multi's
+    cable sheet) still all take. The tray is opened and raised for the
+    demo, every fold above a chip is undone before the hand reaches for it,
+    both multi drops land all six circuits on a cabinet inside the visible
+    canvas (never under the tray, where a release reads as a clear), the
+    callout holds its spot - and Skip puts the person's tray back: folded,
+    100 px, SL 1's fold remembered."""
+    context = pw_browser.new_context(viewport={'width': 1440, 'height': 850})
+    context.add_init_script(TRAY_INIT_JS)
+    pg = context.new_page()
+    try:
+        pg.goto(e2e_server, wait_until='domcontentloaded')
+        pg.wait_for_timeout(2000)
+        before = pg.evaluate(TRAY_STATE_JS)
+        assert before['collapsed'] and before['height'] == '100px', before
+        first = _step_index(pg, 'advanced', 'Add a distro')
+        last = first + 10
+        titles = pg.evaluate("(n) => window.QuickStart.tours()[n].map(s => s.title)", 'advanced')
+        assert 'cable sheet' in titles[last], titles[first:last + 1]
+        pg.evaluate("window.__qsTrace = []")
+        st = _drive_to(pg, 'advanced', first)
+        assert st['qs']['index'] == first, st
+        mid = pg.evaluate(TRAY_STATE_JS)
+        assert not mid['collapsed'], mid
+        assert int(mid['height'].replace('px', '')) >= 200, mid
+        assert mid['folded'] == [], 'the demo strip came up folded: %r' % mid
+        problems = []
+        notes = {}
+        for i in range(first, last + 1):
+            st = _wait_step(pg, i)
+            where = f"advanced step {i + 1} ({st['title']!r})"
+            if st['qs']['index'] != i:
+                problems.append(f"{where}: the engine never settled ({st})")
+                break
+            if st['state'] != 'done' or st['fail'] or not st['note'].strip():
+                problems.append(f"{where}: {st['state']} - {st['note']!r}")
+            notes[st['title']] = st['note']
+            if 'plugs a distro' in st['title']:
+                folded = pg.evaluate(FOLD_SL1_JS)
+                assert len(folded) == 2, folded
+            if i < last:
+                pg.locator('#qs-next').click()
+        assert not problems, '\n'.join(problems)
+        for title, want in (('Drag a multi onto the wall', 'took 6 of 6'),
+                            ('Clear one circuit', 'Circuit 3 is free; 5 circuits'),
+                            ('Land it again', 'holds 6 of 6')):
+            note = next((n for t, n in notes.items() if title in t), '')
+            assert want in note, (title, note)
+        trace = pg.evaluate("window.__qsTrace || []")
+        moves = {}
+        for e in trace:
+            pos = (e['x'], e['y'])
+            seq = moves.setdefault(e['step'], [])
+            if not seq or seq[-1][0] != pos:
+                seq.append((pos, e['by'].split('(')[0].strip()))
+        jumpy = [f"step {s + 1} ({titles[s]!r}) moved {len(q) - 1} times: {q}"
+                 for s, q in sorted(moves.items()) if len(q) > 2]
+        assert not jumpy, '\n'.join(jumpy)
+        pg.locator('#qs-skip').click()
+        pg.wait_for_timeout(1500)
+        assert not pg.evaluate("window.QuickStart.state().visible")
+        after = pg.evaluate(TRAY_STATE_JS)
+        assert after['collapsed'], after
+        assert after['height'] == '100px', after
+        assert after['ls'] == before['ls'], (before['ls'], after['ls'])
+    finally:
+        context.close()

@@ -121,6 +121,13 @@
         return (a && typeof a.getShowSnakes === 'function' ? a.getShowSnakes() : [])[0] || null;
     }
     function beach() { var a = A(); return (a && a.getBeaches ? a.getBeaches() : [])[0] || null; }
+    // A screen's row in the Screens panel (app-layers-panel.js renderLayers).
+    function layerRow(l) { return '#layers-list .layer-item[data-layer-id="' + l.id + '"]'; }
+    // The add-to-selection key: ⌘ on a Mac, Ctrl elsewhere (index.html
+    // stamps the server's platform; the browser's own is the fallback).
+    var IS_MAC = /^darwin/i.test(String(window.LRD_PLATFORM || '')) || (!window.LRD_PLATFORM && /Mac/i.test(navigator.platform || ''));
+    var MOD_KEY = IS_MAC ? '\u2318' : 'Ctrl';
+    var MOD_INIT = IS_MAC ? { metaKey: true } : { ctrlKey: true };
     // The first breakout box on the card (the resolved tree's `cvts`).
     function box() { var c = card(); return ((c && c.cvts) || [])[0] || null; }
     // What the distro's tray header prints: the load against the rating
@@ -243,12 +250,194 @@
     function dockDropPoint() {
         // Anywhere inside the tray is the release (app-dock.js _dockHitTest
         // tests the tray's rectangle, not the element): the header bar's
-        // middle is a spot no chip ever occupies.
+        // middle is a spot no chip ever occupies. `again` re-measures it at
+        // release time - revealing the chip may have grown the tray.
         var dock = $('#hardware-dock');
         var r = dock.getBoundingClientRect();
         var head = $('#hw-dock-head') || dock;
         var hr = head.getBoundingClientRect();
-        return { x: r.left + r.width * 0.5, y: hr.top + Math.min(14, hr.height / 2) };
+        return { x: r.left + r.width * 0.5, y: hr.top + Math.min(14, hr.height / 2), again: dockDropPoint };
+    }
+
+    // ── the tray, normalised for the demo ────────────────────────────────
+    // The person's tray is theirs: folded to nothing, dragged to any
+    // height, every unit and strip folded as they left it (Matt, 2026-09-15,
+    // testing on his own machine with the tray folded and a multi strip
+    // minimised: the chip the step dragged had no size, and the drag began
+    // from the wrong element). The tour records that state, sets the tray
+    // up for the demo - open, at a working height, every section unfolded -
+    // and puts it all back on exit. Mid-tour, every gesture on a tray
+    // element goes through revealInTray first, so a fold the person makes
+    // while watching cannot send the hand to the wrong place either.
+    var DOCK_COLLAPSE_KEY = 'ledRasterSidebarCollapsed_dock';   // app-core.js initSidebarToggles
+    var DOCK_HEIGHT_KEY = 'lrd_dock_h';                          // theme.js PANELS 'dock'
+    var DOCK_FOLD_PREFIX = 'ledRasterPanelCollapsed_hwdock-';   // app-core.js _setSectionCollapsed
+    var DOCK_MIN = 100, DOCK_FLOOR = 120;                        // theme.js's clamp for the dock
+    // The tray height the demo works at: a distro's header, LEGS and
+    // OUTPUTS rows, a multi strip's header and its two rows of chips, with
+    // the strip in view without a scroll.
+    var TOUR_DOCK_H = 250;
+    function dock() { return $('#hardware-dock'); }
+    function dockCollapsed() { var d = dock(); return !!d && d.classList.contains('collapsed'); }
+    function dockHeightNow() {
+        return parseInt(getComputedStyle(document.documentElement).getPropertyValue('--lrd-dock-h'), 10) || 172;
+    }
+    function dockCeiling() {
+        var d = dock(), col = d && d.parentElement;
+        var h = col ? col.clientHeight : 0;
+        if (!(h > 0)) h = window.innerHeight || 0;
+        return Math.max(DOCK_MIN, Math.round(h - DOCK_FLOOR));
+    }
+    // A drag-resize's move (theme.js startDrag): the size onto the CSS var
+    // under .lrd-resizing so no transition runs, then the canvas re-measured
+    // at once. Nothing written to localStorage - the person's saved height
+    // stays theirs.
+    function setDockHeight(px) {
+        var a = A(), app = $('#app'), d = dock();
+        var v = Math.max(DOCK_MIN, Math.min(dockCeiling(), Math.round(px)));
+        if (app) app.classList.add('lrd-resizing');
+        document.documentElement.style.setProperty('--lrd-dock-h', v + 'px');
+        if (d) void d.offsetHeight;   // the new height is in layout now
+        if (app) app.classList.remove('lrd-resizing');
+        if (a && a.remeasureCanvas) a.remeasureCanvas();
+        if (a && a.settleLayout) a.settleLayout();
+    }
+    // The tray's own toggle (app-core.js initSidebarToggles owns the class,
+    // the body class and the settle), instant: the height transition is
+    // suppressed while it flips so the canvas can be re-measured now.
+    function setDockCollapsed(v) {
+        var a = A(), app = $('#app'), d = dock();
+        if (dockCollapsed() === !!v) return;
+        var btn = $('#hardware-dock-toggle');
+        if (!btn) return;
+        if (app) app.classList.add('lrd-resizing');
+        btn.click();
+        if (d) void d.offsetHeight;
+        if (app) app.classList.remove('lrd-resizing');
+        if (a && a.remeasureCanvas) a.remeasureCanvas();
+    }
+    function trayName(el) {
+        if (!el) return 'nothing';
+        if (el.dataset && el.dataset.hwdock) return el.dataset.hwdock;
+        if (el.dataset && el.dataset.lrdField) return el.dataset.lrdField;
+        if (el.id) return '#' + el.id;
+        var c = String(el.className || '').split(' ')[0];
+        return c ? '.' + c : el.tagName.toLowerCase();
+    }
+    // Before any gesture on a tray element: the tray open, tall enough,
+    // every folded section above the element unfolded (the app's own fold
+    // machinery, so the state it persists follows), the element scrolled
+    // into the tray's view, then measured - and an element that still has
+    // no size or lies outside the tray is a thrown Error naming it, never
+    // a gesture aimed at whatever sized ancestor was nearest.
+    function revealInTray(el) {
+        var a = A(), d = dock();
+        if (!a || !d || !el || !d.contains(el)) return Promise.resolve(el);
+        var name = trayName(el);
+        var key = el.dataset && el.dataset.hwdock;
+        if (dockCollapsed()) setDockCollapsed(false);
+        if (dockHeightNow() < TOUR_DOCK_H) setDockHeight(TOUR_DOCK_H);
+        return sleep(0).then(function () {
+            // A rebuild between the query and now (the flip settles the
+            // layout) replaces every node in the tray; the chip's stable
+            // key finds its successor.
+            if (!el.isConnected && key) el = $('[data-hwdock="' + key + '"]');
+            if (!el || !el.isConnected) throw new Error(name + ' is not in the tray');
+            if (typeof a._dockRevealSections === 'function') a._dockRevealSections(el);
+            var r = el.getBoundingClientRect();
+            if (r.width === 0 && r.height === 0) {
+                // A field inside a closed chip: the editor opens for it.
+                var tile = el.closest('.lrd-tile');
+                if (tile && !tile.classList.contains('lrd-tile-open') && el.closest('.lrd-tile-body')
+                        && typeof a._setTileOpen === 'function') {
+                    a._setTileOpen(tile, true);
+                }
+            }
+            try { el.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (e) {}
+            r = el.getBoundingClientRect();
+            if (r.width === 0 && r.height === 0) throw new Error(name + ' has no size in the tray');
+            var dr = d.getBoundingClientRect();
+            var cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+            if (cx < dr.left || cx > dr.right || cy < dr.top || cy > dr.bottom) {
+                throw new Error(name + ' is outside the tray');
+            }
+            return el;
+        });
+    }
+    function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+    function lsPut(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch (e) {} }
+    // The person's tray: open or folded, its height (live and saved), and
+    // every unit's, box's, distro's and strip's fold.
+    function captureTray() {
+        return {
+            collapsed: dockCollapsed(),
+            collapsedSaved: lsGet(DOCK_COLLAPSE_KEY),
+            height: dockHeightNow(),
+            heightSaved: lsGet(DOCK_HEIGHT_KEY),
+            folds: lsKeys(DOCK_FOLD_PREFIX)
+        };
+    }
+    // The demo's tray: open, at the working height, no fold remembered for
+    // any unit - the units the tour mints come up open, whatever the person
+    // had folded under the same ids on their own show.
+    function seedTray() {
+        lsKeys(DOCK_FOLD_PREFIX).forEach(function (e) { lsPut(e.k, null); });
+        if (dockCollapsed()) setDockCollapsed(false);
+        if (dockHeightNow() < TOUR_DOCK_H) setDockHeight(TOUR_DOCK_H);
+    }
+    function restoreTray(t) {
+        var a = A();
+        if (!t) return;
+        lsKeys(DOCK_FOLD_PREFIX).forEach(function (e) { lsPut(e.k, null); });
+        (t.folds || []).forEach(function (e) { lsPut(e.k, e.v); });
+        if (t.height) setDockHeight(t.height);
+        lsPut(DOCK_HEIGHT_KEY, t.heightSaved);
+        setDockCollapsed(!!t.collapsed);
+        lsPut(DOCK_COLLAPSE_KEY, t.collapsedSaved);
+        // The folds re-apply on the next build (app-core.js
+        // _wireSectionCollapse reads them back).
+        try { if (a && a.renderHardwareDock) a.renderHardwareDock(); } catch (e) {}
+    }
+
+    // ── the canvas: every drop lands on what is visible ──────────────────
+    // The canvas's backing store follows #canvas-wrapper (canvas.js
+    // setupCanvas), and only on a resize or a staged settle: a frame set
+    // while the wrapper was taller (the tray hidden in Pixel Map, or
+    // folded) centres the wall on a height the wrapper no longer has, and
+    // the bottom rows end up under the tray - where a release reads as a
+    // clear (app-dock.js _dockHitTest tests the tray's rectangle first).
+    // Matt, 2026-09-15: "the first part of this step is to clear the
+    // circuit" - the multi drop, on a shorter window with a taller tray.
+    function canvasWrapper() { return $('#canvas-wrapper'); }
+    function canvasFresh() {
+        var r = R(), w = canvasWrapper();
+        if (!r || !w || typeof r.setupCanvas !== 'function') return;
+        if (r.canvas.width !== w.clientWidth || r.canvas.height !== w.clientHeight) r.setupCanvas();
+    }
+    function insideCanvas(p, margin) {
+        var w = canvasWrapper() || (R() && R().canvas);
+        if (!w || !p) return false;
+        var rc = w.getBoundingClientRect();
+        return p.x >= rc.left + margin && p.x <= rc.right - margin
+            && p.y >= rc.top + margin && p.y <= rc.bottom - margin;
+    }
+    function describeEl(el) {
+        if (!el) return 'nothing';
+        return el.tagName.toLowerCase() + (el.id ? '#' + el.id : '')
+            + (el.className && typeof el.className === 'string' ? '.' + el.className.trim().split(/\s+/)[0] : '');
+    }
+    // A canvas point a gesture is about to use: inside the visible
+    // wrapper, clear of the tray's tab and its resize strip, and the
+    // canvas itself under it (the overlay passes through during an act).
+    function guardCanvasPoint(p) {
+        if (!p || typeof p.worldX !== 'number') return p;
+        if (!insideCanvas(p, 24)) {
+            throw new Error('the cabinet at ' + Math.round(p.x) + ',' + Math.round(p.y) + ' is off the visible canvas');
+        }
+        var hit = document.elementFromPoint(p.x, p.y);
+        var cv = R() && R().canvas;
+        if (hit !== cv) throw new Error('the canvas is covered at ' + Math.round(p.x) + ',' + Math.round(p.y) + ' by ' + describeEl(hit));
+        return p;
     }
     function snapshot() {
         var a = A();
@@ -425,7 +614,10 @@
     // the rows) - the one rectangle that holds them all.
     function stepRect(step, el) {
         if (!step) return null;
-        var list = (step.ring || []).map(function (q) { return typeof q === 'string' ? $(q) : q; }).filter(Boolean);
+        var list = (step.ring || []).map(function (q) {
+            if (typeof q === 'function') { try { q = q(); } catch (e) { q = null; } }
+            return typeof q === 'string' ? $(q) : q;
+        }).filter(Boolean);
         if (!list.length) return rectOf(el);
         var u = null;
         list.forEach(function (e) {
@@ -783,18 +975,13 @@
         if (!target) return null;
         if (target.nodeType === 1) {
             try { target.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (e) {}
-            // An element that measures zero-size (a chip's face that is
-            // laid out by its tile, a hidden handle) would send the cursor
-            // to the top-left corner; aim at the nearest ancestor with a
-            // size instead. The events still go to the element itself.
-            var sized = target;
-            while (sized && sized.nodeType === 1) {
-                var rr = sized.getBoundingClientRect();
-                if (rr.width > 0 || rr.height > 0) break;
-                sized = sized.parentElement;
-            }
-            var c = centerOf(sized && sized.nodeType === 1 ? sized : target);
-            return { el: target, x: c.x, y: c.y };
+            // The element's own centre, or nothing: an element with no
+            // size (folded away, hidden) is reported by moveTo, never
+            // stood in for by an ancestor that happens to have one - a
+            // drag begun from the wrong element is worse than no drag.
+            var rr = target.getBoundingClientRect();
+            var c = centerOf(target);
+            return { el: target, x: c.x, y: c.y, empty: rr.width === 0 && rr.height === 0 };
         }
         if (typeof target.x === 'number' && typeof target.y === 'number') {
             return { el: target.el || null, x: target.x, y: target.y, worldX: target.worldX, worldY: target.worldY };
@@ -804,6 +991,20 @@
     function setValue(el, v) {
         el.value = v;
         el.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    // What every gesture does before it aims: a tray element is revealed
+    // (revealInTray), a canvas point is guarded (guardCanvasPoint), and a
+    // point that knows how to re-measure itself (`again`) is measured now.
+    function prepare(target) {
+        if (!target) return Promise.resolve(null);
+        if (typeof target.again === 'function') target = target.again();
+        var el = typeof target === 'string' ? $(target) : (target.nodeType === 1 ? target : null);
+        var chain = el && dock() && dock().contains(el) ? revealInTray(el) : Promise.resolve();
+        return chain.then(function () {
+            var p = resolve(target);
+            if (p && p.el && p.empty) throw new Error(describe(target) + ' has no size');
+            return guardCanvasPoint(p);
+        });
     }
 
     // ── the toolkit a step's act(t) receives ─────────────────────────────
@@ -858,12 +1059,21 @@
         mem: {},
         moveTo: function (target, o) {
             o = o || {};
-            var p = resolve(target);
-            if (!p) return Promise.reject(new Error('moveTo: nothing at ' + describe(target)));
-            keepClear(p);
-            showCursor();
-            badge(o.badge || '');
-            return animateTo(p.x, p.y, null, o.speed).then(function () { return p; });
+            return prepare(target).then(function (p) {
+                if (!p) throw new Error('moveTo: nothing at ' + describe(target));
+                keepClear(p);
+                showCursor();
+                badge(o.badge || '');
+                return animateTo(p.x, p.y, null, o.speed).then(function () { return p; });
+            });
+        },
+        // Open the tray around an element before a gesture on it: the tray
+        // expanded and tall enough, every fold above it undone, the element
+        // scrolled into view. Every hover does this itself; a step that
+        // reads a chip before touching it can call it first.
+        reveal: function (target) {
+            var el = typeof target === 'string' ? $(target) : target;
+            return el ? revealInTray(el) : Promise.resolve(null);
         },
         // Arrive on the control and hold there a beat (badge shown) before
         // the press - the hover every click, select, type and drag opens
@@ -951,11 +1161,21 @@
         // - so the app's own ghost chip, pending bracket and pill appear.
         drag: function (from, to, o) {
             o = o || {};
-            var dest = resolve(to);
-            if (!dest) return Promise.reject(new Error('drag: no destination'));
+            if (!to) return Promise.reject(new Error('drag: no destination'));
+            var dest = null;
             return T.hover(from, o).then(function (p) {
                 var el = p.el;
                 if (!el) throw new Error('drag: nothing at ' + describe(from));
+                // The destination is measured AFTER the source is revealed:
+                // opening the tray for the chip moves the canvas (and the
+                // tray's own header) under the point.
+                return prepare(to).then(function (d) {
+                    dest = d;
+                    if (!dest) throw new Error('drag: no destination');
+                    return p;
+                });
+            }).then(function (p) {
+                var el = p.el;
                 press(true);
                 mouse('mousedown', el, p.x, p.y, { buttons: 1 });
                 return T.pause(PACE.dragPress).then(function () {
@@ -1034,41 +1254,25 @@
         // PANEL_POINT_JS). {port: n} the first cabinet of screen port n,
         // {circuit: i} the first cabinet of the i-th circuit, {index: i} the
         // i-th cabinet of the layer.
+        // The point is INSIDE the visible #canvas-wrapper (with a margin) or
+        // the walls are re-framed to the wrapper as it is now and the point
+        // read again; a cabinet that still lies outside is a thrown Error.
+        // {raw: true} skips that (a check that asks whether the wall IS in
+        // view must not be answered by framing it). `again` re-measures the
+        // same cabinet later - after a reveal has moved the canvas.
         cabinetPoint: function (layer, which) {
-            var a = A(), r = R();
-            if (!layer || !r) return null;
-            // The LIVE layer: a commit mid-act (an override's PUT, a resize)
-            // replaces the layer and its panel objects, and getPanelAt walks
-            // the live project - a stale reference would miss by identity.
-            layer = (a.project.layers || []).find(function (l) { return l.id === layer.id; }) || layer;
-            var p = null;
-            if (which.port !== undefined) {
-                var items = a.calculatePortAssignments(layer);
-                var it = items.find(function (i) { return i.port === which.port; });
-                p = it && it.panel;
-            } else if (which.circuit !== undefined) {
-                var c = a.screenCircuits(layer)[which.circuit];
-                // `mid`: the run's middle cabinet rather than its first, which
-                // carries the label disc - a drop aimed at the disc's pixel
-                // can miss the run on a dense wall.
-                p = c && c.panels && c.panels[which.mid ? Math.floor(c.panels.length / 2) : 0];
-            } else {
-                p = (layer.panels || [])[which.index || 0];
-            }
-            if (!p) return null;
-            var off1 = r.getLayerRenderOffset(layer);
-            var off2 = r._layerCanvasOffset(layer);
-            var wx = p.x + p.width / 2 + off1.dx + off2.wx;
-            var wy = p.y + p.height / 2 + off1.dy + off2.wy;
-            var rect = r.canvas.getBoundingClientRect();
-            var pt = { x: rect.left + wx * r.zoom + r.panX, y: rect.top + wy * r.zoom + r.panY,
-                       worldX: wx, worldY: wy, panel: p };
-            try {
-                var hit = r.getPanelAt(wx, wy);
-                if (!hit || String(hit.layerId) !== String(layer.id) || hit.panel.id !== p.id) {
-                    console.warn('QuickStart: cabinetPoint round trip missed', which);
+            var pt = cabinetPointRaw(layer, which);
+            if (!pt || which.raw) return pt;
+            if (!insideCanvas(pt, 24)) {
+                canvasFresh();
+                frameWalls();
+                pt = cabinetPointRaw(layer, which);
+                if (!pt || !insideCanvas(pt, 24)) {
+                    throw new Error('the cabinet' + (pt ? ' at ' + Math.round(pt.x) + ',' + Math.round(pt.y) : '')
+                        + ' is off the visible canvas');
                 }
-            } catch (e) { /* the assert is advisory */ }
+            }
+            pt.again = function () { return T.cabinetPoint(layer, which); };
             return pt;
         },
         // Frame the wall (or several): zoom so the union spans ~60% of the
@@ -1077,10 +1281,52 @@
         frame: function (layers) { frameLayers(layers); }
     };
 
+    function cabinetPointRaw(layer, which) {
+        var a = A(), r = R();
+        if (!layer || !r) return null;
+        // The LIVE layer: a commit mid-act (an override's PUT, a resize)
+        // replaces the layer and its panel objects, and getPanelAt walks
+        // the live project - a stale reference would miss by identity.
+        layer = (a.project.layers || []).find(function (l) { return l.id === layer.id; }) || layer;
+        var p = null;
+        if (which.port !== undefined) {
+            var items = a.calculatePortAssignments(layer);
+            var it = items.find(function (i) { return i.port === which.port; });
+            p = it && it.panel;
+        } else if (which.circuit !== undefined) {
+            var c = a.screenCircuits(layer)[which.circuit];
+            // `mid`: the run's middle cabinet rather than its first, which
+            // carries the label disc - a drop aimed at the disc's pixel
+            // can miss the run on a dense wall.
+            p = c && c.panels && c.panels[which.mid ? Math.floor(c.panels.length / 2) : 0];
+        } else {
+            p = (layer.panels || [])[which.index || 0];
+        }
+        if (!p) return null;
+        var off1 = r.getLayerRenderOffset(layer);
+        var off2 = r._layerCanvasOffset(layer);
+        var wx = p.x + p.width / 2 + off1.dx + off2.wx;
+        var wy = p.y + p.height / 2 + off1.dy + off2.wy;
+        var rect = r.canvas.getBoundingClientRect();
+        var pt = { x: rect.left + wx * r.zoom + r.panX, y: rect.top + wy * r.zoom + r.panY,
+                   worldX: wx, worldY: wy, panel: p };
+        try {
+            var hit = r.getPanelAt(wx, wy);
+            if (!hit || String(hit.layerId) !== String(layer.id) || hit.panel.id !== p.id) {
+                console.warn('QuickStart: cabinetPoint round trip missed', which);
+            }
+        } catch (e) { /* the assert is advisory */ }
+        return pt;
+    }
+
+    // Frames within the wrapper as it IS: the backing store is brought up
+    // to the wrapper's size first, so a tray that just grew or a view that
+    // just hid it cannot leave the wall centred on a stale height.
     function frameLayers(layers) {
         var a = A(), r = R();
         layers = (layers || []).filter(Boolean);
         if (!r || !layers.length) return;
+        canvasFresh();
         var x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
         layers.forEach(function (l) {
             var b = r.getLayerBoundsInActiveView(l);
@@ -1097,6 +1343,16 @@
         r.render();
     }
     function frameWalls() { frameLayers([wall(), wall2()]); }
+    // Where a multi is dropped: the LAST circuit's middle cabinet, so the
+    // span grows across the whole wall - when that cabinet can be brought
+    // into the visible canvas; the first circuit's middle otherwise.
+    function multiDropPoint() {
+        var w = wall(), a = A();
+        if (!w) return null;
+        var last = Math.max(0, a.screenCircuits(w).length - 1);
+        try { return T.cabinetPoint(w, { circuit: last, mid: true }); }
+        catch (e) { return T.cabinetPoint(w, { circuit: 0, mid: true }); }
+    }
 
     // ── the engine ───────────────────────────────────────────────────────
     var S = {
@@ -1371,6 +1627,7 @@
             exportOpen: exportOpen(),
             currentLayerId: a.currentLayer ? a.currentLayer.id : null,
             zoom: r ? r.zoom : null, panX: r ? r.panX : 0, panY: r ? r.panY : 0,
+            tray: captureTray(),
             prefs: null
         };
         return capturePrefs().then(function (p) {
@@ -1383,7 +1640,7 @@
         try {
             localStorage.setItem(STASH_KEY, JSON.stringify({
                 project: w.project, mode: w.mode, sheets: w.sheets, prefs: w.prefs,
-                currentLayerId: w.currentLayerId, at: Date.now()
+                tray: w.tray, currentLayerId: w.currentLayerId, at: Date.now()
             }));
         } catch (e) { /* a project too big for the stash still restores on exit */ }
     }
@@ -1414,6 +1671,7 @@
                 var l = a.project.layers.find(function (x) { return x.id === w.currentLayerId; });
                 if (l) a.selectLayer(l);
             }
+            restoreTray(w.tray);
             a.resetHistory('Recovered');
             try { a.updateUI(); } catch (e) {}
             try { a.renderHardwareDock(); } catch (e) {}
@@ -1499,6 +1757,7 @@
                 if (l) a.selectLayer(l);
             }
             if (r && w.zoom) { r.zoom = w.zoom; r.panX = w.panX; r.panY = w.panY; }
+            restoreTray(w.tray);
             closeTransients();
             var em = $('#export-modal');
             if (em) em.style.display = w.exportOpen ? 'block' : 'none';
@@ -1517,6 +1776,11 @@
         seed = seed || {};
         closeTransients();
         if (a._flushPendingSaveState) a._flushPendingSaveState();
+        // A cable sheet left up on the person's own multi (per distro id
+        // and number, in localStorage) would come up on the demo's strip of
+        // the same id - a strip with its sheet up has no chips to drag. The
+        // flags are captured (SHEET_PREFIXES) and go back on exit.
+        SHEET_PREFIXES.forEach(function (p) { lsKeys(p).forEach(function (e) { lsPut(e.k, null); }); });
         return j('GET', '/api/project').then(function (proj) {
             proj.name = seed.name || 'Demo Show';
             proj.layers = []; proj.groups = []; proj.processors = []; proj.distros = [];
@@ -1565,6 +1829,10 @@
             try { a.renderHardwareDock(); } catch (e) {}
             try { a.loadLayerToInputs(); } catch (e) {}
             a.resetHistory('Tutorial');
+            // The tray for the demo, then the walls framed in the canvas
+            // the tray leaves.
+            seedTray();
+            try { a.renderHardwareDock(); } catch (e) {}
             frameWalls();
         });
     }
@@ -1712,8 +1980,8 @@
             check: function () {
                 var w = wall(), r = R();
                 if (!w || !r) return null;
-                var a = T.cabinetPoint(w, { index: 0 });
-                var b = T.cabinetPoint(w, { index: w.panels.length - 1 });
+                var a = T.cabinetPoint(w, { index: 0, raw: true });
+                var b = T.cabinetPoint(w, { index: w.panels.length - 1, raw: true });
                 var rect = r.canvas.getBoundingClientRect();
                 var inside = function (p) { return p && p.x >= rect.left && p.x <= rect.right && p.y >= rect.top && p.y <= rect.bottom; };
                 return inside(a) && inside(b) ? 'The whole wall is in view.' : null;
@@ -2446,11 +2714,7 @@
         dropMulti: {
             target: function () { var d = distro(); return d ? '[data-hwdock="slot-' + d.id + '-1"]' : '[data-hwdock^="slot-"]'; },
             place: 'top', title: 'Drag a multi onto the wall',
-            avoid: [function () {
-                var w = wall(); if (!w) return null;
-                var last = A().screenCircuits(w).length - 1;
-                return T.cabinetPoint(w, { circuit: Math.max(0, last), mid: true });
-            }],
+            avoid: [function () { return multiDropPoint(); }],
             body: 'Drag multi 1 over the screen: the span starts at the first circuit and grows to the one under your cursor, capped at what is free.',
             before: function () { switchView('power'); },
             act: function (t) {
@@ -2463,14 +2727,13 @@
                     }).length;
                 };
                 t.mem.landed = landed;
-                var last = A().screenCircuits(wall()).length - 1;
                 var onWall = function () {
                     var w = wall(); var m = (w && w.powerSocaDistro) || {};
                     return Object.keys(m).some(function (k) { return m[k] === d.id; });
                 };
                 t.mem.onWall = onWall;
                 var slot = '[data-hwdock="slot-' + d.id + '-1"]';
-                return t.drag(slot, t.cabinetPoint(wall(), { circuit: Math.max(0, last), mid: true })).then(function () {
+                return t.drag(slot, multiDropPoint()).then(function () {
                     return t.wait(function () { return landed() > 0 || onWall(); }, 8000);
                 }).then(function (ok) {
                     // A drop that did not take (a refused hit, a slow commit):
@@ -2764,18 +3027,35 @@
         // beach in one undoable step. The submenu opens on the item's CSS
         // :hover, which the ghost hand cannot raise, so the act opens it
         // while the hand rests on the item and lets it go on the way out.
+        // The selection is the real gesture (Matt, 2026-09-15: the step
+        // "does not show the action of selecting multiple screens"): a
+        // click on one row of the Screens panel, then a ⌘-click (Ctrl on
+        // Windows - app-layers-panel.js reads metaKey || ctrlKey) on the
+        // other, both rows lit, then the right-click on the wall.
         beachByMenu: {
-            target: '#main-canvas', place: 'top', title: 'Put screens on a beach together',
-            avoid: [function () { var w2 = wall2(); return w2 ? T.cabinetPoint(w2, { index: 0 }) : null; }],
-            body: 'Select several screens, right-click one and Put on beach lands them all on a beach in one step. + New beach makes one right there.',
+            target: function () { var w = wall(); return w ? layerRow(w) : '#layers-list'; },
+            ring: [function () { var w = wall(); return w ? layerRow(w) : null; },
+                   function () { var w2 = wall2(); return w2 ? layerRow(w2) : null; }],
+            place: 'left', title: 'Put screens on a beach together',
+            avoid: [function () { var w = wall(); return w ? layerRow(w) : null; },
+                    function () { var w2 = wall2(); return w2 ? layerRow(w2) : null; },
+                    function () { var w2 = wall2(); return w2 ? T.cabinetPoint(w2, { index: 0 }) : null; }],
+            body: 'Select two screens: click one row, then ' + MOD_KEY + '-click the other. Right-click a selected screen on the wall and Put on beach lands them all on one beach in a single step.',
             before: function () { switchView('pixel-map'); frameWalls(); },
             act: function (t) {
                 var a = A(), w = wall(), w2 = wall2(), b = beach();
                 if (!w2 || !b) throw new Error('two screens and a beach are needed');
                 var sub = $('#beach-submenu');
                 var letGo = function () { if (sub) sub.style.display = ''; };
-                a.setSelectedLayersByIds([w.id, w2.id], w.id);
-                return t.pause(PACE.rest).then(function () {
+                return t.click(layerRow(w)).then(function () {
+                    return t.click(layerRow(w2), { init: MOD_INIT, badge: MOD_KEY });
+                }).then(function () {
+                    return t.wait(function () { return a.selectedLayerIds && a.selectedLayerIds.size === 2; }, 1500);
+                }).then(function (both) {
+                    if (!both) throw new Error('the second screen did not join the selection');
+                    // Both rows lit: seen before the hand leaves the panel.
+                    return t.pause(PACE.acted);
+                }).then(function () {
                     return t.rightClick(t.cabinetPoint(w2, { index: 0 }));
                 }).then(function () {
                     var item = $('#context-menu [data-action="beach-menu"]');
@@ -2800,11 +3080,13 @@
                 }).then(letGo, function (e) { letGo(); throw e; });
             },
             check: function () {
-                var w = wall(), w2 = wall2(), b = beach();
+                var a = A(), w = wall(), w2 = wall2(), b = beach();
                 if (!w || !w2 || !b || w.beachId !== b.id || w2.beachId !== b.id) return null;
+                var sel = a.selectedLayerIds;
+                if (!sel || sel.size !== 2 || !sel.has(w.id) || !sel.has(w2.id)) return null;
                 var cnt = $('#beaches-panel .beach-row[data-beach-id="' + b.id + '"] .beach-count');
                 if (!cnt || cnt.textContent.trim() !== '2') return null;
-                return w.name + ' and ' + w2.name + ' stand on ' + b.name + '; the Beaches panel counts 2.';
+                return w.name + ' and ' + w2.name + ' stand on ' + b.name + ', both still selected; the Beaches panel counts 2.';
             },
             after: function () { var sub = $('#beach-submenu'); if (sub) sub.style.display = ''; }
         },
