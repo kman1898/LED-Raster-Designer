@@ -558,17 +558,96 @@ def test_reload_mid_tour_recovers_the_project(page):
     page.wait_for_timeout(200)
 
 
-def test_whats_new_launches_from_help_menu(page):
-    """The Help menu entry and its handler both reach the What's New tour."""
-    assert page.evaluate(
-        "!!document.querySelector('#menu-help [data-action=\\'whats-new-tour\\']')"
-    ), "Help menu has no What's New entry"
-    page.evaluate("window.app.handleMenuAction('whats-new-tour')")
-    st = _wait_step(page, 0)
-    assert 'new in 1.0' in st['title'].lower(), st
-    _end(page)
-    page.locator('[data-mode="pixel-map"]').click()
-    page.wait_for_timeout(200)
+ENGINES = ['chromium', 'firefox']
+
+
+def _in_engine(engine, browser_name, pw_browser, body):
+    """Run `body(browser)` in `engine`. The session's browser (--browser)
+    is used as it is; another engine gets a driver of its own on a worker
+    thread - a second sync_playwright() cannot start inside the session
+    driver's loop, and a thread has a loop of its own. An engine that is
+    not installed skips the test, it never fails it (a friend of Matt's ran
+    the tour in Firefox on Windows, 2026-09-16; the suite must be able to
+    say what Firefox does wherever Firefox is)."""
+    if engine == browser_name:
+        return body(pw_browser)
+    import threading
+    outcome = {}
+
+    def run():
+        try:
+            with pw.sync_playwright() as p:
+                try:
+                    browser = getattr(p, engine).launch(headless=True)
+                except Exception as e:      # playwright's Error, on a missing build
+                    if "Executable doesn't exist" in str(e) or 'not installed' in str(e).lower():
+                        outcome['skip'] = f'{engine} is not installed (python3 -m playwright install {engine})'
+                        return
+                    raise
+                try:
+                    outcome['value'] = body(browser)
+                finally:
+                    browser.close()
+        except BaseException as e:          # pytest's Skipped/Failed ride along
+            outcome['error'] = e
+
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    t.join(600)
+    if t.is_alive():
+        pytest.fail(f'{engine}: the test did not finish in 600 s')
+    if 'skip' in outcome:
+        pytest.skip(outcome['skip'])
+    if 'error' in outcome:
+        raise outcome['error']
+    return outcome.get('value')
+
+
+@pytest.mark.parametrize('engine', ENGINES)
+def test_whats_new_launches_from_help_menu(e2e_server, pw_browser, browser_name, engine):
+    """The Help menu entry and its handler both reach the What's New tour -
+    in Chromium and in Firefox (skipped where Firefox is not installed)."""
+    def body(browser):
+        context = browser.new_context(viewport={'width': 1700, 'height': 950})
+        context.add_init_script(
+            "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        pg = context.new_page()
+        try:
+            pg.goto(e2e_server, wait_until='domcontentloaded')
+            pg.wait_for_timeout(2000)
+            assert pg.evaluate(
+                "!!document.querySelector('#menu-help [data-action=\\'whats-new-tour\\']')"
+            ), "Help menu has no What's New entry"
+            pg.evaluate("window.app.handleMenuAction('whats-new-tour')")
+            st = _wait_step(pg, 0)
+            assert 'new in 1.0' in st['title'].lower(), st
+            # The first Next: the callout leaves the middle of the window
+            # for its spot in the right sidebar, in this engine too.
+            pg.locator('#qs-next').click()
+            st = _wait_step(pg, 1)
+            assert st['qs']['index'] == 1 and st['state'] == 'done' and not st['fail'], st
+            box = pg.evaluate(CALLOUT_JS)
+            assert box['inSidebar'], f'{engine}: the callout is not in the right sidebar: {box}'
+            _end(pg)
+            assert not pg.evaluate("window.QuickStart.state().visible")
+        finally:
+            context.close()
+    _in_engine(engine, browser_name, pw_browser, body)
+
+
+# Where the callout is, against the right sidebar's column and the middle
+# of the window.
+CALLOUT_JS = """() => {
+    const c = document.getElementById('qs-callout').getBoundingClientRect();
+    const s = document.getElementById('right-sidebar').getBoundingClientRect();
+    const cx = c.left + c.width / 2, cy = c.top + c.height / 2;
+    return {
+        box: [Math.round(c.left), Math.round(c.top), Math.round(c.width), Math.round(c.height)],
+        sidebar: [Math.round(s.left), Math.round(s.top), Math.round(s.width), Math.round(s.height)],
+        inSidebar: s.width >= 200 && cx >= s.left && cx <= s.right,
+        centred: Math.abs(cx - window.innerWidth / 2) < 40 && Math.abs(cy - window.innerHeight / 2) < 60,
+    };
+}"""
 
 
 # The person's tray as Matt found it on his own machine (2026-09-15): the
@@ -678,6 +757,85 @@ def test_a_folded_tray_and_a_small_window_do_not_break_the_tour(e2e_server, pw_b
         after = pg.evaluate(TRAY_STATE_JS)
         assert after['collapsed'], after
         assert after['height'] == '100px', after
+        assert after['ls'] == before['ls'], (before['ls'], after['ls'])
+    finally:
+        context.close()
+
+
+# The side panels as a friend of Matt's had them (Firefox on Windows,
+# 2026-09-16): both sidebars folded away and Screen Info folded. Step 3
+# (Cabinet size) reported "#cabinet-width has no size" - the field was
+# display:none under its fold - and the callout sat in the middle of the
+# window, because its spot in the right sidebar was not there.
+PANELS_INIT_JS = """try {
+    localStorage.setItem('lrd_quickstart_disabled', '1');
+    localStorage.setItem('ledRasterSidebarCollapsed_left', '1');
+    localStorage.setItem('ledRasterSidebarCollapsed_right', '1');
+    localStorage.setItem('ledRasterPanelCollapsed_pixel-map--screen-info', '1');
+} catch (e) {}"""
+
+PANELS_STATE_JS = """() => {
+    const ls = {};
+    for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (/^ledRasterSidebarCollapsed_(left|right)$|^ledRasterPanelCollapsed_(?!hwdock-)/.test(k)) ls[k] = localStorage.getItem(k);
+    }
+    const sec = document.querySelector('[data-lrd-sec-id="pixel-map--screen-info"]');
+    const cw = document.getElementById('cabinet-width').getBoundingClientRect();
+    return {
+        left: document.getElementById('left-sidebar').classList.contains('collapsed'),
+        right: document.getElementById('right-sidebar').classList.contains('collapsed'),
+        screenInfoFolded: !!sec && sec.classList.contains('lrd-sec-collapsed'),
+        cabinetWidth: [Math.round(cw.left), Math.round(cw.top), Math.round(cw.width), Math.round(cw.height)],
+        ls,
+    };
+}"""
+
+
+def test_folded_sidebars_and_a_folded_section_do_not_break_the_tour(e2e_server, pw_browser):
+    """A 1440x850 window, both sidebars folded away and Screen Info folded:
+    the Advanced tour's first six steps all take. The panel a step reaches
+    into is opened and the fold above its field undone before the hand
+    reaches for it, the callout is in the right sidebar's column at Cabinet
+    size (never the middle of the window) - and Skip puts the person's
+    panels back: both folded away, Screen Info folded, every saved key as
+    it was."""
+    context = pw_browser.new_context(viewport={'width': 1440, 'height': 850})
+    context.add_init_script(PANELS_INIT_JS)
+    pg = context.new_page()
+    try:
+        pg.goto(e2e_server, wait_until='domcontentloaded')
+        pg.wait_for_timeout(2000)
+        before = pg.evaluate(PANELS_STATE_JS)
+        assert before['left'] and before['right'] and before['screenInfoFolded'], before
+        assert before['cabinetWidth'][2:] == [0, 0], before
+        cab = _step_index(pg, 'advanced', 'Cabinet size')
+        assert cab == 2, cab
+        st = _start(pg, 'advanced')
+        assert st['qs']['index'] == 0, st
+        problems = []
+        for i in range(0, 6):
+            if i > 0:
+                pg.locator('#qs-next').click()
+            st = _wait_step(pg, i)
+            where = f"advanced step {i + 1} ({st['title']!r})"
+            if st['qs']['index'] != i:
+                problems.append(f"{where}: the engine never settled ({st})")
+                break
+            if i > 0 and (st['state'] != 'done' or st['fail'] or not st['note'].strip()):
+                problems.append(f"{where}: {st['state']} - {st['note']!r}")
+            if i == cab:
+                mid = pg.evaluate(PANELS_STATE_JS)
+                box = pg.evaluate(CALLOUT_JS)
+                assert not mid['left'] and not mid['right'] and not mid['screenInfoFolded'], mid
+                assert mid['cabinetWidth'][2] > 100 and mid['cabinetWidth'][0] > 0, mid
+                assert box['inSidebar'] and not box['centred'], box
+        assert not problems, '\n'.join(problems)
+        pg.locator('#qs-skip').click()
+        pg.wait_for_timeout(1500)
+        assert not pg.evaluate("window.QuickStart.state().visible")
+        after = pg.evaluate(PANELS_STATE_JS)
+        assert after['left'] and after['right'] and after['screenInfoFolded'], after
         assert after['ls'] == before['ls'], (before['ls'], after['ls'])
     finally:
         context.close()

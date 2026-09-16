@@ -399,6 +399,134 @@
         try { if (a && a.renderHardwareDock) a.renderHardwareDock(); } catch (e) {}
     }
 
+    // ── the side panels, normalised for the demo ─────────────────────────
+    // The same rule as the tray, for the two sidebars and the sections in
+    // them (a friend of Matt's, 2026-09-16, Firefox on Windows: Screen Info
+    // folded and the right panel folded away - step 3 reported
+    // "#cabinet-width has no size" and the callout sat in the middle of
+    // the window, because the field was display:none under its fold and
+    // the callout's home in the right sidebar was not there). The tour
+    // records both panels' state and every section fold, opens what a step
+    // is about to use - the panel a target lives in, every fold that hides
+    // it - through the app's own toggles, keeps the right sidebar open so
+    // the callout's spot exists, and puts it all back on exit.
+    var SIDE_COLLAPSE_KEYS = {                                  // app-core.js initSidebarToggles
+        left: 'ledRasterSidebarCollapsed_left', right: 'ledRasterSidebarCollapsed_right'
+    };
+    var PANEL_FOLD_PREFIX = 'ledRasterPanelCollapsed_';        // app-core.js _setSectionCollapsed
+    function sidebar(side) { return $('#' + side + '-sidebar'); }
+    function sidebarCollapsed(side) { var s = sidebar(side); return !!s && s.classList.contains('collapsed'); }
+    // The panel's own toggle (app-core.js owns the class, the body class
+    // and the settle), instant: the width transition is suppressed while
+    // it flips so the canvas can be re-measured now - setDockCollapsed
+    // turned on its side.
+    function setSidebarCollapsed(side, v) {
+        var a = A(), app = $('#app'), s = sidebar(side);
+        if (!s || sidebarCollapsed(side) === !!v) return;
+        var btn = $('#' + side + '-sidebar-toggle');
+        if (!btn) return;
+        if (app) app.classList.add('lrd-resizing');
+        btn.click();
+        void s.offsetWidth;
+        if (app) app.classList.remove('lrd-resizing');
+        if (a && a.remeasureCanvas) a.remeasureCanvas();
+        S.home = null;   // the sidebar's room changed; measure the spot again
+    }
+    function sideOf(el) {
+        if (!el) return null;
+        var l = sidebar('left'), r = sidebar('right');
+        if (l && l.contains(el)) return 'left';
+        if (r && r.contains(el)) return 'right';
+        return null;
+    }
+    // Every fold above `el` that hides it, undone through the app's own
+    // fold machinery (so the state it persists follows and the restore on
+    // exit can put the person's fold back). Only a fold that hides the
+    // element: a control on a folded section's header is visible folded.
+    function unfoldAbove(el) {
+        var a = A();
+        for (var n = el && el.parentElement; n; n = n.parentElement) {
+            if (!n.classList || !n.classList.contains('lrd-sec-collapsed')) continue;
+            if (a && typeof a._sectionFoldHides === 'function' && !a._sectionFoldHides(n, el)) continue;
+            if (a && typeof a._setSectionCollapsed === 'function') a._setSectionCollapsed(n, false);
+            else n.classList.remove('lrd-sec-collapsed');
+        }
+    }
+    // Before any gesture on, or ring around, an element in a sidebar: the
+    // sidebar open, every fold that hides the element undone, the element
+    // scrolled into its panel's view. Synchronous - both toggles are.
+    function revealInSidebar(el) {
+        var side = sideOf(el);
+        if (!side) return false;
+        if (sidebarCollapsed(side)) setSidebarCollapsed(side, false);
+        unfoldAbove(el);
+        try { el.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (e) {}
+        return true;
+    }
+    // Everything a step shows: its target, every control it rings, every
+    // control its act will visit (`avoid`). Revealed as the step opens, so
+    // the ring measures the control where it is and the callout's spot is
+    // measured against a panel that is there.
+    function revealStep(step) {
+        if (!step || step.center) return;
+        [step.target].concat(step.ring || [], step.avoid || []).forEach(function (q) {
+            if (typeof q === 'function') { try { q = q(); } catch (e) { q = null; } }
+            var el = null;
+            try { el = typeof q === 'string' ? $(q) : (q && q.nodeType === 1 ? q : null); } catch (e) {}
+            if (el) revealInSidebar(el);
+        });
+    }
+    // The callout's home is in the right sidebar; a tour with that sidebar
+    // folded away would have the callout in the middle of the window.
+    function ensureCalloutHome() {
+        if (sidebarCollapsed('right')) setSidebarCollapsed('right', false);
+    }
+    function sidebarFoldKeys() {
+        return lsKeys(PANEL_FOLD_PREFIX).filter(function (e) { return e.k.indexOf(DOCK_FOLD_PREFIX) !== 0; });
+    }
+    // The person's panels: each sidebar open or folded (live and saved),
+    // and every section fold in either sidebar (live, and every saved key
+    // outside the tray's - the tray is captureTray's).
+    function capturePanels() {
+        return {
+            left: sidebarCollapsed('left'), leftSaved: lsGet(SIDE_COLLAPSE_KEYS.left),
+            right: sidebarCollapsed('right'), rightSaved: lsGet(SIDE_COLLAPSE_KEYS.right),
+            folded: $$('#left-sidebar .lrd-sec-collapsed, #right-sidebar .lrd-sec-collapsed')
+                .map(function (n) { return n.dataset.lrdSecId; }).filter(Boolean),
+            folds: sidebarFoldKeys()
+        };
+    }
+    // The demo's panels: the right sidebar open with its sections unfolded
+    // (the callout's spot is measured off the Screens list), the left one
+    // opened as steps reach into it.
+    function seedPanels() {
+        ensureCalloutHome();
+        $$('#right-sidebar .lrd-sec-collapsed').forEach(function (n) {
+            var a = A();
+            if (a && typeof a._setSectionCollapsed === 'function') a._setSectionCollapsed(n, false);
+        });
+    }
+    function restorePanels(p) {
+        var a = A();
+        if (!p) return;
+        var folded = {};
+        (p.folded || []).forEach(function (id) { folded[id] = 1; });
+        $$('#left-sidebar [data-lrd-sec-id], #right-sidebar [data-lrd-sec-id]').forEach(function (n) {
+            var want = !!folded[n.dataset.lrdSecId];
+            if (n.classList.contains('lrd-sec-collapsed') === want) return;
+            if (a && typeof a._setSectionCollapsed === 'function') a._setSectionCollapsed(n, want);
+            else n.classList.toggle('lrd-sec-collapsed', want);
+        });
+        // The saved keys exactly as they were: the fold machinery wrote its
+        // own on the way, and a key that was absent goes back to absent.
+        sidebarFoldKeys().forEach(function (e) { lsPut(e.k, null); });
+        (p.folds || []).forEach(function (e) { lsPut(e.k, e.v); });
+        setSidebarCollapsed('left', !!p.left);
+        lsPut(SIDE_COLLAPSE_KEYS.left, p.leftSaved);
+        setSidebarCollapsed('right', !!p.right);
+        lsPut(SIDE_COLLAPSE_KEYS.right, p.rightSaved);
+    }
+
     // ── the canvas: every drop lands on what is visible ──────────────────
     // The canvas's backing store follows #canvas-wrapper (canvas.js
     // setupCanvas), and only on a resize or a staged settle: a frame set
@@ -662,6 +790,9 @@
     function lockedBox(cw, ch, r, keep) {
         if (!S.home) {
             var h = homeBox(cw, ch);
+            // No spot because the right sidebar is folded away (the person
+            // folded it mid-tour): open it - the spot is the rule.
+            if (!h && sidebarCollapsed('right')) { ensureCalloutHome(); h = homeBox(cw, ch); }
             if (!h) return null;
             S.home = { x: h.x, y: h.y };
         }
@@ -708,8 +839,16 @@
         var notes = $('#notes-panel');
         var top = below ? below.getBoundingClientRect().bottom + 14 : sr.top + 12;
         var floor = notes ? notes.getBoundingClientRect().top - 10 : sr.bottom - 12;
-        if (floor - top < ch) return null;
-        return { x: x, y: top, p: null };
+        if (floor - top >= ch) return { x: x, y: top, p: null };
+        // A short window (1366 x 768 is a laptop) has neither room: the
+        // spot is still in this column, under the canvas list and over
+        // whatever the sidebar has below - the callout is an overlay, and
+        // lockedBox slides it off any control a step rings there. Never
+        // null for a sidebar that is open: null sends the box to the
+        // middle of the window, and the spot is the rule.
+        var lt2 = list && list.lastElementChild ? list.lastElementChild.getBoundingClientRect().bottom + 14 : sr.top + 12;
+        var y = Math.min(lt2, sr.bottom - ch - 12);
+        return { x: x, y: Math.max(sr.top + 8, y), p: null };
     }
     function layoutFor(placement, r, cw, ch) {
         var gap = 18, vw = window.innerWidth, vh = window.innerHeight;
@@ -999,7 +1138,15 @@
         if (!target) return Promise.resolve(null);
         if (typeof target.again === 'function') target = target.again();
         var el = typeof target === 'string' ? $(target) : (target.nodeType === 1 ? target : null);
-        var chain = el && dock() && dock().contains(el) ? revealInTray(el) : Promise.resolve();
+        var chain;
+        if (el && dock() && dock().contains(el)) chain = revealInTray(el);
+        else {
+            // A sidebar element: the panel opened and every fold above it
+            // undone now - a fold the person made while watching cannot
+            // send the hand to a field that has no size.
+            if (el) revealInSidebar(el);
+            chain = Promise.resolve();
+        }
         return chain.then(function () {
             var p = resolve(target);
             if (p && p.el && p.empty) throw new Error(describe(target) + ' has no size');
@@ -1477,6 +1624,11 @@
         }).then(function () {
             return step.before ? sleep(ms(260)) : null;
         }).then(function () {
+            // What this step shows is on screen before it is rung: the
+            // panel its target lives in open, every fold above it undone,
+            // and the right sidebar open so the callout has its spot.
+            ensureCalloutHome();
+            revealStep(step);
             S.running = false;
             render();
             S.snaps[i] = snapshot();
@@ -1628,6 +1780,7 @@
             currentLayerId: a.currentLayer ? a.currentLayer.id : null,
             zoom: r ? r.zoom : null, panX: r ? r.panX : 0, panY: r ? r.panY : 0,
             tray: captureTray(),
+            panels: capturePanels(),
             prefs: null
         };
         return capturePrefs().then(function (p) {
@@ -1640,7 +1793,7 @@
         try {
             localStorage.setItem(STASH_KEY, JSON.stringify({
                 project: w.project, mode: w.mode, sheets: w.sheets, prefs: w.prefs,
-                tray: w.tray, currentLayerId: w.currentLayerId, at: Date.now()
+                tray: w.tray, panels: w.panels, currentLayerId: w.currentLayerId, at: Date.now()
             }));
         } catch (e) { /* a project too big for the stash still restores on exit */ }
     }
@@ -1672,6 +1825,7 @@
                 if (l) a.selectLayer(l);
             }
             restoreTray(w.tray);
+            restorePanels(w.panels);
             a.resetHistory('Recovered');
             try { a.updateUI(); } catch (e) {}
             try { a.renderHardwareDock(); } catch (e) {}
@@ -1758,6 +1912,7 @@
             }
             if (r && w.zoom) { r.zoom = w.zoom; r.panX = w.panX; r.panY = w.panY; }
             restoreTray(w.tray);
+            restorePanels(w.panels);
             closeTransients();
             var em = $('#export-modal');
             if (em) em.style.display = w.exportOpen ? 'block' : 'none';
@@ -1829,9 +1984,10 @@
             try { a.renderHardwareDock(); } catch (e) {}
             try { a.loadLayerToInputs(); } catch (e) {}
             a.resetHistory('Tutorial');
-            // The tray for the demo, then the walls framed in the canvas
-            // the tray leaves.
+            // The tray and the side panels for the demo, then the walls
+            // framed in the canvas they leave.
             seedTray();
+            seedPanels();
             try { a.renderHardwareDock(); } catch (e) {}
             frameWalls();
         });
