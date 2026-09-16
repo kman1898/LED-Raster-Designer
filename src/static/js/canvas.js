@@ -354,7 +354,7 @@ class CanvasRenderer {
      * the box a rotated screen's label really covers.
      * A no-op, and no allocation at all, when the probe is off.
      */
-    _noteLabelBox(kind, text, x, y, w, h) {
+    _noteLabelBox(kind, text, x, y, w, h, extra) {
         const probe = this.labelProbe;
         if (!probe) return;
         if (!Number.isFinite(x) || !Number.isFinite(y)
@@ -370,8 +370,10 @@ class CanvasRenderer {
             x1 = Math.min(x1, p.x); x2 = Math.max(x2, p.x);
             y1 = Math.min(y1, p.y); y2 = Math.max(y2, p.y);
         }
-        probe.push({ kind, text: (text === undefined || text === null) ? '' : String(text),
-                     x: x1, y: y1, w: x2 - x1, h: y2 - y1 });
+        // `extra`: fields the caller adds beside the box - a cabinet id's
+        // font size, so a test can hold a screen to one size.
+        probe.push(Object.assign({ kind, text: (text === undefined || text === null) ? '' : String(text),
+                                   x: x1, y: y1, w: x2 - x1, h: y2 - y1 }, extra || null));
     }
 
     /**

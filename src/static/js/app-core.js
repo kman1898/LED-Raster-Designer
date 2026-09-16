@@ -848,7 +848,9 @@ export class LEDRasterApp {
             imageShadowAngle: layer.imageShadowAngle,
             imageShadowDistance: layer.imageShadowDistance,
             imageShadowSpread: layer.imageShadowSpread,
-            imageShadowSize: layer.imageShadowSize
+            imageShadowSize: layer.imageShadowSize,
+            // Image layer opacity: same echo race as the shadow block.
+            imageOpacity: layer.imageOpacity
         };
     }
 

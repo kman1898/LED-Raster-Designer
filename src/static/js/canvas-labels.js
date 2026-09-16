@@ -3,6 +3,22 @@
 // and before main.js; every method here lands on CanvasRenderer.prototype by
 // name, so a name defined in two canvas-*.js files is a silent overwrite -
 // tests/test_js_modules.py fails on that.
+
+// A cabinet id lives inside ITS OWN cabinet, whatever the label size says -
+// "cabinet ids should not be able to extend to the panel next to it even if
+// the text is too large" (2026-09-15). The id's box is the cabinet inset by
+// this share of its smaller side (never less than one raster px); at the
+// top-left position the corner keeps its old 5 px stand-off where that is
+// smaller than the pad, so a big cabinet's corner id sits where it always
+// did. An id that would paint smaller than CABINET_ID_FLOOR_PX on the
+// bitmap it lands on is not drawn: a 3 px smear reads as nothing, and hides
+// the cabinet's colour under it. The floor is judged at the DRAW scale
+// (read off the ctx), not the working view's zoom, so an export at scale 1
+// still prints the ids a zoomed-out workspace does not show.
+const CABINET_ID_PAD = 0.12;
+const CABINET_ID_CORNER = 5;
+const CABINET_ID_FLOOR_PX = 5;
+
 Object.assign(CanvasRenderer.prototype, {
     // ── Screen groups (v0.11.0): cabinet IDs that run across the group ────
     //
@@ -308,19 +324,62 @@ Object.assign(CanvasRenderer.prototype, {
             ? (plan.gridUnique ? plan.style : 'sequential')
             : cabinetIdStyle;
 
-        this.ctx.fillStyle = cabinetIdColor;
-        this.ctx.font = `bold ${numberSize}px ${projectFontFamily()}`;
-        
+        const ctx = this.ctx;
+        ctx.fillStyle = cabinetIdColor;
+        const centred = cabinetIdPosition === 'center';
+
         // Position-based settings
-        if (cabinetIdPosition === 'center') {
-            this.ctx.textAlign = 'center';
-            this.ctx.textBaseline = 'middle';
+        if (centred) {
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
         } else {
             // top-left
-            this.ctx.textAlign = 'left';
-            this.ctx.textBaseline = 'top';
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'top';
         }
-        
+
+        // The font is set per cabinet (each fits its own box), so set it only
+        // when the size actually changes - on a wall of equal cabinets and
+        // equal-width ids that is once.
+        const family = projectFontFamily();
+        let fontPx = -1;
+        const setFont = (px) => {
+            if (px === fontPx) return;
+            fontPx = px;
+            ctx.font = `bold ${px}px ${family}`;
+        };
+        // How the id's glyphs stand about their anchor, in world units, at
+        // the current font: the extent above the anchor line and below it.
+        // Centred, the anchor is the cabinet's centre, so the taller of the
+        // two sides decides the fit; at the corner the anchor is the top
+        // line and the glyphs hang below it.
+        const extentOf = (text, px) => {
+            const m = ctx.measureText(text);
+            let asc = m.actualBoundingBoxAscent;
+            let desc = m.actualBoundingBoxDescent;
+            if (!Number.isFinite(asc) || !Number.isFinite(desc)) {
+                asc = centred ? px / 2 : 0;
+                desc = centred ? px / 2 : px;
+            }
+            return { w: m.width, asc, desc,
+                     h: centred ? 2 * Math.max(asc, desc) : asc + desc };
+        };
+        // Bitmap pixels per world unit, read off the ctx so the floor is
+        // judged where the ink lands: the workspace at its zoom, the export
+        // canvas at its export scale.
+        let drawScale = 1;
+        try {
+            const m = ctx.getTransform();
+            drawScale = Math.hypot(m.a, m.b) || 1;
+        } catch (e) { drawScale = 1; }
+
+        // First pass: every drawn cabinet's id and its inner box. The size is
+        // ONE per screen - the user's size shrunk until the widest and the
+        // tallest id on the layer fit the smallest inner box on the layer
+        // (a half-tile's, where there is one) - so neighbouring cabinets
+        // never carry two sizes of type. Simpler than a size per cabinet
+        // size, and a half-tile is rare enough to pay for.
+        const sites = [];
         layer.panels.forEach(panel => {
             if (panel.hidden) return;
             if (panel.x >= this.rasterWidth || panel.y >= this.rasterHeight) return;
@@ -355,19 +414,91 @@ Object.assign(CanvasRenderer.prototype, {
                     label = plan ? plan.numberOf(panel) : panel.number;
             }
             
-            // Calculate position
+            const text = String(label);
+
+            // The id's box: the cabinet as DRAWN (a half-tile is half as
+            // wide or tall, and its panel.width/height say so), inset by the
+            // pad - the corner id keeps its stand-off from the top-left where
+            // that is the smaller.
+            const pw = panel.width, ph = panel.height;
+            const pad = Math.max(1, CABINET_ID_PAD * Math.min(pw, ph));
+            const inset = centred ? pad : Math.min(CABINET_ID_CORNER, pad);
+            // The cabinet's own box, for the registry, in the frame the id is
+            // drawn in - a rotated screen's box turns with it, exactly as
+            // the id's does.
+            if (this.labelProbe) this._noteLabelBox('cabinet', text, panel.x, panel.y, pw, ph);
+            sites.push({ panel, text, inset, innerW: pw - inset - pad, innerH: ph - inset - pad });
+        });
+
+        // The layer's one size.
+        // 1. the user's size, shrunk until the widest id fits the narrowest
+        //    inner box and the tallest the shortest. Width and height scale
+        //    with the font, so one measurement at the user's size gives the
+        //    fitting size; a second measurement at that size catches the
+        //    hinting a fractional font adds, and pulls the size in once more
+        //    if it has to.
+        let innerW = Infinity, innerH = Infinity;
+        for (const s of sites) {
+            innerW = Math.min(innerW, s.innerW);
+            innerH = Math.min(innerH, s.innerH);
+        }
+        if (!sites.length || !(innerW > 0) || !(innerH > 0)) {
+            this.ctx.restore();
+            return;
+        }
+        const widest = (px) => {
+            setFont(px);
+            let w = 0, h = 0, wide = sites[0].text, tall = sites[0].text;
+            for (const s of sites) {
+                const e = extentOf(s.text, px);
+                if (e.w > w) { w = e.w; wide = s.text; }
+                if (e.h > h) { h = e.h; tall = s.text; }
+            }
+            return { w, h, wide, tall };
+        };
+        let ext = widest(numberSize);
+        let px = numberSize;
+        if (ext.w > innerW) px = Math.min(px, numberSize * innerW / ext.w);
+        if (ext.h > innerH) px = Math.min(px, numberSize * innerH / ext.h);
+        ext = widest(px);
+        if (ext.w > innerW || ext.h > innerH) {
+            px *= Math.min(innerW / ext.w, innerH / ext.h);
+            setFont(px);
+        }
+        // 2. below the legibility floor ON THE BITMAP, draw nothing.
+        if (px * drawScale < CABINET_ID_FLOOR_PX) {
+            this.ctx.restore();
+            return;
+        }
+
+        // Second pass: paint every id at the layer's size.
+        for (const s of sites) {
+            const panel = s.panel;
+            const pw = panel.width, ph = panel.height;
+            const e = extentOf(s.text, px);
             let textX, textY;
-            if (cabinetIdPosition === 'center') {
-                textX = panel.x + panel.width / 2;
-                textY = panel.y + panel.height / 2;
+            if (centred) {
+                textX = panel.x + pw / 2;
+                textY = panel.y + ph / 2;
             } else {
                 // top-left with small padding
-                textX = panel.x + 5;
-                textY = panel.y + 5;
+                textX = panel.x + s.inset;
+                textY = panel.y + s.inset;
             }
-            
-            this._fillText(label, this.snap(textX), this.snap(textY));
-        });
+            this._noteLabelBox('cabinetId', s.text,
+                               centred ? textX - e.w / 2 : textX, textY - e.asc,
+                               e.w, e.asc + e.desc, { size: px });
+
+            // 3. and whatever the measurement said, the ink stops at the
+            //    cabinet's edge: the clip is in the frame the cabinet was
+            //    drawn in, so a rotated screen's clip turns with it.
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(panel.x, panel.y, pw, ph);
+            ctx.clip();
+            this._fillText(s.text, this.snap(textX), this.snap(textY));
+            ctx.restore();
+        }
 
         this.ctx.restore();
     },

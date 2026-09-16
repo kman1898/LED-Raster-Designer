@@ -75,12 +75,76 @@ class _MenuBar {
             this.globalContextMenuBound = true;
         }
 
+        // The File menu's printed accelerators are honoured here, on the
+        // same dispatcher the menu items go through (handleMenuAction), so
+        // a label never promises a key the app ignores. Bound once, like
+        // the context menu above: setupMenuBar can run again.
+        if (!this.menuShortcutsBound) {
+            document.addEventListener('keydown', (e) => this.handleMenuShortcut(e));
+            this.menuShortcutsBound = true;
+        }
+
         // Populate recent files submenu
         this.updateRecentFilesMenu();
     }
 
+    // The keyboard route into the File menu. One chord string is built from
+    // the event and matched against the labels index.html prints (Cmd on a
+    // Mac, Ctrl elsewhere - the read _isMacPlatform makes, so the printed
+    // modifier and the honoured one never disagree): 'mod+KeyO' is Open,
+    // 'mod+KeyS' Save, 'alt+KeyS' Export PNG, 'mod+alt+KeyS' Export PSD.
+    // e.code rather than e.key because Option+S types 'ß' on a Mac.
+    //
+    // No Cmd/Ctrl+N: the app runs in the user's browser, and Chrome, Edge
+    // and Firefox all reserve New Window at the browser level - the page
+    // never sees that keydown, so File > New carries no accelerator.
+    //
+    // Same typing guard as canvas-input's handleKeyDown (Cmd+C/V/J/,):
+    // never while focus is in a field, and - matching those - no check for
+    // an open modal or tour. Ctrl+S in a browser would save the page, so
+    // the default is prevented on every chord that lands.
+    handleMenuShortcut(e) {
+        if (e.repeat) return;
+        if (e.code !== 'KeyO' && e.code !== 'KeyS') return;
+        if (e.shiftKey) return;
+        const isMac = this._isMacPlatform();
+        const mod = isMac ? e.metaKey : e.ctrlKey;
+        const otherMod = isMac ? e.ctrlKey : e.metaKey;
+        if (otherMod) return;
+        if (!mod && !e.altKey) return;
+        if (this._isTypingTarget(document.activeElement)) return;
+        const chord = (mod ? 'mod+' : '') + (e.altKey ? 'alt+' : '') + e.code;
+        let action = null;
+        switch (chord) {
+            case 'mod+KeyO': action = 'open'; break;
+            case 'mod+KeyS': action = 'save'; break;
+            case 'alt+KeyS': action = 'export-png'; break;
+            case 'mod+alt+KeyS': action = 'export-psd'; break;
+            default: return;
+        }
+        e.preventDefault();
+        this.handleMenuAction(action);
+    }
+
+    // The same predicate canvas-input's handleKeyDown calls isTyping, plus
+    // SELECT (app-core's Esc guard counts it too): a shortcut never fires
+    // out of a field the person is typing into.
+    _isTypingTarget(el) {
+        if (!el) return false;
+        const tag = el.tagName;
+        return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
+            || !!el.isContentEditable;
+    }
+
+    // ONE platform read for every printed accelerator - the menu labels
+    // and the Keyboard Shortcuts modal both say Cmd on a Mac and Ctrl
+    // elsewhere, and they must never disagree.
+    _isMacPlatform() {
+        return /Mac|iPhone|iPad|iPod/.test(navigator.platform) || /Mac/.test(navigator.userAgent);
+    }
+
     updateShortcutLabels() {
-        const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.platform) || /Mac/.test(navigator.userAgent);
+        const isMac = this._isMacPlatform();
         document.querySelectorAll('.menu-option[data-label]').forEach(option => {
             // Skip options with submenus, they manage their own content
             if (option.classList.contains('menu-has-submenu')) return;
@@ -435,6 +499,12 @@ class _MenuBar {
     openShortcutsModal() {
         var modal = document.getElementById('shortcuts-modal');
         if (!modal) return;
+        // The modifier reads the way the menus print it (updateShortcutLabels):
+        // every [data-sc-mod] span in the modal is Cmd on a Mac, Ctrl elsewhere.
+        var mod = this._isMacPlatform() ? 'Cmd' : 'Ctrl';
+        modal.querySelectorAll('[data-sc-mod]').forEach(function(el) {
+            el.textContent = mod;
+        });
         modal.style.display = 'block';
         var closeBtn = document.getElementById('shortcuts-close');
         if (closeBtn) {

@@ -279,19 +279,81 @@ Object.assign(CanvasRenderer.prototype, {
         // the discs and the tags it wants; drawCableTags places and paints
         // them (placeCableTag: beside its label, the other side, below,
         // above - the first that covers no other disc and stays inside
-        // the screen). The 2fer / 3fer gang tag is renderNferBrackets' own.
+        // the screen).
+        // THE 2FER / 3FER PILL RIDES WITH THE CABLE TAG (2026-09-15). It
+        // used to float on the gang bracket under the runs' feet, and on a
+        // wall of row runs that line is a row seam nowhere near the runs'
+        // heads: "when two fers or similar are enabled on the screen to be
+        // seen, the drawing isn't obvious what it is connected to". Now it
+        // hangs off the shared circuit's own label disc, a second row of
+        // the cable tag's stack - "it should just connect to 10' True1 for
+        // example. just put it right above that or under it" - so a head
+        // reads "S1-1 · 10' True1 · 2fer". With the cable tags off the pill
+        // takes the tag's place beside the disc; with the Nfer tags off
+        // there is no pill (OVER alone excepted, _nferTagText). Every disc
+        // a shared circuit gets carries it - the one label at the fan-out,
+        // or a disc per member where a member run draws its own.
         const labelDiscs = [];
         const pendingTags = [];
+        // The gang a disc's circuit number names. A shared circuit's own
+        // number is its key on every path; its run ids are keys only on a
+        // custom-routed screen, where they ARE drawn circuit numbers (a
+        // merged member keeps its number and, crossing into a peer, draws
+        // its own disc). On an auto screen a run id is a RUN ordinal in a
+        // different space - the 2fer of runs [1, 2] is circuit 1, and run
+        // 2 is nobody's circuit number - so keying those would hang a
+        // "2fer" off the plain circuit 2 next door.
+        const gangByRun = new Map();
+        const customIds = typeof window.app.isCustomPower === 'function'
+            && window.app.isCustomPower(layer);
+        for (const g of this._nferGangs(layer)) {
+            gangByRun.set(g.num, g);
+            if (customIds) g.runIds.forEach(id => gangByRun.set(id, g));
+        }
         const drawCableTags = () => {
-            const bounds = { left: layerLeft, top: layerTop, right: layerRight, bottom: layerBottom };
+            // The pills are placed in the UPRIGHT frame (_tagFrame): on a
+            // rotated screen "right of the disc" means right on the page,
+            // not right along the rotated wall, and the stack under a tag
+            // is a stack on the page. Unrotated, the frame is the layer's
+            // own and every number below is what it always was.
+            const F = this._tagFrame();
+            const corners = [[layerLeft, layerTop], [layerRight, layerTop],
+                             [layerLeft, layerBottom], [layerRight, layerBottom]]
+                .map(([x, y]) => F.toU(x, y));
+            const bounds = { left: Math.min(...corners.map(c => c.x)),
+                             top: Math.min(...corners.map(c => c.y)),
+                             right: Math.max(...corners.map(c => c.x)),
+                             bottom: Math.max(...corners.map(c => c.y)) };
+            const discsU = labelDiscs.map(d => Object.assign(F.toU(d.x, d.y), { r: d.r }));
+            const ownU = (d) => discsU[labelDiscs.indexOf(d)];
+            const paint = (text, at, colors, kind) => {
+                const pivot = F.fromU(at.x, at.y);
+                this.drawCableTag(text, at.x, at.y, labelSize, colors,
+                                  Object.assign({ pivot }, at.opts), kind);
+            };
             // The pills already down: a tag is placed clear of them as
             // well as of the discs - see placeCableTag.
             const taken = [];
             for (const t of pendingTags) {
-                const at = this.placeCableTag(t.text, t.disc.x, t.disc.y, t.disc.r, labelSize,
-                                              bounds, labelDiscs, t.disc, taken);
+                const own = ownU(t.disc);
+                let base = null;
+                if (t.text) {
+                    const at = this.placeCableTag(t.text, own.x, own.y, own.r, labelSize,
+                                                  bounds, discsU, own, taken);
+                    taken.push(at.rect);
+                    paint(t.text, at, undefined, undefined);
+                    base = at.rect;
+                }
+                if (!t.gang) continue;
+                const text = this._nferTagText(layer, t.gang);
+                if (!text) continue;
+                const colors = this._nferTagColors(t.gang);
+                const at = base
+                    ? this.placeStackedTag(text, base, labelSize, bounds, discsU, own, taken)
+                    : this.placeCableTag(text, own.x, own.y, own.r, labelSize,
+                                         bounds, discsU, own, taken);
                 taken.push(at.rect);
-                this.drawCableTag(t.text, at.x, at.y, labelSize, undefined, at.opts);
+                paint(text, at, colors, 'gang');
             }
             pendingTags.length = 0;
         };
@@ -325,12 +387,15 @@ Object.assign(CanvasRenderer.prototype, {
             // taller than its label circle, so it carries the screen's top
             // and bottom too and shifts inside them the way the circle's
             // centre was shifted.
+            let cableText = null;
             if (layer.showPowerCableTags === true && circuitNum != null
                     && window.app
                     && typeof window.app.powerCircuitCable === 'function') {
                 const cable = window.app.powerCircuitCable(layer, circuitNum);
-                if (cable) pendingTags.push({ text: cable.text, disc });
+                if (cable) cableText = cable.text;
             }
+            const gang = circuitNum != null ? gangByRun.get(circuitNum) || null : null;
+            if (cableText || gang) pendingTags.push({ text: cableText, disc, gang });
         };
         const drawCircuitLabel = (panelStart, panelNext, circuitNum) => {
             const label = window.app ? window.app.getPowerCircuitLabel(layer, circuitNum) : `S1-${circuitNum}`;
@@ -832,31 +897,85 @@ Object.assign(CanvasRenderer.prototype, {
         return (t.plug && t.plug.ok) ? t.plug : null;
     },
 
-    // A committed gang's face on the wall (2026-08-30, "B and then right
-    // click"): a bracket spanning the ganged runs' FEET with the Nfer tag -
-    // red + OVER when the shared circuit is past the screen's amps figure.
-    // The concept mock's after-strips promised exactly this; before it a
-    // share barely read on the map at all. Drawn from the layer's own power
-    // pass, so it inherits every transform the runs get, and it draws in
-    // exports too - the soca brackets live ABOVE the screen, this below,
-    // so the two never collide. Cross-member circuits keep the bracket on
-    // the OWNER's own cabinets: a peer's cabinets live in the peer's frame
-    // and a span computed across frames would land nowhere.
-    renderNferBrackets(layer) {
-        if (!window.app || typeof window.app.screenCircuits !== 'function') return;
-        if ((layer.type || 'screen') !== 'screen') return;
+    // The shared circuits of a screen, resolved for drawing: one entry per
+    // circuit that gangs more than one run - its number, the run ids it
+    // joins, how many ways the splitter is, and whether the shared load is
+    // past the screen's amps figure (the soca plan's per-leg amps against
+    // powerAmperage - the same `over` the tray's gang tag reads). Read by
+    // the bracket under the runs' feet AND by the label pass, which hangs
+    // the Nfer pill off every disc the shared circuit gets - so the two
+    // never disagree about which circuits are shared. Empty off a
+    // non-screen layer, or when the app is not up (a unit render).
+    _nferGangs(layer) {
+        if (!window.app || typeof window.app.screenCircuits !== 'function') return [];
+        if ((layer.type || 'screen') !== 'screen') return [];
         const shared = window.app.screenCircuits(layer)
             .filter(c => Array.isArray(c.runIds) && c.runIds.length > 1);
-        if (!shared.length) return;
+        if (!shared.length) return [];
         const cap = parseFloat(layer.powerAmperage) || 0;
         const byNum = new Map();
         if (typeof window.app.getSocaPlan === 'function') {
             (window.app.getSocaPlan(layer) || []).forEach(s =>
                 (s.legs || []).forEach(l => byNum.set(l.circuit, l.amps)));
         }
+        return shared.map(c => {
+            const amps = byNum.get(c.num) || 0;
+            return { num: c.num, runIds: c.runIds.slice(), ways: c.runIds.length,
+                     over: cap > 0 && amps > cap + 1e-9, panels: c.panels, layers: c.layers };
+        });
+    },
+
+    // The Nfer pill's text for one shared circuit, or null for no pill.
+    // "2fer" / "3fer", "· OVER" appended when the shared load is past the
+    // circuit's amps. The tag is text the user may not want on the wall -
+    // "i need a way to disable the twofer/3fer text on the screen if i
+    // dont want it there" (2026-09-06): per screen (showPowerNferTags,
+    // default on), and the same test in exportMode so the PDF matches the
+    // screen. An OVER gang is a warning, not decoration: with the tags off
+    // it still prints OVER alone, because a red stroke by itself is easy
+    // to miss on a busy wall.
+    _nferTagText(layer, gang) {
+        const tagsOff = layer.showPowerNferTags === false;
+        if (tagsOff && !gang.over) return null;
+        return tagsOff ? 'OVER' : `${gang.ways}fer${gang.over ? ' · OVER' : ''}`;
+    },
+
+    // The Nfer pill's colours: the tray's gang tag is the model - a dark
+    // pill, white text, a grey rim - and red with a white rim when OVER.
+    // Its own colour, never the label's: a gang tag in the power label's
+    // orange sat on the wall as one more orange disc - "when two fer is
+    // shown it should not be the same color as the power label due to it
+    // being hard to read" (2026-09-06). The printer page swaps the family
+    // for black on white in drawCableTag itself, OVER saying so in text.
+    _nferTagColors(gang) {
+        return gang.over
+            ? { fill: '#d05a52', rim: '#ffffff', ink: NFER_TAG_COLORS.ink }
+            : NFER_TAG_COLORS;
+    },
+
+    // A committed gang's face on the wall (2026-08-30, "B and then right
+    // click"): a bracket spanning the ganged runs' FEET - red when the
+    // shared circuit is past the screen's amps figure. The concept mock's
+    // after-strips promised exactly this; before it a share barely read on
+    // the map at all. Drawn from the layer's own power pass, so it inherits
+    // every transform the runs get, and it draws in exports too - the soca
+    // brackets live ABOVE the screen, this below, so the two never
+    // collide. Cross-member circuits keep the bracket on the OWNER's own
+    // cabinets: a peer's cabinets live in the peer's frame and a span
+    // computed across frames would land nowhere.
+    // The "2fer" / "3fer" pill used to float on this line, and on a wall
+    // of row runs the line is a row seam a long way from the runs' heads:
+    // "the drawing isn't obvious what it is connected to" (2026-09-15).
+    // The pill now hangs off the shared circuit's own label disc with its
+    // cable tag - "it should just connect to 10' True1 for example. just
+    // put it right above that or under it" - see renderPowerArrows'
+    // drawCableTags. The bracket itself is unchanged.
+    renderNferBrackets(layer) {
+        const gangs = this._nferGangs(layer);
+        if (!gangs.length) return;
         const labelSize = Math.max(10, (layer.powerLabelSize || 14) * 0.8);
         this.ctx.save();
-        for (const c of shared) {
+        for (const c of gangs) {
             const own = c.layers
                 ? c.panels.filter((p, i) => !c.layers[i]
                     || c.layers[i] === layer || c.layers[i].id === layer.id)
@@ -871,20 +990,12 @@ Object.assign(CanvasRenderer.prototype, {
             });
             if (!Number.isFinite(x1) || !Number.isFinite(x2)
                     || !Number.isFinite(yBot)) continue;
-            const amps = byNum.get(c.num) || 0;
-            const over = cap > 0 && amps > cap + 1e-9;
-            // Its own colour, never the label's: a gang tag in the power
-            // label's orange sat on the wall as one more orange disc -
-            // "when two fer is shown it should not be the same color as
-            // the power label due to it being hard to read" (2026-09-06).
-            // The tray's gang tag is the model: a dark pill, white text, a
-            // grey rim, and the bracket in that grey; red only when OVER.
-            const color = this._ink(over ? '#d05a52' : NFER_TAG_COLORS.rim);
+            // The tray's gang tag's grey; red only when OVER.
+            const color = this._ink(c.over ? '#d05a52' : NFER_TAG_COLORS.rim);
             // Hugging the gang's own boundary: below the screen for
             // column runs (the clean mock look), ON the row seam for
             // horizontal runs - either way, the line under "these runs
             // share one feed".
-            const pillH = labelSize + 6;
             const y = yBot + labelSize * 0.25;
             const tick = labelSize * 0.45;
             this.ctx.lineWidth = Math.max(1.5, labelSize * 0.12);
@@ -895,56 +1006,6 @@ Object.assign(CanvasRenderer.prototype, {
             this.ctx.lineTo(x2 - 2, y);
             this.ctx.lineTo(x2 - 2, y - tick);
             this.ctx.stroke();
-            // The bracket above is the share itself and always draws; the
-            // tag is text the user may not want on the wall - "i need a
-            // way to disable the twofer/3fer text on the screen if i dont
-            // want it there" (2026-09-06). Per screen, default on, and
-            // the same test in exportMode so the PDF matches the screen.
-            // An OVER gang is a warning, not decoration: with the tags
-            // off it still prints OVER alone, because a red stroke by
-            // itself is easy to miss on a busy wall.
-            const tagsOff = layer.showPowerNferTags === false;
-            if (tagsOff && !over) continue;
-            const label = tagsOff ? 'OVER'
-                : `${c.runIds.length}fer${over ? ' · OVER' : ''}`;
-            this.ctx.font = `bold ${labelSize}px ${projectFontFamily()}`;
-            const cx = (x1 + x2) / 2;
-            const tw = this.ctx.measureText(label).width;
-            const padX = labelSize * 0.4;
-            // Printer page: a white pill with a black rim and black text -
-            // OVER still says OVER, in the text rather than in red.
-            const printer = this.printerMode;
-            // THE PILL STANDS CLEAR OF THE EDGE (2026-09-09). It used to
-            // be centred on the bracket line, so the boundary the bracket
-            // hugs - on a column gang, the WALL'S OWN BOTTOM EDGE - ran
-            // through the middle of the tag and it read as part of the
-            // last row. It cannot drop below that edge to get clear: the
-            // binder's map gutter under a wall is a sixth of the room
-            // this pill needs, so a pill hung under the edge is not
-            // nudged, it is cut off the bitmap. So it rests INSIDE the
-            // edge, its foot a hair above the line, with its bracket
-            // still on the feet under it.
-            const pillY = yBot - labelSize * 0.15 - pillH;
-            const yText = pillY + pillH / 2;
-            this.ctx.fillStyle = printer ? '#ffffff' : (over ? color : NFER_TAG_COLORS.fill);
-            this.ctx.beginPath();
-            if (this.ctx.roundRect) {
-                this.ctx.roundRect(cx - tw / 2 - padX, pillY,
-                                   tw + padX * 2, pillH, pillH / 2);
-            } else {
-                this.ctx.rect(cx - tw / 2 - padX, pillY,
-                              tw + padX * 2, pillH);
-            }
-            this.ctx.fill();
-            this.ctx.lineWidth = Math.max(1, labelSize * 0.08);
-            this.ctx.strokeStyle = printer ? PRINTER_INK : (over ? '#ffffff' : NFER_TAG_COLORS.rim);
-            this.ctx.stroke();
-            this.ctx.fillStyle = printer ? PRINTER_INK : NFER_TAG_COLORS.ink;
-            this.ctx.textAlign = 'center';
-            this.ctx.textBaseline = 'middle';
-            this._noteLabelBox('gang', label, cx - tw / 2 - padX, pillY,
-                               tw + padX * 2, pillH);
-            this._fillText(label, cx, yText);
         }
         this.ctx.restore();
     },
@@ -1121,6 +1182,24 @@ Object.assign(CanvasRenderer.prototype, {
             return { x: a.x, y: a.y, opts, rect: this.cableTagRect(text, a.x, a.y, labelSize, opts) };
         };
         const eps = 1e-6;
+        const cost = this._tagCover(bounds, discs, own, taken);
+        let best = null, bestCost = Infinity;
+        for (const side of order) {
+            const c = candidate(side);
+            const k = cost(c.rect);
+            if (k <= eps) return c;
+            if (k < bestCost) { bestCost = k; best = c; }
+        }
+        return best || candidate('below');
+    },
+
+    // What a pill at a candidate rect would cover, as a function of the
+    // rect: the discs it meets (`discs`, its own `own` skipped), the pills
+    // already down (`taken`), and any part of it outside the screen
+    // (`bounds`). Zero is a clear placement. Shared by placeCableTag and
+    // placeStackedTag so the two rows of a head's stack are judged alike.
+    _tagCover(bounds, discs, own, taken) {
+        const eps = 1e-6;
         const inside = (rc) => rc.x >= bounds.left - eps && rc.x + rc.w <= bounds.right + eps
             && rc.y >= bounds.top - eps && rc.y + rc.h <= bounds.bottom + eps;
         const meets = (rc, d) => {
@@ -1132,9 +1211,7 @@ Object.assign(CanvasRenderer.prototype, {
         const placed = (taken || []).filter(Boolean);
         const overlaps = (a, b) => Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x))
             * Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
-        // What a candidate would cover: the discs it meets, the pills
-        // already down, and any part of it outside the screen.
-        const cost = (rc) => {
+        return (rc) => {
             let c = 0;
             for (const d of others) {
                 if (!meets(rc, d)) continue;
@@ -1144,22 +1221,78 @@ Object.assign(CanvasRenderer.prototype, {
             if (!inside(rc)) c += rc.w * rc.h;
             return c;
         };
-        let best = null, bestCost = Infinity;
-        for (const side of order) {
-            const c = candidate(side);
-            const k = cost(c.rect);
-            if (k <= eps) return c;
-            if (k < bestCost) { bestCost = k; best = c; }
-        }
-        return best || candidate('below');
+    },
+
+    // Where a second pill goes in a head's tag stack: directly UNDER the
+    // pill already there (`base`, a rect placeCableTag returned), flush
+    // with the base's edge NEAREST THE DISC - the left edge of a tag hung
+    // right of its disc, the right edge of one hung left of it - and a
+    // hair of a gap between them, so the two read as one column beside
+    // the disc: "SR 5-5 · 10' True1 · 2fer". Above the base instead when
+    // under it would leave the screen or cover a disc or a pill already
+    // down (a tag hung ABOVE its disc at the wall's bottom edge stacks
+    // upward); when neither is clear the one that covers less wins, the
+    // same give as placeCableTag. Same return shape: the anchor and opts
+    // drawCableTag takes (a 'right' hang whose gap is the quarter label
+    // cableTagRect adds, so the pill lands exactly on `rect`).
+    placeStackedTag(text, base, labelSize, bounds, discs, own, taken) {
+        const tag = this.cableTagLayout(text, labelSize);
+        const gap = Math.max(1, labelSize * 0.08);
+        const hungLeft = !!own && base.x + base.w / 2 < own.x;
+        const left = hungLeft ? base.x + base.w - tag.width : base.x;
+        const candidate = (top) => {
+            const rect = { x: left, y: top, w: tag.width, h: tag.height };
+            return { x: rect.x - labelSize * 0.25, y: rect.y + rect.h / 2,
+                     opts: { side: 'right' }, rect };
+        };
+        const cost = this._tagCover(bounds, discs, own, taken);
+        const below = candidate(base.y + base.h + gap);
+        const above = candidate(base.y - gap - tag.height);
+        const kb = cost(below.rect);
+        if (kb <= 1e-6) return below;
+        const ka = cost(above.rect);
+        return ka < kb ? above : below;
+    },
+
+    // The frame a tag is placed in: the layer's own, turned by the
+    // screen's active rotation (and mirrored on a Back view) so that its
+    // axes are the PAGE's. `toU` carries a layer-frame point into it,
+    // `fromU` brings one back; `active` says whether the two differ at
+    // all. A pill placed in this frame is placed the way it will be read
+    // - beside its disc on the page - and drawCableTag paints it upright
+    // about `opts.pivot`, the layer-frame point its anchor came from.
+    _tagFrame() {
+        const rad = (this._keepTextUpright && this._activeRotationRad) || 0;
+        const mirror = !!this._mirror;
+        const cos = Math.cos(rad), sin = Math.sin(rad);
+        return {
+            active: !!(rad || mirror),
+            toU: (x, y) => {
+                const ux = x * cos - y * sin, uy = x * sin + y * cos;
+                return { x: mirror ? -ux : ux, y: uy };
+            },
+            fromU: (ux, uy) => {
+                const x = mirror ? -ux : ux, y = uy;
+                return { x: x * cos + y * sin, y: -x * sin + y * cos };
+            },
+        };
     },
 
     // Draws the pill cableTagRect describes at (x, y) - see it for the
     // anchor and `opts.side` / `opts.flip` / `opts.top` / `opts.bottom`.
-    drawCableTag(text, x, y, labelSize, colors, opts) {
+    // `opts.pivot`: (x, y) are then in the upright frame of _tagFrame and
+    // the pivot is the layer-frame point they came from; the pill (rim,
+    // fill, text and the registry's box) is painted about the pivot under
+    // the same counter-rotation _fillText keeps a label upright with, so
+    // the pill stands up WITH its text. Without it, or on an unrotated
+    // screen, the pill draws where it always has.
+    // `kind` is the registry kind the pill is noted under: 'tag' (a cable
+    // tag) unless the caller says otherwise - the Nfer pill notes itself
+    // as 'gang', the name the collision guards and the binder's ink price
+    // have always known the 2fer / 3fer pill by.
+    drawCableTag(text, x, y, labelSize, colors, opts, kind) {
         const c = this.printerMode ? PRINTER_TAG_COLORS : (colors || POWER_CABLE_TAG_COLORS);
         const rc = this.cableTagRect(text, x, y, labelSize, opts);
-        this._noteLabelBox('tag', text, rc.x, rc.y, rc.w, rc.h);
         const tag = rc.layout;
         const { size, padX, lineHeight } = tag;
         this.ctx.save();
@@ -1171,6 +1304,26 @@ Object.assign(CanvasRenderer.prototype, {
         const corner = (size + 4) / 2;
         const left = rc.x;
         y = rc.y + pillH / 2;
+        // THE PILL STANDS UP WITH ITS TEXT (2026-09-15). On a rotated
+        // screen the text is kept upright by _fillText, counter-rotated
+        // about its anchor - and the pill was not, so a 90-degree screen
+        // drew a vertical capsule with "10' Edison" lying across it. With
+        // a pivot the whole pill is painted under that same counter-
+        // rotation about the pivot, text included (raw fillText: the
+        // frame is already upright, so _fillText's own turn would be one
+        // too many), and the registry notes the box under it - which is
+        // where the ink lands. Without a pivot, or unrotated: no
+        // transform, the same rect, the same _fillWrappedLabel as ever.
+        const pivot = opts && opts.pivot;
+        const upright = this._keepTextUpright && this._activeRotationRad;
+        const turned = !!(pivot && (this._mirror || upright));
+        if (turned) {
+            this.ctx.translate(pivot.x, pivot.y);
+            if (upright) this.ctx.rotate(-this._activeRotationRad);
+            if (this._mirror) this.ctx.scale(-1, 1);
+            this.ctx.translate(-x, -y);
+        }
+        this._noteLabelBox(kind || 'tag', text, left, y - pillH / 2, pillW, pillH);
         this.ctx.beginPath();
         if (this.ctx.roundRect) {
             this.ctx.roundRect(left, y - pillH / 2, pillW, pillH, corner);
@@ -1185,9 +1338,16 @@ Object.assign(CanvasRenderer.prototype, {
         this.ctx.fillStyle = c.ink;
         this.ctx.textAlign = 'left';
         this.ctx.textBaseline = 'middle';
-        // One line is _fillText, the same call as before the wrap; a
-        // stack is left-aligned at the pill's text edge, centred on y.
-        this._fillWrappedLabel(tag.lines, left + padX, y, size, lineHeight);
+        if (turned) {
+            const n = tag.lines.length;
+            for (let i = 0; i < n; i++) {
+                this.ctx.fillText(tag.lines[i], left + padX, y + (i - (n - 1) / 2) * lineHeight);
+            }
+        } else {
+            // One line is _fillText, the same call as before the wrap; a
+            // stack is left-aligned at the pill's text edge, centred on y.
+            this._fillWrappedLabel(tag.lines, left + padX, y, size, lineHeight);
+        }
         this.ctx.restore();
     },
 

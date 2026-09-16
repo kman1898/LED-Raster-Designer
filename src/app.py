@@ -784,6 +784,9 @@ def create_image_layer(name, image_data, image_width, image_height, offset_x=0, 
         'imageWidth': image_width,
         'imageHeight': image_height,
         'imageScale': 1.0,
+        # Layer opacity, 0-100. 100 = the image and its drop shadow drawn
+        # exactly as before this existed.
+        'imageOpacity': 100,
         # Keep labels hidden by default for image layers
         'showLabelName': False,
         'showLabelSizePx': False,

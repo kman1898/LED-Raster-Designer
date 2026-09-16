@@ -1,11 +1,14 @@
-"""The 2fer / 3fer tag on a shared circuit's bracket, and the switch that
-hides it.
+"""The 2fer / 3fer tag of a shared circuit, and the switch that hides it.
 
 "i need a way to disable the twofer/3fer text on the screen if i dont want it
 there." (user, 2026-09-06). The Nfer bracket under a ganged circuit's runs
-(canvas.js renderNferBrackets) is the share itself and always draws; the tag
-pill on it - "2fer", "3fer", "2fer · OVER" - is TEXT the user may not want on
-the wall. So the switch is per screen, default ON, and hides only the text:
+(canvas-power.js renderNferBrackets) is the share itself and always draws;
+the tag pill - "2fer", "3fer", "2fer · OVER" - is TEXT the user may not want
+on the wall. Since 2026-09-15 the pill hangs off the shared circuit's label
+disc with its cable tag (renderPowerArrows' drawCableTags; the geometry is
+tests/test_nfer_brackets.py's) rather than on the bracket - "the drawing
+isn't obvious what it is connected to". So the switch is per screen, default
+ON, and hides only the text:
 
   - layer.showPowerNferTags: boolean, default true. Only an explicit false
     hides the tag, so a project saved before the switch keeps its tags.
@@ -81,9 +84,11 @@ SETUP_JS = """async () => {
     };
 }"""
 
-# What one pass of renderNferBrackets puts on the canvas: every stroke()
-# (one per bracket) and every fillText (the tag). Called directly so the
-# stroke count is the bracket count and nothing else's.
+# What the bracket pass and the label pass put on the canvas: every
+# stroke() of renderNferBrackets (one per bracket - called directly so the
+# stroke count is the bracket count and nothing else's), and from the power
+# view's own render every fer / OVER fillText (the pill's text) with the
+# fill it was painted in and the rim stroked right before it.
 BRACKET_PASS_JS = """() => {
     const app = window.app, r = window.canvasRenderer, ctx = r.ctx;
     const layer = app.currentLayer;
@@ -91,10 +96,17 @@ BRACKET_PASS_JS = """() => {
     const texts = [];
     let strokes = 0, pillStrokes = 0;
     const pill = {};
-    ctx.fillText = function (t, x, y, w) { texts.push(String(t)); pill.fill = ctx.fillStyle; return oT.call(ctx, t, x, y, w); };
-    // the bracket strokes with the run-wide width; the tag's rim is the thinner stroke right before its text
-    ctx.stroke = function () { if (ctx.lineWidth >= 1.5) strokes++; else { pillStrokes++; pill.rim = ctx.strokeStyle; } return oS.apply(ctx, arguments); };
-    try { r.renderNferBrackets(layer); } finally { ctx.fillText = oT; ctx.stroke = oS; }
+    ctx.stroke = function () { if (ctx.lineWidth >= 1.5) strokes++; return oS.apply(ctx, arguments); };
+    try { r.renderNferBrackets(layer); } finally { ctx.stroke = oS; }
+    // the pill: its rim is the thin stroke right before its text
+    let lastThin = null;
+    ctx.fillText = function (t, x, y, w) {
+        if (/\\dfer|OVER/.test(String(t))) { texts.push(String(t)); pill.fill = ctx.fillStyle; pill.rim = lastThin; pillStrokes++; }
+        return oT.call(ctx, t, x, y, w);
+    };
+    ctx.stroke = function () { if (ctx.lineWidth < 1.5) lastThin = ctx.strokeStyle; return oS.apply(ctx, arguments); };
+    const prev = r.viewMode;
+    try { r.viewMode = 'power'; r.render(); } finally { ctx.fillText = oT; ctx.stroke = oS; r.viewMode = prev; }
     return { strokes, pillStrokes, texts, flag: layer.showPowerNferTags, pill, labelBg: layer.powerLabelBgColor || '#D95000' };
 }"""
 
