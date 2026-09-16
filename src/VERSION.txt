@@ -585,6 +585,20 @@ v1.0.0 - September 15, 2026 (BETA)
   wrong element, a drop always lands on the visible canvas, and your
   tray comes back as it was. The beach step clicks one screen's row and
   Cmd-clicks the other so the selection is seen.
+- CHANGE: A shared circuit never passes its amps in automatic mode. Share
+  (right-click or the tray's batch sizes) greys out with the reason -
+  "Runs 1 and 2 together draw 23.1 A on a 20 A circuit" - when the runs
+  together would pass the circuit's rating. Custom mode, where you own
+  the runs, still allows the share and flags the chip OVER; leaving
+  custom mode un-shares any circuit that was over. The What's New tour
+  shows it: custom mode on, circuits drawn, two runs 2fer'd.
+- FIX: A screen's binder page reports that screen's own amps on the
+  distro's legs ("SR - 400 A 208 V 3phase - this screen on its legs
+  X 240.7 Y 258.1 Z 258.1 A"), one row per distro, instead of the
+  distro's whole legs across every screen it feeds. The hardware sheet
+  keeps the whole service.
+- FIX: Custom mode with nothing drawn no longer re-routes the wall on
+  toggle; the last flow pattern stays.
 - CHANGE (IMPORTANT): Redundancy is one bar in one place. Behind the
   processor's gear a raised segmented bar - Off, Whole unit, Per card,
   Per port (Off, Backed up, Per port on a standalone unit) - and exactly
