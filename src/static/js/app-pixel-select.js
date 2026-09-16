@@ -346,6 +346,18 @@ class _PixelSelect {
         window.canvasRenderer.render();
     }
 
+    // Cmd/Ctrl+A while a cabinet selection is open (selectAllInView): every
+    // cabinet of the current screen, blank ones included - the same set a
+    // marquee over the whole screen builds, so a bulk restore can follow.
+    selectAllPixelMapPanels() {
+        const layer = this.currentLayer;
+        if (!layer || !Array.isArray(layer.panels)) return;
+        this.pixelMapSelection.clear();
+        layer.panels.forEach(panel => this.pixelMapSelection.add(this.getPanelKey(panel)));
+        this.updatePixelMapBulkActionUI();
+        if (window.canvasRenderer) window.canvasRenderer.render();
+    }
+
     clearPixelMapSelection() {
         if (!this.pixelMapSelection || this.pixelMapSelection.size === 0) return;
         this.pixelMapSelection.clear();

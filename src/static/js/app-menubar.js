@@ -103,9 +103,18 @@ class _MenuBar {
     // never while focus is in a field, and - matching those - no check for
     // an open modal or tour. Ctrl+S in a browser would save the page, so
     // the default is prevented on every chord that lands.
+    //
+    // 'mod+KeyA' rides the same dispatcher but is not a File menu item: it
+    // is Select All (app-selection's selectAllInView - every screen on the
+    // active canvas, or every cabinet of the screen when a cabinet
+    // selection is open on Pixel Map). Out of a field the browser's own
+    // select-all would turn every label in the app into a text selection
+    // that the next canvas drag then DRAGS instead of marquee-selecting
+    // (Windows/Firefox, 2026-09-16), so the default is prevented here. In
+    // a field the typing guard above leaves the browser's select-all to it.
     handleMenuShortcut(e) {
         if (e.repeat) return;
-        if (e.code !== 'KeyO' && e.code !== 'KeyS') return;
+        if (e.code !== 'KeyO' && e.code !== 'KeyS' && e.code !== 'KeyA') return;
         if (e.shiftKey) return;
         const isMac = this._isMacPlatform();
         const mod = isMac ? e.metaKey : e.ctrlKey;
@@ -114,6 +123,17 @@ class _MenuBar {
         if (!mod && !e.altKey) return;
         if (this._isTypingTarget(document.activeElement)) return;
         const chord = (mod ? 'mod+' : '') + (e.altKey ? 'alt+' : '') + e.code;
+        if (chord === 'mod+KeyA') {
+            e.preventDefault();
+            const picked = this.selectAllInView();
+            if (typeof sendClientLog === 'function') {
+                sendClientLog('select_all_shortcut', {
+                    viewMode: window.canvasRenderer ? window.canvasRenderer.viewMode : null,
+                    selected: picked,
+                });
+            }
+            return;
+        }
         let action = null;
         switch (chord) {
             case 'mod+KeyO': action = 'open'; break;

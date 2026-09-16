@@ -144,6 +144,46 @@ class _Selection {
         this.loadLayerToInputs();
         window.canvasRenderer.render();
     }
+
+    // Cmd/Ctrl+A (app-menubar's handleMenuShortcut). Selects everything in
+    // the current view: on Pixel Map with a cabinet selection already open,
+    // every cabinet of that screen (selectAllPixelMapPanels); otherwise
+    // every visible layer on the ACTIVE canvas - the same set a marquee
+    // over the whole canvas would build, so the Screens panel rows follow
+    // through setSelectedLayersByIds. Layers on other canvases are left
+    // alone, so "all" means the canvas the person is working in. Returns
+    // what it selected ('cabinets', 'layers' or 'none') for the caller's
+    // log line.
+    //
+    // Before this existed Ctrl+A fell through to the browser, which
+    // selected every label in the app as TEXT; the next drag on the canvas
+    // then dragged that text selection instead of marquee-selecting
+    // (Windows/Firefox report, 2026-09-16). The keydown is preventDefault'd
+    // by the dispatcher, and #app is user-select: none besides.
+    selectAllInView() {
+        if (!this.project || !this.project.layers) return 'none';
+        const renderer = window.canvasRenderer;
+        const viewMode = renderer ? renderer.viewMode : 'pixel-map';
+        if (viewMode === 'pixel-map' && this.currentLayer
+                && this.pixelMapSelection && this.pixelMapSelection.size > 0
+                && typeof this.selectAllPixelMapPanels === 'function') {
+            this.selectAllPixelMapPanels();
+            return 'cabinets';
+        }
+        const activeId = this.project.active_canvas_id || null;
+        const canvasOf = (layer) => (renderer && renderer._effectiveLayerCanvasId)
+            ? renderer._effectiveLayerCanvasId(layer)
+            : (layer.canvas_id || null);
+        const ids = this.project.layers
+            .filter(l => l.visible !== false)
+            .filter(l => !activeId || canvasOf(l) === activeId)
+            .map(l => l.id);
+        if (ids.length === 0) return 'none';
+        const primaryId = (this.currentLayer && ids.includes(this.currentLayer.id))
+            ? this.currentLayer.id : ids[ids.length - 1];
+        this.setSelectedLayersByIds(ids, primaryId);
+        return 'layers';
+    }
 }
 
 for (const k of Object.getOwnPropertyNames(_Selection.prototype)) {

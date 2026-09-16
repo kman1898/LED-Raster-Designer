@@ -1,6 +1,17 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; overflow: hidden; }
 #app { display: grid; grid-template-columns: 1fr auto; grid-template-rows: auto auto auto 1fr auto; height: 100vh; }
+/* The app chrome - menu bar, toolbar, tabs, sidebars, panels, tray, canvas
+   wrapper, labels, buttons - is never a text selection. Ctrl+A out of a
+   field used to select every label in the app, and the next drag on the
+   canvas then dragged that selection (a ghost of the whole GUI, no-drop
+   cursor) instead of marquee-selecting (Windows/Firefox, 2026-09-16).
+   Only what a person types into stays selectable: fields, the Notes area
+   and anything contenteditable. Modals sit outside #app and keep their
+   text (the logs modal is there to be copied from). */
+#app { user-select: none; -webkit-user-select: none; }
+#app input, #app textarea, #app select, #app [contenteditable]:not([contenteditable="false"]),
+#app #project-notes, #app .notes { user-select: text; -webkit-user-select: text; }
 #app > #menu-bar { grid-column: 1 / -1; }
 #app > #toolbar { grid-column: 1 / 2; }
 #app > #view-tabs { grid-column: 1 / 2; }
@@ -608,7 +619,6 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
     padding: 8px 16px;
     background: #1d1d1d;
     border-bottom: 1px solid #333;
-    user-select: none;
 }
 
 .menu-item {
@@ -1013,7 +1023,6 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
     background: linear-gradient(180deg, #1d1d1d 0%, #181818 100%);
     border-bottom: 1px solid #262626;
     cursor: pointer;
-    user-select: none;
 }
 .canvas-drag-handle {
     color: #666;
