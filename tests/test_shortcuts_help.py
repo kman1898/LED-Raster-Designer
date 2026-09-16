@@ -59,6 +59,7 @@ GESTURE_PHRASES = [
     'Undo / redo',
     'Copy / paste the selected layer',
     'Duplicate the current layer',
+    'Select every screen on the canvas',
     'Delete / Backspace',
     'Open Preferences',
     'Open a project file',
@@ -154,6 +155,7 @@ GESTURE_PHRASES = [
     '× on a beach',
     'Put on beach',
     '+ New beach',
+    'Change cabinet',
     # Cable sheets
     'Next / previous length field',
     'Show the chips again',
@@ -182,6 +184,8 @@ HANDLER_MARKERS = [
     ('mod+KeyS', 'app-menubar.js', 'Save the project to a file'),
     ('alt+KeyS', 'app-menubar.js', 'Export PNG / Export PSD'),
     ('mod+alt+KeyS', 'app-menubar.js', 'Export PNG / Export PSD'),
+    # Select All rides the same dispatcher but is not a File menu item.
+    ('mod+KeyA', 'app-menubar.js', 'Select every screen on the canvas'),
     ('deleteCurrentLayer', 'canvas-input.js', 'Delete / Backspace'),
     ('duplicateLayer', 'canvas-input.js', 'Duplicate the current layer'),
     ('_toggleLayerSelectionFromCanvas', 'canvas-input.js',
@@ -238,6 +242,8 @@ HANDLER_MARKERS = [
     ('_prepareBinderMenu', 'app-context-menu.js', 'Export this screen'),
     ('centerLayersOnCanvas', 'app-context-menu.js', 'Center on Canvas'),
     ('_prepareBeachMenu', 'app-beaches.js', 'Put on beach'),
+    ('_prepareChangeCabinetMenu', 'app-context-menu.js', 'Change cabinet'),
+    ('layer-cabinet-btn', 'app-layers-panel.js', '▦ on a row'),
     ('moveBeachBefore', 'app-beaches.js', 'Reorder the beaches'),
     ('removeBeach', 'app-beaches.js', '× on a beach'),
     ('createBeach', 'app-beaches.js', '+ Add beach'),

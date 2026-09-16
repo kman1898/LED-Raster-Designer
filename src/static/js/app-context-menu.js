@@ -93,6 +93,13 @@ class _ContextMenu {
         const beach = (!inDock && typeof this._prepareBeachMenu === 'function')
             ? this._prepareBeachMenu(x, y) : null;
         this._beachMenuActions = beach;
+        // "Change cabinet…" (2026-09-16): re-pick the cabinet of every
+        // selected screen layer from the catalog or a preset, keeping the
+        // rest of the screen. Armed like the beach item - one or more
+        // screen layers selected, canvas or Screens panel row, never the
+        // dock - and stored here at open time.
+        const cabinet = !inDock ? this._prepareChangeCabinetMenu() : null;
+        this._changeCabinetMenuAction = cabinet;
         if (inDock && !clear && !merge && !sharing.share
                 && !sharing.unshare && !outs && !snake) {
             this.hideContextMenu();
@@ -156,6 +163,9 @@ class _ContextMenu {
             });
             menu.querySelectorAll('.beach-menu-only').forEach(el => {
                 el.style.display = beach ? '' : 'none';
+            });
+            menu.querySelectorAll('.change-cabinet-only').forEach(el => {
+                el.style.display = cabinet ? '' : 'none';
             });
             if (typeof this._fillBeachSubmenu === 'function') {
                 this._fillBeachSubmenu(menu.querySelector('#beach-submenu'), beach);
@@ -285,6 +295,37 @@ class _ContextMenu {
     hideContextMenu() {
         const menu = document.getElementById('context-menu');
         if (menu) menu.style.display = 'none';
+    }
+
+    // "Change cabinet…": armed when the selection holds at least one screen
+    // layer - an image or text layer has no cabinet, and a selection of
+    // only those offers nothing. Returns the screens the pick will apply
+    // to (the right-clicked one included: the canvas and the Screens panel
+    // both put an unselected target into the selection before the menu
+    // opens), or null.
+    _prepareChangeCabinetMenu() {
+        const screens = (this.getSelectedLayers() || [])
+            .filter(l => l && (l.type || 'screen') === 'screen');
+        return screens.length > 0 ? { layers: screens } : null;
+    }
+
+    // The item's click. handleMenuAction (app-menubar.js) is the menu's
+    // dispatcher, but it takes no case for this verb: the item carries its
+    // own listener instead, bound once at setup (setupPresetModals calls
+    // this). The click still bubbles to the menu's handler, which finds no
+    // case and does nothing, and to the document's, which closes the menu.
+    _wireChangeCabinetMenuItem() {
+        const item = document.querySelector('#context-menu [data-action="change-cabinet"]');
+        if (!item || item._changeCabinetWired) return;
+        item._changeCabinetWired = true;
+        item.addEventListener('click', () => this.runChangeCabinetMenu());
+    }
+
+    runChangeCabinetMenu() {
+        const armed = this._changeCabinetMenuAction;
+        this.hideContextMenu();
+        if (!armed || !armed.layers || armed.layers.length === 0) return;
+        this.openChangeCabinet(armed.layers);
     }
 
     /**

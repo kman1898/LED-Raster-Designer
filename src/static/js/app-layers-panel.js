@@ -59,6 +59,14 @@ class _LayersPanel {
                 infoText = `${layer.columns}x${layer.rows} (${activePanels} panels) • ${layer.cabinet_width}×${layer.cabinet_height}px`;
             }
             const lockBadge = layer.locked ? '<span title="Locked" style="margin-left: 6px; color:#bbb;">🔒</span>' : '';
+            // Change cabinet… (2026-09-16), the button left of the eye on a
+            // screen row: a cabinet outline, the same .layer-btn size and
+            // hover as the eye. An image or text row has no cabinet and no
+            // button. It opens the preset picker in replace mode over THIS
+            // row's screen (app-presets.js openChangeCabinet); the
+            // right-click menu is the way to change several at once.
+            const cabinetBtn = (isImage || isText) ? '' : `
+                        <button class="layer-btn layer-cabinet-btn" data-layer-id="${layer.id}" title="Change cabinet…"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" style="display:block;"><rect x="1.5" y="1.5" width="11" height="11" rx="1" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M7 1.5v11M1.5 7h11" fill="none" stroke="currentColor" stroke-width="1.4"/></svg></button>`;
             // v0.8 Slice 2.5: per-layer ▲▼ arrows replace the global Up/Down
             // buttons. Disabled state (top/bottom of the layer's canvas group)
             // is computed in updateLayerOrderControls() after the regroup pass
@@ -74,6 +82,7 @@ class _LayersPanel {
                             <button class="layer-btn layer-move-up" data-layer-id="${layer.id}" title="Move up within canvas">▲</button>
                             <button class="layer-btn layer-move-down" data-layer-id="${layer.id}" title="Move down within canvas">▼</button>
                         </div>
+${cabinetBtn}
                         <button class="layer-btn layer-visibility-btn ${layer.visible === false ? 'is-hidden' : ''}" onclick="app.toggleLayerVisibility(${layer.id})" title="${layer.visible === false ? 'Hidden, click to show' : 'Visible, click to hide'}">
                             ${layer.visible === false ? '🚫' : '👁'}
                         </button>
@@ -99,6 +108,18 @@ class _LayersPanel {
                     e.stopPropagation();
                     if (downArrow.disabled) return;
                     this.moveLayerWithinCanvas(layer.id, 1);
+                });
+            }
+
+            // Change cabinet… on this row's screen alone. The click stops
+            // here: the row's own click handler below reads e.target's
+            // class, and a click landing on the glyph inside the button
+            // would otherwise select the row as well.
+            const cabinetButton = layerDiv.querySelector('.layer-cabinet-btn');
+            if (cabinetButton) {
+                cabinetButton.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.openChangeCabinet([layer]);
                 });
             }
 

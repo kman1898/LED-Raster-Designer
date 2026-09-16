@@ -98,10 +98,21 @@ class _Presets {
     }
 
     // ── Preset Picker Modal (triggered by + Add Screen) ──
-    openPresetPicker() {
+    //
+    // Two modes over one modal. 'add' (the default, + Add Screen) makes a
+    // new screen from the pick. 'replace' (Change cabinet…, 2026-09-16:
+    // "change to a different panel type from the list") re-picks the
+    // cabinet of screens that already exist: opts.layerIds name them,
+    // opts.title heads the modal, the confirm button reads "Change", and
+    // the pick lands through changeCabinetForLayers rather than addLayer.
+    openPresetPicker(opts = {}) {
         const modal = document.getElementById('preset-picker-modal');
         const list = document.getElementById('preset-picker-list');
         if (!modal || !list) return;
+        const replace = opts.mode === 'replace';
+        this._pickerMode = replace ? 'replace' : 'add';
+        this._pickerTargetIds = replace ? [...(opts.layerIds || [])] : [];
+        this._setPickerChrome(replace ? (opts.title || 'Change cabinet') : null);
         list.innerHTML = '<div style="padding: 12px; color: #888; font-size: 12px;">Loading…</div>';
         modal.style.display = 'block';
         // Selection model: { type: 'preset'|'panel', key }, default preset is always '__default__'
@@ -642,6 +653,38 @@ class _Presets {
         }
     }
 
+    // The modal's heading, its one-line brief and the confirm button, by
+    // mode. `replaceTitle` null is add mode; the add-mode brief is the
+    // markup index.html ships, kept on the element the first time through
+    // so a replace never loses it.
+    _setPickerChrome(replaceTitle) {
+        const title = document.getElementById('preset-picker-title');
+        const brief = document.getElementById('preset-picker-subtitle');
+        const confirmBtn = document.getElementById('preset-picker-add');
+        if (brief && brief._addModeHtml === undefined) brief._addModeHtml = brief.innerHTML;
+        if (replaceTitle !== null) {
+            if (title) title.textContent = replaceTitle;
+            if (brief) brief.textContent = 'Only the cabinet changes: pixels, millimetres, weight, watts. Columns, rows, position, ports and circuits stay.';
+            if (confirmBtn) confirmBtn.textContent = 'Change';
+        } else {
+            if (title) title.textContent = 'Add Screen';
+            if (brief) brief.innerHTML = brief._addModeHtml;
+            if (confirmBtn) confirmBtn.textContent = 'Add Screen';
+        }
+    }
+
+    // Change cabinet…: the picker in replace mode over these layers. Only
+    // screen layers take a cabinet; an image or text layer in the list is
+    // skipped, and with none left nothing opens.
+    openChangeCabinet(layers) {
+        const screens = (layers || []).filter(l => l && (l.type || 'screen') === 'screen');
+        if (screens.length === 0) return;
+        const title = screens.length === 1
+            ? `Change cabinet for ${screens[0].name}`
+            : `Change cabinet for ${screens.length} screens`;
+        this.openPresetPicker({ mode: 'replace', layerIds: screens.map(l => l.id), title });
+    }
+
     closePresetPicker() {
         const modal = document.getElementById('preset-picker-modal');
         if (modal) modal.style.display = 'none';
@@ -649,25 +692,109 @@ class _Presets {
 
     confirmPresetPicker() {
         const sel = this._pickerSelection || { type: 'preset', key: '__default__' };
+        const replace = this._pickerMode === 'replace';
+        const targetIds = this._pickerTargetIds || [];
         this.closePresetPicker();
+        // Where the pick lands: a new screen, or the cabinet of the targets.
+        const deliver = (data) => {
+            if (replace) this.changeCabinetForLayers(targetIds, data);
+            else this.addLayer(data);
+        };
         if (sel.type === 'panel' && sel.panel) {
-            this.addLayer(this._panelToPresetData(sel.panel));
+            deliver(this._panelToPresetData(sel.panel));
             return;
         }
         if (sel.type === 'preset') {
             if (!sel.key || sel.key === '__default__') {
-                this.addLayer();
+                deliver(replace ? this._preferencesCabinetData() : undefined);
                 return;
             }
             this.fetchPreset(sel.key).then(resp => {
                 const data = resp && resp.data ? resp.data : null;
                 if (data) data._presetName = sel.key;
-                this.addLayer(data);
+                deliver(data);
             }).catch(err => {
                 alert('Failed to load preset: ' + (err && err.error || 'unknown'));
-                this.addLayer();
+                // A new screen still gets made, from the defaults; an
+                // existing screen is left exactly as it was.
+                if (!replace) this.addLayer();
             });
         }
+    }
+
+    // The "Default (from Preferences)" row, as cabinet figures: the same
+    // Preferences values addLayer reads for a new screen.
+    _preferencesCabinetData() {
+        const prefs = this.getPreferences() || {};
+        const data = {
+            cabinet_width: prefs.panelWidth,
+            cabinet_height: prefs.panelHeight,
+            panel_width_mm: prefs.panelWidthMM,
+            panel_height_mm: prefs.panelHeightMM,
+            panel_weight: prefs.panelWeight,
+            weight_unit: prefs.weightUnit,
+            _presetName: 'Default'
+        };
+        if (prefs.powerWatts != null) data.panelWatts = prefs.powerWatts;
+        return data;
+    }
+
+    // The cabinet figures in preset-shaped data - a catalog panel through
+    // _panelToPresetData, a saved preset file, or the Preferences default -
+    // and nothing else. A saved preset carries the whole layer (columns,
+    // rows, colours, ports, circuits); this is the allow-list that keeps
+    // all of that off a Change cabinet.
+    _cabinetFieldsFrom(data) {
+        const out = {};
+        ['cabinet_width', 'cabinet_height', 'panel_width_mm', 'panel_height_mm',
+         'panel_weight', 'panelWatts'].forEach(k => {
+            if (data[k] == null || data[k] === '') return;
+            const n = Number(data[k]);
+            if (Number.isFinite(n)) out[k] = n;
+        });
+        if (data.weight_unit) out.weight_unit = data.weight_unit;
+        return out;
+    }
+
+    // Change cabinet…, the write. Every named screen gets ONLY the cabinet
+    // figures from `data` (_cabinetFieldsFrom); columns, rows, position,
+    // name, rotation, beach, group, ports, circuits, custom paths, labels
+    // and colours are untouched. A grouped screen changes alone - per-
+    // cabinet figures never travel between members (app-screen-groups.js
+    // GROUP_SHARED_LAYER_FIELDS leaves them out, and nothing here
+    // propagates). A screen sized by wall dimensions re-derives its
+    // columns and rows from the new cabinet, the way a hand edit of the
+    // cabinet fields does (updateLayerFromInputs -> computeTilesForWall).
+    // One PUT batch and one 'Change Cabinet' history entry for the lot,
+    // the shape updateLayerFromInputs gives a multi-select edit; the
+    // server rebuilds the panels on the cabinet change and the echo lands
+    // them, so the Screen Info panel, the totals and the canvas all follow.
+    changeCabinetForLayers(layerIds, data) {
+        if (!this.project || !this.project.layers || !data) return;
+        const targets = (layerIds || [])
+            .map(id => this.project.layers.find(l => l.id === id))
+            .filter(l => l && (l.type || 'screen') === 'screen');
+        if (targets.length === 0) return;
+        const fields = this._cabinetFieldsFrom(data);
+        if (Object.keys(fields).length === 0) return;
+        targets.forEach(layer => {
+            Object.keys(fields).forEach(k => { layer[k] = fields[k]; });
+            if (layer.sizeByDimensions) {
+                const fit = this.computeTilesForWall(layer);
+                if (fit.columns !== null) layer.columns = fit.columns;
+                if (fit.rows !== null) layer.rows = fit.rows;
+            }
+        });
+        sendClientLog('change_cabinet', {
+            layers: targets.map(l => ({ id: l.id, name: l.name })),
+            fields,
+            preset: data._presetName || null
+        });
+        this.updateLayers(targets);
+        this.saveState('Change Cabinet');
+        this.loadLayerToInputs();
+        this.renderLayers();
+        if (window.canvasRenderer) window.canvasRenderer.render();
     }
 
     // Convert a catalog panel into preset-shaped data that addLayer() consumes.
@@ -917,6 +1044,8 @@ class _Presets {
         const pickerAdd = document.getElementById('preset-picker-add');
         if (pickerCancel) pickerCancel.addEventListener('click', () => this.closePresetPicker());
         if (pickerAdd) pickerAdd.addEventListener('click', () => this.confirmPresetPicker());
+        // The right-click menu's way into this modal (app-context-menu.js).
+        this._wireChangeCabinetMenuItem();
 
         const submitLink = document.getElementById('panel-submit-correction');
         if (submitLink) submitLink.addEventListener('click', (e) => {

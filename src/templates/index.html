@@ -101,6 +101,16 @@
                  somewhere else to move it to. -->
             <div class="menu-divider move-canvas-only"></div>
             <div class="menu-option move-canvas-only" data-action="move-to-canvas" data-label="Move to Canvas…"></div>
+            <!-- Change cabinet… (2026-09-16, "change to a different panel
+                 type from the list"). Armed by _prepareChangeCabinetMenu
+                 (app-context-menu.js) whenever one or more SCREEN layers
+                 are selected, on the canvas or a Screens panel row; never
+                 on the dock. Opens the preset picker in replace mode over
+                 the selection; only the cabinet figures change. The item
+                 carries its own click listener (_wireChangeCabinetMenuItem)
+                 rather than a handleMenuAction case. -->
+            <div class="menu-divider change-cabinet-only" style="display: none;"></div>
+            <div class="menu-option change-cabinet-only" data-action="change-cabinet" data-label="Change cabinet…" style="display: none;"></div>
             <!-- Put on beach (2026-09-15, "select multiple screens right
                  click them and add them to a beach"). Armed by
                  _prepareBeachMenu (app-beaches.js) whenever one or more
@@ -2636,6 +2646,7 @@
                     <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+Z / <span data-sc-mod>Ctrl</span>+Shift+Z</td><td>Undo / redo</td></tr>
                     <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+C / <span data-sc-mod>Ctrl</span>+V</td><td>Copy / paste the selected layer</td></tr>
                     <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+J</td><td>Duplicate the current layer</td></tr>
+                    <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+A</td><td>Select every screen on the canvas (every cabinet of the screen when a cabinet selection is open)</td></tr>
                     <tr><td class="sc-key">Delete / Backspace</td><td>Delete the current layer</td></tr>
                     <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+,</td><td>Open Preferences</td></tr>
                     <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+O</td><td>Open a project file</td></tr>
@@ -2670,7 +2681,7 @@
                     <tr><td class="sc-key">Shift+drag a screen</td><td>Move the screen (a group moves as one)</td></tr>
                     <tr><td class="sc-key">Shift+drag a screen onto another canvas</td><td>Move it there; hold <span data-sc-mod>Ctrl</span> or Alt as well to duplicate it there</td></tr>
                     <tr><td class="sc-key">Drag a canvas's dashed outline</td><td>Move the canvas in the workspace</td></tr>
-                    <tr><td class="sc-key">Right-click a screen</td><td>Center on Canvas (X / Y / both), Group Screens, Ungroup, Move to Canvas…, Put on beach, Export this screen…</td></tr>
+                    <tr><td class="sc-key">Right-click a screen</td><td>Center on Canvas (X / Y / both), Group Screens, Ungroup, Move to Canvas…, Change cabinet…, Put on beach, Export this screen…</td></tr>
                 </table>
             </section>
             <section class="sc-group">
@@ -2738,7 +2749,8 @@
                     <tr><td class="sc-key">Shift+click a row</td><td>Select the range from the last pick, across canvases</td></tr>
                     <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+click a row</td><td>Toggle it in or out of the selection</td></tr>
                     <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+right-click a row</td><td>Toggle it and open the menu</td></tr>
-                    <tr><td class="sc-key">Right-click a row</td><td>The screen menu - Put on beach, Group Screens, Export this screen…, Move to Canvas…</td></tr>
+                    <tr><td class="sc-key">Right-click a row</td><td>The screen menu - Put on beach, Group Screens, Export this screen…, Move to Canvas…, Change cabinet…</td></tr>
+                    <tr><td class="sc-key">▦ on a row</td><td>Change cabinet… - re-pick the screen's cabinet from the catalog or a preset; columns, rows, position, ports and circuits stay</td></tr>
                     <tr><td class="sc-key">Double-click a name</td><td>Rename a screen, canvas, group or beach (Enter commits, Esc reverts)</td></tr>
                     <tr><td class="sc-key">Drag a row</td><td>Reorder screens within their canvas</td></tr>
                     <tr><td class="sc-key">Drag a row onto another canvas's header</td><td>Move it there; hold <span data-sc-mod>Ctrl</span> or Alt to duplicate</td></tr>
@@ -2780,8 +2792,11 @@
     <!-- About Modal -->
     <div id="preset-picker-modal" class="modal" style="display: none;">
         <div class="modal-content" style="background: #252525; border-radius: 8px; padding: 20px; width: 900px; max-width: 95vw; margin: 50px auto; border: 1px solid #3a3a3a;">
-            <h2 style="margin-top: 0; color: #fff; margin-bottom: 4px; font-size: 18px;">Add Screen</h2>
-            <div style="color: #888; font-size: 12px; margin-bottom: 14px;">Pick a saved preset <em>or</em> a panel from the built-in catalog.</div>
+            <!-- Add mode's heading and brief. Change cabinet… (app-presets.js
+                 _setPickerChrome) rewrites both, and the confirm button, for
+                 replace mode, and puts them back for the next add. -->
+            <h2 id="preset-picker-title" style="margin-top: 0; color: #fff; margin-bottom: 4px; font-size: 18px;">Add Screen</h2>
+            <div id="preset-picker-subtitle" style="color: #888; font-size: 12px; margin-bottom: 14px;">Pick a saved preset <em>or</em> a panel from the built-in catalog.</div>
             <div style="display: flex; gap: 14px;">
                 <!-- Presets column -->
                 <div style="flex: 0 0 300px; display: flex; flex-direction: column;">
