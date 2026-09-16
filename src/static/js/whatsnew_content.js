@@ -15,24 +15,24 @@
  */
 window.WHATS_NEW_CONTENT = {
     '1.0': {
-        title: 'Hardware in a tray, tours that show you, papers that match the rack',
+        title: 'The rack is in the app, and the papers match it',
         items: [
             { h: 'Hardware lives in a tray',
-              d: 'Processors and power distros sit in a tray along the bottom of the window, and the middle sidebars are gone. Wire a screen by dragging a port, card, box, multi or distro onto it, so there is one place to see the whole patch; a red flag on the tray header counts what is still unattached, and a row flies you to the screen. The tray is a fixed grid, so opening a sheet never shuffles the row, and the ⋮⋮ on a processor or distro drags along the tray to reorder them.' },
+              d: 'Processors, cards, breakout boxes and distros sit in a tray under the canvas, and the middle sidebars are gone. Drag a port, a card, a multi or a whole unit onto a screen to wire it; a red flag on the tray counts what is still unattached and flies you to it.' },
             { h: 'Nothing lands by itself',
-              d: 'Auto-numbering is retired: a port is on a card only because you dragged it there, Clear always releases it, and the flag counts what is left. An attached port prints the socket it sits on - 6, 7, 8, 9 on an unnamed card, H9-6 on a named one - the same numbers the tray shows. In custom mode a circuit or port takes only as many cabinets as its settings allow, a flow pattern applied to a block deals it out at capacity with every run starting from the same side, and the readout ("S4-4 · 14/14 on circuit · full") sits in the strip beside Fit and 1:1 instead of over the wall.' },
-            { h: 'Redundancy, one bar and a pill',
-              d: 'One raised bar behind the processor’s gear sets it - Off, Whole unit, Per card, Per port - with exactly one thing beneath: a mirrored-by pick, a partner per slot, or Sequential / Split / Manual chips, the split reading OPT Split on a card whose face names its trunks. Every tray header wears a gold pill that reads the shape in force; click it to open the bar. A card’s breakout box picker offers only boxes that fit it - its vendor and its trunks - and keeps your pick after an add.' },
-            { h: 'A multi lands as its plug and takes what is free',
-              d: 'Every number on a distro carries a type chip - Multi 208, Multi 120, L21-30; click the spare one’s to pick, drag it onto a screen and it lands as that plug, and the distro’s OUTPUTS row holds the same plugs with a live preview of the circuits the drop will feed. The span starts at the first circuit of the six and grows to the one under your cursor, capped at what is free - it says "took 5 of 6" when short. Clear circuit takes one circuit off while the other five stay put; clearing a multi welds the wall back to its natural six-circuit grid.' },
-            { h: 'Tours that show each action',
-              d: 'The Quick Start, What’s New and Advanced Guide no longer describe the app - they run it. Every step performs one real action in front of you on a scratch Demo Show: a cursor travels to the control, the wall is sized, the processor dragged onto it, the ports snaked, the multi landed, the binder ticked, and a line under the step says what just happened. Back and Replay do a step again. Your own project, history, view and preferences come back the moment you leave, and if a tour is interrupted they are put back on the next launch.' },
-            { h: 'Every circuit and every port carries its cable',
-              d: 'The ≡ beside the chips flips them into a cable sheet - a length and connector per circuit, Tab walking the column, a count at the foot - and a chip wears its cable in its corner. On the data side, hold Alt and sweep port chips and right-click Snake these N, or tick them in the sheet and press Snake: a snake reads as a blue bracket (SNAKE A · 6 channel · 100’) and can hold sockets off any unit, a snaked port carries an ext length for a shorter extension off the fan-out, and a backup port’s run is typed on the backup card’s or box’s own sheet. Show Cable Tags, per screen and off by default, prints them beside the labels on the wall and in the export; Show 2fer / 3fer Tags drops the 2fer / 3fer text and keeps the bracket.' },
-            { h: 'Beaches, and the papers that follow them',
-              d: 'A beach is a position the show keeps: add one from the Beaches line in the Screens panel or from any picker’s + New beach, drag to reorder, rename or remove. Each screen picks its beach in Screen Info, each distro and breakout box behind its gear. The pull sheet lists the beaches in that order and the binder runs its screens the same way, sorted within a beach by the Screen order you pick in the export dialog - alphabetical unless you say otherwise. In the Ports table every card and box is its own section, a backup box as its own.' },
-            { h: 'The binder is a drawing set, with a wiring sheet behind every map',
-              d: 'Numbered sheets by subject - 1.x overview, 2.x the screens, 3.x pull sheets, 4.x hardware - that grow to fill their page, each map a numbered view with its tables beside it and a title block down the right edge: your logo, a revision log written on export, venue, dates, designer, project manager, drafter. Tabloid 17 x 11 by default or any sheet size, the text real text in the PDF; turn Border and title block off and the drawing takes the whole sheet, the numbered view bubble at the foot naming it. One Wiring tick adds Power Wiring behind each Power sheet and Data Wiring behind each Data sheet, on pages of their own: every circuit wired to its slot on the breakout, every port to its socket on its card or box, each run leaving the wall’s own label disc by a clear edge and dropping into its socket on the unit across the foot, never crossing a label; the printer palette tells the units apart by a dash pattern each.' }
+              d: 'A port is on a socket because you put it there, Clear always takes it off, and the drawing prints the socket it sits on - 6, 7, 8, 9 - the same numbers the tray shows.' },
+            { h: 'Redundancy is one bar',
+              d: 'Off, Whole unit, Per card or Per port, behind the processor’s gear, with exactly one thing beneath it. Every tray header wears a gold pill that reads the shape in force.' },
+            { h: 'Power that adds up',
+              d: 'A distro has a rating, a voltage and a phase, its legs are summed the way a genset spec means it, and every number on it is a plug you drag - Multi 208, Multi 120, L21-30. Shared circuits never pass their amps unless you draw the runs yourself.' },
+            { h: 'Every cable on paper',
+              d: 'A cable sheet on every multi and card, snakes under a blue bracket, an extension off the fan-out, and Show Cable Tags to print them on the wall.' },
+            { h: 'Beaches',
+              d: 'A position the show keeps. Screens, distros and boxes pick theirs - select several screens and right-click to put them on one - and the pull sheet and binder follow that order.' },
+            { h: 'The binder is a drawing set',
+              d: 'Numbered sheets with a title block and a revision log, real text in the PDF, a wiring sheet behind every map, and a screen’s own amps on the legs that feed it. Export Pull Sheet fills the shop workbook.' },
+            { h: 'Tours that show you',
+              d: 'Every step of the Quick Start, What’s New and Advanced Guide performs a real action in front of you, at a person’s pace. Enter is Next, Go to jumps to a step, and your own project comes back the moment you leave.' }
         ]
     },
     '0.11': {

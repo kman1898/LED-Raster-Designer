@@ -234,3 +234,65 @@ def test_other_fixes_survives_when_it_is_doing_real_work(tmp_path):
     text = out.read_text()
     assert "## Other fixes" in text
     assert "## Fixes that change numbers on drawings you already have" in text
+
+
+# ── A feature release is a post, not a sorted list ───────────────────────
+
+POST = """v9.9.9 - January 1, 2099
+----------------------------
+
+The lede, first paragraph.
+
+The lede, second paragraph.
+
+THE FIRST THING - and a tail on its heading
+
+Prose under the heading.
+Continued on the next line.
+
+- NEW: A bullet under the first thing.
+  - a sub point
+
+Prose after the bullet.
+
+FIX LIST
+
+- FIX: One line.
+- FIX (IMPORTANT): Another line.
+"""
+
+
+def test_an_entry_that_opens_with_prose_is_a_post_in_document_order(tmp_path):
+    """A post keeps the order it was written in: lede, headings as written,
+    prose, bullets - nothing regrouped into What's new / Other fixes."""
+    vf = tmp_path / "VERSION.txt"
+    vf.write_text(POST)
+    proc, out = run(tmp_path, "--tag", "9.9.9", version_file=vf)
+    assert proc.returncode == 0, proc.stderr
+    text = out.read_text()
+    headings = re.findall(r"^## (.+)$", text, re.M)
+    assert headings == ["The first thing", "Fix list", "Install"]
+    flat = " ".join(text.split())
+    for a, b in [("The lede, first", "The lede, second"),
+                 ("The lede, second", "## The first thing"),
+                 ("and a tail on its heading", "Prose under the heading. Continued"),
+                 ("Prose under the heading", "- A bullet under the first thing"),
+                 ("a sub point", "Prose after the bullet"),
+                 ("Prose after the bullet", "## Fix list"),
+                 ("- One line.", "- Another line.")]:
+        assert flat.index(a) < flat.index(b), (a, b)
+    # the kind is not printed in a post, and IMPORTANT is not either
+    assert "NEW:" not in text and "FIX:" not in text and "IMPORTANT" not in text
+    # every bullet still renders as one bullet
+    assert len(re.findall(r"^- ", text, re.M)) == 3
+
+
+def test_a_list_entry_is_not_mistaken_for_a_post(tmp_path):
+    """SAMPLE opens with a heading, so it keeps the sorted shape."""
+    vf = tmp_path / "VERSION.txt"
+    vf.write_text(SAMPLE)
+    proc, out = run(tmp_path, "--tag", "9.9.9", version_file=vf)
+    assert proc.returncode == 0, proc.stderr
+    assert "## What's new" in out.read_text()
+    assert not gen.has_lede(SAMPLE.splitlines()[2:])
+    assert gen.has_lede(POST.splitlines()[2:])
