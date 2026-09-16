@@ -2836,6 +2836,24 @@ class _Binder {
         };
     }
 
+    // This screen's amps on each leg of ONE distro: the engine's own
+    // per-circuit attribution - boxFeedLegAmps, the phasor walk
+    // getDistroLoads runs over a whole service - run over this screen's
+    // multis on that distro only, so a 208 V circuit lands on its leg pair
+    // and a 110 V circuit on its one leg exactly as the tray's LEGS line
+    // counts them. Null where the tray prints no LEGS line either: a
+    // single-phase distro, or one the project does not hold.
+    _bScreenLegsOn(layer, distroId) {
+        const distro = (typeof this.getDistros === 'function' ? this.getDistros() : [])
+            .find(d => d && d.id === distroId);
+        if (!distro || Number(distro.phase) !== 3 || typeof this.boxFeedLegAmps !== 'function') return null;
+        const assign = layer.powerSocaDistro || {};
+        const members = this.getSocaPlan(layer)
+            .filter(s => assign[s.soca] === distroId)
+            .map(s => ({ layer, s }));
+        return this.boxFeedLegAmps(distro, members);
+    }
+
     _bPowerBlocks(book, layer, scr) {
         const blocks = [];
         // Circuits, banded per soca / L21-30; NO. is the circuit's number
@@ -2871,13 +2889,22 @@ class _Binder {
         const each = tiles.length ? (tMin === tMax ? `${tMin} panels each` : `${tMin}–${tMax} panels each`) : '';
         const distroIds = [...new Set((scr.boxes || []).map(b => b.distroId).filter(Boolean))];
         const loads = (typeof this.getDistroLoads === 'function') ? this.getDistroLoads() : [];
+        // One FED BY row per distro: the service as it is, then THIS
+        // SCREEN's amps on its legs - not the service's whole legs, which
+        // count every screen it feeds (the user, 2026-09-15, on SR - MAIN
+        // reading SR's 301/311/311 A: "it should be what is calculated
+        // per screen"). The hardware sheet keeps the whole service.
         const fed = distroIds.map(id => {
             const d = loads.find(x => x.id === id);
             if (!d) return null;
             let s = `${d.name} · ${d.ratingA} A ${d.voltage} V ${d.phase === 3 ? '3φ' : '1φ'}`;
-            if (d.legs) {
-                s += ` · legs X ${this._bNum(d.legs.X.amps, 1)} Y ${this._bNum(d.legs.Y.amps, 1)}`
-                    + ` Z ${this._bNum(d.legs.Z.amps, 1)} A`;
+            const legs = this._bScreenLegsOn(layer, id);
+            if (legs) {
+                // a leg's letter and its figure stay on one line where
+                // the row wraps (no-break spaces; the KV rows wrap at
+                // plain spaces only)
+                s += ` · this screen on its legs X\u00a0${this._bNum(legs.X, 1)} Y\u00a0${this._bNum(legs.Y, 1)}`
+                    + ` Z\u00a0${this._bNum(legs.Z, 1)}\u00a0A`;
             }
             return s;
         }).filter(Boolean);
@@ -2886,7 +2913,7 @@ class _Binder {
             ['Load', `${this._bNum(f.amps1, 1)} A 1φ · ${this._bNum(f.amps3, 1)} A 3φ · ${this._bNum(f.watts / 1000, 1)} kW`],
             ['Circuits', [`${circuits.length} at ${f.voltage} V / ${parseFloat(layer.powerAmperage) || 0} A`, each]
                 .filter(Boolean).join(' · ')],
-            ['Fed by', fed.length ? fed.join(' · ') : 'no distro'],
+            ...(fed.length ? fed.map(s => ['Fed by', s]) : [['Fed by', 'no distro']]),
         ]) });
         // Gangs, only when the screen has any.
         const gangs = scr.gangs || { twofer: 0, threefer: 0 };

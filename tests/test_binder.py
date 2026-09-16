@@ -2424,6 +2424,99 @@ def test_the_title_block_switch_is_a_preference_the_dialog_reflects(page):
 
 # ── the smoke: the user's own show ───────────────────────────────────────
 
+
+# A Power sheet's FED BY row: "SR · 400 A 208 V 3φ · this screen on its
+# legs X a Y b Z c A" - the service as it is, then THIS SCREEN's amps on
+# its legs. It used to print the service's whole legs, every screen the
+# distro feeds summed (the user, 2026-09-15, on SR - MAIN reading SR's
+# 301 / 311 / 311 A beside the screen's own 252 A: "it should be what is
+# calculated per screen"). The hardware sheet's LEGS row keeps the whole
+# service. The figures are the engine's own attribution (boxFeedLegAmps -
+# a 208 V circuit on its leg pair, a 110 V circuit on one leg, as phasors)
+# run over the one screen's multis; nothing here re-derives them.
+# a leg's letter is tied to its figure with a no-break space, so a wrap
+# never parts them; \s takes either
+FED_BY_LEGS = re.compile(r'legs X\s([\d.]+) Y\s([\d.]+) Z\s([\d.]+)\sA')
+SERVICE_LEGS = re.compile(r'X ([\d.]+) · Y ([\d.]+) · Z ([\d.]+) A')
+
+
+def _kv_values(out, key):
+    """Every value printed against `key` on a rendered sheet, in order -
+    the value's rows rejoined, since a long value wraps at a space onto
+    another row. A key or a heading is set bold (700), a value plain
+    (400), so the value is the plain run after the key."""
+    info = out['textInfo']
+    found = []
+    for i, t in enumerate(info):
+        if t['text'] != key or t['weight'] != 700:
+            continue
+        parts = []
+        for u in info[i + 1:]:
+            if u['weight'] == 700:
+                break
+            parts.append(u['text'])
+        found.append(' '.join(parts))
+    return found
+
+
+def _legs_of(value, pattern):
+    m = pattern.search(value)
+    assert m, value
+    return tuple(float(x) for x in m.groups())
+
+
+def _rounded(legs):
+    return tuple(float('%.1f' % legs[k]) for k in 'XYZ')
+
+
+# The engine's own per-leg attribution, for the given screens' multis on
+# the given distro (boxFeedLegAmps, what the L21-30 feed check and the
+# service roll-up both read), and the service's whole legs from
+# getDistroLoads - what the hardware sheet prints.
+LEGS_JS = """([distroId, layerIds]) => {
+    const app = window.app;
+    const d = app.getDistros().find(x => x.id === distroId);
+    const members = (ids) => ids.flatMap(id => {
+        const l = app.project.layers.find(x => String(x.id) === String(id));
+        const assign = l.powerSocaDistro || {};
+        return app.getSocaPlan(l).filter(s => assign[s.soca] === distroId).map(s => ({ layer: l, s }));
+    });
+    const each = Object.fromEntries(layerIds.map(id => [String(id), app.boxFeedLegAmps(d, members([id]))]));
+    const all = app.boxFeedLegAmps(d, members(layerIds));
+    const load = app.getDistroLoads().find(x => x.id === distroId);
+    const whole = load && load.legs ? { X: load.legs.X.amps, Y: load.legs.Y.amps, Z: load.legs.Z.amps } : null;
+    return { phase: d.phase, each, all, whole };
+}"""
+
+
+def test_a_screens_fed_by_legs_are_its_own(page):
+    """WALL-A and WALL-B both on SR (3φ): each Power sheet's FED BY row
+    names SR and carries THAT screen's legs - the engine's attribution
+    over its own multis, to the tenth - and the two differ (250 W panels
+    against 200 W); neither is the service's whole legs. The hardware
+    sheet's LEGS row is still the whole service: the engine's walk over
+    both screens, which is what getDistroLoads reports. CENTER, on no
+    distro, still says so."""
+    pg, ids = page
+    legs = pg.evaluate(LEGS_JS, [ids['distroId'], [ids['a'], ids['b']]])
+    assert legs['phase'] == 3, legs
+    a_want, b_want = _rounded(legs['each'][str(ids['a'])]), _rounded(legs['each'][str(ids['b'])])
+    assert a_want != b_want, legs
+    assert sum(a_want) > 0 and sum(b_want) > 0, legs
+    for title, want in (('WALL-A - Power', a_want), ('WALL-B - Power', b_want)):
+        fed = _kv_values(_render(pg, SHOW, title), 'Fed by')
+        assert len(fed) == 1, (title, fed)
+        assert fed[0].startswith('SR · 400 A 208 V 3φ · this screen on its legs X'), fed
+        assert _legs_of(fed[0], FED_BY_LEGS) == want, (title, fed, want)
+    whole = _rounded(legs['whole'])
+    assert whole not in (a_want, b_want), (whole, a_want, b_want)
+    assert whole == _rounded(legs['all']), legs
+    hw = _kv_values(_render(pg, SHOW, DISTRO), 'Legs')
+    assert len(hw) == 1 and _legs_of(hw[0], SERVICE_LEGS) == whole, (hw, whole)
+    assert _kv_values(_render(pg, SHOW, 'CENTER - Power'), 'Fed by') == ['no distro']
+    assert ids['errors'] == []
+
+
 @pytest.mark.skipif(not os.path.exists(SCRATCH_FIXTURE),
                     reason='experts-only-fixture.json smoke fixture not present')
 def test_smoke_experts_only(page):
@@ -2708,6 +2801,51 @@ def test_smoke_experts_only(page):
     xs = sorted({x for t, x, _y in heads if t == 'POWER CABLES'})
     assert len(xs) == 4 and all(b - a > 600 for a, b in zip(xs, xs[1:])), xs
     assert 'BREAKOUTS' not in distro and 'Breakouts' not in distro
+    assert ids['errors'] == []
+
+
+# The user's own save, "2026 Experts Only.json", where it is given.
+EXPERTS_JSON = os.environ.get('LRD_EXPERTS_JSON')
+
+
+@pytest.mark.skipif(not (EXPERTS_JSON and os.path.exists(EXPERTS_JSON)),
+                    reason='the Experts Only save is not present (LRD_EXPERTS_JSON)')
+def test_experts_only_screens_carry_their_own_legs(page):
+    """The show the user held up: SR feeds SR - MAIN (22 circuits) and SR -
+    Return (6). Each one's Power sheet says SR's legs for THAT screen -
+    the engine over its own multis - the Return's well under the MAIN's,
+    neither the service's 301 / 311 / 311 A; the Distros sheet still
+    prints SR's whole legs, the walk over both."""
+    pg, ids = page
+    with open(EXPERTS_JSON) as fh:
+        project = json.load(fh)
+    layer_ids = pg.evaluate("""async (project) => {
+        const app = window.app;
+        const j = (method, url, body) => fetch(url, {method,
+            headers: {'Content-Type': 'application/json'},
+            body: body === undefined ? undefined : JSON.stringify(body)}).then(r => r.json());
+        await j('PUT', '/api/project', project);
+        app.project = await j('GET', '/api/project');
+        app.dedupeProjectLayers('binder_legs');
+        app.selectLayer(app.project.layers.find(l => (l.type || 'screen') === 'screen'));
+        await app.refreshProcessors();
+        await app.refreshPortAssignment();
+        app.renderLayers();
+        return Object.fromEntries(app.project.layers.filter(l => (l.type || 'screen') === 'screen').map(l => [l.name, l.id]));
+    }""", project)
+    main, ret = layer_ids['SR - MAIN'], layer_ids['SR - Return']
+    legs = pg.evaluate(LEGS_JS, ['d1', [main, ret]])
+    assert legs['phase'] == 3, legs
+    main_want, ret_want = _rounded(legs['each'][str(main)]), _rounded(legs['each'][str(ret)])
+    whole = _rounded(legs['whole'])
+    assert main_want != ret_want and whole not in (main_want, ret_want), (main_want, ret_want, whole)
+    assert all(r < m < w for r, m, w in zip(ret_want, main_want, whole)), (ret_want, main_want, whole)
+    for title, want in (('SR - MAIN - Power', main_want), ('SR - Return - Power', ret_want)):
+        fed = _kv_values(_render(pg, SHOW, title), 'Fed by')
+        assert len(fed) == 1 and fed[0].startswith('SR · 400 A 208 V 3φ · this screen on its legs X'), (title, fed)
+        assert _legs_of(fed[0], FED_BY_LEGS) == want, (title, fed, want)
+    hw = _kv_values(_render(pg, SHOW, 'Distros - SR, SL'), 'Legs')      # SR's block first (names: SR, SL)
+    assert len(hw) == 2 and _legs_of(hw[0], SERVICE_LEGS) == whole == _rounded(legs['all']), (hw, whole)
     assert ids['errors'] == []
 
 
