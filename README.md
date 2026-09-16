@@ -34,141 +34,87 @@ Other devices on your local network can use the app by going to `http://[your-ip
 
 ## Features
 
-### Interface (new in v0.9)
+LED Raster Designer takes a show from the wall to the rack to the paper: lay out the cabinets, wire every port and circuit to the hardware that feeds it, check the maths, and print a drawing set a shop can build from.
 
-A clean, desktop-style "Studio" interface: titled docked panels, beveled neutral-gray surfaces, a system typeface, and a red accent. The app icon and toolbar carry the new logo.
-
-- **Accent color**, choose the interface accent in **Preferences → Appearance** (red, blue, green, amber, purple, teal). It applies app-wide and is remembered.
-- **Resizable side panels**, drag the inner edge of either sidebar to make it wider or narrower; each side's width is remembered. The ‹ / › chevrons still collapse a sidebar entirely.
-- **One-click color picker**, clicking any color control opens the picker directly: a built-in color wheel on Windows, the native OS picker on macOS.
-- **Per-canvas color**, each canvas's Screens header is tinted with that canvas's identity color, so canvases are easy to tell apart at a glance.
-
-### Multi-Canvas (new in v0.8)
-
-A project can hold multiple independent **canvases**, each with its own raster size, workspace position, perspective, and layers. Think of one canvas per processor / per stage / per tour leg.
-
-- Right-sidebar **Screens** panel groups layers by canvas. Each canvas has a color swatch, name, eye toggle (visibility), and a **+ Add** button to drop new layers in.
-- Drag a canvas by its dashed outline to reposition it in the workspace. Magnetic snap aligns edges with neighboring canvases.
-- Drag (Shift+Drag) a screen layer onto another canvas to **move** it there. Cmd/Alt+Shift+Drag duplicates instead. The layer snaps to (0,0) in the new canvas.
-- Per-canvas raster: the toolbar **Raster: W x H** and the Show Look raster always reflect the active canvas. Each canvas can be sized independently.
-- Per-canvas Front/Back perspective for Data and Power. Switching the active canvas updates the toggle.
-- **Cross-canvas multi-select**: Shift+click layers in different canvases and bulk-edit them at once (panel size, voltage, processor type, etc.). The selection survives the active-canvas auto-switch.
-- **Hidden canvases** are excluded from the Data/Power totals and from exports by default.
-- **Per-canvas presets**: a new screen added to a canvas inherits hardware settings (voltage, amperage, panel size, processor type) from the most recent screen already in that canvas.
-
-### Five View Modes
+### Five views
 
 | Tab | What it does |
 |-----|-------------|
-| **Pixel Map** | Layout view that mirrors what your processor expects. Checkerboard test pattern, panel borders, circle test pattern, and screen labels. |
-| **Cabinet ID** | Cabinet numbering with customizable styles (A1, 1,1, 01, etc.). Matches the Pixel Map layout. |
-| **Show Look** | Rearrange screens to match the real-world stage layout. Pixel Map keeps the processor-required layout; Show Look's layout drives Data and Power so wiring/power maps match how the show is actually built. Per-screen "show position" separate from "processor position", and an independent raster size. |
-| **Data** | Data routing visualization with serpentine flow patterns and port assignments. Renders at the Show Look layout. |
-| **Power** | Power distribution planning with circuit routing and color-coded visualization. Renders at the Show Look layout. |
+| **Pixel Map** | The layout your processor expects. Checkerboard and circle test patterns, cabinet borders, screen labels, blanks and half-tiles for non-rectangular walls. |
+| **Cabinet ID** | Cabinet numbering in the style you choose (A1, 1,1, 01 and more). An id never leaves its cabinet. |
+| **Show Look** | Rearrange the screens to match the stage. Pixel Map keeps the processor layout; Show Look drives the Data and Power views, so wiring and power maps read the way the show is built. |
+| **Data** | Ports snaked across the wall in any of eight flow patterns or drawn by hand, wired to the processor, card and breakout box that carry them. |
+| **Power** | Circuits across the wall the same way, wired to the distro and the multi that feed them, with the amps on every leg. |
 
-### Screen Management
-- Add, duplicate, delete, and reorder screen layers
-- Add image/logo layers with scale control
-- Add text label layers (per-tab visibility, alignment, fonts, etc.)
-- Multi-select screens (Shift+click range, Cmd/Ctrl+click toggle, drag-select on canvas)
-- Layer locking, visibility toggle, and drag reorder
-- Double-click a layer name to rename it
-- Save layers as presets to reuse across projects
+### Screens and canvases
 
-### Per-Panel Editing
-Drag-select any group of panels in Pixel Map view, then bulk-toggle their state, or use modifier keys for fast single-panel edits.
+- A project holds any number of **canvases**, each with its own raster, workspace position and screens. Drag a canvas by its dashed outline; magnetic snap aligns it with its neighbours.
+- Add screens from a catalog of **180 cabinets** across the major manufacturers, or from your own presets. Heart a cabinet to keep it in the left column. The catalog refreshes from GitHub without a reinstall, and the app opens a pre-filled issue when a figure needs correcting.
+- **Groups**: select several screens and Group Screens. A wall built from more than one cabinet size behaves as one screen: one name, one set of totals, cabinet numbers that run straight through, and ports and circuits that cross the seam.
+- **Beaches**: a position the show keeps (SR, SL, upstage, whatever you call them). Screens, distros and breakout boxes each pick theirs; the pull sheet and the binder follow that order.
+- Image and logo layers with scale, opacity and a drop shadow; text labels with per-tab visibility and fonts.
+- Multi-select across canvases (Shift-click a range, Cmd/Ctrl-click to toggle, drag on empty canvas) and edit the selection at once.
 
-| Action | What it does |
+### The hardware tray
+
+Processors, cards, breakout boxes and ports on the Data tab; distros, multis and circuits on the Power tab. All of it lives in a tray along the bottom of the window.
+
+- **Wire by dragging.** Drag a port, a card, a box or a whole processor onto a screen and it lands in order from the first unassigned port; drag a circuit chip, a multi or a distro the same way. Nothing lands by itself: a port is on a socket because you put it there, and Clear always takes it off.
+- **The attachment flag** on the tray header counts what is still unattached, red until everything is wired, and flies you to the screen when you click it.
+- An attached port prints the socket it sits on, so the drawing reads 6, 7, 8, 9 exactly as the tray does.
+- **Processors** from a catalog of 61 devices across NovaStar, Brompton and Megapixel, each figure from the device's own specification and nothing guessed. A screen only lands on gear its platform can drive.
+- **Redundancy is one bar** behind the processor's gear: Off, Whole unit, Per card, Per port. Brompton pairs fixed the way the unit does; NovaStar's second sending card is the Backed up pick. A gold pill on every tray header reads the shape in force.
+- **Every cable on paper.** The ≡ on a multi or a card flips its chips into a cable sheet with a length and connector per circuit or port. Hold Alt and sweep port chips to snake them under one home run; a snaked port carries its own extension. Show Cable Tags prints them on the wall and in the export.
+
+### Power that adds up
+
+- **Distros** with a rating, a voltage and a phase. Load rolls up from circuit to multi to distro; three-phase legs are phasor sums, and a folded distro still shows its load bars. Balance, per distro, spreads the multis across the legs without changing the order the wall reads in.
+- Every number on a distro is a plug you drag: **Multi 208, Multi 120, L21-30**. While you drag, the circuits the drop will feed light up with the amps they add.
+- A 110 V screen takes Edison only, and each of its circuits rides one leg of the same three-phase distro. The L21-30 is three 208 V circuits off a 30 A per leg feed, checked by the same maths.
+- **Shared circuits** through a 2fer or 3fer: hold Alt, sweep the runs, right-click. A share never passes the circuit's amps in automatic mode; in custom mode, where you own the runs, it is allowed and flagged OVER.
+- Custom drawing on either tab stops at capacity, and a flow pattern applied to a selected block deals it out at capacity.
+
+### Papers
+
+Everything under File > Export or the Export dialog saves straight to a file: no print dialogs, no windows to close.
+
+| Export | What you get |
 |--------|-------------|
-| **Alt + Click** | Toggle a panel as **blank** (hidden, useful for non-rectangular walls). When a multi-selection is active, applies to the entire selection. |
-| **Alt + Shift + Click** | Toggle a panel as **half-tile** (auto-detects half-width vs half-height based on which wall edge the panel sits on). Bulk version uses majority-vote across the selection so a row stays consistent. |
-| **Drag-select** | Marquee-select panels to bulk-action via the sidebar buttons. Count badge shows how many are selected. |
-| **Right-click** | Context menu in Pixel Map view with the same blank / half-tile / restore actions. |
+| **PNG / PDF / PSD** | Any of the five views, per canvas. One PNG per view, one PDF with a page per view, one PSD with a layer per screen. |
+| **Resolume XML** | Advanced Output screens, one per canvas, sized to its raster. |
+| **Pull Sheet** | A filled copy of the shop's pull-sheet workbook: one block per beach, multis with their home runs, True1 by length, 2fers and 3fers, breakouts, snakes, extensions, barrels and jumpers. File > Pull Sheet edits the list in the app first. |
+| **Binder** | One PDF as numbered sheets: overview, a Power and a Data sheet per screen with the wall, its circuits, ports, cables and facts, pull sheets, hardware. Tabloid by default, or Letter, ARCH C, ARCH D, A4, A3. Every sheet carries a border and a title block with your logo and a revision log. Tick Wiring and each map gets a wiring sheet behind it, every run drawn port to socket. Real text in the PDF, so it is sharp and searchable. Right-click a screen for Export this screen. |
 
-Half-tiles count as **0.5 panel** for data/port math and **0.65 panel** for power/weight (the typical industry derate).
+### Tours
 
-### Canvas Controls
+Help > Quick Start Guide, What's New in 1.0 and Advanced Guide do not describe the app; they run it. Every step performs one real action in front of you on a scratch Demo Show, at a person's pace, and a line under the step says what just happened. Enter is Next, a Go to box jumps to any step, and your own project comes back the moment you leave.
 
-| Control | What it does |
-|---------|-------------|
-| **Spacebar + Drag** | Pan the canvas |
-| **Scroll Wheel** | Zoom in/out |
-| **Shift + Drag a screen** | Move the screen (in Pixel Map = processor position; in Show Look = stage position) |
-| **Click & Drag a screen-name label** | Reposition the screen's white name label on any tab. The associated info bar (port/circuit stats, or "Columns × Rows • Cabinets…" on Pixel Map) moves with it. Per-tab position. |
-| **Drag-select on empty space** | Marquee-select layers (Pixel Map) or panels (when starting on a current-layer panel) |
-| **Magnetic Snap toggle** | Snap dragged screens to other screens' edges and to raster bounds |
-| **Fit / 1:1 buttons** | Fit raster to view, or reset to 100% zoom |
-| **Sidebar resize / collapse** | Drag the inner edge of a sidebar to resize it (each side's width persists). Tap the ‹ / › chevron to collapse/expand it. State persists across reloads. |
+### Preferences
 
-### Keyboard Shortcuts
+Seven tabs (Wall, Look, Data, Power, Distros and multis, Binder, Pull sheet and cables) with a default for nearly everything you create, an interface accent colour, and a Reset Defaults button. A default applies only to what you make next; a show's own value always wins.
+
+### Keyboard shortcuts
+
+Help > Keyboard Shortcuts lists every gesture the app has, grouped by where it works, with Cmd or Ctrl for your platform. The ones you will use first:
 
 | Shortcut | What it does |
 |----------|-------------|
-| **Cmd/Ctrl + Z** | Undo |
-| **Cmd/Ctrl + Shift + Z** | Redo |
-| **Cmd/Ctrl + C / V** | Copy / Paste layer |
-| **Cmd/Ctrl + J** | Duplicate layer |
-| **Cmd/Ctrl + Shift + 1** | Fit raster to view |
-| **Cmd/Ctrl + Shift + 2** | Zoom to selected screen at 1:1 |
-| **Cmd/Ctrl + Shift + '** | Toggle magnetic snap |
-| **Tab / Shift + Tab** | Next / previous port in Data Flow custom mode, or circuit in Power custom mode. Ignored while the cursor is in a text field, click the drawing first. |
-| **[ / ]** | Same step as Tab / Shift+Tab |
-| **Delete / Backspace** | Delete layer |
+| **Cmd/Ctrl + Z**, **Cmd/Ctrl + Shift + Z** | Undo, redo. Every action is covered, including tray and distro edits. |
+| **Cmd/Ctrl + O**, **Cmd/Ctrl + S** | Open, save a project |
+| **Option/Alt + S**, **Cmd/Ctrl + Option/Alt + S** | Export PNG, export PSD |
+| **Cmd/Ctrl + C / V**, **Cmd/Ctrl + J** | Copy, paste, duplicate a layer |
+| **Cmd/Ctrl + Shift + 1**, **Cmd/Ctrl + Shift + 2** | Fit to view, zoom to selection at 1:1 |
+| **Space + drag**, **scroll wheel** | Pan, zoom |
+| **Shift + drag a screen** | Move it (in Show Look, its stage position) |
+| **Alt + click a cabinet**, **Alt + Shift + click** | Blank it, make it a half-tile |
+| **Hold Alt on a run** | Light it; Alt-click takes that port or circuit over for hand redrawing |
+| **Tab / Shift + Tab** | Next, previous port or circuit in custom mode |
 
-### Data Tab
-- 8 serpentine flow patterns (all corner starts × horizontal/vertical)
-- **Custom data path mode**, click panels in order to draw your own port routing, or drag-select a region and apply a flow pattern just to that region
-- Port capacity calculator supporting:
-  - **NovaStar** (Legacy, Armor, COEX)
-  - **Brompton Tessera**
-  - **Megapixel HELIOS**
-- Configurable bit depth (8 / 10 / 12-bit) and frame rate
-- Editable port labels with templates and per-port overrides (auto-increments soca numbers like S1-1..S1-6, S2-1..S2-6 from any starting template)
-- Over-capacity error detection with visual overlay
-- Per-screen primary / backup port colors and label sizes
-- Optional per-port info display directly on the panel
-- **Front / Back view perspective**, independent toggle in the sidebar. Back view horizontally mirrors the canvas geometry (so wiring matches what you see standing behind the wall) while keeping every label readable, shows a "BACK VIEW" badge in the corner, and auto-appends `_back` to the export filename suffix.
+### Projects
 
-### Power Tab
-- Circuit-based serpentine routing with configurable voltage, amperage, and watts
-- **Custom power path mode**, draw circuits manually for non-standard wiring
-- Color-coded circuit visualization with customizable per-circuit colors
-- Organized and max-capacity mapping modes
-- 1-phase and 3-phase power calculations
-- Circuit start labels with directional pointers
-- Per-circuit label overrides
-- **Front / Back view perspective**, same independent toggle as Data, with mirrored geometry and "BACK VIEW" badge.
-
-### Project Management
-- Save / open projects as `.json` files (preserves all layers, settings, and panel state)
-- Recent Files menu in the File menu
-- Auto-update check (notifies when a new release is available)
-- Per-panel state (hidden, half-tile) survives column/row resizes (state is anchored to grid position, not sequential id)
-- **v0.7 → v0.8 auto-migration** on load: opens any older project and converts it into the multi-canvas format with one canvas containing all the original layers. A one-time toast reminds you to save in the new format. v0.7 builds opening a v0.8 file get a clean "format newer than supported" error.
-
-### Export
-- Multi-view PNG export, pick which views (Pixel Map, Cabinet ID, Show Look, Data, Power) to render in one go
-- **Multi-canvas aware** (v0.8): the Export dialog adds a Canvases section above Views. Each (canvas × view) is one PNG / one PSD / one PDF page. PDF page headers include canvas + view name. Resolume XML now emits one `<Screen>` per canvas, sized to that canvas's raster.
-- PSD export with per-screen layers (per-canvas filtered, only that canvas's layers in each PSD)
-- PDF export (multi-page across selected canvases × views)
-- Resolume Arena Advanced Output XML export (one `<Screen>` per canvas, named after the canvas)
-- Configurable export filename suffixes per view (saved as defaults)
-- Project-name input flags illegal filename characters (\\ / : * ? " < > |) and auto-sanitizes them on export
-
-### Verified Panel Catalog
-- Built-in panel presets for many manufacturers (ROE, Leyard, Barco, INFiLED, ARTFOX, etc.)
-- ⭐ marker on panels with verified specs (cross-checked against manufacturer datasheets)
-- **Live catalog refresh**, `↻ Refresh` button in the Add Screen modal pulls the latest `panel_catalog.json` from GitHub without needing to reinstall the app. Boot-time silent check shows a "📦 Update available" pill when newer panels are out. Refreshed catalog persists per browser.
-- **Favorites**, heart any panel in the catalog to pin it to the left column alongside your saved presets. Drag-reorder the left column to suit your typical workflow. Per-user, persists in localStorage.
-- "Submit a correction" / "Add missing panel" link inside the app opens a pre-filled GitHub issue (with a confirmation that the user must click "Submit new issue" on GitHub for it to actually reach us, submissions used to silently drop)
-
-### Preferences
-- Default raster size, grid colors, flow patterns, and line widths
-- Default processor, bit depth, frame rate, voltage, and amperage
-- Default panel size (mm) and weight unit (kg / lb)
-- Default label / screen-name font size, the screen name now uses this same size on every tab (Pixel Map, Cabinet ID, Data, Power), so it stays consistent
-- **Appearance**: pick the interface accent color
-- Settings persist across sessions
+- Save and open `.json` projects; Recent Files in the File menu. A project from any earlier version opens and is brought up to date on load.
+- Cancelling a save or export saves nothing, on every platform.
+- The app checks for a new release and offers it from Help.
 
 ---
 
@@ -255,9 +201,8 @@ Open an issue at [github.com/kman1898/LED-Raster-Designer/issues](../../issues).
 
 ## Versioning & Releases
 
-Versions follow `vMAJOR.MINOR.PATCH` (e.g. `v0.8.11`). PATCH is a fix or small
-change; MINOR is new features; MAJOR is reserved for the 1.0 milestone and
-beyond. The version string is kept in sync across `README.md`, `src/VERSION.txt`,
+Versions follow `vMAJOR.MINOR.PATCH` (e.g. `v1.0.0`). PATCH is a fix or small
+change; MINOR is new features; MAJOR is a change to what the app is. The version string is kept in sync across `README.md`, `src/VERSION.txt`,
 `src/templates/index.html`, and `src/led_raster_designer.spec`.
 
 Every **public** release is git-tagged `vX.Y.Z` and gets release notes drawn from
@@ -270,4 +215,4 @@ history has no gaps.
 
 ## Contact
 
-For questions or feedback during beta testing, please contact the development team.
+Questions and feedback are welcome as issues at [github.com/kman1898/LED-Raster-Designer/issues](../../issues).
