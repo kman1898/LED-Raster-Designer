@@ -61,6 +61,9 @@ GESTURE_PHRASES = [
     'Duplicate the current layer',
     'Delete / Backspace',
     'Open Preferences',
+    'Open a project file',
+    'Save the project to a file',
+    'Export PNG / Export PSD',
     'Fit to view',
     'Zoom to selection (1:1)',
     'Toggle snap',
@@ -174,6 +177,11 @@ HANDLER_MARKERS = [
     ('zoomActual', 'canvas-input.js', 'Zoom to selection (1:1)'),
     ('magneticSnap', 'canvas-input.js', 'Toggle snap'),
     ('openPreferencesModal', 'canvas-input.js', 'Open Preferences'),
+    # The File menu's accelerators: handleMenuShortcut's case labels.
+    ('mod+KeyO', 'app-menubar.js', 'Open a project file'),
+    ('mod+KeyS', 'app-menubar.js', 'Save the project to a file'),
+    ('alt+KeyS', 'app-menubar.js', 'Export PNG / Export PSD'),
+    ('mod+alt+KeyS', 'app-menubar.js', 'Export PNG / Export PSD'),
     ('deleteCurrentLayer', 'canvas-input.js', 'Delete / Backspace'),
     ('duplicateLayer', 'canvas-input.js', 'Duplicate the current layer'),
     ('_toggleLayerSelectionFromCanvas', 'canvas-input.js',
@@ -321,6 +329,105 @@ def test_modifier_is_a_stamped_span_not_literal_text():
         'write the modifier as <span data-sc-mod>Ctrl</span>, not literally')
 
 
+# ── (d) the File menu's printed accelerators are honoured ────────────────
+
+MENUBAR_JS = os.path.join(JS_DIR, 'app-menubar.js')
+
+# The four chords handleMenuShortcut answers to, and the File menu item
+# each one dispatches.
+FILE_MENU_SHORTCUTS = {
+    'mod+KeyO': 'open',
+    'mod+KeyS': 'save',
+    'alt+KeyS': 'export-png',
+    'mod+alt+KeyS': 'export-psd',
+}
+
+
+def _chord(label, mod_word, alt_word):
+    """'Cmd+Option+S' / 'Ctrl+Alt+S' -> 'mod+alt+KeyS', the dispatcher's
+    spelling. Any other token is an error: the dispatcher never sees it."""
+    mod = alt = False
+    key = None
+    for tok in label.split('+'):
+        if tok == mod_word:
+            mod = True
+        elif tok == alt_word:
+            alt = True
+        elif re.fullmatch(r'[A-Z]', tok):
+            key = 'Key' + tok
+        elif tok == ',':
+            key = 'Comma'
+        else:
+            raise AssertionError(f'unknown accelerator token {tok!r} in {label!r}')
+    assert key, label
+    return ('mod+' if mod else '') + ('alt+' if alt else '') + key
+
+
+def _file_menu_labels():
+    """{action: (mac label or None, win label or None)} from #menu-file."""
+    html = _read(INDEX_HTML)
+    start = html.index('<div id="menu-file"')
+    end = html.index('<div id="menu-edit"', start)
+    out = {}
+    for m in re.finditer(r'<div class="menu-option[^"]*"([^>]*)>', html[start:end]):
+        attrs = dict(re.findall(r'([\w-]+)="([^"]*)"', m.group(1)))
+        if 'data-action' in attrs:
+            out[attrs['data-action']] = (attrs.get('data-shortcut-mac'),
+                                         attrs.get('data-shortcut-win'))
+    return out
+
+
+def _dispatcher_cases():
+    """{chord: action} from handleMenuShortcut's switch."""
+    src = _read(MENUBAR_JS)
+    body = src[src.index('handleMenuShortcut(e) {'):]
+    body = body[:body.index('\n    }\n')]
+    return dict(re.findall(r"case '([\w+]+)': action = '([\w-]+)';", body))
+
+
+# File-menu accelerators honoured by canvas-input's handleKeyDown instead
+# (it owns the Cmd+Z/C/V/J/, family): chord -> (action, the source text
+# that handles it there).
+CANVAS_INPUT_FILE_CHORDS = {
+    'mod+Comma': ('preferences', "e.code === 'Comma'"),
+}
+
+
+def test_file_menu_labels_and_dispatcher_agree():
+    """Every accelerator the File menu prints has a case in
+    handleMenuShortcut that dispatches that item's action, on both
+    platforms' spellings - and every case is printed. A label with no
+    case is a promise the app breaks; a case with no label is a hidden
+    gesture."""
+    labels = _file_menu_labels()
+    cases = _dispatcher_cases()
+    assert cases == FILE_MENU_SHORTCUTS, cases
+    printed = {}
+    for action, (mac, win) in labels.items():
+        assert (mac is None) == (win is None), (action, mac, win)
+        if mac is None:
+            continue
+        mac_chord = _chord(mac, 'Cmd', 'Option')
+        win_chord = _chord(win, 'Ctrl', 'Alt')
+        assert mac_chord == win_chord, (action, mac, win)
+        printed[mac_chord] = action
+    canvas_src = _read(os.path.join(JS_DIR, 'canvas-input.js'))
+    for chord, (action, marker) in CANVAS_INPUT_FILE_CHORDS.items():
+        assert printed.pop(chord) == action, (chord, action)
+        assert marker in canvas_src, (chord, marker)
+    assert printed == cases, (printed, cases)
+
+
+def test_file_new_prints_no_accelerator():
+    """The app runs in the user's browser, and Chrome, Edge and Firefox
+    reserve Cmd/Ctrl+N (New Window) before the page can see it - so File
+    > New must not print a key it can never honour."""
+    labels = _file_menu_labels()
+    assert 'new' in labels
+    assert labels['new'] == (None, None), labels['new']
+    assert 'KeyN' not in _read(MENUBAR_JS)
+
+
 # ── (a) + (b) in the browser ─────────────────────────────────────────────
 
 pw = pytest.importorskip("playwright.sync_api", reason="playwright not installed")
@@ -398,3 +505,90 @@ def test_modal_fits_and_scrolls_inside_itself(page):
     assert box['right'] <= box['innerW'], box
     assert box['overflowY'] == 'auto', box
     page.locator('#shortcuts-close').click()
+
+
+# ── (d) in the browser: the chords reach handleMenuAction ────────────────
+
+STUB_LEAVES = """() => {
+    window.__lrdCalls = [];
+    const app = window.app;
+    app.saveProjectToFile = () => { window.__lrdCalls.push('save'); return Promise.resolve(); };
+    app.loadProjectFromFile = () => { window.__lrdCalls.push('open'); };
+    app.openExportModal = (fmt) => { window.__lrdCalls.push('export-' + fmt); };
+    if (document.activeElement) document.activeElement.blur();
+}"""
+
+# Own-property stubs shadowed the prototype; deleting them restores it.
+UNSTUB_LEAVES = """() => {
+    delete window.app.saveProjectToFile;
+    delete window.app.loadProjectFromFile;
+    delete window.app.openExportModal;
+    delete window.__lrdCalls;
+}"""
+
+
+@pytest.fixture
+def stubbed(page):
+    page.evaluate(STUB_LEAVES)
+    yield page
+    page.evaluate(UNSTUB_LEAVES)
+
+
+def _mod(page):
+    """The modifier the dispatcher honours: it reads the client platform
+    through app._isMacPlatform(), the same read the labels are printed
+    with (window.LRD_PLATFORM is the server's platform - the same machine
+    here, but the keyboard belongs to the client)."""
+    return 'Meta' if page.evaluate('window.app._isMacPlatform()') else 'Control'
+
+
+def _calls(page):
+    return page.evaluate('window.__lrdCalls')
+
+
+def test_mod_s_saves_the_project(stubbed):
+    page = stubbed
+    page.keyboard.press(f'{_mod(page)}+KeyS')
+    page.wait_for_timeout(100)
+    assert _calls(page) == ['save']
+
+
+def test_mod_o_opens_and_is_refused_while_typing(stubbed):
+    page = stubbed
+    mod = _mod(page)
+    page.keyboard.press(f'{mod}+KeyO')
+    page.wait_for_timeout(100)
+    assert _calls(page) == ['open']
+
+    name = page.locator('#project-name')
+    before = name.input_value()
+    name.focus()
+    page.keyboard.press(f'{mod}+KeyO')
+    page.keyboard.press(f'{mod}+KeyS')
+    page.keyboard.press('Alt+KeyS')
+    page.wait_for_timeout(100)
+    assert _calls(page) == ['open'], 'a chord fired out of a text field'
+    assert name.input_value() == before
+    page.evaluate('document.activeElement.blur()')
+
+
+def test_alt_s_chords_export(stubbed):
+    page = stubbed
+    mod = _mod(page)
+    page.keyboard.press('Alt+KeyS')
+    page.keyboard.press(f'{mod}+Alt+KeyS')
+    page.wait_for_timeout(100)
+    assert _calls(page) == ['export-png', 'export-psd']
+
+
+def test_unlabelled_chords_do_nothing(stubbed):
+    """Shift added, the other platform's modifier, or a key the menu never
+    prints: nothing dispatches."""
+    page = stubbed
+    mod = _mod(page)
+    other = 'Control' if mod == 'Meta' else 'Meta'
+    page.keyboard.press(f'{mod}+Shift+KeyS')
+    page.keyboard.press(f'{other}+KeyS')
+    page.keyboard.press(f'{mod}+KeyN')
+    page.wait_for_timeout(100)
+    assert _calls(page) == []
