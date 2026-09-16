@@ -1,9 +1,203 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
-v1.0.0 - September 15, 2026 (BETA)
+v1.0.0 - September 15, 2026
 ----------------------------
 
+Hardware in a tray 🔌 Papers that match the rack 📐 Tours that show you 🎯
+
+With 1.0 the app no longer stops at the wall. Since 0.11 every screen has
+had its ports and its circuits; what it never had was the rack. 1.0 puts the processors, the cards, the breakout
+boxes, the distros and the multis in the app, wires them to the screens by
+dragging, does the maths on every leg, and prints the whole thing as a
+drawing set a shop can build from.
+
+It took a while. 0.12 never shipped - it kept growing until it was this,
+and we ran it through seven betas before calling it 1.0. Thank you to
+everyone who ran a beta on a real show and sent back what it got wrong.
+Here is what is in it.
+
+THE HARDWARE TRAY
+
+The processors and the distros live in a tray along the bottom of the
+window, and the middle sidebars are gone, so the canvas gets its width
+back. A processor shows its cards and breakout boxes with every socket
+numbered the way the silkscreen numbers it; a distro shows its multis and
+every circuit on them. Name a unit on its header. Everything electrical
+sits behind its gear.
+
+Wiring is dragging. Drag a port, a card, a box or a whole processor onto a
+screen and it lands in order from the first unassigned port; drag a
+circuit chip, a multi or a distro the same way on the Power tab. Nothing
+lands on a card by itself any more: auto-numbering is retired, a port is
+on a socket because you put it there, and Clear always takes it off. A red
+flag on the tray header counts what is still unattached and flies you to
+the screen when you click it. An attached port prints the socket it sits
+on, so the drawing reads 6, 7, 8, 9 exactly as the tray does, and a screen
+only lands on gear its platform can drive.
+
+REDUNDANCY, ONE BAR
+
+Behind a processor's gear one bar sets it: Off, Whole unit, Per card, Per
+port. Under the bar sits exactly one thing - a "mirrored by" pick for the
+whole unit, a partner per slot for cards, or Sequential, Split and Manual
+chips per slot for ports. Brompton pairs fixed the way the unit does;
+NovaStar's second sending card is the Backed up pick. Every tray header
+wears a gold pill that reads the shape in force, and a card's breakout box
+picker offers only the boxes that fit it, by vendor and by trunk.
+
+POWER THAT ADDS UP
+
+A distro carries a rating, a voltage and a phase, and load rolls up from
+circuit to multi to distro. Three-phase legs are phasor sums, so imbalance
+reads the way a genset spec means it, and a folded distro still shows its
+load bars. Balance, per distro, chooses which circuits of a multi are in
+use and never their order, so the wall always reads in order.
+
+Every number on a distro is a plug: Multi 208, Multi 120, L21-30. Drag the
+plug onto a screen and it lands as that plug, filling from the first
+circuit of the six and growing to the one under your cursor, capped at
+what the box has free; while you drag, the circuits it will feed light up
+with a pending bracket and a pill that says the amps. A 110 V screen takes
+Edison only, and each of its circuits rides one leg of the same
+three-phase distro. The L21-30 is three 208 V circuits off a 30 A per leg
+feed, checked by the same maths and flagged when over.
+
+Two or three short runs can share one circuit through a 2fer or 3fer: hold
+Alt, sweep the runs, right-click, 2fer them. A share never passes the
+circuit's amps in automatic mode - the menu greys out with the reason,
+"Runs 1 and 2 together draw 23.1 A on a 20 A circuit". In custom mode,
+where you own the runs, it is allowed and the chip flags OVER. Custom
+drawing stops at capacity too: a circuit or a port takes only as many
+cabinets as its settings allow, and a flow pattern applied to a block deals
+it out at capacity with every run starting from the same side.
+
+EVERY CABLE ON PAPER
+
+The ≡ on a multi or a card flips its chips into a cable sheet: a length and
+a connector per circuit or port, Tab walking the column, a count at the
+foot. A chip wears its cable in its corner. On the data side, hold Alt and
+sweep the port chips, right-click Snake these 6, and they share one home
+run under a blue bracket - SNAKE A · 6 channel · 100'. A snake belongs to
+the show, so it can hold sockets off two boxes or off a card and a box; a
+snaked port carries its own extension off the fan-out; a backup port's run
+is typed on the backup unit's own sheet. Show Cable Tags, per screen and
+off by default, prints each cable beside its label on the wall and in the
+export.
+
+BEACHES
+
+A beach is a position the show keeps - SR, SL, upstage, whatever you call
+them. Add them from the Beaches line in the Screens panel, drag to order,
+rename. A screen picks its beach in Screen Info, or select several,
+right-click, Put on beach. A distro and a breakout box pick theirs behind
+the gear. The pull sheet lists the beaches in that order, the binder runs
+its screens the same way, and gear is pulled where the device feeding it
+stands.
+
+THE BINDER IS A DRAWING SET
+
+File > Export Binder writes one PDF as numbered sheets: 1.x the overview,
+2.x the screens, 3.x the pull sheets, 4.x the hardware. Tabloid 17 x 11 by
+default; Letter, ARCH C, ARCH D, A4 and A3 if you would rather. Every sheet
+carries a border and a title block down its right edge - your logo, a
+revision log written on export, the show with its venue and dates,
+designer, project manager, drafter, the sheet number - typed once and saved
+with the show. Turn the border off and the drawing takes the whole sheet.
+The text is real text in the PDF: sharp at any zoom, searchable, and a
+third of the size the old pages were.
+
+Each screen gets a Power sheet and a Data sheet, the wall drawn as the
+canvas draws it and grown to fill the page, with its circuits by multi, its
+ports by card and box, its cables and its facts: the load, the circuits,
+and the screen's own amps on each leg of the distro that feeds it. Tick
+Wiring and a Power Wiring sheet sits behind every Power sheet and a Data
+Wiring sheet behind every Data sheet - each circuit wired to its slot on
+the breakout, each port to its socket on its card or box, every run leaving
+the wall by a clear edge and never crossing a label. The Printer palette
+tells the units apart by a dash pattern each. Right-click a screen for
+Export this screen, the same pages for that screen alone.
+
+Nothing on a sheet prints on top of anything else, and no cell is cut off.
+Each layer of a sheet is checked against real shows for exactly that, and
+a list cell wraps and then says how many more.
+
+THE PULL SHEET
+
+File > Export Pull Sheet writes a filled copy of the shop's pull-sheet
+workbook: one block per beach, a multi with its home run said once per box,
+True1 by length, 2fer and 3fer as each, breakouts, Ether-con and snakes, a
+barrel per extension, a jumper for every row step in a run, with any new
+cable type or length added to the gear list so the dropdowns accept it.
+File > Pull Sheet shows the same list in the app. Quantity, label and notes
+edit in place, a row can be hidden or added, and every edit rides into the
+workbook and into the binder's pull pages.
+
+TOURS THAT SHOW YOU
+
+The Quick Start, What's New and Advanced Guide no longer describe the app;
+they run it. Every step performs one real action in front of you on a
+scratch Demo Show: a cursor travels to the control, the wall is sized, the
+processor dragged onto it, the ports snaked, the multi landed, the binder
+ticked, and a line under the step says what just happened - at a person's
+pace, so you can see what the hand did. Enter is Next, a Go to box jumps to
+any step, Back and Replay do one again. Your own project, view and
+preferences come back the moment you leave. Quick Start is 10 steps, the
+What's New tour 34, the Advanced Guide 55. Help > What's New in 1.0 starts
+the tour any time.
+
+AND THE REST
+
+- NEW: Preferences in seven tabs - Wall, Look, Data, Power, Distros and
+  multis, Binder, Pull sheet and cables - with a default for nearly
+  everything you create, and a Reset Defaults button. A default applies
+  only to what you make next; a show's own value always wins.
+- NEW: Help > Keyboard Shortcuts lists every gesture the app has, 96 rows
+  in eight groups, Cmd or Ctrl for your platform. Cmd+O, Cmd+S, Option+S
+  and Cmd+Option+S do what the File menu says.
+- NEW: An image layer has an Opacity slider under Scale; its drop shadow
+  fades with it, and every export carries it.
+- NEW: The NovaStar catalog grows to 45 devices, each figure from the
+  device's own specification. A figure the sheet does not publish is shown
+  as unknown, never guessed, and breakout boxes are offered by rate.
+- NEW: A group of matching screens routes as one screen: the serpentine
+  crosses the seam and the ports count from the combined walk.
+- NEW: The Overview's Show Totals say the show's amps at one phase and at
+  three, then kW, and never add two voltages' amps together.
+- CHANGE: A cabinet id never leaves its cabinet. A screen takes one size,
+  shrunk until the widest id fits the smallest cabinet.
+- CHANGE: Undo covers every action, including processor and distro edits.
+  One drag is one undo step, and redo replays exactly what undo removed.
+- CHANGE: SCR export is parked in this build while data and power are the
+  focus; the file layer and the command-line export remain.
+- CHANGE: Under the hood, the code is arranged by concern - the renderer,
+  the tray, the power model, the exports each in files of their own, with
+  a guard that keeps every method in one place. Nothing you use changes.
+
+FIX LIST
+
+- FIX (IMPORTANT): Duplicating a group of screens copies every screen in
+  it, not just one, and moving a group to another canvas carries the whole
+  wall over.
+- FIX (IMPORTANT): Cancelling a save or export saves nothing. On Mac,
+  Cancel in the file dialog used to send the export to Downloads anyway.
+- FIX: Undo during a drag sticks, and File > New can no longer resurrect
+  the previous project on the first undo.
+- FIX: In custom mode the badge names the circuit under the cursor, and
+  Next then Tab cannot skip a number.
+- FIX: Names = Screens on a grouped wall labels each screen completely on
+  its own bounds instead of floating the figures between the screens.
+- FIX: Labels on the drawing wrap at spaces instead of ballooning, and a
+  label with nowhere to break stacks at its seam - SR3-5 reads SR over 3-5.
+- FIX: Removing a processor, card, box or distro is no longer hidden below
+  the gear popover's fold.
+
+v1.0.0.beta - September 15, 2026 (the seven beta cuts, in full)
+----------------------------
+
+The 1.0 series went out as seven betas. This is the full record as it was
+written cut by cut, kept for the figures it explains; the post above is
+the short of it.
 - NEW: A distro says what it offers. Tick the connector types a distro
   carries (Soca 208, Soca 120, L21-30) behind its gear, and each one
   becomes a plug you drag onto a screen. While you drag, the exact
@@ -39,7 +233,7 @@ v1.0.0 - September 15, 2026 (BETA)
 
 - NEW: One circuit comes off its box. Right-click a circuit chip in the
   tray (or drag it back onto the tray) and "Clear circuit SR1-6" takes
-  that one circuit off the multi; the other five stay on their tails and
+  that one circuit off the multi; the other five stay on their circuits and
   keep their labels. The box header still clears the whole multi and
   the distro clears everything.
 
@@ -68,7 +262,7 @@ v1.0.0 - September 15, 2026 (BETA)
   bare "Off / On" before.
 
 - NEW: Every circuit can carry its cable. A raised ≡ on a multi box
-  flips its chips into a cable sheet - tail, circuit, screen, feet,
+  flips its chips into a cable sheet - no., circuit, screen, feet,
   connector - with Tab walking the column, quick fills for a whole box
   and a count by length and connector at the foot. The connector
   follows the box (Soca 208 → True1), so mostly you type a number. A
@@ -80,8 +274,8 @@ v1.0.0 - September 15, 2026 (BETA)
   label on the wall and in the export - for the per-screen docs.
 
 - NEW: Show 2fer / 3fer Tags. A per-screen switch in Power Settings
-  hides the 2fer / 3fer text on the wall while keeping the bracket. An
-  over-capacity gang still prints OVER with the tags off.
+  hides the 2fer / 3fer text on the wall while keeping the bracket. A
+  shared circuit past its amps still prints OVER with the tags off.
 
 - NEW: Ports snake. Hold Alt and sweep the port chips of a card or box,
   right-click "Snake these 6", and they share one home run under a blue
@@ -130,7 +324,7 @@ v1.0.0 - September 15, 2026 (BETA)
   data page - the wall drawn as the canvas draws it, at half the page
   or more, with rulers to count by and each box bracketed with its home
   run; under it the circuits grouped by box, the screen's cables, the
-  facts, and the 2fer / 3fer count only where the screen has gangs -
+  facts, and the 2fer / 3fer count only where the screen has shared circuits -
   then the distros, the processors and the show-wide pull list. Choose
   Colour or Printer (black and white, a dash per circuit) at the save.
   Right-click a screen for "Export this screen…" - the same pages for
@@ -521,9 +715,6 @@ v1.0.0 - September 15, 2026 (BETA)
   their own, with a guard test that keeps every method in one place.
   Nothing you use changes; the preset picker's hover text now escapes
   quotes correctly.
-- NOTE: This is the 1.0 beta. The 0.12 series was only ever a beta, so
-  everything below ships as 1.0; the What's New splash, the Help menu and
-  the tour that walks the new surfaces say 1.0 now.
 - FIX: The tour's callout holds still. After every action it used to be
   re-placed from scratch and leap to the far corner of the screen; it is
   placed once as a step opens, with room kept for the line that says what
@@ -700,11 +891,11 @@ GUIDANCE
   the Advanced Guide doubled to 39 steps covering the whole app as it is
   today. Labels on the drawing wrap at spaces instead of ballooning.
 
-- NEW: Gang circuits in one gesture. Hold Alt and sweep across adjacent
+- NEW: Share circuits in one gesture. Hold Alt and sweep across adjacent
   power runs - a counter rides the cursor - then right-click and pick
   "2fer them" or "3fer them"; the menu spells out the deal (six 3fers
   from 18 circuits) and the leftover re-deals so nothing is orphaned.
-  Right-click the wall itself to gang every run on the screen. Ganged
+  Right-click the wall itself to share every run on the screen. Shared
   circuits now wear a bracket and an Nfer tag on the drawing - red with
   OVER when past capacity - in the app and in exports.
 
@@ -717,7 +908,7 @@ FIXES THAT CHANGE NUMBERS ON DRAWINGS YOU ALREADY HAVE
 
 - FIX (IMPORTANT): Splitter merges made while a screen's circuits were
   drawn by hand no longer leak into automatic packing. A file that once
-  had custom circuits could gang the wrong rows - even over circuit
+  had custom circuits could share the wrong rows - even over circuit
   capacity - when splitter sharing was turned on with an automatic
   pattern; those old merges now stay dormant until the screen goes back
   to custom, and packing on and off always lands the same row groups.
@@ -754,7 +945,7 @@ POWER DISTRIBUTION
 
 - NEW: Shared multis. Assigning a multi to a distro also picks WHICH
   number on that distro, and two screens on one number are one physical
-  soca: the joiner lands on the box's free tails, the labels derive
+  soca: the joiner lands on the box's free circuits, the labels derive
   automatically, and the distro counts the box once.
 
 - NEW: Splits. A screen's circuits can split at a chosen boundary, and
@@ -766,11 +957,11 @@ POWER DISTRIBUTION
   over, so a rack of folded distros reads like a meter bridge.
 
 - NEW: Balance, per distro. Every three-phase distro carries its own
-  Balance button. Balancing chooses which tails of a multi are in use,
+  Balance button. Balancing chooses which circuits of a multi are in use,
   never their order, so the wall always reads in order; labels name the
-  true physical tail. A balance with nothing to move says why, box by box.
+  true physical circuit. A balance with nothing to move says why, box by box.
 
-- NEW: Splitters. Adjacent short runs gang onto one circuit through
+- NEW: Splitters. Adjacent short runs share one circuit through
   2fer/3fer/4fer Y-cables, with manual merge and split. Off by default;
   existing drawings are unchanged.
 

@@ -254,7 +254,8 @@ POST = """v9.9.9 - January 1, 2099
 
 The lede, first paragraph.
 
-The lede, second paragraph.
+LED Raster Designer 1.0 is the lede's second paragraph, and SR - 400 A is
+prose too.
 
 THE FIRST THING - and a tail on its heading
 
@@ -282,10 +283,12 @@ def test_an_entry_that_opens_with_prose_is_a_post_in_document_order(tmp_path):
     assert proc.returncode == 0, proc.stderr
     text = out.read_text()
     headings = re.findall(r"^## (.+)$", text, re.M)
-    assert headings == ["The first thing", "Fix list", "Install"]
+    assert headings == ["The first thing", "Fix list", "Install"], (
+        "a prose line that opens with capitals is not a heading in a post")
     flat = " ".join(text.split())
-    for a, b in [("The lede, first", "The lede, second"),
-                 ("The lede, second", "## The first thing"),
+    for a, b in [("The lede, first", "1.0 is the lede's second paragraph"),
+                 ("1.0 is the lede's second paragraph, and SR - 400 A is prose too.",
+                  "## The first thing"),
                  ("and a tail on its heading", "Prose under the heading. Continued"),
                  ("Prose under the heading", "- A bullet under the first thing"),
                  ("a sub point", "Prose after the bullet"),

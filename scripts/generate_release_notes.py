@@ -239,6 +239,18 @@ def build(version, items, summary=None):
     return "\n".join(md)
 
 
+def post_heading(line):
+    """In a post a heading is a line whose head is written wholly in caps.
+
+    The list shape's looser rule (a run of capitals, then anything) reads
+    "LED Raster Designer 1.0 is the release..." as a heading and cut a lede
+    in half; prose in a post starts with product names and "SR - 400 A"
+    often enough that only an all-caps head can be a heading.
+    """
+    head = line.partition(" - ")[0]
+    return bool(SECTION_HEADING.match(line)) and head == head.upper()
+
+
 def has_lede(lines):
     """True when the entry opens with prose: a release post, not a list."""
     for raw in lines:
@@ -288,7 +300,7 @@ def parse_post(lines):
                 cur["parts"][-1]["text"] += " " + line.strip()
             else:
                 cur["parts"].append({"type": "p", "text": line.strip()})
-        elif SECTION_HEADING.match(line):
+        elif post_heading(line):
             flush()
             cur = None
             head, _, tail = line.partition(" - ")
