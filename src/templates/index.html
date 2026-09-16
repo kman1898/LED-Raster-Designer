@@ -2611,46 +2611,154 @@
     </div>
     
     <!-- Keyboard Shortcuts Modal -->
+    <!-- Every gesture the app handles, grouped by where it works. The
+         inventory is pinned by tests/test_shortcuts_help.py: a row removed
+         here fails, and a handler added in the code without a row here
+         fails. [data-sc-mod] reads Cmd on macOS, Ctrl elsewhere
+         (app-menubar.js openShortcutsModal). -->
     <div id="shortcuts-modal" class="modal" style="display: none;">
-        <div class="modal-content" style="background: #252525; border-radius: 8px; padding: 32px; max-width: 480px; margin: 60px auto; border: 1px solid #3a3a3a;">
-            <h2 style="margin-top: 0; color: #fff; margin-bottom: 20px; font-size: 20px; text-align: center;">Keyboard Shortcuts &amp; Controls</h2>
-
-            <div style="margin-bottom: 16px;">
-                <h3 style="color: #ccc; font-size: 13px; margin: 0 0 10px 0; text-transform: uppercase; letter-spacing: 1px;">Keyboard Shortcuts</h3>
-                <table style="width: 100%; font-size: 12px; color: #aaa; border-collapse: collapse;">
-                    <tr><td style="padding: 4px 0;">Undo</td><td style="padding: 4px 0; text-align: right; color: #666;">Ctrl/Cmd + Z</td></tr>
-                    <tr><td style="padding: 4px 0;">Redo</td><td style="padding: 4px 0; text-align: right; color: #666;">Ctrl/Cmd + Shift + Z</td></tr>
-                    <tr><td style="padding: 4px 0;">Copy</td><td style="padding: 4px 0; text-align: right; color: #666;">Ctrl/Cmd + C</td></tr>
-                    <tr><td style="padding: 4px 0;">Paste</td><td style="padding: 4px 0; text-align: right; color: #666;">Ctrl/Cmd + V</td></tr>
-                    <tr><td style="padding: 4px 0;">Duplicate</td><td style="padding: 4px 0; text-align: right; color: #666;">Ctrl/Cmd + J</td></tr>
-                    <tr><td style="padding: 4px 0;">Delete Layer</td><td style="padding: 4px 0; text-align: right; color: #666;">Delete / Backspace</td></tr>
-                    <tr><td style="padding: 4px 0;">Select All</td><td style="padding: 4px 0; text-align: right; color: #666;">Ctrl/Cmd + A</td></tr>
-                    <tr><td style="padding: 4px 0;">Export PNG</td><td style="padding: 4px 0; text-align: right; color: #666;">Alt + S</td></tr>
-                    <tr><td style="padding: 4px 0;">Export PSD</td><td style="padding: 4px 0; text-align: right; color: #666;">Ctrl/Cmd + Alt + S</td></tr>
-                    <tr><td style="padding: 4px 0;">Fit to View</td><td style="padding: 4px 0; text-align: right; color: #666;">Ctrl/Cmd + Shift + 1</td></tr>
-                    <tr><td style="padding: 4px 0;">Zoom to Selection (1:1)</td><td style="padding: 4px 0; text-align: right; color: #666;">Ctrl/Cmd + Shift + 2</td></tr>
-                    <tr><td style="padding: 4px 0;">Toggle Snap</td><td style="padding: 4px 0; text-align: right; color: #666;">Ctrl/Cmd + Shift + '</td></tr>
-                    <tr><td style="padding: 4px 0;">Prev / Next Port</td><td style="padding: 4px 0; text-align: right; color: #666;">Shift+Tab / Tab</td></tr>
+        <div class="modal-content sc-modal">
+            <h2 style="margin-top: 0; color: #fff; margin-bottom: 14px; font-size: 20px; text-align: center;">Keyboard Shortcuts &amp; Controls</h2>
+            <div class="sc-body">
+            <section class="sc-group">
+                <h3>Everywhere</h3>
+                <table class="sc-table">
+                    <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+Z / <span data-sc-mod>Ctrl</span>+Shift+Z</td><td>Undo / redo</td></tr>
+                    <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+C / <span data-sc-mod>Ctrl</span>+V</td><td>Copy / paste the selected layer</td></tr>
+                    <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+J</td><td>Duplicate the current layer</td></tr>
+                    <tr><td class="sc-key">Delete / Backspace</td><td>Delete the current layer</td></tr>
+                    <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+,</td><td>Open Preferences</td></tr>
+                    <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+Shift+1</td><td>Fit to view</td></tr>
+                    <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+Shift+2</td><td>Zoom to selection (1:1)</td></tr>
+                    <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+Shift+'</td><td>Toggle snap</td></tr>
+                    <tr><td class="sc-key">Scroll wheel</td><td>Zoom at the cursor; a sideways trackpad swipe pans</td></tr>
+                    <tr><td class="sc-key">Space+drag / middle-button drag</td><td>Pan the canvas</td></tr>
+                    <tr><td class="sc-key">Enter in the zoom % field</td><td>Apply the typed zoom</td></tr>
+                    <tr><td class="sc-key">Click a screen</td><td>Select it (and its canvas)</td></tr>
+                    <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+click a screen</td><td>Toggle it in or out of the selection</td></tr>
+                    <tr><td class="sc-key">Drag in empty space</td><td>Marquee-select screens; hold <span data-sc-mod>Ctrl</span> to toggle the caught ones</td></tr>
+                    <tr><td class="sc-key">Click &amp; drag a screen-name label</td><td>Move the current screen's label in that view</td></tr>
+                    <tr><td class="sc-key">Shift+drag</td><td>In Cabinet ID, Data and Power: move the screen-name label, not the screen</td></tr>
+                    <tr><td class="sc-key">Right-click</td><td>The menu for what is under the cursor - a screen, a run, a chip, a row</td></tr>
+                    <tr><td class="sc-key">Enter / Esc in a rename field</td><td>Commit / revert the name</td></tr>
+                    <tr><td class="sc-key">Esc</td><td>Close a menu, a popover or a prompt</td></tr>
                 </table>
-            </div>
-
-            <div style="margin-bottom: 20px;">
-                <h3 style="color: #ccc; font-size: 13px; margin: 0 0 10px 0; text-transform: uppercase; letter-spacing: 1px;">Mouse &amp; Trackpad</h3>
-                <table style="width: 100%; font-size: 12px; color: #aaa; border-collapse: collapse;">
-                    <tr><td style="padding: 4px 0;">Pan Canvas</td><td style="padding: 4px 0; text-align: right; color: #666;">Space + Drag</td></tr>
-                    <tr><td style="padding: 4px 0;">Zoom In / Out</td><td style="padding: 4px 0; text-align: right; color: #666;">Scroll Wheel</td></tr>
-                    <tr><td style="padding: 4px 0;">Move Layer</td><td style="padding: 4px 0; text-align: right; color: #666;">Shift + Drag</td></tr>
-                    <tr><td style="padding: 4px 0;">Move Screen Name Label</td><td style="padding: 4px 0; text-align: right; color: #666;">Click & Drag the label</td></tr>
-                    <tr><td style="padding: 4px 0;">Move Layer to Another Canvas</td><td style="padding: 4px 0; text-align: right; color: #666;">Shift + Drag onto Canvas</td></tr>
-                    <tr><td style="padding: 4px 0;">Duplicate Layer to Another Canvas</td><td style="padding: 4px 0; text-align: right; color: #666;">Cmd/Alt + Shift + Drag onto Canvas</td></tr>
-                    <tr><td style="padding: 4px 0;">Move a Canvas</td><td style="padding: 4px 0; text-align: right; color: #666;">Drag the canvas's dashed outline</td></tr>
-                    <tr><td style="padding: 4px 0;">Cross-Canvas Multi-Select</td><td style="padding: 4px 0; text-align: right; color: #666;">Shift + Click layers in different canvases</td></tr>
-                    <tr><td style="padding: 4px 0;">Toggle Panel</td><td style="padding: 4px 0; text-align: right; color: #666;">Option/Alt + Click</td></tr>
-                    <tr><td style="padding: 4px 0;">Bulk Toggle Panels</td><td style="padding: 4px 0; text-align: right; color: #666;">Option/Alt + Click + Drag</td></tr>
+            </section>
+            <section class="sc-group">
+                <h3>Pixel Map</h3>
+                <table class="sc-table">
+                    <tr><td class="sc-key">Alt+click a cabinet</td><td>Blank it (or restore it); with cabinets selected, the whole selection</td></tr>
+                    <tr><td class="sc-key">Alt+drag across cabinets</td><td>Paint blank / restore across them</td></tr>
+                    <tr><td class="sc-key">Alt+Shift+click a cabinet</td><td>Toggle half-tile (auto direction); with a selection, the whole selection</td></tr>
+                    <tr><td class="sc-key">Drag across cabinets</td><td>Select cabinets of the current screen</td></tr>
+                    <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+click a cabinet</td><td>Toggle it in or out of the cabinet selection</td></tr>
+                    <tr><td class="sc-key">Esc</td><td>Clear the cabinet selection</td></tr>
+                    <tr><td class="sc-key">Right-click a cabinet</td><td>Set Blank, Restore From Blank, Set Half-tile, Force Half-Width / Half-Height, Restore Full</td></tr>
+                    <tr><td class="sc-key">Shift+drag a screen</td><td>Move the screen (a group moves as one)</td></tr>
+                    <tr><td class="sc-key">Shift+drag a screen onto another canvas</td><td>Move it there; hold <span data-sc-mod>Ctrl</span> or Alt as well to duplicate it there</td></tr>
+                    <tr><td class="sc-key">Drag a canvas's dashed outline</td><td>Move the canvas in the workspace</td></tr>
+                    <tr><td class="sc-key">Right-click a screen</td><td>Center on Canvas (X / Y / both), Group Screens, Ungroup, Move to Canvas…, Put on beach, Export this screen…</td></tr>
                 </table>
+            </section>
+            <section class="sc-group">
+                <h3>Show Look</h3>
+                <table class="sc-table">
+                    <tr><td class="sc-key">Shift+drag a screen</td><td>Move the screen's show position</td></tr>
+                    <tr><td class="sc-key">Shift+drag a screen onto another canvas</td><td>Move it there; hold <span data-sc-mod>Ctrl</span> or Alt as well to duplicate it there</td></tr>
+                    <tr><td class="sc-key">Drag a canvas's dashed outline</td><td>Move the canvas</td></tr>
+                    <tr><td class="sc-key">Right-click a screen</td><td>Center on Canvas (X / Y / both) and the rest of the screen menu</td></tr>
+                </table>
+            </section>
+            <section class="sc-group">
+                <h3>Data view &amp; the tray</h3>
+                <table class="sc-table">
+                    <tr><td class="sc-key">Hold Alt</td><td>Light the run under the cursor</td></tr>
+                    <tr><td class="sc-key">Alt+click a run</td><td>Take that port over for hand-redrawing (or reopen it)</td></tr>
+                    <tr><td class="sc-key">Click cabinets / arrow keys</td><td>Extend the port's path while redrawing or in custom mode</td></tr>
+                    <tr><td class="sc-key">Drag across cabinets (custom mode)</td><td>Select cabinets for a pattern button</td></tr>
+                    <tr><td class="sc-key">Esc</td><td>End the redraw (the drawing stays) or drop the cabinet selection</td></tr>
+                    <tr><td class="sc-key">Tab / Shift+Tab, ] / [</td><td>Next / previous port in custom mode</td></tr>
+                    <tr><td class="sc-key">Right-click a run</td><td>Redraw port N, Port N back to auto, Clear port N</td></tr>
+                    <tr><td class="sc-key">Drag a port, card, box or processor onto a screen</td><td>Assign it - a port lands on a run, a card or box fills ports in order</td></tr>
+                    <tr><td class="sc-key">Drag an assigned port back onto the tray</td><td>Release it</td></tr>
+                    <tr><td class="sc-key">Right-click a port chip, card or box header</td><td>Clear it</td></tr>
+                    <tr><td class="sc-key">Click a port chip (Enter / Space when focused)</td><td>Open its editor; Esc closes it</td></tr>
+                    <tr><td class="sc-key">⚙ on a header</td><td>Configure the processor, card or box</td></tr>
+                    <tr><td class="sc-key">Drag ⋮⋮ along the tray</td><td>Reorder the processors</td></tr>
+                    <tr><td class="sc-key">Esc mid-drag</td><td>Cancel the drag</td></tr>
+                    <tr><td class="sc-key">Alt+press a port chip, sweep across chips</td><td>Light a run of ports - across cards and boxes</td></tr>
+                    <tr><td class="sc-key">Right-click the lit ports</td><td>Snake these N, Set home run…, Unsnake</td></tr>
+                    <tr><td class="sc-key">Alt+Enter</td><td>Snake the lit ports</td></tr>
+                    <tr><td class="sc-key">Esc / click away</td><td>Drop the lit ports</td></tr>
+                    <tr><td class="sc-key">Right-click a snake's tag</td><td>Rename, Set home run of…, Unsnake</td></tr>
+                    <tr><td class="sc-key">≡ on a card or box header</td><td>Flip its chips into the cable sheet - snakes and home runs per port</td></tr>
+                </table>
+            </section>
+            <section class="sc-group">
+                <h3>Power view &amp; the tray</h3>
+                <table class="sc-table">
+                    <tr><td class="sc-key">Hold Alt</td><td>Light the run under the cursor</td></tr>
+                    <tr><td class="sc-key">Alt+click a run</td><td>Take that circuit over for hand-redrawing (or reopen it)</td></tr>
+                    <tr><td class="sc-key">Alt+drag across cabinets</td><td>Sweep a run of circuits; the pill counts them</td></tr>
+                    <tr><td class="sc-key">Right-click the swept circuits</td><td>2fer / 3fer / 4fer them, Un-share all</td></tr>
+                    <tr><td class="sc-key">Right-click a circuit</td><td>Share with next run via 2fer or 3fer, Un-share; 2fer / 3fer this screen; Un-share this screen</td></tr>
+                    <tr><td class="sc-key">Right-click a run or its chip</td><td>Clear multi N, Clear circuit N, Merge back into a multi, Add &lt;type&gt; from… a distro</td></tr>
+                    <tr><td class="sc-key">Right-click a run</td><td>Redraw circuit N, Circuit N back to auto</td></tr>
+                    <tr><td class="sc-key">Click cabinets / arrow keys</td><td>Extend the circuit's path while redrawing or in custom mode</td></tr>
+                    <tr><td class="sc-key">Drag across cabinets (custom mode)</td><td>Select cabinets for a pattern button</td></tr>
+                    <tr><td class="sc-key">Esc</td><td>End the redraw, or drop the sweep or the cabinet selection</td></tr>
+                    <tr><td class="sc-key">Tab / Shift+Tab, ] / [</td><td>Next / previous circuit in custom mode</td></tr>
+                    <tr><td class="sc-key">Drag a multi slot, circuit chip or distro onto a screen</td><td>Assign it - a slot lands on a circuit, a distro feeds the screen's unassigned multis</td></tr>
+                    <tr><td class="sc-key">Drag an assigned slot or circuit chip back onto the tray</td><td>Clear it</td></tr>
+                    <tr><td class="sc-key">Click a box's type chip</td><td>Cycle its connector type</td></tr>
+                    <tr><td class="sc-key">Click a circuit chip</td><td>Edit its label</td></tr>
+                    <tr><td class="sc-key">⚙ or the redundancy pill</td><td>Configure the distro or processor</td></tr>
+                    <tr><td class="sc-key">Drag ⋮⋮ along the tray</td><td>Reorder the distros</td></tr>
+                    <tr><td class="sc-key">Esc mid-drag</td><td>Cancel the drag</td></tr>
+                    <tr><td class="sc-key">≡ on a multi header</td><td>Flip its chips into the cable sheet - a length and connector per circuit</td></tr>
+                </table>
+            </section>
+            <section class="sc-group">
+                <h3>Screens &amp; Beaches panels</h3>
+                <table class="sc-table">
+                    <tr><td class="sc-key">Click a row</td><td>Select the screen</td></tr>
+                    <tr><td class="sc-key">Shift+click a row</td><td>Select the range from the last pick, across canvases</td></tr>
+                    <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+click a row</td><td>Toggle it in or out of the selection</td></tr>
+                    <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+right-click a row</td><td>Toggle it and open the menu</td></tr>
+                    <tr><td class="sc-key">Right-click a row</td><td>The screen menu - Put on beach, Group Screens, Export this screen…, Move to Canvas…</td></tr>
+                    <tr><td class="sc-key">Double-click a name</td><td>Rename a screen, canvas, group or beach (Enter commits, Esc reverts)</td></tr>
+                    <tr><td class="sc-key">Drag a row</td><td>Reorder screens within their canvas</td></tr>
+                    <tr><td class="sc-key">Drag a row onto another canvas's header</td><td>Move it there; hold <span data-sc-mod>Ctrl</span> or Alt to duplicate</td></tr>
+                    <tr><td class="sc-key">Drag ⋮⋮ on a canvas header</td><td>Reorder the canvases</td></tr>
+                    <tr><td class="sc-key">Click a group header</td><td>Select all its members; ▸ folds and unfolds it</td></tr>
+                    <tr><td class="sc-key">+ Add beach</td><td>Make a beach</td></tr>
+                    <tr><td class="sc-key">Drag ⋮⋮ on a beach</td><td>Reorder the beaches - the pull sheet and binder run in this order</td></tr>
+                    <tr><td class="sc-key">× on a beach</td><td>Remove it; its screens go back to their own positions</td></tr>
+                    <tr><td class="sc-key">Right-click selected screens → Put on beach</td><td>Put them on a beach, or + New beach…</td></tr>
+                </table>
+            </section>
+            <section class="sc-group">
+                <h3>Cable sheets</h3>
+                <table class="sc-table">
+                    <tr><td class="sc-key">Tab / Shift+Tab</td><td>Next / previous length field down the column</td></tr>
+                    <tr><td class="sc-key">≡ again</td><td>Show the chips again</td></tr>
+                    <tr><td class="sc-key">Enter in a pull sheet cell</td><td>Commit the cell</td></tr>
+                    <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+Z in the pull sheet</td><td>Undo; the board redraws</td></tr>
+                </table>
+            </section>
+            <section class="sc-group">
+                <h3>Guided tours</h3>
+                <table class="sc-table">
+                    <tr><td class="sc-key">Enter</td><td>Next (Done on the last step)</td></tr>
+                    <tr><td class="sc-key">Esc</td><td>Leave the tour</td></tr>
+                    <tr><td class="sc-key">Back</td><td>Return to the previous step</td></tr>
+                    <tr><td class="sc-key">↻ Replay</td><td>Play this step again</td></tr>
+                    <tr><td class="sc-key">Go to N, then Enter</td><td>Jump to step N</td></tr>
+                    <tr><td class="sc-key">Skip</td><td>End the tour</td></tr>
+                </table>
+            </section>
             </div>
-
-            <div style="text-align: center;">
+            <div style="text-align: center; margin-top: 12px;">
                 <button id="shortcuts-close" class="btn" style="background: #3a3a3a; padding: 8px 24px;">Close</button>
             </div>
         </div>
@@ -2852,6 +2960,56 @@
             background: rgba(0, 0, 0, 0.7);
             z-index: 1000;
             overflow-y: auto;
+        }
+        /* Keyboard Shortcuts modal: wide enough for two columns, scrolls
+           inside itself when taller than the window. */
+        #shortcuts-modal .sc-modal {
+            background: #252525;
+            border-radius: 8px;
+            border: 1px solid #3a3a3a;
+            padding: 24px 28px 20px;
+            max-width: 760px;
+            margin: 40px auto;
+            max-height: calc(100vh - 80px);
+            overflow-y: auto;
+            box-sizing: border-box;
+        }
+        #shortcuts-modal .sc-body {
+            column-count: 2;
+            column-gap: 28px;
+        }
+        #shortcuts-modal .sc-group {
+            break-inside: avoid;
+            margin-bottom: 14px;
+        }
+        #shortcuts-modal .sc-group h3 {
+            color: #ccc;
+            font-size: 12px;
+            margin: 0 0 6px 0;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            border-bottom: 1px solid #3a3a3a;
+            padding-bottom: 4px;
+        }
+        #shortcuts-modal .sc-table {
+            width: 100%;
+            font-size: 11.5px;
+            color: #aaa;
+            border-collapse: collapse;
+            table-layout: fixed;
+        }
+        #shortcuts-modal .sc-table td {
+            padding: 3px 0;
+            vertical-align: top;
+            line-height: 1.35;
+        }
+        #shortcuts-modal .sc-table td.sc-key {
+            width: 44%;
+            color: #ddd;
+            padding-right: 10px;
+        }
+        @media (max-width: 720px) {
+            #shortcuts-modal .sc-body { column-count: 1; }
         }
         .modal-content input[type="checkbox"] {
             width: 16px;

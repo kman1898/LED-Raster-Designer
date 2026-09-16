@@ -79,8 +79,15 @@ class _MenuBar {
         this.updateRecentFilesMenu();
     }
 
+    // ONE platform read for every printed accelerator - the menu labels
+    // and the Keyboard Shortcuts modal both say Cmd on a Mac and Ctrl
+    // elsewhere, and they must never disagree.
+    _isMacPlatform() {
+        return /Mac|iPhone|iPad|iPod/.test(navigator.platform) || /Mac/.test(navigator.userAgent);
+    }
+
     updateShortcutLabels() {
-        const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.platform) || /Mac/.test(navigator.userAgent);
+        const isMac = this._isMacPlatform();
         document.querySelectorAll('.menu-option[data-label]').forEach(option => {
             // Skip options with submenus, they manage their own content
             if (option.classList.contains('menu-has-submenu')) return;
@@ -435,6 +442,12 @@ class _MenuBar {
     openShortcutsModal() {
         var modal = document.getElementById('shortcuts-modal');
         if (!modal) return;
+        // The modifier reads the way the menus print it (updateShortcutLabels):
+        // every [data-sc-mod] span in the modal is Cmd on a Mac, Ctrl elsewhere.
+        var mod = this._isMacPlatform() ? 'Cmd' : 'Ctrl';
+        modal.querySelectorAll('[data-sc-mod]').forEach(function(el) {
+            el.textContent = mod;
+        });
         modal.style.display = 'block';
         var closeBtn = document.getElementById('shortcuts-close');
         if (closeBtn) {
