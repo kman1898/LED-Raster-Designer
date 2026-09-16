@@ -114,7 +114,10 @@ class _MenuBar {
     // a field the typing guard above leaves the browser's select-all to it.
     handleMenuShortcut(e) {
         if (e.repeat) return;
-        if (e.code !== 'KeyO' && e.code !== 'KeyS' && e.code !== 'KeyA') return;
+        // Match on the physical key, falling back to the letter when the
+        // event carries no code (an injected or assistive key event does).
+        const code = e.code || (/^[a-z]$/i.test(e.key || '') ? 'Key' + e.key.toUpperCase() : '');
+        if (code !== 'KeyO' && code !== 'KeyS' && code !== 'KeyA') return;
         if (e.shiftKey) return;
         const isMac = this._isMacPlatform();
         const mod = isMac ? e.metaKey : e.ctrlKey;
@@ -122,7 +125,7 @@ class _MenuBar {
         if (otherMod) return;
         if (!mod && !e.altKey) return;
         if (this._isTypingTarget(document.activeElement)) return;
-        const chord = (mod ? 'mod+' : '') + (e.altKey ? 'alt+' : '') + e.code;
+        const chord = (mod ? 'mod+' : '') + (e.altKey ? 'alt+' : '') + code;
         if (chord === 'mod+KeyA') {
             e.preventDefault();
             const picked = this.selectAllInView();
