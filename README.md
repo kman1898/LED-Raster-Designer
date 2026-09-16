@@ -49,7 +49,7 @@ LED Raster Designer takes a show from the wall to the rack to the paper: lay out
 ### Screens and canvases
 
 - A project holds any number of **canvases**, each with its own raster, workspace position and screens. Drag a canvas by its dashed outline; magnetic snap aligns it with its neighbours.
-- Add screens from a catalog of **180 cabinets** across the major manufacturers, or from your own presets. Heart a cabinet to keep it in the left column. The catalog refreshes from GitHub without a reinstall, and the app opens a pre-filled issue when a figure needs correcting.
+- Add screens from a catalog of **2,500 cabinets from 180 manufacturers**, or from your own presets. Heart a cabinet to keep it in the left column. The catalog refreshes from GitHub without a reinstall, and the app opens a pre-filled issue when a figure needs correcting.
 - **Groups**: select several screens and Group Screens. A wall built from more than one cabinet size behaves as one screen: one name, one set of totals, cabinet numbers that run straight through, and ports and circuits that cross the seam.
 - **Beaches**: a position the show keeps (SR, SL, upstage, whatever you call them). Screens, distros and breakout boxes each pick theirs; the pull sheet and the binder follow that order.
 - Image and logo layers with scale, opacity and a drop shadow; text labels with per-tab visibility and fonts.
