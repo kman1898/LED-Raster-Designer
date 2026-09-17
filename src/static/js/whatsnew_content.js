@@ -14,6 +14,19 @@
  *   h - short heading, d - one or two plain sentences. No markup, no emoji.
  */
 window.WHATS_NEW_CONTENT = {
+    '1.1': {
+        title: 'Go to lands at once, and a screen can change its cabinet',
+        items: [
+            { h: 'Go to is instant',
+              d: 'Type a step number in a tour and you are on it, with everything before it already done. No steps run in front of you.' },
+            { h: 'The tours open what they use',
+              d: 'A folded section or a collapsed sidebar no longer stops a step, and the callout keeps its spot on a short window. Everything goes back the way you had it when you leave.' },
+            { h: 'Change a screen’s cabinet',
+              d: 'Right-click a screen, or press the cabinet button left of the eye, and pick a new cabinet from the catalog. Only the cabinet changes; columns, rows, position, ports and circuits stay.' },
+            { h: 'Ctrl+A means the screens',
+              d: 'Cmd or Ctrl+A selects every screen on the canvas, or every cabinet when a cabinet selection is open, and the app’s chrome can no longer become a text selection.' }
+        ]
+    },
     '1.0': {
         title: 'The rack is in the app, and the papers match it',
         items: [

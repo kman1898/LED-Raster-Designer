@@ -1,6 +1,59 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v1.1.0 - September 16, 2026
+----------------------------
+
+Go to lands at once 🎯 Change a screen's cabinet 🔁 Ctrl+A means the screens ⌨️
+
+A short one, a day after 1.0, from the first reports back: a friend on
+Firefox with his panels folded, a Ctrl+A that grabbed the whole page, and
+a wish to swap a screen's cabinet without rebuilding it. All three are in,
+and Go to in the tours is now instant.
+
+GO TO LANDS AT ONCE
+
+Type a step number into a tour's Go to box and you are on that step, with
+everything before it already done. The app ships every step's finished
+state, so a jump ahead is one move, the same move Back already makes -
+no steps running in front of you, no waiting. The step's own action then
+plays at a person's pace.
+
+THE TOURS OPEN WHAT THEY USE
+
+A folded Screen Info section or a collapsed sidebar used to stop the
+Advanced Guide at Cabinet size with "this step did not take", and on a
+short window the callout sat in the middle of the wall because it had
+nowhere to lock. The tours now open the sidebar or section a step needs
+and put every one of them back the way you had them when you leave, and
+the callout keeps its spot in the sidebar column on a short window.
+Checked in Chromium and Firefox.
+
+CHANGE A SCREEN'S CABINET
+
+Right-click a screen on the canvas or its row in the Screens panel, or
+press the cabinet button left of the eye, and Change cabinet opens the
+catalog picker for that screen. Only the cabinet changes - pixels,
+millimetres, weight, watts. Columns, rows, position, name, beach, group,
+ports and circuits stay. Select several screens and they change
+together, in one undo; a grouped partner is never touched.
+
+CTRL+A MEANS THE SCREENS
+
+Cmd or Ctrl+A selects every screen on the canvas, or every cabinet of the
+screen when a cabinet selection is open, instead of every piece of text
+on the page. The app's own chrome can no longer become a text selection
+at all, so a drag on the canvas is always a marquee and never a ghost of
+the whole window. Text fields and Notes still select as before.
+
+FIX LIST
+
+- FIX: Help > Keyboard Shortcuts lists Cmd/Ctrl+A.
+- FIX: A shortcut matches on the letter when a key event carries no key
+  code, as some injected and assistive key events do.
+- FIX: The README counts the catalog's cabinets (2,534), not its
+  manufacturers (180).
+
 v1.0.0 - September 15, 2026
 ----------------------------
 
