@@ -386,9 +386,12 @@ def test_back_replays_the_previous_step(page):
 def test_enter_is_next_and_a_typed_step_jumps(page):
     """Enter advances a settled step (Matt: "hit enter aka next on each
     step so i dont have to keep clicking"), and a number typed into the
-    Go-to box jumps: ahead, the steps between run first so the show is in
-    the right state when it lands; back, the step's snapshot is restored
-    and replayed - and nothing is duplicated either way."""
+    Go-to box jumps: ahead, the step's shipped entry snapshot is restored
+    in one move (src/static/data/tour_snapshots.json; Matt, 2026-09-16:
+    "it needs to just jump straight to it"), so the show is in the right
+    state when it lands and nothing ran behind a shade; back, the step's
+    snapshot is restored and replayed - and nothing is duplicated either
+    way. tests/test_tour_snapshots.py jumps to every step."""
     st = _start(page, 'advanced', speed=3)
     assert st['qs']['index'] == 0, st
     page.keyboard.press('Enter')
@@ -403,7 +406,11 @@ def test_enter_is_next_and_a_typed_step_jumps(page):
     st = _wait_step(page, i)
     assert st['state'] == 'done' and not st['fail'], st
     assert 'SR-1' in st['note'], st['note']
-    assert not page.evaluate("document.getElementById('qs-fast').style.display === 'block'")
+    # one restore, no shade, and the callout is there
+    assert page.evaluate("window.QuickStart.state().jumpedVia") == 'snapshot'
+    assert page.evaluate("getComputedStyle(document.getElementById('qs-fast')).display") == 'none'
+    assert not page.evaluate("document.body.classList.contains('qs-jumping')")
+    assert page.evaluate("getComputedStyle(document.getElementById('qs-callout')).visibility") == 'visible'
     procs = page.evaluate("() => (window.app._processorsResolved || []).map(p => p.name)")
     assert procs == ['SR'], procs
     # back: to the add-processor step, restored and replayed, still one

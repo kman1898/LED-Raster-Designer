@@ -52,7 +52,13 @@
     // QuickStart.setSpeed(3) runs the same gestures three times faster for
     // an automated drive. Every wait scales with it.
     var speed = 1;
-    function ms(n) { return Math.max(0, Math.round(n / speed)); }
+    // While Go to applies the steps between here and the target, every
+    // pace is zero: the hand does not travel, rest or type a character at
+    // a time, it just does the thing. Polls for the app to respond (T.wait)
+    // keep their real limit - see real() - or a jump would fail on a slow
+    // save where a played step would have waited.
+    function ms(n) { return S.jumping ? 0 : Math.max(0, Math.round(n / speed)); }
+    function real(n) { return S.jumping ? n : ms(n); }
 
     // The pace of the ghost hand at speed 1: the pace a person works at,
     // not a script's (Matt, 2026-09-15: "make sure all the animations are
@@ -610,9 +616,18 @@
             + '#qs-callout .qs-jump input{width:46px;background:#1f1f1f;color:#f0f0f0;border:1px solid #4a4a4a;border-radius:5px;'
             + 'padding:2px 5px;font:600 11.5px -apple-system,"Segoe UI",sans-serif;text-align:center;}'
             + '#qs-callout .qs-jump input:focus{outline:none;border-color:#e22330;}'
-            + '#qs-fast{display:none;position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:2000004;'
-            + 'background:#2e2e2e;color:#fff;border:1px solid #3a3a3a;border-top:3px solid #e22330;border-radius:9px;'
-            + 'padding:9px 16px;font:600 13px -apple-system,"Segoe UI",system-ui,sans-serif;box-shadow:0 10px 30px rgba(0,0,0,.5);}'
+            // The Go-to shade: the window is covered while the steps between
+            // here and the target are applied, so nothing of the run is seen
+            // - the person asked to land on step N with the show as step N
+            // finds it, not to watch a speed run. pointer-events:none keeps
+            // it out of every elementFromPoint the gestures rely on.
+            + '#qs-fast{display:none;position:fixed;inset:0;z-index:2000004;pointer-events:none;'
+            + 'background:rgba(14,14,14,.86);color:#fff;font:600 15px -apple-system,"Segoe UI",system-ui,sans-serif;'
+            + 'align-items:center;justify-content:center;flex-direction:column;gap:10px;}'
+            + '#qs-fast .qs-fast-sub{font-size:12px;font-weight:500;color:#9a9a9a;}'
+            + '#qs-fast .qs-fast-bar{width:260px;height:4px;background:#333;border-radius:2px;overflow:hidden;}'
+            + '#qs-fast .qs-fast-bar i{display:block;height:100%;background:#e22330;width:0;}'
+            + 'body.qs-jumping #qs-callout,body.qs-jumping #qs-spot,body.qs-jumping #qs-cursor{visibility:hidden;}'
             + '#qs-callout .qs-cta{display:block;width:100%;margin:0 0 9px;background:#3c3c3c;color:#fff;'
             + 'border:1px solid #555;border-radius:7px;padding:8px;font:600 12.5px inherit;cursor:pointer;}'
             + '#qs-callout .qs-cta:hover{background:#474747;}'
@@ -1160,7 +1175,7 @@
         // Poll a predicate until it returns something truthy (that value is
         // resolved) or the timeout passes (null).
         wait: function (fn, timeout) {
-            var limit = ms(timeout == null ? 4000 : timeout);
+            var limit = real(timeout == null ? 4000 : timeout);
             var t0 = Date.now();
             return new Promise(function (res) {
                 (function poll() {
@@ -1505,7 +1520,10 @@
     var S = {
         name: null, list: [], idx: -1,
         running: false, pendingNext: false, pendingEnd: null,
-        snaps: [], saved: null, token: 0, visible: false, spotEl: null
+        snaps: [], saved: null, token: 0, visible: false, spotEl: null,
+        // How the last Go to ahead landed: 'snapshot' (one restore of the
+        // shipped entry snapshot) or 'apply' (the steps between were run).
+        jumpedVia: null
     };
 
     function setState(v) { if (els) els.callout.setAttribute('data-qs-state', v); }
@@ -1563,42 +1581,156 @@
         respot();
     }
 
-    // Go straight to step n (1-based). A step already visited is restored
-    // from its entry snapshot and replayed, the way Back does. A step ahead
-    // needs everything between it and here to have happened, so the steps
-    // between run first - fast, cursor hidden, a banner counting them off -
-    // and the step itself then plays at normal speed.
-    function jumpTo(n) {
+    // ── shipped snapshots: Go to ahead in one restore ────────────────────
+    // src/static/data/tour_snapshots.json (scripts/build_tour_snapshots.py)
+    // holds every step's ENTRY snapshot - the scratch show as the step finds
+    // it - for each tour, so a Go to ahead is one restore, exactly like Back,
+    // and never a run of the steps between (Matt, 2026-09-16: "it needs to
+    // just jump straight to it and when it gets there all steps before it
+    // have been done ... an instant skip to step, not any waiting"). The
+    // file is fetched once, on the first jump ahead, and kept in memory.
+    // A tour whose steps changed since the file was built must never land
+    // on a stale show: the file carries each tour's signature (see
+    // signature()) and is only used when it matches; otherwise the steps
+    // between are applied behind the shade (applyAhead).
+    var SNAPSHOTS_URL = '/static/data/tour_snapshots.json';
+    var fixture = null, fixtureLoad = null;
+    function loadSnapshots() {
+        if (fixture) return Promise.resolve(fixture);
+        if (!fixtureLoad) {
+            fixtureLoad = fetch(SNAPSHOTS_URL).then(function (r) { return r.ok ? r.json() : null; })
+                .then(function (d) {
+                    fixture = d && d.tours && typeof d.tours === 'object' ? d : null;
+                    if (!fixture) fixtureLoad = null;
+                    return fixture;
+                })
+                .catch(function () { fixtureLoad = null; return null; });
+        }
+        return fixtureLoad;
+    }
+    // FNV-1a over the string, as eight hex digits - small, stable across
+    // engines, and the same arithmetic tests/test_tour_snapshots.py can redo.
+    function fnv1a(str) {
+        var h = 0x811c9dc5;
+        for (var i = 0; i < str.length; i++) {
+            h ^= str.charCodeAt(i);
+            h = Math.imul(h, 0x01000193) >>> 0;
+        }
+        return ('0000000' + h.toString(16)).slice(-8);
+    }
+    function appVersion() {
+        var m = /\bv(\d+(?:\.\d+)+)/.exec(document.title || '');
+        return m ? m[1] : '?';
+    }
+    // 'v<app version>:<step count>:<fnv1a of "key|title" per step>' - a
+    // step added, removed, renamed or reordered, or a new app version,
+    // gives a new signature and retires the shipped file for that tour.
+    function signature(name) {
+        var tour = TOURS[name];
+        if (!tour) return null;
+        var lines = tour.steps.map(function (k) { var s = STEPS[k]; return k + '|' + (s ? s.title : ''); });
+        return 'v' + appVersion() + ':' + tour.steps.length + ':' + fnv1a(lines.join('\n'));
+    }
+    // The shipped entry snapshot of step k of the current tour, or null. An
+    // entry is the project itself or an integer into the tour's `unique`
+    // list (identical consecutive projects are stored once).
+    function shippedSnapshot(t, k) {
+        var e = t && Array.isArray(t.steps) ? t.steps[k] : null;
+        if (typeof e === 'number') e = Array.isArray(t.unique) ? t.unique[e] : null;
+        return e && typeof e === 'object' && Array.isArray(e.layers) ? e : null;
+    }
+    function shippedSnapshots(name, upTo) {
+        return loadSnapshots().then(function (fx) {
+            var t = fx && fx.tours ? fx.tours[name] : null;
+            if (!t || t.signature !== signature(name)) return null;
+            var out = [];
+            for (var k = 0; k <= upTo; k++) {
+                var s = shippedSnapshot(t, k);
+                if (!s) return null;
+                out.push(s);
+            }
+            return out;
+        });
+    }
+
+    // Go straight to step n (1-based). Back is a restore of that step's
+    // entry snapshot. Ahead is the same one restore when the shipped file
+    // has this tour: the entry snapshots of every step up to n are adopted
+    // as if the steps had been played (so Back from there works the same
+    // way), the restore PUT re-seeds the server's id counters above
+    // everything in the show, and step n's own before() and act then run
+    // at normal pace. Without a matching file (a changed tour, a build
+    // whose file was not regenerated, no network) the steps between are
+    // APPLIED behind the shade instead - see applyAhead. `opts.apply`
+    // forces that path; the snapshot builder drives it.
+    function jumpTo(n, opts) {
+        opts = opts || {};
         if (!S.visible || S.running) return Promise.resolve();
         n = Math.round(n);
         if (!(n >= 1 && n <= S.list.length) || n === S.idx + 1) return Promise.resolve();
         var i = n - 1;
         if (i < S.idx) return go(i, { restore: S.snaps[i] });
-        var savedSpeed = speed;
-        speed = Math.max(speed, 6);
+        if (opts.apply) { S.jumpedVia = 'apply'; return applyAhead(n, i); }
+        var name = S.name, tokenAt = S.token;
+        S.running = true;   // Next, Back, Enter and a second Go to wait for the file
+        return shippedSnapshots(name, i).catch(function () { return null; }).then(function (snaps) {
+            S.running = false;
+            if (!S.visible || S.token !== tokenAt || S.name !== name) return;
+            if (snaps) {
+                for (var k = 0; k <= i; k++) S.snaps[k] = snaps[k];
+                S.jumpedVia = 'snapshot';
+                return go(i, { restore: snaps[i], frame: true });
+            }
+            S.jumpedVia = 'apply';
+            return applyAhead(n, i);
+        });
+    }
+    // The steps between here and step n are APPLIED, not played: the
+    // window is shaded, every pace is zero (ms() is 0 while S.jumping), the
+    // callout, ring and hand are hidden, and only the app's own responses
+    // are waited for. A step that fails on the way ends the jump there,
+    // with its failure shown, so the shade never hides a broken show.
+    function applyAhead(n, i) {
+        var from = S.idx + 1, total = i - from;
+        S.jumping = true;
         S.fast = true;
+        document.body.classList.add('qs-jumping');
         hideCursor();
         var chain = Promise.resolve();
-        for (var k = S.idx + 1; k < i; k++) {
+        var stopped = false;
+        for (var k = from; k < i; k++) {
             (function (k) {
                 chain = chain.then(function () {
-                    if (!S.visible) return;
-                    fastBanner('Skipping ahead to step ' + n + '… running step ' + (k + 1) + ' of ' + S.list.length);
-                    return go(k);
+                    if (!S.visible || stopped) return;
+                    fastBanner('Going to step ' + n, 'applying step ' + (k + 1) + ' of ' + S.list.length, (k - from) / Math.max(1, total));
+                    return go(k).then(function () {
+                        if (els && els.callout.getAttribute('data-qs-state') === 'failed') stopped = true;
+                    });
                 });
             })(k);
         }
         return chain.then(function () {
-            speed = savedSpeed;
+            S.jumping = false;
             S.fast = false;
+            document.body.classList.remove('qs-jumping');
             fastBanner('');
-            if (S.visible) return go(i);
+            if (!S.visible) return;
+            if (stopped) { settle(); return; }   // land on the step that failed, its result showing
+            return go(i);
         });
     }
-    function fastBanner(text) {
+    function fastBanner(text, sub, frac) {
         if (!els) return;
-        els.fast.textContent = text;
-        els.fast.style.display = text ? 'block' : 'none';
+        els.fast.innerHTML = '';
+        if (text) {
+            els.fast.appendChild(document.createTextNode(text));
+            var s2 = document.createElement('div'); s2.className = 'qs-fast-sub'; s2.textContent = sub || '';
+            var bar = document.createElement('div'); bar.className = 'qs-fast-bar';
+            var fill = document.createElement('i'); fill.style.width = Math.round(Math.max(0, Math.min(1, frac || 0)) * 100) + '%';
+            bar.appendChild(fill);
+            els.fast.appendChild(s2); els.fast.appendChild(bar);
+        }
+        els.fast.style.display = text ? 'flex' : 'none';
     }
 
     function leaveCurrent(next) {
@@ -1624,6 +1756,11 @@
         }).then(function () {
             return step.before ? sleep(ms(260)) : null;
         }).then(function () {
+            // A show restored from the shipped file is framed the way the
+            // steps before this one would have left it: the walls in the
+            // view the step just switched to (buildScratch frames the same
+            // way at the start; a Back keeps the framing the person had).
+            if (opts.frame) { try { frameWalls(); } catch (e) {} }
             // What this step shows is on screen before it is rung: the
             // panel its target lives in open, every fold above it undone,
             // and the right sidebar open so the callout has its spot.
@@ -2012,6 +2149,7 @@
         S.snaps = [];
         S.idx = -1;
         S.home = null;
+        S.jumpedVia = null;
         S.visible = true;
         els.catch.style.display = 'block';
         els.spot.style.display = 'block';
@@ -3587,8 +3725,16 @@
         steps: function () { return STEPS; },
         end: end,
         setSpeed: function (n) { speed = Math.max(0.25, Number(n) || 1); },
+        // Go to step n (1-based); {apply: true} runs the steps between
+        // instead of restoring the shipped snapshot.
+        jumpTo: jumpTo,
+        // The entry snapshots taken so far this run, by step index.
+        snaps: function () { return S.snaps; },
+        // The tour's signature, as the shipped snapshot file carries it.
+        signature: signature,
         state: function () {
-            return { tour: S.name, index: S.idx, running: S.running, visible: S.visible };
+            return { tour: S.name, index: S.idx, running: S.running, visible: S.visible,
+                     jumpedVia: S.jumpedVia };
         }
     };
 
