@@ -4,60 +4,52 @@ LED RASTER DESIGNER - VERSION HISTORY
 v1.1.0 - September 16, 2026
 ----------------------------
 
-Go to lands at once 🎯 Change a screen's cabinet 🔁 Ctrl+A means the screens ⌨️
+Change a screen's cabinet type 🔁 Ctrl+A selects all screens ⌨️ Guide fixes 🛠️
 
-A short one, a day after 1.0, from the first reports back: a friend on
-Firefox with his panels folded, a Ctrl+A that grabbed the whole page, and
-a wish to swap a screen's cabinet without rebuilding it. All three are in,
-and Go to in the tours is now instant.
+A small update, one day after 1.0, from the first reports back. Two
+additions and a few fixes to the guides.
 
-GO TO LANDS AT ONCE
+CHANGE A SCREEN'S CABINET TYPE
 
-Type a step number into a tour's Go to box and you are on that step, with
-everything before it already done. The app ships every step's finished
-state, so a jump ahead is one move, the same move Back already makes -
-no steps running in front of you, no waiting. The step's own action then
-plays at a person's pace.
+Right-click a screen on the canvas or in the Screens panel, or click the
+cabinet button next to the eye, and pick a different cabinet from the
+catalog. Only the cabinet changes: its pixels, millimetres, weight and
+watts. The screen keeps its columns, rows, position, name, beach, group,
+ports and circuits. Select several screens to change them all at once,
+with one undo. A screen in a group changes on its own; the other screens
+in the group are not touched.
 
-THE TOURS OPEN WHAT THEY USE
+CTRL+A SELECTS ALL SCREENS
 
-A folded Screen Info section or a collapsed sidebar used to stop the
-Advanced Guide at Cabinet size with "this step did not take", and on a
-short window the callout sat in the middle of the wall because it had
-nowhere to lock. The tours now open the sidebar or section a step needs
-and put every one of them back the way you had them when you leave, and
-the callout keeps its spot in the sidebar column on a short window.
-Checked in Chromium and Firefox.
-
-CHANGE A SCREEN'S CABINET
-
-Right-click a screen on the canvas or its row in the Screens panel, or
-press the cabinet button left of the eye, and Change cabinet opens the
-catalog picker for that screen. Only the cabinet changes - pixels,
-millimetres, weight, watts. Columns, rows, position, name, beach, group,
-ports and circuits stay. Select several screens and they change
-together, in one undo; a grouped partner is never touched.
-
-CTRL+A MEANS THE SCREENS
-
-Cmd or Ctrl+A selects every screen on the canvas, or every cabinet of the
-screen when a cabinet selection is open, instead of every piece of text
-on the page. The app's own chrome can no longer become a text selection
-at all, so a drag on the canvas is always a marquee and never a ghost of
-the whole window. Text fields and Notes still select as before.
+Press Cmd+A on a Mac or Ctrl+A on Windows to select every screen on the
+canvas. If you are selecting cabinets on a screen, it selects every
+cabinet of that screen instead. Before, it selected all the text on the
+page, and the next drag on the canvas dragged that text around as a ghost
+image of the whole window. The app's labels and panels can no longer be
+selected as text, so a drag on the canvas always draws a selection box.
+Text fields and Notes still work as before.
 
 FIX LIST
 
+- FIX: The Advanced Guide no longer stops at the Cabinet size step with
+  "this step did not take" when the Screen Info section is folded or a
+  sidebar is collapsed. The guides now open the panel or section a step
+  needs and put everything back the way you had it when you leave.
+- FIX: On a small window, the guide's box sat in the middle of the wall
+  instead of in the right sidebar. It now stays in the sidebar.
+- FIX: In a guide, typing a step number into the Go to box now takes you
+  straight to that step, with everything before it already done. Before,
+  it played every step in between at high speed while you waited.
 - FIX: Help > Keyboard Shortcuts lists Cmd/Ctrl+A.
-- FIX: A shortcut matches on the letter when a key event carries no key
-  code, as some injected and assistive key events do.
+- FIX: A keyboard shortcut still works when the key event has no key
+  code, which some assistive tools and injected key presses produce.
 - FIX: The README counts the catalog's cabinets (2,534), not its
   manufacturers (180).
 
 v1.0.0 - September 15, 2026
 ----------------------------
 
-Hardware in a tray 🔌 Papers that match the rack 📐 Tours that show you 🎯
+Hardware in a tray 🔌 Papers that match the rack 📐 Guides that show you each step 🎯
 
 With 1.0 the app no longer stops at the wall. Since 0.11 every screen has
 had its ports and its circuits; what it never had was the rack. 1.0 puts the processors, the cards, the breakout
@@ -186,7 +178,7 @@ File > Pull Sheet shows the same list in the app. Quantity, label and notes
 edit in place, a row can be hidden or added, and every edit rides into the
 workbook and into the binder's pull pages.
 
-TOURS THAT SHOW YOU
+GUIDES THAT SHOW YOU EACH STEP
 
 The Quick Start, What's New and Advanced Guide no longer describe the app;
 they run it. Every step performs one real action in front of you on a
@@ -196,8 +188,8 @@ ticked, and a line under the step says what just happened - at a person's
 pace, so you can see what the hand did. Enter is Next, a Go to box jumps to
 any step, Back and Replay do one again. Your own project, view and
 preferences come back the moment you leave. Quick Start is 10 steps, the
-What's New tour 34, the Advanced Guide 55. Help > What's New in 1.0 starts
-the tour any time.
+What's New guide 34, the Advanced Guide 55. Help > What's New in 1.0 starts
+it any time.
 
 AND THE REST
 

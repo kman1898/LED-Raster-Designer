@@ -1969,7 +1969,7 @@
             if (R()) { R().fitToView(); }
             clearStash();
             if (typeof a._toast === 'function') {
-                a._toast('Your project was put back after an interrupted tour.', false, 6000);
+                a._toast('Your project was put back after an interrupted guide.', false, 6000);
             }
             return true;
         }).catch(function (e) {
@@ -2206,8 +2206,8 @@
     // callout's side; `body` one or two sentences in the user's terms.
     var STEPS = {
         introAdvanced: {
-            title: 'The full tour', center: true,
-            body: 'This tour builds a small show in front of you on a scratch project. Your own project is put back when you leave.',
+            title: 'The full guide', center: true,
+            body: 'This guide builds a small show in front of you on a scratch project. Your own project is put back when you leave.',
             before: function () { switchView('pixel-map'); }
         },
         introWhatsNew: {
@@ -3620,12 +3620,12 @@
             },
             check: function () {
                 var m = $('#menu-help');
-                return m && m.style.display === 'block' ? 'Reopen any tour from here.' : null;
+                return m && m.style.display === 'block' ? 'Reopen any guide from here.' : null;
             },
             after: function () { hideMenus(); }
         },
         outroAdvanced: {
-            title: 'That&rsquo;s the tour', center: true,
+            title: 'That&rsquo;s the guide', center: true,
             body: 'Done puts your own project back. Reopen any guide from Help.',
             before: function () { hideMenus(); closeExport(); closePrefs(); }
         },

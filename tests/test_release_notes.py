@@ -189,6 +189,9 @@ def test_headings_with_a_lowercase_tail_are_still_headings():
     cost every area label without failing anything."""
     assert gen.SECTION_HEADING.match("SCREEN GROUPS - one wall, however many")
     assert gen.SECTION_HEADING.match("EXPORT, AND THE APP OPENING IN A BROWSER")
+    assert gen.post_heading("CTRL+A SELECTS ALL SCREENS")
+    blocks = gen.parse_post(["CTRL+A SELECTS ALL SCREENS", "- FIX: x."])
+    assert blocks[0]["text"] == "Ctrl+A selects all screens"
     assert not gen.SECTION_HEADING.match("Five passes over the group work")
     assert not gen.SECTION_HEADING.match("These were found by going back over")
 

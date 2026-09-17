@@ -72,7 +72,7 @@ VERSION_HEADER = re.compile(r"^v(\d[\w.]*) - (.+)$")
 # silently matched none of them. Prose cannot match it either way - the run of
 # 4+ shouty characters has to come immediately after the first, so "Five
 # passes over the new group work" fails on "ive".
-SECTION_HEADING = re.compile(r"^[A-Z][A-Z0-9]*[A-Z0-9 ,&/'()-]{4,}")
+SECTION_HEADING = re.compile(r"^[A-Z][A-Z0-9]*[A-Z0-9 ,&/'()+-]{4,}")   # + for "CTRL+A ..."
 BULLET = re.compile(r"^- (NEW|FIX|CHANGE)(?: \((IMPORTANT)\))?: (.*)$")
 
 # An area label is only worth printing when it is short enough to read as a
@@ -304,7 +304,10 @@ def parse_post(lines):
             flush()
             cur = None
             head, _, tail = line.partition(" - ")
-            blocks.append({"type": "h", "text": head[0] + head[1:].lower()})
+            text = head[0] + head[1:].lower()
+            # a key name after "+" keeps its capital: "Ctrl+A", not "Ctrl+a"
+            text = re.sub(r"\+([a-z])\b", lambda m: "+" + m.group(1).upper(), text)
+            blocks.append({"type": "h", "text": text})
             if tail.strip():
                 blocks.append({"type": "p", "text": tail.strip()})
         else:

@@ -15,16 +15,16 @@
  */
 window.WHATS_NEW_CONTENT = {
     '1.1': {
-        title: 'Go to lands at once, and a screen can change its cabinet',
+        title: 'Change a screen’s cabinet type, Ctrl+A selects all screens, guide fixes',
         items: [
-            { h: 'Go to is instant',
-              d: 'Type a step number in a tour and you are on it, with everything before it already done. No steps run in front of you.' },
-            { h: 'The tours open what they use',
-              d: 'A folded section or a collapsed sidebar no longer stops a step, and the callout keeps its spot on a short window. Everything goes back the way you had it when you leave.' },
-            { h: 'Change a screen’s cabinet',
-              d: 'Right-click a screen, or press the cabinet button left of the eye, and pick a new cabinet from the catalog. Only the cabinet changes; columns, rows, position, ports and circuits stay.' },
-            { h: 'Ctrl+A means the screens',
-              d: 'Cmd or Ctrl+A selects every screen on the canvas, or every cabinet when a cabinet selection is open, and the app’s chrome can no longer become a text selection.' }
+            { h: 'Change a screen’s cabinet type',
+              d: 'Right-click a screen, or click the cabinet button next to the eye, and pick a different cabinet from the catalog. Only the cabinet changes; columns, rows, position, ports and circuits stay.' },
+            { h: 'Ctrl+A selects all screens',
+              d: 'Cmd+A or Ctrl+A selects every screen on the canvas, or every cabinet of a screen when you are selecting cabinets. It no longer selects the text on the page.' },
+            { h: 'The guides no longer stop on a folded panel',
+              d: 'A folded Screen Info section or a collapsed sidebar used to stop the Advanced Guide with "this step did not take". The guides now open what a step needs and put it back when you leave.' },
+            { h: 'Go to takes you straight to a step',
+              d: 'In a guide, type a step number into the Go to box and you are on that step right away, with everything before it already done, instead of watching the steps in between play at high speed.' }
         ]
     },
     '1.0': {
@@ -44,7 +44,7 @@ window.WHATS_NEW_CONTENT = {
               d: 'A position the show keeps. Screens, distros and boxes pick theirs - select several screens and right-click to put them on one - and the pull sheet and binder follow that order.' },
             { h: 'The binder is a drawing set',
               d: 'Numbered sheets with a title block and a revision log, real text in the PDF, a wiring sheet behind every map, and a screen’s own amps on the legs that feed it. Export Pull Sheet fills the shop workbook.' },
-            { h: 'Tours that show you',
+            { h: 'Guides that show you each step',
               d: 'Every step of the Quick Start, What’s New and Advanced Guide performs a real action in front of you, at a person’s pace. Enter is Next, Go to jumps to a step, and your own project comes back the moment you leave.' }
         ]
     },
