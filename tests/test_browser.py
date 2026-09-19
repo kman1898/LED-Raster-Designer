@@ -133,7 +133,7 @@ def test_arrow_color_hex_input(page):
     """Arrow color hex input stores the exact hex value."""
     # Need to be on data flow view for this control to be visible
     # Try clicking the data flow tab if it exists
-    data_tab = page.locator('[data-view="data-flow"], #view-data-flow, .view-tab:has-text("Data")')
+    data_tab = page.locator('.view-tab[data-mode="data-flow"]')
     if data_tab.count() > 0:
         data_tab.first.click()
         page.wait_for_timeout(300)
@@ -185,10 +185,10 @@ def test_canvas_has_content(page):
 
 def test_view_tabs_exist(page):
     """All view tabs (Pixel, Cabinet, Data Flow, Power) exist."""
-    tabs = page.locator('.view-tab, [data-view]')
-    if tabs.count() == 0:
-        pytest.skip("View tabs not found with expected selectors")
-    assert tabs.count() >= 3, f"Expected at least 3 view tabs, found {tabs.count()}"
+    # [data-mode] keeps this to the five view tabs: the Preferences dialog
+    # reuses the .view-tab class for its own tabs.
+    tabs = page.locator('.view-tab[data-mode]')
+    assert tabs.count() == 5, f"Expected the five view tabs, found {tabs.count()}"
 
 
 def test_switching_views_doesnt_crash(page):
@@ -196,8 +196,11 @@ def test_switching_views_doesnt_crash(page):
     errors = []
     page.on('pageerror', lambda err: errors.append(str(err)))
 
-    tabs = page.locator('.view-tab, [data-view]')
+    # Only the five view tabs: the Preferences dialog reuses the .view-tab
+    # class for its own (hidden) tabs, and a hidden button cannot be clicked.
+    tabs = page.locator('.view-tab[data-mode]')
     count = tabs.count()
+    assert count == 5, f'expected the five view tabs, found {count}'
     for i in range(count):
         tabs.nth(i).click()
         page.wait_for_timeout(200)

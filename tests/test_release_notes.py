@@ -32,7 +32,8 @@ def run(tmp_path, *args, version_file=None):
     out = tmp_path / "NOTES.md"
     cmd = [sys.executable, str(SCRIPT), "--out", str(out),
            "--version-file", str(version_file or VERSION_TXT), *args]
-    proc = subprocess.run(cmd, capture_output=True, text=True, cwd=ROOT)
+    proc = subprocess.run(cmd, capture_output=True, text=True, cwd=ROOT,
+                          encoding='utf-8', errors='replace')
     return proc, out
 
 
@@ -56,7 +57,7 @@ def test_accepts_the_matching_tag(tmp_path):
     for tag in (f"v{version}", version):          # with and without the v
         proc, out = run(tmp_path, "--tag", tag)
         assert proc.returncode == 0, proc.stderr
-        assert out.read_text().startswith(f"# LED Raster Designer v{version}")
+        assert out.read_text(encoding='utf-8').startswith(f"# LED Raster Designer v{version}")
 
 
 def test_a_prerelease_tag_ships_its_base_versions_notes(tmp_path):
@@ -67,12 +68,12 @@ def test_a_prerelease_tag_ships_its_base_versions_notes(tmp_path):
     version = top_version()
     proc, out = run(tmp_path, "--tag", f"v{version}-beta.1")
     assert proc.returncode == 0, proc.stderr
-    assert out.read_text().startswith(f"# LED Raster Designer v{version}")
+    assert out.read_text(encoding='utf-8').startswith(f"# LED Raster Designer v{version}")
 
 
 def test_refuses_a_version_file_with_no_entries(tmp_path):
     empty = tmp_path / "VERSION.txt"
-    empty.write_text("LED RASTER DESIGNER - VERSION HISTORY\n===\n\n")
+    empty.write_text("LED RASTER DESIGNER - VERSION HISTORY\n===\n\n", encoding='utf-8')
     proc, _ = run(tmp_path, version_file=empty)
     assert proc.returncode != 0
     assert "no version entry" in (proc.stdout + proc.stderr)
@@ -89,7 +90,7 @@ def test_every_entry_in_version_txt_reaches_the_notes(tmp_path):
     proc, out = run(tmp_path, "--tag", version)
     assert proc.returncode == 0, proc.stderr
 
-    text = out.read_text()
+    text = out.read_text(encoding='utf-8')
     rendered = len(re.findall(r"^- ", text, re.M))
     assert rendered == len(expected), (
         f"{len(expected)} entries in VERSION.txt but {rendered} in the notes")
@@ -107,10 +108,10 @@ def test_sections_are_features_first_fixes_last(tmp_path):
     release (fixes only, no "What's new") landed there - the test was
     tracking today's release shape instead of the ordering rule."""
     vf = tmp_path / "VERSION.txt"
-    vf.write_text(SAMPLE)                       # NEW + CHANGE + both FIX kinds
+    vf.write_text(SAMPLE, encoding='utf-8')                       # NEW + CHANGE + both FIX kinds
     proc, out = run(tmp_path, "--tag", "9.9.9", version_file=vf)
     assert proc.returncode == 0, proc.stderr
-    headings = re.findall(r"^## (.+)$", out.read_text(), re.M)
+    headings = re.findall(r"^## (.+)$", out.read_text(encoding='utf-8'), re.M)
     assert headings[0] == "What's new"
     assert headings[-1] == "Install"
     assert headings.index("Changes worth knowing about") < headings.index(
@@ -125,7 +126,7 @@ def test_the_live_version_txt_still_generates(tmp_path):
     """Whatever shape the current top entry is, it must produce notes."""
     proc, out = run(tmp_path, "--tag", top_version())
     assert proc.returncode == 0, proc.stderr
-    headings = re.findall(r"^## (.+)$", out.read_text(), re.M)
+    headings = re.findall(r"^## (.+)$", out.read_text(encoding='utf-8'), re.M)
     assert headings, "no sections rendered"
     assert headings[-1] == "Install"
 
@@ -159,10 +160,10 @@ def test_prose_after_a_list_stays_after_the_list(tmp_path):
     """A bullet's parts must keep their order. Flattening to "all prose then
     all sub-points" stranded an "Once grouped:" lead-in from its own list."""
     vf = tmp_path / "VERSION.txt"
-    vf.write_text(SAMPLE)
+    vf.write_text(SAMPLE, encoding='utf-8')
     proc, out = run(tmp_path, "--tag", "9.9.9", version_file=vf)
     assert proc.returncode == 0, proc.stderr
-    text = out.read_text()
+    text = out.read_text(encoding='utf-8')
     assert text.index("Once grouped") < text.index("first sub point")
     assert text.index("second sub point") < text.index("Trailing prose")
     assert "continued on the next line" in " ".join(text.split())
@@ -170,10 +171,10 @@ def test_prose_after_a_list_stays_after_the_list(tmp_path):
 
 def test_section_intro_prose_does_not_become_an_entry(tmp_path):
     vf = tmp_path / "VERSION.txt"
-    vf.write_text(SAMPLE)
+    vf.write_text(SAMPLE, encoding='utf-8')
     proc, out = run(tmp_path, "--tag", "9.9.9", version_file=vf)
     assert proc.returncode == 0, proc.stderr
-    assert len(re.findall(r"^- ", out.read_text(), re.M)) == 4
+    assert len(re.findall(r"^- ", out.read_text(encoding='utf-8'), re.M)) == 4
 
 
 def test_area_label_only_when_it_reads_as_a_tag():
@@ -229,10 +230,10 @@ def test_a_fixes_only_release_does_not_say_other_fixes(tmp_path):
     """"Other fixes" has nothing to be other THAN on a patch release, and
     reads as though the real list is somewhere further up the page."""
     vf = tmp_path / "VERSION.txt"
-    vf.write_text(PATCH_ONLY)
+    vf.write_text(PATCH_ONLY, encoding='utf-8')
     proc, out = run(tmp_path, "--tag", "9.9.9", version_file=vf)
     assert proc.returncode == 0, proc.stderr
-    text = out.read_text()
+    text = out.read_text(encoding='utf-8')
     assert "## Fixes" in text
     assert "## Other fixes" not in text
     assert "Everything else that was wrong" not in text
@@ -242,10 +243,10 @@ def test_other_fixes_survives_when_it_is_doing_real_work(tmp_path):
     """With the important-fixes section present, "other" distinguishes the
     two - renaming there would lose that."""
     vf = tmp_path / "VERSION.txt"
-    vf.write_text(MIXED)
+    vf.write_text(MIXED, encoding='utf-8')
     proc, out = run(tmp_path, "--tag", "9.9.9", version_file=vf)
     assert proc.returncode == 0, proc.stderr
-    text = out.read_text()
+    text = out.read_text(encoding='utf-8')
     assert "## Other fixes" in text
     assert "## Fixes that change numbers on drawings you already have" in text
 
@@ -281,10 +282,10 @@ def test_an_entry_that_opens_with_prose_is_a_post_in_document_order(tmp_path):
     """A post keeps the order it was written in: lede, headings as written,
     prose, bullets - nothing regrouped into What's new / Other fixes."""
     vf = tmp_path / "VERSION.txt"
-    vf.write_text(POST)
+    vf.write_text(POST, encoding='utf-8')
     proc, out = run(tmp_path, "--tag", "9.9.9", version_file=vf)
     assert proc.returncode == 0, proc.stderr
-    text = out.read_text()
+    text = out.read_text(encoding='utf-8')
     headings = re.findall(r"^## (.+)$", text, re.M)
     assert headings == ["The first thing", "Fix list", "Install"], (
         "a prose line that opens with capitals is not a heading in a post")
@@ -307,9 +308,9 @@ def test_an_entry_that_opens_with_prose_is_a_post_in_document_order(tmp_path):
 def test_a_list_entry_is_not_mistaken_for_a_post(tmp_path):
     """SAMPLE opens with a heading, so it keeps the sorted shape."""
     vf = tmp_path / "VERSION.txt"
-    vf.write_text(SAMPLE)
+    vf.write_text(SAMPLE, encoding='utf-8')
     proc, out = run(tmp_path, "--tag", "9.9.9", version_file=vf)
     assert proc.returncode == 0, proc.stderr
-    assert "## What's new" in out.read_text()
+    assert "## What's new" in out.read_text(encoding='utf-8')
     assert not gen.has_lede(SAMPLE.splitlines()[2:])
     assert gen.has_lede(POST.splitlines()[2:])

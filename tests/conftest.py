@@ -141,20 +141,29 @@ def e2e_server():
     # answer too, which is why answering alone is not enough - and why a
     # fixed sleep never was.
     url = f'http://127.0.0.1:{port}'
-    deadline = time.time() + 20
+    # The probe goes straight to loopback: urlopen() on macOS asks the
+    # system for its proxy settings first, and on a CI runner that lookup
+    # can fail the wait while the server is up (macos-15 failed this wait on
+    # every run from 2026-09-16). A cold runner under coverage also needs
+    # more than 20 s. When it still fails, the message carries the last
+    # error so the next log says why instead of only that it did.
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    deadline = time.time() + 90
+    last_error = None
     while True:
         if failures:
             pytest.exit(f'The e2e server could not start on port {port}: '
                         f'{failures[0]!r}', returncode=3)
         try:
-            with urllib.request.urlopen(url + '/api/project', timeout=2) as reply:
+            with opener.open(url + '/api/project', timeout=5) as reply:
                 if reply.status == 200 and thread.is_alive() and not failures:
                     break
-        except Exception:
-            pass
+        except Exception as error:
+            last_error = error
         if time.time() > deadline:
             pytest.exit(f'The e2e server on port {port} did not come up within '
-                        f'20 seconds.', returncode=3)
+                        f'90 seconds (thread alive: {thread.is_alive()}, last '
+                        f'probe error: {last_error!r}).', returncode=3)
         time.sleep(0.1)
     yield url
 
