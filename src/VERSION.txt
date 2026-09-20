@@ -1,6 +1,17 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v1.1.1 - September 20, 2026
+----------------------------
+
+- FIX: In the binder, a screen's Data sheet now draws the wall the same
+  size as its Power sheet. Before, a screen with only a few ports printed
+  its Ports table in very large type, which squeezed the wall down to
+  about a third of the sheet, while the Power sheet of the same screen
+  drew the wall nearly twice as big. The wall now comes first on every
+  sheet, and the table text only grows where there is room the wall
+  cannot use.
+
 v1.1.0 - September 16, 2026
 ----------------------------
 
