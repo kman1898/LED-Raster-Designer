@@ -57,12 +57,15 @@
 // text can be bigger if it fills the space. only get this small when
 // there is tons of info"): a map sheet is tried both ways - the map left
 // and the tables right in one column (side), the map on top and the
-// tables under it side by side (stack) - each with the TABLES' type
-// scale s, 1 to FILL_CAP, chosen for it, the map taking the room the
-// tables leave (never the other way round; it keeps at least 45 % of the
-// width beside them, of the height over them), its zoom min(fit, 3x);
-// the layout that covers more of the drawing area - the wall with its
-// gutters plus the tables' box - wins. The tables,
+// tables under it side by side (stack). THE WALL COMES FIRST (2026-09-20,
+// "power is the size a wall of this size should be"): in each layout the
+// map takes the zoom it gets with the tables at 1 (min(fit, 3x), never
+// under 45 % of the width beside them, of the height over them), and the
+// TABLES' type scale s, 1 to FILL_CAP, grows only while that costs the
+// map nothing - so a screen's Power and Data sheets draw the same wall
+// the same size however long their tables are. The layout with the
+// larger wall wins; within 3 per cent, the one that covers more of the
+// drawing area - the wall with its gutters plus the tables' box. The tables,
 // their bands, the FACTS and the view bubble are painted at s (base
 // sizes below, the context scaled, the recorder writing the scaled page
 // units so the PDF matches); the map's rulers and brackets keep their
@@ -162,9 +165,9 @@ const COL_RULER_H = 34;
 const MAP_ZOOM_CAP = 3;               // a tiny wall never blows up past 3x
 // The fill: a sheet's drawing scales up to this to fill its area.
 const FILL_CAP = 2.4;
-// A map sheet gives type back only where the map turns it into this much
-// more of the drawing area's height (_bMapLayout's sweep).
-const FILL_STEP = 0.02;
+// A long table may take this much of the wall's best size to reach the foot
+// of the sheet (_bMapLayout's side layout); a short one takes nothing.
+const FILL_KEEP = 0.9;
 // A column sheet's subject head - the position's, the distro's name over
 // its tables - and the pull sheets' narrower column (four positions
 // across a Tabloid: cable · len · qty · label are short columns).
@@ -2192,24 +2195,33 @@ class _Binder {
         };
         const identity = (x, y) => [x, y];
         const toBase = (s) => (s > 1 ? (x, y) => [da.x + (x - da.x) / s, da.y + (y - da.y) / s] : identity);
-        // THE SHEET IS FILLED FIRST, THE TYPE GROWN SECOND (2026-09-09).
-        // The tables used to take the largest type their own room allowed
-        // and the map took what was left - which beside a TALL wall starved
-        // the map of the width it needed to reach the foot of the sheet:
-        // SR · DATA printed a 1243 x 1240 map in the top left of a 3400 x
-        // 2200 sheet and left the bottom half empty. So the scale is SWEPT:
-        // the largest type that fills the drawing area, giving room back
-        // only where the map turns it into a real gain (FILL_STEP of the
-        // height). A sheet that already fills is left exactly as it was.
-        const sweep = (sMax, fillOf) => {
+        // THE WALL COMES FIRST, THE TYPE GROWS INTO WHAT IS LEFT (2026-09-20).
+        // The type used to be swept down from its largest, giving room back
+        // to the map only where that filled more of the sheet's HEIGHT. A
+        // short table therefore grew until it filled the height by itself
+        // and the wall never got its room back: on Experts Only, SR - MAIN
+        // DATA (8 ports) printed its table at 1.7x beside a wall a third of
+        // the sheet wide, while SR - MAIN POWER (22 circuits, a table that
+        // cannot grow) printed the same wall at nearly twice the size - "power
+        // is the size a wall of this size should be. not sure why the text
+        // is so much bigger on the data screen with less info". So the map
+        // takes the zoom it gets with the tables at 1, and the type grows
+        // only while that costs the map nothing (a wall stopped by the
+        // sheet's height has width to spare beside it; a wall stopped by
+        // the width has height to spare under it).
+        // "Costs nothing" is within 2 per cent: the view bubble under the map
+        // grows with the type, so every step of type costs a wall stopped by
+        // the height a sliver, and a half per cent rule froze the type at
+        // 1.09 beside a small tall wall with half the sheet empty.
+        const FREE = 0.98;
+        const grow = (sMax, zoomOf) => {
             const top = clamp(sMax);
-            let best = top, bestFill = fillOf(top);
-            for (let v = Math.round(top * 100) - 1; v >= 100; v--) {
-                const s = v / 100;
-                const f = fillOf(s);
-                if (f > bestFill + FILL_STEP) { bestFill = f; best = s; }
+            const z1 = zoomOf(1);
+            if (!(z1 > 0)) return top;
+            for (let v = Math.round(top * 100); v > 100; v--) {
+                if (zoomOf(v / 100) >= z1 * FREE) return v / 100;
             }
-            return best;
+            return 1;
         };
 
         // side: the fewest columns that hold the tables whole
@@ -2219,12 +2231,24 @@ class _Binder {
             const pack = this._bPack(blocks, da.h, k);
             if (pack.rest.length || !pack.cols.length) continue;
             const tablesW = k * colW + (k - 1) * COL_GAP, tablesH = tallest(pack);
-            const sideFill = (v) => {
-                const g = fit(da.w - (tablesW + COL_GAP) * v, da.h - BUBBLE_H * v);
-                return Math.min(1, Math.max(g.h + BUBBLE_H * v, tablesH * v) / da.h);
-            };
-            const s = sweep(Math.min(FILL_CAP, da.h / tablesH,
-                                     (da.w - minW) / (tablesW + COL_GAP)), sideFill);
+            const sideZoom = (v) => fit(da.w - (tablesW + COL_GAP) * v, da.h - BUBBLE_H * v).zoom;
+            const sideTop = Math.min(FILL_CAP, da.h / tablesH, (da.w - minW) / (tablesW + COL_GAP));
+            let s = grow(sideTop, sideZoom);
+            // A LONG table beside the wall may still grow to the foot of the
+            // sheet: where the tables are the taller of the two, each step
+            // of type fills more of the sheet, and it is taken while the
+            // wall keeps FILL_KEEP of its best size. A SHORT table gains the
+            // sheet nothing by growing (the wall is the taller, and only
+            // gets shorter), so it stays where the wall left it - which is
+            // what keeps a screen's Data wall the size of its Power wall.
+            const zBest = sideZoom(1);
+            for (let v = Math.round(s * 100) + 1; v <= Math.floor(clamp(sideTop) * 100); v++) {
+                const t = v / 100;
+                const g = fit(da.w - (tablesW + COL_GAP) * t, da.h - BUBBLE_H * t);
+                if (tablesH * t <= g.h + BUBBLE_H * t) break;          // the wall is the taller: no gain
+                if (!(g.zoom >= zBest * FILL_KEEP)) break;            // costs the wall too much
+                s = t;
+            }
             const roomW = da.w - (tablesW + COL_GAP) * s, roomH = da.h - BUBBLE_H * s;
             const m = fit(roomW, roomH);
             side = { kind: 'side', cols: k, colW, top: da.y, pack, scale: s,
@@ -2243,12 +2267,9 @@ class _Binder {
         if (spread && tallest(spread) <= colH1) {
             const k = spread.cols.length;
             const rowW = k * colW + (k - 1) * COL_GAP, tablesH = tallest(spread);
-            const stackFill = (v) => {
-                const g = fit(da.w, da.h - (tablesH + BUBBLE_H + COL_GAP) * v);
-                return Math.min(1, (g.h + (BUBBLE_H + COL_GAP + tablesH) * v) / da.h);
-            };
-            const s = sweep(Math.min(FILL_CAP, da.w / rowW,
-                                     (da.h - minH) / (tablesH + BUBBLE_H + COL_GAP)), stackFill);
+            const stackZoom = (v) => fit(da.w, da.h - (tablesH + BUBBLE_H + COL_GAP) * v).zoom;
+            const s = grow(Math.min(FILL_CAP, da.w / rowW,
+                                    (da.h - minH) / (tablesH + BUBBLE_H + COL_GAP)), stackZoom);
             const mapH = da.h - (tablesH + BUBBLE_H + COL_GAP) * s;
             const m = fit(da.w, mapH);
             const wide = (da.w / s - (k - 1) * COL_GAP) / k;
@@ -2260,7 +2281,15 @@ class _Binder {
                       colX: (i) => da.x + i * (wide + COL_GAP),
                       toBase: toBase(s) };
         }
-        if (side && stack) return stack.coverage >= side.coverage ? stack : side;
+        // The layout with the larger wall wins; where the two walls are
+        // within 3 per cent of each other, the one that covers more of the
+        // sheet (stack on a tie).
+        if (side && stack) {
+            const zs = side.map.zoom, zt = stack.map.zoom;
+            if (zs > zt * 1.03) return side;
+            if (zt > zs * 1.03) return stack;
+            return stack.coverage >= side.coverage ? stack : side;
+        }
         if (side || stack) return side || stack;
 
         // tons of info: neither holds the tables at 1 - the map over the

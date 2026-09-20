@@ -445,7 +445,11 @@ RENDER_JS = """([opts, title]) => {
         if (Math.abs(R - G) > 10 || Math.abs(G - B) > 10 || Math.abs(R - B) > 10) coloured++;
     }
     const sc = plan[idx].scale || 1;
-    const cols = r.record.ops.filter(o => o.op === 'text' && Math.abs(o.size - 25 * sc) < 0.02 && o.weight === 700);
+    // a table heading: bold, 25 px at the sheet's scale, inside the drawing
+    // area - the title block's own bold labels are 26 px, which IS 25 x 1.04
+    const tbX = r.titleBlock && typeof r.titleBlock.x === 'number' ? r.titleBlock.x : Infinity;
+    const cols = r.record.ops.filter(o => o.op === 'text' && Math.abs(o.size - 25 * sc) < 0.02 && o.weight === 700
+        && o.x < tbX && !/:$/.test(o.text));
     return { texts: r.texts, textInfo: r.textInfo, mapTexts: r.mapTexts, dashes: r.dashes,
              map: r.map, brackets: r.brackets, bubble: r.bubble, titleBlock: r.titleBlock,
              coloured, samples, pages: r.pages, index: idx, width: c.width, height: c.height,
@@ -989,11 +993,16 @@ def _map_of(out):
 
 
 def test_the_map_takes_the_room_the_tables_leave(page):
-    """Coverage decides. WALL-A (4 x 3 of 200 px, squat) over three short
-    tables: STACK - the tables side by side at the width-filling scale
-    (2760 / 2160 = 1.277), the map taking the height they leave, the wall
-    centred between its gutters at the fit of that height (well under 3x),
-    the sheet more than 80 % covered. CENTER (3 x 5 of 128 px, tall) beside
+    """THE WALL COMES FIRST (2026-09-20: on Experts Only the DATA sheet's
+    short table grew to 1.7x and left the wall a third of the sheet, while
+    the POWER sheet of the same wall drew it nearly twice the size - "power
+    is the size a wall of this size should be"). In each layout the map
+    takes the zoom it gets with the tables at 1, and the type grows only
+    while that costs the map nothing. WALL-A (4 x 3 of 200 px, squat) over
+    three short tables: STACK - the wall stopped by the HEIGHT the tables
+    leave, so the type has nothing free to grow into and stays near 1, the
+    wall centred between its gutters (well under 3x), the sheet more than
+    75 % covered. CENTER (3 x 5 of 128 px, tall) beside
     four short tables: SIDE - and here THE SHEET IS FILLED FIRST
     (2026-09-09): the tables used to grow until the map had only its 45 %
     of the width left (s = 2.079), which on a tall wall left the map short
@@ -1011,10 +1020,14 @@ def test_the_map_takes_the_room_the_tables_leave(page):
         p = out['page']
         s = p['scale']
         assert p['layout'] == 'stack' and p['cols'] == cols, p
-        # the row of tables sets the scale: (da.w + gap) / (cols x (col + gap))
+        # the wall sets the scale: it is as large as it would be with the
+        # tables at 1 (within the half per cent that counts as free), and
+        # the type never reaches the width-filling scale at its expense
         row_w = cols * col_w + (cols - 1) * COL_GAP
-        assert abs(s - int(DA['w'] / row_w * 1000) / 1000) < 1e-9, (s, row_w)
+        assert 1 <= s < int(DA['w'] / row_w * 1000) / 1000, (s, row_w)
         m = _map_of(out)
+        tables_h1 = (DA['h'] - m['area']['h']) / s            # bubble + gap + tallest column, at 1
+        assert m['zoom'] >= _fit(DA['w'], DA['h'] - tables_h1, ww, wh) * 0.979, (title, m, s)
         assert m['area'] == {'x': DA['x'], 'y': DA['y'], 'w': DA['w'], 'h': m['area']['h']}, m['area']
         assert abs(m['w'] / m['h'] - ww / wh) / (ww / wh) < 0.01, (title, m)
         zoom = _fit(DA['w'], m['area']['h'], ww, wh)
@@ -1044,22 +1057,20 @@ def test_the_map_takes_the_room_the_tables_leave(page):
     s = c['page']['scale']
     assert c['page']['layout'] == 'side' and c['page']['cols'] == 1, c['page']
     cap = int((DA['w'] - round(DA['w'] * MAP_MIN_FRAC)) / (COL_W + COL_GAP) * 1000) / 1000
-    assert 1.3 < s <= cap, (s, cap)
+    assert 1.2 < s <= cap, (s, cap)
     m = _map_of(c)
     room_w = DA['w'] - (COL_W + COL_GAP) * s
     assert abs(m['area']['w'] - room_w) < 0.01 and m['area']['x'] == DA['x'], (m['area'], room_w)
     assert m['scale'] == s and abs(m['w'] / m['h'] - 3 / 5) < 0.01, m
     zoom = _fit(room_w, DA['h'] - BUBBLE_H * s, 3 * 128, 5 * 128)
     assert abs(m['zoom'] - zoom) < 0.01 and zoom < MAP_ZOOM_CAP, (m, zoom)
-    # the sweep's own answer: the map fills its room BOTH ways (the width
-    # it was given and the height under the bubble are the same fit), and
-    # the sheet is covered - no half-empty page under a small map
-    room_h = DA['h'] - BUBBLE_H * s
-    assert abs((room_w - GUT['left'] - GUT['right']) / (3 * 128)
-               - (room_h - GUT['top'] - GUT['bottom']) / (5 * 128)) < 0.05, (s, room_w, room_h)
-    assert c['page']['extent']['h'] >= DA['h'] * 0.98, c['page']['extent']
-    # a step of type up would cost the map more than it gains: at the old
-    # 45 %-width scale the sheet lost a sixth of its height
+    # the wall first: it is as large as it would be with the tables at 1
+    # (within the 2 per cent that counts as free - the bubble under it
+    # grows with the type), and the type has grown into the width a tall
+    # wall leaves beside it, short of the old 45 %-width scale that starved
+    # the map
+    z1 = min(_fit(DA['w'] - (COL_W + COL_GAP), DA['h'] - BUBBLE_H, 3 * 128, 5 * 128), MAP_ZOOM_CAP)
+    assert m['zoom'] >= z1 * 0.979, (m['zoom'], z1)
     assert cap - s > 0.2, (s, cap)
     assert m['x'] >= DA['x'] and m['x'] + m['w'] <= m['area']['x'] + m['area']['w'] + 1, m
     assert m['area']['y'] + m['area']['h'] <= DA['y'] + DA['h'] + 1, m
@@ -2360,14 +2371,16 @@ def test_the_plain_sheet_gives_the_drawing_the_blocks_width(page):
     b = _map_of(_render(pg, PLAIN, 'Overview'))['area']
     assert a['w'] == DA_BLOCK['w'] and b['w'] == DA_PLAIN['w'], (a, b)
     assert b['w'] - a['w'] == TB_W and b['x'] == a['x'] == DA_PLAIN['x'], (a, b)
-    # and a map sheet spends the room: WALL-A's wall is drawn bigger and
-    # the sheet's own content covers more of the page (the layout is free
-    # to change - a wider area can make map-left / tables-right the
-    # covering one - so this measures area, not width)
+    # and a map sheet spends the room: WALL-A's wall is never drawn
+    # smaller (it is stopped by the sheet's HEIGHT, so the width goes to
+    # the tables beside it) and the sheet's own content covers more of the
+    # page (the layout is free to change - a wider area can make map-left
+    # / tables-right the one with the larger wall - so this measures
+    # area, not width)
     on = _render(pg, BLOCK, 'WALL-A - Power')
     off = _render(pg, PLAIN, 'WALL-A - Power')
     ma, mb = _map_of(on), _map_of(off)
-    assert mb['w'] * mb['h'] > ma['w'] * ma['h'] * 1.1, (ma, mb)
+    assert mb['w'] * mb['h'] >= ma['w'] * ma['h'], (ma, mb)
     ea, eb = on['page']['extent'], off['page']['extent']
     assert eb['w'] * eb['h'] > ea['w'] * ea['h'], (ea, eb)
     assert eb['w'] > ea['w'] and eb['w'] == DA_PLAIN['w'], (ea, eb)
@@ -2921,7 +2934,10 @@ def test_the_fill_picks_the_layout_that_covers_most(page):
     m = _map_of(tabloid)
     s = p['scale']
     assert p['layout'] == 'stack' and p['cols'] == 3, p
-    assert abs(s - 1.278) < 0.1, p
+    # the wall first: the type takes only what the wall cannot use, never
+    # past the width-filling 1.278
+    assert 1 <= s <= 1.278 + 1e-9, (s, p)
+    assert p['extent']['h'] >= DA['h'] * 0.98, p      # and the sheet is full to its foot
     assert p['coverage'] >= 0.8, p
     # the map: full width, the wall centred in it, its zoom the fit of the
     # height the tables leave (they set it: the row fills the width)
@@ -2930,7 +2946,7 @@ def test_the_fill_picks_the_layout_that_covers_most(page):
     zoom = _fit(DA['w'], m['area']['h'], ww, wh)
     assert abs(m['zoom'] - zoom) < 0.01 and abs(m['w'] - ww * zoom) <= 2, (m, zoom)
     inner_cx = DA['x'] + GUT['left'] + (DA['w'] - GUT['left'] - GUT['right']) / 2
-    assert 1150 <= m['area']['h'] <= 1300 and abs(m['x'] + m['w'] / 2 - inner_cx) <= 1, m
+    assert 1300 <= m['area']['h'] <= 1450 and abs(m['x'] + m['w'] / 2 - inner_cx) <= 1, m
     assert m['scale'] == s
     # the three tables under it, side by side, at the scale - each heading
     # below the map, the row across the width, inside the area
@@ -2962,13 +2978,16 @@ def test_the_fill_picks_the_layout_that_covers_most(page):
     pc = archc['page']
     mc = _map_of(archc)
     sc = pc['scale']
-    assert pc['layout'] == 'stack' and pc['cols'] == 3 and 1.85 <= sc <= 2.05, pc
+    assert pc['layout'] == 'stack' and pc['cols'] == 3 and 1 <= sc <= 2.05, pc
     assert mc['area']['w'] == DA_ARCHC['w'] and abs(mc['w'] - (DA_ARCHC['w'] - GUT['left'] - GUT['right'])) <= 2, mc
     assert abs(mc['zoom'] - (DA_ARCHC['w'] - GUT['left'] - GUT['right']) / ww) < 0.01 and mc['zoom'] < MAP_ZOOM_CAP, mc
     assert pc['coverage'] >= 0.8, pc
     cheads = {t: (x, y) for t, x, y in archc['headings']}
     assert all(y >= mc['area']['y'] + mc['area']['h'] for _x, y in cheads.values()), (cheads, mc['area'])
-    assert max(x for x, _y in cheads.values()) + COL_W * sc <= DA_ARCHC['x'] + DA_ARCHC['w'] + 1, cheads
+    # the three columns share the width: the last one ends inside the area
+    cxs = sorted(x for x, _y in cheads.values())
+    pitch = cxs[1] - cxs[0]
+    assert cxs[-1] + pitch - COL_GAP * sc <= DA_ARCHC['x'] + DA_ARCHC['w'] + 1, (cheads, pitch)
     assert pc['extent']['w'] <= DA_ARCHC['w'] + 1 and pc['extent']['h'] <= DA_ARCHC['h'] + 1, pc['extent']
     # the data sheet of the same wall: three short tables - stack too, the
     # map over them, everything inside the area
