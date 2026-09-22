@@ -615,12 +615,21 @@ class _ExportSvg {
         // The clips an op really needs: a rectangular clip the op's ink
         // lies inside changes nothing and is left off, so a cabinet drawn
         // inside its own clip (renderPanel) is a plain shape in the file.
+        // A rectangular clip that covers the whole picture is the canvas's
+        // own edge, which the viewBox already draws; it is left off for every
+        // op, whatever its box. It was the one clip left in a real export,
+        // and Illustrator greets any clipPath with "Clipping will be lost on
+        // roundtrip to Tiny" (Matt, 2026-09-22).
+        const EPS = 1e-3;
+        const coversPicture = (cid) => {
+            const c = clipBox(cid);
+            return !!c && c.x1 <= EPS && c.y1 <= EPS && c.x2 >= width - EPS && c.y2 >= height - EPS;
+        };
         const neededClips = (op) => {
-            const chain = op.clips || [];
+            const chain = (op.clips || []).filter(cid => !coversPicture(cid));
             if (!chain.length) return chain;
             const box = opBox(op);
             if (!box) return chain;
-            const EPS = 1e-3;
             return chain.filter(cid => {
                 const c = clipBox(cid);
                 if (!c) return true;
