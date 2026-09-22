@@ -1,6 +1,40 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v1.2.0 - September 22, 2026
+----------------------------
+
+PSD layers for every element 🗂️ SVG export for Illustrator ✒️
+
+Two additions to the export, both asked for in issue #12: the elements
+of a view as separate Photoshop layers, and a vector export with real
+text for Illustrator.
+
+PSD LAYERS FOR EVERY ELEMENT
+
+The export dialog has a new "PSD layers" choice when the format is PSD.
+"One layer per screen" is the default and is exactly what the export has
+always made. "Elements per screen" puts each screen in its own group with
+its panels, borders, test pattern, cabinet ids, data arrows, power
+circuits and screen name as separate layers, so you can turn any of them
+off or move them in Photoshop. Images, text and the canvas outline sit in
+a Canvas group at the top. Empty layers are left out. The choice is
+remembered.
+
+SVG EXPORT
+
+SVG is a new export format. Every label is real text, every cabinet and
+cable run is a shape, and the file is grouped per screen and per element,
+so Illustrator opens it with named layers and everything editable, and
+Photoshop places it as a smart object. One file per view, the same
+transparent-background choice as PNG. The files are smaller than the PNGs.
+
+FIX LIST
+
+- FIX: PSD files now carry a flattened preview, so Finder, Preview and
+  Illustrator show the picture instead of a black thumbnail. Photoshop
+  was never affected, since it builds the picture from the layers.
+
 v1.1.2 - September 22, 2026
 ----------------------------
 

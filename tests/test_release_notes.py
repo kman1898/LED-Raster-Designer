@@ -193,6 +193,8 @@ def test_headings_with_a_lowercase_tail_are_still_headings():
     assert gen.post_heading("CTRL+A SELECTS ALL SCREENS")
     blocks = gen.parse_post(["CTRL+A SELECTS ALL SCREENS", "- FIX: x."])
     assert blocks[0]["text"] == "Ctrl+A selects all screens"
+    blocks = gen.parse_post(["SVG EXPORT", "PSD LAYERS FOR EVERY ELEMENT", "- FIX: x."])
+    assert [b["text"] for b in blocks if b["type"] == "h"] == ["SVG export", "PSD layers for every element"]
     assert not gen.SECTION_HEADING.match("Five passes over the group work")
     assert not gen.SECTION_HEADING.match("These were found by going back over")
 

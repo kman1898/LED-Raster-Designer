@@ -81,6 +81,9 @@ BULLET = re.compile(r"^- (NEW|FIX|CHANGE)(?: \((IMPORTANT)\))?: (.*)$")
 # which is correct - it describes the section, not the entry's subject.
 MAX_AREA = 20
 
+# Words a sentence-cased heading keeps in capitals.
+ACRONYMS = {"SVG", "PSD", "PNG", "PDF", "XML", "CSV", "LED", "USB", "CAT", "L21-30", "CVT", "SCR"}
+
 
 def area_label(heading):
     head = heading.split(" - ")[0].split(",")[0].strip()
@@ -307,6 +310,10 @@ def parse_post(lines):
             text = head[0] + head[1:].lower()
             # a key name after "+" keeps its capital: "Ctrl+A", not "Ctrl+a"
             text = re.sub(r"\+([a-z])\b", lambda m: "+" + m.group(1).upper(), text)
+            # file formats and the like stay capitals: "SVG export", "PSD layers"
+            text = re.sub(r"\b([A-Za-z0-9-]+)\b",
+                          lambda m: m.group(1).upper() if m.group(1).upper() in ACRONYMS else m.group(1),
+                          text)
             blocks.append({"type": "h", "text": text})
             if tail.strip():
                 blocks.append({"type": "p", "text": tail.strip()})

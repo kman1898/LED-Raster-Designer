@@ -14,6 +14,19 @@
  *   h - short heading, d - one or two plain sentences. No markup, no emoji.
  */
 window.WHATS_NEW_CONTENT = {
+    '1.2': {
+        title: 'PSD layers for every element, and an SVG export for Illustrator',
+        items: [
+            { h: 'A PSD layer for every element',
+              d: 'Pick "Elements per screen" under PSD layers in the export dialog and each screen becomes a Photoshop group with its panels, borders, cabinet ids, data, power and name as separate layers.' },
+            { h: 'The PSD you had is still the default',
+              d: '"One layer per screen" stays the default and makes exactly the file it always did. The choice is remembered.' },
+            { h: 'SVG export',
+              d: 'A new export format with every label as real text and every cabinet and run as a shape, grouped per screen and per element. Illustrator opens it with named layers; Photoshop places it as a smart object.' },
+            { h: 'PSD thumbnails',
+              d: 'PSD files now carry a flattened preview, so Finder and Preview show the picture instead of a black thumbnail.' }
+        ]
+    },
     '1.1': {
         title: 'Change a screen’s cabinet type, Ctrl+A selects all screens, guide fixes',
         items: [
