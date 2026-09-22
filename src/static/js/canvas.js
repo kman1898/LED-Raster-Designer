@@ -26,6 +26,23 @@ const PRINTER_GREYS = ['#d6d6d6', '#e9e9e9'];
 const PRINTER_BORDER = '#999999';
 const PRINTER_TAG_COLORS = { fill: '#ffffff', rim: '#111111', ink: '#111111' };
 // Dash patterns in units of the run's line width; [] is solid.
+// The stages a view is drawn in, named the way a Photoshop user reads them,
+// top to bottom of the layer stack. The PSD "Elements" export renders each
+// one alone (CanvasRenderer.renderStages) and files it as its own layer.
+//   Panels        the cabinet fills: checkerboard, palette, gradient, circuit tint
+//   Borders       the cabinet borders and the dashed ghost of a hidden cabinet
+//   Test pattern  the circle with an X
+//   Cabinet IDs   the cabinet numbers (Cabinet ID view)
+//   Data          the port runs, arrows and port labels (Data view)
+//   Power         the circuits, circuit labels, 2fer brackets and cable tags
+//   Screen name   the name plate, sizes, info bar and corner offsets
+//   Image         the image layers
+//   Text          the text layers
+//   Canvas outline the canvas's dashed outline (drawn only when asked for)
+//   Background    the solid backdrop (only when the export is not transparent)
+const RENDER_STAGES = ['Screen name', 'Power', 'Data', 'Cabinet IDs', 'Test pattern',
+    'Borders', 'Panels', 'Image', 'Text', 'Canvas outline', 'Background'];
+
 const PRINTER_DASHES = [
     [], [3, 2], [1.2, 1.5], [5, 2, 1, 2], [2, 1], [6, 2],
     [1, 1], [4, 1, 1, 1], [3, 3], [2, 3], [5, 1],
@@ -85,7 +102,15 @@ class CanvasRenderer {
         // circuit, white discs - see PRINTER_* above and _ink / _runDash.
         this.printerMode = false;
         this.exportTransparentBg = false; // When true, export renders with transparent background
-        
+        // The PSD "Elements" export renders a view once per stage - the
+        // cabinet fills, the borders, the arrows, the labels - each on its
+        // own transparent canvas, and files each as its own layer. null (the
+        // only value outside that export) paints everything, exactly as it
+        // always has. A Set of stage names paints those stages ONLY; nothing
+        // else about the render changes. The names are the layer names a
+        // Photoshop user reads, see RENDER_STAGES.
+        this.renderStages = null;
+
         // Label display settings
         this.showLabelName = true;
         this.showLabelSizePx = false;
@@ -611,6 +636,22 @@ class CanvasRenderer {
                 this.ctx.fillText(lines[i], x, y + (i - (n - 1) / 2) * lineHeight);
             }
         }
+    }
+
+    // Does this render paint the named stage? Always yes outside the PSD
+    // Elements export (renderStages null); inside it, only the stages named.
+    _stageOn(name) {
+        return !this.renderStages || this.renderStages.has(name);
+    }
+
+    // The SVG export's group for what draws next (app-export-svg.js): the
+    // recording context the export paints through takes the name and files
+    // every op after it under it - `layer` names the screen the element
+    // belongs to (an image or text layer files under Images / Text). A
+    // real context has no __lrdGroup, so outside that export this is a no-op.
+    _svgGroup(name, layer) {
+        const ctx = this.ctx;
+        if (ctx && typeof ctx.__lrdGroup === 'function') ctx.__lrdGroup(name, layer || null);
     }
 
     /**
@@ -1748,6 +1789,7 @@ class CanvasRenderer {
                 this._activeRenderCanvas = canvas || null;
                 try {
                     this._withCrossMemberCanvasTransform(layer, () => {
+                        this._svgGroup(kind === 'power' ? 'Power' : 'Data', layer);
                         if (kind === 'power') this.renderPowerArrows(layer);
                         else this.renderDataFlowArrows(layer);
                     });
@@ -1974,8 +2016,9 @@ class CanvasRenderer {
         if (this.layerSelectionRect && !this.isSelectingLayers && !this.isSelectingPanels && !this.isDraggingLayer) {
             this.layerSelectionRect = null;
         }
+        this._svgGroup('Background');
         // In export mode with transparent bg, clear to transparent; otherwise fill
-        if (this.exportMode && this.exportTransparentBg) {
+        if ((this.exportMode && this.exportTransparentBg) || !this._stageOn('Background')) {
             this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
         } else {
             this.ctx.fillStyle = this.exportMode ? '#000000' : '#0a0a0a';
@@ -2191,12 +2234,14 @@ class CanvasRenderer {
                         this.ctx.translate(dx, dy);
                     }
                     if ((layer.type || 'screen') === 'image') {
-                        this.renderImageLayer(layer);
+                        this._svgGroup('Images', layer);
+                        if (this._stageOn('Image')) this.renderImageLayer(layer);
                         if (needsShift) this.ctx.restore();
                         return;
                     }
                     if ((layer.type || 'screen') === 'text') {
-                        this.renderTextLayer(layer);
+                        this._svgGroup('Text', layer);
+                        if (this._stageOn('Text')) this.renderTextLayer(layer);
                         if (needsShift) this.ctx.restore();
                         return;
                     }
@@ -2257,21 +2302,25 @@ class CanvasRenderer {
                     // inside, because a group draws ONE pattern across its
                     // members and the decision about which member draws it
                     // cannot be made from this layer alone.
-                    this.renderCircleWithX(layer);
+                    this._svgGroup('Test pattern', layer);
+                    if (this._stageOn('Test pattern')) this.renderCircleWithX(layer);
 
                     // Render Cabinet ID numbers in world space (scales with zoom)
-                    if (this.viewMode === 'cabinet-id') {
+                    if (this.viewMode === 'cabinet-id' && this._stageOn('Cabinet IDs')) {
+                        this._svgGroup('Cabinet IDs', layer);
                         this.renderCabinetIDNumbers(layer);
                     }
 
                     // Data/Power flow arrows rotate with the panels, but their
                     // technical labels (P1/R1, port/circuit info) stay upright.
-                    if (this.viewMode === 'data-flow') {
+                    if (this.viewMode === 'data-flow' && this._stageOn('Data')) {
+                        this._svgGroup('Data', layer);
                         this._keepTextUpright = _rotating;
                         this.renderDataFlowArrows(layer);
                         this._keepTextUpright = false;
                     }
-                    if (this.viewMode === 'power') {
+                    if (this.viewMode === 'power' && this._stageOn('Power')) {
+                        this._svgGroup('Power', layer);
                         this._keepTextUpright = _rotating;
                         this.renderPowerArrows(layer);
                         // A ganged circuit says so on the wall: the Nfer
@@ -2297,7 +2346,8 @@ class CanvasRenderer {
                     // Render labels as part of each layer so upper layers naturally
                     // paint over lower layers' labels (no bleed-through). The screen
                     // name rotates with the screen (keepTextUpright is off here).
-                    this.renderLayerLabels(layer);
+                    this._svgGroup('Screen name', layer);
+                    if (this._stageOn('Screen name')) this.renderLayerLabels(layer);
 
                     // v0.9.3: end the rotation before the corner readouts so the
                     // X,Y coordinates stay upright and unrotated.
@@ -2310,7 +2360,8 @@ class CanvasRenderer {
                     }
 
                     // Render offsets / corner X,Y readouts (pixel-map only), upright
-                    this.renderLayerOffsets(layer);
+                    this._svgGroup('Screen name', layer);
+                    if (this._stageOn('Screen name')) this.renderLayerOffsets(layer);
 
                     if (needsShift) this.ctx.restore();
                 }
@@ -2324,7 +2375,11 @@ class CanvasRenderer {
                 }
                 // Canvas outline drawn LAST so it sits on top of any
                 // layer content that bleeds outside the raster bounds.
-                if (!this.exportMode) {
+                // Never part of a picture export - unless the Elements
+                // export asks for it by name, as its own layer to keep or bin.
+                if (this.renderStages
+                        ? this.renderStages.has('Canvas outline')
+                        : !this.exportMode) {
                     this._drawCanvasOutline(canvas, canvas.id === _activeCanvasId);
                 }
                 if (needsCanvasShift) this.ctx.restore();
@@ -2347,7 +2402,8 @@ class CanvasRenderer {
             // members has to appear on the printed map too, and drawing it here
             // is also the only way it survives being covered by a peer that
             // renders after its owner.
-            if (this.viewMode === 'data-flow' || this.viewMode === 'power') {
+            if ((this.viewMode === 'data-flow' && this._stageOn('Data'))
+                    || (this.viewMode === 'power' && this._stageOn('Power'))) {
                 this._renderCrossMemberPaths(this.viewMode === 'power' ? 'power' : 'data');
             }
 
@@ -2373,21 +2429,28 @@ class CanvasRenderer {
             // Always show the perspective badge (BACK VIEW) in wiring views
             // when in back perspective. Renders in both interactive view and
             // export so the printed map is unambiguous.
-            if (this.viewMode === 'data-flow' || this.viewMode === 'power') {
+            // The badge and the error overlays belong to the wiring they
+            // annotate: the Data stage on the Data view, Power on Power.
+            const _wiringStageOn = this.viewMode === 'data-flow' ? this._stageOn('Data')
+                : this.viewMode === 'power' ? this._stageOn('Power') : true;
+            if ((this.viewMode === 'data-flow' || this.viewMode === 'power') && _wiringStageOn) {
+                this._svgGroup('Back view');
                 this.renderPerspectiveBadge();
             }
-            
+
             // Third pass: render capacity error overlays ON TOP of labels (Data Flow mode only)
-            if (this.viewMode === 'data-flow') {
+            if (this.viewMode === 'data-flow' && _wiringStageOn) {
                 window.app.project.layers.forEach(layer => {
                     if (layer.visible) {
+                        this._svgGroup('Data', layer);
                         _withLayerWs(layer, () => this.renderCapacityErrorOverlay(layer));
                     }
                 });
             }
-            if (this.viewMode === 'power') {
+            if (this.viewMode === 'power' && _wiringStageOn) {
                 window.app.project.layers.forEach(layer => {
                     if (layer.visible) {
+                        this._svgGroup('Power', layer);
                         _withLayerWs(layer, () => this.renderPowerErrorOverlay(layer));
                     }
                 });
@@ -2993,6 +3056,7 @@ class CanvasRenderer {
         }
 
         // Render based on view mode
+        this._svgGroup('Panels', layer);
         switch (this.viewMode) {
             case 'pixel-map':
                 this.renderPixelMap(panel, layer);
@@ -3146,6 +3210,8 @@ class CanvasRenderer {
     renderPixelMap(panel, layer) {
         // If panel is hidden, render as ghost outline only - scales with zoom like text
         if (panel.hidden) {
+            if (!this._stageOn('Borders')) return;
+            this._svgGroup('Borders', layer);
             this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)'; // Semi-transparent white
             this.ctx.lineWidth = 1; // Thinner line for ghost, scales with zoom
             this.ctx.setLineDash([5, 5]); // Dashed line, scales with zoom
@@ -3157,7 +3223,7 @@ class CanvasRenderer {
         // Base cabinet fill: 2-color checkerboard or multi-color palette.
         // transparentFill = render cabinets see-through (no fill / no gradient);
         // borders and labels still draw on top.
-        if (!layer.transparentFill) {
+        if (!layer.transparentFill && this._stageOn('Panels')) {
             this.ctx.fillStyle = this._panelBaseFill(panel, layer);
             this.ctx.fillRect(panel.x, panel.y, panel.width, panel.height);
             // v0.8.7.8: gradient overlay on top of the checkerboard, below borders.
@@ -3166,7 +3232,8 @@ class CanvasRenderer {
 
         // Panel borders, per-layer width in LED pixels, drawn INSIDE the
         // panel. Where two panels meet, you get 2× the width total.
-        if (layer.show_panel_borders) {
+        if (layer.show_panel_borders && this._stageOn('Borders')) {
+            this._svgGroup('Borders', layer);
             const bw = Math.max(1, Number(layer.panel_border_width) || 2);
             this.ctx.strokeStyle = this.getLayerBorderColor(layer, 'pixel-map');
             this.ctx.lineWidth = bw;
@@ -3249,6 +3316,8 @@ class CanvasRenderer {
     renderCabinetID(panel, layer) {
         // If panel is hidden, render as ghost outline only - scales with zoom
         if (panel.hidden) {
+            if (!this._stageOn('Borders')) return;
+            this._svgGroup('Borders', layer);
             this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
             this.ctx.lineWidth = 1;
             this.ctx.setLineDash([5, 5]);
@@ -3259,7 +3328,7 @@ class CanvasRenderer {
         
         // Base cabinet fill: 2-color checkerboard or multi-color palette.
         // transparentFill = render cabinets see-through (no fill / no gradient).
-        if (!layer.transparentFill) {
+        if (!layer.transparentFill && this._stageOn('Panels')) {
             this.ctx.fillStyle = this._panelBaseFill(panel, layer);
             this.ctx.fillRect(panel.x, panel.y, panel.width, panel.height);
             // v0.8.7.8: gradient overlay on top of the checkerboard, below borders.
@@ -3267,7 +3336,8 @@ class CanvasRenderer {
         }
 
         // Panel borders, per-layer width, drawn INSIDE the panel.
-        if (layer.show_panel_borders) {
+        if (layer.show_panel_borders && this._stageOn('Borders')) {
+            this._svgGroup('Borders', layer);
             const bw = Math.max(1, Number(layer.panel_border_width) || 2);
             this.ctx.strokeStyle = this.getLayerBorderColor(layer, 'cabinet-id');
             this.ctx.lineWidth = bw;
@@ -3278,5 +3348,8 @@ class CanvasRenderer {
         // Cabinet ID numbers rendered separately in screen space - see renderCabinetIDNumbers()
     }
 }
+
+// The PSD Elements export (app-export-io.js) renders these one at a time.
+CanvasRenderer.RENDER_STAGES = RENDER_STAGES;
 
 window.CanvasRenderer = CanvasRenderer;

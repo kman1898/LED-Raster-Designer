@@ -10,6 +10,7 @@ import './app-selection.js';
 import './app-screen-info.js';
 import './app-capacity.js';
 import './app-export-io.js';
+import './app-export-svg.js';
 import './app-port-routing.js';
 import './app-preferences.js';
 import './app-menubar.js';

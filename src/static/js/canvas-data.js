@@ -7,6 +7,8 @@ Object.assign(CanvasRenderer.prototype, {
     renderDataFlow(panel, layer) {
         // If panel is hidden, render as ghost outline only - scales with zoom
         if (panel.hidden) {
+            if (!this._stageOn('Borders')) return;
+            this._svgGroup('Borders', layer);
             this.ctx.strokeStyle = this.printerMode ? 'rgba(0, 0, 0, 0.3)' : 'rgba(255, 255, 255, 0.3)';
             this.ctx.lineWidth = 1;
             this.ctx.setLineDash([5, 5]);
@@ -14,19 +16,20 @@ Object.assign(CanvasRenderer.prototype, {
             this.ctx.setLineDash([]);
             return;
         }
-        
+
         // Base cabinet fill: checkerboard / palette, same as Pixel Map, with
         // the gradient overlay on top (below borders and flow arrows). These
         // used to hard-code the plain checkerboard, so gradients, palette
         // modes, and Transparent (no fill) were all ignored on the Data view.
-        if (!layer.transparentFill) {
+        if (!layer.transparentFill && this._stageOn('Panels')) {
             this.ctx.fillStyle = this._panelBaseFill(panel, layer);
             this.ctx.fillRect(panel.x, panel.y, panel.width, panel.height);
             this._applyGradientOverlay(panel, layer);
         }
 
         // Panel borders, per-layer width, drawn INSIDE the panel.
-        if (layer.show_panel_borders) {
+        if (layer.show_panel_borders && this._stageOn('Borders')) {
+            this._svgGroup('Borders', layer);
             const bw = Math.max(1, Number(layer.panel_border_width) || 2);
             this.ctx.strokeStyle = this.getLayerBorderColor(layer, 'data-flow');
             this.ctx.lineWidth = bw;

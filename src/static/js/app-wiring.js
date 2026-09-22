@@ -2120,6 +2120,9 @@ class _Wiring {
             const scaleRow = document.getElementById('export-scale-row');
             if (!formatEl || !scaleRow) return;
             scaleRow.style.display = (formatEl.value === 'psd') ? '' : 'none';
+            // The PSD layers row (one per screen / elements) shows with it.
+            const psdLayersRow = document.getElementById('export-psd-layers-row');
+            if (psdLayersRow) psdLayersRow.style.display = (formatEl.value === 'psd') ? '' : 'none';
         };
         const _formatEl = document.getElementById('export-format');
         if (_formatEl) {

@@ -1981,7 +1981,7 @@
                     <input type="checkbox" id="export-transparent-bg" checked>
                     Transparent Background
                 </label>
-                <div style="margin-top: 4px; font-size: 11px; color: #777;">Removes the black background. Supported by PNG and PSD.</div>
+                <div style="margin-top: 4px; font-size: 11px; color: #777;">Removes the black background. Supported by PNG, SVG and PSD.</div>
             </div>
 
             <!-- Export Format -->
@@ -1989,6 +1989,7 @@
                 <label style="display: block; margin-bottom: 6px; color: #ccc; font-size: 13px;">Export Format:</label>
                 <select id="export-format" style="width: 100%; padding: 10px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 4px;">
                     <option value="png">PNG (Separate files per view)</option>
+                    <option value="svg">SVG (Vector - editable in Illustrator, smart object in Photoshop)</option>
                     <option value="psd">PSD (Layered standard editors - screens as layers)</option>
                     <option value="pdf">PDF (All views combined)</option>
                     <option value="resolume-xml">Resolume XML (Advanced Output)</option>
@@ -2179,7 +2180,21 @@
                 </select>
                 <div style="margin-top: 4px; font-size: 11px; color: #777;">Renders the PSD at higher resolution for cleaner standard editors / print output. Auto-clamped to keep dimensions under PSD's 30000px limit (a status message tells you if a smaller scale was used).</div>
             </div>
-            
+
+            <!-- PSD layers (PSD only, shown with the scale row). One layer per
+                 screen is the PSD as it has always been. Elements files each
+                 screen as a group of layers - the cabinets, their borders, the
+                 arrows, the labels - for final touches in Photoshop. Remembered
+                 in localStorage like the suffixes. -->
+            <div style="margin-bottom: 18px;" id="export-psd-layers-row">
+                <label style="display: block; margin-bottom: 6px; color: #ccc; font-size: 13px;">PSD layers:</label>
+                <select id="export-psd-layers" style="width: 100%; padding: 10px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 4px;">
+                    <option value="screens">One layer per screen</option>
+                    <option value="elements">Elements per screen (checkerboard, borders, cabinet ids, arrows, circuits, labels as separate layers)</option>
+                </select>
+                <div style="margin-top: 4px; font-size: 11px; color: #777;">Elements puts each screen in a group of layers - Panels, Borders, Test pattern, Cabinet IDs, Data, Power, Screen name - and the images, text and canvas outline in a Canvas group. Layers with nothing on them are left out. Renders once per element, so it takes longer.</div>
+            </div>
+
             <!-- File naming preview -->
             <div style="margin-bottom: 18px; background: #1a1a1a; padding: 12px; border-radius: 4px; border: 1px solid #3a3a3a;">
                 <label style="display: block; margin-bottom: 6px; color: #888; font-size: 12px;">File names preview:</label>

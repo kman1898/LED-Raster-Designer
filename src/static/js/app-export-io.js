@@ -126,7 +126,7 @@ class _ExportIo {
         if (format === 'pdf') {
             const pageCount = canvasIds.length * views.length;
             preview.textContent = `${projectName}.pdf (${pageCount} page${pageCount > 1 ? 's' : ''})`;
-        } else if (format === 'psd' || format === 'png') {
+        } else if (format === 'psd' || format === 'png' || format === 'svg') {
             const ext = format;
             const lines = [];
             for (const cid of canvasIds) {
@@ -185,6 +185,28 @@ class _ExportIo {
     saveExportSuffixesFromUI() {
         const suffixes = this.getExportSuffixesFromUI();
         localStorage.setItem('exportSuffixes', JSON.stringify(suffixes));
+    }
+
+    // The PSD layers row: 'screens' (one layer per screen, the PSD as it has
+    // always been) or 'elements'. Remembered in localStorage like the
+    // suffixes; an unknown or missing value is 'screens'.
+    getExportPsdLayersMode() {
+        const el = document.getElementById('export-psd-layers');
+        return (el && el.value === 'elements') ? 'elements' : 'screens';
+    }
+
+    loadExportPsdLayersToUI() {
+        const el = document.getElementById('export-psd-layers');
+        if (!el) return;
+        let saved = null;
+        try { saved = localStorage.getItem('exportPsdLayers'); } catch (e) { saved = null; }
+        el.value = (saved === 'elements') ? 'elements' : 'screens';
+        if (!el._lrdRemembers) {
+            el._lrdRemembers = true;
+            el.addEventListener('change', () => {
+                try { localStorage.setItem('exportPsdLayers', this.getExportPsdLayersMode()); } catch (e) {}
+            });
+        }
     }
 
     getExportSuffixesFromUI() {
@@ -266,6 +288,7 @@ class _ExportIo {
         document.getElementById('export-name').value =
             this.project.name || 'Untitled Project';
         this.loadExportSuffixesToUI();
+        this.loadExportPsdLayersToUI();
         this.populateExportCanvasesList();
 
         // Re-evaluate format-specific controls such as the PSD scale row.
@@ -470,6 +493,11 @@ class _ExportIo {
         const exportCtx = exportCanvas.getContext('2d', { alpha: useTransparentBg });
         window.canvasRenderer.canvas = exportCanvas;
         window.canvasRenderer.ctx = exportCtx;
+        // SVG: the view is drawn through a recording context (app-export-
+        // svg.js) - the canvas is painted exactly as for a PNG, and every op
+        // is written down to be set as vectors and text.
+        const svgRecorder = (format === 'svg') ? this.createSvgRecorder(exportCtx) : null;
+        if (svgRecorder) window.canvasRenderer.ctx = svgRecorder.ctx;
         // v0.8.7: optional resolution-scale multiplier (PSD only). Native
         // scale = 1 (existing behavior for PNG/PDF). Higher values render
         // PSD at scale × native raster so vector content (panels, labels,
@@ -490,6 +518,18 @@ class _ExportIo {
         let scaleClampedAnywhere = false;
         window.canvasRenderer.exportMode = true;
         window.canvasRenderer.exportTransparentBg = useTransparentBg;
+        // PSD "Elements": after the flat render of each view, render it
+        // again once per stage on a transparent canvas of its own (so the
+        // flat render's canvas and pixels are exactly what they were) and
+        // hand the stage images to downloadAsPsd, which files each as a
+        // layer. The Background stage is synthesized by the server from a
+        // solid colour, never rendered.
+        const elementsMode = format === 'psd' && this.getExportPsdLayersMode() === 'elements';
+        const stageNames = elementsMode
+            ? (window.CanvasRenderer.RENDER_STAGES || []).filter(s => s !== 'Background')
+            : [];
+        const stageCanvas = elementsMode ? document.createElement('canvas') : null;
+        const stageCtx = stageCanvas ? stageCanvas.getContext('2d', { alpha: true }) : null;
 
         const renderedItems = [];
         const multiCanvas = canvasIds.length > 1 && canvasIds[0] !== null;
@@ -569,9 +609,35 @@ class _ExportIo {
                     window.canvasRenderer.panX = -wsx * exportScale;
                     window.canvasRenderer.panY = -wsy * exportScale;
 
+                    if (svgRecorder) svgRecorder.begin();
                     window.canvasRenderer.render();
 
                     const dataUrl = exportCanvas.toDataURL('image/png');
+                    const svg = svgRecorder
+                        ? this.buildSvgFromRecording(svgRecorder, rasterWidth, rasterHeight,
+                            { title: `${projectName} - ${viewNames[view] || view}` })
+                        : null;
+                    let stages = null;
+                    if (elementsMode) {
+                        stages = [];
+                        stageCanvas.width = exportCanvas.width;
+                        stageCanvas.height = exportCanvas.height;
+                        window.canvasRenderer.canvas = stageCanvas;
+                        window.canvasRenderer.ctx = stageCtx;
+                        window.canvasRenderer.exportTransparentBg = true;
+                        try {
+                            for (const stage of stageNames) {
+                                window.canvasRenderer.renderStages = new Set([stage]);
+                                window.canvasRenderer.render();
+                                stages.push({ name: stage, image_data: stageCanvas.toDataURL('image/png') });
+                            }
+                        } finally {
+                            window.canvasRenderer.renderStages = null;
+                            window.canvasRenderer.exportTransparentBg = useTransparentBg;
+                            window.canvasRenderer.canvas = exportCanvas;
+                            window.canvasRenderer.ctx = exportCtx;
+                        }
+                    }
                     const suffix = this.getExportSuffixForView(view, suffixes, viewNames, targetCanvas);
                     // v0.8.7.5: per-canvas Name input from the export modal
                     // takes precedence over targetCanvas.name when present.
@@ -600,9 +666,15 @@ class _ExportIo {
                         fileBase,
                         pdfLabel,
                         dataUrl,
+                        svg,
                         width: rasterWidth * exportScale,
                         height: rasterHeight * exportScale,
                         scale: exportScale,
+                        // PSD Elements only: [{name, image_data}] per stage.
+                        stages,
+                        // What the Elements PSD's Background layer is filled
+                        // with; null when the export is transparent.
+                        background: (elementsMode && !useTransparentBg) ? '#000000' : null,
                     });
                 }
             }
@@ -623,6 +695,7 @@ class _ExportIo {
             window.canvasRenderer.ctx = originalCtx;
             window.canvasRenderer.exportMode = false;
             window.canvasRenderer.exportTransparentBg = false;
+            window.canvasRenderer.renderStages = null;
             window.canvasRenderer.viewMode = originalViewMode;
             window.canvasRenderer.zoom = originalZoom;
             window.canvasRenderer.panX = originalPanX;
@@ -655,6 +728,8 @@ class _ExportIo {
             await this.downloadAsPdf(projectName, renderedItems);
         } else if (format === 'psd') {
             await this.downloadAsPsd(projectName, renderedItems);
+        } else if (format === 'svg') {
+            await this.downloadAsSvg(projectName, renderedItems);
         }
     }
     
@@ -1142,17 +1217,35 @@ class _ExportIo {
                     visible: l.visible
                 };
             });
+            const payload = {
+                project_name: projectName,
+                view_name: view.suffix,
+                image_data: view.dataUrl,
+                width: view.width || window.canvasRenderer.rasterWidth,
+                height: view.height || window.canvasRenderer.rasterHeight,
+                layers: psdLayers
+            };
+            // PSD Elements: every stage image goes up in the one request and
+            // the server files each screen as a group of stage layers. The
+            // stage images are PNG data URLs held on the client until now;
+            // a request past ~200 MB is refused here with a reason rather
+            // than left to time out or exhaust the server.
+            if (Array.isArray(view.stages)) {
+                const PSD_ELEMENTS_MAX_BYTES = 200 * 1024 * 1024;
+                const bytes = view.stages.reduce((n, s) => n + s.image_data.length, 0);
+                if (bytes > PSD_ELEMENTS_MAX_BYTES) {
+                    throw new Error(`PSD elements for ${view.suffix} come to ${Math.round(bytes / 1048576)} MB `
+                        + `of images, over the ${Math.round(PSD_ELEMENTS_MAX_BYTES / 1048576)} MB one request carries. `
+                        + 'Pick a lower Resolution Scale, or export One layer per screen.');
+                }
+                payload.mode = 'elements';
+                payload.stages = view.stages;
+                payload.background = view.background || null;
+            }
             const response = await fetch('/api/export/psd-from-image', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    project_name: projectName,
-                    view_name: view.suffix,
-                    image_data: view.dataUrl,
-                    width: view.width || window.canvasRenderer.rasterWidth,
-                    height: view.height || window.canvasRenderer.rasterHeight,
-                    layers: psdLayers
-                })
+                body: JSON.stringify(payload)
             });
             if (!response.ok) {
                 // v0.8.7: surface the server error so the user sees what

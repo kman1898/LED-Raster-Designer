@@ -837,6 +837,183 @@ def export_pdf_from_pages():
     )
 
 
+# ── PSD "Elements" (issue #12) ────────────────────────────────────────────
+# The client renders a view once per STAGE - the cabinet fills, the borders,
+# the test pattern, the cabinet numbers, the data runs, the circuits, the
+# screen name - each on a transparent canvas, and posts them all in one
+# request with mode='elements'. Each screen becomes a PSD GROUP named for the
+# screen, holding one layer per stage cropped to the screen's rectangle (the
+# same rectangle the one-layer-per-screen export crops), top to bottom in
+# PSD_SCREEN_STAGES order. The stages that are not any one screen's - the
+# images, the text, the canvas outline - go in a top-level "Canvas" group
+# over the screens, cropped to the whole picture. A stage whose crop is
+# fully transparent is left out, and a group left with nothing is too. An
+# opaque export gets a solid "Background" layer under everything.
+#
+# The one-layer-per-screen path (mode absent) is not touched by any of this.
+
+# Top to bottom, as Photoshop lists them.
+PSD_SCREEN_STAGES = ['Screen name', 'Power', 'Data', 'Cabinet IDs', 'Test pattern',
+                     'Borders', 'Panels']
+PSD_CANVAS_STAGES = ['Canvas outline', 'Text', 'Image']
+PSD_CANVAS_GROUP = 'Canvas'
+PSD_BACKGROUND_LAYER = 'Background'
+
+
+def _psd_pixel_layer(psd_layers, Compression, name, top, left, rgba):
+    """One pixel layer at (top, left) from an RGBA array, built the way the
+    one-layer-per-screen export builds its layers - except that the
+    channels are ZIP-compressed (PSD compression 2, zlib). An element
+    layer is mostly transparent, and stored raw the Elements PSD of a
+    4096x2160 show at 2x came to 730 MB and the server dropped the
+    connection writing it; zipped, the same PSD is the merged preview
+    plus a little. pytoshop's RLE needs its compiled packbits extension,
+    which the app's environment does not carry."""
+    channels = {
+        -1: psd_layers.ChannelImageData(image=rgba[:, :, 3].copy(), compression=Compression.zip),
+        0: psd_layers.ChannelImageData(image=rgba[:, :, 0].copy(), compression=Compression.zip),
+        1: psd_layers.ChannelImageData(image=rgba[:, :, 1].copy(), compression=Compression.zip),
+        2: psd_layers.ChannelImageData(image=rgba[:, :, 2].copy(), compression=Compression.zip),
+    }
+    record = psd_layers.LayerRecord(
+        name=name, top=top, left=left,
+        bottom=top + rgba.shape[0], right=left + rgba.shape[1],
+        opacity=255, channels=channels)
+    record.mask = _empty_psd_layer_mask(psd_layers)
+    return record
+
+
+def _psd_group_records(psd_layers, name, members_top_to_bottom):
+    """The records of one PSD group in FILE order (bottom to top): the
+    bounding divider, the members bottom first, then the folder record
+    carrying the group's name. That is the order pytoshop's own reader and
+    psd_tools walk a group from; the folder record last is what makes the
+    name land on the folder rather than on a member."""
+    from pytoshop import tagged_block
+    from pytoshop.enums import SectionDividerSetting
+    closer = psd_layers.LayerRecord(
+        name='</Layer group>',
+        blocks=[tagged_block.SectionDividerSetting(type=SectionDividerSetting.bounding)],
+        pixel_data_irrelevant=True)
+    closer.mask = _empty_psd_layer_mask(psd_layers)
+    folder = psd_layers.LayerRecord(
+        name=name,
+        blocks=[tagged_block.SectionDividerSetting(type=SectionDividerSetting.open)],
+        pixel_data_irrelevant=True)
+    folder.mask = _empty_psd_layer_mask(psd_layers)
+    return [closer] + list(reversed(members_top_to_bottom)) + [folder]
+
+
+def _psd_screen_rects(layers_info, width, height):
+    """The (name, left, top, right, bottom) of every visible screen that
+    lands inside the picture - the crop the one-layer-per-screen export
+    makes, computed the same way."""
+    rects = []
+    for layer_info in layers_info:
+        if not layer_info.get('visible', True):
+            continue
+        offset_x = int(layer_info.get('offset_x', 0))
+        offset_y = int(layer_info.get('offset_y', 0))
+        left = max(0, offset_x)
+        top = max(0, offset_y)
+        right = min(width, offset_x + int(layer_info.get('width', 100)))
+        bottom = min(height, offset_y + int(layer_info.get('height', 100)))
+        if right <= left or bottom <= top:
+            continue
+        rects.append((layer_info.get('name', 'Screen'), left, top, right, bottom))
+    return rects
+
+
+def _psd_elements_layer_records(psd_layers, Compression, stages, layers_info,
+                                width, height, background=None):
+    """Build the layer records (file order) of an Elements PSD.
+
+    `stages` is [{name, image_data}] - one full-picture RGBA render per
+    stage. Each is decoded once, cropped for every screen (and, for a canvas
+    stage, kept whole), and dropped before the next is decoded, so at most
+    one full render is in memory at a time on top of the crops kept."""
+    rects = _psd_screen_rects(layers_info, width, height)
+    # name -> {stage: rgba}; the screens by index so two screens with one
+    # name stay two groups.
+    screen_crops = [dict() for _ in rects]
+    canvas_crops = {}
+    for stage in stages:
+        stage_name = stage.get('name')
+        if stage_name not in PSD_SCREEN_STAGES and stage_name not in PSD_CANVAS_STAGES:
+            continue
+        image = decode_base64_image(stage.get('image_data', '')).convert('RGBA')
+        try:
+            if stage_name in PSD_CANVAS_STAGES:
+                # No screen bounds a canvas stage, so its layer is cut to
+                # its ink, the way Photoshop itself bounds a layer.
+                whole = image.crop((0, 0, width, height))
+                box = whole.getchannel('A').getbbox()
+                if box:
+                    canvas_crops[stage_name] = (box[0], box[1], np.array(whole.crop(box)))
+                continue
+            for index, (_name, left, top, right, bottom) in enumerate(rects):
+                crop = np.array(image.crop((left, top, right, bottom)))
+                if crop[:, :, 3].any():
+                    screen_crops[index][stage_name] = crop
+        finally:
+            image.close()
+
+    records = []
+    if background:
+        rgb = background.lstrip('#')
+        r, g, b = (int(rgb[i:i + 2], 16) for i in (0, 2, 4)) if len(rgb) == 6 else (0, 0, 0)
+        solid = np.empty((height, width, 4), dtype=np.uint8)
+        solid[:, :, 0], solid[:, :, 1], solid[:, :, 2], solid[:, :, 3] = r, g, b, 255
+        records.append(_psd_pixel_layer(psd_layers, Compression, PSD_BACKGROUND_LAYER, 0, 0, solid))
+    for index, (name, left, top, _right, _bottom) in enumerate(rects):
+        crops = screen_crops[index]
+        members = [_psd_pixel_layer(psd_layers, Compression, stage_name, top, left, crops[stage_name])
+                   for stage_name in PSD_SCREEN_STAGES if stage_name in crops]
+        if members:
+            records.extend(_psd_group_records(psd_layers, name, members))
+    members = [_psd_pixel_layer(psd_layers, Compression, stage_name,
+                                canvas_crops[stage_name][1], canvas_crops[stage_name][0],
+                                canvas_crops[stage_name][2])
+               for stage_name in PSD_CANVAS_STAGES if stage_name in canvas_crops]
+    if members:
+        records.extend(_psd_group_records(psd_layers, PSD_CANVAS_GROUP, members))
+    return records
+
+
+def _psd_set_preview(psd, flat):
+    """Write the flattened picture into the PSD as its merged image.
+
+    Photoshop rebuilds the composite from the layers, so it never needed
+    this - but Quick Look, Preview, Illustrator's Place and every viewer
+    that is not Photoshop read the merged image, and without it our PSDs
+    thumbnailed solid black (found 2026-09-22 while checking the element
+    layers; the one-layer-per-screen PSD had always been the same). `flat`
+    is the PIL image the client rendered; a transparent export is
+    flattened onto black, which is what the canvas shows behind it.
+    """
+    if flat is None:
+        return
+    from pytoshop import image_data as psd_image_data
+    from pytoshop.enums import Compression
+    rgba = np.array(flat.convert('RGBA'))
+    if rgba.shape[0] != psd.height or rgba.shape[1] != psd.width:
+        return
+    alpha = rgba[:, :, 3:4].astype(np.uint16)
+    rgb = ((rgba[:, :, :3].astype(np.uint16) * alpha) // 255).astype(np.uint8)
+    psd.image_data = psd_image_data.ImageData(
+        channels=np.stack([rgb[:, :, 0], rgb[:, :, 1], rgb[:, :, 2]]), compression=Compression.zip)
+
+
+def _psd_bytes(PsdFile, ColorMode, width, height, layer_records, flat=None):
+    psd = PsdFile(num_channels=3, height=height, width=width, color_mode=ColorMode.rgb)
+    psd.layer_and_mask_info.layer_info.layer_records = layer_records
+    _psd_set_preview(psd, flat)
+    out = io.BytesIO()
+    psd.write(out)
+    out.seek(0)
+    return out
+
+
 @export_bp.route('/api/export/psd-from-image', methods=['POST'])
 def export_psd_from_image():
     """Create a PSD from client-rendered image with screen layers"""
@@ -856,9 +1033,29 @@ def export_psd_from_image():
         width = data.get('width', 1920)
         height = data.get('height', 1080)
         layers_info = data.get('layers', [])
-        
+
         print(f"PSD export: {project_name} - {view_name}, {width}x{height}, {len(layers_info)} layers")
-        
+
+        if data.get('mode') == 'elements':
+            stages = data.get('stages') or []
+            layer_records = _psd_elements_layer_records(
+                psd_layers, Compression, stages, layers_info, width, height,
+                background=data.get('background'))
+            flat = decode_base64_image(image_data) if image_data else None
+            psd_bytes = _psd_bytes(PsdFile, ColorMode, width, height, layer_records, flat=flat)
+            print(f"PSD elements export complete: {psd_bytes.getbuffer().nbytes} bytes, "
+                  f"{len(stages)} stages, {len(layer_records)} records")
+            log_event('export_psd_elements', {
+                'project_name': project_name, 'view_name': view_name,
+                'size': f'{width}x{height}', 'stages': len(stages),
+                'records': len(layer_records)})
+            return send_file(
+                psd_bytes,
+                mimetype='application/octet-stream',
+                as_attachment=True,
+                download_name=f"{project_name} - {view_name}.psd"
+            )
+
         # Decode the full image
         full_img = decode_base64_image(image_data)
         full_img = full_img.convert('RGBA')  # Convert to RGBA for alpha support
@@ -924,6 +1121,7 @@ def export_psd_from_image():
             layer_records.append(layer_record)
         
         psd.layer_and_mask_info.layer_info.layer_records = layer_records
+        _psd_set_preview(psd, full_img)
         
         psd_bytes = io.BytesIO()
         psd.write(psd_bytes)
@@ -969,6 +1167,17 @@ def export_psd_zip_from_images():
         with zipfile.ZipFile(zip_bytes, 'w', zipfile.ZIP_DEFLATED) as zf:
             for img_info in images:
                 view_name = img_info['name']
+                if data.get('mode') == 'elements':
+                    # Each image carries its own stage renders; see
+                    # _psd_elements_layer_records.
+                    layer_records = _psd_elements_layer_records(
+                        psd_layers, Compression, img_info.get('stages') or [],
+                        layers_info, width, height,
+                        background=img_info.get('background', data.get('background')))
+                    flat = decode_base64_image(img_info['data']) if img_info.get('data') else None
+                    psd_bytes_inner = _psd_bytes(PsdFile, ColorMode, width, height, layer_records, flat=flat)
+                    zf.writestr(f"{project_name} - {view_name}.psd", psd_bytes_inner.getvalue())
+                    continue
                 full_img = decode_base64_image(img_info['data']).convert('RGBA')
                 
                 # Keep the merged document RGB; layer transparency is stored in
@@ -1023,6 +1232,7 @@ def export_psd_zip_from_images():
                     layer_records.append(layer_record)
                 
                 psd.layer_and_mask_info.layer_info.layer_records = layer_records
+                _psd_set_preview(psd, full_img)
                 
                 psd_bytes_inner = io.BytesIO()
                 psd.write(psd_bytes_inner)

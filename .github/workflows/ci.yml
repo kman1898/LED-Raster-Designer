@@ -135,7 +135,7 @@ jobs:
           python -m venv .venv
           source .venv/bin/activate
           pip install -r src/requirements.txt
-          pip install pytest playwright pypdf
+          pip install pytest playwright pypdf psd-tools
 
       - name: Install Chromium browser
         run: |

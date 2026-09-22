@@ -1400,6 +1400,8 @@ Object.assign(CanvasRenderer.prototype, {
     renderPower(panel, layer) {
         // If panel is hidden, render as ghost outline only - scales with zoom
         if (panel.hidden) {
+            if (!this._stageOn('Borders')) return;
+            this._svgGroup('Borders', layer);
             this.ctx.strokeStyle = this.printerMode ? 'rgba(0, 0, 0, 0.3)' : 'rgba(255, 255, 255, 0.3)';
             this.ctx.lineWidth = 1;
             this.ctx.setLineDash([5, 5]);
@@ -1408,6 +1410,7 @@ Object.assign(CanvasRenderer.prototype, {
             return;
         }
 
+        const paintFill = this._stageOn('Panels');
         let fillHex = null;
         // The printer page has no colour to code with: the cabinets stay
         // grey and the circuits are told apart by their dashes.
@@ -1424,7 +1427,9 @@ Object.assign(CanvasRenderer.prototype, {
             }
         }
 
-        if (fillHex) {
+        if (!paintFill) {
+            // The Borders stage of the Elements export: no fill at all.
+        } else if (fillHex) {
             // Circuit color-coded view: keep the flat circuit color readable
             // (no gradient on top).
             this.ctx.fillStyle = fillHex;
@@ -1441,7 +1446,8 @@ Object.assign(CanvasRenderer.prototype, {
             this._applyGradientOverlay(panel, layer);
         }
 
-        if (layer.show_panel_borders) {
+        if (layer.show_panel_borders && this._stageOn('Borders')) {
+            this._svgGroup('Borders', layer);
             const bw = Math.max(1, Number(layer.panel_border_width) || 2);
             this.ctx.strokeStyle = this.getLayerBorderColor(layer, 'power');
             this.ctx.lineWidth = bw;

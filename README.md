@@ -80,7 +80,8 @@ Everything under File > Export or the Export dialog saves straight to a file: no
 
 | Export | What you get |
 |--------|-------------|
-| **PNG / PDF / PSD** | Any of the five views, per canvas. One PNG per view, one PDF with a page per view, one PSD with a layer per screen. |
+| **PNG / PDF / PSD** | Any of the five views, per canvas. One PNG per view, one PDF with a page per view, one PSD with a layer per screen, or with each screen's panels, borders, cabinet ids, data, power and name as separate layers in a group per screen. |
+| **SVG** | Any view as vector artwork: labels as real text, cabinets and runs as shapes, grouped per screen and per element. Opens in Illustrator with everything editable, and in Photoshop as a smart object. |
 | **Resolume XML** | Advanced Output screens, one per canvas, sized to its raster. |
 | **Pull Sheet** | A filled copy of the shop's pull-sheet workbook: one block per beach, multis with their home runs, True1 by length, 2fers and 3fers, breakouts, snakes, extensions, barrels and jumpers. File > Pull Sheet edits the list in the app first. |
 | **Binder** | One PDF as numbered sheets: overview, a Power and a Data sheet per screen with the wall, its circuits, ports, cables and facts, pull sheets, hardware. Tabloid by default, or Letter, ARCH C, ARCH D, A4, A3. Every sheet carries a border and a title block with your logo and a revision log. Tick Wiring and each map gets a wiring sheet behind it, every run drawn port to socket. Real text in the PDF, so it is sharp and searchable. Right-click a screen for Export this screen. |
@@ -161,7 +162,7 @@ Front end (`src/static/js/`):
 | `app-screen-groups.js`, `app-beaches.js`, `app-presets.js` | screen groups and group-wide actions; beach list and picker; screen presets and the cabinet catalog picker |
 | `app-canvas-ui.js`, `app-project-io.js` | canvas tabs (add, rename, delete, reorder); save and open project files, reset, normalize |
 | `app-history.js`, `app-clipboard.js` | undo/redo and snapshots; duplicate, copy and paste layers |
-| `app-export-io.js`, `app-menubar.js`, `app-logs-recent.js` | export dialog, preview, writing files; menu bar, shortcuts, About; log viewer and recent files |
+| `app-export-io.js`, `app-export-svg.js`, `app-menubar.js`, `app-logs-recent.js` | export dialog, preview, writing files; the SVG export's drawing recorder and writer; menu bar, shortcuts, About; log viewer and recent files |
 | `app-processors.js`, `app-port-routing.js`, `app-port-assignment.js` | the processor tree and gear popovers; walking cabinets into per-port runs; port-numbering issues and their fixes |
 | `app-custom-runs.js`, `app-run-overrides.js`, `app-cross-layer-paths.js` | hand-drawn runs (capacity, stepping, pattern fill); a port or circuit taken over by hand; paths across group members |
 | `app-power.js`, `app-distros.js`, `app-phase-balance.js`, `app-naming.js` | circuits, soca splits, outputs, breakouts, cables; the distro model; three-phase balancing; port, circuit and multi labels |
