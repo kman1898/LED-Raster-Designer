@@ -860,20 +860,26 @@ PSD_CANVAS_GROUP = 'Canvas'
 PSD_BACKGROUND_LAYER = 'Background'
 
 
+# How an element layer's channels are stored: ZIP (PSD compression 2,
+# zlib), a fifth of raw - the Experts Only power map is 25 MB against 133.
+# Photoshop 2026 opened a zipped-layers file (Matt, 2026-09-22) once the
+# MERGED PREVIEW was raw: the first files had the preview zipped as well,
+# and Photoshop refused them whole ("not compatible with this version").
+# pytoshop's RLE needs its compiled packbits extension, which the app's
+# environment does not carry.
+PSD_ELEMENT_COMPRESSION = 'zip'
+
+
 def _psd_pixel_layer(psd_layers, Compression, name, top, left, rgba):
     """One pixel layer at (top, left) from an RGBA array, built the way the
-    one-layer-per-screen export builds its layers - except that the
-    channels are ZIP-compressed (PSD compression 2, zlib). An element
-    layer is mostly transparent, and stored raw the Elements PSD of a
-    4096x2160 show at 2x came to 730 MB and the server dropped the
-    connection writing it; zipped, the same PSD is the merged preview
-    plus a little. pytoshop's RLE needs its compiled packbits extension,
-    which the app's environment does not carry."""
+    one-layer-per-screen export builds its layers. Channel compression per
+    PSD_ELEMENT_COMPRESSION."""
+    comp = getattr(Compression, PSD_ELEMENT_COMPRESSION)
     channels = {
-        -1: psd_layers.ChannelImageData(image=rgba[:, :, 3].copy(), compression=Compression.zip),
-        0: psd_layers.ChannelImageData(image=rgba[:, :, 0].copy(), compression=Compression.zip),
-        1: psd_layers.ChannelImageData(image=rgba[:, :, 1].copy(), compression=Compression.zip),
-        2: psd_layers.ChannelImageData(image=rgba[:, :, 2].copy(), compression=Compression.zip),
+        -1: psd_layers.ChannelImageData(image=rgba[:, :, 3].copy(), compression=comp),
+        0: psd_layers.ChannelImageData(image=rgba[:, :, 0].copy(), compression=comp),
+        1: psd_layers.ChannelImageData(image=rgba[:, :, 1].copy(), compression=comp),
+        2: psd_layers.ChannelImageData(image=rgba[:, :, 2].copy(), compression=comp),
     }
     record = psd_layers.LayerRecord(
         name=name, top=top, left=left,
@@ -1000,8 +1006,10 @@ def _psd_set_preview(psd, flat):
         return
     alpha = rgba[:, :, 3:4].astype(np.uint16)
     rgb = ((rgba[:, :, :3].astype(np.uint16) * alpha) // 255).astype(np.uint8)
+    # RAW: Photoshop accepts only raw or RLE for the merged image; a zipped
+    # preview made Photoshop 2026 refuse the whole file.
     psd.image_data = psd_image_data.ImageData(
-        channels=np.stack([rgb[:, :, 0], rgb[:, :, 1], rgb[:, :, 2]]), compression=Compression.zip)
+        channels=np.stack([rgb[:, :, 0], rgb[:, :, 1], rgb[:, :, 2]]), compression=Compression.raw)
 
 
 def _psd_bytes(PsdFile, ColorMode, width, height, layer_records, flat=None):
