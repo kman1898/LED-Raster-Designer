@@ -1,6 +1,17 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v1.1.2 - September 22, 2026
+----------------------------
+
+- FIX: A group of screens moves as one when you type into the X or Y
+  fields in Screen Info. Before, with a group selected, a typed value was
+  written to each screen separately, so both screens jumped to the same
+  spot and landed on top of each other. Now X and Y show the group's
+  position, and a typed value moves every screen in the group by the same
+  distance, whether the whole group or just one of its screens is
+  selected. One undo puts the whole group back.
+
 v1.1.1 - September 20, 2026
 ----------------------------
 
