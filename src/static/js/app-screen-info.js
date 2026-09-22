@@ -1801,10 +1801,47 @@ class _ScreenInfo {
         const groupSharedBefore = this._snapshotSharedFields
             ? this._snapshotSharedFields(targetLayers) : null;
 
+        // A GROUP MOVES AS ONE (2026-09-22: with both screens of a group
+        // selected, typing 0 into Y wrote 0 to each screen and stacked them
+        // on top of each other - "they should be remaining as a group and
+        // only able to move as a group"). For a grouped screen the X / Y
+        // fields show the group's position (its top-left, see
+        // loadLayerToInputs), and a typed value moves EVERY member of the
+        // group by the same distance - whether the whole group or one member
+        // is selected. The members outside the selection ride along in the
+        // same write and the same undo step.
+        const groupMoves = this._groupOffsetMoves
+            ? this._groupOffsetMoves(targetLayers, {
+                offsetX: applyOffsetX ? offsetXVal : null, offsetY: applyOffsetY ? offsetYVal : null,
+                showOffsetX: applyShowOffsetX ? showOffsetXVal : null, showOffsetY: applyShowOffsetY ? showOffsetYVal : null })
+            : null;
+        const movedByGroup = new Set();
+        if (groupMoves) {
+            groupMoves.forEach(move => {
+                move.members.forEach(member => {
+                    if (member.locked) return;
+                    movedByGroup.add(member.id);
+                    const linkedX = Number(member.showOffsetX ?? member.offset_x ?? 0) === Number(member.offset_x ?? 0);
+                    const linkedY = Number(member.showOffsetY ?? member.offset_y ?? 0) === Number(member.offset_y ?? 0);
+                    if (move.dx) { member.offset_x = (Number(member.offset_x) || 0) + move.dx; if (linkedX) member.showOffsetX = member.offset_x; }
+                    if (move.dy) { member.offset_y = (Number(member.offset_y) || 0) + move.dy; if (linkedY) member.showOffsetY = member.offset_y; }
+                    if (move.sdx) member.showOffsetX = (Number(member.showOffsetX ?? member.offset_x) || 0) + move.sdx;
+                    if (move.sdy) member.showOffsetY = (Number(member.showOffsetY ?? member.offset_y) || 0) + move.sdy;
+                    if (!targetLayers.includes(member)) {
+                        if (!this._pendingGroupPeerIds) this._pendingGroupPeerIds = new Set();
+                        this._pendingGroupPeerIds.add(member.id);   // rides the same PUT and undo step
+                    }
+                });
+            });
+        }
+
         // Update the layer properties for all selected layers
         targetLayers.forEach(layer => {
             const isImage = (layer.type || 'screen') === 'image';
-            if (!layer.locked) {
+            if (movedByGroup.has(layer.id)) {
+                // its position was set with its group above; the rest of the
+                // fields apply below as for any screen
+            } else if (!layer.locked) {
                 // Capture whether the show offset is currently linked to the
                 // processor offset (i.e. equal). If so, editing the pixel-map
                 // offset should also update showOffset so Show Look / Data /
@@ -2050,11 +2087,15 @@ class _ScreenInfo {
 
         // v0.9.3: show the rotated footprint's top-left (offset + delta) so the
         // Screen Info X,Y matches where the rotated screen actually sits.
-        setTextInput('offset-x', getCommon(l => Math.round((Number(l.offset_x) || 0) + window.canvasRenderer.getLayerFootprintOffset(l).dx)));
-        setTextInput('offset-y', getCommon(l => Math.round((Number(l.offset_y) || 0) + window.canvasRenderer.getLayerFootprintOffset(l).dy)));
+        // A grouped screen shows its GROUP's position - the top-left of the
+        // wall - so every member reads the same X / Y and a typed value moves
+        // the wall (updateLayerFromInputs). An ungrouped screen shows its own.
+        const origin = (l) => (this._groupOrigin ? this._groupOrigin(l) : null);
+        setTextInput('offset-x', getCommon(l => { const o = origin(l); return o ? o.x : Math.round((Number(l.offset_x) || 0) + window.canvasRenderer.getLayerFootprintOffset(l).dx); }));
+        setTextInput('offset-y', getCommon(l => { const o = origin(l); return o ? o.y : Math.round((Number(l.offset_y) || 0) + window.canvasRenderer.getLayerFootprintOffset(l).dy); }));
         // Show Look offsets, separate from processor offsets (Pixel Map).
-        setTextInput('show-offset-x', getCommon(l => (l.showOffsetX ?? l.offset_x) || 0));
-        setTextInput('show-offset-y', getCommon(l => (l.showOffsetY ?? l.offset_y) || 0));
+        setTextInput('show-offset-x', getCommon(l => { const o = origin(l); return o ? o.showX : ((l.showOffsetX ?? l.offset_x) || 0); }));
+        setTextInput('show-offset-y', getCommon(l => { const o = origin(l); return o ? o.showY : ((l.showOffsetY ?? l.offset_y) || 0); }));
 
         // Image layer controls
         const imageScaleEl = document.getElementById('image-scale');

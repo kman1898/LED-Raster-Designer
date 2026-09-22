@@ -161,6 +161,58 @@ class _ScreenGroups {
         return this.resolveGroup(layer.group_id);
     }
 
+    // The members of a layer's group as layer objects, the layer itself
+    // included; [] for an ungrouped layer.
+    groupMembersOf(layer) {
+        const group = this.getGroupOfLayer(layer);
+        if (!group) return [];
+        const ids = new Set(group.layer_ids || []);
+        return (this.project.layers || []).filter(l => ids.has(l.id) && (l.type || 'screen') === 'screen');
+    }
+
+    // Where a grouped screen's group STANDS: the top-left of its members'
+    // footprints on the Pixel Map (x, y) and in Show Look (showX, showY),
+    // rounded like the Screen Info fields. Null for an ungrouped screen. The
+    // Screen Info X / Y show this for every member (loadLayerToInputs) and a
+    // typed value moves the whole group to it (_groupOffsetMoves).
+    _groupOrigin(layer) {
+        const members = this.groupMembersOf(layer);
+        if (!members.length) return null;
+        const r = window.canvasRenderer;
+        let x = Infinity, y = Infinity, showX = Infinity, showY = Infinity;
+        members.forEach(m => {
+            const fp = r && r.getLayerFootprintOffset ? r.getLayerFootprintOffset(m) : { dx: 0, dy: 0 };
+            x = Math.min(x, (Number(m.offset_x) || 0) + fp.dx);
+            y = Math.min(y, (Number(m.offset_y) || 0) + fp.dy);
+            showX = Math.min(showX, Number(m.showOffsetX ?? m.offset_x) || 0);
+            showY = Math.min(showY, Number(m.showOffsetY ?? m.offset_y) || 0);
+        });
+        return { x: Math.round(x), y: Math.round(y), showX: Math.round(showX), showY: Math.round(showY), members };
+    }
+
+    // The group moves a Screen Info edit asks for: one entry per group any
+    // of `layers` belongs to, with the distance every member travels so the
+    // group's top-left lands on the typed value (null = that field was not
+    // edited). Ungrouped layers are the caller's as before.
+    _groupOffsetMoves(layers, typed) {
+        const moves = [];
+        const seen = new Set();
+        layers.forEach(layer => {
+            if (!layer.group_id || seen.has(layer.group_id)) return;
+            const o = this._groupOrigin(layer);
+            if (!o) return;
+            seen.add(layer.group_id);
+            moves.push({
+                groupId: layer.group_id, members: o.members,
+                dx: typed.offsetX == null ? 0 : typed.offsetX - o.x,
+                dy: typed.offsetY == null ? 0 : typed.offsetY - o.y,
+                sdx: typed.showOffsetX == null ? 0 : typed.showOffsetX - o.showX,
+                sdy: typed.showOffsetY == null ? 0 : typed.showOffsetY - o.showY,
+            });
+        });
+        return moves;
+    }
+
     // Is a whole-layer action aimed at A WHOLE WALL, or at one member picked
     // out of it? Returns the group when `layer` is a screen in a resolvable
     // group and EVERY member of that group is currently selected - which is
