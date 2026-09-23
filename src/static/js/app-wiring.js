@@ -1141,10 +1141,12 @@ class _Wiring {
                 if (!this.currentLayer) return;
                 this.ensureCustomFlowState(this.currentLayer);
                 const portNum = this.currentLayer.customPortIndex || 1;
-                this.currentLayer.customPortPaths[portNum] = [];
+                // This screen's port, and its cabinets out of a peer's port
+                // of the same number - see clearCustomRun.
+                const touched = this.clearCustomRun(this.currentLayer, 'data', portNum);
                 this.saveState('Custom Clear Port');
                 this.saveClientSideProperties();
-                this.updateLayers(this.getSelectedLayers());
+                this.updateLayers(this._persistWith(touched));
                 this.updateCustomFlowUI();
                 this.updatePortLabelEditor();
                 window.canvasRenderer.render();
@@ -1153,22 +1155,16 @@ class _Wiring {
         if (customClearAllBtn) {
             customClearAllBtn.addEventListener('click', () => {
                 if (!this.currentLayer) return;
-                this.ensureCustomFlowState(this.currentLayer);
-                this.currentLayer.customPortPaths = {};
-                this.currentLayer.customPortIndex = 1;
                 // The per-run overrides go with their paths: a reserved number
                 // whose path was just wiped would leave an invisible gap in
                 // the automatic numbering with nothing on the wall to show
-                // for it. Clear All means back to auto, all of it.
-                this.currentLayer.customPortOverrides = [];
-                if (this._overrideEditing && this._overrideEditing.kind === 'data'
-                        && this._overrideEditing.layerId === this.currentLayer.id) {
-                    this._overrideEditing = null;
-                }
+                // for it. Clear All means back to auto, all of it - and on a
+                // grouped screen, all of the wall (clearAllCustomRuns).
+                const touched = this.clearAllCustomRuns(this.currentLayer, 'data');
                 this.customSelection.clear();
                 this.saveState('Custom Clear All');
                 this.saveClientSideProperties();
-                this.updateLayers(this.getSelectedLayers());
+                this.updateLayers(this._persistWith(touched));
                 this.updateCustomFlowUI();
                 this.updatePortLabelEditor();
                 window.canvasRenderer.render();
@@ -1704,10 +1700,12 @@ class _Wiring {
                 if (!this.currentLayer) return;
                 this.ensureCustomPowerState(this.currentLayer);
                 const circuitNum = this.currentLayer.powerCustomIndex || 1;
-                this.currentLayer.powerCustomPaths[circuitNum] = [];
+                // This screen's circuit, and its cabinets out of a peer's
+                // circuit of the same number - see clearCustomRun.
+                const touched = this.clearCustomRun(this.currentLayer, 'power', circuitNum);
                 this.saveState('Power Custom Clear Circuit');
                 this.saveClientSideProperties();
-                this.updateLayers(this.getSelectedLayers());
+                this.updateLayers(this._persistWith(touched));
                 this.updateCustomPowerUI();
                 window.canvasRenderer.render();
             });
@@ -1715,19 +1713,13 @@ class _Wiring {
         if (powerCustomClearAll) {
             powerCustomClearAll.addEventListener('click', () => {
                 if (!this.currentLayer) return;
-                this.ensureCustomPowerState(this.currentLayer);
-                this.currentLayer.powerCustomPaths = {};
-                this.currentLayer.powerCustomIndex = 1;
-                // Overrides go with their paths - see the data Clear All.
-                this.currentLayer.powerCustomOverrides = [];
-                if (this._overrideEditing && this._overrideEditing.kind === 'power'
-                        && this._overrideEditing.layerId === this.currentLayer.id) {
-                    this._overrideEditing = null;
-                }
+                // Overrides go with their paths - see the data Clear All. On a
+                // grouped screen the whole wall clears (clearAllCustomRuns).
+                const touched = this.clearAllCustomRuns(this.currentLayer, 'power');
                 this.powerCustomSelection.clear();
                 this.saveState('Power Custom Clear All');
                 this.saveClientSideProperties();
-                this.updateLayers(this.getSelectedLayers());
+                this.updateLayers(this._persistWith(touched));
                 this.updateCustomPowerUI();
                 window.canvasRenderer.render();
             });

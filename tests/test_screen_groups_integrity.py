@@ -488,3 +488,105 @@ def test_the_pruner_applies_the_servers_rule_not_the_renderers(page):
         {'row': 0, 'col': 1, 'layerId': out['ids'][1]}]}, out
     assert out['droppedUngrouped'] == 1, out
     assert out['afterUngroup'] == {'1': [{'row': 0, 'col': 0}]}, out
+
+
+# ---------------------------------------------------------------------------
+# Clearing hand-drawn runs on a grouped screen (2026-09-22). A run a member
+# owns may sit on a peer's cabinets; Clear Circuit / Clear Port and Clear All
+# on the peer used to leave it there with no way to remove it from that screen
+# (the Orlando file: SL's circuit 1 was 13 cabinets of SR).
+# ---------------------------------------------------------------------------
+
+_RUN_KEYS = {
+    'power': dict(paths='powerCustomPaths', index='powerCustomIndex',
+                  pattern='powerFlowPattern', flag='powerCustomPath',
+                  clear_one='power-custom-clear-circuit', clear_all='power-custom-clear-all'),
+    'data': dict(paths='customPortPaths', index='customPortIndex',
+                 pattern='flowPattern', flag=None,
+                 clear_one='custom-clear-port', clear_all='custom-clear-all'),
+}
+
+
+def _grouped_pair_with_peer_run(page, kind):
+    """Two grouped screens; the SECOND owns run 1 made only of the FIRST's
+    cabinets, and run 2 of its own. The first is current. Returns the ids."""
+    k = _RUN_KEYS[kind]
+    props = {'all': {k['pattern']: 'custom'}}
+    if k['flag']:
+        props['all'][k['flag']] = True
+    return page.evaluate(r"""async ([props, paths, index]) => {
+      const ids = await window.__gi.fresh(2, props);
+      window.__gi.select([ids[0], ids[1]]);
+      await window.app.groupSelectedLayers();
+      await window.__gi.settle();
+      const a = window.__gi.layer(ids[0]), b = window.__gi.layer(ids[1]);
+      b[paths] = { 1: [{ row: 0, col: 0, layerId: ids[0] }, { row: 0, col: 1, layerId: ids[0] }],
+                   2: [{ row: 1, col: 1 }] };
+      b[index] = 1;
+      a[paths] = { 1: [{ row: 1, col: 0 }] };
+      a[index] = 1;
+      await window.app.updateLayers([a, b]);
+      await window.__gi.settle();
+      window.__gi.select([ids[0]]);
+      return ids;
+    }""", [props, k['paths'], k['index']])
+
+
+@pytest.mark.parametrize('kind', ['power', 'data'])
+def test_clear_run_on_a_member_takes_its_cabinets_out_of_a_peers_run(page, kind):
+    """Clear Circuit / Clear Port on screen A clears A's run 1 AND removes A's
+    cabinets from B's run 1 (emptied, so it goes); B's run 2 is untouched."""
+    k = _RUN_KEYS[kind]
+    ids = _grouped_pair_with_peer_run(page, kind)
+    page.evaluate("(id) => document.getElementById(id).click()", k['clear_one'])
+    page.wait_for_timeout(1200)
+    out = page.evaluate(r"""async ([ids, paths]) => {
+      const a = window.__gi.layer(ids[0]), b = window.__gi.layer(ids[1]);
+      const srv = await window.__gi.serverProject();
+      const sb = srv.layers.find(l => l.id === ids[1]);
+      return { a: a[paths], b: b[paths], serverB: sb[paths] };
+    }""", [ids, k['paths']])
+    assert out['a'].get('1', []) == [], out
+    assert '1' not in out['b'], 'the peer run drawn across this screen survived: %r' % out
+    assert out['b'].get('2') == [{'row': 1, 'col': 1}], out
+    assert '1' not in (out['serverB'] or {}), 'the server still holds the peer run: %r' % out
+
+
+@pytest.mark.parametrize('kind', ['power', 'data'])
+def test_clear_all_on_a_member_clears_the_whole_wall(page, kind):
+    """Clear All on a grouped screen clears every member's runs, on the client
+    and on the server, in one undo step; an ungrouped screen keeps its own."""
+    k = _RUN_KEYS[kind]
+    ids = _grouped_pair_with_peer_run(page, kind)
+    # A third, ungrouped screen with a run of its own must be left alone.
+    page.evaluate(r"""async ([paths]) => {
+      await fetch('/api/layer/add', { method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ name: 'Loose', columns: 2, rows: 2, cabinet_width: 128,
+                               cabinet_height: 128, offset_x: 900, offset_y: 0 }) });
+      window.app.project = await window.__gi.serverProject();
+      const loose = window.app.project.layers[window.app.project.layers.length - 1];
+      loose[paths] = { 1: [{ row: 0, col: 0 }] };
+      await window.app.updateLayers([loose]);
+      await window.__gi.settle();
+      window.__gi.select([window.app.project.layers[0].id]);
+    }""", [k['paths']])
+    n0 = page.evaluate("() => window.app.history.length")
+    page.evaluate("(id) => document.getElementById(id).click()", k['clear_all'])
+    page.wait_for_timeout(1200)
+    out = page.evaluate(r"""async ([ids, paths, index]) => {
+      const srv = await window.__gi.serverProject();
+      const pick = (l) => ({ paths: l[paths] || {}, index: l[index] });
+      const loose = window.app.project.layers[window.app.project.layers.length - 1];
+      return {
+        a: pick(window.__gi.layer(ids[0])), b: pick(window.__gi.layer(ids[1])),
+        sa: pick(srv.layers.find(l => l.id === ids[0])), sb: pick(srv.layers.find(l => l.id === ids[1])),
+        loose: pick(loose), sloose: pick(srv.layers.find(l => l.id === loose.id)),
+        steps: window.app.history.length,
+      };
+    }""", [ids, k['paths'], k['index']])
+    for who in ('a', 'b', 'sa', 'sb'):
+        assert out[who]['paths'] == {}, '%s still has runs: %r' % (who, out)
+        assert out[who]['index'] == 1, out
+    assert out['loose']['paths'] == {'1': [{'row': 0, 'col': 0}]}, out
+    assert out['sloose']['paths'] == {'1': [{'row': 0, 'col': 0}]}, out
+    assert out['steps'] - n0 == 1, 'Clear All took %d undo steps' % (out['steps'] - n0)

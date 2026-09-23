@@ -70,6 +70,72 @@ class _CrossLayerPaths {
         return scope;
     }
 
+    // ---- Clearing hand-drawn runs on a grouped screen -----------------------
+    //
+    // A group is one wall, and a run a member owns may sit on a peer's
+    // cabinets: the owner is whichever screen was current when it was drawn.
+    // Clear Circuit / Clear Port and Clear All used to reach only the current
+    // layer's own runs, so a run a peer drew across this screen stayed put with
+    // nothing on this screen able to remove it (Matt, 2026-09-22, the Orlando
+    // file: SL's circuit 1 was 13 cabinets of SR - "S1-1 can't be cleared ...
+    // nor have a way to delete it").
+    //
+    // clearCustomRun: the current layer's run `num` goes, and every peer's run
+    // `num` loses the entries that land on this layer (a peer run emptied that
+    // way is removed). clearAllCustomRuns: every member of the path scope drops
+    // all its runs and overrides - the wall is back to automatic. Both return
+    // the layers written, for the PUT (_persistWith adds them to the selection).
+    _customRunKeys(kind) {
+        return kind === 'power'
+            ? { paths: 'powerCustomPaths', index: 'powerCustomIndex',
+                overrides: 'powerCustomOverrides', ensure: 'ensureCustomPowerState' }
+            : { paths: 'customPortPaths', index: 'customPortIndex',
+                overrides: 'customPortOverrides', ensure: 'ensureCustomFlowState' };
+    }
+
+    clearCustomRun(layer, kind, num) {
+        if (!layer) return [];
+        const k = this._customRunKeys(kind);
+        this[k.ensure](layer);
+        layer[k.paths][num] = [];
+        const touched = [layer];
+        this.getPathScopeLayers(layer).forEach(peer => {
+            if (!peer || peer.id === layer.id) return;
+            const paths = peer[k.paths];
+            if (!paths || !Array.isArray(paths[num]) || paths[num].length === 0) return;
+            const kept = paths[num].filter(e => this.getPathEntryLayerId(peer, e) !== layer.id);
+            if (kept.length === paths[num].length) return;
+            if (kept.length) paths[num] = kept; else delete paths[num];
+            touched.push(peer);
+        });
+        return touched;
+    }
+
+    clearAllCustomRuns(layer, kind) {
+        if (!layer) return [];
+        const k = this._customRunKeys(kind);
+        const touched = [];
+        this.getPathScopeLayers(layer).forEach(member => {
+            if (!member) return;
+            this[k.ensure](member);
+            member[k.paths] = {};
+            member[k.index] = 1;
+            member[k.overrides] = [];
+            if (this._overrideEditing && this._overrideEditing.kind === kind
+                    && this._overrideEditing.layerId === member.id) {
+                this._overrideEditing = null;
+            }
+            touched.push(member);
+        });
+        return touched;
+    }
+
+    _persistWith(touched) {
+        const sel = this.getSelectedLayers() || [];
+        const ids = new Set(sel.map(l => l && l.id));
+        return sel.concat((touched || []).filter(l => l && !ids.has(l.id)));
+    }
+
     // The layers a SELECTION owned by `layer` may touch: the path scope, less
     // the members the user cannot see.
     //
