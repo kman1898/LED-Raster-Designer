@@ -60,7 +60,8 @@ FIX LIST
   circuit instead of moving between the tiles.
 - FIX: Picking Custom in the voltage select commits nothing until a
   figure is typed; before, the stale value in the custom box was applied
-  at once. Whole volts only.
+  at once. Whole volts only, and the box shows the figure committed
+  rather than the text typed.
 - FIX: Duplicate and paste carry every colour and the breakout to the
   server, and a preset colour that is empty or not a colour takes the
   default instead of landing as typed.

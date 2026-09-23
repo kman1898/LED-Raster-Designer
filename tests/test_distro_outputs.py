@@ -1198,6 +1198,15 @@ def test_the_custom_voltage_box_takes_whole_volts_only(page):
     assert out['v'] == 100 and out['box'] == '100', out
     assert out['bt'] in ('soca-true1', 'soca-powercon', 'soca-edison'), out
     assert out['entries'] == 1, out
+    # a typed "120.0" or "1e2" commits the whole figure AND the box shows
+    # the figure committed, not the text typed (it used to sit as "120.0"
+    # until the sidebar redrew)
+    out = typed('120.0')
+    assert out['v'] == 120 and out['box'] == '120', out
+    assert out['entries'] == 1, out
+    out = typed('1e2')
+    assert out['v'] == 100 and out['box'] == '100', out
+    assert out['entries'] == 1, out
     served = pg.evaluate(VOLT_STATE_JS, ids['bId'])
     assert served['served'][0] == 100, served
     # the box shows the screen's voltage after a reload of the sidebar,

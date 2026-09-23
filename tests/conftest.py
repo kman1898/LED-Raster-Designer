@@ -229,6 +229,65 @@ def server_project_guard(e2e_server):
     _restore_project(snapshot)
 
 
+# ── The socket server survives flask_socketio's test client ───────────────
+# socketio.test_client(app) (test_websocket, test_pristine_flag,
+# test_per_tab_properties) installs itself by REPLACING two methods on the
+# one shared socket server - server._send_packet and server._send_eio_packet
+# become closures that push packets into the test client's queue - and
+# switches async_handlers off. Its disconnect() undoes none of that. So from
+# the first socket test on, every real emit (layer_updated after a PUT,
+# project_data on connect) went into a dead test client's queue and the
+# browser never heard it: a module that ran after a socket module got a
+# page whose live socket was silent. In alphabetical order test_distro_outputs
+# came before test_pristine_flag and passed; run the two the other way round
+# and its reset - which relies on the server's layer_updated echo carrying
+# the breakout the server wrote - came back with none (2026-09-23). Every
+# browser module sorted after test_per_tab_properties has been running with
+# a dead socket in CI.
+#
+# This fixture puts the server back after every test, so a socket test can
+# run anywhere in the order. tests/test_socket_isolation.py pins it.
+
+_SOCKET_SERVER_PATCHED = ('_send_packet', '_send_eio_packet')
+
+
+def _socket_server_state():
+    server = socketio.server
+    own = server.__dict__
+    return {
+        'patched': {k: own[k] for k in _SOCKET_SERVER_PATCHED if k in own},
+        'async_handlers': server.async_handlers,
+        'eio_async_handlers': server.eio.async_handlers,
+    }
+
+
+def restore_socket_server(state):
+    """Put the shared socket server back to `state` (a _socket_server_state
+    record): the test client's instance-level sender mocks come off, so the
+    class's real senders show through again, and the handler mode returns."""
+    server = socketio.server
+    for k in _SOCKET_SERVER_PATCHED:
+        if k in state['patched']:
+            setattr(server, k, state['patched'][k])
+        else:
+            server.__dict__.pop(k, None)
+    server.async_handlers = state['async_handlers']
+    server.eio.async_handlers = state['eio_async_handlers']
+
+
+def socket_server_is_pristine():
+    """True when no test-client mock sits on the shared socket server."""
+    own = socketio.server.__dict__
+    return not any(k in own for k in _SOCKET_SERVER_PATCHED)
+
+
+@pytest.fixture(autouse=True)
+def _socket_server_survives_the_test_client():
+    before = _socket_server_state()
+    yield
+    restore_socket_server(before)
+
+
 @pytest.fixture(scope="module")
 def flask_project_guard():
     """server_project_guard for modules that never open a page. Safe without

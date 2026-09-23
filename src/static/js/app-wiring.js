@@ -1413,6 +1413,10 @@ class _Wiring {
                     return;
                 }
                 commitVoltage(val, true);
+                // The box shows the figure that was COMMITTED, not the
+                // text that was typed: "120.0" commits 120 and used to
+                // sit in the box as "120.0" until the sidebar redrew.
+                powerVoltageCustomInput.value = val;
             });
         }
 
