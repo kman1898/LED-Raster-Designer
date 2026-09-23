@@ -18,9 +18,12 @@ class _CustomRuns {
     // serpentine, get circuits 1..6 at 14 apiece - which only works if the
     // pattern fill CUTS at capacity instead of pouring the whole selection
     // into the one active circuit, and if a click past the cap is refused
-    // instead of quietly overloading the run. And each of those six reads
-    // from the SAME side: a new run restarts the snake at the pattern's
-    // start corner rather than continuing it (_chunkPicksByCapacity).
+    // instead of quietly overloading the run. The cut falls between whole
+    // rows (or columns): a run takes another line only when all of it fits,
+    // so a circuit never starts part-way along a row, and each of those six
+    // reads from the SAME side: a new run restarts the snake at the
+    // pattern's start corner rather than continuing it
+    // (_chunkPicksByCapacity).
     //
     // ONE authority per side, and each is the sidebar's own readout:
     //   power  "Panels/Circuit" - watts per circuit (V x A) against each
@@ -560,12 +563,14 @@ class _CustomRuns {
     // The pattern buttons on a selection, both sides through ONE walk.
     //
     // Used to write the WHOLE selection into the one active port or circuit.
-    // Now it walks the selection in pattern order and fills the active run
-    // up to its capacity (customRunCapacity - the sidebar's Panels/Circuit
-    // and Panels/Port), then steps to the next number and keeps going until
-    // the selection is consumed: a 14 x 6 block on serpentine at 14 a
-    // circuit is circuits 1..6 at 14 apiece, in one gesture, every one of
-    // them read from the side the first one started on.
+    // Now it walks the selection in pattern order, a whole row (or column)
+    // at a time, and fills the active run with as many whole lines as its
+    // capacity takes (customRunCapacity - the sidebar's Panels/Circuit and
+    // Panels/Port), then steps to the next number and keeps going until the
+    // selection is consumed: a 14 x 6 block on serpentine at 14 a circuit
+    // is circuits 1..6 at 14 apiece, in one gesture, every one of them read
+    // from the side the first one started on; 18-wide rows at 24 a circuit
+    // are one row per circuit, not 24-and-a-bit.
     //
     // The numbers it fills are OVERWRITTEN - the active one always was, and
     // the ones it advances into are told on in the toast. A cabinet already
@@ -662,9 +667,10 @@ class _CustomRuns {
         this.updateLayers(this._pathPersistLayers(owner));
         if (chunks.length > 1) {
             const cap = this.customRunCapacity(owner, kind);
+            const lineNoun = String(pattern).endsWith('-v') ? 'column' : 'row';
             let msg = `Filled ${noun}s ${this._customRunLabel(owner, kind, chunks[0].num)} to `
                 + `${this._customRunLabel(owner, kind, lastNum)} from the selection`
-                + ` (${cap.count} panels each at ${cap.at})`;
+                + ` (whole ${lineNoun}s, up to ${cap.count} panels each at ${cap.at})`;
             if (replaced.length > 0) {
                 msg += `; replaced ${noun}${replaced.length === 1 ? '' : 's'} `
                     + replaced.map(n => this._customRunLabel(owner, kind, n)).join(', ');
@@ -705,25 +711,33 @@ class _CustomRuns {
     }
 
     // Cut the pattern's lines into runs at capacity: [{num, picks, load}]
-    // starting at `startNum`, each run holding as many picks as the cap
-    // allows (a run always takes at least one). No cap known means one run
-    // with everything.
+    // starting at `startNum`. No cap known means one run with everything.
     //
-    // THE WALK. Within one run the lines snake - the first in the pattern's
-    // own direction, the next back, and so on - because a run is one cable
+    // THE WALK is by whole LINES - rows for a horizontal pattern, columns
+    // for a vertical one - the same unit the automatic Organized walk packs
+    // (calculatePowerAssignments). A run takes a line only when the WHOLE
+    // line still fits; a line that does not fit opens the next run. The
+    // user, 2026-09-22, with 18-wide rows at 24 a circuit: "it is supposed
+    // to start at the beginning and then fill a max, not jump down a row
+    // unless it fits a whole other row/column." Before this the fill poured
+    // cabinets in and cut wherever the cap fell, so circuit 1 was row 0 plus
+    // the far end of row 1 read backwards, and circuit 2 the rest of row 1
+    // plus most of row 2 - runs that started nowhere a cable comes from.
+    //
+    // Within one run the lines snake - the first in the pattern's own
+    // direction, the next back, and so on - because a run is one cable
     // daisy-chained through the block. A NEW run does not continue the
-    // snake: it starts again from the pattern's start side, on whatever line
-    // it begins, because its cable comes from where the first one's came
-    // from. The user, 2026-09-04, on a 14-wide wall at 14 a circuit: "the
-    // next row needs to restart on the same side as the serpentine started.
-    // because the cables typically come from the same side." So a 14 x 6
-    // block at 14 a circuit reads left to right on every row; a 12 x 2
-    // block at 8 a port gives port 2 the right end of row 1 and, snaking,
-    // the right end of row 2, and port 3 the rest of row 2 read from the
-    // left. Where no cap is reached this is one run, and one run's snake is
-    // the order getPatternOrderForGrid has always produced (two cabinets
-    // sharing a lattice cell swap places on a reversed line, and nowhere
-    // else).
+    // snake: it starts again from the pattern's start side, because its
+    // cable comes from where the first one's came from. The user,
+    // 2026-09-04, on a 14-wide wall at 14 a circuit: "the next row needs
+    // to restart on the same side as the serpentine started. because the
+    // cables typically come from the same side."
+    //
+    // A line LONGER than a run on its own (28 wide at 14 a circuit) is the
+    // one case a line is cut: it is filled from its start to the cap, run
+    // after run, and the remainder is a run of its own. The run in hand is
+    // closed first - a run that ended part-way along the line above would
+    // otherwise start this one mid-row.
     //
     // `error` instead when a single cabinet is over the cap on its own or
     // the override list runs out - nothing is written in either case.
@@ -734,6 +748,7 @@ class _CustomRuns {
         const noun = kind === 'power' ? 'circuit' : 'port';
         const fmt = (v) => (kind === 'power'
             ? `${Math.round(v).toLocaleString()} W` : `${Math.round(v).toLocaleString()} px`);
+        const loadOf = (pick) => this.customHitLoad(kind, pick.layer, pick.panel);
         const chunks = [];
         let cur = { num: startNum, picks: [], load: 0 };
         let lineInRun = 0;
@@ -752,34 +767,64 @@ class _CustomRuns {
             lineInRun = 0;
             return null;
         };
+        const lay = (seq) => {
+            for (const pick of seq) {
+                cur.picks.push(pick);
+                cur.load += loadOf(pick);
+            }
+        };
         for (const line of lines) {
-            // What the line still has to give, kept in the pattern's own
-            // direction; a reversed pass reads it from the far end.
-            let cells = line.slice();
+            // An empty line (hidden cabinets, a group's gap) still counts
+            // toward the snake's alternation - the rule this has always had.
+            if (line.length === 0) {
+                lineInRun += 1;
+                continue;
+            }
+            for (const pick of line) {
+                const load = loadOf(pick);
+                if (cap.known && load > limit + eps) {
+                    return { error: `panel ${this._describePathPanel(owner, pick.layer, pick.panel)} `
+                        + `is ${fmt(load)} and a ${noun} carries ${fmt(limit)}.` };
+                }
+            }
+            const lineLoad = line.reduce((s, pick) => s + loadOf(pick), 0);
+            if (lineLoad <= limit + eps) {
+                // A whole line: onto the run in hand if it fits, else it
+                // opens the next run from the start side.
+                if (cur.picks.length > 0 && cur.load + lineLoad > limit + eps) {
+                    const why = closeRun();
+                    if (why) return { error: why };
+                }
+                lay(lineInRun % 2 === 1 ? line.slice().reverse() : line);
+                lineInRun += 1;
+                continue;
+            }
+            // Longer than a run on its own: cut it, from its start, run
+            // after run. Never onto a run already holding part of the
+            // line above.
+            if (cur.picks.length > 0) {
+                const why = closeRun();
+                if (why) return { error: why };
+            }
+            let cells = line;
             while (cells.length > 0) {
-                const reversed = lineInRun % 2 === 1;
-                const seq = reversed ? cells.slice().reverse() : cells;
                 let took = 0;
-                for (const pick of seq) {
-                    const load = this.customHitLoad(kind, pick.layer, pick.panel);
-                    if (cap.known && load > limit + eps) {
-                        return { error: `panel ${this._describePathPanel(owner, pick.layer, pick.panel)} `
-                            + `is ${fmt(load)} and a ${noun} carries ${fmt(limit)}.` };
-                    }
+                for (const pick of cells) {
+                    const load = loadOf(pick);
                     if (cur.picks.length > 0 && cur.load + load > limit + eps) break;
                     cur.picks.push(pick);
                     cur.load += load;
                     took += 1;
                 }
-                cells = reversed ? cells.slice(0, cells.length - took) : cells.slice(took);
+                cells = cells.slice(took);
                 if (cells.length > 0) {
-                    // Full with line to spare: this run is done, and the rest
-                    // of the line opens the next one from the start side.
                     const why = closeRun();
                     if (why) return { error: why };
                 }
             }
-            lineInRun += 1;
+            // The remainder is the first line on its run, read in the
+            // pattern's direction; a line that follows it snakes back.
+            lineInRun = 1;
         }
         chunks.push(cur);
         return { chunks };
