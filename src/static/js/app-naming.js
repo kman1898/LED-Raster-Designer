@@ -637,15 +637,13 @@ class _Naming {
         return { name, tail: pos[at - 1] || at };
     }
 
+    // The six circuit colours a screen starts with: the Power tab's
+    // "Circuit colors" preference, A to F, with the shipped colour behind
+    // any position the preference does not fill (app-preferences
+    // getPreferenceCircuitColorList does the checking).
     getDefaultPowerCircuitColors() {
-        return {
-            A: '#BC382F',
-            B: '#CC6B30',
-            C: '#D2E94D',
-            D: '#2CF82B',
-            E: '#2145DC',
-            F: '#7414F5'
-        };
+        const list = this.getPreferenceCircuitColorList();
+        return { A: list[0], B: list[1], C: list[2], D: list[3], E: list[4], F: list[5] };
     }
 
     normalizeHexColor(value, fallback = '#FF0000') {

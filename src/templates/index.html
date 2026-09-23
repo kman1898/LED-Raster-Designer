@@ -2310,12 +2310,30 @@
                 <section class="pm-section" id="pm-sec-look" data-key="look">
                     <div class="prefs-group">
                         <div class="pm-row">
-                            <label>Colors</label>
+                            <label>Tile colors</label>
                             <div class="prefs-row">
-                                <input type="color" id="pref-color1">
-                                <input type="color" id="pref-color2">
-                                <input type="color" id="pref-border-color">
+                                <input type="color" id="pref-color1" aria-label="First tile color">
+                                <input type="color" id="pref-color2" aria-label="Second tile color">
                             </div>
+                        </div>
+                        <div class="pm-row">
+                            <label>Cabinet border</label>
+                            <div class="prefs-row">
+                                <input type="color" id="pref-border-color" aria-label="Cabinet border color">
+                            </div>
+                        </div>
+                        <div class="pm-row">
+                            <label>Labels</label>
+                            <div class="prefs-row">
+                                <input type="color" id="pref-screen-name-color" aria-label="Screen name color">
+                            </div>
+                        </div>
+                        <div class="pm-row">
+                            <label>Cabinet ID text</label>
+                            <div class="prefs-row">
+                                <input type="color" id="pref-cabinet-id-color" aria-label="Cabinet ID text color">
+                            </div>
+                            <div class="pm-note">Used for new screens. Change a screen's own colors on the Screen Info panel.</div>
                         </div>
                         <div class="pm-row">
                             <label>Project font</label>
@@ -2407,6 +2425,37 @@
                                 <span>px</span>
                             </div>
                         </div>
+                        <div class="pm-row">
+                            <label>Line</label>
+                            <div class="prefs-row">
+                                <input type="color" id="pref-data-line-color" aria-label="Data line color">
+                            </div>
+                        </div>
+                        <div class="pm-row">
+                            <label>Arrow</label>
+                            <div class="prefs-row">
+                                <input type="color" id="pref-data-arrow-color" aria-label="Data arrow color">
+                            </div>
+                        </div>
+                        <div class="pm-row">
+                            <label>Primary port</label>
+                            <div class="prefs-row">
+                                <input type="color" id="pref-data-primary-color" aria-label="Primary port fill color">
+                                <span>Fill</span>
+                                <input type="color" id="pref-data-primary-text-color" aria-label="Primary port text color">
+                                <span>Text</span>
+                            </div>
+                        </div>
+                        <div class="pm-row">
+                            <label>Backup port</label>
+                            <div class="prefs-row">
+                                <input type="color" id="pref-data-backup-color" aria-label="Backup port fill color">
+                                <span>Fill</span>
+                                <input type="color" id="pref-data-backup-text-color" aria-label="Backup port text color">
+                                <span>Text</span>
+                            </div>
+                            <div class="pm-note">Used for new screens. Change a screen's own colors on the Screen Info panel.</div>
+                        </div>
                     </div>
                 </section>
                 <section class="pm-section" id="pm-sec-power" data-key="power">
@@ -2423,6 +2472,39 @@
                                 <input type="text" id="pref-power-line-width" placeholder="8">
                                 <span>px</span>
                             </div>
+                        </div>
+                        <div class="pm-row">
+                            <label>Line</label>
+                            <div class="prefs-row">
+                                <input type="color" id="pref-power-line-color" aria-label="Power line color">
+                            </div>
+                        </div>
+                        <div class="pm-row">
+                            <label>Arrow</label>
+                            <div class="prefs-row">
+                                <input type="color" id="pref-power-arrow-color" aria-label="Power arrow color">
+                            </div>
+                        </div>
+                        <div class="pm-row">
+                            <label>Circuit label</label>
+                            <div class="prefs-row">
+                                <input type="color" id="pref-power-label-bg-color" aria-label="Circuit label fill color">
+                                <span>Fill</span>
+                                <input type="color" id="pref-power-label-text-color" aria-label="Circuit label text color">
+                                <span>Text</span>
+                            </div>
+                        </div>
+                        <div class="pm-row">
+                            <label>Circuit colors</label>
+                            <div class="prefs-row">
+                                <input type="color" id="pref-power-circuit-color-a" aria-label="Circuit A color" title="A">
+                                <input type="color" id="pref-power-circuit-color-b" aria-label="Circuit B color" title="B">
+                                <input type="color" id="pref-power-circuit-color-c" aria-label="Circuit C color" title="C">
+                                <input type="color" id="pref-power-circuit-color-d" aria-label="Circuit D color" title="D">
+                                <input type="color" id="pref-power-circuit-color-e" aria-label="Circuit E color" title="E">
+                                <input type="color" id="pref-power-circuit-color-f" aria-label="Circuit F color" title="F">
+                            </div>
+                            <div class="pm-note">Circuits A to F, left to right. Used for new screens. Change a screen's own colors on the Screen Info panel.</div>
                         </div>
                         <div class="pm-row">
                             <label>Power (V / A / W)</label>

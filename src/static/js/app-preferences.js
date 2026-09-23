@@ -6,6 +6,10 @@
 import { LEDRasterApp } from './app-core.js';
 import { sendClientLog } from './helpers.js';
 
+// The six circuit colours that ship, A to F: the Power tab's "Circuit
+// colors" default, and what any position of a stored set falls back to.
+const SHIPPED_CIRCUIT_COLORS = ['#BC382F', '#CC6B30', '#D2E94D', '#2CF82B', '#2145DC', '#7414F5'];
+
 class _Preferences {
     getPreferencesDefaults() {
         return {
@@ -26,6 +30,24 @@ class _Preferences {
             color1: '#404680',
             color2: '#959CB8',
             borderColor: '#FFFFFF',
+            // ---- Colours a NEW screen starts with (initializeLayerDefaults,
+            // and addLayer for the two the server sets: the screen name and
+            // the cabinet ID text). A screen that exists keeps its own; the
+            // Screen Info panel changes those. The six circuit colours are
+            // A to F in order (getDefaultPowerCircuitColors keys them).
+            screenNameColor: '#FFFFFF',
+            cabinetIdColor: '#FFFFFF',
+            dataLineColor: '#FFFFFF',
+            dataArrowColor: '#0042AA',
+            dataPrimaryColor: '#00FF00',
+            dataPrimaryTextColor: '#000000',
+            dataBackupColor: '#FF0000',
+            dataBackupTextColor: '#FFFFFF',
+            powerLineColor: '#FF0000',
+            powerArrowColor: '#0042AA',
+            powerLabelBgColor: '#D95000',
+            powerLabelTextColor: '#000000',
+            powerCircuitColors: SHIPPED_CIRCUIT_COLORS.slice(),
             flowPattern: 'tl-h',
             powerFlowPattern: 'tl-h',
             dataLineWidth: 6,
@@ -103,6 +125,20 @@ class _Preferences {
             loosePortCableFt: 100,
             powerCableFt: 10
         };
+    }
+
+    // The six circuit colour picker ids, A to F.
+    _circuitColorPrefIds() {
+        return ['a', 'b', 'c', 'd', 'e', 'f'].map(l => `pref-power-circuit-color-${l}`);
+    }
+
+    // The preference's six circuit colours as a checked list, A to F: a
+    // stored entry that is not a hex colour (or a stored set that is not
+    // a list at all) falls back to the shipped colour in that position.
+    getPreferenceCircuitColorList(prefs) {
+        const p = prefs || this.getPreferences();
+        const list = Array.isArray(p.powerCircuitColors) ? p.powerCircuitColors : [];
+        return SHIPPED_CIRCUIT_COLORS.map((fallback, i) => this.normalizeHexColor(list[i], fallback));
     }
 
     getLocalPreferences() {
@@ -424,6 +460,20 @@ class _Preferences {
         setVal('pref-color1', prefs.color1);
         setVal('pref-color2', prefs.color2);
         setVal('pref-border-color', prefs.borderColor);
+        setVal('pref-screen-name-color', prefs.screenNameColor);
+        setVal('pref-cabinet-id-color', prefs.cabinetIdColor);
+        setVal('pref-data-line-color', prefs.dataLineColor);
+        setVal('pref-data-arrow-color', prefs.dataArrowColor);
+        setVal('pref-data-primary-color', prefs.dataPrimaryColor);
+        setVal('pref-data-primary-text-color', prefs.dataPrimaryTextColor);
+        setVal('pref-data-backup-color', prefs.dataBackupColor);
+        setVal('pref-data-backup-text-color', prefs.dataBackupTextColor);
+        setVal('pref-power-line-color', prefs.powerLineColor);
+        setVal('pref-power-arrow-color', prefs.powerArrowColor);
+        setVal('pref-power-label-bg-color', prefs.powerLabelBgColor);
+        setVal('pref-power-label-text-color', prefs.powerLabelTextColor);
+        const circuitColors = this.getPreferenceCircuitColorList(prefs);
+        this._circuitColorPrefIds().forEach((id, i) => setVal(id, circuitColors[i]));
         this._refreshFontPrefsUI(prefs.font || 'Arial');
         const prefDataPatternButtons = document.querySelectorAll('.pref-data-flow-pattern-btn');
         prefDataPatternButtons.forEach(btn => {
@@ -537,6 +587,12 @@ class _Preferences {
             const el = document.getElementById(id);
             return el ? !!el.checked : fallback;
         };
+        // A colour picker: stored the way the layer stores it, as
+        // upper-case #RRGGBB (a picker hands back lower case).
+        const readColor = (id, fallback) => {
+            const el = document.getElementById(id);
+            return el && el.value ? this.normalizeHexColor(el.value, fallback) : fallback;
+        };
         const voltageSelect = document.getElementById('pref-power-voltage-select');
         const amperageSelect = document.getElementById('pref-power-amperage-select');
         const prefDataPatternActive = document.querySelector('.pref-data-flow-pattern-btn.active');
@@ -566,6 +622,19 @@ class _Preferences {
             color1: readStr('pref-color1', defaults.color1),
             color2: readStr('pref-color2', defaults.color2),
             borderColor: readStr('pref-border-color', defaults.borderColor),
+            screenNameColor: readColor('pref-screen-name-color', defaults.screenNameColor),
+            cabinetIdColor: readColor('pref-cabinet-id-color', defaults.cabinetIdColor),
+            dataLineColor: readColor('pref-data-line-color', defaults.dataLineColor),
+            dataArrowColor: readColor('pref-data-arrow-color', defaults.dataArrowColor),
+            dataPrimaryColor: readColor('pref-data-primary-color', defaults.dataPrimaryColor),
+            dataPrimaryTextColor: readColor('pref-data-primary-text-color', defaults.dataPrimaryTextColor),
+            dataBackupColor: readColor('pref-data-backup-color', defaults.dataBackupColor),
+            dataBackupTextColor: readColor('pref-data-backup-text-color', defaults.dataBackupTextColor),
+            powerLineColor: readColor('pref-power-line-color', defaults.powerLineColor),
+            powerArrowColor: readColor('pref-power-arrow-color', defaults.powerArrowColor),
+            powerLabelBgColor: readColor('pref-power-label-bg-color', defaults.powerLabelBgColor),
+            powerLabelTextColor: readColor('pref-power-label-text-color', defaults.powerLabelTextColor),
+            powerCircuitColors: this._circuitColorPrefIds().map((id, i) => readColor(id, defaults.powerCircuitColors[i])),
             flowPattern: prefDataPatternActive ? (prefDataPatternActive.getAttribute('data-pattern') || defaults.flowPattern) : defaults.flowPattern,
             powerFlowPattern: prefPowerPatternActive ? (prefPowerPatternActive.getAttribute('data-pattern') || defaults.powerFlowPattern) : defaults.powerFlowPattern,
             dataLineWidth: readNum('pref-data-line-width', defaults.dataLineWidth),

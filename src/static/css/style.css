@@ -860,12 +860,13 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
     flex: none;
 }
 #preferences-modal .pm-tabstrip .view-tab { font-size: 12px; }
-/* one body height - the tallest tab's (Binder) - so the dialog never
-   resizes as the tabs change */
+/* one body height - the tallest tab's (Look, since issue 28 gave it the
+   colour defaults; Binder before) - so the dialog never resizes as the
+   tabs change */
 #preferences-modal .pm-body {
     padding: 14px 16px;
     flex: none;
-    height: 470px;
+    height: 510px;
     overflow-y: auto;
 }
 #preferences-modal .pm-section { display: none; }

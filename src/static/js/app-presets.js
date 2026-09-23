@@ -1635,14 +1635,18 @@ class _Presets {
         if ((layer.type || 'screen') === 'text') {
             return;
         }
+        // The colours are preferences (the Data and Power tabs); the
+        // literal is what shipped before they were, and what a stored
+        // value that is not a colour falls back to.
+        const color = (value, fallback) => this.normalizeHexColor(value, fallback);
         layer.arrowLineWidth = prefs.dataLineWidth;  // Default line width for data flow
-        layer.arrowColor = '#0042AA';
-        layer.dataFlowColor = '#FFFFFF';
+        layer.arrowColor = color(prefs.dataArrowColor, '#0042AA');
+        layer.dataFlowColor = color(prefs.dataLineColor, '#FFFFFF');
         layer.dataFlowLabelSize = prefs.dataLabelSize;
-        layer.primaryColor = '#00FF00';
-        layer.primaryTextColor = '#000000';
-        layer.backupColor = '#FF0000';
-        layer.backupTextColor = '#FFFFFF';
+        layer.primaryColor = color(prefs.dataPrimaryColor, '#00FF00');
+        layer.primaryTextColor = color(prefs.dataPrimaryTextColor, '#000000');
+        layer.backupColor = color(prefs.dataBackupColor, '#FF0000');
+        layer.backupTextColor = color(prefs.dataBackupTextColor, '#FFFFFF');
         layer.flowPattern = prefs.flowPattern;
         layer.bitDepth = prefs.bitDepth;
         layer.frameRate = prefs.frameRate;
@@ -1683,14 +1687,14 @@ class _Presets {
         layer.powerCustomPath = false;
         layer.powerFlowPattern = prefs.powerFlowPattern || 'tl-h';
         layer.powerLineWidth = prefs.powerLineWidth;
-        layer.powerLineColor = '#FF0000';
-        layer.powerArrowColor = '#0042AA';
+        layer.powerLineColor = color(prefs.powerLineColor, '#FF0000');
+        layer.powerArrowColor = color(prefs.powerArrowColor, '#0042AA');
         layer.powerRandomColors = false;
         layer.powerColorCodedView = false;
         layer.powerCircuitColors = this.getDefaultPowerCircuitColors();
         layer.powerLabelSize = prefs.powerLabelSize;
-        layer.powerLabelBgColor = '#D95000';
-        layer.powerLabelTextColor = '#000000';
+        layer.powerLabelBgColor = color(prefs.powerLabelBgColor, '#D95000');
+        layer.powerLabelTextColor = color(prefs.powerLabelTextColor, '#000000');
         layer.powerLabelTemplate = 'S1-#';
         layer.powerLabelOverrides = {};
         layer.powerCircuitCables = {};

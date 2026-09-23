@@ -1560,7 +1560,11 @@ export class LEDRasterApp {
                 color2: presetData.color2 || this.hexToRgb(prefs.color2),
                 border_color: presetData.border_color || prefs.borderColor,
                 panel_weight: presetData.panel_weight != null ? presetData.panel_weight : prefs.panelWeight,
-                weight_unit: presetData.weight_unit || prefs.weightUnit
+                weight_unit: presetData.weight_unit || prefs.weightUnit,
+                // The two colours the server sets on a new layer (create_layer);
+                // the Look tab's "Labels" and "Cabinet ID text" preferences.
+                labelsColor: presetData.labelsColor || prefs.screenNameColor,
+                cabinetIdColor: presetData.cabinetIdColor || prefs.cabinetIdColor
             };
         } else {
             serverProps = {
@@ -1572,7 +1576,9 @@ export class LEDRasterApp {
                 color2: this.hexToRgb(prefs.color2),
                 border_color: prefs.borderColor,
                 panel_weight: prefs.panelWeight,
-                weight_unit: prefs.weightUnit
+                weight_unit: prefs.weightUnit,
+                labelsColor: prefs.screenNameColor,
+                cabinetIdColor: prefs.cabinetIdColor
             };
         }
 

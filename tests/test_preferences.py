@@ -25,14 +25,23 @@ TABS = {
              'pref-panel-width', 'pref-panel-height', 'pref-panel-width-mm',
              'pref-panel-height-mm', 'pref-panel-weight', 'pref-weight-unit',
              'pref-canvas-gap'],
-    'look': ['pref-color1', 'pref-color2', 'pref-border-color', 'pref-font',
+    'look': ['pref-color1', 'pref-color2', 'pref-border-color', 'pref-screen-name-color',
+             'pref-cabinet-id-color', 'pref-font',
              'pref-cabinet-font-size', 'pref-label-font-size', 'pref-data-label-size',
              'pref-power-label-size'],
     'data': ['pref-processor-type', 'pref-low-latency', 'pref-bit-depth', 'pref-frame-rate',
-             'pref-data-flow-pattern-grid', 'pref-data-line-width'],
+             'pref-data-flow-pattern-grid', 'pref-data-line-width',
+             'pref-data-line-color', 'pref-data-arrow-color',
+             'pref-data-primary-color', 'pref-data-primary-text-color',
+             'pref-data-backup-color', 'pref-data-backup-text-color'],
     'power': ['pref-power-flow-pattern-grid', 'pref-power-line-width',
               'pref-power-voltage-select', 'pref-power-voltage-custom',
-              'pref-power-amperage-select', 'pref-power-amperage-custom', 'pref-power-watts'],
+              'pref-power-amperage-select', 'pref-power-amperage-custom', 'pref-power-watts',
+              'pref-power-line-color', 'pref-power-arrow-color',
+              'pref-power-label-bg-color', 'pref-power-label-text-color',
+              'pref-power-circuit-color-a', 'pref-power-circuit-color-b',
+              'pref-power-circuit-color-c', 'pref-power-circuit-color-d',
+              'pref-power-circuit-color-e', 'pref-power-circuit-color-f'],
     'distros': ['pref-distro-rating', 'pref-distro-voltage', 'pref-distro-phase',
                 'pref-multi-type', 'pref-breakout-type', 'pref-splitters-enabled'],
     'binder': ['pref-binder-sheet', 'pref-binder-screen-order', 'pref-binder-colour',
@@ -47,7 +56,27 @@ TABS = {
              'pref-loose-port-cable-length', 'pref-power-cable-length'],
 }
 ALL_IDS = [i for ids in TABS.values() for i in ids]
-assert len(ALL_IDS) == 65
+assert len(ALL_IDS) == 83
+
+# Issue 28: the colour defaults a NEW screen starts with, id -> (the colour
+# the dialog is given, the preference key, the layer property it lands on).
+# A colour picker hands back lower-case hex; the preference stores it the
+# way a layer does, upper case.
+COLOR_FIELDS = [
+    ('pref-screen-name-color', '#112233', 'screenNameColor', 'labelsColor'),
+    ('pref-cabinet-id-color', '#223344', 'cabinetIdColor', 'cabinetIdColor'),
+    ('pref-data-line-color', '#334455', 'dataLineColor', 'dataFlowColor'),
+    ('pref-data-arrow-color', '#445566', 'dataArrowColor', 'arrowColor'),
+    ('pref-data-primary-color', '#556677', 'dataPrimaryColor', 'primaryColor'),
+    ('pref-data-primary-text-color', '#667788', 'dataPrimaryTextColor', 'primaryTextColor'),
+    ('pref-data-backup-color', '#778899', 'dataBackupColor', 'backupColor'),
+    ('pref-data-backup-text-color', '#8899aa', 'dataBackupTextColor', 'backupTextColor'),
+    ('pref-power-line-color', '#99aabb', 'powerLineColor', 'powerLineColor'),
+    ('pref-power-arrow-color', '#aabbcc', 'powerArrowColor', 'powerArrowColor'),
+    ('pref-power-label-bg-color', '#bbccdd', 'powerLabelBgColor', 'powerLabelBgColor'),
+    ('pref-power-label-text-color', '#ccddee', 'powerLabelTextColor', 'powerLabelTextColor'),
+]
+CIRCUIT_COLORS = ['#a10001', '#a20002', '#a30003', '#a40004', '#a50005', '#a60006']
 
 # What today's dialog had (36 ids, the three buttons and the modal among
 # them) - every one of them stays.
@@ -571,6 +600,66 @@ def test_new_cables_take_the_preference_length(page):
                          ids['id'])
     assert cables.get('1') == {'ft': 12, 'connector': None}, cables
     assert pg.evaluate("(id) => window.app.getShowSnake(id).ft", made['id']) == 175
+
+
+def test_a_new_screen_takes_the_colour_preferences(page):
+    """Issue 28: every colour picker on the Look, Data and Power tabs is a
+    default for a NEW screen - the screen name, the cabinet ID text, the
+    data line, arrow and port labels, the power line, arrow and circuit
+    label, and the six circuit colours A to F. Set them, Save, add a
+    screen: the screen carries them. The existing WALL keeps its own."""
+    pg, ids = page
+    wall_before = pg.evaluate("(id) => { const l = window.app.project.layers.find(x => x.id === id);"
+                              " return [l.labelsColor, l.cabinetIdColor, l.dataFlowColor, l.arrowColor,"
+                              " l.powerLineColor, l.powerLabelBgColor, l.powerCircuitColors]; }", ids['id'])
+    _open(pg)
+    for field_id, value, _key, _prop in COLOR_FIELDS:
+        _tab(pg, next(k for k, f in TABS.items() if field_id in f))
+        _set(pg, field_id, value)
+    _tab(pg, 'power')
+    for letter, value in zip('abcdef', CIRCUIT_COLORS):
+        _set(pg, f'pref-power-circuit-color-{letter}', value)
+    _save(pg)
+    served = _served(pg)
+    for field_id, value, key, _prop in COLOR_FIELDS:
+        assert served.get(key) == value.upper(), (field_id, key, served.get(key))
+    assert served.get('powerCircuitColors') == [c.upper() for c in CIRCUIT_COLORS], served.get('powerCircuitColors')
+    assert pg.evaluate("() => window.app.getDefaultPowerCircuitColors()") == dict(
+        zip('ABCDEF', [c.upper() for c in CIRCUIT_COLORS]))
+    # reopened, the pickers show what was saved
+    _open(pg)
+    for field_id, value, _key, _prop in COLOR_FIELDS:
+        _tab(pg, next(k for k, f in TABS.items() if field_id in f))
+        assert _read(pg, field_id) == value, field_id
+    _tab(pg, 'power')
+    for letter, value in zip('abcdef', CIRCUIT_COLORS):
+        assert _read(pg, f'pref-power-circuit-color-{letter}') == value, letter
+    pg.locator('#preferences-cancel').click()
+    pg.wait_for_timeout(200)
+    # a new screen starts with them
+    n = pg.evaluate("() => window.app.project.layers.length")
+    pg.evaluate("() => window.app.addLayer()")
+    pg.wait_for_timeout(1200)
+    made = pg.evaluate("(n) => { const l = window.app.project.layers; if (l.length <= n) return null;"
+                       " return l[l.length - 1]; }", n)
+    assert made, 'no screen was added'
+    for field_id, value, _key, prop in COLOR_FIELDS:
+        assert (made.get(prop) or '').lower() == value, (field_id, prop, made.get(prop))
+    assert made['powerCircuitColors'] == dict(zip('ABCDEF', [c.upper() for c in CIRCUIT_COLORS])), \
+        made['powerCircuitColors']
+    # the server's copy of the new screen carries the two it sets itself
+    srv = pg.evaluate("async (id) => (await (await fetch('/api/project')).json())"
+                      ".layers.find(l => l.id === id)", made['id'])
+    assert (srv['labelsColor'].lower(), srv['cabinetIdColor'].lower()) == ('#112233', '#223344'), srv
+    # a screen that exists is untouched
+    wall_after = pg.evaluate("(id) => { const l = window.app.project.layers.find(x => x.id === id);"
+                             " return [l.labelsColor, l.cabinetIdColor, l.dataFlowColor, l.arrowColor,"
+                             " l.powerLineColor, l.powerLabelBgColor, l.powerCircuitColors]; }", ids['id'])
+    assert wall_after == wall_before, (wall_before, wall_after)
+    pg.evaluate("(id) => window.app.deleteLayer(id)", made['id'])
+    pg.wait_for_timeout(800)
+    pg.evaluate("(id) => { const app = window.app; app.selectLayer(app.project.layers.find(x => x.id === id)); }",
+                ids['id'])
 
 
 # ── Reset Defaults ────────────────────────────────────────────────────────
