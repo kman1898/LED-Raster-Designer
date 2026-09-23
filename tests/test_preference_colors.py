@@ -359,9 +359,9 @@ DATA_COLOURS = {
     'primaryColor': '#1A1B1C', 'primaryTextColor': '#1D1E1F',
     'backupColor': '#2A2B2C', 'backupTextColor': '#2D2E2F',
 }
-# The add route lists every one of these but dataFlowColor; the server's
-# copy is checked for the ones it can take.
-DATA_COLOURS_ON_SERVER = {k: v for k, v in DATA_COLOURS.items() if k != 'dataFlowColor'}
+# The add route takes every one of these (dataFlowColor joined the list on
+# 2026-09-22; a pasted screen's data line used to land as the literal).
+DATA_COLOURS_ON_SERVER = dict(DATA_COLOURS)
 
 
 def _dress_and_copy(pg, how):

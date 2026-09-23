@@ -41,7 +41,7 @@ def add_layer():
         'show_numbers', 'number_size', 'show_panel_borders', 'panel_border_width', 'show_circle_with_x',
         'border_color', 'border_color_pixel', 'border_color_cabinet', 'border_color_data', 'border_color_power',
         'cabinetIdStyle', 'cabinetIdPosition', 'cabinetIdColor',
-        'dataFlowPattern', 'arrowLineWidth', 'arrowSize', 'arrowColor', 'primaryColor', 'primaryTextColor', 'backupColor', 'backupTextColor',
+        'dataFlowPattern', 'arrowLineWidth', 'arrowSize', 'arrowColor', 'dataFlowColor', 'primaryColor', 'primaryTextColor', 'backupColor', 'backupTextColor',
         'powerVoltage', 'powerVoltageCustom', 'powerAmperage', 'powerAmperageCustom', 'panelWatts',
         'powerMaximize', 'powerOrganized', 'powerCustomPath', 'powerFlowPattern',
         'powerLineWidth', 'powerLineColor', 'powerArrowColor', 'powerRandomColors',
