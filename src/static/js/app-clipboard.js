@@ -421,6 +421,16 @@ class _Clipboard {
             primaryTextColor: layer.primaryTextColor,
             backupColor: layer.backupColor,
             backupTextColor: layer.backupTextColor,
+            // The four per-view cabinet borders were in clientProps only
+            // too (until 2026-09-22), so the copy's server record held the
+            // one border_color for every view - gone on reload.
+            border_color_pixel: layer.border_color_pixel,
+            border_color_cabinet: layer.border_color_cabinet,
+            border_color_data: layer.border_color_data,
+            border_color_power: layer.border_color_power,
+            // The breakout rides with the voltage: without it a 208 V
+            // powerCON screen's copy read True1 (the voltage's default).
+            powerBreakoutType: layer.powerBreakoutType,
             hiddenPanels: hiddenPanels,  // Pass hidden panel info (legacy)
             panelStates: panelStates,    // Half-tile + hidden + blank (v0.8.0)
         };
@@ -488,6 +498,7 @@ class _Clipboard {
             powerLabelTextColor: layer.powerLabelTextColor,
             powerVoltage: layer.powerVoltage,
             powerVoltageCustom: layer.powerVoltageCustom,
+            powerBreakoutType: layer.powerBreakoutType,
             powerAmperage: layer.powerAmperage,
             powerAmperageCustom: layer.powerAmperageCustom,
             panelWatts: layer.panelWatts,
@@ -540,6 +551,13 @@ class _Clipboard {
         .then(newLayer => {
             // Copy client-side properties to new layer
             Object.assign(newLayer, clientProps);
+            // The copy's breakout must be one its voltage allows (the
+            // source's is, so this is a safety net); a rewrite is pushed
+            // so the server's copy matches.
+            if (typeof this.normalizePowerBreakout === 'function'
+                    && this.normalizePowerBreakout(newLayer)) {
+                this.updateLayers([newLayer]);
+            }
             
             sendClientLog('duplicate_layer', {
                 sourceId: layer.id, sourceName: layer.name,
@@ -796,6 +814,16 @@ class _Clipboard {
             primaryTextColor: this.clipboard.primaryTextColor,
             backupColor: this.clipboard.backupColor,
             backupTextColor: this.clipboard.backupTextColor,
+            // The four per-view cabinet borders: pasteClientProps stamped
+            // them in the browser and nothing sent them (until 2026-09-22),
+            // so a paste across canvases came back from the server with
+            // one border for every view on reload.
+            border_color_pixel: this.clipboard.border_color_pixel,
+            border_color_cabinet: this.clipboard.border_color_cabinet,
+            border_color_data: this.clipboard.border_color_data,
+            border_color_power: this.clipboard.border_color_power,
+            // The breakout rides with the voltage, as duplicate carries it.
+            powerBreakoutType: this.clipboard.powerBreakoutType,
             // v0.11.0: paste never carried the appearance block at all -
             // not in this payload and not in pasteClientProps below, which is
             // eight colours and nothing else. So a pasted screen lost its
@@ -838,7 +866,8 @@ class _Clipboard {
             backupColor: this.clipboard.backupColor,
             backupTextColor: this.clipboard.backupTextColor,
             powerLabelBgColor: this.clipboard.powerLabelBgColor,
-            powerLabelTextColor: this.clipboard.powerLabelTextColor
+            powerLabelTextColor: this.clipboard.powerLabelTextColor,
+            powerBreakoutType: this.clipboard.powerBreakoutType
         };
         
         fetch('/api/layer/add', {
@@ -849,6 +878,12 @@ class _Clipboard {
         .then(res => res.json())
         .then(newLayer => {
             Object.assign(newLayer, pasteClientProps);
+            // Same safety net as duplicate: the pasted breakout must be one
+            // the voltage allows; a rewrite is pushed so the server matches.
+            if (typeof this.normalizePowerBreakout === 'function'
+                    && this.normalizePowerBreakout(newLayer)) {
+                this.updateLayers([newLayer]);
+            }
             sendClientLog('paste_layer', {
                 sourceId: this.clipboard.id, sourceName: this.clipboard.name,
                 newId: newLayer.id, newName: newLayer.name,

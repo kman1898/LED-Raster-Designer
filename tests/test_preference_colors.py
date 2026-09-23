@@ -174,8 +174,13 @@ def test_a_new_screen_reads_every_colour_preference():
             # the server sets these two on create_layer; the request carries
             # the preference, checked - a malformed stored value never lands raw
             prop = {'screenNameColor': 'labelsColor', 'cabinetIdColor': 'cabinetIdColor'}[key]
-            assert f"{prop}: color(prefs.{key}, '{shipped}')" in add, (pid, prop)
-            assert f"{prop}: presetData.{prop} || color(prefs.{key}, '{shipped}')" in add, (pid, prop)
+            assert f"const {prop} = color(prefs.{key}, '{shipped}');" in add, (pid, prop)
+            # the plain branch sends the checked preference; the preset branch
+            # checks the preset's value with the preference behind it (a
+            # preset 'nope' or 'red' is no colour: item 3 of the re-test)
+            assert f"{prop}: {prop}" in add, (pid, prop)
+            assert f"{prop}: color(presetData.{prop}, {prop})" in add, (pid, prop)
+            assert f"presetData.{prop} ||" not in add, f'{prop}: a junk preset colour must not pass on ||'
             assert f'prefs.{key}' not in init, f'{key} is the server\'s to set'
         else:
             assert f"layer.{where} = color(prefs.{key}, '{shipped}');" in init, (pid, where)
@@ -207,7 +212,11 @@ def test_an_existing_screen_fills_missing_circuit_colours_from_the_shipped_set()
     fn = naming[naming.index('normalizePowerCircuitColors(colors) {'):naming.index('getPowerCircuitLetter(circuitNum) {')]
     assert 'const shipped = this.getShippedCircuitColorList();' in fn
     assert 'this.getDefaultPowerCircuitColors()' not in fn
-    assert 'this.getPreferenceCircuitColorList(' not in fn
+    # the fill reads the shipped set; the preference is read exactly once,
+    # for the old-green guard (a chosen old green stays), never to fill
+    assert 'next[letter] = this.normalizeHexColor(colors[letter], defaults[letter]);' in fn
+    assert fn.count('this.getPreferenceCircuitColorList(') == 1
+    assert 'const chosenD = this.getPreferenceCircuitColorList()[3] === oldShipped.D;' in fn
     js = _read(PREFS_JS)
     assert 'getShippedCircuitColorList() {\n        return SHIPPED_CIRCUIT_COLORS.slice();' in js
 
@@ -304,8 +313,10 @@ def test_a_new_screen_keeps_its_preference_colours_on_reload(page):
 
 def test_an_existing_screen_does_not_follow_the_circuit_colour_preference(page):
     """Defect 3: the preference's circuit colours are for a NEW screen. A
-    screen that exists fills a letter it lacks, an entry that is not a
-    colour, and the old default green from the shipped set."""
+    screen that exists fills a letter it lacks and an entry that is not a
+    colour from the shipped set. (An old default green in D on a map that
+    differs anywhere else is a chosen colour and stays: see the old-green
+    test below.)"""
     pg, errors = page
     pg.evaluate(SET_PREFS_JS, {'powerCircuitColors': COLOURS['powerCircuitColors']})
     got = pg.evaluate("""() => {
@@ -319,7 +330,7 @@ def test_an_existing_screen_does_not_follow_the_circuit_colour_preference(page):
     shipped = dict(zip('ABCDEF', SHIPPED_CIRCUIT_COLORS))
     assert got['fresh'] == COLOURS_AS_LAYER['powerCircuitColors'], got['fresh']
     assert got['none'] == shipped, got['none']
-    assert got['partial'] == dict(shipped, A='#111111'), got['partial']
+    assert got['partial'] == dict(shipped, A='#111111', D='#79FC4C'), got['partial']
     # the seeded screen, loaded with no circuit colours of its own, has the shipped set
     first = pg.evaluate("() => window.app.project.layers[0].powerCircuitColors")
     assert first == shipped, first
@@ -472,4 +483,221 @@ def test_the_pristine_startup_screen_takes_the_colour_defaults_on_save(page):
     assert _colours_of(live) == COLOURS_AS_LAYER, 'the startup screen kept the shipped colours'
     srv = pg.evaluate("async () => (await (await fetch('/api/project')).json()).layers[0]")
     assert _colours_of(srv) == COLOURS_AS_LAYER, 'the server did not get the colours'
+    assert errors == [], errors
+
+
+OLD_SHIPPED_CIRCUIT_COLORS = ['#BC382F', '#CC6B30', '#D2E94D', '#79FC4C', '#2145DC', '#7414F5']
+
+
+def test_a_chosen_old_green_stays_and_an_untouched_old_set_migrates(page):
+    """Item 1 (re-test): normalizePowerCircuitColors migrated every #79FC4C
+    in D to the shipped green, so a preference set to the old green on
+    purpose was repainted on every reload. The rule now: D migrates only
+    when the stored map is, letter for letter, the OLD shipped set (a
+    screen nobody coloured); any letter that differs or is missing keeps
+    the green; and a green equal to the preference's D was chosen and
+    stays whatever the rest holds - through a reload."""
+    pg, errors = page
+    old_set = dict(zip('ABCDEF', OLD_SHIPPED_CIRCUIT_COLORS))
+    shipped = dict(zip('ABCDEF', SHIPPED_CIRCUIT_COLORS))
+    pg.evaluate(SET_PREFS_JS, {'powerCircuitColors': SHIPPED_CIRCUIT_COLORS})
+    got = pg.evaluate("""(old) => {
+        const app = window.app;
+        const lower = Object.fromEntries(Object.entries(old).map(([k, v]) => [k, v.toLowerCase()]));
+        const noF = { ...old };
+        delete noF.F;
+        return {
+            whole: app.normalizePowerCircuitColors(old),
+            lower: app.normalizePowerCircuitColors(lower),
+            aDiffers: app.normalizePowerCircuitColors({ ...old, A: '#111111' }),
+            fMissing: app.normalizePowerCircuitColors(noF),
+            dOnly: app.normalizePowerCircuitColors({ D: '#79FC4C' }),
+        };
+    }""", old_set)
+    assert got['whole'] == shipped, got['whole']
+    assert got['lower'] == shipped, got['lower']
+    assert got['aDiffers'] == dict(old_set, A='#111111'), got['aDiffers']
+    assert got['fMissing'] == old_set, got['fMissing']
+    assert got['dOnly'] == dict(shipped, D='#79FC4C'), got['dOnly']
+    # the preference set to the old green: the whole old set still stays
+    chosen = list(SHIPPED_CIRCUIT_COLORS)
+    chosen[3] = '#79FC4C'
+    pg.evaluate(SET_PREFS_JS, {'powerCircuitColors': chosen})
+    kept = pg.evaluate("(old) => window.app.normalizePowerCircuitColors(old)", old_set)
+    assert kept == old_set, kept
+    # and a screen made from it keeps the green through a reload
+    before = pg.evaluate(IDS_JS)
+    pg.evaluate("() => window.app.addLayer()")
+    pg.wait_for_timeout(1500)
+    srv = pg.evaluate(SERVER_NEW_JS, before)
+    assert 'error' not in srv, srv
+    assert srv['powerCircuitColors'] == dict(zip('ABCDEF', chosen)), srv['powerCircuitColors']
+    pg.reload(wait_until='domcontentloaded')
+    pg.wait_for_timeout(2500)
+    live = pg.evaluate(CLIENT_NEW_JS, before)
+    assert 'error' not in live, live
+    assert live['powerCircuitColors']['D'] == '#79FC4C', 'the reload repainted the chosen old green'
+    _delete(pg, srv['id'])
+    pg.evaluate(SET_PREFS_JS, {'powerCircuitColors': SHIPPED_CIRCUIT_COLORS})
+    assert errors == [], errors
+
+
+def test_a_preset_with_junk_colour_keys_takes_the_defaults(page):
+    """Item 3 (re-test): only null and '' were skipped, so a preset's
+    'nope', 'red', [] or {} landed on the new screen (and 'nope' reached
+    the server as labelsColor through addLayer's `||`). Every preset
+    colour now goes through normalizeHexColor with the preference default
+    behind it; a valid one lands upper case; the circuit map is checked a
+    letter at a time, and [] is no map."""
+    pg, errors = page
+    pg.evaluate(SET_PREFS_JS, COLOURS)
+
+    def _add(preset):
+        before = pg.evaluate(IDS_JS)
+        pg.evaluate("(p) => window.app.addLayer(p)", preset)
+        pg.wait_for_timeout(1500)
+        live = pg.evaluate(CLIENT_NEW_JS, before)
+        assert 'error' not in live, live
+        srv = pg.evaluate(SERVER_NEW_JS, before)
+        assert 'error' not in srv, srv
+        return live, srv
+
+    live, srv = _add({
+        'columns': 2, 'rows': 2, '_presetName': 'junk colours',
+        'labelsColor': 'nope', 'cabinetIdColor': 'red',
+        'arrowColor': [], 'dataFlowColor': {}, 'primaryColor': 'red', 'backupTextColor': 'nope',
+        'powerLineColor': [], 'powerLabelBgColor': {}, 'powerLabelTextColor': 'nope',
+        'powerCircuitColors': [], 'border_color_data': 'red',
+        'border_color_pixel': '#0b0b0b',
+        'bitDepth': 10,
+    })
+    assert _colours_of(live) == COLOURS_AS_LAYER, live
+    assert _colours_of(srv) == COLOURS_AS_LAYER, srv
+    assert (live['border_color_data'] or '').upper() == '#FFFFFF', live['border_color_data']
+    assert live['border_color_pixel'] == '#0B0B0B', 'a valid preset colour lands, upper case'
+    assert live['bitDepth'] == 10 and live['columns'] == 2, 'the rest of the preset still applies'
+    _delete(pg, live['id'])
+    live, srv = _add({'columns': 2, 'rows': 2, 'powerCircuitColors': {}})
+    assert live['powerCircuitColors'] == COLOURS_AS_LAYER['powerCircuitColors'], live['powerCircuitColors']
+    assert srv['powerCircuitColors'] == COLOURS_AS_LAYER['powerCircuitColors'], srv['powerCircuitColors']
+    _delete(pg, live['id'])
+    live, srv = _add({'columns': 2, 'rows': 2, 'powerCircuitColors': {'A': 'red', 'B': '#0b0b0b'}})
+    want = dict(COLOURS_AS_LAYER['powerCircuitColors'], B='#0B0B0B')
+    assert live['powerCircuitColors'] == want, live['powerCircuitColors']
+    assert srv['powerCircuitColors'] == want, srv['powerCircuitColors']
+    _delete(pg, live['id'])
+    assert errors == [], errors
+
+
+def test_junk_tile_preferences_never_reach_the_server(page):
+    """Item 5 (re-test): a stored color1 of '#FFF' parsed in the picker
+    but hexToRgb read it as red, and a borderColor of '' went to the
+    server as border_color and as all four per-view borders. The three
+    tile colours take the same check the new colours do: '#FFF' expands,
+    anything else that is not a colour falls back to the shipped literal
+    - in the dialog, on Save, and in addLayer."""
+    pg, errors = page
+    pg.evaluate(SET_PREFS_JS, {'color1': '#FFF', 'color2': 'nope', 'borderColor': ''})
+    before = pg.evaluate(IDS_JS)
+    pg.evaluate("() => window.app.addLayer()")
+    pg.wait_for_timeout(1500)
+    srv = pg.evaluate(SERVER_NEW_JS, before)
+    assert 'error' not in srv, srv
+    assert srv['color1'] == {'r': 255, 'g': 255, 'b': 255}, srv['color1']
+    assert srv['color2'] == {'r': 149, 'g': 156, 'b': 184}, srv['color2']
+    borders = ['border_color', 'border_color_pixel', 'border_color_cabinet',
+               'border_color_data', 'border_color_power']
+    assert [srv.get(k) for k in borders] == ['#FFFFFF'] * 5, {k: srv.get(k) for k in borders}
+    _delete(pg, srv['id'])
+    pg.evaluate("() => window.app.openPreferencesModal()")
+    pg.wait_for_timeout(300)
+    shown = pg.evaluate("(ids) => ids.map(id => document.getElementById(id).value)",
+                        ['pref-color1', 'pref-color2', 'pref-border-color'])
+    assert shown == ['#ffffff', '#959cb8', '#ffffff'], shown
+    pg.locator('#preferences-save').click()
+    pg.wait_for_timeout(600)
+    served = pg.evaluate("async () => (await (await fetch('/api/preferences')).json())")
+    assert (served['color1'], served['color2'], served['borderColor']) == \
+        ('#FFFFFF', '#959CB8', '#FFFFFF'), served
+    pg.evaluate(SET_PREFS_JS, {'color1': '#404680', 'color2': '#959CB8', 'borderColor': '#FFFFFF'})
+    assert errors == [], errors
+
+
+def test_a_failed_push_after_add_is_logged_not_thrown(page):
+    """Item 6 (re-test): the PUT that follows every add had no catch, so
+    offline (or any failed PUT) every added screen raised an unhandled
+    rejection. The failure is logged and shown; nothing throws, and the
+    screen still lands in the browser."""
+    pg, errors = page
+    pg.evaluate("""() => {
+        window.__rejections = [];
+        window.addEventListener('unhandledrejection', e => window.__rejections.push(String(e.reason)));
+    }""")
+
+    def _abort_puts(route):
+        if route.request.method == 'PUT':
+            route.abort()
+        else:
+            route.continue_()
+    pg.route('**/api/layer/*', _abort_puts)
+    before = pg.evaluate(IDS_JS)
+    try:
+        pg.evaluate("() => window.app.addLayer()")
+        pg.wait_for_timeout(1500)
+    finally:
+        pg.unroute('**/api/layer/*')
+    rejections = pg.evaluate("() => window.__rejections")
+    assert rejections == [], rejections
+    toast = pg.evaluate("() => { const h = document.getElementById('app-toast-host'); return h ? h.textContent : ''; }")
+    assert 'not saved' in toast, toast
+    live = pg.evaluate(CLIENT_NEW_JS, before)
+    assert 'error' not in live, live
+    _delete(pg, live['id'])
+    assert errors == [], errors
+
+
+def test_a_preference_save_follows_the_startup_screen_only_until_it_is_edited(page):
+    """Item 2 (re-test): the server clears is_pristine on the first PUT of
+    the startup screen, but the client's copy never did, so every later
+    Save in Preferences re-made a screen the user had edited. A Save
+    follows the screen while nothing has been edited (twice over), and
+    stops the moment the user has changed it. Replaces the project (the
+    module guard puts the seeded one back)."""
+    pg, errors = page
+    pg.evaluate("() => window.app.createNewProject()")
+    pg.wait_for_timeout(1500)
+
+    def _save_columns(n):
+        pg.evaluate("() => window.app.openPreferencesModal()")
+        pg.wait_for_timeout(300)
+        pg.locator('#preferences-modal .pm-tabstrip .view-tab[data-key="wall"]').click()
+        pg.wait_for_timeout(150)
+        el = pg.locator('#pref-columns')
+        el.fill(str(n))
+        el.dispatch_event('change')
+        pg.locator('#preferences-save').click()
+        pg.wait_for_timeout(1000)
+
+    def _state():
+        return pg.evaluate("""async () => {
+            const app = window.app;
+            const srv = (await (await fetch('/api/project')).json()).layers[0];
+            return { live: app.project.layers[0].columns, srv: srv.columns,
+                     pristine: app.project.is_pristine };
+        }""")
+    _save_columns(3)
+    assert _state() == {'live': 3, 'srv': 3, 'pristine': True}, _state()
+    _save_columns(4)
+    assert _state() == {'live': 4, 'srv': 4, 'pristine': True}, 'the second Save with no edit did not follow'
+    # the user edits the screen on the Screen Info panel
+    pg.evaluate("""() => {
+        const el = document.getElementById('screen-columns');
+        el.value = '6';
+        el.dispatchEvent(new Event('change'));
+    }""")
+    pg.wait_for_timeout(1000)
+    assert _state()['live'] == 6 and _state()['srv'] == 6, _state()
+    _save_columns(5)
+    assert _state() == {'live': 6, 'srv': 6, 'pristine': False}, 'the Save re-made the edited screen'
+    pg.evaluate(SET_PREFS_JS, {'columns': 8})
     assert errors == [], errors

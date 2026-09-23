@@ -1673,6 +1673,20 @@ class _ScreenInfo {
             const el = document.getElementById(id);
             if (!el) return { value: null, raw: null };
             const raw = String(el.value || '').trim();
+        }).catch((error) => {
+            // A PUT that never lands (offline, the server gone) rejects the
+            // whole batch. addLayer pushes every new screen through here
+            // (2026-09-22), so without this catch each add offline raised an
+            // unhandled rejection on the page. Log it and say so; the
+            // screen stays as the browser holds it, and the next save
+            // carries it. Never throw from here.
+            sendClientLog('update_layers_failed', {
+                ids: layers.map(l => l && l.id),
+                error: error ? String(error.message || error) : ''
+            });
+            if (typeof this._toast === 'function') {
+                this._toast('Screen settings were not saved to the server. Check the connection and save again.', true);
+            }
             if (raw === '') return { value: null, raw: '' };
             return { value: evaluateMathExpression(raw), raw };
         };

@@ -138,6 +138,20 @@ class _Preferences {
         return ['a', 'b', 'c', 'd', 'e', 'f'].map(l => `pref-power-circuit-color-${l}`);
     }
 
+    // The three tile colours (color1, color2, borderColor) as a checked
+    // #RRGGBB: a 3-digit '#FFF' expands to '#FFFFFF' (hexToRgb read it as
+    // red), and anything else that is not a colour ('', 'abc') falls back
+    // to the shipped literal - the same check the new screen colours
+    // take, so '' never reaches the server as a border.
+    normalizeTileColor(value, fallback) {
+        const raw = String(value == null ? '' : value).trim();
+        const short = /^#?([0-9a-fA-F])([0-9a-fA-F])([0-9a-fA-F])$/.exec(raw);
+        if (short) {
+            return `#${short[1]}${short[1]}${short[2]}${short[2]}${short[3]}${short[3]}`.toUpperCase();
+        }
+        return this.normalizeHexColor(raw, fallback);
+    }
+
     // The six circuit colours that SHIPPED, A to F, as a fresh list. What
     // a screen that already exists fills a missing letter from
     // (normalizePowerCircuitColors): the preference is for a new screen
@@ -471,14 +485,15 @@ class _Preferences {
         setVal('pref-label-font-size', prefs.labelFontSize);
         setVal('pref-data-label-size', prefs.dataLabelSize);
         setVal('pref-power-label-size', prefs.powerLabelSize);
-        setVal('pref-color1', prefs.color1);
-        setVal('pref-color2', prefs.color2);
-        setVal('pref-border-color', prefs.borderColor);
         // A colour picker given a value that is not #RRGGBB shows black,
         // and a Save with no edit would then store that black. A stored
         // preference that is not a colour ('#FFF', 'abcdef', '') shows the
         // shipped default instead, the same fallback a new screen takes.
+        // The three tile colours expand a 3-digit '#FFF' first.
         const defaults = this.getPreferencesDefaults();
+        setVal('pref-color1', this.normalizeTileColor(prefs.color1, defaults.color1));
+        setVal('pref-color2', this.normalizeTileColor(prefs.color2, defaults.color2));
+        setVal('pref-border-color', this.normalizeTileColor(prefs.borderColor, defaults.borderColor));
         const setColor = (id, key) => setVal(id, this.normalizeHexColor(prefs[key], defaults[key]));
         setColor('pref-screen-name-color', 'screenNameColor');
         setColor('pref-cabinet-id-color', 'cabinetIdColor');
@@ -639,9 +654,9 @@ class _Preferences {
             labelFontSize: readNum('pref-label-font-size', defaults.labelFontSize),
             dataLabelSize: readNum('pref-data-label-size', defaults.dataLabelSize),
             powerLabelSize: readNum('pref-power-label-size', defaults.powerLabelSize),
-            color1: readStr('pref-color1', defaults.color1),
-            color2: readStr('pref-color2', defaults.color2),
-            borderColor: readStr('pref-border-color', defaults.borderColor),
+            color1: this.normalizeTileColor(readStr('pref-color1', defaults.color1), defaults.color1),
+            color2: this.normalizeTileColor(readStr('pref-color2', defaults.color2), defaults.color2),
+            borderColor: this.normalizeTileColor(readStr('pref-border-color', defaults.borderColor), defaults.borderColor),
             screenNameColor: readColor('pref-screen-name-color', defaults.screenNameColor),
             cabinetIdColor: readColor('pref-cabinet-id-color', defaults.cabinetIdColor),
             dataLineColor: readColor('pref-data-line-color', defaults.dataLineColor),

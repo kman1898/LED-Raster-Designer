@@ -500,6 +500,68 @@ def test_a_new_screen_takes_the_breakout_and_splitter_preferences(page):
                 ids['id'])
 
 
+# Store a preference patch the way the dialog's Save does: the live copy,
+# localStorage, and the server.
+SET_PREFS_JS = """async (patch) => {
+    const app = window.app;
+    const prefs = { ...app.getPreferences(), ...patch };
+    app._serverPreferences = prefs;
+    try { localStorage.setItem('appPreferences', JSON.stringify(prefs)); } catch (e) {}
+    await fetch('/api/preferences', { method: 'PUT',
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(prefs) });
+    return prefs;
+}"""
+
+
+def test_a_new_screen_ends_on_an_eligible_breakout(page):
+    """Item 8 (re-test): a breakout preference the voltage does not allow
+    (L21-30 at 110 V, Edison at 208 V) was skipped and left the new
+    screen with no breakout at all, and a preset carrying an ineligible
+    breakout landed it raw. addLayer now runs normalizePowerBreakout
+    after the preference and the preset, so the screen ends on the
+    eligible default - Edison at or below 120 V, True1 above - on the
+    client and on the server; an eligible choice still lands as chosen."""
+    pg, ids = page
+    saved = pg.evaluate("() => window.app.getPreferences()")
+
+    def _add(preset):
+        n = pg.evaluate("() => window.app.project.layers.length")
+        pg.evaluate("(p) => window.app.addLayer(p)", preset)
+        pg.wait_for_timeout(1200)
+        made = pg.evaluate("""async (n) => {
+            const l = window.app.project.layers;
+            if (l.length <= n) return null;
+            const s = l[l.length - 1];
+            const srv = (await (await fetch('/api/project')).json()).layers.find(x => x.id === s.id);
+            return { id: s.id, v: s.powerVoltage, live: s.powerBreakoutType || null,
+                     srv: srv ? (srv.powerBreakoutType || null) : 'missing' };
+        }""", n)
+        assert made, 'no screen was added'
+        pg.evaluate("(id) => window.app.deleteLayer(id)", made['id'])
+        pg.wait_for_timeout(800)
+        return made
+
+    # the preference
+    for breakout, voltage, want in [('l2130-true1', 110, 'soca-edison'),
+                                    ('soca-edison', 208, 'soca-true1'),
+                                    ('soca-powercon', 208, 'soca-powercon')]:
+        pg.evaluate(SET_PREFS_JS, {'breakoutType': breakout, 'powerVoltage': voltage})
+        made = _add(None)
+        assert made['v'] == voltage, (breakout, voltage, made)
+        assert (made['live'], made['srv']) == (want, want), (breakout, voltage, made)
+    # a preset
+    for breakout, voltage, want in [('l2130-true1', 120, 'soca-edison'),
+                                    ('soca-edison', 208, 'soca-true1'),
+                                    ('l2130-powercon', 208, 'l2130-powercon')]:
+        made = _add({'columns': 2, 'rows': 2, '_presetName': 'breakout',
+                     'powerVoltage': voltage, 'powerBreakoutType': breakout})
+        assert made['v'] == voltage, (breakout, voltage, made)
+        assert (made['live'], made['srv']) == (want, want), (breakout, voltage, made)
+    pg.evaluate(SET_PREFS_JS, {'breakoutType': saved['breakoutType'], 'powerVoltage': saved['powerVoltage']})
+    pg.evaluate("(id) => { const app = window.app; app.selectLayer(app.project.layers.find(x => x.id === id)); }",
+                ids['id'])
+
+
 def test_the_export_dialog_binder_block_opens_with_the_preferences(page):
     """On a project with no binder values of its own the Binder block shows
     the preferences; a value the project has wins over the preference."""

@@ -168,3 +168,92 @@ def test_a_copy_does_not_share_its_gradient_array_with_the_original(page):
         'the copy and the original share one gradientStops array')
     assert shared['colors'] is False, (
         'the copy and the original share one panelColors array')
+
+
+# ── the per-view borders and the breakout ─────────────────────────────────
+# Items 4 and 7 of the 2026-09-22 re-test: duplicate and paste stamped the
+# four per-view borders in the browser and sent none of them, and carried
+# the voltage without its breakout - so a paste across canvases came back
+# from the server with one border for every view, and a 208 V powerCON
+# screen's copy read True1. Both are checked against the SERVER's copy and
+# again after a reload, which is what a reload reads.
+
+BORDERS = {'border_color_pixel': '#2B3C4D', 'border_color_cabinet': '#3C4D5E',
+           'border_color_data': '#4D5E6F', 'border_color_power': '#5E6F7A'}
+
+DRESS_POWER_JS = """(borders) => {
+    const app = window.app;
+    const l = app.currentLayer;
+    Object.assign(l, borders);
+    l.powerVoltage = 208;
+    l.powerBreakoutType = 'soca-powercon';
+    app.updateLayers([l]);
+    return {sourceId: l.id, before: app.project.layers.map(x => x.id)};
+}"""
+
+# Copy, then paste onto a NEW canvas made active - the cross-canvas paste.
+PASTE_ACROSS_JS = """async (id) => {
+    const app = window.app;
+    app.currentLayer = app.project.layers.find(x => x.id === id);
+    app.copyLayer();
+    await app.addCanvas();
+    const canvases = app.project.canvases;
+    const target = canvases[canvases.length - 1].id;
+    await app.setActiveCanvas(target);
+    app.pasteLayer();
+    return target;
+}"""
+
+COPY_JS = """(before) => {
+    const l = window.app.project.layers.find(x => !before.includes(x.id));
+    return l ? { id: l.id, canvas_id: l.canvas_id, powerVoltage: l.powerVoltage,
+                 powerBreakoutType: l.powerBreakoutType || null,
+                 border_color_pixel: l.border_color_pixel, border_color_cabinet: l.border_color_cabinet,
+                 border_color_data: l.border_color_data, border_color_power: l.border_color_power }
+             : { error: 'no new layer' };
+}"""
+
+SERVER_LAYER_JS = """async (id) => {
+    const l = (await (await fetch('/api/project')).json()).layers.find(x => x.id === id);
+    return l ? { id: l.id, canvas_id: l.canvas_id, powerVoltage: l.powerVoltage,
+                 powerBreakoutType: l.powerBreakoutType || null,
+                 border_color_pixel: l.border_color_pixel, border_color_cabinet: l.border_color_cabinet,
+                 border_color_data: l.border_color_data, border_color_power: l.border_color_power }
+             : { error: 'not on the server' };
+}"""
+
+
+def _assert_powered(copy, how):
+    assert 'error' not in copy, f'{how}: {copy["error"]}'
+    for key, want in BORDERS.items():
+        assert copy[key] == want, f'{how} lost {key}: {copy[key]!r}'
+    assert copy['powerVoltage'] == 208, f'{how} lost the voltage'
+    assert copy['powerBreakoutType'] == 'soca-powercon', (
+        f'{how} reads {copy["powerBreakoutType"]} - a 208 V powerCON screen\'s copy should stay powerCON')
+
+
+@pytest.mark.parametrize('how', ['duplicate', 'paste'])
+def test_a_copy_keeps_its_borders_and_breakout_on_the_server(page, how):
+    state = page.evaluate(DRESS_POWER_JS, BORDERS)
+    page.wait_for_timeout(700)
+    if how == 'paste':
+        target = page.evaluate(PASTE_ACROSS_JS, state['sourceId'])
+    else:
+        page.evaluate("""(id) => {
+            const l = window.app.project.layers.find(x => x.id === id);
+            window.app.duplicateLayer(l);
+        }""", state['sourceId'])
+        target = None
+    page.wait_for_timeout(1200)
+    live = page.evaluate(COPY_JS, state['before'])
+    _assert_powered(live, f'{how} (browser)')
+    if target is not None:
+        assert live['canvas_id'] == target, 'the paste did not land on the new canvas'
+    srv = page.evaluate(SERVER_LAYER_JS, live['id'])
+    _assert_powered(srv, f'{how} (server)')
+    page.reload(wait_until='domcontentloaded')
+    page.wait_for_timeout(2500)
+    again = page.evaluate("(id) => window.app.project.layers.find(x => x.id === id)", live['id'])
+    assert again, f'{how}: the copy is gone after a reload'
+    _assert_powered(page.evaluate(SERVER_LAYER_JS, live['id']), f'{how} (after reload)')
+    assert (again.get('powerBreakoutType'), again.get('border_color_data')) == ('soca-powercon', BORDERS['border_color_data']), again

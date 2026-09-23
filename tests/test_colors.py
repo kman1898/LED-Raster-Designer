@@ -70,6 +70,23 @@ def test_create_layer_with_all_hex_colors(client):
         )
 
 
+def test_create_layer_takes_the_per_view_borders_and_the_breakout(client):
+    """Duplicate and paste send the four per-view borders and the
+    breakout in the add POST (2026-09-22); the route must store every one
+    of them or the copy's server record loses them on reload."""
+    sent = {
+        'border_color_pixel': '#2b3c4d', 'border_color_cabinet': '#3c4d5e',
+        'border_color_data': '#4d5e6f', 'border_color_power': '#5e6f7a',
+        'powerVoltage': 208, 'powerBreakoutType': 'soca-powercon',
+    }
+    layer = _create_layer(client, **sent)
+    for key, expected in sent.items():
+        assert layer.get(key) == expected, (key, layer.get(key))
+    served = next(l for l in client.get('/api/project').get_json()['layers'] if l['id'] == layer['id'])
+    for key, expected in sent.items():
+        assert served.get(key) == expected, (key, served.get(key))
+
+
 def test_create_layer_with_power_circuit_colors(client):
     """Power circuit color map (A-F) is stored exactly as provided."""
     layer = _create_layer(client, powerCircuitColors=TEST_CIRCUIT_COLORS)

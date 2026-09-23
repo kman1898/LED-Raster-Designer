@@ -1125,13 +1125,18 @@ export class LEDRasterApp {
         this.currentLayer.screenNameSizeCabinet = prefs.labelFontSize;
         this.currentLayer.screenNameSizeDataFlow = prefs.labelFontSize;
         this.currentLayer.screenNameSizePower = prefs.labelFontSize;
-        this.currentLayer.color1 = this.hexToRgb(prefs.color1);
-        this.currentLayer.color2 = this.hexToRgb(prefs.color2);
-        this.currentLayer.border_color = prefs.borderColor;
-        this.currentLayer.border_color_pixel = prefs.borderColor;
-        this.currentLayer.border_color_cabinet = prefs.borderColor;
-        this.currentLayer.border_color_data = prefs.borderColor;
-        this.currentLayer.border_color_power = prefs.borderColor;
+        // The tile colours the same way the new colours below are checked:
+        // a stored '#FFF' expands, '' or 'abc' falls back to the shipped
+        // literal (hexToRgb('#FFF') read as red; '' landed on the server).
+        const tile = (value, fallback) => this.normalizeTileColor(value, fallback);
+        this.currentLayer.color1 = this.hexToRgb(tile(prefs.color1, '#404680'));
+        this.currentLayer.color2 = this.hexToRgb(tile(prefs.color2, '#959CB8'));
+        const borderColor = tile(prefs.borderColor, '#FFFFFF');
+        this.currentLayer.border_color = borderColor;
+        this.currentLayer.border_color_pixel = borderColor;
+        this.currentLayer.border_color_cabinet = borderColor;
+        this.currentLayer.border_color_data = borderColor;
+        this.currentLayer.border_color_power = borderColor;
         this.currentLayer.flowPattern = prefs.flowPattern;
         this.currentLayer.arrowLineWidth = prefs.dataLineWidth;
         this.currentLayer.dataFlowLabelSize = prefs.dataLabelSize;
@@ -1192,9 +1197,39 @@ export class LEDRasterApp {
 
     applyPreferencesToDefaultLayerIfMatch(force = false) {
         if (!this.shouldApplyStartupPreferences()) return;
+        // Pristine on BOTH sides: the flag above is the server's, as the
+        // project was fetched; this is the client's, kept since. The
+        // server clears is_pristine on the first PUT of the layer - and
+        // never tells this copy - so a startup screen the user had edited
+        // (columns typed, a drag) was re-made from the preferences by
+        // every later Save in the dialog. Mirror the server: an edit
+        // clears the client's flag too, and the Save then leaves the
+        // screen alone. (After a reload the flag READ from the server is
+        // false - the Save's own PUT cleared it - so a startup screen only
+        // ever touched by preference Saves stops following from then on.
+        // Accepted: it is one Save on one screen, and the alternative is
+        // re-making a screen the user may have kept on purpose.)
+        if (this.startupScreenWasEdited()) {
+            this.project.is_pristine = false;
+            return false;
+        }
         const prefs = this.getPreferences();
         sendClientLog('apply_preferences_to_default_layer', {
             force: !!force,
+    // Has the user edited the startup screen since it was made? Every
+    // user edit lands an undo step (updateLayerFromInputs, a drag, a
+    // panel toggle: saveState), and both makers of the startup screen -
+    // loadProject and createNewProject - resetHistory to the one 'Initial
+    // State' entry AFTER applying the preferences; a preference Save's
+    // own PUT (applyPreferencesToCurrentLayer -> updateLayer()) saves no
+    // step. So a history longer than that one entry is an edit - undone
+    // or not, the way the server's flag stays cleared after an undo. A
+    // debounced picker commit still waiting is landed first so it counts.
+    startupScreenWasEdited() {
+        if (typeof this._flushPendingSaveState === 'function') this._flushPendingSaveState();
+        return Array.isArray(this.history) && this.history.length > 1;
+    }
+
             projectName: this.project.name,
             processorType: prefs.processorType,
             bitDepth: prefs.bitDepth,
@@ -1569,8 +1604,11 @@ export class LEDRasterApp {
         // Server-side props control panel generation (columns/rows/cabinet sizes/colors/etc.)
         // Client-side props (data flow, power, labels...) are applied after the layer is returned.
         const prefs = this.getPreferences();
-        // A stored preference that is not a colour ('#FFF', 'abcdef') must
-        // not reach the server verbatim; the literal is what shipped.
+        // A stored preference that is not a colour ('#FFF', 'abcdef', '')
+        // must not reach the server verbatim; the literal is what shipped.
+        // The tile colours take the same check (a 3-digit '#FFF' expands):
+        // hexToRgb('#FFF') read as red, and a '' border landed as-is on
+        // the server and on all four per-view borders.
         const color = (value, fallback) => this.normalizeHexColor(value, fallback);
         let serverProps;
         if (presetData && typeof presetData === 'object') {
@@ -1579,15 +1617,24 @@ export class LEDRasterApp {
                 rows: presetData.rows != null ? presetData.rows : prefs.rows,
                 cabinet_width: presetData.cabinet_width != null ? presetData.cabinet_width : prefs.panelWidth,
                 cabinet_height: presetData.cabinet_height != null ? presetData.cabinet_height : prefs.panelHeight,
-                color1: presetData.color1 || this.hexToRgb(prefs.color1),
-                color2: presetData.color2 || this.hexToRgb(prefs.color2),
-                border_color: presetData.border_color || prefs.borderColor,
+                color1: presetData.color1 || color1,
+                color2: presetData.color2 || color2,
+                border_color: tile(presetData.border_color, borderColor),
                 panel_weight: presetData.panel_weight != null ? presetData.panel_weight : prefs.panelWeight,
                 weight_unit: presetData.weight_unit || prefs.weightUnit,
+        const tile = (value, fallback) => this.normalizeTileColor(value, fallback);
+        const color1 = this.hexToRgb(tile(prefs.color1, '#404680'));
+        const color2 = this.hexToRgb(tile(prefs.color2, '#959CB8'));
+        const borderColor = tile(prefs.borderColor, '#FFFFFF');
+        const labelsColor = color(prefs.screenNameColor, '#FFFFFF');
+        const cabinetIdColor = color(prefs.cabinetIdColor, '#FFFFFF');
                 // The two colours the server sets on a new layer (create_layer);
                 // the Look tab's "Info labels" and "Cabinet ID text" preferences.
-                labelsColor: presetData.labelsColor || color(prefs.screenNameColor, '#FFFFFF'),
-                cabinetIdColor: presetData.cabinetIdColor || color(prefs.cabinetIdColor, '#FFFFFF')
+                // A preset value that is not a colour ('nope', 'red', [], {})
+                // is no colour: the preference default applies, the same
+                // rule applyPresetClientProps holds for the rest.
+                labelsColor: color(presetData.labelsColor, labelsColor),
+                cabinetIdColor: color(presetData.cabinetIdColor, cabinetIdColor)
             };
         } else {
             serverProps = {
@@ -1595,13 +1642,13 @@ export class LEDRasterApp {
                 rows: prefs.rows,
                 cabinet_width: prefs.panelWidth,
                 cabinet_height: prefs.panelHeight,
-                color1: this.hexToRgb(prefs.color1),
-                color2: this.hexToRgb(prefs.color2),
-                border_color: prefs.borderColor,
+                color1: color1,
+                color2: color2,
+                border_color: borderColor,
                 panel_weight: prefs.panelWeight,
                 weight_unit: prefs.weightUnit,
-                labelsColor: color(prefs.screenNameColor, '#FFFFFF'),
-                cabinetIdColor: color(prefs.cabinetIdColor, '#FFFFFF')
+                labelsColor: labelsColor,
+                cabinetIdColor: cabinetIdColor
             };
         }
 
@@ -1654,6 +1701,15 @@ export class LEDRasterApp {
 
             // Save the new defaults to localStorage
             this.saveClientSideProperties();
+            // Then the store's own rule: a preference the voltage does not
+            // allow (L21-30 at 110 V, Edison at 208 V) was skipped above and
+            // left the screen with no breakout at all, and a preset carries
+            // whatever it holds; both end on the eligible default (Edison
+            // at or below 120 V, True1 above) - here, so the PUT below
+            // stores it, rather than on the next load.
+            if (typeof this.normalizePowerBreakout === 'function') {
+                this.normalizePowerBreakout(layer);
+            }
 
             // IMPORTANT: the server only knows the structural fields sent via
             // /api/layer/add (columns, cabinet dims, tile colours, the two
@@ -1766,22 +1822,48 @@ export class LEDRasterApp {
         // Server-side structural props already applied via /api/layer/add; skip them here.
         const serverKeys = new Set(['columns', 'rows', 'cabinet_width', 'cabinet_height',
             'color1', 'color2', 'border_color', 'panel_weight', 'weight_unit']);
-        // A colour key a preset carries as null or '' (a hand-edited file,
-        // or one saved from a layer that never had the colour) is "no
-        // colour", not a colour: leave the default initializeLayerDefaults
-        // (or the server, for the two label colours) already gave the
-        // layer, rather than landing the empty value on it.
-        const colorKeys = new Set(['labelsColor', 'cabinetIdColor',
-            'arrowColor', 'dataFlowColor', 'primaryColor', 'primaryTextColor',
-            'backupColor', 'backupTextColor',
-            'powerLineColor', 'powerArrowColor', 'powerLabelBgColor', 'powerLabelTextColor',
-            'powerCircuitColors',
-            'border_color_pixel', 'border_color_cabinet', 'border_color_data', 'border_color_power']);
+        // A colour key a preset carries as anything but a hex colour - null,
+        // '', 'nope', 'red', [], {} (a hand-edited file, or one saved from
+        // a layer that never had the colour) - is "no colour", not a
+        // colour: the default initializeLayerDefaults (or the server, for
+        // the two label colours) already gave the layer stays, with the
+        // shipped literal behind it should the layer somehow lack one.
+        // Every preset colour goes through normalizeHexColor, so a valid
+        // one lands upper case the way the layer stores it. The circuit
+        // map is checked letter by letter: a letter that is not a colour
+        // keeps the default in that position, and a map that is not a
+        // plain object ([] included) is no map at all.
+        const colorKeys = {
+            labelsColor: '#FFFFFF', cabinetIdColor: '#FFFFFF',
+            arrowColor: '#0042AA', dataFlowColor: '#FFFFFF',
+            primaryColor: '#00FF00', primaryTextColor: '#000000',
+            backupColor: '#FF0000', backupTextColor: '#FFFFFF',
+            powerLineColor: '#FF0000', powerArrowColor: '#0042AA',
+            powerLabelBgColor: '#D95000', powerLabelTextColor: '#000000',
+            border_color_pixel: '#FFFFFF', border_color_cabinet: '#FFFFFF',
+            border_color_data: '#FFFFFF', border_color_power: '#FFFFFF'
+        };
         Object.keys(presetData).forEach(k => {
             if (excluded.has(k)) return;
             if (serverKeys.has(k)) return;
             if (k.startsWith('_')) return;
-            if (colorKeys.has(k) && (presetData[k] == null || presetData[k] === '')) return;
+            if (k === 'powerCircuitColors') {
+                const given = presetData[k];
+                if (!given || typeof given !== 'object' || Array.isArray(given)) return;
+                const current = (layer.powerCircuitColors && typeof layer.powerCircuitColors === 'object')
+                    ? layer.powerCircuitColors : this.getDefaultPowerCircuitColors();
+                const next = { ...current };
+                ['A', 'B', 'C', 'D', 'E', 'F'].forEach(letter => {
+                    next[letter] = this.normalizeHexColor(given[letter], current[letter]);
+                });
+                layer[k] = next;
+                return;
+            }
+            if (Object.prototype.hasOwnProperty.call(colorKeys, k)) {
+                layer[k] = this.normalizeHexColor(presetData[k],
+                    this.normalizeHexColor(layer[k], colorKeys[k]));
+                return;
+            }
             layer[k] = presetData[k];
         });
         // v0.11.0 (step 6): the same drop on the way IN. serializeLayerAsPreset

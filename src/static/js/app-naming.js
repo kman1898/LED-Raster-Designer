@@ -674,8 +674,26 @@ class _Naming {
                 }
             });
         }
-        // Migrate old default green (Circuit 4) to the shipped default.
-        if ((next.D || '').toUpperCase() === '#79FC4C') {
+        // The old default green in D (#79FC4C) migrates to the shipped
+        // green ONLY when the stored map is, letter for letter, the set
+        // that shipped alongside it - A #BC382F, B #CC6B30, C #D2E94D,
+        // D #79FC4C, E #2145DC, F #7414F5 (compared upper case, so a
+        // lower-case file still counts): a screen nobody coloured,
+        // carrying the old defaults whole. Any letter that differs, or is
+        // missing, means a hand has been on this map and the green stays.
+        // And a green that equals the Preferences default for D was
+        // CHOSEN - the preference is how a new screen gets it - so it
+        // stays whatever the other five hold. Until 2026-09-22 every
+        // #79FC4C in D migrated, so a preference set to the old green on
+        // purpose was repainted on every reload. The preference is read
+        // here for that one guard only; nothing fills from it.
+        const oldShipped = { A: '#BC382F', B: '#CC6B30', C: '#D2E94D',
+                             D: '#79FC4C', E: '#2145DC', F: '#7414F5' };
+        const stored = (colors && typeof colors === 'object') ? colors : {};
+        const wholeOldSet = Object.keys(oldShipped).every(letter =>
+            this.normalizeHexColor(stored[letter], '') === oldShipped[letter]);
+        const chosenD = this.getPreferenceCircuitColorList()[3] === oldShipped.D;
+        if (wholeOldSet && !chosenD) {
             next.D = defaults.D;
         }
         return next;
