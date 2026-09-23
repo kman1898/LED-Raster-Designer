@@ -99,6 +99,21 @@ class _Wiring {
 
     }
 
+    // A pattern tile applied to a selection hands the keyboard back to the
+    // canvas. Chrome keeps focus on a button after a mouse click (Safari
+    // does not), and canvas-input's Tab shortcut yields to a focused
+    // control - so in Chrome "select, press serpentine, press Tab" walked
+    // the pattern tiles instead of stepping to the next circuit, while the
+    // same gesture in Safari stepped (user, 2026-09-22: "it is tabbing the
+    // serpentine not the circuits"). Only a MOUSE click drops the focus
+    // (e.detail is 0 for Enter / Space on a focused tile): a keyboard user
+    // who tabbed to the tile keeps their place. The Next / Prev buttons
+    // keep theirs on purpose - see the 2026-09-03 ruling in canvas-input.
+    _dropPatternTileFocus(btn, e) {
+        if (!btn || !e || !e.detail) return;
+        if (document.activeElement === btn && typeof btn.blur === 'function') btn.blur();
+    }
+
     // The five view tabs: switch the renderer, swap the sidebar panels,
     // and refresh whichever panel the new view owns.
     _wireViewTabs() {
@@ -919,7 +934,7 @@ class _Wiring {
         
         // Flow Pattern buttons
         document.querySelectorAll('.flow-pattern-btn:not(.power-flow-pattern-btn)').forEach(btn => {
-            btn.addEventListener('click', () => {
+            btn.addEventListener('click', (e) => {
                 const pattern = btn.getAttribute('data-pattern');
                 // Editing predicate: with an overridden port open and a
                 // selection made, the tile applies the pattern to the
@@ -928,6 +943,7 @@ class _Wiring {
                 // flow pattern mid-edit.
                 if (this.currentLayer && this.isCustomFlowEditing(this.currentLayer) && this.customSelection.size > 0) {
                     this.applyPatternToSelection(pattern);
+                    this._dropPatternTileFocus(btn, e);
                     return;
                 }
                 
@@ -954,11 +970,12 @@ class _Wiring {
 
         // Power Flow Pattern buttons
         document.querySelectorAll('.power-flow-pattern-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
+            btn.addEventListener('click', (e) => {
                 const pattern = btn.getAttribute('data-pattern');
                 // Editing predicate - same reason as the data tiles above.
                 if (this.currentLayer && this.isCustomPowerEditing(this.currentLayer) && this.powerCustomSelection.size > 0) {
                     this.applyPowerPatternToSelection(pattern);
+                    this._dropPatternTileFocus(btn, e);
                     return;
                 }
                 document.querySelectorAll('.power-flow-pattern-btn').forEach(b => b.classList.remove('active'));

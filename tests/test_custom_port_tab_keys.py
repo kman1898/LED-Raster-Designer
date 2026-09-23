@@ -351,6 +351,87 @@ def test_a_step_button_steps_once_however_the_keyboard_follows(page, view, butto
         page.evaluate(RESTORE_JS)
 
 
+# ── a pattern tile hands the keyboard back to the canvas ──────────────────
+#
+# User (2026-09-22), watching a colleague in Chrome: "selects a bunch of
+# panels in custom mode and then serpentine pattern, after he does that and
+# presses tab to go to the new circuit it is tabbing the serpentine not the
+# circuits. it doesnt happen to me in safari." Chrome keeps focus on a
+# clicked button, Safari does not, and the Tab shortcut yields to a focused
+# control (the ruling above). Ruling: a pattern tile applied to a selection
+# by MOUSE drops its focus, so the Tab that follows steps the circuit in
+# every browser. The Next / Prev ruling above is untouched.
+
+TILE_SETUP_JS = """() => {
+    const app = window.app, layer = app.currentLayer;
+    window.__savedPaths = JSON.stringify(layer.powerCustomPaths || {});
+    layer.powerCustomPaths = {};
+    layer.powerVoltage = 208; layer.powerAmperage = 20; layer.panelWatts = 200;
+    app.powerCustomSelection.clear();
+    const cw = layer.cabinet_width, ch = layer.cabinet_height;
+    app.selectPowerPanelsInRect(layer, { x1: 1, y1: 1, x2: 2 * cw - 1, y2: ch - 1 });
+    return app.powerCustomSelection.size;
+}"""
+
+TILE_READ_JS = """() => {
+    const l = window.app.currentLayer;
+    const p = l.powerCustomPaths || {};
+    return {
+        idx: l.powerCustomIndex,
+        drawn: Object.keys(p).filter(n => (p[n] || []).length > 0).map(n => [Number(n), p[n].length]),
+        focus: document.activeElement ? (document.activeElement.id || document.activeElement.tagName) : null,
+    };
+}"""
+
+TILE_RESTORE_JS = """() => {
+    const l = window.app.currentLayer;
+    l.powerCustomPaths = JSON.parse(window.__savedPaths || '{}');
+    delete window.__savedPaths;
+}"""
+
+
+def test_tab_after_a_mouse_applied_pattern_steps_the_circuit(page):
+    page.locator('[data-mode="power"]').click()
+    page.wait_for_timeout(400)
+    page.evaluate(STEP_SETUP_JS, 'power')
+    try:
+        assert page.evaluate(TILE_SETUP_JS) == 2
+        page.locator('.power-flow-pattern-btn[data-pattern="tl-h"]').click()
+        page.wait_for_timeout(200)
+        applied = page.evaluate(TILE_READ_JS)
+        assert applied['drawn'] == [[5, 2]], applied
+        assert applied['idx'] == 5, applied
+        assert applied['focus'] == 'BODY', (
+            f'the tile must not keep focus after a mouse click: {applied}')
+        page.keyboard.press('Tab')
+        page.wait_for_timeout(200)
+        after_tab = page.evaluate(TILE_READ_JS)
+        assert after_tab['idx'] == 6, (
+            f'Tab after the fill must step to the next circuit: {after_tab}')
+    finally:
+        page.evaluate(TILE_RESTORE_JS)
+        page.evaluate(RESTORE_JS)
+
+
+def test_a_keyboard_activated_tile_keeps_its_focus(page):
+    """Enter on a tile a keyboard user tabbed to applies the pattern and
+    leaves them where they were - only the mouse hands focus back."""
+    page.locator('[data-mode="power"]').click()
+    page.wait_for_timeout(400)
+    page.evaluate(STEP_SETUP_JS, 'power')
+    try:
+        assert page.evaluate(TILE_SETUP_JS) == 2
+        page.locator('.power-flow-pattern-btn[data-pattern="tl-h"]').focus()
+        page.keyboard.press('Enter')
+        page.wait_for_timeout(200)
+        applied = page.evaluate(TILE_READ_JS)
+        assert applied['drawn'] == [[5, 2]], applied
+        assert applied['focus'] == 'BUTTON', applied
+    finally:
+        page.evaluate(TILE_RESTORE_JS)
+        page.evaluate(RESTORE_JS)
+
+
 def test_tab_from_the_canvas_still_steps(page):
     """The other side of the same ruling: with nothing focused, Tab is
     still the keyboard's Next - the canvas shortcut is untouched."""
