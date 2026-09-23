@@ -92,7 +92,7 @@ Help > Quick Start Guide, What's New in 1.0 and Advanced Guide do not describe t
 
 ### Preferences
 
-Seven tabs (Wall, Look, Data, Power, Distros and multis, Binder, Pull sheet and cables) with a default for nearly everything you create, an interface accent colour, and a Reset Defaults button. A default applies only to what you make next; a show's own value always wins.
+Seven tabs (Wall, Look, Data, Power, Distros and multis, Binder, Pull sheet and cables) with a default for nearly everything you create, an interface accent color, and a Reset Defaults button. A default applies only to what you make next; a show's own value always wins.
 
 ### Keyboard shortcuts
 
@@ -172,7 +172,7 @@ Front end (`src/static/js/`):
 | `canvas.js` | the renderer class (classic script): viewport, view modes, base drawing |
 | `canvas-input.js`, `canvas-images.js`, `canvas-data.js`, `canvas-power.js`, `canvas-labels.js`, `canvas-selection.js`, `canvas-math.js` | renderer mixins: gestures and hit-testing; image and text layers; the Data view; the Power view; labels and cabinet IDs; selection overlays; port load math |
 | `helpers.js`, `main.js` | shared utilities and client logging; the entry point that imports every module |
-| `color_picker.js`, `theme.js`, `quickstart.js`, `updater.js`, `whatsnew.js`, `whatsnew_content.js` | the colour popover; accent colour; the guides; update banner; the What's New splash and its text |
+| `color_picker.js`, `theme.js`, `quickstart.js`, `updater.js`, `whatsnew.js`, `whatsnew_content.js` | the color popover; accent color; the guides; update banner; the What's New splash and its text |
 
 Back end (`src/`):
 

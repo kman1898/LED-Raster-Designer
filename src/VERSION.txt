@@ -5,7 +5,7 @@ v1.3.0 - September 23, 2026
 ----------------------------
 
 1.3 is about the screen you start with and the paper you hand over. A
-new screen now takes every colour from Preferences, a screen on a 110V
+new screen now takes every color from Preferences, a screen on a 110V
 or 120V circuit can run True1 or powerCON on a Multi instead of Edison
 only, the custom Apply Pattern fills a whole row at a time, and the
 binder can be drawn from the rear with every sheet saying which way it
@@ -13,14 +13,14 @@ faces. Under that is a long fix list, most of it in screen groups and
 canvases, from building real shows on 1.2 and writing down what went
 wrong.
 
-A DEFAULT FOR EVERY SCREEN COLOUR
+A DEFAULT FOR EVERY SCREEN COLOR
 
-Preferences now carries a labelled colour for every mark a screen draws:
+Preferences now carries a labeled color for every mark a screen draws:
 the info labels and cabinet ids on the Look tab, the line, arrow, primary
-and backup port colours on the Data tab, the line, arrow, circuit label
-and six circuit colours on the Power tab. A new screen takes them all and
+and backup port colors on the Data tab, the line, arrow, circuit label
+and six circuit colors on the Power tab. A new screen takes them all and
 keeps them after a reload. Existing screens are not touched; change a
-screen's own colours on the Screen Info panel as before. The startup
+screen's own colors on the Screen Info panel as before. The startup
 screen of a new project follows Preferences until you edit it.
 
 TRUE1 AND POWERCON ON 110V AND 120V
@@ -76,14 +76,14 @@ FIX LIST
   figure is typed; before, the stale value in the custom box was applied
   at once. Whole volts only, and the box shows the figure committed
   rather than the text typed.
-- FIX: Duplicate and paste carry every colour and the breakout to the
-  server, and a preset colour that is empty or not a colour takes the
+- FIX: Duplicate and paste carry every color and the breakout to the
+  server, and a preset color that is empty or not a color takes the
   default instead of landing as typed.
 - FIX: A push that fails after adding a screen is reported instead of
   surfacing as a page error.
 - FIX: A screen label wider than its screen wraps onto two or more lines
   instead of running off the edge, on the canvas, in the exports and in
-  the binder. The screen name sits centred above the ports or circuits
+  the binder. The screen name sits centered above the ports or circuits
   line.
 - FIX: A single click on a screen's name in the Screens panel selects
   it, as a click on the rest of the row does; double-click still renames.
@@ -520,7 +520,7 @@ the short of it.
   in the export dialog's Pull Sheet section.
 
 - CHANGE: A 2fer or 3fer tag on the wall wears its own dark pill with a
-  grey rim instead of the power label's colour, so it no longer reads
+  grey rim instead of the power label's color, so it no longer reads
   as another circuit label. OVER stays red.
 
 - NEW: Export Binder. File > Export Binder saves one PDF: a cover, a
@@ -530,7 +530,7 @@ the short of it.
   run; under it the circuits grouped by box, the screen's cables, the
   facts, and the 2fer / 3fer count only where the screen has shared circuits -
   then the distros, the processors and the show-wide pull list. Choose
-  Colour or Printer (black and white, a dash per circuit) at the save.
+  Color or Printer (black and white, a dash per circuit) at the save.
   Right-click a screen for "Export this screen…" - the same pages for
   that screen alone.
 
@@ -720,7 +720,7 @@ the short of it.
   through the discs below it. The units stand in one row across the foot
   of the sheet, ordered by where their own runs stand, each named inside
   itself under its numbers. White casing under every line carries it over
-  the panels; the printer palette drops colour and tells the units apart
+  the panels; the printer palette drops color and tells the units apart
   by a dash pattern each.
 
 - CHANGE (IMPORTANT): A snake belongs to the show, not to the card or box
@@ -1231,7 +1231,7 @@ v0.11.2 - August 11, 2026
 DROP SHADOW ON LOGOS AND IMAGES
 
 - NEW: An image or logo layer can cast a drop shadow, with the controls you
-  already know: colour, opacity, angle, distance, spread and size. It is off
+  already know: color, opacity, angle, distance, spread and size. It is off
   by default, so nothing you have already drawn changes.
   The shadow is drawn into the artwork rather than added by the screen, so it
   comes out in the PNG and PDF exports exactly as you see it, at any zoom.
@@ -1260,7 +1260,7 @@ PANELS AND SETTINGS THAT DID NOT STICK
 - FIX: Turning custom data mode off puts the screen back to the pattern it
   had before, instead of top-left horizontal.
 
-- FIX: Text label colours are saved. The colour looked right on screen and
+- FIX: Text label colors are saved. The color looked right on screen and
   was gone after a reload.
 
 v0.11.1 - August 9, 2026
@@ -1317,7 +1317,7 @@ SCREEN GROUPS - one wall, however many cabinet sizes
 - NEW: Draw a data port or a power circuit straight across a group.
   In custom mode, click cabinets in any screen and they all join the same
   port - the line draws through the join, the "on port" count includes the
-  cabinets on the far side, and a colour-coded circuit tints every cabinet on
+  cabinets on the far side, and a color-coded circuit tints every cabinet on
   it. When you reach the edge of a screen, the arrow keys carry on into the
   next one and find the cabinet that is physically next door, even where the
   two screens use different cabinet sizes.
@@ -1377,11 +1377,11 @@ EXPORT, AND THE APP OPENING IN A BROWSER (WINDOWS)
   network, and only the machine running the app can open the log folder.
 
 - FIX: Gradients no longer disappear when you reload.
-  Everything in the Gradient panel - the colour stops and where they sit, plus
+  Everything in the Gradient panel - the color stops and where they sit, plus
   type, angle, opacity, blend and scope - was being held on screen but never
   written into the drawing. Reload the page, or close and reopen the window,
   and the gradient came back the way it was at your last save with everything
-  since gone. Panel colours, Transparent Fill, and the screen name position on
+  since gone. Panel colors, Transparent Fill, and the screen name position on
   the Pixel Map and Show Look tabs were lost the same way.
   Saving the project or pressing undo writes the whole drawing at once, so
   either of those healed it by accident - which is why this came and went
@@ -1390,7 +1390,7 @@ EXPORT, AND THE APP OPENING IN A BROWSER (WINDOWS)
 
 - FIX: Duplicating or pasting a screen no longer loses the copy's gradient.
   Duplicate looked right on screen but never wrote the copy's gradient, panel
-  colours or Transparent Fill into the drawing, so the copy came back plain
+  colors or Transparent Fill into the drawing, so the copy came back plain
   after a reload. Paste dropped them straight away - a pasted screen has been
   arriving plain for some time. Copy/Paste and Duplicate now give you the same
   screen.
@@ -1455,7 +1455,7 @@ minute of your time.
 
 - FIX: Redo after undoing a Delete Screen did not delete it again.
 
-- FIX: Cabinet borders and label colour each took TWO undos to reverse one
+- FIX: Cabinet borders and label color each took TWO undos to reverse one
   click, so the first Ctrl+Z appeared to do nothing.
 
 LOW LATENCY, ON EVERY PROCESSOR
@@ -1560,7 +1560,7 @@ EVERYTHING ELSE
   rather than the ones the box would have covered if the screen were not
   rotated. Pixel Map already worked this way; Data and Power did not.
 
-- FIX: A screen missing its fill colours no longer blanks the whole canvas.
+- FIX: A screen missing its fill colors no longer blanks the whole canvas.
   One malformed screen used to take the entire drawing down with it instead
   of just itself.
 
@@ -1571,21 +1571,21 @@ EVERYTHING ELSE
 
 - FIX: A batch of controls that were showing the wrong state, all from the
   same cause:
-  - Sliders were drawn as empty bars; they show their coloured fill again.
-  - The colour picker's red/green/blue and hue/saturation sliders were flat
-    grey, so you could not see the colour you were dragging through. Their
+  - Sliders were drawn as empty bars; they show their colored fill again.
+  - The color picker's red/green/blue and hue/saturation sliders were flat
+    grey, so you could not see the color you were dragging through. Their
     ramps are back.
   - The primary screen in a multi-selection had no highlight.
   - Hidden screens lost their red striped look in the screen list.
   - Greyed-out buttons looked clickable: the up/down reorder arrows on the
     selected screen, and the Remove buttons for gradient stops and palette
-    colours. Disabled buttons look disabled everywhere now.
+    colors. Disabled buttons look disabled everywhere now.
   - Renaming a screen or a canvas gave no sign you were editing.
   - An invalid Watts-per-Panel entry showed no warning outline while the field
     was still focused - exactly when you would be looking at it.
   - Bold / Italic / Underline stayed blue instead of following your accent
-    colour, and the Pixels/Port and Panels/Port readouts could not show their
-    normal colour at all.
+    color, and the Pixels/Port and Panels/Port readouts could not show their
+    normal color at all.
 
 v0.10.8.1 - July 26, 2026
 ----------------------------

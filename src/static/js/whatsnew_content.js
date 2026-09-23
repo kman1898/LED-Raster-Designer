@@ -15,10 +15,10 @@
  */
 window.WHATS_NEW_CONTENT = {
     '1.3': {
-        title: 'A default for every screen colour, True1 and powerCON on 120V, whole-row fills, a rear view binder',
+        title: 'A default for every screen color, True1 and powerCON on 120V, whole-row fills, a rear view binder',
         items: [
-            { h: 'A default for every screen colour',
-              d: 'Preferences has a labelled colour for every mark a screen draws, on the Look, Data and Power tabs. A new screen takes them all and keeps them; existing screens are not touched.' },
+            { h: 'A default for every screen color',
+              d: 'Preferences has a labeled color for every mark a screen draws, on the Look, Data and Power tabs. A new screen takes them all and keeps them; existing screens are not touched.' },
             { h: 'True1 and powerCON on 110V and 120V',
               d: 'A screen at or below 120V can be set to Multi → True1 or Multi → powerCON as well as Edison, and a Multi 120 output feeds any of the three.' },
             { h: 'Every screen carries a breakout',
@@ -96,7 +96,7 @@ window.WHATS_NEW_CONTENT = {
             { h: 'Export treats a group as one screen',
               d: 'One shape in the Resolume XML named for the group, one Photoshop layer, and a rectangular group exports as a plain rectangle.' },
             { h: 'Drop shadows on logos and images',
-              d: 'An image layer can cast a drop shadow - colour, opacity, angle, distance, spread and size. It is drawn into the artwork, so it exports exactly as you see it.' },
+              d: 'An image layer can cast a drop shadow - color, opacity, angle, distance, spread and size. It is drawn into the artwork, so it exports exactly as you see it.' },
             { h: 'Export asks where to save',
               d: 'On the machine running the app, export asks for a folder even when you opened the app at its network address, and cancelling the chooser actually cancels.' }
         ]
