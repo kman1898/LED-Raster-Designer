@@ -59,7 +59,7 @@ class _ClientProps {
                         if (layerProps.customPortPaths !== undefined) layer.customPortPaths = layerProps.customPortPaths;
                         if (layerProps.customPortIndex !== undefined) layer.customPortIndex = layerProps.customPortIndex;
                         if (layerProps.customPortOverrides !== undefined) layer.customPortOverrides = layerProps.customPortOverrides;
-                        if (layerProps.powerVoltage !== undefined) layer.powerVoltage = layerProps.powerVoltage;
+                        if (layerProps.powerVoltage !== undefined) this.setScreenVoltage(layer, layerProps.powerVoltage);
                         if (layerProps.powerVoltageCustom !== undefined) layer.powerVoltageCustom = layerProps.powerVoltageCustom;
                         if (layerProps.powerAmperage !== undefined) layer.powerAmperage = layerProps.powerAmperage;
                         if (layerProps.powerAmperageCustom !== undefined) layer.powerAmperageCustom = layerProps.powerAmperageCustom;
@@ -175,7 +175,7 @@ class _ClientProps {
             if (layer.screenNameSizeCabinet === undefined) layer.screenNameSizeCabinet = 14;
             if (layer.screenNameSizeDataFlow === undefined) layer.screenNameSizeDataFlow = 14;
             if (layer.screenNameSizePower === undefined) layer.screenNameSizePower = 14;
-            if (layer.powerVoltage === undefined) layer.powerVoltage = prefs.powerVoltage;
+            if (layer.powerVoltage === undefined) this.setScreenVoltage(layer, prefs.powerVoltage);
             if (layer.powerVoltageCustom === undefined) layer.powerVoltageCustom = prefs.powerVoltage;
             if (layer.powerAmperage === undefined) layer.powerAmperage = prefs.powerAmperage;
             if (layer.powerAmperageCustom === undefined) layer.powerAmperageCustom = prefs.powerAmperage;
@@ -279,7 +279,10 @@ class _ClientProps {
             layer.lowLatency = !!prefs.lowLatency;
             layer.bitDepth = prefs.bitDepth;
             layer.frameRate = prefs.frameRate;
-            layer.powerVoltage = prefs.powerVoltage;
+            // The preference voltage lands through setScreenVoltage, so
+            // the pristine screen's breakout follows it (the sweep above
+            // normalized against the server's 110 V, not this figure).
+            this.setScreenVoltage(layer, prefs.powerVoltage);
             layer.powerVoltageCustom = prefs.powerVoltage;
             layer.powerAmperage = prefs.powerAmperage;
             layer.powerAmperageCustom = prefs.powerAmperage;
@@ -313,6 +316,16 @@ class _ClientProps {
             this.saveRasterSize();
             // Sync raster size to server so subsequent socket project_data
             // echoes return the preference values, not the server default.
+            // `keep_pristine`: this POST is the page's own, on every load of
+            // the pristine startup project - not a user save - and it must
+            // not end the pristine state (routes_project save_project pops
+            // the marker). Until 2026-09-22 it did, so the startup screen
+            // followed the Preferences dialog's Save only inside the
+            // session that made it, never after a relaunch. The build's
+            // version rides along (the server stamps its own too) and is
+            // mirrored on this copy so the 'Initial State' undo snapshot,
+            // taken right after this pass, carries it (see appVersion).
+            this.project.app_version = this.appVersion();
             fetch('/api/project', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -320,7 +333,9 @@ class _ClientProps {
                     raster_width: prefs.rasterWidth,
                     raster_height: prefs.rasterHeight,
                     show_raster_width: prefs.rasterWidth,
-                    show_raster_height: prefs.rasterHeight
+                    show_raster_height: prefs.rasterHeight,
+                    app_version: this.project.app_version,
+                    keep_pristine: true
                 })
             });
             sendClientLog('startup_preferences_enforced', {

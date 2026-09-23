@@ -1222,12 +1222,18 @@ class _DockDrag {
         if (landedType) {
             this._circuitTailCache = null;
             const naming = this._powerNaming(layer);
+            // Stamp every box, persist once: one POST for the gesture,
+            // not one per multi the handle fed.
+            let stamped = false;
             unassigned.forEach(s => {
                 const rec = naming.socas.get(s.soca);
                 if (rec && rec.number != null) {
-                    this._stampBoxType(payload.distroId, rec.number, landedType.id);
+                    if (this._stampBoxType(payload.distroId, rec.number, landedType.id, false)) {
+                        stamped = true;
+                    }
                 }
             });
+            if (stamped) this._persistDistros();
         }
         this.updateLayers([...touched], true, 'Assign Multi Distro');
         this._restateNaming();

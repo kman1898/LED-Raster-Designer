@@ -1200,41 +1200,86 @@ class _Power {
         return types[0];
     }
 
+    // The breakout a screen with nothing (eligible) stored is written -
+    // the second and third rungs of the write-in order (user ruling,
+    // 2026-09-22: "if 208 is default then True1 is default, but that
+    // should be set in preferences"): the Preferences breakout
+    // (prefs.breakoutType, the key applyNewScreenPowerPreferences reads)
+    // when the screen's voltage allows it, else the voltage class default
+    // (_defaultBreakoutFor). The server's preferred_power_breakout is the
+    // same two rungs, so both copies of a screen land on one answer.
+    _preferredBreakoutFor(voltage) {
+        const prefs = typeof this.getPreferences === 'function' ? this.getPreferences() : null;
+        const wantId = prefs && prefs.breakoutType;
+        const want = this.getPowerBreakoutTypes().find(t => t.id === wantId);
+        if (want && this._breakoutEligible(want, voltage)) return want;
+        return this._defaultBreakoutFor(voltage);
+    }
+
     // The breakout in force on a screen. A stored choice that is eligible
     // at the screen's voltage stands as written (it is somebody's
     // paperwork). Anything else - nothing stored, an id the catalog no
     // longer has, or a choice the voltage cannot run (Edison at 208V,
-    // L21-30 at 120V) - reads the voltage's default (_defaultBreakoutFor).
-    // User ruling, 2026-09-22: "screens need to be set to true1 or
-    // powercon or edison. they have to be set" - so the store is what
-    // decides, and normalizePowerBreakout writes the same default in on
-    // load and on a voltage change; this read-side fallback only covers
-    // the moment between a bare property write and that normalize, so
-    // no surface (box type, tails, cable sheet, pull list) can ever read
-    // a breakout the screen's voltage cannot run.
+    // L21-30 at 120V) - reads what normalizePowerBreakout would write
+    // (_preferredBreakoutFor). User ruling, 2026-09-22: "screens need to
+    // be set to true1 or powercon or edison. they have to be set" - so
+    // the store is what decides, and normalizePowerBreakout writes the
+    // same answer in on load and on a voltage change; this read-side
+    // fallback only covers the moment between a bare property write and
+    // that normalize, so no surface (box type, tails, cable sheet, pull
+    // list) can ever read a breakout the screen's voltage cannot run.
     getPowerBreakout(layer) {
         const types = this.getPowerBreakoutTypes();
         const stored = types.find(t => t.id === (layer && layer.powerBreakoutType));
         if (stored && this._breakoutEligible(stored, layer.powerVoltage)) return stored;
-        return this._defaultBreakoutFor(layer && layer.powerVoltage);
+        return this._preferredBreakoutFor(layer && layer.powerVoltage);
     }
 
     // The store's normalizer (user ruling, 2026-09-22: a screen always
     // carries an explicit breakout). Writes powerBreakoutType when it is
     // missing, empty, unknown to the catalog, or ineligible at the
-    // layer's voltage - Edison for 0 < V <= 120, True1 otherwise. A stored
+    // layer's voltage: the Preferences breakout when the voltage allows
+    // it, else Edison for 0 < V <= 120 and True1 otherwise. A stored
     // ELIGIBLE choice is never touched: l2130-* at 208V stays, soca-l620
     // above 120V stays. Runs on every load path beside
-    // normalizePowerCircuitColors and after the sidebar's voltage change,
-    // so 208 -> 120 with a stored L6-20 or L21-30 rewrites to Edison.
-    // Returns true when it wrote.
+    // normalizePowerCircuitColors and after every voltage write
+    // (setScreenVoltage), so 208 -> 120 with a stored L6-20 or L21-30 is
+    // rewritten. The server runs the same rule on every route that stores
+    // or serves a screen (app.normalize_power_breakout). Returns true when
+    // it wrote.
     normalizePowerBreakout(layer) {
         if (!layer || (layer.type || 'screen') !== 'screen') return false;
         const types = this.getPowerBreakoutTypes();
         const stored = types.find(t => t.id === layer.powerBreakoutType);
         if (stored && this._breakoutEligible(stored, layer.powerVoltage)) return false;
-        layer.powerBreakoutType = this._defaultBreakoutFor(layer.powerVoltage).id;
+        layer.powerBreakoutType = this._preferredBreakoutFor(layer.powerVoltage).id;
         return true;
+    }
+
+    // The voltage options the sidebar select offers as-is; any other
+    // figure is a Custom one, and powerVoltageCustom is where the custom
+    // box's figure is cached. Kept beside setScreenVoltage, its only
+    // reader, so the list cannot drift from the write.
+    _stockScreenVoltages() { return [110, 208, 220, 230, 240]; }
+
+    // THE one way a screen's voltage is written (2026-09-22). Stores
+    // powerVoltage, keeps powerVoltageCustom in step when the figure is
+    // not a stock option (so a reload of the sidebar shows the figure the
+    // screen runs at), and normalizes the breakout in the same step, so
+    // no write path - sidebar, group dialog, group propagation, the
+    // defaults sweeps, Preferences on the pristine screen - can leave a
+    // breakout the new voltage cannot run. tests/test_breakout_invariant.py
+    // reads the JS source and fails on a bare `powerVoltage =` write that
+    // does not go through here or normalize within a few lines. Returns
+    // true when the breakout was rewritten.
+    setScreenVoltage(layer, volts) {
+        if (!layer) return false;
+        layer.powerVoltage = volts;
+        const v = parseFloat(volts);
+        if (Number.isFinite(v) && v > 0 && !this._stockScreenVoltages().includes(v)) {
+            layer.powerVoltageCustom = volts;
+        }
+        return this.normalizePowerBreakout(layer);
     }
 
     // How many circuits one physical box on THIS screen holds. The one
@@ -1334,10 +1379,16 @@ class _Power {
             + `feeds ${this._outputFeedsText(type)}`;
     }
 
+    // Gated like the sidebar select: a breakout the screen's voltage
+    // cannot run is refused (nothing written, false returned), so no
+    // caller can store an ineligible id through here.
     setPowerBreakout(layer, id) {
-        if (!layer) return;
-        layer.powerBreakoutType = id;
+        if (!layer) return false;
+        const type = this.getPowerBreakoutTypes().find(t => t.id === id);
+        if (!type || !this._breakoutEligible(type, layer.powerVoltage)) return false;
+        layer.powerBreakoutType = type.id;
         this.updateLayers([layer], true, 'Change Power Breakout');
+        return true;
     }
 
     // ---- distro outputs -----------------------------------------------------
@@ -1548,15 +1599,19 @@ class _Power {
     // the type of the box it makes WITHOUT an entry of its own - it runs
     // before the assignment's own saveState, so the gesture stays one
     // undo step and one Ctrl+Z forgets the type with the assignment.
-    _stampBoxType(distroId, number, typeId) {
+    // Returns true when it wrote. `persist` false leaves the save to the
+    // caller: a whole-distro drop stamps every box it makes and persists
+    // ONCE (one POST /api/project for the gesture, not one per multi).
+    _stampBoxType(distroId, number, typeId, persist = true) {
         const d = this.getDistros().find(x => x.id === distroId);
         const n = parseInt(number, 10);
-        if (!d || !Number.isFinite(n) || n < 1) return;
-        if (!this.getDistroOutputTypes().some(t => t.id === typeId)) return;
+        if (!d || !Number.isFinite(n) || n < 1) return false;
+        if (!this.getDistroOutputTypes().some(t => t.id === typeId)) return false;
         if (!d.boxTypes || typeof d.boxTypes !== 'object') d.boxTypes = {};
-        if (d.boxTypes[n] === typeId) return;
+        if (d.boxTypes[n] === typeId) return false;
         d.boxTypes[n] = typeId;
-        this._persistDistros();
+        if (persist) this._persistDistros();
+        return true;
     }
 
     // The output type a screen's (effective) breakout takes at its

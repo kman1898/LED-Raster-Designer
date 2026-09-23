@@ -1676,8 +1676,9 @@ class _Presets {
         // Cabinet ID number size default to 30
         layer.number_size = 30;
         layer.randomDataColors = false;
-        // Power defaults
-        layer.powerVoltage = prefs.powerVoltage;
+        // Power defaults. The voltage goes through setScreenVoltage so
+        // the screen carries a breakout it allows from this moment on.
+        this.setScreenVoltage(layer, prefs.powerVoltage);
         layer.powerVoltageCustom = prefs.powerVoltage;
         layer.powerAmperage = prefs.powerAmperage;
         layer.powerAmperageCustom = prefs.powerAmperage;

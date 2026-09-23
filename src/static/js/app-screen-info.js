@@ -1348,7 +1348,10 @@ class _ScreenInfo {
         // the RESTORED layer). Identity is the cheapest complete test.
         const sentProject = this.project;
         if (!this._inflightLayerPuts) this._inflightLayerPuts = new Set();
-        const req = fetch(`/api/layer/${this.currentLayer.id}`, {
+        // `?edited=1` tells the server whether a hand caused this write - see
+        // _layerPutIsAnEdit (app-core). A query marker, never in the body, so
+        // the layer's keys round-trip untouched (test_all_fields_sweep).
+        const req = fetch(`/api/layer/${this.currentLayer.id}${this._layerPutIsAnEdit() ? '?edited=1' : ''}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(this.currentLayer)
@@ -1614,7 +1617,9 @@ class _ScreenInfo {
                 'powerSocaKeying'
             ];
 
-            return fetch(`/api/layer/${layer.id}`, {
+            // `?edited=1`: whether a hand caused this write - see
+            // _layerPutIsAnEdit (app-core). A query marker, never in the body.
+            return fetch(`/api/layer/${layer.id}${this._layerPutIsAnEdit() ? '?edited=1' : ''}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(layer)
@@ -2468,11 +2473,16 @@ class _ScreenInfo {
             if (presets.includes(currentVoltage)) {
                 powerVoltageSelect.value = currentVoltage;
                 powerVoltageCustomInput.style.display = 'none';
+                powerVoltageCustomInput.value = this.currentLayer.powerVoltageCustom ?? this.currentLayer.powerVoltage ?? 110;
             } else {
+                // The box shows the voltage the screen RUNS AT.
+                // powerVoltageCustom is only a cache of the last typed
+                // figure; a group dialog or a file load can hand the
+                // screen a custom voltage without touching the cache.
                 powerVoltageSelect.value = 'custom';
                 powerVoltageCustomInput.style.display = 'inline-block';
+                powerVoltageCustomInput.value = this.currentLayer.powerVoltage ?? this.currentLayer.powerVoltageCustom ?? 110;
             }
-            powerVoltageCustomInput.value = this.currentLayer.powerVoltageCustom ?? this.currentLayer.powerVoltage ?? 110;
         }
         if (powerAmperageSelect && powerAmperageCustomInput) {
             const presets = ['15', '20'];

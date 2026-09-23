@@ -478,9 +478,13 @@ def test_an_ungrouped_screen_selects_and_orders_exactly_as_before(page):
         const app = window.app;
         // The box covers BOTH screens; with no group the second is unreachable.
         app.selectPanelsInRect(app.currentLayer, cx.rect(0, 0, 576, 256));
+        // Read the marquee before the fill: a fill that lands clears it
+        // (v1.3.0), so the keys are what the marquee reached, not what is
+        // left after the pattern is applied.
+        const keys = [...app.customSelection].sort();
         app.applyPatternToSelection('tl-h');
         return {
-            keys: [...app.customSelection].sort(),
+            keys,
             entries: cx.path(app.currentLayer, 1),
             raw: JSON.stringify(app.currentLayer.customPortPaths[1]),
         };
@@ -643,9 +647,11 @@ def test_a_hidden_cabinet_on_a_peer_is_never_selected_or_wired(page):
         const app = window.app;
         app.project.layers[1].panels.find(p => p.row === 0 && p.col === 0).hidden = true;
         app.selectPanelsInRect(app.currentLayer, cx.rect(0, 0, 576, 256));
+        // Read before the fill clears the marquee (v1.3.0).
+        const keys = [...app.customSelection].sort();
         app.applyPatternToSelection('tl-h');
         return {
-            keys: [...app.customSelection].sort(),
+            keys,
             entries: cx.path(app.currentLayer, 1),
         };
     """)

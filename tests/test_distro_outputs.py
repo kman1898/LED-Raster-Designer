@@ -980,80 +980,274 @@ def test_a_230v_screen_gates_as_the_208_class(page):
 
 # ── a screen always carries an eligible breakout ──────────────────────────
 
+# The breakout preference, set the way the dialog's Save stores it (the
+# live copy and the server), so the client's normalize and the server's
+# read the same rung. Returns what it was. null puts the key back to
+# unset (the shipped default, True1).
+SET_BREAKOUT_PREF_JS = """async (bt) => {
+    const app = window.app;
+    const prefs = { ...app.getPreferences() };
+    const before = prefs.breakoutType;
+    if (bt === null) delete prefs.breakoutType; else prefs.breakoutType = bt;
+    app._serverPreferences = prefs;
+    await fetch('/api/preferences', { method: 'PUT',
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(prefs) });
+    return before;
+}"""
+
+
 def test_a_screen_is_written_an_eligible_breakout_on_load(page):
     """normalizePowerBreakout (user ruling, 2026-09-22: "screens need to be
-    set to true1 or powercon or edison. they have to be set"): a missing,
-    empty, unknown or ineligible stored breakout is rewritten - Edison for
-    0 < V <= 120, True1 otherwise - and a stored ELIGIBLE choice is left
-    alone (L21-30 at 208V, L6-20 at 230V). Both load paths call it - the
-    File > Open defaults pass and the startup client-props pass - and a
-    208V screen that somehow holds Edison reads True1 on every surface
+    set to true1 or powercon or edison. they have to be set"; and the
+    default "should be set in preferences"): a missing, empty, unknown or
+    ineligible stored breakout is rewritten - the Preferences breakout
+    when the voltage allows it, else Edison for 0 < V <= 120 and True1
+    otherwise - and a stored ELIGIBLE choice is left alone (L21-30 at
+    208V, L6-20 at 230V). Both load paths call it - the File > Open
+    defaults pass and the startup client-props pass - and a 208V screen
+    that somehow holds Edison reads the same answer on every surface
     until the write lands."""
+    pg, ids = page
+    pg.evaluate(RESET_JS, ids)
+    saved_pref = pg.evaluate(SET_BREAKOUT_PREF_JS, 'l2130-true1')
+    try:
+        out = pg.evaluate("""(ids) => {
+            const app = window.app;
+            const b = app.project.layers.find(x => x.id === ids.bId);
+            const saved = { v: b.powerVoltage, bt: b.powerBreakoutType };
+            const run = (v, bt) => {
+                b.powerVoltage = v; b.powerBreakoutType = bt;
+                const wrote = app.normalizePowerBreakout(b);
+                return [b.powerBreakoutType, wrote];
+            };
+            // the preference is L21-30: eligible at 208V only, so the
+            // class default shows everywhere else
+            const r = {
+                missing208: run(208, undefined),
+                empty120: run(120, ''),
+                unknown110: run(110, 'no-such-breakout'),
+                edisonAt208: run(208, 'soca-edison'),
+                edisonAt230: run(230, 'soca-edison'),
+                l2130At120: run(120, 'l2130-true1'),
+                l620At120: run(120, 'soca-l620'),
+                l2130At230: run(230, 'l2130-powercon'),
+                blankMissing: run('', null),
+                // stored eligible choices stand as written
+                l2130At208: run(208, 'l2130-true1'),
+                l620At230: run(230, 'soca-l620'),
+                powerconAt120: run(120, 'soca-powercon'),
+                edisonAt110: run(110, 'soca-edison'),
+                edisonAtBlank: run('', 'soca-edison'),
+            };
+            b.powerVoltage = saved.v; b.powerBreakoutType = saved.bt;
+            return r;
+        }""", ids)
+        assert out['missing208'] == ['l2130-true1', True], out
+        assert out['empty120'] == ['soca-edison', True], out
+        assert out['unknown110'] == ['soca-edison', True], out
+        assert out['edisonAt208'] == ['l2130-true1', True], out
+        assert out['edisonAt230'] == ['soca-true1', True], out
+        assert out['l2130At120'] == ['soca-edison', True], out
+        assert out['l620At120'] == ['soca-edison', True], out
+        assert out['l2130At230'] == ['soca-true1', True], out
+        assert out['blankMissing'] == ['soca-true1', True], out
+        assert out['l2130At208'] == ['l2130-true1', False], out
+        assert out['l620At230'] == ['soca-l620', False], out
+        assert out['powerconAt120'] == ['soca-powercon', False], out
+        assert out['edisonAt110'] == ['soca-edison', False], out
+        assert out['edisonAtBlank'] == ['soca-edison', False], out
+        # a preference every voltage allows is written everywhere a
+        # screen needs one - and never over an eligible choice
+        pg.evaluate(SET_BREAKOUT_PREF_JS, 'soca-powercon')
+        out = pg.evaluate("""(ids) => {
+            const app = window.app;
+            const b = app.project.layers.find(x => x.id === ids.bId);
+            const saved = { v: b.powerVoltage, bt: b.powerBreakoutType };
+            const run = (v, bt) => {
+                b.powerVoltage = v; b.powerBreakoutType = bt;
+                const wrote = app.normalizePowerBreakout(b);
+                return [b.powerBreakoutType, wrote];
+            };
+            const r = {
+                missing208: run(208, undefined),
+                empty120: run(120, ''),
+                edisonAt208: run(208, 'soca-edison'),
+                l2130At120: run(120, 'l2130-true1'),
+                blankMissing: run('', null),
+                edisonAt110: run(110, 'soca-edison'),
+                l2130At208: run(208, 'l2130-true1'),
+            };
+            b.powerVoltage = saved.v; b.powerBreakoutType = saved.bt;
+            return r;
+        }""", ids)
+        assert out['missing208'] == ['soca-powercon', True], out
+        assert out['empty120'] == ['soca-powercon', True], out
+        assert out['edisonAt208'] == ['soca-powercon', True], out
+        assert out['l2130At120'] == ['soca-powercon', True], out
+        assert out['blankMissing'] == ['soca-powercon', True], out
+        assert out['edisonAt110'] == ['soca-edison', False], out
+        assert out['l2130At208'] == ['l2130-true1', False], out
+        # the read side agrees before the write, and both load paths
+        # write it: with an Edison preference a 208V screen holding
+        # Edison reads True1 (the class default) everywhere
+        pg.evaluate(SET_BREAKOUT_PREF_JS, 'soca-edison')
+        out = pg.evaluate("""(ids) => {
+            const app = window.app;
+            const b = app.project.layers.find(x => x.id === ids.bId);
+            const saved = { v: b.powerVoltage, bt: b.powerBreakoutType };
+            const r = {};
+            b.powerVoltage = 208; b.powerBreakoutType = 'soca-edison';
+            r.readsTrue1 = [
+                app.getPowerBreakout(b).id,
+                app.outputTypeForBreakout(app.getPowerBreakout(b), b.powerVoltage).id,
+                app.cableConnectorName(app.boxTailConnector(null, null, b)),
+            ];
+            // the File > Open pass writes it
+            b.powerVoltage = 208; b.powerBreakoutType = 'soca-edison';
+            app.applyMissingLayerDefaults(b);
+            r.fileOpen = b.powerBreakoutType;
+            // the startup client-props pass writes it (the preference)
+            b.powerVoltage = 120; b.powerBreakoutType = 'l2130-true1';
+            app.loadClientSideProperties({ skipPreferences: true });
+            r.startup = b.powerBreakoutType;
+            b.powerVoltage = saved.v; b.powerBreakoutType = saved.bt;
+            return r;
+        }""", ids)
+        assert out['readsTrue1'] == ['soca-true1', 'soca208', 'True1'], out
+        assert out['fileOpen'] == 'soca-true1', out
+        assert out['startup'] == 'soca-edison', out
+    finally:
+        pg.evaluate(SET_BREAKOUT_PREF_JS, saved_pref if saved_pref else None)
+        pg.evaluate(RESET_JS, ids)
+
+
+def test_set_screen_voltage_is_the_one_voltage_write(page):
+    """setScreenVoltage writes the figure, keeps powerVoltageCustom in step
+    for a figure that is not a stock option, and normalizes the breakout
+    in the same step - the helper every voltage write path goes through
+    (tests/test_breakout_invariant.py reads the source for the rest)."""
+    pg, ids = page
+    pg.evaluate(RESET_JS, ids)
+    saved_pref = pg.evaluate(SET_BREAKOUT_PREF_JS, 'soca-edison')
+    try:
+        out = pg.evaluate("""(ids) => {
+            const app = window.app;
+            const b = app.project.layers.find(x => x.id === ids.bId);
+            const saved = { v: b.powerVoltage, c: b.powerVoltageCustom, bt: b.powerBreakoutType };
+            const r = {};
+            b.powerVoltageCustom = 999; b.powerBreakoutType = 'l2130-true1'; b.powerVoltage = 208;
+            r.custom100 = [app.setScreenVoltage(b, 100), b.powerVoltage, b.powerVoltageCustom, b.powerBreakoutType];
+            r.stock208 = [app.setScreenVoltage(b, 208), b.powerVoltage, b.powerVoltageCustom, b.powerBreakoutType];
+            b.powerBreakoutType = 'soca-powercon';
+            r.keeps = [app.setScreenVoltage(b, 230), b.powerVoltage, b.powerVoltageCustom, b.powerBreakoutType];
+            b.powerVoltage = saved.v; b.powerVoltageCustom = saved.c; b.powerBreakoutType = saved.bt;
+            return r;
+        }""", ids)
+        # 100 V is not stock: the cache follows, and L21-30 is rewritten
+        # to the preference (Edison runs at 100 V)
+        assert out['custom100'] == [True, 100, 100, 'soca-edison'], out
+        # 208 V is stock: the cache stays where the custom figure left
+        # it; Edison is out above 120 V -> True1 (the class default)
+        assert out['stock208'] == [True, 208, 100, 'soca-true1'], out
+        # an eligible choice rides through a voltage change
+        assert out['keeps'] == [False, 230, 100, 'soca-powercon'], out
+    finally:
+        pg.evaluate(SET_BREAKOUT_PREF_JS, saved_pref if saved_pref else None)
+        pg.evaluate(RESET_JS, ids)
+
+
+def test_the_custom_voltage_box_takes_whole_volts_only(page):
+    """The sidebar's custom box commits whole volts, 1 or more. A blank,
+    0, a negative figure, a fraction (0.5, 1e-9) or text commits nothing
+    and the box is re-seeded with the voltage in force; 100 commits, with
+    its breakout following, and the box shows the figure the screen runs
+    at."""
+    pg, ids = page
+    pg.evaluate(RESET_JS, ids)
+    pg.evaluate("""(ids) => {
+        const app = window.app;
+        const b = app.project.layers.find(x => x.id === ids.bId);
+        app.selectLayer(b);
+    }""", ids)
+    pg.wait_for_timeout(300)
+    _fire(pg, 'power-voltage-select', 'custom')
+    pg.wait_for_timeout(200)
+
+    def typed(value):
+        n = pg.evaluate(HIST_LEN_JS)
+        pg.evaluate("""(v) => {
+            const box = document.getElementById('power-voltage-custom');
+            box.value = v;
+            box.dispatchEvent(new Event('change', { bubbles: true }));
+        }""", value)
+        pg.wait_for_timeout(400)
+        return pg.evaluate("""([ids, n]) => {
+            const app = window.app;
+            const b = app.project.layers.find(x => x.id === ids.bId);
+            const box = document.getElementById('power-voltage-custom');
+            return { v: b.powerVoltage, bt: b.powerBreakoutType, box: box.value,
+                     entries: app.history.length - n };
+        }""", [ids, n])
+
+    for bad in ['', '0', '-5', '0.5', '1e-9', 'abc', '120.5']:
+        out = typed(bad)
+        assert out['v'] == 208 and out['bt'] == 'soca-true1', (bad, out)
+        assert out['box'] == '208', (bad, out)
+        assert out['entries'] == 0, (bad, out)
+    out = typed('100')
+    assert out['v'] == 100 and out['box'] == '100', out
+    assert out['bt'] in ('soca-true1', 'soca-powercon', 'soca-edison'), out
+    assert out['entries'] == 1, out
+    served = pg.evaluate(VOLT_STATE_JS, ids['bId'])
+    assert served['served'][0] == 100, served
+    # the box shows the screen's voltage after a reload of the sidebar,
+    # not the cache: a group dialog can hand a screen a custom figure
+    # without touching powerVoltageCustom
+    shown = pg.evaluate("""(ids) => {
+        const app = window.app;
+        const b = app.project.layers.find(x => x.id === ids.bId);
+        b.powerVoltageCustom = 777;
+        app.loadLayerToInputs();
+        const sel = document.getElementById('power-voltage-select');
+        const box = document.getElementById('power-voltage-custom');
+        return [sel.value, box.value, box.style.display];
+    }""", ids)
+    assert shown == ['custom', '100', 'inline-block'], shown
+    pg.evaluate("""(ids) => {
+        const app = window.app;
+        app.selectLayer(app.project.layers.find(x => x.id === ids.aId));
+    }""", ids)
+    pg.evaluate(RESET_JS, ids)
+
+
+def test_the_group_dialog_s_voltage_reaches_the_sidebar_box(page):
+    """_applyGroupSettings hands every member the chosen voltage through
+    setScreenVoltage: a custom figure lands with its cache in step and an
+    eligible breakout, and the sidebar's custom box shows it."""
     pg, ids = page
     pg.evaluate(RESET_JS, ids)
     out = pg.evaluate("""(ids) => {
         const app = window.app;
+        const a = app.project.layers.find(x => x.id === ids.aId);
         const b = app.project.layers.find(x => x.id === ids.bId);
-        const saved = { v: b.powerVoltage, bt: b.powerBreakoutType };
-        const run = (v, bt) => {
-            b.powerVoltage = v; b.powerBreakoutType = bt;
-            const wrote = app.normalizePowerBreakout(b);
-            return [b.powerBreakoutType, wrote];
-        };
-        const r = {
-            missing208: run(208, undefined),
-            empty120: run(120, ''),
-            unknown110: run(110, 'no-such-breakout'),
-            edisonAt208: run(208, 'soca-edison'),
-            edisonAt230: run(230, 'soca-edison'),
-            l2130At120: run(120, 'l2130-true1'),
-            l620At120: run(120, 'soca-l620'),
-            l2130At230: run(230, 'l2130-powercon'),
-            blankMissing: run('', null),
-            // stored eligible choices stand as written
-            l2130At208: run(208, 'l2130-true1'),
-            l620At230: run(230, 'soca-l620'),
-            powerconAt120: run(120, 'soca-powercon'),
-            edisonAt110: run(110, 'soca-edison'),
-            edisonAtBlank: run('', 'soca-edison'),
-        };
-        // the read side agrees before the write: a 208V screen holding
-        // Edison reads True1 everywhere
-        b.powerVoltage = 208; b.powerBreakoutType = 'soca-edison';
-        const dd = app.getDistros().find(x => x.id === ids.distroId);
-        r.readsTrue1 = [
-            app.getPowerBreakout(b).id,
-            app.outputTypeForBreakout(app.getPowerBreakout(b), b.powerVoltage).id,
-            app.cableConnectorName(app.boxTailConnector(null, null, b)),
-        ];
-        // the File > Open pass writes it
-        b.powerVoltage = 208; b.powerBreakoutType = 'soca-edison';
-        app.applyMissingLayerDefaults(b);
-        r.fileOpen = b.powerBreakoutType;
-        // the startup client-props pass writes it
-        b.powerVoltage = 120; b.powerBreakoutType = 'l2130-true1';
-        app.loadClientSideProperties({ skipPreferences: true });
-        r.startup = b.powerBreakoutType;
-        b.powerVoltage = saved.v; b.powerBreakoutType = saved.bt;
+        const saved = [a, b].map(l => ({ v: l.powerVoltage, c: l.powerVoltageCustom, bt: l.powerBreakoutType }));
+        b.powerBreakoutType = 'l2130-true1';
+        app._applyGroupSettings([a, b], { powerVoltage: 100 });
+        app.selectLayer(a);
+        app.loadLayerToInputs();
+        const sel = document.getElementById('power-voltage-select');
+        const box = document.getElementById('power-voltage-custom');
+        const r = { a: [a.powerVoltage, a.powerVoltageCustom, a.powerBreakoutType],
+                    b: [b.powerVoltage, b.powerVoltageCustom, b.powerBreakoutType],
+                    sidebar: [sel.value, box.value] };
+        [a, b].forEach((l, i) => { l.powerVoltage = saved[i].v; l.powerVoltageCustom = saved[i].c;
+                                   l.powerBreakoutType = saved[i].bt; });
+        app.loadLayerToInputs();
         return r;
     }""", ids)
-    assert out['missing208'] == ['soca-true1', True], out
-    assert out['empty120'] == ['soca-edison', True], out
-    assert out['unknown110'] == ['soca-edison', True], out
-    assert out['edisonAt208'] == ['soca-true1', True], out
-    assert out['edisonAt230'] == ['soca-true1', True], out
-    assert out['l2130At120'] == ['soca-edison', True], out
-    assert out['l620At120'] == ['soca-edison', True], out
-    assert out['l2130At230'] == ['soca-true1', True], out
-    assert out['blankMissing'] == ['soca-true1', True], out
-    assert out['l2130At208'] == ['l2130-true1', False], out
-    assert out['l620At230'] == ['soca-l620', False], out
-    assert out['powerconAt120'] == ['soca-powercon', False], out
-    assert out['edisonAt110'] == ['soca-edison', False], out
-    assert out['edisonAtBlank'] == ['soca-edison', False], out
-    assert out['readsTrue1'] == ['soca-true1', 'soca208', 'True1'], out
-    assert out['fileOpen'] == 'soca-true1', out
-    assert out['startup'] == 'soca-edison', out
+    assert out['a'][:2] == [100, 100] and out['a'][2] in ('soca-true1', 'soca-powercon', 'soca-edison'), out
+    assert out['b'][:2] == [100, 100] and out['b'][2] in ('soca-true1', 'soca-powercon', 'soca-edison'), out
+    assert out['sidebar'] == ['custom', '100'], out
     pg.evaluate(RESET_JS, ids)
 
 
@@ -1062,9 +1256,12 @@ def test_a_sidebar_voltage_change_rewrites_an_ineligible_breakout(page):
     rewrites the breakout to Edison in the same 'Change Power Voltage'
     step, and the server is sent the rewrite on that PUT; 110 -> 208 on
     the Edison screen rewrites to True1. A stored eligible choice rides
-    through untouched (powerCON at 120V stays powerCON at 208V)."""
+    through untouched (powerCON at 120V stays powerCON at 208V). The
+    preference is Edison for the test, so the write-in at 110V is the
+    preference and at 208V the class default."""
     pg, ids = page
     pg.evaluate(RESET_JS, ids)
+    saved_pref = pg.evaluate(SET_BREAKOUT_PREF_JS, 'soca-edison')
     pg.evaluate("""(ids) => {
         const app = window.app;
         const b = app.project.layers.find(x => x.id === ids.bId);
@@ -1122,6 +1319,7 @@ def test_a_sidebar_voltage_change_rewrites_an_ineligible_breakout(page):
         const app = window.app;
         app.selectLayer(app.project.layers.find(x => x.id === ids.aId));
     }""", ids)
+    pg.evaluate(SET_BREAKOUT_PREF_JS, saved_pref if saved_pref else None)
     pg.evaluate(RESET_JS, ids)
 
 
@@ -1193,12 +1391,31 @@ def test_a_whole_distro_drag_passes_the_plug_gate(page):
         return app.getSocaPlan(a).map(
             s => app._distroDropRefusal({ distroId: dd.id }, a, s));
     }""", ids) == [None, None]
+    # count the project saves the drop makes: the two stamps persist ONCE
+    pg.evaluate("""() => {
+        const orig = window.fetch;
+        window.__projectPosts = 0;
+        window.__origFetch = orig;
+        window.fetch = function (url, opts) {
+            if (String(url).endsWith('/api/project') && opts && opts.method === 'POST') {
+                window.__projectPosts += 1;
+            }
+            return orig.apply(this, arguments);
+        };
+    }""")
     sx, sy = chip_center(pg, f'distro-{d}')
     mid = drag(pg, sx, sy, tgt['x'], tgt['y'],
                mid_check=lambda p: p.evaluate(MID_JS, ids['aId']))
+    pg.wait_for_timeout(300)
+    posts = pg.evaluate("""() => {
+        const n = window.__projectPosts;
+        window.fetch = window.__origFetch;
+        return n;
+    }""")
     assert mid['lit'] == list(range(1, 13)), mid
     st = pg.evaluate(POWER_STATE_JS, ids['aId'])
     assert st['distro'] == {'1': d, '2': d}, st
+    assert posts == 1, f'the whole-distro drop persisted {posts} times (stamp all, persist once)'
     assert pg.evaluate(HIST_JS, 1) == ['Assign Multi Distro']
     # both boxes wear the type they landed as, stamped the way a chip
     # drop stamps its one box - inside the same entry, so one undo
@@ -1617,9 +1834,12 @@ def test_a_group_peer_handed_a_voltage_carries_an_eligible_breakout(page):
     same normalize, so a peer holding L21-30 at 208V is written Edison
     when the wall goes to 110V - on the SAME PUT and in the same entry.
     The breakout itself is not shared: an eligible choice on the peer
-    stands, and the edited member's choice is not copied across."""
+    stands, and the edited member's choice is not copied across. The
+    preference is Edison for the test: the write-in at 110V is the
+    preference, at 208V the class default (True1)."""
     pg, ids = page
     pg.evaluate(RESET_JS, ids)
+    saved_pref = pg.evaluate(SET_BREAKOUT_PREF_JS, 'soca-edison')
     gid = pg.evaluate("""async (ids) => {
         const app = window.app;
         app.setSelectedLayersByIds([ids.aId, ids.bId], ids.aId);
@@ -1652,7 +1872,10 @@ def test_a_group_peer_handed_a_voltage_carries_an_eligible_breakout(page):
             return out;
         }""", ids)
         assert direct['peers'] == [ids['bId']], direct
-        assert direct['a'] == [110, 'soca-edison'], direct
+        # the member holds True1 (the server wrote it for the reset's
+        # null, and it is eligible at 110V) so it stands; the peer's
+        # L21-30 is rewritten to the preference
+        assert direct['a'] == [110, 'soca-true1'], direct
         assert direct['b'] == [110, 'soca-edison'], direct
         # the sidebar's select on the current member alone: both members
         # land at 110V on the server in one entry - the member keeps its
@@ -1683,6 +1906,7 @@ def test_a_group_peer_handed_a_voltage_carries_an_eligible_breakout(page):
             app.selectLayer(app.project.layers.find(x => x.id === ids.aId));
         }""", [ids, gid])
         pg.wait_for_timeout(800)
+        pg.evaluate(SET_BREAKOUT_PREF_JS, saved_pref if saved_pref else None)
         pg.evaluate(RESET_JS, ids)
 
 
@@ -1691,9 +1915,12 @@ def test_a_multi_select_breakout_skips_the_screen_its_voltage_refuses(page):
     gated on its OWN voltage: L21-30 picked with a 208V current screen
     and a 120V peer selected lands on the 208V screen only, the peer
     keeps its breakout and is named once on a toast, one entry. A
-    choice both can run is written to both."""
+    choice both can run is written to both. The 120V peer holds True1
+    (the server wrote it for the reset's null; eligible at 120V, so it
+    stands through the voltage change) and keeps it."""
     pg, ids = page
     pg.evaluate(RESET_JS, ids)
+    saved_pref = pg.evaluate(SET_BREAKOUT_PREF_JS, 'soca-edison')
     pg.evaluate("""(ids) => {
         const app = window.app;
         const b = app.project.layers.find(x => x.id === ids.bId);
@@ -1721,7 +1948,7 @@ def test_a_multi_select_breakout_skips_the_screen_its_voltage_refuses(page):
                  toast: host ? host.textContent : '' };
     }""", ids)
     assert out['a'] == ['l2130-true1', 'l2130-true1'], out
-    assert out['b'] == ['soca-edison', 'soca-edison'], out
+    assert out['b'] == ['soca-true1', 'soca-true1'], out
     assert out['n'] == n + 1 and out['last'] == 'Change Power Breakout', out
     assert 'WALL B' in out['toast'] and 'L21-30' in out['toast'], out
     assert 'WALL A' not in out['toast'], out
@@ -1735,6 +1962,7 @@ def test_a_multi_select_breakout_skips_the_screen_its_voltage_refuses(page):
         const app = window.app;
         app.selectLayer(app.project.layers.find(x => x.id === ids.aId));
     }""", ids)
+    pg.evaluate(SET_BREAKOUT_PREF_JS, saved_pref if saved_pref else None)
     pg.evaluate(RESET_JS, ids)
 
 
@@ -1805,10 +2033,11 @@ def test_the_guide_s_demo_screen_carries_a_breakout(page):
 def test_the_boot_pass_writes_the_breakout_through_to_the_server(page):
     """The startup client-props pass rewrites a bare breakout, and that
     write used to stay client-only, so the next re-fetch dropped it.
-    Now exactly the screens it rewrote are PUT: after a reload, a
-    server copy holding nothing reads True1 on the server too, and an
-    eligible stored choice is left as it was. Last in the module: it
-    reloads the page."""
+    Now exactly the screens it rewrote are PUT - and since the server
+    holds the invariant itself, a PUT of null never even stores a bare
+    breakout: the server writes True1 (the shipped preference) on the
+    spot, a reload reads it on both sides, and an eligible stored choice
+    is left as it was. Last in the module: it reloads the page."""
     pg, ids = page
     pg.evaluate(RESET_JS, ids)
     pg.wait_for_timeout(400)
@@ -1824,7 +2053,7 @@ def test_the_boot_pass_writes_the_breakout_through_to_the_server(page):
         return [ids.aId, ids.bId].map(id =>
             p.layers.find(l => l.id === id).powerBreakoutType);
     }""", ids)
-    assert served == ['l2130-true1', None], served
+    assert served == ['l2130-true1', 'soca-true1'], served
     pg.reload(wait_until='domcontentloaded')
     pg.wait_for_function(
         "() => !!(window.app && window.app.project && window.app._initialLoadComplete)")

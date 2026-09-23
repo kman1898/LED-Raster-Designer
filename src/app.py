@@ -554,7 +554,122 @@ def initialize_default_layer():
             default_layer['canvas_id'] = current_project.get(
                 'active_canvas_id', canvases[0]['id']
             )
+        normalize_power_breakout(default_layer)
         current_project['layers'].append(default_layer)
+
+
+# ── Power breakout invariant (user ruling, 2026-09-22) ─────────────────────
+#
+# Every screen carries a breakout its voltage allows, and the server holds
+# that invariant itself: no route stores or serves a screen layer whose
+# powerBreakoutType is missing, empty, unknown or ineligible. The rule is the
+# client's normalizePowerBreakout (app-power.js) rung for rung, so the two
+# copies of a screen can never disagree on the plug its paperwork names.
+#
+# Eligibility (user ruling, 2026-09-22): at 0 < V <= 120 a screen runs
+# Multi -> True1, powerCON or Edison; above 120 V Edison is out; the L21-30
+# box (3 x 208 V) is 208 V exactly; a blank / non-numeric voltage restricts
+# only the L21-30. Nothing is extrapolated past what the ruling names.
+#
+# The write-in order for a screen whose stored choice fails that gate:
+#   1. a stored ELIGIBLE choice stands - it is somebody's paperwork;
+#   2. the Preferences breakout (server_preferences['breakoutType'], the key
+#      the client's applyNewScreenPowerPreferences reads) when the screen's
+#      voltage allows it - "if 208 is default then True1 is default, but
+#      that should be set in preferences" (user, 2026-09-22);
+#   3. only then the voltage class default: Edison at or below 120 V, True1
+#      above (and True1 for a blank voltage).
+POWER_BREAKOUT_IDS = (
+    'soca-true1', 'soca-powercon', 'soca-edison', 'soca-l620',
+    'l2130-true1', 'l2130-powercon',
+)
+# Mirrors getPreferencesDefaults().breakoutType in app-preferences.js - the
+# breakout a client with no saved preference reads - so a server that has
+# never been handed the preferences (a fresh install, the test client) falls
+# back to the same rung the browser does. tests/test_breakout_invariant.py
+# pins the two literals together.
+PREF_DEFAULT_BREAKOUT = 'soca-true1'
+
+
+def _power_voltage_number(value):
+    """The voltage as the client's parseFloat reads it: a non-number (None,
+    '', 'abc', a bool) is 0, which restricts only the L21-30."""
+    if isinstance(value, bool):
+        return 0.0
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    if v != v or v in (float('inf'), float('-inf')):
+        return 0.0
+    return v
+
+
+def power_breakout_eligible(breakout_id, voltage):
+    """Whether breakout `breakout_id` may sit on a screen at `voltage`."""
+    bid = breakout_id if isinstance(breakout_id, str) else ''
+    if bid not in POWER_BREAKOUT_IDS:
+        return False
+    v = _power_voltage_number(voltage)
+    if 0 < v <= 120:
+        return bid in ('soca-true1', 'soca-powercon', 'soca-edison')
+    if bid == 'soca-edison':
+        return v <= 0
+    if bid.startswith('l2130-'):
+        return v == 208
+    return True
+
+
+def default_power_breakout(voltage):
+    """Rung 3: the voltage class default - Edison for 0 < V <= 120, True1
+    otherwise."""
+    v = _power_voltage_number(voltage)
+    return 'soca-edison' if 0 < v <= 120 else 'soca-true1'
+
+
+def preferred_power_breakout(voltage, prefs=None):
+    """Rungs 2 and 3: the Preferences breakout when the voltage allows it,
+    else the class default. `prefs` defaults to the live server preferences;
+    a preferences record with no breakoutType key reads the client's shipped
+    default, while one holding a blank or unknown id falls to rung 3."""
+    if prefs is None:
+        prefs = server_preferences
+    want = PREF_DEFAULT_BREAKOUT
+    if isinstance(prefs, dict) and 'breakoutType' in prefs:
+        want = prefs.get('breakoutType')
+    if power_breakout_eligible(want, voltage):
+        return want
+    return default_power_breakout(voltage)
+
+
+def normalize_power_breakout(layer, prefs=None):
+    """Write an eligible powerBreakoutType onto a screen layer that lacks one.
+    A stored eligible choice is never touched. Returns True when it wrote.
+    Non-screen layers (image, text) are left alone."""
+    if not isinstance(layer, dict):
+        return False
+    if (layer.get('type') or 'screen') != 'screen':
+        return False
+    if power_breakout_eligible(layer.get('powerBreakoutType'), layer.get('powerVoltage')):
+        return False
+    layer['powerBreakoutType'] = preferred_power_breakout(layer.get('powerVoltage'), prefs)
+    return True
+
+
+def normalize_power_breakouts(project, at=None):
+    """Run normalize_power_breakout over every layer of `project`. Returns the
+    ids it wrote; logs them under `at` when given (a route naming itself), so
+    a write on a path that should already be clean - GET /api/project - shows
+    up in the log as the missed entry point it is."""
+    wrote = []
+    layers = project.get('layers') if isinstance(project, dict) else None
+    for layer in (layers or []):
+        if normalize_power_breakout(layer):
+            wrote.append(layer.get('id') if isinstance(layer, dict) else None)
+    if wrote and at:
+        log_event('power_breakout_normalized', {'at': at, 'layers': wrote})
+    return wrote
+
 
 def _assign_canvas_id(layer, data=None):
     """Stamp a layer with a canvas_id (caller-provided or active canvas).

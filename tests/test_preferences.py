@@ -41,9 +41,12 @@ TABS = {
               'pref-power-label-bg-color', 'pref-power-label-text-color',
               'pref-power-circuit-color-a', 'pref-power-circuit-color-b',
               'pref-power-circuit-color-c', 'pref-power-circuit-color-d',
-              'pref-power-circuit-color-e', 'pref-power-circuit-color-f'],
+              'pref-power-circuit-color-e', 'pref-power-circuit-color-f',
+              # the breakout default sits under the default voltage it is
+              # gated by (2026-09-22: "that should be set in preferences")
+              'pref-breakout-type'],
     'distros': ['pref-distro-rating', 'pref-distro-voltage', 'pref-distro-phase',
-                'pref-multi-type', 'pref-breakout-type', 'pref-splitters-enabled'],
+                'pref-multi-type', 'pref-splitters-enabled'],
     'binder': ['pref-binder-sheet', 'pref-binder-screen-order', 'pref-binder-colour',
                'pref-binder-printer', 'pref-binder-side-power', 'pref-binder-side-data',
                'pref-binder-side-both', 'pref-binder-cover', 'pref-binder-pull',
@@ -518,9 +521,10 @@ def test_a_new_screen_ends_on_an_eligible_breakout(page):
     (L21-30 at 110 V, Edison at 208 V) was skipped and left the new
     screen with no breakout at all, and a preset carrying an ineligible
     breakout landed it raw. addLayer now runs normalizePowerBreakout
-    after the preference and the preset, so the screen ends on the
-    eligible default - Edison at or below 120 V, True1 above - on the
-    client and on the server; an eligible choice still lands as chosen."""
+    after the preference and the preset, so the screen ends eligible on
+    the client and on the server: the preference where the voltage
+    allows it, else the class default - Edison at or below 120 V, True1
+    above; an eligible choice still lands as chosen."""
     pg, ids = page
     saved = pg.evaluate("() => window.app.getPreferences()")
 
@@ -549,10 +553,20 @@ def test_a_new_screen_ends_on_an_eligible_breakout(page):
         made = _add(None)
         assert made['v'] == voltage, (breakout, voltage, made)
         assert (made['live'], made['srv']) == (want, want), (breakout, voltage, made)
-    # a preset
-    for breakout, voltage, want in [('l2130-true1', 120, 'soca-edison'),
-                                    ('soca-edison', 208, 'soca-true1'),
+    # a preset, under a powerCON preference (eligible at every voltage):
+    # an ineligible preset breakout lands on the preference
+    for breakout, voltage, want in [('l2130-true1', 120, 'soca-powercon'),
+                                    ('soca-edison', 208, 'soca-powercon'),
                                     ('l2130-powercon', 208, 'l2130-powercon')]:
+        made = _add({'columns': 2, 'rows': 2, '_presetName': 'breakout',
+                     'powerVoltage': voltage, 'powerBreakoutType': breakout})
+        assert made['v'] == voltage, (breakout, voltage, made)
+        assert (made['live'], made['srv']) == (want, want), (breakout, voltage, made)
+    # ... and under a preference the voltage refuses, on the class default
+    pg.evaluate(SET_PREFS_JS, {'breakoutType': 'l2130-true1', 'powerVoltage': 208})
+    for breakout, voltage, want in [('l2130-true1', 120, 'soca-edison'),
+                                    ('soca-edison', 230, 'soca-true1'),
+                                    ('soca-edison', 208, 'l2130-true1')]:
         made = _add({'columns': 2, 'rows': 2, '_presetName': 'breakout',
                      'powerVoltage': voltage, 'powerBreakoutType': breakout})
         assert made['v'] == voltage, (breakout, voltage, made)
@@ -560,6 +574,124 @@ def test_a_new_screen_ends_on_an_eligible_breakout(page):
     pg.evaluate(SET_PREFS_JS, {'breakoutType': saved['breakoutType'], 'powerVoltage': saved['powerVoltage']})
     pg.evaluate("(id) => { const app = window.app; app.selectLayer(app.project.layers.find(x => x.id === id)); }",
                 ids['id'])
+
+
+def test_normalize_prefers_the_preference_breakout_on_both_sides(page):
+    """The write-in order (user ruling, 2026-09-22: "if 208 is default
+    then True1 is default, but that should be set in preferences"): a
+    stored eligible choice stands; else the Preferences breakout when the
+    screen's voltage allows it; else the class default. The client's
+    normalizePowerBreakout and the server's PUT answer the same."""
+    pg, ids = page
+    saved = pg.evaluate("() => window.app.getPreferences()")
+    cases = [
+        # (preference, voltage, stored) -> written
+        ('soca-powercon', 110, None, 'soca-powercon'),
+        ('soca-powercon', 208, '', 'soca-powercon'),
+        ('soca-powercon', 230, 'soca-edison', 'soca-powercon'),
+        ('soca-powercon', 120, 'l2130-true1', 'soca-powercon'),
+        ('soca-powercon', 120, 'soca-edison', 'soca-edison'),      # eligible, stands
+        ('l2130-true1', 208, None, 'l2130-true1'),
+        ('l2130-true1', 110, None, 'soca-edison'),                 # class default
+        ('l2130-true1', 230, 'soca-edison', 'soca-true1'),         # class default
+        ('l2130-true1', 208, 'soca-l620', 'soca-l620'),            # eligible, stands
+        ('soca-edison', 208, None, 'soca-true1'),
+        ('soca-edison', 100, 'junk', 'soca-edison'),
+        ('soca-l620', 120, None, 'soca-edison'),
+        ('soca-l620', 121, None, 'soca-l620'),
+    ]
+    try:
+        for pref, voltage, stored, want in cases:
+            pg.evaluate(SET_PREFS_JS, {'breakoutType': pref})
+            out = pg.evaluate("""async ([id, voltage, stored]) => {
+                const app = window.app;
+                const l = app.project.layers.find(x => x.id === id);
+                const keep = { v: l.powerVoltage, bt: l.powerBreakoutType };
+                const probe = { type: 'screen', powerVoltage: voltage };
+                if (stored !== null) probe.powerBreakoutType = stored;
+                app.normalizePowerBreakout(probe);
+                const body = { powerVoltage: voltage, powerBreakoutType: stored };
+                const srv = await (await fetch(`/api/layer/${id}`, { method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body) })).json();
+                await fetch(`/api/layer/${id}`, { method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(keep) });
+                return [probe.powerBreakoutType, srv.powerBreakoutType];
+            }""", [ids['id'], voltage, stored])
+            assert out == [want, want], (pref, voltage, stored, out)
+    finally:
+        pg.evaluate(SET_PREFS_JS, {'breakoutType': saved['breakoutType']})
+
+
+def test_the_breakout_preference_is_gated_by_the_voltage_preference(page):
+    """In the dialog the breakout select sits under the default voltage
+    and follows it with the sidebar select's own rule and reasons: at 208
+    V Edison is greyed (and the L21-30 boxes open), at 110 V L6-20 and
+    the L21-30 boxes are greyed, at a custom 121 V Edison and the L21-30
+    boxes are greyed. A selection the new voltage refuses snaps to the
+    class default, and Save stores the gated pair."""
+    pg, ids = page
+    saved = pg.evaluate("() => window.app.getPreferences()")
+    _open(pg)
+    _tab(pg, 'power')
+    read = """() => {
+        const sel = document.getElementById('pref-breakout-type');
+        const opts = {};
+        [...sel.options].forEach(o => { opts[o.value] = [o.disabled, o.title]; });
+        return { value: sel.value, opts,
+                 visible: sel.offsetParent !== null,
+                 underVoltage: sel.getBoundingClientRect().top
+                     > document.getElementById('pref-power-voltage-select').getBoundingClientRect().top };
+    }"""
+    try:
+        _set(pg, 'pref-power-voltage-select', '208')
+        _set(pg, 'pref-breakout-type', 'l2130-true1')
+        st = pg.evaluate(read)
+        assert st['visible'] and st['underVoltage'], st
+        assert st['value'] == 'l2130-true1', st
+        assert st['opts']['soca-edison'] == [True, 'Not available at 208V — Edison is for screens up to 120V.'], st
+        assert st['opts']['l2130-powercon'][0] is False and st['opts']['soca-l620'][0] is False, st
+        # 110 V: the L21-30 pick snaps to Edison, the class default
+        _set(pg, 'pref-power-voltage-select', '110')
+        st = pg.evaluate(read)
+        assert st['value'] == 'soca-edison', st
+        for gone in ('soca-l620', 'l2130-true1', 'l2130-powercon'):
+            assert st['opts'][gone][0] is True, (gone, st)
+        assert st['opts']['l2130-true1'][1] == 'Not available at 110V — L21-30 is 208V only.', st
+        assert st['opts']['soca-l620'][1] == \
+            'Not available at 110V — a screen up to 120V runs Multi → True1, powerCON or Edison.', st
+        for ok in ('soca-true1', 'soca-powercon', 'soca-edison'):
+            assert st['opts'][ok] == [False, ''], (ok, st)
+        # a custom 121 V: Edison snaps to True1, the L21-30 boxes stay out
+        _set(pg, 'pref-power-voltage-select', 'custom')
+        pg.evaluate("""() => {
+            const box = document.getElementById('pref-power-voltage-custom');
+            box.value = '121';
+            box.dispatchEvent(new Event('input', { bubbles: true }));
+        }""")
+        st = pg.evaluate(read)
+        assert st['value'] == 'soca-true1', st
+        assert st['opts']['soca-edison'][0] is True and st['opts']['l2130-true1'][0] is True, st
+        assert st['opts']['soca-l620'][0] is False, st
+        # a pick the voltage allows is what Save stores, with the voltage
+        _set(pg, 'pref-breakout-type', 'soca-l620')
+        _save(pg)
+        served = _served(pg)
+        assert (served['powerVoltage'], served['breakoutType']) == (121, 'soca-l620'), served
+        # reopening shows the pair, still gated
+        _open(pg)
+        _tab(pg, 'power')
+        st = pg.evaluate(read)
+        assert st['value'] == 'soca-l620' and st['opts']['soca-edison'][0] is True, st
+        pg.locator('#preferences-cancel').click()
+        pg.wait_for_timeout(200)
+    finally:
+        pg.evaluate(SET_PREFS_JS, {'breakoutType': saved['breakoutType'], 'powerVoltage': saved['powerVoltage']})
+        pg.evaluate("""() => {
+            const m = document.getElementById('preferences-modal');
+            if (m) m.style.display = 'none';
+        }""")
 
 
 def test_the_export_dialog_binder_block_opens_with_the_preferences(page):

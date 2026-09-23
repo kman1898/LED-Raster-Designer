@@ -1361,9 +1361,10 @@ class _Wiring {
                     l => (parseFloat(l.powerVoltage) || 0) !== val);
                 if (!changed) return;
                 this.applyToSelectedLayers(layer => {
-                    layer.powerVoltage = val;
+                    // setScreenVoltage writes the figure and normalizes
+                    // the breakout in one step.
+                    this.setScreenVoltage(layer, val);
                     if (custom) layer.powerVoltageCustom = val;
-                    this.normalizePowerBreakout(layer);
                 });
                 this.saveClientSideProperties();
                 this.updatePowerCapacityDisplay();
@@ -1392,10 +1393,13 @@ class _Wiring {
                 commitVoltage(parseFloat(powerVoltageSelect.value) || 0, false);
             });
             powerVoltageCustomInput.addEventListener('change', () => {
-                const val = parseFloat(powerVoltageCustomInput.value) || 0;
-                if (!(val > 0)) {
-                    // An emptied box is not a 0V screen: put the figure
-                    // in force back and commit nothing.
+                // A custom voltage is whole volts, 1 or more. An emptied
+                // box, 0, a negative figure, a fraction (0.5, 1e-9) or
+                // text is not a screen voltage: the figure in force goes
+                // back in the box and nothing is committed.
+                const raw = String(powerVoltageCustomInput.value || '').trim();
+                const val = raw === '' ? NaN : Number(raw);
+                if (!Number.isInteger(val) || val < 1) {
                     const cur = parseFloat(this.currentLayer
                         && this.currentLayer.powerVoltage) || 0;
                     if (cur > 0) powerVoltageCustomInput.value = cur;

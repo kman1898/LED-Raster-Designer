@@ -57,6 +57,9 @@ BUILD_JS = """async (rot) => {
             width: o.cabinet_width, height: o.cabinet_height, hidden: false, blank: false, halfTile: 'none' });
         return Object.assign({ type: 'screen', visible: true, cabinet_width: 128, cabinet_height: 128,
             panel_weight: 20, weight_unit: 'kg', panelWatts: 100, powerVoltage: 100, powerAmperage: 15,
+            // stated, not implied: a screen with no breakout takes the
+            // PREFERENCE (True1 as shipped), not Edison (2026-09-22)
+            powerBreakoutType: 'soca-edison',
             processorType: 'brompton', bitDepth: 8, frameRate: 60, lowLatency: false,
             flowPattern: 'tl-h', portMappingMode: 'organized', powerOrganized: true, powerMaximize: false,
             group_id: null, panels }, o);

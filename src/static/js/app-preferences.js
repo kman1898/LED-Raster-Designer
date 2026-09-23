@@ -139,10 +139,14 @@ class _Preferences {
     }
 
     // The three tile colours (color1, color2, borderColor) as a checked
-    // #RRGGBB: a 3-digit '#FFF' expands to '#FFFFFF' (hexToRgb read it as
-    // red), and anything else that is not a colour ('', 'abc') falls back
-    // to the shipped literal - the same check the new screen colours
-    // take, so '' never reaches the server as a border.
+    // #RRGGBB, upper case. What counts as a colour: 6 hex digits or 3
+    // (each doubled: '#FFF' and 'fff' are '#FFFFFF'; hexToRgb read the
+    // short form as red), with or without the '#' - the same leniency
+    // normalizeHexColor gives a bare 6-digit value, so 'abc' is '#AABBCC'
+    // and a number such as 123 is '#112233'. Anything else ('', 'xyz',
+    // '#12345', 'red', null, an object) falls back to the shipped literal
+    // - the same check the new screen colours take, so '' never reaches
+    // the server as a border.
     normalizeTileColor(value, fallback) {
         const raw = String(value == null ? '' : value).trim();
         const short = /^#?([0-9a-fA-F])([0-9a-fA-F])([0-9a-fA-F])$/.exec(raw);
@@ -269,6 +273,44 @@ class _Preferences {
         }
     }
 
+    // The voltage the Preferences dialog currently shows (the select, or
+    // the custom box when Custom is picked), as a number; 0 when blank.
+    _preferenceVoltageInUI() {
+        const sel = document.getElementById('pref-power-voltage-select');
+        const custom = document.getElementById('pref-power-voltage-custom');
+        if (!sel) return 0;
+        const raw = sel.value === 'custom' ? (custom ? custom.value : '') : sel.value;
+        return parseFloat(raw) || 0;
+    }
+
+    // The breakout preference is gated by the voltage preference beside
+    // it, with the sidebar select's own rule and reasons (user ruling,
+    // 2026-09-22: the default breakout is a Preferences setting - "if
+    // 208 is default then True1 is default, but that should be set in
+    // preferences"): Edison greyed above 120 V, the L21-30 boxes only at
+    // 208 V, L6-20 and the L21-30 greyed at or below 120 V. A selection
+    // the new voltage does not allow snaps to the voltage class default
+    // (Edison up to 120 V, True1 above), so Save can never store a pair
+    // no screen could carry. Returns the id the select ends on.
+    _syncPreferenceBreakoutOptions() {
+        const sel = document.getElementById('pref-breakout-type');
+        if (!sel || typeof this.getPowerBreakoutTypes !== 'function'
+                || typeof this._breakoutEligible !== 'function') return null;
+        const v = this._preferenceVoltageInUI();
+        const types = this.getPowerBreakoutTypes();
+        Array.from(sel.options).forEach(opt => {
+            const t = types.find(x => x.id === opt.value);
+            const ok = !t || this._breakoutEligible(t, v);
+            opt.disabled = !ok;
+            opt.title = ok ? '' : this._breakoutIneligibleTitle(t, v);
+        });
+        const cur = types.find(x => x.id === sel.value);
+        if (!cur || !this._breakoutEligible(cur, v)) {
+            sel.value = this._defaultBreakoutFor(v).id;
+        }
+        return sel.value;
+    }
+
     // The Binder tab's logo row: the preview and Remove when one is
     // pending, "None" when not. The pending logo is what Save stores;
     // Cancel forgets it like any other edit.
@@ -312,7 +354,13 @@ class _Preferences {
                 voltageCustom.style.display = 'none';
                 voltageCustom.value = voltageSelect.value;
             }
+            // The breakout preference follows the voltage preference.
+            this._syncPreferenceBreakoutOptions();
         };
+        if (voltageCustom) {
+            voltageCustom.addEventListener('input', () => this._syncPreferenceBreakoutOptions());
+            voltageCustom.addEventListener('change', () => this._syncPreferenceBreakoutOptions());
+        }
         const syncAmperageCustom = () => {
             if (!amperageSelect || !amperageCustom) return;
             if (amperageSelect.value === 'custom') {
@@ -554,6 +602,9 @@ class _Preferences {
         setVal('pref-distro-phase', Number(prefs.distroPhase) === 1 ? '1' : '3');
         setVal('pref-multi-type', prefs.multiType);
         setVal('pref-breakout-type', prefs.breakoutType);
+        // Grey what the voltage just filled in does not allow, and snap a
+        // stored pair no screen could carry to the class default.
+        this._syncPreferenceBreakoutOptions();
         setChecked('pref-splitters-enabled', prefs.splittersEnabled);
         // Binder
         setVal('pref-binder-sheet', prefs.binderSheet || 'tabloid');
@@ -688,7 +739,19 @@ class _Preferences {
             distroVoltage: readNum('pref-distro-voltage', defaults.distroVoltage),
             distroPhase: readNum('pref-distro-phase', defaults.distroPhase) === 1 ? 1 : 3,
             multiType: readStr('pref-multi-type', defaults.multiType),
-            breakoutType: readStr('pref-breakout-type', defaults.breakoutType),
+            // Gated on the voltage read above, the way the select is: a
+            // pair no screen could carry is never stored.
+            breakoutType: (() => {
+                const id = readStr('pref-breakout-type', defaults.breakoutType);
+                const v = Number.isFinite(voltageVal) && voltageVal > 0 ? voltageVal : defaults.powerVoltage;
+                const t = typeof this.getPowerBreakoutTypes === 'function'
+                    ? this.getPowerBreakoutTypes().find(x => x.id === id) : null;
+                if (t && typeof this._breakoutEligible === 'function'
+                        && !this._breakoutEligible(t, v)) {
+                    return this._defaultBreakoutFor(v).id;
+                }
+                return id;
+            })(),
             splittersEnabled: readBool('pref-splitters-enabled', defaults.splittersEnabled),
             // Binder
             binderSheet: readStr('pref-binder-sheet', defaults.binderSheet),

@@ -1102,6 +1102,14 @@ export class LEDRasterApp {
                 this.saveRasterSize();
                 // Persist both rasters to the server so the Show Look raster
                 // doesn't snap back to the default on the next project echo.
+                // `keep_pristine`: this is the page's own sync, not a user
+                // save - the new project stays pristine on the server, so
+                // its startup screen follows Preferences until a hand
+                // touches it (same marker as the load-time sync in
+                // loadClientSideProperties). The build's version rides
+                // along and is mirrored here so the first undo snapshot
+                // carries it (see appVersion).
+                this.project.app_version = this.appVersion();
                 fetch('/api/project', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -1109,7 +1117,9 @@ export class LEDRasterApp {
                         raster_width: prefs.rasterWidth,
                         raster_height: prefs.rasterHeight,
                         show_raster_width: prefs.rasterWidth,
-                        show_raster_height: prefs.rasterHeight
+                        show_raster_height: prefs.rasterHeight,
+                        app_version: this.project.app_version,
+                        keep_pristine: true
                     })
                 });
 
@@ -1184,12 +1194,37 @@ export class LEDRasterApp {
         this.currentLayer.frameRate = prefs.frameRate;
         this.currentLayer.powerVoltage = prefs.powerVoltage;
         this.currentLayer.powerVoltageCustom = prefs.powerVoltage;
+        this.normalizePowerBreakout(this.currentLayer);   // the breakout follows the voltage just written (2026-09-22)
         this.currentLayer.powerAmperage = prefs.powerAmperage;
         this.currentLayer.powerAmperageCustom = prefs.powerAmperage;
         this.currentLayer.panelWatts = prefs.powerWatts;
         this.currentLayer.powerFlowPattern = prefs.powerFlowPattern || 'tl-h';
         this.loadLayerToInputs();
-        this.updateLayer();
+        // This PUT is the preference Save re-making the pristine startup
+        // screen, not a hand on it: it must not end the pristine state on
+        // the server (see _layerPutIsAnEdit), or the screen would stop
+        // following Preferences after the next relaunch.
+        this._pristinePreferencePut = true;
+        try {
+            this.updateLayer();
+        } finally {
+            this._pristinePreferencePut = false;
+        }
+    }
+
+    // Does a layer PUT made right now count as the USER editing the screen?
+    // The answer rides every PUT updateLayer / updateLayers makes as
+    // `edited`, and the server ends the project's pristine state only on
+    // a PUT that says true (routes_layers update_layer). No while the page
+    // is still booting - the load pass writes back what it normalized (a
+    // breakout the server lacked) before _initialLoadComplete is set, and
+    // nobody has touched anything - and no for the Preferences dialog's
+    // own Save re-making the startup screen (applyPreferencesToCurrentLayer
+    // raises _pristinePreferencePut around its PUT). Every other PUT is a
+    // hand on the screen: the sidebar's updateLayerFromInputs, a drag, the
+    // push after an add (add_layer cleared the flag already).
+    _layerPutIsAnEdit() {
+        return this._initialLoadComplete === true && !this._pristinePreferencePut;
     }
 
     shouldApplyStartupPreferences() {
@@ -1197,18 +1232,24 @@ export class LEDRasterApp {
         if (!this.currentLayer) return false;
         if (this.project.is_pristine !== true) return false;
         if (this.project.name !== 'Untitled Project') return false;
-        // Pristine on BOTH sides: the flag above is the server's, as the
-        // project was fetched; this is the client's, kept since. The
-        // server clears is_pristine on the first PUT of the layer - and
-        // never tells this copy - so a startup screen the user had edited
-        // (columns typed, a drag) was re-made from the preferences by
-        // every later Save in the dialog. Mirror the server: an edit
-        // clears the client's flag too, and the Save then leaves the
-        // screen alone. (After a reload the flag READ from the server is
-        // false - the Save's own PUT cleared it - so a startup screen only
-        // ever touched by preference Saves stops following from then on.
-        // Accepted: it is one Save on one screen, and the alternative is
-        // re-making a screen the user may have kept on purpose.)
+        // Pristine on BOTH sides. The flag above is the server's, as the
+        // project was last fetched: it starts true on the project the
+        // server builds (startup, New Project) and is cleared by a user
+        // save or file load (POST / PUT /api/project), by adding or
+        // deleting a layer, and by a layer PUT that carries `edited: true`
+        // - which updateLayer / updateLayers send for every write made
+        // after boot except the preference Save's own (_layerPutIsAnEdit).
+        // The page's own writes carry no marker: the raster sync POST on
+        // load says `keep_pristine`, and the boot pass's normalization
+        // PUTs come before _initialLoadComplete. So the flag survives a
+        // relaunch, and the startup screen keeps following Preferences
+        // until a hand touches it. (Until 2026-09-22 the raster sync
+        // cleared it on every load, so the screen followed only inside
+        // the session that made it.)
+        // The server never tells this copy when it clears the flag, so the
+        // second guard is the client's own: a user edit lands an undo step
+        // (startupScreenWasEdited), and the Save then leaves the screen
+        // alone even before the next fetch.
         if (this.startupScreenWasEdited()) {
             this.project.is_pristine = false;
             return false;
@@ -1628,6 +1669,25 @@ export class LEDRasterApp {
         const borderColor = tile(prefs.borderColor, '#FFFFFF');
         const labelsColor = color(prefs.screenNameColor, '#FFFFFF');
         const cabinetIdColor = color(prefs.cabinetIdColor, '#FFFFFF');
+        // A preset's two tile colours take the same check as the rest of
+        // its colours. The canvas draws a tile from an {r, g, b} object
+        // (canvas-render's rgb()), which is what a layer stores and what a
+        // preset saved from one carries; a hand-edited preset may hold a
+        // hex string instead, and anything else ('', 'nope', [], {r: 'x'})
+        // is no colour. So: a well-formed {r, g, b} lands as is, a hex
+        // string (3 or 6 digits, # or not) becomes the object, and the
+        // rest fall back to the preference's colour - which until
+        // 2026-09-22 only '' and null did, so 'nope' reached the server
+        // and drew grey.
+        const tileRgb = (value, fallback) => {
+            if (value && typeof value === 'object' && !Array.isArray(value)) {
+                const ch = ['r', 'g', 'b'].map(k => Number(value[k]));
+                return ch.every(n => Number.isInteger(n) && n >= 0 && n <= 255)
+                    ? { r: ch[0], g: ch[1], b: ch[2] } : fallback;
+            }
+            const hex = tile(value, '');
+            return hex ? this.hexToRgb(hex) : fallback;
+        };
         let serverProps;
         if (presetData && typeof presetData === 'object') {
             serverProps = {
@@ -1635,8 +1695,8 @@ export class LEDRasterApp {
                 rows: presetData.rows != null ? presetData.rows : prefs.rows,
                 cabinet_width: presetData.cabinet_width != null ? presetData.cabinet_width : prefs.panelWidth,
                 cabinet_height: presetData.cabinet_height != null ? presetData.cabinet_height : prefs.panelHeight,
-                color1: presetData.color1 || color1,
-                color2: presetData.color2 || color2,
+                color1: tileRgb(presetData.color1, color1),
+                color2: tileRgb(presetData.color2, color2),
                 border_color: tile(presetData.border_color, borderColor),
                 panel_weight: presetData.panel_weight != null ? presetData.panel_weight : prefs.panelWeight,
                 weight_unit: presetData.weight_unit || prefs.weightUnit,
@@ -1674,7 +1734,12 @@ export class LEDRasterApp {
                 ...serverProps
             })
         })
-        .then(res => res.json())
+        .then(res => {
+            // A 4xx/5xx still parses (the server answers {error}), and the
+            // chain below would go on to select a layer with no id.
+            if (!res.ok) throw new Error(`POST /api/layer/add answered ${res.status}`);
+            return res.json();
+        })
         .then(layer => {
             sendClientLog('add_layer', {
                 id: layer.id, name: layer.name,
@@ -1737,6 +1802,19 @@ export class LEDRasterApp {
             // the preset branch did this, so a new screen lost its
             // Preferences colours on the next reload unless it was saved.)
             this.updateLayers([layer]);
+        })
+        .catch(error => {
+            // The POST itself failing (offline, the server gone, a 500)
+            // was an unhandled rejection on the page: nothing was added,
+            // and nothing said so. Log it and say so; never throw from
+            // here. (updateLayers has its own catch for the push above.)
+            sendClientLog('add_layer_failed', {
+                preset: presetData ? (presetData._presetName || true) : false,
+                error: error ? String(error.message || error) : ''
+            });
+            if (typeof this._toast === 'function') {
+                this._toast('The screen was not added. Check the connection and try again.', true);
+            }
         });
     }
 

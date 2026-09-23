@@ -127,6 +127,10 @@ def add_layer():
                 needs_rebuild = True
     if needs_rebuild:
         layer['panels'] = _build_panels(layer)
+    # A screen always carries a breakout its voltage allows (2026-09-22):
+    # the payload's choice stands when eligible, else the preference, else
+    # the class default - see app.normalize_power_breakout.
+    app.normalize_power_breakout(layer)
     log_event('add_layer', {
         'name': layer.get('name'), 'id': layer.get('id'),
         'type': layer.get('type', 'screen'),
@@ -274,7 +278,19 @@ def _apply_group_id(layer, previous_group_id, requested):
 
 @layers_bp.route('/api/layer/<int:layer_id>', methods=['PUT'])
 def update_layer(layer_id):
-    data = request.json
+    data = dict(request.json or {})
+    # Only a PUT the USER caused ends the pristine startup project - the
+    # client says so with `edited: true` (app-screen-info updateLayer /
+    # updateLayers, whenever the page is past its boot and the write is not
+    # the Preferences dialog's own Save re-making the startup screen). The
+    # PUTs the page makes on its own - the boot pass writing a breakout the
+    # server lacked, the preference Save itself - carry no marker and leave
+    # the flag alone, so the startup screen keeps following Preferences
+    # after a relaunch until a hand touches it (2026-09-22). A request
+    # marker carried in the query string (?edited=1), never in the body, so
+    # the layer's own keys round-trip byte for byte (test_all_fields_sweep).
+    edited = str(request.args.get('edited', '')).lower() in ('1', 'true', 'yes')
+    data.pop('edited', None)
     layer = next((l for l in app.current_project['layers'] if l['id'] == layer_id), None)
     
     if not layer:
@@ -445,6 +461,11 @@ def update_layer(layer_id):
         if key in data:
             layer[key] = data[key]
 
+    # The voltage or the breakout may have just changed: the screen keeps a
+    # breakout the new voltage allows (2026-09-22). A PUT of null, '' or an
+    # ineligible id lands as the preference / class default, never bare.
+    app.normalize_power_breakout(layer)
+
     # v0.11.0: group_id is the ONE whitelisted field that names another
     # object, and it was taken on trust - so a layer could claim membership of
     # a group that does not exist (or of one that does not list it), and the
@@ -514,8 +535,9 @@ def update_layer(layer_id):
             for panel in layer.get('panels', []):
                 panel['x'] = panel.get('x', 0) + dx
                 panel['y'] = panel.get('y', 0) + dy
-    
-    app.current_project['is_pristine'] = False
+
+    if edited:
+        app.current_project['is_pristine'] = False
     socketio.emit('layer_updated', layer)
     return jsonify(layer)
 
@@ -653,6 +675,9 @@ def move_layer_to_canvas(layer_id):
         # rebuild keeps panel x/y consistent with that position and preserves
         # per-panel hidden / blank / halfTile state.
         _rebuild_layer_geometry_from_panel_states(clone)
+        # A deep copy carries whatever the source held; the clone is a
+        # screen and keeps a breakout its voltage allows (2026-09-22).
+        app.normalize_power_breakout(clone)
         app.current_project['layers'].append(clone)
         log_event('layer_duplicate_to_canvas', {
             'src_layer_id': layer_id, 'new_layer_id': clone['id'],

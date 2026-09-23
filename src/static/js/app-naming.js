@@ -5,6 +5,12 @@
 // with the editors they serve.
 import { LEDRasterApp } from './app-core.js';
 
+// The build that first stamped app_version on a saved project, and the
+// one whose shipped circuit green replaced the old #79FC4C: a project
+// written by this build or later is never migrated away from that green
+// (normalizePowerCircuitColors).
+const OLD_GREEN_MIGRATED_IN = '1.3.0';
+
 class _Naming {
 
     // The label this port takes off the processor, or null when it takes none
@@ -653,7 +659,31 @@ class _Naming {
         return fallback;
     }
 
-    normalizePowerCircuitColors(colors) {
+    // `app_version` on a project is the build that last wrote it (the
+    // server stamps every POST /api/project and every new project;
+    // serializeProjectForFile stamps the file). Parsed to [major, minor,
+    // patch]; null for a project that carries none - every file saved
+    // before the stamp existed (1.3.0) - or one that is not a version.
+    parseAppVersion(value) {
+        const m = /^\s*v?(\d+)\.(\d+)(?:\.(\d+))?/.exec(String(value == null ? '' : value));
+        return m ? [Number(m[1]), Number(m[2]), Number(m[3] || 0)] : null;
+    }
+
+    // Was `project` last written by a build older than `version`, or by
+    // one that did not stamp at all? The gate for a migration that
+    // rewrites what an OLD build stored: a file this build (or a newer
+    // one) wrote holds what the user chose, and is never migrated.
+    projectPredatesVersion(version, project = this.project) {
+        const saved = this.parseAppVersion(project && project.app_version);
+        if (!saved) return true;
+        const bar = this.parseAppVersion(version);
+        for (let i = 0; i < 3; i += 1) {
+            if (saved[i] !== bar[i]) return saved[i] < bar[i];
+        }
+        return false;
+    }
+
+    normalizePowerCircuitColors(colors, project = this.project) {
         // A screen that EXISTS: a letter it does not have, an entry that is
         // not a colour, and the old default green all fill from the
         // SHIPPED set - never from the Preferences default, which is for a
@@ -661,6 +691,8 @@ class _Naming {
         // getDefaultPowerCircuitColors). Reading the preference here made
         // every load repaint a circuit the user never chose a colour for,
         // on every screen in the file, whenever the preference changed.
+        // `project` is the one the map belongs to - the current project,
+        // or the one being opened - and only its app_version is read.
         const shipped = this.getShippedCircuitColorList();
         const defaults = {
             A: shipped[0], B: shipped[1], C: shipped[2],
@@ -675,7 +707,14 @@ class _Naming {
             });
         }
         // The old default green in D (#79FC4C) migrates to the shipped
-        // green ONLY when the stored map is, letter for letter, the set
+        // green ONLY for a project written by a build older than 1.3.0 -
+        // or one that carries no app_version at all, which is every file
+        // saved before the stamp existed (projectPredatesVersion). A
+        // project this build or a newer one wrote holds what the user
+        // chose: a preset or a copy carrying the whole old set on purpose
+        // looked exactly like an untouched old file, and was repainted on
+        // the next open (2026-09-22). Within an old file, the migration
+        // runs only when the stored map is, letter for letter, the set
         // that shipped alongside it - A #BC382F, B #CC6B30, C #D2E94D,
         // D #79FC4C, E #2145DC, F #7414F5 (compared upper case, so a
         // lower-case file still counts): a screen nobody coloured,
@@ -687,6 +726,9 @@ class _Naming {
         // #79FC4C in D migrated, so a preference set to the old green on
         // purpose was repainted on every reload. The preference is read
         // here for that one guard only; nothing fills from it.
+        if (!this.projectPredatesVersion(OLD_GREEN_MIGRATED_IN, project)) {
+            return next;
+        }
         const oldShipped = { A: '#BC382F', B: '#CC6B30', C: '#D2E94D',
                              D: '#79FC4C', E: '#2145DC', F: '#7414F5' };
         const stored = (colors && typeof colors === 'object') ? colors : {};

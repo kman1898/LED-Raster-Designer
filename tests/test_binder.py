@@ -326,7 +326,10 @@ SEED_JS = """async () => {
                powerFlowPattern: 'tl-h', powerOrganized: true, flowPattern: 'tl-h',
                processorType: 'novastar-armor', offset_x: 900});
     await add({name: 'CENTER', columns: 3, rows: 5, cabinet_width: 128, cabinet_height: 128,
-               powerVoltage: 110, powerAmperage: 15, panelWatts: 100,
+               // stated, not implied: a screen with no breakout takes the
+               // PREFERENCE (True1 as shipped), not Edison (2026-09-22)
+               powerVoltage: 110, powerBreakoutType: 'soca-edison',
+               powerAmperage: 15, panelWatts: 100,
                powerFlowPattern: 'tl-v', powerOrganized: true, flowPattern: 'tl-h',
                powerSplitters: {enabled: true, maxWays: 2, manual: {merge: [], split: []}},
                processorType: 'novastar-armor', offset_x: 1800});

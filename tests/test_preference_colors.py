@@ -21,6 +21,7 @@ The dialog round trip (set, Save, add a screen) is in test_preferences.
 Run locally:
     python3 -m pytest tests/test_preference_colors.py -v --browser chromium
 """
+import json
 import os
 import re
 
@@ -209,7 +210,7 @@ def test_an_existing_screen_fills_missing_circuit_colours_from_the_shipped_set()
     it must read the SHIPPED colours, not the preference, or changing the
     preference repaints circuits on screens that already exist."""
     naming = _read(NAMING_JS)
-    fn = naming[naming.index('normalizePowerCircuitColors(colors) {'):naming.index('getPowerCircuitLetter(circuitNum) {')]
+    fn = naming[naming.index('normalizePowerCircuitColors(colors, project = this.project) {'):naming.index('getPowerCircuitLetter(circuitNum) {')]
     assert 'const shipped = this.getShippedCircuitColorList();' in fn
     assert 'this.getDefaultPowerCircuitColors()' not in fn
     # the fill reads the shipped set; the preference is read exactly once,
@@ -496,7 +497,9 @@ def test_a_chosen_old_green_stays_and_an_untouched_old_set_migrates(page):
     when the stored map is, letter for letter, the OLD shipped set (a
     screen nobody coloured); any letter that differs or is missing keeps
     the green; and a green equal to the preference's D was chosen and
-    stays whatever the rest holds - through a reload."""
+    stays whatever the rest holds - through a reload. The maps here are
+    checked against an UNVERSIONED project ({}: a file saved before the
+    app_version stamp), which is the only kind the migration runs on."""
     pg, errors = page
     old_set = dict(zip('ABCDEF', OLD_SHIPPED_CIRCUIT_COLORS))
     shipped = dict(zip('ABCDEF', SHIPPED_CIRCUIT_COLORS))
@@ -507,11 +510,11 @@ def test_a_chosen_old_green_stays_and_an_untouched_old_set_migrates(page):
         const noF = { ...old };
         delete noF.F;
         return {
-            whole: app.normalizePowerCircuitColors(old),
-            lower: app.normalizePowerCircuitColors(lower),
-            aDiffers: app.normalizePowerCircuitColors({ ...old, A: '#111111' }),
-            fMissing: app.normalizePowerCircuitColors(noF),
-            dOnly: app.normalizePowerCircuitColors({ D: '#79FC4C' }),
+            whole: app.normalizePowerCircuitColors(old, {}),
+            lower: app.normalizePowerCircuitColors(lower, {}),
+            aDiffers: app.normalizePowerCircuitColors({ ...old, A: '#111111' }, {}),
+            fMissing: app.normalizePowerCircuitColors(noF, {}),
+            dOnly: app.normalizePowerCircuitColors({ D: '#79FC4C' }, {}),
         };
     }""", old_set)
     assert got['whole'] == shipped, got['whole']
@@ -523,7 +526,7 @@ def test_a_chosen_old_green_stays_and_an_untouched_old_set_migrates(page):
     chosen = list(SHIPPED_CIRCUIT_COLORS)
     chosen[3] = '#79FC4C'
     pg.evaluate(SET_PREFS_JS, {'powerCircuitColors': chosen})
-    kept = pg.evaluate("(old) => window.app.normalizePowerCircuitColors(old)", old_set)
+    kept = pg.evaluate("(old) => window.app.normalizePowerCircuitColors(old, {})", old_set)
     assert kept == old_set, kept
     # and a screen made from it keeps the green through a reload
     before = pg.evaluate(IDS_JS)
@@ -656,48 +659,325 @@ def test_a_failed_push_after_add_is_logged_not_thrown(page):
     assert errors == [], errors
 
 
-def test_a_preference_save_follows_the_startup_screen_only_until_it_is_edited(page):
-    """Item 2 (re-test): the server clears is_pristine on the first PUT of
-    the startup screen, but the client's copy never did, so every later
-    Save in Preferences re-made a screen the user had edited. A Save
-    follows the screen while nothing has been edited (twice over), and
-    stops the moment the user has changed it. Replaces the project (the
-    module guard puts the seeded one back)."""
+def _save_columns(pg, n):
+    """Set the Wall tab's Columns preference to n and Save."""
+    pg.evaluate("() => window.app.openPreferencesModal()")
+    pg.wait_for_timeout(300)
+    pg.locator('#preferences-modal .pm-tabstrip .view-tab[data-key="wall"]').click()
+    pg.wait_for_timeout(150)
+    el = pg.locator('#pref-columns')
+    el.fill(str(n))
+    el.dispatch_event('change')
+    pg.locator('#preferences-save').click()
+    pg.wait_for_timeout(1000)
+
+
+# The startup screen's columns in the browser and on the server, and the
+# pristine flag on both sides.
+STARTUP_STATE_JS = """async () => {
+    const app = window.app;
+    const srv = await (await fetch('/api/project')).json();
+    return { live: app.project.layers[0].columns, srv: srv.layers[0].columns,
+             pristine: app.project.is_pristine, srvPristine: srv.is_pristine };
+}"""
+
+
+def _edit_columns(pg, n):
+    """The user types columns on the Screen Info panel."""
+    pg.evaluate("""(n) => {
+        const el = document.getElementById('screen-columns');
+        el.value = String(n);
+        el.dispatchEvent(new Event('change'));
+    }""", n)
+    pg.wait_for_timeout(1000)
+
+
+def test_a_preference_save_follows_the_startup_screen_until_it_is_edited_across_relaunches(page):
+    """Round three: the pristine startup screen (never edited) follows the
+    Preferences dialog's Save until the user edits it - and that must
+    hold after the app is launched fresh and reloaded, not only inside
+    the session that made the screen. Until 2026-09-22 the client's own
+    raster sync POST on every load cleared is_pristine on the server, so
+    a relaunch stopped the screen following. Now: a fresh server project
+    plus a page load, Save follows; reload, Save still follows and the
+    server still says pristine; the user edits columns, Save leaves the
+    screen alone and the server flag is false; New Project in-session
+    behaves the same. Replaces the project (the module guard puts the
+    seeded one back)."""
     pg, errors = page
+    # the app launched fresh: a new SERVER project, then the page booting on it
+    pg.evaluate("async () => { await fetch('/api/project/new', { method: 'POST' }); }")
+    pg.reload(wait_until='domcontentloaded')
+    pg.wait_for_timeout(2500)
+    state = pg.evaluate("""() => { const app = window.app; return {
+        pristine: app.project.is_pristine, n: app.project.layers.length, name: app.project.name }; }""")
+    assert state == {'pristine': True, 'n': 1, 'name': 'Untitled Project'}, state
+
+    _save_columns(pg, 3)
+    assert pg.evaluate(STARTUP_STATE_JS) == \
+        {'live': 3, 'srv': 3, 'pristine': True, 'srvPristine': True}, 'the first Save did not follow'
+    # relaunched: the page reloads on the same server project
+    pg.reload(wait_until='domcontentloaded')
+    pg.wait_for_timeout(2500)
+    assert pg.evaluate(STARTUP_STATE_JS)['srvPristine'] is True, 'the reload itself ended the pristine state'
+    _save_columns(pg, 4)
+    assert pg.evaluate(STARTUP_STATE_JS) == \
+        {'live': 4, 'srv': 4, 'pristine': True, 'srvPristine': True}, 'the Save after a relaunch did not follow'
+    # the user edits the screen on the Screen Info panel
+    _edit_columns(pg, 6)
+    got = pg.evaluate(STARTUP_STATE_JS)
+    assert got['live'] == 6 and got['srv'] == 6, got
+    assert got['srvPristine'] is False, 'the edit did not end the pristine state on the server'
+    _save_columns(pg, 5)
+    assert pg.evaluate(STARTUP_STATE_JS) == \
+        {'live': 6, 'srv': 6, 'pristine': False, 'srvPristine': False}, 'the Save re-made the edited screen'
+    # and after a relaunch the edited screen is still left alone
+    pg.reload(wait_until='domcontentloaded')
+    pg.wait_for_timeout(2500)
+    _save_columns(pg, 7)
+    assert pg.evaluate(STARTUP_STATE_JS) == \
+        {'live': 6, 'srv': 6, 'pristine': False, 'srvPristine': False}, 'the relaunch forgot the edit'
+
+    # New Project in-session: the same, start to finish
     pg.evaluate("() => window.app.createNewProject()")
     pg.wait_for_timeout(1500)
-
-    def _save_columns(n):
-        pg.evaluate("() => window.app.openPreferencesModal()")
-        pg.wait_for_timeout(300)
-        pg.locator('#preferences-modal .pm-tabstrip .view-tab[data-key="wall"]').click()
-        pg.wait_for_timeout(150)
-        el = pg.locator('#pref-columns')
-        el.fill(str(n))
-        el.dispatch_event('change')
-        pg.locator('#preferences-save').click()
-        pg.wait_for_timeout(1000)
-
-    def _state():
-        return pg.evaluate("""async () => {
-            const app = window.app;
-            const srv = (await (await fetch('/api/project')).json()).layers[0];
-            return { live: app.project.layers[0].columns, srv: srv.columns,
-                     pristine: app.project.is_pristine };
-        }""")
-    _save_columns(3)
-    assert _state() == {'live': 3, 'srv': 3, 'pristine': True}, _state()
-    _save_columns(4)
-    assert _state() == {'live': 4, 'srv': 4, 'pristine': True}, 'the second Save with no edit did not follow'
-    # the user edits the screen on the Screen Info panel
-    pg.evaluate("""() => {
-        const el = document.getElementById('screen-columns');
-        el.value = '6';
-        el.dispatchEvent(new Event('change'));
-    }""")
-    pg.wait_for_timeout(1000)
-    assert _state()['live'] == 6 and _state()['srv'] == 6, _state()
-    _save_columns(5)
-    assert _state() == {'live': 6, 'srv': 6, 'pristine': False}, 'the Save re-made the edited screen'
+    assert pg.evaluate(STARTUP_STATE_JS)['srvPristine'] is True, 'New Project ended its own pristine state'
+    _save_columns(pg, 3)
+    assert pg.evaluate(STARTUP_STATE_JS) == \
+        {'live': 3, 'srv': 3, 'pristine': True, 'srvPristine': True}, 'a Save on the new project did not follow'
+    pg.reload(wait_until='domcontentloaded')
+    pg.wait_for_timeout(2500)
+    _save_columns(pg, 4)
+    assert pg.evaluate(STARTUP_STATE_JS) == \
+        {'live': 4, 'srv': 4, 'pristine': True, 'srvPristine': True}, 'the new project stopped following after a reload'
+    _edit_columns(pg, 6)
+    _save_columns(pg, 5)
+    assert pg.evaluate(STARTUP_STATE_JS) == \
+        {'live': 6, 'srv': 6, 'pristine': False, 'srvPristine': False}, 'the Save re-made the edited new project'
     pg.evaluate(SET_PREFS_JS, {'columns': 8})
+    assert errors == [], errors
+
+
+def test_a_failed_add_is_logged_and_toasted_not_thrown(page):
+    """Round three, item 3: the POST /api/layer/add chain had no catch, so
+    an add that failed (offline, the server gone) was an unhandled
+    rejection on the page. It is logged and toasted; nothing throws and
+    nothing is added."""
+    pg, errors = page
+    pg.evaluate("""() => {
+        window.__rejections = [];
+        window.addEventListener('unhandledrejection', e => window.__rejections.push(String(e.reason)));
+    }""")
+    before = pg.evaluate(IDS_JS)
+    pg.route('**/api/layer/add', lambda route: route.abort())
+    try:
+        pg.evaluate("() => window.app.addLayer()")
+        pg.wait_for_timeout(1500)
+    finally:
+        pg.unroute('**/api/layer/add')
+    assert pg.evaluate("() => window.__rejections") == []
+    toast = pg.evaluate("() => { const h = document.getElementById('app-toast-host'); return h ? h.textContent : ''; }")
+    assert 'not added' in toast, toast
+    assert pg.evaluate(IDS_JS) == before, 'a screen landed from a failed add'
+    # a server error answers JSON too; the chain must not go on to select a layer with no id
+    pg.route('**/api/layer/add', lambda route: route.fulfill(
+        status=500, content_type='application/json', body='{"error": "boom"}'))
+    try:
+        pg.evaluate("() => window.app.addLayer()")
+        pg.wait_for_timeout(1500)
+    finally:
+        pg.unroute('**/api/layer/add')
+    assert pg.evaluate("() => window.__rejections") == []
+    assert pg.evaluate(IDS_JS) == before, 'a screen landed from a 500'
+    assert errors == [], errors
+
+
+def test_a_presets_tile_colours_take_the_same_check_as_the_rest(page):
+    """Round three, item 4: a preset's color1 / color2 skipped the check
+    (`presetData.color1 || color1`), so 'nope' reached the server and drew
+    grey. Now a well-formed {r, g, b} lands as is, a hex string (3 or 6
+    digits, # or not) becomes the object the canvas draws from, and the
+    rest fall back to the preference's colour."""
+    pg, errors = page
+    pg.evaluate(SET_PREFS_JS, {'color1': '#404680', 'color2': '#959CB8'})
+    cases = [
+        ({'color1': 'nope', 'color2': ''}, {'r': 64, 'g': 70, 'b': 128}, {'r': 149, 'g': 156, 'b': 184}),
+        ({'color1': '#abc', 'color2': 'AABBCC'}, {'r': 170, 'g': 187, 'b': 204}, {'r': 170, 'g': 187, 'b': 204}),
+        ({'color1': {'r': 1, 'g': 2, 'b': 3}, 'color2': {'r': 300, 'g': 2, 'b': 3}},
+         {'r': 1, 'g': 2, 'b': 3}, {'r': 149, 'g': 156, 'b': 184}),
+        ({'color1': [1, 2, 3], 'color2': {'r': 'x'}}, {'r': 64, 'g': 70, 'b': 128}, {'r': 149, 'g': 156, 'b': 184}),
+    ]
+    for preset, want1, want2 in cases:
+        before = pg.evaluate(IDS_JS)
+        pg.evaluate("(preset) => window.app.addLayer({ columns: 2, rows: 2, _presetName: 'tiles', ...preset })", preset)
+        pg.wait_for_timeout(1500)
+        srv = pg.evaluate(SERVER_NEW_JS, before)
+        assert 'error' not in srv, srv
+        assert srv['color1'] == want1, (preset, srv['color1'])
+        assert srv['color2'] == want2, (preset, srv['color2'])
+        _delete(pg, srv['id'])
+    assert errors == [], errors
+
+
+def test_normalize_tile_color_does_what_its_comment_says(page):
+    """Round three, item 5: the comment said 'abc' falls back while the
+    code accepted bare 3- and 6-digit hex and numbers. The rule is now
+    stated and held: hex with or without '#', 3 digits doubled, upper
+    case; everything else falls back."""
+    pg, errors = page
+    got = pg.evaluate("""() => {
+        const app = window.app;
+        const n = (v) => app.normalizeTileColor(v, '#FALLBK');
+        return {
+            abc: n('abc'), hashAbc: n('#abc'), six: n('aabbcc'), hashSix: n('#AaBbCc'),
+            number: n(123), padded: n('  #fff '),
+            xyz: n('xyz'), five: n('#12345'), red: n('red'), empty: n(''),
+            nil: n(null), undef: n(undefined), obj: n({ r: 1, g: 2, b: 3 }), zero: n(0)
+        };
+    }""")
+    assert got == {
+        'abc': '#AABBCC', 'hashAbc': '#AABBCC', 'six': '#AABBCC', 'hashSix': '#AABBCC',
+        'number': '#112233', 'padded': '#FFFFFF',
+        'xyz': '#FALLBK', 'five': '#FALLBK', 'red': '#FALLBK', 'empty': '#FALLBK',
+        'nil': '#FALLBK', 'undef': '#FALLBK', 'obj': '#FALLBK', 'zero': '#FALLBK',
+    }, got
+    comment = _read(PREFS_JS).split('normalizeTileColor(value, fallback) {')[0].rsplit('\n\n', 1)[-1]
+    assert "with or without the '#'" in comment and "'abc' is '#AABBCC'" in comment, comment
+    assert errors == [], errors
+
+
+# ── app_version and the old-green migration gate ─────────────────────────
+
+
+def _load_file(pg, project, name='file.json'):
+    """Drive File > Open with an in-memory project, the way the user does."""
+    with pg.expect_file_chooser() as chooser:
+        pg.evaluate("() => window.app.loadProjectFromFile()")
+    chooser.value.set_files({'name': name, 'mimeType': 'application/json',
+                             'buffer': json.dumps(project).encode('utf-8')})
+    pg.wait_for_timeout(2000)
+
+
+def test_the_old_green_migrates_only_for_a_project_an_older_build_wrote(page):
+    """Round three, item 2: a preset or a copy carrying the whole old
+    shipped set was migrated on the next open because the rule could not
+    tell it from an untouched old file. The project's app_version - the
+    build that last wrote it - decides: none, or older than 1.3.0,
+    migrates (the exact-old-set rule stays the fallback for unversioned
+    files); 1.3.0 or later never does."""
+    pg, errors = page
+    old_set = dict(zip('ABCDEF', OLD_SHIPPED_CIRCUIT_COLORS))
+    shipped = dict(zip('ABCDEF', SHIPPED_CIRCUIT_COLORS))
+    pg.evaluate(SET_PREFS_JS, {'powerCircuitColors': SHIPPED_CIRCUIT_COLORS})
+    got = pg.evaluate("""(old) => {
+        const app = window.app;
+        const at = (v) => app.normalizePowerCircuitColors(old, v === undefined ? {} : { app_version: v });
+        return {
+            none: at(undefined), empty: at(''), junk: at('yesterday'),
+            older: at('1.2.9'), olderMajor: at('0.11.4'), betaOlder: at('v1.2.0-beta.3'),
+            exact: at('1.3.0'), newer: at('1.3.1'), newerMinor: at('1.10.0'), newerMajor: at('2.0.0'),
+            betaExact: at('1.3.0-beta.1'), vExact: at('v1.3.0'),
+            predates: ['', '1.2.9', '1.3.0', '2.0.0', undefined].map(v =>
+                app.projectPredatesVersion('1.3.0', v === undefined ? {} : { app_version: v })),
+        };
+    }""", old_set)
+    for key in ('none', 'empty', 'junk', 'older', 'olderMajor', 'betaOlder'):
+        assert got[key] == shipped, (key, got[key])
+    for key in ('exact', 'newer', 'newerMinor', 'newerMajor', 'betaExact', 'vExact'):
+        assert got[key] == old_set, (key, got[key])
+    assert got['predates'] == [True, True, False, False, True], got['predates']
+    assert errors == [], errors
+
+
+def test_a_saved_file_carries_the_app_version_and_a_load_reads_it_back(page):
+    """Round three, item 2: the file the app writes is stamped with the
+    running build's version (the same /api/version the About dialog
+    shows), the server hands it back after File > Open, and a project the
+    server built carries it from the first sync. Replaces the project (the
+    module guard puts the seeded one back)."""
+    pg, errors = page
+    version = pg.evaluate("async () => (await (await fetch('/api/version')).json()).version")
+    assert re.match(r'^\d+\.\d+\.\d+', version or ''), version
+    pg.evaluate("() => window.app.createNewProject()")
+    pg.wait_for_timeout(1500)
+    live = pg.evaluate("async () => ({ client: window.app.project.app_version,"
+                       " server: (await (await fetch('/api/project')).json()).app_version,"
+                       " title: window.app.appVersion() })")
+    assert live == {'client': version, 'server': version, 'title': version}, live
+    saved = json.loads(pg.evaluate("() => window.app.serializeProjectForFile()"))
+    assert saved['app_version'] == version, saved.get('app_version')
+    saved['name'] = 'Round Trip'
+    _load_file(pg, saved, 'round-trip.json')
+    back = pg.evaluate("async () => ({ name: window.app.project.name, client: window.app.project.app_version,"
+                       " server: (await (await fetch('/api/project')).json()).app_version })")
+    assert back == {'name': 'Round Trip', 'client': version, 'server': version}, back
+    assert errors == [], errors
+
+
+def _load_with_old_set(pg, project, name):
+    """File > Open on `project` with its one screen painted the whole old
+    shipped set; the circuit map the browser and the server then hold."""
+    project = dict(project, name=name)
+    project['layers'][0] = dict(project['layers'][0],
+                                powerCircuitColors=dict(zip('ABCDEF', OLD_SHIPPED_CIRCUIT_COLORS)))
+    _load_file(pg, project, name.lower().replace(' ', '-') + '.json')
+    got = pg.evaluate("async () => ({ name: window.app.project.name,"
+                      " live: window.app.project.layers[0].powerCircuitColors,"
+                      " srv: (await (await fetch('/api/project')).json()).layers[0].powerCircuitColors })")
+    assert got['name'] == name, got
+    return got
+
+
+def test_an_old_file_with_the_old_set_migrates_and_a_stamped_one_does_not(page):
+    """Round three, item 2, through File > Open: an unversioned file whose
+    screen carries the whole old shipped set opens with the shipped green
+    in D; the same file stamped by a 1.3.0 build opens with the old green
+    it holds, and keeps it through a reload (the server holds the stamp).
+    Replaces the project (the module guard puts the seeded one back)."""
+    pg, errors = page
+    old_set = dict(zip('ABCDEF', OLD_SHIPPED_CIRCUIT_COLORS))
+    pg.evaluate(SET_PREFS_JS, {'powerCircuitColors': SHIPPED_CIRCUIT_COLORS})
+    pg.evaluate("() => window.app.createNewProject()")
+    pg.wait_for_timeout(1500)
+    project = json.loads(pg.evaluate("() => window.app.serializeProjectForFile()"))
+
+    unversioned = dict(project)
+    del unversioned['app_version']
+    got = _load_with_old_set(pg, unversioned, 'Old File')
+    assert got['live']['D'] == SHIPPED_CIRCUIT_COLORS[3], got['live']
+    assert got['srv']['D'] == SHIPPED_CIRCUIT_COLORS[3], got['srv']
+
+    got = _load_with_old_set(pg, dict(project, app_version='1.2.9'), 'Older File')
+    assert got['live']['D'] == SHIPPED_CIRCUIT_COLORS[3], got['live']
+
+    got = _load_with_old_set(pg, dict(project, app_version='1.3.0'), 'Stamped File')
+    assert got['live'] == old_set, got['live']
+    assert got['srv'] == old_set, got['srv']
+    pg.reload(wait_until='domcontentloaded')
+    pg.wait_for_timeout(2500)
+    live = pg.evaluate("() => window.app.project.layers[0].powerCircuitColors")
+    assert live == old_set, live
+    assert errors == [], errors
+
+
+def test_a_file_this_build_saves_is_never_migrated_on_its_next_open(page):
+    """Round three, item 2, the contract behind the gate: the build that
+    writes app_version must be one the migration leaves alone, or every
+    file it saves with the old set (a preset, a copy) is repainted on its
+    next open - the very defect. The migration runs for files older than
+    1.3.0, so the running build must be 1.3.0 or later: bump README,
+    VERSION.txt, index.html and the spec together. Replaces the project
+    (the module guard puts the seeded one back)."""
+    pg, errors = page
+    old_set = dict(zip('ABCDEF', OLD_SHIPPED_CIRCUIT_COLORS))
+    pg.evaluate(SET_PREFS_JS, {'powerCircuitColors': SHIPPED_CIRCUIT_COLORS})
+    pg.evaluate("() => window.app.createNewProject()")
+    pg.wait_for_timeout(1500)
+    project = json.loads(pg.evaluate("() => window.app.serializeProjectForFile()"))
+    version = project.get('app_version')
+    assert not pg.evaluate("(v) => window.app.projectPredatesVersion('1.3.0', { app_version: v })", version), \
+        f'this build is {version}: a file it saves would be migrated on its next open - bump to 1.3.0 or later'
+    got = _load_with_old_set(pg, project, 'Current File')
+    assert got['live'] == old_set, got['live']
+    assert got['srv'] == old_set, got['srv']
     assert errors == [], errors

@@ -230,7 +230,9 @@ WRITE_PATHS = [
      None,
      """(ids) => { const app = window.app;
         const l = app.project.layers.find(x => x.id === ids[0]);
-        app.setPowerBreakout(l, 'soca-l620'); }""",
+        // a breakout the 110 V screen may run: setPowerBreakout is gated
+        // like the sidebar select and refuses L6-20 at or below 120 V
+        app.setPowerBreakout(l, 'soca-powercon'); }""",
      """(ids) => { const l = window.app.project.layers.find(x => x.id === ids[0]);
         return l.powerBreakoutType || null; }"""),
     ("Set Breaker Offset",

@@ -13,13 +13,28 @@ import app
 import port_assignment
 import processor_catalog
 from app import log_event, socketio
+from updater import get_current_version
 
 project_bp = Blueprint('project', __name__)
+
+
+def _stamp_app_version(project):
+    """The build that last wrote this project. Written on every save (POST)
+    and on a new project, never on a load (PUT): a file saved before the
+    stamp existed carries none, and that absence is what tells the client
+    the file predates a migration (app-naming normalizePowerCircuitColors
+    reads it). The client writes the same key into the file it saves."""
+    project['app_version'] = get_current_version()
 
 
 @project_bp.route('/api/project', methods=['GET'])
 def get_project():
     log_event('get_project')
+    # Every write route keeps this invariant already, so this pass writes
+    # nothing on a healthy project; when it does write, the log names the
+    # entry point that was missed (2026-09-22: a GET never hands back a
+    # screen without a breakout its voltage allows).
+    app.normalize_power_breakouts(app.current_project, at='get_project')
     return jsonify(app.current_project)
 
 
@@ -39,6 +54,7 @@ def new_project():
     app.current_project = app._build_initial_project()
     # Add default layer to new projects
     app.initialize_default_layer()
+    _stamp_app_version(app.current_project)
     log_event('new_project')
     socketio.emit('project_cleared')
     return jsonify(app.current_project)
@@ -46,7 +62,16 @@ def new_project():
 
 @project_bp.route('/api/project', methods=['POST'])
 def save_project():
-    data = request.json or {}
+    data = dict(request.json or {})
+    # The client's own raster sync on every page load of the pristine
+    # startup project comes through here too (app-client-props
+    # loadClientSideProperties, and createNewProject's twin). Until
+    # 2026-09-22 that POST cleared is_pristine, so the startup screen
+    # followed the Preferences dialog's Save only inside the session that
+    # made it, never after a relaunch. That sync says so with
+    # `keep_pristine: true`; it is a request marker, never stored. A user
+    # save, a sidebar reorder - any other POST - clears the flag as before.
+    keep_pristine = bool(data.pop('keep_pristine', False))
     # Slice 6: source-of-truth for raster lives on the active canvas. If the
     # client sent root-level raster_* fields without a canvases payload
     # (backwards-compat clients / older tests), propagate those into the
@@ -67,7 +92,9 @@ def save_project():
             if key in data and data[key] is not None:
                 active[key] = data[key]
     app.current_project.update(data)
-    app.current_project['is_pristine'] = False
+    if not keep_pristine:
+        app.current_project['is_pristine'] = False
+    _stamp_app_version(app.current_project)
     app._mirror_active_canvas_to_root(app.current_project)
     # v0.11.0: the same repair PUT has always run. This route is not just
     # "save as" - every sidebar reorder comes through it with the whole layers
@@ -97,6 +124,9 @@ def save_project():
     if port_assignment.retire_auto(app.current_project):
         log_event('port_assignment_auto_retired', {'at': 'save_project'})
     app.sync_next_layer_id()
+    # A whole-layers payload can carry a screen with no breakout, or one its
+    # voltage no longer allows: it lands eligible (2026-09-22).
+    app.normalize_power_breakouts(app.current_project)
     log_event('save_project', {'name': app.current_project.get('name')})
     return jsonify({'status': 'success'})
 
@@ -206,6 +236,10 @@ def restore_project():
     if port_assignment.retire_auto(app.current_project):
         log_event('port_assignment_auto_retired', {'at': 'restore_project'})
     app.sync_next_layer_id()
+    # The load funnel (file load, undo/redo): every screen lands with a
+    # breakout its voltage allows - a file saved before the ruling, or an
+    # undo snapshot holding an ineligible id, is healed here (2026-09-22).
+    app.normalize_power_breakouts(app.current_project)
     log_event('restore_project', {
         'name': app.current_project.get('name', '?'),
         'layers': len(app.current_project.get('layers', [])),

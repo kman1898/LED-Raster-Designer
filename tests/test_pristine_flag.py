@@ -111,7 +111,9 @@ def test_add_image_layer_clears_pristine():
 
 
 def test_update_layer_clears_pristine():
-    """Updating a layer should set is_pristine=False."""
+    """A layer PUT the user caused - the client marks it `?edited=1` -
+    should set is_pristine=False. The marker is a request field, never
+    stored on the layer."""
     app.config['TESTING'] = True
     _fresh_project()
     with app.test_client() as client:
@@ -127,10 +129,100 @@ def test_update_layer_clears_pristine():
         # Reset pristine to test that update_layer itself clears it
         app_module.current_project['is_pristine'] = True
 
-        client.put(f'/api/layer/{layer_id}', json={'name': 'Renamed'})
+        resp = client.put(f'/api/layer/{layer_id}?edited=1', json={'name': 'Renamed'})
+        assert resp.status_code == 200
+        assert 'edited' not in resp.get_json()
         resp = client.get('/api/project')
         data = resp.get_json()
         assert data['is_pristine'] is False
+        assert data['layers'][0]['name'] == 'Renamed'
+        assert 'edited' not in data['layers'][0]
+
+
+def test_update_layer_without_the_edited_marker_keeps_pristine():
+    """The page's own PUTs - the boot pass writing back what it normalized,
+    the Preferences dialog's Save re-making the startup screen - carry no
+    marker and leave the flag alone, so the startup screen keeps following
+    Preferences after a relaunch until a hand touches it (2026-09-22)."""
+    app.config['TESTING'] = True
+    _fresh_project()
+    with app.test_client() as client:
+        resp = client.post('/api/layer/add', json={
+            'name': 'Screen1', 'columns': 4, 'rows': 3,
+            'cabinet_width': 128, 'cabinet_height': 128,
+        })
+        layer_id = resp.get_json()['id']
+        app_module.current_project['is_pristine'] = True
+
+        for body in ({'columns': 6}, {'columns': 7, 'edited': False}):
+            resp = client.put(f'/api/layer/{layer_id}', json=body)
+            assert resp.status_code == 200
+            data = client.get('/api/project').get_json()
+            assert data['is_pristine'] is True, body
+            assert data['layers'][0]['columns'] == body['columns'], 'the write itself still landed'
+
+
+def test_save_project_with_keep_pristine_keeps_the_flag_and_drops_the_marker():
+    """The client's raster sync on every load of the pristine startup
+    project says `keep_pristine: true`: the raster lands, the flag stays,
+    and the marker is never stored. Any other POST clears the flag."""
+    app.config['TESTING'] = True
+    _fresh_project()
+    with app.test_client() as client:
+        resp = client.post('/api/project', json={
+            'raster_width': 3840, 'raster_height': 2160,
+            'show_raster_width': 3840, 'show_raster_height': 2160,
+            'keep_pristine': True,
+        })
+        assert resp.status_code == 200
+        data = client.get('/api/project').get_json()
+        assert data['is_pristine'] is True
+        assert data['raster_width'] == 3840
+        assert 'keep_pristine' not in data
+        assert 'keep_pristine' not in app_module.current_project
+
+        client.post('/api/project', json={'raster_width': 1920, 'keep_pristine': False})
+        assert client.get('/api/project').get_json()['is_pristine'] is False
+
+
+# ── app_version: the build that last wrote the project ──────────────────
+
+
+def test_a_save_and_a_new_project_stamp_the_app_version():
+    """Every POST /api/project and every new project carry the running
+    build's version, so the client can tell a project this build wrote
+    from an old file (the old-green migration gate)."""
+    from updater import get_current_version
+    app.config['TESTING'] = True
+    _fresh_project()
+    version = get_current_version()
+    assert version and version != '0.0.0'
+    with app.test_client() as client:
+        assert 'app_version' not in client.get('/api/project').get_json()
+        client.post('/api/project', json={'raster_width': 1920, 'keep_pristine': True})
+        assert client.get('/api/project').get_json()['app_version'] == version
+        client.post('/api/project', json={'name': 'Wall', 'app_version': '0.1.0'})
+        assert client.get('/api/project').get_json()['app_version'] == version, \
+            'the server stamps its own, whatever the client sent'
+        data = client.post('/api/project/new').get_json()
+        assert data['app_version'] == version
+
+
+def test_a_load_never_stamps_the_app_version():
+    """PUT /api/project is a file load (or an undo snapshot): a file saved
+    before the stamp existed must still carry none afterwards - that
+    absence is what marks it as predating the migration - and a file's
+    own stamp is kept as it was."""
+    app.config['TESTING'] = True
+    _fresh_project()
+    with app.test_client() as client:
+        old_file = {'name': 'Old', 'raster_width': 1920, 'raster_height': 1080, 'layers': []}
+        client.put('/api/project', json=old_file)
+        assert 'app_version' not in client.get('/api/project').get_json()
+
+        stamped = dict(old_file, name='Stamped', app_version='1.3.0')
+        client.put('/api/project', json=stamped)
+        assert client.get('/api/project').get_json()['app_version'] == '1.3.0'
 
 
 def test_delete_layer_clears_pristine():

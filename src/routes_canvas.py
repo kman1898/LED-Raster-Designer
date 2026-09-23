@@ -199,6 +199,9 @@ def duplicate_canvas(canvas_id):
         # A deep copy would otherwise carry the source's group_id while that
         # group's layer_ids knows nothing about the clone.
         clone['group_id'] = None
+        # A deep copy carries whatever the source held; a screen clone
+        # keeps a breakout its voltage allows (2026-09-22).
+        app.normalize_power_breakout(clone)
         id_map[src_layer.get('id')] = clone['id']
         clones.append(clone)
         app.current_project['layers'].append(clone)

@@ -7,7 +7,37 @@ import { LEDRasterApp } from './app-core.js';
 import { sendClientLog } from './helpers.js';
 
 class _ProjectIo {
+    // The build this page is: what a saved project is stamped with as
+    // `app_version` (the server stamps the same on every POST /api/project
+    // and on a new project; a load never stamps, so a file saved before
+    // the stamp existed still carries none - see app-naming
+    // normalizePowerCircuitColors for what reads it). /api/version is the
+    // authority (VERSION.txt on the local server, the About dialog's
+    // source); it is fetched once, and until it answers the baked page
+    // title stands in - the same fallback whatsnew.js uses. Synchronous,
+    // so a save never waits on the network for its stamp.
+    appVersion() {
+        if (this._appVersion) return this._appVersion;
+        if (!this._appVersionFetch) {
+            this._appVersionFetch = fetch('/api/version')
+                .then(r => r.json())
+                .then(d => { if (d && d.version) this._appVersion = String(d.version); })
+                .catch(() => {});
+        }
+        const m = /v(\d+\.\d+\.\d+)/.exec(document.title || '');
+        return m ? m[1] : '';
+    }
+
+    // The project as the file on disk holds it: this build's version
+    // stamped on, then pretty-printed. saveProjectToFile writes exactly
+    // this, so a round trip through File > Open reads the stamp back.
+    serializeProjectForFile(project = this.project) {
+        project.app_version = this.appVersion();
+        return JSON.stringify(project, null, 2);
+    }
+
     saveProject() {
+        this.project.app_version = this.appVersion();
         fetch('/api/project', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -41,7 +71,7 @@ class _ProjectIo {
         const project = this.project;
         await this.saveBlobWithPicker(
             () => {
-                const projectData = JSON.stringify(project, null, 2);
+                const projectData = this.serializeProjectForFile(project);
                 return new Blob([projectData], { type: 'application/json' });
             },
             `${this.project.name}.json`,
@@ -227,7 +257,7 @@ class _ProjectIo {
         // offered. Runs before the default below: it sets lowLatency itself.
         this.migrateLowLatencyProcessor(layer);
         if (layer.lowLatency === undefined) layer.lowLatency = false;
-        if (layer.powerVoltage === undefined) layer.powerVoltage = 110;
+        if (layer.powerVoltage === undefined) this.setScreenVoltage(layer, 110);
         if (layer.powerVoltageCustom === undefined) layer.powerVoltageCustom = layer.powerVoltage;
         if (layer.powerAmperage === undefined) layer.powerAmperage = 15;
         if (layer.powerAmperageCustom === undefined) layer.powerAmperageCustom = layer.powerAmperage;
