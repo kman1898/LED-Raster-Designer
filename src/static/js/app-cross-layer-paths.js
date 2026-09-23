@@ -81,11 +81,21 @@ class _CrossLayerPaths {
     // nor have a way to delete it").
     //
     // clearCustomRun: the current layer's run `num` goes, and every peer's run
-    // `num` loses the entries that land on this layer. clearAllCustomRuns:
-    // every member of the path scope drops all its runs and overrides - the
-    // wall is back to automatic. Both return {touched, skipped}: the layers
-    // written, for the PUT (_persistWith adds them to the selection), and the
-    // members left alone because they are locked, for the toast.
+    // `num` that lands on this layer goes WHOLE - its steps on the peer and
+    // on any third member included, with its override for `num` let go
+    // (Matt's ruling, 2026-09-23, the Quantico file: Screen3's 16 circuits
+    // each ran 7 cabinets of Screen2 then 7 of its own, and Clear Circuit on
+    // Screen2 left every one of them half-drawn - "a group is one screen and
+    // a circuit is one circuit"). Until then a peer's run only LOST the steps
+    // on this layer, which cut one physical cable into a stub nobody drew.
+    // A peer's run `num` that never touches this layer is a different cable
+    // on a different distro or processor output (numbers are per member -
+    // see _findPathOwner) and is left alone, so a Clear that finds nothing
+    // here still changes nothing. clearAllCustomRuns: every member of the
+    // path scope drops all its runs and overrides - the wall is back to
+    // automatic. Both return {touched, skipped}: the layers written, for the
+    // PUT (_persistWith adds them to the selection), and the members left
+    // alone because they are locked, for the toast.
     //
     // An emptied run's key is DELETED, on the clicked screen as on a peer
     // (2026-09-22). Every reader goes through `paths[num] || []` or filters
@@ -129,6 +139,10 @@ class _CrossLayerPaths {
         }
     }
 
+    // This layer's run `num`, and - whole - every peer's run `num` with a
+    // step on this layer (2026-09-23, "a circuit is one circuit"; see the
+    // section comment above). A locked peer is skipped whole and reported;
+    // the clicked layer is cleared even when itself locked.
     clearCustomRun(layer, kind, num) {
         if (!layer) return { touched: [], skipped: [] };
         const k = this._customRunKeys(kind);
@@ -143,15 +157,11 @@ class _CrossLayerPaths {
             if (!peer || peer.id === layer.id) return;
             const paths = peer[k.paths];
             if (!paths || !Array.isArray(paths[num]) || paths[num].length === 0) return;
-            const kept = paths[num].filter(e => this.getPathEntryLayerId(peer, e) !== layer.id);
-            if (kept.length === paths[num].length) return;
+            const lands = paths[num].some(e => this.getPathEntryLayerId(peer, e) === layer.id);
+            if (!lands) return;
             if (peer.locked) { skipped.push(peer); return; }
-            if (kept.length) {
-                paths[num] = kept;
-            } else {
-                delete paths[num];
-                this._dropRunOverride(peer, kind, num);
-            }
+            delete paths[num];
+            this._dropRunOverride(peer, kind, num);
             touched.push(peer);
         });
         return { touched, skipped };

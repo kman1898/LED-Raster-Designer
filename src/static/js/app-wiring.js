@@ -109,6 +109,13 @@ class _Wiring {
     // (e.detail is 0 for Enter / Space on a focused tile): a keyboard user
     // who tabbed to the tile keeps their place. The Next / Prev buttons
     // keep theirs on purpose - see the 2026-09-03 ruling in canvas-input.
+    //
+    // The four Clear buttons take the same treatment (found by an
+    // end-to-end pass, 2026-09-23): after a mouse click on Clear Circuit /
+    // Clear All (power) or Clear Port / Clear All (data), Tab walked from
+    // one Clear button to the next instead of stepping the run. A Clear
+    // drops its focus even when it cleared nothing - the user's next
+    // gesture is the same either way.
     _dropPatternTileFocus(btn, e) {
         if (!btn || !e || !e.detail) return;
         if (document.activeElement === btn && typeof btn.blur === 'function') btn.blur();
@@ -1159,14 +1166,17 @@ class _Wiring {
             });
         }
         if (customClearPortBtn) {
-            customClearPortBtn.addEventListener('click', () => {
+            customClearPortBtn.addEventListener('click', (e) => {
+                // Mouse click: hand the keyboard back to the canvas so the
+                // Tab that follows steps the port - see _dropPatternTileFocus.
+                this._dropPatternTileFocus(customClearPortBtn, e);
                 if (!this.currentLayer) return;
                 // No ensure* here: it wrote `{}` and 1 onto a screen with
                 // nothing, and a Clear that clears nothing must change
                 // nothing - no undo step, no PUT (touched is empty).
                 const portNum = this.currentLayer.customPortIndex || 1;
-                // This screen's port, and its cabinets out of a peer's port
-                // of the same number - see clearCustomRun.
+                // This screen's port, and - whole - any peer's port of the
+                // same number that lands here - see clearCustomRun.
                 const { touched, skipped } = this.clearCustomRun(this.currentLayer, 'data', portNum);
                 if (touched.length) {
                     this.saveState('Custom Clear Port');
@@ -1180,7 +1190,8 @@ class _Wiring {
             });
         }
         if (customClearAllBtn) {
-            customClearAllBtn.addEventListener('click', () => {
+            customClearAllBtn.addEventListener('click', (e) => {
+                this._dropPatternTileFocus(customClearAllBtn, e);
                 if (!this.currentLayer) return;
                 // The per-run overrides go with their paths: a reserved number
                 // whose path was just wiped would leave an invisible gap in
@@ -1763,12 +1774,14 @@ class _Wiring {
             });
         }
         if (powerCustomClearCircuit) {
-            powerCustomClearCircuit.addEventListener('click', () => {
+            powerCustomClearCircuit.addEventListener('click', (e) => {
+                // Mouse click drops focus - see the data Clear Port.
+                this._dropPatternTileFocus(powerCustomClearCircuit, e);
                 if (!this.currentLayer) return;
                 // No ensure* here - see the data Clear Port.
                 const circuitNum = this.currentLayer.powerCustomIndex || 1;
-                // This screen's circuit, and its cabinets out of a peer's
-                // circuit of the same number - see clearCustomRun.
+                // This screen's circuit, and - whole - any peer's circuit of
+                // the same number that lands here - see clearCustomRun.
                 const { touched, skipped } = this.clearCustomRun(this.currentLayer, 'power', circuitNum);
                 if (touched.length) {
                     this.saveState('Power Custom Clear Circuit');
@@ -1781,7 +1794,8 @@ class _Wiring {
             });
         }
         if (powerCustomClearAll) {
-            powerCustomClearAll.addEventListener('click', () => {
+            powerCustomClearAll.addEventListener('click', (e) => {
+                this._dropPatternTileFocus(powerCustomClearAll, e);
                 if (!this.currentLayer) return;
                 // Overrides go with their paths - see the data Clear All. On a
                 // grouped screen the whole wall clears (clearAllCustomRuns).

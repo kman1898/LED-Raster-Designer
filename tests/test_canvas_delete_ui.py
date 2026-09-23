@@ -110,6 +110,28 @@ window.__cd = {
     del.click();
   },
   async settle(ms) { await new Promise(r => setTimeout(r, ms || 400)); },
+  // Give the project one H9 with a 16-port card and land the named screens
+  // on it in order - the request a card drop sends - so every port each of
+  // them needs is a pin. Leaves window.app.project holding the pins the way
+  // a session that made the drops would. Returns the pins.
+  async pin(ids, names) {
+    const json = (body) => ({ method: 'POST',
+      headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
+    let r = await fetch('/api/processors', json({ deviceId: 'novastar-h9' }));
+    const proc = (await r.json()).resolved[0];
+    r = await fetch('/api/processors/' + proc.id + '/slots/0', {
+      ...json({ deviceId: 'novastar-card-h-16xrj45-2xfiber' }), method: 'PUT' });
+    const cardId = (await r.json()).resolved[0].slots[0].card.id;
+    window.app.project = await (await fetch('/api/project')).json();
+    const screens = window.app._assignmentScreens();
+    for (const name of names) {
+      r = await fetch('/api/port-assignments/place-overflow',
+        json({ layerId: String(ids[name]), cardId, screens }));
+      if (!r.ok) throw new Error('place-overflow ' + name + ': ' + await r.text());
+    }
+    window.app.project = await (await fetch('/api/project')).json();
+    return window.app.project.port_assignments.pins;
+  },
 };
 """
 
@@ -298,3 +320,43 @@ def test_selection_on_another_canvas_is_untouched_by_the_delete(page):
     ], ['S3'])
     assert out['current'] == out['ids']['S3'], out
     assert out['selected'] == [out['ids']['S3']], out
+
+
+def test_after_the_ui_delete_no_pin_names_a_dead_layer(page):
+    """The end-to-end pass that found it (2026-09-23): card pins on S1, the
+    canvas duplicated, the original deleted from the kebab. Afterwards
+    window.app.project.port_assignments.pins - without a reload - and the
+    server's copy name only living layers, and S3's pins on the surviving
+    canvas are untouched."""
+    out = page.evaluate(r"""async () => {
+      const ids = await window.__cd.fresh(2, [
+        {name: 'S1', canvas: 'c1', x: 0, y: 0, cols: 8, rows: 8},
+        {name: 'S3', canvas: 'c2', x: 0, y: 0},
+      ]);
+      const before = await window.__cd.pin(ids, ['S1', 'S3']);
+      await window.app.duplicateCanvas('c1');
+      await window.__cd.settle(300);
+      window.__cd.stubConfirm(true);
+      await window.__cd.deleteViaKebab('c1');
+      await window.__cd.settle(900);
+      const srv = await (await fetch('/api/project')).json();
+      return {
+        ids, before,
+        alive: window.app.project.layers.map(l => String(l.id)),
+        client: window.app.project.port_assignments.pins,
+        server: srv.port_assignments.pins,
+        serverAlive: srv.layers.map(l => String(l.id)),
+        canvases: window.app.project.canvases.map(c => c.id),
+      };
+    }""")
+    s1, s3 = str(out['ids']['S1']), str(out['ids']['S3'])
+    assert 'c1' not in out['canvases'], out
+    assert s1 not in out['alive'] and s3 in out['alive'], out
+    assert any(p['layerId'] == s1 for p in out['before']), 'S1 was never pinned: %r' % out
+    s3_before = [p for p in out['before'] if p['layerId'] == s3]
+    assert s3_before, 'S3 was never pinned: %r' % out
+    for side in ('client', 'server'):
+        alive = set(out['alive'] if side == 'client' else out['serverAlive'])
+        dead = [p for p in out[side] if p['layerId'] not in alive]
+        assert dead == [], '%s keeps pins on dead layers: %r' % (side, dead)
+        assert [p for p in out[side] if p['layerId'] == s3] == s3_before, out

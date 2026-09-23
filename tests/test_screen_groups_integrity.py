@@ -494,7 +494,13 @@ def test_the_pruner_applies_the_servers_rule_not_the_renderers(page):
 # Clearing hand-drawn runs on a grouped screen (2026-09-22). A run a member
 # owns may sit on a peer's cabinets; Clear Circuit / Clear Port and Clear All
 # on the peer used to leave it there with no way to remove it from that screen
-# (the Orlando file: SL's circuit 1 was 13 cabinets of SR).
+# (the Orlando file: SL's circuit 1 was 13 cabinets of SR). Since 2026-09-23
+# the peer's run goes WHOLE, not just its steps on this screen ("a group is
+# one screen and a circuit is one circuit" - the Quantico file, where every
+# circuit was 7 cabinets of one member and 7 of the other, and Clear left
+# each one half-drawn). tests/test_clear_run_whole_circuit.py builds that
+# exact shape; here the fixture's run 1 mixes the two so the whole-run rule
+# is exercised by every Clear test below.
 # ---------------------------------------------------------------------------
 
 _RUN_KEYS = {
@@ -511,8 +517,9 @@ _RUN_KEYS = {
 
 def _grouped_pair_with_peer_run(page, kind, peer_locked=False, peer_auto=False,
                                 current_locked=False, current_empty=False):
-    """Two grouped screens; the SECOND owns run 1 made only of the FIRST's
-    cabinets, and run 2 of its own. The first is current. Returns the ids.
+    """Two grouped screens; the SECOND owns run 1 made of two of the FIRST's
+    cabinets and one of its own, and run 2 of its own. The first is current.
+    Returns the ids.
 
     peer_auto: the second keeps its automatic pattern and holds run 1 as an
     OVERRIDE (its override list names 1). peer_locked / current_locked: that
@@ -532,7 +539,8 @@ def _grouped_pair_with_peer_run(page, kind, peer_locked=False, peer_auto=False,
       await window.app.groupSelectedLayers();
       await window.__gi.settle();
       const a = window.__gi.layer(ids[0]), b = window.__gi.layer(ids[1]);
-      b[paths] = { 1: [{ row: 0, col: 0, layerId: ids[0] }, { row: 0, col: 1, layerId: ids[0] }],
+      b[paths] = { 1: [{ row: 0, col: 0, layerId: ids[0] }, { row: 0, col: 1, layerId: ids[0] },
+                       { row: 0, col: 0 }],
                    2: [{ row: 1, col: 1 }] };
       b[index] = 1;
       if (peerAuto) b[overrides] = [1];
@@ -560,9 +568,10 @@ def _clear_toasts(page):
 
 
 @pytest.mark.parametrize('kind', ['power', 'data'])
-def test_clear_run_on_a_member_takes_its_cabinets_out_of_a_peers_run(page, kind):
-    """Clear Circuit / Clear Port on screen A clears A's run 1 AND removes A's
-    cabinets from B's run 1 (emptied, so it goes); B's run 2 is untouched."""
+def test_clear_run_on_a_member_removes_the_peers_whole_run(page, kind):
+    """Clear Circuit / Clear Port on screen A clears A's run 1 AND B's run 1
+    whole - B's own cabinet on it included, not just A's (2026-09-23, "a
+    circuit is one circuit"); B's run 2 is untouched."""
     k = _RUN_KEYS[kind]
     ids = _grouped_pair_with_peer_run(page, kind)
     page.evaluate("(id) => document.getElementById(id).click()", k['clear_one'])
@@ -574,7 +583,8 @@ def test_clear_run_on_a_member_takes_its_cabinets_out_of_a_peers_run(page, kind)
       return { a: a[paths], b: b[paths], serverB: sb[paths] };
     }""", [ids, k['paths']])
     assert out['a'].get('1', []) == [], out
-    assert '1' not in out['b'], 'the peer run drawn across this screen survived: %r' % out
+    assert '1' not in out['b'], (
+        'the peer run drawn across this screen survived (whole or as its own stub): %r' % out)
     assert out['b'].get('2') == [{'row': 1, 'col': 1}], out
     assert '1' not in (out['serverB'] or {}), 'the server still holds the peer run: %r' % out
 
@@ -670,8 +680,9 @@ def test_clear_run_on_a_peer_lets_go_of_the_members_emptied_override(page, kind)
 
 @pytest.mark.parametrize('kind', ['power', 'data'])
 def test_clear_run_leaves_a_locked_peers_run_alone_and_says_so(page, kind):
-    """B is locked: Clear on A clears A's own run but B's run 1 keeps A's
-    cabinets, B is not written, and one toast says it was left alone."""
+    """B is locked: Clear on A clears A's own run but B's run 1 is skipped
+    whole - A's cabinets and B's own stay - B is not written, and one toast
+    says it was left alone."""
     k = _RUN_KEYS[kind]
     ids = _grouped_pair_with_peer_run(page, kind, peer_locked=True)
     _clear_toasts(page)
@@ -685,7 +696,8 @@ def test_clear_run_leaves_a_locked_peers_run_alone_and_says_so(page, kind):
     }""", [ids, k['paths']])
     assert '1' not in out['a'], out
     assert out['b'].get('1') == [{'row': 0, 'col': 0, 'layerId': ids[0]},
-                                 {'row': 0, 'col': 1, 'layerId': ids[0]}], out
+                                 {'row': 0, 'col': 1, 'layerId': ids[0]},
+                                 {'row': 0, 'col': 0}], out
     assert out['sb'].get('1') == out['b'].get('1'), out
     peer = page.evaluate("(id) => window.__gi.layer(id).name", ids[1])
     assert toasts == ['%s is locked — its %s were left alone.' % (peer, k['runs'])], toasts
@@ -712,7 +724,8 @@ def test_clear_all_leaves_a_locked_member_alone_and_says_so(page, kind):
                steps: window.app.history.length };
     }""", [ids, k['paths'], k['index'], k['overrides']])
     assert out['a']['paths'] == {} and out['a']['index'] == 1, out
-    expected_b = {'1': [{'row': 0, 'col': 0, 'layerId': ids[0]}, {'row': 0, 'col': 1, 'layerId': ids[0]}],
+    expected_b = {'1': [{'row': 0, 'col': 0, 'layerId': ids[0]}, {'row': 0, 'col': 1, 'layerId': ids[0]},
+                        {'row': 0, 'col': 0}],
                   '2': [{'row': 1, 'col': 1}]}
     assert out['b'] == {'paths': expected_b, 'index': 2, 'overrides': [2]}, out
     assert out['sb']['paths'] == expected_b, out

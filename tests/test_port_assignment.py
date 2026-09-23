@@ -1352,11 +1352,22 @@ def test_a_pin_is_refused_onto_a_card_that_is_not_in_the_project(one_card):
 
 def test_pins_round_trip_through_save_and_reload(two_cards):
     """Project-level state rides the whole-project POST / PUT, so this is the
-    same path undo/redo and a file open take."""
+    same path undo/redo and a file open take.
+
+    The screen is a real layer here, unlike the rest of this module: a pin
+    names a layer, and the funnel drops a pin on a layer the project does
+    not have (port_assignment.prune_orphan_pins, 2026-09-23 - see
+    tests/test_port_pins_follow_layers.py), which is exactly what a pin on
+    a made-up id looks like to a file open."""
     client, _pid, card_a, card_b = two_cards
-    sc = screens(('Main', 4),)
+    resp = client.post('/api/layer/add', json={
+        'name': 'Main', 'columns': 4, 'rows': 3,
+        'cabinet_width': 128, 'cabinet_height': 128})
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    main = str(resp.get_json()['id'])
+    sc = [{'layerId': main, 'name': 'Main', 'ports': 4}]
     client.post('/api/port-assignments/pin', json={
-        'layerId': 'Main', 'index': 2, 'cardId': card_b, 'port': 6,
+        'layerId': main, 'index': 2, 'cardId': card_b, 'port': 6,
         'screens': sc})
 
     saved = client.get('/api/project').get_json()
@@ -1365,9 +1376,11 @@ def test_pins_round_trip_through_save_and_reload(two_cards):
     assert client.post('/api/project', json=saved).status_code == 200
     assert client.put('/api/project', json=saved).status_code == 200
 
-    res = resolve(client, ('Main', 4))
-    assert spots(res, 'Main')[2] == (card_b, 6)
-    assert sources(res, 'Main')[2] == 'pin'
+    resp = client.post('/api/port-assignments/resolve', json={'screens': sc})
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    res = resp.get_json()['resolution']
+    assert spots(res, main)[2] == (card_b, 6)
+    assert sources(res, main)[2] == 'pin'
 
 
 def test_only_pins_and_the_retired_auto_stamp_are_stored(one_card):

@@ -2052,6 +2052,12 @@ class _ScreenInfo {
         const layers = this.getSelectedLayers();
         if (layers.length === 0) return;
         const primary = this.currentLayer || layers[0];
+        // Every read below goes through `primary`, never this.currentLayer:
+        // a restore can hand this function a selection with no current
+        // layer (undo past a paste, then redo - see app-history), and the
+        // view-tab handler called it with currentLayer null. One bare read
+        // threw, and every refresh after it (text panel, port capacity, port
+        // labels) was skipped for that click.
         const allImages = layers.every(l => (l.type || 'screen') === 'image');
         const allText = layers.every(l => (l.type || 'screen') === 'text');
         const screenGridSection = document.getElementById('screen-grid-settings');
@@ -2392,34 +2398,34 @@ class _ScreenInfo {
         setTextInput('label-size', getCommon(l => l.dataFlowLabelSize || 30));
         setCheckbox('random-colors', getCommon(l => l.randomDataColors || false));
         if (document.getElementById('custom-flow-toggle')) {
-            document.getElementById('custom-flow-toggle').checked = this.currentLayer.flowPattern === 'custom';
+            document.getElementById('custom-flow-toggle').checked = primary.flowPattern === 'custom';
         }
         this.updateCustomFlowUI();
         if (document.getElementById('port-label-template-primary')) {
-            document.getElementById('port-label-template-primary').value = this.currentLayer.portLabelTemplatePrimary || 'P#';
+            document.getElementById('port-label-template-primary').value = primary.portLabelTemplatePrimary || 'P#';
         }
         if (document.getElementById('port-label-template-return')) {
-            document.getElementById('port-label-template-return').value = this.currentLayer.portLabelTemplateReturn || 'R#';
+            document.getElementById('port-label-template-return').value = primary.portLabelTemplateReturn || 'R#';
         }
         
         // Load processor type, bit depth and frame rate
         if (document.getElementById('processor-type')) {
             const prefs = this.getPreferences();
-            document.getElementById('processor-type').value = this.currentLayer.processorType || prefs.processorType || 'novastar-armor';
+            document.getElementById('processor-type').value = primary.processorType || prefs.processorType || 'novastar-armor';
             this.updateBitDepthOptions();
             this.updateFrameRateOptions();
         }
         if (document.getElementById('bit-depth')) {
-            document.getElementById('bit-depth').value = this.currentLayer.bitDepth || this.getPreferences().bitDepth || 8;
+            document.getElementById('bit-depth').value = primary.bitDepth || this.getPreferences().bitDepth || 8;
         }
         if (document.getElementById('frame-rate')) {
-            document.getElementById('frame-rate').value = this.currentLayer.frameRate || this.getPreferences().frameRate || 60;
+            document.getElementById('frame-rate').value = primary.frameRate || this.getPreferences().frameRate || 60;
         }
         // v0.11.0: checkbox + note follow the selected layer's processor.
         this.updateLowLatencyUI();
 
         // Load port mapping mode button states
-        const mappingMode = this.currentLayer.portMappingMode || 'organized';
+        const mappingMode = primary.portMappingMode || 'organized';
         const mappingOrgBtn = document.getElementById('mapping-organized');
         const mappingMaxBtn = document.getElementById('mapping-max-capacity');
         if (mappingOrgBtn && mappingMaxBtn) {
@@ -2434,7 +2440,7 @@ class _ScreenInfo {
         this.updatePortLabelEditor();
         
         // Load flow pattern selection
-        const flowPattern = this.currentLayer.flowPattern || 'tl-h';
+        const flowPattern = primary.flowPattern || 'tl-h';
         document.querySelectorAll('.flow-pattern-btn:not(.power-flow-pattern-btn)').forEach(btn => {
             btn.classList.remove('active');
             if (btn.getAttribute('data-pattern') === flowPattern) {
@@ -2458,11 +2464,11 @@ class _ScreenInfo {
 
         if (powerVoltageSelect && powerVoltageCustomInput) {
             const presets = ['110', '208', '220', '230', '240'];
-            const currentVoltage = String(this.currentLayer.powerVoltage ?? 110);
+            const currentVoltage = String(primary.powerVoltage ?? 110);
             if (presets.includes(currentVoltage)) {
                 powerVoltageSelect.value = currentVoltage;
                 powerVoltageCustomInput.style.display = 'none';
-                powerVoltageCustomInput.value = this.currentLayer.powerVoltageCustom ?? this.currentLayer.powerVoltage ?? 110;
+                powerVoltageCustomInput.value = primary.powerVoltageCustom ?? primary.powerVoltage ?? 110;
             } else {
                 // The box shows the voltage the screen RUNS AT.
                 // powerVoltageCustom is only a cache of the last typed
@@ -2470,12 +2476,12 @@ class _ScreenInfo {
                 // screen a custom voltage without touching the cache.
                 powerVoltageSelect.value = 'custom';
                 powerVoltageCustomInput.style.display = 'inline-block';
-                powerVoltageCustomInput.value = this.currentLayer.powerVoltage ?? this.currentLayer.powerVoltageCustom ?? 110;
+                powerVoltageCustomInput.value = primary.powerVoltage ?? primary.powerVoltageCustom ?? 110;
             }
         }
         if (powerAmperageSelect && powerAmperageCustomInput) {
             const presets = ['15', '20'];
-            const currentAmp = String(this.currentLayer.powerAmperage ?? 15);
+            const currentAmp = String(primary.powerAmperage ?? 15);
             if (presets.includes(currentAmp)) {
                 powerAmperageSelect.value = currentAmp;
                 powerAmperageCustomInput.style.display = 'none';
@@ -2483,40 +2489,40 @@ class _ScreenInfo {
                 powerAmperageSelect.value = 'custom';
                 powerAmperageCustomInput.style.display = 'inline-block';
             }
-            powerAmperageCustomInput.value = this.currentLayer.powerAmperageCustom ?? this.currentLayer.powerAmperage ?? 15;
+            powerAmperageCustomInput.value = primary.powerAmperageCustom ?? primary.powerAmperage ?? 15;
         }
         if (powerPanelWattsInput) {
-            powerPanelWattsInput.value = this.currentLayer.panelWatts ?? 200;
+            powerPanelWattsInput.value = primary.panelWatts ?? 200;
         }
         if (powerLineWidthInput) {
-            powerLineWidthInput.value = this.currentLayer.powerLineWidth ?? 8;
+            powerLineWidthInput.value = primary.powerLineWidth ?? 8;
         }
         if (powerLabelSizeInput) {
-            powerLabelSizeInput.value = this.currentLayer.powerLabelSize ?? 14;
+            powerLabelSizeInput.value = primary.powerLabelSize ?? 14;
         }
         if (powerMaximizeCheckbox) {
-            powerMaximizeCheckbox.checked = !!this.currentLayer.powerMaximize;
+            powerMaximizeCheckbox.checked = !!primary.powerMaximize;
         }
         if (powerOrganizedCheckbox) {
-            powerOrganizedCheckbox.checked = this.currentLayer.powerOrganized !== false;
+            powerOrganizedCheckbox.checked = primary.powerOrganized !== false;
             if (powerMaximizeCheckbox && powerMaximizeCheckbox.checked) {
                 powerOrganizedCheckbox.checked = false;
             }
         }
         if (powerCustomToggle) {
-            powerCustomToggle.checked = this.currentLayer.powerFlowPattern === 'custom';
+            powerCustomToggle.checked = primary.powerFlowPattern === 'custom';
         }
         if (powerRandomColorsCheckbox) {
-            powerRandomColorsCheckbox.checked = !!this.currentLayer.powerRandomColors;
+            powerRandomColorsCheckbox.checked = !!primary.powerRandomColors;
         }
         if (powerColorCodedViewCheckbox) {
-            powerColorCodedViewCheckbox.checked = !!this.currentLayer.powerColorCodedView;
+            powerColorCodedViewCheckbox.checked = !!primary.powerColorCodedView;
         }
         const powerCircuitColorCustomInput = document.getElementById('power-circuit-color-custom');
         const powerCircuitColorCustomHexInput = document.getElementById('power-circuit-color-custom-hex');
         const powerCircuitColorPresetInput = document.getElementById('power-circuit-color-preset');
         if (powerCircuitColorCustomInput && powerCircuitColorCustomHexInput) {
-            const defaultCircuitColors = this.normalizePowerCircuitColors(this.currentLayer.powerCircuitColors);
+            const defaultCircuitColors = this.normalizePowerCircuitColors(primary.powerCircuitColors);
             const firstColor = defaultCircuitColors.A || '#FF0000';
             powerCircuitColorCustomInput.value = firstColor;
             powerCircuitColorCustomHexInput.value = firstColor.toUpperCase();
@@ -2526,67 +2532,67 @@ class _ScreenInfo {
         }
         const powerCircuitColorSection = document.getElementById('power-circuit-color-section');
         if (powerCircuitColorSection) {
-            powerCircuitColorSection.style.display = this.currentLayer.powerColorCodedView ? 'block' : 'none';
+            powerCircuitColorSection.style.display = primary.powerColorCodedView ? 'block' : 'none';
         }
         this.updatePowerCircuitColorEditor();
         if (document.getElementById('power-label-template')) {
-            document.getElementById('power-label-template').value = this.currentLayer.powerLabelTemplate || 'S1-#';
+            document.getElementById('power-label-template').value = primary.powerLabelTemplate || 'S1-#';
         }
         this.updatePowerLabelEditor();
         const showDataFlowPortInfoEl = document.getElementById('show-data-flow-port-info');
         if (showDataFlowPortInfoEl) {
-            showDataFlowPortInfoEl.checked = !!this.currentLayer.showDataFlowPortInfo;
+            showDataFlowPortInfoEl.checked = !!primary.showDataFlowPortInfo;
         }
         const showDataFlowPortLoadEl = document.getElementById('show-data-flow-port-load');
         if (showDataFlowPortLoadEl) {
-            showDataFlowPortLoadEl.checked = !!this.currentLayer.showDataFlowPortLoad;
+            showDataFlowPortLoadEl.checked = !!primary.showDataFlowPortLoad;
         }
         const showPowerCircuitInfoEl = document.getElementById('show-power-circuit-info');
         if (showPowerCircuitInfoEl) {
-            showPowerCircuitInfoEl.checked = !!this.currentLayer.showPowerCircuitInfo;
+            showPowerCircuitInfoEl.checked = !!primary.showPowerCircuitInfo;
         }
         const showPowerNferTagsEl = document.getElementById('show-power-nfer-tags');
         if (showPowerNferTagsEl) {
             // Default ON: only an explicit false unticks it.
-            showPowerNferTagsEl.checked = this.currentLayer.showPowerNferTags !== false;
+            showPowerNferTagsEl.checked = primary.showPowerNferTags !== false;
         }
         const showPowerCableTagsEl = document.getElementById('show-power-cable-tags');
         if (showPowerCableTagsEl) {
             // Default OFF: only an explicit true ticks it.
-            showPowerCableTagsEl.checked = this.currentLayer.showPowerCableTags === true;
+            showPowerCableTagsEl.checked = primary.showPowerCableTags === true;
         }
         const showDataCableTagsEl = document.getElementById('show-data-cable-tags');
         if (showDataCableTagsEl) {
-            showDataCableTagsEl.checked = this.currentLayer.showDataCableTags === true;
+            showDataCableTagsEl.checked = primary.showDataCableTags === true;
         }
         if (document.getElementById('power-line-color')) {
-            document.getElementById('power-line-color').value = this.currentLayer.powerLineColor || '#FF0000';
+            document.getElementById('power-line-color').value = primary.powerLineColor || '#FF0000';
         }
         if (document.getElementById('power-line-color-hex')) {
-            document.getElementById('power-line-color-hex').value = (this.currentLayer.powerLineColor || '#FF0000').toUpperCase();
+            document.getElementById('power-line-color-hex').value = (primary.powerLineColor || '#FF0000').toUpperCase();
         }
         if (document.getElementById('power-arrow-color')) {
-            document.getElementById('power-arrow-color').value = this.currentLayer.powerArrowColor || '#0042AA';
+            document.getElementById('power-arrow-color').value = primary.powerArrowColor || '#0042AA';
         }
         if (document.getElementById('power-arrow-color-hex')) {
-            document.getElementById('power-arrow-color-hex').value = (this.currentLayer.powerArrowColor || '#0042AA').toUpperCase();
+            document.getElementById('power-arrow-color-hex').value = (primary.powerArrowColor || '#0042AA').toUpperCase();
         }
         if (document.getElementById('power-label-bg-color')) {
-            document.getElementById('power-label-bg-color').value = this.currentLayer.powerLabelBgColor || '#D95000';
+            document.getElementById('power-label-bg-color').value = primary.powerLabelBgColor || '#D95000';
         }
         if (document.getElementById('power-label-bg-color-hex')) {
-            document.getElementById('power-label-bg-color-hex').value = (this.currentLayer.powerLabelBgColor || '#D95000').toUpperCase();
+            document.getElementById('power-label-bg-color-hex').value = (primary.powerLabelBgColor || '#D95000').toUpperCase();
         }
         if (document.getElementById('power-label-text-color')) {
-            document.getElementById('power-label-text-color').value = this.currentLayer.powerLabelTextColor || '#000000';
+            document.getElementById('power-label-text-color').value = primary.powerLabelTextColor || '#000000';
         }
         if (document.getElementById('power-label-text-color-hex')) {
-            document.getElementById('power-label-text-color-hex').value = (this.currentLayer.powerLabelTextColor || '#000000').toUpperCase();
+            document.getElementById('power-label-text-color-hex').value = (primary.powerLabelTextColor || '#000000').toUpperCase();
         }
 
         document.querySelectorAll('.power-flow-pattern-btn').forEach(btn => {
             btn.classList.remove('active');
-            if (btn.getAttribute('data-pattern') === (this.currentLayer.powerFlowPattern || 'tl-h')) {
+            if (btn.getAttribute('data-pattern') === (primary.powerFlowPattern || 'tl-h')) {
                 btn.classList.add('active');
             }
         });
@@ -2595,13 +2601,13 @@ class _ScreenInfo {
         
         // Load tab-specific screen name sizes
         if (document.getElementById('screen-name-size')) {
-            document.getElementById('screen-name-size').value = this.currentLayer.screenNameSizeDataFlow || 30;
+            document.getElementById('screen-name-size').value = primary.screenNameSizeDataFlow || 30;
         }
         if (document.getElementById('screen-name-size-cabinet')) {
-            document.getElementById('screen-name-size-cabinet').value = this.currentLayer.screenNameSizeCabinet || 30;
+            document.getElementById('screen-name-size-cabinet').value = primary.screenNameSizeCabinet || 30;
         }
         if (document.getElementById('screen-name-size-power')) {
-            document.getElementById('screen-name-size-power').value = this.currentLayer.screenNameSizePower || 30;
+            document.getElementById('screen-name-size-power').value = primary.screenNameSizePower || 30;
         }
         
         const normalizeColorObject = (value, fallbackHex) => {
@@ -2619,8 +2625,8 @@ class _ScreenInfo {
             }
             return fallback;
         };
-        const c1 = normalizeColorObject(this.currentLayer.color1, '#404680');
-        const c2 = normalizeColorObject(this.currentLayer.color2, '#959CB8');
+        const c1 = normalizeColorObject(primary.color1, '#404680');
+        const c2 = normalizeColorObject(primary.color2, '#959CB8');
         const hex1 = this.rgbToHex(c1.r, c1.g, c1.b);
         const hex2 = this.rgbToHex(c2.r, c2.g, c2.b);
         document.getElementById('color1-picker').value = hex1;
@@ -2632,9 +2638,9 @@ class _ScreenInfo {
             document.getElementById('color2-hex').value = hex2.toUpperCase();
         }
         const transparentFillEl = document.getElementById('transparent-fill');
-        if (transparentFillEl) transparentFillEl.checked = !!this.currentLayer.transparentFill;
+        if (transparentFillEl) transparentFillEl.checked = !!primary.transparentFill;
         const screenRotationEl = document.getElementById('screen-rotation');
-        if (screenRotationEl) screenRotationEl.value = String((((Number(this.currentLayer.rotation) || 0) % 360) + 360) % 360);
+        if (screenRotationEl) screenRotationEl.value = String((((Number(primary.rotation) || 0) % 360) + 360) % 360);
         // The beach the selection sits on (mixed shows a dash).
         if (typeof this.loadBeachPicker === 'function') this.loadBeachPicker(this.getSelectedLayers());
         // On Windows the visible element is a separate ".../-swatch" div (the

@@ -563,14 +563,18 @@ class _CustomRuns {
     // The pattern buttons on a selection, both sides through ONE walk.
     //
     // Used to write the WHOLE selection into the one active port or circuit.
-    // Now it walks the selection in pattern order, a whole row (or column)
-    // at a time, and fills the active run with as many whole lines as its
-    // capacity takes (customRunCapacity - the sidebar's Panels/Circuit and
+    // Now it walks the selection in pattern order and fills the active run
+    // to its capacity (customRunCapacity - the sidebar's Panels/Circuit and
     // Panels/Port), then steps to the next number and keeps going until the
-    // selection is consumed: a 14 x 6 block on serpentine at 14 a circuit
-    // is circuits 1..6 at 14 apiece, in one gesture, every one of them read
-    // from the side the first one started on; 18-wide rows at 24 a circuit
-    // are one row per circuit, not 24-and-a-bit.
+    // selection is consumed. HOW a run is filled follows the screen's mode
+    // (the user's ruling, 2026-09-23: "if set to organized then whole rows;
+    // if set to max capacity then pack full"): Organized takes whole rows
+    // (or columns) only - a 14 x 6 block on serpentine at 14 a circuit is
+    // circuits 1..6 at 14 apiece, every one read from the side the first
+    // one started on; 18-wide rows at 24 a circuit are one row per circuit,
+    // not 24-and-a-bit. Max Capacity / Maximize Power Use packs each run
+    // full as one continuous snake, cut exactly at the cap even mid-row.
+    // _chunkPicksByCapacity holds both walks.
     //
     // The numbers it fills are OVERWRITTEN - the active one always was, and
     // the ones it advances into are told on in the toast. A cabinet already
@@ -668,9 +672,13 @@ class _CustomRuns {
         if (chunks.length > 1) {
             const cap = this.customRunCapacity(owner, kind);
             const lineNoun = String(pattern).endsWith('-v') ? 'column' : 'row';
+            // The toast names the rule it used - the screen's mode decides
+            // it (see _chunkPicksByCapacity).
+            const rule = this._customRunPacksFull(owner, kind)
+                ? 'packed full' : `whole ${lineNoun}s`;
             let msg = `Filled ${noun}s ${this._customRunLabel(owner, kind, chunks[0].num)} to `
                 + `${this._customRunLabel(owner, kind, lastNum)} from the selection`
-                + ` (whole ${lineNoun}s, up to ${cap.count} panels each at ${cap.at})`;
+                + ` (${rule}, up to ${cap.count} panels each at ${cap.at})`;
             if (replaced.length > 0) {
                 msg += `; replaced ${noun}${replaced.length === 1 ? '' : 's'} `
                     + replaced.map(n => this._customRunLabel(owner, kind, n)).join(', ');
@@ -716,19 +724,37 @@ class _CustomRuns {
         return (at >= 0 && at + 1 < nums.length) ? nums[at + 1] : null;
     }
 
+    // Whether the pattern fill packs each run FULL on this screen (the
+    // screen's pack-full mode) or by whole lines (its organized mode). Data
+    // reads the Port Mapping buttons - `portMappingMode` 'max-capacity',
+    // 'organized' when absent - and power reads the Maximize Power Use box
+    // (`powerMaximize`); Organized is the default on both sides. Read from
+    // the OWNER, the layer the fill writes to, the same one customRunCapacity
+    // is read for.
+    _customRunPacksFull(owner, kind) {
+        if (!owner) return false;
+        if (kind === 'power') return !!owner.powerMaximize;
+        return ((owner.portMappingMode) || 'organized') === 'max-capacity';
+    }
+
     // Cut the pattern's lines into runs at capacity: [{num, picks, load}]
     // starting at `startNum`. No cap known means one run with everything.
     //
-    // THE WALK is by whole LINES - rows for a horizontal pattern, columns
-    // for a vertical one - the same unit the automatic Organized walk packs
-    // (calculatePowerAssignments). A run takes a line only when the WHOLE
-    // line still fits; a line that does not fit opens the next run. The
-    // user, 2026-09-22, with 18-wide rows at 24 a circuit: "it is supposed
-    // to start at the beginning and then fill a max, not jump down a row
-    // unless it fits a whole other row/column." Before this the fill poured
-    // cabinets in and cut wherever the cap fell, so circuit 1 was row 0 plus
-    // the far end of row 1 read backwards, and circuit 2 the rest of row 1
-    // plus most of row 2 - runs that started nowhere a cable comes from.
+    // TWO WALKS, chosen by the screen's mode (_customRunPacksFull). The
+    // user's ruling, 2026-09-23: "if set to organized then whole rows; if
+    // set to max capacity then pack full."
+    //
+    // ORGANIZED (the default): THE WALK is by whole LINES - rows for a
+    // horizontal pattern, columns for a vertical one - the same unit the
+    // automatic Organized walk packs (calculatePowerAssignments). A run
+    // takes a line only when the WHOLE line still fits; a line that does
+    // not fit opens the next run. The user, 2026-09-22, with 18-wide rows
+    // at 24 a circuit: "it is supposed to start at the beginning and then
+    // fill a max, not jump down a row unless it fits a whole other
+    // row/column." Before this the fill poured cabinets in and cut wherever
+    // the cap fell, so circuit 1 was row 0 plus the far end of row 1 read
+    // backwards, and circuit 2 the rest of row 1 plus most of row 2 - runs
+    // that started nowhere a cable comes from.
     //
     // Within one run the lines snake - the first in the pattern's own
     // direction, the next back, and so on - because a run is one cable
@@ -744,6 +770,17 @@ class _CustomRuns {
     // after run, and the remainder is a run of its own. The run in hand is
     // closed first - a run that ended part-way along the line above would
     // otherwise start this one mid-row.
+    //
+    // PACK FULL (Max Capacity on data, Maximize Power Use on power): the
+    // selection is ONE continuous snake - the shape getPatternOrderForGrid
+    // walks, the first line in the pattern's direction, every second line
+    // back - and each run takes exactly as much of it as its cap carries,
+    // cut wherever the cap falls, mid-line included. The next run carries
+    // the snake on from that cut; nothing restarts from the start side.
+    // That is the walk the automatic Max Capacity / Maximize engines make,
+    // and what "pack full" means: 12-wide rows at 8 a port are ports of 8,
+    // 8, 8 - row 0 cols 0-7; cols 8-11 then row 1 cols 11-8; row 1 cols
+    // 7-0 - not 8, 4, 8, 4.
     //
     // `error` instead when a single cabinet is over the cap on its own or
     // the override list runs out - nothing is written in either case.
@@ -779,6 +816,28 @@ class _CustomRuns {
                 cur.load += loadOf(pick);
             }
         };
+        if (this._customRunPacksFull(owner, kind)) {
+            // One continuous snake, cut at the cap wherever it falls.
+            const snake = [];
+            lines.forEach((line, i) => {
+                snake.push(...(i % 2 === 1 ? line.slice().reverse() : line));
+            });
+            for (const pick of snake) {
+                const load = loadOf(pick);
+                if (cap.known && load > limit + eps) {
+                    return { error: `panel ${this._describePathPanel(owner, pick.layer, pick.panel)} `
+                        + `is ${fmt(load)} and a ${noun} carries ${fmt(limit)}.` };
+                }
+                if (cur.picks.length > 0 && cur.load + load > limit + eps) {
+                    const why = closeRun();
+                    if (why) return { error: why };
+                }
+                cur.picks.push(pick);
+                cur.load += load;
+            }
+            chunks.push(cur);
+            return { chunks };
+        }
         for (const line of lines) {
             // An empty line (hidden cabinets, a group's gap) still counts
             // toward the snake's alternation - the rule this has always had.

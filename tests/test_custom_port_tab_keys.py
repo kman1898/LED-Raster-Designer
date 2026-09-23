@@ -442,3 +442,173 @@ def test_tab_from_the_canvas_still_steps(page):
         assert page.evaluate(STEP_READ_JS, 'power')['idx'] == 6
     finally:
         page.evaluate(RESTORE_JS)
+
+
+# ── the Clear buttons hand the keyboard back too ─────────────────────────
+#
+# Found by an end-to-end pass (2026-09-23), the same shape as the tile
+# case above: after a MOUSE click on Clear Circuit / Clear All (power) or
+# Clear Port / Clear All (data), Tab walked from one Clear button to the
+# next - powerCustomIndex stayed 3 -> 3 while document.activeElement went
+# BUTTON#power-custom-clear-circuit -> BUTTON#power-custom-clear-all - and
+# Shift+Tab did nothing either. The Tab shortcut yields to a focused
+# BUTTON on purpose (the Next / Prev ruling); the tiles got the 1.3.0
+# _dropPatternTileFocus treatment and the Clear buttons never did. Ruling:
+# a mouse-clicked Clear drops its focus, held or not, so the Tab that
+# follows steps the run. Enter on a Clear button a keyboard user tabbed to
+# keeps their place. Next / Prev are untouched.
+
+# One shape for both sides: which selection to make, which tile fills it,
+# which run map to read, and which buttons clear it.
+CLEAR_SIDES = {
+    'power': dict(
+        view='power', kind='power',
+        tile='.power-flow-pattern-btn[data-pattern="tl-h"]',
+        clear_one='#power-custom-clear-circuit',
+        clear_all='#power-custom-clear-all',
+    ),
+    'data': dict(
+        view='data-flow', kind='data',
+        tile='.flow-pattern-btn:not(.power-flow-pattern-btn)[data-pattern="tl-h"]',
+        clear_one='#custom-clear-port',
+        clear_all='#custom-clear-all',
+    ),
+}
+
+CLEAR_SETUP_JS = """(kind) => {
+    const app = window.app, layer = app.currentLayer;
+    const key = kind === 'power' ? 'powerCustomPaths' : 'customPortPaths';
+    if (window.__savedRunPaths === undefined) {
+        window.__savedRunPaths = JSON.stringify(layer[key] || {});
+    }
+    layer[key] = {};
+    if (kind === 'power') {
+        layer.powerVoltage = 208; layer.powerAmperage = 20; layer.panelWatts = 200;
+    }
+    const sel = kind === 'power' ? app.powerCustomSelection : app.customSelection;
+    sel.clear();
+    const cw = layer.cabinet_width, ch = layer.cabinet_height;
+    const rect = { x1: 1, y1: 1, x2: 2 * cw - 1, y2: ch - 1 };
+    if (kind === 'power') app.selectPowerPanelsInRect(layer, rect);
+    else app.selectPanelsInRect(layer, rect);
+    return sel.size;
+}"""
+
+CLEAR_READ_JS = """(kind) => {
+    const l = window.app.currentLayer;
+    const p = (kind === 'power' ? l.powerCustomPaths : l.customPortPaths) || {};
+    return {
+        idx: kind === 'power' ? l.powerCustomIndex : l.customPortIndex,
+        drawn: Object.keys(p).filter(n => (p[n] || []).length > 0).map(n => [Number(n), p[n].length]),
+        focus: document.activeElement ? (document.activeElement.id || document.activeElement.tagName) : null,
+    };
+}"""
+
+CLEAR_RESTORE_JS = """(kind) => {
+    const l = window.app.currentLayer;
+    const key = kind === 'power' ? 'powerCustomPaths' : 'customPortPaths';
+    l[key] = JSON.parse(window.__savedRunPaths || '{}');
+    delete window.__savedRunPaths;
+}"""
+
+
+def _fill_run(page, side):
+    """Select two cabinets and fill the active run with them by mouse, the
+    way the tile test above does. Returns the read after the fill."""
+    assert page.evaluate(CLEAR_SETUP_JS, side['kind']) == 2
+    page.locator(side['tile']).click()
+    page.wait_for_timeout(200)
+    return page.evaluate(CLEAR_READ_JS, side['kind'])
+
+
+def _tab_steps(page, side, start):
+    """Tab steps the run forward one, Shift+Tab steps it back - the proof
+    that the keyboard reached the canvas and not the next button."""
+    page.keyboard.press('Tab')
+    page.wait_for_timeout(200)
+    after_tab = page.evaluate(CLEAR_READ_JS, side['kind'])
+    assert after_tab['idx'] == start + 1, (
+        f"Tab after the Clear must step to the next run: {after_tab}")
+    page.keyboard.press('Shift+Tab')
+    page.wait_for_timeout(200)
+    after_back = page.evaluate(CLEAR_READ_JS, side['kind'])
+    assert after_back['idx'] == start, (
+        f"Shift+Tab after the Clear must step back: {after_back}")
+
+
+@pytest.mark.parametrize('name', sorted(CLEAR_SIDES))
+def test_tab_after_a_mouse_clicked_clear_steps_the_run(page, name):
+    side = CLEAR_SIDES[name]
+    page.locator(f'[data-mode="{side["view"]}"]').click()
+    page.wait_for_timeout(400)
+    page.evaluate(STEP_SETUP_JS, side['view'])
+    try:
+        # Clear Circuit / Clear Port on a held run.
+        filled = _fill_run(page, side)
+        assert filled['drawn'] == [[5, 2]], filled
+        assert filled['idx'] == 5, filled
+        page.locator(side['clear_one']).click()
+        page.wait_for_timeout(200)
+        cleared = page.evaluate(CLEAR_READ_JS, side['kind'])
+        assert cleared['drawn'] == [], cleared
+        assert cleared['idx'] == 5, cleared
+        assert cleared['focus'] != side['clear_one'].lstrip('#'), (
+            f"{side['clear_one']} must not keep focus after a mouse click: {cleared}")
+        _tab_steps(page, side, 5)
+
+        # Clear All on a held run. It resets the index to 1.
+        filled = _fill_run(page, side)
+        assert filled['drawn'] == [[5, 2]], filled
+        page.locator(side['clear_all']).click()
+        page.wait_for_timeout(200)
+        cleared = page.evaluate(CLEAR_READ_JS, side['kind'])
+        assert cleared['drawn'] == [], cleared
+        assert cleared['idx'] == 1, cleared
+        assert cleared['focus'] != side['clear_all'].lstrip('#'), (
+            f"{side['clear_all']} must not keep focus after a mouse click: {cleared}")
+        _tab_steps(page, side, 1)
+
+        # A Clear that clears nothing still hands the keyboard back - the
+        # user's next gesture is the same either way.
+        for button in (side['clear_one'], side['clear_all']):
+            page.locator(button).click()
+            page.wait_for_timeout(200)
+            noop = page.evaluate(CLEAR_READ_JS, side['kind'])
+            assert noop['drawn'] == [] and noop['idx'] == 1, noop
+            assert noop['focus'] != button.lstrip('#'), (
+                f"{button} must not keep focus after a no-op mouse click: {noop}")
+            _tab_steps(page, side, 1)
+    finally:
+        page.evaluate(CLEAR_RESTORE_JS, side['kind'])
+        page.evaluate(RESTORE_JS)
+
+
+@pytest.mark.parametrize('name', sorted(CLEAR_SIDES))
+def test_a_keyboard_activated_clear_keeps_its_focus(page, name):
+    """Enter on a Clear button a keyboard user tabbed to clears the run and
+    leaves them on the button (e.detail is 0) - only the mouse hands focus
+    back, exactly as with the tiles."""
+    side = CLEAR_SIDES[name]
+    page.locator(f'[data-mode="{side["view"]}"]').click()
+    page.wait_for_timeout(400)
+    page.evaluate(STEP_SETUP_JS, side['view'])
+    try:
+        for button in (side['clear_one'], side['clear_all']):
+            filled = _fill_run(page, side)
+            assert filled['drawn'] == [[5, 2]], filled
+            page.locator(button).focus()
+            page.keyboard.press('Enter')
+            page.wait_for_timeout(200)
+            cleared = page.evaluate(CLEAR_READ_JS, side['kind'])
+            assert cleared['drawn'] == [], cleared
+            assert cleared['focus'] == button.lstrip('#'), (
+                f"Enter on the focused {button} must leave focus there: {cleared}")
+            # Put the index Clear All reset back so the next fill lands on 5
+            # (not STEP_SETUP_JS again: it would re-save the stubbed state).
+            page.evaluate(
+                "(k) => { const l = window.app.currentLayer; "
+                "if (k === 'power') l.powerCustomIndex = 5; else l.customPortIndex = 5; }",
+                side['kind'])
+    finally:
+        page.evaluate(CLEAR_RESTORE_JS, side['kind'])
+        page.evaluate(RESTORE_JS)

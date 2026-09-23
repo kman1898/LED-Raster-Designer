@@ -413,13 +413,23 @@ def _power_pair(page, voltage_b):
     }""" % (POWER_PAIR_JS % voltage_b))
 
 
+def _power_info(texts):
+    """The group's one circuit line, rejoined from the lines it is drawn
+    on: the pair's wall is 256 px wide and the line does not fit it at the
+    14 px default, so since 2026-09-23 it is wrapped at its bar - the
+    circuits over the amps - instead of running off the wall."""
+    starts = [k for k, t in enumerate(texts) if 'Circuits' in t]
+    assert len(starts) == 1, f'expected one power info line, got {texts}'
+    assert not any(' | ' in t for t in texts), texts
+    return ' '.join(texts[starts[0]:])
+
+
 def test_a_matched_voltage_group_shows_the_combined_amps(page):
     """4 x 300 W + 4 x 90 W = 1560 W at 208 V -> 7.50 A single phase."""
     texts = _power_pair(page, 208)
-    line = [t for t in texts if 'Circuits |' in t]
-    assert len(line) == 1, f'expected one power info line, got {line}'
-    assert '7.50A 1φ' in line[0], line[0]
-    assert '4.34A 3φ' in line[0], line[0]      # 1560 / (208 x 1.73)
+    line = _power_info(texts)
+    assert '7.50A 1φ' in line, line
+    assert '4.34A 3φ' in line, line      # 1560 / (208 x 1.73)
 
 
 def test_a_mixed_voltage_group_never_shows_one_amps_figure(page):
@@ -429,10 +439,9 @@ def test_a_mixed_voltage_group_never_shows_one_amps_figure(page):
     has to say so rather than print a blended number nobody can act on.
     """
     texts = _power_pair(page, 110)
-    line = [t for t in texts if 'Circuits |' in t]
-    assert len(line) == 1, f'expected one power info line, got {line}'
-    assert 'Mixed voltage' in line[0], line[0]
-    assert '208' in line[0] and '110' in line[0], line[0]
+    line = _power_info(texts)
+    assert 'Mixed voltage' in line, line
+    assert '208' in line and '110' in line, line
     joined = ' | '.join(texts)
     assert '1φ' not in joined, f'a single-phase amps figure was drawn: {joined}'
     assert '3φ' not in joined, f'a three-phase amps figure was drawn: {joined}'

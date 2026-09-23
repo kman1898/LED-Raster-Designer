@@ -15,7 +15,7 @@
  */
 window.WHATS_NEW_CONTENT = {
     '1.3': {
-        title: 'A default for every screen colour, True1 and powerCON on 120V, Apply Pattern fills whole rows',
+        title: 'A default for every screen colour, True1 and powerCON on 120V, whole-row fills, a rear view binder',
         items: [
             { h: 'A default for every screen colour',
               d: 'Preferences has a labelled colour for every mark a screen draws, on the Look, Data and Power tabs. A new screen takes them all and keeps them; existing screens are not touched.' },
@@ -24,15 +24,15 @@ window.WHATS_NEW_CONTENT = {
             { h: 'Every screen carries a breakout',
               d: 'The Preferences breakout is the default when the voltage allows it; otherwise Edison at or below 120V and True1 above. Edison is not offered above 120V and L21-30 stays 208V only.' },
             { h: 'Apply Pattern fills whole rows',
-              d: 'In custom mode a circuit or port takes another row or column only when all of it fits, so a run never starts in the middle of a row. The marquee clears when the fill lands.' },
+              d: 'In custom mode on an Organized screen a circuit or port takes another row or column only when all of it fits, so a run never starts in the middle of a row; Max Capacity and Maximize Power Use pack each run full. The marquee clears when the fill lands.' },
             { h: 'Deleting a canvas keeps shown screens',
               d: 'A screen shown on another canvas moves there instead of going with the deleted canvas, groups that move together stay grouped, and the confirm warns about overlaps.' },
             { h: 'Grouped names above the cables',
               d: 'On the Data and Power tabs a grouped screen\'s name draws on top of the runs that cross it.' },
-            { h: 'Clear reaches a peer\'s run',
-              d: 'Clear Circuit, Clear Port and Clear All on a grouped screen also take its cabinets out of a run a peer drew across it. A locked member is left alone.' },
-            { h: 'Tab after a pattern tile in Chrome',
-              d: 'Tab steps to the next circuit after you press a pattern tile, in Chrome as it already did in Safari.' }
+            { h: 'Clear clears the whole circuit',
+              d: 'Clear Circuit, Clear Port and Clear All on a grouped screen clear that circuit on every member, including a run a peer drew across it. A locked member is left alone.' },
+            { h: 'Front or rear view in the binder',
+              d: 'The binder has a Front / Rear choice for its Power and Data maps, saved with the project, and every screen sheet names its view in the heading. The overview is always the front.' }
         ]
     },
     '1.2': {

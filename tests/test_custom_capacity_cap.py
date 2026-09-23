@@ -13,14 +13,18 @@ Two contracts, pinned on both sides (power circuits and data ports):
   REFUSED with a message that names the run, the cap and the way forward
   (Tab / ]). The run does NOT advance on its own - a click that silently
   moved the cursor would land the cabinet somewhere the user did not look.
-* PATTERN FILL CUTS AT CAPACITY, BETWEEN WHOLE LINES. The selection is
-  walked in pattern order a whole row (or column) at a time; a run takes
-  another line only when all of it fits, the next number takes over, until
-  the selection is consumed (the user, 2026-09-22: "start at the beginning
+* PATTERN FILL CUTS AT CAPACITY, BY THE SCREEN'S MODE (the user,
+  2026-09-23: "if set to organized then whole rows; if set to max capacity
+  then pack full"). Organized (the default): the selection is walked in
+  pattern order a whole row (or column) at a time; a run takes another
+  line only when all of it fits, the next number takes over, until the
+  selection is consumed (the user, 2026-09-22: "start at the beginning
   and then fill a max, not jump down a row unless it fits a whole other
   row/column"). Only a line longer than a run on its own is cut mid-way.
-  ONE undo entry. The active index ends on the last number filled, so the
-  badge names what was just drawn.
+  Max Capacity (data) / Maximize Power Use (power): one continuous snake,
+  each run cut exactly at the cap, mid-row included. ONE undo entry either
+  way. The active index ends on the last number filled, so the badge names
+  what was just drawn.
 
 The cap is the sidebar's own figure, never a second derivation: power is
 watts per circuit against each cabinet's watt-equivalent (a half-tile is
@@ -441,6 +445,156 @@ def test_data_serpentine_cuts_at_the_pixel_derived_port_cap(page):
     assert out['hist'] == ['Initial State', 'Custom Pattern Apply'], out['hist']
     assert len(out['toasts']) == 1 and out['toasts'][0].startswith('Filled ports '), out['toasts']
     assert 'whole rows, up to 8 panels each at 525,000 px/port' in out['toasts'][0], out['toasts'][0]
+
+
+# ── Pack full: the screen's Max Capacity / Maximize mode ──────────────────
+# The user's ruling, 2026-09-23: "if set to organized then whole rows; if
+# set to max capacity then pack full." Every test above runs in the
+# organized mode - reset() leaves portMappingMode unset (organized when
+# absent) and sets powerMaximize false. These flip the OWNER layer into its
+# pack-full mode (powerMaximize true on power, portMappingMode
+# 'max-capacity' on data) and expect one continuous snake cut exactly at the
+# cap, mid-row included - the automatic Max Capacity walk's shape.
+
+
+def snake(cols, rows):
+    """The tl-h serpentine over a cols x rows block as [row, col] pairs."""
+    out = []
+    for r in range(rows):
+        cs = range(cols) if r % 2 == 0 else range(cols - 1, -1, -1)
+        out.extend([[r, c] for c in cs])
+    return out
+
+
+def test_maximize_power_packs_14x6_as_one_snake_cut_at_14(page):
+    """Maximize Power Use on the 14 x 6 block at 14 a circuit: every circuit
+    is still 14, but they are ONE snake - circuit 2 reads row 1 right to
+    left, carrying on from where circuit 1 ended - not six restarts from
+    the left. The toast says so."""
+    reset(page)
+    out = page.evaluate("""() => {
+        const app = window.app, cap = window.__cap;
+        const l = cap.layer();
+        l.powerMaximize = true; l.powerOrganized = false;
+        app.selectPowerPanelsInRect(l, cap.rect(14, 6, 128));
+        app.applyPowerPatternToSelection('tl-h');
+        return { paths: cap.paths('powerCustomPaths'),
+                 active: l.powerCustomIndex,
+                 hist: cap.hist(),
+                 toasts: cap.toasts.slice() };
+    }""")
+    paths = out['paths']
+    assert sorted(int(k) for k in paths) == [1, 2, 3, 4, 5, 6], paths.keys()
+    walk = snake(14, 6)
+    for n in range(1, 7):
+        assert paths[str(n)] == walk[(n - 1) * 14:n * 14], (n, paths[str(n)])
+    # Circuit 2 is row 1 read BACKWARDS - the snake, not a restart.
+    assert paths['2'][0] == [1, 13] and paths['2'][-1] == [1, 0], paths['2']
+    assert out['active'] == 6, out['active']
+    assert out['hist'] == ['Initial State', 'Power Custom Pattern Apply'], out['hist']
+    assert len(out['toasts']) == 1 and out['toasts'][0].startswith('Filled circuits '), out['toasts']
+    assert '(packed full, up to 14 panels each at 110V/15A)' in out['toasts'][0], out['toasts'][0]
+    assert 'whole rows' not in out['toasts'][0], out['toasts'][0]
+
+
+def test_maximize_power_at_24_a_circuit_cuts_mid_row_and_carries_the_snake_on(page):
+    """The 18 x 7 wall at 24 a circuit, packed full: circuit 1 is row 0
+    (18) plus the far six of row 1 read backwards, circuit 2 the rest of
+    row 1 plus the first 12 of row 2, and so on - 126 cabinets as five
+    circuits of exactly 24 and a sixth of the six left over. Exactly the
+    shape the organized rule refuses (one row per circuit)."""
+    reset(page, columns=18, rows=7)
+    page.evaluate(ORLANDO_JS)
+    out = page.evaluate("""() => {
+        const app = window.app, cap = window.__cap;
+        const l = cap.layer();
+        l.powerMaximize = true; l.powerOrganized = false;
+        app.selectPowerPanelsInRect(l, cap.rect(18, 7, 128));
+        app.applyPowerPatternToSelection('tl-h');
+        return { cap: app.customRunCapacity(l, 'power'),
+                 paths: cap.paths('powerCustomPaths'),
+                 active: l.powerCustomIndex,
+                 toasts: cap.toasts.slice() };
+    }""")
+    assert out['cap']['count'] == 24, out['cap']
+    paths = out['paths']
+    assert sorted(int(k) for k in paths) == [1, 2, 3, 4, 5, 6], paths.keys()
+    assert [len(paths[str(n)]) for n in range(1, 7)] == [24, 24, 24, 24, 24, 6], paths
+    walk = snake(18, 7)
+    for n in range(1, 7):
+        assert paths[str(n)] == walk[(n - 1) * 24:n * 24], (n, paths[str(n)])
+    # The cut lands mid-row: circuit 1 ends six into row 1 (from the right),
+    # circuit 2 picks up the next cabinet of that same row.
+    assert paths['1'][:18] == [[0, c] for c in range(18)], paths['1']
+    assert paths['1'][18:] == [[1, c] for c in range(17, 11, -1)], paths['1']
+    assert paths['2'][0] == [1, 11], paths['2']
+    assert out['active'] == 6, out['active']
+    assert '(packed full, up to 24 panels each at 120V/20A)' in out['toasts'][0], out['toasts']
+
+
+def test_max_capacity_data_packs_ports_of_8_8_8_across_the_row_break(page):
+    """The data twin on Max Capacity: 12 x 2 at 8 a port is ports of 8, 8, 8
+    - row 0 cols 0-7; cols 8-11 of row 0 then row 1 cols 11-8 in the snake's
+    direction; row 1 cols 7-0 - where organized gave 8, 4, 8, 4."""
+    reset(page, columns=12, rows=2, cab=256, view='data-flow')
+    out = page.evaluate("""() => {
+        const app = window.app, cap = window.__cap;
+        const l = cap.layer();
+        l.portMappingMode = 'max-capacity';
+        app.selectPanelsInRect(l, cap.rect(12, 2, 256));
+        app.applyPatternToSelection('tl-h');
+        return { paths: cap.paths('customPortPaths'),
+                 active: l.customPortIndex,
+                 hist: cap.hist(),
+                 toasts: cap.toasts.slice() };
+    }""")
+    paths = out['paths']
+    assert sorted(int(k) for k in paths) == [1, 2, 3], paths.keys()
+    assert [len(paths[str(n)]) for n in (1, 2, 3)] == [8, 8, 8], paths
+    assert paths['1'] == [[0, c] for c in range(8)], paths['1']
+    assert paths['2'] == ([[0, 8], [0, 9], [0, 10], [0, 11]]
+                          + [[1, 11], [1, 10], [1, 9], [1, 8]]), paths['2']
+    assert paths['3'] == [[1, c] for c in range(7, -1, -1)], paths['3']
+    assert out['active'] == 3, out['active']
+    assert out['hist'] == ['Initial State', 'Custom Pattern Apply'], out['hist']
+    assert len(out['toasts']) == 1 and out['toasts'][0].startswith('Filled ports '), out['toasts']
+    assert '(packed full, up to 8 panels each at 525,000 px/port)' in out['toasts'][0], out['toasts'][0]
+
+
+def test_flipping_the_mode_back_to_organized_gives_whole_rows_again(page):
+    """Same screen, Max Capacity then Organized: the second fill is the
+    whole-row result the organized tests pin (8, 4, 8, 4), and its toast
+    names whole rows."""
+    reset(page, columns=12, rows=2, cab=256, view='data-flow')
+    packed = page.evaluate("""() => {
+        const app = window.app, cap = window.__cap;
+        const l = cap.layer();
+        l.portMappingMode = 'max-capacity';
+        app.selectPanelsInRect(l, cap.rect(12, 2, 256));
+        app.applyPatternToSelection('tl-h');
+        const paths = cap.paths('customPortPaths');
+        return Object.keys(paths).map(n => paths[n].length);
+    }""")
+    assert packed == [8, 8, 8], packed
+    out = page.evaluate("""() => {
+        const app = window.app, cap = window.__cap;
+        const l = cap.layer();
+        l.portMappingMode = 'organized';
+        l.customPortPaths = {};
+        l.customPortIndex = 1;
+        cap.toasts = [];
+        app.selectPanelsInRect(l, cap.rect(12, 2, 256));
+        app.applyPatternToSelection('tl-h');
+        return { paths: cap.paths('customPortPaths'), toasts: cap.toasts.slice() };
+    }""")
+    paths = out['paths']
+    assert [len(paths[str(n)]) for n in (1, 2, 3, 4)] == [8, 4, 8, 4], paths
+    assert paths['1'] == [[0, c] for c in range(8)], paths['1']
+    assert paths['2'] == [[0, 8], [0, 9], [0, 10], [0, 11]], paths['2']
+    assert paths['3'] == [[1, c] for c in range(8)], paths['3']
+    assert paths['4'] == [[1, 8], [1, 9], [1, 10], [1, 11]], paths['4']
+    assert '(whole rows, up to 8 panels each at 525,000 px/port)' in out['toasts'][0], out['toasts']
+    assert 'packed full' not in out['toasts'][0], out['toasts'][0]
 
 
 def test_a_selection_that_fits_one_run_is_written_quietly_as_before(page):

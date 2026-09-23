@@ -35,6 +35,7 @@
 // disagrees with itself repairs to - none of that logic is repeated here.
 import { LEDRasterApp } from './app-core.js';
 import { sendClientLog } from './helpers.js';
+import { stripScreenFeeds } from './app-clipboard.js';
 
 class _ScreenGroups {
 
@@ -768,6 +769,9 @@ class _ScreenGroups {
             clone.offset_y = (Number(src.offset_y) || 0) + 50;
             if (src.showOffsetX != null) clone.showOffsetX = (Number(src.showOffsetX) || 0) + 50;
             if (src.showOffsetY != null) clone.showOffsetY = (Number(src.showOffsetY) || 0) + 50;
+            // A copy claims no multi on any distro (2026-09-23) - the same
+            // rule Duplicate and Paste follow; see SCREEN_FEED_KEYS.
+            stripScreenFeeds(clone);
             return clone;
         });
         this.project.layers.push(...clones);

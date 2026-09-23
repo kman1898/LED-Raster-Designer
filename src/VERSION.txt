@@ -4,14 +4,14 @@ LED RASTER DESIGNER - VERSION HISTORY
 v1.3.0 - September 23, 2026
 ----------------------------
 
-A default for every screen colour 🎨 True1 and powerCON on 110V and 120V 🔌 Apply Pattern fills whole rows 📐
+A default for every screen colour 🎨 True1 and powerCON on 110V and 120V 🔌 Apply Pattern fills whole rows 📐 A rear view binder 📖
 
-Three things asked for on the wall and in the issues: every colour a new
+Four things asked for on the wall and in the issues: every colour a new
 screen starts with is now a Preferences setting (issue #28), a screen on
 a 110V or 120V circuit can run a Multi with True1 or powerCON and not
-only Edison, and the custom Apply Pattern lays circuits out a whole row
-or column at a time. A longer fix list follows, most of it in screen
-groups and canvases.
+only Edison, the custom Apply Pattern lays circuits out a whole row or
+column at a time, and the binder can be drawn from the rear. A longer
+fix list follows, most of it in screen groups and canvases.
 
 A DEFAULT FOR EVERY SCREEN COLOUR
 
@@ -37,12 +37,24 @@ same gate as a single output.
 APPLY PATTERN FILLS WHOLE ROWS
 
 In custom Data or Power mode, the pattern buttons now fill a circuit or
-port a whole row (or column, on a vertical pattern) at a time. A run
-takes another line only when all of it fits, so a circuit never starts
-in the middle of a row; only a row longer than a circuit on its own is
-cut. Rows inside a run still snake, each new run restarts from the
-pattern's start side, and the marquee clears when the fill lands so the
-next arrow key or click draws on the last run filled.
+port a whole row (or column, on a vertical pattern) at a time when the
+screen is set to Organized. A run takes another line only when all of it
+fits, so a circuit never starts in the middle of a row; only a row longer
+than a circuit on its own is cut. With Max Capacity or Maximize Power Use
+the fill packs each run full instead, cutting at the capacity the way the
+automatic modes do. Rows inside a run still snake, each new run restarts
+from the pattern's start side, and the marquee clears when the fill lands
+so the next arrow key or click draws on the last run filled.
+
+FRONT OR REAR VIEW IN THE BINDER
+
+The Binder section of the export dialog has a Front / Rear choice. Every
+Power and Data map in the binder is drawn from that side, whatever the
+canvas is set to on screen, and the choice is saved with the project.
+Each screen's sheet names its view in the heading, the title block and
+the contents, as in "Upstage · Power · Rear View", so a sheet read on its
+own says which way it is drawn. The overview on the first sheet is
+always the front.
 
 FIX LIST
 
@@ -53,9 +65,11 @@ FIX LIST
   deleted screen no longer stays selected.
 - FIX: A grouped screen's name draws on top of the cables on the Data and
   Power tabs instead of under them.
-- FIX: Clear Circuit, Clear Port and Clear All on a grouped screen reach a
-  run a peer drew across it. A locked member is left alone and named in
-  a message, and a Clear that changes nothing records no undo step.
+- FIX: Clear Circuit, Clear Port and Clear All on a grouped screen clear
+  the whole circuit on every member, including a run a peer drew across
+  it; before, a run drawn from another member of the group could not be
+  cleared. A locked member is left alone and named in a message, and a
+  Clear that changes nothing records no undo step.
 - FIX: In Chrome, Tab after pressing a pattern tile steps to the next
   circuit instead of moving between the tiles.
 - FIX: Picking Custom in the voltage select commits nothing until a
@@ -67,6 +81,24 @@ FIX LIST
   default instead of landing as typed.
 - FIX: A push that fails after adding a screen is reported instead of
   surfacing as a page error.
+- FIX: A screen label wider than its screen wraps onto two or more lines
+  instead of running off the edge, on the canvas, in the exports and in
+  the binder. The screen name sits centred above the ports or circuits
+  line.
+- FIX: Tab after a mouse click on Clear Circuit, Clear Port or Clear All
+  steps to the next run, as it does after a pattern tile.
+- FIX: A pasted screen keeps its processor, bit depth, frame rate, low
+  latency and port mapping mode, and its hidden and half panels; a
+  duplicated screen keeps its processor on the server as well.
+- FIX: A duplicated or pasted screen, and every screen of a duplicated
+  canvas, starts with no distro outputs and no card ports. The copy
+  would otherwise sit on the same multi or processor as the original.
+- FIX: Deleting a canvas or a screen removes the card ports pinned to
+  it, and a file carrying ports pinned to screens that no longer exist
+  is cleaned on open.
+- FIX: Undo back past a paste and redo forward again no longer leaves
+  the panel without a current screen, and the view tabs switch with a
+  selection and no current screen.
 
 v1.2.0 - September 22, 2026
 ----------------------------

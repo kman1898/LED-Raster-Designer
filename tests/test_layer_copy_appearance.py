@@ -257,3 +257,97 @@ def test_a_copy_keeps_its_borders_and_breakout_on_the_server(page, how):
     assert again, f'{how}: the copy is gone after a reload'
     _assert_powered(page.evaluate(SERVER_LAYER_JS, live['id']), f'{how} (after reload)')
     assert (again.get('powerBreakoutType'), again.get('border_color_data')) == ('soca-powercon', BORDERS['border_color_data']), again
+
+
+# ── the processing settings ───────────────────────────────────────────────
+# 2026-09-23, from an end-to-end pass: Paste dropped a screen's processing
+# settings while Duplicate kept them. Duplicate's clientProps listed the
+# processor, bit depth, frame rate, Low Latency and port mapping mode;
+# paste's server body and client blob listed none of them, so a COEX screen
+# pasted as a screen on the default processor with its port mapping gone -
+# under a comment saying the two "now produce the same screen". Both now
+# read one list (_screenCopyPayload), and both PUSH the copy after the add,
+# because the add route stores none of these keys: before that push a
+# Duplicate's server copy had no processorType at all until the next hand
+# on it, and a reload read the default. Checked in the browser and on the
+# server for both, with values that are not the defaults (organized is).
+
+PROCESSING = {'processorType': 'novastar-coex-1g', 'bitDepth': 10,
+              'frameRate': 50, 'lowLatency': True,
+              'portMappingMode': 'max-capacity'}
+
+DRESS_PROCESSING_JS = """(settings) => {
+    const app = window.app;
+    let l = app.currentLayer;
+    if (!l || (l.type || 'screen') !== 'screen') {
+        l = app.project.layers.find(x => (x.type || 'screen') === 'screen');
+        app.currentLayer = l;
+    }
+    Object.assign(l, settings);
+    app.updateLayers([l]);
+    return {sourceId: l.id, before: app.project.layers.map(x => x.id)};
+}"""
+
+# A layer's processing settings as the BROWSER holds them, by id - or, with
+# `before`, the one layer that was not there before the copy.
+LIVE_PROCESSING_JS = """([before, id, keys]) => {
+    const layers = window.app.project.layers;
+    const l = (id != null) ? layers.find(x => x.id === id)
+                           : layers.find(x => !before.includes(x.id));
+    if (!l) return {error: 'no such layer in the browser'};
+    const out = {id: l.id};
+    keys.forEach(k => { out[k] = (l[k] === undefined) ? '<undefined>' : l[k]; });
+    return out;
+}"""
+
+# The same, from GET /api/project - what a reload reads.
+SERVER_PROCESSING_JS = """async ([id, keys]) => {
+    const l = (await (await fetch('/api/project')).json()).layers.find(x => x.id === id);
+    if (!l) return {error: 'not on the server'};
+    const out = {id: l.id};
+    keys.forEach(k => { out[k] = (l[k] === undefined) ? '<undefined>' : l[k]; });
+    return out;
+}"""
+
+
+def _assert_processing(copy, how):
+    assert 'error' not in copy, f'{how}: {copy["error"]}'
+    for key, want in PROCESSING.items():
+        assert copy[key] == want, (
+            f'{how} lost {key}: {copy[key]!r}, the source has {want!r}')
+
+
+@pytest.mark.parametrize('how', ['duplicate', 'paste'])
+def test_a_copy_keeps_its_processing_settings(page, how):
+    keys = list(PROCESSING)
+    state = page.evaluate(DRESS_PROCESSING_JS, PROCESSING)
+    page.wait_for_timeout(700)
+    # The source holds them, in the browser and on the server, before any
+    # copy is made - or the assertions below would be testing the dressing.
+    _assert_processing(
+        page.evaluate(LIVE_PROCESSING_JS, [state['before'], state['sourceId'], keys]),
+        'the source (browser)')
+    _assert_processing(
+        page.evaluate(SERVER_PROCESSING_JS, [state['sourceId'], keys]),
+        'the source (server)')
+
+    if how == 'paste':
+        page.evaluate("""(id) => {
+            const app = window.app;
+            app.currentLayer = app.project.layers.find(x => x.id === id);
+            app.copyLayer();
+            app.pasteLayer();
+        }""", state['sourceId'])
+    else:
+        page.evaluate("""(id) => {
+            const l = window.app.project.layers.find(x => x.id === id);
+            window.app.duplicateLayer(l);
+        }""", state['sourceId'])
+    page.wait_for_timeout(1200)
+
+    live = page.evaluate(LIVE_PROCESSING_JS, [state['before'], None, keys])
+    _assert_processing(live, f'{how} (browser)')
+    assert live['id'] != state['sourceId'], f'{how} made no new layer'
+    _assert_processing(
+        page.evaluate(SERVER_PROCESSING_JS, [live['id'], keys]),
+        f'{how} (server)')

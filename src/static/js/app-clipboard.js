@@ -17,11 +17,63 @@ const IMAGE_SHADOW_KEYS = [
     'imageOpacity',
 ];
 
+// A COPY of a screen never carries its feeds (owner ruling, 2026-09-23:
+// "they can't carry over because then they would be duplicates on the same
+// multi or processor"). These six per-multi stores name the run from a
+// distro to the screen - which box (powerSocaDistro), which slot on it
+// (powerSocaNumber, the shared-box key; a number means nothing off a
+// distro), which legs and breaker position on that box (powerSocaPhasePos /
+// powerSocaPhaseOffset, the phase balance of THAT distro's load), what the
+// multi is called in the show (powerSocaNames - rung 2 of the name ladder,
+// above "distro name + number") and how long its home run is
+// (powerSocaLengths). A copy is fed by a fresh drop, so it starts with none
+// of them. The screen's OWN plan carries: the circuit boundaries its multis
+// split at (powerSocaSplits), the splitter groups (powerSplitters), the
+// keying stamp (powerSocaKeying - without it the copy's stores would be
+// rekeyed a second time) and the bracket toggle, the way the voltage, the
+// breakout, the colours and the drawn runs do.
+//
+// The data side has no twin on the layer: card ports are pins in
+// project.port_assignments keyed by layer id, and a copy has a new id
+// nothing has pinned yet. Read by _screenCopyPayload (Duplicate / Paste)
+// and duplicateGroup (app-screen-groups.js); the server's own clones
+// (duplicate canvas, duplicate to canvas) drop the same list in
+// app.strip_copied_feeds.
+export const SCREEN_FEED_KEYS = [
+    'powerSocaDistro', 'powerSocaNumber', 'powerSocaPhasePos',
+    'powerSocaPhaseOffset', 'powerSocaNames', 'powerSocaLengths',
+];
+
+export function stripScreenFeeds(layer) {
+    if (!layer || (layer.type || 'screen') !== 'screen') return layer;
+    SCREEN_FEED_KEYS.forEach(k => { delete layer[k]; });
+    return layer;
+}
+
 function _carryImageShadow(layer) {
     const out = {};
     IMAGE_SHADOW_KEYS.forEach(k => {
         if (layer && layer[k] !== undefined) out[k] = layer[k];
     });
+    return out;
+}
+
+// v0.8.6.3: carry Show Look state across duplicate / paste, so a layer
+// dragged in Show Look (showOffset / show_canvas_id) is copied with its Show
+// Look position intact, nudged with the copy, not snapped back to mirror
+// Pixel Map. Read by _screenCopyPayload and by the image and text copies.
+//
+// v0.11.0: `group_id` is deliberately absent here and from
+// _screenCopyPayload. Duplicating a screen makes a new screen; enrolling it
+// in the source's group would change that group's totals, port numbering and
+// export the moment the user hits Duplicate, without them asking. The
+// server's create_layer defaults group_id to null, so omitting it is the
+// whole mechanism.
+function _carryShow(l, dx, dy) {
+    const out = {};
+    if (l.showOffsetX != null) out.showOffsetX = (Number(l.showOffsetX) || 0) + (dx || 0);
+    if (l.showOffsetY != null) out.showOffsetY = (Number(l.showOffsetY) || 0) + (dy || 0);
+    if (l.show_canvas_id) out.show_canvas_id = l.show_canvas_id;
     return out;
 }
 
@@ -136,6 +188,264 @@ class _Clipboard {
         return list.length;
     }
 
+    // ===== WHAT A COPY OF A SCREEN CARRIES =====
+    //
+    // ONE list, read by Duplicate and Paste both (2026-09-23). Each of them
+    // used to build its own server body and its own client-props blob by
+    // hand - four lists for one intent - and every field added to one list
+    // and not the others was the same bug wearing a new face: the gradient
+    // (v0.11.0), the Data colours and per-view borders (2026-09-22), and
+    // then the processing settings, which Duplicate stamped and Paste never
+    // did, so a pasted COEX screen came back on the default processor with
+    // its port mapping gone - under a comment saying the two "now produce
+    // the same screen".
+    //
+    // `body` goes to POST /api/layer/add; `clientProps` is stamped onto the
+    // response. They carry the SAME keys. The add route stores the keys its
+    // allow-list names and ignores the rest - processorType, bitDepth,
+    // frameRate, lowLatency, portMappingMode, flowPattern, rotation,
+    // arrowLineWidth, dataFlowLabelSize, the per-view name sizes and
+    // offsets (routes_layers add_layer) - and the PUT both callers push
+    // right after the add stores those, the way addLayer (app-core) pushes
+    // a new screen's client-side defaults. Until that push a Duplicate's
+    // server copy had no processorType at all before the next hand on it.
+    // The body also carries the panel geometry (hiddenPanels / panelStates)
+    // the server rebuilds the copy from; clientProps leaves undefined
+    // values out, so a key the source never had cannot overwrite a default
+    // the server has just set.
+    //
+    // NOT here, on purpose: id; group_id (a copy is a new, ungrouped screen
+    // - see duplicateLayer); canvas_id (the add route places the copy on
+    // the active canvas); the feeds (SCREEN_FEED_KEYS - a copy claims no
+    // multi on any distro); every `_`-prefixed runtime cache. The name and
+    // the offsets are the caller's - both use the same smart increment and
+    // the same +50 nudge, handed in here. Cross-member path entries are
+    // dropped (copyPathsForNewOwner with idMap = null): nothing but this
+    // layer is being copied, so no peer has a counterpart - see the two
+    // callers for why each of them lands on that answer.
+    _screenCopyPayload(layer, name, dx, dy) {
+        const deep = (v) => JSON.parse(JSON.stringify(v || {}));
+        const props = {
+            columns: layer.columns,
+            rows: layer.rows,
+            cabinet_width: layer.cabinet_width,
+            cabinet_height: layer.cabinet_height,
+            rotation: layer.rotation,
+            color1: layer.color1,
+            color2: layer.color2,
+            panel_width_mm: layer.panel_width_mm,
+            panel_height_mm: layer.panel_height_mm,
+            panel_weight: layer.panel_weight,
+            weight_unit: layer.weight_unit,
+            halfFirstColumn: !!layer.halfFirstColumn,
+            halfLastColumn: !!layer.halfLastColumn,
+            halfFirstRow: !!layer.halfFirstRow,
+            halfLastRow: !!layer.halfLastRow,
+            show_numbers: layer.show_numbers,
+            number_size: layer.number_size,
+            show_panel_borders: layer.show_panel_borders,
+            panel_border_width: layer.panel_border_width,
+            show_circle_with_x: layer.show_circle_with_x,
+            border_color: layer.border_color,
+            border_width: layer.border_width,
+            // The four per-view cabinet borders (2026-09-22): stamped in the
+            // browser and never sent, so a paste across canvases came back
+            // from the server with one border for every view on reload.
+            border_color_pixel: layer.border_color_pixel,
+            border_color_cabinet: layer.border_color_cabinet,
+            border_color_data: layer.border_color_data,
+            border_color_power: layer.border_color_power,
+            cabinetIdStyle: layer.cabinetIdStyle,
+            cabinetIdPosition: layer.cabinetIdPosition,
+            cabinetIdColor: layer.cabinetIdColor,
+            showLabelName: layer.showLabelName,
+            showLabelNameCabinet: layer.showLabelNameCabinet,
+            showLabelNameDataFlow: layer.showLabelNameDataFlow,
+            showLabelNamePower: layer.showLabelNamePower,
+            showLabelSizePx: layer.showLabelSizePx,
+            showLabelSizeM: layer.showLabelSizeM,
+            showLabelSizeFt: layer.showLabelSizeFt,
+            showLabelWeight: layer.showLabelWeight,
+            showLabelInfo: layer.showLabelInfo,
+            labelsColor: layer.labelsColor,
+            labelsFontSize: layer.labelsFontSize,
+            infoLabelSize: layer.infoLabelSize,
+            showOffsetTL: layer.showOffsetTL,
+            showOffsetTR: layer.showOffsetTR,
+            showOffsetBL: layer.showOffsetBL,
+            showOffsetBR: layer.showOffsetBR,
+            // Screen name sizes and per-view positions.
+            screenNameSizeCabinet: layer.screenNameSizeCabinet,
+            screenNameSizeDataFlow: layer.screenNameSizeDataFlow,
+            screenNameSizePower: layer.screenNameSizePower,
+            screenNameOffsetXPixelMap: layer.screenNameOffsetXPixelMap,
+            screenNameOffsetYPixelMap: layer.screenNameOffsetYPixelMap,
+            screenNameOffsetXCabinet: layer.screenNameOffsetXCabinet,
+            screenNameOffsetYCabinet: layer.screenNameOffsetYCabinet,
+            screenNameOffsetXDataFlow: layer.screenNameOffsetXDataFlow,
+            screenNameOffsetYDataFlow: layer.screenNameOffsetYDataFlow,
+            screenNameOffsetXPower: layer.screenNameOffsetXPower,
+            screenNameOffsetYPower: layer.screenNameOffsetYPower,
+            screenNameOffsetXShowLook: layer.screenNameOffsetXShowLook,
+            screenNameOffsetYShowLook: layer.screenNameOffsetYShowLook,
+            // Appearance (v0.11.0): the gradient, palette and Transparent
+            // Fill. Copies of the arrays, never the source's - a reference
+            // handed to the copy is one in-place edit away from two screens
+            // sharing one gradient.
+            gradientEnabled: layer.gradientEnabled,
+            gradientType: layer.gradientType,
+            gradientScope: layer.gradientScope,
+            gradientPanelAlternate: layer.gradientPanelAlternate,
+            gradientRadialCenterX: layer.gradientRadialCenterX,
+            gradientRadialCenterY: layer.gradientRadialCenterY,
+            gradientRadialRadius: layer.gradientRadialRadius,
+            gradientAngle: layer.gradientAngle,
+            gradientOpacity: layer.gradientOpacity,
+            gradientBlend: layer.gradientBlend,
+            gradientStops: Array.isArray(layer.gradientStops)
+                ? layer.gradientStops.map(s => ({ pos: s.pos, color: s.color }))
+                : undefined,
+            panelColorMode: layer.panelColorMode,
+            panelColors: Array.isArray(layer.panelColors)
+                ? layer.panelColors.slice() : undefined,
+            transparentFill: layer.transparentFill,
+            // Processing: the processor, its bit depth, frame rate and Low
+            // Latency, and the port mapping mode. The add route lists none
+            // of them; the PUT after the add is what stores them.
+            processorType: layer.processorType,
+            bitDepth: layer.bitDepth,
+            frameRate: layer.frameRate,
+            lowLatency: layer.lowLatency,
+            portMappingMode: layer.portMappingMode,
+            // Data tab: pattern, lines, labels and the six colours.
+            flowPattern: layer.flowPattern,
+            arrowLineWidth: layer.arrowLineWidth,
+            arrowSize: layer.arrowSize,
+            arrowColor: layer.arrowColor,
+            dataFlowColor: layer.dataFlowColor,
+            dataFlowLabelSize: layer.dataFlowLabelSize,
+            primaryColor: layer.primaryColor,
+            primaryTextColor: layer.primaryTextColor,
+            backupColor: layer.backupColor,
+            backupTextColor: layer.backupTextColor,
+            randomDataColors: !!layer.randomDataColors,
+            showDataFlowPortInfo: !!layer.showDataFlowPortInfo,
+            showDataFlowPortLoad: !!layer.showDataFlowPortLoad,
+            showDataCableTags: layer.showDataCableTags === true,
+            portLabelTemplatePrimary: layer.portLabelTemplatePrimary,
+            portLabelTemplateReturn: layer.portLabelTemplateReturn,
+            portLabelOverridesPrimary: deep(layer.portLabelOverridesPrimary),
+            portLabelOverridesReturn: deep(layer.portLabelOverridesReturn),
+            customPortPaths: this.copyPathsForNewOwner(layer.customPortPaths, layer.id, null),
+            customPortIndex: layer.customPortIndex,
+            // Per-run overrides travel with their paths. Plain number
+            // arrays - nothing in them names a peer, so no idMap pass.
+            customPortOverrides: (layer.customPortOverrides || []).slice(),
+            // Power tab: the voltage, the breakout that rides with it
+            // (without it a 208 V powerCON screen's copy read True1), the
+            // circuits, their colours, labels, cables and hand-drawn runs.
+            // NOT the feeds - see SCREEN_FEED_KEYS at the top of this file.
+            powerVoltage: layer.powerVoltage,
+            powerVoltageCustom: layer.powerVoltageCustom,
+            powerBreakoutType: layer.powerBreakoutType,
+            powerAmperage: layer.powerAmperage,
+            powerAmperageCustom: layer.powerAmperageCustom,
+            panelWatts: layer.panelWatts,
+            powerMaximize: !!layer.powerMaximize,
+            powerOrganized: !!layer.powerOrganized,
+            powerCustomPath: !!layer.powerCustomPath,
+            powerFlowPattern: layer.powerFlowPattern,
+            powerLineWidth: layer.powerLineWidth,
+            powerLineColor: layer.powerLineColor,
+            powerArrowColor: layer.powerArrowColor,
+            powerRandomColors: !!layer.powerRandomColors,
+            powerColorCodedView: !!layer.powerColorCodedView,
+            powerCircuitColors: deep(layer.powerCircuitColors),
+            powerLabelSize: layer.powerLabelSize,
+            powerLabelBgColor: layer.powerLabelBgColor,
+            powerLabelTextColor: layer.powerLabelTextColor,
+            powerLabelTemplate: layer.powerLabelTemplate,
+            powerLabelOverrides: deep(layer.powerLabelOverrides),
+            powerCircuitCables: deep(layer.powerCircuitCables),
+            powerCustomPaths: this.copyPathsForNewOwner(layer.powerCustomPaths, layer.id, null),
+            powerCustomIndex: layer.powerCustomIndex,
+            powerCustomOverrides: (layer.powerCustomOverrides || []).slice(),
+            showPowerCircuitInfo: !!layer.showPowerCircuitInfo,
+            showPowerNferTags: layer.showPowerNferTags !== false,
+            showPowerCableTags: layer.showPowerCableTags === true,
+            // The screen's own multi plan (2026-09-23): where its multis
+            // split, how its circuits share splitters, the keying stamp
+            // and the bracket toggle. Geometry of the copy's own circuits,
+            // not a claim on any box - the feeds above are the claim.
+            powerSocaSplits: Array.isArray(layer.powerSocaSplits)
+                ? layer.powerSocaSplits.slice() : undefined,
+            powerSplitters: layer.powerSplitters !== undefined
+                ? deep(layer.powerSplitters) : undefined,
+            powerSocaKeying: layer.powerSocaKeying,
+            showSocaBrackets: layer.showSocaBrackets,
+            // Show Look position and canvas, nudged with the copy
+            // (v0.8.6.3) so a layer dragged in Show Look is copied where it
+            // sits there, not snapped back to mirror Pixel Map.
+            ..._carryShow(layer, dx, dy),
+        };
+
+        // Panel geometry. Older server builds only knew hiddenPanels; the
+        // full per-panel state list (halfTile + hidden + blank, v0.8.0) is
+        // what the server rebuilds the copy's geometry from.
+        const panels = Array.isArray(layer.panels) ? layer.panels : [];
+        const hiddenPanels = panels
+            .filter(p => p.hidden)
+            .map(p => ({ row: p.row, col: p.col }));
+        const panelStates = panels
+            .filter(p => p.hidden || p.blank || (p.halfTile && p.halfTile !== 'none'))
+            .map(p => ({
+                row: p.row,
+                col: p.col,
+                halfTile: p.halfTile || 'none',
+                hidden: !!p.hidden,
+                blank: !!p.blank,
+            }));
+
+        const clientProps = {};
+        Object.keys(props).forEach(k => {
+            if (props[k] !== undefined) clientProps[k] = props[k];
+        });
+        const body = {
+            name,
+            offset_x: (Number(layer.offset_x) || 0) + dx,
+            offset_y: (Number(layer.offset_y) || 0) + dy,
+            ...props,
+            hiddenPanels,
+            panelStates,
+        };
+        // The list above names no feed key; this keeps it that way should
+        // one ever be added, since the add route stores every one it is
+        // sent (full-layer POSTs need it to).
+        stripScreenFeeds(body);
+        stripScreenFeeds(clientProps);
+        return { body, clientProps };
+    }
+
+    // The steps after POST /api/layer/add answers, the same for Duplicate
+    // and Paste: stamp what the add route did not store, make sure the
+    // breakout is one the voltage allows (the source's is, so a safety
+    // net), put the copy in the project and select it, then PUSH it - the
+    // PUT is what stores the processing settings and the rest of the keys
+    // the add route ignores (see _screenCopyPayload), and the normalized
+    // breakout with them. History is saved by the caller, after this, so
+    // the snapshot holds the whole copy.
+    _adoptScreenCopy(newLayer, clientProps) {
+        Object.assign(newLayer, clientProps);
+        if (typeof this.normalizePowerBreakout === 'function') {
+            this.normalizePowerBreakout(newLayer);
+        }
+        this.upsertProjectLayer(newLayer);
+        this.selectLayer(newLayer);
+        this.updateLayers([newLayer]);
+        this.updateUI();
+        this.saveClientSideProperties();
+    }
+
     // ===== DUPLICATE LAYER =====
 
     duplicateLayer(layer) {
@@ -169,25 +479,6 @@ class _Clipboard {
                 // Name doesn't end with number (e.g., "Nvidia")
                 return `${baseName} 1`;
             }
-        };
-
-        // v0.8.6.3: helper to carry Show Look state across duplicate/paste
-        // so a layer dragged in Show Look (showOffset / show_canvas_id) is
-        // copied with its Show Look position intact, not snapped back to
-        // mirror Pixel Map.
-        //
-        // v0.11.0: `group_id` is deliberately absent from this helper and
-        // from duplicateData / clientProps below. Duplicating a screen makes
-        // a new screen; enrolling it in the source's group would change that
-        // group's totals, port numbering and export the moment the user hits
-        // Duplicate, without them asking. The server's create_layer defaults
-        // group_id to null, so omitting it here is the whole mechanism.
-        const _carryShow = (l, dx, dy) => {
-            const out = {};
-            if (l.showOffsetX != null) out.showOffsetX = (Number(l.showOffsetX) || 0) + (dx || 0);
-            if (l.showOffsetY != null) out.showOffsetY = (Number(l.showOffsetY) || 0) + (dy || 0);
-            if (l.show_canvas_id) out.show_canvas_id = l.show_canvas_id;
-            return out;
         };
 
         if ((layer.type || 'screen') === 'image') {
@@ -279,301 +570,33 @@ class _Clipboard {
             return;
         }
 
-        // Collect hidden panel positions (row, col) to apply to new layer.
-        // Backwards-compat: older server builds only knew about hiddenPanels.
-        const hiddenPanels = layer.panels
-            .filter(p => p.hidden)
-            .map(p => ({ row: p.row, col: p.col }));
-        // v0.8.0 fix: half-tile state was being lost on duplicate. Build a
-        // full per-panel state list (halfTile + hidden + blank) so the
-        // server can rebuild the duplicate's geometry to match the source.
-        const panelStates = layer.panels
-            .filter(p => p.hidden || p.blank || (p.halfTile && p.halfTile !== 'none'))
-            .map(p => ({
-                row: p.row,
-                col: p.col,
-                halfTile: p.halfTile || 'none',
-                hidden: !!p.hidden,
-                blank: !!p.blank,
-            }));
-
         // v0.11.0 (step 6): Duplicate makes a NEW, UNGROUPED screen - that is
-        // the same decision the group_id note above documents. Nothing but this
+        // the same decision the group_id note on _carryShow documents. Nothing but this
         // layer is being copied, so no peer named by a cross-member path entry
-        // has a counterpart here and every such entry drops (idMap = null).
-        // Keeping them would leave the copy's wiring pointing at the ORIGINAL
-        // wall's cabinets while the copy is not even in that wall's group.
-        // Plain {row, col} paths - every pre-step-6 project - come through
-        // copyPathsForNewOwner untouched.
-        const dupPowerCustomPaths = this.copyPathsForNewOwner(
-            layer.powerCustomPaths, layer.id, null);
-        const dupCustomPortPaths = this.copyPathsForNewOwner(
-            layer.customPortPaths, layer.id, null);
-
-        const duplicateData = {
-            name: getNextName(layer.name),
-            columns: layer.columns,
-            rows: layer.rows,
-            cabinet_width: layer.cabinet_width,
-            cabinet_height: layer.cabinet_height,
-            offset_x: layer.offset_x + 50, // Offset by 50px
-            offset_y: layer.offset_y + 50,
-            color1: layer.color1,
-            color2: layer.color2,
-            panel_width_mm: layer.panel_width_mm,
-            panel_height_mm: layer.panel_height_mm,
-            panel_weight: layer.panel_weight,
-            weight_unit: layer.weight_unit,
-            halfFirstColumn: !!layer.halfFirstColumn,
-            halfLastColumn: !!layer.halfLastColumn,
-            halfFirstRow: !!layer.halfFirstRow,
-            halfLastRow: !!layer.halfLastRow,
-            show_numbers: layer.show_numbers,
-            number_size: layer.number_size,
-            show_panel_borders: layer.show_panel_borders,
-            panel_border_width: layer.panel_border_width,
-            show_circle_with_x: layer.show_circle_with_x,
-            border_color: layer.border_color,
-            border_width: layer.border_width,
-            cabinetIdStyle: layer.cabinetIdStyle,
-            cabinetIdPosition: layer.cabinetIdPosition,
-            cabinetIdColor: layer.cabinetIdColor,
-            showLabelName: layer.showLabelName,
-            showLabelNameCabinet: layer.showLabelNameCabinet,
-            showLabelNameDataFlow: layer.showLabelNameDataFlow,
-            showLabelNamePower: layer.showLabelNamePower,
-            showLabelSizePx: layer.showLabelSizePx,
-            showLabelSizeM: layer.showLabelSizeM,
-            showLabelSizeFt: layer.showLabelSizeFt,
-            showLabelWeight: layer.showLabelWeight,
-            showLabelInfo: layer.showLabelInfo,
-            labelsColor: layer.labelsColor,
-            labelsFontSize: layer.labelsFontSize,
-            infoLabelSize: layer.infoLabelSize,
-            showPowerCircuitInfo: !!layer.showPowerCircuitInfo,
-            showPowerNferTags: layer.showPowerNferTags !== false,
-            showPowerCableTags: layer.showPowerCableTags === true,
-            showDataCableTags: layer.showDataCableTags === true,
-            showOffsetTL: layer.showOffsetTL,
-            showOffsetTR: layer.showOffsetTR,
-            showOffsetBL: layer.showOffsetBL,
-            showOffsetBR: layer.showOffsetBR,
-            powerVoltage: layer.powerVoltage,
-            powerVoltageCustom: layer.powerVoltageCustom,
-            powerAmperage: layer.powerAmperage,
-            powerAmperageCustom: layer.powerAmperageCustom,
-            panelWatts: layer.panelWatts,
-            powerMaximize: !!layer.powerMaximize,
-            powerOrganized: !!layer.powerOrganized,
-            powerCustomPath: !!layer.powerCustomPath,
-            powerFlowPattern: layer.powerFlowPattern,
-            powerLineWidth: layer.powerLineWidth,
-            powerLineColor: layer.powerLineColor,
-            powerArrowColor: layer.powerArrowColor,
-            powerRandomColors: !!layer.powerRandomColors,
-            powerColorCodedView: !!layer.powerColorCodedView,
-            powerCircuitColors: JSON.parse(JSON.stringify(layer.powerCircuitColors || {})),
-            powerLabelSize: layer.powerLabelSize,
-            powerLabelBgColor: layer.powerLabelBgColor,
-            powerLabelTextColor: layer.powerLabelTextColor,
-            powerLabelTemplate: layer.powerLabelTemplate,
-            powerLabelOverrides: JSON.parse(JSON.stringify(layer.powerLabelOverrides || {})),
-            powerCircuitCables: JSON.parse(JSON.stringify(layer.powerCircuitCables || {})),
-            powerCustomPaths: dupPowerCustomPaths,
-            powerCustomIndex: layer.powerCustomIndex,
-            // Per-run overrides travel with their paths. Plain number
-            // arrays - nothing in them names a peer, so no idMap pass.
-            powerCustomOverrides: (layer.powerCustomOverrides || []).slice(),
-            // v0.11.0: the appearance block was listed ONLY in clientProps
-            // below, which is applied to the response in the browser and never
-            // sent. The copy therefore looked right and the server held a
-            // screen with no gradient at all, so duplicating a screen and
-            // reloading lost the copy's gradient - the same symptom as editing
-            // one and reloading, reached by a different door.
-            gradientEnabled: layer.gradientEnabled,
-            gradientType: layer.gradientType,
-            gradientScope: layer.gradientScope,
-            gradientPanelAlternate: layer.gradientPanelAlternate,
-            gradientRadialCenterX: layer.gradientRadialCenterX,
-            gradientRadialCenterY: layer.gradientRadialCenterY,
-            gradientRadialRadius: layer.gradientRadialRadius,
-            gradientAngle: layer.gradientAngle,
-            gradientOpacity: layer.gradientOpacity,
-            gradientBlend: layer.gradientBlend,
-            gradientStops: Array.isArray(layer.gradientStops)
-                ? layer.gradientStops.map(s => ({ pos: s.pos, color: s.color }))
-                : undefined,
-            panelColorMode: layer.panelColorMode,
-            panelColors: Array.isArray(layer.panelColors)
-                ? layer.panelColors.slice() : undefined,
-            transparentFill: layer.transparentFill,
-            screenNameOffsetXPixelMap: layer.screenNameOffsetXPixelMap,
-            screenNameOffsetYPixelMap: layer.screenNameOffsetYPixelMap,
-            screenNameOffsetXShowLook: layer.screenNameOffsetXShowLook,
-            screenNameOffsetYShowLook: layer.screenNameOffsetYShowLook,
-            // The Data tab's colours were in clientProps only, so the copy
-            // looked right and the server held the shipped colours - the
-            // gradient bug one door over. Sent so the server's copy matches
-            // (the add route's allow-list carries every one of them,
-            // dataFlowColor included - routes_layers add_layer).
-            arrowColor: layer.arrowColor,
-            dataFlowColor: layer.dataFlowColor,
-            primaryColor: layer.primaryColor,
-            primaryTextColor: layer.primaryTextColor,
-            backupColor: layer.backupColor,
-            backupTextColor: layer.backupTextColor,
-            // The four per-view cabinet borders were in clientProps only
-            // too (until 2026-09-22), so the copy's server record held the
-            // one border_color for every view - gone on reload.
-            border_color_pixel: layer.border_color_pixel,
-            border_color_cabinet: layer.border_color_cabinet,
-            border_color_data: layer.border_color_data,
-            border_color_power: layer.border_color_power,
-            // The breakout rides with the voltage: without it a 208 V
-            // powerCON screen's copy read True1 (the voltage's default).
-            powerBreakoutType: layer.powerBreakoutType,
-            hiddenPanels: hiddenPanels,  // Pass hidden panel info (legacy)
-            panelStates: panelStates,    // Half-tile + hidden + blank (v0.8.0)
-        };
-
-        // Store client-side properties to copy after layer is created
-        const clientProps = {
-            arrowLineWidth: layer.arrowLineWidth,
-            arrowColor: layer.arrowColor,
-            dataFlowColor: layer.dataFlowColor,
-            dataFlowLabelSize: layer.dataFlowLabelSize,
-            primaryColor: layer.primaryColor,
-            primaryTextColor: layer.primaryTextColor,
-            backupColor: layer.backupColor,
-            backupTextColor: layer.backupTextColor,
-            flowPattern: layer.flowPattern,
-            bitDepth: layer.bitDepth,
-            frameRate: layer.frameRate,
-            processorType: layer.processorType,
-            lowLatency: layer.lowLatency,
-            portMappingMode: layer.portMappingMode,
-            screenNameSizeCabinet: layer.screenNameSizeCabinet,
-            screenNameSizeDataFlow: layer.screenNameSizeDataFlow,
-            screenNameSizePower: layer.screenNameSizePower,
-            screenNameOffsetXPixelMap: layer.screenNameOffsetXPixelMap,
-            screenNameOffsetYPixelMap: layer.screenNameOffsetYPixelMap,
-            screenNameOffsetXCabinet: layer.screenNameOffsetXCabinet,
-            screenNameOffsetYCabinet: layer.screenNameOffsetYCabinet,
-            screenNameOffsetXDataFlow: layer.screenNameOffsetXDataFlow,
-            screenNameOffsetYDataFlow: layer.screenNameOffsetYDataFlow,
-            screenNameOffsetXPower: layer.screenNameOffsetXPower,
-            screenNameOffsetYPower: layer.screenNameOffsetYPower,
-            screenNameOffsetXShowLook: layer.screenNameOffsetXShowLook,
-            screenNameOffsetYShowLook: layer.screenNameOffsetYShowLook,
-            gradientEnabled: layer.gradientEnabled,
-            transparentFill: layer.transparentFill,
-            rotation: layer.rotation,
-            gradientType: layer.gradientType,
-            gradientScope: layer.gradientScope,
-            gradientPanelAlternate: layer.gradientPanelAlternate,
-            gradientRadialCenterX: layer.gradientRadialCenterX,
-            gradientRadialCenterY: layer.gradientRadialCenterY,
-            gradientRadialRadius: layer.gradientRadialRadius,
-            gradientAngle: layer.gradientAngle,
-            gradientOpacity: layer.gradientOpacity,
-            gradientBlend: layer.gradientBlend,
-            // v0.11.0: copies, not the source arrays. This object is
-            // Object.assign'd onto the new layer AFTER duplicateData's
-            // .map()/.slice() copies have already gone to the server, so
-            // passing references here handed the duplicate the ORIGINAL's
-            // arrays and quietly undid that copy. Nothing mutates either array
-            // in place today - every writer assigns a fresh one - so this was
-            // luck rather than design, and it is one in-place edit away from
-            // the two screens sharing a gradient.
-            gradientStops: Array.isArray(layer.gradientStops)
-                ? layer.gradientStops.map(s => ({ pos: s.pos, color: s.color }))
-                : layer.gradientStops,
-            panelColorMode: layer.panelColorMode,
-            panelColors: Array.isArray(layer.panelColors)
-                ? layer.panelColors.slice() : layer.panelColors,
-            border_color_pixel: layer.border_color_pixel,
-            border_color_cabinet: layer.border_color_cabinet,
-            border_color_data: layer.border_color_data,
-            border_color_power: layer.border_color_power,
-            powerLabelBgColor: layer.powerLabelBgColor,
-            powerLabelTextColor: layer.powerLabelTextColor,
-            powerVoltage: layer.powerVoltage,
-            powerVoltageCustom: layer.powerVoltageCustom,
-            powerBreakoutType: layer.powerBreakoutType,
-            powerAmperage: layer.powerAmperage,
-            powerAmperageCustom: layer.powerAmperageCustom,
-            panelWatts: layer.panelWatts,
-            powerMaximize: layer.powerMaximize,
-            powerOrganized: layer.powerOrganized,
-            powerCustomPath: layer.powerCustomPath,
-            powerFlowPattern: layer.powerFlowPattern,
-            powerLineWidth: layer.powerLineWidth,
-            powerLineColor: layer.powerLineColor,
-            powerArrowColor: layer.powerArrowColor,
-            powerRandomColors: layer.powerRandomColors,
-            powerColorCodedView: layer.powerColorCodedView,
-            powerCircuitColors: JSON.parse(JSON.stringify(layer.powerCircuitColors || {})),
-            powerLabelSize: layer.powerLabelSize,
-            powerLabelTemplate: layer.powerLabelTemplate,
-            powerLabelOverrides: JSON.parse(JSON.stringify(layer.powerLabelOverrides || {})),
-            powerCircuitCables: JSON.parse(JSON.stringify(layer.powerCircuitCables || {})),
-            powerCustomPaths: dupPowerCustomPaths,
-            powerCustomIndex: layer.powerCustomIndex,
-            powerCustomOverrides: (layer.powerCustomOverrides || []).slice(),
-            showPowerCircuitInfo: !!layer.showPowerCircuitInfo,
-            showPowerNferTags: layer.showPowerNferTags !== false,
-            showPowerCableTags: layer.showPowerCableTags === true,
-            showDataCableTags: layer.showDataCableTags === true,
-            showDataFlowPortInfo: !!layer.showDataFlowPortInfo,
-            showDataFlowPortLoad: !!layer.showDataFlowPortLoad,
-            weight_unit: layer.weight_unit,
-            panel_weight: layer.panel_weight,
-            infoLabelSize: layer.infoLabelSize,
-            portLabelTemplatePrimary: layer.portLabelTemplatePrimary,
-            portLabelTemplateReturn: layer.portLabelTemplateReturn,
-            portLabelOverridesPrimary: JSON.parse(JSON.stringify(layer.portLabelOverridesPrimary || {})),
-            portLabelOverridesReturn: JSON.parse(JSON.stringify(layer.portLabelOverridesReturn || {})),
-            customPortPaths: dupCustomPortPaths,
-            customPortIndex: layer.customPortIndex,
-            // Per-run overrides travel with their paths. Plain number
-            // arrays - nothing in them names a peer, so no idMap pass.
-            customPortOverrides: (layer.customPortOverrides || []).slice(),
-            randomDataColors: !!layer.randomDataColors,
-            arrowSize: layer.arrowSize,
-            ..._carryShow(layer, 50, 50),
-        };
+        // has a counterpart here and every such entry drops (idMap = null in
+        // _screenCopyPayload). Keeping them would leave the copy's wiring
+        // pointing at the ORIGINAL wall's cabinets while the copy is not even
+        // in that wall's group. Plain {row, col} paths - every pre-step-6
+        // project - come through copyPathsForNewOwner untouched.
+        const { body, clientProps } = this._screenCopyPayload(
+            layer, getNextName(layer.name), 50, 50);
 
         fetch('/api/layer/add', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(duplicateData)
+            body: JSON.stringify(body)
         })
         .then(res => res.json())
         .then(newLayer => {
-            // Copy client-side properties to new layer
-            Object.assign(newLayer, clientProps);
-            // The copy's breakout must be one its voltage allows (the
-            // source's is, so this is a safety net); a rewrite is pushed
-            // so the server's copy matches.
-            if (typeof this.normalizePowerBreakout === 'function'
-                    && this.normalizePowerBreakout(newLayer)) {
-                this.updateLayers([newLayer]);
-            }
-            
+            this._adoptScreenCopy(newLayer, clientProps);
+
             sendClientLog('duplicate_layer', {
                 sourceId: layer.id, sourceName: layer.name,
                 newId: newLayer.id, newName: newLayer.name,
                 columns: newLayer.columns, rows: newLayer.rows,
                 offset_x: newLayer.offset_x, offset_y: newLayer.offset_y
             });
-            
-            this.upsertProjectLayer(newLayer);
-            this.selectLayer(newLayer);
-            this.updateUI();
-            
-            // Save client-side properties
-            this.saveClientSideProperties();
-            
+
             // Save state AFTER duplicate completes
             this.saveState('Duplicate Layer');
         });
@@ -605,15 +628,6 @@ class _Clipboard {
             } else {
                 return `${baseName} 1`;
             }
-        };
-
-        // v0.8.6.3: same Show Look carry-over as duplicateLayer.
-        const _carryShow = (l, dx, dy) => {
-            const out = {};
-            if (l.showOffsetX != null) out.showOffsetX = (Number(l.showOffsetX) || 0) + (dx || 0);
-            if (l.showOffsetY != null) out.showOffsetY = (Number(l.showOffsetY) || 0) + (dy || 0);
-            if (l.show_canvas_id) out.show_canvas_id = l.show_canvas_id;
-            return out;
         };
 
         if ((this.clipboard.type || 'screen') === 'image') {
@@ -716,185 +730,32 @@ class _Clipboard {
         // plain deep copy, with no record of which project it came from), so
         // paste takes the conservative branch every time: only the peers being
         // pasted WITH it could be remapped, and paste copies exactly one layer,
-        // so nothing is. Plain {row, col} paths paste unchanged.
-        const pastePowerCustomPaths = this.copyPathsForNewOwner(
-            this.clipboard.powerCustomPaths, this.clipboard.id, null);
-        const pasteCustomPortPaths = this.copyPathsForNewOwner(
-            this.clipboard.customPortPaths, this.clipboard.id, null);
+        // so nothing is (idMap = null in _screenCopyPayload). Plain {row, col}
+        // paths paste unchanged.
+        //
+        // Copy/Paste and Duplicate are the same intent, and since 2026-09-23
+        // they read the same list, so they produce the same screen - on the
+        // client and on the server. Paste used to keep its own two lists and
+        // lost, in turn, the gradient, the Data colours, the per-view borders
+        // and the processing settings that Duplicate carried.
+        const { body, clientProps } = this._screenCopyPayload(
+            this.clipboard, getNextName(this.clipboard.name), 50, 50);
 
-        const pasteData = {
-            name: getNextName(this.clipboard.name),
-            columns: this.clipboard.columns,
-            rows: this.clipboard.rows,
-            cabinet_width: this.clipboard.cabinet_width,
-            cabinet_height: this.clipboard.cabinet_height,
-            offset_x: this.clipboard.offset_x + 50,
-            offset_y: this.clipboard.offset_y + 50,
-            color1: this.clipboard.color1,
-            color2: this.clipboard.color2,
-            panel_width_mm: this.clipboard.panel_width_mm,
-            panel_height_mm: this.clipboard.panel_height_mm,
-            panel_weight: this.clipboard.panel_weight,
-            weight_unit: this.clipboard.weight_unit,
-            halfFirstColumn: !!this.clipboard.halfFirstColumn,
-            halfLastColumn: !!this.clipboard.halfLastColumn,
-            halfFirstRow: !!this.clipboard.halfFirstRow,
-            halfLastRow: !!this.clipboard.halfLastRow,
-            show_numbers: this.clipboard.show_numbers,
-            number_size: this.clipboard.number_size,
-            show_panel_borders: this.clipboard.show_panel_borders,
-            panel_border_width: this.clipboard.panel_border_width,
-            show_circle_with_x: this.clipboard.show_circle_with_x,
-            border_color: this.clipboard.border_color,
-            cabinetIdStyle: this.clipboard.cabinetIdStyle,
-            cabinetIdPosition: this.clipboard.cabinetIdPosition,
-            cabinetIdColor: this.clipboard.cabinetIdColor,
-            showLabelName: this.clipboard.showLabelName,
-            showLabelNameCabinet: this.clipboard.showLabelNameCabinet,
-            showLabelNameDataFlow: this.clipboard.showLabelNameDataFlow,
-            showLabelNamePower: this.clipboard.showLabelNamePower,
-            showLabelSizePx: this.clipboard.showLabelSizePx,
-            showLabelSizeM: this.clipboard.showLabelSizeM,
-            showLabelSizeFt: this.clipboard.showLabelSizeFt,
-            showLabelWeight: this.clipboard.showLabelWeight,
-            showLabelInfo: this.clipboard.showLabelInfo,
-            labelsColor: this.clipboard.labelsColor,
-            labelsFontSize: this.clipboard.labelsFontSize,
-            infoLabelSize: this.clipboard.infoLabelSize,
-            showPowerCircuitInfo: !!this.clipboard.showPowerCircuitInfo,
-            showPowerNferTags: this.clipboard.showPowerNferTags !== false,
-            showPowerCableTags: this.clipboard.showPowerCableTags === true,
-            showDataCableTags: this.clipboard.showDataCableTags === true,
-            showOffsetTL: this.clipboard.showOffsetTL,
-            showOffsetTR: this.clipboard.showOffsetTR,
-            showOffsetBL: this.clipboard.showOffsetBL,
-            showOffsetBR: this.clipboard.showOffsetBR,
-            powerVoltage: this.clipboard.powerVoltage,
-            powerVoltageCustom: this.clipboard.powerVoltageCustom,
-            powerAmperage: this.clipboard.powerAmperage,
-            powerAmperageCustom: this.clipboard.powerAmperageCustom,
-            panelWatts: this.clipboard.panelWatts,
-            powerMaximize: !!this.clipboard.powerMaximize,
-            powerOrganized: !!this.clipboard.powerOrganized,
-            powerCustomPath: !!this.clipboard.powerCustomPath,
-            powerFlowPattern: this.clipboard.powerFlowPattern,
-            powerLineWidth: this.clipboard.powerLineWidth,
-            powerLineColor: this.clipboard.powerLineColor,
-            powerArrowColor: this.clipboard.powerArrowColor,
-            powerRandomColors: !!this.clipboard.powerRandomColors,
-            powerColorCodedView: !!this.clipboard.powerColorCodedView,
-            powerCircuitColors: JSON.parse(JSON.stringify(this.clipboard.powerCircuitColors || {})),
-            powerLabelSize: this.clipboard.powerLabelSize,
-            powerLabelBgColor: this.clipboard.powerLabelBgColor,
-            powerLabelTextColor: this.clipboard.powerLabelTextColor,
-            powerLabelTemplate: this.clipboard.powerLabelTemplate,
-            powerLabelOverrides: JSON.parse(JSON.stringify(this.clipboard.powerLabelOverrides || {})),
-            powerCircuitCables: JSON.parse(JSON.stringify(this.clipboard.powerCircuitCables || {})),
-            powerCustomPaths: pastePowerCustomPaths,
-            powerCustomIndex: this.clipboard.powerCustomIndex,
-            showDataFlowPortInfo: !!this.clipboard.showDataFlowPortInfo,
-            showDataFlowPortLoad: !!this.clipboard.showDataFlowPortLoad,
-            portLabelTemplatePrimary: this.clipboard.portLabelTemplatePrimary,
-            portLabelTemplateReturn: this.clipboard.portLabelTemplateReturn,
-            portLabelOverridesPrimary: JSON.parse(JSON.stringify(this.clipboard.portLabelOverridesPrimary || {})),
-            portLabelOverridesReturn: JSON.parse(JSON.stringify(this.clipboard.portLabelOverridesReturn || {})),
-            customPortPaths: pasteCustomPortPaths,
-            customPortIndex: this.clipboard.customPortIndex,
-            randomDataColors: !!this.clipboard.randomDataColors,
-            arrowSize: this.clipboard.arrowSize,
-            // The Data tab's colours: the same set duplicate carries
-            // (clientProps there). Until 2026-09-22 paste sent none of them
-            // and pasteClientProps stamped only the two text colours, so a
-            // pasted screen came out with the shipped line, arrow and port
-            // colours whatever the source had - immediately, and on the
-            // server. Sent here too so the server's copy matches; the add
-            // route lists all but dataFlowColor today.
-            arrowColor: this.clipboard.arrowColor,
-            dataFlowColor: this.clipboard.dataFlowColor,
-            primaryColor: this.clipboard.primaryColor,
-            primaryTextColor: this.clipboard.primaryTextColor,
-            backupColor: this.clipboard.backupColor,
-            backupTextColor: this.clipboard.backupTextColor,
-            // The four per-view cabinet borders: pasteClientProps stamped
-            // them in the browser and nothing sent them (until 2026-09-22),
-            // so a paste across canvases came back from the server with
-            // one border for every view on reload.
-            border_color_pixel: this.clipboard.border_color_pixel,
-            border_color_cabinet: this.clipboard.border_color_cabinet,
-            border_color_data: this.clipboard.border_color_data,
-            border_color_power: this.clipboard.border_color_power,
-            // The breakout rides with the voltage, as duplicate carries it.
-            powerBreakoutType: this.clipboard.powerBreakoutType,
-            // v0.11.0: paste never carried the appearance block at all -
-            // not in this payload and not in pasteClientProps below, which is
-            // eight colours and nothing else. So a pasted screen lost its
-            // gradient, palette and Transparent Fill immediately on screen,
-            // not merely after a reload. Copy/Paste and Duplicate are the same
-            // intent; they now produce the same screen.
-            gradientEnabled: this.clipboard.gradientEnabled,
-            gradientType: this.clipboard.gradientType,
-            gradientScope: this.clipboard.gradientScope,
-            gradientPanelAlternate: this.clipboard.gradientPanelAlternate,
-            gradientRadialCenterX: this.clipboard.gradientRadialCenterX,
-            gradientRadialCenterY: this.clipboard.gradientRadialCenterY,
-            gradientRadialRadius: this.clipboard.gradientRadialRadius,
-            gradientAngle: this.clipboard.gradientAngle,
-            gradientOpacity: this.clipboard.gradientOpacity,
-            gradientBlend: this.clipboard.gradientBlend,
-            gradientStops: Array.isArray(this.clipboard.gradientStops)
-                ? this.clipboard.gradientStops.map(s => ({ pos: s.pos, color: s.color }))
-                : undefined,
-            panelColorMode: this.clipboard.panelColorMode,
-            panelColors: Array.isArray(this.clipboard.panelColors)
-                ? this.clipboard.panelColors.slice() : undefined,
-            transparentFill: this.clipboard.transparentFill,
-            screenNameOffsetXPixelMap: this.clipboard.screenNameOffsetXPixelMap,
-            screenNameOffsetYPixelMap: this.clipboard.screenNameOffsetYPixelMap,
-            screenNameOffsetXShowLook: this.clipboard.screenNameOffsetXShowLook,
-            screenNameOffsetYShowLook: this.clipboard.screenNameOffsetYShowLook,
-            ..._carryShow(this.clipboard, 50, 50),
-        };
-        const pasteClientProps = {
-            border_color_pixel: this.clipboard.border_color_pixel,
-            border_color_cabinet: this.clipboard.border_color_cabinet,
-            border_color_data: this.clipboard.border_color_data,
-            border_color_power: this.clipboard.border_color_power,
-            // The same six Data colours duplicate's clientProps stamps.
-            arrowColor: this.clipboard.arrowColor,
-            dataFlowColor: this.clipboard.dataFlowColor,
-            primaryColor: this.clipboard.primaryColor,
-            primaryTextColor: this.clipboard.primaryTextColor,
-            backupColor: this.clipboard.backupColor,
-            backupTextColor: this.clipboard.backupTextColor,
-            powerLabelBgColor: this.clipboard.powerLabelBgColor,
-            powerLabelTextColor: this.clipboard.powerLabelTextColor,
-            powerBreakoutType: this.clipboard.powerBreakoutType
-        };
-        
         fetch('/api/layer/add', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(pasteData)
+            body: JSON.stringify(body)
         })
         .then(res => res.json())
         .then(newLayer => {
-            Object.assign(newLayer, pasteClientProps);
-            // Same safety net as duplicate: the pasted breakout must be one
-            // the voltage allows; a rewrite is pushed so the server matches.
-            if (typeof this.normalizePowerBreakout === 'function'
-                    && this.normalizePowerBreakout(newLayer)) {
-                this.updateLayers([newLayer]);
-            }
+            this._adoptScreenCopy(newLayer, clientProps);
             sendClientLog('paste_layer', {
                 sourceId: this.clipboard.id, sourceName: this.clipboard.name,
                 newId: newLayer.id, newName: newLayer.name,
                 columns: newLayer.columns, rows: newLayer.rows,
                 offset_x: newLayer.offset_x, offset_y: newLayer.offset_y
             });
-            this.upsertProjectLayer(newLayer);
-            this.selectLayer(newLayer);
-            this.updateUI();
-            
+
             // Save state AFTER paste completes
             this.saveState('Paste Layer');
         });

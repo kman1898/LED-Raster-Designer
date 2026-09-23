@@ -557,6 +557,8 @@ def delete_layer(layer_id):
     # otherwise keep listing a layer that is gone, and a two-member group would
     # be left as a group of one. restore_project repairs this too, but only on
     # the next undo/file load; do it now so the response is already consistent.
+    # The same pass drops the deleted screen's data port pins
+    # (port_assignment.prune_orphan_pins), so the response carries none.
     app._enforce_group_integrity(app.current_project)
     app.current_project['is_pristine'] = False
     log_event('delete_layer', {'id': layer_id, 'name': deleted_name, 'remaining_layers': len(app.current_project['layers'])})
@@ -680,8 +682,10 @@ def move_layer_to_canvas(layer_id):
         # per-panel hidden / blank / halfTile state.
         _rebuild_layer_geometry_from_panel_states(clone)
         # A deep copy carries whatever the source held; the clone is a
-        # screen and keeps a breakout its voltage allows (2026-09-22).
+        # screen and keeps a breakout its voltage allows (2026-09-22) and
+        # none of the source's feeds (2026-09-23; app.strip_copied_feeds).
         app.normalize_power_breakout(clone)
+        app.strip_copied_feeds(clone)
         app.current_project['layers'].append(clone)
         log_event('layer_duplicate_to_canvas', {
             'src_layer_id': layer_id, 'new_layer_id': clone['id'],

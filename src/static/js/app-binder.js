@@ -190,12 +190,23 @@ const REDUNDANCY_WORDS = {
 };
 
 // The title block's fields, as project.binder stores them - and the
-// screen order, which rides the project the same way.
+// screen order and the VIEW, which ride the project the same way.
 const BINDER_DEFAULTS = {
     venue: '', dates: '', designer: '',
     projectManager: { name: '', phone: '', email: '' },
-    drafter: '', revisions: [], screenOrder: 'alpha',
+    drafter: '', revisions: [], screenOrder: 'alpha', view: 'front',
 };
+// The side the set's Power and Data maps are drawn from (project.binder
+// .view, the export dialog's "View"): ONE choice for the whole set, every
+// screen sheet naming it - "· FRONT VIEW" / "· REAR VIEW" (owner,
+// 2026-09-23: "Print both"). The overview is always the front ("the only
+// screen that will show front always is the overview screen the very
+// first page"). Absent = front.
+const BINDER_VIEWS = ['front', 'rear'];
+// The renderer's word for each: a canvas's data_flow_perspective /
+// power_perspective is 'front' or 'back'.
+const VIEW_PERSPECTIVE = { front: 'front', rear: 'back' };
+const PERSPECTIVE_KEYS = ['data_flow_perspective', 'power_perspective'];
 // The orders a beach's screens can run in (project.binder.screenOrder,
 // the export dialog's "Screen order"): alphabetical by name, the Screens
 // panel's order top-down or bottom-up, by first port, by first circuit.
@@ -256,6 +267,17 @@ class _Binder {
             order.addEventListener('change', () => {
                 const v = SCREEN_ORDERS.includes(order.value) ? order.value : 'alpha';
                 this.setBinderField('screenOrder', v, 'Set Screen Order');
+                if (typeof this.updateExportPreview === 'function') this.updateExportPreview();
+            });
+        }
+        // The view: project state, one undo entry, the same POST as the
+        // title block's fields - the radios both commit the one field.
+        for (const v of BINDER_VIEWS) {
+            const radio = document.getElementById(`export-binder-view-${v}`);
+            if (!radio) continue;
+            radio.addEventListener('change', () => {
+                if (!radio.checked) return;
+                this.setBinderField('view', v, 'Set Binder View');
                 if (typeof this.updateExportPreview === 'function') this.updateExportPreview();
             });
         }
@@ -390,6 +412,10 @@ class _Binder {
         set('export-binder-pm-email', info.projectManager.email);
         set('export-binder-drafter', info.drafter);
         set('export-binder-screen-order', info.screenOrder);
+        for (const v of BINDER_VIEWS) {
+            const radio = document.getElementById(`export-binder-view-${v}`);
+            if (radio) radio.checked = info.view === v;
+        }
         const drafter = document.getElementById('export-binder-drafter');
         if (drafter) drafter.placeholder = this.getEngineerName() || 'Name';
         // the Revision note is this export's and stays as typed
@@ -552,6 +578,9 @@ class _Binder {
             drafter: fill(stored.drafter, prefs.binderDrafter),
             screenOrder: SCREEN_ORDERS.includes(stored.screenOrder) ? stored.screenOrder
                 : (SCREEN_ORDERS.includes(prefs.binderScreenOrder) ? prefs.binderScreenOrder : 'alpha'),
+            // the set's one Front / Rear choice; absent (every project
+            // before it, a new one) is front
+            view: BINDER_VIEWS.includes(stored.view) ? stored.view : 'front',
             // the log: No. is the row's position; `rev` the number the
             // export wore, so the same rev exported again logs nothing
             revisions: Array.isArray(stored.revisions)
@@ -834,6 +863,7 @@ class _Binder {
         if (!pages.length) throw new Error('Nothing to bind: no screen has circuits or ports');
         sendClientLog('export_binder_start', {
             pages: pages.length, palette: opts.palette, scope: opts.scope.kind, sheet: opts.sheet,
+            view: this.getBinderInfo().view,
         });
         const response = await fetch('/api/export/pdf-from-pages', {
             method: 'POST',
@@ -930,6 +960,9 @@ class _Binder {
             palette: opts.palette === 'printer' ? 'printer' : 'colour',
             logo: this._binderLogoNow(),
             binder: { ...info, drafter: info.drafter || engineer },
+            // the side the maps are drawn from: the project's choice; an
+            // explicit opts.view (a caller with a set in hand) overrides it
+            view: BINDER_VIEWS.includes(opts.view) ? opts.view : info.view,
         };
         const sheet = binderSheet(opts.sheet || this.getBinderSheet());
         const canvas = run.dry ? null : (this._binderCanvas || (this._binderCanvas = document.createElement('canvas')));
@@ -2496,6 +2529,42 @@ class _Binder {
     // smaller render. geo.extent is the map's compact extent in the area:
     // the wall with its gutters, and the height used.
     _bMap(book, layer, view, area, gutter) {
+        // The set's one View choice, for the length of this paint: the
+        // renderer mirrors a Power or Data map when ITS canvas's
+        // perspective key says 'back', so every canvas (and the project
+        // root, the legacy single-canvas keys) is set to the binder's side
+        // and put back afterwards - the workspace's own Front / Back
+        // toggles read exactly as before, nothing is persisted. A caller
+        // with a bare book (a test's) reads as front.
+        const side = VIEW_PERSPECTIVE[book && book.meta && book.meta.view] || 'front';
+        return this._bWithPerspective(side, () => this._bPaintMap(book, layer, view, area, gutter));
+    }
+
+    // Every canvas's two perspective keys and the project root's pair set
+    // to `side` ('front' or 'back') while `fn` runs, then every value put
+    // back - a key that was absent is absent again - whatever fn did or
+    // threw. The renderer is the only reader; no PUT, no undo entry.
+    _bWithPerspective(side, fn) {
+        const proj = this.project;
+        if (!proj || typeof proj !== 'object') return fn();
+        const holders = [proj, ...(Array.isArray(proj.canvases) ? proj.canvases : [])]
+            .filter(h => h && typeof h === 'object');
+        const saved = holders.map(h => [h, PERSPECTIVE_KEYS.map(k =>
+            [Object.prototype.hasOwnProperty.call(h, k), h[k]])]);
+        try {
+            for (const h of holders) for (const k of PERSPECTIVE_KEYS) h[k] = side;
+            return fn();
+        } finally {
+            for (const [h, vals] of saved) {
+                PERSPECTIVE_KEYS.forEach((k, i) => {
+                    const [had, v] = vals[i];
+                    if (had) h[k] = v; else delete h[k];
+                });
+            }
+        }
+    }
+
+    _bPaintMap(book, layer, view, area, gutter) {
         const r = window.canvasRenderer;
         // the gutters: the rulers' and the brackets' room by default; a
         // caller that draws neither (the wiring sheet) passes its own
@@ -2802,11 +2871,17 @@ class _Binder {
 
     // ---- the screen sheets --------------------------------------------------
 
+    // Every screen sheet names the side its map is drawn from - the set's
+    // one View choice: "WALL-A · POWER · REAR VIEW" as the view heading,
+    // the title block's sheet title and the CONTENTS line alike, the plan
+    // title "WALL-A - Power - Rear View". The wiring sheets keep their own
+    // titles (app-binder-wiring.js); the overview stays OVERVIEW.
     _bScreenPage(book, layer, pos, view) {
         const scr = book.list.byScreen[layer.id];
         const word = view === 'power' ? 'POWER' : 'DATA';
-        const title = `${layer.name} - ${view === 'power' ? 'Power' : 'Data'}`;
-        const sheetTitle = `${layer.name} · ${word}`;
+        const rear = book.meta.view === 'rear';
+        const title = `${layer.name} - ${view === 'power' ? 'Power' : 'Data'} - ${rear ? 'Rear' : 'Front'} View`;
+        const sheetTitle = `${layer.name} · ${word} · ${rear ? 'REAR' : 'FRONT'} VIEW`;
         const blocks = view === 'power'
             ? this._bPowerBlocks(book, layer, scr)
             : this._bDataBlocks(book, layer, scr);
@@ -3461,6 +3536,12 @@ class _Binder {
     // axis-aligned bounds (getLayerBounds - the box its cabinets fill),
     // not turned with it. The screen-name plates the renderer draws stay.
     _bShowMap(book, area) {
+        // The overview is ALWAYS the front, whatever the set's View says
+        // and whatever the workspace's toggles say.
+        return this._bWithPerspective('front', () => this._bPaintShowMap(book, area));
+    }
+
+    _bPaintShowMap(book, area) {
         const r = window.canvasRenderer;
         const S = book.scale || 2;
         const canvases = (this.project && Array.isArray(this.project.canvases)) ? this.project.canvases : [];

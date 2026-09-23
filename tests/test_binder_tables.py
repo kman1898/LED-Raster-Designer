@@ -444,19 +444,19 @@ def test_a_backup_box_is_its_own_section_on_experts_only(shows):
     if 'experts only' not in shows:
         pytest.skip('the Experts Only save is not present (LRD_EXPERTS_JSON)')
     pages = {p['title']: p for p in shows['experts only']['pages']}
-    sr = _ports_table(pages['SR - MAIN - Data'])
+    sr = _ports_table(pages['SR - MAIN - Data - Front View'])
     _assert_two_sections(
         sr, 'SR A', 'SR B', "SR A · 4 channel snake · 150'", "SR B · 4 channel snake · 100'",
         ["+10'", '—', "+25'", "+25'"], ["+10'", '—', "+10'", "+75'"],
         ['84', '84', '84', '56'], ['604,800', '604,800', '604,800', '403,200'])
     assert sum(_px(r['PX']) for r in _all_rows(sr) if r['PX'] != '—') == 1680 * 1320
-    sl = _ports_table(pages['SL - MAIN - Data'])
+    sl = _ports_table(pages['SL - MAIN - Data - Front View'])
     _assert_two_sections(
         sl, 'SL A', 'SL B', "SL A · 4 channel snake · 100'", "SL B · 4 channel snake · 150'",
         ["+10'", '—', "+25'", "+25'"], ["+10'", '—', "+10'", "+100'"],
         ['84', '84', '84', '56'], ['604,800', '604,800', '604,800', '403,200'])
     # the loose return: SR - Return's one port, a cable at each end
-    ret = _ports_table(pages['SR - Return - Data'])
+    ret = _ports_table(pages['SR - Return - Data - Front View'])
     assert [s['band'].split(' · ')[0] for s in ret] == ['CVT4K-S SR A', 'CVT4K-S SR B'], ret
     (a5,), (b5,) = [_all_rows([s]) for s in ret]
     assert (a5['PORT'], a5['BACKUP'], b5['PORT'], b5['BACKUP']) == (
@@ -554,7 +554,7 @@ def test_a_backup_box_is_its_own_section(seeded):
     each snake heading its own, the pairing from both sides, PANELS and PX
     "—" on the backup's rows and summing to the wall once, each end's own
     extension on its own row."""
-    sections = _ports_table(seeded['MAIN - Data'])
+    sections = _ports_table(seeded['MAIN - Data - Front View'])
     assert len(sections) == 2, sections
     _assert_two_sections(
         sections, 'SR A', 'SR B', "SR A · 4 channel snake · 150'", "SR B · 4 channel snake · 100'",
@@ -569,7 +569,7 @@ def test_a_same_unit_pairing_is_one_section(seeded):
     """A card in HALVES mode returns each port on its own other half: the
     primary and the return are ONE unit, so the sheet has one section - no
     second band is invented - and every row counts its own pixels."""
-    sections = _ports_table(seeded['SOLO - Data'])
+    sections = _ports_table(seeded['SOLO - Data - Front View'])
     assert len(sections) == 1, sections
     rows = _all_rows(sections)
     assert rows and all(r['PANELS'] != '—' and r['PX'] != '—' for r in rows), rows

@@ -685,6 +685,44 @@ def normalize_power_breakout(layer, prefs=None):
     return True
 
 
+# A COPY of a screen never carries its feeds (owner ruling, 2026-09-23:
+# "they can't carry over because then they would be duplicates on the same
+# multi or processor"). These six per-multi stores name the run from a
+# distro to the screen - which box (powerSocaDistro), which slot on it
+# (powerSocaNumber - the shared-box key, meaningless without the distro),
+# which legs and breaker position on that box (powerSocaPhasePos /
+# powerSocaPhaseOffset - the phase balance of that distro's load), what the
+# multi is called in the show (powerSocaNames) and how long its home run is
+# (powerSocaLengths). A copy is fed by a fresh drop, so it starts with none
+# of them. What describes the screen's OWN plan stays: the circuit
+# boundaries its multis split at (powerSocaSplits), the splitter groups
+# (powerSplitters), the keying stamp (powerSocaKeying) and the bracket
+# toggle - like the voltage, the breakout, the colours and the drawn runs.
+#
+# The data side has no twin on the layer: a screen's card ports are pins in
+# project['port_assignments'] keyed by layer id, and a copy has a new id
+# nothing has pinned yet, so it simply has none.
+#
+# The browser's Duplicate / Paste / Duplicate Group payloads follow the
+# same list (SCREEN_FEED_KEYS, app-clipboard.js); the server-side clones
+# (duplicate_canvas, the duplicate-to-canvas branch of move_layer_to_canvas)
+# are deep copies and drop them here.
+COPIED_SCREEN_FEED_KEYS = (
+    'powerSocaDistro', 'powerSocaNumber', 'powerSocaPhasePos',
+    'powerSocaPhaseOffset', 'powerSocaNames', 'powerSocaLengths',
+)
+
+
+def strip_copied_feeds(layer):
+    """Drop every feed key from a freshly cloned screen layer, in place.
+    Returns the names it removed. Non-screen layers are left alone."""
+    if not isinstance(layer, dict):
+        return []
+    if (layer.get('type') or 'screen') != 'screen':
+        return []
+    return [k for k in COPIED_SCREEN_FEED_KEYS if layer.pop(k, None) is not None]
+
+
 def normalize_power_breakouts(project, at=None):
     """Run normalize_power_breakout over every layer of `project`. Returns the
     ids it wrote; logs them under `at` when given (a route naming itself), so
@@ -1608,6 +1646,11 @@ def _enforce_group_integrity(project):
     # path step is only legal if it points at a CURRENT group peer, and "the
     # group" means the group as of this repair, not as of when the user drew.
     _prune_cross_layer_paths(project)
+    # Data port pins name layers by id the same way group layer_ids do, and
+    # rot the same way: a layer deleted alone or with its canvas left its
+    # pins in project['port_assignments'], saved and loaded back (2026-09-23).
+    # Same funnel, same idempotence - only pins on a dead layer go.
+    port_assignment.prune_orphan_pins(project)
     return project
 
 

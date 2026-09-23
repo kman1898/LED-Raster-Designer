@@ -995,6 +995,40 @@ def clear_pin(state, layer_id, index=None):
     return state
 
 
+def prune_orphan_pins(project):
+    """Drop every pin whose layer is no longer in the project. In place.
+
+    A pin names a layer by id; nothing else ties the two together, so a
+    layer deleted on its own (DELETE /api/layer), taken with its canvas
+    (DELETE /api/canvas) or missing from a hand-edited file leaves pins that
+    point at nothing. Those pins were invisible (resolve only draws the
+    layers it is given) but they were saved, loaded back, and counted as
+    claims on their sockets (2026-09-23, found by an end-to-end pass:
+    duplicate a canvas, delete the original, GET /api/project still lists
+    the dead screen's pins).
+
+    Runs from app._enforce_group_integrity, the funnel every delete, undo,
+    redo and file load already passes through. Only the dead pins go: a
+    living screen's pins are the user's decisions and stay exactly as
+    stored, shape included, so a well-formed file round-trips unchanged.
+    Returns True when a pin was dropped.
+    """
+    if not isinstance(project, dict):
+        return False
+    state = project.get(STATE_KEY)
+    if not isinstance(state, dict) or not isinstance(state.get('pins'), list):
+        return False
+    alive = {str(l['id']) for l in (project.get('layers') or [])
+             if isinstance(l, dict) and l.get('id') is not None}
+    pins = state['pins']
+    kept = [p for p in pins
+            if isinstance(p, dict) and str(p.get('layerId')) in alive]
+    if len(kept) == len(pins):
+        return False
+    state['pins'] = kept
+    return True
+
+
 def _foreign_claims(processors, screens, state, layer_id, index=None):
     """Every port claimed by somebody other than the thing being moved.
 

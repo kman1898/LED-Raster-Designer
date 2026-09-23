@@ -1357,11 +1357,29 @@ class CanvasRenderer {
         if (this.viewMode === 'cabinet-id') nameSize = cfg.screenNameSizeCabinet || 14;
         else if (this.viewMode === 'data-flow') nameSize = cfg.screenNameSizeDataFlow || 14;
         else if (this.viewMode === 'power') nameSize = cfg.screenNameSizePower || 14;
-        const nameHeight = (nameSize + 4) + padding * 2;
-
+        // 2026-09-23: the same wrap the draw applies (_wrapLabelLine) -
+        // the name's plate is as wide as its widest line and as tall as all
+        // of them, measured against the wall's inner width.
+        const maxLabelWidth = Math.max(bounds.width - padding * 2, 1);
         const prevFont = this.ctx.font;
         this.ctx.font = `bold ${nameSize}px ${projectFontFamily()}`;
-        const nameWidth = this.ctx.measureText(name).width + padding * 2;
+        const nameLines = this._wrapLabelLine(name, maxLabelWidth);
+        let nameTextWidth = 0;
+        nameLines.forEach(line => {
+            nameTextWidth = Math.max(nameTextWidth, this.ctx.measureText(line).width);
+        });
+        const nameWidth = nameTextWidth + padding * 2;
+        const nameHeight = nameLines.length * (nameSize + 4) + padding * 2;
+        // The port / circuit line under the headline, wrapped the same way,
+        // so the dodge clears every line of it and not just the first.
+        let infoLines = 0;
+        if (this.viewMode === 'data-flow' || this.viewMode === 'power') {
+            const gt = (window.app && typeof window.app.getGroupTotals === 'function')
+                ? window.app.getGroupTotals(plan.group, this._effectiveLayerCanvasId(member))
+                : null;
+            const line = this._groupCenterInfoLine(plan, gt);
+            if (line) infoLines = this._wrapLabelLine(line, maxLabelWidth).length;
+        }
         this.ctx.font = prevFont;
 
         const f = this._screenNameOffsetFields();
@@ -1382,10 +1400,8 @@ class CanvasRenderer {
             if (cfg.showLabelSizeFt) lines++;
             if (cfg.showLabelWeight) lines++;
             if (lines > 0) stackBelow = 5 + lines * (fontSize + 4) + padding * 2;
-        } else if (this.viewMode === 'data-flow' && cfg.showDataFlowPortInfo) {
-            stackBelow = 5 + (nameSize + 4) + padding * 2;
-        } else if (this.viewMode === 'power' && cfg.showPowerCircuitInfo) {
-            stackBelow = 5 + (nameSize + 4) + padding * 2;
+        } else if (infoLines > 0) {
+            stackBelow = 5 + infoLines * (nameSize + 4) + padding * 2;
         }
         // Pixel Map centres name + lines as one stack, so the name box sits
         // above centre by half the lines' height. Every other tab centres

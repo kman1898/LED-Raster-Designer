@@ -738,8 +738,8 @@ def test_each_side_is_a_sheet_behind_its_own_map_and_runs_its_port_and_its_circu
     pw = _sheet(pg, opts, 'WALL-A - Power Wiring')
     dw = _sheet(pg, opts, 'WALL-A - Data Wiring')
     assert pw['plan'][:5] == [['overview', '1.1', 'Overview', 1],
-                              ['power', '2.1', 'WALL-A - Power', 2], ['wiring', '2.2', 'WALL-A - Power Wiring', 3],
-                              ['data', '2.3', 'WALL-A - Data', 4], ['wiring', '2.4', 'WALL-A - Data Wiring', 5]]
+                              ['power', '2.1', 'WALL-A - Power - Front View', 2], ['wiring', '2.2', 'WALL-A - Power Wiring', 3],
+                              ['data', '2.3', 'WALL-A - Data - Front View', 4], ['wiring', '2.4', 'WALL-A - Data Wiring', 5]]
     for out, sheet_title, number, view in ((pw, 'WALL-A · POWER WIRING', '2.2', 3),
                                            (dw, 'WALL-A · DATA WIRING', '2.4', 5)):
         assert out['width'] == W * SCALE and out['height'] == H * SCALE
@@ -1011,8 +1011,8 @@ def test_the_wiring_tick_takes_both_sheets_and_they_follow_the_maps_choice(page)
     numbered(both)
     for name in ('WALL-A', 'WALL-B', 'CENTER'):
         mine = [(p[0], p[2]) for p in both if p[2].startswith(name + ' - ')]
-        assert mine == [('power', name + ' - Power'), ('wiring', name + ' - Power Wiring'),
-                        ('data', name + ' - Data'), ('wiring', name + ' - Data Wiring')], mine
+        assert mine == [('power', name + ' - Power - Front View'), ('wiring', name + ' - Power Wiring'),
+                        ('data', name + ' - Data - Front View'), ('wiring', name + ' - Data Wiring')], mine
         at = [i for i, p in enumerate(both) if p[2].startswith(name + ' - ')]
         assert at == list(range(at[0], at[0] + 4)), ('the four run together', at)
     assert [p[2] for p in both if p[0] == 'wiring'] == _wiring('WALL-A') + _wiring('WALL-B') + _wiring('CENTER')
@@ -1022,35 +1022,35 @@ def test_the_wiring_tick_takes_both_sheets_and_they_follow_the_maps_choice(page)
     assert [p[2] for p in without] == [p[2] for p in both if p[0] != 'wiring'], without
     assert without == [
         ['overview', '1.1', 'Overview', 1],
-        ['power', '2.1', 'WALL-A - Power', 2], ['data', '2.2', 'WALL-A - Data', 3],
-        ['power', '2.3', 'WALL-B - Power', 4], ['data', '2.4', 'WALL-B - Data', 5],
-        ['power', '2.5', 'CENTER - Power', 6], ['data', '2.6', 'CENTER - Data', 7],
+        ['power', '2.1', 'WALL-A - Power - Front View', 2], ['data', '2.2', 'WALL-A - Data - Front View', 3],
+        ['power', '2.3', 'WALL-B - Power - Front View', 4], ['data', '2.4', 'WALL-B - Data - Front View', 5],
+        ['power', '2.5', 'CENTER - Power - Front View', 6], ['data', '2.6', 'CENTER - Data - Front View', 7],
         ['pull', '3.1', 'Pull - SR Beach, CENTER', None], ['distro', '4.1', 'Distro - SR', None],
         ['processor', '4.2', 'Processor - H9 · Pull list', None]]
     listed = out['contentsWithout']
-    assert listed[:6] == ['1.1', 'OVERVIEW', '2.1', 'WALL-A · POWER', '2.2', 'WALL-A · DATA']
+    assert listed[:6] == ['1.1', 'OVERVIEW', '2.1', 'WALL-A · POWER · FRONT VIEW', '2.2', 'WALL-A · DATA · FRONT VIEW']
     assert not [t for t in listed if 'WIRING' in t or 'SIGNAL' in t], listed
     # the Maps choice: Power alone, no Data Wiring sheet - and the mirror
     power = out['power']
     numbered(power)
     assert [p[2] for p in power if p[0] in ('power', 'data', 'wiring')] == [
-        'WALL-A - Power', 'WALL-A - Power Wiring', 'WALL-B - Power', 'WALL-B - Power Wiring',
-        'CENTER - Power', 'CENTER - Power Wiring'], power
+        'WALL-A - Power - Front View', 'WALL-A - Power Wiring', 'WALL-B - Power - Front View', 'WALL-B - Power Wiring',
+        'CENTER - Power - Front View', 'CENTER - Power Wiring'], power
     assert out['powerSides'] == [{'power': True, 'data': False}] * 3
     data = out['data']
     numbered(data)
     assert [p[2] for p in data if p[0] in ('power', 'data', 'wiring')] == [
-        'WALL-A - Data', 'WALL-A - Data Wiring', 'WALL-B - Data', 'WALL-B - Data Wiring',
-        'CENTER - Data', 'CENTER - Data Wiring'], data
+        'WALL-A - Data - Front View', 'WALL-A - Data Wiring', 'WALL-B - Data - Front View', 'WALL-B - Data Wiring',
+        'CENTER - Data - Front View', 'CENTER - Data Wiring'], data
     assert out['dataSides'] == [{'power': False, 'data': True}] * 3
     # a screen with one side: that map and its one wiring sheet
     one = out['oneSided']
     numbered(one)
     assert [(p[0], p[2]) for p in one if p[0] in ('power', 'data', 'wiring')] == [
-        ('power', 'WALL-A - Power'), ('wiring', 'WALL-A - Power Wiring'),
-        ('data', 'WALL-A - Data'), ('wiring', 'WALL-A - Data Wiring'),
-        ('data', 'WALL-B - Data'), ('wiring', 'WALL-B - Data Wiring'),
-        ('power', 'CENTER - Power'), ('wiring', 'CENTER - Power Wiring')], one
+        ('power', 'WALL-A - Power - Front View'), ('wiring', 'WALL-A - Power Wiring'),
+        ('data', 'WALL-A - Data - Front View'), ('wiring', 'WALL-A - Data Wiring'),
+        ('data', 'WALL-B - Data - Front View'), ('wiring', 'WALL-B - Data Wiring'),
+        ('power', 'CENTER - Power - Front View'), ('wiring', 'CENTER - Power Wiring')], one
     # the sheet the Maps choice keeps is the very sheet Both draws
     base = json.loads(_SHOW_JSON)
     alone = _sheet(pg, {**base, 'sides': {'power': True, 'data': False}}, 'WALL-A - Power Wiring')
@@ -1106,8 +1106,8 @@ def test_smoke_experts_only_sr_main(page):
     dw = _sheet(pg, opts, 'SR - MAIN - Data Wiring')
     plan = pw['plan']
     assert [p[1:3] for p in plan if p[2].startswith('SR - MAIN')] == \
-        [['2.9', 'SR - MAIN - Power'], ['2.10', 'SR - MAIN - Power Wiring'],
-         ['2.11', 'SR - MAIN - Data'], ['2.12', 'SR - MAIN - Data Wiring']]
+        [['2.9', 'SR - MAIN - Power - Front View'], ['2.10', 'SR - MAIN - Power Wiring'],
+         ['2.11', 'SR - MAIN - Data - Front View'], ['2.12', 'SR - MAIN - Data Wiring']]
     assert len(plan) == 20 and [p[3] for p in plan][:17] == list(range(1, 18)) and [p[3] for p in plan][17:] == [None] * 3
     _title_block(pw['texts'], 'SR - MAIN · POWER WIRING', '2.10', show='2026 Experts Only')
     _title_block(dw['texts'], 'SR - MAIN · DATA WIRING', '2.12', show='2026 Experts Only')
@@ -1219,8 +1219,8 @@ def test_smoke_experts_only_sr_main(page):
     ov = pg.evaluate("(o) => window.app.renderBinderPage(o, 0).texts", opts)
     c = ov.index('CONTENTS')
     listed = [(ov[c + 3 + 2 * n], ov[c + 4 + 2 * n]) for n in range(len(plan))]
-    assert listed[9:13] == [('2.9', 'SR - MAIN · POWER'), ('2.10', 'SR - MAIN · POWER WIRING'),
-                            ('2.11', 'SR - MAIN · DATA'), ('2.12', 'SR - MAIN · DATA WIRING')]
+    assert listed[9:13] == [('2.9', 'SR - MAIN · POWER · FRONT VIEW'), ('2.10', 'SR - MAIN · POWER WIRING'),
+                            ('2.11', 'SR - MAIN · DATA · FRONT VIEW'), ('2.12', 'SR - MAIN · DATA WIRING')]
     # the words
     for out in (pw, dw):
         assert not [t for t in out['texts'] if BOX_WORD.search(t) and 'breakout box' not in t.lower()]

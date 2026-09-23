@@ -194,6 +194,7 @@ def test_the_menu_items_the_format_option_and_the_section_are_served(client):
     assert '<option value="binder">Binder (PDF)</option>' in html
     assert 'id="export-binder-section"' in html
     for field in ('scope', 'sheet', 'colour', 'printer', 'side-power', 'side-data', 'side-both',
+                  'view-front', 'view-rear',
                   'cover', 'pull', 'hardware', 'wiring', 'title-block', 'engineer', 'rev',
                   'venue', 'dates', 'designer', 'pm-name', 'pm-phone', 'pm-email', 'drafter',
                   'logo', 'logo-preview', 'logo-remove', 'logo-status', 'revision-note', 'revisions'):
@@ -210,6 +211,16 @@ def test_the_menu_items_the_format_option_and_the_section_are_served(client):
     assert 'tail' not in sec.lower()
     # the title block switch stands in the Binder block, ticked
     assert re.search(r'id="export-binder-title-block"[^>]*checked', sec)
+    # the View row: one Front / Rear radio pair for the whole set, Front
+    # checked, the tooltip in plain words - and it stands in the Binder
+    # block, not among the title block's fields
+    assert sec.count('name="export-binder-view"') == 2
+    assert re.search(r'name="export-binder-view" id="export-binder-view-front" value="front" checked', sec)
+    assert re.search(r'name="export-binder-view" id="export-binder-view-rear" value="rear"[^>]*>', sec)
+    assert 'checked' not in re.search(r'<input[^>]*id="export-binder-view-rear"[^>]*>', sec).group(0)
+    assert 'The side the Power and Data maps are drawn from. The overview is always the front.' in sec
+    assert sec.index('id="export-binder-view-front"') < sec.index('Title block:')
+    assert not re.search(r'\b(gang|tours?|\d-way|-way)\b', sec, re.I)
     # the title block's fields sit in their own raised group
     assert sec.count('class="export-views"') == 2
     assert 'Title block:' in sec
@@ -396,12 +407,12 @@ DISTRO = 'Distro - SR'
 PROC = 'Processor - H9 · Pull list'
 PLAN = [
     ['overview', '1.1', 'Overview'],
-    ['power', '2.1', 'WALL-A - Power'], ['wiring', '2.2', 'WALL-A - Power Wiring'],
-    ['data', '2.3', 'WALL-A - Data'], ['wiring', '2.4', 'WALL-A - Data Wiring'],
-    ['power', '2.5', 'WALL-B - Power'], ['wiring', '2.6', 'WALL-B - Power Wiring'],
-    ['data', '2.7', 'WALL-B - Data'], ['wiring', '2.8', 'WALL-B - Data Wiring'],
-    ['power', '2.9', 'CENTER - Power'], ['wiring', '2.10', 'CENTER - Power Wiring'],
-    ['data', '2.11', 'CENTER - Data'], ['wiring', '2.12', 'CENTER - Data Wiring'],
+    ['power', '2.1', 'WALL-A - Power - Front View'], ['wiring', '2.2', 'WALL-A - Power Wiring'],
+    ['data', '2.3', 'WALL-A - Data - Front View'], ['wiring', '2.4', 'WALL-A - Data Wiring'],
+    ['power', '2.5', 'WALL-B - Power - Front View'], ['wiring', '2.6', 'WALL-B - Power Wiring'],
+    ['data', '2.7', 'WALL-B - Data - Front View'], ['wiring', '2.8', 'WALL-B - Data Wiring'],
+    ['power', '2.9', 'CENTER - Power - Front View'], ['wiring', '2.10', 'CENTER - Power Wiring'],
+    ['data', '2.11', 'CENTER - Data - Front View'], ['wiring', '2.12', 'CENTER - Data Wiring'],
     ['pull', '3.1', PULL],
     ['distro', '4.1', DISTRO],
     ['processor', '4.2', PROC],
@@ -528,25 +539,25 @@ def test_the_sheets_come_in_series_by_subject(page):
     assert all((p['w'], p['h'], p['sheet']) == (W, H, 'tabloid') for p in full), full
     assert [p['view'] for p in full] == list(range(1, 14)) + [None, None, None]
     assert all(p['sheetTitle'] == p['sheetTitle'].upper() for p in full)
-    assert [p['sheetTitle'] for p in full][:6] == ['OVERVIEW', 'WALL-A · POWER', 'WALL-A · POWER WIRING',
-                                                   'WALL-A · DATA', 'WALL-A · DATA WIRING', 'WALL-B · POWER']
+    assert [p['sheetTitle'] for p in full][:6] == ['OVERVIEW', 'WALL-A · POWER · FRONT VIEW', 'WALL-A · POWER WIRING',
+                                                   'WALL-A · DATA · FRONT VIEW', 'WALL-A · DATA WIRING', 'WALL-B · POWER · FRONT VIEW']
     assert [p['sheetTitle'] for p in full][-3:] == ['PULL · SR BEACH, CENTER', 'DISTRO · SR', 'PROCESSOR · H9 · PULL LIST']
     assert [p['names'] for p in full][-3:] == [['SR Beach', 'CENTER'], ['SR'], ['H9', 'All positions']]
     assert ids['errors'] == []
     # power only, no extras, the Wiring tick off: just the maps, 2.1 - 2.3
     only = _plan(pg, SHOW.replace("data: true", "data: false")
                  .replace("cover: true, pull: true, hardware: true", "cover: false, pull: false, hardware: false, wiring: false"))
-    assert only == [['power', '2.1', 'WALL-A - Power'], ['power', '2.2', 'WALL-B - Power'], ['power', '2.3', 'CENTER - Power']]
+    assert only == [['power', '2.1', 'WALL-A - Power - Front View'], ['power', '2.2', 'WALL-B - Power - Front View'], ['power', '2.3', 'CENTER - Power - Front View']]
 
 
 def test_the_power_sheet_carries_its_title_block_and_says_home_run_once_per_box(page):
     pg, ids = page
-    out = _render(pg, SHOW, 'WALL-A - Power')
+    out = _render(pg, SHOW, 'WALL-A - Power - Front View')
     texts = out['texts']
     # painted at 2x, the Tabloid sheet
     assert out['width'] == W * SCALE and out['height'] == H * SCALE
     assert out['sheet']['key'] == 'tabloid' and out['sheet']['pt'] == PT
-    _title_block(texts, 'WALL-A · POWER', '2.1')
+    _title_block(texts, 'WALL-A · POWER · FRONT VIEW', '2.1')
     assert 'rev 1.0' in texts
     bands = _bands(texts)
     # the type is Multi, and the length stands alone - "125' home run"
@@ -570,16 +581,16 @@ def test_the_power_sheet_carries_its_title_block_and_says_home_run_once_per_box(
     assert 'SHARED CIRCUITS' not in texts
     assert not [t for t in texts if 'Palette' in t]
     # the view bubble under the map: view 2, the sheet's name
-    assert out['bubble']['number'] == 2 and out['bubble']['name'] == 'WALL-A · POWER'
+    assert out['bubble']['number'] == 2 and out['bubble']['name'] == 'WALL-A · POWER · FRONT VIEW'
     # a squat wall over three short tables: the stack covers most
     assert out['page']['layout'] == 'stack' and out['page']['cols'] == 3
 
 
 def test_shared_circuits_are_listed_only_where_a_screen_has_them(page):
     pg, ids = page
-    plain = _render(pg, SHOW, 'WALL-B - Power')['texts']
+    plain = _render(pg, SHOW, 'WALL-B - Power - Front View')['texts']
     assert 'SHARED CIRCUITS' not in plain and '2fer' not in plain
-    ganged = _render(pg, SHOW, 'CENTER - Power')['texts']
+    ganged = _render(pg, SHOW, 'CENTER - Power - Front View')['texts']
     assert 'SHARED CIRCUITS' in ganged
     i = ganged.index('SHARED CIRCUITS')
     assert ganged[i:i + 7] == ['SHARED CIRCUITS', 'CIRCUIT', 'SPLITTER', 'AMPS', ganged[i + 4], '2fer', ganged[i + 6]]
@@ -589,7 +600,7 @@ def test_shared_circuits_are_listed_only_where_a_screen_has_them(page):
 
 def test_the_rulers_number_every_fifth_column_and_the_ends_in_bold(page):
     pg, ids = page
-    out = _render(pg, SHOW, 'CENTER - Power')
+    out = _render(pg, SHOW, 'CENTER - Power - Front View')
     rulers = [t for t in out['textInfo'] if t['size'] == 22 and t['weight'] == 700]
     assert [t['text'] for t in rulers] == ['1', '3', '1', '2', '3', '4', '5'], rulers
     assert all(t['weight'] == 700 for t in rulers)
@@ -598,7 +609,7 @@ def test_the_rulers_number_every_fifth_column_and_the_ends_in_bold(page):
 def test_the_printer_sheet_has_no_colour_and_a_dash_per_circuit(page):
     pg, ids = page
     printer = SHOW.replace("palette: 'colour'", "palette: 'printer'")
-    out = _render(pg, printer, 'WALL-A - Power')
+    out = _render(pg, printer, 'WALL-A - Power - Front View')
     assert out['coloured'] == 0, f'{out["coloured"]} of {out["samples"]} samples carry colour'
     patterns = sorted({tuple(d) for d in out['dashes']})
     non_solid = [p for p in patterns if p]
@@ -606,7 +617,7 @@ def test_the_printer_sheet_has_no_colour_and_a_dash_per_circuit(page):
     assert len(non_solid) == 1 and non_solid[0][0] > 0, patterns
     assert () in patterns
     # the same sheet in colour: colour on the wall, every run solid
-    colour = _render(pg, SHOW, 'WALL-A - Power')
+    colour = _render(pg, SHOW, 'WALL-A - Power - Front View')
     assert colour['coloured'] > 0
     assert not [d for d in colour['dashes'] if d]
     # the printer band is drawn as a rule, the text the same
@@ -615,14 +626,14 @@ def test_the_printer_sheet_has_no_colour_and_a_dash_per_circuit(page):
 
 def test_cable_tags_follow_the_screens_switch(page):
     pg, ids = page
-    on = _render(pg, SHOW, 'WALL-A - Power')['mapTexts']
+    on = _render(pg, SHOW, 'WALL-A - Power - Front View')['mapTexts']
     assert "10' True1" in on and _on_map(on, 'SR1-1'), on
-    off = _render(pg, SHOW, 'WALL-B - Power')['mapTexts']
+    off = _render(pg, SHOW, 'WALL-B - Power - Front View')['mapTexts']
     assert _on_map(off, 'SR2-1') and "6' True1" not in off, off
     # flip WALL-A off, and the tag leaves the map
     pg.evaluate("(id) => { window.app.project.layers.find(l => l.id === id).showPowerCableTags = false; }", ids['a'])
     try:
-        flipped = _render(pg, SHOW, 'WALL-A - Power')['mapTexts']
+        flipped = _render(pg, SHOW, 'WALL-A - Power - Front View')['mapTexts']
         assert "10' True1" not in flipped and _on_map(flipped, 'SR1-1'), flipped
     finally:
         pg.evaluate("(id) => { window.app.project.layers.find(l => l.id === id).showPowerCableTags = true; }", ids['a'])
@@ -632,12 +643,12 @@ def test_a_single_screen_scope_yields_only_that_screens_sheets(page):
     pg, ids = page
     one = _plan(pg, """{ sheet: 'tabloid', palette: 'colour', sides: {power: true, data: true},
                          scope: {kind: 'screen', layerId: '%s'}, cover: false, pull: false, hardware: false }""" % ids['b'])
-    assert one == [['power', '2.1', 'WALL-B - Power'], ['wiring', '2.2', 'WALL-B - Power Wiring'],
-                   ['data', '2.3', 'WALL-B - Data'], ['wiring', '2.4', 'WALL-B - Data Wiring']]
+    assert one == [['power', '2.1', 'WALL-B - Power - Front View'], ['wiring', '2.2', 'WALL-B - Power Wiring'],
+                   ['data', '2.3', 'WALL-B - Data - Front View'], ['wiring', '2.4', 'WALL-B - Data Wiring']]
     # the power side alone: its Power Wiring sheet and no Data Wiring sheet
     ticked = _plan(pg, """{ sheet: 'tabloid', palette: 'colour', sides: {power: true, data: false},
                             scope: {kind: 'screen', layerId: '%s'}, cover: false, pull: true, hardware: false }""" % ids['b'])
-    assert ticked == [['power', '2.1', 'WALL-B - Power'], ['wiring', '2.2', 'WALL-B - Power Wiring'],
+    assert ticked == [['power', '2.1', 'WALL-B - Power - Front View'], ['wiring', '2.2', 'WALL-B - Power Wiring'],
                       ['pull', '3.1', 'Pull - SR Beach'], ['totals', '4.1', 'Pull list - all positions']]
     # the dialog: the canvas's right-click presets the scope and unticks the extras
     out = pg.evaluate("""(id) => {
@@ -704,7 +715,7 @@ def test_every_sheet_is_the_picked_size(page):
         s = full[1]['scale']
         assert 1 <= s <= 2.4 and (s == 2.4 if key == 'archd' else True), (key, s)
         assert round(25 * s, 2) in out['sizes'] and round(24 * s, 2) in out['sizes'] and 56 in out['sizes'], (key, s, out['sizes'])
-        _title_block(out['texts'], 'WALL-A · POWER', '2.1')
+        _title_block(out['texts'], 'WALL-A · POWER · FRONT VIEW', '2.1')
     opts = json.loads(_SHOW_JSON)
     opts['sheet'] = 'napkin'
     assert pg.evaluate("(o) => window.app.planBinder(o)[0].sheet", opts) == 'tabloid'
@@ -792,6 +803,239 @@ def test_the_pdf_route_receives_one_display_list_per_sheet(page):
             assert ids_ == [] and ops_ == [], (kind, ids_, ops_)
     assert out['png']
     assert out['saved'] == {'filename': 'Two Positions - binder rev 1.0.pdf', 'mime': 'application/pdf', 'size': 9}
+
+
+def test_the_view_rides_the_project_and_reads_front_when_absent(page):
+    """The set's one Front / Rear choice is project.binder.view: the
+    dialog's View radios commit it with ONE undo entry ('Set Binder
+    View') and the same POST as the title block's fields, a GET serves it
+    back, a PUT (a file load) keeps it, undo takes it back; a project
+    without the key - every project before it - reads as front, and so
+    does a stored value that is neither word. The radios follow the
+    project when the dialog syncs."""
+    pg, ids = page
+    out = pg.evaluate("""async () => {
+        const app = window.app;
+        const j = (method, url, body) => fetch(url, {method, headers: {'Content-Type': 'application/json'},
+            body: body === undefined ? undefined : JSON.stringify(body)}).then(r => r.json());
+        const radio = (v) => document.getElementById('export-binder-view-' + v);
+        const pick = (v) => { radio(v).checked = true; radio(v).dispatchEvent(new Event('change')); };
+        const checked = () => ({ front: radio('front').checked, rear: radio('rear').checked });
+        delete app.project.binder;
+        document.getElementById('export-format').value = 'binder';
+        document.getElementById('export-format').dispatchEvent(new Event('change'));
+        const absent = { info: app.getBinderInfo().view, radios: checked(), stored: app.project.binder };
+        const h0 = app.historyIndex;
+        pick('rear');
+        const h1 = app.historyIndex;
+        const actions = app.history.slice(h0 + 1, h1 + 1).map(h => h.action);
+        const stored = JSON.parse(JSON.stringify(app.project.binder));
+        await app._binderPushQueue;
+        const served = (await j('GET', '/api/project')).binder;
+        // the same choice again commits nothing
+        pick('rear');
+        const again = app.historyIndex;
+        // a file load (PUT) keeps it
+        const p = await j('GET', '/api/project');
+        const loaded = (await j('PUT', '/api/project', p)).binder;
+        // the dialog follows the project
+        app.project.binder = { view: 'front' };
+        app.syncBinderControls();
+        const synced = checked();
+        app.project.binder = { view: 'sideways' };
+        app.syncBinderControls();
+        const odd = { info: app.getBinderInfo().view, radios: checked() };
+        // back to the choice, then undo takes it back - one step
+        app.project.binder = stored;
+        app.syncBinderControls();
+        app.undo();
+        await new Promise(r => setTimeout(r, 400));
+        const undone = { info: app.getBinderInfo().view, index: app.historyIndex, stored: app.project.binder };
+        return { absent, actions, stored, served, again, loaded, synced, odd, undone };
+    }""")
+    try:
+        assert out['absent'] == {'info': 'front', 'radios': {'front': True, 'rear': False}, 'stored': None}, out['absent']
+        assert out['actions'] == ['Set Binder View'], out['actions']
+        assert out['stored'] == {'view': 'rear'} and out['served'] == {'view': 'rear'}, out
+        assert out['loaded'] == {'view': 'rear'}, out['loaded']
+        assert out['synced'] == {'front': True, 'rear': False}
+        assert out['odd'] == {'info': 'front', 'radios': {'front': True, 'rear': False}}, out['odd']
+        assert out['undone']['info'] == 'front' and out['undone']['index'] == out['again'] - 1, out['undone']
+        assert not (out['undone']['stored'] or {}).get('view'), out['undone']
+    finally:
+        pg.evaluate("""async () => {
+            const app = window.app;
+            delete app.project.binder;
+            await app._persistBinderInfo();
+            app.syncBinderControls();
+        }""")
+    assert pg.evaluate("() => document.getElementById('export-binder-view-front').checked") is True
+    assert ids['errors'] == []
+
+
+# The export with the View picked either way: the sheets it posts, every
+# paint the renderer made (its view and every perspective key at that
+# moment), every request body sent, and the keys before and after.
+_VIEW_EXPORT_JS = """async (view) => {
+    const app = window.app, r = window.canvasRenderer;
+    const KEYS = ['data_flow_perspective', 'power_perspective'];
+    const holders = () => [app.project, ...(app.project.canvases || [])];
+    const keys = () => holders().map(h => KEYS.map(k => (k in h) ? h[k] : null));
+    const realFetch = window.fetch, realRender = r.render, savedPicker = app.saveBlobWithPicker;
+    const seen = { paints: [], bodies: [], posts: [] };
+    window.fetch = async (url, init) => {
+        if (init && init.body) seen.bodies.push([String(url), String(init.body)]);
+        if (String(url).includes('/api/export/pdf-from-pages')) {
+            seen.posts.push(JSON.parse(init.body));
+            return { ok: true, blob: async () => new Blob(['%PDF-fake'], {type: 'application/pdf'}) };
+        }
+        return realFetch(url, init);
+    };
+    // every paint: the renderer's view, whether it is the binder's own
+    // (exportMode) or the workspace's live canvas, and every key then
+    r.render = function () {
+        seen.paints.push({ view: this.viewMode, export: !!this.exportMode, keys: keys() });
+        return realRender.apply(this, arguments);
+    };
+    app.saveBlobWithPicker = async () => {};
+    document.getElementById('export-format').value = 'binder';
+    document.getElementById('export-format').dispatchEvent(new Event('change'));
+    document.getElementById('export-binder-scope').value = 'show';
+    document.getElementById('export-binder-scope').dispatchEvent(new Event('change'));
+    const radio = document.getElementById('export-binder-view-' + view);
+    radio.checked = true; radio.dispatchEvent(new Event('change'));
+    await app._binderPushQueue;
+    const before = keys();
+    let error = null;
+    try {
+        await app.exportBinder('Two Positions');
+    } catch (e) { error = String(e); } finally {
+        window.fetch = realFetch; r.render = realRender; app.saveBlobWithPicker = savedPicker;
+    }
+    const after = keys();
+    const plan = app.planBinder(app.readBinderOptions());
+    const body = seen.posts[0] || { pages: [] };
+    return { error, before, after, paints: seen.paints, bodies: seen.bodies,
+             stored: app.project.binder && app.project.binder.view,
+             kinds: plan.map(p => p.kind), titles: plan.map(p => p.title), sheetTitles: plan.map(p => p.sheetTitle),
+             names: body.pages.map(p => p.name),
+             texts: body.pages.map(p => p.ops.filter(o => o.op === 'text').map(o => o.text)) };
+}"""
+
+
+def _mixed_keys(pg):
+    """Set the workspace's own toggles to a MIXED state on the client alone
+    - no PUT - so a restore that merely wrote 'front' everywhere would
+    show; returns what they were before that."""
+    return pg.evaluate("""() => {
+        const app = window.app;
+        const holders = [app.project, ...(app.project.canvases || [])];
+        const was = holders.map(h => ['data_flow_perspective', 'power_perspective'].map(k => (k in h) ? h[k] : null));
+        holders.forEach((h, i) => {
+            h.data_flow_perspective = i % 2 ? 'back' : 'front';
+            h.power_perspective = i % 2 ? 'front' : 'back';
+        });
+        delete app.project.data_flow_perspective;
+        return was;
+    }""")
+
+
+def _restore_keys(pg, was):
+    pg.evaluate("""(was) => {
+        const app = window.app;
+        const holders = [app.project, ...(app.project.canvases || [])];
+        holders.forEach((h, i) => ['data_flow_perspective', 'power_perspective'].forEach((k, j) => {
+            if (was[i] && was[i][j] != null) h[k] = was[i][j]; else delete h[k];
+        }));
+    }""", was)
+
+
+def test_a_rear_export_names_the_side_on_every_screen_sheet_and_leaves_the_toggles_alone(page):
+    """View: Rear. Every screen sheet's view heading, its title block's
+    sheet title and its CONTENTS line read "· REAR VIEW" and its plan
+    title "- Rear View"; the overview stays OVERVIEW and reads no side at
+    all. The renderer painted every Power and Data map - the wiring
+    sheets' walls too - with every canvas's two perspective keys and the
+    project root's pair at 'back', the overview's show map with every one
+    at 'front'; afterwards every key is exactly what it was, absent keys
+    absent, and no request the export sent carried a perspective at all.
+    View: Front prints "· FRONT VIEW" and paints from the front even where
+    the workspace's own toggles say Back."""
+    pg, ids = page
+    served_js = """async () => {
+        const p = await fetch('/api/project').then(r => r.json());
+        return [p, ...(p.canvases || [])].map(h => ['data_flow_perspective', 'power_perspective'].map(k => (k in h) ? h[k] : null));
+    }"""
+    served_before = pg.evaluate(served_js)
+    was = _mixed_keys(pg)
+    mixed = pg.evaluate("() => [window.app.project, ...(window.app.project.canvases || [])].map(h => "
+                        "['data_flow_perspective', 'power_perspective'].map(k => (k in h) ? h[k] : null))")
+    assert len(mixed) >= 2 and mixed[0] == [None, 'back'] and mixed[1] == ['back', 'front'], mixed
+    try:
+        rear = pg.evaluate(_VIEW_EXPORT_JS, 'rear')
+        assert rear['error'] is None, rear['error']
+        assert rear['stored'] == 'rear'
+        assert rear['before'] == mixed and rear['after'] == mixed, (rear['before'], rear['after'])
+        # the sheets: the screen sheets name the side; the overview and the
+        # rest do not
+        screens = [i for i, k in enumerate(rear['kinds']) if k in ('power', 'data')]
+        assert len(screens) == 6, rear['kinds']
+        for i in screens:
+            name, sheet_title, texts = rear['titles'][i], rear['sheetTitles'][i], rear['texts'][i]
+            assert name.endswith(' - Rear View') and rear['names'][i] == name, (name, rear['names'][i])
+            assert sheet_title.endswith(' · REAR VIEW'), sheet_title
+            assert sheet_title in texts and texts.count(sheet_title) >= (2 if TITLE_BLOCK else 1), (sheet_title, texts[:60])   # the block and the bubble
+            assert not [t for t in texts if 'FRONT VIEW' in t], texts[:60]
+        assert rear['titles'] == [t.replace(' - Front View', ' - Rear View') for t in [p[2] for p in PLAN]]
+        assert rear['sheetTitles'][0] == 'OVERVIEW' and rear['names'][0] == 'Overview'
+        overview = rear['texts'][0]
+        assert 'OVERVIEW' in overview and not [t for t in overview if 'REAR VIEW' in t and 'WALL' not in t and 'CENTER' not in t]
+        # the CONTENTS on the overview lists every screen sheet by its new name
+        c = overview.index('CONTENTS')
+        listed = [overview[c + 4 + 2 * n] for n in range(len(PLAN))]
+        assert listed == rear['sheetTitles'], listed
+        assert 'WALL-A · POWER · REAR VIEW' in listed and 'WALL-A · POWER WIRING' in listed
+        # the paints: every map from the back, the overview from the front
+        # (the binder's own paints; the workspace's live canvas may paint
+        # too, between the sheets, and reads its own toggles)
+        binder = [p for p in rear['paints'] if p['export']]
+        maps = [p for p in binder if p['view'] in ('power', 'data-flow')]
+        show = [p for p in binder if p['view'] == 'show-look']
+        assert len(maps) >= 12 and len(show) == 1, [p['view'] for p in binder]
+        assert all(all(k == ['back', 'back'] for k in p['keys']) for p in maps), maps[0]
+        assert all(k == ['front', 'front'] for k in show[0]['keys']), show[0]
+        assert {p['view'] for p in binder} == {'power', 'data-flow', 'show-look'}, binder
+        live = [p for p in rear['paints'] if not p['export']]
+        assert all(p['keys'] == mixed for p in live), live
+        # nothing the export sent carried a perspective
+        assert not [u for u, b in rear['bodies'] if 'perspective' in b], rear['bodies']
+        # Front: the words say so, and the maps paint from the front though
+        # the toggles say Back
+        front = pg.evaluate(_VIEW_EXPORT_JS, 'front')
+        assert front['error'] is None, front['error']
+        assert front['stored'] == 'front' and front['after'] == mixed
+        assert front['titles'] == [p[2] for p in PLAN], front['titles']
+        for i in screens:
+            sheet_title, texts = front['sheetTitles'][i], front['texts'][i]
+            assert sheet_title.endswith(' · FRONT VIEW') and sheet_title in texts, (sheet_title, texts[:60])
+            assert not [t for t in texts if 'REAR VIEW' in t], texts[:60]
+        maps = [p for p in front['paints'] if p['export'] and p['view'] in ('power', 'data-flow')]
+        assert len(maps) >= 12 and all(all(k == ['front', 'front'] for k in p['keys']) for p in maps)
+        assert not [u for u, b in front['bodies'] if 'perspective' in b], front['bodies']
+        # the server's toggles never moved either
+        assert pg.evaluate(served_js) == served_before
+    finally:
+        _restore_keys(pg, was)
+        pg.evaluate("""async () => {
+            const app = window.app;
+            document.getElementById('export-binder-view-front').checked = true;
+            delete app.project.binder;
+            await app._persistBinderInfo();
+            app.syncBinderControls();
+        }""")
+    assert pg.evaluate("() => [window.app.project, ...(window.app.project.canvases || [])].map(h => "
+                       "['data_flow_perspective', 'power_perspective'].map(k => (k in h) ? h[k] : null))") == was
+    assert ids['errors'] == []
 
 
 def _record(pg, opts, title, bitmaps=False):
@@ -944,10 +1188,10 @@ def test_the_map_carries_no_screen_name_plate_but_the_export_still_does(page):
     the power and the data sheet alike, and the ordinary export (exportMode
     without the binder's flag) paints the name exactly as before."""
     pg, ids = page
-    for title in ('WALL-A - Power', 'WALL-A - Data'):
+    for title in ('WALL-A - Power - Front View', 'WALL-A - Data - Front View'):
         out = _render(pg, SHOW, title)
         assert not _on_map(out['mapTexts'], 'WALL-A'), (title, out['mapTexts'])
-        assert 'WALL-A · POWER' in out['texts'] or 'WALL-A · DATA' in out['texts']
+        assert 'WALL-A · POWER · FRONT VIEW' in out['texts'] or 'WALL-A · DATA · FRONT VIEW' in out['texts']
         assert _on_map(out['mapTexts'], 'SR1-1') or _on_map(out['mapTexts'], 'SR-1'), out['mapTexts']
     # the same exportMode render with the binder's flag pinned off is the
     # ordinary export, and it paints the name
@@ -961,7 +1205,7 @@ def test_the_map_carries_no_screen_name_plate_but_the_export_still_does(page):
             delete r.hideScreenNames;
             r.hideScreenNames = false;
         }
-    }""", [json.loads(_SHOW_JSON), 'WALL-A - Power'])
+    }""", [json.loads(_SHOW_JSON), 'WALL-A - Power - Front View'])
     assert _on_map(export['mapTexts'], 'WALL-A'), export['mapTexts'][:40]
     assert pg.evaluate("() => window.canvasRenderer.hideScreenNames") is False
 
@@ -1018,7 +1262,7 @@ def test_the_map_takes_the_room_the_tables_leave(page):
     their inch sizes while the tables scale."""
     pg, ids = page
     ww, wh = 4 * 200, 3 * 200
-    for title, cols, col_w in (('WALL-A - Power', 3, COL_W), ('WALL-A - Data', 2, DATA_COL_W)):
+    for title, cols, col_w in (('WALL-A - Power - Front View', 3, COL_W), ('WALL-A - Data - Front View', 2, DATA_COL_W)):
         out = _render(pg, SHOW, title)
         p = out['page']
         s = p['scale']
@@ -1052,11 +1296,11 @@ def test_the_map_takes_the_room_the_tables_leave(page):
         b = out['bubble']
         assert b['y'] - b['r'] >= m['area']['y'] + m['area']['h'] and b['y'] + b['r'] <= min(y for _t, _x, y in heads), (b, m['area'])
         assert abs(b['r'] - 34 * s) < 0.01, (b, s)
-    a = _render(pg, SHOW, 'WALL-A - Power')
+    a = _render(pg, SHOW, 'WALL-A - Power - Front View')
     assert a['page']['coverage'] >= 0.8, a['page']
     # CENTER: side - the map keeps 45 % of the width, the tables the rest
     # at the scale that leaves it (the height would allow more)
-    c = _render(pg, SHOW, 'CENTER - Power')
+    c = _render(pg, SHOW, 'CENTER - Power - Front View')
     s = c['page']['scale']
     assert c['page']['layout'] == 'side' and c['page']['cols'] == 1, c['page']
     cap = int((DA['w'] - round(DA['w'] * MAP_MIN_FRAC)) / (COL_W + COL_GAP) * 1000) / 1000
@@ -1086,7 +1330,7 @@ def test_the_map_takes_the_room_the_tables_leave(page):
     assert b['y'] - b['r'] >= m['area']['y'] + m['area']['h'] and b['y'] + b['r'] <= DA['y'] + DA['h'] + 1, (b, m['area'])
     # the record: the tables' text at base x s, the rulers (22) and the
     # bracket labels (28) at their own sizes, the title block at its own
-    rec = _record(pg, json.loads(_SHOW_JSON), 'CENTER - Power')
+    rec = _record(pg, json.loads(_SHOW_JSON), 'CENTER - Power - Front View')
     sizes = {o['size'] for o in rec['record']['ops'] if o['op'] == 'text'}
     assert round(25 * s, 2) in sizes and round(24 * s, 2) in sizes, (s, sizes)
     assert 22 in sizes and 28 in sizes and 56 in sizes and 25 not in sizes and 24 not in sizes, sizes
@@ -1561,7 +1805,7 @@ def test_a_screens_map_does_not_depend_on_the_processors_raster(page):
     """
     pg, _ids = page
     out = pg.evaluate("([t, rh]) => (%s)([%s, t, rh])" % (RASTER_JS, _SHOW_JSON),
-                      ['WALL-A - Data', 120])
+                      ['WALL-A - Data - Front View', 120])
     assert 'missing' not in out, out
     before, after = out['before'], out['after']
     assert before['samples'] > 0 and before['hits'] > 0, ('no map bitmap to begin with', out)
@@ -1617,9 +1861,9 @@ def test_the_title_block_prints_the_projects_fields_and_they_ride_the_project(pa
         assert 'export-binder-notes' not in out['fields'] and 'export-binder-prepared-by' not in out['fields']
         assert out['drafterPlaceholder'] == 'Morgan Keller'
         assert out['info']['drafter'] == '' and out['info']['revisions'] == []
-        r = _render(pg, SHOW, 'WALL-B - Data')
+        r = _render(pg, SHOW, 'WALL-B - Data - Front View')
         texts = r['texts']
-        _title_block(texts, 'WALL-B · DATA', '2.7')
+        _title_block(texts, 'WALL-B · DATA · FRONT VIEW', '2.7')
         for t in ('HARBOR FIELD', '9/4/26 - 9/6/26', 'Northlight Design', 'Jordan Reyes', '(555) 010-2030',
                   'jreyes@example.com', 'Morgan Keller'):
             assert t in texts, (t, texts[:60])
@@ -1640,7 +1884,7 @@ def test_the_title_block_prints_the_projects_fields_and_they_ride_the_project(pa
         assert secs['show']['y'] == PAD + secs['revisions']['h'] and secs['number']['y'] + 150 == H - PAD, secs
         # a typed drafter takes over
         pg.evaluate("() => window.app.setBinderField('drafter', 'Sam Okafor', 'Set Binder Drafter')")
-        texts = _render(pg, SHOW, 'WALL-B - Data')['texts']
+        texts = _render(pg, SHOW, 'WALL-B - Data - Front View')['texts']
         assert texts[texts.index('Drafter:') + 1] == 'Sam Okafor'
         # undo takes the drafter back, one step
         pg.evaluate("() => window.app.undo()")
@@ -1665,8 +1909,8 @@ def test_the_title_block_prints_the_projects_fields_and_they_ride_the_project(pa
         }""")
     # blank again: the labels print, no invented text - and no app name
     # in a wordmark, there being no wordmark
-    texts = _render(pg, SHOW, 'WALL-B - Data')['texts']
-    _title_block(texts, 'WALL-B · DATA', '2.7')
+    texts = _render(pg, SHOW, 'WALL-B - Data - Front View')['texts']
+    _title_block(texts, 'WALL-B · DATA · FRONT VIEW', '2.7')
     assert texts[texts.index('Designer:') + 1] == '' and texts[texts.index('Drafter:') + 1] == ''
     assert 'LED RASTER DESIGNER' not in texts
     assert not [t for t in texts if 'Harbor' in t or 'Northlight' in t or 'Sam' in t]
@@ -1748,9 +1992,9 @@ def test_a_revision_is_logged_on_export_and_the_log_edits_in_the_dialog(page):
         assert out['second']['rows'] == [['1', today, 'MK', 'Overview issued'], ['2', today, 'MK', 'Patch & circuit']]
         assert out['second']['note'] == ''
         # the sheets print the log: No. · Date · By · Description, in order
-        r = _render(pg, SHOW, 'WALL-B - Data')
+        r = _render(pg, SHOW, 'WALL-B - Data - Front View')
         texts = r['texts']
-        _title_block(texts, 'WALL-B · DATA', '2.7')
+        _title_block(texts, 'WALL-B · DATA · FRONT VIEW', '2.7')
         i = texts.index('Description')
         assert texts[i + 1:i + 9] == ['1', today, 'MK', 'Overview issued', '2', today, 'MK', 'Patch & circuit'], texts[i:i + 10]
         assert r['titleBlock']['sections']['revisions']['rows'] == 2
@@ -1775,7 +2019,7 @@ def test_a_revision_is_logged_on_export_and_the_log_edits_in_the_dialog(page):
         assert out2['revs'] == [{'no': 1, 'rev': '1.1', 'date': today, 'by': 'MK', 'description': 'Patch, SR legs'}]
         assert out2['actions'] == ['Edit Revision', 'Remove Revision'], out2['actions']
         assert sorted(out2['stored']) == ['revisions'] and 'notes' not in out2['stored']
-        texts = _render(pg, SHOW, 'WALL-B - Data')['texts']
+        texts = _render(pg, SHOW, 'WALL-B - Data - Front View')['texts']
         i = texts.index('Description')
         assert texts[i + 1:i + 5] == ['1', today, 'MK', 'Patch, SR legs'], texts[i:i + 6]
         # undo takes the removal back
@@ -2024,7 +2268,7 @@ def test_the_data_sheet_prints_the_return_end_and_the_processor_once(page):
         return backupId;
     }""", ids)
     try:
-        out = _render(pg, SHOW, 'WALL-A - Data')
+        out = _render(pg, SHOW, 'WALL-A - Data - Front View')
         texts = out['texts']
         i = texts.index('H9 SR · H_16xRJ45+2xfiber · 16 ports')
         assert texts[texts.index('PORTS') + 1:texts.index('PORTS') + 7] == \
@@ -2126,7 +2370,7 @@ def test_a_box_delivering_the_port_is_listed_instead_of_the_card(page):
         return boxId;
     }""", ids)
     try:
-        out = _render(pg, SHOW, 'WALL-A - Data')
+        out = _render(pg, SHOW, 'WALL-A - Data - Front View')
         texts = out['texts']
         band = "CVT4K-S A-B · OPT 1-2 · 16 ports · 12 Tac Fiber 250'"
         assert band in texts, texts
@@ -2143,7 +2387,7 @@ def test_a_box_delivering_the_port_is_listed_instead_of_the_card(page):
                 headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name: 'SR'})});
             await app.refreshProcessors(); await app.refreshPortAssignment(); app.renderLayers();
         }""", [ids, box_id])
-        texts = _render(pg, SHOW, 'WALL-A - Data')['texts']
+        texts = _render(pg, SHOW, 'WALL-A - Data - Front View')['texts']
         assert "CVT4K-S SR · OPT 1-2 · 16 ports · 12 Tac Fiber 250'" in texts, texts
         assert 'CVT4K-S SR · 1' in texts
         # the processor sheet: the box under its card, with its fiber
@@ -2162,7 +2406,7 @@ def test_a_box_delivering_the_port_is_listed_instead_of_the_card(page):
                 headers: {'Content-Type': 'application/json'}, body: JSON.stringify({fiberFt: null})});
             await app.refreshProcessors(); await app.refreshPortAssignment(); app.renderLayers();
         }""", [ids, box_id])
-        texts = _render(pg, SHOW, 'WALL-A - Data')['texts']
+        texts = _render(pg, SHOW, 'WALL-A - Data - Front View')['texts']
         assert 'CVT4K-S SR · OPT 1-2 · 16 ports · no fiber length' in texts, texts
         assert '12 Tac Fiber' not in texts
         proc = _render(pg, SHOW, PROC)['texts']
@@ -2187,7 +2431,7 @@ def test_a_box_delivering_the_port_is_listed_instead_of_the_card(page):
             return {backupId, backupBox};
         }""", ids)
         try:
-            texts = _render(pg, SHOW, 'WALL-A - Data')['texts']
+            texts = _render(pg, SHOW, 'WALL-A - Data - Front View')['texts']
             # and the backup box is its own section after the primary's,
             # its row the return port on its own socket
             i = texts.index('SR-1')
@@ -2213,7 +2457,7 @@ def test_a_box_delivering_the_port_is_listed_instead_of_the_card(page):
             await fetch(`/api/processors/${ids.procId}/cvts/${boxId}`, {method: 'DELETE'});
             await app.refreshProcessors(); await app.refreshPortAssignment(); app.renderLayers();
         }""", [ids, box_id])
-    after = _render(pg, SHOW, 'WALL-A - Data')['texts']
+    after = _render(pg, SHOW, 'WALL-A - Data - Front View')['texts']
     assert 'H9 SR · H_16xRJ45+2xfiber · 16 ports' in after and 'H9 SR · 1' in after
     assert ids['errors'] == []
 
@@ -2232,7 +2476,7 @@ def test_the_port_cell_reads_a_long_label_whole(page):
     }"""
     pg.evaluate(rename, [ids, 'SR A'])
     try:
-        out = _render(pg, SHOW, 'WALL-A - Data')
+        out = _render(pg, SHOW, 'WALL-A - Data - Front View')
         texts = out['texts']
         assert 'SR A-1' in texts, texts
         i = texts.index('SR A-1')
@@ -2241,7 +2485,7 @@ def test_the_port_cell_reads_a_long_label_whole(page):
         assert _on_map(out['mapTexts'], 'SR A-1'), out['mapTexts']
     finally:
         pg.evaluate(rename, [ids, 'SR'])
-    assert 'SR-1' in _render(pg, SHOW, 'WALL-A - Data')['texts']
+    assert 'SR-1' in _render(pg, SHOW, 'WALL-A - Data - Front View')['texts']
 
 
 # ── the plain sheet: the title block switched off ─────────────────────────
@@ -2380,8 +2624,8 @@ def test_the_plain_sheet_gives_the_drawing_the_blocks_width(page):
     # page (the layout is free to change - a wider area can make map-left
     # / tables-right the one with the larger wall - so this measures
     # area, not width)
-    on = _render(pg, BLOCK, 'WALL-A - Power')
-    off = _render(pg, PLAIN, 'WALL-A - Power')
+    on = _render(pg, BLOCK, 'WALL-A - Power - Front View')
+    off = _render(pg, PLAIN, 'WALL-A - Power - Front View')
     ma, mb = _map_of(on), _map_of(off)
     assert mb['w'] * mb['h'] >= ma['w'] * ma['h'], (ma, mb)
     ea, eb = on['page']['extent'], off['page']['extent']
@@ -2519,7 +2763,7 @@ def test_a_screens_fed_by_legs_are_its_own(page):
     a_want, b_want = _rounded(legs['each'][str(ids['a'])]), _rounded(legs['each'][str(ids['b'])])
     assert a_want != b_want, legs
     assert sum(a_want) > 0 and sum(b_want) > 0, legs
-    for title, want in (('WALL-A - Power', a_want), ('WALL-B - Power', b_want)):
+    for title, want in (('WALL-A - Power - Front View', a_want), ('WALL-B - Power - Front View', b_want)):
         fed = _kv_values(_render(pg, SHOW, title), 'Fed by')
         assert len(fed) == 1, (title, fed)
         assert fed[0].startswith('SR · 400 A 208 V 3φ · this screen on its legs X'), fed
@@ -2529,7 +2773,7 @@ def test_a_screens_fed_by_legs_are_its_own(page):
     assert whole == _rounded(legs['all']), legs
     hw = _kv_values(_render(pg, SHOW, DISTRO), 'Legs')
     assert len(hw) == 1 and _legs_of(hw[0], SERVICE_LEGS) == whole, (hw, whole)
-    assert _kv_values(_render(pg, SHOW, 'CENTER - Power'), 'Fed by') == ['no distro']
+    assert _kv_values(_render(pg, SHOW, 'CENTER - Power - Front View'), 'Fed by') == ['no distro']
     assert ids['errors'] == []
 
 
@@ -2574,10 +2818,10 @@ def test_smoke_experts_only(page):
     PULL4 = 'Pull - SR - MAIN, SR - Return, SL - MAIN, SL - Return'
     assert plan == [
         ('1.1', 'Overview'),
-        ('2.1', 'SL - MAIN - Power'), ('2.2', 'SL - MAIN - Power Wiring'), ('2.3', 'SL - MAIN - Data'), ('2.4', 'SL - MAIN - Data Wiring'),
-        ('2.5', 'SL - Return - Power'), ('2.6', 'SL - Return - Power Wiring'), ('2.7', 'SL - Return - Data'), ('2.8', 'SL - Return - Data Wiring'),
-        ('2.9', 'SR - MAIN - Power'), ('2.10', 'SR - MAIN - Power Wiring'), ('2.11', 'SR - MAIN - Data'), ('2.12', 'SR - MAIN - Data Wiring'),
-        ('2.13', 'SR - Return - Power'), ('2.14', 'SR - Return - Power Wiring'), ('2.15', 'SR - Return - Data'), ('2.16', 'SR - Return - Data Wiring'),
+        ('2.1', 'SL - MAIN - Power - Front View'), ('2.2', 'SL - MAIN - Power Wiring'), ('2.3', 'SL - MAIN - Data - Front View'), ('2.4', 'SL - MAIN - Data Wiring'),
+        ('2.5', 'SL - Return - Power - Front View'), ('2.6', 'SL - Return - Power Wiring'), ('2.7', 'SL - Return - Data - Front View'), ('2.8', 'SL - Return - Data Wiring'),
+        ('2.9', 'SR - MAIN - Power - Front View'), ('2.10', 'SR - MAIN - Power Wiring'), ('2.11', 'SR - MAIN - Data - Front View'), ('2.12', 'SR - MAIN - Data Wiring'),
+        ('2.13', 'SR - Return - Power - Front View'), ('2.14', 'SR - Return - Power Wiring'), ('2.15', 'SR - Return - Data - Front View'), ('2.16', 'SR - Return - Data Wiring'),
         ('3.1', PULL4),
         ('4.1', 'Distros - SR, SL'),
         ('4.2', 'Processor - H9 · Pull list'),
@@ -2586,11 +2830,11 @@ def test_smoke_experts_only(page):
     scales = {t: sc for _n, t, _l, _c, _v, sc, *_rest in pages}
     extents = {t: e for _n, t, _l, _c, _v, _s, e, _names in pages}
     names = {t: nm for _n, t, _l, _c, _v, _s, _e, nm in pages}
-    assert layouts['SR - MAIN - Power'] == ('side', 1, 10) and layouts['SR - Return - Power'] == ('side', 1, 14)
-    assert layouts['SR - MAIN - Data'] == ('stack', 2, 12) and layouts['SR - Return - Data'] == ('side', 1, 16)
+    assert layouts['SR - MAIN - Power - Front View'] == ('side', 1, 10) and layouts['SR - Return - Power - Front View'] == ('side', 1, 14)
+    assert layouts['SR - MAIN - Data - Front View'] == ('stack', 2, 12) and layouts['SR - Return - Data - Front View'] == ('side', 1, 16)
     assert layouts['SR - MAIN - Power Wiring'] == ('wiring', 1, 11) and layouts['SR - MAIN - Data Wiring'] == ('wiring', 1, 13)
     assert layouts['SR - Return - Power Wiring'] == ('wiring', 1, 15) and layouts['SR - Return - Data Wiring'] == ('wiring', 1, 17)
-    assert layouts['SL - MAIN - Power'] == ('side', 1, 2) and layouts['SL - MAIN - Data'] == ('stack', 2, 4)
+    assert layouts['SL - MAIN - Power - Front View'] == ('side', 1, 2) and layouts['SL - MAIN - Data - Front View'] == ('stack', 2, 4)
     assert layouts['Overview'] == ('overview', 3, 1) and layouts[PULL4] == ('tables', 4, None)
     assert not [t for _n, t in plan if '(cont.)' in t]
     # the fill: SR - MAIN's 22 circuits are tons of info - the tables
@@ -2599,11 +2843,11 @@ def test_smoke_experts_only(page):
     # tables scale past 1.5 to the height; every extent inside the area;
     # the pull sheet (four columns across) and the hardware sheets scale
     # by the column rule, unchanged
-    main_s = scales['SR - MAIN - Power']
-    assert 1.15 < main_s < 1.35 and scales['SR - MAIN - Data'] == 1.333, scales
-    ret_s = scales['SR - Return - Power']
+    main_s = scales['SR - MAIN - Power - Front View']
+    assert 1.15 < main_s < 1.35 and scales['SR - MAIN - Data - Front View'] == 1.333, scales
+    ret_s = scales['SR - Return - Power - Front View']
     assert 1.5 < ret_s <= 2.4, scales
-    for t in ('SR - MAIN - Power', 'SR - MAIN - Data', 'SR - Return - Power', 'SR - Return - Data'):
+    for t in ('SR - MAIN - Power - Front View', 'SR - MAIN - Data - Front View', 'SR - Return - Power - Front View', 'SR - Return - Data - Front View'):
         ext = extents[t]
         assert ext['w'] <= DA['w'] + 1 and ext['h'] <= DA['h'] + 1, (t, ext)
         assert ext['h'] / DA['h'] >= 0.95, (t, ext)
@@ -2629,11 +2873,11 @@ def test_smoke_experts_only(page):
     # on Letter SR - MAIN's power sheet stays at 1 and continues
     letter = pg.evaluate("(o) => window.app.planBinder(o).map(p => [p.title, p.scale])",
                          {**json.loads(_SHOW_JSON), 'sheet': 'letter'})
-    k = [t for t, _s in letter].index('SR - MAIN - Power')
-    assert letter[k] == ['SR - MAIN - Power', 1] and letter[k + 1][0] == 'SR - MAIN - Power (cont.)', letter
-    main = _render(pg, SHOW, 'SR - MAIN - Power')
+    k = [t for t, _s in letter].index('SR - MAIN - Power - Front View')
+    assert letter[k] == ['SR - MAIN - Power - Front View', 1] and letter[k + 1][0] == 'SR - MAIN - Power - Front View (cont.)', letter
+    main = _render(pg, SHOW, 'SR - MAIN - Power - Front View')
     texts = main['texts']
-    _title_block(texts, 'SR - MAIN · POWER', '2.9', show='2026 Experts Only')
+    _title_block(texts, 'SR - MAIN · POWER · FRONT VIEW', '2.9', show='2026 Experts Only')
     # one Tabloid sheet, painted at 2x
     assert main['width'] == W * SCALE and main['height'] == H * SCALE
     # the map: the wall 28 x 11 of 60 x 120 px, uniformly, in the width the
@@ -2655,7 +2899,7 @@ def test_smoke_experts_only(page):
     assert heads['CIRCUITS'][1] < heads['CABLES THIS SCREEN'][1] < heads['FACTS'][1]
     # the view bubble under the map
     b = main['bubble']
-    assert b['number'] == 10 and b['name'] == 'SR - MAIN · POWER'
+    assert b['number'] == 10 and b['name'] == 'SR - MAIN · POWER · FRONT VIEW'
     assert b['y'] - b['r'] >= m['area']['y'] + m['area']['h'] and b['y'] + b['r'] <= DA['y'] + DA['h'] + 1
     # the brackets: SR1 and SR2 down the right at ONE distance (rows 1-6 over
     # rows 7-11 share an edge, they do not overlap); SR3 and SR4 down the left
@@ -2693,14 +2937,14 @@ def test_smoke_experts_only(page):
             (band, texts[texts.index(band):texts.index(band) + 3])
     assert not [t for t in texts if '(cont.)' in t or '(CONT.)' in t]
     # printer: no colour, ten distinct dashes across 22 circuits
-    printer = _render(pg, SHOW.replace("palette: 'colour'", "palette: 'printer'"), 'SR - MAIN - Power')
+    printer = _render(pg, SHOW.replace("palette: 'colour'", "palette: 'printer'"), 'SR - MAIN - Power - Front View')
     assert printer['coloured'] == 0
     assert len({tuple(d) for d in printer['dashes'] if d}) == 10    # ten dashed patterns + the solid one
     # the tall narrow wall (6 x 11 of 60 x 120) beside four short tables:
     # the tables grow to the height (every text op the base size times the
     # scale), the wall keeps its aspect and fits the height over its
     # bubble in the width they leave, everything inside the area
-    retp = _render(pg, SHOW, 'SR - Return - Power')
+    retp = _render(pg, SHOW, 'SR - Return - Power - Front View')
     rm = retp['map']
     want = (6 * 60) / (11 * 120)
     assert abs(rm['w'] / rm['h'] - want) / want < 0.01, rm
@@ -2710,7 +2954,7 @@ def test_smoke_experts_only(page):
     assert rm['scale'] == ret_s and abs(rm['zoom'] - zoom) < 0.01, (rm, zoom)
     assert rm['x'] >= DA['x'] and rm['y'] + rm['h'] <= DA['y'] + DA['h'] and abs(rm['area']['w'] - room_w) < 0.01, rm
     assert len(retp['brackets']) == 1 and retp['brackets'][0]['depth'] == 0
-    rrec = _record(pg, json.loads(_SHOW_JSON), 'SR - Return - Power')
+    rrec = _record(pg, json.loads(_SHOW_JSON), 'SR - Return - Power - Front View')
     rsizes = {o['size'] for o in rrec['record']['ops'] if o['op'] == 'text'}
     assert round(25 * ret_s, 2) in rsizes and round(24 * ret_s, 2) in rsizes, (ret_s, rsizes)
     assert 22 in rsizes and 28 in rsizes, rsizes                          # the rulers and the bracket, inch sizes
@@ -2724,9 +2968,9 @@ def test_smoke_experts_only(page):
     assert ret[i + 4:i + 4 + 15:3] == ['SR5-1', 'SR5-2', 'SR5-3', 'SR5-4', 'SR5-5']
     assert ret.count('2fer') == 5
     assert "SR5 · Multi 208 · 125' · 6 circuits" in ret
-    dpage = _render(pg, SHOW, 'SR - MAIN - Data')
+    dpage = _render(pg, SHOW, 'SR - MAIN - Data - Front View')
     assert not _on_map(dpage['mapTexts'], 'SR - MAIN')
-    _title_block(dpage['texts'], 'SR - MAIN · DATA', '2.11', show='2026 Experts Only')
+    _title_block(dpage['texts'], 'SR - MAIN · DATA · FRONT VIEW', '2.11', show='2026 Experts Only')
     # the same wall over its four ports: the Ports table (six columns of
     # whole names) and the cables in one wide column, the facts in the
     # other, the row filling the width at 1.333, the wall the height left
@@ -2791,8 +3035,8 @@ def test_smoke_experts_only(page):
     c = ov.index('CONTENTS')
     listed = [(ov[c + 3 + 2 * n], ov[c + 4 + 2 * n]) for n in range(len(plan))]
     assert [n for n, _t in listed] == [n for n, _t in plan]
-    assert listed[1:5] == [('2.1', 'SL - MAIN · POWER'), ('2.2', 'SL - MAIN · POWER WIRING'),
-                           ('2.3', 'SL - MAIN · DATA'), ('2.4', 'SL - MAIN · DATA WIRING')], listed[1:5]
+    assert listed[1:5] == [('2.1', 'SL - MAIN · POWER · FRONT VIEW'), ('2.2', 'SL - MAIN · POWER WIRING'),
+                           ('2.3', 'SL - MAIN · DATA · FRONT VIEW'), ('2.4', 'SL - MAIN · DATA WIRING')], listed[1:5]
     assert listed[-3:] == [('3.1', 'PULL · SR - MAIN, SR - RETURN, SL - MAIN, SL - RETURN'), ('4.1', 'DISTROS · SR, SL'),
                            ('4.2', 'PROCESSOR · H9 · PULL LIST')], listed[-3:]
     # no sheet says box, none says breakout as the generic noun, none Palette
@@ -2856,7 +3100,7 @@ def test_experts_only_screens_carry_their_own_legs(page):
     whole = _rounded(legs['whole'])
     assert main_want != ret_want and whole not in (main_want, ret_want), (main_want, ret_want, whole)
     assert all(r < m < w for r, m, w in zip(ret_want, main_want, whole)), (ret_want, main_want, whole)
-    for title, want in (('SR - MAIN - Power', main_want), ('SR - Return - Power', ret_want)):
+    for title, want in (('SR - MAIN - Power - Front View', main_want), ('SR - Return - Power - Front View', ret_want)):
         fed = _kv_values(_render(pg, SHOW, title), 'Fed by')
         assert len(fed) == 1 and fed[0].startswith('SR · 400 A 208 V 3φ · this screen on its legs X'), (title, fed)
         assert _legs_of(fed[0], FED_BY_LEGS) == want, (title, fed, want)
@@ -2930,7 +3174,7 @@ def test_the_fill_picks_the_layout_that_covers_most(page):
     seed = pg.evaluate(NINE_BY_FIVE_JS)
     assert seed['circuits'] == 9 and [n for _name, n in seed['multis']] == [6, 3], seed
     pg.wait_for_timeout(600)
-    title = 'D - OffSL IMAG - Power'
+    title = 'D - OffSL IMAG - Power - Front View'
     ww, wh = 9 * 216, 5 * 216
     tabloid = _render(pg, SHOW, title)
     p = tabloid['page']
@@ -2994,7 +3238,7 @@ def test_the_fill_picks_the_layout_that_covers_most(page):
     assert pc['extent']['w'] <= DA_ARCHC['w'] + 1 and pc['extent']['h'] <= DA_ARCHC['h'] + 1, pc['extent']
     # the data sheet of the same wall: three short tables - stack too, the
     # map over them, everything inside the area
-    data = _render(pg, SHOW, 'D - OffSL IMAG - Data')
+    data = _render(pg, SHOW, 'D - OffSL IMAG - Data - Front View')
     pd = data['page']
     assert pd['layout'] == 'stack' and pd['scale'] > 1 and pd['coverage'] > 0.6, pd
     assert pd['extent']['w'] <= DA['w'] + 1 and pd['extent']['h'] <= DA['h'] + 1, pd
@@ -3152,8 +3396,8 @@ def test_the_screens_run_in_the_order_the_project_keeps(page):
     k = ov.index('CONTENTS')
     listed = [(ov[k + 3 + 2 * n], ov[k + 4 + 2 * n]) for n in range(len(beached['titles']))]
     assert listed == [tuple(t) for t in beached['titles']], listed
-    assert listed[1:5] == [('2.1', 'C - Z · POWER'), ('2.2', 'C - Z · POWER WIRING'),
-                           ('2.3', 'C - Z · DATA'), ('2.4', 'C - Z · DATA WIRING')], listed
+    assert listed[1:5] == [('2.1', 'C - Z · POWER · FRONT VIEW'), ('2.2', 'C - Z · POWER WIRING'),
+                           ('2.3', 'C - Z · DATA · FRONT VIEW'), ('2.4', 'C - Z · DATA WIRING')], listed
     # the dialog's select: one undo entry, the same POST as the other
     # fields, read back from a loaded file; a stray value reads as alpha
     out = pg.evaluate("""async () => {

@@ -261,7 +261,7 @@ def test_the_registry_records_the_map_the_seeded_show_drew(page):
     pg, ids = page
     opts = json.loads(_SHOW_JSON)
     boxes = pg.evaluate(PROBE_JS, [opts, list(MAP_KINDS)])
-    power = [v for k, v in boxes.items() if k.endswith('WALL-A - Power')]
+    power = [v for k, v in boxes.items() if k.endswith('WALL-A - Power - Front View')]
     assert len(power) == 1, list(boxes)
     kinds = {}
     for b in power[0]:

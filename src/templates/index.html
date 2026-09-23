@@ -928,7 +928,7 @@
                                 <!-- The active port's fill against Panels/Port above: the
                                      cap the badge and the click share, visible while drawing. -->
                                 <div id="custom-fill-readout" style="font-size: 11px; color: #aaa; margin: 0 0 6px 0; min-height: 1em;"></div>
-                                <p style="font-size: 11px; color: #888; margin: 0;">Click/drag to select panels. Click panels or use arrow keys to draw. Pattern buttons apply to the selection a whole row or column at a time and cut at capacity: a port takes another row only when all of it fits, and a block wider than one port fills the next ports in turn.</p>
+                                <p style="font-size: 11px; color: #888; margin: 0;">Click/drag to select panels. Click panels or use arrow keys to draw. Pattern buttons apply to the selection and cut at capacity. Organized: a port takes another row or column only when all of it fits, and a block wider than one port fills the next ports in turn. Max Capacity: each port is packed full.</p>
                             </div>
                         </div>
 
@@ -1388,7 +1388,7 @@
                                     <!-- The active circuit's fill against Panels/Circuit above:
                                          the cap the badge and the click share, visible while drawing. -->
                                     <div id="power-custom-fill-readout" style="font-size: 11px; color: #aaa; margin: 0 0 6px 0; min-height: 1em;"></div>
-                                    <p style="font-size: 11px; color: #888; margin: 0;">Click/drag to select panels. Click panels or use arrow keys to draw. Pattern buttons apply to the selection a whole row or column at a time and cut at capacity: a circuit takes another row only when all of it fits, and a block wider than one circuit fills the next circuits in turn.</p>
+                                    <p style="font-size: 11px; color: #888; margin: 0;">Click/drag to select panels. Click panels or use arrow keys to draw. Pattern buttons apply to the selection and cut at capacity. Organized: a circuit takes another row or column only when all of it fits, and a block wider than one circuit fills the next circuits in turn. Maximize Power Use: each circuit is packed full.</p>
                                 </div>
                             </div>
                         </div>
@@ -2089,6 +2089,16 @@
                         <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;"><input type="radio" name="export-binder-side" id="export-binder-side-power" value="power"> Power</label>
                         <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;"><input type="radio" name="export-binder-side" id="export-binder-side-data" value="data"> Data</label>
                         <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;"><input type="radio" name="export-binder-side" id="export-binder-side-both" value="both" checked> Both</label>
+                    </div>
+                    <!-- One Front / Rear choice for the whole set: the side the
+                         Power and Data maps (and the wiring sheets' walls) are
+                         drawn from; every screen sheet names it. The overview
+                         is always the front. Saved with the project
+                         (project.binder.view). -->
+                    <div style="display: flex; gap: 14px; align-items: center; font-size: 12px; color: #aaa;">
+                        <span style="flex: none; width: 92px;" data-tooltip="The side the Power and Data maps are drawn from. The overview is always the front. Saved with the project.">View</span>
+                        <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;" data-tooltip="The maps as seen from the front of the wall. Every screen sheet says FRONT VIEW."><input type="radio" name="export-binder-view" id="export-binder-view-front" value="front" checked> Front</label>
+                        <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;" data-tooltip="The maps as seen from behind the wall, mirrored. Every screen sheet says REAR VIEW; the overview stays the front."><input type="radio" name="export-binder-view" id="export-binder-view-rear" value="rear"> Rear</label>
                     </div>
                     <!-- Four boxes are wider than the modal, so this row wraps and each
                          box keeps its own words on one line - a two-word box once broke

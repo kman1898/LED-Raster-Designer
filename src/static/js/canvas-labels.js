@@ -512,7 +512,122 @@ Object.assign(CanvasRenderer.prototype, {
         }
         return letter;
     },
-    
+
+    // Wrap one line of the screen label onto as many lines as it needs to
+    // stay inside `maxWidth`, measured with the font CURRENTLY set on the
+    // ctx, without shrinking the type. Owner, 2026-09-23, on a 7x8 wall of
+    // 256 px cabinets whose 150 px port line ran off both edges: "in the
+    // example where the screen label runs off the screen we need to double
+    // stack it or more aka wrap it".
+    //
+    // The breaks, in order, each tried only on a piece the level above
+    // could not fit:
+    //   1. " | "  the bar is dropped; the clauses become lines
+    //   2. ", "   the comma stays on the piece it closes ("7 Mains,")
+    //   3. " · "  the dot is dropped
+    //   4. " "    plain words
+    // Each level fills greedily: a line takes as many of its pieces as fit,
+    // re-joined the way they were written. A single word wider than the
+    // room stays on a line of its own - it may still overflow, and there
+    // is nothing sensible to do about that. A line that fits comes back as
+    // itself, so a label that fits is drawn exactly as before.
+    _wrapLabelLine(text, maxWidth) {
+        const s = String(text == null ? '' : text);
+        const fits = (t) => this.ctx.measureText(t).width <= maxWidth;
+        if (fits(s)) return [s];
+        const LEVELS = [
+            { sep: ' | ', keep: '', join: ' | ' },
+            { sep: ', ', keep: ',', join: ' ' },
+            { sep: ' · ', keep: '', join: ' · ' },
+            { sep: ' ', keep: '', join: ' ' },
+        ];
+        const wrap = (t, level) => {
+            if (fits(t) || level >= LEVELS.length) return [t];
+            const { sep, keep, join } = LEVELS[level];
+            const raw = t.split(sep);
+            if (raw.length < 2) return wrap(t, level + 1);
+            const pieces = raw.map((p, i) => (i < raw.length - 1 ? p + keep : p));
+            const out = [];
+            const flush = (line) => {
+                if (line === '') return;
+                if (fits(line)) out.push(line);
+                else out.push(...wrap(line, level + 1));
+            };
+            let current = '';
+            pieces.forEach(piece => {
+                if (current === '') { current = piece; return; }
+                const candidate = current + join + piece;
+                if (fits(candidate)) { current = candidate; return; }
+                flush(current);
+                current = piece;
+            });
+            flush(current);
+            return out;
+        };
+        return wrap(s, 0);
+    },
+
+    // The port line (Data) or circuit line (Power) a GROUP's consolidated
+    // label carries, straight from the step-2 roll-up. One authority:
+    // renderLayerLabels draws it, and _bothModeGroupNameBox measures it to
+    // predict how tall the headline's stack is once it wraps. Null when
+    // the view carries no such line for this group.
+    _groupCenterInfoLine(gplan, groupTotals) {
+        if (!gplan || !groupTotals) return null;
+        const cfg = gplan.cfg;
+        if (this.viewMode === 'data-flow') {
+            if (!cfg.showDataFlowPortInfo) return null;
+            // A group's ports come straight out of the roll-up, which adds
+            // up whatever each member reports. v0.12: on a group whose
+            // members are the same panel that is ONE combined walk's figure,
+            // carried by the first member with every other member reporting
+            // zero - so this label reads the wall's real port count and not
+            // the sum of what its sections would have needed apart. On every
+            // other group it is still the members' own requirements summed.
+            const mains = groupTotals.portsPrimary;
+            const backups = groupTotals.portsBackup;
+            if (!(mains > 0)) return null;
+            return `${mains} Mains, ${backups} Backups | ${mains + backups} Ports`;
+        }
+        if (this.viewMode === 'power') {
+            if (!cfg.showPowerCircuitInfo) return null;
+            // Circuits come through the roll-up the same way ports do, and
+            // on a crossing group that is one combined walk's figure for the
+            // same reason. Amps do NOT:
+            // 200 A at 110 V and 200 A at 208 V are not the same load, so
+            // when the members disagree on voltage the roll-up hands back
+            // null and the label says so instead of printing a blended
+            // figure nobody can act on.
+            const circuits = groupTotals.circuits;
+            // Split-aware and box-size-aware, per member: socaCountFor
+            // reads each screen's own split points and breakout box
+            // size (three tails on an L21-30, six on a soca), so the
+            // group line agrees with the dock. A peer-served member
+            // reports zero circuits and therefore zero boxes.
+            let multis = 0;
+            if (circuits > 0 && window.app
+                    && typeof window.app.socaCountFor === 'function'
+                    && typeof window.app.screenCircuitCount === 'function'
+                    && typeof window.app.getGroupMembers === 'function') {
+                (window.app.getGroupMembers(gplan.group) || []).forEach(m => {
+                    if (!m || (m.type || 'screen') !== 'screen') return;
+                    multis += window.app.socaCountFor(
+                        m, window.app.screenCircuitCount(m));
+                });
+            } else if (circuits > 0) {
+                multis = Math.ceil(circuits / 6);
+            }
+            if (groupTotals.voltageMismatch) {
+                const volts = groupTotals.voltages.filter(v => v > 0).join(' / ');
+                return `${multis} Multi, ${circuits} Circuits | Mixed voltage: ${volts} V`;
+            }
+            const amps1 = groupTotals.amps1ph || 0;
+            const amps3 = groupTotals.amps3ph || 0;
+            return `${multis} Multi, ${circuits} Circuits | ${amps1.toFixed(2)}A 1φ / ${amps3.toFixed(2)}A 3φ`;
+        }
+        return null;
+    },
+
     renderLayerLabels(layer, groupLabelPass = false) {
         // v0.11.0: screen groups draw ONE label for the whole group. The host
         // member draws it (see _groupLabelPlan) and every peer bows out right
@@ -734,18 +849,9 @@ Object.assign(CanvasRenderer.prototype, {
             }
         } else if (this.viewMode === 'data-flow') {
             if (cfg.showDataFlowPortInfo && groupTotals) {
-                // A group's ports come straight out of the roll-up, which adds
-                // up whatever each member reports. v0.12: on a group whose
-                // members are the same panel that is ONE combined walk's figure,
-                // carried by the first member with every other member reporting
-                // zero - so this label reads the wall's real port count and not
-                // the sum of what its sections would have needed apart. On every
-                // other group it is still the members' own requirements summed.
-                const mains = groupTotals.portsPrimary;
-                const backups = groupTotals.portsBackup;
-                if (mains > 0) {
-                    centerLines.push(`${mains} Mains, ${backups} Backups | ${mains + backups} Ports`);
-                }
+                // The wall's port line, from the roll-up (_groupCenterInfoLine).
+                const line = this._groupCenterInfoLine(gplan, groupTotals);
+                if (line) centerLines.push(line);
             } else if (cfg.showDataFlowPortInfo && window.app) {
                 // Always recompute from current layer state. Cached `_portsRequired`
                 // is only refreshed for the currently-selected layer by
@@ -768,40 +874,9 @@ Object.assign(CanvasRenderer.prototype, {
             }
         } else if (this.viewMode === 'power') {
             if (cfg.showPowerCircuitInfo && groupTotals) {
-                // Circuits come through the roll-up the same way ports do, and
-                // on a crossing group that is one combined walk's figure for the
-                // same reason. Amps do NOT:
-                // 200 A at 110 V and 200 A at 208 V are not the same load, so
-                // when the members disagree on voltage the roll-up hands back
-                // null and the label says so instead of printing a blended
-                // figure nobody can act on.
-                const circuits = groupTotals.circuits;
-                // Split-aware and box-size-aware, per member: socaCountFor
-                // reads each screen's own split points and breakout box
-                // size (three tails on an L21-30, six on a soca), so the
-                // group line agrees with the dock. A peer-served member
-                // reports zero circuits and therefore zero boxes.
-                let multis = 0;
-                if (circuits > 0 && window.app
-                        && typeof window.app.socaCountFor === 'function'
-                        && typeof window.app.screenCircuitCount === 'function'
-                        && typeof window.app.getGroupMembers === 'function') {
-                    (window.app.getGroupMembers(gplan.group) || []).forEach(m => {
-                        if (!m || (m.type || 'screen') !== 'screen') return;
-                        multis += window.app.socaCountFor(
-                            m, window.app.screenCircuitCount(m));
-                    });
-                } else if (circuits > 0) {
-                    multis = Math.ceil(circuits / 6);
-                }
-                if (groupTotals.voltageMismatch) {
-                    const volts = groupTotals.voltages.filter(v => v > 0).join(' / ');
-                    centerLines.push(`${multis} Multi, ${circuits} Circuits | Mixed voltage: ${volts} V`);
-                } else {
-                    const amps1 = groupTotals.amps1ph || 0;
-                    const amps3 = groupTotals.amps3ph || 0;
-                    centerLines.push(`${multis} Multi, ${circuits} Circuits | ${amps1.toFixed(2)}A 1φ / ${amps3.toFixed(2)}A 3φ`);
-                }
+                // The wall's circuit line, from the roll-up (_groupCenterInfoLine).
+                const line = this._groupCenterInfoLine(gplan, groupTotals);
+                if (line) centerLines.push(line);
             } else if (cfg.showPowerCircuitInfo && window.app) {
                 // Ungrouped: recompute from current layer state rather than
                 // trusting `_powerCircuitsRequired` (only refreshed for the
@@ -893,7 +968,6 @@ Object.assign(CanvasRenderer.prototype, {
         
         // Use absolute pixel sizes - no scaling with zoom
         let fontSize = cfg.labelsFontSize || 30;
-        const lineHeight = fontSize + 4;
         const padding = 6;
 
         // Info label uses independent slider value
@@ -940,15 +1014,43 @@ Object.assign(CanvasRenderer.prototype, {
         }
 
         const screenNameLineHeight = screenNameSize + 4;
-        
+        // The centre lines' lead, from the font they are DRAWN in - on Data
+        // and Power that is the screen-name size the branch above just put
+        // in fontSize, not the Pixel Map slider. Taken before that branch,
+        // a 150 px port line was spaced (and boxed) as 30 px type; one line
+        // hid it, the wrapped second line landed on the first.
+        const lineHeight = fontSize + 4;
+
+        // 2026-09-23: the room a label line has - the screen's drawn width
+        // (the whole wall's, for a group) less a pad each side, in the same
+        // world units the text is measured in, so zoom cancels out. Every
+        // line wider than this is wrapped (_wrapLabelLine) at its own size:
+        // the port/circuit and size/weight lines here at the centre-line
+        // font, the name below at its own font. The wrapped lines replace
+        // the originals in place, so everything downstream - the block's
+        // height, its vertical centring, the plate and the text - counts
+        // real lines. A line that fits comes back unchanged.
+        const maxLabelWidth = Math.max(layerWidth - padding * 2, 1);
+
         this.ctx.font = `bold ${fontSize}px ${projectFontFamily()}`;
-        
+        if (centerLines.length > 0) {
+            const wrapped = [];
+            centerLines.forEach(line => wrapped.push(...this._wrapLabelLine(line, maxLabelWidth)));
+            centerLines.splice(0, centerLines.length, ...wrapped);
+        }
+        let nameLines = [];
+        if (screenName) {
+            this.ctx.font = `bold ${screenNameSize}px ${projectFontFamily()}`;
+            nameLines = this._wrapLabelLine(screenName, maxLabelWidth);
+            this.ctx.font = `bold ${fontSize}px ${projectFontFamily()}`;
+        }
+
         // Calculate total height of ALL center labels (screen name + other labels)
         let totalCenterHeight = 0;
         let screenNameHeight = 0;
-        
+
         if (screenName) {
-            screenNameHeight = screenNameLineHeight + padding * 2;
+            screenNameHeight = nameLines.length * screenNameLineHeight + padding * 2;
             totalCenterHeight += screenNameHeight;
             if (centerLines.length > 0) {
                 totalCenterHeight += 5; // Gap between screen name and other labels
@@ -980,9 +1082,14 @@ Object.assign(CanvasRenderer.prototype, {
             this.ctx.textAlign = 'center';
             this.ctx.textBaseline = 'middle';
 
-            const metrics = this.ctx.measureText(screenName);
-            const nameWidth = metrics.width + padding * 2;
-            const nameHeight = screenNameLineHeight + padding * 2;
+            // The plate is as wide as the widest of the name's lines and as
+            // tall as all of them: one line, and this is the old geometry.
+            let nameTextWidth = 0;
+            nameLines.forEach(line => {
+                nameTextWidth = Math.max(nameTextWidth, this.ctx.measureText(line).width);
+            });
+            const nameWidth = nameTextWidth + padding * 2;
+            const nameHeight = nameLines.length * screenNameLineHeight + padding * 2;
 
             // Baseline (un-offset) anchor for this view mode. Pixel Map stacks
             // the name above the size/info lines; the other tabs center it.
@@ -1079,9 +1186,15 @@ Object.assign(CanvasRenderer.prototype, {
             const snappedNameRect = this.snapRect(nameX, nameY, nameWidth, nameHeight);
             this.ctx.fillRect(snappedNameRect.x, snappedNameRect.y, snappedNameRect.width, snappedNameRect.height);
 
-            // Draw BLACK text
+            // Draw BLACK text - each of the name's lines centred on the
+            // plate; a single line sits at the plate's centre exactly as
+            // before the wrap existed.
             this.ctx.fillStyle = '#000000';
-            this._fillText(screenName, this.snap(screenNameX), this.snap(screenNameY));
+            let nameLineY = screenNameY - nameHeight / 2 + padding + screenNameLineHeight / 2;
+            nameLines.forEach(line => {
+                this._fillText(line, this.snap(screenNameX), this.snap(nameLineY));
+                nameLineY += screenNameLineHeight;
+            });
 
             this.ctx.restore();
             
@@ -1168,9 +1281,12 @@ Object.assign(CanvasRenderer.prototype, {
             // via infoAnchorY for non-pixel-map, and via _labelGroupOffsetY
             // applied below for pixel-map).
             const bgX = (centerX + _labelGroupOffsetX) - bgWidth / 2;
+            // Data / Power: the lines hang under the name plate; with no
+            // name drawn (2026-09-23) the block is centred on the wall on
+            // its own instead of hanging its top edge from the centre.
             const bgY = (this.viewMode === 'pixel-map'
                 ? currentY + _labelGroupOffsetY
-                : (infoAnchorY ?? currentY));
+                : (infoAnchorY ?? (centerY - bgHeight / 2)));
 
             // Clip to layer bounds so labels don't bleed through higher layers
             this.ctx.save();

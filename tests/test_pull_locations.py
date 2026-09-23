@@ -305,11 +305,11 @@ def test_the_workbook_and_the_binder_take_a_device_location(page):
     # device location last
     pulls = [t for t in out['plan'] if t.startswith('Pull - ')]
     assert pulls == ['Pull - SR Beach, CENTER, Dimmer Beach'], out['plan']
-    assert out['plan'].count('WALL-A - Power') == 1 and out['plan'].count('WALL-B - Power') == 1
+    assert out['plan'].count('WALL-A - Power - Front View') == 1 and out['plan'].count('WALL-B - Power - Front View') == 1
     # the set runs by series: every screen sheet (2.x, power then data, each
     # with its wiring sheet behind it since 2026-09-12) before the pull
     # sheet (3.x)
-    assert out['plan'].index('WALL-A - Power') < out['plan'].index('WALL-A - Data') < out['plan'].index(pulls[0])
+    assert out['plan'].index('WALL-A - Power - Front View') < out['plan'].index('WALL-A - Data - Front View') < out['plan'].index(pulls[0])
     i = out['cover'].index('Dimmer Beach')
     assert out['cover'][i + 1] == 'gear for WALL-A, WALL-B', out['cover'][i:i + 4]
     _set_distro_location(pg, ids, '')

@@ -150,6 +150,9 @@ def delete_canvas(canvas_id):
     # surviving member, or holding manual path steps that point at a panel on
     # the canvas we just removed. Repair now so the response we return is
     # already consistent, instead of waiting for the next undo/file load.
+    # The same pass drops the deleted screens' data port pins
+    # (port_assignment.prune_orphan_pins) - they used to outlive the layer
+    # in the response, the client's project and the saved file (2026-09-23).
     app._enforce_group_integrity(app.current_project)
     # Reassign active_canvas_id to the next remaining canvas.
     if app.current_project.get('active_canvas_id') == canvas_id:
@@ -202,6 +205,10 @@ def duplicate_canvas(canvas_id):
         # A deep copy carries whatever the source held; a screen clone
         # keeps a breakout its voltage allows (2026-09-22).
         app.normalize_power_breakout(clone)
+        # ... and none of the source's feeds (2026-09-23, found by an
+        # end-to-end pass: the copied screens named the original's distro,
+        # so two screens claimed one multi). See app.strip_copied_feeds.
+        app.strip_copied_feeds(clone)
         id_map[src_layer.get('id')] = clone['id']
         clones.append(clone)
         app.current_project['layers'].append(clone)

@@ -151,10 +151,7 @@ class _History {
                 layerNames: this.project.layers ? this.project.layers.map(l => l.name) : []
             });
             
-            // Update current layer reference
-            if (this.currentLayer) {
-                this.currentLayer = this.project.layers.find(l => l.id === this.currentLayer.id) || null;
-            }
+            this._reconcileSelectionAfterRestore();
             // Both, not just the data side. loadLayerToInputs() below happens
             // to refresh the power one too, so this was only exposed on its
             // early-return paths - but an undo in Power view has no business
@@ -283,16 +280,48 @@ class _History {
         this.project = JSON.parse(healed);
         this.dedupeProjectLayers('restore_repair');
         entry.project = JSON.parse(healed);
-        if (this.currentLayer) {
-            this.currentLayer = this.project.layers.find(
-                l => l.id === this.currentLayer.id) || null;
-        }
+        this._reconcileSelectionAfterRestore();
         this._refreshPowerPanelsAfterRestore();
         if (typeof this.loadLayerToInputs === 'function') {
             try { this.loadLayerToInputs(); } catch (_) {}
         }
         if (typeof this.syncRasterFromProject === 'function') {
             try { this.syncRasterFromProject(); } catch (_) {}
+        }
+    }
+
+    // Re-point the selection at the project that was just swapped in.
+    // Undo and redo used to re-resolve currentLayer from its OWN id and
+    // leave selectedLayerIds alone. Undo back past a paste drops the pasted
+    // layer, so currentLayer resolved to null while the selection kept the
+    // id; redo then brought the layer back, but the `if (this.currentLayer)`
+    // guard was false by then, so nothing re-pointed it. The app sat with
+    // currentLayer null and a live selection, and the next view-tab click
+    // threw inside loadLayerToInputs (2026-09-23). Now: ids that no longer
+    // exist leave the selection, currentLayer follows its id when it can,
+    // and otherwise falls back to the first selected layer that exists.
+    _reconcileSelectionAfterRestore() {
+        const layers = (this.project && Array.isArray(this.project.layers))
+            ? this.project.layers : [];
+        const byId = new Map(layers.map(l => [l.id, l]));
+        if (this.selectedLayerIds instanceof Set) {
+            for (const id of [...this.selectedLayerIds]) {
+                if (!byId.has(id)) this.selectedLayerIds.delete(id);
+            }
+        } else {
+            this.selectedLayerIds = new Set();
+        }
+        this.currentLayer = this.currentLayer
+            ? (byId.get(this.currentLayer.id) || null) : null;
+        if (!this.currentLayer && this.selectedLayerIds.size > 0) {
+            const firstId = [...this.selectedLayerIds][0];
+            this.currentLayer = byId.get(firstId) || null;
+        }
+        if (this.lastSelectedLayerId != null && !byId.has(this.lastSelectedLayerId)) {
+            this.lastSelectedLayerId = this.currentLayer ? this.currentLayer.id : null;
+        }
+        if (this.selectionAnchorLayerId != null && !byId.has(this.selectionAnchorLayerId)) {
+            this.selectionAnchorLayerId = this.currentLayer ? this.currentLayer.id : null;
         }
     }
 
@@ -328,10 +357,7 @@ class _History {
                 layerNames: this.project.layers ? this.project.layers.map(l => l.name) : []
             });
             
-            // Update current layer reference
-            if (this.currentLayer) {
-                this.currentLayer = this.project.layers.find(l => l.id === this.currentLayer.id) || null;
-            }
+            this._reconcileSelectionAfterRestore();
             // Both, not just the data side. loadLayerToInputs() below happens
             // to refresh the power one too, so this was only exposed on its
             // early-return paths - but an undo in Power view has no business
