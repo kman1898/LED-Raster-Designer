@@ -164,10 +164,15 @@ jobs:
           echo "playwright install-deps chromium failed after 3 attempts"; exit 1
         timeout-minutes: 12
 
+      # EVERY suite, not two files. Until 2026-09-23 this job ran only
+      # test_browser.py and test_browser_flows.py, and the unit jobs skip
+      # every Playwright module (no browser there), so a JavaScript
+      # regression in any other browser suite never turned CI red.
       - name: Run browser tests
         run: |
           source .venv/bin/activate
-          python -m pytest tests/test_browser.py tests/test_browser_flows.py -v --tb=short --browser chromium
+          python -m pytest tests/ -q --tb=short --browser chromium -p no:cacheprovider
+        timeout-minutes: 120
 
   build-check:
     name: Build Integrity
