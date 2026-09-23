@@ -108,13 +108,41 @@ def delete_canvas(canvas_id):
     deleted_name = canvas.get('name', '?')
     # Remove the canvas itself.
     app.current_project['canvases'] = [c for c in canvases if c.get('id') != canvas_id]
-    # Remove all layers belonging to this canvas.
+    surviving = {c.get('id') for c in app.current_project['canvases']}
+    # Issue 112: a screen dragged to another canvas on the Show Look, Data
+    # or Power tab only changes where it is shown (show_canvas_id); its home
+    # (canvas_id) stays with the canvas it was made on. Deleting that home
+    # used to take the screen with it, though the user could still see it
+    # sitting on the other canvas. Such a screen moves house instead: the
+    # canvas it is shown on becomes its home, and the show override clears
+    # because home and show now agree. Screens that are only shown on the
+    # deleted canvas (home elsewhere) fall back to their home canvas.
+    rehomed = []
+    for l in app.current_project.get('layers', []):
+        if not isinstance(l, dict):
+            continue
+        show_id = l.get('show_canvas_id')
+        if l.get('canvas_id') == canvas_id and show_id in surviving:
+            l['canvas_id'] = show_id
+            l['show_canvas_id'] = None
+            rehomed.append(l)
+        elif show_id == canvas_id:
+            l['show_canvas_id'] = None
+    # Remove all layers still belonging to this canvas.
     layers_before = len(app.current_project.get('layers', []))
     app.current_project['layers'] = [
         l for l in app.current_project.get('layers', [])
         if l.get('canvas_id') != canvas_id
     ]
     layers_removed = layers_before - len(app.current_project['layers'])
+    # A group is one wall on one canvas. Members that moved house together
+    # stay a group; a member whose peers went elsewhere (or were deleted with
+    # the canvas) leaves it, and _enforce_group_integrity below dissolves
+    # whatever is left of a group reduced to one member.
+    if rehomed:
+        from routes_layers import _detach_from_cross_canvas_group
+        for l in rehomed:
+            _detach_from_cross_canvas_group(l, l.get('canvas_id'))
     # v0.11.0: deleting a canvas deletes every layer on it, which is the same
     # group-integrity event as a single layer delete (routes_layers.delete_layer)
     # only in bulk - a group can be left naming dead layers, reduced to one
@@ -129,6 +157,7 @@ def delete_canvas(canvas_id):
     log_event('canvas_delete', {
         'id': canvas_id, 'name': deleted_name,
         'layers_removed': layers_removed,
+        'layers_rehomed': [l.get('id') for l in rehomed],
     })
     socketio.emit('project_updated', app.current_project)
     return jsonify(app.current_project)

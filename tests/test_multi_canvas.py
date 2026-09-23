@@ -669,3 +669,96 @@ def test_per_canvas_raster_round_trips(client):
     assert by_id['c2']['show_raster_height'] == 1440
     # And the c1 default raster is preserved (independent of c2's).
     assert by_id['c1']['raster_width'] != by_id['c2']['raster_width']
+
+
+def _add_screen_on(client, canvas_id):
+    """Create a screen on ``canvas_id`` and return its id."""
+    resp = client.post('/api/layer/add', json={
+        'name': 'Screen on ' + canvas_id, 'columns': 2, 'rows': 2,
+        'cabinet_width': 128, 'cabinet_height': 128, 'canvas_id': canvas_id,
+    })
+    assert resp.status_code == 200, resp.get_json()
+    layer = resp.get_json()
+    assert layer['canvas_id'] == canvas_id, layer
+    return layer['id']
+
+
+def test_delete_canvas_keeps_screens_shown_elsewhere(client_with_layer):
+    """Issue 112: a screen dragged to another canvas on Show Look / Data /
+    Power only changes where it is SHOWN (show_canvas_id); its home canvas
+    (canvas_id) stays. Deleting the home used to delete the screen even
+    though the user could see it on the other canvas. It moves house instead."""
+    c = client_with_layer
+    c.post('/api/canvas', json={})  # c2
+    proj = c.get('/api/project').get_json()
+    layer_id = proj['layers'][0]['id']
+    assert proj['layers'][0]['canvas_id'] == 'c1'
+    # Show Look drag onto c2.
+    resp = c.put(f'/api/layer/{layer_id}/show_canvas', json={'show_canvas_id': 'c2'})
+    assert resp.status_code == 200
+    resp = c.delete('/api/canvas/c1')
+    assert resp.status_code == 200
+    proj = resp.get_json()
+    assert [cv['id'] for cv in proj['canvases']] == ['c2']
+    survivors = [l for l in proj['layers'] if l['id'] == layer_id]
+    assert len(survivors) == 1, 'the screen shown on c2 must survive c1 being deleted'
+    assert survivors[0]['canvas_id'] == 'c2'
+    # Home and show canvas now agree, so the override is cleared.
+    assert survivors[0].get('show_canvas_id') in (None, '')
+    assert proj['active_canvas_id'] == 'c2'
+
+
+def test_delete_canvas_still_removes_screens_with_no_other_home(client_with_layer):
+    """A screen shown on the deleted canvas itself, or on no other canvas,
+    goes with the canvas as before."""
+    c = client_with_layer
+    c.post('/api/canvas', json={})  # c2
+    proj = c.get('/api/project').get_json()
+    layer_id = proj['layers'][0]['id']
+    # Explicitly shown on its own canvas: no other home.
+    c.put(f'/api/layer/{layer_id}/show_canvas', json={'show_canvas_id': 'c1'})
+    proj = c.delete('/api/canvas/c1').get_json()
+    assert all(l['id'] != layer_id for l in proj['layers'])
+
+
+def test_delete_canvas_clears_show_override_pointing_at_it(client_with_layer):
+    """The reverse case: a screen whose home survives but which was shown on
+    the deleted canvas falls back to its home, instead of pointing at a
+    canvas that no longer exists (which hid it on every show view)."""
+    c = client_with_layer
+    c.post('/api/canvas', json={})  # c2
+    proj = c.get('/api/project').get_json()
+    layer_id = proj['layers'][0]['id']  # home c1
+    c.put(f'/api/layer/{layer_id}/show_canvas', json={'show_canvas_id': 'c2'})
+    proj = c.delete('/api/canvas/c2').get_json()
+    layer = next(l for l in proj['layers'] if l['id'] == layer_id)
+    assert layer['canvas_id'] == 'c1'
+    assert layer.get('show_canvas_id') in (None, '')
+
+
+def test_delete_canvas_rehomed_group_stays_a_group(client_with_layer):
+    """Two grouped screens both shown on c2 move house together and stay
+    grouped; a member whose partner was deleted with the canvas leaves the
+    group (which then dissolves)."""
+    c = client_with_layer
+    c.post('/api/canvas', json={})  # c2
+    proj = c.get('/api/project').get_json()
+    a = proj['layers'][0]['id']
+    import app as app_module
+    app_module.current_project['active_canvas_id'] = 'c1'
+    b = _add_screen_on(c, 'c1')
+    # Groups are made client-side and saved with the project; set one up
+    # straight in the server model the way a saved project would carry it.
+    app_module.current_project['groups'] = [{'id': 'g1', 'name': 'Wall', 'layer_ids': [a, b]}]
+    for l in app_module.current_project['layers']:
+        if l['id'] in (a, b):
+            l['group_id'] = 'g1'
+    for lid in (a, b):
+        c.put(f'/api/layer/{lid}/show_canvas', json={'show_canvas_id': 'c2'})
+    proj = c.delete('/api/canvas/c1').get_json()
+    by_id = {l['id']: l for l in proj['layers']}
+    assert a in by_id and b in by_id
+    assert by_id[a]['canvas_id'] == by_id[b]['canvas_id'] == 'c2'
+    groups = proj.get('groups') or []
+    member_sets = [set(g.get('layer_ids') or []) for g in groups]
+    assert {a, b} in member_sets, (groups, by_id[a].get('group_id'))

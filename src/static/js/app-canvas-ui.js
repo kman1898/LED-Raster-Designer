@@ -931,10 +931,20 @@ class _CanvasUi {
         } else if (action === 'color') {
             this.openCanvasColorPicker(canvas);
         } else if (action === 'delete') {
-            const layerCount = (this.project.layers || []).filter(l => l.canvas_id === canvas.id).length;
-            const msg = layerCount > 0
-                ? `Delete canvas '${canvas.name}' and its ${layerCount} layer${layerCount === 1 ? '' : 's'}? This cannot be undone.`
+            // Issue 112: a screen shown on another canvas (dragged there on
+            // the Show Look, Data or Power tab) is kept and moves to that
+            // canvas; only screens with nowhere else to go are deleted.
+            const ids = new Set((this.project.canvases || []).map(c => c.id));
+            const onCanvas = (this.project.layers || []).filter(l => l.canvas_id === canvas.id);
+            const kept = onCanvas.filter(l => l.show_canvas_id && l.show_canvas_id !== canvas.id && ids.has(l.show_canvas_id)).length;
+            const layerCount = onCanvas.length - kept;
+            const plural = (n) => (n === 1 ? '' : 's');
+            let msg = layerCount > 0
+                ? `Delete canvas '${canvas.name}' and its ${layerCount} layer${plural(layerCount)}? This cannot be undone.`
                 : `Delete canvas '${canvas.name}'?`;
+            if (kept > 0) {
+                msg += ` ${kept} screen${plural(kept)} shown on another canvas will move to that canvas instead.`;
+            }
             if (window.confirm(msg)) this.deleteCanvas(canvas.id);
         }
     }
