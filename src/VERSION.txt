@@ -4,14 +4,14 @@ LED RASTER DESIGNER - VERSION HISTORY
 v1.3.0 - September 23, 2026
 ----------------------------
 
-A default for every screen colour 🎨 True1 and powerCON on 110V and 120V 🔌 Apply Pattern fills whole rows 📐 A rear view binder 📖
-
-Four things asked for on the wall and in the issues: every colour a new
-screen starts with is now a Preferences setting (issue #28), a screen on
-a 110V or 120V circuit can run a Multi with True1 or powerCON and not
-only Edison, the custom Apply Pattern lays circuits out a whole row or
-column at a time, and the binder can be drawn from the rear. A longer
-fix list follows, most of it in screen groups and canvases.
+1.3 is about the screen you start with and the paper you hand over. A
+new screen now takes every colour from Preferences, a screen on a 110V
+or 120V circuit can run True1 or powerCON on a Multi instead of Edison
+only, the custom Apply Pattern fills a whole row at a time, and the
+binder can be drawn from the rear with every sheet saying which way it
+faces. Under that is a long fix list, most of it in screen groups and
+canvases, from building real shows on 1.2 and writing down what went
+wrong.
 
 A DEFAULT FOR EVERY SCREEN COLOUR
 
