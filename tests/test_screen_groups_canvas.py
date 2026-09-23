@@ -1247,3 +1247,85 @@ def test_a_dragged_member_name_offset_survives_leaving_and_rejoining_the_group(p
     assert res['storedAlone'] == res['stored']
     assert res['storedAgain'] == res['stored']
     assert res['grouped'] == res['alone'] == res['regrouped'], res
+
+
+# ---------------------------------------------------------------------------
+# Member names above the crossing runs (2026-09-22). A port or circuit run that
+# crosses from one member into the next is drawn in the overlay pass after
+# every member, so it used to paint over the second member's name plate on the
+# Data and Power tabs ("the screen 2 name on power and data tab is under the
+# cables when grouped"). Now a group member's labels wait for a pass of their
+# own after that overlay.
+# ---------------------------------------------------------------------------
+
+_SAME_WALL_JS = """
+    // Two members of the same cabinet and wattage side by side: the automatic
+    // route packs them as one bigger screen, so a port and a circuit each
+    // cross the seam.
+    const left = gc.screen({ id: 1, name: 'Left', columns: 4, rows: 2 });
+    const right = gc.screen({ id: 2, name: 'Right', columns: 4, rows: 2, offset_x: 512 });
+    left.group_id = 'g1'; right.group_id = 'g1';
+    const group = gc.group([left, right]);
+"""
+
+
+def _draw_order(page, mode, name_display):
+    return page.evaluate("""([mode, nameDisplay]) => {
+        const gc = window.__gc;
+        %s
+        return gc.withProject([left, right], [group], mode, () => {
+            window.app.project.groupNameDisplay = nameDisplay;
+            const r = window.canvasRenderer;
+            const order = [];
+            let crossDrew = 0;
+            const o1 = r._renderCrossMemberPaths, o2 = r.renderLayerLabels,
+                  o3 = r.renderPowerArrows, o4 = r.renderDataFlowArrows;
+            r._renderCrossMemberPaths = function (k) { order.push('cross'); return o1.call(this, k); };
+            r.renderLayerLabels = function (l, g) { order.push('label:' + l.name + (g ? ':group' : '')); return o2.call(this, l, g); };
+            r.renderPowerArrows = function (l) { if (this._crossMemberPass) crossDrew++; return o3.call(this, l); };
+            r.renderDataFlowArrows = function (l) { if (this._crossMemberPass) crossDrew++; return o4.call(this, l); };
+            let texts;
+            try { texts = gc.drawn(); }
+            finally {
+                r._renderCrossMemberPaths = o1; r.renderLayerLabels = o2;
+                r.renderPowerArrows = o3; r.renderDataFlowArrows = o4;
+            }
+            return { order, crossDrew, texts,
+                     hit: window.app.project.layers.map(l => !!l._screenNameHitRect) };
+        });
+    }""" % _SAME_WALL_JS, [mode, name_display])
+
+
+@pytest.mark.parametrize('mode', ['data-flow', 'power'])
+def test_member_names_draw_after_the_crossing_runs(page, mode):
+    """In the wiring views every member's name plate is drawn after the
+    overlay pass, so it sits on top of a run that crosses the seam."""
+    out = _draw_order(page, mode, 'screens')
+    assert out['crossDrew'] >= 1, 'the fixture must produce a crossing run: %r' % out
+    order = out['order']
+    assert 'cross' in order, order
+    labels = [i for i, o in enumerate(order) if o.startswith('label:')]
+    assert labels, order
+    assert min(labels) > order.index('cross'), \
+        'a member name was drawn before the crossing runs: %r' % order
+    assert out['texts'].count('Left') == 1 and out['texts'].count('Right') == 1, out['texts']
+    assert out['hit'] == [True, True], 'each member still owns a name hit rect: %r' % out
+
+
+@pytest.mark.parametrize('mode', ['data-flow', 'power'])
+def test_the_group_headline_still_draws_once_in_the_wiring_views(page, mode):
+    """The deferred pass keeps the host rule: with the names switch on the
+    group, one headline and no member names."""
+    out = _draw_order(page, mode, 'group')
+    assert out['texts'].count('Main Wall') == 1, out['texts']
+    assert 'Left' not in out['texts'] and 'Right' not in out['texts'], out['texts']
+    assert min(i for i, o in enumerate(out['order']) if o.startswith('label:')) \
+        > out['order'].index('cross'), out['order']
+
+
+def test_pixel_map_member_names_are_not_deferred(page):
+    """Off the wiring views nothing crosses and nothing is held back: the
+    labels draw in each member's own pass, as before."""
+    out = _draw_order(page, 'pixel-map', 'screens')
+    assert 'cross' not in out['order'], out['order']
+    assert [o for o in out['order'] if o.startswith('label:')] == ['label:Left', 'label:Right'], out['order']

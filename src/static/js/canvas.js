@@ -649,6 +649,19 @@ class CanvasRenderer {
     // every op after it under it - `layer` names the screen the element
     // belongs to (an image or text layer files under Images / Text). A
     // real context has no __lrdGroup, so outside that export this is a no-op.
+    // Whether a layer's name plate waits for the post pass after the
+    // cross-member overlay: a screen in a group of two or more, in the Data or
+    // Power view, where a run crossing into a peer is drawn after every
+    // member's own pass. Everything else draws its labels in its own pass.
+    _memberLabelsDeferred(layer) {
+        if (this.viewMode !== 'data-flow' && this.viewMode !== 'power') return false;
+        if (!layer || (layer.type || 'screen') !== 'screen') return false;
+        const app = window.app;
+        if (!app || typeof app.groupMembersOf !== 'function') return false;
+        const members = app.groupMembersOf(layer);
+        return Array.isArray(members) && members.length >= 2;
+    }
+
     _svgGroup(name, layer) {
         const ctx = this.ctx;
         if (ctx && typeof ctx.__lrdGroup === 'function') ctx.__lrdGroup(name, layer || null);
@@ -2066,6 +2079,10 @@ class CanvasRenderer {
         // part way through cannot carry an owner into the next one.
         this._crossMemberOwners = [];
         this._crossMemberPass = false;
+        // Group members' name plates in the wiring views are drawn AFTER the
+        // cross-member overlay pass, not in the member's own pass (see
+        // _memberLabelsDeferred). Cleared here for the same reason as above.
+        this._deferredMemberLabels = [];
         // v0.11.0: frame counter, so _powerCircuitForPanel can tell a peer's
         // circuit maps it built itself THIS frame from ones left over from the
         // last one. Without it a peer drawn after its owner would keep tinting
@@ -2346,8 +2363,17 @@ class CanvasRenderer {
                     // Render labels as part of each layer so upper layers naturally
                     // paint over lower layers' labels (no bleed-through). The screen
                     // name rotates with the screen (keepTextUpright is off here).
+                    // A group member's labels in the Data and Power views wait
+                    // for the post pass instead: a port or circuit run that
+                    // crosses into a peer is drawn in the overlay after every
+                    // member, and it was painting over the member names
+                    // (Matt, 2026-09-22: "the screen 2 name on power and data
+                    // tab is under the cables when grouped").
                     this._svgGroup('Screen name', layer);
-                    if (this._stageOn('Screen name')) this.renderLayerLabels(layer);
+                    if (this._stageOn('Screen name')) {
+                        if (this._memberLabelsDeferred(layer)) this._deferredMemberLabels.push(layer);
+                        else this.renderLayerLabels(layer);
+                    }
 
                     // v0.9.3: end the rotation before the corner readouts so the
                     // X,Y coordinates stay upright and unrotated.
@@ -2406,6 +2432,54 @@ class CanvasRenderer {
                     || (this.viewMode === 'power' && this._stageOn('Power'))) {
                 this._renderCrossMemberPaths(this.viewMode === 'power' ? 'power' : 'data');
             }
+
+            // Group members' name plates, held back from the loop above so
+            // they sit on top of the crossing runs the overlay just drew.
+            // Each member is redrawn in the frame its own pass used: canvas
+            // workspace and mirror (_withLayerWs), Show Look offset, and its
+            // rotation with the raster clip that goes with it.
+            const _deferredLabels = this._deferredMemberLabels || [];
+            this._deferredMemberLabels = [];
+            _deferredLabels.forEach(layer => {
+                if (!layer || !layer.visible) return;
+                const _cid = this._effectiveLayerCanvasId(layer);
+                const _prevCanvas = this._activeRenderCanvas;
+                this._activeRenderCanvas = (_cid && _canvasById[_cid]) || null;
+                try {
+                    _withLayerWs(layer, () => {
+                        const { dx, dy } = this.getLayerRenderOffset(layer);
+                        this.ctx.save();
+                        if (dx || dy) this.ctx.translate(dx, dy);
+                        this._renderDx = dx;
+                        this._renderDy = dy;
+                        const _deg = this._layerRotationDeg(layer);
+                        const _rot = (_deg === 90 || _deg === 180 || _deg === 270);
+                        if (_rot) {
+                            this.ctx.save();
+                            this.ctx.beginPath();
+                            this.ctx.rect(-dx, -dy, this.rasterWidth, this.rasterHeight);
+                            this.ctx.clip();
+                            this._layerRotating = true;
+                            this._activeRotationRad = _deg * Math.PI / 180;
+                            this._beginLayerRotation(layer);
+                        }
+                        this._svgGroup('Screen name', layer);
+                        this.renderLayerLabels(layer);
+                        if (_rot) {
+                            this.ctx.restore();
+                            this._layerRotating = false;
+                            this._keepTextUpright = false;
+                            this._activeRotationRad = 0;
+                            this.ctx.restore();
+                        }
+                        this._renderDx = 0;
+                        this._renderDy = 0;
+                        this.ctx.restore();
+                    });
+                } finally {
+                    this._activeRenderCanvas = _prevCanvas;
+                }
+            });
 
             // The custom-run readout in the canvas strip follows this frame:
             // whichever view is up, if no badge call fired (not custom mode,
