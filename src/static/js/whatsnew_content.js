@@ -14,6 +14,27 @@
  *   h - short heading, d - one or two plain sentences. No markup, no emoji.
  */
 window.WHATS_NEW_CONTENT = {
+    '1.3': {
+        title: 'A default for every screen colour, True1 and powerCON on 120V, Apply Pattern fills whole rows',
+        items: [
+            { h: 'A default for every screen colour',
+              d: 'Preferences has a labelled colour for every mark a screen draws, on the Look, Data and Power tabs. A new screen takes them all and keeps them; existing screens are not touched.' },
+            { h: 'True1 and powerCON on 110V and 120V',
+              d: 'A screen at or below 120V can be set to Multi → True1 or Multi → powerCON as well as Edison, and a Multi 120 output feeds any of the three.' },
+            { h: 'Every screen carries a breakout',
+              d: 'The Preferences breakout is the default when the voltage allows it; otherwise Edison at or below 120V and True1 above. Edison is not offered above 120V and L21-30 stays 208V only.' },
+            { h: 'Apply Pattern fills whole rows',
+              d: 'In custom mode a circuit or port takes another row or column only when all of it fits, so a run never starts in the middle of a row. The marquee clears when the fill lands.' },
+            { h: 'Deleting a canvas keeps shown screens',
+              d: 'A screen shown on another canvas moves there instead of going with the deleted canvas, groups that move together stay grouped, and the confirm warns about overlaps.' },
+            { h: 'Grouped names above the cables',
+              d: 'On the Data and Power tabs a grouped screen\'s name draws on top of the runs that cross it.' },
+            { h: 'Clear reaches a peer\'s run',
+              d: 'Clear Circuit, Clear Port and Clear All on a grouped screen also take its cabinets out of a run a peer drew across it. A locked member is left alone.' },
+            { h: 'Tab after a pattern tile in Chrome',
+              d: 'Tab steps to the next circuit after you press a pattern tile, in Chrome as it already did in Safari.' }
+        ]
+    },
     '1.2': {
         title: 'PSD layers for every element, and an SVG export for Illustrator',
         items: [
