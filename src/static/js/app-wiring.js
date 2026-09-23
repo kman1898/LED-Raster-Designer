@@ -1349,34 +1349,59 @@ class _Wiring {
         };
 
         if (powerVoltageSelect && powerVoltageCustomInput) {
-            powerVoltageSelect.addEventListener('change', () => {
-                updatePowerVoltageUI();
-                const val = powerVoltageSelect.value === 'custom'
-                    ? parseFloat(powerVoltageCustomInput.value) || 0
-                    : parseFloat(powerVoltageSelect.value) || 0;
+            // One 'Change Power Voltage' entry per REAL change. A figure
+            // equal to what every selected screen already holds commits
+            // nothing - no rewrite, no PUT, no history entry. The
+            // breakout rides along: a stored choice the new voltage
+            // cannot run is rewritten by normalizePowerBreakout in the
+            // same step (L21-30 at 208 -> 110 becomes Edison).
+            const commitVoltage = (val, custom) => {
+                const selected = this.getSelectedLayers();
+                const changed = selected.some(
+                    l => (parseFloat(l.powerVoltage) || 0) !== val);
+                if (!changed) return;
                 this.applyToSelectedLayers(layer => {
                     layer.powerVoltage = val;
-                    if (powerVoltageSelect.value === 'custom') {
-                        layer.powerVoltageCustom = val;
-                    }
+                    if (custom) layer.powerVoltageCustom = val;
                     this.normalizePowerBreakout(layer);
                 });
                 this.saveClientSideProperties();
                 this.updatePowerCapacityDisplay();
                 this.updateLayers(this.getSelectedLayers(), true, 'Change Power Voltage');
                 window.canvasRenderer.render();
+            };
+            powerVoltageSelect.addEventListener('change', () => {
+                updatePowerVoltageUI();
+                if (powerVoltageSelect.value === 'custom') {
+                    // Picking "Custom" commits NOTHING: the box used to
+                    // hold its stock 110 and was committed on the pick,
+                    // so a 208V L21-30 screen was written 110V + Edison
+                    // before the user had typed a figure. The box is
+                    // seeded with the screen's CURRENT voltage - so a
+                    // commit of the seed is the no-op above - and the
+                    // typed figure's own change event is the commit.
+                    const cur = parseFloat(this.currentLayer
+                        && this.currentLayer.powerVoltage) || 0;
+                    if (cur > 0) powerVoltageCustomInput.value = cur;
+                    powerVoltageCustomInput.focus();
+                    if (typeof powerVoltageCustomInput.select === 'function') {
+                        powerVoltageCustomInput.select();
+                    }
+                    return;
+                }
+                commitVoltage(parseFloat(powerVoltageSelect.value) || 0, false);
             });
             powerVoltageCustomInput.addEventListener('change', () => {
                 const val = parseFloat(powerVoltageCustomInput.value) || 0;
-                this.applyToSelectedLayers(layer => {
-                    layer.powerVoltage = val;
-                    layer.powerVoltageCustom = val;
-                    this.normalizePowerBreakout(layer);
-                });
-                this.saveClientSideProperties();
-                this.updatePowerCapacityDisplay();
-                this.updateLayers(this.getSelectedLayers(), true, 'Change Power Voltage');
-                window.canvasRenderer.render();
+                if (!(val > 0)) {
+                    // An emptied box is not a 0V screen: put the figure
+                    // in force back and commit nothing.
+                    const cur = parseFloat(this.currentLayer
+                        && this.currentLayer.powerVoltage) || 0;
+                    if (cur > 0) powerVoltageCustomInput.value = cur;
+                    return;
+                }
+                commitVoltage(val, true);
             });
         }
 
@@ -1725,7 +1750,7 @@ class _Wiring {
         if (powerCustomClearCircuit) {
             powerCustomClearCircuit.addEventListener('click', () => {
                 if (!this.currentLayer) return;
-                this.ensureCustomPowerState(this.currentLayer);
+                // No ensure* here - see the data Clear Port.
                 const circuitNum = this.currentLayer.powerCustomIndex || 1;
                 // This screen's circuit, and its cabinets out of a peer's
                 // circuit of the same number - see clearCustomRun.
@@ -1767,7 +1792,7 @@ class _Wiring {
         if (powerCustomActive) {
             powerCustomActive.addEventListener('change', () => {
                 if (!this.currentLayer) return;
-                // No ensure* here - see the data Clear Port.
+                this.ensureCustomPowerState(this.currentLayer);
                 const nextVal = parseInt(powerCustomActive.value, 10);
                 // Pinned to the override list while one is open - see the
                 // data-flow input above.

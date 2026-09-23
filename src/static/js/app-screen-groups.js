@@ -309,6 +309,17 @@ class _ScreenGroups {
                 changed.forEach(field => {
                     peer[field] = this._cloneFieldValue(layer[field]);
                 });
+                // A peer handed a voltage carries a breakout that voltage
+                // allows, exactly as the edited screen does (its handler
+                // normalizes; the copy above does not). The breakout
+                // itself is NOT a shared field - the user chooses it per
+                // screen - so an eligible choice on the peer stands and
+                // only an ineligible one is rewritten. The peer is in
+                // `touched`, so the rewrite rides the same PUT.
+                if (changed.includes('powerVoltage')
+                        && typeof this.normalizePowerBreakout === 'function') {
+                    this.normalizePowerBreakout(peer);
+                }
                 touched.set(peer.id, peer);
             });
         });
@@ -944,6 +955,12 @@ class _ScreenGroups {
                 if (layer) layer[field] = chosen[field];
             });
         });
+        // The mismatch dialog's voltage lands on every member: each keeps
+        // a breakout that voltage allows (see _propagateChangedSharedFields).
+        if (Object.prototype.hasOwnProperty.call(chosen, 'powerVoltage')
+                && typeof this.normalizePowerBreakout === 'function') {
+            (layers || []).forEach(layer => { if (layer) this.normalizePowerBreakout(layer); });
+        }
         // The processor owns which bit depths and frame rates exist, so the
         // two Screen Info selects have to be rebuilt against what was just
         // written - the same call the single-screen processor handler makes.

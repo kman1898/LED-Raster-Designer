@@ -479,9 +479,14 @@ class _DockDrag {
         const target = { kind: 'screen', layerId: layer.id };
         if (drag.payload.type === 'distro'
                 && (layer.type || 'screen') === 'screen') {
-            target.nums = this.getSocaPlan(layer)
-                .filter(s => !s.distroId)
-                .flatMap(s => s.legs.map(g => g.circuit));
+            // The drop's own gate, per multi (all or nothing, as the drop
+            // is): where _dockDropDistro would refuse, nothing lights -
+            // the chip path's rule.
+            const unassigned = this.getSocaPlan(layer).filter(s => !s.distroId);
+            const refused = unassigned.some(
+                s => !!this._distroDropRefusal(drag.payload, layer, s));
+            target.nums = refused ? []
+                : unassigned.flatMap(s => s.legs.map(g => g.circuit));
         }
         if (drag.payload.type === 'plug') {
             // A plug lights EXACTLY the circuits its drop would feed - the
@@ -787,7 +792,7 @@ class _DockDrag {
             const name = d.name || d.id;
             if (!this.distroOffers(d, type.id)) {
                 return {
-                    label: `${name} — does not offer ${type.name.toLowerCase()}`,
+                    label: `${name} — does not offer ${type.name}`,
                     disabled: true,
                     title: `Tick ${type.name} under ${name}'s ⚙ Outputs to `
                         + 'offer it.',
@@ -1207,6 +1212,23 @@ class _DockDrag {
             this.setSocaDistro(layer, s.soca, payload.distroId, false)
                 .forEach(l => touched.add(l));
         });
+        // The boxes this makes wear the type each multi landed as - the
+        // type the gate above passed them on - stamped the way a chip
+        // drop stamps its one box: before the assignment's entry, so the
+        // gesture stays one undo step. The numbers are read off the
+        // naming index now that the assignments are in.
+        const landedType = this.outputTypeForBreakout(
+            this.getPowerBreakout(layer), layer.powerVoltage);
+        if (landedType) {
+            this._circuitTailCache = null;
+            const naming = this._powerNaming(layer);
+            unassigned.forEach(s => {
+                const rec = naming.socas.get(s.soca);
+                if (rec && rec.number != null) {
+                    this._stampBoxType(payload.distroId, rec.number, landedType.id);
+                }
+            });
+        }
         this.updateLayers([...touched], true, 'Assign Multi Distro');
         this._restateNaming();
     }
@@ -1229,7 +1251,7 @@ class _DockDrag {
         }
         if (!this.distroOffers(d, type.id)) {
             return `${d.name || d.id} does not offer `
-                + `${type.name.toLowerCase()} — tick ${type.name} under its `
+                + `${type.name} — tick ${type.name} under its `
                 + '⚙ Outputs first';
         }
         const gate = this._plugGate({ distroId: d.id, output: type.id }, layer);

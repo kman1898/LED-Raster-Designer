@@ -1139,6 +1139,13 @@ class _ScreenInfo {
         this.project.layers.forEach(layer => {
             if (layer.id !== layerId) {
                 savedClientProps[layer.id] = this.extractClientSideProps(layer);
+                // The breakout in force is kept with the client props: a
+                // breakout the boot pass wrote is PUT, but until that
+                // lands the server's copy is still bare and this re-fetch
+                // would hand the screen back without it.
+                if (layer.powerBreakoutType !== undefined) {
+                    savedClientProps[layer.id].powerBreakoutType = layer.powerBreakoutType;
+                }
             }
         });
         
@@ -1155,6 +1162,11 @@ class _ScreenInfo {
             this.project.layers.forEach(layer => {
                 if (savedClientProps[layer.id]) {
                     Object.assign(layer, savedClientProps[layer.id]);
+                }
+                // Whatever the server handed back, a screen carries an
+                // eligible breakout (2026-09-22).
+                if (typeof this.normalizePowerBreakout === 'function') {
+                    this.normalizePowerBreakout(layer);
                 }
             });
             
@@ -1661,18 +1673,6 @@ class _ScreenInfo {
                 // Always re-render after server response to reflect final state
                 window.canvasRenderer.render();
             }
-        });
-    }
-    
-    updateLayerFromInputs() {
-        const targetLayers = this.getSelectedLayers();
-        if (targetLayers.length === 0) return;
-        
-        // Evaluate math expressions and update the input fields with results
-        const readNumber = (id) => {
-            const el = document.getElementById(id);
-            if (!el) return { value: null, raw: null };
-            const raw = String(el.value || '').trim();
         }).catch((error) => {
             // A PUT that never lands (offline, the server gone) rejects the
             // whole batch. addLayer pushes every new screen through here
@@ -1687,6 +1687,18 @@ class _ScreenInfo {
             if (typeof this._toast === 'function') {
                 this._toast('Screen settings were not saved to the server. Check the connection and save again.', true);
             }
+        });
+    }
+    
+    updateLayerFromInputs() {
+        const targetLayers = this.getSelectedLayers();
+        if (targetLayers.length === 0) return;
+        
+        // Evaluate math expressions and update the input fields with results
+        const readNumber = (id) => {
+            const el = document.getElementById(id);
+            if (!el) return { value: null, raw: null };
+            const raw = String(el.value || '').trim();
             if (raw === '') return { value: null, raw: '' };
             return { value: evaluateMathExpression(raw), raw };
         };

@@ -2386,9 +2386,30 @@ class _Power {
         if (sel) sel.addEventListener('change', () => {
             const layer = this.currentLayer;
             if (!layer) return;
+            const type = this.getPowerBreakoutTypes().find(t => t.id === sel.value);
+            if (!type) return;
+            // The select greys what the CURRENT screen's voltage cannot
+            // run; the other selected screens have voltages of their own,
+            // so each is gated on its own (a 120V peer beside a 208V
+            // current screen is not written L21-30). The ineligible ones
+            // are skipped and named once; the rest are written.
             const list = this._socaPanelTargets(layer);
-            list.forEach(l => { l.powerBreakoutType = sel.value; });
-            this.updateLayers(list, true, 'Change Power Breakout');
+            const skipped = list.filter(l => !this._breakoutEligible(type, l.powerVoltage));
+            const write = list.filter(l => !skipped.includes(l));
+            if (skipped.length) {
+                const names = skipped.map(l => `${l.name || l.id} `
+                    + `(${parseFloat(l.powerVoltage) || 0}V)`).join(', ');
+                const msg = `${type.name} is not available at ${names} — `
+                    + `${skipped.length === 1 ? 'that screen keeps its' : 'those screens keep their'} breakout.`;
+                if (typeof this._toast === 'function') this._toast(msg, true, 4000);
+                else if (typeof this._dockSay === 'function') this._dockSay(msg);
+            }
+            if (!write.length) {
+                sel.value = this.getPowerBreakout(layer).id;
+                return;
+            }
+            write.forEach(l => { l.powerBreakoutType = type.id; });
+            this.updateLayers(write, true, 'Change Power Breakout');
         });
         const brk = document.getElementById('show-soca-brackets');
         if (brk) brk.addEventListener('change', () => {

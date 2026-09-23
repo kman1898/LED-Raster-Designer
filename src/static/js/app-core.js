@@ -898,7 +898,19 @@ export class LEDRasterApp {
                 sendClientLog('load_project', { name: data.name, layers: data.layers ? data.layers.length : 0 });
                 
                 // Load client-side properties from localStorage
+                const breakoutBefore = new Map((this.project.layers || [])
+                    .map(l => [l.id, l.powerBreakoutType]));
                 this.loadClientSideProperties();
+                // The breakout the load pass wrote (normalizePowerBreakout
+                // in the defaults sweep above) is paperwork the server has
+                // to hold too, or the next project re-fetch - a delete, a
+                // reconnect - hands back the screen without it. PUT exactly
+                // the screens whose breakout changed, nothing else, and
+                // without a history entry (nothing the user did).
+                const breakoutRewrote = (this.project.layers || []).filter(
+                    l => (l.type || 'screen') === 'screen'
+                        && l.powerBreakoutType !== breakoutBefore.get(l.id));
+                if (breakoutRewrote.length) this.updateLayers(breakoutRewrote);
                 
                 // Auto-select first layer BEFORE updateUI so render has correct data
                 if (this.project.layers && this.project.layers.length > 0) {
@@ -1185,18 +1197,6 @@ export class LEDRasterApp {
         if (!this.currentLayer) return false;
         if (this.project.is_pristine !== true) return false;
         if (this.project.name !== 'Untitled Project') return false;
-        return true;
-    }
-
-    shouldUseSavedClientProps() {
-        // Local client props are keyed only by layer id. Restrict use to the
-        // untouched startup default project so they don't bleed into loaded files.
-        if (!this.project || !this.project.layers || this.project.layers.length !== 1) return false;
-        return this.project.name === 'Untitled Project';
-    }
-
-    applyPreferencesToDefaultLayerIfMatch(force = false) {
-        if (!this.shouldApplyStartupPreferences()) return;
         // Pristine on BOTH sides: the flag above is the server's, as the
         // project was fetched; this is the client's, kept since. The
         // server clears is_pristine on the first PUT of the layer - and
@@ -1213,9 +1213,9 @@ export class LEDRasterApp {
             this.project.is_pristine = false;
             return false;
         }
-        const prefs = this.getPreferences();
-        sendClientLog('apply_preferences_to_default_layer', {
-            force: !!force,
+        return true;
+    }
+
     // Has the user edited the startup screen since it was made? Every
     // user edit lands an undo step (updateLayerFromInputs, a drag, a
     // panel toggle: saveState), and both makers of the startup screen -
@@ -1230,6 +1230,18 @@ export class LEDRasterApp {
         return Array.isArray(this.history) && this.history.length > 1;
     }
 
+    shouldUseSavedClientProps() {
+        // Local client props are keyed only by layer id. Restrict use to the
+        // untouched startup default project so they don't bleed into loaded files.
+        if (!this.project || !this.project.layers || this.project.layers.length !== 1) return false;
+        return this.project.name === 'Untitled Project';
+    }
+
+    applyPreferencesToDefaultLayerIfMatch(force = false) {
+        if (!this.shouldApplyStartupPreferences()) return;
+        const prefs = this.getPreferences();
+        sendClientLog('apply_preferences_to_default_layer', {
+            force: !!force,
             projectName: this.project.name,
             processorType: prefs.processorType,
             bitDepth: prefs.bitDepth,
@@ -1610,6 +1622,12 @@ export class LEDRasterApp {
         // hexToRgb('#FFF') read as red, and a '' border landed as-is on
         // the server and on all four per-view borders.
         const color = (value, fallback) => this.normalizeHexColor(value, fallback);
+        const tile = (value, fallback) => this.normalizeTileColor(value, fallback);
+        const color1 = this.hexToRgb(tile(prefs.color1, '#404680'));
+        const color2 = this.hexToRgb(tile(prefs.color2, '#959CB8'));
+        const borderColor = tile(prefs.borderColor, '#FFFFFF');
+        const labelsColor = color(prefs.screenNameColor, '#FFFFFF');
+        const cabinetIdColor = color(prefs.cabinetIdColor, '#FFFFFF');
         let serverProps;
         if (presetData && typeof presetData === 'object') {
             serverProps = {
@@ -1622,12 +1640,6 @@ export class LEDRasterApp {
                 border_color: tile(presetData.border_color, borderColor),
                 panel_weight: presetData.panel_weight != null ? presetData.panel_weight : prefs.panelWeight,
                 weight_unit: presetData.weight_unit || prefs.weightUnit,
-        const tile = (value, fallback) => this.normalizeTileColor(value, fallback);
-        const color1 = this.hexToRgb(tile(prefs.color1, '#404680'));
-        const color2 = this.hexToRgb(tile(prefs.color2, '#959CB8'));
-        const borderColor = tile(prefs.borderColor, '#FFFFFF');
-        const labelsColor = color(prefs.screenNameColor, '#FFFFFF');
-        const cabinetIdColor = color(prefs.cabinetIdColor, '#FFFFFF');
                 // The two colours the server sets on a new layer (create_layer);
                 // the Look tab's "Info labels" and "Cabinet ID text" preferences.
                 // A preset value that is not a colour ('nope', 'red', [], {})
@@ -1689,6 +1701,15 @@ export class LEDRasterApp {
             // 208 V only); otherwise the screen stays unset and reads
             // the voltage's own default, as it always has.
             this.applyNewScreenPowerPreferences(layer, appliedPreset ? presetData : null);
+            // Then the store's own rule: a preference the voltage does not
+            // allow (L21-30 at 110 V, Edison at 208 V) was skipped above and
+            // left the screen with no breakout at all, and a preset carries
+            // whatever it holds; both end on the eligible default (Edison
+            // at or below 120 V, True1 above) - here, so the PUT below
+            // stores it, rather than on the next load.
+            if (typeof this.normalizePowerBreakout === 'function') {
+                this.normalizePowerBreakout(layer);
+            }
 
             this.upsertProjectLayer(layer);
             this.selectLayer(layer);
@@ -1701,15 +1722,6 @@ export class LEDRasterApp {
 
             // Save the new defaults to localStorage
             this.saveClientSideProperties();
-            // Then the store's own rule: a preference the voltage does not
-            // allow (L21-30 at 110 V, Edison at 208 V) was skipped above and
-            // left the screen with no breakout at all, and a preset carries
-            // whatever it holds; both end on the eligible default (Edison
-            // at or below 120 V, True1 above) - here, so the PUT below
-            // stores it, rather than on the next load.
-            if (typeof this.normalizePowerBreakout === 'function') {
-                this.normalizePowerBreakout(layer);
-            }
 
             // IMPORTANT: the server only knows the structural fields sent via
             // /api/layer/add (columns, cabinet dims, tile colours, the two

@@ -2107,6 +2107,8 @@
             var fields = Object.assign({ powerVoltage: 208, powerAmperage: 20, panelWatts: 200 }, seed.layer || {});
             var l = a.project.layers[0];
             Object.keys(fields).forEach(function (k) { l[k] = fields[k]; });
+            // A screen always carries a breakout its voltage allows.
+            if (typeof a.normalizePowerBreakout === 'function') a.normalizePowerBreakout(l);
             a.updateLayers([l]);
             return a.refreshProcessors();
         }).then(function () {

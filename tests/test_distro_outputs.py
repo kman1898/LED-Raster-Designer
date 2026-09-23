@@ -40,7 +40,16 @@ Pinned here, with real pointer drags and real right-clicks:
     True1 above on every load path and after a sidebar voltage change,
     never touching a stored eligible choice
   * a whole-distro drag runs the plug gate per multi and refuses all or
-    nothing, with the single-output drag's sentence
+    nothing, with the single-output drag's sentence; its preview lights
+    nothing where the drop would refuse, and a landing drop stamps every
+    box's type inside the one entry
+  * the breakout follows the voltage on every path: picking "Custom"
+    commits nothing until a figure is typed (one entry per real change),
+    a group peer handed a voltage is normalized on the same PUT, the
+    multi-select breakout skips (and names) a screen whose voltage refuses
+    the choice, a delete's re-fetch keeps the breakout in force, the boot
+    pass writes its rewrite through to the server, and the guide's demo
+    wall carries one
   * the pill warns amber (still allowed) when the box would push the
     distro's legs past its rating
   * the submenu lists offering distros with their loads, greys the rest
@@ -716,7 +725,7 @@ def test_the_submenu_lists_offering_distros_with_loads(page):
         assert m['label'] == 'Add Multi 208 from…', m
         assert [(e['label'], e['disabled']) for e in m['entries']] == [
             ('PD 0/400 A', False),
-            ('SR — does not offer multi 208', True)], m
+            ('SR — does not offer Multi 208', True)], m
         assert 'Tick Multi 208 under SR' in m['entries'][1]['title'], m
         # hover opens the submenu; the pick is the drop
         pg.locator('#context-menu [data-action="hw-outputs"]').hover()
@@ -1137,11 +1146,17 @@ def test_a_whole_distro_drag_passes_the_plug_gate(page):
     n = pg.evaluate(HIST_LEN_JS)
     sx, sy = chip_center(pg, f'distro-{d}')
     tgt = panel_point(pg, ids['aId'], {})
-    drag(pg, sx, sy, tgt['x'], tgt['y'])
+    # the handle's preview runs the same gate: nothing lights where the
+    # drop would refuse (the chip path's rule), and the dock's resolved
+    # target carries no circuits
+    mid = drag(pg, sx, sy, tgt['x'], tgt['y'],
+               mid_check=lambda p: p.evaluate(MID_JS, ids['aId']))
+    assert mid['lit'] == [], mid
+    assert mid['target'] and mid['target']['nums'] == [], mid
     assert pg.evaluate(POWER_STATE_JS, ids['aId'])['distro'] == {}, \
         'a refused whole-distro drop assigned a multi'
     assert pg.evaluate(STATUS_JS) == \
-        'PD does not offer multi 208 — tick Multi 208 under its ⚙ Outputs first'
+        'PD does not offer Multi 208 — tick Multi 208 under its ⚙ Outputs first'
     assert pg.evaluate(HIST_LEN_JS) == n, 'a refused drop earned an entry'
     # an L6-20 screen: no output type names the breakout
     pg.evaluate(RESET_JS, ids)
@@ -1179,10 +1194,21 @@ def test_a_whole_distro_drag_passes_the_plug_gate(page):
             s => app._distroDropRefusal({ distroId: dd.id }, a, s));
     }""", ids) == [None, None]
     sx, sy = chip_center(pg, f'distro-{d}')
-    drag(pg, sx, sy, tgt['x'], tgt['y'])
+    mid = drag(pg, sx, sy, tgt['x'], tgt['y'],
+               mid_check=lambda p: p.evaluate(MID_JS, ids['aId']))
+    assert mid['lit'] == list(range(1, 13)), mid
     st = pg.evaluate(POWER_STATE_JS, ids['aId'])
     assert st['distro'] == {'1': d, '2': d}, st
     assert pg.evaluate(HIST_JS, 1) == ['Assign Multi Distro']
+    # both boxes wear the type they landed as, stamped the way a chip
+    # drop stamps its one box - inside the same entry, so one undo
+    # forgets the stamps with the assignments
+    assert pg.evaluate(BOX_TYPES_JS, d) == {'1': 'soca208', '2': 'soca208'}
+    pg.evaluate("() => window.app.handleMenuAction('undo')")
+    pg.wait_for_timeout(900)
+    assert pg.evaluate(POWER_STATE_JS, ids['aId'])['distro'] == {}
+    assert not (pg.evaluate(BOX_TYPES_JS, d) or {}), \
+        'undo left the whole-distro drop\'s box types behind'
     pg.evaluate(RESET_JS, ids)
 
 
@@ -1497,3 +1523,317 @@ def test_a_typed_spare_box_drags_as_its_plug(page):
     two = pg.evaluate(TYPECHIP_JS, [d, 2])
     assert two and two['tag'] == 'BUTTON' and two['text'] == 'Multi 208', two
     pg.evaluate(RESET_JS, ids)
+
+
+# ── the breakout follows the voltage on every path ────────────────────────
+
+VOLT_STATE_JS = """async (id) => {
+    const app = window.app;
+    const l = app.project.layers.find(x => x.id === id);
+    const p = await (await fetch('/api/project')).json();
+    const s = p.layers.find(x => x.id === id);
+    const box = document.getElementById('power-voltage-custom');
+    return { local: [l.powerVoltage, l.powerBreakoutType],
+             served: [s.powerVoltage, s.powerBreakoutType],
+             n: app.history.length,
+             last: app.history[app.historyIndex].action,
+             select: document.getElementById('power-voltage-select').value,
+             box: box.value, boxShown: box.style.display !== 'none' };
+}"""
+
+
+def _fire(page, el_id, value):
+    page.evaluate("""([id, v]) => {
+        const el = document.getElementById(id);
+        el.value = v;
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+    }""", [el_id, value])
+    page.wait_for_timeout(600)
+
+
+def test_picking_custom_voltage_commits_nothing_until_a_figure_is_typed(page):
+    """Picking "Custom" in the sidebar's voltage select used to commit the
+    box's stock 110 at once, so a 208V L21-30 screen was written 110V +
+    Edison before a figure was typed - and typing 208 back then left it
+    True1. The pick now seeds the box with the screen's current voltage
+    and commits nothing; a typed figure equal to what the screen holds
+    is a no-op; a real figure is one 'Change Power Voltage' entry that
+    rewrites an ineligible breakout in the same step; an emptied box
+    commits nothing."""
+    pg, ids = page
+    pg.evaluate(RESET_JS, ids)
+    pg.evaluate("""(ids) => {
+        const app = window.app;
+        const b = app.project.layers.find(x => x.id === ids.bId);
+        b.powerVoltage = 208;
+        b.powerBreakoutType = 'l2130-true1';
+        app.updateLayers([b]);
+        app.selectLayer(b);
+    }""", ids)
+    pg.wait_for_timeout(600)
+    base = pg.evaluate(VOLT_STATE_JS, ids['bId'])
+    assert base['local'] == [208, 'l2130-true1'], base
+    assert base['served'] == [208, 'l2130-true1'], base
+    n = base['n']
+    # the pick: box seeded with 208, shown, nothing committed
+    _fire(pg, 'power-voltage-select', 'custom')
+    out = pg.evaluate(VOLT_STATE_JS, ids['bId'])
+    assert out['local'] == [208, 'l2130-true1'], out
+    assert out['served'] == [208, 'l2130-true1'], out
+    assert out['n'] == n, out
+    assert out['select'] == 'custom' and out['boxShown'], out
+    assert out['box'] == '208', out
+    # the seed typed back is a no-op
+    _fire(pg, 'power-voltage-custom', '208')
+    out = pg.evaluate(VOLT_STATE_JS, ids['bId'])
+    assert out['local'] == [208, 'l2130-true1'], out
+    assert out['n'] == n, out
+    # a real figure: one entry, and the 208V-only L21-30 becomes True1
+    _fire(pg, 'power-voltage-custom', '230')
+    out = pg.evaluate(VOLT_STATE_JS, ids['bId'])
+    assert out['local'] == [230, 'soca-true1'], out
+    assert out['served'] == [230, 'soca-true1'], out
+    assert out['n'] == n + 1 and out['last'] == 'Change Power Voltage', out
+    # an emptied box is not a 0V screen
+    _fire(pg, 'power-voltage-custom', '')
+    out = pg.evaluate(VOLT_STATE_JS, ids['bId'])
+    assert out['local'] == [230, 'soca-true1'], out
+    assert out['n'] == n + 1, out
+    assert out['box'] == '230', out
+    # a preset equal to what the screen holds commits nothing either
+    _fire(pg, 'power-voltage-select', '230')
+    out = pg.evaluate(VOLT_STATE_JS, ids['bId'])
+    assert out['n'] == n + 1, out
+    pg.evaluate("""(ids) => {
+        const app = window.app;
+        app.selectLayer(app.project.layers.find(x => x.id === ids.aId));
+    }""", ids)
+    pg.evaluate(RESET_JS, ids)
+
+
+def test_a_group_peer_handed_a_voltage_carries_an_eligible_breakout(page):
+    """A screen group shares its voltage: the edited member's handler
+    normalizes its own breakout, and the copy to the peers now runs the
+    same normalize, so a peer holding L21-30 at 208V is written Edison
+    when the wall goes to 110V - on the SAME PUT and in the same entry.
+    The breakout itself is not shared: an eligible choice on the peer
+    stands, and the edited member's choice is not copied across."""
+    pg, ids = page
+    pg.evaluate(RESET_JS, ids)
+    gid = pg.evaluate("""async (ids) => {
+        const app = window.app;
+        app.setSelectedLayersByIds([ids.aId, ids.bId], ids.aId);
+        const gid = await app.groupSelectedLayers();
+        const b = app.project.layers.find(x => x.id === ids.bId);
+        b.powerBreakoutType = 'l2130-true1';
+        app.updateLayers([b]);
+        app.selectLayer(app.project.layers.find(x => x.id === ids.aId));
+        return gid;
+    }""", ids)
+    pg.wait_for_timeout(800)
+    assert gid, 'no group was made'
+    try:
+        # the propagation itself, on the model
+        direct = pg.evaluate("""(ids) => {
+            const app = window.app;
+            const a = app.project.layers.find(x => x.id === ids.aId);
+            const b = app.project.layers.find(x => x.id === ids.bId);
+            const snap = app._snapshotSharedFields([a]);
+            a.powerVoltage = 110;
+            app.normalizePowerBreakout(a);
+            const peers = app._propagateChangedSharedFields([a], snap);
+            const out = { peers: peers.map(p => p.id),
+                          a: [a.powerVoltage, a.powerBreakoutType],
+                          b: [b.powerVoltage, b.powerBreakoutType] };
+            // put back without a PUT: the sidebar path below is the real one
+            a.powerVoltage = 208; a.powerBreakoutType = 'soca-true1';
+            b.powerVoltage = 208; b.powerBreakoutType = 'l2130-true1';
+            app._pendingGroupPeerIds = null;
+            return out;
+        }""", ids)
+        assert direct['peers'] == [ids['bId']], direct
+        assert direct['a'] == [110, 'soca-edison'], direct
+        assert direct['b'] == [110, 'soca-edison'], direct
+        # the sidebar's select on the current member alone: both members
+        # land at 110V on the server in one entry - the member keeps its
+        # True1 (eligible at 110V), the peer's L21-30 is rewritten Edison
+        n = pg.evaluate(HIST_LEN_JS)
+        _fire(pg, 'power-voltage-select', '110')
+        pg.wait_for_timeout(300)
+        a = pg.evaluate(VOLT_STATE_JS, ids['aId'])
+        b = pg.evaluate(VOLT_STATE_JS, ids['bId'])
+        assert a['local'] == [110, 'soca-true1'] and a['served'] == [110, 'soca-true1'], a
+        assert b['local'] == [110, 'soca-edison'] and b['served'] == [110, 'soca-edison'], b
+        assert a['n'] == n + 1 and a['last'] == 'Change Power Voltage', a
+        # back to 208: Edison is out above 120V on the peer too
+        _fire(pg, 'power-voltage-select', '208')
+        pg.wait_for_timeout(300)
+        b = pg.evaluate(VOLT_STATE_JS, ids['bId'])
+        assert b['local'] == [208, 'soca-true1'] and b['served'] == [208, 'soca-true1'], b
+        # the breakout is per screen: the member's own pick stays its own
+        _fire(pg, 'power-breakout-type', 'soca-powercon')
+        a = pg.evaluate(VOLT_STATE_JS, ids['aId'])
+        b = pg.evaluate(VOLT_STATE_JS, ids['bId'])
+        assert a['local'][1] == 'soca-powercon', a
+        assert b['local'][1] == 'soca-true1', b
+    finally:
+        pg.evaluate("""async ([ids, gid]) => {
+            const app = window.app;
+            await app.ungroupSelectedLayers(gid);
+            app.selectLayer(app.project.layers.find(x => x.id === ids.aId));
+        }""", [ids, gid])
+        pg.wait_for_timeout(800)
+        pg.evaluate(RESET_JS, ids)
+
+
+def test_a_multi_select_breakout_skips_the_screen_its_voltage_refuses(page):
+    """The breakout select writes every selected screen, and each is
+    gated on its OWN voltage: L21-30 picked with a 208V current screen
+    and a 120V peer selected lands on the 208V screen only, the peer
+    keeps its breakout and is named once on a toast, one entry. A
+    choice both can run is written to both."""
+    pg, ids = page
+    pg.evaluate(RESET_JS, ids)
+    pg.evaluate("""(ids) => {
+        const app = window.app;
+        const b = app.project.layers.find(x => x.id === ids.bId);
+        b.powerVoltage = 120;
+        app.normalizePowerBreakout(b);
+        app.updateLayers([b]);
+        app.setSelectedLayersByIds([ids.aId, ids.bId], ids.aId);
+        app.loadLayerToInputs();
+    }""", ids)
+    pg.wait_for_timeout(600)
+    n = pg.evaluate(HIST_LEN_JS)
+    _fire(pg, 'power-breakout-type', 'l2130-true1')
+    out = pg.evaluate("""async (ids) => {
+        const app = window.app;
+        const p = await (await fetch('/api/project')).json();
+        const pick = id => {
+            const l = app.project.layers.find(x => x.id === id);
+            const s = p.layers.find(x => x.id === id);
+            return [l.powerBreakoutType, s.powerBreakoutType];
+        };
+        const host = document.getElementById('app-toast-host');
+        return { a: pick(ids.aId), b: pick(ids.bId),
+                 n: app.history.length,
+                 last: app.history[app.historyIndex].action,
+                 toast: host ? host.textContent : '' };
+    }""", ids)
+    assert out['a'] == ['l2130-true1', 'l2130-true1'], out
+    assert out['b'] == ['soca-edison', 'soca-edison'], out
+    assert out['n'] == n + 1 and out['last'] == 'Change Power Breakout', out
+    assert 'WALL B' in out['toast'] and 'L21-30' in out['toast'], out
+    assert 'WALL A' not in out['toast'], out
+    # a choice both voltages run lands on both
+    _fire(pg, 'power-breakout-type', 'soca-powercon')
+    out = pg.evaluate("""(ids) => ids.map(id => window.app.project.layers
+        .find(x => x.id === id).powerBreakoutType)""", [ids['aId'], ids['bId']])
+    assert out == ['soca-powercon', 'soca-powercon'], out
+    assert pg.evaluate(HIST_LEN_JS) == n + 2
+    pg.evaluate("""(ids) => {
+        const app = window.app;
+        app.selectLayer(app.project.layers.find(x => x.id === ids.aId));
+    }""", ids)
+    pg.evaluate(RESET_JS, ids)
+
+
+def test_a_delete_s_re_fetch_keeps_the_others_breakout(page):
+    """deleteLayer replaces the project with the server's copy and puts
+    the remaining screens' client props back. The breakout in force is
+    among what it keeps now: a breakout the client holds but the server
+    does not yet survives the re-fetch, and every screen handed back
+    still carries an eligible one."""
+    pg, ids = page
+    pg.evaluate(RESET_JS, ids)
+    pg.wait_for_timeout(400)
+    out = pg.evaluate("""async (ids) => {
+        const app = window.app;
+        const scratch = await (await fetch('/api/layer/add', {method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({name: 'SCRATCH', columns: 2, rows: 2,
+                                  cabinet_width: 200, cabinet_height: 200,
+                                  offset_x: 5000})})).json();
+        app.upsertProjectLayer(scratch);
+        // the client holds powerCON on WALL B; the server still holds True1
+        const b = app.project.layers.find(x => x.id === ids.bId);
+        b.powerBreakoutType = 'soca-powercon';
+        // and the server's WALL A copy is bare
+        await fetch(`/api/layer/${ids.aId}`, {method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({powerBreakoutType: null})});
+        const a = app.project.layers.find(x => x.id === ids.aId);
+        a.powerBreakoutType = null;
+        app.deleteLayer(scratch.id);
+        await new Promise(r => setTimeout(r, 900));
+        const p = await (await fetch('/api/project')).json();
+        return {
+            gone: !p.layers.some(l => l.id === scratch.id),
+            b: app.project.layers.find(x => x.id === ids.bId).powerBreakoutType,
+            a: app.project.layers.find(x => x.id === ids.aId).powerBreakoutType,
+        };
+    }""", ids)
+    assert out['gone'], out
+    assert out['b'] == 'soca-powercon', out
+    assert out['a'] == 'soca-true1', out
+    pg.evaluate(RESET_JS, ids)
+
+
+def test_the_guide_s_demo_screen_carries_a_breakout(page):
+    """The first-run guide seeds a scratch show whose 208V demo wall
+    used to carry no breakout at all; it is normalized like any other
+    screen and written through to the server."""
+    from test_tour_anchors import _start, _end
+    pg, ids = page
+    st = _start(pg, 'quick')
+    try:
+        assert st and st['qs']['index'] == 0, st
+        out = pg.evaluate("""async () => {
+            const app = window.app;
+            const w = app.project.layers.find(l => l.name === 'DEMO WALL');
+            const p = await (await fetch('/api/project')).json();
+            const s = p.layers.find(l => l.id === w.id);
+            return { local: [w.powerVoltage, w.powerBreakoutType],
+                     served: [s.powerVoltage, s.powerBreakoutType] };
+        }""")
+        assert out['local'] == [208, 'soca-true1'], out
+        assert out['served'] == [208, 'soca-true1'], out
+    finally:
+        _end(pg)
+
+
+def test_the_boot_pass_writes_the_breakout_through_to_the_server(page):
+    """The startup client-props pass rewrites a bare breakout, and that
+    write used to stay client-only, so the next re-fetch dropped it.
+    Now exactly the screens it rewrote are PUT: after a reload, a
+    server copy holding nothing reads True1 on the server too, and an
+    eligible stored choice is left as it was. Last in the module: it
+    reloads the page."""
+    pg, ids = page
+    pg.evaluate(RESET_JS, ids)
+    pg.wait_for_timeout(400)
+    pg.evaluate("""async (ids) => {
+        const put = (id, body) => fetch(`/api/layer/${id}`, {method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(body)});
+        await put(ids.bId, {powerVoltage: 208, powerBreakoutType: null});
+        await put(ids.aId, {powerVoltage: 208, powerBreakoutType: 'l2130-true1'});
+    }""", ids)
+    served = pg.evaluate("""async (ids) => {
+        const p = await (await fetch('/api/project')).json();
+        return [ids.aId, ids.bId].map(id =>
+            p.layers.find(l => l.id === id).powerBreakoutType);
+    }""", ids)
+    assert served == ['l2130-true1', None], served
+    pg.reload(wait_until='domcontentloaded')
+    pg.wait_for_function(
+        "() => !!(window.app && window.app.project && window.app._initialLoadComplete)")
+    pg.wait_for_timeout(1500)
+    out = pg.evaluate("""async (ids) => {
+        const app = window.app;
+        const p = await (await fetch('/api/project')).json();
+        return [ids.aId, ids.bId].map(id => [
+            app.project.layers.find(l => l.id === id).powerBreakoutType,
+            p.layers.find(l => l.id === id).powerBreakoutType]);
+    }""", ids)
+    assert out == [['l2130-true1', 'l2130-true1'], ['soca-true1', 'soca-true1']], out
