@@ -477,6 +477,49 @@ def test_a_fill_overwrites_only_the_numbers_it_fills_and_says_so(page):
     assert len(out['toasts']) == 1 and 'replaced circuit ' in out['toasts'][0], out['toasts']
 
 
+def test_a_successful_fill_drops_the_marquee_so_the_next_key_draws(page):
+    """User's ruling (2026-09-22): after a fill the selection stayed, so an
+    arrow key or a cabinet click was swallowed by the pending marquee until
+    it was cleared by hand. A successful fill now clears it, and the arrow
+    draws on the last circuit filled."""
+    reset(page)
+    out = page.evaluate("""() => {
+        const app = window.app, cap = window.__cap;
+        app.selectPowerPanelsInRect(cap.layer(), cap.rect(14, 2, 128));
+        app.applyPowerPatternToSelection('tl-h');
+        const selectedAfter = app.powerCustomSelection.size;
+        const active = cap.layer().powerCustomIndex;
+        // ArrowRight from the end of circuit 2 (row 1, restarted from the
+        // left, ends at col 13): the key is ours and it reaches the draw.
+        const handled = app.handleCustomArrowKey({ code: 'ArrowRight' });
+        const paths = cap.paths('powerCustomPaths');
+        return { selectedAfter, active, handled, len2: paths['2'].length,
+                 last: paths['2'][paths['2'].length - 1] };
+    }""")
+    assert out['selectedAfter'] == 0, out
+    assert out['active'] == 2, out
+    assert out['handled'] is True, out
+    # Circuit 2 was full at 14; a 15th does not fit, so the key is swallowed
+    # and refused - the point is that it REACHED the draw, not the marquee.
+    assert out['len2'] == 14, out
+
+
+def test_a_refused_fill_keeps_the_marquee(page):
+    """The other half: a conflict refuses the whole apply, and the selection
+    stays so the user can fix it and press the tile again."""
+    reset(page)
+    out = page.evaluate("""() => {
+        const app = window.app, cap = window.__cap;
+        const l = cap.layer();
+        l.powerCustomPaths[9] = [{ row: 0, col: 0 }];
+        app.selectPowerPanelsInRect(l, cap.rect(14, 2, 128));
+        app.applyPowerPatternToSelection('tl-h');
+        return { selected: app.powerCustomSelection.size, toasts: cap.toasts.slice() };
+    }""")
+    assert out['selected'] == 28, out
+    assert out['toasts'] and out['toasts'][0].startswith('Cannot apply'), out
+
+
 def test_a_cabinet_on_a_run_outside_the_fill_still_refuses_the_whole_apply(page):
     """Conflict detection keeps its all-or-nothing rule against runs the
     fill would NOT overwrite."""

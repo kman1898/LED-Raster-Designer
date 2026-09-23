@@ -690,6 +690,12 @@ class _CustomRuns {
                 last: last ? { row: last.panel.row, col: last.panel.col, layerId: last.layer.id } : null
             });
         }
+        // The marquee has done its job: drop it, so the next arrow key or
+        // cabinet click draws on the last run filled instead of being
+        // swallowed by a pending selection (addPanelToCustomPath returns on
+        // one). A REFUSED fill above keeps the selection so the user can fix
+        // the conflict and press the tile again. User's ruling, 2026-09-22.
+        selection.clear();
         if (isPower) {
             this.updateCustomPowerUI();
         } else {
@@ -760,7 +766,7 @@ class _CustomRuns {
                 const taken = this.getOverrideNums(owner, kind)
                     .map(n => this._customRunLabel(owner, kind, n)).join(', ');
                 return `the selection does not fit on the taken-over `
-                    + `${noun}s (${taken}) at ${cap.describe}. Take over another `
+                    + `${noun}s (${taken}) - ${cap.describe}. Take over another `
                     + `run or select a narrower block.`;
             }
             cur = { num: next, picks: [], load: 0 };
