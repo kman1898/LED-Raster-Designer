@@ -887,3 +887,59 @@ def test_move_layer_to_canvas_still_detaches_a_single_mover(client_with_layer):
     by_id = {l['id']: l for l in proj['layers']}
     assert by_id[a]['canvas_id'] == 'c2' and by_id[a].get('group_id') is None
     assert _member_sets(proj) == [{b, cc}], proj.get('groups')
+
+
+def test_delete_canvas_rehomes_a_layer_with_an_unhashable_id(client_with_layer):
+    """A hand-edited layer whose id is a dict, shown on c2, is re-homed when
+    c1 goes. _regroup_rehomed_layers put every re-homed id in a set without
+    the _is_hashable guard by_id uses, so the delete came back 500. Such an
+    id can never match a group's layer_ids entry and is treated like any id
+    that names nothing."""
+    c = client_with_layer
+    c.post('/api/canvas', json={})  # c2
+    import app as app_module
+    app_module.current_project['active_canvas_id'] = 'c1'
+    a = c.get('/api/project').get_json()['layers'][0]['id']
+    b = _add_screen_on(c, 'c1')
+    _group_on_server([a, b])
+    for lid in (a, b):
+        c.put(f'/api/layer/{lid}/show_canvas', json={'show_canvas_id': 'c2'})
+    odd = {
+        'id': {'not': 'an id'}, 'type': 'screen', 'name': 'Odd',
+        'canvas_id': 'c1', 'show_canvas_id': 'c2',
+        'offset_x': 0, 'offset_y': 0, 'columns': 1, 'rows': 1,
+        'cabinet_width': 128, 'cabinet_height': 128, 'panels': [],
+    }
+    app_module.current_project['layers'].append(odd)
+    resp = c.delete('/api/canvas/c1')
+    assert resp.status_code == 200, resp.get_data(as_text=True)[:300]
+    proj = resp.get_json()
+    homes = [l['canvas_id'] for l in proj['layers']]
+    assert homes == ['c2'] * 3, proj['layers']
+    assert {a, b} in _member_sets(proj), proj.get('groups')
+    assert odd['group_id'] is None if 'group_id' in odd else True
+
+
+def test_delete_canvas_regroup_ignores_a_duplicated_member_id(client_with_layer):
+    """A group listing [a, a, b, c] with a -> c2 and b, c -> c3: counted as
+    written, a's canvas held two entries and tied with {b, c}, and the tie
+    rule kept a (the earliest) - the real pair was ungrouped. The ids are
+    deduped before partitioning, so {b, c} is the larger side and stays."""
+    c = client_with_layer
+    c.post('/api/canvas', json={})  # c2
+    c.post('/api/canvas', json={})  # c3
+    import app as app_module
+    app_module.current_project['active_canvas_id'] = 'c1'
+    a = c.get('/api/project').get_json()['layers'][0]['id']
+    b = _add_screen_on(c, 'c1')
+    cc = _add_screen_on(c, 'c1')
+    _group_on_server([a, a, b, cc])
+    c.put(f'/api/layer/{a}/show_canvas', json={'show_canvas_id': 'c2'})
+    for lid in (b, cc):
+        c.put(f'/api/layer/{lid}/show_canvas', json={'show_canvas_id': 'c3'})
+    proj = c.delete('/api/canvas/c1').get_json()
+    by_id = {l['id']: l for l in proj['layers']}
+    assert _member_sets(proj) == [{b, cc}], proj.get('groups')
+    assert by_id[a].get('group_id') is None
+    assert by_id[b]['group_id'] == by_id[cc]['group_id'] == 'g1'
+    assert proj['groups'][0]['layer_ids'] == [b, cc]

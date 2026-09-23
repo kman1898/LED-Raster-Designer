@@ -582,11 +582,20 @@ def _regroup_rehomed_layers(rehomed):
         return
     by_id = {l.get('id'): l for l in app.current_project.get('layers') or []
              if isinstance(l, dict) and app._is_hashable(l.get('id'))}
-    moved_ids = {l.get('id') for l in rehomed if isinstance(l, dict)}
+    # Same guard as by_id: a re-homed layer whose id is a dict or list can
+    # never match a group's layer_ids entry, so it is left out of the set
+    # rather than raising TypeError (a 500 on DELETE /api/canvas).
+    moved_ids = {l.get('id') for l in rehomed
+                 if isinstance(l, dict) and app._is_hashable(l.get('id'))}
     for group in app.current_project.get('groups') or []:
         if not isinstance(group, dict) or not isinstance(group.get('layer_ids'), list):
             continue
-        ids = [i for i in group['layer_ids'] if app._is_hashable(i) and i in by_id]
+        # Deduped in first-seen order: a hand-edited [a, a, b, c] would count
+        # a twice and hand its canvas a partition size it has not got.
+        ids = []
+        for i in group['layer_ids']:
+            if app._is_hashable(i) and i in by_id and i not in ids:
+                ids.append(i)
         group['layer_ids'] = ids
         if not any(i in moved_ids for i in ids):
             continue

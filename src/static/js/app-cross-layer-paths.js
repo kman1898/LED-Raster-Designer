@@ -92,6 +92,14 @@ class _CrossLayerPaths {
     // Object.keys by length, so `[]` and no key read the same; one shape means
     // one shape on the wire and in undo snapshots.
     //
+    // Only a member that HELD something is written and returned in `touched`
+    // (2026-09-22): a Clear that finds nothing on a member must leave it
+    // byte-identical. Both used to run `ensure` on every member and write
+    // `{}` / 1 / `[]` onto the ones that had nothing, which made saveState's
+    // serialized compare see a change - a Clear All that cleared nothing
+    // still took an undo step and a PUT. With nothing touched the handlers
+    // (app-wiring.js) skip the snapshot and the PUT altogether.
+    //
     // A locked member is protected (Matt's ruling, 2026-09-22): a peer's Clear
     // never removes its cabinets, never wipes its runs, overrides or index.
     // The CLICKED screen is cleared even when it is itself locked: everywhere
@@ -124,10 +132,13 @@ class _CrossLayerPaths {
     clearCustomRun(layer, kind, num) {
         if (!layer) return { touched: [], skipped: [] };
         const k = this._customRunKeys(kind);
-        this[k.ensure](layer);
-        delete layer[k.paths][num];
-        const touched = [layer];
+        const touched = [];
         const skipped = [];
+        const own = layer[k.paths];
+        if (own && Object.prototype.hasOwnProperty.call(own, num)) {
+            delete own[num];
+            touched.push(layer);
+        }
         this.getPathScopeLayers(layer).forEach(peer => {
             if (!peer || peer.id === layer.id) return;
             const paths = peer[k.paths];
@@ -153,16 +164,23 @@ class _CrossLayerPaths {
         const skipped = [];
         this.getPathScopeLayers(layer).forEach(member => {
             if (!member) return;
+            const paths = member[k.paths] || {};
+            const drawn = Object.keys(paths).some(n => (paths[n] || []).length > 0)
+                || (typeof this.getOverrideNums === 'function'
+                    && this.getOverrideNums(member, kind).length > 0);
             if (member.locked && member.id !== layer.id) {
                 // Reported only when there was something to leave alone.
-                const paths = member[k.paths] || {};
-                const held = Object.keys(paths).some(n => (paths[n] || []).length > 0)
-                    || (typeof this.getOverrideNums === 'function'
-                        && this.getOverrideNums(member, kind).length > 0);
-                if (held) skipped.push(member);
+                if (drawn) skipped.push(member);
                 return;
             }
-            this[k.ensure](member);
+            // Anything Clear All would change: a run key (an emptied `[]`
+            // included - one shape, see above), an override entry, or an
+            // index off 1.
+            const index = member[k.index];
+            const held = drawn || Object.keys(paths).length > 0
+                || (Array.isArray(member[k.overrides]) && member[k.overrides].length > 0)
+                || (index !== undefined && index !== null && Number(index) !== 1);
+            if (!held) return;
             member[k.paths] = {};
             member[k.index] = 1;
             member[k.overrides] = [];

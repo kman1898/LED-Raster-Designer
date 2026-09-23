@@ -510,19 +510,23 @@ _RUN_KEYS = {
 
 
 def _grouped_pair_with_peer_run(page, kind, peer_locked=False, peer_auto=False,
-                                current_locked=False):
+                                current_locked=False, current_empty=False):
     """Two grouped screens; the SECOND owns run 1 made only of the FIRST's
     cabinets, and run 2 of its own. The first is current. Returns the ids.
 
     peer_auto: the second keeps its automatic pattern and holds run 1 as an
     OVERRIDE (its override list names 1). peer_locked / current_locked: that
-    screen's lock is on."""
+    screen's lock is on. current_empty: the first keeps its automatic pattern
+    and holds no runs, overrides or index at all."""
     k = _RUN_KEYS[kind]
     custom = {k['pattern']: 'custom'}
     if k['flag']:
         custom[k['flag']] = True
-    props = {'0': dict(custom)} if peer_auto else {'all': dict(custom)}
-    return page.evaluate(r"""async ([props, paths, index, overrides, peerLocked, peerAuto, currentLocked]) => {
+    if current_empty:
+        props = {'1': dict(custom)}
+    else:
+        props = {'0': dict(custom)} if peer_auto else {'all': dict(custom)}
+    return page.evaluate(r"""async ([props, paths, index, overrides, peerLocked, peerAuto, currentLocked, currentEmpty]) => {
       const ids = await window.__gi.fresh(2, props);
       window.__gi.select([ids[0], ids[1]]);
       await window.app.groupSelectedLayers();
@@ -533,15 +537,17 @@ def _grouped_pair_with_peer_run(page, kind, peer_locked=False, peer_auto=False,
       b[index] = 1;
       if (peerAuto) b[overrides] = [1];
       if (peerLocked) b.locked = true;
-      a[paths] = { 1: [{ row: 1, col: 0 }] };
-      a[index] = 1;
+      if (!currentEmpty) {
+        a[paths] = { 1: [{ row: 1, col: 0 }] };
+        a[index] = 1;
+      }
       if (currentLocked) a.locked = true;
       await window.app.updateLayers([a, b]);
       await window.__gi.settle();
       window.__gi.select([ids[0]]);
       return ids;
     }""", [props, k['paths'], k['index'], k['overrides'],
-           bool(peer_locked), bool(peer_auto), bool(current_locked)])
+           bool(peer_locked), bool(peer_auto), bool(current_locked), bool(current_empty)])
 
 
 def _toasts(page):
@@ -732,3 +738,51 @@ def test_clear_run_on_a_locked_current_screen_still_clears(page, kind):
     assert out['locked'] is True, out
     assert '1' not in out['a'] and '1' not in out['b'], out
     assert _toasts(page) == [], _toasts(page)
+
+
+@pytest.mark.parametrize('kind', ['power', 'data'])
+def test_clear_all_that_clears_nothing_takes_no_step_and_makes_no_put(page, kind):
+    """A is automatic with no runs, grouped with locked B that owns a run.
+    Clear All on A finds nothing it may clear: the toast says B was left
+    alone, and nothing else happens - no history entry and no PUT to A.
+    clearAllCustomRuns used to run ensure* and write `{}` / 1 / `[]` onto A,
+    which saveState's serialized compare read as a change."""
+    k = _RUN_KEYS[kind]
+    ids = _grouped_pair_with_peer_run(page, kind, peer_locked=True, current_empty=True)
+    _clear_toasts(page)
+    n0 = page.evaluate("() => window.app.history.length")
+    # A's run fields as they stand (a new screen carries the power pair as
+    # server defaults, `{}` and 1; the data pair is absent) - Clear All must
+    # leave them byte-identical.
+    before = page.evaluate(r"""([id, paths, index, ovr]) => {
+      const a = window.__gi.layer(id);
+      return JSON.stringify({ paths: a[paths], index: a[index], overrides: a[ovr] });
+    }""", [ids[0], k['paths'], k['index'], k['overrides']])
+    page.evaluate(r"""() => {
+      window.__gi.puts = [];
+      const real = window.fetch;
+      window.__gi._realFetch = real;
+      window.fetch = (url, opts) => {
+        if (opts && String(opts.method || '').toUpperCase() === 'PUT') window.__gi.puts.push(String(url));
+        return real(url, opts);
+      };
+    }""")
+    page.evaluate("(id) => document.getElementById(id).click()", k['clear_all'])
+    page.wait_for_timeout(1200)
+    toasts = _toasts(page)
+    out = page.evaluate(r"""async ([ids, paths, index, ovr]) => {
+      window.fetch = window.__gi._realFetch;
+      const a = window.__gi.layer(ids[0]);
+      const srv = await window.__gi.serverProject();
+      const sb = srv.layers.find(l => l.id === ids[1]);
+      return { puts: window.__gi.puts, steps: window.app.history.length,
+               a: JSON.stringify({ paths: a[paths], index: a[index], overrides: a[ovr] }),
+               sbPaths: sb[paths] };
+    }""", [ids, k['paths'], k['index'], k['overrides']])
+    peer = page.evaluate("(id) => window.__gi.layer(id).name", ids[1])
+    assert toasts == ['%s is locked — its %s were left alone.' % (peer, k['runs'])], toasts
+    assert out['steps'] == n0, 'Clear All that cleared nothing took %d undo steps' % (out['steps'] - n0)
+    layer_puts = [u for u in out['puts'] if u.endswith('/api/layer/%d' % ids[0])]
+    assert layer_puts == [], out['puts']
+    assert out['a'] == before, (before, out['a'])
+    assert '1' in out['sbPaths'] and '2' in out['sbPaths'], out

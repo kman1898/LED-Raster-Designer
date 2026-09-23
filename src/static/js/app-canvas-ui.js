@@ -246,7 +246,7 @@ class _CanvasUi {
         // often the very screen being looked at. Keep the survivors of the
         // selection (the current one if it lived, else the last picked, else
         // the first), or select nothing.
-        this._pruneSelectionToProject(data.layers);
+        const pruned = this._pruneSelectionToProject(data.layers);
         // If the active canvas's properties changed, sync raster size for
         // the workspace toolbar (Slice 4 will deepen this, Slice 2 just
         // keeps the sidebar consistent).
@@ -267,6 +267,18 @@ class _CanvasUi {
                     try { this.loadLayerToInputs(); } catch (_) {}
                 }
             }
+        } else if (pruned) {
+            // Every selected screen went with the canvas. loadLayerToInputs
+            // returns early with nothing selected, so the Screen Info panel
+            // kept showing the dead screen's columns, rows and offsets - and
+            // the next Update Properties would have read them back. Same
+            // refresh deleteCurrentLayer makes when nothing is left to
+            // promote (updateUI), plus the panel's own "no single value"
+            // idiom (blank field, '-' placeholder) for the screen inputs.
+            if (typeof this.updateUI === 'function') {
+                try { this.updateUI(); } catch (_) {}
+            }
+            this._showScreenInfoEmpty();
         }
         // Slice 8: re-sync perspective toggles after any canvas mutation
         // (perspective edited on a sibling canvas, active canvas swapped on
@@ -284,11 +296,12 @@ class _CanvasUi {
         }
     }
 
+    // Returns true when the selection lost a screen the server no longer has.
     _pruneSelectionToProject(layers) {
         const alive = new Set(layers.map(l => l.id));
         const selected = [...(this.selectedLayerIds || [])];
         const staleCurrent = !!(this.currentLayer && !alive.has(this.currentLayer.id));
-        if (!staleCurrent && selected.every(id => alive.has(id))) return;
+        if (!staleCurrent && selected.every(id => alive.has(id))) return false;
         const keep = selected.filter(id => alive.has(id));
         let primaryId = null;
         if (this.currentLayer && alive.has(this.currentLayer.id)) primaryId = this.currentLayer.id;
@@ -310,6 +323,20 @@ class _CanvasUi {
             if (this.powerCustomSelection) this.powerCustomSelection.clear();
             if (this.pixelMapSelection) this.pixelMapSelection.clear();
         }
+        return true;
+    }
+
+    // The Screen Info panel with no screen to show: the text inputs
+    // loadLayerToInputs fills from the selected screen are blanked with the
+    // '-' placeholder it uses for a mixed selection.
+    _showScreenInfoEmpty() {
+        const anchor = document.getElementById('screen-columns');
+        const panel = anchor && anchor.closest('.panel');
+        if (!panel) return;
+        panel.querySelectorAll('input[type="text"]').forEach(el => {
+            el.value = '';
+            el.placeholder = '-';
+        });
     }
 
     addCanvas() {
@@ -988,8 +1015,10 @@ class _CanvasUi {
         const layerCount = onCanvas.length - kept.length;
         const plural = (n) => (n === 1 ? '' : 's');
         const nameOf = (id) => `'${(byCanvas.get(id) || {}).name || id}'`;
+        // No "cannot be undone": undo restores a deleted canvas and its
+        // screens (the Delete Canvas history entry is a full snapshot).
         let msg = layerCount > 0
-            ? `Delete canvas '${canvas.name}' and its ${layerCount} layer${plural(layerCount)}? This cannot be undone.`
+            ? `Delete canvas '${canvas.name}' and its ${layerCount} layer${plural(layerCount)}?`
             : `Delete canvas '${canvas.name}'?`;
         if (kept.length === 0) return msg;
         const targets = [...new Set(kept.map(l => l.show_canvas_id))];
@@ -1000,9 +1029,19 @@ class _CanvasUi {
             msg += ` ${kept.length} screens shown on other canvases`
                 + ` (${targets.map(nameOf).join(', ')}) will move to their other canvas instead.`;
         }
-        // Pixel-map rects (offset + size) against the screens already homed
-        // on the target - the rect a moved screen keeps.
-        const bounds = (l) => (typeof this.getLayerBounds === 'function') ? this.getLayerBounds(l) : null;
+        // The DRAWN footprint of each screen - the axis-aligned box a 90/270
+        // rotation puts on the canvas - against the screens already homed on
+        // the target. getLayerBounds is the unrotated box (see the note in
+        // centerSelectedLayers), so a 4x1 turned on its side warned about a
+        // screen 400px to its right and missed the one under its foot.
+        const cr = window.canvasRenderer;
+        const bounds = (l) => {
+            if (cr && typeof cr.getLayerFootprintBounds === 'function') {
+                const f = cr.getLayerFootprintBounds(l);
+                return f ? { x1: f.x, y1: f.y, x2: f.x + f.width, y2: f.y + f.height } : null;
+            }
+            return (typeof this.getLayerBounds === 'function') ? this.getLayerBounds(l) : null;
+        };
         const overlaps = (a, b) => !!(a && b && a.x1 < b.x2 && a.x2 > b.x1 && a.y1 < b.y2 && a.y2 > b.y1);
         const warnings = [];
         kept.forEach(l => {

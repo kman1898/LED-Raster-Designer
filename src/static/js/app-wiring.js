@@ -1156,14 +1156,18 @@ class _Wiring {
         if (customClearPortBtn) {
             customClearPortBtn.addEventListener('click', () => {
                 if (!this.currentLayer) return;
-                this.ensureCustomFlowState(this.currentLayer);
+                // No ensure* here: it wrote `{}` and 1 onto a screen with
+                // nothing, and a Clear that clears nothing must change
+                // nothing - no undo step, no PUT (touched is empty).
                 const portNum = this.currentLayer.customPortIndex || 1;
                 // This screen's port, and its cabinets out of a peer's port
                 // of the same number - see clearCustomRun.
                 const { touched, skipped } = this.clearCustomRun(this.currentLayer, 'data', portNum);
-                this.saveState('Custom Clear Port');
-                this.saveClientSideProperties();
-                this.updateLayers(this._persistWith(touched));
+                if (touched.length) {
+                    this.saveState('Custom Clear Port');
+                    this.saveClientSideProperties();
+                    this.updateLayers(this._persistWith(touched));
+                }
                 this._toastLockedSkipped(skipped, 'data');
                 this.updateCustomFlowUI();
                 this.updatePortLabelEditor();
@@ -1180,9 +1184,11 @@ class _Wiring {
                 // grouped screen, all of the wall (clearAllCustomRuns).
                 const { touched, skipped } = this.clearAllCustomRuns(this.currentLayer, 'data');
                 this.customSelection.clear();
-                this.saveState('Custom Clear All');
-                this.saveClientSideProperties();
-                this.updateLayers(this._persistWith(touched));
+                if (touched.length) {
+                    this.saveState('Custom Clear All');
+                    this.saveClientSideProperties();
+                    this.updateLayers(this._persistWith(touched));
+                }
                 this._toastLockedSkipped(skipped, 'data');
                 this.updateCustomFlowUI();
                 this.updatePortLabelEditor();
@@ -1724,9 +1730,11 @@ class _Wiring {
                 // This screen's circuit, and its cabinets out of a peer's
                 // circuit of the same number - see clearCustomRun.
                 const { touched, skipped } = this.clearCustomRun(this.currentLayer, 'power', circuitNum);
-                this.saveState('Power Custom Clear Circuit');
-                this.saveClientSideProperties();
-                this.updateLayers(this._persistWith(touched));
+                if (touched.length) {
+                    this.saveState('Power Custom Clear Circuit');
+                    this.saveClientSideProperties();
+                    this.updateLayers(this._persistWith(touched));
+                }
                 this._toastLockedSkipped(skipped, 'power');
                 this.updateCustomPowerUI();
                 window.canvasRenderer.render();
@@ -1739,9 +1747,11 @@ class _Wiring {
                 // grouped screen the whole wall clears (clearAllCustomRuns).
                 const { touched, skipped } = this.clearAllCustomRuns(this.currentLayer, 'power');
                 this.powerCustomSelection.clear();
-                this.saveState('Power Custom Clear All');
-                this.saveClientSideProperties();
-                this.updateLayers(this._persistWith(touched));
+                if (touched.length) {
+                    this.saveState('Power Custom Clear All');
+                    this.saveClientSideProperties();
+                    this.updateLayers(this._persistWith(touched));
+                }
                 this._toastLockedSkipped(skipped, 'power');
                 this.updateCustomPowerUI();
                 window.canvasRenderer.render();
@@ -1757,7 +1767,7 @@ class _Wiring {
         if (powerCustomActive) {
             powerCustomActive.addEventListener('change', () => {
                 if (!this.currentLayer) return;
-                this.ensureCustomPowerState(this.currentLayer);
+                // No ensure* here - see the data Clear Port.
                 const nextVal = parseInt(powerCustomActive.value, 10);
                 // Pinned to the override list while one is open - see the
                 // data-flow input above.

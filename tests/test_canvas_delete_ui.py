@@ -44,7 +44,8 @@ def page(e2e_server, pw_browser):
 BOOT_JS = r"""
 window.__cd = {
   // A fresh project with `nCanvases` canvases (c1..cN) and the given screens:
-  // {name, canvas, x, y, show} - `show` is a Show Look drag onto that canvas.
+  // {name, canvas, x, y, show, cols, rows, rotation} - `show` is a Show Look
+  // drag onto that canvas; cols/rows default to 2x2; rotation is PUT after.
   async fresh(nCanvases, screens) {
     await fetch('/api/project/new', { method: 'POST' });
     // A new project seeds one screen on c1; these tests name every screen.
@@ -59,12 +60,19 @@ window.__cd = {
       const r = await fetch('/api/layer/add', {
         method: 'POST', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
-          name: s.name, columns: 2, rows: 2, cabinet_width: 128, cabinet_height: 128,
+          name: s.name, columns: s.cols || 2, rows: s.rows || 2,
+          cabinet_width: 128, cabinet_height: 128,
           offset_x: s.x || 0, offset_y: s.y || 0, canvas_id: s.canvas,
         }),
       });
       const l = await r.json();
       ids[s.name] = l.id;
+      if (s.rotation) {
+        await fetch('/api/layer/' + l.id, {
+          method: 'PUT', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ rotation: s.rotation }),
+        });
+      }
       if (s.show) {
         await fetch('/api/layer/' + l.id + '/show_canvas', {
           method: 'PUT', headers: {'Content-Type': 'application/json'},
@@ -170,16 +178,57 @@ def test_confirm_lists_every_screen_a_kept_one_overlaps(page):
     assert "Warning: S1 will overlap S3 and S4 on 'Canvas 2'." in msg, msg
 
 
+def test_confirm_does_not_claim_the_delete_cannot_be_undone(page):
+    """Undo restores a deleted canvas and its screens (the Delete Canvas
+    history entry is a full snapshot), so the confirm must not say otherwise."""
+    out = _ask(page, 2, [
+        {'name': 'S1', 'canvas': 'c1', 'x': 0, 'y': 0},
+        {'name': 'S2', 'canvas': 'c1', 'x': 600, 'y': 0},
+    ])
+    msg = out['asked'][0]
+    assert msg == "Delete canvas 'Canvas 1' and its 2 layers?", msg
+    assert 'cannot be undone' not in msg.lower(), msg
+
+
+def test_overlap_warning_uses_the_rotated_footprint_not_the_unrotated_box(page):
+    """A 4x1 at (0,0) turned 90 stands 128 wide by 512 tall about its
+    centre (x 192..320, y -192..320). Against a 2x2 at (400,0) the unrotated
+    512x128 box overlapped and warned falsely; the drawn footprint does not."""
+    out = _ask(page, 2, [
+        {'name': 'Tall', 'canvas': 'c1', 'x': 0, 'y': 0, 'cols': 4, 'rows': 1,
+         'rotation': 90, 'show': 'c2'},
+        {'name': 'Box', 'canvas': 'c2', 'x': 400, 'y': 0},
+    ])
+    msg = out['asked'][0]
+    assert "1 screen shown on 'Canvas 2' will move to that canvas instead." in msg, msg
+    assert 'overlap' not in msg, msg
+
+
+def test_overlap_warning_catches_a_rotated_screen_standing_on_another(page):
+    """Same 4x1 at 90: its foot reaches y=320, so a 2x2 at (192,300) is
+    under it. The unrotated box (y 0..128) missed that overlap."""
+    out = _ask(page, 2, [
+        {'name': 'Tall', 'canvas': 'c1', 'x': 0, 'y': 0, 'cols': 4, 'rows': 1,
+         'rotation': 90, 'show': 'c2'},
+        {'name': 'Box', 'canvas': 'c2', 'x': 192, 'y': 300},
+    ])
+    msg = out['asked'][0]
+    assert "Warning: Tall will overlap Box on 'Canvas 2'." in msg, msg
+
+
 def _delete_with(page, screens, selected, canvas_id='c1'):
     return page.evaluate(r"""async ([screens, selected, cid]) => {
       const ids = await window.__cd.fresh(2, screens);
       window.__cd.select(selected.map(n => ids[n]));
+      window.app.loadLayerToInputs();
+      const colsBefore = document.getElementById('screen-columns').value;
       window.__cd.stubConfirm(true);
       await window.__cd.deleteViaKebab(cid);
       await window.__cd.settle(900);
       const alive = window.app.project.layers.map(l => l.id);
       return {
-        ids, alive,
+        ids, alive, colsBefore,
+        colsAfter: document.getElementById('screen-columns').value,
         current: window.app.currentLayer ? window.app.currentLayer.id : null,
         selected: [...window.app.selectedLayerIds],
         last: window.app.lastSelectedLayerId,
@@ -213,6 +262,33 @@ def test_surviving_selected_screen_takes_over_as_current(page):
     assert out['current'] == out['ids']['S1'], out
     assert out['selected'] == [out['ids']['S1']], out
     assert out['last'] == out['ids']['S1'], out
+
+
+def test_screen_info_panel_no_longer_shows_the_deleted_screens_values(page):
+    """S2 (5 columns) was current and went with c1; nothing is selected
+    afterwards. The panel used to keep S2's columns, rows and offsets, and
+    the next Update Properties read them back. It shows the panel's
+    no-single-value state instead."""
+    out = _delete_with(page, [
+        {'name': 'S1', 'canvas': 'c1', 'x': 0, 'y': 0, 'show': 'c2', 'cols': 3},
+        {'name': 'S2', 'canvas': 'c1', 'x': 600, 'y': 0, 'cols': 5},
+    ], ['S2'])
+    assert out['colsBefore'] == '5', out
+    assert out['current'] is None, out
+    assert out['colsAfter'] != '5', out
+    assert out['colsAfter'] == '', out
+
+
+def test_screen_info_panel_shows_the_surviving_selected_screen(page):
+    """S1 (3 columns) and S2 (5 columns) selected, S2 current and deleted:
+    S1 takes over and the panel shows S1's values."""
+    out = _delete_with(page, [
+        {'name': 'S1', 'canvas': 'c1', 'x': 0, 'y': 0, 'show': 'c2', 'cols': 3},
+        {'name': 'S2', 'canvas': 'c1', 'x': 600, 'y': 0, 'cols': 5},
+    ], ['S1', 'S2'])
+    assert out['colsBefore'] == '', 'a mixed selection shows the blank field: %r' % out
+    assert out['current'] == out['ids']['S1'], out
+    assert out['colsAfter'] == '3', out
 
 
 def test_selection_on_another_canvas_is_untouched_by_the_delete(page):
