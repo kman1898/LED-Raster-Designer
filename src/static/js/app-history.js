@@ -192,8 +192,16 @@ class _History {
 
     // The restore PUT both undo() and redo() make, sequenced behind the
     // in-flight layer PUTs updateLayers/updateLayer registered.
-    _syncRestoredProject(entry, label) {
+    // `keepPristine` (the guide's exit and recovery, quickstart
+    // restoreProject): the world being put back is the user's own, taken
+    // before the guide touched anything; when that snapshot is still
+    // pristine the PUT says `keep_pristine` and the server keeps the flag
+    // the snapshot carries instead of ending it (restore_project). Undo
+    // and redo never pass it: an undone edit is still an edit.
+    _syncRestoredProject(entry, label, { keepPristine = false } = {}) {
         const inflight = [...(this._inflightLayerPuts || [])];
+        const restoresPristine = keepPristine === true
+            && !!this.project && this.project.is_pristine === true;
         // While this restore is on its way to the server, layer_updated
         // broadcasts describe the pre-restore server state (usually the very
         // edit being undone) - app-core's socket handler drops them while
@@ -208,7 +216,10 @@ class _History {
             // Serialized at send time: this.project is exactly the restored
             // snapshot (nothing else mutates it between the restore and the
             // settle - a NEW user edit would snapshot and re-PUT itself).
-            body: JSON.stringify(this.project)
+            // The marker is a request field, never stored (the server pops
+            // it) and never on this.project.
+            body: JSON.stringify(restoresPristine
+                ? { ...this.project, keep_pristine: true } : this.project)
         })
             .then(response => response.json())
             .then(repaired => {

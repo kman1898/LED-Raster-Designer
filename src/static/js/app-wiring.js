@@ -117,14 +117,19 @@ class _Wiring {
     // The five view tabs: switch the renderer, swap the sidebar panels,
     // and refresh whichever panel the new view owns.
     _wireViewTabs() {
-        // View tabs
-        document.querySelectorAll('.view-tab').forEach(tab => {
+        // View tabs - the top strip's only. The Preferences dialog's tab
+        // strip reuses the .view-tab class (data-key, no data-mode) and has
+        // its own handler (app-preferences showPreferencesTab); binding it
+        // here called setViewMode(undefined), which hid the hardware dock
+        // and every sidebar panel until a top view button was clicked.
+        const viewTabs = () => document.querySelectorAll('#view-tabs .view-tab[data-mode]');
+        viewTabs().forEach(tab => {
             tab.addEventListener('click', () => {
                 const mode = tab.getAttribute('data-mode');
                 // The patch bay opens over the workspace from Data Settings;
                 // switching to any view closes it and shows that view.
                 if (this.closePatchBay) this.closePatchBay();
-                document.querySelectorAll('.view-tab').forEach(t => t.classList.remove('active'));
+                viewTabs().forEach(t => t.classList.remove('active'));
                 tab.classList.add('active');
 
                 // Show/hide appropriate sidebar panels
@@ -1393,13 +1398,15 @@ class _Wiring {
                 commitVoltage(parseFloat(powerVoltageSelect.value) || 0, false);
             });
             powerVoltageCustomInput.addEventListener('change', () => {
-                // A custom voltage is whole volts, 1 or more. An emptied
-                // box, 0, a negative figure, a fraction (0.5, 1e-9) or
-                // text is not a screen voltage: the figure in force goes
-                // back in the box and nothing is committed.
+                // A custom voltage is whole volts, 1 or more, up to the
+                // box's max (1000, index.html). An emptied box, 0, a
+                // negative figure, a fraction (0.5, 1e-9), text or 100000
+                // is not a screen voltage: the figure in force goes back
+                // in the box and nothing is committed.
                 const raw = String(powerVoltageCustomInput.value || '').trim();
                 const val = raw === '' ? NaN : Number(raw);
-                if (!Number.isInteger(val) || val < 1) {
+                const max = parseFloat(powerVoltageCustomInput.getAttribute('max')) || Infinity;
+                if (!Number.isInteger(val) || val < 1 || val > max) {
                     const cur = parseFloat(this.currentLayer
                         && this.currentLayer.powerVoltage) || 0;
                     if (cur > 0) powerVoltageCustomInput.value = cur;

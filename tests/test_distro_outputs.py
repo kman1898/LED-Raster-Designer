@@ -2066,3 +2066,40 @@ def test_the_boot_pass_writes_the_breakout_through_to_the_server(page):
             p.layers.find(l => l.id === id).powerBreakoutType]);
     }""", ids)
     assert out == [['l2130-true1', 'l2130-true1'], ['soca-true1', 'soca-true1']], out
+
+
+def test_a_custom_voltage_over_the_box_s_max_is_refused(page):
+    """The sidebar's custom box takes whole volts from 1 up to its max of
+    1000 (index.html): 100000 or 1000.5 is refused like a fraction - the
+    figure in force goes back in the box and nothing is committed - and
+    1000 itself is accepted."""
+    pg, ids = page
+    pg.evaluate(RESET_JS, ids)
+    assert pg.evaluate("() => document.getElementById('power-voltage-custom').getAttribute('max')") == '1000'
+    pg.evaluate("""(ids) => {
+        const app = window.app;
+        app.selectLayer(app.project.layers.find(x => x.id === ids.bId));
+    }""", ids)
+    pg.wait_for_timeout(600)
+    base = pg.evaluate(VOLT_STATE_JS, ids['bId'])
+    assert base['local'][0] == 208 and base['served'][0] == 208, base
+    n = base['n']
+    _fire(pg, 'power-voltage-select', 'custom')
+    for bad in ('100000', '1001', '1000.5'):
+        _fire(pg, 'power-voltage-custom', bad)
+        out = pg.evaluate(VOLT_STATE_JS, ids['bId'])
+        assert out['local'][0] == 208 and out['served'][0] == 208, (bad, out)
+        assert out['box'] == '208' and out['n'] == n, (bad, out)
+    _fire(pg, 'power-voltage-custom', '1000')
+    out = pg.evaluate(VOLT_STATE_JS, ids['bId'])
+    assert out['local'][0] == 1000 and out['served'][0] == 1000, out
+    assert out['n'] == n + 1 and out['last'] == 'Change Power Voltage', out
+    _fire(pg, 'power-voltage-custom', '100000')
+    out = pg.evaluate(VOLT_STATE_JS, ids['bId'])
+    assert out['local'][0] == 1000 and out['box'] == '1000' and out['n'] == n + 1, out
+    _fire(pg, 'power-voltage-select', '208')
+    pg.evaluate("""(ids) => {
+        const app = window.app;
+        app.selectLayer(app.project.layers.find(x => x.id === ids.aId));
+    }""", ids)
+    pg.evaluate(RESET_JS, ids)

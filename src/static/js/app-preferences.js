@@ -273,14 +273,56 @@ class _Preferences {
         }
     }
 
-    // The voltage the Preferences dialog currently shows (the select, or
-    // the custom box when Custom is picked), as a number; 0 when blank.
+    // The custom voltage box's rule - the sidebar's own (app-wiring
+    // _wirePowerPanel): whole volts, 1 or more, up to the box's max
+    // (1000, index.html). Returns the figure, or null when the box holds
+    // none (blank, 0, a negative figure, a fraction, text, over the max).
+    _preferenceCustomVoltageIn(box) {
+        if (!box) return null;
+        const raw = String(box.value || '').trim();
+        const val = raw === '' ? NaN : Number(raw);
+        const max = parseFloat(box.getAttribute('max')) || Infinity;
+        return Number.isInteger(val) && val >= 1 && val <= max ? val : null;
+    }
+
+    // The voltage the Preferences dialog currently shows, AS THE FIGURE
+    // SAVE STORES: the select's figure, or the custom box's when Custom is
+    // picked - and when the box holds no figure by the rule above, the
+    // figure in force (the last figure the box accepted, seeded from the
+    // stored preference on open and from the select when a stock figure
+    // is picked), else the shipped default. One reader for the breakout
+    // gate and for Save (readPreferencesFromUI), so the pair the dialog
+    // shows is the pair Save stores; until 2026-09-23 a blank box gated
+    // as 0 V (offering L6-20) while Save fell back to 110 V and stored
+    // 110 / Edison.
     _preferenceVoltageInUI() {
+        const defaults = this.getPreferencesDefaults();
         const sel = document.getElementById('pref-power-voltage-select');
         const custom = document.getElementById('pref-power-voltage-custom');
-        if (!sel) return 0;
-        const raw = sel.value === 'custom' ? (custom ? custom.value : '') : sel.value;
-        return parseFloat(raw) || 0;
+        if (!sel) return defaults.powerVoltage;
+        if (sel.value !== 'custom') return parseInt(sel.value, 10) || defaults.powerVoltage;
+        const typed = this._preferenceCustomVoltageIn(custom);
+        if (typed !== null) return typed;
+        const held = this._prefsCustomVoltageInForce;
+        return Number.isInteger(held) && held >= 1 ? held : defaults.powerVoltage;
+    }
+
+    // The custom box on change / blur (never per keystroke - a figure typed
+    // digit by digit would re-gate at 2 V, then 20 V, snapping the breakout
+    // pick away on the first key): a figure by the rule is accepted and
+    // becomes the figure in force; anything else is refused and the figure
+    // in force goes back in the box, the way the sidebar's box does. Then
+    // the breakout select is re-gated on the figure the box ends on.
+    _commitPreferenceCustomVoltage() {
+        const box = document.getElementById('pref-power-voltage-custom');
+        if (!box) return;
+        const typed = this._preferenceCustomVoltageIn(box);
+        if (typed !== null) {
+            this._prefsCustomVoltageInForce = typed;
+        } else {
+            box.value = String(this._preferenceVoltageInUI());
+        }
+        this._syncPreferenceBreakoutOptions();
     }
 
     // The breakout preference is gated by the voltage preference beside
@@ -291,7 +333,12 @@ class _Preferences {
     // 208 V, L6-20 and the L21-30 greyed at or below 120 V. A selection
     // the new voltage does not allow snaps to the voltage class default
     // (Edison up to 120 V, True1 above), so Save can never store a pair
-    // no screen could carry. Returns the id the select ends on.
+    // no screen could carry - and the user's own pick (_prefsBreakoutPick:
+    // the stored preference on open, then whatever they choose) is
+    // remembered, so it comes back when a later voltage allows it again
+    // (208 typed after a snap at 110 restores the L21-30 pick). Gated on
+    // the figure Save stores (_preferenceVoltageInUI). Returns the id the
+    // select ends on.
     _syncPreferenceBreakoutOptions() {
         const sel = document.getElementById('pref-breakout-type');
         if (!sel || typeof this.getPowerBreakoutTypes !== 'function'
@@ -304,8 +351,11 @@ class _Preferences {
             opt.disabled = !ok;
             opt.title = ok ? '' : this._breakoutIneligibleTitle(t, v);
         });
+        const pick = types.find(x => x.id === this._prefsBreakoutPick);
         const cur = types.find(x => x.id === sel.value);
-        if (!cur || !this._breakoutEligible(cur, v)) {
+        if (pick && this._breakoutEligible(pick, v)) {
+            sel.value = pick.id;
+        } else if (!cur || !this._breakoutEligible(cur, v)) {
             sel.value = this._defaultBreakoutFor(v).id;
         }
         return sel.value;
@@ -353,13 +403,25 @@ class _Preferences {
             } else {
                 voltageCustom.style.display = 'none';
                 voltageCustom.value = voltageSelect.value;
+                // A stock figure is the figure in force for the custom box
+                // too (the box mirrors it, and holds it when Custom is
+                // picked next).
+                this._prefsCustomVoltageInForce = parseInt(voltageSelect.value, 10);
             }
             // The breakout preference follows the voltage preference.
             this._syncPreferenceBreakoutOptions();
         };
         if (voltageCustom) {
-            voltageCustom.addEventListener('input', () => this._syncPreferenceBreakoutOptions());
-            voltageCustom.addEventListener('change', () => this._syncPreferenceBreakoutOptions());
+            // On change / blur only, never per keystroke: see
+            // _commitPreferenceCustomVoltage.
+            voltageCustom.addEventListener('change', () => this._commitPreferenceCustomVoltage());
+        }
+        const breakoutSelect = document.getElementById('pref-breakout-type');
+        if (breakoutSelect) {
+            // The user's own pick, remembered across voltage snaps.
+            breakoutSelect.addEventListener('change', () => {
+                this._prefsBreakoutPick = breakoutSelect.value;
+            });
         }
         const syncAmperageCustom = () => {
             if (!amperageSelect || !amperageCustom) return;
@@ -602,6 +664,11 @@ class _Preferences {
         setVal('pref-distro-phase', Number(prefs.distroPhase) === 1 ? '1' : '3');
         setVal('pref-multi-type', prefs.multiType);
         setVal('pref-breakout-type', prefs.breakoutType);
+        // The stored pair seeds the figure in force for the custom box and
+        // the breakout pick the gate remembers (_syncPreferenceBreakoutOptions).
+        const storedVolts = Number(prefs.powerVoltage);
+        this._prefsCustomVoltageInForce = Number.isInteger(storedVolts) && storedVolts >= 1 ? storedVolts : null;
+        this._prefsBreakoutPick = prefs.breakoutType;
         // Grey what the voltage just filled in does not allow, and snap a
         // stored pair no screen could carry to the class default.
         this._syncPreferenceBreakoutOptions();
@@ -683,9 +750,10 @@ class _Preferences {
         const amperageSelect = document.getElementById('pref-power-amperage-select');
         const prefDataPatternActive = document.querySelector('.pref-data-flow-pattern-btn.active');
         const prefPowerPatternActive = document.querySelector('.pref-power-flow-pattern-btn.active');
-        const voltageVal = voltageSelect && voltageSelect.value !== 'custom'
-            ? parseInt(voltageSelect.value, 10)
-            : readNum('pref-power-voltage-custom', defaults.powerVoltage);
+        // The one reader the breakout gate uses too (_preferenceVoltageInUI):
+        // the select's figure, the custom box's by the sidebar's rule, else
+        // the figure in force - so what the dialog gated is what is stored.
+        const voltageVal = this._preferenceVoltageInUI();
         const amperageVal = amperageSelect && amperageSelect.value !== 'custom'
             ? parseInt(amperageSelect.value, 10)
             : readNum('pref-power-amperage-custom', defaults.powerAmperage);
@@ -729,7 +797,7 @@ class _Preferences {
             lowLatency: readBool('pref-low-latency', defaults.lowLatency),
             bitDepth: readNum('pref-bit-depth', defaults.bitDepth),
             frameRate: readNum('pref-frame-rate', defaults.frameRate),
-            powerVoltage: Number.isFinite(voltageVal) && voltageVal > 0 ? voltageVal : defaults.powerVoltage,
+            powerVoltage: voltageVal,
             powerAmperage: Number.isFinite(amperageVal) && amperageVal > 0 ? amperageVal : defaults.powerAmperage,
             powerWatts: readNum('pref-power-watts', defaults.powerWatts),
             canvasGap: readNum('pref-canvas-gap', defaults.canvasGap),
@@ -743,7 +811,7 @@ class _Preferences {
             // pair no screen could carry is never stored.
             breakoutType: (() => {
                 const id = readStr('pref-breakout-type', defaults.breakoutType);
-                const v = Number.isFinite(voltageVal) && voltageVal > 0 ? voltageVal : defaults.powerVoltage;
+                const v = voltageVal;
                 const t = typeof this.getPowerBreakoutTypes === 'function'
                     ? this.getPowerBreakoutTypes().find(x => x.id === id) : null;
                 if (t && typeof this._breakoutEligible === 'function'

@@ -279,6 +279,14 @@ class _ClientProps {
             layer.lowLatency = !!prefs.lowLatency;
             layer.bitDepth = prefs.bitDepth;
             layer.frameRate = prefs.frameRate;
+            // The pristine screen is re-made from the preferences on every
+            // load, breakout included: the Breakout preference when the
+            // preference voltage allows it, else the class default - the
+            // same rung applyPreferencesToCurrentLayer writes on Save
+            // (2026-09-23; before, an eligible stored choice stood and the
+            // screen never took a changed Breakout preference). Written
+            // first, so the voltage write below normalizes it.
+            layer.powerBreakoutType = this._preferenceBreakoutFor(prefs).id;
             // The preference voltage lands through setScreenVoltage, so
             // the pristine screen's breakout follows it (the sweep above
             // normalized against the server's 110 V, not this figure).

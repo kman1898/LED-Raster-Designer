@@ -1,6 +1,8 @@
 from flask import Flask, render_template, request, jsonify, make_response, send_from_directory
 from flask_socketio import SocketIO, emit
 import json
+import math
+import re
 import uuid
 import time
 import os
@@ -591,16 +593,43 @@ POWER_BREAKOUT_IDS = (
 PREF_DEFAULT_BREAKOUT = 'soca-true1'
 
 
+# JavaScript's parseFloat, as a regex over a string: StrWhiteSpace (the ES
+# WhiteSpace and LineTerminator sets - NOT Python's \s, which also takes
+# \x1c-\x1f), an optional sign, then the longest StrDecimalLiteral prefix:
+# 'Infinity' (case-sensitive) or ASCII digits with an optional fraction and
+# exponent ([0-9], never \d - JS does not read Arabic-Indic digits). Whatever
+# follows the prefix is ignored ('208V' is 208); no prefix is NaN.
+_JS_WHITESPACE = ('\t\n\v\f\r \u00a0\u1680\u2000-\u200a\u2028\u2029'
+                  '\u202f\u205f\u3000\ufeff')
+_JS_FLOAT_PREFIX = re.compile(
+    '^[' + _JS_WHITESPACE + r']*([+-]?(?:Infinity|(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][+-]?[0-9]+)?))')
+
+
 def _power_voltage_number(value):
-    """The voltage as the client's parseFloat reads it: a non-number (None,
-    '', 'abc', a bool) is 0, which restricts only the L21-30."""
-    if isinstance(value, bool):
+    """The voltage as the client's voltageNumber (app-power.js) reads it,
+    so the two copies of a screen agree on its breakout. A string is read
+    the way JavaScript parseFloat reads it - leading whitespace, a sign, a
+    leading number ('208V' and '208 V' and '208,0' are 208; '1_000' is 1;
+    '0x10' is 0; 'abc' and '' are NaN) - and a number is itself. Anything
+    else (None, a bool, a list, a dict) is no voltage, and so is a result
+    that is not finite ('Infinity', '1e400'): 0, which restricts only the
+    L21-30. tests/test_breakout_invariant.py drives one table through both
+    readers."""
+    if value is None or isinstance(value, bool):
         return 0.0
-    try:
-        v = float(value)
-    except (TypeError, ValueError):
+    if isinstance(value, (int, float)):
+        try:
+            v = float(value)
+        except OverflowError:
+            return 0.0
+    elif isinstance(value, str):
+        m = _JS_FLOAT_PREFIX.match(value)
+        if not m:
+            return 0.0
+        v = float(m.group(1))
+    else:
         return 0.0
-    if v != v or v in (float('inf'), float('-inf')):
+    if not math.isfinite(v):
         return 0.0
     return v
 
@@ -740,8 +769,19 @@ def _seed_data_with_canvas_defaults(data):
         'border_color', 'border_color_pixel', 'border_color_cabinet',
         'border_color_data', 'border_color_power',
     )
+    # A request that names its own voltage runs at that voltage: the donor's
+    # cached custom figure is not inherited beside it (a 208 V donor's
+    # powerVoltageCustom under a 120 V request would be a figure the screen
+    # never ran at), and the add route normalizes the breakout at the
+    # request's voltage, never the donor's (2026-09-23: with a 120 V / junk
+    # breakout preference and a 208 V donor the new screen was normalized
+    # at 208 to True1, which then stood at 120 on the client, where the
+    # class default is Edison).
+    skip = set()
+    if 'powerVoltage' in data:
+        skip.add('powerVoltageCustom')
     for field in inheritable:
-        if field in data:
+        if field in data or field in skip:
             continue  # caller specified, respect it
         if field in donor and donor[field] is not None:
             data[field] = donor[field]

@@ -316,3 +316,59 @@ def test_a_list_entry_is_not_mistaken_for_a_post(tmp_path):
     assert "## What's new" in out.read_text(encoding='utf-8')
     assert not gen.has_lede(SAMPLE.splitlines()[2:])
     assert gen.has_lede(POST.splitlines()[2:])
+
+
+# ── Product spellings and units survive the sentence-casing ──────────────
+
+def test_sentence_case_keeps_product_spellings_and_units():
+    """An ALL-CAPS heading is sentence-cased, but the tokens the product
+    spells its own way keep that spelling, and a figure keeps its unit's
+    capital: 'True1 and powerCON on 110V and 120V', never 'powercon' and
+    '110v'."""
+    assert gen.sentence_case("TRUE1 AND POWERCON ON 110V AND 120V") == \
+        "True1 and powerCON on 110V and 120V"
+    assert gen.sentence_case("EDISON, L6-20 AND L21-30 ON A MULTI") == \
+        "Edison, L6-20 and L21-30 on a Multi"
+    assert gen.sentence_case("NOVASTAR AND BROMPTON AT 30A AND 200W") == \
+        "NovaStar and Brompton at 30A and 200W"
+    assert gen.sentence_case("SVG EXPORT, PSD LAYERS") == "SVG export, PSD layers"
+    assert gen.sentence_case("CTRL+A SELECTS ALL") == "Ctrl+A selects all"
+    assert gen.sentence_case("SCREEN GROUPS") == "Screen groups"
+    # a word that only starts like a unit or a product is not one
+    assert gen.sentence_case("A VAN WITH 5 WALLS") == "A van with 5 walls"
+    # every reader of a heading uses the same rule
+    assert gen.area_label("TRUE1 ON 120V - the tail") == "True1 on 120V"
+    assert gen.derive_summary(["POWERCON AT 110V - one wall"]) == "powerCON at 110V: one wall."
+
+
+def _entry_of(version):
+    """The v<version> entry of the live VERSION.txt, as its own version file
+    text, so the generator can be run for that tag whatever entry is on top."""
+    lines = VERSION_TXT.read_text(encoding='utf-8').splitlines()
+    starts = [i for i, l in enumerate(lines) if gen.VERSION_HEADER.match(l)]
+    for n, i in enumerate(starts):
+        if gen.VERSION_HEADER.match(lines[i]).group(1) == version:
+            end = starts[n + 1] if n + 1 < len(starts) else len(lines)
+            return "\n".join(lines[i:end]) + "\n"
+    raise AssertionError(f"no v{version} entry in {VERSION_TXT}")
+
+
+def test_the_1_3_0_notes_read_true1_and_powercon_on_110v_and_120v(tmp_path):
+    version_file = tmp_path / "VERSION.txt"
+    version_file.write_text(_entry_of("1.3.0"), encoding='utf-8')
+    proc, out = run(tmp_path, "--tag", "v1.3.0", version_file=version_file)
+    assert proc.returncode == 0, proc.stderr
+    headings = re.findall(r"^## (.+)$", out.read_text(encoding='utf-8'), re.M)
+    assert "True1 and powerCON on 110V and 120V" in headings, headings
+    assert not any(re.search(r"powercon|true1|\b\d+[vaw]\b", h) for h in headings), headings
+
+
+def test_no_live_heading_loses_a_product_spelling(tmp_path):
+    """Whatever entry is on top, no rendered heading carries a lower-cased
+    product name or unit."""
+    proc, out = run(tmp_path, "--tag", top_version())
+    assert proc.returncode == 0, proc.stderr
+    headings = re.findall(r"^## (.+)$", out.read_text(encoding='utf-8'), re.M)
+    bad = [h for h in headings
+           if re.search(r"\b(powercon|true1|edison|novastar|brompton|l6-20|l21-30)\b|\b\d+[vaw]\b", h)]
+    assert not bad, bad

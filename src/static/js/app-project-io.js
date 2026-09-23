@@ -109,6 +109,13 @@ class _ProjectIo {
                                 this.normalizeLoadedPowerFlowPattern(layer);
                             });
                         }
+                        // The migrations above have run against the file's
+                        // own stamp; from here the project is this build's.
+                        // Stamped BEFORE the PUT below, because a load never
+                        // stamps on the server, and an unstamped server copy
+                        // re-ran the old-green migration on every page reload
+                        // - repainting a set chosen since (2026-09-23).
+                        this.project.app_version = this.appVersion();
                         // v0.11.0: fix up Armor layers that carry a Max Capacity
                         // flag they were never actually drawn with. Runs before
                         // the PUT so the server (and the first undo snapshot)

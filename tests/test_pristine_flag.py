@@ -314,3 +314,148 @@ def test_socket_reconnect_after_file_load_not_pristine():
     data = project_events[0]['args'][0]
     assert data['is_pristine'] is False
     ws.disconnect()
+
+
+def test_the_keep_pristine_marker_is_read_like_the_edited_marker():
+    """`keep_pristine` keeps the flag only for true / 1 / yes, the way
+    PUT /api/layer/<id> reads ?edited. bool() took the string 'false' as
+    true, so a client sending the marker as a string cleared nothing."""
+    app.config['TESTING'] = True
+    with app.test_client() as client:
+        for marker in (True, 1, 'true', 'True', 'TRUE', '1', 'yes'):
+            _fresh_project()
+            client.post('/api/project', json={'raster_width': 1920, 'keep_pristine': marker})
+            data = client.get('/api/project').get_json()
+            assert data['is_pristine'] is True, marker
+            assert 'keep_pristine' not in data, marker
+        for marker in (False, 0, 'false', 'False', '0', 'no', '', None, 'maybe'):
+            _fresh_project()
+            client.post('/api/project', json={'raster_width': 1920, 'keep_pristine': marker})
+            data = client.get('/api/project').get_json()
+            assert data['is_pristine'] is False, marker
+            assert 'keep_pristine' not in data, marker
+
+
+# ── The guide's exit: PUT /api/project with keep_pristine ───────────────
+
+
+def test_restore_project_with_keep_pristine_keeps_a_pristine_snapshot():
+    """The guide's exit (quickstart restoreWorld -> _syncRestoredProject)
+    PUTs the user's own project back after the guide's scratch show has
+    ended the server's flag. When that snapshot is still pristine the
+    client says `keep_pristine: true` and the snapshot's flag is what the
+    project ends on; the marker is never stored. A snapshot that is not
+    pristine stays not pristine with or without the marker, the marker
+    is read like the others ('false' is no), and a PUT without it - undo,
+    redo, a file load - clears the flag as it always has (2026-09-23)."""
+    app.config['TESTING'] = True
+    _fresh_project()
+    snap = {'name': 'Untitled Project', 'raster_width': 1920,
+            'raster_height': 1080, 'layers': []}
+    with app.test_client() as client:
+        # the guide's scratch show ended the flag
+        client.post('/api/project', json={'name': 'Scratch show'})
+        assert client.get('/api/project').get_json()['is_pristine'] is False
+
+        resp = client.put('/api/project', json=dict(snap, is_pristine=True, keep_pristine=True))
+        assert resp.status_code == 200
+        data = client.get('/api/project').get_json()
+        assert data['is_pristine'] is True
+        assert data['name'] == 'Untitled Project'
+        assert 'keep_pristine' not in data
+        assert 'keep_pristine' not in app_module.current_project
+
+        client.put('/api/project', json=dict(snap, is_pristine=False, keep_pristine=True))
+        assert client.get('/api/project').get_json()['is_pristine'] is False, \
+            'the marker keeps a pristine snapshot, it never makes one'
+
+        client.put('/api/project', json=dict(snap, keep_pristine=True))
+        assert client.get('/api/project').get_json()['is_pristine'] is False, \
+            'no flag on the snapshot is not pristine'
+
+        client.put('/api/project', json=dict(snap, is_pristine=True, keep_pristine='false'))
+        assert client.get('/api/project').get_json()['is_pristine'] is False
+
+        client.put('/api/project', json=dict(snap, is_pristine=True))
+        assert client.get('/api/project').get_json()['is_pristine'] is False, \
+            'an undo snapshot carries is_pristine: true too - without the marker it ends the flag'
+
+
+# ── The front end's PUT contract (source) ───────────────────────────────
+
+import re
+
+JS_DIR = os.path.join(os.path.dirname(__file__), '..', 'src', 'static', 'js')
+BARE_LAYER_PUT_RE = re.compile(r"fetch\(`/api/layer/\$\{[^}]+\}(\$\{[^}]*\})?`")
+METHOD_RE = re.compile(r'^\s{4}(async\s+)?([A-Za-z_$][\w$]*)\s*\(')
+
+
+def _js(name):
+    with open(os.path.join(JS_DIR, name), encoding='utf-8') as fh:
+        return fh.read()
+
+
+def _enclosing_method(lines, idx):
+    for i in range(idx, -1, -1):
+        m = METHOD_RE.match(lines[i])
+        if m and not lines[i].startswith('     '):
+            return m.group(2)
+    return None
+
+
+def test_every_layer_put_in_the_front_end_goes_through_put_layer():
+    """Closed list: the only fetch PUT to the bare /api/layer/<id> route in
+    src/static/js is app-core's _putLayer, which appends ?edited=1 when
+    _layerPutIsAnEdit. Until 2026-09-23 the eye toggle, the lock, the
+    Screens-panel rename and the on-canvas rename each made a bare PUT
+    with no marker, so a hand on any of them left the server pristine and
+    the next preference Save re-made the screen. The four callers, plus
+    updateLayer and updateLayers, are named here so a fifth cannot appear
+    unmarked."""
+    found = []
+    for name in sorted(os.listdir(JS_DIR)):
+        if not name.endswith('.js'):
+            continue
+        lines = _js(name).split('\n')
+        for idx, line in enumerate(lines):
+            if not BARE_LAYER_PUT_RE.search(line):
+                continue
+            window = '\n'.join(lines[idx:idx + 4])
+            if "method: 'PUT'" in window:
+                found.append((name, _enclosing_method(lines, idx)))
+    assert found == [('app-core.js', '_putLayer')], found
+    core = _js('app-core.js')
+    helper = core[core.index('    _putLayer(id, body) {'):]
+    helper = helper[:helper.index('\n    }')]
+    assert "this._layerPutIsAnEdit() ? '?edited=1' : ''" in helper, helper
+    callers = {
+        # (file, method): the PUT is made through the helper
+        ('app-screen-info.js', 'toggleLayerVisibility'): "this._putLayer(layer.id, { visible: layer.visible })",
+        ('app-screen-info.js', 'setLockOnSelected'): "this._putLayer(layer.id, { locked })",
+        ('app-screen-info.js', 'updateLayer'): "this._putLayer(this.currentLayer.id, this.currentLayer)",
+        ('app-screen-info.js', 'updateLayers'): "this._putLayer(layer.id, layer)",
+        ('app-layers-panel.js', 'renderLayers'): "this._putLayer(layer.id, { name: newName })",
+        ('app-canvas-ui.js', 'renameLayer'): "this._putLayer(layer.id, { name: newName })",
+    }
+    for (name, method), call in callers.items():
+        lines = _js(name).split('\n')
+        hits = [i for i, l in enumerate(lines) if call in l]
+        assert hits, (name, method, 'does not call _putLayer')
+        assert any(_enclosing_method(lines, i) == method for i in hits), \
+            (name, method, [_enclosing_method(lines, i) for i in hits])
+
+
+def test_only_the_guide_s_exit_asks_the_restore_put_to_keep_pristine():
+    """quickstart's restoreProject (the guide's exit, Back and recovery)
+    passes keepPristine to _syncRestoredProject; undo and redo never do,
+    so an undone edit stays an edit on the server."""
+    history = _js('app-history.js')
+    assert "_syncRestoredProject(entry, label, { keepPristine = false } = {})" in history
+    assert "this._syncRestoredProject(state, 'Undo');" in history
+    assert "this._syncRestoredProject(state, 'Redo');" in history
+    assert "{ ...this.project, keep_pristine: true }" in history
+    quick = _js('quickstart.js')
+    assert "a._syncRestoredProject(entry, label, { keepPristine: true })" in quick
+    passers = [name for name in os.listdir(JS_DIR)
+               if name.endswith('.js') and 'keepPristine: true' in _js(name)]
+    assert passers == ['quickstart.js'], passers

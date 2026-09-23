@@ -1192,8 +1192,15 @@ export class LEDRasterApp {
         this.currentLayer.lowLatency = !!prefs.lowLatency;
         this.currentLayer.bitDepth = prefs.bitDepth;
         this.currentLayer.frameRate = prefs.frameRate;
+        // The pristine screen is re-MADE here, so it takes the Breakout
+        // preference outright (when the preference voltage allows it, else
+        // the voltage class default) - not merely normalized, which would
+        // let an eligible stored choice stand and leave the screen on the
+        // breakout of a Save gone by (2026-09-23). An edited screen never
+        // comes through here (shouldApplyStartupPreferences).
         this.currentLayer.powerVoltage = prefs.powerVoltage;
         this.currentLayer.powerVoltageCustom = prefs.powerVoltage;
+        this.currentLayer.powerBreakoutType = this._preferenceBreakoutFor(prefs).id;
         this.normalizePowerBreakout(this.currentLayer);   // the breakout follows the voltage just written (2026-09-22)
         this.currentLayer.powerAmperage = prefs.powerAmperage;
         this.currentLayer.powerAmperageCustom = prefs.powerAmperage;
@@ -1225,6 +1232,34 @@ export class LEDRasterApp {
     // push after an add (add_layer cleared the flag already).
     _layerPutIsAnEdit() {
         return this._initialLoadComplete === true && !this._pristinePreferencePut;
+    }
+
+    // THE way a layer is PUT to /api/layer/<id> (2026-09-23). The marker
+    // above rides the query string, never the body, so the layer's keys
+    // round-trip untouched. Every caller - updateLayer, updateLayers, the
+    // eye and lock toggles, both renames - goes through here; a bare
+    // fetch PUT elsewhere carried no marker, so hiding, locking or
+    // renaming the startup screen left the server pristine and the next
+    // preference Save re-made the screen (tests/test_pristine_flag.py
+    // closes the list).
+    _putLayer(id, body) {
+        return fetch(`/api/layer/${id}${this._layerPutIsAnEdit() ? '?edited=1' : ''}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+    }
+
+    // The breakout the pristine startup screen is re-made with, from a
+    // preference set handed in (the Save's own, before getPreferences
+    // could read it): the Breakout preference when the preference voltage
+    // allows it, else the voltage class default - the two rungs
+    // _preferredBreakoutFor reads from the stored set.
+    _preferenceBreakoutFor(prefs) {
+        const voltage = prefs && prefs.powerVoltage;
+        const want = this.getPowerBreakoutTypes().find(t => t.id === (prefs && prefs.breakoutType));
+        if (want && this._breakoutEligible(want, voltage)) return want;
+        return this._defaultBreakoutFor(voltage);
     }
 
     shouldApplyStartupPreferences() {
@@ -1706,7 +1741,15 @@ export class LEDRasterApp {
                 // is no colour: the preference default applies, the same
                 // rule applyPresetClientProps holds for the rest.
                 labelsColor: color(presetData.labelsColor, labelsColor),
-                cabinetIdColor: color(presetData.cabinetIdColor, cabinetIdColor)
+                cabinetIdColor: color(presetData.cabinetIdColor, cabinetIdColor),
+                // The voltage the screen will run at, so the server's
+                // breakout write-in judges eligibility at THIS figure and
+                // not at the newest sibling's (a 120 V preference beside a
+                // 208 V wall used to land True1 because the server saw 208).
+                // applyNewScreenPowerPreferences writes the same figure on
+                // the client; normalizePowerBreakout runs after it.
+                powerVoltage: presetData.powerVoltage != null ? presetData.powerVoltage : prefs.powerVoltage,
+                powerVoltageCustom: presetData.powerVoltage != null ? presetData.powerVoltage : prefs.powerVoltage
             };
         } else {
             serverProps = {
@@ -1720,7 +1763,10 @@ export class LEDRasterApp {
                 panel_weight: prefs.panelWeight,
                 weight_unit: prefs.weightUnit,
                 labelsColor: labelsColor,
-                cabinetIdColor: cabinetIdColor
+                cabinetIdColor: cabinetIdColor,
+                // Same reason as the preset branch above.
+                powerVoltage: prefs.powerVoltage,
+                powerVoltageCustom: prefs.powerVoltage
             };
         }
 
@@ -1741,6 +1787,12 @@ export class LEDRasterApp {
             return res.json();
         })
         .then(layer => {
+            // A 200 whose body carries no id is no layer either: landing
+            // it would put an {id: undefined} screen in the project that
+            // every later PUT 404s on.
+            if (!layer || typeof layer !== 'object' || layer.id == null) {
+                throw new Error('POST /api/layer/add answered with no layer id');
+            }
             sendClientLog('add_layer', {
                 id: layer.id, name: layer.name,
                 columns: layer.columns, rows: layer.rows,

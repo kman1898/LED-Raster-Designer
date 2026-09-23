@@ -1204,12 +1204,10 @@ class _ScreenInfo {
         // server, so any server-sourced adoption (a canvas edit's response,
         // a group commit's repaired body, undo's own round-trip) resurrected
         // the hidden layer. Same one-field PUT the lock toggle below makes;
-        // 'visible' is in update_layer's allow-list.
-        fetch(`/api/layer/${layer.id}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ visible: layer.visible })
-        });
+        // 'visible' is in update_layer's allow-list. Through _putLayer so
+        // the write carries the `edited` marker: a hand on the eye ends
+        // the startup screen's pristine state like any other edit.
+        this._putLayer(layer.id, { visible: layer.visible });
         sendClientLog('toggle_visibility', {
             id: layer.id,
             name: layer.name,
@@ -1269,11 +1267,9 @@ class _ScreenInfo {
         if (layers.length === 0) return;
         layers.forEach(layer => {
             layer.locked = locked;
-            fetch(`/api/layer/${layer.id}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ locked })
-            });
+            // _putLayer: the lock is a hand on the screen (the `edited`
+            // marker rides the PUT).
+            this._putLayer(layer.id, { locked });
         });
         if (typeof sendClientLog === 'function') {
             sendClientLog('layer_lock_batch', { locked, layerIds: layers.map(l => l.id) });
@@ -1348,14 +1344,10 @@ class _ScreenInfo {
         // the RESTORED layer). Identity is the cheapest complete test.
         const sentProject = this.project;
         if (!this._inflightLayerPuts) this._inflightLayerPuts = new Set();
-        // `?edited=1` tells the server whether a hand caused this write - see
+        // _putLayer carries `?edited=1` when a hand caused this write - see
         // _layerPutIsAnEdit (app-core). A query marker, never in the body, so
         // the layer's keys round-trip untouched (test_all_fields_sweep).
-        const req = fetch(`/api/layer/${this.currentLayer.id}${this._layerPutIsAnEdit() ? '?edited=1' : ''}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(this.currentLayer)
-        });
+        const req = this._putLayer(this.currentLayer.id, this.currentLayer);
         // Same server-side sequencing registry as updateLayers': undo/redo
         // wait for this PUT before restoring the project on the server.
         const tracked = req.catch(() => {});
@@ -1617,13 +1609,10 @@ class _ScreenInfo {
                 'powerSocaKeying'
             ];
 
-            // `?edited=1`: whether a hand caused this write - see
-            // _layerPutIsAnEdit (app-core). A query marker, never in the body.
-            return fetch(`/api/layer/${layer.id}${this._layerPutIsAnEdit() ? '?edited=1' : ''}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(layer)
-            })
+            // _putLayer carries `?edited=1` when a hand caused this write -
+            // see _layerPutIsAnEdit (app-core). A query marker, never in
+            // the body.
+            return this._putLayer(layer.id, layer)
             .then(res => res.json())
             .then(updated => {
                 // Undo audit: an echo from before a whole-project swap

@@ -82,14 +82,43 @@ BULLET = re.compile(r"^- (NEW|FIX|CHANGE)(?: \((IMPORTANT)\))?: (.*)$")
 MAX_AREA = 20
 
 # Words a sentence-cased heading keeps in capitals.
-ACRONYMS = {"SVG", "PSD", "PNG", "PDF", "XML", "CSV", "LED", "USB", "CAT", "L21-30", "CVT", "SCR"}
+ACRONYMS = {"SVG", "PSD", "PNG", "PDF", "XML", "CSV", "LED", "USB", "CAT", "L21-30", "L6-20",
+            "CVT", "SCR"}
+# Product spellings a sentence-cased heading keeps as they are written -
+# "TRUE1 AND POWERCON" is "True1 and powerCON", never "True1 and powercon".
+PRESERVED = {"powerCON", "True1", "Edison", "Multi", "NovaStar", "Brompton"}
+_PRESERVED_BY_LOWER = {w.lower(): w for w in PRESERVED}
+# A figure with its unit keeps the unit's capital: 110V, 30A, 200W.
+UNIT_TOKEN = re.compile(r"^\d+[VAW]$", re.I)
+# The token the case rules run over: a run of letters, digits and hyphens,
+# so "L21-30" and "powerCON" are each one token.
+_TOKEN = re.compile(r"\b([A-Za-z0-9-]+)\b")
+
+
+def keep_case(token):
+    """The spelling a heading token keeps after sentence-casing."""
+    upper = token.upper()
+    if upper in ACRONYMS or UNIT_TOKEN.match(token):
+        return upper
+    return _PRESERVED_BY_LOWER.get(token.lower(), token)
+
+
+def sentence_case(head):
+    """An ALL-CAPS heading head as a sentence: first letter, the rest lower,
+    then the tokens the product spells its own way put back."""
+    if not head:
+        return head
+    text = head[0].upper() + head[1:].lower()
+    # a key name after "+" keeps its capital: "Ctrl+A", not "Ctrl+a"
+    text = re.sub(r"\+([a-z])\b", lambda m: "+" + m.group(1).upper(), text)
+    return _TOKEN.sub(lambda m: keep_case(m.group(1)), text)
 
 
 def area_label(heading):
     head = heading.split(" - ")[0].split(",")[0].strip()
     if not head or len(head) > MAX_AREA:
         return None
-    return head[0].upper() + head[1:].lower()
+    return sentence_case(head)
 
 
 def derive_summary(lines):
@@ -106,7 +135,7 @@ def derive_summary(lines):
             continue
         if SECTION_HEADING.match(line) and " - " in line:
             head, tail = line.split(" - ", 1)
-            return f"{head[0].upper()}{head[1:].lower()}: {tail.strip()}."
+            return f"{sentence_case(head)}: {tail.strip()}."
         if SECTION_HEADING.match(line):
             return None
     return None
@@ -307,14 +336,9 @@ def parse_post(lines):
             flush()
             cur = None
             head, _, tail = line.partition(" - ")
-            text = head[0] + head[1:].lower()
-            # a key name after "+" keeps its capital: "Ctrl+A", not "Ctrl+a"
-            text = re.sub(r"\+([a-z])\b", lambda m: "+" + m.group(1).upper(), text)
-            # file formats and the like stay capitals: "SVG export", "PSD layers"
-            text = re.sub(r"\b([A-Za-z0-9-]+)\b",
-                          lambda m: m.group(1).upper() if m.group(1).upper() in ACRONYMS else m.group(1),
-                          text)
-            blocks.append({"type": "h", "text": text})
+            # file formats stay capitals ("SVG export"), product spellings
+            # and units keep theirs ("True1 and powerCON on 110V and 120V")
+            blocks.append({"type": "h", "text": sentence_case(head)})
             if tail.strip():
                 blocks.append({"type": "p", "text": tail.strip()})
         else:

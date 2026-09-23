@@ -57,8 +57,12 @@ PREFS = (ABSENT, '', 'junk') + IDS
 
 
 @pytest.fixture(scope="module", autouse=True)
-def _guard(flask_project_guard):
-    """Leave app.current_project and app.server_preferences as found."""
+def _guard(server_project_guard):
+    """Leave app.current_project and app.server_preferences as found. The
+    e2e server's guard, not the Flask one: the last test here opens a page
+    on that server, and the snapshot has to be taken after the server has
+    seeded its project or the restore would hand the next browser suite a
+    bare one."""
 
 
 @pytest.fixture()
@@ -481,3 +485,145 @@ def test_set_screen_voltage_is_the_one_voltage_writer():
         ('app-core.js', 'applyPreferencesToCurrentLayer'),
         ('app-power.js', 'setScreenVoltage'),
     ], bare
+
+
+# ── one voltage reader on both sides ────────────────────────────────────
+#
+# PUT /api/layer/<id> with powerVoltage '208V' and l2130-true1 stored the
+# True1 while the client kept the L21-30 (2026-09-23): the server read the
+# figure with float() - '208V' raised, so 0 - and the client with
+# parseFloat, which reads the leading number. One table, hand-written,
+# drives both readers: app._power_voltage_number below and, in the last
+# test, the page's app.voltageNumber over the very same entries. The
+# oracle values are what JavaScript parseFloat gives (checked against node),
+# with a non-finite result and anything that is not a string or a number
+# read as no voltage on both sides.
+
+VOLTAGE_TABLE = [
+    # (value, what both sides read)
+    ('208', 208), ('208V', 208), ('208 V', 208), ('208,0', 208), (' 208', 208),
+    ('\t208', 208), (' 208', 208), (' 208', 208), ('﻿208', 208),
+    ('\x1c208', 0),                       # \x1c is Python \s, not JS whitespace
+    ('208\n', 208), ('\n208', 208), ('2 08', 2),
+    ('+208', 208), ('-208', -208), ('- 208', 0), ('--208', 0), ('+-208', 0),
+    ('1_000', 1),                         # no underscores
+    ('Infinity', 0), ('+Infinity', 0), ('-Infinity', 0), ('Infinityx', 0),
+    ('infinity', 0), ('1e400', 0), ('1' + '0' * 400, 0),   # not finite: no voltage
+    ('1e2', 100), ('1E2', 100), ('1e-1', 0.1), ('1.2e1V', 12),
+    ('.5', 0.5), ('5.', 5), ('1e', 1), ('1e+', 1),
+    ('120abc', 120), ('1.2.3', 1.2), ('1,5', 1), ('00208', 208), ('0208.50', 208.5),
+    ('0x10', 0), ('0b1', 0),              # a hex / binary prefix is 0, not 16 / 1
+    ('abc', 0), ('', 0), ('   ', 0), ('NaN', 0),
+    ('١٢٣', 0), ('٢08', 0), ('12٣', 12),   # ASCII digits only
+    (208, 208), (208.0, 208), (120.5, 120.5), (0, 0), (-5, -5), (1e21, 1e21),
+    (True, 0), (False, 0), (None, 0),
+    ([208], 0), (['208'], 0), ([208, 1], 0), ([], 0), ({}, 0), ({'v': 208}, 0),
+]
+VOLTAGE_INPUTS = [v for v, _ in VOLTAGE_TABLE]
+VOLTAGE_EXPECT = [want for _, want in VOLTAGE_TABLE]
+
+
+def test_the_server_reads_a_voltage_the_way_parsefloat_does():
+    got = [app_module._power_voltage_number(v) for v in VOLTAGE_INPUTS]
+    bad = [(v, g, w) for v, g, w in zip(VOLTAGE_INPUTS, got, VOLTAGE_EXPECT) if g != w]
+    assert not bad, bad
+    assert all(isinstance(g, float) for g in got)
+    # and the figure decides the breakout: '208V' is 208, so the L21-30 stands
+    for voltage in ('208V', '208 V', '208,0', ' 208', '+208'):
+        layer = {'powerVoltage': voltage, 'powerBreakoutType': 'l2130-true1'}
+        assert app_module.normalize_power_breakout(layer) is False, voltage
+    for voltage in ('Infinity', '1e400', [208], ['208'], '1_000'):
+        layer = {'powerVoltage': voltage, 'powerBreakoutType': 'l2130-true1'}
+        assert app_module.normalize_power_breakout(layer) is True, voltage
+        assert layer['powerBreakoutType'] == 'soca-true1', (voltage, layer)
+
+
+def test_the_add_route_normalizes_at_the_request_s_voltage_not_the_donor_s(client, prefs):
+    """Preferences at 120 V with a breakout the catalog does not know, and
+    a 208 V screen already on the canvas: a request that names 120 V lands
+    at 120 V on Edison (the class default), not on the True1 the donor's
+    208 V would give, and the donor's custom figure is not inherited beside
+    the request's voltage."""
+    app_module.server_preferences = {'powerVoltage': 120, 'breakoutType': 'junk'}
+    donor = _add(client, powerVoltage=208, powerVoltageCustom=208)
+    assert (donor['powerVoltage'], donor['powerBreakoutType']) == (208, 'soca-true1'), donor
+    # a request naming no voltage inherits the donor's (the canvas is a
+    # preset bucket), and the breakout follows THAT figure
+    made = _add(client)
+    assert (made['powerVoltage'], made['powerBreakoutType']) == (208, 'soca-true1'), made
+    # one naming 120 V is normalized at 120 V, whatever the donor runs at
+    made = _add(client, powerVoltage=120)
+    assert (made['powerVoltage'], made['powerBreakoutType']) == (120, 'soca-edison'), made
+    assert made.get('powerVoltageCustom') != 208, made.get('powerVoltageCustom')
+    assert _layer(client, made['id'])['powerBreakoutType'] == 'soca-edison'
+
+
+@pytest.fixture(scope="module")
+def page(e2e_server, pw_browser):
+    """A page on the e2e server with one 208 V screen of its own (the Flask
+    tests above leave the shared project bare)."""
+    from app import app as flask_app
+    flask_app.config['TESTING'] = True
+    with flask_app.test_client() as c:
+        made = c.post('/api/layer/add', json={
+            'name': 'Reader', 'columns': 2, 'rows': 2, 'cabinet_width': 100,
+            'cabinet_height': 100, 'powerVoltage': 208}).get_json()
+    context = pw_browser.new_context(viewport={'width': 1440, 'height': 900})
+    context.add_init_script(
+        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+    pg = context.new_page()
+    errors = []
+    pg.on('pageerror', lambda e: errors.append(str(e) + '\n' + str(getattr(e, 'stack', ''))))
+    pg.goto(e2e_server, wait_until='domcontentloaded')
+    pg.wait_for_timeout(2000)
+    yield pg, made['id'], errors
+    context.close()
+
+
+def test_the_client_reads_the_same_table_the_server_does(page):
+    """The page's voltageNumber over the table above gives, entry for
+    entry, what app._power_voltage_number gave; a non-finite figure is no
+    voltage class on the client (before, parseFloat('Infinity') put a
+    screen in the 208 class); and the breakout the two sides settle on for
+    every entry - the client's normalizePowerBreakout on a probe against
+    PUT /api/layer/<id> on the server - is the same one."""
+    pg, layer_id, errors = page
+    # the same preference on both sides (the module guard restores the server's)
+    pg.evaluate("""async () => {
+        const app = window.app;
+        const prefs = { ...app.getPreferences(), breakoutType: 'l2130-true1' };
+        app._serverPreferences = prefs;
+        try { localStorage.setItem('appPreferences', JSON.stringify(prefs)); } catch (e) {}
+        await fetch('/api/preferences', { method: 'PUT',
+            headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(prefs) });
+    }""")
+    assert app_module.server_preferences.get('breakoutType') == 'l2130-true1'
+    server = [app_module._power_voltage_number(v) for v in VOLTAGE_INPUTS]
+    assert server == VOLTAGE_EXPECT
+    client_read = pg.evaluate("(table) => table.map(v => window.app.voltageNumber(v))", VOLTAGE_INPUTS)
+    bad = [(v, c, s) for v, c, s in zip(VOLTAGE_INPUTS, client_read, server) if c != s]
+    assert not bad, bad
+    classes = pg.evaluate("""() => ['Infinity', '1e400', '-Infinity', 'Infinityx'].map(v => [
+        window.app._voltageClass(v), window.app._breakoutEligible({ id: 'soca-edison' }, v)])""")
+    assert classes == [[None, True]] * 4, classes
+    # the breakout each side stores for each entry, with the L21-30 stored
+    # and preferred: the same answer everywhere, and '208V' keeps the box
+    settled = pg.evaluate("""async ([id, table]) => {
+        const app = window.app;
+        const out = [];
+        for (const v of table) {
+            const probe = { type: 'screen', powerVoltage: v, powerBreakoutType: 'l2130-true1' };
+            app.normalizePowerBreakout(probe);
+            const srv = await (await fetch(`/api/layer/${id}`, { method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ powerVoltage: v, powerBreakoutType: 'l2130-true1' }) })).json();
+            out.push([probe.powerBreakoutType, srv.powerBreakoutType]);
+        }
+        return out;
+    }""", [layer_id, VOLTAGE_INPUTS])
+    disagree = [(v, c, s) for v, (c, s) in zip(VOLTAGE_INPUTS, settled) if c != s]
+    assert not disagree, disagree
+    want = ['l2130-true1' if w == 208 else ('soca-edison' if 0 < w <= 120 else 'soca-true1')
+            for w in VOLTAGE_EXPECT]
+    assert [c for c, _ in settled] == want, list(zip(VOLTAGE_INPUTS, settled, want))
+    assert errors == [], errors

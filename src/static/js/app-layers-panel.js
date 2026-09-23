@@ -224,11 +224,9 @@ ${cabinetBtn}
                 const newName = nameInput.value.trim() || layer.name;
                 if (newName !== layer.name) {
                     layer.name = newName;
-                    fetch(`/api/layer/${layer.id}`, {
-                        method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ name: newName })
-                    });
+                    // _putLayer: a rename is a hand on the screen (the
+                    // `edited` marker rides the PUT).
+                    this._putLayer(layer.id, { name: newName });
                     // Record the rename so it's undoable on its own; without
                     // this the local name change rode along on the next action
                     // and a later undo restored a stale name (client/server

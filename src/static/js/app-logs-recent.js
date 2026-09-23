@@ -527,6 +527,9 @@ class _LogsRecent {
                     this.normalizeLoadedPowerFlowPattern(layer);
                 });
             }
+            // Same stamp as loadProjectFromFile, for the same reason: the
+            // migrations have run, the PUT below never stamps on the server.
+            this.project.app_version = this.appVersion();
             // v0.11.0: same Armor Port Mapping fix-up as loadProjectFromFile.
             // Runs before the PUT so the server (and the first undo snapshot)
             // get the corrected mode.

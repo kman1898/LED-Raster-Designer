@@ -789,6 +789,22 @@ def test_a_failed_add_is_logged_and_toasted_not_thrown(page):
         pg.unroute('**/api/layer/add')
     assert pg.evaluate("() => window.__rejections") == []
     assert pg.evaluate(IDS_JS) == before, 'a screen landed from a 500'
+    # a 200 whose body carries no id is no layer either (2026-09-23): the
+    # chain used to land an {id: undefined} screen that every later PUT
+    # 404ed on. Same toast, nothing added.
+    pg.evaluate("() => { const h = document.getElementById('app-toast-host'); if (h) h.textContent = ''; }")
+    pg.route('**/api/layer/add', lambda route: route.fulfill(
+        status=200, content_type='application/json', body='{"status": "ok"}'))
+    try:
+        pg.evaluate("() => window.app.addLayer()")
+        pg.wait_for_timeout(1500)
+    finally:
+        pg.unroute('**/api/layer/add')
+    assert pg.evaluate("() => window.__rejections") == []
+    assert pg.evaluate(IDS_JS) == before, 'a screen with no id landed from a 200'
+    assert pg.evaluate("() => window.app.project.layers.some(l => l.id == null)") is False
+    toast = pg.evaluate("() => { const h = document.getElementById('app-toast-host'); return h ? h.textContent : ''; }")
+    assert 'not added' in toast, toast
     assert errors == [], errors
 
 
@@ -980,4 +996,296 @@ def test_a_file_this_build_saves_is_never_migrated_on_its_next_open(page):
     got = _load_with_old_set(pg, project, 'Current File')
     assert got['live'] == old_set, got['live']
     assert got['srv'] == old_set, got['srv']
+    assert errors == [], errors
+
+
+def test_an_opened_file_is_stamped_so_the_migration_runs_once(page):
+    """Round four: File > Open of an unversioned file migrated the old set
+    in the browser and PUT the project, but a load never stamps on the
+    server, so the server copy carried no app_version and every page
+    reload ran the old-green migration again - on colours painted since.
+    The client now stamps the opened project (after its migrations, before
+    the load PUT): the server copy carries this build's version, and a
+    whole old set painted on purpose after the open survives a reload.
+    Replaces the project (the module guard puts the seeded one back)."""
+    pg, errors = page
+    old_set = dict(zip('ABCDEF', OLD_SHIPPED_CIRCUIT_COLORS))
+    version = pg.evaluate("async () => (await (await fetch('/api/version')).json()).version")
+    pg.evaluate(SET_PREFS_JS, {'powerCircuitColors': SHIPPED_CIRCUIT_COLORS})
+    pg.evaluate("() => window.app.createNewProject()")
+    pg.wait_for_timeout(1500)
+    project = json.loads(pg.evaluate("() => window.app.serializeProjectForFile()"))
+    unversioned = dict(project)
+    del unversioned['app_version']
+    got = _load_with_old_set(pg, unversioned, 'Stamped On Open')
+    assert got['live']['D'] == SHIPPED_CIRCUIT_COLORS[3], got['live']     # migrated once, at open
+    stamped = pg.evaluate("async () => ({ client: window.app.project.app_version,"
+                          " server: (await (await fetch('/api/project')).json()).app_version })")
+    assert stamped == {'client': version, 'server': version}, stamped
+    # paint the whole old set on purpose, the way the Screen Info panel does
+    pg.evaluate("""(old) => {
+        const app = window.app;
+        const layer = app.project.layers[0];
+        layer.powerCircuitColors = { ...old };
+        app.updateLayers([layer], false, 'Paint old set');
+    }""", old_set)
+    pg.wait_for_timeout(1000)
+    srv = pg.evaluate("async () => (await (await fetch('/api/project')).json()).layers[0].powerCircuitColors")
+    assert srv == old_set, srv
+    pg.reload(wait_until='domcontentloaded')
+    pg.wait_for_timeout(2500)
+    live = pg.evaluate("() => window.app.project.layers[0].powerCircuitColors")
+    assert live == old_set, live
+    # and the recent-files path stamps the same way
+    recent = pg.evaluate("""(old) => {
+        const app = window.app;
+        const data = JSON.parse(JSON.stringify(app.project));
+        delete data.app_version;
+        data.name = 'Recent Unversioned';
+        data.layers[0].powerCircuitColors = { ...old };
+        app.saveRecentFiles([{ name: data.name, timestamp: Date.now(), layerCount: 1, data }]);
+        app.loadRecentFile(0);
+        return true;
+    }""", old_set)
+    assert recent
+    pg.wait_for_timeout(2000)
+    back = pg.evaluate("async () => ({ name: window.app.project.name, client: window.app.project.app_version,"
+                       " server: (await (await fetch('/api/project')).json()).app_version,"
+                       " d: window.app.project.layers[0].powerCircuitColors.D })")
+    assert back == {'name': 'Recent Unversioned', 'client': version, 'server': version,
+                    'd': SHIPPED_CIRCUIT_COLORS[3]}, back
+    assert errors == [], errors
+
+
+# ── the pristine startup screen and the Breakout preference ──────────────
+
+# The startup screen's voltage / breakout pair in the browser and on the
+# server, and the pristine flag on both sides.
+STARTUP_POWER_JS = """async () => {
+    const app = window.app;
+    const l = app.project.layers[0];
+    const srv = await (await fetch('/api/project')).json();
+    const s = srv.layers[0];
+    return { live: [l.powerVoltage, l.powerBreakoutType], srv: [s.powerVoltage, s.powerBreakoutType],
+             columns: [l.columns, s.columns],
+             pristine: app.project.is_pristine, srvPristine: srv.is_pristine };
+}"""
+
+
+def _pref_field(pg, field_id, value):
+    """Set a select / text field on the open dialog and fire change."""
+    pg.evaluate("""([id, v]) => {
+        const el = document.getElementById(id);
+        el.value = v;
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+    }""", [field_id, value])
+    pg.wait_for_timeout(100)
+
+
+def _open_power_tab(pg):
+    pg.evaluate("() => window.app.openPreferencesModal()")
+    pg.wait_for_timeout(300)
+    pg.locator('#preferences-modal .pm-tabstrip .view-tab[data-key="power"]').click()
+    pg.wait_for_timeout(150)
+
+
+def test_the_pristine_startup_screen_follows_the_breakout_preference(page):
+    """The Save's re-make of the pristine screen wrote the voltage and then
+    normalized, so an eligible stored breakout stood and the screen never
+    took a changed Breakout preference (2026-09-23). On the pristine screen
+    the preference breakout is written outright when the preference
+    voltage allows it, else the class default: 208 / True1 -> New Project
+    -> Breakout = powerCON, Save -> powerCON on both sides; L21-30 picked
+    and the voltage set to 110 (the dialog snaps to Edison) -> 110 /
+    Edison on both sides; a reload keeps it; an edited screen keeps its
+    own pair through a later Save."""
+    pg, errors = page
+    saved = pg.evaluate("() => window.app.getPreferences()")
+    try:
+        pg.evaluate(SET_PREFS_JS, {'powerVoltage': 208, 'breakoutType': 'soca-true1', 'columns': 8})
+        pg.evaluate("() => window.app.createNewProject()")
+        pg.wait_for_timeout(1500)
+        st = pg.evaluate(STARTUP_POWER_JS)
+        assert st['live'] == [208, 'soca-true1'] and st['srv'] == [208, 'soca-true1'], st
+        assert st['pristine'] is True and st['srvPristine'] is True, st
+
+        _open_power_tab(pg)
+        _pref_field(pg, 'pref-breakout-type', 'soca-powercon')
+        pg.locator('#preferences-save').click()
+        pg.wait_for_timeout(1000)
+        st = pg.evaluate(STARTUP_POWER_JS)
+        assert st['live'] == [208, 'soca-powercon'] and st['srv'] == [208, 'soca-powercon'], st
+        assert st['pristine'] is True and st['srvPristine'] is True, st
+
+        _open_power_tab(pg)
+        _pref_field(pg, 'pref-breakout-type', 'l2130-true1')
+        _pref_field(pg, 'pref-power-voltage-select', '110')
+        assert pg.evaluate("() => document.getElementById('pref-breakout-type').value") == 'soca-edison'
+        pg.locator('#preferences-save').click()
+        pg.wait_for_timeout(1000)
+        st = pg.evaluate(STARTUP_POWER_JS)
+        assert st['live'] == [110, 'soca-edison'] and st['srv'] == [110, 'soca-edison'], st
+        assert st['pristine'] is True and st['srvPristine'] is True, st
+
+        # a relaunch: the startup overlay writes the same pair
+        pg.reload(wait_until='domcontentloaded')
+        pg.wait_for_timeout(2500)
+        st = pg.evaluate(STARTUP_POWER_JS)
+        assert st['live'] == [110, 'soca-edison'] and st['srv'] == [110, 'soca-edison'], st
+        assert st['srvPristine'] is True, st
+
+        # the user edits the screen: a later Save leaves its pair alone
+        _edit_columns(pg, 6)
+        assert pg.evaluate(STARTUP_POWER_JS)['srvPristine'] is False
+        _open_power_tab(pg)
+        _pref_field(pg, 'pref-power-voltage-select', '208')
+        _pref_field(pg, 'pref-breakout-type', 'l2130-powercon')
+        pg.locator('#preferences-save').click()
+        pg.wait_for_timeout(1000)
+        st = pg.evaluate(STARTUP_POWER_JS)
+        assert st['live'] == [110, 'soca-edison'] and st['srv'] == [110, 'soca-edison'], st
+        assert st['columns'] == [6, 6] and st['pristine'] is False and st['srvPristine'] is False, st
+        srv_prefs = pg.evaluate("async () => (await (await fetch('/api/preferences')).json())")
+        assert (srv_prefs['powerVoltage'], srv_prefs['breakoutType']) == (208, 'l2130-powercon'), srv_prefs
+    finally:
+        pg.evaluate(SET_PREFS_JS, {'powerVoltage': saved['powerVoltage'],
+                                   'breakoutType': saved['breakoutType'], 'columns': 8})
+        pg.evaluate("""() => {
+            const m = document.getElementById('preferences-modal');
+            if (m) m.style.display = 'none';
+        }""")
+    assert errors == [], errors
+
+
+# ── every hand on the screen ends the pristine state ─────────────────────
+
+# The four PUTs that carried no `edited` marker until 2026-09-23.
+HANDS_JS = {
+    'hide': """() => { const app = window.app; app.toggleLayerVisibility(app.project.layers[0].id); }""",
+    'lock': """() => { const app = window.app; app.selectLayer(app.project.layers[0]); app.setLockOnSelected(true); }""",
+    'rename on the Screens panel': """() => {
+        const app = window.app;
+        const l = app.project.layers[0];
+        const inp = document.querySelector(`.layer-name-input[data-layer-id="${l.id}"]`);
+        inp.dispatchEvent(new Event('dblclick', { bubbles: true }));
+        inp.value = 'Renamed on the panel';
+        inp.dispatchEvent(new Event('blur'));
+    }""",
+    'rename on the canvas': """() => {
+        const app = window.app;
+        const l = app.project.layers[0];
+        const host = document.createElement('div');
+        document.body.appendChild(host);
+        app.renameLayer(l, host);
+        const inp = host.querySelector('input');
+        inp.value = 'Renamed on the canvas';
+        inp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+        host.remove();
+    }""",
+}
+
+
+@pytest.mark.parametrize('how', list(HANDS_JS))
+def test_a_hand_on_the_eye_the_lock_or_the_name_ends_the_pristine_state(page, how):
+    """The eye toggle, the lock, the Screens-panel rename and the on-canvas
+    rename each PUT the layer bare, with no `edited` marker, so the server
+    stayed pristine and the next preference Save re-made the screen the
+    user had just hidden, locked or renamed (2026-09-23). Each now goes
+    through _putLayer: on a fresh project the hand ends the server's flag,
+    and after a relaunch a Save leaves the screen alone."""
+    pg, errors = page
+    pg.evaluate("async () => { await fetch('/api/project/new', { method: 'POST' }); }")
+    pg.reload(wait_until='domcontentloaded')
+    pg.wait_for_timeout(2500)
+    before = pg.evaluate(STARTUP_STATE_JS)
+    assert before['pristine'] is True and before['srvPristine'] is True, before
+    pg.evaluate(HANDS_JS[how])
+    pg.wait_for_timeout(800)
+    after = pg.evaluate(STARTUP_STATE_JS)
+    assert after['srvPristine'] is False, (how, after)
+    if how.startswith('rename'):
+        names = pg.evaluate("""async () => [window.app.project.layers[0].name,
+            (await (await fetch('/api/project')).json()).layers[0].name]""")
+        assert names == ['Renamed on the panel' if 'panel' in how else 'Renamed on the canvas'] * 2, names
+    pg.reload(wait_until='domcontentloaded')
+    pg.wait_for_timeout(2500)
+    want = 3 if before['live'] != 3 else 4
+    _save_columns(pg, want)
+    got = pg.evaluate(STARTUP_STATE_JS)
+    assert got == {'live': before['live'], 'srv': before['srv'], 'pristine': False, 'srvPristine': False}, (how, got)
+    pg.evaluate(SET_PREFS_JS, {'columns': 8})
+    assert errors == [], errors
+
+
+# ── the guide's exit ─────────────────────────────────────────────────────
+
+def test_the_guide_s_exit_hands_a_pristine_project_back_still_pristine(page):
+    """The guide stashes the user's world, builds a scratch show (which
+    ends the server's pristine flag) and on exit PUTs the world back
+    through restore_project - which always cleared the flag, so the
+    startup screen stopped following Preferences after the first-run
+    guide (2026-09-23). The restore says keep_pristine when the world it
+    puts back is pristine: server and client both still pristine, the
+    marker stored nowhere, and a Save follows after a relaunch. Undo
+    never says it. Then the real guide: start, end, still pristine."""
+    pg, errors = page
+    pg.evaluate("async () => { await fetch('/api/project/new', { method: 'POST' }); }")
+    pg.reload(wait_until='domcontentloaded')
+    pg.wait_for_timeout(2500)
+    out = pg.evaluate("""async () => {
+        const app = window.app;
+        const snap = JSON.parse(JSON.stringify(app.project));
+        const post = (url, body) => fetch(url, { method: 'POST',
+            headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        // the guide's scratch show: an add and a delete end the server's flag
+        const added = await (await post('/api/layer/add', { name: 'Scratch', columns: 2, rows: 2,
+            cabinet_width: 100, cabinet_height: 100 })).json();
+        await fetch(`/api/layer/${added.id}`, { method: 'DELETE' });
+        const mid = (await (await fetch('/api/project')).json()).is_pristine;
+        // the exit: the stashed world goes back the way quickstart restoreProject sends it
+        app.project = snap;
+        app.currentLayer = snap.layers[0];
+        await app._syncRestoredProject({ project: app.project, action: 'Tutorial Exit' }, 'Tutorial Exit',
+                                       { keepPristine: true });
+        const srv = await (await fetch('/api/project')).json();
+        return { snapPristine: snap.is_pristine, mid, srv: srv.is_pristine, live: app.project.is_pristine,
+                 marker: ('keep_pristine' in srv) || ('keep_pristine' in app.project),
+                 layers: srv.layers.length };
+    }""")
+    assert out == {'snapPristine': True, 'mid': False, 'srv': True, 'live': True,
+                   'marker': False, 'layers': 1}, out
+    pg.reload(wait_until='domcontentloaded')
+    pg.wait_for_timeout(2500)
+    _save_columns(pg, 3)
+    assert pg.evaluate(STARTUP_STATE_JS) == \
+        {'live': 3, 'srv': 3, 'pristine': True, 'srvPristine': True}, 'the Save after the exit did not follow'
+    # undo: an undone edit is still an edit (the restore PUT carries no
+    # marker). The step goes back to the boot snapshot - the preference
+    # re-make saves no step, so that is the 8 the page booted on.
+    _edit_columns(pg, 6)
+    pg.evaluate("() => window.app.undo()")
+    pg.wait_for_timeout(1000)
+    got = pg.evaluate(STARTUP_STATE_JS)
+    assert got['live'] == got['srv'] == 8 and got['srvPristine'] is False, got
+
+    # the real guide on a fresh project: start, then end
+    pg.evaluate("async () => { await fetch('/api/project/new', { method: 'POST' }); }")
+    pg.reload(wait_until='domcontentloaded')
+    pg.wait_for_timeout(2500)
+    assert pg.evaluate(STARTUP_STATE_JS)['srvPristine'] is True
+    pg.evaluate("() => { window.QuickStart.setSpeed(4); window.QuickStart.start(); }")
+    pg.wait_for_timeout(3000)
+    running = pg.evaluate("() => window.QuickStart.state()")
+    assert running['visible'] is True, running
+    pg.evaluate("async () => { await window.QuickStart.end(); }")
+    pg.wait_for_timeout(1500)
+    ended = pg.evaluate("() => window.QuickStart.state()")
+    assert ended['visible'] is False, ended
+    got = pg.evaluate(STARTUP_STATE_JS)
+    assert got['pristine'] is True and got['srvPristine'] is True, got
+    assert pg.evaluate("() => window.app.project.layers.length") == 1
+    _save_columns(pg, 4)
+    assert pg.evaluate(STARTUP_STATE_JS) == \
+        {'live': 4, 'srv': 4, 'pristine': True, 'srvPristine': True}, 'the Save after the guide did not follow'
+    pg.evaluate(SET_PREFS_JS, {'columns': 8})
     assert errors == [], errors

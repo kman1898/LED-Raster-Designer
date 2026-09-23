@@ -23,7 +23,15 @@ def get_preferences():
 
 @preferences_bp.route('/api/preferences', methods=['PUT'])
 def save_preferences():
-    data = request.json or {}
+    # Only a JSON object is a preferences record. Until 2026-09-23 any JSON
+    # body was stored as-is - a list, a string, a number - and the first
+    # reader to call .get() on it (POST /api/canvas reading canvasGap,
+    # preferred_power_breakout reading breakoutType) answered 500. A body
+    # that is not an object is refused and the stored record stands.
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        log_event('save_preferences_rejected', {'type': type(data).__name__})
+        return jsonify({'error': 'preferences must be a JSON object'}), 400
     app.server_preferences = data
     log_event('save_preferences', {'keys': list(data.keys())})
     socketio.emit('preferences_updated', app.server_preferences)

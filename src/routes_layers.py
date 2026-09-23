@@ -129,7 +129,11 @@ def add_layer():
         layer['panels'] = _build_panels(layer)
     # A screen always carries a breakout its voltage allows (2026-09-22):
     # the payload's choice stands when eligible, else the preference, else
-    # the class default - see app.normalize_power_breakout.
+    # the class default - see app.normalize_power_breakout. The voltage the
+    # rule reads is the one the layer holds NOW - the request's when it
+    # named one (the loop above wrote it), else the donor's from
+    # _seed_data_with_canvas_defaults, else create_layer's 110 - so the
+    # normalize runs after the field loop, never before it.
     app.normalize_power_breakout(layer)
     log_event('add_layer', {
         'name': layer.get('name'), 'id': layer.get('id'),

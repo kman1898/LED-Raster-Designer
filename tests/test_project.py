@@ -84,3 +84,19 @@ def test_server_session(client):
     assert 'session_id' in data
     assert 'start_time' in data
     assert isinstance(data['start_time'], int)
+
+
+def test_a_load_keeps_the_stamp_it_is_handed_and_adds_none(client):
+    """PUT /api/project stores a project's app_version exactly as the
+    client sent it - the client stamps a file it has just opened, after its
+    migrations, so the server copy is that build's from then on - and
+    never invents one for a payload that carries none."""
+    from updater import get_current_version
+    version = get_current_version()
+    base = {'name': 'Opened', 'raster_width': 1920, 'raster_height': 1080, 'layers': []}
+    assert client.put('/api/project', json=dict(base, app_version=version)).status_code == 200
+    assert client.get('/api/project').get_json()['app_version'] == version
+    assert client.put('/api/project', json=dict(base, app_version='1.2.9')).status_code == 200
+    assert client.get('/api/project').get_json()['app_version'] == '1.2.9'
+    assert client.put('/api/project', json=base).status_code == 200
+    assert 'app_version' not in client.get('/api/project').get_json()

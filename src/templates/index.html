@@ -1169,7 +1169,7 @@
                                     <option value="240">240V</option>
                                     <option value="custom">Custom</option>
                                 </select>
-                                <input type="number" id="power-voltage-custom" min="0" autocomplete="off" placeholder="V" style="width: 70px; display: none;">
+                                <input type="number" id="power-voltage-custom" min="1" max="1000" step="1" autocomplete="off" placeholder="V" style="width: 70px; display: none;">
                             </div>
                         </div>
                         <div class="info-row" data-tooltip="Amperage, Circuit breaker rating used to calculate how many panels fit per circuit.">
@@ -2518,7 +2518,7 @@
                                     <option value="240">240V</option>
                                     <option value="custom">Custom</option>
                                 </select>
-                                <input type="text" id="pref-power-voltage-custom" placeholder="Custom V" style="display:none;">
+                                <input type="text" id="pref-power-voltage-custom" inputmode="numeric" min="1" max="1000" placeholder="Custom V" style="display:none;">
                                 <select id="pref-power-amperage-select">
                                     <option value="15">15A</option>
                                     <option value="20">20A</option>

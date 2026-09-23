@@ -2016,7 +2016,11 @@
         try { a.loadLayerToInputs(); } catch (e) {}
         try { a.syncRasterFromProject(); } catch (e) {}
         var entry = { project: a.project, action: label };
-        return Promise.resolve(a._syncRestoredProject(entry, label)).then(function () {
+        // keepPristine: the world going back is the user's own, taken before
+        // the guide touched anything. A guide run on the fresh startup
+        // project (the first-run guide) must hand it back still pristine,
+        // or the startup screen stops following Preferences after the guide.
+        return Promise.resolve(a._syncRestoredProject(entry, label, { keepPristine: true })).then(function () {
             return a.refreshProcessors();
         }).then(function () {
             return a.refreshPortAssignment();

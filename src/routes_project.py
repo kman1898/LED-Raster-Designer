@@ -23,7 +23,10 @@ def _stamp_app_version(project):
     and on a new project, never on a load (PUT): a file saved before the
     stamp existed carries none, and that absence is what tells the client
     the file predates a migration (app-naming normalizePowerCircuitColors
-    reads it). The client writes the same key into the file it saves."""
+    reads it). The client writes the same key into the file it saves, and
+    stamps a project it has just opened - after its migrations, before the
+    load PUT - so the copy this route stores is that build's from then on;
+    a stamp the PUT carries is kept as it came (2026-09-23)."""
     project['app_version'] = get_current_version()
 
 
@@ -71,7 +74,9 @@ def save_project():
     # made it, never after a relaunch. That sync says so with
     # `keep_pristine: true`; it is a request marker, never stored. A user
     # save, a sidebar reorder - any other POST - clears the flag as before.
-    keep_pristine = bool(data.pop('keep_pristine', False))
+    # Read the way PUT /api/layer/<id> reads ?edited: only true / 1 / yes
+    # keep the flag. bool() took the string 'false' as true (2026-09-23).
+    keep_pristine = str(data.pop('keep_pristine', False)).lower() in ('1', 'true', 'yes')
     # Slice 6: source-of-truth for raster lives on the active canvas. If the
     # client sent root-level raster_* fields without a canvases payload
     # (backwards-compat clients / older tests), propagate those into the
@@ -147,8 +152,19 @@ def restore_project():
                 f'Please update the app.'
             )
         }), 400
+    # `keep_pristine`: the guide's exit (and its recovery after a reload)
+    # puts the user's own project back through this route - the world as
+    # it was before the guide touched anything. When that snapshot is still
+    # pristine the client says so, and the snapshot's flag is what the
+    # project ends on (the guide's own adds and edits had cleared the
+    # server's copy meanwhile). A request marker, never stored. Undo, redo
+    # and a file load never send it: any other PUT clears the flag as
+    # before (2026-09-23).
+    # Read the way save_project and PUT /api/layer/<id> read their markers.
+    keep_pristine = (isinstance(data, dict)
+                     and str(data.pop('keep_pristine', False)).lower() in ('1', 'true', 'yes'))
     app.current_project = data
-    app.current_project['is_pristine'] = False
+    app.current_project['is_pristine'] = bool(keep_pristine and data.get('is_pristine') is True)
     # Backfill showOffsetX/Y on layers from older projects that pre-date the
     # Show Look feature, default them to the layer's processor offset so
     # existing projects open with the show layout = pixel layout.

@@ -663,12 +663,14 @@ def test_the_breakout_preference_is_gated_by_the_voltage_preference(page):
             'Not available at 110V — a screen up to 120V runs Multi → True1, powerCON or Edison.', st
         for ok in ('soca-true1', 'soca-powercon', 'soca-edison'):
             assert st['opts'][ok] == [False, ''], (ok, st)
-        # a custom 121 V: Edison snaps to True1, the L21-30 boxes stay out
+        # a custom 121 V (committed on change, never per keystroke - see
+        # test_a_custom_voltage_typed_digit_by_digit_keeps_the_breakout_pick):
+        # Edison snaps to True1, the L21-30 boxes stay out
         _set(pg, 'pref-power-voltage-select', 'custom')
         pg.evaluate("""() => {
             const box = document.getElementById('pref-power-voltage-custom');
             box.value = '121';
-            box.dispatchEvent(new Event('input', { bubbles: true }));
+            box.dispatchEvent(new Event('change', { bubbles: true }));
         }""")
         st = pg.evaluate(read)
         assert st['value'] == 'soca-true1', st
@@ -914,4 +916,288 @@ def test_reset_defaults_asks_first_and_lands_on_save(page):
     served, defaults = norm(served), norm(defaults)
     assert served == defaults, {k: (served.get(k), defaults.get(k))
                                 for k in set(served) | set(defaults) if served.get(k) != defaults.get(k)}
+    assert ids['errors'] == [], ids['errors']
+
+
+# ── the preferences route stores only an object ───────────────────────────
+
+def test_the_preferences_route_refuses_a_body_that_is_not_an_object(page):
+    """PUT /api/preferences stored ANY JSON body (2026-09-23): a list
+    became the preferences record and the next POST /api/canvas 500'd on
+    reading canvasGap off it. A body that is not a JSON object is refused
+    with 400, the stored record stands, and the routes that read it still
+    answer."""
+    pg, ids = page
+    before = _served(pg)
+    assert isinstance(before, dict) and before, before
+    got = pg.evaluate("""async (bodies) => {
+        const out = [];
+        for (const body of bodies) {
+            const r = await fetch('/api/preferences', { method: 'PUT',
+                headers: { 'Content-Type': 'application/json' }, body });
+            out.push([body, r.status]);
+        }
+        out.push(['not json', (await fetch('/api/preferences', { method: 'PUT',
+            headers: { 'Content-Type': 'application/json' }, body: '{nope' })).status]);
+        out.push(['no body', (await fetch('/api/preferences', { method: 'PUT' })).status]);
+        return out;
+    }""", ['[]', '[1, 2]', '"junk"', '42', 'null', 'true'])
+    assert all(status == 400 for _, status in got), got
+    assert _served(pg) == before, 'a refused body replaced the preferences'
+    made = pg.evaluate("""async () => {
+        const r = await fetch('/api/canvas', { method: 'POST',
+            headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'After' }) });
+        const data = await r.json();
+        const canvases = data.canvases || [];
+        const c = canvases.find(x => x.name === 'After');
+        const del = c ? (await fetch(`/api/canvas/${c.id}`, { method: 'DELETE' })).status : null;
+        return { status: r.status, found: !!c, del };
+    }""")
+    assert made == {'status': 200, 'found': True, 'del': 200}, made
+    # an object still lands
+    pg.evaluate(SET_PREFS_JS, {})
+    assert _served(pg) == before
+
+
+def test_a_junk_breakout_preference_does_not_leak_the_donor_s_voltage(page):
+    """Preferences at 120 V with a breakout id the catalog does not know,
+    and a 208 V screen already on the canvas: the new screen lands at
+    120 V on Edison - the class default - on the client AND the server.
+    Before (2026-09-23) the server seeded the new layer with the donor's
+    208 V and normalized there to True1, the client then wrote 120 V, and
+    True1 - eligible at 120 V - stood."""
+    pg, ids = page
+    saved = pg.evaluate("() => window.app.getPreferences()")
+    donor = pg.evaluate("(id) => window.app.project.layers.find(l => l.id === id).powerVoltage", ids['id'])
+    assert donor == 208, donor
+    pg.evaluate(SET_PREFS_JS, {'breakoutType': 'junk', 'powerVoltage': 120})
+    try:
+        n = pg.evaluate("() => window.app.project.layers.length")
+        pg.evaluate("() => window.app.addLayer(null)")
+        pg.wait_for_timeout(1500)
+        made = pg.evaluate("""async (n) => {
+            const l = window.app.project.layers;
+            if (l.length <= n) return null;
+            const s = l[l.length - 1];
+            const srv = (await (await fetch('/api/project')).json()).layers.find(x => x.id === s.id);
+            return { id: s.id, live: [s.powerVoltage, s.powerBreakoutType || null],
+                     srv: srv ? [srv.powerVoltage, srv.powerBreakoutType || null] : 'missing' };
+        }""", n)
+        assert made, 'no screen was added'
+        pg.evaluate("(id) => window.app.deleteLayer(id)", made['id'])
+        pg.wait_for_timeout(800)
+        assert made['live'] == [120, 'soca-edison'], made
+        assert made['srv'] == [120, 'soca-edison'], made
+    finally:
+        pg.evaluate(SET_PREFS_JS, {'breakoutType': saved['breakoutType'], 'powerVoltage': saved['powerVoltage']})
+        pg.evaluate("(id) => { const app = window.app; app.selectLayer(app.project.layers.find(x => x.id === id)); }",
+                    ids['id'])
+
+
+# ── the dialog's tabs and the workspace ───────────────────────────────────
+
+# What the workspace shows: the renderer's view, the hardware dock (hidden
+# by class outside Data / Power), the Power sidebar panel, and which top
+# view tab is lit.
+WORKSPACE_JS = """() => {
+    const dock = document.getElementById('hardware-dock');
+    const panel = document.querySelector('.tab-panel[data-tab="power"]');
+    return { mode: window.canvasRenderer.viewMode,
+             dockHidden: !!dock && dock.classList.contains('view-hidden'),
+             powerPanel: panel ? getComputedStyle(panel).display : 'missing',
+             lit: [...document.querySelectorAll('#view-tabs .view-tab.active')].map(t => t.dataset.mode) };
+}"""
+
+
+def test_the_dialog_s_tabs_leave_the_workspace_alone(page):
+    """The dialog's tab strip reuses the .view-tab class (data-key, no
+    data-mode). The workspace's view-tab wiring bound every .view-tab on
+    the page, so clicking Power / Look / Data INSIDE the dialog called
+    setViewMode(undefined): the hardware dock and every sidebar panel
+    vanished until a top view button was clicked (2026-09-23). Open from
+    Power view, click every dialog tab, Cancel: the view is still Power,
+    the dock is not view-hidden, the Power panel is shown, Power is the
+    lit top tab - and the dialog's own strip still switched sections."""
+    pg, ids = page
+    pg.locator('#view-tabs .view-tab[data-mode="power"]').click()
+    pg.wait_for_timeout(300)
+    before = pg.evaluate(WORKSPACE_JS)
+    assert before['mode'] == 'power' and before['dockHidden'] is False, before
+    assert before['powerPanel'] == 'block' and before['lit'] == ['power'], before
+    _open(pg)
+    for key in TABS:
+        _tab(pg, key)
+        shown = pg.evaluate("""() => [...document.querySelectorAll('#preferences-modal .pm-section.active')]
+            .map(s => s.dataset.key)""")
+        assert shown == [key], (key, shown)
+        assert pg.evaluate(WORKSPACE_JS) == before, (key, pg.evaluate(WORKSPACE_JS))
+    pg.locator('#preferences-cancel').click()
+    pg.wait_for_timeout(200)
+    assert pg.evaluate(WORKSPACE_JS) == before
+    assert pg.evaluate("() => window.app._prefsTab") == 'pull'
+    assert ids['errors'] == [], ids['errors']
+
+
+# ── the custom voltage box ────────────────────────────────────────────────
+
+# The Power tab's voltage pair as the dialog shows it, the figure the
+# gate reads (the one Save stores), and which breakouts are greyed.
+VOLTAGE_UI_JS = """() => {
+    const app = window.app;
+    const sel = document.getElementById('pref-breakout-type');
+    const box = document.getElementById('pref-power-voltage-custom');
+    const greyed = [...sel.options].filter(o => o.disabled).map(o => o.value).sort();
+    return { select: document.getElementById('pref-power-voltage-select').value,
+             box: box.value, boxShown: box.style.display !== 'none',
+             gate: app._preferenceVoltageInUI(), breakout: sel.value, greyed,
+             read: [app.readPreferencesFromUI().powerVoltage, app.readPreferencesFromUI().breakoutType] };
+}"""
+
+
+def _box(pg, value, event='change'):
+    pg.evaluate("""([v, ev]) => {
+        const box = document.getElementById('pref-power-voltage-custom');
+        box.value = v;
+        box.dispatchEvent(new Event(ev, { bubbles: true }));
+    }""", [value, event])
+    pg.wait_for_timeout(100)
+    return pg.evaluate(VOLTAGE_UI_JS)
+
+
+def _restore_voltage_prefs(pg, saved):
+    pg.evaluate(SET_PREFS_JS, {'breakoutType': saved['breakoutType'], 'powerVoltage': saved['powerVoltage']})
+    pg.evaluate("""() => {
+        const m = document.getElementById('preferences-modal');
+        if (m) m.style.display = 'none';
+    }""")
+
+
+def test_a_blank_custom_voltage_gates_on_the_figure_save_stores(page):
+    """(a) A blank custom box gated as 0 V - offering L6-20 and the rest -
+    while Save fell back to 110 V and stored 110 / Edison: the pair shown
+    was not the pair stored. Now the box, the gate and Save read one
+    figure: a box with no figure stands for the figure in force (the last
+    figure the box accepted - the stock 110 the select mirrored into it
+    here, the stored custom 121 on the second open), the box shows it,
+    and what Save stores is what the dialog showed."""
+    pg, ids = page
+    saved = pg.evaluate("() => window.app.getPreferences()")
+    try:
+        pg.evaluate(SET_PREFS_JS, {'powerVoltage': 110, 'breakoutType': 'soca-true1'})
+        _open(pg)
+        _tab(pg, 'power')
+        _set(pg, 'pref-power-voltage-select', 'custom')
+        st = _box(pg, '')
+        assert st['box'] == '110' and st['gate'] == 110, st
+        assert st['greyed'] == ['l2130-powercon', 'l2130-true1', 'soca-l620'], st
+        assert st['read'] == [110, 'soca-true1'], st
+        _set(pg, 'pref-breakout-type', 'soca-powercon')
+        st = _box(pg, '')
+        assert st['read'] == [110, 'soca-powercon'], st
+        _save(pg)
+        served = _served(pg)
+        assert (served['powerVoltage'], served['breakoutType']) == (110, 'soca-powercon'), served
+        # a stored custom figure is the figure in force on the next open
+        pg.evaluate(SET_PREFS_JS, {'powerVoltage': 121, 'breakoutType': 'soca-l620'})
+        _open(pg)
+        _tab(pg, 'power')
+        st = pg.evaluate(VOLTAGE_UI_JS)
+        assert st['select'] == 'custom' and st['box'] == '121' and st['boxShown'], st
+        st = _box(pg, '')
+        assert st['box'] == '121' and st['gate'] == 121, st
+        assert st['greyed'] == ['l2130-powercon', 'l2130-true1', 'soca-edison'], st
+        assert st['read'] == [121, 'soca-l620'], st
+        pg.locator('#preferences-cancel').click()
+        pg.wait_for_timeout(200)
+    finally:
+        _restore_voltage_prefs(pg, saved)
+    assert ids['errors'] == [], ids['errors']
+
+
+def test_a_custom_voltage_is_whole_volts_from_1_to_the_box_s_max(page):
+    """(b) The same rule as the sidebar's box (app-wiring _wirePowerPanel):
+    whole volts, 1 or more, up to the box's max of 1000 (index.html). A
+    fraction (120.5), 0, a negative figure, text or 100000 is refused on
+    change - the figure in force goes back in the box - and never stored;
+    121 and 1000 are accepted and become the figure in force."""
+    pg, ids = page
+    saved = pg.evaluate("() => window.app.getPreferences()")
+    assert pg.evaluate("() => document.getElementById('pref-power-voltage-custom').getAttribute('max')") == '1000'
+    try:
+        pg.evaluate(SET_PREFS_JS, {'powerVoltage': 208, 'breakoutType': 'soca-true1'})
+        _open(pg)
+        _tab(pg, 'power')
+        _set(pg, 'pref-power-voltage-select', 'custom')
+        for bad in ('120.5', '0', '-5', 'abc', '1e-9', '100000', '1000.5'):
+            st = _box(pg, bad)
+            assert st['box'] == '208' and st['gate'] == 208 and st['read'][0] == 208, (bad, st)
+        st = _box(pg, '121')
+        assert st['box'] == '121' and st['gate'] == 121 and st['read'][0] == 121, st
+        st = _box(pg, '120.5')
+        assert st['box'] == '121' and st['read'][0] == 121, st
+        st = _box(pg, '1000')
+        assert st['box'] == '1000' and st['gate'] == 1000, st
+        st = _box(pg, '1001')
+        assert st['box'] == '1000' and st['gate'] == 1000, st
+        _box(pg, '100000')
+        _save(pg)
+        served = _served(pg)
+        assert served['powerVoltage'] == 1000, served
+    finally:
+        _restore_voltage_prefs(pg, saved)
+    assert ids['errors'] == [], ids['errors']
+
+
+def test_a_custom_voltage_typed_digit_by_digit_keeps_the_breakout_pick(page):
+    """(c) Typing 208 into the custom box re-gated on every keystroke - at
+    2 V, then 20 V - and the L21-30 pick snapped to Edison on the first key
+    and never came back. Now the box commits on change / blur only, and
+    the user's pick is remembered: it comes back whenever the voltage
+    allows it again, and a new pick replaces it."""
+    pg, ids = page
+    saved = pg.evaluate("() => window.app.getPreferences()")
+    try:
+        pg.evaluate(SET_PREFS_JS, {'powerVoltage': 208, 'breakoutType': 'soca-true1'})
+        _open(pg)
+        _tab(pg, 'power')
+        _set(pg, 'pref-breakout-type', 'l2130-true1')
+        _set(pg, 'pref-power-voltage-select', 'custom')
+        assert pg.evaluate(VOLTAGE_UI_JS)['box'] == '208'
+        # keystrokes: nothing gates, the pick stands
+        for partial in ('1', '11', '110'):
+            st = _box(pg, partial, event='input')
+            assert st['breakout'] == 'l2130-true1', (partial, st)
+        # the change at 110: the pick cannot run, the class default is shown
+        st = _box(pg, '110')
+        assert st['breakout'] == 'soca-edison' and st['gate'] == 110, st
+        assert 'l2130-true1' in st['greyed'], st
+        assert st['read'] == [110, 'soca-edison'], st
+        # 208 again: the pick is back
+        for partial in ('2', '20'):
+            st = _box(pg, partial, event='input')
+            assert st['breakout'] == 'soca-edison', (partial, st)
+        st = _box(pg, '208')
+        assert st['breakout'] == 'l2130-true1' and st['read'] == [208, 'l2130-true1'], st
+        # a new pick replaces the remembered one
+        _set(pg, 'pref-breakout-type', 'soca-powercon')
+        st = _box(pg, '110')
+        assert st['breakout'] == 'soca-powercon', st
+        st = _box(pg, '208')
+        assert st['breakout'] == 'soca-powercon', st
+        _save(pg)
+        served = _served(pg)
+        assert (served['powerVoltage'], served['breakoutType']) == (208, 'soca-powercon'), served
+        # the stored pair is the pick on the next open, and a voltage the
+        # stored pick cannot run snaps it, a voltage that can brings it back
+        pg.evaluate(SET_PREFS_JS, {'powerVoltage': 208, 'breakoutType': 'l2130-powercon'})
+        _open(pg)
+        _tab(pg, 'power')
+        _set(pg, 'pref-power-voltage-select', '110')
+        assert pg.evaluate(VOLTAGE_UI_JS)['breakout'] == 'soca-edison'
+        _set(pg, 'pref-power-voltage-select', '208')
+        assert pg.evaluate(VOLTAGE_UI_JS)['breakout'] == 'l2130-powercon'
+        pg.locator('#preferences-cancel').click()
+        pg.wait_for_timeout(200)
+    finally:
+        _restore_voltage_prefs(pg, saved)
     assert ids['errors'] == [], ids['errors']

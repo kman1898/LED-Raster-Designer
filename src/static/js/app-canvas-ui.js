@@ -1305,11 +1305,9 @@ class _CanvasUi {
                 }
             }
             
-            fetch(`/api/layer/${layer.id}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: newName })
-            })
+            // _putLayer: a rename is a hand on the screen (the `edited`
+            // marker rides the PUT).
+            this._putLayer(layer.id, { name: newName })
             .then(() => {
                 this.renderLayers();
             });

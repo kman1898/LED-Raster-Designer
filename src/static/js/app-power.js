@@ -1193,7 +1193,7 @@ class _Power {
     // one rule so the paperwork and the reading never disagree.
     _defaultBreakoutFor(voltage) {
         const types = this.getPowerBreakoutTypes();
-        const v = parseFloat(voltage) || 0;
+        const v = this.voltageNumber(voltage);
         if (v > 0 && v <= 120) {
             return types.find(t => t.id === 'soca-edison') || types[0];
         }
@@ -1275,8 +1275,8 @@ class _Power {
     setScreenVoltage(layer, volts) {
         if (!layer) return false;
         layer.powerVoltage = volts;
-        const v = parseFloat(volts);
-        if (Number.isFinite(v) && v > 0 && !this._stockScreenVoltages().includes(v)) {
+        const v = this.voltageNumber(volts);
+        if (v > 0 && !this._stockScreenVoltages().includes(v)) {
             layer.powerVoltageCustom = volts;
         }
         return this.normalizePowerBreakout(layer);
@@ -1289,6 +1289,24 @@ class _Power {
     socaBoxSize(layer) {
         const n = Number(this.getPowerBreakout(layer).boxSize);
         return Number.isFinite(n) && n >= 1 ? n : 6;
+    }
+
+    // THE one reader of a screen's voltage figure for every rule below
+    // (eligibility, the class, the defaults, the distro gate) - and the
+    // server's _power_voltage_number (app.py) is written to answer the
+    // same, so the two copies of a screen never hold different breakouts.
+    // A string reads as parseFloat reads it ('208V' is 208, '1_000' is 1,
+    // 'abc' is NaN); a number is itself; anything else (null, a bool, an
+    // array, an object - parseFloat([208]) would read 208 through
+    // toString, and the server has no such rule) is no voltage. A result
+    // that is not finite ('Infinity', '1e400') is no voltage either:
+    // before 2026-09-23 parseFloat('Infinity') put a screen in the 208
+    // class here while the server read it as blank.
+    // tests/test_breakout_invariant.py drives one table through both.
+    voltageNumber(value) {
+        if (typeof value !== 'number' && typeof value !== 'string') return 0;
+        const v = parseFloat(value);
+        return Number.isFinite(v) ? v : 0;
     }
 
     // Which breakouts a screen's voltage can legally run (user ruling,
@@ -1304,7 +1322,7 @@ class _Power {
     // normalizePowerBreakout rewrites a stored ineligible choice on load
     // and on a voltage change, so the store never holds one for long.
     _breakoutEligible(type, voltage) {
-        const v = parseFloat(voltage) || 0;
+        const v = this.voltageNumber(voltage);
         const id = String(type && type.id);
         if (v > 0 && v <= 120) {
             return ['soca-true1', 'soca-powercon', 'soca-edison'].includes(id);
@@ -1316,7 +1334,7 @@ class _Power {
 
     // Why the select greys a breakout at this voltage - the option title.
     _breakoutIneligibleTitle(type, voltage) {
-        const v = parseFloat(voltage) || 0;
+        const v = this.voltageNumber(voltage);
         const at = v > 0 ? `at ${v}V` : 'until a voltage is set';
         const id = String(type && type.id);
         if (id.startsWith('l2130-')) return `Not available ${at} — L21-30 is 208V only.`;
@@ -1332,7 +1350,7 @@ class _Power {
     // Multi 120 is refused naming the screen's voltage). Null for a blank
     // or non-positive figure, which is matched by breakout alone.
     _voltageClass(voltage) {
-        const v = parseFloat(voltage) || 0;
+        const v = this.voltageNumber(voltage);
         if (v > 0 && v <= 120) return 120;
         if (v > 120) return 208;
         return null;
@@ -1347,7 +1365,7 @@ class _Power {
     // type without the list, is not gated on voltage.
     _outputFeedsVoltage(type, voltage) {
         if (!type || !Array.isArray(type.volts)) return true;
-        const v = parseFloat(voltage) || 0;
+        const v = this.voltageNumber(voltage);
         if (!(v > 0)) return true;
         if (type.voltsExact) return type.volts.includes(v);
         const cls = this._voltageClass(v);
@@ -1373,7 +1391,7 @@ class _Power {
     // the screen's voltage.
     _voltageMismatchMessage(type, layer) {
         if (!type || !layer || this._outputFeedsVoltage(type, layer.powerVoltage)) return null;
-        const v = parseFloat(layer.powerVoltage) || 0;
+        const v = this.voltageNumber(layer.powerVoltage);
         const article = /^(?:[AEIOU]|[FHLMNRSX](?![a-z]))/.test(type.name) ? 'an' : 'a';
         return `${layer.name} runs at ${v}V — ${article} ${type.name} output `
             + `feeds ${this._outputFeedsText(type)}`;

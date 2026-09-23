@@ -414,7 +414,8 @@ class _Clipboard {
             // The Data tab's colours were in clientProps only, so the copy
             // looked right and the server held the shipped colours - the
             // gradient bug one door over. Sent so the server's copy matches
-            // (the add route lists all but dataFlowColor today).
+            // (the add route's allow-list carries every one of them,
+            // dataFlowColor included - routes_layers add_layer).
             arrowColor: layer.arrowColor,
             dataFlowColor: layer.dataFlowColor,
             primaryColor: layer.primaryColor,
