@@ -560,6 +560,53 @@ def _detach_from_cross_canvas_group(layer, target_canvas_id):
     layer['group_id'] = None
 
 
+def _regroup_rehomed_layers(rehomed):
+    """Settle group membership after delete_canvas moved ``rehomed`` house.
+
+    Evaluated per GROUP, against every member's post-move canvas at once.
+    Running _detach_from_cross_canvas_group per re-homed layer, in layer
+    order, read the OTHER members' current state: an earlier member saw a
+    later member still on the old canvas (it had not been re-homed yet) or
+    already deleted with the canvas (no layer at all) and dropped out, so a
+    wall that moved together lost its grouping depending on layer order.
+
+    Rule: ids naming a deleted layer are pruned first (they are on no
+    canvas, and must not count as "elsewhere"); the surviving members are
+    partitioned by canvas_id; the largest partition stays the group and
+    every other member is detached. A tie keeps the partition holding the
+    earliest member in layer_ids. A group whose largest partition is one
+    member is left for _enforce_group_integrity (run by the caller) to
+    dissolve, the same as a group reduced to one member by any other route.
+    """
+    if not rehomed:
+        return
+    by_id = {l.get('id'): l for l in app.current_project.get('layers') or []
+             if isinstance(l, dict) and app._is_hashable(l.get('id'))}
+    moved_ids = {l.get('id') for l in rehomed if isinstance(l, dict)}
+    for group in app.current_project.get('groups') or []:
+        if not isinstance(group, dict) or not isinstance(group.get('layer_ids'), list):
+            continue
+        ids = [i for i in group['layer_ids'] if app._is_hashable(i) and i in by_id]
+        group['layer_ids'] = ids
+        if not any(i in moved_ids for i in ids):
+            continue
+        partitions = {}
+        order = []
+        for i in ids:
+            cid = by_id[i].get('canvas_id')
+            if cid not in partitions:
+                partitions[cid] = []
+                order.append(cid)
+            partitions[cid].append(i)
+        # max() returns the first maximal entry in iteration order, and
+        # `order` lists canvases by their earliest member - that is the tie.
+        keep = set(partitions[max(order, key=lambda cid: len(partitions[cid]))])
+        for i in ids:
+            if i not in keep:
+                by_id[i]['group_id'] = None
+        group['layer_ids'] = [i for i in ids if i in keep]
+
+
 @layers_bp.route('/api/layer/<int:layer_id>/canvas', methods=['PUT'])
 def move_layer_to_canvas(layer_id):
     """Move or duplicate a layer onto a different canvas.

@@ -499,22 +499,30 @@ def test_the_pruner_applies_the_servers_rule_not_the_renderers(page):
 
 _RUN_KEYS = {
     'power': dict(paths='powerCustomPaths', index='powerCustomIndex',
+                  overrides='powerCustomOverrides', runs='circuits',
                   pattern='powerFlowPattern', flag='powerCustomPath',
                   clear_one='power-custom-clear-circuit', clear_all='power-custom-clear-all'),
     'data': dict(paths='customPortPaths', index='customPortIndex',
+                 overrides='customPortOverrides', runs='ports',
                  pattern='flowPattern', flag=None,
                  clear_one='custom-clear-port', clear_all='custom-clear-all'),
 }
 
 
-def _grouped_pair_with_peer_run(page, kind):
+def _grouped_pair_with_peer_run(page, kind, peer_locked=False, peer_auto=False,
+                                current_locked=False):
     """Two grouped screens; the SECOND owns run 1 made only of the FIRST's
-    cabinets, and run 2 of its own. The first is current. Returns the ids."""
+    cabinets, and run 2 of its own. The first is current. Returns the ids.
+
+    peer_auto: the second keeps its automatic pattern and holds run 1 as an
+    OVERRIDE (its override list names 1). peer_locked / current_locked: that
+    screen's lock is on."""
     k = _RUN_KEYS[kind]
-    props = {'all': {k['pattern']: 'custom'}}
+    custom = {k['pattern']: 'custom'}
     if k['flag']:
-        props['all'][k['flag']] = True
-    return page.evaluate(r"""async ([props, paths, index]) => {
+        custom[k['flag']] = True
+    props = {'0': dict(custom)} if peer_auto else {'all': dict(custom)}
+    return page.evaluate(r"""async ([props, paths, index, overrides, peerLocked, peerAuto, currentLocked]) => {
       const ids = await window.__gi.fresh(2, props);
       window.__gi.select([ids[0], ids[1]]);
       await window.app.groupSelectedLayers();
@@ -523,13 +531,26 @@ def _grouped_pair_with_peer_run(page, kind):
       b[paths] = { 1: [{ row: 0, col: 0, layerId: ids[0] }, { row: 0, col: 1, layerId: ids[0] }],
                    2: [{ row: 1, col: 1 }] };
       b[index] = 1;
+      if (peerAuto) b[overrides] = [1];
+      if (peerLocked) b.locked = true;
       a[paths] = { 1: [{ row: 1, col: 0 }] };
       a[index] = 1;
+      if (currentLocked) a.locked = true;
       await window.app.updateLayers([a, b]);
       await window.__gi.settle();
       window.__gi.select([ids[0]]);
       return ids;
-    }""", [props, k['paths'], k['index']])
+    }""", [props, k['paths'], k['index'], k['overrides'],
+           bool(peer_locked), bool(peer_auto), bool(current_locked)])
+
+
+def _toasts(page):
+    return page.evaluate(
+        "() => [...document.querySelectorAll('#app-toast-host div')].map(d => d.textContent)")
+
+
+def _clear_toasts(page):
+    page.evaluate("() => { const h = document.getElementById('app-toast-host'); if (h) h.innerHTML = ''; }")
 
 
 @pytest.mark.parametrize('kind', ['power', 'data'])
@@ -590,3 +611,124 @@ def test_clear_all_on_a_member_clears_the_whole_wall(page, kind):
     assert out['loose']['paths'] == {'1': [{'row': 0, 'col': 0}]}, out
     assert out['sloose']['paths'] == {'1': [{'row': 0, 'col': 0}]}, out
     assert out['steps'] - n0 == 1, 'Clear All took %d undo steps' % (out['steps'] - n0)
+
+
+@pytest.mark.parametrize('kind', ['power', 'data'])
+def test_clear_run_removes_the_emptied_key_on_this_screen_and_the_peer(page, kind):
+    """One shape: an emptied run has no key, on the clicked screen as on the
+    peer (the clicked screen used to keep `num: []` while the peer's key was
+    deleted). Every reader takes `paths[num] || []`, so nothing tells them
+    apart - and undo snapshots and the wire now carry one form."""
+    k = _RUN_KEYS[kind]
+    ids = _grouped_pair_with_peer_run(page, kind)
+    page.evaluate("(id) => document.getElementById(id).click()", k['clear_one'])
+    page.wait_for_timeout(1200)
+    out = page.evaluate(r"""async ([ids, paths]) => {
+      const srv = await window.__gi.serverProject();
+      return { a: window.__gi.layer(ids[0])[paths], b: window.__gi.layer(ids[1])[paths],
+               sa: srv.layers.find(l => l.id === ids[0])[paths] };
+    }""", [ids, k['paths']])
+    assert '1' not in out['a'], out
+    assert '1' not in out['b'], out
+    assert '1' not in (out['sa'] or {}), out
+    assert out['b'].get('2') == [{'row': 1, 'col': 1}], out
+
+
+@pytest.mark.parametrize('kind', ['power', 'data'])
+def test_clear_run_on_a_peer_lets_go_of_the_members_emptied_override(page, kind):
+    """B is automatic and holds run 1 as an override made of A's cabinets.
+    Clear on A empties that run: B's override list must let 1 go and any
+    override edit of it must end, the way returnRunToAuto does - otherwise B
+    keeps 1 reserved with nothing drawn, an invisible gap in its automatic
+    numbering with no route back except Clear All."""
+    k = _RUN_KEYS[kind]
+    ids = _grouped_pair_with_peer_run(page, kind, peer_auto=True)
+    before = page.evaluate("([id, ovr]) => window.__gi.layer(id)[ovr]", [ids[1], k['overrides']])
+    assert before == [1], before
+    page.evaluate("([kind, id]) => { window.app._overrideEditing = { kind, layerId: id, num: 1 }; }",
+                  [kind, ids[1]])
+    page.evaluate("(id) => document.getElementById(id).click()", k['clear_one'])
+    page.wait_for_timeout(1200)
+    out = page.evaluate(r"""async ([ids, paths, ovr]) => {
+      const b = window.__gi.layer(ids[1]);
+      const srv = await window.__gi.serverProject();
+      const sb = srv.layers.find(l => l.id === ids[1]);
+      return { overrides: b[ovr], paths: b[paths], editing: window.app._overrideEditing,
+               serverOverrides: sb[ovr] };
+    }""", [ids, k['paths'], k['overrides']])
+    assert out['overrides'] == [], out
+    assert '1' not in out['paths'], out
+    assert out['editing'] is None, out
+    assert not out['serverOverrides'], out
+
+
+@pytest.mark.parametrize('kind', ['power', 'data'])
+def test_clear_run_leaves_a_locked_peers_run_alone_and_says_so(page, kind):
+    """B is locked: Clear on A clears A's own run but B's run 1 keeps A's
+    cabinets, B is not written, and one toast says it was left alone."""
+    k = _RUN_KEYS[kind]
+    ids = _grouped_pair_with_peer_run(page, kind, peer_locked=True)
+    _clear_toasts(page)
+    page.evaluate("(id) => document.getElementById(id).click()", k['clear_one'])
+    page.wait_for_timeout(1200)
+    toasts = _toasts(page)
+    out = page.evaluate(r"""async ([ids, paths]) => {
+      const srv = await window.__gi.serverProject();
+      return { a: window.__gi.layer(ids[0])[paths], b: window.__gi.layer(ids[1])[paths],
+               sb: srv.layers.find(l => l.id === ids[1])[paths] };
+    }""", [ids, k['paths']])
+    assert '1' not in out['a'], out
+    assert out['b'].get('1') == [{'row': 0, 'col': 0, 'layerId': ids[0]},
+                                 {'row': 0, 'col': 1, 'layerId': ids[0]}], out
+    assert out['sb'].get('1') == out['b'].get('1'), out
+    peer = page.evaluate("(id) => window.__gi.layer(id).name", ids[1])
+    assert toasts == ['%s is locked — its %s were left alone.' % (peer, k['runs'])], toasts
+
+
+@pytest.mark.parametrize('kind', ['power', 'data'])
+def test_clear_all_leaves_a_locked_member_alone_and_says_so(page, kind):
+    """Clear All on A with B locked: A goes back to automatic, B keeps its
+    runs, index and overrides on the client and the server, one toast."""
+    k = _RUN_KEYS[kind]
+    ids = _grouped_pair_with_peer_run(page, kind, peer_locked=True)
+    page.evaluate("([id, ovr, index]) => { const b = window.__gi.layer(id); b[ovr] = [2]; b[index] = 2; }",
+                  [ids[1], k['overrides'], k['index']])
+    _clear_toasts(page)
+    n0 = page.evaluate("() => window.app.history.length")
+    page.evaluate("(id) => document.getElementById(id).click()", k['clear_all'])
+    page.wait_for_timeout(1200)
+    toasts = _toasts(page)
+    out = page.evaluate(r"""async ([ids, paths, index, ovr]) => {
+      const srv = await window.__gi.serverProject();
+      const pick = (l) => ({ paths: l[paths] || {}, index: l[index], overrides: l[ovr] || [] });
+      return { a: pick(window.__gi.layer(ids[0])), b: pick(window.__gi.layer(ids[1])),
+               sb: pick(srv.layers.find(l => l.id === ids[1])),
+               steps: window.app.history.length };
+    }""", [ids, k['paths'], k['index'], k['overrides']])
+    assert out['a']['paths'] == {} and out['a']['index'] == 1, out
+    expected_b = {'1': [{'row': 0, 'col': 0, 'layerId': ids[0]}, {'row': 0, 'col': 1, 'layerId': ids[0]}],
+                  '2': [{'row': 1, 'col': 1}]}
+    assert out['b'] == {'paths': expected_b, 'index': 2, 'overrides': [2]}, out
+    assert out['sb']['paths'] == expected_b, out
+    assert out['steps'] - n0 == 1, out
+    peer = page.evaluate("(id) => window.__gi.layer(id).name", ids[1])
+    assert toasts == ['%s is locked — its %s were left alone.' % (peer, k['runs'])], toasts
+
+
+@pytest.mark.parametrize('kind', ['power', 'data'])
+def test_clear_run_on_a_locked_current_screen_still_clears(page, kind):
+    """A lock guards position only, everywhere else in the app (drag, offset
+    fields, Center, Move to Canvas); every other edit on a locked screen goes
+    through, so Clear on the locked CURRENT screen does too, and reaches its
+    unlocked peer. No toast: nothing was left alone."""
+    k = _RUN_KEYS[kind]
+    ids = _grouped_pair_with_peer_run(page, kind, current_locked=True)
+    _clear_toasts(page)
+    page.evaluate("(id) => document.getElementById(id).click()", k['clear_one'])
+    page.wait_for_timeout(1200)
+    out = page.evaluate(r"""([ids, paths]) => ({
+      a: window.__gi.layer(ids[0])[paths], b: window.__gi.layer(ids[1])[paths],
+      locked: window.__gi.layer(ids[0]).locked })""", [ids, k['paths']])
+    assert out['locked'] is True, out
+    assert '1' not in out['a'] and '1' not in out['b'], out
+    assert _toasts(page) == [], _toasts(page)

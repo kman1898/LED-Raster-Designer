@@ -762,3 +762,128 @@ def test_delete_canvas_rehomed_group_stays_a_group(client_with_layer):
     groups = proj.get('groups') or []
     member_sets = [set(g.get('layer_ids') or []) for g in groups]
     assert {a, b} in member_sets, (groups, by_id[a].get('group_id'))
+
+
+def _group_on_server(ids, gid='g1'):
+    """Put ``ids`` in one group straight in the server model, the way a saved
+    project carries it (groups are made client-side)."""
+    import app as app_module
+    app_module.current_project['groups'] = [{'id': gid, 'name': 'Wall', 'layer_ids': list(ids)}]
+    for l in app_module.current_project['layers']:
+        if l['id'] in ids:
+            l['group_id'] = gid
+
+
+def _member_sets(proj):
+    return [set(g.get('layer_ids') or []) for g in (proj.get('groups') or [])]
+
+
+def test_delete_canvas_group_survives_a_member_deleted_with_the_canvas(client_with_layer):
+    """Repro A: a, b, c grouped on c1; a and b shown on c2; delete c1. The
+    membership used to be settled one re-homed layer at a time in layer
+    order, so a (first) saw c still listed with no layer behind it and
+    dropped out, and the group dissolved. {a, b} must stay a group on c2."""
+    c = client_with_layer
+    c.post('/api/canvas', json={})  # c2
+    import app as app_module
+    app_module.current_project['active_canvas_id'] = 'c1'
+    a = c.get('/api/project').get_json()['layers'][0]['id']
+    b = _add_screen_on(c, 'c1')
+    cc = _add_screen_on(c, 'c1')
+    _group_on_server([a, b, cc])
+    for lid in (a, b):
+        c.put(f'/api/layer/{lid}/show_canvas', json={'show_canvas_id': 'c2'})
+    proj = c.delete('/api/canvas/c1').get_json()
+    by_id = {l['id']: l for l in proj['layers']}
+    assert cc not in by_id, 'c had nowhere else to go'
+    assert by_id[a]['canvas_id'] == by_id[b]['canvas_id'] == 'c2'
+    assert {a, b} in _member_sets(proj), (proj.get('groups'), by_id[a].get('group_id'))
+    assert by_id[a]['group_id'] == by_id[b]['group_id'] == 'g1'
+
+
+def test_delete_canvas_group_keeps_the_members_that_moved_together(client_with_layer):
+    """Repro B: a, b shown on c2 and c shown on c3; delete c1. Settled per
+    layer, a saw b still on c1 (not yet re-homed) and left; settled per
+    group, {a, b} on c2 is the larger partition and stays, c is ungrouped."""
+    c = client_with_layer
+    c.post('/api/canvas', json={})  # c2
+    c.post('/api/canvas', json={})  # c3
+    import app as app_module
+    app_module.current_project['active_canvas_id'] = 'c1'
+    a = c.get('/api/project').get_json()['layers'][0]['id']
+    b = _add_screen_on(c, 'c1')
+    cc = _add_screen_on(c, 'c1')
+    _group_on_server([a, b, cc])
+    for lid in (a, b):
+        c.put(f'/api/layer/{lid}/show_canvas', json={'show_canvas_id': 'c2'})
+    c.put(f'/api/layer/{cc}/show_canvas', json={'show_canvas_id': 'c3'})
+    proj = c.delete('/api/canvas/c1').get_json()
+    by_id = {l['id']: l for l in proj['layers']}
+    assert by_id[a]['canvas_id'] == by_id[b]['canvas_id'] == 'c2'
+    assert by_id[cc]['canvas_id'] == 'c3'
+    assert _member_sets(proj) == [{a, b}], proj.get('groups')
+    assert by_id[cc].get('group_id') is None
+    assert by_id[a]['group_id'] == by_id[b]['group_id'] == 'g1'
+
+
+def test_delete_canvas_group_tie_keeps_the_earliest_members_canvas(client_with_layer):
+    """Two partitions of equal size: the one holding the earliest member in
+    layer_ids stays the group. a, b -> c2 and c, d -> c3, with the group
+    listing d, c, b, a: {c, d} on c3 holds the earliest member (d)."""
+    c = client_with_layer
+    c.post('/api/canvas', json={})  # c2
+    c.post('/api/canvas', json={})  # c3
+    import app as app_module
+    app_module.current_project['active_canvas_id'] = 'c1'
+    a = c.get('/api/project').get_json()['layers'][0]['id']
+    b = _add_screen_on(c, 'c1')
+    cc = _add_screen_on(c, 'c1')
+    d = _add_screen_on(c, 'c1')
+    _group_on_server([d, cc, b, a])
+    for lid in (a, b):
+        c.put(f'/api/layer/{lid}/show_canvas', json={'show_canvas_id': 'c2'})
+    for lid in (cc, d):
+        c.put(f'/api/layer/{lid}/show_canvas', json={'show_canvas_id': 'c3'})
+    proj = c.delete('/api/canvas/c1').get_json()
+    by_id = {l['id']: l for l in proj['layers']}
+    assert _member_sets(proj) == [{cc, d}], proj.get('groups')
+    assert by_id[cc]['group_id'] == by_id[d]['group_id'] == 'g1'
+    assert by_id[a].get('group_id') is None and by_id[b].get('group_id') is None
+
+
+def test_delete_canvas_group_tie_is_by_member_order_not_canvas_id(client_with_layer):
+    """Same layout as the tie test with the natural a, b, c, d order: the c2
+    pair holds the earliest member (a) and stays."""
+    c = client_with_layer
+    c.post('/api/canvas', json={})  # c2
+    c.post('/api/canvas', json={})  # c3
+    import app as app_module
+    app_module.current_project['active_canvas_id'] = 'c1'
+    a = c.get('/api/project').get_json()['layers'][0]['id']
+    b = _add_screen_on(c, 'c1')
+    cc = _add_screen_on(c, 'c1')
+    d = _add_screen_on(c, 'c1')
+    _group_on_server([a, b, cc, d])
+    for lid in (a, b):
+        c.put(f'/api/layer/{lid}/show_canvas', json={'show_canvas_id': 'c2'})
+    for lid in (cc, d):
+        c.put(f'/api/layer/{lid}/show_canvas', json={'show_canvas_id': 'c3'})
+    proj = c.delete('/api/canvas/c1').get_json()
+    assert _member_sets(proj) == [{a, b}], proj.get('groups')
+
+
+def test_move_layer_to_canvas_still_detaches_a_single_mover(client_with_layer):
+    """_detach_from_cross_canvas_group keeps its behaviour for the move
+    route: one member moved to another canvas leaves its group."""
+    c = client_with_layer
+    c.post('/api/canvas', json={})  # c2
+    import app as app_module
+    app_module.current_project['active_canvas_id'] = 'c1'
+    a = c.get('/api/project').get_json()['layers'][0]['id']
+    b = _add_screen_on(c, 'c1')
+    cc = _add_screen_on(c, 'c1')
+    _group_on_server([a, b, cc])
+    proj = c.put(f'/api/layer/{a}/canvas', json={'canvas_id': 'c2', 'mode': 'move'}).get_json()
+    by_id = {l['id']: l for l in proj['layers']}
+    assert by_id[a]['canvas_id'] == 'c2' and by_id[a].get('group_id') is None
+    assert _member_sets(proj) == [{b, cc}], proj.get('groups')

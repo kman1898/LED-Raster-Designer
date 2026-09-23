@@ -138,11 +138,12 @@ def delete_canvas(canvas_id):
     # A group is one wall on one canvas. Members that moved house together
     # stay a group; a member whose peers went elsewhere (or were deleted with
     # the canvas) leaves it, and _enforce_group_integrity below dissolves
-    # whatever is left of a group reduced to one member.
+    # whatever is left of a group reduced to one member. Settled per group
+    # against every member's new canvas at once - see _regroup_rehomed_layers
+    # for why one _detach_from_cross_canvas_group per layer was order-dependent.
     if rehomed:
-        from routes_layers import _detach_from_cross_canvas_group
-        for l in rehomed:
-            _detach_from_cross_canvas_group(l, l.get('canvas_id'))
+        from routes_layers import _regroup_rehomed_layers
+        _regroup_rehomed_layers(rehomed)
     # v0.11.0: deleting a canvas deletes every layer on it, which is the same
     # group-integrity event as a single layer delete (routes_layers.delete_layer)
     # only in bulk - a group can be left naming dead layers, reduced to one

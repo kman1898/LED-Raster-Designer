@@ -240,6 +240,13 @@ class _CanvasUi {
         // Also re-run the localStorage restore for the "Untitled Project"
         // boot path (shouldUseSavedClientProps gate handles the rest).
         try { this.loadClientSideProperties && this.loadClientSideProperties({ skipPreferences: true }); } catch (_) {}
+        // A layer the server no longer has must not stay current or selected:
+        // the next edit would PUT /api/layer/<dead id> and 404. delete_canvas
+        // takes every screen with nowhere else to go, and the deleted one was
+        // often the very screen being looked at. Keep the survivors of the
+        // selection (the current one if it lived, else the last picked, else
+        // the first), or select nothing.
+        this._pruneSelectionToProject(data.layers);
         // If the active canvas's properties changed, sync raster size for
         // the workspace toolbar (Slice 4 will deepen this, Slice 2 just
         // keeps the sidebar consistent).
@@ -274,6 +281,34 @@ class _CanvasUi {
         // never repainted the workspace, so the canvas appeared not to hide.
         if (window.canvasRenderer && typeof window.canvasRenderer.render === 'function') {
             try { window.canvasRenderer.render(); } catch (_) {}
+        }
+    }
+
+    _pruneSelectionToProject(layers) {
+        const alive = new Set(layers.map(l => l.id));
+        const selected = [...(this.selectedLayerIds || [])];
+        const staleCurrent = !!(this.currentLayer && !alive.has(this.currentLayer.id));
+        if (!staleCurrent && selected.every(id => alive.has(id))) return;
+        const keep = selected.filter(id => alive.has(id));
+        let primaryId = null;
+        if (this.currentLayer && alive.has(this.currentLayer.id)) primaryId = this.currentLayer.id;
+        else if (this.lastSelectedLayerId && keep.includes(this.lastSelectedLayerId)) primaryId = this.lastSelectedLayerId;
+        else primaryId = keep.length ? keep[0] : null;
+        this.selectedLayerIds = new Set(keep);
+        this.currentLayer = primaryId === null ? null : (layers.find(l => l.id === primaryId) || null);
+        if (this.currentLayer) {
+            this.lastSelectedLayerId = this.currentLayer.id;
+            this.selectionAnchorLayerId = this.currentLayer.id;
+        } else {
+            this.lastSelectedLayerId = null;
+            this.selectionAnchorLayerId = null;
+        }
+        if (staleCurrent) {
+            // Cabinet selections are addressed against the screen that was
+            // current when they were made (see selectLayer).
+            if (this.customSelection) this.customSelection.clear();
+            if (this.powerCustomSelection) this.powerCustomSelection.clear();
+            if (this.pixelMapSelection) this.pixelMapSelection.clear();
         }
     }
 
@@ -931,22 +966,57 @@ class _CanvasUi {
         } else if (action === 'color') {
             this.openCanvasColorPicker(canvas);
         } else if (action === 'delete') {
-            // Issue 112: a screen shown on another canvas (dragged there on
-            // the Show Look, Data or Power tab) is kept and moves to that
-            // canvas; only screens with nowhere else to go are deleted.
-            const ids = new Set((this.project.canvases || []).map(c => c.id));
-            const onCanvas = (this.project.layers || []).filter(l => l.canvas_id === canvas.id);
-            const kept = onCanvas.filter(l => l.show_canvas_id && l.show_canvas_id !== canvas.id && ids.has(l.show_canvas_id)).length;
-            const layerCount = onCanvas.length - kept;
-            const plural = (n) => (n === 1 ? '' : 's');
-            let msg = layerCount > 0
-                ? `Delete canvas '${canvas.name}' and its ${layerCount} layer${plural(layerCount)}? This cannot be undone.`
-                : `Delete canvas '${canvas.name}'?`;
-            if (kept > 0) {
-                msg += ` ${kept} screen${plural(kept)} shown on another canvas will move to that canvas instead.`;
-            }
-            if (window.confirm(msg)) this.deleteCanvas(canvas.id);
+            if (window.confirm(this._deleteCanvasConfirmText(canvas))) this.deleteCanvas(canvas.id);
         }
+    }
+
+    // Issue 112: a screen shown on another canvas (dragged there on the Show
+    // Look, Data or Power tab) is kept and moves house to that canvas; only
+    // screens with nowhere else to go are deleted. The text names where the
+    // kept screens go - one canvas, or each its own - and warns which of them
+    // will land on top of a screen already homed there. Their position is
+    // NOT changed (Matt's ruling, 2026-09-22: keep the offsets, warn), so
+    // the warning is the only notice the user gets before two walls sit on
+    // the same pixels.
+    _deleteCanvasConfirmText(canvas) {
+        const canvases = this.project.canvases || [];
+        const byCanvas = new Map(canvases.map(c => [c.id, c]));
+        const layers = this.project.layers || [];
+        const onCanvas = layers.filter(l => l.canvas_id === canvas.id);
+        const kept = onCanvas.filter(l => l.show_canvas_id && l.show_canvas_id !== canvas.id
+            && byCanvas.has(l.show_canvas_id));
+        const layerCount = onCanvas.length - kept.length;
+        const plural = (n) => (n === 1 ? '' : 's');
+        const nameOf = (id) => `'${(byCanvas.get(id) || {}).name || id}'`;
+        let msg = layerCount > 0
+            ? `Delete canvas '${canvas.name}' and its ${layerCount} layer${plural(layerCount)}? This cannot be undone.`
+            : `Delete canvas '${canvas.name}'?`;
+        if (kept.length === 0) return msg;
+        const targets = [...new Set(kept.map(l => l.show_canvas_id))];
+        if (targets.length === 1) {
+            msg += ` ${kept.length} screen${plural(kept.length)} shown on ${nameOf(targets[0])}`
+                + ' will move to that canvas instead.';
+        } else {
+            msg += ` ${kept.length} screens shown on other canvases`
+                + ` (${targets.map(nameOf).join(', ')}) will move to their other canvas instead.`;
+        }
+        // Pixel-map rects (offset + size) against the screens already homed
+        // on the target - the rect a moved screen keeps.
+        const bounds = (l) => (typeof this.getLayerBounds === 'function') ? this.getLayerBounds(l) : null;
+        const overlaps = (a, b) => !!(a && b && a.x1 < b.x2 && a.x2 > b.x1 && a.y1 < b.y2 && a.y2 > b.y1);
+        const warnings = [];
+        kept.forEach(l => {
+            const r = bounds(l);
+            const hits = layers
+                .filter(o => o.id !== l.id && o.canvas_id === l.show_canvas_id && overlaps(r, bounds(o)))
+                .map(o => o.name || `Screen ${o.id}`);
+            if (hits.length === 0) return;
+            const list = hits.length === 1 ? hits[0]
+                : hits.slice(0, -1).join(', ') + ' and ' + hits[hits.length - 1];
+            warnings.push(`${l.name || `Screen ${l.id}`} will overlap ${list} on ${nameOf(l.show_canvas_id)}`);
+        });
+        if (warnings.length) msg += ` Warning: ${warnings.join('; ')}.`;
+        return msg;
     }
 
     openCanvasColorPicker(canvas) {

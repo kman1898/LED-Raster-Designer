@@ -81,10 +81,24 @@ class _CrossLayerPaths {
     // nor have a way to delete it").
     //
     // clearCustomRun: the current layer's run `num` goes, and every peer's run
-    // `num` loses the entries that land on this layer (a peer run emptied that
-    // way is removed). clearAllCustomRuns: every member of the path scope drops
-    // all its runs and overrides - the wall is back to automatic. Both return
-    // the layers written, for the PUT (_persistWith adds them to the selection).
+    // `num` loses the entries that land on this layer. clearAllCustomRuns:
+    // every member of the path scope drops all its runs and overrides - the
+    // wall is back to automatic. Both return {touched, skipped}: the layers
+    // written, for the PUT (_persistWith adds them to the selection), and the
+    // members left alone because they are locked, for the toast.
+    //
+    // An emptied run's key is DELETED, on the clicked screen as on a peer
+    // (2026-09-22). Every reader goes through `paths[num] || []` or filters
+    // Object.keys by length, so `[]` and no key read the same; one shape means
+    // one shape on the wire and in undo snapshots.
+    //
+    // A locked member is protected (Matt's ruling, 2026-09-22): a peer's Clear
+    // never removes its cabinets, never wipes its runs, overrides or index.
+    // The CLICKED screen is cleared even when it is itself locked: everywhere
+    // else in the app a lock guards position only (drag, offset fields,
+    // Center, Move to Canvas), and every other property edit - including
+    // drawing a run onto a locked screen - goes through, so refusing Clear
+    // alone would be the one edit a lock stops.
     _customRunKeys(kind) {
         return kind === 'power'
             ? { paths: 'powerCustomPaths', index: 'powerCustomIndex',
@@ -93,30 +107,61 @@ class _CrossLayerPaths {
                 overrides: 'customPortOverrides', ensure: 'ensureCustomFlowState' };
     }
 
+    // The way returnRunToAuto lets go of a number: an automatic member whose
+    // override run `num` was just emptied by a peer's Clear would otherwise
+    // keep `num` reserved with nothing drawn - an invisible gap in its
+    // numbering with no route back except Clear All.
+    _dropRunOverride(owner, kind, num) {
+        const k = this._customRunKeys(kind);
+        const nums = (typeof this.getOverrideNums === 'function') ? this.getOverrideNums(owner, kind) : [];
+        if (nums.includes(num)) owner[k.overrides] = nums.filter(n => n !== num);
+        const s = this._overrideEditing;
+        if (s && s.kind === kind && s.layerId === owner.id && s.num === num) {
+            this._overrideEditing = null;
+        }
+    }
+
     clearCustomRun(layer, kind, num) {
-        if (!layer) return [];
+        if (!layer) return { touched: [], skipped: [] };
         const k = this._customRunKeys(kind);
         this[k.ensure](layer);
-        layer[k.paths][num] = [];
+        delete layer[k.paths][num];
         const touched = [layer];
+        const skipped = [];
         this.getPathScopeLayers(layer).forEach(peer => {
             if (!peer || peer.id === layer.id) return;
             const paths = peer[k.paths];
             if (!paths || !Array.isArray(paths[num]) || paths[num].length === 0) return;
             const kept = paths[num].filter(e => this.getPathEntryLayerId(peer, e) !== layer.id);
             if (kept.length === paths[num].length) return;
-            if (kept.length) paths[num] = kept; else delete paths[num];
+            if (peer.locked) { skipped.push(peer); return; }
+            if (kept.length) {
+                paths[num] = kept;
+            } else {
+                delete paths[num];
+                this._dropRunOverride(peer, kind, num);
+            }
             touched.push(peer);
         });
-        return touched;
+        return { touched, skipped };
     }
 
     clearAllCustomRuns(layer, kind) {
-        if (!layer) return [];
+        if (!layer) return { touched: [], skipped: [] };
         const k = this._customRunKeys(kind);
         const touched = [];
+        const skipped = [];
         this.getPathScopeLayers(layer).forEach(member => {
             if (!member) return;
+            if (member.locked && member.id !== layer.id) {
+                // Reported only when there was something to leave alone.
+                const paths = member[k.paths] || {};
+                const held = Object.keys(paths).some(n => (paths[n] || []).length > 0)
+                    || (typeof this.getOverrideNums === 'function'
+                        && this.getOverrideNums(member, kind).length > 0);
+                if (held) skipped.push(member);
+                return;
+            }
             this[k.ensure](member);
             member[k.paths] = {};
             member[k.index] = 1;
@@ -127,7 +172,19 @@ class _CrossLayerPaths {
             }
             touched.push(member);
         });
-        return touched;
+        return { touched, skipped };
+    }
+
+    // One toast for the members a Clear left alone, e.g.
+    // "Left is locked — its circuits were left alone."
+    _toastLockedSkipped(skipped, kind) {
+        if (!skipped || skipped.length === 0 || typeof this._toast !== 'function') return;
+        const names = skipped.map(l => l.name || `Screen ${l.id}`);
+        const list = names.length === 1 ? names[0]
+            : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
+        const one = names.length === 1;
+        const runs = kind === 'power' ? 'circuits' : 'ports';
+        this._toast(`${list} ${one ? 'is' : 'are'} locked — ${one ? 'its' : 'their'} ${runs} were left alone.`, false, 4000);
     }
 
     _persistWith(touched) {

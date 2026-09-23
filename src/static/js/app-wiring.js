@@ -1160,10 +1160,11 @@ class _Wiring {
                 const portNum = this.currentLayer.customPortIndex || 1;
                 // This screen's port, and its cabinets out of a peer's port
                 // of the same number - see clearCustomRun.
-                const touched = this.clearCustomRun(this.currentLayer, 'data', portNum);
+                const { touched, skipped } = this.clearCustomRun(this.currentLayer, 'data', portNum);
                 this.saveState('Custom Clear Port');
                 this.saveClientSideProperties();
                 this.updateLayers(this._persistWith(touched));
+                this._toastLockedSkipped(skipped, 'data');
                 this.updateCustomFlowUI();
                 this.updatePortLabelEditor();
                 window.canvasRenderer.render();
@@ -1177,11 +1178,12 @@ class _Wiring {
                 // the automatic numbering with nothing on the wall to show
                 // for it. Clear All means back to auto, all of it - and on a
                 // grouped screen, all of the wall (clearAllCustomRuns).
-                const touched = this.clearAllCustomRuns(this.currentLayer, 'data');
+                const { touched, skipped } = this.clearAllCustomRuns(this.currentLayer, 'data');
                 this.customSelection.clear();
                 this.saveState('Custom Clear All');
                 this.saveClientSideProperties();
                 this.updateLayers(this._persistWith(touched));
+                this._toastLockedSkipped(skipped, 'data');
                 this.updateCustomFlowUI();
                 this.updatePortLabelEditor();
                 window.canvasRenderer.render();
@@ -1351,9 +1353,9 @@ class _Wiring {
                     if (powerVoltageSelect.value === 'custom') {
                         layer.powerVoltageCustom = val;
                     }
+                    this.normalizePowerBreakout(layer);
                 });
                 this.saveClientSideProperties();
-                    this.normalizePowerBreakout(layer);
                 this.updatePowerCapacityDisplay();
                 this.updateLayers(this.getSelectedLayers(), true, 'Change Power Voltage');
                 window.canvasRenderer.render();
@@ -1363,9 +1365,9 @@ class _Wiring {
                 this.applyToSelectedLayers(layer => {
                     layer.powerVoltage = val;
                     layer.powerVoltageCustom = val;
+                    this.normalizePowerBreakout(layer);
                 });
                 this.saveClientSideProperties();
-                    this.normalizePowerBreakout(layer);
                 this.updatePowerCapacityDisplay();
                 this.updateLayers(this.getSelectedLayers(), true, 'Change Power Voltage');
                 window.canvasRenderer.render();
@@ -1721,10 +1723,11 @@ class _Wiring {
                 const circuitNum = this.currentLayer.powerCustomIndex || 1;
                 // This screen's circuit, and its cabinets out of a peer's
                 // circuit of the same number - see clearCustomRun.
-                const touched = this.clearCustomRun(this.currentLayer, 'power', circuitNum);
+                const { touched, skipped } = this.clearCustomRun(this.currentLayer, 'power', circuitNum);
                 this.saveState('Power Custom Clear Circuit');
                 this.saveClientSideProperties();
                 this.updateLayers(this._persistWith(touched));
+                this._toastLockedSkipped(skipped, 'power');
                 this.updateCustomPowerUI();
                 window.canvasRenderer.render();
             });
@@ -1734,11 +1737,12 @@ class _Wiring {
                 if (!this.currentLayer) return;
                 // Overrides go with their paths - see the data Clear All. On a
                 // grouped screen the whole wall clears (clearAllCustomRuns).
-                const touched = this.clearAllCustomRuns(this.currentLayer, 'power');
+                const { touched, skipped } = this.clearAllCustomRuns(this.currentLayer, 'power');
                 this.powerCustomSelection.clear();
                 this.saveState('Power Custom Clear All');
                 this.saveClientSideProperties();
                 this.updateLayers(this._persistWith(touched));
+                this._toastLockedSkipped(skipped, 'power');
                 this.updateCustomPowerUI();
                 window.canvasRenderer.render();
             });
