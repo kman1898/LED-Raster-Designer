@@ -1571,12 +1571,25 @@ Object.assign(CanvasRenderer.prototype, {
     },
     
     handleKeyDown(e) {
-        // Check if user is typing in an input or textarea
-        const isTyping = document.activeElement.tagName === 'INPUT' || 
-                        document.activeElement.tagName === 'TEXTAREA' ||
-                        document.activeElement.isContentEditable;
+        // Is the person typing? ONE predicate for every shortcut guard in
+        // the app - helpers.js isTypingTarget, aliased on window for this
+        // classic script. It used to be an inline `tagName === 'INPUT'`
+        // here, which counted a focused CHECKBOX as typing and swallowed
+        // Cmd+J after a tick of #power-custom-toggle (end-to-end pass,
+        // 2026-09-23). The finding and the rule live on the predicate.
+        const isTyping = window.isTypingTarget(document.activeElement);
 
-        if (!isTyping && window.app && window.app.handleCustomArrowKey(e)) {
+        // A focused slider or radio answers the arrow keys itself (a range
+        // steps, a radio group moves), so the custom-mode draw yields to
+        // it; every other shortcut still fires with one focused.
+        const arrowsOwned = (() => {
+            const el = document.activeElement;
+            if (!el || el.tagName !== 'INPUT') return false;
+            const type = String(el.type || '').toLowerCase();
+            return type === 'range' || type === 'radio';
+        })();
+
+        if (!isTyping && !arrowsOwned && window.app && window.app.handleCustomArrowKey(e)) {
             e.preventDefault();
             return;
         }
@@ -1613,8 +1626,15 @@ Object.assign(CanvasRenderer.prototype, {
             this._overrideHoverFromClient(true);
         }
 
-        // Space - only prevent default and pan if NOT typing
-        if (e.code === 'Space' && !isTyping) {
+        // Space - only prevent default and pan if NOT typing, and not
+        // when a control that Space ACTIVATES holds focus: a focused
+        // checkbox or radio is not typing (the shortcuts above fire past
+        // it), but Space is how the keyboard toggles it, and the
+        // preventDefault here would swallow that toggle. An INPUT that is
+        // not typing is exactly such a control (2026-09-23).
+        const spaceOwner = document.activeElement
+            && document.activeElement.tagName === 'INPUT';
+        if (e.code === 'Space' && !isTyping && !spaceOwner) {
             e.preventDefault();
             this.spacePressed = true;
             if (!this.isDragging) this.canvas.style.cursor = 'grab';

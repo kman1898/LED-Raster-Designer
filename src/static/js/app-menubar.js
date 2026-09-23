@@ -3,7 +3,7 @@
 // Shortcuts and About surfaces open from here. Moved verbatim out of
 // app-export-io.js and attached to the prototype via the carrier class.
 import { LEDRasterApp } from './app-core.js';
-import { sendClientLog } from './helpers.js';
+import { sendClientLog, isTypingTarget } from './helpers.js';
 
 class _MenuBar {
     setupMenuBar() {
@@ -124,7 +124,7 @@ class _MenuBar {
         const otherMod = isMac ? e.ctrlKey : e.metaKey;
         if (otherMod) return;
         if (!mod && !e.altKey) return;
-        if (this._isTypingTarget(document.activeElement)) return;
+        if (isTypingTarget(document.activeElement)) return;
         const chord = (mod ? 'mod+' : '') + (e.altKey ? 'alt+' : '') + code;
         if (chord === 'mod+KeyA') {
             e.preventDefault();
@@ -149,15 +149,11 @@ class _MenuBar {
         this.handleMenuAction(action);
     }
 
-    // The same predicate canvas-input's handleKeyDown calls isTyping, plus
-    // SELECT (app-core's Esc guard counts it too): a shortcut never fires
-    // out of a field the person is typing into.
-    _isTypingTarget(el) {
-        if (!el) return false;
-        const tag = el.tagName;
-        return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
-            || !!el.isContentEditable;
-    }
+    // The typing guard above is helpers.js isTypingTarget - the one copy
+    // every shortcut handler shares. This class used to carry its own
+    // (INPUT/TEXTAREA/SELECT/contentEditable), one of four that had
+    // drifted apart and all counted a focused checkbox as typing
+    // (2026-09-23); see the predicate for the finding.
 
     // ONE platform read for every printed accelerator - the menu labels
     // and the Keyboard Shortcuts modal both say Cmd on a Mac and Ctrl

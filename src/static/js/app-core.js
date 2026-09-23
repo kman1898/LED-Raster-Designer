@@ -1,6 +1,6 @@
 // LEDRasterApp core: constructor, socket wiring, and primary UI setup.
 // Feature areas live in the app-*.js modules, which extend the prototype.
-import { evaluateMathExpression, sendClientLog, setupColorPickerWithHex } from './helpers.js';
+import { evaluateMathExpression, sendClientLog, setupColorPickerWithHex, isTypingTarget } from './helpers.js';
 
 export class LEDRasterApp {
     constructor() {
@@ -1408,12 +1408,14 @@ export class LEDRasterApp {
         wireBtn('bulk-set-half-height', (panels) => this.setPanelsHalfTileBulk(panels, 'height'));
         wireBtn('bulk-clear-half',      (panels) => this.setPanelsHalfTileBulk(panels, 'none'));
 
-        // Esc clears the pixel-map selection. Only react when no input is focused
-        // and the pixel-map view is active.
+        // Esc clears the pixel-map selection. Only react when the person is
+        // not typing (helpers.js isTypingTarget - the one guard every
+        // shortcut shares; this was an inline INPUT/TEXTAREA/SELECT copy
+        // that counted a focused checkbox as typing, 2026-09-23) and the
+        // pixel-map view is active.
         document.addEventListener('keydown', (e) => {
             if (e.key !== 'Escape') return;
-            const tag = (document.activeElement && document.activeElement.tagName) || '';
-            if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+            if (isTypingTarget(document.activeElement)) return;
             if (window.canvasRenderer && window.canvasRenderer.viewMode === 'pixel-map'
                     && this.pixelMapSelection && this.pixelMapSelection.size > 0) {
                 this.clearPixelMapSelection();

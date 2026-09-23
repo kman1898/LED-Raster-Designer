@@ -4,7 +4,7 @@
 // Moved verbatim out of app-dock.js and attached to the prototype via the
 // carrier class.
 import { LEDRasterApp } from './app-core.js';
-import { sendClientLog } from './helpers.js';
+import { sendClientLog, isTypingTarget } from './helpers.js';
 
 class _DockSweep {
     // ── the brackets ─────────────────────────────────────────────────────
@@ -259,9 +259,10 @@ class _DockSweep {
         if (this._traySweepKeyHandler) return;
         this._traySweepKeyHandler = (e) => {
             if (!this._traySweep) return;
-            const a = document.activeElement;
-            const typing = a && (a.tagName === 'INPUT'
-                || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT');
+            // helpers.js isTypingTarget - the one typing guard every
+            // shortcut shares (this was an inline INPUT/TEXTAREA/SELECT
+            // copy that counted a focused checkbox as typing, 2026-09-23).
+            const typing = isTypingTarget(document.activeElement);
             if (e.key === 'Escape') {
                 e.preventDefault();
                 e.stopPropagation();

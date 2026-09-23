@@ -173,9 +173,56 @@ function refreshAllColorSwatches() {
 // LED Raster Designer - Main Application
 // Version 6.1 - Cache Bust 001
 
-export { evaluateMathExpression, isMacOS, sendClientLog, registerGlobalClientLogging, setupColorPickerWithHex, normalizeHex, refreshAllColorSwatches };
+// Is keyboard focus in something the person TYPES into? The one question
+// every document-level shortcut asks before it fires, answered in ONE place.
+//
+// Found by an end-to-end pass (2026-09-23): Cmd+J did nothing while a
+// sidebar CHECKBOX held focus. Tick #power-custom-toggle (focus stays on
+// the box), Cmd+click a second Screens row, press Cmd+J - nothing; blur the
+// box and the same key duplicates. Every guard read `tagName === 'INPUT'`,
+// and a checkbox IS an INPUT, so a control that takes no text at all ate
+// every shortcut - Cmd+J, Cmd+C/V, Delete, the arrow keys in custom mode,
+// Tab stepping - until the next click landed somewhere else. Four copies
+// of that guard had also drifted from one another: canvas-input.js counted
+// contentEditable but not SELECT, app-core.js and app-dock-sweep.js counted
+// SELECT but not contentEditable, app-menubar.js counted both.
+//
+// Typing means a text-like input (text, number, search, email, url,
+// password, tel, the date and time kinds, and an input with no type - the
+// DOM reads that as text), a textarea, a select (its arrow keys pick an
+// option) or a contenteditable element. A checkbox, radio, range, color,
+// file or button-like input is a CONTROL, not a field: no shortcut yields
+// to it. The list is of the CONTROL types on purpose - an input type this
+// list has not met is treated as typing, the direction that at worst
+// leaves a shortcut unfired rather than eating a keystroke out of a field.
+//
+// Two rulings this predicate does NOT absorb, by design: a focused BUTTON
+// still owns Tab (canvas-input.js handleKeyDown, user 2026-09-03), and
+// Space on a focused control is the control's (it toggles the box) - the
+// canvas pan yields to it there, not here.
+const CONTROL_INPUT_TYPES = new Set([
+    'checkbox', 'radio', 'range', 'color', 'file',
+    'button', 'submit', 'reset', 'image', 'hidden',
+]);
 
-// Classic (non-module) scripts call these two by name at runtime
-// (canvas.js -> sendClientLog, color_picker.js -> normalizeHex).
+function isTypingTarget(el) {
+    if (!el) return false;
+    if (el.isContentEditable) return true;
+    const tag = el.tagName;
+    if (tag === 'TEXTAREA' || tag === 'SELECT') return true;
+    if (tag !== 'INPUT') return false;
+    // el.type is the DOM's normalised type: missing or unknown reads 'text'.
+    const type = String(el.type || 'text').toLowerCase();
+    return !CONTROL_INPUT_TYPES.has(type);
+}
+
+export { evaluateMathExpression, isMacOS, sendClientLog, registerGlobalClientLogging, setupColorPickerWithHex, normalizeHex, refreshAllColorSwatches, isTypingTarget };
+
+// Classic (non-module) scripts call these by name at runtime
+// (canvas.js -> sendClientLog, color_picker.js -> normalizeHex,
+// canvas-input.js handleKeyDown -> isTypingTarget). This module is
+// evaluated before app-core.js constructs the renderer that registers the
+// keydown listener, so the alias exists before any key can reach it.
 window.sendClientLog = sendClientLog;
 window.normalizeHex = normalizeHex;
+window.isTypingTarget = isTypingTarget;

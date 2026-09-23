@@ -123,9 +123,24 @@ ${cabinetBtn}
                 });
             }
 
-            // Single click to select
+            // Single click to select. The name field fills the row header,
+            // so a click on it is the click most people make on a row: it
+            // selects like the rest of the row (plain, Cmd/Ctrl to add,
+            // Shift to range). Two exclusions, both about the rename
+            // (2026-09-23):
+            //   - a name being EDITED: a double-click has put it in edit
+            //     mode (readOnly off, below) and a click inside it places
+            //     the caret; re-selecting would rebuild the list and drop
+            //     the edit;
+            //   - the SECOND click of a double-click on a name (e.detail
+            //     2): the first click selected the row and rebuilt the
+            //     list, and the dblclick is dispatched to the field that
+            //     took this second click - rebuild again here and it goes
+            //     to a detached node, so the rename never opens.
             layerDiv.addEventListener('click', (e) => {
-                if (!e.target.classList.contains('layer-btn') && !e.target.classList.contains('layer-name-input')) {
+                const onName = e.target.classList.contains('layer-name-input');
+                if (onName && (!e.target.readOnly || e.detail >= 2)) return;
+                if (!e.target.classList.contains('layer-btn')) {
                     const isToggle = e.metaKey || e.ctrlKey;
                     const isRange = e.shiftKey;
                     if (isRange) {
@@ -198,7 +213,12 @@ ${cabinetBtn}
                 this.reorderLayersByDrag(draggedId, targetId, insertAfter);
             });
             
-            // Handle name input: single-click selects layer, double-click edits name
+            // Handle name input: single-click selects layer (the row's click
+            // handler above, since a read-only name is part of the row),
+            // double-click edits name. The first click of the double-click
+            // selects and rebuilds the list, the second is left alone, and
+            // the dblclick lands on the rebuilt field for this same screen
+            // and opens the edit.
             const nameInput = layerDiv.querySelector('.layer-name-input');
             nameInput.readOnly = true;
             nameInput.draggable = true;
@@ -242,6 +262,11 @@ ${cabinetBtn}
             nameInput.addEventListener('blur', exitEditMode);
             nameInput.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter') {
+                    nameInput.blur();
+                } else if (e.key === 'Escape' && !nameInput.readOnly) {
+                    // Drop the typing and end the edit, as the canvas name
+                    // field does (app-canvas-ui.js).
+                    nameInput.value = layer.name;
                     nameInput.blur();
                 }
                 if (!nameInput.readOnly) e.stopPropagation();
