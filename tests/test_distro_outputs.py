@@ -1,8 +1,9 @@
 """Distro outputs: the connector is the thing you drag.
 
 A distro declares the connector TYPES it offers (types only, no counts) in
-its ⚙ popover's OUTPUTS checklist - Multi 208 (True1 / powerCON), Multi 120
-(Edison), L21-30 (3 × 208V). The tray shows one plug chip per ticked type
+its ⚙ popover's OUTPUTS checklist - Multi 208 (True1 / powerCON, 208V
+screens), Multi 120 (Edison / True1 / powerCON, 110V / 120V screens - the
+ruling of 2026-09-22), L21-30 (3 × 208V). The tray shows one plug chip per ticked type
 on a slim OUTPUTS row under the distro's LEGS line, and dragging a chip onto
 a screen lands one box of that type: the screen's next unassigned multi
 (split-aware plan order) goes on that distro, numbered by the distro's own
@@ -28,8 +29,9 @@ Pinned here, with real pointer drags and real right-clicks:
     one 'Assign Multi Distro' entry, one undo walks it back
   * a second box lands on the NEXT multi (7–12), never the first again
   * mismatches refuse with the sentence naming the screen's breakout -
-    L21-30 against a soca, a soca against L21-30, a Multi 208 against an
-    Edison (110V) screen - and nothing mutates
+    L21-30 against a soca, a soca against L21-30 - or its voltage - a
+    Multi 208 against a 120V screen, a Multi 120 against a 208V screen,
+    whatever the breakout - and nothing mutates
   * the pill warns amber (still allowed) when the box would push the
     distro's legs past its rating
   * the submenu lists offering distros with their loads, greys the rest
@@ -505,8 +507,9 @@ def test_a_mismatched_connector_is_refused_with_the_fix(page):
     assert mid['pill']['text'].startswith('PD1 → circuits 1–3 ·'), mid
     assert pg.evaluate(POWER_STATE_JS, ids['bId'])['distro'] == {'1': d}
     assert pg.evaluate(HIST_JS, 1) == ['Assign Multi Distro']
-    # a Multi 208 onto an Edison (110V) screen: the voltage mismatch, off
-    # the screen's DEFAULT breakout (nothing stored)
+    # a Multi 208 onto a 120V screen on its DEFAULT breakout (nothing
+    # stored: Edison): the voltage mismatch, named as such - changing the
+    # breakout would not help, so the refusal does not send you there
     pg.evaluate(RESET_JS, ids)
     pg.evaluate("""(ids) => {
         const app = window.app;
@@ -522,7 +525,7 @@ def test_a_mismatched_connector_is_refused_with_the_fix(page):
                mid_check=lambda p: p.evaluate(MID_JS, ids['bId']))
     assert mid['lit'] == [] and mid['pill']['cls'] == 'hw-dock-pill-bad', mid
     assert mid['pill']['text'] == \
-        'WALL B is set to Edison (110V) — change its breakout first', mid
+        'WALL B runs at 120V — a Multi 208 output feeds 208V screens', mid
     assert pg.evaluate(POWER_STATE_JS, ids['bId'])['distro'] == {}
     # and the Multi 120 chip is what that screen takes
     sx, sy = chip_center(pg, f'plug-{d}-soca120')
@@ -530,6 +533,103 @@ def test_a_mismatched_connector_is_refused_with_the_fix(page):
                mid_check=lambda p: p.evaluate(MID_JS, ids['bId']))
     assert mid['lit'] and mid['pill']['cls'] == '', mid
     assert pg.evaluate(POWER_STATE_JS, ids['bId'])['distro'] == {'1': d}
+    pg.evaluate(RESET_JS, ids)
+
+
+def test_a_true1_screen_is_matched_by_its_voltage(page):
+    """True1 (and powerCON) breakouts exist at 208V and at 110V / 120V
+    since 2026-09-22, so the voltage decides the multi: a 120V True1
+    screen lands on a Multi 120 and a Multi 208 refuses it naming the
+    voltage; a 208V True1 screen the reverse. Nothing mutates on a
+    refusal."""
+    pg, ids = page
+    pg.evaluate(RESET_JS, ids)
+    pg.evaluate("""(ids) => {
+        const app = window.app;
+        const b = app.project.layers.find(x => x.id === ids.bId);
+        b.powerVoltage = 120;
+        b.powerBreakoutType = 'soca-true1';
+        app.updateLayers([b]);
+        app._restateNaming();
+    }""", ids)
+    pg.wait_for_timeout(600)
+    d = ids['distroId']
+    n = pg.evaluate(HIST_LEN_JS)
+    # 120V True1 against a Multi 208: refused for the voltage
+    sx, sy = chip_center(pg, f'plug-{d}-soca208')
+    tgt = panel_point(pg, ids['bId'], {})
+    mid = drag(pg, sx, sy, tgt['x'], tgt['y'],
+               mid_check=lambda p: p.evaluate(MID_JS, ids['bId']))
+    assert mid['lit'] == [] and mid['pill']['cls'] == 'hw-dock-pill-bad', mid
+    assert mid['pill']['text'] == \
+        'WALL B runs at 120V — a Multi 208 output feeds 208V screens', mid
+    assert pg.evaluate(POWER_STATE_JS, ids['bId'])['distro'] == {}
+    assert pg.evaluate(HIST_LEN_JS) == n
+    # 120V True1 on a Multi 120: lands
+    sx, sy = chip_center(pg, f'plug-{d}-soca120')
+    mid = drag(pg, sx, sy, tgt['x'], tgt['y'],
+               mid_check=lambda p: p.evaluate(MID_JS, ids['bId']))
+    assert mid['lit'] == [1, 2, 3] and mid['pill']['cls'] == '', mid
+    assert pg.evaluate(POWER_STATE_JS, ids['bId'])['distro'] == {'1': d}
+    assert pg.evaluate(HIST_JS, 1) == ['Assign Multi Distro']
+    # 208V True1 (WALL A, the default breakout) against a Multi 120:
+    # refused for the voltage, the reverse sentence
+    n = pg.evaluate(HIST_LEN_JS)
+    sx, sy = chip_center(pg, f'plug-{d}-soca120')
+    tgt = panel_point(pg, ids['aId'], {})
+    mid = drag(pg, sx, sy, tgt['x'], tgt['y'],
+               mid_check=lambda p: p.evaluate(MID_JS, ids['aId']))
+    assert mid['lit'] == [] and mid['pill']['cls'] == 'hw-dock-pill-bad', mid
+    assert mid['pill']['text'] == \
+        'WALL A runs at 208V — a Multi 120 output feeds 110V and 120V screens', mid
+    assert pg.evaluate(POWER_STATE_JS, ids['aId'])['distro'] == {}
+    assert pg.evaluate(HIST_LEN_JS) == n
+    # and the Multi 208 lands on it
+    sx, sy = chip_center(pg, f'plug-{d}-soca208')
+    mid = drag(pg, sx, sy, tgt['x'], tgt['y'],
+               mid_check=lambda p: p.evaluate(MID_JS, ids['aId']))
+    assert mid['lit'] == [1, 2, 3, 4, 5, 6] and mid['pill']['cls'] == '', mid
+    assert pg.evaluate(POWER_STATE_JS, ids['aId'])['distro'] == {'1': d}
+    pg.evaluate(RESET_JS, ids)
+
+
+def test_a_box_of_120v_true1_screens_implies_multi_120(page):
+    """Rung 2 reads the voltage with the breakout: a box whose members are
+    120V True1 screens implies Multi 120 (a legacy distro without boxTypes
+    reads it so), the same screens at 208V imply Multi 208, and a box
+    STORED as Multi 208 over 120V True1 members stands but clashes."""
+    pg, ids = page
+    pg.evaluate(RESET_JS, ids)
+    pg.wait_for_timeout(300)
+    out = pg.evaluate("""(ids) => {
+        const app = window.app;
+        const dd = app.getDistros().find(x => x.id === ids.distroId);
+        const b = app.project.layers.find(x => x.id === ids.bId);
+        b.powerVoltage = 120;
+        b.powerBreakoutType = 'soca-true1';
+        app.updateLayers([b]);
+        // multi indices are 1-based: WALL B's three circuits are multi 1
+        app.setSocaDistro(b, 1, dd.id, false);
+        app.updateLayers([b]);
+        app._restateNaming();
+        delete dd.boxTypes;
+        const n = [...app._distroMultiNumbers(dd.id).keys()][0];
+        if (n === undefined) return { at120: 'no box on the distro' };
+        const read = () => { const r = app.distroBoxType(dd, n);
+            return [r.type.id, r.source, r.clash]; };
+        const at120 = read();
+        dd.boxTypes = { [n]: 'soca208' };
+        const stored = read();
+        delete dd.boxTypes;
+        b.powerVoltage = 208;
+        app.updateLayers([b]);
+        app._restateNaming();
+        const at208 = read();
+        return { at120, stored, at208 };
+    }""", ids)
+    assert out['at120'] == ['soca120', 'members', False], out
+    assert out['stored'] == ['soca208', 'stored', True], out
+    assert out['at208'] == ['soca208', 'members', False], out
     pg.evaluate(RESET_JS, ids)
 
 

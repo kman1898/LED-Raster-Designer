@@ -2020,8 +2020,9 @@ def test_a_folded_overloaded_distro_reddens_its_bars(page):
 
 # ── 110V single-leg circuits, mixed services, and the L21-30 box ──────────
 #
-# The ruling (2026-08-28): a screen set to 110V runs Edison circuits, and a
-# 110V circuit rides ONE leg (leg-to-neutral) of the same 3-phase 208
+# The ruling (2026-08-28, breakouts widened 2026-09-22): a screen set to
+# 110V runs single-leg circuits - Edison by default, True1 or powerCON when
+# chosen - and a 110V circuit rides ONE leg (leg-to-neutral) of the same 3-phase 208
 # distro - balancing spreads those circuits across X/Y/Z, and a 110V multi
 # is six such single-leg circuits. A 208V circuit keeps its leg pair.
 # Coupling is therefore PHYSICS of the circuit's own voltage - an explicit
@@ -2249,10 +2250,11 @@ def test_the_l2130_dock_box_holds_three_chips_and_rates_its_feed(page):
 
 
 def test_the_breakout_select_gates_on_the_screen_voltage(page):
-    """A 110V screen offers only the Edison breakout (the ruling verbatim),
-    and the L21-30 entries enable only at 208 V - disabled, never removed,
-    so a stored choice keeps displaying the way a mismatched phasing scheme
-    does."""
+    """A 110V or 120V screen offers the True1, powerCON and Edison
+    breakouts (the ruling of 2026-09-22, replacing Edison-only), keeps
+    L6-20 out (the ruling does not name it), and the L21-30 entries enable
+    only at 208 V - disabled, never removed, so a stored choice keeps
+    displaying the way a mismatched phasing scheme does."""
     out = page.evaluate("""() => {
         const ph = window.__ph;
         const app = window.app;
@@ -2262,28 +2264,33 @@ def test_the_breakout_select_gates_on_the_screen_voltage(page):
                 id: o.value, disabled: o.disabled }));
         };
         const S110 = ph.col5(99, 'ED', 2, { powerVoltage: 110 });
+        const S120 = ph.col5(101, 'ED2', 2, { powerVoltage: 120 });
         const S208 = ph.col5(100, 'WALL', 2, { powerVoltage: 208 });
-        return ph.withProject({ layers: [S110, S208], distros: [] }, () => {
+        return ph.withProject({ layers: [S110, S120, S208], distros: [] }, () => {
             const savedLayer = app.currentLayer;
             try {
                 app.currentLayer = S110;
                 app.refreshSocaRuns();
                 const at110 = read();
+                app.currentLayer = S120;
+                app.refreshSocaRuns();
+                const at120 = read();
                 app.currentLayer = S208;
                 app.refreshSocaRuns();
                 const at208 = read();
-                return { at110, at208 };
+                return { at110, at120, at208 };
             } finally {
                 app.currentLayer = savedLayer;
                 app.refreshSocaRuns();
             }
         });
     }""")
-    d110 = {o['id']: o['disabled'] for o in out['at110']}
-    assert d110['soca-edison'] is False, out
-    for other in ('soca-true1', 'soca-powercon', 'soca-l620',
-                  'l2130-true1', 'l2130-powercon'):
-        assert d110[other] is True, (other, out)
+    for key in ('at110', 'at120'):
+        low = {o['id']: o['disabled'] for o in out[key]}
+        for ok in ('soca-true1', 'soca-powercon', 'soca-edison'):
+            assert low[ok] is False, (key, ok, out)
+        for other in ('soca-l620', 'l2130-true1', 'l2130-powercon'):
+            assert low[other] is True, (key, other, out)
     d208 = {o['id']: o['disabled'] for o in out['at208']}
     for anything in d208:
         assert d208[anything] is False, (anything, out)

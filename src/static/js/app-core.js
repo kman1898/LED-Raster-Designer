@@ -1614,8 +1614,9 @@ export class LEDRasterApp {
             // on a screen that exists (initializeLayerDefaults runs on
             // every load, so it is not the place). A preset that carries
             // its own wins. The breakout is stored only where the
-            // screen's voltage allows it (a 110 V screen can only have
-            // Edison on it); otherwise the screen stays unset and reads
+            // screen's voltage allows it (2026-09-22: a 110 V / 120 V
+            // screen runs True1, powerCON or Edison; the L21-30 box is
+            // 208 V only); otherwise the screen stays unset and reads
             // the voltage's own default, as it always has.
             this.applyNewScreenPowerPreferences(layer, appliedPreset ? presetData : null);
 

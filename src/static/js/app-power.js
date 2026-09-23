@@ -1157,8 +1157,10 @@ class _Power {
 
     // Breakout chain from the Soca/multi to the panels. Socas break out to
     // True1 or powerCON by default (panels take those directly - that's why
-    // a multi is 6 channels); Edison is the 110V alternative, and L6-20
-    // breakouts add L6-20 -> panel tails per circuit.
+    // a multi is 6 channels); Edison is the 110V option beside them (user
+    // ruling, 2026-09-22: a 110V / 120V screen runs a multi with True1,
+    // powerCON or Edison breakouts), and L6-20 breakouts add L6-20 ->
+    // panel tails per circuit.
     // `connector` is the bare connector name for labeling - the sticker goes
     // on the tail, and the tail is a True1, not a "Soca → True1".
     //
@@ -1189,10 +1191,14 @@ class _Power {
         const types = this.getPowerBreakoutTypes();
         const stored = types.find(t => t.id === (layer && layer.powerBreakoutType));
         if (stored) return stored;
-        // No stored choice: a 110V screen defaults to its only legal
-        // breakout (user ruling: a 110V screen can only have 110V Edison
-        // on it). A stored choice is somebody's paperwork and stands as
-        // written, whatever the voltage says now.
+        // No stored choice: a 110V / 120V screen reads Edison. The ruling of
+        // 2026-09-22 lets a 110V / 120V screen run True1, powerCON or Edison,
+        // and a NEW screen takes the Preferences > Distros & multis breakout
+        // when it is eligible (applyNewScreenPowerPreferences stores it) -
+        // but a screen from an older show with nothing stored keeps reading
+        // the way it always did, so its paperwork does not change on load.
+        // A stored choice is somebody's paperwork and stands as written,
+        // whatever the voltage says now.
         const v = parseFloat(layer && layer.powerVoltage) || 0;
         if (v > 0 && v <= 120) {
             return types.find(t => t.id === 'soca-edison') || types[0];
@@ -1209,18 +1215,56 @@ class _Power {
         return Number.isFinite(n) && n >= 1 ? n : 6;
     }
 
-    // Which breakouts a screen's voltage can legally run (user ruling: a
-    // screen set to 110V can only have 110V Edison on it, and the L21-30
-    // box is documented as 3 x 208V - nothing else is restricted, and no
-    // rule is extrapolated to voltages the ruling does not cover). The
-    // select disables what is ineligible; a STORED incompatible choice is
-    // somebody's paperwork and keeps displaying, the same doctrine the
-    // mismatched phasing scheme follows.
+    // Which breakouts a screen's voltage can legally run (user ruling,
+    // 2026-09-22: a screen at 110V or 120V runs a multi with True1,
+    // powerCON or Edison breakouts - this replaces the 2026-08-28 ruling
+    // that a 110V screen could only have Edison on it; the L21-30 box is
+    // documented as 3 x 208V. Nothing else is restricted, and no rule is
+    // extrapolated to voltages or products the ruling does not cover - an
+    // L6-20 breakout at 110V / 120V stays out because the ruling does not
+    // name it). The select disables what is ineligible; a STORED
+    // incompatible choice is somebody's paperwork and keeps displaying,
+    // the same doctrine the mismatched phasing scheme follows.
     _breakoutEligible(type, voltage) {
         const v = parseFloat(voltage) || 0;
-        if (v > 0 && v <= 120) return type.id === 'soca-edison';
+        if (v > 0 && v <= 120) {
+            return ['soca-true1', 'soca-powercon', 'soca-edison'].includes(type.id);
+        }
         if (String(type.id).startsWith('l2130-')) return v === 208;
         return true;
+    }
+
+    // The voltage CLASS a screen belongs to for distro matching: 120 when
+    // 0 < V <= 120 (the single-leg circuits), 208 when V === 208 (the
+    // leg-pair circuits) - the two checks the ruling covers, mirrored
+    // from _breakoutEligible - and null for any other figure, which is
+    // matched by breakout alone as it always was (nothing extrapolated).
+    _voltageClass(voltage) {
+        const v = parseFloat(voltage) || 0;
+        if (v > 0 && v <= 120) return 120;
+        if (v === 208) return 208;
+        return null;
+    }
+
+    // Whether an output type feeds a screen at this voltage: a type with
+    // a `volts` list feeds only the classes it names; a screen outside
+    // every class, or a type without the list, is not gated on voltage.
+    _outputFeedsVoltage(type, voltage) {
+        const cls = this._voltageClass(voltage);
+        if (cls == null || !type || !Array.isArray(type.volts)) return true;
+        return type.volts.includes(cls);
+    }
+
+    // How a refusal says the voltage mismatch: "WALL B runs at 120V — a
+    // Multi 208 output feeds 208V screens". Null when the type feeds the
+    // screen's voltage.
+    _voltageMismatchMessage(type, layer) {
+        if (!type || !layer || this._outputFeedsVoltage(type, layer.powerVoltage)) return null;
+        const v = parseFloat(layer.powerVoltage) || 0;
+        const feeds = (type.volts || []).map(x => `${x}V`).join(' and ');
+        const article = /^(?:[AEIOU]|[FHLMNRSX](?![a-z]))/.test(type.name) ? 'an' : 'a';
+        return `${layer.name} runs at ${v}V — ${article} ${type.name} output `
+            + `feeds ${feeds} screens`;
     }
 
     setPowerBreakout(layer, id) {
@@ -1234,13 +1278,18 @@ class _Power {
     // The connector TYPES a distro can hand a screen (user ruling,
     // 2026-08-31: types only, no counts - the rating already bounds the
     // service and the LEGS line already says where it is). Each type names
-    // the screen breakouts it can feed, and that table IS the matching
-    // rule: a Multi 208 lands on a Multi -> True1 / powerCON screen, a Multi
-    // 120 on an Edison screen, an L21-30 on an L21-30 box. Nothing is
+    // the screen breakouts it can feed AND the voltage classes it feeds
+    // (`volts`, read through _voltageClass), and that table IS the
+    // matching rule (user ruling, 2026-09-22): a Multi 208 lands on a 208V
+    // screen with a True1 / powerCON breakout, a Multi 120 on a 110V /
+    // 120V screen with a True1, powerCON or Edison breakout, an L21-30 on
+    // a 208V screen's L21-30 box. The voltage matters because True1 and
+    // powerCON breakouts now exist at both voltages. Nothing is
     // extrapolated past the table - a breakout no type names (L6-20) is a
     // mismatch like any other, refused with the fix said out loud, never
-    // silently re-typed. `faces` are the breakout connectors the popover
-    // row shows beside the type; `badge` is the bracket's text sub-pill.
+    // silently re-typed; a screen at a voltage in neither class matches by
+    // breakout alone. `faces` are the breakout connectors the popover row
+    // shows beside the type; `badge` is the bracket's text sub-pill.
     //
     // Each type also carries the BOX SHAPE its breakouts share - `boxSize`
     // (six circuits on a soca, three on an L21-30) and `feedLegA` (the
@@ -1261,13 +1310,13 @@ class _Power {
         };
         return [
             { id: 'soca208', name: 'Multi 208', sub: 'True1 / powerCON',
-              glyph: 'soca', faces: ['true1', 'powercon'],
+              glyph: 'soca', faces: ['true1', 'powercon'], volts: [208],
               breakouts: ['soca-true1', 'soca-powercon'], badge: 'MULTI 208' },
-            { id: 'soca120', name: 'Multi 120', sub: 'Edison',
-              glyph: 'soca', faces: ['edison'],
-              breakouts: ['soca-edison'], badge: 'MULTI 120' },
+            { id: 'soca120', name: 'Multi 120', sub: 'Edison / True1 / powerCON',
+              glyph: 'soca', faces: ['edison', 'true1', 'powercon'], volts: [110, 120],
+              breakouts: ['soca-edison', 'soca-true1', 'soca-powercon'], badge: 'MULTI 120' },
             { id: 'l2130', name: 'L21-30', sub: '3 × 208V',
-              glyph: 'l2130', faces: ['true1', 'powercon'],
+              glyph: 'l2130', faces: ['true1', 'powercon'], volts: [208],
               breakouts: ['l2130-true1', 'l2130-powercon'], badge: 'L21-30' },
         ].map(t => Object.assign(t, shape(t.breakouts)));
     }
@@ -1302,7 +1351,9 @@ class _Power {
     // for a box, in this order, and says which rung it came from:
     //   1. stored     - boxTypes[number] names a catalog type
     //   2. members    - an occupied box reads the type its members'
-    //                   breakout implies, the smallest-fan member deciding
+    //                   breakout AND voltage imply (a 120V True1 screen
+    //                   implies Multi 120, a 208V True1 screen Multi 208),
+    //                   the smallest-fan member deciding
     //                   when they disagree (_resolveSharedSocas' rule), so
     //                   every file from before boxTypes existed reads right
     //   3. neighbour  - a box with nothing on it follows the distro's
@@ -1328,7 +1379,8 @@ class _Power {
         for (const m of list) {
             const l = ((this.project && this.project.layers) || [])
                 .find(x => x.id === m.layerId);
-            const t = l ? this.outputTypeForBreakout(this.getPowerBreakout(l))
+            const t = l ? this.outputTypeForBreakout(this.getPowerBreakout(l),
+                                                     l.powerVoltage)
                 : null;
             if (t && (!implied || t.boxSize < implied.boxSize)) implied = t;
         }
@@ -1435,12 +1487,16 @@ class _Power {
         this._persistDistros();
     }
 
-    // The output type a screen's (effective) breakout takes, or null for a
-    // breakout the table does not name.
-    outputTypeForBreakout(bt) {
+    // The output type a screen's (effective) breakout takes at its
+    // voltage, or null for a breakout the table does not name. The
+    // voltage decides between Multi 208 and Multi 120 for a True1 /
+    // powerCON breakout (both feed those since 2026-09-22); left out, or
+    // outside both classes, the first type naming the breakout answers.
+    outputTypeForBreakout(bt, voltage) {
         const id = bt && bt.id;
         return this.getDistroOutputTypes()
-            .find(t => t.breakouts.includes(id)) || null;
+            .find(t => t.breakouts.includes(id)
+                && this._outputFeedsVoltage(t, voltage)) || null;
     }
 
     // ---- per-circuit cables: the 10' True1 on circuit 1 ------------------
@@ -1456,7 +1512,7 @@ class _Power {
     //     layer.powerCircuitCables = { [circuitNum]: { ft, connector } }
     // `connector` null means "follows the box" - the connector the
     // circuit's box breaks out to (True1 on a Soca 208 feeding a True1
-    // screen, Edison on a Soca 120, the L21-30 breakout's own tail
+    // screen, Edison on a Soca 120 feeding an Edison screen, the L21-30 breakout's own tail
     // connector) - so most of the time only a length gets typed. No entry
     // means no cable. A cleared circuit, multi or distro forgets its
     // cables with its label overrides: cables are programming.
@@ -1491,8 +1547,10 @@ class _Power {
     // breakouts it feeds, and the holder screen's own breakout picks among
     // them (a Soca 208 feeds True1 OR powerCON; the screen says which);
     // a box nobody holds, or a screen whose breakout the box does not
-    // name, reads the type's first breakout. Off any distro the screen's
-    // own breakout is the whole answer. Returns a connector id.
+    // name, reads the type's first breakout (True1 on either multi since
+    // 2026-09-22, when Multi 120 took True1 / powerCON beside Edison). Off
+    // any distro the screen's own breakout is the whole answer. Returns a
+    // connector id.
     boxTailConnector(d, number, layer) {
         const bts = this.getPowerBreakoutTypes();
         const own = layer ? this.getPowerBreakout(layer) : null;
@@ -2211,9 +2269,10 @@ class _Power {
                     sel.appendChild(opt);
                 });
             }
-            // Eligibility follows the screen's voltage (user ruling: a
-            // 110V screen can only have 110V Edison on it; the L21-30 box
-            // is 3 x 208V). Disabled, not removed: the list stays stable
+            // Eligibility follows the screen's voltage (user ruling,
+            // 2026-09-22: a 110V / 120V screen runs True1, powerCON or
+            // Edison; the L21-30 box is 3 x 208V). Disabled, not removed:
+            // the list stays stable
             // and a stored incompatible choice keeps displaying - the
             // mismatched-phasing doctrine, applied to breakouts.
             if (screen) {

@@ -758,8 +758,11 @@ def test_the_switch_reads_the_selected_screen(page):
 def test_a_box_typed_l2130_defaults_its_tails_to_that_breakout(page):
     """A spare box typed L21-30 breaks out to True1 (the breakout table's
     first L21-30 entry) for a tail nobody holds; a holder whose breakout is
-    l2130-powercon reads powerCON; a Multi 120 box is Edison. Off any distro
-    the screen's own breakout answers."""
+    l2130-powercon reads powerCON. A Multi 120 box (True1 / powerCON /
+    Edison since 2026-09-22) reads its holder's breakout - True1 for a
+    True1 holder, Edison for an Edison holder - and True1, the table's
+    first, for a tail nobody holds. Off any distro the screen's own
+    breakout answers."""
     pg, ids = page
     out = pg.evaluate("""(ids) => {
         const app = window.app;
@@ -773,11 +776,14 @@ def test_a_box_typed_l2130_defaults_its_tails_to_that_breakout(page):
             true1Holder: name(app.boxTailConnector(d, 3, l)),
             box1: name(app.boxTailConnector(d, 1, l)),
             soca120: name(app.boxTailConnector(d, 4, l)),
+            soca120Spare: name(app.boxTailConnector(d, 4, null)),
             offDistro: name(app.boxTailConnector(null, null, l)),
         };
         const saved = l.powerBreakoutType;
         l.powerBreakoutType = 'l2130-powercon';
         r.powerconHolder = name(app.boxTailConnector(d, 3, l));
+        l.powerBreakoutType = 'soca-edison';
+        r.soca120Edison = name(app.boxTailConnector(d, 4, l));
         l.powerBreakoutType = 'soca-l620';
         r.offDistroL620 = name(app.boxTailConnector(null, null, l));
         l.powerBreakoutType = saved;
@@ -787,8 +793,9 @@ def test_a_box_typed_l2130_defaults_its_tails_to_that_breakout(page):
     }""", ids)
     assert out == {
         'spare': 'True1', 'true1Holder': 'True1', 'box1': 'True1',
-        'soca120': 'Edison', 'offDistro': 'True1',
-        'powerconHolder': 'powerCON', 'offDistroL620': 'L6-20',
+        'soca120': 'True1', 'soca120Spare': 'True1', 'offDistro': 'True1',
+        'powerconHolder': 'powerCON', 'soca120Edison': 'Edison',
+        'offDistroL620': 'L6-20',
     }, out
 
 

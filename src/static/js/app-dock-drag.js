@@ -580,12 +580,18 @@ class _DockDrag {
 
     // The gate every plug-shaped drop passes first - the OUTPUTS chip and
     // the typed spare box alike (ONE rule, so preview == drop for both):
-    // the output and distro still exist, the layer draws power, and the
-    // connector matches the screen's effective breakout. The screen
-    // always has one (getPowerBreakout defaults a 110V screen to Edison,
-    // everything else to True1), so the match is always against something
-    // real; a mismatch names the screen and the fix and never re-types
-    // the screen. Returns { ok: true, d, type, glyph } or the refusal
+    // the output and distro still exist, the layer draws power, the type
+    // feeds the screen's VOLTAGE (2026-09-22: a Multi 208 feeds 208V
+    // screens, a Multi 120 feeds 110V / 120V screens - True1 and powerCON
+    // breakouts exist at both, so the connector alone no longer decides)
+    // and the connector matches the screen's effective breakout. The
+    // screen always has one (getPowerBreakout defaults a 110V / 120V
+    // screen to the preference or Edison, everything else to True1), so
+    // the match is always against something real; a mismatch names the
+    // screen and the fix and never re-types the screen. The voltage is
+    // checked first: a 120V Edison screen refused by a Multi 208 is
+    // refused for its voltage, not sent to change a breakout that would
+    // not help. Returns { ok: true, d, type, glyph } or the refusal
     // { ok: false, glyph, message }.
     _plugGate(payload, layer) {
         const d = this.getDistros().find(x => x.id === payload.distroId);
@@ -600,6 +606,8 @@ class _DockDrag {
                      message: `${(layer && layer.name) || 'That layer'} `
                         + 'draws no power.' };
         }
+        const voltsMsg = this._voltageMismatchMessage(type, layer);
+        if (voltsMsg) return { ok: false, glyph, message: voltsMsg };
         const bt = this.getPowerBreakout(layer);
         if (!type.breakouts.includes(bt.id)) {
             return { ok: false, glyph,
@@ -760,16 +768,18 @@ class _DockDrag {
     // distro: the ones offering the screen's connector with their load,
     // the rest greyed with the reason. Picking one is the plug drop,
     // verbatim - same resolution, same setter, same undo entry. The type
-    // is the screen's own: its effective breakout decides what it can
-    // take, so an L21-30 screen asks for an L21-30 and an Edison screen
-    // for a Soca 120. A screen whose breakout no type names offers
-    // nothing here, exactly as its drops would refuse.
+    // is the screen's own: its effective breakout and its voltage decide
+    // what it can take, so an L21-30 screen asks for an L21-30, a 120V
+    // screen for a Soca 120 and a 208V True1 screen for a Soca 208. A
+    // screen whose breakout no type names offers nothing here, exactly as
+    // its drops would refuse.
     _prepareOutputsMenu(x, y) {
         const layer = this._outputsMenuLayer(x, y);
         if (!layer) return null;
         const distros = this.getDistros();
         if (!distros.length) return null;
-        const type = this.outputTypeForBreakout(this.getPowerBreakout(layer));
+        const type = this.outputTypeForBreakout(this.getPowerBreakout(layer),
+                                                layer.powerVoltage);
         if (!type) return null;
         const loads = (typeof this.getDistroLoads === 'function'
             && this.getDistroLoads()) || [];

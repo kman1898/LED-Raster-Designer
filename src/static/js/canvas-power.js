@@ -691,7 +691,7 @@ Object.assign(CanvasRenderer.prototype, {
         if (!plan.length) return;
         const badge = typeof window.app.outputTypeForBreakout === 'function'
             && typeof window.app.getPowerBreakout === 'function'
-            ? window.app.outputTypeForBreakout(window.app.getPowerBreakout(layer))
+            ? window.app.outputTypeForBreakout(window.app.getPowerBreakout(layer), layer.powerVoltage)
             : null;
         const badgeText = badge ? badge.badge : null;
         const bounds = this.getLayerBounds(layer);
