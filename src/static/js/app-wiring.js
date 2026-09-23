@@ -1353,6 +1353,7 @@ class _Wiring {
                     }
                 });
                 this.saveClientSideProperties();
+                    this.normalizePowerBreakout(layer);
                 this.updatePowerCapacityDisplay();
                 this.updateLayers(this.getSelectedLayers(), true, 'Change Power Voltage');
                 window.canvasRenderer.render();
@@ -1364,6 +1365,7 @@ class _Wiring {
                     layer.powerVoltageCustom = val;
                 });
                 this.saveClientSideProperties();
+                    this.normalizePowerBreakout(layer);
                 this.updatePowerCapacityDisplay();
                 this.updateLayers(this.getSelectedLayers(), true, 'Change Power Voltage');
                 window.canvasRenderer.render();

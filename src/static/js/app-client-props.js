@@ -192,6 +192,7 @@ class _ClientProps {
             if (layer.powerRandomColors === undefined) layer.powerRandomColors = false;
             if (layer.powerColorCodedView === undefined) layer.powerColorCodedView = false;
             layer.powerCircuitColors = this.normalizePowerCircuitColors(layer.powerCircuitColors);
+            this.normalizePowerBreakout(layer);   // a screen always carries an eligible breakout (2026-09-22)
             if (layer.powerLabelSize === undefined) layer.powerLabelSize = prefs.powerLabelSize || 14;
             if (layer.powerLabelBgColor === undefined) layer.powerLabelBgColor = '#D95000';
             if (layer.powerLabelTextColor === undefined) layer.powerLabelTextColor = '#000000';

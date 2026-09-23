@@ -1178,6 +1178,24 @@ class _DockDrag {
                 : `${layer.name} has no circuits to feed.`);
             return;
         }
+        // The plug gate, per multi the drop would feed (2026-09-22): a
+        // whole-distro drag has no chip type, so each multi lands as the
+        // type its screen's breakout AND voltage imply - exactly what
+        // distroBoxType's rung 2 would read off the box afterwards - and
+        // that type passes the same gate a single-output drag does, with
+        // the same refusal on the strip. All or nothing: one multi the
+        // distro would not feed refuses the whole drop and nothing
+        // mutates. A screen whose breakout no output type names (L6-20)
+        // is refused naming the breakout, as its chip drops are; a distro
+        // whose explicit OUTPUTS list leaves the type out is refused the
+        // way the right-click submenu greys it.
+        for (const s of unassigned) {
+            const refusal = this._distroDropRefusal(payload, layer, s);
+            if (refusal) {
+                this._dockSay(refusal);
+                return;
+            }
+        }
         // The existing per-multi assignment, once per unassigned multi, in
         // plan order - the numbers fall out of the distro's own sequence.
         // Undo audit: one drag, one entry. The handle's own tooltip calls
@@ -1191,6 +1209,31 @@ class _DockDrag {
         });
         this.updateLayers([...touched], true, 'Assign Multi Distro');
         this._restateNaming();
+    }
+
+    // Why a whole-distro drop would refuse ONE of the screen's multis, or
+    // null when the distro feeds it: the plug gate (_plugGate - the
+    // output exists, the screen draws power, the type feeds the screen's
+    // voltage and names its breakout) run for the output type the multi
+    // would land as. `s` is the plan record of the multi (unused by the
+    // gate today - every multi of one screen shares its breakout and
+    // voltage - carried so a per-multi rule has its seat).
+    _distroDropRefusal(payload, layer, s) {
+        const d = this.getDistros().find(x => x.id === payload.distroId);
+        if (!d) return 'That distro no longer exists.';
+        const bt = this.getPowerBreakout(layer);
+        const type = this.outputTypeForBreakout(bt, layer.powerVoltage);
+        if (!type) {
+            return `${layer.name} is set to ${this._breakoutShortName(bt)} `
+                + '— change its breakout first';
+        }
+        if (!this.distroOffers(d, type.id)) {
+            return `${d.name || d.id} does not offer `
+                + `${type.name.toLowerCase()} — tick ${type.name} under its `
+                + '⚙ Outputs first';
+        }
+        const gate = this._plugGate({ distroId: d.id, output: type.id }, layer);
+        return gate.ok ? null : gate.message;
     }
 }
 

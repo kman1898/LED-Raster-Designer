@@ -32,6 +32,15 @@ Pinned here, with real pointer drags and real right-clicks:
     L21-30 against a soca, a soca against L21-30 - or its voltage - a
     Multi 208 against a 120V screen, a Multi 120 against a 208V screen,
     whatever the breakout - and nothing mutates
+  * the voltage is a CLASS, as a range: up to 120V is the Multi 120 class,
+    above 120V the Multi 208 class, so 220 / 230 / 240 gate exactly as
+    208 does; the L21-30 alone matches 208V and nothing else
+  * a screen always carries an eligible breakout (2026-09-22, "they have
+    to be set"): normalizePowerBreakout writes Edison up to 120V and
+    True1 above on every load path and after a sidebar voltage change,
+    never touching a stored eligible choice
+  * a whole-distro drag runs the plug gate per multi and refuses all or
+    nothing, with the single-output drag's sentence
   * the pill warns amber (still allowed) when the box would push the
     distro's legs past its rating
   * the submenu lists offering distros with their loads, greys the rest
@@ -525,7 +534,7 @@ def test_a_mismatched_connector_is_refused_with_the_fix(page):
                mid_check=lambda p: p.evaluate(MID_JS, ids['bId']))
     assert mid['lit'] == [] and mid['pill']['cls'] == 'hw-dock-pill-bad', mid
     assert mid['pill']['text'] == \
-        'WALL B runs at 120V — a Multi 208 output feeds 208V screens', mid
+        'WALL B runs at 120V — a Multi 208 output feeds screens above 120V', mid
     assert pg.evaluate(POWER_STATE_JS, ids['bId'])['distro'] == {}
     # and the Multi 120 chip is what that screen takes
     sx, sy = chip_center(pg, f'plug-{d}-soca120')
@@ -562,7 +571,7 @@ def test_a_true1_screen_is_matched_by_its_voltage(page):
                mid_check=lambda p: p.evaluate(MID_JS, ids['bId']))
     assert mid['lit'] == [] and mid['pill']['cls'] == 'hw-dock-pill-bad', mid
     assert mid['pill']['text'] == \
-        'WALL B runs at 120V — a Multi 208 output feeds 208V screens', mid
+        'WALL B runs at 120V — a Multi 208 output feeds screens above 120V', mid
     assert pg.evaluate(POWER_STATE_JS, ids['bId'])['distro'] == {}
     assert pg.evaluate(HIST_LEN_JS) == n
     # 120V True1 on a Multi 120: lands
@@ -581,7 +590,7 @@ def test_a_true1_screen_is_matched_by_its_voltage(page):
                mid_check=lambda p: p.evaluate(MID_JS, ids['aId']))
     assert mid['lit'] == [] and mid['pill']['cls'] == 'hw-dock-pill-bad', mid
     assert mid['pill']['text'] == \
-        'WALL A runs at 208V — a Multi 120 output feeds 110V and 120V screens', mid
+        'WALL A runs at 208V — a Multi 120 output feeds screens up to 120V', mid
     assert pg.evaluate(POWER_STATE_JS, ids['aId'])['distro'] == {}
     assert pg.evaluate(HIST_LEN_JS) == n
     # and the Multi 208 lands on it
@@ -890,6 +899,290 @@ def test_a_distro_with_no_outputs_key_still_drags_whole(page):
         return p.distros.find(x => x.id === id).outputs;
     }""", d)
     assert served == ['soca120'], served
+    pg.evaluate(RESET_JS, ids)
+
+
+# ── the voltage class is a range ──────────────────────────────────────────
+
+def test_a_230v_screen_gates_as_the_208_class(page):
+    """220 / 230 / 240 are stock voltage options and behave exactly as 208
+    does for gating: a Multi 208 lands on a 230V True1 screen and the box
+    reads Multi 208 with no clash, a Multi 120 is refused naming the
+    screen's voltage, and the L21-30 - documented at 208V only - is
+    refused by voltage too, with the exact figure it feeds. The refusal
+    wording says "screens above 120V" / "screens up to 120V", never a
+    list of voltages the class does not stop at."""
+    pg, ids = page
+    pg.evaluate(RESET_JS, ids)
+    pg.evaluate("""(ids) => {
+        const app = window.app;
+        const b = app.project.layers.find(x => x.id === ids.bId);
+        b.powerVoltage = 230;
+        b.powerBreakoutType = 'soca-true1';
+        app.updateLayers([b]);
+        app._restateNaming();
+    }""", ids)
+    pg.wait_for_timeout(600)
+    d = ids['distroId']
+    n = pg.evaluate(HIST_LEN_JS)
+    tgt = panel_point(pg, ids['bId'], {})
+    # Multi 120 against 230V: refused for the voltage, class wording
+    sx, sy = chip_center(pg, f'plug-{d}-soca120')
+    mid = drag(pg, sx, sy, tgt['x'], tgt['y'],
+               mid_check=lambda p: p.evaluate(MID_JS, ids['bId']))
+    assert mid['lit'] == [] and mid['pill']['cls'] == 'hw-dock-pill-bad', mid
+    assert mid['pill']['text'] == \
+        'WALL B runs at 230V — a Multi 120 output feeds screens up to 120V', mid
+    assert pg.evaluate(POWER_STATE_JS, ids['bId'])['distro'] == {}
+    # L21-30 against 230V: refused for the voltage, the exact figure
+    sx, sy = chip_center(pg, f'plug-{d}-l2130')
+    mid = drag(pg, sx, sy, tgt['x'], tgt['y'],
+               mid_check=lambda p: p.evaluate(MID_JS, ids['bId']))
+    assert mid['lit'] == [] and mid['pill']['cls'] == 'hw-dock-pill-bad', mid
+    assert mid['pill']['text'] == \
+        'WALL B runs at 230V — an L21-30 output feeds 208V screens', mid
+    assert pg.evaluate(POWER_STATE_JS, ids['bId'])['distro'] == {}
+    assert pg.evaluate(HIST_LEN_JS) == n
+    # Multi 208 lands, and the box it makes reads Multi 208 without a clash
+    sx, sy = chip_center(pg, f'plug-{d}-soca208')
+    mid = drag(pg, sx, sy, tgt['x'], tgt['y'],
+               mid_check=lambda p: p.evaluate(MID_JS, ids['bId']))
+    assert mid['lit'] == [1, 2, 3] and mid['pill']['cls'] == '', mid
+    assert pg.evaluate(POWER_STATE_JS, ids['bId'])['distro'] == {'1': d}
+    box = pg.evaluate("""(ids) => {
+        const app = window.app;
+        const dd = app.getDistros().find(x => x.id === ids.distroId);
+        const n = [...app._distroMultiNumbers(dd.id).keys()][0];
+        const r = app.distroBoxType(dd, n);
+        delete dd.boxTypes;
+        const implied = app.distroBoxType(dd, n);
+        return { stored: [r.type.id, r.source, r.clash],
+                 implied: [implied.type.id, implied.source, implied.clash],
+                 cls: [app._voltageClass(230), app._voltageClass(240),
+                       app._voltageClass(208), app._voltageClass(120),
+                       app._voltageClass(110), app._voltageClass(''),
+                       app._voltageClass(null)] };
+    }""", ids)
+    assert box['stored'] == ['soca208', 'stored', False], box
+    assert box['implied'] == ['soca208', 'members', False], box
+    assert box['cls'] == [208, 208, 208, 120, 120, None, None], box
+    pg.evaluate(RESET_JS, ids)
+
+
+# ── a screen always carries an eligible breakout ──────────────────────────
+
+def test_a_screen_is_written_an_eligible_breakout_on_load(page):
+    """normalizePowerBreakout (user ruling, 2026-09-22: "screens need to be
+    set to true1 or powercon or edison. they have to be set"): a missing,
+    empty, unknown or ineligible stored breakout is rewritten - Edison for
+    0 < V <= 120, True1 otherwise - and a stored ELIGIBLE choice is left
+    alone (L21-30 at 208V, L6-20 at 230V). Both load paths call it - the
+    File > Open defaults pass and the startup client-props pass - and a
+    208V screen that somehow holds Edison reads True1 on every surface
+    until the write lands."""
+    pg, ids = page
+    pg.evaluate(RESET_JS, ids)
+    out = pg.evaluate("""(ids) => {
+        const app = window.app;
+        const b = app.project.layers.find(x => x.id === ids.bId);
+        const saved = { v: b.powerVoltage, bt: b.powerBreakoutType };
+        const run = (v, bt) => {
+            b.powerVoltage = v; b.powerBreakoutType = bt;
+            const wrote = app.normalizePowerBreakout(b);
+            return [b.powerBreakoutType, wrote];
+        };
+        const r = {
+            missing208: run(208, undefined),
+            empty120: run(120, ''),
+            unknown110: run(110, 'no-such-breakout'),
+            edisonAt208: run(208, 'soca-edison'),
+            edisonAt230: run(230, 'soca-edison'),
+            l2130At120: run(120, 'l2130-true1'),
+            l620At120: run(120, 'soca-l620'),
+            l2130At230: run(230, 'l2130-powercon'),
+            blankMissing: run('', null),
+            // stored eligible choices stand as written
+            l2130At208: run(208, 'l2130-true1'),
+            l620At230: run(230, 'soca-l620'),
+            powerconAt120: run(120, 'soca-powercon'),
+            edisonAt110: run(110, 'soca-edison'),
+            edisonAtBlank: run('', 'soca-edison'),
+        };
+        // the read side agrees before the write: a 208V screen holding
+        // Edison reads True1 everywhere
+        b.powerVoltage = 208; b.powerBreakoutType = 'soca-edison';
+        const dd = app.getDistros().find(x => x.id === ids.distroId);
+        r.readsTrue1 = [
+            app.getPowerBreakout(b).id,
+            app.outputTypeForBreakout(app.getPowerBreakout(b), b.powerVoltage).id,
+            app.cableConnectorName(app.boxTailConnector(null, null, b)),
+        ];
+        // the File > Open pass writes it
+        b.powerVoltage = 208; b.powerBreakoutType = 'soca-edison';
+        app.applyMissingLayerDefaults(b);
+        r.fileOpen = b.powerBreakoutType;
+        // the startup client-props pass writes it
+        b.powerVoltage = 120; b.powerBreakoutType = 'l2130-true1';
+        app.loadClientSideProperties({ skipPreferences: true });
+        r.startup = b.powerBreakoutType;
+        b.powerVoltage = saved.v; b.powerBreakoutType = saved.bt;
+        return r;
+    }""", ids)
+    assert out['missing208'] == ['soca-true1', True], out
+    assert out['empty120'] == ['soca-edison', True], out
+    assert out['unknown110'] == ['soca-edison', True], out
+    assert out['edisonAt208'] == ['soca-true1', True], out
+    assert out['edisonAt230'] == ['soca-true1', True], out
+    assert out['l2130At120'] == ['soca-edison', True], out
+    assert out['l620At120'] == ['soca-edison', True], out
+    assert out['l2130At230'] == ['soca-true1', True], out
+    assert out['blankMissing'] == ['soca-true1', True], out
+    assert out['l2130At208'] == ['l2130-true1', False], out
+    assert out['l620At230'] == ['soca-l620', False], out
+    assert out['powerconAt120'] == ['soca-powercon', False], out
+    assert out['edisonAt110'] == ['soca-edison', False], out
+    assert out['edisonAtBlank'] == ['soca-edison', False], out
+    assert out['readsTrue1'] == ['soca-true1', 'soca208', 'True1'], out
+    assert out['fileOpen'] == 'soca-true1', out
+    assert out['startup'] == 'soca-edison', out
+    pg.evaluate(RESET_JS, ids)
+
+
+def test_a_sidebar_voltage_change_rewrites_an_ineligible_breakout(page):
+    """The sidebar's voltage select: 208 -> 110 on a screen stored L21-30
+    rewrites the breakout to Edison in the same 'Change Power Voltage'
+    step, and the server is sent the rewrite on that PUT; 110 -> 208 on
+    the Edison screen rewrites to True1. A stored eligible choice rides
+    through untouched (powerCON at 120V stays powerCON at 208V)."""
+    pg, ids = page
+    pg.evaluate(RESET_JS, ids)
+    pg.evaluate("""(ids) => {
+        const app = window.app;
+        const b = app.project.layers.find(x => x.id === ids.bId);
+        b.powerVoltage = 208;
+        b.powerBreakoutType = 'l2130-true1';
+        app.updateLayers([b]);
+        app.selectLayer(b);
+    }""", ids)
+    pg.wait_for_timeout(500)
+    served = pg.evaluate("""async (ids) => {
+        const p = await (await fetch('/api/project')).json();
+        return p.layers.find(l => l.id === ids.bId).powerBreakoutType;
+    }""", ids)
+    assert served == 'l2130-true1', served
+
+    def change(value):
+        pg.evaluate("""(v) => {
+            const sel = document.getElementById('power-voltage-select');
+            sel.value = v;
+            sel.dispatchEvent(new Event('change', { bubbles: true }));
+        }""", value)
+        pg.wait_for_timeout(700)
+        return pg.evaluate("""async (ids) => {
+            const app = window.app;
+            const b = app.project.layers.find(x => x.id === ids.bId);
+            const p = await (await fetch('/api/project')).json();
+            const s = p.layers.find(l => l.id === ids.bId);
+            return { local: [b.powerVoltage, b.powerBreakoutType],
+                     served: [s.powerVoltage, s.powerBreakoutType],
+                     last: app.history[app.historyIndex].action,
+                     select: document.getElementById('power-breakout-type').value };
+        }""", ids)
+
+    out = change('110')
+    assert out['local'] == [110, 'soca-edison'], out
+    assert out['served'] == [110, 'soca-edison'], out
+    assert out['last'] == 'Change Power Voltage', out
+    assert out['select'] == 'soca-edison', out
+    out = change('208')
+    assert out['local'] == [208, 'soca-true1'], out
+    assert out['served'] == [208, 'soca-true1'], out
+    # an eligible choice rides through
+    pg.evaluate("""(ids) => {
+        const app = window.app;
+        const b = app.project.layers.find(x => x.id === ids.bId);
+        b.powerVoltage = 120;
+        b.powerBreakoutType = 'soca-powercon';
+        app.updateLayers([b]);
+    }""", ids)
+    pg.wait_for_timeout(400)
+    out = change('208')
+    assert out['local'] == [208, 'soca-powercon'], out
+    assert out['served'] == [208, 'soca-powercon'], out
+    pg.evaluate("""(ids) => {
+        const app = window.app;
+        app.selectLayer(app.project.layers.find(x => x.id === ids.aId));
+    }""", ids)
+    pg.evaluate(RESET_JS, ids)
+
+
+# ── the whole-distro drag passes the plug gate ────────────────────────────
+
+def test_a_whole_distro_drag_passes_the_plug_gate(page):
+    """Dragging the distro's own handle onto a screen runs the plug gate
+    for the type each unassigned multi would land as, all or nothing: a
+    distro whose OUTPUTS list leaves that type out refuses on the strip
+    with nothing assigned and no history entry; a screen whose breakout
+    no output type names (L6-20) is refused naming the breakout, as its
+    chip drops are; and the legacy distro (no list) still lands both
+    multis of a 208V True1 screen."""
+    pg, ids = page
+    pg.evaluate(RESET_JS, ids)
+    pg.wait_for_timeout(300)
+    d = ids['distroId']
+    # the distro offers only Multi 120; WALL A is 208V True1 -> Multi 208
+    pg.evaluate("(id) => window.app.updateDistro(id, {outputs: ['soca120']})", d)
+    pg.wait_for_timeout(500)
+    pg.evaluate("() => window.app.resetHistory('Outputs Seed')")
+    n = pg.evaluate(HIST_LEN_JS)
+    sx, sy = chip_center(pg, f'distro-{d}')
+    tgt = panel_point(pg, ids['aId'], {})
+    drag(pg, sx, sy, tgt['x'], tgt['y'])
+    assert pg.evaluate(POWER_STATE_JS, ids['aId'])['distro'] == {}, \
+        'a refused whole-distro drop assigned a multi'
+    assert pg.evaluate(STATUS_JS) == \
+        'PD does not offer multi 208 — tick Multi 208 under its ⚙ Outputs first'
+    assert pg.evaluate(HIST_LEN_JS) == n, 'a refused drop earned an entry'
+    # an L6-20 screen: no output type names the breakout
+    pg.evaluate(RESET_JS, ids)
+    out = pg.evaluate("""(ids) => {
+        const app = window.app;
+        const a = app.project.layers.find(x => x.id === ids.aId);
+        a.powerBreakoutType = 'soca-l620';
+        app.updateLayers([a]);
+        app._restateNaming();
+        const dd = app.getDistros().find(x => x.id === ids.distroId);
+        const s = app.getSocaPlan(a)[0];
+        return {
+            refusal: app._distroDropRefusal({ distroId: dd.id }, a, s),
+            expect: `WALL A is set to ${app._breakoutShortName(
+                app.getPowerBreakout(a))} — change its breakout first`,
+        };
+    }""", ids)
+    assert out['refusal'] == out['expect'], out
+    pg.wait_for_timeout(300)
+    n = pg.evaluate(HIST_LEN_JS)
+    sx, sy = chip_center(pg, f'distro-{d}')
+    drag(pg, sx, sy, tgt['x'], tgt['y'])
+    assert pg.evaluate(POWER_STATE_JS, ids['aId'])['distro'] == {}
+    assert pg.evaluate(STATUS_JS) == out['expect']
+    assert pg.evaluate(HIST_LEN_JS) == n
+    # the gate says yes for the legacy distro and a 208V True1 screen, and
+    # the drop lands both multis
+    pg.evaluate(RESET_JS, ids)
+    pg.wait_for_timeout(300)
+    assert pg.evaluate("""(ids) => {
+        const app = window.app;
+        const a = app.project.layers.find(x => x.id === ids.aId);
+        const dd = app.getDistros().find(x => x.id === ids.distroId);
+        return app.getSocaPlan(a).map(
+            s => app._distroDropRefusal({ distroId: dd.id }, a, s));
+    }""", ids) == [None, None]
+    sx, sy = chip_center(pg, f'distro-{d}')
+    drag(pg, sx, sy, tgt['x'], tgt['y'])
+    st = pg.evaluate(POWER_STATE_JS, ids['aId'])
+    assert st['distro'] == {'1': d, '2': d}, st
+    assert pg.evaluate(HIST_JS, 1) == ['Assign Multi Distro']
     pg.evaluate(RESET_JS, ids)
 
 

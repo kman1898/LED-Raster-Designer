@@ -756,13 +756,19 @@ def test_the_switch_reads_the_selected_screen(page):
 
 
 def test_a_box_typed_l2130_defaults_its_tails_to_that_breakout(page):
-    """A spare box typed L21-30 breaks out to True1 (the breakout table's
-    first L21-30 entry) for a tail nobody holds; a holder whose breakout is
-    l2130-powercon reads powerCON. A Multi 120 box (True1 / powerCON /
-    Edison since 2026-09-22) reads its holder's breakout - True1 for a
-    True1 holder, Edison for an Edison holder - and True1, the table's
-    first, for a tail nobody holds. Off any distro the screen's own
-    breakout answers."""
+    """A spare box typed L21-30 breaks out to True1 (the L21-30 type's
+    first breakout) for a tail nobody holds; a holder whose breakout is
+    l2130-powercon reads powerCON. A Multi 120 box (Edison / True1 /
+    powerCON since 2026-09-22) reads its holder's breakout - True1 for a
+    208V True1 holder (the box names True1, so the holder's own wins),
+    Edison for a 120V Edison holder - and for a tail nobody holds it
+    reads EDISON: the spare follows the box TYPE's own breakout order
+    (Multi 120 leads with Edison), never the breakout catalog's order,
+    which put True1 first and read a spare Multi 120 as True1 (the bug
+    this pins, 2026-09-22). A spare Multi 208 reads True1 the same way.
+    Off any distro the screen's own breakout answers; an Edison holder
+    only reads Edison at a voltage that can run it (up to 120V), because
+    a screen always carries an eligible breakout."""
     pg, ids = page
     out = pg.evaluate("""(ids) => {
         const app = window.app;
@@ -770,6 +776,7 @@ def test_a_box_typed_l2130_defaults_its_tails_to_that_breakout(page):
         const l = app.project.layers.find(x => x.id === ids.id);
         app.setDistroBoxType(d.id, 3, 'l2130');
         app.setDistroBoxType(d.id, 4, 'soca120');
+        app.setDistroBoxType(d.id, 5, 'soca208');
         const name = (id) => app.cableConnectorName(id);
         const r = {
             spare: name(app.boxTailConnector(d, 3, null)),
@@ -777,23 +784,28 @@ def test_a_box_typed_l2130_defaults_its_tails_to_that_breakout(page):
             box1: name(app.boxTailConnector(d, 1, l)),
             soca120: name(app.boxTailConnector(d, 4, l)),
             soca120Spare: name(app.boxTailConnector(d, 4, null)),
+            soca208Spare: name(app.boxTailConnector(d, 5, null)),
             offDistro: name(app.boxTailConnector(null, null, l)),
         };
-        const saved = l.powerBreakoutType;
+        const saved = { bt: l.powerBreakoutType, v: l.powerVoltage };
         l.powerBreakoutType = 'l2130-powercon';
         r.powerconHolder = name(app.boxTailConnector(d, 3, l));
+        l.powerVoltage = 120;
         l.powerBreakoutType = 'soca-edison';
         r.soca120Edison = name(app.boxTailConnector(d, 4, l));
+        l.powerVoltage = saved.v;
         l.powerBreakoutType = 'soca-l620';
         r.offDistroL620 = name(app.boxTailConnector(null, null, l));
-        l.powerBreakoutType = saved;
+        l.powerBreakoutType = saved.bt;
         app.setDistroBoxType(d.id, 3, null);
         app.setDistroBoxType(d.id, 4, null);
+        app.setDistroBoxType(d.id, 5, null);
         return r;
     }""", ids)
     assert out == {
         'spare': 'True1', 'true1Holder': 'True1', 'box1': 'True1',
-        'soca120': 'True1', 'soca120Spare': 'True1', 'offDistro': 'True1',
+        'soca120': 'True1', 'soca120Spare': 'Edison', 'soca208Spare': 'True1',
+        'offDistro': 'True1',
         'powerconHolder': 'powerCON', 'soca120Edison': 'Edison',
         'offDistroL620': 'L6-20',
     }, out

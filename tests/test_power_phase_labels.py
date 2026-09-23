@@ -2253,32 +2253,39 @@ def test_the_breakout_select_gates_on_the_screen_voltage(page):
     """A 110V or 120V screen offers the True1, powerCON and Edison
     breakouts (the ruling of 2026-09-22, replacing Edison-only), keeps
     L6-20 out (the ruling does not name it), and the L21-30 entries enable
-    only at 208 V - disabled, never removed, so a stored choice keeps
-    displaying the way a mismatched phasing scheme does."""
+    only at 208 V. Edison - the 110V breakout - is out ABOVE 120V (a 208V
+    screen set to Edison used to read Multi 208 with True1 tails on every
+    sheet, silently), so at 208V and 230V it is disabled along with, at
+    230V, the L21-30. A blank custom voltage restricts only the L21-30,
+    and its title says so instead of "Not available at null V.". No
+    stored choice is exempt from the greying: a screen always carries an
+    eligible breakout, so the select shows what is in force."""
     out = page.evaluate("""() => {
         const ph = window.__ph;
         const app = window.app;
         const read = () => {
             const sel = document.getElementById('power-breakout-type');
             return [...sel.options].map(o => ({
-                id: o.value, disabled: o.disabled }));
+                id: o.value, disabled: o.disabled, title: o.title }));
         };
         const S110 = ph.col5(99, 'ED', 2, { powerVoltage: 110 });
         const S120 = ph.col5(101, 'ED2', 2, { powerVoltage: 120 });
         const S208 = ph.col5(100, 'WALL', 2, { powerVoltage: 208 });
-        return ph.withProject({ layers: [S110, S120, S208], distros: [] }, () => {
+        const S230 = ph.col5(102, 'EU', 2, { powerVoltage: 230,
+                                             powerBreakoutType: 'soca-edison' });
+        const SBLANK = ph.col5(103, 'TBD', 2, { powerVoltage: null });
+        return ph.withProject({ layers: [S110, S120, S208, S230, SBLANK],
+                                distros: [] }, () => {
             const savedLayer = app.currentLayer;
             try {
-                app.currentLayer = S110;
-                app.refreshSocaRuns();
-                const at110 = read();
-                app.currentLayer = S120;
-                app.refreshSocaRuns();
-                const at120 = read();
-                app.currentLayer = S208;
-                app.refreshSocaRuns();
-                const at208 = read();
-                return { at110, at120, at208 };
+                const at = (L) => { app.currentLayer = L; app.refreshSocaRuns();
+                    return read(); };
+                const at110 = at(S110), at120 = at(S120), at208 = at(S208);
+                const at230 = at(S230), atBlank = at(SBLANK);
+                const sel = document.getElementById('power-breakout-type');
+                app.currentLayer = S230; app.refreshSocaRuns();
+                const shown230 = sel.value;
+                return { at110, at120, at208, at230, atBlank, shown230 };
             } finally {
                 app.currentLayer = savedLayer;
                 app.refreshSocaRuns();
@@ -2292,8 +2299,30 @@ def test_the_breakout_select_gates_on_the_screen_voltage(page):
         for other in ('soca-l620', 'l2130-true1', 'l2130-powercon'):
             assert low[other] is True, (key, other, out)
     d208 = {o['id']: o['disabled'] for o in out['at208']}
-    for anything in d208:
-        assert d208[anything] is False, (anything, out)
+    assert d208 == {'soca-true1': False, 'soca-powercon': False,
+                    'soca-edison': True, 'soca-l620': False,
+                    'l2130-true1': False, 'l2130-powercon': False}, out
+    d230 = {o['id']: o['disabled'] for o in out['at230']}
+    assert d230 == {'soca-true1': False, 'soca-powercon': False,
+                    'soca-edison': True, 'soca-l620': False,
+                    'l2130-true1': True, 'l2130-powercon': True}, out
+    # the stored Edison at 230V earns no exemption: the select shows the
+    # breakout in force (True1), and Edison stays greyed with the reason
+    assert out['shown230'] == 'soca-true1', out
+    t230 = {o['id']: o['title'] for o in out['at230']}
+    assert t230['soca-edison'] == \
+        'Not available at 230V — Edison is for screens up to 120V.', t230
+    assert t230['l2130-true1'] == \
+        'Not available at 230V — L21-30 is 208V only.', t230
+    blank = {o['id']: o['disabled'] for o in out['atBlank']}
+    assert blank == {'soca-true1': False, 'soca-powercon': False,
+                     'soca-edison': False, 'soca-l620': False,
+                     'l2130-true1': True, 'l2130-powercon': True}, out
+    tblank = {o['id']: o['title'] for o in out['atBlank']}
+    assert tblank['l2130-powercon'] == \
+        'Not available until a voltage is set — L21-30 is 208V only.', tblank
+    for o in out['atBlank'] + out['at230'] + out['at208']:
+        assert 'null' not in o['title'] and ' V.' not in o['title'], o
 
 
 # ── 17. the label authority is 1-based and agrees with itself, before and
