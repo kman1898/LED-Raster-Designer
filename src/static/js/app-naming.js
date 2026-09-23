@@ -654,7 +654,18 @@ class _Naming {
     }
 
     normalizePowerCircuitColors(colors) {
-        const defaults = this.getDefaultPowerCircuitColors();
+        // A screen that EXISTS: a letter it does not have, an entry that is
+        // not a colour, and the old default green all fill from the
+        // SHIPPED set - never from the Preferences default, which is for a
+        // NEW screen only (initializeLayerDefaults takes
+        // getDefaultPowerCircuitColors). Reading the preference here made
+        // every load repaint a circuit the user never chose a colour for,
+        // on every screen in the file, whenever the preference changed.
+        const shipped = this.getShippedCircuitColorList();
+        const defaults = {
+            A: shipped[0], B: shipped[1], C: shipped[2],
+            D: shipped[3], E: shipped[4], F: shipped[5]
+        };
         const next = { ...defaults };
         if (colors && typeof colors === 'object') {
             Object.keys(defaults).forEach(letter => {
@@ -663,7 +674,7 @@ class _Naming {
                 }
             });
         }
-        // Migrate old default green (Circuit 4) to the new default.
+        // Migrate old default green (Circuit 4) to the shipped default.
         if ((next.D || '').toUpperCase() === '#79FC4C') {
             next.D = defaults.D;
         }

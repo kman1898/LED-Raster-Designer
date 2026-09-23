@@ -411,10 +411,20 @@ class _Clipboard {
             screenNameOffsetYPixelMap: layer.screenNameOffsetYPixelMap,
             screenNameOffsetXShowLook: layer.screenNameOffsetXShowLook,
             screenNameOffsetYShowLook: layer.screenNameOffsetYShowLook,
+            // The Data tab's colours were in clientProps only, so the copy
+            // looked right and the server held the shipped colours - the
+            // gradient bug one door over. Sent so the server's copy matches
+            // (the add route lists all but dataFlowColor today).
+            arrowColor: layer.arrowColor,
+            dataFlowColor: layer.dataFlowColor,
+            primaryColor: layer.primaryColor,
+            primaryTextColor: layer.primaryTextColor,
+            backupColor: layer.backupColor,
+            backupTextColor: layer.backupTextColor,
             hiddenPanels: hiddenPanels,  // Pass hidden panel info (legacy)
             panelStates: panelStates,    // Half-tile + hidden + blank (v0.8.0)
         };
-        
+
         // Store client-side properties to copy after layer is created
         const clientProps = {
             arrowLineWidth: layer.arrowLineWidth,
@@ -773,6 +783,19 @@ class _Clipboard {
             customPortIndex: this.clipboard.customPortIndex,
             randomDataColors: !!this.clipboard.randomDataColors,
             arrowSize: this.clipboard.arrowSize,
+            // The Data tab's colours: the same set duplicate carries
+            // (clientProps there). Until 2026-09-22 paste sent none of them
+            // and pasteClientProps stamped only the two text colours, so a
+            // pasted screen came out with the shipped line, arrow and port
+            // colours whatever the source had - immediately, and on the
+            // server. Sent here too so the server's copy matches; the add
+            // route lists all but dataFlowColor today.
+            arrowColor: this.clipboard.arrowColor,
+            dataFlowColor: this.clipboard.dataFlowColor,
+            primaryColor: this.clipboard.primaryColor,
+            primaryTextColor: this.clipboard.primaryTextColor,
+            backupColor: this.clipboard.backupColor,
+            backupTextColor: this.clipboard.backupTextColor,
             // v0.11.0: paste never carried the appearance block at all -
             // not in this payload and not in pasteClientProps below, which is
             // eight colours and nothing else. So a pasted screen lost its
@@ -807,7 +830,12 @@ class _Clipboard {
             border_color_cabinet: this.clipboard.border_color_cabinet,
             border_color_data: this.clipboard.border_color_data,
             border_color_power: this.clipboard.border_color_power,
+            // The same six Data colours duplicate's clientProps stamps.
+            arrowColor: this.clipboard.arrowColor,
+            dataFlowColor: this.clipboard.dataFlowColor,
+            primaryColor: this.clipboard.primaryColor,
             primaryTextColor: this.clipboard.primaryTextColor,
+            backupColor: this.clipboard.backupColor,
             backupTextColor: this.clipboard.backupTextColor,
             powerLabelBgColor: this.clipboard.powerLabelBgColor,
             powerLabelTextColor: this.clipboard.powerLabelTextColor

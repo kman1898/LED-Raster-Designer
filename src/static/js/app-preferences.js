@@ -31,10 +31,16 @@ class _Preferences {
             color2: '#959CB8',
             borderColor: '#FFFFFF',
             // ---- Colours a NEW screen starts with (initializeLayerDefaults,
-            // and addLayer for the two the server sets: the screen name and
+            // and addLayer for the two the server sets: the info labels and
             // the cabinet ID text). A screen that exists keeps its own; the
             // Screen Info panel changes those. The six circuit colours are
             // A to F in order (getDefaultPowerCircuitColors keys them).
+            //
+            // screenNameColor is the layer's labelsColor: the Pixel Map
+            // size / weight lines and the Data view's port-load plate. It
+            // does NOT colour the screen name - canvas-labels draws the name
+            // black on a white plate on purpose. The key keeps its name so
+            // a stored preference still reads; the dialog says "Info labels".
             screenNameColor: '#FFFFFF',
             cabinetIdColor: '#FFFFFF',
             dataLineColor: '#FFFFFF',
@@ -130,6 +136,14 @@ class _Preferences {
     // The six circuit colour picker ids, A to F.
     _circuitColorPrefIds() {
         return ['a', 'b', 'c', 'd', 'e', 'f'].map(l => `pref-power-circuit-color-${l}`);
+    }
+
+    // The six circuit colours that SHIPPED, A to F, as a fresh list. What
+    // a screen that already exists fills a missing letter from
+    // (normalizePowerCircuitColors): the preference is for a new screen
+    // only, so changing it never repaints a circuit already drawn.
+    getShippedCircuitColorList() {
+        return SHIPPED_CIRCUIT_COLORS.slice();
     }
 
     // The preference's six circuit colours as a checked list, A to F: a
@@ -460,18 +474,24 @@ class _Preferences {
         setVal('pref-color1', prefs.color1);
         setVal('pref-color2', prefs.color2);
         setVal('pref-border-color', prefs.borderColor);
-        setVal('pref-screen-name-color', prefs.screenNameColor);
-        setVal('pref-cabinet-id-color', prefs.cabinetIdColor);
-        setVal('pref-data-line-color', prefs.dataLineColor);
-        setVal('pref-data-arrow-color', prefs.dataArrowColor);
-        setVal('pref-data-primary-color', prefs.dataPrimaryColor);
-        setVal('pref-data-primary-text-color', prefs.dataPrimaryTextColor);
-        setVal('pref-data-backup-color', prefs.dataBackupColor);
-        setVal('pref-data-backup-text-color', prefs.dataBackupTextColor);
-        setVal('pref-power-line-color', prefs.powerLineColor);
-        setVal('pref-power-arrow-color', prefs.powerArrowColor);
-        setVal('pref-power-label-bg-color', prefs.powerLabelBgColor);
-        setVal('pref-power-label-text-color', prefs.powerLabelTextColor);
+        // A colour picker given a value that is not #RRGGBB shows black,
+        // and a Save with no edit would then store that black. A stored
+        // preference that is not a colour ('#FFF', 'abcdef', '') shows the
+        // shipped default instead, the same fallback a new screen takes.
+        const defaults = this.getPreferencesDefaults();
+        const setColor = (id, key) => setVal(id, this.normalizeHexColor(prefs[key], defaults[key]));
+        setColor('pref-screen-name-color', 'screenNameColor');
+        setColor('pref-cabinet-id-color', 'cabinetIdColor');
+        setColor('pref-data-line-color', 'dataLineColor');
+        setColor('pref-data-arrow-color', 'dataArrowColor');
+        setColor('pref-data-primary-color', 'dataPrimaryColor');
+        setColor('pref-data-primary-text-color', 'dataPrimaryTextColor');
+        setColor('pref-data-backup-color', 'dataBackupColor');
+        setColor('pref-data-backup-text-color', 'dataBackupTextColor');
+        setColor('pref-power-line-color', 'powerLineColor');
+        setColor('pref-power-arrow-color', 'powerArrowColor');
+        setColor('pref-power-label-bg-color', 'powerLabelBgColor');
+        setColor('pref-power-label-text-color', 'powerLabelTextColor');
         const circuitColors = this.getPreferenceCircuitColorList(prefs);
         this._circuitColorPrefIds().forEach((id, i) => setVal(id, circuitColors[i]));
         this._refreshFontPrefsUI(prefs.font || 'Arial');

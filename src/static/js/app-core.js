@@ -1137,10 +1137,30 @@ export class LEDRasterApp {
         this.currentLayer.dataFlowLabelSize = prefs.dataLabelSize;
         this.currentLayer.powerLineWidth = prefs.powerLineWidth;
         this.currentLayer.powerLabelSize = prefs.powerLabelSize;
-        this.currentLayer.primaryTextColor = this.currentLayer.primaryTextColor || '#000000';
-        this.currentLayer.backupTextColor = this.currentLayer.backupTextColor || '#FFFFFF';
-        this.currentLayer.powerLabelBgColor = this.currentLayer.powerLabelBgColor || '#D95000';
-        this.currentLayer.powerLabelTextColor = this.currentLayer.powerLabelTextColor || '#000000';
+        // The pristine startup screen is, in effect, a new screen: it takes
+        // every colour default the Preferences dialog holds (the same set
+        // initializeLayerDefaults and addLayer give a screen that is added),
+        // not only the tile colours. The literal behind each is what shipped
+        // before the preference existed, for a stored value that is not a
+        // colour. The circuit colours are the preference's A to F.
+        const color = (value, fallback) => this.normalizeHexColor(value, fallback);
+        this.currentLayer.labelsColor = color(prefs.screenNameColor, '#FFFFFF');
+        this.currentLayer.cabinetIdColor = color(prefs.cabinetIdColor, '#FFFFFF');
+        this.currentLayer.dataFlowColor = color(prefs.dataLineColor, '#FFFFFF');
+        this.currentLayer.arrowColor = color(prefs.dataArrowColor, '#0042AA');
+        this.currentLayer.primaryColor = color(prefs.dataPrimaryColor, '#00FF00');
+        this.currentLayer.primaryTextColor = color(prefs.dataPrimaryTextColor, '#000000');
+        this.currentLayer.backupColor = color(prefs.dataBackupColor, '#FF0000');
+        this.currentLayer.backupTextColor = color(prefs.dataBackupTextColor, '#FFFFFF');
+        this.currentLayer.powerLineColor = color(prefs.powerLineColor, '#FF0000');
+        this.currentLayer.powerArrowColor = color(prefs.powerArrowColor, '#0042AA');
+        this.currentLayer.powerLabelBgColor = color(prefs.powerLabelBgColor, '#D95000');
+        this.currentLayer.powerLabelTextColor = color(prefs.powerLabelTextColor, '#000000');
+        const circuits = this.getPreferenceCircuitColorList(prefs);
+        this.currentLayer.powerCircuitColors = {
+            A: circuits[0], B: circuits[1], C: circuits[2],
+            D: circuits[3], E: circuits[4], F: circuits[5]
+        };
         this.currentLayer.processorType = prefs.processorType;
         this.currentLayer.lowLatency = !!prefs.lowLatency;
         this.currentLayer.bitDepth = prefs.bitDepth;
@@ -1549,6 +1569,9 @@ export class LEDRasterApp {
         // Server-side props control panel generation (columns/rows/cabinet sizes/colors/etc.)
         // Client-side props (data flow, power, labels...) are applied after the layer is returned.
         const prefs = this.getPreferences();
+        // A stored preference that is not a colour ('#FFF', 'abcdef') must
+        // not reach the server verbatim; the literal is what shipped.
+        const color = (value, fallback) => this.normalizeHexColor(value, fallback);
         let serverProps;
         if (presetData && typeof presetData === 'object') {
             serverProps = {
@@ -1562,9 +1585,9 @@ export class LEDRasterApp {
                 panel_weight: presetData.panel_weight != null ? presetData.panel_weight : prefs.panelWeight,
                 weight_unit: presetData.weight_unit || prefs.weightUnit,
                 // The two colours the server sets on a new layer (create_layer);
-                // the Look tab's "Labels" and "Cabinet ID text" preferences.
-                labelsColor: presetData.labelsColor || prefs.screenNameColor,
-                cabinetIdColor: presetData.cabinetIdColor || prefs.cabinetIdColor
+                // the Look tab's "Info labels" and "Cabinet ID text" preferences.
+                labelsColor: presetData.labelsColor || color(prefs.screenNameColor, '#FFFFFF'),
+                cabinetIdColor: presetData.cabinetIdColor || color(prefs.cabinetIdColor, '#FFFFFF')
             };
         } else {
             serverProps = {
@@ -1577,8 +1600,8 @@ export class LEDRasterApp {
                 border_color: prefs.borderColor,
                 panel_weight: prefs.panelWeight,
                 weight_unit: prefs.weightUnit,
-                labelsColor: prefs.screenNameColor,
-                cabinetIdColor: prefs.cabinetIdColor
+                labelsColor: color(prefs.screenNameColor, '#FFFFFF'),
+                cabinetIdColor: color(prefs.cabinetIdColor, '#FFFFFF')
             };
         }
 
@@ -1632,16 +1655,20 @@ export class LEDRasterApp {
             // Save the new defaults to localStorage
             this.saveClientSideProperties();
 
-            // IMPORTANT: when a preset was applied, the server only knows the
-            // structural fields sent via /api/layer/add (columns, cabinet dims,
-            // colors, etc.). Preset values like bitDepth, frameRate, panelWatts,
-            // powerVoltage, flowPattern, label sizes, etc. live only on the
-            // client at this point. Any subsequent server re-fetch (e.g. after
-            // delete_layer or file load) would clobber them. Push the enriched
-            // layer back now so server + client stay in sync.
-            if (appliedPreset) {
-                this.updateLayers([layer]);
-            }
+            // IMPORTANT: the server only knows the structural fields sent via
+            // /api/layer/add (columns, cabinet dims, tile colours, the two
+            // label colours); create_layer stores its own literal defaults
+            // for everything else. Every client-side default that
+            // initializeLayerDefaults just set - the Data and Power tab
+            // colours, the circuit colours, bitDepth, frameRate, flowPattern,
+            // line widths, label sizes - and any preset value on top lives
+            // only on the client at this point. Any subsequent server
+            // re-fetch (delete_layer, reload, file load) would clobber them
+            // with the literals. Push the enriched layer back now, preset or
+            // not, so server + client stay in sync. (Until 2026-09-22 only
+            // the preset branch did this, so a new screen lost its
+            // Preferences colours on the next reload unless it was saved.)
+            this.updateLayers([layer]);
         });
     }
 
@@ -1739,10 +1766,22 @@ export class LEDRasterApp {
         // Server-side structural props already applied via /api/layer/add; skip them here.
         const serverKeys = new Set(['columns', 'rows', 'cabinet_width', 'cabinet_height',
             'color1', 'color2', 'border_color', 'panel_weight', 'weight_unit']);
+        // A colour key a preset carries as null or '' (a hand-edited file,
+        // or one saved from a layer that never had the colour) is "no
+        // colour", not a colour: leave the default initializeLayerDefaults
+        // (or the server, for the two label colours) already gave the
+        // layer, rather than landing the empty value on it.
+        const colorKeys = new Set(['labelsColor', 'cabinetIdColor',
+            'arrowColor', 'dataFlowColor', 'primaryColor', 'primaryTextColor',
+            'backupColor', 'backupTextColor',
+            'powerLineColor', 'powerArrowColor', 'powerLabelBgColor', 'powerLabelTextColor',
+            'powerCircuitColors',
+            'border_color_pixel', 'border_color_cabinet', 'border_color_data', 'border_color_power']);
         Object.keys(presetData).forEach(k => {
             if (excluded.has(k)) return;
             if (serverKeys.has(k)) return;
             if (k.startsWith('_')) return;
+            if (colorKeys.has(k) && (presetData[k] == null || presetData[k] === '')) return;
             layer[k] = presetData[k];
         });
         // v0.11.0 (step 6): the same drop on the way IN. serializeLayerAsPreset
