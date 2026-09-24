@@ -21,9 +21,10 @@ v1.3.1 - September 24, 2026
   has one name field. Only the H series, MX2000 and MX6000 name a card
   per slot. Port labels and the paperwork read the unit's name; a name
   typed on the built-in card in an earlier version is carried over.
-- FIX: On an SX40 or a HELIOS a port exists only inside a breakout box.
-  Removing a box takes its ports with it and unplaces whatever sat on
-  them, named in a message; no port is offered outside a box.
+- FIX: On an SX40, a HELIOS 8K or a HELIOS 4K a port exists only inside a
+  breakout box. Removing a box takes its ports with it and unplaces
+  whatever sat on them, named in a message; no port is offered outside a
+  box.
 - FIX: The cable sheets' quick fill takes any length: type a figure and
   press all to fill every circuit of a multi, or every loose port of a
   card or box. The card sheet's With ticked row has the same, writing
