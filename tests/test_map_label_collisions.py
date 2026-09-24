@@ -24,8 +24,9 @@ ruler tick, ruler label and wall edge the map draws lands in it as
 { kind, text, x, y, w, h } IN THE BITMAP'S OWN PIXELS. These tests read
 that registry off real screens and hold the map to it.
 
-The two real shows are read by env var and SKIPPED when absent - they are
-not in the repo:
+The two real shows are frozen in the git-ignored tests/fixtures-local
+(conftest.private_fixture) and SKIPPED when absent - they are never
+committed, so CI skips them; each env var overrides its file:
     LRD_KELLY_LIVE_JSON   kelly-live-fixture.json  (22x7 and 9x6 walls)
     LRD_PULL_SMOKE_JSON   experts-only-fixture.json
 
@@ -44,13 +45,13 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from test_binder import SEED_JS, _SHOW_JSON, SCRATCH_FIXTURE  # noqa: E402
 from test_binder_wiring import LOAD_JS  # noqa: E402
+from conftest import private_fixture, private_fixture_missing  # noqa: E402
 
 pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
 # Kelly Clarkson as the user exported her: the show that produced all
 # three faults. Frozen beside the Experts Only fixture.
-KELLY_LIVE = os.environ.get('LRD_KELLY_LIVE_JSON') or os.path.join(
-    os.path.dirname(SCRATCH_FIXTURE), 'kelly-live-fixture.json')
+KELLY_LIVE = private_fixture('kelly-live-fixture.json', 'LRD_KELLY_LIVE_JSON')
 
 # A HAIR, in the map bitmap's own pixels. The maps these tests read are
 # 3000-4300 pixels across, so a pixel of overlap is a rounding artefact of
@@ -298,8 +299,8 @@ def test_the_probe_costs_nothing_when_it_is_off(page):
     }""") is True
 
 
-@pytest.mark.skipif(not os.path.exists(KELLY_LIVE),
-                    reason='kelly-live-fixture.json smoke fixture not present')
+@pytest.mark.skipif(bool(private_fixture_missing(KELLY_LIVE)),
+                    reason=str(private_fixture_missing(KELLY_LIVE)))
 @pytest.mark.parametrize('palette', ['printer', 'colour'])
 def test_kelly_live_writes_on_top_of_nothing(page, palette):
     """The show the faults came from - UPSTAGE 22 x 7, SR and SL 9 x 6 -
@@ -320,8 +321,8 @@ def test_kelly_live_writes_on_top_of_nothing(page, palette):
     assert ids['errors'] == []
 
 
-@pytest.mark.skipif(not os.path.exists(SCRATCH_FIXTURE),
-                    reason='experts-only-fixture.json smoke fixture not present')
+@pytest.mark.skipif(bool(private_fixture_missing(SCRATCH_FIXTURE)),
+                    reason=str(private_fixture_missing(SCRATCH_FIXTURE)))
 @pytest.mark.parametrize('palette', ['printer', 'colour'])
 def test_experts_only_writes_on_top_of_nothing(page, palette):
     """The other frozen show: 22 circuits on one wall, gangs that sit on a
@@ -377,6 +378,16 @@ CAB_SEED_JS = """async () => {
         body: body === undefined ? undefined : JSON.stringify(body)}).then(r => r.json());
     const proj = await j('GET', '/api/project');
     proj.layers = []; proj.groups = [];
+    // one canvas at the raster a fresh project has: a real show loaded
+    // earlier in the module (a 4096 x 2160 canvas, a workspace offset)
+    // must not become this wall's export raster
+    proj.canvases = [{id: 'c1', name: 'Canvas 1', color: '#4A90E2', workspace_x: 0, workspace_y: 0,
+                      raster_width: 1920, raster_height: 1080,
+                      show_raster_width: 1920, show_raster_height: 1080,
+                      data_flow_perspective: 'front', power_perspective: 'front', visible: true}];
+    proj.active_canvas_id = 'c1';
+    proj.raster_width = 1920; proj.raster_height = 1080;
+    proj.show_raster_width = 1920; proj.show_raster_height = 1080;
     await j('PUT', '/api/project', proj);
     await j('POST', '/api/layer/add', {name: 'SMALL', columns: %d, rows: %d,
                                        cabinet_width: %d, cabinet_height: %d,

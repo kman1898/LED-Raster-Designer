@@ -81,10 +81,8 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SCRATCH_FIXTURE = os.environ.get('LRD_PULL_SMOKE_JSON') or os.path.join(
-    '/private/tmp/claude-501',
-    '-Users-mattknotts-Nextcloud-LED-LED-Wall-Tech-Raster-Software-LED-Raster-Designer',
-    'be6afb3b-7607-4f06-8c12-a10cd58068e9', 'scratchpad', 'experts-only-fixture.json')
+from conftest import private_fixture, private_fixture_missing  # noqa: E402
+SCRATCH_FIXTURE = private_fixture('experts-only-fixture.json', 'LRD_PULL_SMOKE_JSON')
 
 BOX_WORD = re.compile(r'\b(box|boxes)\b', re.I)
 # The band over a multi's circuits: "SR1 · Multi 208 · 125' · 6 circuits" -
@@ -2781,26 +2779,26 @@ def test_a_screens_fed_by_legs_are_its_own(page):
     assert ids['errors'] == []
 
 
-@pytest.mark.skipif(not os.path.exists(SCRATCH_FIXTURE),
-                    reason='experts-only-fixture.json smoke fixture not present')
+@pytest.mark.skipif(bool(private_fixture_missing(SCRATCH_FIXTURE)),
+                    reason=str(private_fixture_missing(SCRATCH_FIXTURE)))
 def test_smoke_experts_only(page):
     """The real show, FROZEN as experts-only-fixture.json - his save of
-    2026-09-07 23:43 (the file's mtime; the experts-only.json beside it
-    drifts with every save, the fixture never moves): SR - MAIN's 22
+    2026-09-15 22:55, frozen 2026-09-24 (the file's mtime; the save beside
+    it drifts with every save, the fixture never moves): SR - MAIN's 22
     custom circuits on four multis, SR - Return's six on multi 5 with
     five 2fers, SL mirroring SR; on data, box SR A on Card 1 and its
     backup end SR B on Card 3 (Card 1's 1:1 partner). 16 Tabloid
-    sheets by series, none continued - the four screens, loose (the file
-    keeps no beaches), alphabetical: SL before SR, power, data, then
-    then each one's power, power wiring, data and data wiring;
-    the four positions on ONE pull sheet, in position order; the two distros
+    sheets by series, none continued - the four screens in their beaches'
+    order (SR's two, then SL's; the rev 1.2 binder beside the save prints
+    them so), each one's power, power wiring, data and data wiring;
+    the two beaches on ONE pull sheet, in beach order; the two distros
     on one hardware sheet, H9 and the show's pull list on the next. SR -
     MAIN's power sheet (28 x 11, 22 circuits) is ONE sheet, map-left /
     tables-right in one column - the tables at the scale that fills the
-    height (~1.23), the wall in the width they leave, the map and the
+    height (~1.22), the wall in the width they leave, the map and the
     CIRCUITS table disjoint; its data sheet, four ports, is the wall over
-    its tables in two columns at 1.333; a Return (6 x 11) is a tall wall
-    beside its tables at ~1.63, the tables to the height."""
+    its tables in two columns at 1.03; a Return (6 x 11) is a tall wall
+    beside its tables at ~1.38, the tables to the height."""
     pg, ids = page
     with open(SCRATCH_FIXTURE) as fh:
         project = json.load(fh)
@@ -2819,13 +2817,13 @@ def test_smoke_experts_only(page):
         return app.planBinder(%s).map(p => [p.number, p.title, p.layout, p.cols, p.view, p.scale, p.extent, p.names]);
     }""" % SHOW, project)
     plan = [(n, t) for n, t, *_rest in pages]
-    PULL4 = 'Pull - SR - MAIN, SR - Return, SL - MAIN, SL - Return'
+    PULL4 = 'Pull - SR, SL'
     assert plan == [
         ('1.1', 'Overview'),
-        ('2.1', 'SL - MAIN - Power - Front View'), ('2.2', 'SL - MAIN - Power Wiring'), ('2.3', 'SL - MAIN - Data - Front View'), ('2.4', 'SL - MAIN - Data Wiring'),
-        ('2.5', 'SL - Return - Power - Front View'), ('2.6', 'SL - Return - Power Wiring'), ('2.7', 'SL - Return - Data - Front View'), ('2.8', 'SL - Return - Data Wiring'),
-        ('2.9', 'SR - MAIN - Power - Front View'), ('2.10', 'SR - MAIN - Power Wiring'), ('2.11', 'SR - MAIN - Data - Front View'), ('2.12', 'SR - MAIN - Data Wiring'),
-        ('2.13', 'SR - Return - Power - Front View'), ('2.14', 'SR - Return - Power Wiring'), ('2.15', 'SR - Return - Data - Front View'), ('2.16', 'SR - Return - Data Wiring'),
+        ('2.1', 'SR - MAIN - Power - Front View'), ('2.2', 'SR - MAIN - Power Wiring'), ('2.3', 'SR - MAIN - Data - Front View'), ('2.4', 'SR - MAIN - Data Wiring'),
+        ('2.5', 'SR - Return - Power - Front View'), ('2.6', 'SR - Return - Power Wiring'), ('2.7', 'SR - Return - Data - Front View'), ('2.8', 'SR - Return - Data Wiring'),
+        ('2.9', 'SL - MAIN - Power - Front View'), ('2.10', 'SL - MAIN - Power Wiring'), ('2.11', 'SL - MAIN - Data - Front View'), ('2.12', 'SL - MAIN - Data Wiring'),
+        ('2.13', 'SL - Return - Power - Front View'), ('2.14', 'SL - Return - Power Wiring'), ('2.15', 'SL - Return - Data - Front View'), ('2.16', 'SL - Return - Data Wiring'),
         ('3.1', PULL4),
         ('4.1', 'Distros - SR, SL'),
         ('4.2', 'Processor - H9 · Pull list'),
@@ -2834,23 +2832,23 @@ def test_smoke_experts_only(page):
     scales = {t: sc for _n, t, _l, _c, _v, sc, *_rest in pages}
     extents = {t: e for _n, t, _l, _c, _v, _s, e, _names in pages}
     names = {t: nm for _n, t, _l, _c, _v, _s, _e, nm in pages}
-    assert layouts['SR - MAIN - Power - Front View'] == ('side', 1, 10) and layouts['SR - Return - Power - Front View'] == ('side', 1, 14)
-    assert layouts['SR - MAIN - Data - Front View'] == ('stack', 2, 12) and layouts['SR - Return - Data - Front View'] == ('side', 1, 16)
-    assert layouts['SR - MAIN - Power Wiring'] == ('wiring', 1, 11) and layouts['SR - MAIN - Data Wiring'] == ('wiring', 1, 13)
-    assert layouts['SR - Return - Power Wiring'] == ('wiring', 1, 15) and layouts['SR - Return - Data Wiring'] == ('wiring', 1, 17)
-    assert layouts['SL - MAIN - Power - Front View'] == ('side', 1, 2) and layouts['SL - MAIN - Data - Front View'] == ('stack', 2, 4)
-    assert layouts['Overview'] == ('overview', 3, 1) and layouts[PULL4] == ('tables', 4, None)
+    assert layouts['SR - MAIN - Power - Front View'] == ('side', 1, 2) and layouts['SR - Return - Power - Front View'] == ('side', 1, 6)
+    assert layouts['SR - MAIN - Data - Front View'] == ('stack', 2, 4) and layouts['SR - Return - Data - Front View'] == ('side', 1, 8)
+    assert layouts['SR - MAIN - Power Wiring'] == ('wiring', 1, 3) and layouts['SR - MAIN - Data Wiring'] == ('wiring', 1, 5)
+    assert layouts['SR - Return - Power Wiring'] == ('wiring', 1, 7) and layouts['SR - Return - Data Wiring'] == ('wiring', 1, 9)
+    assert layouts['SL - MAIN - Power - Front View'] == ('side', 1, 10) and layouts['SL - MAIN - Data - Front View'] == ('stack', 2, 12)
+    assert layouts['Overview'] == ('overview', 3, 1) and layouts[PULL4] == ('tables', 2, None)
     assert not [t for _n, t in plan if '(cont.)' in t]
     # the fill: SR - MAIN's 22 circuits are tons of info - the tables
-    # reach the height at ~1.23 and the wall keeps the width they leave;
-    # its data sheet stacks at the width-filling 1.333; the Return's
-    # tables scale past 1.5 to the height; every extent inside the area;
-    # the pull sheet (four columns across) and the hardware sheets scale
-    # by the column rule, unchanged
+    # reach the height at ~1.22 and the wall keeps the width they leave;
+    # its data sheet stacks at 1.03, its extent the whole area; the Return's tables scale to the height at ~1.38; every
+    # extent inside the area; the pull sheet (a column per beach) and the
+    # hardware sheets scale by the column rule, unchanged. Measured on the
+    # save of 2026-09-15 (2026-09-24).
     main_s = scales['SR - MAIN - Power - Front View']
-    assert 1.15 < main_s < 1.35 and scales['SR - MAIN - Data - Front View'] == 1.333, scales
+    assert 1.15 < main_s < 1.35 and scales['SR - MAIN - Data - Front View'] == 1.03, scales
     ret_s = scales['SR - Return - Power - Front View']
-    assert 1.5 < ret_s <= 2.4, scales
+    assert 1.3 < ret_s < 1.45, scales
     for t in ('SR - MAIN - Power - Front View', 'SR - MAIN - Data - Front View', 'SR - Return - Power - Front View', 'SR - Return - Data - Front View'):
         ext = extents[t]
         assert ext['w'] <= DA['w'] + 1 and ext['h'] <= DA['h'] + 1, (t, ext)
@@ -2858,22 +2856,24 @@ def test_smoke_experts_only(page):
     assert scales[PULL4] > 1 and scales['Distros - SR, SL'] > 1.5, scales
     # the positions side by side, the distros side by side, H9 with the
     # show's pull list beside it
-    assert names[PULL4] == ['SR - MAIN', 'SR - Return', 'SL - MAIN', 'SL - Return']
+    assert names[PULL4] == ['SR', 'SL']
     assert names['Distros - SR, SL'] == ['SR', 'SL'] and names['Processor - H9 · Pull list'] == ['H9', 'All positions']
-    # eight positions make two pull sheets, four columns each
+    # eight positions make two pull sheets, four columns each (the show's
+    # two beaches, three more copies of each)
     two = pg.evaluate("""(opts) => {
         const app = window.app;
         const real = app.buildPullSheet;
         app.buildPullSheet = function () {
             const list = real.call(this);
-            list.positions = list.positions.concat(list.positions.map(p => ({ ...p, name: p.name + ' B', key: p.key + '-b' })));
+            list.positions = list.positions.concat(...['B', 'C', 'D'].map(c =>
+                list.positions.map(p => ({ ...p, name: p.name + ' ' + c, key: p.key + '-' + c }))));
             return list;
         };
         try { return app.planBinder(opts).filter(p => p.kind === 'pull').map(p => [p.number, p.cols, p.names]); }
         finally { app.buildPullSheet = real; }
     }""", json.loads(_SHOW_JSON))
-    assert two == [['3.1', 4, ['SR - MAIN', 'SR - Return', 'SL - MAIN', 'SL - Return']],
-                   ['3.2', 4, ['SR - MAIN B', 'SR - Return B', 'SL - MAIN B', 'SL - Return B']]], two
+    assert two == [['3.1', 4, ['SR', 'SL', 'SR B', 'SL B']],
+                   ['3.2', 4, ['SR C', 'SL C', 'SR D', 'SL D']]], two
     # on Letter SR - MAIN's power sheet stays at 1 and continues
     letter = pg.evaluate("(o) => window.app.planBinder(o).map(p => [p.title, p.scale])",
                          {**json.loads(_SHOW_JSON), 'sheet': 'letter'})
@@ -2881,7 +2881,7 @@ def test_smoke_experts_only(page):
     assert letter[k] == ['SR - MAIN - Power - Front View', 1] and letter[k + 1][0] == 'SR - MAIN - Power - Front View (cont.)', letter
     main = _render(pg, SHOW, 'SR - MAIN - Power - Front View')
     texts = main['texts']
-    _title_block(texts, 'SR - MAIN · POWER · FRONT VIEW', '2.9', show='2026 Experts Only')
+    _title_block(texts, 'SR - MAIN · POWER · FRONT VIEW', '2.1', show='2026 Experts Only')
     # one Tabloid sheet, painted at 2x
     assert main['width'] == W * SCALE and main['height'] == H * SCALE
     # the map: the wall 28 x 11 of 60 x 120 px, uniformly, in the width the
@@ -2903,7 +2903,7 @@ def test_smoke_experts_only(page):
     assert heads['CIRCUITS'][1] < heads['CABLES THIS SCREEN'][1] < heads['FACTS'][1]
     # the view bubble under the map
     b = main['bubble']
-    assert b['number'] == 10 and b['name'] == 'SR - MAIN · POWER · FRONT VIEW'
+    assert b['number'] == 2 and b['name'] == 'SR - MAIN · POWER · FRONT VIEW'
     assert b['y'] - b['r'] >= m['area']['y'] + m['area']['h'] and b['y'] + b['r'] <= DA['y'] + DA['h'] + 1
     # the brackets: SR1 and SR2 down the right at ONE distance (rows 1-6 over
     # rows 7-11 share an edge, they do not overlap); SR3 and SR4 down the left
@@ -2974,10 +2974,10 @@ def test_smoke_experts_only(page):
     assert "SR5 · Multi 208 · 125' · 6 circuits" in ret
     dpage = _render(pg, SHOW, 'SR - MAIN - Data - Front View')
     assert not _on_map(dpage['mapTexts'], 'SR - MAIN')
-    _title_block(dpage['texts'], 'SR - MAIN · DATA · FRONT VIEW', '2.11', show='2026 Experts Only')
+    _title_block(dpage['texts'], 'SR - MAIN · DATA · FRONT VIEW', '2.3', show='2026 Experts Only')
     # the same wall over its four ports: the Ports table (six columns of
     # whole names) and the cables in one wide column, the facts in the
-    # other, the row filling the width at 1.333, the wall the height left
+    # other, the row at 1.03, the wall the height left
     dm = dpage['map']
     assert abs(dm['w'] / dm['h'] - want_main) / want_main < 0.01, dm
     assert dm['area']['w'] == DA['w'] and abs(dm['zoom'] - _fit(DA['w'], dm['area']['h'], 28 * 60, 11 * 120)) < 0.01, dm
@@ -3039,9 +3039,9 @@ def test_smoke_experts_only(page):
     c = ov.index('CONTENTS')
     listed = [(ov[c + 3 + 2 * n], ov[c + 4 + 2 * n]) for n in range(len(plan))]
     assert [n for n, _t in listed] == [n for n, _t in plan]
-    assert listed[1:5] == [('2.1', 'SL - MAIN · POWER · FRONT VIEW'), ('2.2', 'SL - MAIN · POWER WIRING'),
-                           ('2.3', 'SL - MAIN · DATA · FRONT VIEW'), ('2.4', 'SL - MAIN · DATA WIRING')], listed[1:5]
-    assert listed[-3:] == [('3.1', 'PULL · SR - MAIN, SR - RETURN, SL - MAIN, SL - RETURN'), ('4.1', 'DISTROS · SR, SL'),
+    assert listed[1:5] == [('2.1', 'SR - MAIN · POWER · FRONT VIEW'), ('2.2', 'SR - MAIN · POWER WIRING'),
+                           ('2.3', 'SR - MAIN · DATA · FRONT VIEW'), ('2.4', 'SR - MAIN · DATA WIRING')], listed[1:5]
+    assert listed[-3:] == [('3.1', 'PULL · SR, SL'), ('4.1', 'DISTROS · SR, SL'),
                            ('4.2', 'PROCESSOR · H9 · PULL LIST')], listed[-3:]
     # no sheet says box, none says breakout as the generic noun, none Palette
     for idx in range(len(plan)):
@@ -3054,26 +3054,29 @@ def test_smoke_experts_only(page):
     assert distro.count('5 MULTI 208') == 2 and 'NAME' in distro, distro
     assert distro.count('28 on 5 Multi 208') == 2, [t for t in distro if 'Multi 208' in t]
     assert distro.index('SR') < distro.index('5 MULTI 208') < distro.index('SL'), distro     # a column each, headed
-    # the pull sheet: four columns headed by the positions, every position's
-    # four tables under its name
+    # the pull sheet: two columns headed by the beaches, every beach's
+    # four tables under its name, its screens in its SCREENS table
     pull = _render(pg, SHOW, PULL4)
     ptexts = pull['texts']
-    for name in ('SR - MAIN', 'SR - RETURN', 'SL - MAIN', 'SL - RETURN'):
+    for name in ('SR', 'SL', 'SR - MAIN', 'SR - Return', 'SL - MAIN', 'SL - Return'):
         assert name in ptexts, name
-    assert ptexts.count('POWER CABLES') == 4 and ptexts.count('SCREENS') == 4, ptexts
+    assert ptexts.count('POWER CABLES') == 2 and ptexts.count('SCREENS') == 2, ptexts
     heads = pull['headings']
     xs = sorted({x for t, x, _y in heads if t == 'POWER CABLES'})
-    assert len(xs) == 4 and all(b - a > 600 for a, b in zip(xs, xs[1:])), xs
+    assert len(xs) == 2 and all(b - a > 600 for a, b in zip(xs, xs[1:])), xs
+    for t in ('POWER CABLES', 'DATA CABLES', 'HARDWARE', 'SCREENS'):
+        assert sorted(x for h, x, _y in heads if h == t) == xs, (t, heads)
     assert 'BREAKOUTS' not in distro and 'Breakouts' not in distro
     assert ids['errors'] == []
 
 
-# The user's own save, "2026 Experts Only.json", where it is given.
-EXPERTS_JSON = os.environ.get('LRD_EXPERTS_JSON')
+# The user's own save - the same frozen show as SCRATCH_FIXTURE unless
+# LRD_EXPERTS_JSON names another copy.
+EXPERTS_JSON = private_fixture('experts-only-fixture.json', 'LRD_EXPERTS_JSON')
 
 
-@pytest.mark.skipif(not (EXPERTS_JSON and os.path.exists(EXPERTS_JSON)),
-                    reason='the Experts Only save is not present (LRD_EXPERTS_JSON)')
+@pytest.mark.skipif(bool(private_fixture_missing(EXPERTS_JSON)),
+                    reason=str(private_fixture_missing(EXPERTS_JSON)))
 def test_experts_only_screens_carry_their_own_legs(page):
     """The show the user held up: SR feeds SR - MAIN (22 circuits) and SR -
     Return (6). Each one's Power sheet says SR's legs for THAT screen -

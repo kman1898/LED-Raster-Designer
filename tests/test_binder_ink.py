@@ -34,8 +34,9 @@ its own band pill are the label registry's, which knows a rulerTick from
 a band. Line hits are still collected here, and reported when a text hit
 sends the test red, because they are useful to look at.
 
-The real shows are read by env var and SKIPPED when absent - they are not
-in the repo:
+The real shows are frozen in the git-ignored tests/fixtures-local
+(conftest.private_fixture) and SKIPPED when absent - they are never
+committed, so CI skips them; each env var overrides its file:
     LRD_KELLY_LIVE_JSON   kelly-live-fixture.json
     LRD_PULL_SMOKE_JSON   experts-only-fixture.json
 
@@ -54,24 +55,18 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-from test_binder import SEED_JS, SCRATCH_FIXTURE, _SHOW_JSON  # noqa: E402
+from test_binder import SEED_JS, _SHOW_JSON  # noqa: E402
+from conftest import private_fixture, private_fixture_missing  # noqa: E402
 from test_binder_wiring import (  # noqa: E402
     LOAD_JS, _covers_lettering, _probe, _through_the_wall, _wiring,
 )
 
 pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
-# The real shows are a bonus, never the whole test: they live outside the
-# repo and the session scratchpad they used to sit in was cleared between
-# sessions, which silently skipped every case that needed them. Look in
-# tests/fixtures-local (git-ignored, survives a session) first, then the
-# old scratchpad path, and skip cleanly when neither is there.
-_LOCAL_FIXTURES = os.path.join(HERE, 'fixtures-local')
-KELLY_LIVE = os.environ.get('LRD_KELLY_LIVE_JSON') or next(
-    (p for p in (os.path.join(_LOCAL_FIXTURES, 'kelly-live-fixture.json'),
-                 os.path.join(os.path.dirname(SCRATCH_FIXTURE), 'kelly-live-fixture.json'))
-     if os.path.exists(p)),
-    os.path.join(_LOCAL_FIXTURES, 'kelly-live-fixture.json'))
+# The real shows are a bonus, never the whole test: they are client data,
+# kept in the git-ignored tests/fixtures-local (conftest.private_fixture),
+# and every case that needs one skips cleanly when it is not there.
+KELLY_LIVE = private_fixture('kelly-live-fixture.json', 'LRD_KELLY_LIVE_JSON')
 
 # How much of a mark's own footprint may sit on map ink before it is a
 # collision. A number printed inside a pill covers a quarter of itself or
@@ -307,8 +302,8 @@ def test_kelly_live_prints_nothing_on_its_own_maps(page, palette):
     """Kelly Clarkson as the user exported her - the show whose power
     sheets carried the binder's column number inside the map's band pill,
     turning "S1-1" into "S1-4"."""
-    if not os.path.exists(KELLY_LIVE):
-        pytest.skip('kelly-live-fixture.json not present')
+    if private_fixture_missing(KELLY_LIVE):
+        pytest.skip(private_fixture_missing(KELLY_LIVE))
     pg, _ids = page
     import json
     pg.evaluate(LOAD_JS, json.load(open(KELLY_LIVE)))
@@ -369,8 +364,8 @@ def test_kelly_live_has_no_rule_through_a_string(page, palette):
     """Kelly Clarkson as the user exported her. Her power sheets are where
     the column ruler ran out of room: moved clear of the map's band pill it
     went straight into the head rule at the top of the sheet."""
-    if not os.path.exists(KELLY_LIVE):
-        pytest.skip('kelly-live-fixture.json not present')
+    if private_fixture_missing(KELLY_LIVE):
+        pytest.skip(private_fixture_missing(KELLY_LIVE))
     pg, _ids = page
     import json
     pg.evaluate(LOAD_JS, json.load(open(KELLY_LIVE)))

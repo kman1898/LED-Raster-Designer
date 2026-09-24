@@ -38,10 +38,8 @@ import pull_sheet  # noqa: E402
 openpyxl = pytest.importorskip('openpyxl', reason='openpyxl not installed')
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SCRATCH_FIXTURE = os.environ.get('LRD_PULL_SMOKE_JSON') or os.path.join(
-    '/private/tmp/claude-501',
-    '-Users-mattknotts-Nextcloud-LED-LED-Wall-Tech-Raster-Software-LED-Raster-Designer',
-    'be6afb3b-7607-4f06-8c12-a10cd58068e9', 'scratchpad', 'experts-only-fixture.json')
+from conftest import private_fixture, private_fixture_missing  # noqa: E402
+SCRATCH_FIXTURE = private_fixture('experts-only-fixture.json', 'LRD_PULL_SMOKE_JSON')
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -952,16 +950,18 @@ def test_export_saves_the_workbook_through_the_picker_path(page):
 
 # ── the smoke: the user's own show ───────────────────────────────────────
 
-@pytest.mark.skipif(not os.path.exists(SCRATCH_FIXTURE),
-                    reason='experts-only-fixture.json smoke fixture not present')
+@pytest.mark.skipif(bool(private_fixture_missing(SCRATCH_FIXTURE)),
+                    reason=str(private_fixture_missing(SCRATCH_FIXTURE)))
 def test_smoke_experts_only(page):
     """The real show, FROZEN as experts-only-fixture.json - his save of
-    2026-09-07 23:43 (the file's mtime; the experts-only.json beside it
-    drifts with every save, the fixture never moves). SR - MAIN's 22
+    2026-09-15 22:55, frozen 2026-09-24 (the file's mtime; the save beside
+    it drifts with every save, the fixture never moves). SR - MAIN's 22
     custom circuits on four boxes SR 1-4 (125' / 100' / 125' / 100') with
     typed cables; SR - Return on box 5; SL mirroring it - the same multi
-    lengths, no circuit cables. No groups in the file, so every screen is
-    its own position, named after it. Data: Card 1 backed 1:1 by Card 3,
+    lengths and, in this save, the same typed cables. Two beaches, SR and
+    SL, each holding its MAIN and its Return, so the pull list has two
+    positions named after them (the rev 1.2 binder beside the save prints
+    this pull sheet row for row). Data: Card 1 backed 1:1 by Card 3,
     Card 2 by Card 4, a CVT4K-S on each delivering all 16 sockets - box
     SR A on Card 1 carries snake SR A 150' over SR - MAIN's four ports
     (SR A-1 to A-4) with extensions on A-1 (10'), A-3 and A-4 (25' each)
@@ -992,24 +992,26 @@ def test_smoke_experts_only(page):
         return list;
     }""", project)
     names = [p['name'] for p in out['positions']]
-    assert names == ['SR - MAIN', 'SR - Return', 'SL - MAIN', 'SL - Return']
+    assert names == ['SR', 'SL']
+    layer = {p['name']: p['layerIds'] for p in out['positions']}
+    screen = pg.evaluate("() => Object.fromEntries(window.app.project.layers.map(l => [l.name, l.id]))")
+    assert layer == {'SR': [screen['SR - MAIN'], screen['SR - Return']],
+                     'SL': [screen['SL - MAIN'], screen['SL - Return']]}, (layer, screen)
     by = {p['name']: _rows(p['rows']) for p in out['positions']}
-    # SR - MAIN: four boxes SR 1-4 at 125' / 100' / 125' / 100' (two plan
-    # entries share box 3 and two share box 4 - one Multi each), the 14
-    # typed cables, one breakout per box. Its 22 hand-drawn circuits each
-    # stay on ONE row (verified against the file), so no power jumper row;
-    # the auto ports of the 28 x 11 wall step rows 7 times.
-    # Five boxes in use on SR (1-4 here, 5 on the Return) make it a "36
-    # way", listed once where SR sits - no location, so with SR - MAIN.
+    scr = {name: _rows(out['byScreen'][str(i)]['rows']) for name, i in screen.items()
+           if str(i) in out['byScreen']}
+    # SR - MAIN on its own: four boxes SR 1-4 at 125' / 100' / 125' / 100'
+    # (two plan entries share box 3 and two share box 4 - one Multi each),
+    # the 14 typed cables, one breakout per box. Its 22 hand-drawn circuits
+    # each stay on ONE row (verified against the file), so no power jumper
+    # row; the auto ports of the 28 x 11 wall step rows 7 times.
     # Data: both boxes deliver SR - MAIN's sockets - the primary and the
-    # backup end - so both CVTs list here by the names their ⚙ carry; an
-    # extension at either end is an Ether-con row under its port's label
-    # with its snake in Notes, rows of one length merging (labels and
-    # notes in the order the ports are walked), and a barrel each; a
-    # snake is said once with its home run, the 100' before the 150'.
-    assert by['SR - MAIN'] == [
-        ('36 way', 'EA', 1, 'SR', ''),
-        ('CVT4K-S', 'EA', 2, 'SR A, SR B', ''),
+    # backup end - an extension at either end is an Ether-con row under its
+    # port's label with its snake in Notes, rows of one length merging
+    # (labels and notes in the order the ports are walked), and a barrel
+    # each; a snake is said once with its home run, the 100' before the
+    # 150'. The 36 way and the CVTs are the position's, not the screen's.
+    assert scr['SR - MAIN'] == [
         ('Data Jump', "6'", 7, 'SR - MAIN', ''),
         ('Ether-con', "10'", 3, 'SR A-1, SR B-1, SR B-3', 'ext · SR A; ext · SR B'),
         ('Ether-con', "25'", 2, 'SR A-3, SR A-4', 'ext · SR A'),
@@ -1027,7 +1029,7 @@ def test_smoke_experts_only(page):
     # with splitters on (maxWays 3) and gangs circuits 1-5 through 2fers.
     # Its one port rides a loose cable at each end - 100' on SR A-5, 50'
     # on the backup SR B-5 - no snake, so no barrel and no note.
-    assert by['SR - Return'] == [
+    assert scr['SR - Return'] == [
         ('Data Jump', "6'", 10, 'SR - Return', ''),
         ('Ether-con', "50'", 1, 'SR B-5', ''),
         ('Ether-con', "100'", 1, 'SR A-5', ''),
@@ -1039,12 +1041,12 @@ def test_smoke_experts_only(page):
         ('Tru-1 Breakout', 'EA', 1, 'SR 5', ''),
     ]
     assert out['returnLegs'] == [[[1, 'SR5-1'], [2, 'SR5-2'], [3, 'SR5-3'], [4, 'SR5-4'], [5, 'SR5-5'], [6, 'SR5-6']]]
-    # SL mirrors SR: the multi lengths typed the same, no circuit cables;
-    # its boxes SL A (snake 100') on Card 2 and SL B (150') on Card 4 with
-    # the same extensions but SL B-4's, 100'
-    assert by['SL - MAIN'] == [
-        ('36 way', 'EA', 1, 'SL', ''),
-        ('CVT4K-S', 'EA', 2, 'SL A, SL B', ''),
+    # SL's screens are SR's with SL for SR - the circuit cables typed the
+    # same in this save - but the snakes (SL A 100' on Card 2, SL B 150' on
+    # Card 4) and SL B-4's extension, 100'
+    assert scr['SL - Return'] == [
+        tuple(v.replace('SR', 'SL') if isinstance(v, str) else v for v in r) for r in scr['SR - Return']]
+    assert scr['SL - MAIN'] == [
         ('Data Jump', "6'", 7, 'SL - MAIN', ''),
         ('Ether-con', "10'", 3, 'SL A-1, SL B-1, SL B-3', 'ext · SL A; ext · SL B'),
         ('Ether-con', "25'", 2, 'SL A-3, SL A-4', 'ext · SL A'),
@@ -1054,18 +1056,55 @@ def test_smoke_experts_only(page):
         ('Ether-con Snake', "150'", 1, 'SL B', '4 channel'),
         ('Multi', "100'", 2, 'SL 2, 4', ''),
         ('Multi', "125'", 2, 'SL 1, 3', ''),
+        ('Tru-1', "6'", 8, 'SL1-2, SL1-5, SL2-3, SL2-6, SL3-2, SL3-5, SL4-2, SL4-6', ''),
+        ('Tru-1', "10'", 6, 'SL1-1, SL1-6, SL2-2, SL3-1, SL3-6, SL4-1', ''),
         ('Tru-1 Breakout', 'EA', 4, 'SL 1-4', ''),
     ]
-    assert by['SL - Return'] == [
-        ('Data Jump', "6'", 10, 'SL - Return', ''),
+    # A position is its screens' rows merged by (type, length), labels in
+    # screen order, plus what the position alone carries: five boxes in use
+    # on SR (1-4 on the MAIN, 5 on the Return) make it a "36 way", listed
+    # once; both CVTs by the names their ⚙ carry.
+    assert by['SR'] == [
+        ('36 way', 'EA', 1, 'SR', ''),
+        ('CVT4K-S', 'EA', 2, 'SR A, SR B', ''),
+        ('Data Jump', "6'", 17, 'SR - MAIN, SR - Return', ''),
+        ('Ether-con', "10'", 3, 'SR A-1, SR B-1, SR B-3', 'ext · SR A; ext · SR B'),
+        ('Ether-con', "25'", 2, 'SR A-3, SR A-4', 'ext · SR A'),
+        ('Ether-con', "50'", 1, 'SR B-5', ''),
+        ('Ether-con', "75'", 1, 'SR B-4', 'ext · SR B'),
+        ('Ether-con', "100'", 1, 'SR A-5', ''),
+        ('Ether-con Barrel', 'EA', 6, 'SR A-1, SR B-1, SR A-3, SR B-3, SR A-4, SR B-4', ''),
+        ('Ether-con Snake', "100'", 1, 'SR B', '4 channel'),
+        ('Ether-con Snake', "150'", 1, 'SR A', '4 channel'),
+        ('Multi', "100'", 2, 'SR 2, 4', ''),
+        ('Multi', "125'", 3, 'SR 1, 3, 5', ''),
+        ('Tru-1', "6'", 9, 'SR1-2 … SR5-3 (9)', ''),
+        ('Tru-1', "10'", 8, 'SR1-1, SR1-6, SR2-2, SR3-1, SR3-6, SR4-1, SR5-2, SR5-5', ''),
+        ('Tru-1', "25'", 2, 'SR5-1, SR5-6', ''),
+        ('Tru-1 2fer', 'EA', 5, 'SR5-1, SR5-2, SR5-3, SR5-4, SR5-5', ''),
+        ('Tru-1 Breakout', 'EA', 5, 'SR 1-5', ''),
+    ]
+    assert by['SL'] == [
+        ('36 way', 'EA', 1, 'SL', ''),
+        ('CVT4K-S', 'EA', 2, 'SL A, SL B', ''),
+        ('Data Jump', "6'", 17, 'SL - MAIN, SL - Return', ''),
+        ('Ether-con', "10'", 3, 'SL A-1, SL B-1, SL B-3', 'ext · SL A; ext · SL B'),
+        ('Ether-con', "25'", 2, 'SL A-3, SL A-4', 'ext · SL A'),
         ('Ether-con', "50'", 1, 'SL B-5', ''),
-        ('Ether-con', "100'", 1, 'SL A-5', ''),
-        ('Multi', "125'", 1, 'SL 5', ''),
+        ('Ether-con', "100'", 2, 'SL B-4, SL A-5', 'ext · SL B'),
+        ('Ether-con Barrel', 'EA', 6, 'SL A-1, SL B-1, SL A-3, SL B-3, SL A-4, SL B-4', ''),
+        ('Ether-con Snake', "100'", 1, 'SL A', '4 channel'),
+        ('Ether-con Snake', "150'", 1, 'SL B', '4 channel'),
+        ('Multi', "100'", 2, 'SL 2, 4', ''),
+        ('Multi', "125'", 3, 'SL 1, 3, 5', ''),
+        ('Tru-1', "6'", 9, 'SL1-2 … SL5-3 (9)', ''),
+        ('Tru-1', "10'", 8, 'SL1-1, SL1-6, SL2-2, SL3-1, SL3-6, SL4-1, SL5-2, SL5-5', ''),
+        ('Tru-1', "25'", 2, 'SL5-1, SL5-6', ''),
         ('Tru-1 2fer', 'EA', 5, 'SL5-1, SL5-2, SL5-3, SL5-4, SL5-5', ''),
-        ('Tru-1 Breakout', 'EA', 1, 'SL 5', ''),
+        ('Tru-1 Breakout', 'EA', 5, 'SL 1-5', ''),
     ]
     # the totals: every position's rows merged by (type, length), labels
-    # and notes unioned in position order; twelve barrels fold to their
+    # and notes unioned in position order; long label runs fold to their
     # ends and a count, past eight pieces
     assert _rows(out['totals']) == [
         ('36 way', 'EA', 2, 'SR, SL', ''),
@@ -1081,23 +1120,24 @@ def test_smoke_experts_only(page):
         ('Ether-con Snake', "150'", 2, 'SR A, SL B', '4 channel'),
         ('Multi', "100'", 4, 'SR 2, 4, SL 2, 4', ''),
         ('Multi', "125'", 6, 'SR 1, 3, 5, SL 1, 3, 5', ''),
-        ('Tru-1', "6'", 9, 'SR1-2 … SR5-3 (9)', ''),
-        ('Tru-1', "10'", 8, 'SR1-1, SR1-6, SR2-2, SR3-1, SR3-6, SR4-1, SR5-2, SR5-5', ''),
-        ('Tru-1', "25'", 2, 'SR5-1, SR5-6', ''),
+        ('Tru-1', "6'", 18, 'SR1-2 … SL5-3 (18)', ''),
+        ('Tru-1', "10'", 16, 'SR1-1 … SL5-5 (16)', ''),
+        ('Tru-1', "25'", 4, 'SR5-1, SR5-6, SL5-1, SL5-6', ''),
         ('Tru-1 2fer', 'EA', 10, 'SR5-1 … SL5-5 (10)', ''),
         ('Tru-1 Breakout', 'EA', 10, 'SR 1-5, SL 1-5', ''),
     ]
     # one barrel per extension, nowhere else: six on each MAIN - three on
     # the primary box, three on the backup - none for the Returns' loose
     # home runs at either end
-    assert [r for rows in by.values() for r in rows if r[0] == 'Ether-con Barrel'] == [
+    assert [r for n in ('SR - MAIN', 'SR - Return', 'SL - MAIN', 'SL - Return')
+            for r in scr[n] if r[0] == 'Ether-con Barrel'] == [
         ('Ether-con Barrel', 'EA', 6, 'SR A-1, SR B-1, SR A-3, SR B-3, SR A-4, SR B-4', ''),
         ('Ether-con Barrel', 'EA', 6, 'SL A-1, SL B-1, SL A-3, SL B-3, SL A-4, SL B-4', '')]
     # SL's data cable count is SR's: the same ports, the same extensions
-    sr_data = [r for r in by['SR - MAIN'] + by['SR - Return'] if r[0].startswith('Ether-con')]
-    sl_data = [r for r in by['SL - MAIN'] + by['SL - Return'] if r[0].startswith('Ether-con')]
+    sr_data = [r for r in by['SR'] if r[0].startswith('Ether-con')]
+    sl_data = [r for r in by['SL'] if r[0].startswith('Ether-con')]
     assert sum(q for _t, _l, q, _lab, _n in sl_data) == sum(q for _t, _l, q, _lab, _n in sr_data) == 16
-    # the workbook takes it: four positions, the tan block moved to Y
+    # the workbook takes it
     r = pg.evaluate("""async (list) => {
         const res = await fetch('/api/export/pull-sheet', {method: 'POST',
             headers: {'Content-Type': 'application/json'},
@@ -1115,8 +1155,11 @@ def test_smoke_experts_only(page):
     import base64
     wb = openpyxl.load_workbook(io.BytesIO(base64.b64decode(r['b64'])))
     ws = wb['Pull Sheet']
-    assert [ws.cell(5, c).value for c in pull_sheet.BLOCK_COLS] == [
-        'SR - MAIN', 'SR - Return', 'SL - MAIN', 'SL - Return', 'NEW POSITION', None]
+    heads = [ws.cell(5, c).value for c in pull_sheet.BLOCK_COLS]
+    # two positions: the tan block stays where the template has it, as
+    # with any two-position show (test_pull_list's seeded one)
+    assert heads == ['SR', 'SL', 'POSITION 3', 'NEW POSITION', None, None], heads
     assert ws['B2'].value == '2026 Experts Only'
-    assert ('Multi', "125'", 2) in {(ws.cell(rr, 1).value, ws.cell(rr, 2).value, ws.cell(rr, 3).value)
+    # SR's block: its three 125' multis (SR 1, 3, 5), as the list says
+    assert ('Multi', "125'", 3) in {(ws.cell(rr, 1).value, ws.cell(rr, 2).value, ws.cell(rr, 3).value)
                                     for rr in range(7, 37)}

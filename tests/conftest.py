@@ -7,6 +7,38 @@ import pytest
 # Add src/ to path so we can import app
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
+# ── Private show fixtures ────────────────────────────────────────────────
+# Frozen saves of real client shows. They are client data: they live in
+# tests/fixtures-local/, which .gitignore keeps out of the repo
+# (test_private_fixtures_stay_private.py fails if one is ever tracked), so
+# CI never has them and every test that needs one SKIPS there. This is the
+# one place that says where they are: LRD_PRIVATE_FIXTURES moves the whole
+# folder, and each test's own env var (LRD_PULL_SMOKE_JSON, ...) still
+# overrides its one file.
+TESTS_DIR = os.path.dirname(os.path.abspath(__file__))
+PRIVATE_FIXTURES = os.environ.get('LRD_PRIVATE_FIXTURES') or os.path.join(TESTS_DIR, 'fixtures-local')
+
+
+def private_fixture(name, env=None):
+    """The path of private fixture NAME: $ENV when that is set, else NAME in
+    PRIVATE_FIXTURES. The file may not exist - pair it with
+    private_fixture_missing() for the skip reason."""
+    if env and os.environ.get(env):
+        return os.environ[env]
+    return os.path.join(PRIVATE_FIXTURES, name)
+
+
+def private_fixture_missing(*paths):
+    """The skip reason naming the first of PATHS that is absent, or None
+    when every one is there."""
+    for path in paths:
+        if not os.path.exists(path):
+            shown = os.path.relpath(path, os.path.dirname(TESTS_DIR)) \
+                if os.path.abspath(path).startswith(TESTS_DIR + os.sep) else path
+            return (f'private show fixture {shown} not present '
+                    '(client data, never committed; CI skips)')
+    return None
+
 
 def pytest_addoption(parser):
     """Add --browser CLI option for Playwright browser tests."""

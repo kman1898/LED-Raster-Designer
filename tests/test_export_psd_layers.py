@@ -16,7 +16,7 @@ Three halves:
     stage filter leaves a full render byte-identical, each stage alone
     composes back to the flat render, the real export round trip reads back
     as groups, the row shows only for PSD and remembers its choice.
-  * The user's own show (skipped unless LRD_EXPERTS_JSON names it): the
+  * The user's own show (skipped unless its private fixture is present): the
     Pixel Map render is unchanged against a capture made before the stage
     filter existed, when that capture is present.
 
@@ -37,6 +37,8 @@ import pytest
 from PIL import Image, ImageChops
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+
+from conftest import private_fixture, private_fixture_missing  # noqa: E402
 
 try:
     import pytoshop  # noqa: F401
@@ -504,18 +506,17 @@ def test_the_row_shows_only_for_psd_and_remembers_its_choice(page):
 
 # ── the user's own show ───────────────────────────────────────────────────
 
-EXPERTS_JSON = os.environ.get('LRD_EXPERTS_JSON')
-# A Pixel Map PNG export of that show captured BEFORE the stage filter went
-# into the renderer (scratchpad of the session that built this, or wherever
-# LRD_PSD_BEFORE_PNG points).
-BEFORE_PNG = os.environ.get('LRD_PSD_BEFORE_PNG') or os.path.join(
-    '/private/tmp/claude-501',
-    '-Users-mattknotts-Nextcloud-LED-LED-Wall-Tech-Raster-Software-LED-Raster-Designer',
-    '6ac3047e-9bc7-4278-8172-6eea48db2de1', 'scratchpad', 'before', 'before_pixel-map_t_c1.png')
+EXPERTS_JSON = private_fixture('experts-only-fixture.json', 'LRD_EXPERTS_JSON')
+# A Pixel Map PNG export (transparent background, canvas 1) of that show
+# captured BEFORE the stage filter went into the renderer - an older
+# build's output, so the current build cannot regenerate it; frozen beside
+# the save in the private fixtures folder, or wherever LRD_PSD_BEFORE_PNG
+# points.
+BEFORE_PNG = private_fixture('experts-only-pixel-map-before.png', 'LRD_PSD_BEFORE_PNG')
 
 
-@pytest.mark.skipif(not (EXPERTS_JSON and os.path.exists(EXPERTS_JSON) and os.path.exists(BEFORE_PNG)),
-                    reason='the Experts Only save and its before-capture are not both present')
+@pytest.mark.skipif(bool(private_fixture_missing(EXPERTS_JSON, BEFORE_PNG)),
+                    reason=str(private_fixture_missing(EXPERTS_JSON, BEFORE_PNG)))
 def test_the_experts_only_pixel_map_is_the_picture_it_was_before_the_filter(page):
     pg, errors = page
     with open(EXPERTS_JSON) as fh:

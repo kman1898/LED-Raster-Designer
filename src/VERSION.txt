@@ -40,6 +40,9 @@ v1.3.1 - September 24, 2026
   state of a processor than the one saved.
 - FIX: A screen name with a double quote shows in full in the Screens
   panel.
+- FIX: On the binder's wiring sheets, two runs that would sit closer than
+  a line's width are drawn with a clear gap, so each reads as its own
+  cable. Runs that do not touch are drawn exactly as before.
 
 v1.3.0 - September 23, 2026
 ----------------------------

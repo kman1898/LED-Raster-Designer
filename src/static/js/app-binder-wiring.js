@@ -833,6 +833,9 @@ class _BinderWiring {
                          colour, dash: pattern.map(v => v * K), width: RUN_W * K,
                          points: this._bwTidy(pts) };
             });
+            // The rev 1.1 lanes stand as they were placed; only two runs
+            // that print as one are nudged apart (see _bwNudge).
+            this._bwNudge(runs, wall, room, ink, (RUN_W + CASE_EXTRA) * K);
             return { discs, runs, over: nOver, under: nUnder, room };
         };
 
@@ -875,6 +878,112 @@ class _BinderWiring {
             } else i++;
         }
         return out;
+    }
+
+    // NUDGE APART ONLY WHERE THEY TOUCH. The rails stand where rev 1.1 stood
+    // them (2026-09-12, "whatever was in here") and that layout stays. But
+    // on one show's SR and SL Data Wiring sheets it stood SR-9's rail 8.4
+    // units beside SR-13's straight drop, and SR-6's beside SR-4's, over
+    // some 340 units of shared height - closer than one run's pen and its
+    // white casing (12.7 at that sheet's scale), so each pair printed as one
+    // line. The owner, shown them (2026-09-24): "Nudge apart only where they
+    // touch".
+    //
+    // So once the lanes are placed, two parallel segments of DIFFERENT runs
+    // whose centrelines stand closer than one run's full drawn width (`pen`:
+    // the pen and the casing either side of it, at the sheet's scale) over a
+    // stretch they share are pulled apart - one of them moves outward, away
+    // from the wall, just far enough to clear the other. Only a segment
+    // between two corners can move (a run's first leaves its disc, its last
+    // lands on its socket); its neighbours stretch to meet it, so the corners
+    // stay joined and the run stays square. Of two that could move, the one
+    // further from the wall - the later lane - goes. A move that would leave
+    // the room the runs travel in, fold a neighbour back on itself, or put
+    // the run on the map's lettering is not made. After every move the sheet
+    // is looked at again, so a nudge that brings a run against a third one
+    // moves that one on too. A run that touches nothing does not move by a
+    // hair: where there was no clash the drawing is rev 1.1's exactly.
+    _bwNudge(runs, wall, room, ink, pen) {
+        const E = 0.01;
+        // every straight segment: `k` is the axis it stands at (0 = a
+        // vertical at x, 1 = a horizontal at y), lo..hi the stretch it covers
+        const segsOf = (ri) => {
+            const p = runs[ri].points, out = [];
+            for (let j = 0; j < p.length - 1; j++) {
+                const a = p[j], b = p[j + 1];
+                const k = Math.abs(a[0] - b[0]) < E ? 0 : Math.abs(a[1] - b[1]) < E ? 1 : -1;
+                if (k < 0) continue;
+                out.push({ ri, j, k, c: a[k], lo: Math.min(a[1 - k], b[1 - k]),
+                           hi: Math.max(a[1 - k], b[1 - k]), movable: j > 0 && j < p.length - 2 });
+            }
+            return out;
+        };
+        const edge = (k) => k === 0 ? [wall.x, wall.x + wall.w] : [wall.y, wall.y + wall.h];
+        const bound = (k) => k === 0 ? [room.x0, room.x1] : [room.y0, room.y1];
+        const outward = (s) => {
+            const [e0, e1] = edge(s.k);
+            return s.c < e0 ? -1 : s.c > e1 ? 1 : (s.c < (e0 + e1) / 2 ? -1 : 1);
+        };
+        const fromWall = (s) => {
+            const [e0, e1] = edge(s.k);
+            return s.c < e0 ? e0 - s.c : s.c > e1 ? s.c - e1 : 0;
+        };
+        const boxOf = (a, b) => ({ x: Math.min(a[0], b[0]) - pen / 2, y: Math.min(a[1], b[1]) - pen / 2,
+                                   w: Math.abs(a[0] - b[0]) + pen, h: Math.abs(a[1] - b[1]) + pen });
+        const over = (a, b) => Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) > 0.5
+                            && Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) > 0.5;
+        const tryMove = (s, to) => {
+            const [b0, b1] = bound(s.k);
+            if (to < b0 || to > b1) return false;
+            const old = runs[s.ri].points;
+            const p = old.map(q => q.slice());
+            p[s.j][s.k] = to;
+            p[s.j + 1][s.k] = to;
+            // the corners either side keep their sense - a neighbour only
+            // stretches or shortens, it never folds back or vanishes
+            for (const [q, r] of [[s.j - 1, s.j], [s.j + 2, s.j + 1]]) {
+                const was = old[r][s.k] - old[q][s.k], now = p[r][s.k] - p[q][s.k];
+                if (Math.abs(now) < E || Math.sign(now) !== Math.sign(was)) return false;
+            }
+            // and none of the three it touches lands on lettering it was not
+            // already beside (the stub off its own disc is on that disc)
+            for (let j = s.j - 1; j <= s.j + 1; j++) {
+                const was = boxOf(old[j], old[j + 1]), now = boxOf(p[j], p[j + 1]);
+                if (ink.some(k => over(now, k) && !over(was, k))) return false;
+            }
+            runs[s.ri].points = p;
+            return true;
+        };
+        const skip = new Set();
+        const clash = () => {
+            const all = runs.map((_r, ri) => segsOf(ri));
+            for (let r1 = 0; r1 < runs.length; r1++) {
+                for (let r2 = r1 + 1; r2 < runs.length; r2++) {
+                    for (const a of all[r1]) {
+                        for (const b of all[r2]) {
+                            if (a.k !== b.k || Math.abs(a.c - b.c) >= pen) continue;
+                            if (Math.min(a.hi, b.hi) - Math.max(a.lo, b.lo) <= E) continue;
+                            if (skip.has(`${a.ri}.${a.j}/${b.ri}.${b.j}`)) continue;
+                            return [a, b];
+                        }
+                    }
+                }
+            }
+            return null;
+        };
+        for (let pass = 0; pass < 8 * runs.length; pass++) {
+            const pair = clash();
+            if (!pair) break;
+            const [a, b] = pair;
+            const movers = pair.filter(s => s.movable)
+                .sort((s, t) => (fromWall(t) - fromWall(s)) || (t.ri - s.ri));
+            const moved = movers.some((m) => {
+                const o = m === a ? b : a;
+                return tryMove(m, o.c + outward(m) * (pen + E));
+            });
+            if (!moved) skip.add(`${a.ri}.${a.j}/${b.ri}.${b.j}`);
+        }
+        return runs;
     }
 
     // ---- the discs the wall really drew -------------------------------------

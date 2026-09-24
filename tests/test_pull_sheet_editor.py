@@ -35,6 +35,7 @@ import pull_sheet  # noqa: E402
 openpyxl = pytest.importorskip('openpyxl', reason='openpyxl not installed')
 
 from test_pull_list import SEED_JS, LIST_JS, SCRATCH_FIXTURE, _rows  # noqa: E402
+from conftest import private_fixture_missing  # noqa: E402
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -670,16 +671,17 @@ def test_tab_walks_qty_label_notes_then_the_next_row(page):
 SCREENSHOT = os.path.join(os.path.dirname(SCRATCH_FIXTURE), 'pull-sheet-editor-experts-only.png')
 
 
-@pytest.mark.skipif(not os.path.exists(SCRATCH_FIXTURE),
-                    reason='experts-only-fixture.json smoke fixture not present')
+@pytest.mark.skipif(bool(private_fixture_missing(SCRATCH_FIXTURE)),
+                    reason=str(private_fixture_missing(SCRATCH_FIXTURE)))
 def test_smoke_experts_only(page):
-    """The real show: SR - MAIN's Tru-1 10' row (6 as the show says) edited
-    to 7 in the editor; the workbook's cell reads 7."""
+    """The real show: beach SR's Tru-1 10' row (8 as the show says - six on
+    SR - MAIN, two on SR - Return) edited to 9 in the editor; the
+    workbook's cell reads 9."""
     pg, ids = page
     with open(SCRATCH_FIXTURE) as fh:
         project = json.load(fh)
     project.pop('pullSheetEdits', None)
-    main_id = pg.evaluate("""async (project) => {
+    sr_beach = pg.evaluate("""async (project) => {
         const app = window.app;
         const j = (method, url, body) => fetch(url, {method,
             headers: {'Content-Type': 'application/json'},
@@ -692,24 +694,24 @@ def test_smoke_experts_only(page):
         await app.refreshPortAssignment();
         app.renderLayers();
         app._circuitTailCache = null;
-        return app.project.layers.find(l => l.name === 'SR - MAIN').id;
+        return app.project.beaches.find(b => b.name === 'SR').id;
     }""", project)
     pg.wait_for_timeout(500)
     _open(pg)
     names = pg.locator('.pull-pos .pull-pos-name').all_inner_texts()
-    assert names == ['SR - MAIN', 'SR - Return', 'SL - MAIN', 'SL - Return', 'TOTALS']
-    key = f'layer:{main_id}'
-    assert _cell(pg, key, "Tru-1|10'", 'qty').input_value() == '6'
-    _set(pg, _cell(pg, key, "Tru-1|10'", 'qty'), '7')
+    assert names == ['SR', 'SL', 'TOTALS']
+    key = f'beach:{sr_beach}'
+    assert _cell(pg, key, "Tru-1|10'", 'qty').input_value() == '8'
+    _set(pg, _cell(pg, key, "Tru-1|10'", 'qty'), '9')
     pg.screenshot(path=SCREENSHOT, full_page=False)
     sheet = pg.evaluate(SHEET_JS)
-    assert ('Tru-1', "10'", 7, 'SR1-1, SR1-6, SR2-2, SR3-1, SR3-6, SR4-1', '') in _rows_of(sheet, 'SR - MAIN')
-    assert _totals(sheet)[('Tru-1', "10'")][0] == 9        # 7 + SR - Return's 2
+    assert ('Tru-1', "10'", 9, 'SR1-1, SR1-6, SR2-2, SR3-1, SR3-6, SR4-1, SR5-2, SR5-5', '') in _rows_of(sheet, 'SR')
+    assert _totals(sheet)[('Tru-1', "10'")][0] == 17       # 9 + SL's 8
     wb, body = _export_xlsx(pg)
     ws = wb['Pull Sheet']
-    assert ws.cell(5, 1).value == 'SR - MAIN'
+    assert ws.cell(5, 1).value == 'SR'
     block = _block(ws, 0)
     row = next(r for r in block if r[0] == 'Tru-1' and r[1] == "10'")
-    assert row[2] == 7
+    assert row[2] == 9
     _close(pg)
     assert os.path.exists(SCREENSHOT)

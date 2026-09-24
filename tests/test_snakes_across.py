@@ -47,12 +47,9 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 import processor_catalog as catalog  # noqa: E402
+from conftest import private_fixture, private_fixture_missing  # noqa: E402
 
-SCRATCH_FIXTURE = os.path.join(
-    '/private/tmp/claude-501',
-    '-Users-mattknotts-Nextcloud-LED-LED-Wall-Tech-Raster-Software-LED-Raster-Designer',
-    'be6afb3b-7607-4f06-8c12-a10cd58068e9', 'scratchpad',
-    'experts-only-fixture.json')
+SCRATCH_FIXTURE = private_fixture('experts-only-fixture.json', 'LRD_PULL_SMOKE_JSON')
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -323,25 +320,30 @@ def test_the_migration_folds_per_device_snakes_into_the_show(client):
     assert _project(client)['snakes'] == stored['snakes']
 
 
-@pytest.mark.skipif(not os.path.exists(SCRATCH_FIXTURE),
-                    reason='experts-only-fixture.json smoke fixture not present')
+@pytest.mark.skipif(bool(private_fixture_missing(SCRATCH_FIXTURE)),
+                    reason=str(private_fixture_missing(SCRATCH_FIXTURE)))
 def test_the_smoke_fixture_migrates_to_the_show(client):
     """The user's own show, FROZEN as experts-only-fixture.json (his save
-    of 2026-09-07 23:43): four boxes each carrying a 4 channel snake, and
-    - on Card 1 and Card 3 - a snake left on the CARD from before the box
-    existed. Those two were already invisible everywhere the sockets are
-    read, because the box delivers all 16: the migration re-homes them
-    onto the box, finds the box's own snake already on those sockets, and
-    drops them. What the paperwork prints does not move - which is what
-    test_pull_list's and test_binder's smoke pin."""
+    of 2026-09-15 22:55): four boxes each carrying a 4 channel snake. The
+    save was written after the migration, so the show already carries
+    them and no card or box keeps a per-device snake - the card-level
+    shadow the earlier frozen save had (a snake left on Card 1 and Card 3
+    from before the box existed) is gone, and re-homing and dropping it is
+    held by test_a_re_homed_member_never_takes_a_socket_another_snake_holds.
+    Loading the migrated show changes nothing: the same four snakes, over
+    the boxes' sockets, no per-device key anywhere, the boxes' extensions
+    untouched. What the paperwork prints is what test_pull_list's and
+    test_binder's smoke pin."""
     with open(SCRATCH_FIXTURE) as fh:
         project = json.load(fh)
-    assert [s['name'] for s in project['processors'][0]['slots'][0]
-            ['card']['snakes']] == ['SR Prime'], 'the fixture has the shadow'
+    saved = [(s['name'], s['ft'], len(s['members'])) for s in project['snakes']]
+    assert not [1 for proc in project['processors'] for slot in proc['slots'] if slot.get('card')
+                for dev in [slot['card']] + (slot['card'].get('cvts') or []) if 'snakes' in dev], \
+        'the save keeps no per-device snake'
     r = client.put('/api/project', json=project)
     assert r.status_code == 200, r.get_data(as_text=True)
     snakes = _served_snakes(client)
-    assert [(s['name'], s['ft'], len(s['members'])) for s in snakes] == [
+    assert [(s['name'], s['ft'], len(s['members'])) for s in snakes] == saved == [
         ('SR A', 150, 4), ('SR B', 100, 4), ('SL A', 100, 4),
         ('SL B', 150, 4)], snakes
     assert {m['kind'] for s in snakes for m in s['members']} == {'cvt'}

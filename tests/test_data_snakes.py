@@ -52,6 +52,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 import processor_catalog as catalog  # noqa: E402
+from conftest import private_fixture, private_fixture_missing  # noqa: E402
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -1515,10 +1516,7 @@ def test_the_sheet_leaves_the_fold_alone(page, which):
 # extension area off screen ... it can look just like the primary"
 # (2026-09-07).
 
-SCRATCH_FIXTURE = os.environ.get('LRD_PULL_SMOKE_JSON') or os.path.join(
-    '/private/tmp/claude-501',
-    '-Users-mattknotts-Nextcloud-LED-LED-Wall-Tech-Raster-Software-LED-Raster-Designer',
-    'be6afb3b-7607-4f06-8c12-a10cd58068e9', 'scratchpad', 'experts-only-fixture.json')
+SCRATCH_FIXTURE = private_fixture('experts-only-fixture.json', 'LRD_PULL_SMOKE_JSON')
 
 # One box's sheet as laid out: every row's SCREEN cell and title, and the
 # geometry the bug was - the table against the sheet, and the HOME RUN
@@ -1552,8 +1550,8 @@ BOX_SHEET_JS = """(id) => {
 }"""
 
 
-@pytest.mark.skipif(not os.path.exists(SCRATCH_FIXTURE),
-                    reason='experts-only-fixture.json smoke fixture not present')
+@pytest.mark.skipif(bool(private_fixture_missing(SCRATCH_FIXTURE)),
+                    reason=str(private_fixture_missing(SCRATCH_FIXTURE)))
 def test_the_backup_boxs_sheet_reads_like_the_primarys(e2e_server, pw_browser):
     """On the frozen file, box SR B's snake row and its four member rows
     read "SR - MAIN" - exactly what box SR A's read - with the "p1 return"

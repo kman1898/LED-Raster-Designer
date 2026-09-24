@@ -10,9 +10,10 @@ correctness IS the export's: `test_experts_only_*_replays_pixel_for_pixel`
 draws every view of the Experts Only show from its record onto a fresh
 canvas and compares it with the render the record was taken from.
 
-Run locally (the Experts Only checks need the user's save):
-    LRD_EXPERTS_JSON="/path/to/2026 Experts Only.json" \\
-        python3 -m pytest tests/test_export_svg.py -v --browser chromium
+Run locally (the Experts Only checks need the user's save, frozen as
+tests/fixtures-local/experts-only-fixture.json - git-ignored client data,
+so CI skips them; LRD_EXPERTS_JSON points at another copy):
+    python3 -m pytest tests/test_export_svg.py -v --browser chromium
 """
 
 import json
@@ -25,6 +26,8 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
+from conftest import private_fixture, private_fixture_missing  # noqa: E402
+
 pw = pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -35,10 +38,10 @@ SVG_NS = {'svg': 'http://www.w3.org/2000/svg'}
 VIEWS = ['pixel-map', 'cabinet-id', 'show-look', 'data-flow', 'power']
 VIEW_ELEMENT = {'cabinet-id': 'Cabinet IDs', 'data-flow': 'Data', 'power': 'Power'}
 
-EXPERTS_JSON = os.environ.get('LRD_EXPERTS_JSON')
+EXPERTS_JSON = private_fixture('experts-only-fixture.json', 'LRD_EXPERTS_JSON')
 needs_experts = pytest.mark.skipif(
-    not (EXPERTS_JSON and os.path.exists(EXPERTS_JSON)),
-    reason='the Experts Only save is not present (LRD_EXPERTS_JSON)')
+    bool(private_fixture_missing(EXPERTS_JSON)),
+    reason=str(private_fixture_missing(EXPERTS_JSON)))
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -254,8 +257,8 @@ def test_the_background_rect_follows_the_transparent_checkbox(page):
 @pytest.fixture(scope="module")
 def experts(page):
     """The user's own save loaded into the page the way test_binder does."""
-    if not (EXPERTS_JSON and os.path.exists(EXPERTS_JSON)):
-        pytest.skip('the Experts Only save is not present (LRD_EXPERTS_JSON)')
+    if private_fixture_missing(EXPERTS_JSON):
+        pytest.skip(private_fixture_missing(EXPERTS_JSON))
     pg, errors = page
     with open(EXPERTS_JSON) as fh:
         project = json.load(fh)

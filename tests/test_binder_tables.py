@@ -23,11 +23,11 @@ These are the rules, not the numbers: every page of both shows is rendered
 and every text op is read, so a new long string cannot quietly bring the
 ellipsis back.
 
-The fixtures are two frozen saves in the scratch dir, read by env var and
-SKIPPED when absent (they are the user's shows - they are never copied into
-the repo):
+The fixtures are two frozen saves in the git-ignored tests/fixtures-local
+(conftest.private_fixture), SKIPPED when absent (they are the user's shows -
+they are never committed, so CI skips them); each env var overrides its file:
     LRD_KELLY_LIVE_JSON   kelly-live-fixture.json
-    LRD_PULL_SMOKE_JSON   experts-only-fixture.json
+    LRD_EXPERTS_JSON      experts-only-fixture.json
 
 Run locally (each session takes its own free port, so it runs beside
 any other):
@@ -43,7 +43,8 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from test_binder import DA, SCRATCH_FIXTURE, W, H  # noqa: E402
+from test_binder import DA, W, H  # noqa: E402
+from conftest import private_fixture, private_fixture_missing  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 pytest.importorskip("playwright.sync_api", reason="playwright not installed")
@@ -51,10 +52,9 @@ pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 # The two shows. Kelly Clarkson is the export the user marked up: five
 # processors, two of them unnamed, six-port IMAG walls on snakes, a 22 x 7
 # upstage wall. Experts Only is the show test_binder.py already smokes.
-KELLY_FIXTURE = os.environ.get('LRD_KELLY_LIVE_JSON') or os.path.join(
-    os.path.dirname(SCRATCH_FIXTURE), 'kelly-live-fixture.json')
+KELLY_FIXTURE = private_fixture('kelly-live-fixture.json', 'LRD_KELLY_LIVE_JSON')
 # The user's own save, "2026 Experts Only.json", where it is given.
-EXPERTS_FIXTURE = os.environ.get('LRD_EXPERTS_JSON') or SCRATCH_FIXTURE
+EXPERTS_FIXTURE = private_fixture('experts-only-fixture.json', 'LRD_EXPERTS_JSON')
 FIXTURES = {'kelly': KELLY_FIXTURE, 'experts only': EXPERTS_FIXTURE}
 
 # The whole set, both sides, every extra sheet on.
@@ -132,7 +132,7 @@ def shows(e2e_server, pw_browser):
     """Both shows' sheets, rendered once for the whole module."""
     present = {k: v for k, v in FIXTURES.items() if os.path.exists(v)}
     if not present:
-        pytest.skip('neither show fixture is present: %s' % list(FIXTURES.values()))
+        pytest.skip(' / '.join(private_fixture_missing(p) for p in FIXTURES.values()))
     context = pw_browser.new_context(viewport={'width': 1700, 'height': 950})
     context.add_init_script(
         "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
@@ -314,6 +314,13 @@ def test_every_map_sheet_fills_its_drawing_area(shows):
     the room that is actually free rather than sitting small in a corner over
     an empty half-sheet. The extent is the fill's own measure, in page units,
     and it never overshoots the area either.
+
+    A map fills its area when it reaches the threshold in EITHER dimension:
+    a wall is as large as the area allows at its own aspect ratio once its
+    width (or its height) is the bound. A 9 x 2 DJ Booth wall spans the
+    width and stands 0.531 of the height on Power, 0.616 on Data - the
+    owner, shown both (2026-09-24): "Fine as is". A map short in BOTH
+    dimensions is still the half-empty sheet this test is here for.
     """
     thin = {}
     for nm, show in shows.items():
@@ -327,7 +334,7 @@ def test_every_map_sheet_fills_its_drawing_area(shows):
             # 0.954 - a 9 x 6 wall of tall panels beside a 1020-wide Ports
             # table, the tightest the fill can be pulled - against 0.676
             # before (the map in the top left, the bottom half empty).
-            if ext['h'] < DA['h'] * 0.93 or ext['w'] < DA['w'] * 0.93:
+            if ext['h'] < DA['h'] * 0.93 and ext['w'] < DA['w'] * 0.93:
                 thin[f"{nm} {page['number']} {page['title']}"] = [
                     round(ext['w'] / DA['w'], 3), round(ext['h'] / DA['h'], 3),
                     page['layout'], page['scale']]
@@ -442,7 +449,7 @@ def test_a_backup_box_is_its_own_section_on_experts_only(shows):
     PANELS and PX; each end's own extension on its own row. The same for
     SL A / SL B on SL - MAIN. The PX column sums to the wall once."""
     if 'experts only' not in shows:
-        pytest.skip('the Experts Only save is not present (LRD_EXPERTS_JSON)')
+        pytest.skip(private_fixture_missing(EXPERTS_FIXTURE))
     pages = {p['title']: p for p in shows['experts only']['pages']}
     sr = _ports_table(pages['SR - MAIN - Data - Front View'])
     _assert_two_sections(

@@ -86,18 +86,18 @@ from test_binder import (  # noqa: E402
     BOX_WORD, MAP_ZOOM_CAP, TITLE_BLOCK, _generic_breakout, _title_block,
 )
 
+from conftest import private_fixture, private_fixture_missing  # noqa: E402
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
 # Kelly Clarkson, frozen beside the Experts Only fixture: the vertical-flow
 # screens (every circuit on the wall's top row) and the two screens whose
 # ports are on no card at all.
-KELLY_FIXTURE = os.environ.get('LRD_KELLY_JSON') or os.path.join(
-    os.path.dirname(SCRATCH_FIXTURE), 'kelly.json')
+KELLY_FIXTURE = private_fixture('kelly.json', 'LRD_KELLY_JSON')
 # Kelly as the USER EXPORTED HER - the show the fault was seen on (UPSTAGE
 # 22 x 7, SR and SL 9 x 6), frozen beside the Experts Only fixture.
-KELLY_LIVE = os.environ.get('LRD_KELLY_LIVE_JSON') or os.path.join(
-    os.path.dirname(SCRATCH_FIXTURE), 'kelly-live-fixture.json')
+KELLY_LIVE = private_fixture('kelly-live-fixture.json', 'LRD_KELLY_LIVE_JSON')
 
 # app-binder-wiring.js, in the prototype's units; a half scales them by K.
 PROTO_W = 1000
@@ -1066,12 +1066,13 @@ def test_the_wiring_tick_takes_both_sheets_and_they_follow_the_maps_choice(page)
     assert ids['errors'] == []
 
 
-@pytest.mark.skipif(not os.path.exists(SCRATCH_FIXTURE),
-                    reason='experts-only-fixture.json smoke fixture not present')
+@pytest.mark.skipif(bool(private_fixture_missing(SCRATCH_FIXTURE)),
+                    reason=str(private_fixture_missing(SCRATCH_FIXTURE)))
 def test_smoke_experts_only_sr_main(page):
     """The frozen Experts Only show, SR - MAIN's four sheets on Tabloid:
-    2.9 POWER, 2.10 POWER WIRING (view 11), 2.11 DATA, 2.12 DATA WIRING
-    (view 13) - each wiring sheet one side on the whole drawing area.
+    2.1 POWER, 2.2 POWER WIRING (view 3), 2.3 DATA, 2.4 DATA WIRING
+    (view 5) - SR's beach first - each wiring sheet one side on the whole
+    drawing area.
 
     POWER: 22 circuits on four multis; FOUR BREAKOUT BLOCKS IN ONE ROW at
     the foot, ordered by the mean position of their own circuits - SR3 and
@@ -1106,13 +1107,13 @@ def test_smoke_experts_only_sr_main(page):
     dw = _sheet(pg, opts, 'SR - MAIN - Data Wiring')
     plan = pw['plan']
     assert [p[1:3] for p in plan if p[2].startswith('SR - MAIN')] == \
-        [['2.9', 'SR - MAIN - Power - Front View'], ['2.10', 'SR - MAIN - Power Wiring'],
-         ['2.11', 'SR - MAIN - Data - Front View'], ['2.12', 'SR - MAIN - Data Wiring']]
+        [['2.1', 'SR - MAIN - Power - Front View'], ['2.2', 'SR - MAIN - Power Wiring'],
+         ['2.3', 'SR - MAIN - Data - Front View'], ['2.4', 'SR - MAIN - Data Wiring']]
     assert len(plan) == 20 and [p[3] for p in plan][:17] == list(range(1, 18)) and [p[3] for p in plan][17:] == [None] * 3
-    _title_block(pw['texts'], 'SR - MAIN · POWER WIRING', '2.10', show='2026 Experts Only')
-    _title_block(dw['texts'], 'SR - MAIN · DATA WIRING', '2.12', show='2026 Experts Only')
-    assert pw['bubble']['number'] == 11 and pw['bubble']['name'] == 'SR - MAIN · POWER WIRING'
-    assert dw['bubble']['number'] == 13 and dw['bubble']['name'] == 'SR - MAIN · DATA WIRING'
+    _title_block(pw['texts'], 'SR - MAIN · POWER WIRING', '2.2', show='2026 Experts Only')
+    _title_block(dw['texts'], 'SR - MAIN · DATA WIRING', '2.4', show='2026 Experts Only')
+    assert pw['bubble']['number'] == 3 and pw['bubble']['name'] == 'SR - MAIN · POWER WIRING'
+    assert dw['bubble']['number'] == 5 and dw['bubble']['name'] == 'SR - MAIN · DATA WIRING'
     pwr = _one_side(pw, 'power')
     sig = _one_side(dw, 'signal')
     for h in (pwr, sig):
@@ -1219,8 +1220,8 @@ def test_smoke_experts_only_sr_main(page):
     ov = pg.evaluate("(o) => window.app.renderBinderPage(o, 0).texts", opts)
     c = ov.index('CONTENTS')
     listed = [(ov[c + 3 + 2 * n], ov[c + 4 + 2 * n]) for n in range(len(plan))]
-    assert listed[9:13] == [('2.9', 'SR - MAIN · POWER · FRONT VIEW'), ('2.10', 'SR - MAIN · POWER WIRING'),
-                            ('2.11', 'SR - MAIN · DATA · FRONT VIEW'), ('2.12', 'SR - MAIN · DATA WIRING')]
+    assert listed[1:5] == [('2.1', 'SR - MAIN · POWER · FRONT VIEW'), ('2.2', 'SR - MAIN · POWER WIRING'),
+                           ('2.3', 'SR - MAIN · DATA · FRONT VIEW'), ('2.4', 'SR - MAIN · DATA WIRING')]
     # the words
     for out in (pw, dw):
         assert not [t for t in out['texts'] if BOX_WORD.search(t) and 'breakout box' not in t.lower()]
@@ -1261,8 +1262,8 @@ def test_smoke_experts_only_sr_main(page):
     assert ids['errors'] == []
 
 
-@pytest.mark.skipif(not os.path.exists(KELLY_FIXTURE),
-                    reason='kelly.json smoke fixture not present')
+@pytest.mark.skipif(bool(private_fixture_missing(KELLY_FIXTURE)),
+                    reason=str(private_fixture_missing(KELLY_FIXTURE)))
 def test_a_row_of_circuits_leaves_by_the_top_and_an_unplaced_port_draws_no_run(page):
     """Kelly Clarkson's SR, frozen: a VERTICAL FLOW - every circuit begins
     on the wall's TOP ROW, so the discs stand shoulder to shoulder along it
@@ -1271,10 +1272,20 @@ def test_a_row_of_circuits_leaves_by_the_top_and_an_unplaced_port_draws_no_run(p
     out of their own column instead, and not one of them crosses the wall
     to get out. And the screen's six ports are on no card: the data side draws
     their discs, no run at all, and its Data Wiring sheet prints "6 of 6 not
-    placed on any card" once."""
+    placed on any card" once.
+
+    The save frozen as kelly.json on 2026-09-09 had SR's ports on no card;
+    the save frozen now (2026-09-24, the same file as kelly-live-fixture)
+    has them on card IMAG SR. So the test takes SR's pins off before it
+    loads the show - the wall, its circuits and every other screen as saved
+    - which is the state the earlier save was in."""
     pg, ids = page
     with open(KELLY_FIXTURE) as fh:
         project = json.load(fh)
+    sr = next(l['id'] for l in project['layers'] if l['name'] == 'SR')
+    pins = project['port_assignments']['pins']
+    project['port_assignments']['pins'] = [p for p in pins if str(p['layerId']) != str(sr)]
+    assert len(pins) - len(project['port_assignments']['pins']) == 6, 'SR had six ports pinned'
     pg.evaluate(LOAD_JS, project)
     opts = json.loads(_SHOW_JSON)
     out = _sheet(pg, opts, 'SR - Power Wiring')
@@ -1312,8 +1323,8 @@ def test_a_row_of_circuits_leaves_by_the_top_and_an_unplaced_port_draws_no_run(p
     assert ids['errors'] == []
 
 
-@pytest.mark.skipif(not os.path.exists(KELLY_FIXTURE),
-                    reason='kelly.json smoke fixture not present')
+@pytest.mark.skipif(bool(private_fixture_missing(KELLY_FIXTURE)),
+                    reason=str(private_fixture_missing(KELLY_FIXTURE)))
 @pytest.mark.parametrize('palette', ['colour', 'printer'])
 def test_the_dj_booth_sheet_the_user_pointed_at(page, palette):
     """Page 4 of the user's own rev 1.3 export. A 9 x 2 wall whose label
@@ -1374,8 +1385,8 @@ def _sweep_off_the_wall(pg, fixture, palette, titles):
     return seen
 
 
-@pytest.mark.skipif(not os.path.exists(KELLY_LIVE),
-                    reason='kelly-live-fixture.json smoke fixture not present')
+@pytest.mark.skipif(bool(private_fixture_missing(KELLY_LIVE)),
+                    reason=str(private_fixture_missing(KELLY_LIVE)))
 @pytest.mark.parametrize('palette', ['colour', 'printer'])
 def test_kelly_live_runs_travel_outside_the_wall(page, palette):
     """Kelly Clarkson as the user exported her - UPSTAGE 22 x 7, SR and SL
@@ -1395,8 +1406,8 @@ def test_kelly_live_runs_travel_outside_the_wall(page, palette):
     assert ids['errors'] == []
 
 
-@pytest.mark.skipif(not os.path.exists(SCRATCH_FIXTURE),
-                    reason='experts-only-fixture.json smoke fixture not present')
+@pytest.mark.skipif(bool(private_fixture_missing(SCRATCH_FIXTURE)),
+                    reason=str(private_fixture_missing(SCRATCH_FIXTURE)))
 @pytest.mark.parametrize('palette', ['colour', 'printer'])
 def test_experts_only_runs_travel_outside_the_wall(page, palette):
     """The frozen Experts Only show, SR - MAIN: 22 circuits on four multis
