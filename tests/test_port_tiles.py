@@ -100,7 +100,9 @@ SEED_JS = """async () => {
     })).json();
     const proc = add.resolved[0];
     const card = proc.slots.map(s => s.card).find(Boolean);
-    await fetch(`/api/processors/${proc.id}/cards/${card.id}`, {
+    // The MX20 is one box, so its one name slot is the unit's (one name
+    // slot per non-chassis unit, 2026-09-24); the card carries no name.
+    await fetch(`/api/processors/${proc.id}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: 'SR' }),
     });
@@ -328,7 +330,8 @@ def test_the_open_editor_holds_the_naming_controls_and_no_assigner(panel_page):
 
 
 RENAME_CARD_JS = """async (args) => {
-    await fetch(`/api/processors/${args.procId}/cards/${args.cardId}`, {
+    // One-box unit: the name lives on the unit, not its fixed card.
+    await fetch(`/api/processors/${args.procId}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: args.name }),
     });

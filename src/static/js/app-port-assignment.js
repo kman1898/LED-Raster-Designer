@@ -380,7 +380,12 @@ class _PortAssignment {
                 'POST', { layerId: offer.layerId,
                           cardId: offer.cardId,
                           firstPort: offer.firstPort || undefined,
-                          lastPort: offer.lastPort || undefined },
+                          lastPort: offer.lastPort || undefined,
+                          // The dock's whole-unit drop names the screen
+                          // port under the cursor (0-based): the fill
+                          // takes the unplaced ports up to it, no further.
+                          lastIndex: offer.lastIndex != null
+                              ? offer.lastIndex : undefined },
                 null, 'Fill Ports In Order');
         } else if (offer.action === 'release') {
             return this._assignmentRequest(

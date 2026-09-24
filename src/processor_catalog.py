@@ -65,6 +65,67 @@ def get_device(device_id):
     return None
 
 
+def is_chassis(device):
+    """Whether a catalog device is a card chassis - a unit whose outputs are
+    the cards in its slots - as opposed to a one-box unit whose face IS its
+    outputs. Read off the catalog's `form` and nothing else: the ruling
+    (2026-09-24) is "the H series and MX6000 and 2000 are the only card
+    based processors. all others should only have 1 name slot", and the
+    catalog is the one statement of which devices those are."""
+    return (device or {}).get('form') == 'chassis'
+
+
+def unit_is_chassis(proc):
+    return is_chassis(get_device((proc or {}).get('deviceId')))
+
+
+def is_box_fed(device):
+    """Whether a catalog device has NO fixture ports of its own - every port
+    it will ever drive comes out of a breakout box on one of its trunks.
+    Read off the catalog's `requiresDistribution` and nothing else. On such
+    a device a port outside a box does not exist: the ruling (2026-09-24)
+    is "SX40's can't use ports outside of an XD box ... we need to remove
+    that functionality" and "same goes for Helios", and the catalog is the
+    one statement of which devices those are (the SX40 and the HELIOS
+    Standard 8K / 4K carry the flag; the HELIOS Jr, 1G copper straight to
+    tiles, does not and keeps its own ports)."""
+    return bool((device or {}).get('requiresDistribution'))
+
+
+def box_fed_device_ids():
+    """The ids of every catalog processor that is_box_fed - the set the
+    rule applies to, taken from the catalog so a test can name the rule
+    without naming the models."""
+    return sorted(d['id'] for d in devices('processor') if is_box_fed(d))
+
+
+def card_is_unit_face(card, proc):
+    """Whether this card IS its processor - the fixed card new_processor
+    gives a one-box unit so the slot / card / box / port shape holds all the
+    way down. Such a card has no name of its own: the unit has exactly one
+    name slot, the processor's, and anything typed on the card is not read
+    (adopt_fixed_card_names moves a legacy card name up on load). Decided
+    by the catalog's form when the device is known; a card born fixed says
+    the same thing when it is not."""
+    device = get_device((proc or {}).get('deviceId'))
+    if device:
+        return not is_chassis(device)
+    return bool((card or {}).get('fixed'))
+
+
+def card_display_name(card, proc):
+    """The name a card goes by in a message or a tag: its own typed name on
+    a chassis, the unit's name for a one-box's fixed card, else the model."""
+    if card_is_unit_face(card, proc):
+        typed = ((proc or {}).get('name') or '').strip()
+    else:
+        typed = ((card or {}).get('name') or '').strip()
+    return typed or (card or {}).get('deviceName') \
+        or (get_device((card or {}).get('deviceId')) or {}).get('name') \
+        or (card or {}).get('id') or ''
+
+
+
 def cards_for(chassis_device):
     """Cards a chassis will accept, by family. This is a picker filter, not a
     capacity claim - it says an H card goes in an H chassis, and says nothing
@@ -232,6 +293,30 @@ def trunks_in(cvt_device):
     exactly the way counting them doubled the four-fiber cards.
     """
     return (cvt_device or {}).get('trunksIn') or 1
+
+
+def held_trunk(cvt):
+    """The trunk a box record holds, 0-based, or None where it holds none.
+    Stamped by hold_box_trunks (a box delete on a box-fed device) and
+    honored by resolve_card's pre-pass; never typed, never settable over
+    the box PUT."""
+    t = (cvt or {}).get('trunk')
+    if isinstance(t, bool) or not isinstance(t, int) or t < 0:
+        return None
+    return t
+
+
+def hold_box_trunks(card, resolved_card):
+    """Stamp every box on a card with the trunk it resolves to right now,
+    so a delete beside it cannot slide it. Skips a box hanging past the
+    trunks (it has no trunk to hold). In place, idempotent."""
+    where = {b.get('id'): b for b in (resolved_card or {}).get('cvts') or []}
+    for cvt in (card or {}).get('cvts') or []:
+        box = where.get(cvt.get('id'))
+        if not box or box.get('beyondTrunks') \
+                or not isinstance(box.get('trunkIndex'), int):
+            continue
+        cvt['trunk'] = box['trunkIndex']
 
 
 def trunks_used(card):
@@ -896,8 +981,7 @@ def snake_device_index(processors):
                 continue
             devices[('card', card['id'])] = {
                 'sockets': {p['number'] for p in card.get('ports') or []},
-                'title': (card.get('name') or '').strip()
-                         or card.get('deviceName') or card['id'],
+                'title': card_display_name(card, proc),
                 'cardId': card['id'], 'procId': proc.get('id'),
                 'order': order,
             }
@@ -1253,6 +1337,46 @@ def stock_default_cvts(project):
                         (new_cvt(default_box, m) for m in minted) if box]
 
 
+def adopt_fixed_card_names(project):
+    """Move a name typed on a one-box unit's fixed card up to the unit.
+
+    Until 1.3.0 the tray drew two name fields for a one-box unit - the
+    processor's strip and its fixed card's strip - and a name typed on the
+    card silently outranked the unit's own (a port's label took the nearest
+    named level upstream). The ruling (2026-09-24) leaves such a unit ONE
+    name slot, the processor's, and the card's name is no longer read. So a
+    file saved with the name on the card would come back unlabeled: this
+    pass adopts the card's name as the unit's where the unit has none, and
+    clears the card's either way, so the file carries nothing invisible. A
+    chassis's slot cards are parts with names of their own and are left
+    alone. Runs where a whole project ENTERS server state (the same funnel
+    as stock_default_cvts), never on a read. Idempotent: a cleared card is
+    what stops it acting next time through. Returns one record per unit it
+    touched, for the caller to log.
+    """
+    moved = []
+    for proc in (project or {}).get('processors') or []:
+        if unit_is_chassis(proc) or not get_device(proc.get('deviceId')):
+            continue
+        for slot in proc.get('slots') or []:
+            card = (slot or {}).get('card')
+            if not card:
+                continue
+            typed = (card.get('name') or '').strip()
+            if not typed:
+                continue
+            adopted = not (proc.get('name') or '').strip()
+            if adopted:
+                proc['name'] = typed
+            card['name'] = ''
+            moved.append({'processorId': proc.get('id'),
+                          'deviceId': proc.get('deviceId'),
+                          'cardId': card.get('id'), 'cardName': typed,
+                          'adopted': adopted,
+                          'unitName': proc.get('name') or ''})
+    return moved
+
+
 # ── Labels ────────────────────────────────────────────────────────────────
 
 def render_port_label(name, template, number):
@@ -1391,6 +1515,12 @@ def _label_owner(cvt, card, proc):
     processors existed and what every project with no processor still does.
     """
     for node, source in ((cvt, 'cvt'), (card, 'card'), (proc, 'processor')):
+        # A one-box unit's fixed card IS the processor, and the unit has one
+        # name slot - the processor's (ruling, 2026-09-24). Whatever a legacy
+        # file or a stray PUT left on the card is not a name the tray offers
+        # or a label reads; the processor's name is the unit's.
+        if source == 'card' and card_is_unit_face(node, proc):
+            continue
         if node and (node.get('name') or '').strip():
             return node, source
     return None, None
@@ -1493,6 +1623,28 @@ def resolve_card(card, proc):
     used_trunks = 0
     taken = set()
     placed_by_id = {}
+    # A BOX THAT HOLDS ITS TRUNK KEEPS IT. Boxes take the lowest free run
+    # of trunks in list order, so removing box B used to slide C down onto
+    # B's trunk - C's sockets renumbered 21-30 to 11-20, its letter changed,
+    # and a screen pinned on C's sockets landed on the box that had been D.
+    # On a box-fed device the box IS the trunk's ports (there are no others),
+    # so a box delete there stamps the survivors' trunks onto their records
+    # (hold_box_trunks) and this pre-pass reserves them before anything
+    # else is placed: the removed trunk stays empty, its sockets are gone,
+    # and a box added afterwards takes it as the lowest free run. A record
+    # without a stamp - every box on an unflagged card, and every box of a
+    # fresh unit - is placed exactly as before.
+    held = {}
+    for cvt in card.get('cvts') or []:
+        want = held_trunk(cvt)
+        takes = trunks_in(get_device(cvt.get('deviceId')) or {})
+        if want is None or want + takes > trunks:
+            continue
+        run = range(want, want + takes)
+        if any(t in taken for t in run):
+            continue
+        taken.update(run)
+        held[cvt.get('id')] = want
     for cvt in card.get('cvts') or []:
         cvt_device = get_device(cvt.get('deviceId')) or {}
         size = _cvt_port_count(cvt_device, device)
@@ -1504,9 +1656,9 @@ def resolve_card(card, proc):
         # different ports. Everything else takes the lowest free run of
         # trunks, which is exactly the old first-come order whenever no
         # backup has jumped the queue.
-        index = None
+        index = held.get(cvt.get('id'))
         primary = placed_by_id.get(cvt.get('backupOf'))
-        if primary is not None and block_count:
+        if index is None and primary is not None and block_count:
             want = primary['trunkIndex'] + block_count
             if (want + takes <= trunks
                     and all(t not in taken for t in range(want, want + takes))):
@@ -1638,10 +1790,27 @@ def resolve_card(card, proc):
     # A box can only claim past the ceiling by hanging off a trunk that is not
     # there - five CVT10s on a four-trunk card. That stays visible rather than
     # being clamped away, because it is a real mistake to make on paper.
-    defined = max(ceiling or 0, claimed)
+    #
+    # ON A BOX-FED DEVICE A PORT OUTSIDE A BOX DOES NOT EXIST. The SX40 has
+    # no 1G fixture ports of its own - every port it drives comes out of an
+    # XD on one of its trunks - and the HELIOS Standard is the same shape
+    # behind its RS12s. So on such a card (is_box_fed: the catalog's
+    # requiresDistribution, and only that) the enumeration is the boxes'
+    # spans and nothing else: `defined` is what the boxes claim, and a
+    # number no box covers is skipped rather than listed as a socket of the
+    # card's own face. It used to fall through to the ceiling - delete box
+    # B off an SX40 and sockets 11-20 came back as loose ports of the unit,
+    # took pins, printed on labels and counted in the summaries - which is
+    # the ruling (2026-09-24): "I can remove boxes from SX40's but then it
+    # adds those ports back to the SX40 outside of an XD box. SX40's can't
+    # use ports outside of an XD box. So that makes no sense and we need to
+    # remove that functionality" and "same goes for Helios". A card that is
+    # not flagged keeps its own ports exactly as before.
+    box_fed = is_box_fed(device)
+    top = claimed if box_fed else max(ceiling or 0, claimed)
 
     ports = []
-    for number in range(1, defined + 1):
+    for number in range(1, top + 1):
         # More than one box can reach the same port now that a trunk can be a
         # copy of an earlier one. They all list it, because a port really does
         # come out of both boxes - but the FIRST one names it, since the backup
@@ -1650,6 +1819,8 @@ def resolve_card(card, proc):
                     if c['portCount']
                     and c['firstPort'] <= number < c['firstPort'] + c['portCount']]
         cvt = covering[0] if covering else None
+        if box_fed and cvt is None:
+            continue
         local = number - cvt['firstPort'] + 1 if cvt else number
         owner, owner_source = _label_owner(cvt, card, proc)
         source = owner_source
@@ -1750,6 +1921,13 @@ def resolve_card(card, proc):
         ports.append(port)
         for box in covering:
             box['ports'].append(port)
+
+    # What the card DEFINES is a count - the panel prints it as "n / N
+    # ports". Everywhere but a box-fed card the enumeration is 1..top, so
+    # the count is top; on a box-fed card the enumeration has gaps (A, C
+    # and D with B removed is thirty sockets numbered up to 40), so the
+    # count is the sockets actually listed.
+    defined = len(ports) if box_fed else top
 
     # THE BOX DECIDES WHETHER A CARD REACHES ITS OWN CEILING.
     #
@@ -1863,6 +2041,11 @@ def resolve_card(card, proc):
         'delivered': delivered,
         'shortfall': shortfall,
         'defined': defined,
+        # Whether every socket of this card is a box's (is_box_fed): the
+        # assignment reads it to bound fills and hand placements to the
+        # sockets the boxes deliver, and the box delete reads it to drop
+        # the pins that went with a box.
+        'boxFed': box_fed,
         # Over on trunks counts as over even where the ports happen to add up:
         # a box with no fiber to plug into is a box that is not connected.
         'over': bool(ceiling is not None and defined > ceiling)
@@ -2037,7 +2220,7 @@ def _apply_backup_mapping(processors, resolved):
             'processorId': mproc['id'],
             'processorName': mproc['name'] or mproc['deviceName'],
             'cardId': mcard['id'],
-            'cardTitle': mcard['name'] or mcard['deviceName'],
+            'cardTitle': card_display_name(mcard, mproc),
             'boxTitle': box_title(main_id, mport),
             'port': n, 'localPort': mport['localNumber'],
             'label': mport['label'],
@@ -2069,7 +2252,7 @@ def _apply_backup_mapping(processors, resolved):
         res_cards[backup_id][0]['backupFor'] = {
             'processorId': rproc['id'],
             'cardId': cid,
-            'title': rcard['name'] or rcard['deviceName'],
+            'title': card_display_name(rcard, rproc),
         }
         consumed.add(backup_id)
         for n in sorted(ports_of[cid]):

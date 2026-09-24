@@ -1376,6 +1376,13 @@ export class LEDRasterApp {
             const raw = this._assignmentKey();
             if (raw !== this._assignmentKeyRaw) this.refreshPortAssignment();
         }
+        // The Add-processor picker lists the gear the screens can land on,
+        // so it follows the screens here too: with nothing in the tray the
+        // guard above skips the resolve, and no dock render would follow a
+        // Processing change or a load (app-dock _refillProcessorPicker).
+        if (typeof this._refillProcessorPicker === 'function') {
+            this._refillProcessorPicker();
+        }
 
         if (window.canvasRenderer) {
             if (window.canvasRenderer.viewMode === 'data-flow' && this.currentLayer) {

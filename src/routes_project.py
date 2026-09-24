@@ -119,6 +119,10 @@ def save_project():
     # payload already holds.
     processor_catalog.sync_next_processor_seq(app.current_project)
     processor_catalog.stock_default_cvts(app.current_project)
+    # A one-box unit has ONE name slot (2026-09-24); a name a 1.3 file left
+    # on its fixed card moves up to the unit here, once, and is logged.
+    for moved in processor_catalog.adopt_fixed_card_names(app.current_project):
+        log_event('processor_name_adopted_from_card', moved)
     # Snakes moved to the SHOW (2026-09-09: "Any sockets, any device"), so a
     # file - or an undo snapshot - that carries them per card or per box is
     # folded into project['snakes'] here, and every member is re-homed onto
@@ -235,6 +239,10 @@ def restore_project():
     # exists for.
     processor_catalog.sync_next_processor_seq(app.current_project)
     processor_catalog.stock_default_cvts(app.current_project)
+    # A one-box unit has ONE name slot (2026-09-24); a name a 1.3 file left
+    # on its fixed card moves up to the unit here, once, and is logged.
+    for moved in processor_catalog.adopt_fixed_card_names(app.current_project):
+        log_event('processor_name_adopted_from_card', moved)
     # Snakes moved to the SHOW (2026-09-09: "Any sockets, any device"), so a
     # file - or an undo snapshot - that carries them per card or per box is
     # folded into project['snakes'] here, and every member is re-homed onto

@@ -221,6 +221,25 @@ class _DockCableSheets {
         const cap = document.createElement('span');
         cap.textContent = 'Quick fill:';
         quick.appendChild(cap);
+        // The one write every fill on this sheet makes - a fixed button's
+        // length, the typed one's, or null to forget: every held circuit,
+        // ONE updateLayers over the layers it touched.
+        const apply = (ft) => {
+            const touched = new Set();
+            held.forEach(({ layer, circuit }) => {
+                const cur = (layer.powerCircuitCables || {})[circuit];
+                const changed = this.setCircuitCable(layer, circuit,
+                    ft === null ? null
+                        : { ft, connector: cur ? cur.connector : null },
+                    false);
+                if (changed) touched.add(layer);
+            });
+            if (!touched.size) return;
+            this.saveClientSideProperties();
+            this.updateLayers([...touched], true, 'Set Circuit Cable');
+            if (window.canvasRenderer) window.canvasRenderer.render();
+            this._rebuildAfterGesture(() => this.renderHardwareDock());
+        };
         const fill = (label, ft, title) => {
             const b = document.createElement('button');
             b.type = 'button';
@@ -231,20 +250,7 @@ class _DockCableSheets {
                 `power-cable-fill-${d.id}-${n}-${ft === null ? 'none' : ft}`;
             b.addEventListener('click', (e) => {
                 e.stopPropagation();
-                const touched = new Set();
-                held.forEach(({ layer, circuit }) => {
-                    const cur = (layer.powerCircuitCables || {})[circuit];
-                    const changed = this.setCircuitCable(layer, circuit,
-                        ft === null ? null
-                            : { ft, connector: cur ? cur.connector : null },
-                        false);
-                    if (changed) touched.add(layer);
-                });
-                if (!touched.size) return;
-                this.saveClientSideProperties();
-                this.updateLayers([...touched], true, 'Set Circuit Cable');
-                if (window.canvasRenderer) window.canvasRenderer.render();
-                this._rebuildAfterGesture(() => this.renderHardwareDock());
+                apply(ft);
             });
             return b;
         };
@@ -260,8 +266,64 @@ class _DockCableSheets {
         }
         quick.appendChild(fill('none', null,
             `Every circuit on this ${typeName} forgets its cable. One undo step.`));
+        // ...and a length of the user's own, after the fixed ones ("adding
+        // quick fill of any length I choose would be nice for cable
+        // sheets", 2026-09-24): the same write as the buttons beside it.
+        this._cableQuickAny(quick, `power-cable-fill-any-${d.id}-${n}`, 'all',
+            `Every circuit on this ${typeName} gets the typed length. `
+            + 'One undo step.', apply);
         sheet.insertBefore(quick, table);
         return sheet;
+    }
+
+    // A typed length beside a row's fixed fills - the number box and the
+    // button that fires it (Enter in the box does the same). The box
+    // takes what a row's own length field takes, whole or half feet, and
+    // refuses what it refuses: blank, zero, a minus or text write nothing
+    // and the box goes back to the last length it filled with (blank if
+    // none) - `none` is the button for forgetting, so a refusal never
+    // clears anything. The last accepted length rides in memory per box
+    // so the rebuild after a fill shows it again, the length in force.
+    _cableQuickAny(row, key, label, title, run) {
+        const memo = this._cableQuickAnyFt || (this._cableQuickAnyFt = {});
+        const box = document.createElement('input');
+        box.type = 'number';
+        box.min = '0';
+        box.step = 'any';
+        box.placeholder = 'ft';
+        box.className = 'hw-dock-cable-ft';
+        box.value = memo[key] ? String(memo[key]) : '';
+        box.dataset.lrdField = key;
+        box.title = 'A length of your own, in feet. Enter, or the button '
+            + 'beside it, fills with it.';
+        const go = () => {
+            const ft = Number(box.value.trim());
+            if (!(Number.isFinite(ft) && ft > 0)) {
+                box.value = memo[key] ? String(memo[key]) : '';
+                this._dockSay('Type a length in feet first.');
+                return;
+            }
+            memo[key] = ft;
+            run(ft);
+        };
+        box.addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter') return;
+            e.preventDefault();
+            e.stopPropagation();
+            go();
+        });
+        row.appendChild(box);
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'btn hw-dock-btn';
+        b.textContent = label;
+        b.title = title;
+        b.dataset.lrdField = `${key}-btn`;
+        b.addEventListener('click', (e) => {
+            e.stopPropagation();
+            go();
+        });
+        row.appendChild(b);
     }
 
 
@@ -654,14 +716,24 @@ class _DockCableSheets {
             });
             return b;
         };
-        const cap = document.createElement('span');
-        cap.textContent = 'With ticked:';
-        quick.appendChild(cap);
+        // A caption and its controls is one group: the row folds BETWEEN
+        // the groups on a narrow sheet, never between a length box and
+        // the button that fires it.
+        const group = (text) => {
+            const g = document.createElement('span');
+            g.className = 'hw-dock-cable-quick-group';
+            const cap = document.createElement('span');
+            cap.textContent = text;
+            g.appendChild(cap);
+            quick.appendChild(g);
+            return g;
+        };
+        const ticked = group('With ticked:');
         // ONE snake of EVERY ticked socket in the tray - this sheet's and
         // any other's. "Any sockets, any device" (2026-09-09): the ticks
         // are the gesture, and the button they are pressed on is only
         // where the hand happened to be.
-        quick.appendChild(button('Snake', `data-cable-snake-${owner.id}`,
+        ticked.appendChild(button('Snake', `data-cable-snake-${owner.id}`,
             'Form one snake of every ticked port - on this card or box or '
             + 'any other. One name, one home run. One undo step.',
             () => {
@@ -681,7 +753,7 @@ class _DockCableSheets {
                     after();
                 });
             }));
-        quick.appendChild(button('Unsnake', `data-cable-loosen-${owner.id}`,
+        ticked.appendChild(button('Unsnake', `data-cable-loosen-${owner.id}`,
             'Take every ticked port out of its snake - on this card or box '
             + 'or any other. One undo step.',
             () => {
@@ -697,26 +769,77 @@ class _DockCableSheets {
                 this._clearAllCableTicks();
                 this.loosenPorts(members).then(after);
             }));
+        // ...and a length for the ticked rows only ("same with 'with
+        // ticked' - adding a length for all ticked boxes only",
+        // 2026-09-24): each ticked row gets what its own field would
+        // take - a loose port its home run, a snaked one its extension.
+        this._cableQuickAny(ticked, `data-cable-ticked-fill-${owner.id}`, 'Fill',
+            'Every ticked port on this card or box gets the typed length - '
+            + 'a loose port as its home run, a snaked port as its extension. '
+            + 'One undo step.',
+            (ft) => this.fillTickedPortCables(owner, ft, ports).then(after));
         const sp = document.createElement('span');
         sp.style.flex = '1';
         quick.appendChild(sp);
-        const cap2 = document.createElement('span');
-        cap2.textContent = 'Quick fill:';
-        quick.appendChild(cap2);
+        const fills = group('Quick fill:');
         // The fill's length is the Loose port cable preference (100' as
         // shipped) - read here, where the cables are made.
         const fillFt = this.defaultLoosePortCableFt();
-        quick.appendChild(button(`all ${fillFt}'`, `data-cable-fill-${owner.id}-${fillFt}`,
+        fills.appendChild(button(`all ${fillFt}'`, `data-cable-fill-${owner.id}-${fillFt}`,
             `Every loose port here gets a ${fillFt} ft home run; snakes keep `
             + 'theirs. One undo step.',
             () => this.fillPortCables(owner, fillFt, ports).then(after)));
-        quick.appendChild(button('none', `data-cable-fill-${owner.id}-none`,
+        fills.appendChild(button('none', `data-cable-fill-${owner.id}-none`,
             'Every loose port here forgets its cable; snakes keep theirs. '
             + 'One undo step.',
             () => this.fillPortCables(owner, null, ports).then(after)));
+        // ...and a length of the user's own, the loose ports' fill with
+        // the typed length ("this should just be for extensions for
+        // individual ports or circuits", 2026-09-24): snakes keep theirs,
+        // as the fixed buttons leave them.
+        this._cableQuickAny(fills, `data-cable-fill-any-${owner.id}`, 'all',
+            'Every loose port here gets the typed length as its home run; '
+            + 'snakes keep theirs. One undo step.',
+            (ft) => this.fillPortCables(owner, ft, ports).then(after));
         sheet.appendChild(quick);
         sheet.appendChild(table);
         return sheet;
+    }
+
+    // "With ticked: Fill" - the typed length into ONLY the ticked rows of
+    // this sheet, each taking what its own field takes: a loose socket's
+    // entry is its home run, a snaked socket's its extension from the
+    // fan-out (the same portCables store, read apart by whether the
+    // socket is snaked - setPortCable's rule). A stored connector rides
+    // the write untouched. Ticks on other cards or boxes are not this
+    // sheet's rows - one owner, one PUT, one entry ('Set Port Cable', or
+    // 'Set Port Extension' when every ticked row is a member). The ticks
+    // are the gesture and the fill consumes them, as Snake does; nothing
+    // ticked says so and writes nothing.
+    fillTickedPortCables(owner, ft, ports) {
+        const list = (ports || owner.rec.ports || [])
+            .filter(p => this._cableTicked(owner, p.number));
+        if (!list.length) {
+            this._dockSay('Tick the ports first, then Fill.');
+            return Promise.resolve();
+        }
+        const stores = this._dataCableStores(owner);
+        const before = JSON.stringify(stores.portCables);
+        let snaked = 0;
+        list.forEach(p => {
+            const key = String(p.number);
+            const cur = stores.portCables[key] || {};
+            const next = { ft };
+            if (cur.connector) next.connector = cur.connector;
+            stores.portCables[key] = next;
+            if (this.dataPortSnake(owner, p.number)) snaked += 1;
+        });
+        if (JSON.stringify(stores.portCables) === before) {
+            return Promise.resolve();
+        }
+        list.forEach(p => this._setCableTick(owner, p.number, false));
+        return this._dataCablePut(owner, stores,
+            snaked === list.length ? 'Set Port Extension' : 'Set Port Cable');
     }
 }
 

@@ -279,13 +279,17 @@ def place_overflow():
         return jsonify({'error': 'layerId and cardId are required'}), 400
     first = data.get('firstPort')
     last = data.get('lastPort')
+    last_index = data.get('lastIndex')
     _retire()
     state = _working()
     moved, error = assignment.place_overflow(
         _processors(), _screens(), state, layer_id, card_id,
         # Same box-span window move-block carries; see that route.
         first_port=None if first is None else int(first),
-        last_port=None if last is None else int(last))
+        last_port=None if last is None else int(last),
+        # The dock's drop names the screen port under the cursor (0-based):
+        # the fill takes the unplaced ports up to it and no further.
+        last_index=None if last_index is None else int(last_index))
     if error:
         return jsonify({'error': error}), 409
     log_event('port_assignment_overflow', {'layer': layer_id, 'card': card_id,

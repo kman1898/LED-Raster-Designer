@@ -774,10 +774,15 @@ def test_the_card_sheet_types_loose_lengths_that_read_in_the_corner(page):
         'the data sheet asks no connector')
     # the controls ride on top, before the rows, and the word is Unsnake
     assert sheet['quickFirst'], sheet
+    # With ticked: Snake, Unsnake, then the typed length's Fill; Quick
+    # fill: the fixed lengths, then the typed length's all
     assert sheet['buttons'] == [
         f'data-cable-snake-{cid}', f'data-cable-loosen-{cid}',
-        f'data-cable-fill-{cid}-100', f'data-cable-fill-{cid}-none'], sheet
-    assert sheet['labels'] == ['Snake', 'Unsnake', "all 100'", 'none'], sheet
+        f'data-cable-ticked-fill-{cid}-btn',
+        f'data-cable-fill-{cid}-100', f'data-cable-fill-{cid}-none',
+        f'data-cable-fill-any-{cid}-btn'], sheet
+    assert sheet['labels'] == ['Snake', 'Unsnake', 'Fill', "all 100'", 'none',
+                               'all'], sheet
     assert 'Loosen' not in sheet['unsnakeTitle'], sheet['unsnakeTitle']
     assert all('Loosen' not in t and 'loosen' not in t
                for t in sheet['tickTitles']), sheet['tickTitles']
@@ -1238,6 +1243,167 @@ def test_quick_fill_is_one_entry_and_leaves_snakes_alone(page):
     st = pg.evaluate(STATE_JS, ids)
     assert st['card']['cables'] == {'9': {'ft': 50, 'connector': None},
                                     '10': {'ft': 75, 'connector': 'cat'}}
+    _sheet_open(pg, 'card', cid, False)
+
+
+# The card's port cables as GET /api/project serves them - the raw record
+# on the processor, not the resolved tree.
+PROJECT_CABLES_JS = """async (ids) => {
+    const p = await (await fetch('/api/project')).json();
+    const proc = (p.processors || []).find(x => x.id === ids.procId);
+    const card = proc.slots[0].card;
+    return card.portCables || null;
+}"""
+
+
+def _status(page):
+    return page.evaluate(
+        "() => document.getElementById('status-message').textContent")
+
+
+def test_a_typed_length_fills_the_loose_ports_and_leaves_the_snake(page):
+    """"adding quick fill of any length I choose ... this should just be
+    for extensions for individual ports or circuits" (2026-09-24). 37 in
+    the Quick fill box and its all writes every LOOSE socket (9, 10, 14,
+    15, 16 - 11-13 ride SNAKE A and keep nothing, as all 100' leaves
+    them) as ONE 'Set Port Cable', on the client and on GET /api/project,
+    10 keeping its CAT; Enter fills with 12.5; blank, 0, -5 and text write
+    nothing and add no entry; all 100' still works beside it; three undos
+    restore."""
+    pg, ids = page
+    cid = ids['cardId']
+    assert _sheet_open(pg, 'card', cid)['sheet']
+    box = pg.locator(f'[data-lrd-field="data-cable-fill-any-{cid}"]')
+    btn = pg.locator(f'[data-lrd-field="data-cable-fill-any-{cid}-btn"]')
+    index = pg.evaluate(STATE_JS, ids)['index']
+    box.fill('37')
+    btn.click()
+    pg.wait_for_timeout(900)
+    st = pg.evaluate(STATE_JS, ids)
+    want = {'9': {'ft': 37, 'connector': None},
+            '10': {'ft': 37, 'connector': 'cat'},
+            '14': {'ft': 37, 'connector': None},
+            '15': {'ft': 37, 'connector': None},
+            '16': {'ft': 37, 'connector': None}}
+    assert st['card']['cables'] == want, st
+    assert st['action'] == 'Set Port Cable' and st['index'] == index + 1, st
+    assert st['card']['snakes'][0]['ports'] == [11, 12, 13]
+    # the raw store keeps no `connector` key where none is picked
+    raw = {'9': {'ft': 37}, '10': {'ft': 37, 'connector': 'cat'},
+           '14': {'ft': 37}, '15': {'ft': 37}, '16': {'ft': 37}}
+    served = _served(pg, ids, lambda s: (s['cardCables'] or {}).get('16', {})
+                     .get('ft') == 37)
+    assert served['cardCables'] == raw, served
+    assert pg.evaluate(PROJECT_CABLES_JS, ids) == raw
+    assert box.input_value() == '37', 'the rebuilt box shows the length in force'
+    box.fill('12.5')
+    box.press('Enter')
+    pg.wait_for_timeout(900)
+    st = pg.evaluate(STATE_JS, ids)
+    assert st['card']['cables']['9'] == {'ft': 12.5, 'connector': None}, st
+    assert st['card']['cables']['10'] == {'ft': 12.5, 'connector': 'cat'}, st
+    assert '11' not in st['card']['cables'] and st['index'] == index + 2, st
+    for junk in ['', '0', '-5']:
+        box.fill(junk)
+        btn.click()
+        pg.wait_for_timeout(500)
+        st = pg.evaluate(STATE_JS, ids)
+        assert st['index'] == index + 2 and st['card']['cables']['9']['ft'] == 12.5, (
+            f'{junk!r} must write nothing: {st}')
+        assert box.input_value() == '12.5', junk
+    pg.evaluate(f"""() => {{
+        const b = document.querySelector('[data-lrd-field="data-cable-fill-any-{cid}"]');
+        b.value = 'abc';
+        b.dispatchEvent(new KeyboardEvent('keydown', {{key: 'Enter', bubbles: true}}));
+    }}""")
+    pg.wait_for_timeout(500)
+    st = pg.evaluate(STATE_JS, ids)
+    assert st['index'] == index + 2 and st['card']['cables']['9']['ft'] == 12.5, st
+    assert box.input_value() == '12.5'
+    pg.locator(f'[data-lrd-field="data-cable-fill-{cid}-100"]').click()
+    pg.wait_for_timeout(900)
+    st = pg.evaluate(STATE_JS, ids)
+    assert st['card']['cables']['16'] == {'ft': 100, 'connector': None}, st
+    assert st['index'] == index + 3, st
+    for _ in range(3):
+        pg.evaluate('() => window.app.undo()')
+        pg.wait_for_timeout(1200)
+    st = pg.evaluate(STATE_JS, ids)
+    assert st['card']['cables'] == {'9': {'ft': 50, 'connector': None},
+                                    '10': {'ft': 75, 'connector': 'cat'}}, st
+    assert st['index'] == index, st
+    _sheet_open(pg, 'card', cid, False)
+
+
+def test_a_typed_length_with_ticked_writes_only_the_ticked_rows(page):
+    """"same with 'with ticked' - adding a length for all ticked boxes
+    only" (2026-09-24). Tick 14 and 15 of the card's rows, 42 in the
+    With ticked box and Fill: only those two carry 42, client and
+    server, 9 and 10 untouched, ONE 'Set Port Cable', and the ticks are
+    spent. Nothing ticked: nothing written, no entry, the status bar says
+    to tick first. A ticked snake member takes the length as what its
+    own row field writes - its EXTENSION ('Set Port Extension'), the
+    snake untouched. Two undos restore."""
+    pg, ids = page
+    cid = ids['cardId']
+    assert _sheet_open(pg, 'card', cid)['sheet']
+    box = pg.locator(f'[data-lrd-field="data-cable-ticked-fill-{cid}"]')
+    btn = pg.locator(f'[data-lrd-field="data-cable-ticked-fill-{cid}-btn"]')
+    index = pg.evaluate(STATE_JS, ids)['index']
+    ticks = pg.evaluate(f"""() => [...document.querySelectorAll(
+        '[data-lrd-field^="data-snake-tick-{cid}-"]')].filter(t => t.checked).length""")
+    assert ticks == 0, 'the module must reach here with nothing ticked'
+    # nothing ticked: the length is refused with a word, not written
+    box.fill('42')
+    btn.click()
+    pg.wait_for_timeout(500)
+    st = pg.evaluate(STATE_JS, ids)
+    assert st['index'] == index and '14' not in st['card']['cables'], st
+    assert _status(pg) == 'Tick the ports first, then Fill.', _status(pg)
+    pg.locator(f'[data-lrd-field="data-snake-tick-{cid}-14"]').check()
+    pg.locator(f'[data-lrd-field="data-snake-tick-{cid}-15"]').check()
+    box.fill('42')
+    btn.click()
+    pg.wait_for_timeout(900)
+    st = pg.evaluate(STATE_JS, ids)
+    want = {'9': {'ft': 50, 'connector': None},
+            '10': {'ft': 75, 'connector': 'cat'},
+            '14': {'ft': 42, 'connector': None},
+            '15': {'ft': 42, 'connector': None}}
+    assert st['card']['cables'] == want, st
+    assert st['action'] == 'Set Port Cable' and st['index'] == index + 1, st
+    raw = {'9': {'ft': 50}, '10': {'ft': 75, 'connector': 'cat'},
+           '14': {'ft': 42}, '15': {'ft': 42}}
+    served = _served(pg, ids, lambda s: (s['cardCables'] or {}).get('15', {})
+                     .get('ft') == 42)
+    assert served['cardCables'] == raw, served
+    assert pg.evaluate(PROJECT_CABLES_JS, ids) == raw
+    ticks = pg.evaluate(f"""() => [...document.querySelectorAll(
+        '[data-lrd-field^="data-snake-tick-{cid}-"]')].filter(t => t.checked)
+        .map(t => t.dataset.lrdField)""")
+    assert ticks == [], f'the fill spends the ticks, as Snake does: {ticks}'
+    # a ticked member: its row field is the extension, so is the fill
+    pg.locator(f'[data-lrd-field="data-snake-tick-{cid}-12"]').check()
+    box.fill('8')
+    box.press('Enter')
+    pg.wait_for_timeout(900)
+    st = pg.evaluate(STATE_JS, ids)
+    assert st['card']['cables']['12'] == {'ft': 8, 'connector': None}, st
+    assert st['card']['cables']['14'] == {'ft': 42, 'connector': None}, st
+    assert st['action'] == 'Set Port Extension' and st['index'] == index + 2, st
+    assert st['card']['snakes'][0]['ports'] == [11, 12, 13], st
+    reading = pg.evaluate("""(ids) => {
+        const c = window.app.dataPortCable(ids.cardId, 12);
+        return [c.kind, c.ext];
+    }""", ids)
+    assert reading == ['snake', 8], reading
+    for _ in range(2):
+        pg.evaluate('() => window.app.undo()')
+        pg.wait_for_timeout(1200)
+    st = pg.evaluate(STATE_JS, ids)
+    assert st['card']['cables'] == {'9': {'ft': 50, 'connector': None},
+                                    '10': {'ft': 75, 'connector': 'cat'}}, st
+    assert st['index'] == index, st
     _sheet_open(pg, 'card', cid, False)
 
 

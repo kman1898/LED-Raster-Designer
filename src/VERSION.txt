@@ -1,6 +1,35 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v1.3.1 - September 24, 2026
+----------------------------
+
+- FIX: Dragging a card, a breakout box or a whole processor onto a screen
+  on the Data tab now works the way the multi drag does on Power: the
+  screen's unplaced ports light up in order from the first one to the
+  port under your cursor, capped at the card's free sockets, with a
+  count beside the cursor, and the drop places exactly those. Ports
+  already on a processor never light and are never touched; a screen
+  with every port placed refuses until it is cleared. Before, a card
+  drop took every port of the screen.
+- FIX: The Add processor list offers only units that can drive the
+  screens in the project: all Brompton screens list Brompton units, all
+  NovaStar screens list NovaStar units, mixed screens list both, and a
+  project with no processing set lists everything. A chassis's card
+  picker follows the same rule. Units already added are left alone.
+- FIX: A unit that is one box (SX40, MX40 Pro, CX40, VX and the rest)
+  has one name field. Only the H series, MX2000 and MX6000 name a card
+  per slot. Port labels and the paperwork read the unit's name; a name
+  typed on the built-in card in an earlier version is carried over.
+- FIX: On an SX40 or a HELIOS a port exists only inside a breakout box.
+  Removing a box takes its ports with it and unplaces whatever sat on
+  them, named in a message; no port is offered outside a box.
+- FIX: The cable sheets' quick fill takes any length: type a figure and
+  press all to fill every circuit of a multi, or every loose port of a
+  card or box. The card sheet's With ticked row has the same, writing
+  only the ticked ports; a ticked snake member gets its extension.
+- FIX: US spelling in the app's text.
+
 v1.3.0 - September 23, 2026
 ----------------------------
 

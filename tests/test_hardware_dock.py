@@ -21,9 +21,10 @@ What is pinned here, with real pointer drags (mouse down/move/up):
   * mid-flight, the run under the cursor is the live drop target
   * dropping onto an occupied socket asks the existing question - dismiss
     changes nothing, confirm places - never a silent displacement
-  * a whole CARD dropped on a screen fills its ports in order from the first
-    unassigned (place-overflow) or moves the whole block when nothing is
-    unassigned (move-block)
+  * a whole CARD dropped on a screen fills its UNPLACED ports in order from
+    the first up to the port under the cursor (place-overflow with the
+    cursor's port; tests/test_dock_drag_data.py has the whole rule) and is
+    refused when every port is already placed - Clear, then drop again
   * a whole BREAKOUT BOX fills only its own span of card ports, dealing
     around sockets already claimed inside the span
   * a single multi SLOT dropped on a circuit lands that circuit's multi on
@@ -932,18 +933,25 @@ def test_the_gear_popover_survives_rebuilds_and_closes_cleanly(dock_page):
 def test_a_press_on_a_header_control_never_arms_a_drag(dock_page):
     """The headers carry live controls now - the inline name field, the
     gear - and a press on one is the control's gesture: no ghost, no drag,
-    and the typed name commits as the existing rename. The header keeps
-    its grammar around the edit: static text stays the model, the hand
-    name lives in the input, the glance keeps its used/capacity count and
-    the card header carries no detail text."""
+    and the typed name commits as the existing rename. The seeded MX40
+    Pro is a one-box unit, so it has ONE name slot - the processor strip's
+    (ruling, 2026-09-24) - and its fixed card's header carries no name
+    input at all. The header keeps its grammar around the edit: static
+    text stays the model, the hand name lives in the strip's input, the
+    card's glance keeps its used/capacity count and the card header
+    carries no detail text."""
     page, ids = dock_page
     open_view(page, 'data-flow')
     page.evaluate(RESET_DATA_JS, ids)
     page.wait_for_timeout(400)
-    key = f'processor-card-name-{ids["cardId"]}'
+    key = f'processor-name-{ids["procId"]}'
 
     box = page.locator(f'[data-lrd-field="{key}"]').bounding_box()
-    assert box, 'the card header lost its inline name input'
+    assert box, 'the processor strip lost its inline name input'
+    assert page.locator(
+        f'[data-hwdock="card-{ids["cardId"]}"] input.hw-dock-name'
+    ).count() == 0, (
+        'a one-box unit\'s fixed card offered a second name field')
     cx = box['x'] + box['width'] / 2
     cy = box['y'] + box['height'] / 2
     page.mouse.move(cx, cy)
@@ -963,16 +971,16 @@ def test_a_press_on_a_header_control_never_arms_a_drag(dock_page):
         page.keyboard.type('SR')
         page.keyboard.press('Tab')
         page.wait_for_timeout(800)
-        assert page.evaluate(HIST_JS, 1) == ['Rename Card']
+        assert page.evaluate(HIST_JS, 1) == ['Rename Processor']
         out = page.evaluate("""(ids) => {
             const head = document.querySelector(
                 `[data-hwdock="card-${ids.cardId}"]`);
-            const card = window.app._processorsResolved[0].slots
-                .map(s => s.card).find(Boolean);
+            const proc = window.app._processorsResolved[0];
             const use = head.querySelector('.hw-dock-unit-use');
             return {
-                name: card.name,
-                input: head.querySelector('.hw-dock-name').value,
+                name: proc.name,
+                input: document.querySelector(
+                    `[data-lrd-field="processor-name-${ids.procId}"]`).value,
                 model: head.querySelector('.hw-dock-unit-name').textContent,
                 use: use && use.textContent,
                 info: !!head.querySelector('.hw-dock-unit-info'),
@@ -988,7 +996,7 @@ def test_a_press_on_a_header_control_never_arms_a_drag(dock_page):
             f'the card header carries no detail text: {out}')
     finally:
         page.evaluate("""async (ids) => {
-            await fetch(`/api/processors/${ids.procId}/cards/${ids.cardId}`,
+            await fetch(`/api/processors/${ids.procId}`,
                         {method: 'PUT',
                          headers: {'Content-Type': 'application/json'},
                          body: JSON.stringify({name: ''})});
@@ -1084,8 +1092,10 @@ def test_a_whole_card_fills_in_order_from_the_first_unassigned(dock_page):
     page.wait_for_timeout(400)
     assert page.evaluate(PINS_JS) == []
 
+    # over the LAST port: every unplaced port up to it lands (the cursor
+    # rule, 2026-09-24 - a drop on port 2 would land ports 1-2 only)
     sx, sy = dock_tile_center(page, f'card-{ids["cardId"]}')
-    tgt = panel_point(page, ids['aId'], {})
+    tgt = panel_point(page, ids['aId'], {'port': 5})
     drag(page, sx, sy, tgt['x'], tgt['y'])
     pins = page.evaluate(PINS_JS)
     mine = sorted((p for p in pins if p['layerId'] == str(ids['aId'])),
@@ -1101,14 +1111,16 @@ def test_a_whole_card_fills_in_order_from_the_first_unassigned(dock_page):
     page.wait_for_timeout(300)
 
 
-def test_a_whole_card_moves_the_block_when_nothing_is_unassigned(dock_page):
+def test_a_whole_card_is_refused_when_nothing_is_unassigned(dock_page):
+    """Every port placed: the drop is refused in plain words and moves
+    nothing - the whole-block move that used to run here is gone (owner
+    ruling, 2026-09-24: "if the whole card is already set then it cant be
+    set again. it would need to be cleared")."""
     page, ids = dock_page
     open_view(page, 'data-flow')
-    page.evaluate(RESET_DATA_JS, ids)
-    # everything attached by the seed; WALL B is parked on port 8 first, so
-    # the move has somewhere to move FROM (a block move that re-pins the
-    # same socket changes nothing and earns no step - saveState refuses a
-    # no-op)
+    seed = page.evaluate(RESET_DATA_JS, ids)
+    # everything attached by the seed; WALL B parked on port 8, where the
+    # retired block move used to have somewhere to go
     page.evaluate("""async (ids) => {
         const app = window.app;
         await app._assignmentRequest('/api/port-assignments/place', 'POST',
@@ -1117,24 +1129,23 @@ def test_a_whole_card_moves_the_block_when_nothing_is_unassigned(dock_page):
         app.resetHistory('Dock Seed');
     }""", ids)
     page.wait_for_timeout(400)
+    parked = page.evaluate(PINS_JS)
+    assert [p['port'] for p in parked if p['layerId'] == str(ids['bId'])] \
+        == [8], parked
+    before = page.evaluate(HIST_LEN_JS)
 
-    # nothing unassigned; the drop means "this screen goes here" - the whole
-    # block moves to the first free run on the card, which is port 6 after
-    # WALL A's 1-5
     sx, sy = dock_tile_center(page, f'card-{ids["cardId"]}')
     tgt = panel_point(page, ids['bId'], {})
     drag(page, sx, sy, tgt['x'], tgt['y'])
-    pins = page.evaluate(PINS_JS)
-    mine = [p for p in pins if p['layerId'] == str(ids['bId'])]
-    assert mine, f'the block move pinned nothing: {pins}'
-    assert [p['port'] for p in mine] == [6], (
-        f'the block did not move to the first free run: {pins}')
-    assert page.evaluate(HIST_JS, 1) == ['Move Port Block']
-    page.evaluate("() => window.app.undo()")
-    page.wait_for_timeout(900)
-    pins = page.evaluate(PINS_JS)
-    assert [p['port'] for p in pins if p['layerId'] == str(ids['bId'])] \
-        == [8], f'undo did not put the block back where it was: {pins}'
+    out = page.evaluate("""() => ({
+        status: document.getElementById('status-message').textContent,
+        pins: (window.app.project.port_assignments || {}).pins || []})""")
+    assert out['status'] == (
+        'Every port of WALL B is already on a processor - clear it first'), out
+    assert out['pins'] == parked, f'the refusal still moved something: {out}'
+    assert page.evaluate(HIST_LEN_JS) == before, (
+        'a refused drop must not write history')
+    assert seed is not None
     page.evaluate(RESET_DATA_JS, ids)
     page.wait_for_timeout(300)
 
@@ -1175,8 +1186,9 @@ def test_a_breakout_box_fills_only_its_own_span(dock_page):
     }""", {'ids': ids, 'box': box})
     page.wait_for_timeout(400)
 
+    # over the LAST port, so every unplaced port up to it is asked for
     sx, sy = dock_tile_center(page, f'box-{box["id"]}')
-    tgt = panel_point(page, ids['aId'], {'port': 1})
+    tgt = panel_point(page, ids['aId'], {'port': 5})
     drag(page, sx, sy, tgt['x'], tgt['y'])
     pins = page.evaluate(PINS_JS)
     mine = sorted((p for p in pins if p['layerId'] == str(ids['aId'])),

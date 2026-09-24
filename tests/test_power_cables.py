@@ -303,10 +303,13 @@ def test_the_box_header_flips_into_the_sheet(page):
     assert all(r['blank'] == 'follows Multi 208 (True1)' for r in s['rows']), s
     assert s['rows'][0]['options'] == ['', 'true1', 'powercon', 'edison', 'l620'], s
     assert s['total'] == 'no cables', s
+    # the fixed fills, then the typed length's box and its button
     assert s['fills'] == [
         f'power-cable-fill-{ids["distroId"]}-1-10',
         f'power-cable-fill-{ids["distroId"]}-1-6',
-        f'power-cable-fill-{ids["distroId"]}-1-none'], s
+        f'power-cable-fill-{ids["distroId"]}-1-none',
+        f'power-cable-fill-any-{ids["distroId"]}-1',
+        f'power-cable-fill-any-{ids["distroId"]}-1-btn'], s
 
 
 def test_a_length_commit_is_one_entry_and_undo_restores(page):
@@ -432,6 +435,84 @@ def test_quick_fill_is_one_entry(page):
         '1': {'ft': 10, 'connector': None}, '2': {'ft': 6, 'connector': None},
         '5': {'ft': 6, 'connector': None}, '6': {'ft': 10, 'connector': None},
     }, f'two undos must put the user\'s own example back: {st}'
+
+
+def _any_box(page, ids):
+    return page.locator(
+        f'[data-lrd-field="power-cable-fill-any-{ids["distroId"]}-1"]')
+
+
+def _any_btn(page, ids):
+    return page.locator(
+        f'[data-lrd-field="power-cable-fill-any-{ids["distroId"]}-1-btn"]')
+
+
+def test_a_typed_length_fills_every_circuit(page):
+    """"adding quick fill of any length I choose would be nice for cable
+    sheets" (2026-09-24). 37 in the box and its button writes every held
+    circuit on the box as ONE 'Set Circuit Cable', on the client and on
+    GET /api/project; Enter in the box does the same with 12.5 (halves
+    as the row field takes them); blank, 0, -5 and text write nothing
+    and add no entry, the box going back to the length in force; the
+    fixed buttons still work beside it; three undos restore."""
+    pg, ids = page
+    d = ids['distroId']
+    index = pg.evaluate(STATE_JS, ids['id'])['index']
+    _any_box(pg, ids).fill('37')
+    _any_btn(pg, ids).click()
+    pg.wait_for_timeout(900)
+    st = pg.evaluate(STATE_JS, ids['id'])
+    assert st['cables'] == {
+        str(i): {'ft': 37, 'connector': None} for i in range(1, 7)}, st
+    assert st['action'] == 'Set Circuit Cable' and st['index'] == index + 1, (
+        f'a typed fill is ONE entry: {st}')
+    served = _served(pg, ids['id'],
+                     lambda s: (s['cables'] or {}).get('6', {}).get('ft') == 37)
+    assert served['cables'] == {
+        str(i): {'ft': 37, 'connector': None} for i in range(1, 7)}, served
+    assert _sheet(pg, ids)['total'] == "6 × 37' True1"
+    assert _any_box(pg, ids).input_value() == '37', (
+        'the rebuilt box shows the length in force')
+    # Enter in the box fills too; a half foot goes as the row field takes it
+    _any_box(pg, ids).fill('12.5')
+    _any_box(pg, ids).press('Enter')
+    pg.wait_for_timeout(900)
+    st = pg.evaluate(STATE_JS, ids['id'])
+    assert st['cables'] == {
+        str(i): {'ft': 12.5, 'connector': None} for i in range(1, 7)}, st
+    assert st['index'] == index + 2, st
+    # the refusals: nothing written, no entry, the box back to 12.5
+    for junk in ['', '0', '-5']:
+        _any_box(pg, ids).fill(junk)
+        _any_btn(pg, ids).click()
+        pg.wait_for_timeout(500)
+        st = pg.evaluate(STATE_JS, ids['id'])
+        assert st['index'] == index + 2 and st['cables']['1']['ft'] == 12.5, (
+            f'{junk!r} must write nothing: {st}')
+        assert _any_box(pg, ids).input_value() == '12.5', junk
+    pg.evaluate(f"""() => {{
+        const b = document.querySelector('[data-lrd-field="power-cable-fill-any-{d}-1"]');
+        b.value = 'abc';
+        b.dispatchEvent(new KeyboardEvent('keydown', {{key: 'Enter', bubbles: true}}));
+    }}""")
+    pg.wait_for_timeout(500)
+    st = pg.evaluate(STATE_JS, ids['id'])
+    assert st['index'] == index + 2 and st['cables']['1']['ft'] == 12.5, st
+    assert _any_box(pg, ids).input_value() == '12.5'
+    # the fixed buttons still fill beside it
+    pg.locator(f'[data-lrd-field="power-cable-fill-{d}-1-6"]').click()
+    pg.wait_for_timeout(900)
+    st = pg.evaluate(STATE_JS, ids['id'])
+    assert st['cables']['1'] == {'ft': 6, 'connector': None}, st
+    assert st['index'] == index + 3, st
+    for _ in range(3):
+        pg.evaluate('() => window.app.undo()')
+        pg.wait_for_timeout(900)
+    st = pg.evaluate(STATE_JS, ids['id'])
+    assert st['cables'] == {
+        '1': {'ft': 10, 'connector': None}, '2': {'ft': 6, 'connector': None},
+        '5': {'ft': 6, 'connector': None}, '6': {'ft': 10, 'connector': None},
+    } and st['index'] == index, st
 
 
 def test_a_closed_sheet_shows_the_cable_on_the_chip(page):
@@ -959,7 +1040,7 @@ def test_the_quick_fills_sit_above_the_rows(page):
     }""", [ids['distroId'], 1])
     assert out['first'] and out['before'], out
     assert out['quickTop'] < out['tableTop'], out
-    assert out['labels'] == ["all 10'", "all 6'", 'none'], out
+    assert out['labels'] == ["all 10'", "all 6'", 'none', 'all'], out
     assert out['last'] == 'hw-dock-cable-total', out
     assert out['headers'][-1] == 'connector', (
         'the power sheet keeps its plug column - True1 / powerCON / Edison '

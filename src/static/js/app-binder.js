@@ -3120,7 +3120,8 @@ class _Binder {
         const { proc, card } = found;
         const procTitle = proc.name || proc.deviceName || proc.id;
         const slot = (proc.slots || []).find(s => s.card && s.card.id === card.id);
-        const cardTitle = card.name || (slot ? `slot ${(slot.index || 0) + 1}` : card.deviceName);
+        const typed = (typeof this.cardTypedName === 'function') ? this.cardTypedName(proc, card) : card.name;
+        const cardTitle = typed || (slot ? `slot ${(slot.index || 0) + 1}` : card.deviceName);
         const unit = (typeof this.dataUnitTitle === 'function')
             ? this.dataUnitTitle(proc, card) : { title: `${procTitle} ${cardTitle}`, named: true };
         const n = parseInt(socket, 10);
@@ -3214,20 +3215,33 @@ class _Binder {
     // "IMAG SR · NovaPro UHD Jr · 16 ports". Where nobody named the unit,
     // its title IS the model and the model column is dropped rather than
     // printed twice.
+    // The ports a card has for the paper: the datasheet ceiling, except on
+    // a box-fed unit (SX40, HELIOS), where a port exists only inside a
+    // breakout box and the count is the boxes' sockets (2026-09-24).
+    _bCardPortCount(card) {
+        if (!card) return null;
+        if (card.boxFed) return (card.ports || []).length;
+        if (card.ceiling != null) return card.ceiling;
+        return (card.ports || []).length || null;
+    }
+
     _bCardBandText(home) {
         const model = home.card.deviceName || '';
         const says = model && home.unitTitle.toLowerCase().includes(model.toLowerCase());
         return [home.unitTitle, says ? '' : model,
-                this._bPlural(home.card.ceiling || (home.card.ports || []).length, 'port')]
+                this._bPlural(this._bCardPortCount(home.card), 'port')]
             .filter(Boolean).join(' · ');
     }
 
-    // A card by id as a sheet names it: the name somebody typed, else its
-    // slot on its processor - never the device's long model string.
+    // A card by id as a sheet names it: the name somebody typed (the
+    // unit's, for a one-box unit's face - cardTypedName), else its slot on
+    // its processor - never the device's long model string.
     _bCardShort(cardId) {
         const found = (typeof this._dockFindCard === 'function') ? this._dockFindCard(cardId) : null;
         if (!found) return cardId || '—';
-        if (found.card.name) return found.card.name;
+        const typed = (typeof this.cardTypedName === 'function')
+            ? this.cardTypedName(found.proc, found.card) : found.card.name;
+        if (typed) return typed;
         const slot = (found.proc.slots || []).find(s => s.card && s.card.id === found.card.id);
         return slot ? `slot ${(slot.index || 0) + 1}` : found.card.deviceName;
     }
@@ -3858,7 +3872,7 @@ class _Binder {
         // never the raw id the sheet used to print).
         const nameOf = (cardId) => {
             const hit = cards.find(c => c.card.id === cardId);
-            if (hit) return hit.card.name || `slot ${(hit.slot || 0) + 1}`;
+            if (hit) return this.cardTypedName(proc, hit.card) || `slot ${(hit.slot || 0) + 1}`;
             if (!cardId) return '—';
             return this.dataUnitTitleForCard(cardId).title || cardId;
         };
@@ -3866,8 +3880,8 @@ class _Binder {
             const shape = card.redundancyShape && card.redundancyShape.mode;
             const backup = card.backupCardId ? nameOf(card.backupCardId)
                 : (shape && shape !== 'off' ? shape : '—');
-            return { cells: [String((slot || 0) + 1), card.name || '—', card.deviceName,
-                             `${used(card.id)} / ${card.ceiling != null ? card.ceiling : '?'}`, backup] };
+            return { cells: [String((slot || 0) + 1), this.cardTypedName(proc, card) || '—', card.deviceName,
+                             `${used(card.id)} / ${this._bCardPortCount(card) != null ? this._bCardPortCount(card) : '?'}`, backup] };
         });
         const blocks = [];
         blocks.push({ lines: this._bTableLines(book, {
@@ -3882,7 +3896,7 @@ class _Binder {
         for (const { card } of cards) {
             for (const box of (card.cvts || [])) {
                 const fiber = (typeof this.pullBoxFiberText === 'function') ? this.pullBoxFiberText(box) : '';
-                boxRows.push({ cells: [this._bBoxTitle(box), card.name || nameOf(card.id), box.trunkTitle || '—',
+                boxRows.push({ cells: [this._bBoxTitle(box), this.cardTypedName(proc, card) || nameOf(card.id), box.trunkTitle || '—',
                                        String(box.portCount || (box.ports || []).length),
                                        fiber || 'no fiber length'] });
             }
@@ -3909,7 +3923,7 @@ class _Binder {
         const runs = [];
         for (const { card } of cards) {
             const owners = [{ kind: 'card', id: card.id,
-                              title: card.name || this.dataUnitTitle(proc, card).title,
+                              title: this.cardTypedName(proc, card) || this.dataUnitTitle(proc, card).title,
                               rec: card }]
                 .concat((card.cvts || []).map(c => ({
                     kind: 'cvt', id: c.id, title: this._bBoxTitle(c), rec: c })));

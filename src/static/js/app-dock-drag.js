@@ -295,7 +295,8 @@ class _DockDrag {
         } else {
             this._dockClearReorderMark();
         }
-        if (drag.payload.type === 'plug' || drag.payload.output) {
+        if (drag.payload.type === 'plug' || drag.payload.output
+                || this._dockDropUnit(drag.payload)) {
             this._dockPlugPill(drag, ev, target);
         }
         if (changed && window.canvasRenderer) {
@@ -329,9 +330,11 @@ class _DockDrag {
     // What is under the cursor, in the drop matrix's terms. Returns one of
     //   { kind: 'dock' }
     //   { kind: 'run', layerId, num, socaIndex? }   (single-item drags)
-    //   { kind: 'screen', layerId }                 (whole-unit drags)
-    // or null. Whole-unit drags land screen-wide by design, so a panel hit
-    // normalizes to its owner screen for them.
+    //   { kind: 'screen', layerId, nums?, upTo? }   (whole-unit drags)
+    // or null. Whole-unit drags land on the owner screen of the panel they
+    // are over; on the data tab a card, box or processor drag also keeps
+    // the port under the cursor (`upTo`), because its reach is "the first
+    // unplaced port up to that one" (_dockDataTakePlan).
     _dockHitTest(ev, drag) {
         const dock = document.getElementById('hardware-dock');
         if (dock && !dock.classList.contains('view-hidden')) {
@@ -381,7 +384,8 @@ class _DockDrag {
             if (hit && drag.dataMap && drag.dataMap.has(hit.panel)) {
                 const run = drag.dataMap.get(hit.panel);
                 return whole
-                    ? { kind: 'screen', layerId: run.ownerId }
+                    ? this._dockDataScreenTarget(drag, run.ownerId,
+                                                 run.portNum)
                     : { kind: 'run', layerId: run.ownerId, num: run.portNum };
             }
             if (whole) {
@@ -389,7 +393,9 @@ class _DockDrag {
                 // drop matrix refuses non-screens with a reason, which tells
                 // the user more than a drop that silently does nothing.
                 const layer = renderer.getLayerAt(worldX, worldY);
-                if (layer) return { kind: 'screen', layerId: layer.id };
+                if (layer) {
+                    return this._dockDataScreenTarget(drag, layer.id, null);
+                }
             }
             return null;
         }
@@ -467,6 +473,113 @@ class _DockDrag {
             return null;
         }
         return null;
+    }
+
+    // The card, box or processor a whole-unit DATA drag acts through - the
+    // payload itself for a card or a box, the first card that has ports for
+    // a processor (the tooltip's promise, and the only sense a whole
+    // processor can land on a wall in). Null for every other payload.
+    _dockDropUnit(payload) {
+        if (!payload) return null;
+        if (payload.type === 'card' || payload.type === 'box') return payload;
+        if (payload.type !== 'processor') return null;
+        const proc = (this._processorsResolved || [])
+            .find(p => p.id === payload.processorId);
+        const slot = ((proc && proc.slots) || []).find(s => s && s.card);
+        if (!slot) return null;
+        return { type: 'card', cardId: slot.card.id,
+                 title: (typeof this.cardTypedName === 'function'
+                     ? this.cardTypedName(proc, slot.card) : slot.card.name)
+                     || slot.card.deviceName };
+    }
+
+    // A screen target on the data tab for a card, box or processor drag,
+    // carrying the drop's true reach: the screen's UNPLACED ports from its
+    // first up to the port under the cursor, as many as the unit has free
+    // sockets - the Power tab's "first unplaced to the cursor", by owner
+    // ruling (2026-09-24). What lights is what lands; `upTo` is the port
+    // the release sends so the server takes exactly that.
+    _dockDataScreenTarget(drag, layerId, num) {
+        const target = { kind: 'screen', layerId };
+        const unit = this._dockDropUnit(drag.payload);
+        if (!unit) return target;
+        const plan = this._dockDataTakePlan(unit, layerId, num);
+        target.nums = plan.nums.slice();
+        if (num != null) target.upTo = num;
+        target.pill = plan.ok
+            ? { ok: true, text: plan.text }
+            : (plan.message ? { ok: false, message: plan.message } : null);
+        return target;
+    }
+
+    // The ONE resolution the preview and the release read for a whole-unit
+    // data drop (preview == result, the 2026-08-31 rule): which of the
+    // screen's ports land, and what the pill says.
+    //
+    // Ports already on ANY processor are never counted and never touched
+    // ("We should not be able to highlight anything that is already added
+    // to a processor"): the take is the unplaced ports up to the hovered
+    // one, capped at the unit's free sockets - a card's free count as the
+    // server summarised it, a box's free sockets inside its own span. No
+    // hovered port (a drop on the screen's blank ground) asks for every
+    // unplaced port. A screen with nothing unplaced takes nothing: "if the
+    // whole card is already set then it cant be set again. it would need to
+    // be cleared."
+    //
+    // Returns { ok: true, nums, take, wanted, free, text } or
+    // { ok: false, nums: [], message } - `message` null where the server
+    // owns the sentence (the platform wall), so the pill stays quiet and
+    // the release lets the server refuse in its own words.
+    _dockDataTakePlan(unit, layerId, upTo) {
+        const res = this._assignment || {};
+        const scr = (res.screens || [])
+            .find(s => s.layerId === String(layerId));
+        if (!scr) {
+            return { ok: false, nums: [], message: 'That screen needs no ports.' };
+        }
+        if (unit.type === 'box' && unit.beyondTrunks) {
+            return { ok: false, nums: [],
+                     message: `${unit.title} has no trunk on its card - its `
+                        + 'ports are not delivered, so nothing can land on '
+                        + 'them.' };
+        }
+        const card = (res.cards || []).find(c => c.cardId === unit.cardId);
+        if (card && card.platforms && scr.platform
+                && !card.platforms.includes(scr.platform)) {
+            return { ok: false, nums: [], platform: true, message: null };
+        }
+        const unplaced = (scr.unplaced || []).map(i => i + 1);
+        if (!unplaced.length) {
+            return { ok: false, nums: [],
+                     message: `Every port of ${scr.name} is already on a `
+                        + 'processor - clear it first' };
+        }
+        const wanted = upTo == null
+            ? unplaced : unplaced.filter(n => n <= upTo);
+        if (!wanted.length) {
+            return { ok: false, nums: [],
+                     message: `Port ${upTo} of ${scr.name} is already on a `
+                        + 'processor' };
+        }
+        let free = null;
+        if (unit.type === 'box') {
+            free = 0;
+            for (let n = unit.first; n <= unit.last; n++) {
+                if (!this._portOccupants(unit.cardId, n).length) free++;
+            }
+        } else if (card && card.free != null) {
+            free = card.free;
+        }
+        if (free === 0) {
+            return { ok: false, nums: [],
+                     message: `${unit.title} has no free ports` };
+        }
+        const nums = free == null ? wanted.slice() : wanted.slice(0, free);
+        const text = nums.length === wanted.length
+            ? `${nums.length} port${nums.length === 1 ? '' : 's'}`
+            : `${nums.length} of ${wanted.length} ports`;
+        return { ok: true, nums, take: nums.length, wanted: wanted.length,
+                 free, text };
     }
 
     // A screen-wide power target, carrying the drop's true reach for a
@@ -705,7 +818,9 @@ class _DockDrag {
     // The cursor pill of a plug drag: what the release will do ("SL 3 →
     // circuits 7–12 · 81 A"), amber when the box would push the distro's
     // legs past its rating (allowed, said), red with the reason where the
-    // drop is refused. Hidden over nothing.
+    // drop is refused. Hidden over nothing. A whole-unit DATA drag wears
+    // the same pill with its count ("3 ports", "2 of 6 ports" where the
+    // card runs out of free sockets) off the target's `pill` record.
     _dockPlugPill(drag, ev, target) {
         let pill = drag.pill;
         if (!pill) {
@@ -714,7 +829,7 @@ class _DockDrag {
             document.body.appendChild(pill);
             drag.pill = pill;
         }
-        const p = target && target.plug;
+        const p = target && (target.plug || target.pill);
         if (!p) {
             pill.style.display = 'none';
             return;
@@ -725,7 +840,7 @@ class _DockDrag {
             pill.innerHTML = '';
             pill.className = p.ok
                 ? (p.warn ? 'hw-dock-pill-warn' : '') : 'hw-dock-pill-bad';
-            pill.appendChild(this.plugGlyph(p.glyph));
+            if (p.glyph) pill.appendChild(this.plugGlyph(p.glyph));
             const t = document.createElement('span');
             t.textContent = p.ok
                 ? p.text + (p.warn ? ` — ${p.warn}` : '') : p.message;
@@ -912,16 +1027,12 @@ class _DockDrag {
         }
         // A processor dropped on a SCREEN assigns the way its first card
         // does - the tooltip's promise, and the only sense a whole
-        // processor can land on a wall in.
+        // processor can land on a wall in. The same card the preview
+        // planned for (_dockDropUnit).
         if (payload.type === 'processor') {
-            const proc = (this._processorsResolved || [])
-                .find(p => p.id === payload.processorId);
-            const slot = ((proc && proc.slots) || []).find(s => s && s.card);
-            if (!slot) return;
-            return this._dockDropCardOrBox({
-                type: 'card', cardId: slot.card.id,
-                title: slot.card.name || slot.card.deviceName,
-            }, target);
+            const unit = this._dockDropUnit(payload);
+            if (!unit) return;
+            return this._dockDropCardOrBox(unit, target);
         }
         if (payload.type === 'port') return this._dockDropPort(payload, target);
         if (payload.type === 'card' || payload.type === 'box') {
@@ -973,37 +1084,34 @@ class _DockDrag {
         }
     }
 
+    // A card or box on a screen: the unplaced ports from the screen's first
+    // up to the port under the cursor, as many as the unit has free - the
+    // preview's own plan (_dockDataTakePlan), so what lit is what lands.
+    // Nothing already on a processor moves; a screen with every port placed
+    // is refused ("clear it first") - the whole-block move that used to
+    // run here is gone by owner ruling (2026-09-24): Clear, then drop again,
+    // is the gesture. The platform wall is the server's: its refusal comes
+    // back in the server's own words.
     _dockDropCardOrBox(payload, target) {
         if (target.kind !== 'screen') return;
-        if (payload.type === 'box' && payload.beyondTrunks) {
-            // The same fact the Processors panel prints on the box's info
-            // line: with no trunk feeding it, its ports are not delivered.
-            this._dockSay(`${payload.title} has no trunk on its card - its `
-                + 'ports are not delivered, so nothing can land on them.');
-            return;
-        }
         const scr = ((this._assignment && this._assignment.screens) || [])
             .find(s => s.layerId === String(target.layerId));
         if (!scr) {
             this._dockSay('That screen needs no ports.');
             return;
         }
+        const upTo = target.upTo != null ? target.upTo : null;
+        const plan = this._dockDataTakePlan(payload, scr.layerId, upTo);
+        if (!plan.ok && plan.message) {
+            this._dockSay(plan.message);
+            return;
+        }
         const window_ = payload.type === 'box'
             ? { firstPort: payload.first, lastPort: payload.last } : {};
-        if (scr.unplaced.length) {
-            // "In order from the first unassigned" - the existing overflow
-            // fill: spare screen ports, in order, onto the lowest free
-            // sockets (of the box's span, for a box).
-            return this._takeOffer(Object.assign({
-                action: 'place-overflow', layerId: scr.layerId,
-                cardId: payload.cardId,
-            }, window_));
-        }
-        // Nothing unassigned: the gesture means "this screen goes on this
-        // hardware", which is the existing whole-block move.
         return this._takeOffer(Object.assign({
-            action: 'move-block', layerId: scr.layerId,
+            action: 'place-overflow', layerId: scr.layerId,
             cardId: payload.cardId,
+            lastIndex: upTo != null ? upTo - 1 : undefined,
         }, window_));
     }
 

@@ -244,7 +244,10 @@ def page(e2e_server, pw_browser):
     context.close()
 
 
-def _served(pg, ids, ok, timeout=4000):
+# 15 s, not 4: undo and redo PUT the whole project and the poll gave up
+# under a parallel run's load, leaving the shared page mid-sequence for
+# the pull-list test after it (2026-09-24).
+def _served(pg, ids, ok, timeout=15000):
     waited = 0
     while waited < timeout:
         s = pg.evaluate(SERVED_JS, ids)

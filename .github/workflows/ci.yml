@@ -135,7 +135,7 @@ jobs:
           python -m venv .venv
           source .venv/bin/activate
           pip install -r src/requirements.txt
-          pip install pytest playwright pypdf psd-tools
+          pip install pytest pytest-xdist playwright pypdf psd-tools
 
       - name: Install Chromium browser
         run: |
@@ -171,7 +171,10 @@ jobs:
       - name: Run browser tests
         run: |
           source .venv/bin/activate
-          python -m pytest tests/ -q --tb=short --browser chromium -p no:cacheprovider
+          # Four workers, split by module: every worker is its own pytest
+          # session with its own server port (conftest), and the modules
+          # that share the server project guard themselves per module.
+          python -m pytest tests/ -q --tb=short --browser chromium -p no:cacheprovider -n 4 --dist loadfile
         timeout-minutes: 120
 
   build-check:

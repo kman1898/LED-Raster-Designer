@@ -91,6 +91,15 @@ def name_card(client, proc_id, card_id, name):
     return resp.get_json()
 
 
+def name_unit(client, proc_id, name):
+    """Name a one-box unit - an MX20, a VX400, an SX40. Such a unit has ONE
+    name slot, the processor's (ruling, 2026-09-24): its fixed card is not
+    named, and a name left on it is not read."""
+    resp = client.put(f'/api/processors/{proc_id}', json={'name': name})
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    return resp.get_json()
+
+
 def name_port(client, proc_id, card_id, number, name):
     return client.put(
         f'/api/processors/{proc_id}/cards/{card_id}/ports/{number}',
@@ -279,14 +288,14 @@ def test_clearing_a_port_name_hands_it_back_to_the_template(client):
     state = add_processor(client, 'novastar-mx20')
     pid = only(state)['id']
     card_id = first_card(only(state))['id']
-    name_card(client, pid, card_id, 'SR')
+    name_unit(client, pid, 'SR')
     assert name_port(client, pid, card_id, 2, 'SPARE').status_code == 200
 
     resp = name_port(client, pid, card_id, 2, '  ')
     assert resp.status_code == 200, resp.get_data(as_text=True)
     card = first_card(only(resp.get_json()))
     assert card['ports'][1]['label'] == 'SR-2'
-    assert card['ports'][1]['labelSource'] == 'card'
+    assert card['ports'][1]['labelSource'] == 'processor'
     assert card['portNames'] == {}
 
     stored = client.get('/api/project').get_json()['processors'][0]
@@ -301,7 +310,7 @@ def test_a_port_name_survives_save_and_reload(client):
     state = add_processor(client, 'novastar-mx20')
     pid = only(state)['id']
     card_id = first_card(only(state))['id']
-    name_card(client, pid, card_id, 'SR')
+    name_unit(client, pid, 'SR')
     assert name_port(client, pid, card_id, 5, 'HOUSE-LEFT').status_code == 200
 
     saved = client.get('/api/project').get_json()
@@ -857,7 +866,7 @@ def test_a_card_named_p1_returns_as_r1(client):
     state = add_processor(client, 'novastar-vx400')
     pid = only(state)['id']
     card_id = first_card(only(state))['id']
-    name_card(client, pid, card_id, 'P1')
+    name_unit(client, pid, 'P1')
 
     res = assigned(client, ('Main', 5))
     assert labels(res, 'Main') == ['P1-1', 'P1-2', 'P1-3', 'P1-4', None]
@@ -873,7 +882,7 @@ def test_the_derived_return_keeps_the_case_the_name_was_typed_in(client):
     state = add_processor(client, 'novastar-vx400')
     pid = only(state)['id']
     card_id = first_card(only(state))['id']
-    name_card(client, pid, card_id, 'p1')
+    name_unit(client, pid, 'p1')
 
     res = assigned(client, ('Main', 2))
     assert labels(res, 'Main') == ['p1-1', 'p1-2']
@@ -887,7 +896,7 @@ def test_a_typed_name_and_a_template_still_beat_the_derived_return_on_a_p_card(c
     state = add_processor(client, 'novastar-vx400')
     pid = only(state)['id']
     card_id = first_card(only(state))['id']
-    name_card(client, pid, card_id, 'P1')
+    name_unit(client, pid, 'P1')
     assert name_return(client, pid, card_id, 1, 'HOUSE-RTN').status_code == 200
 
     res = assigned(client, ('Main', 3))
@@ -951,7 +960,7 @@ def test_a_return_name_round_trips_and_survives_save_and_reload(client):
     state = add_processor(client, 'novastar-mx20')
     pid = only(state)['id']
     card_id = first_card(only(state))['id']
-    name_card(client, pid, card_id, 'SR')
+    name_unit(client, pid, 'SR')
     resp = name_return(client, pid, card_id, 5, 'BU-5')
     assert resp.status_code == 200, resp.get_data(as_text=True)
     card = first_card(only(resp.get_json()))
@@ -976,7 +985,7 @@ def test_clearing_a_return_name_leaves_nothing_behind(client):
     state = add_processor(client, 'novastar-mx20')
     pid = only(state)['id']
     card_id = first_card(only(state))['id']
-    name_card(client, pid, card_id, 'SR')
+    name_unit(client, pid, 'SR')
     assert name_return(client, pid, card_id, 2, 'BU-2').status_code == 200
 
     resp = name_return(client, pid, card_id, 2, '  ')
@@ -998,7 +1007,7 @@ def test_the_ports_put_takes_either_end_and_refuses_neither(client):
     state = add_processor(client, 'novastar-mx20')
     pid = only(state)['id']
     card_id = first_card(only(state))['id']
-    name_card(client, pid, card_id, 'SR')
+    name_unit(client, pid, 'SR')
 
     url = f'/api/processors/{pid}/cards/{card_id}/ports/1'
     assert client.put(url, json={}).status_code == 400
@@ -1223,7 +1232,7 @@ def test_the_template_survives_save_and_reload(client):
     state = add_processor(client, 'novastar-mx20')
     pid = only(state)['id']
     card_id = first_card(only(state))['id']
-    name_card(client, pid, card_id, 'SR')
+    name_unit(client, pid, 'SR')
     set_return_template(client, pid, card_id, 'BU-#')
 
     saved = client.get('/api/project').get_json()
@@ -1243,7 +1252,7 @@ def test_a_template_edit_rides_the_project_snapshot(client):
     state = add_processor(client, 'novastar-mx20')
     pid = only(state)['id']
     card_id = first_card(only(state))['id']
-    name_card(client, pid, card_id, 'SR')
+    name_unit(client, pid, 'SR')
 
     before = client.get('/api/project').get_json()
     set_return_template(client, pid, card_id, 'BU-#')
@@ -1337,8 +1346,8 @@ def two_named_units(client, main_name='P1', backup_name='R1'):
     state = add_processor(client, 'novastar-mx20')
     backup_pid = state['resolved'][1]['id']
     backup_card = first_card(state['resolved'][1])['id']
-    name_card(client, main_pid, main_card, main_name)
-    name_card(client, backup_pid, backup_card, backup_name)
+    name_unit(client, main_pid, main_name)
+    name_unit(client, backup_pid, backup_name)
     resp = client.put(f'/api/processors/{main_pid}',
                       json={'redundancy': True})
     assert resp.status_code == 200, resp.get_data(as_text=True)
@@ -1410,7 +1419,7 @@ def test_sequential_returns_are_the_even_ports_own_labels(client):
     state = add_processor(client, 'novastar-mx20')
     pid = only(state)['id']
     card_id = first_card(only(state))['id']
-    name_card(client, pid, card_id, 'SR')
+    name_unit(client, pid, 'SR')
     client.put(f'/api/processors/{pid}', json={'redundancy': True})
     resp = client.put(f'/api/processors/{pid}/cards/{card_id}',
                       json={'redundancyMode': 'sequential'})
@@ -1433,7 +1442,7 @@ def test_manual_maps_only_the_ports_somebody_named(client):
     state = add_processor(client, 'novastar-mx20')
     pid = only(state)['id']
     card_id = first_card(only(state))['id']
-    name_card(client, pid, card_id, 'SR')
+    name_unit(client, pid, 'SR')
     client.put(f'/api/processors/{pid}', json={'redundancy': True})
     client.put(f'/api/processors/{pid}/cards/{card_id}',
                json={'redundancyMode': 'manual'})
@@ -1447,7 +1456,7 @@ def test_manual_maps_only_the_ports_somebody_named(client):
         ('SR-5', 'backup')
     assert ports[5]['backsUp']['label'] == 'SR-1'
     assert (ports[2]['returnLabel'], ports[2]['returnLabelSource']) == \
-        ('SR-2R', 'card')
+        ('SR-2R', 'processor')
     assert ports[2].get('backedBy') is None
     # Clearing the pick clears the mapping and the stored key with it.
     resp = client.put(

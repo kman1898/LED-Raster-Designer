@@ -174,6 +174,33 @@ def accepted_platforms(device_id):
     return accepted or None
 
 
+def slot_platforms(device_id):
+    """What a chassis's ports may carry once a card is in it: the union of
+    accepted_platforms over every card the chassis accepts (catalog
+    `accepts`, the slot picker's own filter), or None when the device takes
+    no cards or any of its cards is unrestricted. Nothing new is ruled here:
+    a chassis has no ports of its own, so the wall a drop meets on it is
+    its cards' wall, and this is that wall summed."""
+    device = catalog.get_device(device_id)
+    cards = catalog.cards_for(device) if device else []
+    if not cards:
+        return None
+    out = set()
+    for card in cards:
+        accepted = accepted_platforms(card.get('id'))
+        if accepted is None:
+            return None
+        out |= accepted
+    return out
+
+
+def platform_aliases():
+    """The retired Processing tokens and their successors, as a copy - served
+    so the client folds a stale layer value the way _clean_screens does,
+    off this table rather than a second one."""
+    return dict(_PLATFORM_ALIASES)
+
+
 def _gear(device_id):
     if device_id in _DEVICE_GEAR:
         return _DEVICE_GEAR[device_id]
@@ -224,6 +251,9 @@ def cards_in(processors):
                 'processorName': proc['name'] or proc['deviceName'],
                 'cardId': card['id'],
                 'name': card['name'] or '',
+                # A one-box unit's fixed card IS the unit: messages name the
+                # unit, never "<unit> slot 1" (one name slot, 2026-09-24).
+                'unitFace': catalog.card_is_unit_face(card, proc),
                 'deviceName': card['deviceName'],
                 'deviceId': card['deviceId'],
                 # Which processing platforms this card's ports may carry
@@ -236,6 +266,23 @@ def cards_in(processors):
                 'capacity': card['ceiling'] if card['ceilingKnown'] else None,
                 'capacityKnown': card['ceilingKnown'],
                 'capacityReason': card['ceilingReason'],
+                # THE SOCKETS A FILL OR A HAND PLACEMENT MAY LAND ON, by
+                # card-wide number, or None where the set is not settled.
+                # A card with a known count is 1..ceiling, as it always
+                # was. A BOX-FED card (the SX40, the HELIOS Standard -
+                # resolve_card's boxFed, off the catalog's
+                # requiresDistribution) has NO ports outside its boxes, so
+                # its set is exactly the sockets the boxes deliver: delete
+                # box B off an SX40 and 11-20 are not sockets any more -
+                # not free, not placeable, not counted (the 2026-09-24
+                # ruling). A card whose count nobody settled and that is
+                # not box-fed stays None: it offers nothing to a fill and
+                # takes any number by hand, exactly as before.
+                'boxFed': bool(card.get('boxFed')),
+                'sockets': ([p['number'] for p in card['ports']
+                             if not p.get('beyondCeiling')]
+                            if card.get('boxFed') or card['ceilingKnown']
+                            else None),
                 # Allocation is planned against the ports the CARD has, not
                 # against how many of them the boxes currently on it deliver -
                 # a half-patched card is a patching job someone has not
@@ -291,6 +338,8 @@ def cards_in(processors):
 def _card_title(card):
     """What to call a card in a message. The name a person gave it wins, the
     same way it wins for a port label - it is what is written on the case."""
+    if card.get('unitFace'):
+        return card['processorName'] or card['deviceName']
     if card['name']:
         return card['name']
     if card['processorName']:
@@ -424,6 +473,16 @@ def _clean_pins(pins):
 
 # ── Resolution ────────────────────────────────────────────────────────────
 
+def _has_socket(card, port):
+    """Whether a card-wide number names a socket the card has. A card whose
+    set is not settled (sockets None) takes any number - that is the whole
+    of what "ports can still be pinned to it by hand" means there."""
+    sockets = card.get('sockets')
+    if sockets is None:
+        return True
+    return int(port) in sockets
+
+
 def _free_ports(card, claims):
     """Port numbers on one card that nobody has claimed yet, lowest first.
 
@@ -432,11 +491,14 @@ def _free_ports(card, claims):
     silently cap a wall, which is the one failure the catalog exists to
     prevent, and filling onto a guessed ceiling would do it twice over.
     """
-    capacity = card['capacity']
-    if not capacity:
+    # The socket set is the card's own (cards_in): 1..ceiling on a settled
+    # card, only the boxes' sockets on a box-fed one, nothing on a card
+    # whose count nobody settled.
+    sockets = card.get('sockets')
+    if not sockets:
         return []
     roles = card.get('backupRoles') or {}
-    return [n for n in range(1, capacity + 1)
+    return [n for n in sockets
             if (card['cardId'], n) not in claims and n not in roles]
 
 
@@ -524,7 +586,6 @@ def resolve(processors, screens, state=None, _legacy_auto=False):
                 })
                 continue
             card = by_id.get(spot['cardId'])
-            capacity = card['capacity'] if card else None
             # THE ONE AUTHORITY on what an attached port prints. The canvas
             # bubbles, the dock chips and every export index these two
             # fields (the client's _indexAssignmentLabels) and fall back to
@@ -542,7 +603,11 @@ def resolve(processors, screens, state=None, _legacy_auto=False):
                 'returnLabel': return_label,
                 'source': spot['source'],
                 'overlap': (spot['cardId'], spot['port']) in overlapping,
-                'beyondCapacity': bool(capacity and spot['port'] > capacity),
+                # Off the card's own socket set (cards_in): past the
+                # ceiling on a settled card, outside every box on a
+                # box-fed one, never on a card nobody settled.
+                'beyondCapacity': bool(card and not _has_socket(card,
+                                                                 spot['port'])),
             })
         unplaced = [p['index'] for p in ports if p['cardId'] is None]
         used_cards = []
@@ -773,7 +838,12 @@ def _mirror_returns(cards, occupancy):
 
 def _card_summary(card, claims):
     used = sum(1 for key in claims if key[0] == card['cardId'])
-    capacity = card['capacity']
+    # The sockets there ARE, which is the ceiling on a settled card and
+    # the boxes' spans on a box-fed one - an SX40 with box B removed has
+    # thirty, and neither its free count nor its n/N glance may say forty
+    # (the 2026-09-24 ruling). None where nobody settled the count.
+    sockets = card.get('sockets')
+    capacity = len(sockets) if sockets is not None else None
     # Ports consumed as returns are not free, and not "used" either - they
     # are spoken for by a role, so they come off the free count the same way
     # they come out of _free_ports.
@@ -1029,6 +1099,36 @@ def prune_orphan_pins(project):
     return True
 
 
+def prune_pins_off_sockets(project, card_id, sockets):
+    """Drop every pin on one card whose socket is no longer there. In place.
+
+    The other half of prune_orphan_pins: that one drops pins whose SCREEN
+    is gone, this one drops pins whose SOCKET is. A socket goes with the
+    breakout box that delivered it on a box-fed device (the SX40, the
+    HELIOS Standard - the 2026-09-24 ruling that such a device has no port
+    outside a box), so the box delete calls this with the sockets the card
+    still has afterwards, and the pins that pointed into the removed box
+    come off: those screen ports read unplaced again, exactly as they did
+    before somebody dropped them on the box. Nothing else moves - a pin on
+    a surviving socket is the user's decision and stays. Returns the pins
+    it dropped (layerId, index, cardId, port), for the caller to log and
+    to name in its reply, empty when nothing pointed at a dead socket.
+    """
+    if not isinstance(project, dict):
+        return []
+    state = project.get(STATE_KEY)
+    if not isinstance(state, dict) or not isinstance(state.get('pins'), list):
+        return []
+    alive = {int(n) for n in sockets or ()}
+    pins = _clean_pins(state['pins'])
+    dropped = [p for p in pins
+               if p['cardId'] == str(card_id) and p['port'] not in alive]
+    if not dropped:
+        return []
+    state['pins'] = [p for p in pins if p not in dropped]
+    return dropped
+
+
 def _foreign_claims(processors, screens, state, layer_id, index=None):
     """Every port claimed by somebody other than the thing being moved.
 
@@ -1077,7 +1177,7 @@ def pin_to_card(processors, screens, state, layer_id, index, card_id,
         # the auto pass gone this is the arithmetic that has to know it -
         # the same skip _free_ports makes.
         roles = card.get('backupRoles') or {}
-        port = next((n for n in range(1, (card['capacity'] or 0) + 1)
+        port = next((n for n in (card.get('sockets') or [])
                      if (card['cardId'], n) not in taken and n not in roles),
                     None)
         if port is None:
@@ -1174,7 +1274,14 @@ def place_port(processors, screens, state, layer_id, index, card_id, port,
     # what "ports can still be pinned to it by hand" means. A card with a
     # settled one is a fact about metal and there is no port past it to place
     # onto - offering one would put a wall on a socket that does not exist.
-    if card['capacity'] and port > card['capacity']:
+    if not _has_socket(card, port):
+        if card.get('boxFed'):
+            # A box-fed device has no port outside a box (the 2026-09-24
+            # ruling): the number may be inside the ceiling and still be
+            # nobody's socket - box B's 11-20 with B removed.
+            return None, (f'{_card_title(card)} has no port {port} - on '
+                          f'this device a port is only inside a breakout '
+                          f'box.'), None
         return None, (f'{_card_title(card)} has {card["capacity"]} ports, so '
                       f'there is no port {port} on it.'), None
     # A port consumed as a return is refused OUTRIGHT - no confirm, unlike
@@ -1220,11 +1327,14 @@ def place_port(processors, screens, state, layer_id, index, card_id, port,
 
 
 def _fits(card, start, size, taken):
-    capacity = card['capacity']
-    if not capacity or start < 1 or start + size - 1 > capacity:
+    sockets = set(card.get('sockets') or ())
+    if not sockets or start < 1:
         return False
     roles = card.get('backupRoles') or {}
-    return all((card['cardId'], n) not in taken and n not in roles
+    # Every socket of the run has to exist - a run that would straddle the
+    # gap a removed box left on a box-fed card is not on the card.
+    return all(n in sockets and (card['cardId'], n) not in taken
+               and n not in roles
                for n in range(start, start + size))
 
 
@@ -1322,8 +1432,8 @@ def move_block(processors, screens, state, layer_id, card_id=None,
                                        and not card_id) else 1
         if lo is not None:
             lowest = max(lowest, lo)
-        capacity = card['capacity'] or 0
-        highest = capacity - size + 1
+        top = max(card.get('sockets') or [0])
+        highest = top - size + 1
         if hi is not None:
             highest = min(highest, hi - size + 1)
         for start in range(lowest, highest + 1):
@@ -1346,7 +1456,7 @@ def _pin_block(state, layer_id, card_id, start, size):
 
 
 def place_overflow(processors, screens, state, layer_id, card_id,
-                   first_port=None, last_port=None):
+                   first_port=None, last_port=None, last_index=None):
     """Put a screen's unattached ports onto a card, in order.
 
     This is the fill a card or box drop runs - a screen with nothing on a
@@ -1360,6 +1470,14 @@ def place_overflow(processors, screens, state, layer_id, card_id,
     `first_port`/`last_port` bound the fill to one window of the card: a
     breakout box is a contiguous span of card ports, so "fill onto that box"
     is this fill with the box's span as the window.
+
+    `last_index` bounds the fill to the screen's ports up to that one
+    (0-based, the port under the cursor): the dock's whole-unit drop lands
+    the unplaced ports from the first up to the port it was dropped on, as
+    many as the card has free (owner ruling, 2026-09-24 - the Power tab's
+    "first unplaced to the cursor"). Ports already on a card are never
+    counted and never moved; only the unplaced ones up to the bound are
+    taken. With no bound every unplaced port is asked for.
     """
     layer_id = str(layer_id)
     by_id = {c['cardId']: c for c in cards_in(processors)}
@@ -1377,9 +1495,16 @@ def place_overflow(processors, screens, state, layer_id, card_id,
     if not platform_allows(card, current.get('platform')):
         return None, _platform_refusal(current['name'],
                                        current['platform'], card)
-    spare = [i for i in current['unplaced']]
+    if not current['unplaced']:
+        return None, (f'Every port of {current["name"]} is already on a '
+                      f'processor - clear it first.')
+    spare = [i for i in current['unplaced']
+             if last_index is None or i <= int(last_index)]
     if not spare:
-        return None, 'Every port on that screen already has a card.'
+        # The cursor was on a port already placed, with nothing unplaced
+        # before it: there is nothing up to there to land.
+        return None, (f'Port {int(last_index) + 1} of {current["name"]} is '
+                      f'already on a processor.')
     # The screen's OWN placed ports are not free either. _foreign_claims
     # leaves the whole screen out (a block move vacates all of it), but a
     # fill only moves the tail, and dropping a half-placed screen on its
@@ -1396,11 +1521,13 @@ def place_overflow(processors, screens, state, layer_id, card_id,
     # 1:1 backup unit - and since this fill is the one that lands whole
     # screens now, it makes the same skip the retired auto pass made.
     roles = card.get('backupRoles') or {}
+    sockets = card.get('sockets') or []
+    top = max(sockets) if sockets else 0
     lo = max(1, int(first_port)) if first_port is not None else 1
-    hi = min((card['capacity'] or 0), int(last_port)) \
-        if last_port is not None else (card['capacity'] or 0)
-    free = [n for n in range(lo, hi + 1)
-            if (card['cardId'], n) not in taken and n not in roles]
+    hi = min(top, int(last_port)) if last_port is not None else top
+    free = [n for n in sockets
+            if lo <= n <= hi
+            and (card['cardId'], n) not in taken and n not in roles]
     if not free:
         if first_port is not None or last_port is not None:
             return None, (f'No free ports between {lo} and {hi} on '

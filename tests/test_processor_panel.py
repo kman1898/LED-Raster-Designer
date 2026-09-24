@@ -581,7 +581,11 @@ def test_an_unsettled_card_makes_the_whole_processor_unknown(client):
     settled = only(resp.get_json())
     assert settled['ceilingKnown'] is True
     assert settled['ceiling'] == 2
-    assert len(first_card(settled)['ports']) == 2
+    # Settling the count settles the CEILING, not a socket list: the HELIOS
+    # is box-fed (2026-09-24, "same goes for Helios"), so with no RS12 on
+    # it there is no port to list - its ports only ever come out of a box.
+    assert first_card(settled)['boxFed'] is True
+    assert first_card(settled)['ports'] == []
 
 
 def test_an_all_in_one_gets_its_ports_without_a_slot_to_fill(client):
@@ -1205,9 +1209,9 @@ def test_a_new_card_stores_no_label_template(client):
     assert 'portLabelTemplate' not in stored['slots'][0]['card'], (
         'a fresh card carries the default template as if somebody typed it')
 
-    # The fallback still does the labelling exactly as before.
-    resp = client.put(f'/api/processors/{pid}/cards/{card["id"]}',
-                      json={'name': 'SR'})
+    # The fallback still does the labelling exactly as before (the MX20
+    # is a one-box unit, so the name goes on the unit - its one slot).
+    resp = client.put(f'/api/processors/{pid}', json={'name': 'SR'})
     named = first_card(only(resp.get_json()))
     assert named['ports'][0]['label'] == 'SR-1'
 
@@ -1219,8 +1223,9 @@ def test_clearing_the_label_template_leaves_nothing_behind(client):
     state = add_processor(client, 'novastar-mx20')
     pid = only(state)['id']
     card_id = first_card(only(state))['id']
+    client.put(f'/api/processors/{pid}', json={'name': 'SR'})
     resp = client.put(f'/api/processors/{pid}/cards/{card_id}',
-                      json={'name': 'SR', 'portLabelTemplate': '{name}.P#'})
+                      json={'portLabelTemplate': '{name}.P#'})
     assert first_card(only(resp.get_json()))['ports'][0]['label'] == 'SR.P1'
 
     resp = client.put(f'/api/processors/{pid}/cards/{card_id}',
@@ -1229,7 +1234,7 @@ def test_clearing_the_label_template_leaves_nothing_behind(client):
     assert card['portLabelTemplate'] == ''
     assert card['ports'][0]['label'] == 'SR-1', (
         'a cleared template did not hand the ports back to the default')
-    assert card['ports'][0]['labelSource'] == 'card'
+    assert card['ports'][0]['labelSource'] == 'processor'
 
     stored = client.get('/api/project').get_json()['processors'][0]
     assert 'portLabelTemplate' not in stored['slots'][0]['card'], (
@@ -1652,7 +1657,8 @@ RESET_PROCESSORS_JS = """async () => {
     })).json();
     const proc = add.resolved[0];
     const card = proc.slots.map(s => s.card).find(Boolean);
-    await fetch(`/api/processors/${proc.id}/cards/${card.id}`, {
+    // An MX20 is a one-box unit: its one name is the processor's.
+    await fetch(`/api/processors/${proc.id}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: 'SR' }),
     });
@@ -2983,13 +2989,16 @@ def test_the_arrow_folds_a_card_and_nothing_leaves_the_dom(panel_page):
     """Fresh ids have no stored state, so both machines' cards arrive
     expanded; the arrow folds one while the other stands, the folded body
     hides but never detaches (the focus keys must keep resolving), and the
-    state lands under the card's own key. The header keeps its inline name
-    field and glance either way - the consolidation put the editors ON the
-    header, so folding hides the chips, never the identity (the old panel
-    swapped editors for a summary line; that swap retired with it)."""
+    state lands under the card's own key. The header keeps its glance
+    either way - the consolidation put the editors ON the header, so
+    folding hides the chips, never the identity (the old panel swapped
+    editors for a summary line; that swap retired with it). Both machines
+    here are one-box units (an SX40, an MX20), so the unit's ONE name field
+    sits on the processor strip and the card header carries none (ruling,
+    2026-09-24)."""
     pytest.importorskip("playwright.sync_api", reason="playwright not installed")
     ids = seed_fold(panel_page)
-    for which in ('sxCard', 'mxCard'):
+    for which, unit in (('sxCard', 'sx'), ('mxCard', 'mx')):
         sec = card_sec(ids, which)
         s = fold_state(panel_page, sec)
         assert s and s['wired'], f'{sec} was not wired for folding: {s}'
@@ -2997,15 +3006,19 @@ def test_the_arrow_folds_a_card_and_nothing_leaves_the_dom(panel_page):
         assert s['arrowVisible'], f'{sec} has no visible arrow: {s}'
         assert s['glanceVisible'], (
             f'the glance is permanent header furniture, open or folded: {s}')
-        assert s['nameKey'] == f'processor-card-name-{ids[which]}', s
+        assert s['nameKey'] is None, (
+            f'a one-box unit\'s card header offered a name field: {s}')
+        assert panel_page.locator(
+            f'[data-lrd-field="processor-name-{ids[unit]}"]').count() == 1, (
+            'the unit\'s one name field is missing from its strip')
 
     sec_arrow(panel_page, card_sec(ids, 'sxCard')).click()
     panel_page.wait_for_timeout(200)
     s = fold_state(panel_page, card_sec(ids, 'sxCard'))
     assert s['collapsed'] is True, f'the arrow did not fold the card: {s}'
     assert s['bodyInDom'], 'the folded body left the DOM'
-    assert s['nameVisible'] and s['glanceVisible'], (
-        f'the folded header lost its inline name or glance: {s}')
+    assert s['glanceVisible'] and not s['nameVisible'], (
+        f'the folded header lost its glance, or grew a name field: {s}')
     assert s['stored'] == '1', f'the fold did not persist: {s}'
     assert fold_state(panel_page,
                       card_sec(ids, 'mxCard'))['collapsed'] is False, (
@@ -3161,11 +3174,12 @@ def test_the_folded_header_fits_both_widths(panel_page, width):
 
 
 def test_a_single_click_is_inert_and_the_names_edit_inline(panel_page):
-    """The head holds the inline name field and is the unit's drag handle,
-    so the fold must never eat a click: a single click on head surface does
-    nothing, and typing into the header fields commits through the same
-    PUTs the panel's editors made - the processor's name on its strip, the
-    card's name on its section head."""
+    """The head is the unit's drag handle, so the fold must never eat a
+    click: a single click on head surface does nothing, and typing into the
+    processor strip's name field commits through the same PUT the panel's
+    editor made. The SX40 is a one-box unit with ONE name slot (ruling,
+    2026-09-24): the strip's; its card's section head offers no name of its
+    own, and the card stays unnamed on the server."""
     pytest.importorskip("playwright.sync_api", reason="playwright not installed")
     ids = seed_fold(panel_page)
     sec = card_sec(ids, 'sxCard')
@@ -3190,25 +3204,25 @@ def test_a_single_click_is_inert_and_the_names_edit_inline(panel_page):
     assert fold_state(panel_page, sec)['collapsed'] is False, (
         'editing the name folded the card')
 
-    # the card's own inline name, on the section head itself
-    field = panel_page.locator(
-        f'[data-lrd-field="processor-card-name-{ids["sxCard"]}"]')
-    field.click()
-    field.fill('SL')
-    panel_page.keyboard.press('Tab')
-    panel_page.wait_for_timeout(800)
+    # the card's section head carries no name field of its own: the unit
+    # was named once, above, and its card is that unit
+    assert panel_page.locator(
+        f'[data-lrd-field="processor-card-name-{ids["sxCard"]}"]'
+    ).count() == 0, 'a one-box unit\'s card offered a second name field'
+    assert panel_page.locator(
+        f'[data-lrd-sec="{sec}"] input.hw-dock-name').count() == 0, (
+        'the card head grew a name input under another key')
     stored = panel_page.evaluate(
         "async () => (await (await fetch('/api/processors')).json())"
         ".processors[0].slots.map(s => s.card).find(Boolean).name")
-    assert stored == 'SL', 'the card rename never reached the server'
-    assert fold_state(panel_page, sec)['collapsed'] is False, (
-        'editing the card name folded the section')
+    assert stored == '', 'naming the unit put a name on its fixed card'
 
 
 def test_double_click_toggles_except_on_the_name_field(panel_page):
     """Double-click on head surface folds; the head stays painted while
     folded (it IS the folded card), so double-click there unfolds too; a
-    double-click that lands IN the inline name input is the input's
+    double-click that lands IN the unit's inline name input (on the
+    processor strip - a one-box unit's card head has none) is the input's
     word-select, never a fold."""
     pytest.importorskip("playwright.sync_api", reason="playwright not installed")
     ids = seed_fold(panel_page)
@@ -3225,8 +3239,10 @@ def test_double_click_toggles_except_on_the_name_field(panel_page):
     assert fold_state(panel_page, sec)['collapsed'] is False, (
         'double-click on the folded header did not unfold the card')
 
-    head.locator(
-        f'[data-lrd-field="processor-card-name-{ids["sxCard"]}"]').dblclick()
+    assert head.locator('input.hw-dock-name').count() == 0, (
+        'a one-box unit\'s card head offered a name field')
+    panel_page.locator(
+        f'[data-lrd-field="processor-name-{ids["sx"]}"]').dblclick()
     panel_page.wait_for_timeout(200)
     assert fold_state(panel_page, sec)['collapsed'] is False, (
         'double-click inside the name field folded the card under the caret')
@@ -3297,7 +3313,7 @@ def test_a_rebuild_keeps_each_sections_own_state(panel_page):
                       card_sec(ids, 'mxCard'))['collapsed'] is False
 
     panel_page.evaluate("""async (args) => {
-        await fetch(`/api/processors/${args.sx}/cards/${args.sxCard}`, {
+        await fetch(`/api/processors/${args.sx}`, {
             method: 'PUT', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name: 'SL' }),
         });
@@ -3577,8 +3593,9 @@ def test_a_backup_unit_backs_one_main_and_takes_no_backup_of_its_own(client):
     state = add_processor(client, 'novastar-mx20')
     c_pid = state['resolved'][2]['id']
     c_card = first_card(state['resolved'][2])['id']
-    client.put(f'/api/processors/{a_pid}/cards/{a_card}', json={'name': 'A'})
-    client.put(f'/api/processors/{b_pid}/cards/{b_card}', json={'name': 'B'})
+    # An MX20 is a one-box unit: its one name is the processor's.
+    client.put(f'/api/processors/{a_pid}', json={'name': 'A'})
+    client.put(f'/api/processors/{b_pid}', json={'name': 'B'})
     client.put(f'/api/processors/{a_pid}', json={'redundancy': True})
     client.put(f'/api/processors/{c_pid}', json={'redundancy': True})
     resp = client.put(f'/api/processors/{a_pid}/cards/{a_card}',
@@ -3860,7 +3877,7 @@ def test_the_manual_pick_is_validated_like_a_placement(client):
     """The same situations read the same way: a port past the ceiling, a
     port backing itself, a port already spoken for by another main."""
     a_pid, a_card, _b, _bc = add_two(client)
-    client.put(f'/api/processors/{a_pid}/cards/{a_card}', json={'name': 'SR'})
+    client.put(f'/api/processors/{a_pid}', json={'name': 'SR'})
     client.put(f'/api/processors/{a_pid}', json={'redundancy': True})
     client.put(f'/api/processors/{a_pid}/cards/{a_card}',
                json={'redundancyMode': 'manual'})
@@ -4006,15 +4023,14 @@ async () => {
                         { deviceId: 'novastar-mx20' });
     const mx = st.resolved[st.resolved.length - 1];
     const mxCard = mx.slots[0].card;
-    await send(`/api/processors/${mx.id}/cards/${mxCard.id}`, 'PUT',
-               { name: 'SR' });
+    // An MX20 is a one-box unit: its one name is the processor's.
+    await send(`/api/processors/${mx.id}`, 'PUT', { name: 'SR' });
     await send(`/api/processors/${mx.id}`, 'PUT', { redundancy: true });
     st = await send('/api/processors', 'POST',
                     { deviceId: 'novastar-mx20' });
     const bk = st.resolved[st.resolved.length - 1];
     const bkCard = bk.slots[0].card;
-    await send(`/api/processors/${bk.id}/cards/${bkCard.id}`, 'PUT',
-               { name: 'BK' });
+    await send(`/api/processors/${bk.id}`, 'PUT', { name: 'BK' });
     st = await send('/api/processors', 'POST',
                     { deviceId: 'brompton-sx40' });
     const sx = st.resolved[st.resolved.length - 1];

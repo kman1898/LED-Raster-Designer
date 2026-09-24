@@ -1443,6 +1443,13 @@
         frame: function (layers) { frameLayers(layers); }
     };
 
+    // The index of a wall's last cabinet - where a card or processor drop
+    // lands every unplaced port (the drop grows to the cursor).
+    function lastCabinet(layer) {
+        var n = (layer && layer.panels || []).length;
+        return n ? n - 1 : 0;
+    }
+
     function cabinetPointRaw(layer, which) {
         var a = A(), r = R();
         if (!layer || !r) return null;
@@ -2429,13 +2436,16 @@
         dropProcessor: {
             target: function () { var p = proc(); return p ? '[data-hwdock="processor-' + p.id + '"]' : '[data-hwdock^="processor-"]'; },
             place: 'top', title: 'Drag it onto the wall',
-            avoid: [function () { var w = wall(); return w ? T.cabinetPoint(w, { index: 0 }) : null; }],
-            body: 'Drag the processor onto the screen and its ports fill in order from the first free socket. Nothing lands on hardware by itself.',
+            avoid: [function () { var w = wall(); return w ? T.cabinetPoint(w, { index: lastCabinet(w) }) : null; }],
+            body: 'Drag the processor onto the screen: its unplaced ports fill in order up to the port under your cursor, so a drop on the last cabinet takes them all. Nothing lands on hardware by itself.',
             before: function () { switchView('data-flow'); },
             act: function (t) {
                 var p = proc();
                 t.mem.before = wallPins().length;
-                return t.drag('[data-hwdock="processor-' + p.id + '"]', t.cabinetPoint(wall(), { index: 0 })).then(function () {
+                // The drop lands the unplaced ports up to the port under the
+                // cursor (2026-09-24), so the guide drops on the LAST cabinet
+                // to take the whole wall the way it always did.
+                return t.drag('[data-hwdock="processor-' + p.id + '"]', t.cabinetPoint(wall(), { index: lastCabinet(wall()) })).then(function () {
                     return t.wait(function () { return wallPins().length > t.mem.before; });
                 });
             },

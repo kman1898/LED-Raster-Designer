@@ -19,6 +19,7 @@ from flask import Blueprint, request, jsonify
 
 import app
 import processor_catalog as catalog
+import port_assignment as assignment
 from app import log_event, socketio
 
 processors_bp = Blueprint('processors', __name__)
@@ -74,9 +75,11 @@ def _all_cards():
 
 
 def _card_title(card):
-    device = catalog.get_device((card or {}).get('deviceId')) or {}
-    return ((card or {}).get('name') or '').strip() \
-        or device.get('name', (card or {}).get('deviceId'))
+    # A one-box unit's card goes by the unit's name (its one name slot,
+    # 2026-09-24); a slot card by its own. card_display_name knows which.
+    card_id = (card or {}).get('id')
+    proc = next((p for p, c in _all_cards() if c.get('id') == card_id), None)
+    return catalog.card_display_name(card, proc)
 
 
 def _resolved_card(card_id):
@@ -429,10 +432,12 @@ def _set_port_backup(card, card_id, number, spec):
     return None
 
 
-def _state(status=200):
+def _state(status=200, extra=None):
     """Every mutating route answers with the whole resolved tree. A caller that
     only got back what it sent could not tell a stored edit from a dropped one,
     which is the failure mode the layer routes' allow-list keeps producing.
+    `extra` rides on top of the tree - a route with something to SAY about
+    what it did (a box delete that dropped pins) puts its note there.
 
     The seq counter rides along so the CLIENT's project copy carries it into
     undo snapshots. Without it, undo's whole-project PUT dropped the counter,
@@ -449,7 +454,7 @@ def _state(status=200):
     _migrate_snakes()
     app.current_project['is_pristine'] = False
     socketio.emit('project_updated', app.current_project)
-    return jsonify({
+    body = {
         'processors': _processors(),
         'resolved': catalog.resolve_all(_processors()),
         'next_processor_seq': app.current_project.get('next_processor_seq'),
@@ -458,7 +463,10 @@ def _state(status=200):
         # from several devices, so the tray, the sheet and the paperwork
         # all read them beside the tree they point into.
         'snakes': catalog.resolved_show_snakes(app.current_project),
-    }), status
+    }
+    if extra:
+        body.update(extra)
+    return jsonify(body), status
 
 
 def _apply(node, data, keys):
@@ -472,9 +480,28 @@ def _apply(node, data, keys):
 
 @processors_bp.route('/api/processor-catalog', methods=['GET'])
 def processor_catalog():
-    """The same file the browser fetches from /static/data, served through the
-    API so a test can read the catalog without a web server or a path guess."""
-    return jsonify(catalog.load_catalog())
+    """The catalog file, with the platform wall stated per device: what the
+    Add-processor picker and the slot-card picker filter on, so the client
+    never holds a copy of port_assignment's tables.
+
+    `platforms` is accepted_platforms(id) - the list a card summary carries
+    and a drop is refused on - and `slotPlatforms` is a chassis's cards'
+    union (slot_platforms). Both are sorted lists, None for unrestricted.
+    `platformAliases` folds a retired Processing token the way the resolve
+    does. The cached catalog is copied, never written."""
+    data = dict(catalog.load_catalog())
+    devices = []
+    for device in data.get('devices', []):
+        accepted = assignment.accepted_platforms(device.get('id'))
+        slots = assignment.slot_platforms(device.get('id'))
+        devices.append(dict(
+            device,
+            platforms=sorted(accepted) if accepted is not None else None,
+            slotPlatforms=sorted(slots) if slots is not None else None,
+        ))
+    data['devices'] = devices
+    data['platformAliases'] = assignment.platform_aliases()
+    return jsonify(data)
 
 
 @processors_bp.route('/api/processors', methods=['GET'])
@@ -864,6 +891,21 @@ def delete_cvt(processor_id, cvt_id):
     card, cvt = _find_cvt(proc, cvt_id)
     if not cvt:
         return jsonify({'error': 'Breakout box not found'}), 404
+    # What the box was called and which sockets it delivered, read off the
+    # resolved tree BEFORE it goes - the title (trunk letter included) is
+    # what the reply calls it, and the span is what the pins below pointed
+    # into.
+    rcard = _resolved_card(card.get('id')) or {}
+    rbox = next((b for b in rcard.get('cvts') or [] if b.get('id') == cvt_id),
+                {})
+    box_title = rbox.get('displayTitle') or rbox.get('name') \
+        or rbox.get('deviceName') or cvt.get('deviceId') or cvt_id
+    # The survivors keep their trunks (hold_box_trunks): on a box-fed
+    # device the box IS the trunk's sockets, so C must not slide down onto
+    # B's trunk when B goes - B's sockets are gone, C's stay 21-30, and a
+    # box added later takes the empty trunk.
+    if rcard.get('boxFed'):
+        catalog.hold_box_trunks(card, rcard)
     card['cvts'].remove(cvt)
     # A backup whose primary is gone is just a box again. Left pointing at a
     # deleted id, it would jump back onto a backup trunk the moment an id was
@@ -871,8 +913,56 @@ def delete_cvt(processor_id, cvt_id):
     for other in card['cvts']:
         if other.get('backupOf') == cvt_id:
             other.pop('backupOf', None)
-    log_event('processor_cvt_delete', {'id': cvt_id})
-    return _state()
+    # ON A BOX-FED DEVICE THE BOX'S SOCKETS GO WITH IT. The SX40 and the
+    # HELIOS Standard have no ports outside a box (the 2026-09-24 ruling:
+    # "SX40's can't use ports outside of an XD box"), so once the box is
+    # gone resolve_card lists only the surviving boxes' sockets, and every
+    # pin that pointed into the removed span is dropped with it - those
+    # screen ports are unplaced again, and the reply says which, so the
+    # tray can say so too. Undo (the whole-project PUT) brings the box and
+    # its pins back together. A card that is not box-fed keeps its own
+    # ports, so nothing of its is pruned.
+    dropped = []
+    if rcard.get('boxFed'):
+        dropped = assignment.prune_pins_off_sockets(
+            app.current_project, card.get('id'), _port_numbers(card.get('id')))
+    log_event('processor_cvt_delete', {
+        'id': cvt_id, 'box': box_title,
+        'droppedPins': [{'layerId': p['layerId'], 'index': p['index'],
+                         'port': p['port']} for p in dropped]})
+    extra = None
+    if dropped:
+        extra = {
+            'note': _box_removed_note(box_title, dropped),
+            # The pruned state rides the reply so the client's project copy
+            # (and the undo snapshot it takes off it) carries the pins as
+            # the server now holds them, not the ones it had a moment ago.
+            'portAssignments': app.current_project.get(assignment.STATE_KEY),
+        }
+    return _state(extra=extra)
+
+
+def _box_removed_note(box_title, dropped):
+    """'Removed box Tessera XD B - 3 ports of LEFT are unplaced again':
+    one clause per screen, in the order their pins came off, each screen
+    called by the name on its layer."""
+    names = {str(l.get('id')): (l.get('name') or f'Screen {l.get("id")}')
+             for l in app.current_project.get('layers') or []
+             if isinstance(l, dict) and l.get('id') is not None}
+    counts = {}
+    for pin in dropped:
+        counts[pin['layerId']] = counts.get(pin['layerId'], 0) + 1
+    parts = [f'{n} port{"" if n == 1 else "s"} of '
+             f'{names.get(layer_id, f"Screen {layer_id}")}'
+             for layer_id, n in counts.items()]
+    verb = 'is' if len(dropped) == 1 else 'are'
+    return f'Removed box {box_title} - {_and_list(parts)} {verb} unplaced again'
+
+
+def _and_list(names):
+    if len(names) <= 2:
+        return ' and '.join(names)
+    return f'{", ".join(names[:-1])} and {names[-1]}'
 
 
 # ── Show snakes ───────────────────────────────────────────────────────────

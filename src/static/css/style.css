@@ -1878,8 +1878,15 @@ button.hw-dock-typechip:focus-visible { outline: 1px solid var(--ps-accent, #ef3
    ("move snake and quick fill to the top instead of the bottom",
    2026-09-07) */
 .hw-dock-cable-quick {
-    display: flex; gap: 6px; align-items: center; padding: 2px 4px 5px;
+    display: flex; gap: 6px; row-gap: 3px; flex-wrap: wrap;
+    align-items: center; padding: 2px 4px 5px;
     font-size: 11px; color: #bbbbbb;
+}
+/* a caption with its buttons and typed-length box folds as ONE unit, so
+   a narrow sheet breaks the row between "With ticked" and "Quick fill",
+   never between a length box and the button that fires it */
+.hw-dock-cable-quick-group {
+    display: flex; gap: 6px; align-items: center; flex: 0 0 auto;
 }
 /* A chip with a cable wears its length small at the END of one of its
    lines, in the cable's gold - IN FLOW, never over the text (2026-09-07:

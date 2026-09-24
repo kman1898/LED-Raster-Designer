@@ -33,9 +33,11 @@ class _Processors {
         this._processorCatalog = null;
         this._processorsResolved = [];
         this._processorsRaw = '[]';
-        // Static asset, not an endpoint: the browser reads the same file the
-        // server does, so there is only ever one set of numbers.
-        fetch('/static/data/processor_catalog.json')
+        // The API serves the same file the server reads - one set of
+        // numbers - with each device's platform wall stated beside it
+        // (`platforms`, `slotPlatforms`, `platformAliases`), which the
+        // pickers filter on. The rule lives in port_assignment.py only.
+        fetch('/api/processor-catalog')
             .then(r => r.json())
             .then(data => {
                 this._processorCatalog = data;
@@ -120,8 +122,24 @@ class _Processors {
             .then(r => r.json())
             .then(data => {
                 const applied = !!(data && data.resolved);
+                // A box delete on a box-fed unit (an SX40's XD, a HELIOS
+                // Standard's RS12) drops the pins that pointed into the
+                // box, and the server sends the pruned state back with the
+                // tree. It lands on the project copy BEFORE the snapshot
+                // below is taken, so undo holds the pins as they now are
+                // and redo cannot hand back pins on sockets that are gone.
+                if (applied && data.portAssignments && this.project) {
+                    this.project.port_assignments = data.portAssignments;
+                }
                 this._applyProcessorState(data);
                 if (applied && action) this.saveState(action);
+                // What the edit had to say - "Removed box Tessera XD B - 3
+                // ports of LEFT are unplaced again" - read where a refusal
+                // would read, but not in a refusal's color: the edit did
+                // exactly what it was told.
+                if (applied && data.note && typeof this._toast === 'function') {
+                    this._toast(data.note, false, 6000);
+                }
                 // A refusal carries its reason - a backup unit with the
                 // wrong port count, a port that already backs something -
                 // and the reason is the answer, so it is shown rather than
@@ -149,6 +167,42 @@ class _Processors {
 
     _processorDevice(deviceId) {
         return this._processorDevices().find(d => d.id === deviceId) || null;
+    }
+
+    // The Processing settings the project's screens are on: every screen
+    // layer on every canvas, its processorType folded through the server's
+    // alias table (a stale token lands where the resolve lands it). Empty
+    // when no screen carries a setting - and empty means "no filter".
+    _platformsInUse() {
+        const aliases = (this._processorCatalog
+            && this._processorCatalog.platformAliases) || {};
+        const used = new Set();
+        ((this.project && this.project.layers) || []).forEach(l => {
+            if (!l || (l.type || 'screen') !== 'screen') return;
+            const value = l.processorType;
+            if (typeof value !== 'string' || !value) return;
+            used.add(aliases[value] || value);
+        });
+        return used;
+    }
+
+    // The devices a picker offers for the screens in the project (owner
+    // ruling, 2026-09-24: "if a raster only has Brompton processing
+    // selected on the whole raster then when we add processors we need to
+    // make sure that only Brompton shows up"). A device stays when its wall
+    // - `platforms` off the catalog route, a chassis's `slotPlatforms`
+    // beside it - shares a setting with any screen; an unrestricted device
+    // (both null: the drop refuses nobody on it) always stays; with no
+    // screen on a setting, everything stays. The wall itself is the
+    // server's: nothing here names a platform or a family.
+    _devicesForPlatforms(devices, used) {
+        const inUse = used || this._platformsInUse();
+        if (!inUse.size) return devices;
+        return devices.filter(d => {
+            if (!d.platforms && !d.slotPlatforms) return true;
+            const wall = [].concat(d.platforms || [], d.slotPlatforms || []);
+            return wall.some(p => inUse.has(p));
+        });
     }
 
     // One presentation rule for "X backs up Y", at whatever level states
@@ -382,8 +436,12 @@ class _Processors {
             num.textContent = `Slot ${slot.index + 1}`;
             const device = this._processorDevice(proc.deviceId);
             const accepts = (device && device.accepts) || [];
-            const cards = this._processorDevices('card')
-                .filter(d => accepts.includes(d.family));
+            // A chassis takes its own line's cards, and of those only the
+            // ones a screen in the project could land on - the same wall
+            // the Add picker keeps, read off each card's `platforms`.
+            const cards = this._devicesForPlatforms(
+                this._processorDevices('card')
+                    .filter(d => accepts.includes(d.family)));
             const picker = this._buildDeviceSelect(
                 cards, slot.card ? slot.card.deviceId : '', 'empty');
             picker.dataset.lrdField = `processor-slot-${proc.id}-${slot.index}`;
@@ -433,7 +491,9 @@ class _Processors {
     // a slot in one); a slotted card wears its own name with the chassis
     // it sits in, because two chassis can each hold a card called SL.
     _backupUnitTitle(p, c) {
-        if (c.fixed) return p.name || c.name || p.deviceName || c.deviceName;
+        if (this.cardIsUnitFace(p, c)) {
+            return p.name || p.deviceName || c.deviceName;
+        }
         return `${c.name || c.deviceName} in ${p.name || p.deviceName}`;
     }
 
@@ -670,7 +730,7 @@ class _Processors {
             if (!card) return;
             const legend = chassis
                 ? `Slot ${slot.index + 1} · ${card.name || card.deviceName}`
-                : (card.name || card.deviceName);
+                : this.dataUnitTitle(proc, card).title;
             let control = shown === 'card'
                 ? this._buildCardBackupPick(proc, card)
                 : this._buildCardShapeChips(proc, card);
@@ -867,7 +927,11 @@ class _Processors {
     // the name, which edits inline on the card's dock header.
     _buildCardGearContent(proc, card) {
         const wrap = document.createElement('div');
-        wrap.appendChild(this._popHeading(card.name || card.deviceName));
+        // A one-box unit's card IS the unit, so its gear is headed by the
+        // unit's one name; a slot card is headed by its own.
+        wrap.appendChild(this._popHeading(this.cardIsUnitFace(proc, card)
+            ? this.dataUnitTitle(proc, card).title
+            : (card.name || card.deviceName)));
 
         // The two template fields share a wrapping line, the same reason
         // the old panel wrapped them: at popover width two fields fit
@@ -886,13 +950,15 @@ class _Processors {
         // left blank, every return end derives from its primary, so an empty
         // box still reads as what the backups are actually called - R1-# for
         // a card named P1, SR-#R for one named SR. Rendered off the name the
-        // primary actually takes (the card's, or the processor's on loan),
+        // primary actually takes (a slot card's own, else the processor's -
+        // a one-box unit's card has no name of its own, see cardTypedName),
         // because the rule turns on that name's first letter. A name typed
         // on ONE port's return end still beats the template.
         names.appendChild(this._buildTextField(
             'Return', card.returnLabelTemplate,
             this._derivedReturnPlaceholder(card.portLabelTemplate,
-                                           card.name || proc.name),
+                                           this.cardTypedName(proc, card)
+                                               || proc.name),
             `processor-card-return-template-${card.id}`,
             (val) => this._processorRequest(
                 `/api/processors/${proc.id}/cards/${card.id}`, 'PUT',
@@ -1112,7 +1178,9 @@ class _Processors {
         names.appendChild(this._buildTextField(
             'Return', cvt.returnLabelTemplate,
             this._derivedReturnPlaceholder(cvt.portLabelTemplate,
-                                           cvt.name || card.name || proc.name),
+                                           cvt.name
+                                               || this.cardTypedName(proc, card)
+                                               || proc.name),
             `processor-cvt-return-template-${cvt.id}`,
             (val) => this._processorRequest(
                 `/api/processors/${proc.id}/cvts/${cvt.id}`, 'PUT',
@@ -1414,23 +1482,49 @@ class _Processors {
         return this.snakeOwners(snake).length > 1;
     }
 
+    // WHETHER A CARD IS ITS PROCESSOR'S FACE. A one-box unit - a NovaPro
+    // UHD Jr, a Tessera S8, an MX40 Pro - carries ONE fixed card that IS
+    // the unit; a chassis (the H series, the MX2000 / MX6000 - the catalog
+    // says which, by `form`) holds slot cards that are parts inside it.
+    // The server's card_is_unit_face, mirrored: the resolved processor's
+    // form decides, and a card born fixed says the same when the form is
+    // not to hand.
+    cardIsUnitFace(proc, card) {
+        const form = (proc || {}).form;
+        if (form) return form !== 'chassis';
+        return !!((card || {}).fixed);
+    }
+
+    // THE NAME SOMEBODY TYPED FOR A CARD, OR '' (ruling, 2026-09-24: "the
+    // H series and MX6000 and 2000 are the only card based processors. all
+    // others should only have 1 name slot"). A slot card's is its own; a
+    // one-box unit's face has no slot of its own and reads the unit's - the
+    // processor strip is the one place that name is typed. Every sheet
+    // and label placeholder reads a card's name through here, so a name a
+    // 1.3 file left on a fixed card (moved up to the unit on load) can
+    // never outrank the unit's again.
+    cardTypedName(proc, card) {
+        const rec = this.cardIsUnitFace(proc, card) ? proc : card;
+        return (((rec || {}).name) || '').trim();
+    }
+
     // THE UNIT A SOCKET SITS ON, NAMED ONCE (2026-09-09, off the Kelly
     // Clarkson binder: "IMAG SR IMAG SR · NovaPro UHD Jr · 16 ports").
     // A processor with no slots - a NovaPro UHD Jr, a Tessera S8 - carries
-    // ONE fixed card that IS its face, so the processor's name and the
-    // card's are two spellings of one unit: the paperwork says it once. A
-    // real slot card is a part inside a processor and reads as both, "H9
-    // SR" - but never twice over, and never the model standing in for a
-    // name only for the model to be printed again beside it: a title that
-    // falls back to the model tells the caller so (`named` is false) and
-    // the caller drops its own model column rather than saying it twice.
+    // ONE fixed card that IS its face, so the unit has one name, the
+    // processor's, and the paperwork says it once. A real slot card is a
+    // part inside a processor and reads as both, "H9 SR" - but never twice
+    // over, and never the model standing in for a name only for the model
+    // to be printed again beside it: a title that falls back to the model
+    // tells the caller so (`named` is false) and the caller drops its own
+    // model column rather than saying it twice.
     dataUnitTitle(proc, card) {
         const p = (((proc || {}).name) || '').trim();
         const c = (((card || {}).name) || '').trim();
-        if (!card || card.fixed) {
-            const title = p || c || (proc || {}).deviceName
+        if (!card || this.cardIsUnitFace(proc, card)) {
+            const title = p || (proc || {}).deviceName
                 || (card || {}).deviceName || (proc || {}).id || '';
-            return { title, named: !!(p || c) };
+            return { title, named: !!p };
         }
         const slot = (((proc || {}).slots) || [])
             .find(s => s && s.card && s.card.id === card.id);

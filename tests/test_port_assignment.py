@@ -1144,6 +1144,75 @@ def test_the_overflow_can_be_placed_on_a_different_card(two_cards):
     assert 'overflow' not in kinds(res)
 
 
+def test_the_fill_stops_at_the_port_under_the_cursor(one_card):
+    """The dock's whole-unit drop names the port it landed on (`lastIndex`,
+    0-based): the fill takes the UNPLACED ports from the first up to it and
+    no further - the Power tab's "first unplaced to the cursor" (owner
+    ruling, 2026-09-24). A port already on a card is never counted toward
+    the bound and never moved; a second drop past the placed head lands the
+    next unplaced ports only."""
+    client, _pid, card = one_card
+    sc = screens(('Main', 6),)
+    resp = client.post('/api/port-assignments/place-overflow',
+                       json={'layerId': 'Main', 'cardId': card, 'screens': sc,
+                             'lastIndex': 2})
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    res = resp.get_json()['resolution']
+    assert spots(res, 'Main') == [(card, 1), (card, 2), (card, 3),
+                                  (None, None), (None, None), (None, None)]
+    assert by_name(res, 'Main')['unplaced'] == [3, 4, 5]
+    assert resp.get_json()['moved']['note'] is None
+
+    # over port 6 with 1-3 placed: only 4-6 are asked for, and they land
+    # beside the head, never on top of it
+    resp = client.post('/api/port-assignments/place-overflow',
+                       json={'layerId': 'Main', 'cardId': card, 'screens': sc,
+                             'lastIndex': 5})
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    res = resp.get_json()['resolution']
+    assert spots(res, 'Main') == [(card, n) for n in range(1, 7)]
+    assert by_name(res, 'Main')['unplaced'] == []
+
+    # every port placed: the drop is refused in the dock's words, and
+    # nothing moves - Clear, then drop again, is the gesture
+    resp = client.post('/api/port-assignments/place-overflow',
+                       json={'layerId': 'Main', 'cardId': card, 'screens': sc,
+                             'lastIndex': 5})
+    assert resp.status_code == 409
+    assert resp.get_json()['error'] == (
+        'Every port of Main is already on a processor - clear it first.')
+    assert spots(resolve(client, ('Main', 6)), 'Main') == \
+        [(card, n) for n in range(1, 7)]
+
+
+def test_the_bounded_fill_says_how_many_it_took(one_card):
+    """The "took N of M" note counts against the ports ASKED for - the
+    unplaced ones up to the cursor - so a card two sockets short of a
+    six-port take says 4 of 6, not 4 of the wall's whole count. A cursor on
+    a placed port with nothing unplaced before it asks for nothing, and the
+    refusal names that port."""
+    client, _pid, card = one_card
+    sc = screens(('Big', 12), ('Main', 8))
+    attach(client, 'Big', card, sc)                     # 1-12 taken
+    resp = client.post('/api/port-assignments/place-overflow',
+                       json={'layerId': 'Main', 'cardId': card, 'screens': sc,
+                             'lastIndex': 5})
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    moved = resp.get_json()['moved']
+    assert [m['port'] for m in moved['moved']] == [13, 14, 15, 16]
+    assert moved['note'] == (
+        'H9 slot 1 took 4 of 6 ports. 2 still have nowhere to go.')
+    res = resp.get_json()['resolution']
+    assert by_name(res, 'Main')['unplaced'] == [4, 5, 6, 7]
+
+    resp = client.post('/api/port-assignments/place-overflow',
+                       json={'layerId': 'Main', 'cardId': card, 'screens': sc,
+                             'lastIndex': 1})
+    assert resp.status_code == 409
+    assert resp.get_json()['error'] == (
+        'Port 2 of Main is already on a processor.')
+
+
 def test_placed_overflow_stays_put_when_the_next_screen_arrives(two_cards):
     """The overflow is stored as pins, so the numbering someone decided on
     stays decided when the next screen is dropped beside it - the new
@@ -1718,11 +1787,12 @@ def test_the_backup_template_rides_the_return_labels_here_too(one_card):
 # backup role is not a rig at all.
 
 def sequential_card(client):
-    """One MX20 named SR, redundancy on, sequential: 6 ports, odds usable."""
+    """One MX20 named SR (on the unit - its one name slot), redundancy
+    on, sequential: 6 ports, odds usable."""
     state = add_processor(client, 'novastar-mx20')
     pid = state['resolved'][0]['id']
     card = card_ids(state)[0]
-    client.put(f'/api/processors/{pid}/cards/{card}', json={'name': 'SR'})
+    client.put(f'/api/processors/{pid}', json={'name': 'SR'})
     client.put(f'/api/processors/{pid}', json={'redundancy': True})
     resp = client.put(f'/api/processors/{pid}/cards/{card}',
                       json={'redundancyMode': 'sequential'})
@@ -1784,10 +1854,10 @@ def test_a_1to1_backup_unit_takes_nothing_and_refuses_by_role(client):
     main_card = card_ids(state)[0]
     state = add_processor(client, 'novastar-mx20')
     backup_card = card_ids(state)[1]
-    client.put(f'/api/processors/{main_pid}/cards/{main_card}',
+    client.put(f'/api/processors/{main_pid}',
                json={'name': 'P1'})
     backup_pid = state['resolved'][1]['id']
-    client.put(f'/api/processors/{backup_pid}/cards/{backup_card}',
+    client.put(f'/api/processors/{backup_pid}',
                json={'name': 'R1'})
     client.put(f'/api/processors/{main_pid}', json={'redundancy': True})
     resp = client.put(f'/api/processors/{main_pid}/cards/{main_card}',
@@ -1995,7 +2065,7 @@ def test_a_1to1_backup_units_sockets_mirror_their_mains(client):
     main_card = card_ids(state)[0]
     state = add_processor(client, 'novastar-mx20')
     backup_card = card_ids(state)[1]
-    client.put(f'/api/processors/{main_pid}/cards/{main_card}',
+    client.put(f'/api/processors/{main_pid}',
                json={'name': 'P1'})
     client.put(f'/api/processors/{main_pid}', json={'redundancy': True})
     client.put(f'/api/processors/{main_pid}/cards/{main_card}',
@@ -2115,7 +2185,7 @@ def test_a_card_drop_lands_only_on_its_own_lines_gear(mixed_lines):
                        json={'layerId': 'LEG', 'cardId': mx_card, 'screens': sc})
     assert resp.status_code == 409
     assert resp.get_json()['error'] == (
-        'LEG is programmed NovaStar (Legacy); MX40 Pro slot 1 is COEX gear.')
+        'LEG is programmed NovaStar (Legacy); MX40 Pro is COEX gear.')
     attach(client, 'LEG', h_card, sc)
     res = attach(client, 'CX1', mx_card, sc)
     assert spots(res, 'LEG') == [(h_card, 1), (h_card, 2)]
@@ -2154,7 +2224,7 @@ def test_a_hand_placement_across_the_wall_is_refused_naming_both_sides(
     assert resp.status_code == 409
     assert resp.get_json()['error'] == (
         'IMAG SR is programmed NovaStar (Legacy); '
-        'MX40 Pro slot 1 is COEX gear.')
+        'MX40 Pro is COEX gear.')
     res = presolve(client, sc)
     assert spots(res, 'IMAG SR') == [(h_card, n) for n in (1, 2)], (
         'the refused placement moved something')

@@ -39,10 +39,11 @@
 //     (the drop implies the boundary the sidebar's Split select used to ask
 //     for): the circuits from there to the multi's end take the box, capped
 //     at its free tails, one undo entry for split and assignment together;
-//   - a whole CARD or BREAKOUT BOX lands anywhere on a screen: the screen's
-//     ports fill onto it in order from the first unassigned (place-overflow),
-//     or the whole block moves there when nothing is unassigned (move-block,
-//     windowed to the box's span for a box);
+//   - a whole CARD or BREAKOUT BOX lands on a screen: the screen's UNPLACED
+//     ports, from the first up to the one under the cursor, fill onto it
+//     (place-overflow with lastIndex), capped at its free sockets; placed
+//     ports never light, and a screen with none unplaced refuses until it
+//     is cleared (owner, 2026-09-24);
 //   - a whole DISTRO lands anywhere on a screen: the screen's unassigned
 //     multis take that distro, numbered automatically;
 //   - an OCCUPIED port tile, multi slot or circuit chip dragged back onto the
@@ -362,6 +363,33 @@ class _HardwareDock {
         }
     }
 
+    // The Add-processor picker's list: the catalog's processors cut to
+    // the platforms the project's screens are on (_devicesForPlatforms),
+    // so it moves with the screens - one added, a Processing setting
+    // changed, a project loaded - and refills whenever the set it would
+    // show differs from the set it shows (a same-sized list is no reason
+    // to stand still). Called from the dock render and from updateUI,
+    // because with nothing in the tray no resolve runs and no render
+    // follows a Processing change. Only while nobody is standing in it:
+    // rewriting a focused select would close it under the pointer. Units
+    // already in the tray are untouched; this is the picker, not the tray.
+    _refillProcessorPicker(mode) {
+        const view = mode !== undefined ? mode
+            : (window.canvasRenderer ? window.canvasRenderer.viewMode : '');
+        if (view !== 'data-flow') return;
+        const picker = document.getElementById('processor-add-device');
+        if (!picker || !this._processorCatalog
+                || picker === document.activeElement) return;
+        if (typeof this._devicesForPlatforms !== 'function') return;
+        const devices = this._devicesForPlatforms(
+            this._processorDevices('processor'));
+        const key = devices.map(d => d.id).join('\n');
+        if (picker.dataset.lrdDevices === key) return;
+        picker.dataset.lrdDevices = key;
+        const keep = picker.value;
+        this._fillDeviceSelect(picker, devices, keep, 'Add a processor…');
+    }
+
     // ── the header bar, the attachment flag and the issues strip ─────────
     //
     // The dock's chrome: which add cluster the header shows, what the
@@ -384,20 +412,7 @@ class _HardwareDock {
             powerCtl.classList.toggle('view-hidden', mode !== 'power');
         }
         if (mode === 'data-flow') {
-            const picker = document.getElementById('processor-add-device');
-            // Refill only while nobody is standing in it: the options are
-            // static per catalog, and rewriting a focused select would
-            // close it under the pointer.
-            if (picker && this._processorCatalog
-                    && picker !== document.activeElement) {
-                const devices = this._processorDevices('processor');
-                if (picker.querySelectorAll('option').length
-                        !== devices.length + 1) {
-                    const keep = picker.value;
-                    this._fillDeviceSelect(picker, devices, keep,
-                                           'Add a processor…');
-                }
-            }
+            this._refillProcessorPicker(mode);
             // The strip narrates the assignment; that render owns it.
             if (typeof this.renderPortAssignmentPanel === 'function') {
                 this.renderPortAssignmentPanel();
@@ -819,12 +834,19 @@ class _HardwareDock {
             const model = document.createElement('span');
             model.textContent = proc.deviceName;
             title.appendChild(model);
+            // A one-box unit has ONE name slot, and this is it (ruling,
+            // 2026-09-24): its fixed card's strip below carries no name
+            // field. A chassis's cards each take a name of their own.
+            const oneBox = proc.form !== 'chassis';
             title.appendChild(this._dockHeadName({
                 value: proc.name,
                 placeholder: 'unnamed',
                 key: `processor-name-${proc.id}`,
-                title: 'Name this processor. A card\'s ports take the '
-                    + 'nearest name above them.',
+                title: oneBox
+                    ? 'Name this processor. Its ports read the name - name '
+                        + 'it SR and they read SR-1, SR-2.'
+                    : 'Name this processor. A card\'s ports take the '
+                        + 'nearest name above them.',
                 onCommit: (val) => this._processorRequest(
                     `/api/processors/${proc.id}`, 'PUT', { name: val },
                     'Rename Processor'),
@@ -917,17 +939,22 @@ class _HardwareDock {
         // a return end) but hiding it would hide where the returns land.
         const cardTag = card.backupFor
             ? ` (backs up ${card.backupFor.title})` : '';
+        // A one-box unit's card IS the unit: it has no name of its own
+        // (the processor strip holds the unit's one name slot), so its
+        // header carries no name field and its drag wears the unit's name.
+        const unitFace = this.cardIsUnitFace(proc, card);
         const head = this._dockBuildHandle(
             {
                 type: 'card', cardId: card.id,
-                title: (card.name || card.deviceName) + cardTag,
+                title: (this.cardTypedName(proc, card) || card.deviceName)
+                    + cardTag,
             },
             `card-${card.id}`,
             card.deviceName + cardTag,
             '',
-            'Drag the whole card onto a screen: its ports fill in order from '
-            + 'the first unassigned, or the whole run moves here. Cards keep '
-            + 'their slot order - drag the processor’s line to reorder.',
+            'Drag the whole card onto a screen: its unplaced ports fill in '
+            + 'order up to the port under your cursor. Cards keep their slot '
+            + 'order - drag the processor’s line to reorder.',
             // The header's glance: how full the card is, the retired
             // panel's per-card usage foot worn as n/N and a fill line - so
             // a card folded away because it is done reads as done (a
@@ -946,6 +973,10 @@ class _HardwareDock {
         // own strip, the rest directly under the card. The card's cable
         // sheet (2026-09-06) covers THAT rest - its own face's sockets -
         // so the ≡ only appears where the card has loose ports to sheet.
+        // A box-fed unit (an SX40, a HELIOS Standard - card.boxFed) never
+        // has any: the server lists no port outside its boxes, so with a
+        // box removed its trunk simply draws empty, and the card's ⚙ is
+        // where a box goes back on.
         const cvts = card.cvts || [];
         const covered = new Set();
         cvts.forEach(cvt => {
@@ -960,7 +991,7 @@ class _HardwareDock {
         }
         this._dockHeadAugment(head, {
             controls: cardControls,
-            name: {
+            name: unitFace ? null : {
                 value: card.name,
                 placeholder: proc.name || 'unnamed',
                 key: `processor-card-name-${card.id}`,
