@@ -371,6 +371,21 @@ def dock_tile_center(page, key):
     return box['x'] + box['width'] / 2, box['y'] + box['height'] / 2
 
 
+def dock_grip_center(page, key):
+    """The ⋮⋮ grip of a header strip - where a user's hand goes to pick a
+    unit up. The rest of the strip carries live controls (the name field,
+    the ⚙) that a press leaves alone."""
+    page.evaluate(
+        """(key) => {
+            const el = document.querySelector(`[data-hwdock="${key}"]`);
+            if (el) el.scrollIntoView({ block: 'nearest' });
+        }""", key)
+    box = page.locator(f'[data-hwdock="{key}"] .hw-dock-grip').first \
+        .bounding_box()
+    assert box, f'no grip on dock tile {key}'
+    return box['x'] + box['width'] / 2, box['y'] + box['height'] / 2
+
+
 # ── the dock lives only in its views, and the canvas keeps up ─────────────
 
 ALL_VIEWS = ['pixel-map', 'cabinet-id', 'show-look', 'data-flow', 'power']
@@ -1186,8 +1201,12 @@ def test_a_breakout_box_fills_only_its_own_span(dock_page):
     }""", {'ids': ids, 'box': box})
     page.wait_for_timeout(400)
 
-    # over the LAST port, so every unplaced port up to it is asked for
-    sx, sy = dock_tile_center(page, f'box-{box["id"]}')
+    # over the LAST port, so every unplaced port up to it is asked for.
+    # Picked up by its grip: the strip's middle is the box's name field
+    # once the unit sits in one track (2026-09-24: 24 loose ports beside
+    # the 16-port box, so no longer a two-track unit), and a press on a
+    # control is that control's, never a pickup.
+    sx, sy = dock_grip_center(page, f'box-{box["id"]}')
     tgt = panel_point(page, ids['aId'], {'port': 5})
     drag(page, sx, sy, tgt['x'], tgt['y'])
     pins = page.evaluate(PINS_JS)

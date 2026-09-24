@@ -1,6 +1,15 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v1.3.2 - September 24, 2026
+----------------------------
+
+- FIX: In the hardware tray a unit takes the full width only when its
+  largest block of ports is more than 24, where each breakout box is one
+  block and the ports outside any box are another. An SX40 is half width
+  with any number of XD boxes, as a HELIOS is with its switches; a card
+  with 40 ports and no boxes still takes the full width.
+
 v1.3.1 - September 24, 2026
 ----------------------------
 

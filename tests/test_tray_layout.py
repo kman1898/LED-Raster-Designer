@@ -455,6 +455,131 @@ def test_a_device_past_24_sockets_takes_two_tracks(tray):
     assert [c['key'] for c in back['cells']] == [c['key'] for c in before['cells']], back
 
 
+# A processor added by device id, with an optional card in slot 0 - the
+# tray re-rendered so its cell is there to measure.
+ADD_UNIT_JS = """async ([deviceId, name, cardId]) => {
+    const app = window.app;
+    const j = (method, url, body) => fetch(url, {method,
+        headers: {'Content-Type': 'application/json'},
+        body: body === undefined ? undefined : JSON.stringify(body)})
+        .then(r => r.json());
+    let st = await j('POST', '/api/processors', {deviceId, name});
+    const id = st.processors[st.processors.length - 1].id;
+    if (cardId) {
+        st = await j('PUT', `/api/processors/${id}/slots/0`,
+                     {deviceId: cardId});
+    }
+    const proc = st.processors.find(p => p.id === id);
+    await app.refreshProcessors();
+    app.renderHardwareDock();
+    const card = proc.slots[0].card;
+    return {id, cardId: card.id, boxes: (card.cvts || []).map(b => b.id)};
+}"""
+
+REMOVE_BOX_JS = """async ([id, box]) => {
+    await fetch(`/api/processors/${id}/cvts/${box}`, {method: 'DELETE'});
+    await window.app.refreshProcessors();
+    window.app.renderHardwareDock();
+}"""
+
+ADD_BOX_JS = """async ([id, cardId]) => {
+    const r = await fetch(`/api/processors/${id}/cards/${cardId}/cvts`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({deviceId: 'novastar-cvt10', pair: false})});
+    const st = await r.json();
+    await window.app.refreshProcessors();
+    window.app.renderHardwareDock();
+    const card = st.processors.find(p => p.id === id).slots[0].card;
+    return (card.cvts || []).map(b => b.id);
+}"""
+
+DELETE_PROC_JS = """async (id) => {
+    await fetch(`/api/processors/${id}`, {method: 'DELETE'});
+    await window.app.refreshProcessors();
+    window.app.renderHardwareDock();
+}"""
+
+
+def test_a_box_fed_unit_is_one_track_whatever_boxes_it_holds(tray):
+    """A unit's span is the size of the LARGEST block of chips the tray
+    draws for it - one breakout box's span, or the card's loose ports -
+    never the sum of its boxes (owner, 2026-09-24: "10 ports isn't more
+    than 24 on a SX40", "keep the rule but fix the SX40", "and other
+    processors"). So:
+
+      - an SX40 (box-fed: every port is inside an XD) is ONE track with
+        four XDs, and stays one track as its boxes come off, down to none;
+      - the H9's 40-socket card beside it, no boxes, still spans two - the
+        rule is kept;
+      - that same 40-socket card, NOT box-fed, goes to one track once no
+        more than 24 of its sockets are left loose (two CVT10s take 20),
+        and back to two when a box comes off and 30 loose remain.
+
+    Throughout, every cell is exactly one track or exactly two, and the
+    cells the seed put in the tray never move or change width."""
+    page, ids = tray
+    open_view(page, 'data-flow')
+    before = page.evaluate(CELLS_JS)
+    wide = page.evaluate(ADD_UNIT_JS, ['novastar-h9', 'WIDE',
+                                       'novastar-card-h-4xfiber-enhanced'])
+    sx = page.evaluate(ADD_UNIT_JS, ['brompton-sx40', 'SXBOXES', None])
+    page.wait_for_timeout(900)
+
+    def check(what, sx_span, wide_span):
+        shot = page.evaluate(CELLS_JS)
+        tracks = _tracks(shot)
+        assert len(tracks) >= 2, shot['tracks']
+        spans = {}
+        for c in shot['cells']:
+            want = tracks[0] * 2 + 10 if c['span'] else tracks[0]
+            assert abs(c['w'] - want) <= 1.0, (
+                f'{what}: {c["key"]} is not exactly one or two tracks', c,
+                tracks)
+            for key in c['own']:
+                spans[key] = c['span']
+        sx_key, wide_key = f'processor-{sx["id"]}', f'processor-{wide["id"]}'
+        assert spans[sx_key] is sx_span, (
+            f'{what}: the SX40 spans {spans[sx_key]}', shot['cells'])
+        assert spans[wide_key] is wide_span, (
+            f'{what}: the 40-socket card spans {spans[wide_key]}',
+            shot['cells'])
+        was = {c['key']: c for c in before['cells']}
+        for c in shot['cells']:
+            b = was.get(c['key'])
+            if b:
+                assert abs(c['x'] - b['x']) <= 0.5 \
+                    and abs(c['w'] - b['w']) <= 0.5, (what, b, c)
+        return shot
+
+    try:
+        assert len(sx['boxes']) == 4, sx
+        check('four XDs, a bare 40-socket card', False, True)
+        # the SX40 sheds its boxes: one track every step, down to none
+        for n, box in enumerate(sx['boxes'], 1):
+            page.evaluate(REMOVE_BOX_JS, [sx['id'], box])
+            page.wait_for_timeout(500)
+            check(f'the SX40 with {4 - n} XDs', False, True)
+        # the 40-socket card takes CVT10s: 30 loose, then 20, 10, none
+        boxes = []
+        for n, span in ((1, True), (2, False), (3, False), (4, False)):
+            boxes = page.evaluate(ADD_BOX_JS, [wide['id'], wide['cardId']])
+            page.wait_for_timeout(500)
+            assert len(boxes) == n, boxes
+            check(f'the 40-socket card with {n} CVT10s', False, span)
+        # and back: three boxes come off, 30 loose on the last
+        for n, span in ((3, False), (2, False), (1, True)):
+            page.evaluate(REMOVE_BOX_JS, [wide['id'], boxes[n]])
+            page.wait_for_timeout(500)
+            check(f'the 40-socket card back to {n} CVT10s', False, span)
+    finally:
+        for pid in (sx['id'], wide['id']):
+            page.evaluate(DELETE_PROC_JS, pid)
+        page.wait_for_timeout(800)
+    back = page.evaluate(CELLS_JS)
+    assert [c['key'] for c in back['cells']] \
+        == [c['key'] for c in before['cells']], back
+
+
 DATA_ACTS = ['card sheet', 'box sheet', 'fold card', 'fold processor',
              'fold pair backup', 'chip editor', 'rename card',
              'redundancy mode']

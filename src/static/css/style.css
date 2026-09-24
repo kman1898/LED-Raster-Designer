@@ -1420,7 +1420,11 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
     align-content: start;
 }
 /* A device with more than 24 sockets gets two tracks - by its PORT COUNT,
-   a static fact of the model, never by what its unit is doing. Suppressed
+   a static fact of the model, never by what its unit is doing. Counted
+   per drawn block since 2026-09-24 ("10 ports isn't more than 24 on a
+   SX40"): the largest breakout box's span or the loose ports, whichever
+   is bigger (app-dock.js _dockBuildCard), so four 10-port XDs are one
+   track, not 40. Suppressed
    while the tray holds a single track (app-dock.js stamps hw-dock-one-col
    from the measured width), where a span would invent a second column and
    push the tray sideways. */

@@ -74,8 +74,10 @@ class _HardwareDock {
     // deal (_dockRenderPower) and the CSS have to agree on the count.
     get _DOCK_COL() { return 440; }
     get _DOCK_GAP() { return 10; }
-    // Past this many sockets a device asks for two tracks - a static fact
-    // of the model, read off the port count and nothing else.
+    // Past this many chips in ONE block (a breakout box's span, or the
+    // card's loose ports - 2026-09-24, see _dockBuildCard) a unit asks for
+    // two tracks - a fact of what is fitted, read off the drawn blocks and
+    // nothing else.
     get _DOCK_WIDE_PORTS() { return 24; }
 
     initHardwareDock() {
@@ -912,10 +914,12 @@ class _HardwareDock {
     }
 
     // The two-track span, decided by PORT COUNT alone: a cell holding a
-    // device with more than 24 sockets takes two of the tray's tracks, so
-    // its chips still wrap into a readable block. A static fact of the
-    // model - no sheet, fold, name or pairing ever changes it - and the
-    // CSS drops it on a one-track tray.
+    // unit whose largest block of chips is more than 24 (its loose ports,
+    // or one breakout box's span - 2026-09-24, so an SX40's 10-port XDs
+    // never span) takes two of the tray's tracks, so its chips still wrap
+    // into a readable block. A fact of what is fitted - no sheet, fold,
+    // name or pairing ever changes it - and the CSS drops it on a
+    // one-track tray.
     _dockApplySpans(host) {
         [...host.children].forEach(cell => {
             if (!cell.classList) return;
@@ -929,8 +933,6 @@ class _HardwareDock {
     _dockBuildCard(proc, card) {
         const unit = document.createElement('div');
         unit.className = 'hw-dock-unit';
-        // The static fact the tray's two-track span is decided by.
-        unit.dataset.lrdPorts = String((card.ports || []).length);
 
         const summary = ((this._assignment && this._assignment.cards) || [])
             .find(c => c.cardId === card.id);
@@ -983,6 +985,22 @@ class _HardwareDock {
             (cvt.ports || []).forEach(p => covered.add(p.number));
         });
         const loose = (card.ports || []).filter(p => !covered.has(p.number));
+        // The fact the tray's two-track span is decided by: the size of
+        // the LARGEST block of chips this card draws - each breakout box
+        // is one block (its own span of ports, below), and the loose ports
+        // no box delivers are one more. Owner, 2026-09-24: "10 ports isn't
+        // more than 24 on a SX40" / "keep the rule but fix the SX40" / "and
+        // other processors". Summing the card's ports put an SX40 with four
+        // XDs (40 listed) at two tracks beside a two-XD SX40 (20) at one,
+        // though both draw nothing but 10-chip blocks. So a card with no
+        // boxes is judged by its ports exactly as before (a 40-socket H
+        // card still spans), a card whose sockets all sit in boxes of 24
+        // or fewer takes one track, and a box-fed unit (SX40, HELIOS -
+        // card.boxFed), which lists no loose ports, is its largest box.
+        // Still a fact of what is FITTED, never of a sheet, fold or name.
+        unit.dataset.lrdPorts = String(Math.max(
+            loose.length,
+            ...cvts.map(cvt => (cvt.ports || []).length)));
         const cardOwner = { kind: 'card', id: card.id, procId: proc.id,
                             cardId: card.id, rec: card };
         const cardControls = cardPill ? [cardPill] : [];
