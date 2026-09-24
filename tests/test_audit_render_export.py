@@ -58,6 +58,13 @@ from app import (
 
 # ── export helpers ────────────────────────────────────────────────────────
 
+@pytest.fixture(scope="module", autouse=True)
+def _guard(server_project_guard):
+    """Leave the shared server project the way this module found it. The
+    suite runs in parallel split by module (2026-09-24), so a module no
+    longer knows which module ran before it on its worker."""
+
+
 def _screen(lid, name, rows, cols, cw=128, ch=128, ox=0, oy=0, states=None,
             canvas_id=None, visible=True, rgb=(255, 0, 0)):
     """A screen layer with real _build_panels geometry, one flat colour."""

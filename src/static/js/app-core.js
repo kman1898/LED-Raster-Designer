@@ -1,6 +1,6 @@
 // LEDRasterApp core: constructor, socket wiring, and primary UI setup.
 // Feature areas live in the app-*.js modules, which extend the prototype.
-import { evaluateMathExpression, sendClientLog, setupColorPickerWithHex, isTypingTarget } from './helpers.js';
+import { evaluateMathExpression, sendClientLog, setupColorPickerWithHex, isTypingTarget, installEnterEndsEdit } from './helpers.js';
 
 export class LEDRasterApp {
     constructor() {
@@ -1058,9 +1058,9 @@ export class LEDRasterApp {
 
     createNewProject() {
         this.resetApplicationState();
-        fetch('/api/project/new', {
+        this._layerSavesSettled().then(() => fetch('/api/project/new', {
             method: 'POST'
-        })
+        }))
             .then(res => res.json())
             .then(data => {
                 this.project = data;
@@ -1242,12 +1242,50 @@ export class LEDRasterApp {
     // renaming the startup screen left the server pristine and the next
     // preference Save re-made the screen (tests/test_pristine_flag.py
     // closes the list).
+    // Resolves once every layer save already made has landed (the tracked
+    // updateLayer/updateLayers batches and the per-screen chains). A path
+    // that REPLACES the project - New, file open, a recent file - waits on
+    // it first, as undo and redo do, so a save still on its way cannot land
+    // on the new project's screen with the same id (2026-09-24).
+    _layerSavesSettled() {
+        const pending = [...(this._inflightLayerPuts || [])]
+            .concat([...((this._layerPutChains && this._layerPutChains.values()) || [])]);
+        return Promise.all(pending.map(p => Promise.resolve(p).catch(() => {})));
+    }
+
     _putLayer(id, body) {
-        return fetch(`/api/layer/${id}${this._layerPutIsAnEdit() ? '?edited=1' : ''}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body)
-        });
+        // One screen's PUTs go to the server one after another, in the
+        // order they were made. Each carries the WHOLE layer as it stood
+        // when it was made, and the threaded server can finish two of them
+        // out of order, so a busy machine let an older copy land last and
+        // undo a newer edit: three quick edits to one screen (distro,
+        // number, length) came back without the length (binder test under
+        // a parallel run, 2026-09-24). The body and the edit marker are
+        // taken now; only the send waits for the one before it.
+        const marker = this._layerPutIsAnEdit() ? '?edited=1' : '';
+        const payload = JSON.stringify(body);
+        // A PUT still waiting its turn when the whole project is replaced
+        // (file open, New, undo, redo) describes a screen that no longer
+        // exists - and the new project's screen may carry the same id - so
+        // it is dropped, answered locally with its own body. Every caller
+        // already ignores an echo from a project that is gone.
+        const sentProject = this.project;
+        if (!this._layerPutChains) this._layerPutChains = new Map();
+        const prev = this._layerPutChains.get(id) || Promise.resolve();
+        const sent = prev.then(() => undefined, () => undefined).then(() => (
+            this.project !== sentProject
+                ? new Response(payload, { status: 200, headers: { 'Content-Type': 'application/json' } })
+                : fetch(`/api/layer/${id}${marker}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: payload
+                })));
+        this._layerPutChains.set(id, sent);
+        const clear = () => {
+            if (this._layerPutChains.get(id) === sent) this._layerPutChains.delete(id);
+        };
+        sent.then(clear, clear);
+        return sent;
     }
 
     // The breakout the pristine startup screen is re-made with, from a
@@ -1657,6 +1695,12 @@ export class LEDRasterApp {
     }
 
     setupEventListeners() {
+        // Enter in any single-line field ends the edit - one document-level
+        // rule for every field, the JS-built ones included (helpers.js
+        // installEnterEndsEdit; owner, 2026-09-24: "when I hit enter it
+        // doesn't complete the process. It doesn't until I click out of the
+        // box"). Tab is untouched.
+        installEnterEndsEdit(document);
         this.setupPixelMapBulkActions();
         this.setupPerspectiveToggles();
         this.setupNameDisplayToggles();

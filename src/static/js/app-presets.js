@@ -1067,7 +1067,10 @@ class _Presets {
                 this.updatePresetSaveConfirmButton();
             });
             saveName.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter') this.confirmPresetSave();
+                // Enter is Save here; preventDefault keeps the name box out
+                // of the document's Enter-ends-the-edit rule (helpers.js
+                // installEnterEndsEdit), so a refused name keeps its caret.
+                if (e.key === 'Enter') { e.preventDefault(); this.confirmPresetSave(); }
                 else if (e.key === 'Escape') this.closePresetSaveModal();
             });
         }

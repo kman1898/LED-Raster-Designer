@@ -292,3 +292,21 @@ def test_a_click_on_another_name_ends_an_edit_and_selects_it(page):
 def test_no_page_errors(page):
     pg, ids = page
     assert ids['errors'] == [], ids['errors']
+
+
+def test_a_name_with_quotes_and_brackets_shows_whole_in_the_panel(page):
+    """The Screens panel wrote the name raw into the field's value, so a
+    name with a double quote was cut at the quote (2026-09-24)."""
+    page = page[0] if isinstance(page, tuple) else page
+    name = 'Stage "A" <left> & right'
+    page.evaluate("""async (name) => {
+        const app = window.app;
+        const l = app.project.layers.find(x => (x.type || 'screen') === 'screen');
+        l.name = name;
+        await app._putLayer(l.id, { name });
+        app.renderLayers();
+    }""", name)
+    page.wait_for_timeout(300)
+    shown = page.evaluate("""() => [...document.querySelectorAll('.layer-name-input')]
+        .map(i => i.value)""")
+    assert name in shown, shown

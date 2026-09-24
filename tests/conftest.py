@@ -216,6 +216,27 @@ def _restore_project(snapshot):
         app_module.server_preferences = prefs
 
 
+@pytest.fixture(autouse=True)
+def _flask_tests_leave_the_project_as_found(request):
+    """A test that does not drive the browser still shares the live e2e
+    server's project: the Flask `client` fixture, socketio.test_client and
+    direct `app_module` writes all rebind the same module globals the server
+    thread reads. Such a test resets them at its start and used to leave its
+    own project behind - two grouped screens, W0 and W1, landed on the next
+    browser module in the worker. Alphabetical order hid it; the suite runs
+    in parallel split by module since 2026-09-24, and the order within a
+    worker is no longer alphabetical. So every test that does not use the
+    e2e server puts the project and the preferences back the way it found
+    them. Browser tests are left alone: their modules carry state from one
+    test to the next on purpose and restore it with server_project_guard."""
+    if 'e2e_server' in request.fixturenames:
+        yield
+        return
+    snapshot = _snapshot_project()
+    yield
+    _restore_project(snapshot)
+
+
 @pytest.fixture(scope="module")
 def server_project_guard(e2e_server):
     """Snapshot the live server's project at module start, restore at end."""

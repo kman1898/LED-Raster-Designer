@@ -216,7 +216,110 @@ function isTypingTarget(el) {
     return !CONTROL_INPUT_TYPES.has(type);
 }
 
-export { evaluateMathExpression, isMacOS, sendClientLog, registerGlobalClientLogging, setupColorPickerWithHex, normalizeHex, refreshAllColorSwatches, isTypingTarget };
+// Enter ends the edit. Owner, 2026-09-24: "when I type into say the
+// project name text box and finish typing, when I hit enter it doesn't
+// complete the process. It doesn't until I click out of the box ... But in
+// other areas if I don't hit enter I still like being able to tab to the
+// next one."
+//
+// Enter already fired `change` in a text or number field (Chromium and
+// WebKit both), so a field that commits on change had saved - but the box
+// kept the caret and looked unfinished, and a field that commits on BLUR
+// got nothing from Enter at all. The one rule, for every single-line field
+// in the app, the ones the JS builds included: a plain Enter lets go of the
+// field. Blur commits both kinds, and Tab is left exactly as it was.
+//
+// Document level, BUBBLE phase, so a field with its own Enter handler runs
+// first and keeps its own rule: preventDefault() or stopPropagation() opts
+// out (the canvas / group / beach renames, the pull sheet cells, the cable
+// sheet fill boxes, the preset name, the colour window's hex box, the
+// guided tour), and a handler that blurs the field itself (the Screens
+// panel rename, the zoom box) leaves nothing for this rule to do. The
+// release waits one tick so the change handler and any same-tick rebuild
+// have run; if the field is no longer focused it already let go. Left
+// alone on purpose:
+//   - Shift/Ctrl/Meta/Alt+Enter, an IME composing (Enter picks the
+//     candidate), a held key's repeats;
+//   - a textarea (Enter is a newline), a select, contenteditable, and the
+//     control inputs (checkbox, button ... - not typing, isTypingTarget);
+//   - a read-only field (no edit to end - the rename fields sit read-only
+//     until a double-click);
+//   - a field its own change handler flagged `invalid`: the caret stays so
+//     the person can fix what they typed (the watts field);
+//   - a field with a `list` datalist whose suggestion the Enter picked:
+//     WebKit delivers the keydown, then puts the highlighted suggestion in
+//     the box (an `input`, then `change`) before the key comes up; in
+//     Chromium the Enter reached the page with the value untouched (both
+//     measured headed, 2026-09-24). That Enter chose an option, so the
+//     field stays open; the next Enter ends it.
+// A rebuild that hands focus to the SAME field's fresh node in the same
+// tick (_preserveEditorFocus restores by data-lrd-field) is followed there.
+
+// The text-like kinds isTypingTarget counts, less the date and time
+// pickers (their Enter belongs to the picker). el.type reads 'text' for a
+// missing or unknown type.
+const SINGLE_LINE_TYPES = new Set([
+    'text', 'number', 'search', 'email', 'url', 'tel', 'password',
+]);
+
+function isSingleLineField(el) {
+    if (!el || el.tagName !== 'INPUT' || el.isContentEditable) return false;
+    return SINGLE_LINE_TYPES.has(String(el.type || 'text').toLowerCase());
+}
+
+function _sameField(a, b) {
+    if (!a || !b) return false;
+    if (a === b) return true;
+    if (!b.isConnected || a.tagName !== b.tagName) return false;
+    const key = (el) => (el.dataset && (el.dataset.lrdField || el.dataset.hwdock)) || el.id || '';
+    return !!key(a) && key(a) === key(b);
+}
+
+function installEnterEndsEdit(doc) {
+    doc = doc || document;
+    if (doc.__lrdEnterEndsEdit) return;
+    doc.__lrdEnterEndsEdit = true;
+    doc.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter' || e.defaultPrevented) return;
+        if (e.isComposing || e.keyCode === 229 || e.repeat) return;
+        if (e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
+        const el = e.target;
+        if (!isSingleLineField(el) || el.readOnly || el.disabled) return;
+        const release = () => {
+            const now = doc.activeElement;
+            if (!_sameField(el, now)) return;
+            if (now.readOnly) return;
+            if (now.classList.contains('invalid')
+                    || now.getAttribute('aria-invalid') === 'true') return;
+            now.blur();
+        };
+        if (!el.list) {
+            setTimeout(release, 0);
+            return;
+        }
+        // A datalist field: WebKit's pick lands as an `input` a moment
+        // AFTER this tick (measured ~1 ms, always before the Enter's
+        // keyup), so the call waits for the keyup - or half a second, for
+        // a keyup that never comes - and stands aside if a pick arrived.
+        let picked = false;
+        let done = false;
+        const onInput = () => { picked = true; };
+        const onUp = (u) => { if (u.key === 'Enter') setTimeout(decide, 0); };
+        const timer = setTimeout(() => decide(), 500);
+        function decide() {
+            if (done) return;
+            done = true;
+            clearTimeout(timer);
+            el.removeEventListener('input', onInput);
+            doc.removeEventListener('keyup', onUp, true);
+            if (!picked) release();
+        }
+        el.addEventListener('input', onInput);
+        doc.addEventListener('keyup', onUp, true);
+    });
+}
+
+export { evaluateMathExpression, isMacOS, sendClientLog, registerGlobalClientLogging, setupColorPickerWithHex, normalizeHex, refreshAllColorSwatches, isTypingTarget, installEnterEndsEdit };
 
 // Classic (non-module) scripts call these by name at runtime
 // (canvas.js -> sendClientLog, color_picker.js -> normalizeHex,

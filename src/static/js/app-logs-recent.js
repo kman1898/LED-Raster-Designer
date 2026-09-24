@@ -547,11 +547,12 @@ class _LogsRecent {
             this.saveClientSideProperties();
             window.canvasRenderer.fitToView();
 
-            fetch('/api/project', {
+            const loaded = this.project;
+            this._layerSavesSettled().then(() => fetch('/api/project', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(this.project)
-            })
+                body: JSON.stringify(loaded)
+            }))
                 .then(res => res.json())
                 .then(data => {
                     if (!data || !Array.isArray(data.layers)) {

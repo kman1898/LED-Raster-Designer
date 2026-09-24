@@ -264,6 +264,13 @@ window.__cs = {
 """
 
 
+@pytest.fixture(scope="module", autouse=True)
+def _guard(server_project_guard):
+    """Leave the shared server project the way this module found it. The
+    suite runs in parallel split by module (2026-09-24), so a module no
+    longer knows which module ran before it on its worker."""
+
+
 @pytest.fixture(scope="module")
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context()

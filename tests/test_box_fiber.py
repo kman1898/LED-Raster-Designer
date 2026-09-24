@@ -258,6 +258,27 @@ def _served(pg, ids, ok, timeout=15000):
     return pg.evaluate(SERVED_JS, ids)
 
 
+def _settled(pg, ids, ok, timeout=15000):
+    """Wait until no undo/redo restore is on its way, the client's box reads
+    `ok`, and the tray has not redrawn for a quiet 400 ms."""
+    waited = 0
+    while waited < timeout:
+        quiet = pg.evaluate("""(ids) => {
+            const app = window.app;
+            if (app._restorePutPending) return false;
+            const n = document.querySelectorAll('[data-hwdock]').length;
+            const was = window.__dockCount;
+            window.__dockCount = n;
+            return was === n;
+        }""", ids)
+        if quiet and ok(pg.evaluate(STATE_JS, ids)):
+            pg.wait_for_timeout(400)
+            if pg.evaluate("() => !window.app._restorePutPending"):
+                return
+        pg.wait_for_timeout(200)
+        waited += 200
+
+
 def _open_box_gear(pg, ids):
     assert pg.evaluate(OPEN_GEAR_JS, f"box-{ids['boxId']}"), 'the box gear did not open'
     pg.wait_for_timeout(300)
@@ -334,10 +355,15 @@ def test_each_commit_is_one_set_box_fiber_entry_and_undo_takes_it_back(page):
     assert served == {'type': '12 Tac Fiber', 'ft': 250}, served
     assert pg.evaluate(STATE_JS, ids)['index'] == index + 2
     # a blank length clears without a refusal; a bad one is refused and the
-    # stored value stands
+    # stored value stands. Let the redo's restore and the tray redraw it
+    # triggers finish first: under a parallel run the redraw landed after
+    # the fill and replaced the field, so Tab left the stored 250 in place
+    # (2026-09-24).
+    _settled(pg, ids, lambda st: st['ft'] == 250)
     _open_box_gear(pg, ids)
     ft = pg.locator(f'[data-lrd-field="processor-cvt-fiber-ft-{bid}"]')
     ft.fill('')
+    assert ft.input_value() == '', 'the length field was redrawn under the edit'
     ft.press('Tab')
     pg.wait_for_timeout(900)
     served = _served(pg, ids, lambda s: s['ft'] is None)

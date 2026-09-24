@@ -29,6 +29,13 @@ APP_CORE = os.path.join(
 
 # ── Part 1: the capacity tables, re-derived from the published formulas ──
 
+@pytest.fixture(scope="module", autouse=True)
+def _guard(server_project_guard):
+    """Leave the shared server project the way this module found it. The
+    suite runs in parallel split by module (2026-09-24), so a module no
+    longer knows which module ran before it on its worker."""
+
+
 def _parse_port_capacity_tables():
     src = open(APP_CORE).read()
     i = src.index('portCapacityTables = {')

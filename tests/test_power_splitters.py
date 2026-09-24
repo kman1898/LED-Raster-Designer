@@ -55,6 +55,13 @@ pw = pytest.importorskip("playwright.sync_api", reason="playwright not installed
 
 
 @pytest.fixture(scope="module", autouse=True)
+def _guard(server_project_guard):
+    """Leave the shared server project the way this module found it. The
+    suite runs in parallel split by module (2026-09-24), so a module no
+    longer knows which module ran before it on its worker."""
+
+
+@pytest.fixture(scope="module", autouse=True)
 def _restore_server_project(e2e_server):
     """Same isolation as test_doc_geometry.py: snapshot the live e2e
     server's project when this module starts and put it back when it ends."""

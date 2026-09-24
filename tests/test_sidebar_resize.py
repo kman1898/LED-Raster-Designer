@@ -207,8 +207,18 @@ CANVAS_JS = """() => {
 }"""
 
 
-def assert_canvas_matches_wrapper(page, why):
+def assert_canvas_matches_wrapper(page, why, timeout=3000):
+    # The canvas follows its wrapper on the next resize callback; under a
+    # parallel run's load that lands a frame or two after a fixed pause
+    # (526 vs 525, CI 2026-09-24). Wait for it, then judge: a canvas that
+    # never follows still fails.
+    waited = 0
     m = page.evaluate(CANVAS_JS)
+    while (m['canvasW'] != m['wrapperW'] or m['canvasH'] != m['wrapperH']) \
+            and waited < timeout:
+        page.wait_for_timeout(100)
+        waited += 100
+        m = page.evaluate(CANVAS_JS)
     assert m['canvasW'] == m['wrapperW'], (
         f"the canvas kept its old pixel width after {why}: {m}")
     assert m['canvasH'] == m['wrapperH'], (

@@ -171,10 +171,12 @@ jobs:
       - name: Run browser tests
         run: |
           source .venv/bin/activate
-          # Four workers, split by module: every worker is its own pytest
+          # Two workers, split by module: every worker is its own pytest
           # session with its own server port (conftest), and the modules
           # that share the server project guard themselves per module.
-          python -m pytest tests/ -q --tb=short --browser chromium -p no:cacheprovider -n 4 --dist loadfile
+          # Four workers on the 4-core runner starved the browsers (a
+          # marquee read back 0 of 2, an add landed 0 layers, 2026-09-24).
+          python -m pytest tests/ -q --tb=short --browser chromium -p no:cacheprovider -n 2 --dist loadfile
         timeout-minutes: 120
 
   build-check:

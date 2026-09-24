@@ -77,6 +77,12 @@ window.__cap = {
         const o = Object.assign({ columns: 28, rows: 6, cab: 128 }, opts || {});
         this.toasts = [];
         app._toast = (msg) => { window.__cap.toasts.push(String(msg)); };
+        // The last test's layer PUTs go out one after another per screen;
+        // let them land before the project is replaced, the way undo does,
+        // or the last one lands on the new screen with the same id.
+        await Promise.all([...(app._inflightLayerPuts || [])]);
+        await Promise.all([...((app._layerPutChains && app._layerPutChains.values()) || [])]
+            .map(p => p.catch(() => {})));
         let project = await (await fetch('/api/project')).json();
         project.layers = [];
         project.groups = [];

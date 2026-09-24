@@ -48,9 +48,19 @@ class _Processors {
     }
 
     refreshProcessors() {
+        // A read that comes back after the project was swapped - an undo or
+        // redo restore, a file open - describes the server BEFORE that swap
+        // landed, so adopting it put an older processor tree on the page
+        // than the server held: two quick redos left a box's length blank on
+        // the page and 250 on the server (2026-09-24). Such a reply is
+        // dropped and the tree is read again for the project now showing.
+        const asked = this.project;
         return fetch('/api/processors')
             .then(r => r.json())
-            .then(data => this._applyProcessorState(data))
+            .then(data => {
+                if (this.project !== asked) return this.refreshProcessors();
+                return this._applyProcessorState(data);
+            })
             .catch(err => sendClientLog('processor_refresh_failed',
                                         { error: String(err) }));
     }

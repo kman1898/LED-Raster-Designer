@@ -58,6 +58,13 @@ pw = pytest.importorskip("playwright.sync_api", reason="playwright not installed
 
 
 @pytest.fixture(scope="module", autouse=True)
+def _guard(server_project_guard):
+    """Leave the shared server project the way this module found it. The
+    suite runs in parallel split by module (2026-09-24), so a module no
+    longer knows which module ran before it on its worker."""
+
+
+@pytest.fixture(scope="module", autouse=True)
 def _restore_server_project(e2e_server):
     """Keeps this module invisible to its neighbours. A Flask `client` test
     resets the module-global project (the conftest `client` fixture rebuilds

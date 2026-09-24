@@ -29,6 +29,17 @@ v1.3.1 - September 24, 2026
   card or box. The card sheet's With ticked row has the same, writing
   only the ticked ports; a ticked snake member gets its extension.
 - FIX: US spelling in the app's text.
+- FIX: Enter in any single-line field finishes the edit: the value saves
+  and the field lets go, as clicking away does. Tab still moves to the
+  next field. Notes and other multi-line boxes keep Enter as a new line.
+- FIX: Quick edits to one screen reach the server in the order they were
+  made; on a busy machine an older copy could land last and undo a newer
+  change. A save still waiting when a file is opened, a new project is
+  started or an undo lands is dropped instead of landing on the new one.
+- FIX: Two quick undos or redos could leave the tray showing an older
+  state of a processor than the one saved.
+- FIX: A screen name with a double quote shows in full in the Screens
+  panel.
 
 v1.3.0 - September 23, 2026
 ----------------------------
