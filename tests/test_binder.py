@@ -369,6 +369,10 @@ SEED_JS = """async () => {
     app.setCircuitCable(b, 1, {ft: 6, connector: null});
     a.showPowerCableTags = true;
     b.showPowerCableTags = false;
+    // The setSoca* calls above each PUT their layer fire-and-forget; the
+    // refreshes below adopt the SERVER's copy, so on a slow runner a PUT
+    // still in flight lost B's length ("no length", CI 2026-09-23).
+    await Promise.all([...(app._inflightLayerPuts || [])]);
     await app.refreshProcessors();
     for (const l of [a, b, c]) {
         await app._assignmentRequest('/api/port-assignments/place-overflow', 'POST',
