@@ -227,6 +227,32 @@
         A()._setDataCableSheetOpen(o, false);
         if (mode() === 'data-flow') A().renderHardwareDock();
     }
+    // The breakout box's own ≡ sheet (its Fiber section is the first block).
+    function boxOwner() { var b = box(); return b ? { kind: 'cvt', id: b.id } : null; }
+    function boxSheetOpen() { var b = box(); return !!(b && $('[data-lrd-fiber-row="' + b.id + '"]')); }
+    function openBoxSheet() {
+        var o = boxOwner();
+        if (!o || boxSheetOpen()) return;
+        A()._setDataCableSheetOpen(o, true);
+        A().renderHardwareDock();
+    }
+    function closeBoxSheet() {
+        var o = boxOwner();
+        if (!o) return;
+        A()._setDataCableSheetOpen(o, false);
+        if (mode() === 'data-flow') A().renderHardwareDock();
+    }
+    // The box's Primary 1 link and its cable, or null.
+    function boxLink() {
+        var b = box(), a = A();
+        var l = b && b.fiberLinks && b.fiberLinks.p1;
+        var c = l && a.getFiberCable ? a.getFiberCable(l.cable) : null;
+        return c ? { link: l, cable: c } : null;
+    }
+    function boxStrandsText(bl) {
+        var a = A();
+        return bl.link.strands.map(function (n) { return a.fiberStrandName(n, bl.cable); }).join(' and ');
+    }
     function exportOpen() { var m = $('#export-modal'); return !!m && m.style.display === 'block'; }
     function openExport() {
         var a = A();
@@ -2088,6 +2114,7 @@
             proj.name = seed.name || 'Demo Show';
             proj.layers = []; proj.groups = []; proj.processors = []; proj.distros = [];
             proj.beaches = []; proj.snakes = [];
+            delete proj.fiberCables;
             delete proj.port_assignments;
             delete proj.binder;
             delete proj.next_processor_seq;
@@ -2848,6 +2875,117 @@
                     + (span ? ', ' + span + ' on its face' : '') + '; the picker offered ' + mem.offered + ' boxes that fit this unit.';
             },
             after: function () { closePopover(); }
+        },
+        // Fiber to the box (2026-09-25: "after we get it all working we need
+        // to add to advanced guide"): the CVT10 the step above added gets a
+        // TAC through its sheet's Fiber section - New TAC, 12 strands, 1000
+        // ft, ST - and the next step moves its link onto other strands.
+        boxFiber: {
+            target: function () { var b = box(); return b ? '[data-lrd-field="data-cable-sheet-' + b.id + '"]' : '#hardware-dock-body .hw-dock-cablebtn-data'; },
+            place: 'top', title: 'Fiber to the box',
+            body: 'A box&rsquo;s fiber is a TAC, an MTP or an opticalCON, set at the top of its &#8801; sheet. A TAC or MTP is shared by the strand: the next box that picks it takes the next free strands.',
+            before: function () { switchView('data-flow'); closePopover(); closeSheet(); },
+            act: function (t) {
+                var b = box();
+                if (!b) throw new Error('no breakout box on the card');
+                var base = 'fiber-new-' + b.id + '-p1';
+                var go = function (key) {
+                    return function () { return t.wait(function () { return $('[data-lrd-field="' + key + '"]'); }); };
+                };
+                var chain = boxSheetOpen() ? Promise.resolve()
+                    : t.click('[data-lrd-field="data-cable-sheet-' + b.id + '"]').then(function () { return t.wait(boxSheetOpen); });
+                return chain.then(function () {
+                    return t.spot($('[data-lrd-fiber-row="' + b.id + '"]'));
+                }).then(function () { return t.pause(PACE.opened); })
+                .then(go('fiber-link-cable-' + b.id + '-p1'))
+                .then(function () { return t.select('[data-lrd-field="fiber-link-cable-' + b.id + '-p1"]', 'new:tac'); })
+                .then(go(base + '-strands-12'))
+                .then(function () { return t.click('[data-lrd-field="' + base + '-strands-12"]'); })
+                .then(go(base + '-ft'))
+                .then(function () { return t.type('[data-lrd-field="' + base + '-ft"]', '1000', { enter: true }); })
+                .then(go(base + '-conn-ST'))
+                .then(function () { return t.click('[data-lrd-field="' + base + '-conn-ST"]'); })
+                .then(function () { return t.wait(boxLink, 6000); });
+            },
+            check: function () {
+                var bl = boxLink();
+                if (!bl) return null;
+                var c = bl.cable;
+                return (c.name || 'TAC A') + ' · ' + c.strands + ' strands · ' + (c.ft ? c.ft + '\' · ' : '')
+                    + (c.connector || '') + '. Primary 1 rides ' + boxStrandsText(bl) + '.';
+            },
+            after: function (next) { if (!next || !next.fiberStep) closeBoxSheet(); }
+        },
+        fiberStrands: {
+            fiberStep: true,
+            target: function () { var b = box(); return b ? '[data-lrd-field="fiber-strand-' + b.id + '-p1-0"]' : '#hardware-dock-body .hw-dock-fiber-strand'; },
+            place: 'top', title: 'Pick the strands',
+            body: 'Click a strand to move the link, here onto 3 Green and 4 Brown. Edit reads a cable by color, number or sub-unit, NovaStar and Megapixel boxes have BiDi for one strand a link, and the binder maps every strand.',
+            before: function () { switchView('data-flow'); closePopover(); openBoxSheet(); },
+            act: function (t) {
+                var b = box();
+                var move = function (i, to) {
+                    var chip = '[data-lrd-field="fiber-strand-' + b.id + '-p1-' + i + '"]';
+                    var pick = '[data-lrd-field="fiber-strand-pick-' + b.id + '-p1-' + i + '"]';
+                    return t.wait(function () { return $(chip); }).then(function () {
+                        return t.click(chip);
+                    }).then(function () {
+                        return t.wait(function () { return $(pick); });
+                    }).then(function (el) {
+                        if (!el) throw new Error('the strand pick did not open');
+                        return t.select(pick, String(to));
+                    }).then(function () {
+                        return t.wait(function () { var bl = boxLink(); return bl && bl.link.strands[i] === to; }, 6000);
+                    });
+                };
+                return move(0, 3).then(function () { return move(1, 4); })
+                    .then(function () { return t.pause(PACE.rest); });
+            },
+            check: function () {
+                var bl = boxLink();
+                if (!bl || bl.link.strands.join() !== '3,4') return null;
+                return 'Primary 1 rides ' + boxStrandsText(bl) + ' of ' + (bl.cable.name || 'TAC A') + '; 1 and 2 are spare for the next box.';
+            },
+            after: function () { closeBoxSheet(); }
+        },
+        // Jumpers, link by link (1.3.4, app-jumpers.js): the screen's own
+        // vertical and horizontal lengths on the Data sidebar, and the same
+        // pair on the Power sidebar.
+        dataJumpers: {
+            target: '#data-jump-v', place: 'right', title: 'Jumpers, link by link',
+            avoid: ['#data-jump-h'],
+            body: 'The next cabinet above or below takes a vertical jumper, the one beside a horizontal one; blank means the panels link themselves. One not touching takes a long jumper, rounded up to 3, 6, 10, 15 or 25 ft, and a tag.',
+            before: function () { switchView('data-flow'); closeSheet(); },
+            act: function (t) {
+                return t.type('#data-jump-v', '2').then(function () {
+                    return t.type('#data-jump-h', '3');
+                }).then(function () {
+                    return t.wait(function () { var w = wall(); return w && Number(w.dataJumpV) === 2 && Number(w.dataJumpH) === 3; });
+                });
+            },
+            check: function () {
+                var w = wall();
+                if (!w || Number(w.dataJumpV) !== 2 || Number(w.dataJumpH) !== 3) return null;
+                return (w.name || 'The screen') + ' takes 2 ft vertical and 3 ft horizontal data jumpers.';
+            }
+        },
+        powerJumpers: {
+            target: '#power-jump-v', place: 'right', title: 'Power jumpers',
+            avoid: ['#power-jump-h'],
+            body: 'The same two lengths for the power runs, per screen. The defaults for a new screen live in Preferences.',
+            before: function () { switchView('power'); },
+            act: function (t) {
+                return t.type('#power-jump-v', '2').then(function () {
+                    return t.type('#power-jump-h', '3');
+                }).then(function () {
+                    return t.wait(function () { var w = wall(); return w && Number(w.powerJumpV) === 2 && Number(w.powerJumpH) === 3; });
+                });
+            },
+            check: function () {
+                var w = wall();
+                if (!w || Number(w.powerJumpV) !== 2 || Number(w.powerJumpH) !== 3) return null;
+                return (w.name || 'The screen') + ' takes 2 ft vertical and 3 ft horizontal power jumpers.';
+            }
         },
         panelWatts: {
             target: '#power-panel-watts', place: 'right', title: 'Power view and the math',
@@ -3713,11 +3851,11 @@
                     'cabinetIdStyle', 'showLook', 'processing', 'flowPattern', 'addProcessor',
                     'nameProcessor', 'redundancy', 'dropProcessor', 'releasePort', 'attachmentFlag', 'pinPort',
                     'clearPortByMenu', 'clearCard', 'dropProcessorAgain',
-                    'snakePorts', 'cableSheet', 'snakeHomeRun', 'loosePortLength', 'dataCableTags',
-                    'overrideRun', 'addBreakoutBox', 'panelWatts', 'breakoutType', 'addDistro', 'nameDistro',
+                    'snakePorts', 'cableSheet', 'snakeHomeRun', 'loosePortLength', 'dataJumpers', 'dataCableTags',
+                    'overrideRun', 'addBreakoutBox', 'boxFiber', 'fiberStrands', 'panelWatts', 'breakoutType', 'addDistro', 'nameDistro',
                     'distroRating', 'distroPhase', 'distroOutputs',
                     'dropMulti', 'typeChip', 'clearCircuit', 'clearMultiByMenu', 'dropMultiAgain',
-                    'multiCableSheet', 'powerCableTags',
+                    'multiCableSheet', 'powerJumpers', 'powerCableTags',
                     'customPower', 'customDraw', 'splitters', 'balance', 'addBeach', 'screenBeach', 'addScreen', 'beachByMenu', 'groupScreens',
                     'exportBinder', 'screenOrder', 'wiringTick', 'titleBlock', 'preferences',
                     'helpMenu', 'outroAdvanced']

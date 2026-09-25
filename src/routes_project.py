@@ -129,6 +129,10 @@ def save_project():
     # the device that delivers its socket. Idempotent: a project already in
     # the new shape passes through untouched.
     processor_catalog.migrate_device_snakes(app.current_project)
+    # The fiber store held to its rules the same way (links that no longer
+    # hold, bindings nothing backs, an opticalCON whose box is gone) - never
+    # a cable pruned for being unused here: a restore is what it restores.
+    processor_catalog.settle_fiber(app.current_project)
     # Same funnel duty for port attachment: see restore_project below.
     if port_assignment.retire_auto(app.current_project):
         log_event('port_assignment_auto_retired', {'at': 'save_project'})
@@ -249,6 +253,10 @@ def restore_project():
     # the device that delivers its socket. Idempotent: a project already in
     # the new shape passes through untouched.
     processor_catalog.migrate_device_snakes(app.current_project)
+    # The fiber store held to its rules the same way (links that no longer
+    # hold, bindings nothing backs, an opticalCON whose box is gone) - never
+    # a cable pruned for being unused here: a restore is what it restores.
+    processor_catalog.settle_fiber(app.current_project)
     # Auto-numbering retired (user ruling, 2026-09-03): a file saved before
     # it carries no `autoRetired` mark, and its auto-drawn ports have to be
     # frozen into pins ONCE so the drawing does not change on load. The

@@ -10,17 +10,17 @@ now carries two facts about the fiber that feeds it:
   - `fiberFt`   - a finite number of feet, 0 or more; null / blank / 0 clears
     it; anything else is refused with the reason.
 
-Both are stored on the box record (PUT /api/processors/<id>/cvts/<cvtId>),
-ride resolve_card's box out to every reader, and are typed on the Fiber
-row of the box's ≡ cable sheet on the hardware dock - the sheet's first row,
-above its quick fills and ports (2026-09-25: "the fiber info to XD boxes and
-whatnot should be in the cable lengths area not in the menu it is now"; the
-box's ⚙ no longer carries them) - one 'Set Box Fiber' history entry per
-commit. The
-pull list adds ONE row per box with a length - the type (or "Fiber"), the
-length, qty 1, the box's title - and its `unmodelled` note about fiber is
-gone. The binder's data page lists the box instead of the card for the ports
-it delivers (tests/test_binder.py).
+Both are stored on the box record (PUT /api/processors/<id>/cvts/<cvtId>)
+and ride resolve_card's box out to every reader. Since 2026-09-25 the fiber
+that feeds a box is a CABLE of the show's - a TAC, an MTP or an opticalCON,
+its links onto it set on the Fiber section of the box's ≡ sheet
+(tests/test_fiber_cables.py) - and these two typed fields are KEPT AS A
+NOTE: read-only on that section, with Clear (one 'Clear Fiber Note' entry),
+until a link on the box has a cable. Nothing migrates them. While the box
+has no link, the pull list adds ONE row per box with a length - the type
+(or "Fiber"), the length, qty 1, the box's title - as before, and its
+`unmodelled` note about fiber is gone. The binder's data page lists the box
+instead of the card for the ports it delivers (tests/test_binder.py).
 
 Run locally (each session takes its own free port, so it runs beside
 any other):
@@ -303,45 +303,50 @@ def _open_box_sheet(pg, ids):
     pg.wait_for_timeout(300)
 
 
-def test_the_box_sheet_offers_the_gear_lists_fiber_words_and_takes_any(page):
-    """The box's ≡ sheet opens on a Fiber row - "Fiber · CVT10 A", above
-    the quick fills and the port rows - carrying a type field (a datalist
-    seeded from the GEAR LIST's fiber-ish entries - "12 Tac Fiber", "10G
-    Single-Mode SFP" - and nothing that is not fiber) and a feet field, both
-    keyed for focus restore, both empty on a box nobody typed on. No quick
-    fill reaches it."""
+NOTE_JS = """async (ids) => {
+    await fetch(`/api/processors/${ids.procId}/cvts/${ids.boxId}`, {method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({fiberType: '12 Tac Fiber', fiberFt: 250})});
+    await window.app.refreshProcessors();
+    window.app.resetHistory('Box Fiber Note');
+}"""
+
+
+def test_the_box_sheet_opens_on_its_fiber_section_with_the_typed_note_read_only(page):
+    """The box's ≡ sheet opens on its Fiber section - "Fiber · CVT10 A",
+    above the quick fills and the port table. A 1.3 box's typed fiber is
+    KEPT AS A NOTE (2026-09-25): shown read-only, with Clear, until a link
+    has a cable - no type or length field to type into any more (the fiber
+    is a cable of the show's now, tests/test_fiber_cables.py). No quick fill
+    reaches the section."""
     pg, ids = page
+    pg.evaluate(NOTE_JS, ids)
+    pg.wait_for_timeout(300)
     _open_box_sheet(pg, ids)
     bid = ids['boxId']
-    waited = 0
-    while waited < 4000 and pg.evaluate(f"() => document.querySelectorAll('#hw-fiber-types-{bid} option').length") == 0:
-        pg.wait_for_timeout(200)
-        waited += 200
     out = pg.evaluate("""(bid) => {
-        const type = document.querySelector(`[data-lrd-field="processor-cvt-fiber-type-${bid}"]`);
-        const ft = document.querySelector(`[data-lrd-field="processor-cvt-fiber-ft-${bid}"]`);
         const sheet = document.querySelector(`[data-lrd-cable-sheet="cvt:${bid}"]`);
-        const row = type && type.closest('.hw-dock-cable-fiber');
+        const sec = document.querySelector(`[data-lrd-fiber-row="${bid}"]`);
         const kids = sheet ? [...sheet.children] : [];
         return {
-            inSheet: !!(sheet && row && sheet.contains(row) && row.contains(ft)),
-            typeValue: type && type.value, ftValue: ft && ft.value, ftType: ft && ft.type,
-            list: type && type.getAttribute('list'),
-            options: [...document.querySelectorAll(`#hw-fiber-types-${bid} option`)].map(o => o.value),
-            caption: row && row.querySelector('.hw-dock-cable-fiber-cap').textContent,
+            inSheet: !!(sheet && sec && sheet.contains(sec)),
+            caption: sec && sec.querySelector('.hw-dock-cable-fiber-cap').textContent,
+            note: sec && (sec.querySelector('.hw-dock-fiber-legacy-text') || {}).textContent,
+            clear: !!document.querySelector(`[data-lrd-field="fiber-note-clear-${bid}"]`),
+            typed: document.querySelectorAll(`[data-lrd-field^="processor-cvt-fiber-"]`).length,
             order: kids.map(k => k.className),
-            fillsInRow: row ? row.querySelectorAll('button, [data-lrd-field*="fill"]').length : -1,
+            fills: sec ? sec.querySelectorAll('[data-lrd-field*="fill"]').length : -1,
+            rows: sec ? [...sec.querySelectorAll('.hw-dock-fiber-role')].map(r => r.textContent) : [],
         };
     }""", bid)
     assert out['inSheet'], out
-    assert (out['typeValue'], out['ftValue'], out['ftType']) == ('', '', 'number')
-    assert out['list'] == f'hw-fiber-types-{bid}'
-    assert '12 Tac Fiber' in out['options'] and '10G Single-Mode SFP' in out['options'], out['options']
-    assert not [o for o in out['options'] if o in ('Tru-1', 'Multi', 'Ether-con', 'HDMI', 'CVT Rack')], out['options']
     assert out['caption'] == 'Fiber · CVT10 A', out['caption']
-    # the sheet's first row, then the quick fills, then the port table
+    assert out['note'] == "12 Tac Fiber 250'" and out['clear'], out
+    assert out['typed'] == 0, out
+    assert out['rows'] == ['Primary 1'], out
+    # the sheet's first block, then the quick fills, then the port table
     assert out['order'][:3] == ['hw-dock-cable-fiber', 'hw-dock-cable-quick', ''], out['order']
-    assert out['fillsInRow'] == 0, out
+    assert out['fills'] == 0, out
 
 
 def test_the_box_gear_no_longer_carries_the_fiber_fields(page):
@@ -365,102 +370,64 @@ def test_the_box_gear_no_longer_carries_the_fiber_fields(page):
     pg.wait_for_timeout(200)
 
 
-def test_each_commit_is_one_set_box_fiber_entry_and_undo_takes_it_back(page):
+def test_clear_forgets_the_note_in_one_entry_and_undo_brings_it_back(page):
+    """Clear is ONE 'Clear Fiber Note' entry: both typed fields go, and
+    undo puts them back; redo takes them away again. The PUT still refuses
+    a bad length with its reason."""
     pg, ids = page
+    pg.evaluate(NOTE_JS, ids)
+    pg.wait_for_timeout(300)
+    _open_box_sheet(pg, ids)
     bid = ids['boxId']
-    _open_box_sheet(pg, ids)
     index = pg.evaluate(STATE_JS, ids)['index']
-    field = pg.locator(f'[data-lrd-field="processor-cvt-fiber-type-{bid}"]')
-    field.fill('12 Tac Fiber')
-    field.press('Tab')
-    pg.wait_for_timeout(900)
-    st = pg.evaluate(STATE_JS, ids)
-    assert st['type'] == '12 Tac Fiber' and st['ft'] is None, st
-    assert st['action'] == 'Set Box Fiber' and st['index'] == index + 1, st
-    _open_box_sheet(pg, ids)
-    ft = pg.locator(f'[data-lrd-field="processor-cvt-fiber-ft-{bid}"]')
-    ft.fill('250')
-    ft.press('Tab')
-    pg.wait_for_timeout(900)
-    st = pg.evaluate(STATE_JS, ids)
-    assert st['ft'] == 250 and st['type'] == '12 Tac Fiber', st
-    assert st['action'] == 'Set Box Fiber' and st['index'] == index + 2, st
-    served = _served(pg, ids, lambda s: s['ft'] == 250)
-    assert served == {'type': '12 Tac Fiber', 'ft': 250}, served
-    # the fields read the stored values back after the dock rebuilt
-    _open_box_sheet(pg, ids)
-    assert pg.locator(f'[data-lrd-field="processor-cvt-fiber-type-{bid}"]').input_value() == '12 Tac Fiber'
-    assert pg.locator(f'[data-lrd-field="processor-cvt-fiber-ft-{bid}"]').input_value() == '250'
-    # undo: the length, then the type; redo brings both back
-    pg.evaluate('() => window.app.undo()')
-    served = _served(pg, ids, lambda s: s['ft'] is None)
-    assert served == {'type': '12 Tac Fiber', 'ft': None}, served
-    pg.evaluate('() => window.app.undo()')
-    served = _served(pg, ids, lambda s: s['type'] is None)
+    pg.locator(f'[data-lrd-field="fiber-note-clear-{bid}"]').click()
+    served = _served(pg, ids, lambda s: s['type'] is None and s['ft'] is None)
     assert served == {'type': None, 'ft': None}, served
-    assert pg.evaluate(STATE_JS, ids)['index'] == index
-    pg.evaluate('() => window.app.redo()')
-    pg.evaluate('() => window.app.redo()')
+    pg.wait_for_timeout(400)
+    st = pg.evaluate(STATE_JS, ids)
+    assert st['action'] == 'Clear Fiber Note' and st['index'] == index + 1, st
+    _open_box_sheet(pg, ids)
+    assert pg.evaluate(f"() => !document.querySelector('[data-lrd-field=\"fiber-note-clear-{bid}\"]')")
+    pg.evaluate('() => window.app.undo()')
     served = _served(pg, ids, lambda s: s['ft'] == 250)
     assert served == {'type': '12 Tac Fiber', 'ft': 250}, served
-    assert pg.evaluate(STATE_JS, ids)['index'] == index + 2
-    # a blank length clears without a refusal; a bad one is refused and the
-    # stored value stands. Let the redo's restore and the tray redraw it
-    # triggers finish first: under a parallel run the redraw landed after
-    # the fill and replaced the field, so Tab left the stored 250 in place
-    # (2026-09-24).
-    _settled(pg, ids, lambda st: st['ft'] == 250)
-    _open_box_sheet(pg, ids)
-    ft = pg.locator(f'[data-lrd-field="processor-cvt-fiber-ft-{bid}"]')
-    ft.fill('')
-    assert ft.input_value() == '', 'the length field was redrawn under the edit'
-    ft.press('Tab')
-    pg.wait_for_timeout(900)
+    pg.evaluate('() => window.app.redo()')
     served = _served(pg, ids, lambda s: s['ft'] is None)
-    assert served == {'type': '12 Tac Fiber', 'ft': None}
-    assert pg.evaluate(STATE_JS, ids)['index'] == index + 3
+    assert served == {'type': None, 'ft': None}, served
+    _settled(pg, ids, lambda st: st['ft'] is None)
     refused = pg.evaluate("""async (ids) => {
         const r = await fetch(`/api/processors/${ids.procId}/cvts/${ids.boxId}`, {method: 'PUT',
             headers: {'Content-Type': 'application/json'}, body: JSON.stringify({fiberFt: -5})});
         return { status: r.status, body: await r.json() };
     }""", ids)
     assert refused['status'] == 400 and refused['body']['error'].startswith('Fiber length')
-    pg.evaluate("""async (ids) => {
-        await fetch(`/api/processors/${ids.procId}/cvts/${ids.boxId}`, {method: 'PUT',
-            headers: {'Content-Type': 'application/json'}, body: JSON.stringify({fiberFt: 250})});
-        await window.app.refreshProcessors();
-    }""", ids)
     assert ids['errors'] == []
 
 
-def test_the_fiber_row_survives_a_tray_rebuild(page):
-    """The tray redraws wholesale; the sheet stays open (a per-box viewing
-    choice), its Fiber row comes back first with the stored type and length,
-    and a fiber field that held focus through the wipe holds it after."""
+def test_the_fiber_section_survives_a_tray_rebuild(page):
+    """The section is rebuilt with the tray and keeps its keys: a focused
+    link select is focused again on the fresh element."""
     pg, ids = page
     _open_box_sheet(pg, ids)
     bid = ids['boxId']
     out = pg.evaluate("""async (bid) => {
-        const key = `processor-cvt-fiber-ft-${bid}`;
+        const key = `fiber-link-cable-${bid}-p1`;
         const before = document.querySelector(`[data-lrd-field="${key}"]`);
         before.focus();
         window.app.renderHardwareDock();
         await new Promise(r => setTimeout(r, 50));
         const sheet = document.querySelector(`[data-lrd-cable-sheet="cvt:${bid}"]`);
-        const type = document.querySelector(`[data-lrd-field="processor-cvt-fiber-type-${bid}"]`);
-        const ft = document.querySelector(`[data-lrd-field="${key}"]`);
+        const sel = document.querySelector(`[data-lrd-field="${key}"]`);
         return {
-            sheet: !!sheet, fresh: ft !== before,
+            sheet: !!sheet, fresh: sel !== before,
             first: sheet && sheet.firstElementChild.className,
             rows: document.querySelectorAll(`[data-lrd-fiber-row="${bid}"]`).length,
-            type: type && type.value, ft: ft && ft.value,
             focused: document.activeElement && document.activeElement.dataset.lrdField,
         };
     }""", bid)
     assert out['sheet'] and out['fresh'], out
     assert out['first'] == 'hw-dock-cable-fiber' and out['rows'] == 1, out
-    assert (out['type'], out['ft']) == ('12 Tac Fiber', '250'), out
-    assert out['focused'] == f'processor-cvt-fiber-ft-{bid}', out
+    assert out['focused'] == f'fiber-link-cable-{bid}-p1', out
     pg.evaluate('() => document.activeElement && document.activeElement.blur()')
     assert ids['errors'] == []
 
@@ -470,8 +437,12 @@ def test_the_pull_list_lists_the_boxs_fiber_once_and_nothing_is_unmodelled(page)
     qty 1, labelled with the box's title, on the data side - in the
     position and on the processor's hardware list; every port names its
     box; `unmodelled` is empty. Untyped, the row is "Fiber"; with no
-    length, no row."""
+    length, no row. (A 1.3 typed note: it prints as before while the box
+    has no fiber link - tests/test_fiber_cables.py covers the cables.)"""
     pg, ids = page
+    pg.evaluate(NOTE_JS, ids)
+    pg.wait_for_timeout(300)
+    pg.evaluate("async () => { await window.app.refreshPortAssignment(); }")
     out = pg.evaluate(LIST_JS)
     fiber = [r for r in out['rows'] if 'Fiber' in r[0]]
     assert fiber == [['12 Tac Fiber', "250'", 1, 'CVT10 A', '', 'data']], out['rows']

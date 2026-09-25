@@ -84,6 +84,13 @@ class _Processors {
                 && (data.snakes.length || this.project.snakes)) {
             this.project.snakes = data.snakes;
         }
+        // The show's fiber cables, the same way - except that an emptied
+        // list leaves no key behind (the server drops it too), so the
+        // project copy undo snapshots never says `fiberCables: []`.
+        if (Array.isArray(data.fiberCables) && this.project) {
+            if (data.fiberCables.length) this.project.fiberCables = data.fiberCables;
+            else delete this.project.fiberCables;
+        }
         // Only stamp the key onto the project once there is something to
         // store. Writing an empty array here would put `processors: []` into
         // every saved file of every user who never opens this panel, and the
@@ -1201,11 +1208,11 @@ class _Processors {
         });
         wrap.appendChild(names);
 
-        // The box's fiber trunk - its type and length - is typed on the
-        // box's ≡ cable sheet, the first row above its ports (2026-09-25:
-        // "the fiber info to XD boxes and whatnot should be in the cable
-        // lengths area not in the menu it is now"); the gear keeps the
-        // box's place.
+        // The box's fiber - its links onto the show's TAC, MTP and
+        // opticalCON cables - is set on the box's ≡ cable sheet, the Fiber
+        // section above its ports (2026-09-25: "the fiber info to XD boxes
+        // and whatnot should be in the cable lengths area not in the menu
+        // it is now"); the gear keeps the box's place.
         //
         // Where the box sits (2026-09-07: "We need to be able to put CVT's
         // or prcessor's at beach locations so they can be accounted for
@@ -1301,30 +1308,6 @@ class _Processors {
 
 
 
-    // The fiber types a box's cable sheet offers on its Fiber row
-    // (app-dock-cable-sheets.js): the pull sheet's GEAR LIST entries
-    // that name a fiber (Fiber, Tac, SFP, OM3/OM4, SM), read once from
-    // GET /api/pull-sheet/gear-list. Free typing is always allowed; this
-    // is only what the datalist suggests.
-    _fiberTypeSuggestions() {
-        const pick = (types) => (types || []).filter(t =>
-            /fiber|fibre|\btac\b|sfp|\bom\d\b|\bsm\b/i.test(String(t)));
-        if (this._pullSheetVocab) {
-            return Promise.resolve(pick(this._pullSheetVocab.types));
-        }
-        if (typeof this._pullSheetLoadVocab === 'function') {
-            this._pullSheetLoadVocab();
-            if (this._pullSheetVocabLoading) {
-                return this._pullSheetVocabLoading.then(() =>
-                    pick(this._pullSheetVocab && this._pullSheetVocab.types));
-            }
-        }
-        return fetch('/api/pull-sheet/gear-list')
-            .then(r => (r.ok ? r.json() : { types: [] }))
-            .then(v => pick(v.types))
-            .catch(() => []);
-    }
-
     // ── data cables: snakes and port home runs ──────────────────────────
     //
     // "we need to have the same option for data homeruns. we can combine
@@ -1349,9 +1332,10 @@ class _Processors {
     // PUT for a port cable, /api/snakes for a snake - so every commit is
     // ONE history entry.
 
-    // Copper only: fiber is the breakout box's trunk (cvt.fiberType /
-    // fiberFt on the Fiber row of the box's ≡ sheet), never a port's or a
-    // snake's plug - "panels dont take fiber" (2026-09-07).
+    // Copper only: fiber is the breakout box's trunk (its links onto the
+    // show's fiber cables, app-fiber.js, set on the Fiber section of the
+    // box's ≡ sheet), never a port's or a snake's plug - "panels dont take
+    // fiber" (2026-09-07).
     getDataCableConnectors() {
         return (this._dataCableConnectors || [
             { id: 'cat', name: 'CAT' },

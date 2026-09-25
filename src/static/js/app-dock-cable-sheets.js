@@ -4,6 +4,7 @@
 // memory of which face a box shows. Moved verbatim out of app-dock.js and
 // attached to the prototype via the carrier class.
 import { LEDRasterApp } from './app-core.js';
+import { fiberStrandName, FIBER_STRAND_SUGGESTIONS, TAC_CONNECTORS } from './app-fiber.js';
 
 class _DockCableSheets {
     // ── the box's cable sheet ─────────────────────────────────────────────
@@ -450,7 +451,7 @@ class _DockCableSheets {
     // row (tick · "SNAKE A · 6 channel" · name · ft) with its members dim
     // under it carrying their extensions, a free socket dim. ABOVE the
     // rows: "With ticked: Snake / Unsnake" and the quick fills - and on a
-    // box, above those, its Fiber row (_dockBuildBoxFiberRow). Each
+    // box, above those, its Fiber section (_dockBuildBoxFiberSection). Each
     // commit is ONE entry ('Set Port Cable' / 'Set Snake Home Run' /
     // 'Rename Snake' / 'Snake Ports' / 'Unsnake'); the DOM restates after
     // the round-trip, and Tab walks the ft column across it.
@@ -802,91 +803,502 @@ class _DockCableSheets {
             'Every loose port here gets the typed length as its home run; '
             + 'snakes keep theirs. One undo step.',
             (ft) => this.fillPortCables(owner, ft, ports).then(after));
-        // A box's fiber trunk is the sheet's FIRST row, above the quick
-        // fills and the ports (2026-09-25) - a fact of the box, not of a
-        // port, so the fills below it never reach it.
-        if (owner.kind === 'cvt') sheet.appendChild(this._dockBuildBoxFiberRow(owner));
+        // A box's fiber is the sheet's FIRST block, above the quick fills
+        // and the ports (2026-09-25) - a fact of the box, not of a port, so
+        // the fills below it never reach it.
+        if (owner.kind === 'cvt') sheet.appendChild(this._dockBuildBoxFiberSection(owner));
         sheet.appendChild(quick);
         sheet.appendChild(table);
         return sheet;
     }
 
-    // "the fiber info to XD boxes and whatnot should be in the cable
-    // lengths area not in the menu it is now" (2026-09-25): the box's
-    // trunk - what the fiber is and how long its home run is - typed on
-    // its ≡ sheet, where the rest of its cables are, and no longer in its
-    // ⚙. Every box gets the row, backup and copy boxes included, as every
-    // box's ⚙ offered the fields. The type offers the GEAR LIST's
-    // fiber-ish words (12 Tac Fiber, 10G Single-Mode SFP …) and takes
-    // anything typed; the feet are a number, blank clears. One PUT per
-    // commit, one 'Set Box Fiber' entry; the server validates and refuses.
-    // The field keys are the ones the ⚙ used, so focus restore and every
-    // reader of them keep working; the classes are the row's own, so no
-    // reader of the port rows' fields (.hw-dock-cable-ft / -name) finds
-    // these first. Neither field is on the ft column's
-    // Tab walk or under a quick fill - those are for port cables.
-    _dockBuildBoxFiberRow(owner) {
-        const cvt = owner.rec;
-        const url = this._dataCableOwnerUrl(owner);
-        const row = document.createElement('div');
-        row.className = 'hw-dock-cable-fiber';
-        row.dataset.lrdFiberRow = cvt.id;
-        const tag = cvt.backupOf ? ' (backup)'
-            : (cvt.duplicateOf ? ' (copy)' : '');
-        const cap = document.createElement('span');
-        cap.className = 'hw-dock-cable-fiber-cap';
-        cap.textContent = `Fiber · ${cvt.displayTitle || cvt.name
-            || cvt.deviceName}${tag}`;
-        row.appendChild(cap);
-
-        const type = document.createElement('input');
-        type.type = 'text';
-        type.className = 'hw-dock-cable-fiber-type';
-        type.value = cvt.fiberType || '';
-        type.placeholder = 'fiber type';
-        type.dataset.lrdField = `processor-cvt-fiber-type-${cvt.id}`;
-        type.title = 'The fiber that feeds this box - pick from the gear '
-            + 'list or type your own. Blank clears.';
-        const listId = `hw-fiber-types-${cvt.id}`;
-        const list = document.createElement('datalist');
-        list.id = listId;
-        type.setAttribute('list', listId);
-        this._fiberTypeSuggestions().then(names => {
-            list.innerHTML = '';
-            names.forEach(n => {
-                const opt = document.createElement('option');
-                opt.value = n;
-                list.appendChild(opt);
+    // THE BOX'S FIBER SECTION - the sheet's first block, above the quick
+    // fills and the ports (2026-09-25). A box's trunk links each take a
+    // cable of the show's (app-fiber.js): one row per link - Primary 1..K,
+    // then Backup 1..K where a backup record is bound to this box (the
+    // same metal taking a second fiber), tinted - each with its cable
+    // select, the strands it takes as swatched chips (click one to change
+    // it), and Edit for the cable's own fields. "New TAC…" asks the strand
+    // count, then the length, then the ends; "New MTP…" the count and the
+    // length; an opticalCON its length. The BiDi switch (one strand a link)
+    // shows only where the box's vendor offers it. A bound backup record
+    // says where its fiber is set, with Unbind; a box on a backup
+    // processor offers "Same box as". A 1.3 typed fiber stays as a
+    // read-only note, with Clear, until a link has a cable. Every commit is
+    // ONE request and ONE history entry; the server refuses with the
+    // reason. The row's element keys are the tests' and focus restore's.
+    _dockBuildBoxFiberSection(owner) {
+        const box = owner.rec;
+        const sec = document.createElement('div');
+        sec.className = 'hw-dock-cable-fiber';
+        sec.dataset.lrdFiberRow = box.id;
+        const button = (label, key, title, run) => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'btn hw-dock-btn';
+            b.textContent = label;
+            b.title = title;
+            b.dataset.lrdField = key;
+            b.addEventListener('click', (e) => {
+                e.stopPropagation();
+                run();
             });
-        });
-        type.addEventListener('change', () => this._processorRequest(
-            url, 'PUT', { fiberType: type.value.trim() }, 'Set Box Fiber'));
-        row.appendChild(type);
-        row.appendChild(list);
+            return b;
+        };
+        const line = (cls) => {
+            const d = document.createElement('div');
+            d.className = cls;
+            sec.appendChild(d);
+            return d;
+        };
+        const text = (cls, t) => {
+            const s = document.createElement('span');
+            s.className = cls;
+            s.textContent = t;
+            return s;
+        };
 
-        const run = document.createElement('span');
-        run.className = 'hw-dock-cable-fiber-run';
-        const ft = document.createElement('input');
-        ft.type = 'number';
+        const head = line('hw-dock-fiber-head');
+        const tag = box.backupOf ? ' (backup)' : (box.duplicateOf ? ' (copy)' : '');
+        head.appendChild(text('hw-dock-cable-fiber-cap',
+            `Fiber · ${box.displayTitle || box.name || box.deviceName}${tag}`));
+        if (!box.boundTo && box.bidiAllowed) {
+            const lab = document.createElement('label');
+            lab.className = 'hw-dock-fiber-bidi';
+            lab.title = 'BiDi optics: each link takes ONE strand instead of '
+                + 'two. Switching it re-fits this box’s links.';
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.checked = !!box.bidi;
+            cb.dataset.lrdField = `fiber-bidi-${box.id}`;
+            cb.addEventListener('change', () => this.setBoxFiber(
+                box, { bidi: cb.checked }, 'Set BiDi'));
+            lab.appendChild(cb);
+            lab.appendChild(document.createTextNode(' BiDi'));
+            head.appendChild(lab);
+        }
+
+        // The 1.3 note: read-only, with Clear, until a link has a cable.
+        const note = this.fiberLegacyNote(box);
+        if (note && !this.fiberBoxHasLink(box)) {
+            const row = line('hw-dock-fiber-legacy');
+            row.appendChild(text('hw-dock-fiber-dim', 'Note: '));
+            row.appendChild(text('hw-dock-fiber-legacy-text', note));
+            row.title = 'What was typed on this box before fiber cables. It '
+                + 'prints on the pull sheet until a link has a cable.';
+            row.appendChild(button('Clear', `fiber-note-clear-${box.id}`,
+                'Forget the typed note. One undo step.',
+                () => this._processorRequest(this._fiberBoxUrl(box), 'PUT',
+                    { fiberType: '', fiberFt: null }, 'Clear Fiber Note')));
+        }
+
+        if (box.boundTo) {
+            const row = line('hw-dock-fiber-bound');
+            const primary = box.boundTitle
+                || ((this.fiberBoxById(box.boundTo) || {}).displayTitle) || 'its primary';
+            row.appendChild(text('hw-dock-fiber-bound-text',
+                `Bound to ${primary}; its fiber is set there.`));
+            row.appendChild(button('Unbind', `fiber-unbind-${box.id}`,
+                'Make this a box of its own, with its own fiber. One undo step.',
+                () => this.setBoxFiber(box, box.boundManual
+                    ? { boundTo: null } : { unbound: true }, 'Unbind Box')));
+            return sec;
+        }
+        if (box.unbound && box.backupOf) {
+            const row = line('hw-dock-fiber-bound');
+            const primary = (this.fiberBoxById(box.backupOf) || {}).displayTitle || 'its primary';
+            row.appendChild(text('hw-dock-fiber-bound-text',
+                `Unbound from ${primary}; its fiber is set here.`));
+            row.appendChild(button('Bind', `fiber-bind-${box.id}`,
+                `This is the same box as ${primary} taking a second fiber - `
+                + 'set its fiber there. One undo step.',
+                () => this.setBoxFiber(box, { unbound: false }, 'Bind Box')));
+        }
+        const targets = box.fiberBindTargets || [];
+        if (targets.length) {
+            const row = line('hw-dock-fiber-bound');
+            row.appendChild(text('hw-dock-fiber-dim', 'Same box as '));
+            const sel = document.createElement('select');
+            sel.className = 'hw-dock-cable-connector hw-dock-fiber-select';
+            sel.dataset.lrdField = `fiber-same-box-${box.id}`;
+            sel.title = 'Where this backup box is the same metal as a box of '
+                + 'the processor it backs up, pick it: its fiber is then set '
+                + 'there, as that box’s backup links.';
+            const none = document.createElement('option');
+            none.value = '';
+            none.textContent = '— its own box';
+            sel.appendChild(none);
+            targets.forEach(t => {
+                const o = document.createElement('option');
+                o.value = t.id;
+                o.textContent = t.title;
+                sel.appendChild(o);
+            });
+            sel.value = '';
+            sel.addEventListener('change', () => this.setBoxFiber(
+                box, { boundTo: sel.value || null }, 'Bind Box'));
+            row.appendChild(sel);
+        }
+
+        // The ends a TAC is offered (typing any other is fine), for the
+        // New TAC step and the cable editor below.
+        const ends = document.createElement('datalist');
+        ends.id = `hw-fiber-connectors-${box.id}`;
+        TAC_CONNECTORS.forEach(c => {
+            const o = document.createElement('option');
+            o.value = c;
+            ends.appendChild(o);
+        });
+        sec.appendChild(ends);
+        for (const l of this.fiberBoxLinks(box)) {
+            const row = line('hw-dock-fiber-link' + (l.backup ? ' hw-dock-fiber-link-backup' : ''));
+            row.dataset.lrdFiberLink = `${box.id}:${l.key}`;
+            row.appendChild(text('hw-dock-fiber-role', l.title));
+            row.appendChild(this._dockBuildFiberSelect(box, l));
+            if (l.cable) {
+                (l.link.strands || []).forEach((s, i) =>
+                    row.appendChild(this._dockBuildFiberStrandChip(box, l, s, i)));
+                row.appendChild(button('Edit', `fiber-edit-${box.id}-${l.key}`,
+                    `${l.cable.name}’s name, strand count, length, ends and `
+                    + 'strand names.',
+                    () => {
+                        const open = this._fiberEdit && this._fiberEdit.boxId === box.id
+                            && this._fiberEdit.key === l.key;
+                        this._fiberEdit = open ? null : { boxId: box.id, key: l.key };
+                        this.renderHardwareDock();
+                    }));
+            }
+            const wz = this._fiberWizard;
+            if (wz && wz.boxId === box.id && wz.key === l.key) {
+                sec.appendChild(this._dockBuildFiberWizard(box, l));
+            }
+            const ed = this._fiberEdit;
+            if (l.cable && ed && ed.boxId === box.id && ed.key === l.key) {
+                sec.appendChild(this._dockBuildFiberEditor(box, l));
+            }
+        }
+        return sec;
+    }
+
+    // One link's cable select: the show's TACs and MTPs ("TAC A · 12 ·
+    // 1000' · ST"), this box's own opticalCONs, the four New… entries, and
+    // None. An unset backup link lists its primary link's cable first - the
+    // default the owner asked for - and picking any cable takes its next
+    // free strands.
+    _dockBuildFiberSelect(box, l) {
+        const sel = document.createElement('select');
+        sel.className = 'hw-dock-cable-connector hw-dock-fiber-select';
+        sel.dataset.lrdField = `fiber-link-cable-${box.id}-${l.key}`;
+        sel.title = 'The cable this link takes. Picking one takes its next '
+            + 'free strands; click a strand to change it.';
+        const opt = (value, label) => {
+            const o = document.createElement('option');
+            o.value = value;
+            o.textContent = label;
+            sel.appendChild(o);
+        };
+        let stranded = this.getFiberCables().filter(c => this.fiberCableIsStranded(c));
+        if (l.backup && !l.link) {
+            const primary = ((box.fiberLinks || {})[`p${l.key.slice(1)}`] || {}).cable;
+            stranded = stranded.filter(c => c.id === primary)
+                .concat(stranded.filter(c => c.id !== primary));
+        }
+        stranded.forEach(c => opt(c.id, this.fiberCableOptionText(c)));
+        this.getFiberCables()
+            .filter(c => !this.fiberCableIsStranded(c) && c.ownerBoxId === box.id)
+            .forEach(c => opt(c.id, this.fiberCableOptionText(c)));
+        opt('new:tac', 'New TAC…');
+        opt('new:mtp', 'New MTP…');
+        opt('new:opticalcon-duo', 'New opticalCON DUO…');
+        opt('new:opticalcon-quad', 'New opticalCON QUAD…');
+        opt('', 'None');
+        sel.value = l.link ? l.link.cable : '';
+        sel.addEventListener('change', () => {
+            const v = sel.value;
+            if (v.startsWith('new:')) {
+                this._fiberWizard = { boxId: box.id, key: l.key, kind: v.slice(4),
+                                      step: v === 'new:tac' || v === 'new:mtp' ? 'strands' : 'ft',
+                                      focus: true };
+                this.renderHardwareDock();
+                return;
+            }
+            if (!v) {
+                this.setFiberLink(box, l.key, { cable: null }, 'Clear Fiber Link');
+                return;
+            }
+            this.setFiberLink(box, l.key, { cable: v }, 'Set Fiber Link');
+        });
+        return sel;
+    }
+
+    // A strand as a chip: its swatch (the tracer as a stripe) and its name.
+    // A click turns it into a pick of the cable's strands - the ones other
+    // links hold are listed, disabled, with who holds them.
+    _dockBuildFiberStrandChip(box, l, strand, i) {
+        const cable = l.cable;
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'hw-dock-fiber-strand';
+        chip.dataset.lrdField = `fiber-strand-${box.id}-${l.key}-${i}`;
+        chip.title = `Strand ${strand} of ${cable.name} - click to change it.`;
+        chip.appendChild(this._fiberSwatch(strand, cable));
+        chip.appendChild(document.createTextNode(this.fiberStrandName(strand, cable)));
+        chip.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const users = this.fiberStrandUsers(cable.id);
+            const sel = document.createElement('select');
+            sel.className = 'hw-dock-cable-connector hw-dock-fiber-select';
+            sel.dataset.lrdField = `fiber-strand-pick-${box.id}-${l.key}-${i}`;
+            for (let n = 1; n <= (cable.strands || 0); n++) {
+                const o = document.createElement('option');
+                o.value = String(n);
+                const who = users.get(n);
+                const mine = who && who.box.id === box.id && who.key === l.key;
+                o.textContent = this.fiberStrandName(n, cable) + (who && !mine
+                    ? ` · ${who.box.displayTitle || who.box.deviceName} ${this.fiberLinkTitle(who.key)}` : '');
+                o.disabled = !!who && !mine;
+                sel.appendChild(o);
+            }
+            sel.value = String(strand);
+            let changed = false;
+            sel.addEventListener('change', () => {
+                changed = true;
+                const strands = (l.link.strands || []).slice();
+                strands[i] = parseInt(sel.value, 10);
+                this.setFiberLink(box, l.key, { cable: cable.id, strands }, 'Set Fiber Strands');
+            });
+            sel.addEventListener('blur', () => { if (!changed) sel.replaceWith(chip); });
+            chip.replaceWith(sel);
+            sel.focus();
+        });
+        return chip;
+    }
+
+    _fiberSwatch(strand, cable) {
+        const sw = document.createElement('span');
+        sw.className = 'hw-dock-fiber-swatch';
+        const { base, tracer } = this.fiberStrandSwatch(strand, cable);
+        sw.style.background = tracer
+            ? `linear-gradient(135deg, ${base} 0 58%, ${tracer} 58% 100%)` : base;
+        return sw;
+    }
+
+    // "New TAC…" and its siblings, one step at a time under the link's row:
+    // the strand count (TAC, MTP), the length, the ends (TAC). The cable is
+    // made with this link on it in ONE request - one undo step - and takes
+    // strands 1..n of it. Enter moves on; Cancel drops it.
+    _dockBuildFiberWizard(box, l) {
+        const wz = this._fiberWizard;
+        const word = this.fiberKindWord(wz.kind);
+        const div = document.createElement('div');
+        div.className = 'hw-dock-fiber-wizard';
+        div.dataset.lrdFiberWizard = `${box.id}:${l.key}`;
+        const cap = document.createElement('span');
+        cap.className = 'hw-dock-fiber-dim';
+        div.appendChild(cap);
+        const button = (label, key, title, run) => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'btn hw-dock-btn';
+            b.textContent = label;
+            b.title = title;
+            b.dataset.lrdField = key;
+            b.addEventListener('click', (e) => {
+                e.stopPropagation();
+                run();
+            });
+            div.appendChild(b);
+            return b;
+        };
+        const field = (type, key, value, placeholder, onEnter) => {
+            const f = document.createElement('input');
+            f.type = type;
+            f.className = type === 'number' ? 'hw-dock-cable-ft' : 'hw-dock-fiber-text';
+            if (type === 'number') { f.min = '0'; f.step = 'any'; }
+            f.value = value == null ? '' : String(value);
+            f.placeholder = placeholder;
+            f.dataset.lrdField = key;
+            f.addEventListener('keydown', (e) => {
+                if (e.key !== 'Enter') return;
+                e.preventDefault();
+                e.stopPropagation();
+                onEnter();
+            });
+            div.appendChild(f);
+            if (wz.focus) {
+                wz.focus = false;
+                requestAnimationFrame(() => f.focus());
+            }
+            return f;
+        };
+        const step = (next) => {
+            Object.assign(wz, next, { focus: true });
+            this.renderHardwareDock();
+        };
+        const create = () => {
+            const body = { kind: wz.kind, link: { boxId: box.id, key: l.key } };
+            if (wz.kind === 'tac' || wz.kind === 'mtp') body.strands = wz.strands;
+            if (wz.ft) body.ft = wz.ft;
+            if (wz.connector) body.connector = wz.connector;
+            this._fiberWizard = null;
+            this.createFiberCable(body, `New ${word}`);
+        };
+        const base = `fiber-new-${box.id}-${l.key}`;
+        if (wz.step === 'strands') {
+            cap.textContent = `New ${word} · strands:`;
+            const take = (n) => {
+                const v = parseInt(n, 10);
+                if (!(Number.isFinite(v) && v >= 1 && String(v) === String(n).trim())) {
+                    this._dockSay('Type a whole number of strands, 1 or more.');
+                    return;
+                }
+                step({ strands: v, step: 'ft' });
+            };
+            FIBER_STRAND_SUGGESTIONS.forEach(n => button(String(n), `${base}-strands-${n}`,
+                `A ${n}-strand ${word}.`, () => take(n)));
+            const f = field('number', `${base}-strands`, wz.strands, 'n', () => take(f.value));
+            f.step = '1';
+            f.min = '1';
+            button('Next', `${base}-strands-next`, 'On to the length.', () => take(f.value));
+        } else if (wz.step === 'ft') {
+            cap.textContent = `New ${word} · length:`;
+            const go = () => {
+                const raw = f.value.trim();
+                const v = raw === '' ? null : Number(raw);
+                if (v !== null && !(Number.isFinite(v) && v >= 0)) {
+                    this._dockSay('Type a length in feet, or leave it blank.');
+                    return;
+                }
+                if (wz.kind === 'tac') step({ ft: v, step: 'connector' });
+                else { wz.ft = v; create(); }
+            };
+            const f = field('number', `${base}-ft`, wz.ft, 'ft', go);
+            div.appendChild(document.createTextNode(' ft '));
+            button(wz.kind === 'tac' ? 'Next' : 'Create', `${base}-ft-next`,
+                wz.kind === 'tac' ? 'On to the ends.' : `Make the ${word} on this link.`, go);
+        } else {
+            cap.textContent = `New ${word} · ends:`;
+            TAC_CONNECTORS.forEach(c => button(c, `${base}-conn-${c.replace(/\s+/g, '-')}`,
+                `${c} on both ends. Makes the TAC on this link.`,
+                () => { wz.connector = c; create(); }));
+            const f = field('text', `${base}-conn`, wz.connector, 'other', () => {
+                wz.connector = f.value.trim();
+                create();
+            });
+            f.setAttribute('list', `hw-fiber-connectors-${box.id}`);
+            button('Create', `${base}-create`, 'Make the TAC on this link - ends as typed, '
+                + 'or none.', () => { wz.connector = f.value.trim(); create(); });
+        }
+        button('Cancel', `${base}-cancel`, 'Make nothing.', () => {
+            this._fiberWizard = null;
+            this.renderHardwareDock();
+        });
+        return div;
+    }
+
+    // One cable's own fields, under the link it was opened from. Each
+    // commit is one request and one history entry.
+    _dockBuildFiberEditor(box, l) {
+        const cable = l.cable;
+        const ed = document.createElement('div');
+        ed.className = 'hw-dock-fiber-editor';
+        ed.dataset.lrdFiberEditor = cable.id;
+        const put = (body, action) => this.setFiberCable(cable.id, body, action);
+        const field = (label, el) => {
+            const lab = document.createElement('label');
+            lab.className = 'hw-dock-fiber-field';
+            const s = document.createElement('span');
+            s.className = 'hw-dock-fiber-dim';
+            s.textContent = label;
+            lab.appendChild(s);
+            lab.appendChild(el);
+            ed.appendChild(lab);
+            return el;
+        };
+        const input = (type, key, value, cls) => {
+            const f = document.createElement('input');
+            f.type = type;
+            f.className = cls || (type === 'number' ? 'hw-dock-cable-ft' : 'hw-dock-fiber-text');
+            f.value = value == null ? '' : String(value);
+            f.dataset.lrdField = key;
+            return f;
+        };
+        const name = field('name', input('text', `fiber-cable-name-${cable.id}`, cable.name));
+        name.addEventListener('change', () => put({ name: name.value }, 'Rename Fiber Cable'));
+        if (this.fiberCableIsStranded(cable)) {
+            const n = field('strands', input('number', `fiber-cable-strands-${cable.id}`, cable.strands));
+            n.min = '1';
+            n.step = '1';
+            n.addEventListener('change', () => {
+                const v = parseInt(n.value, 10);
+                if (!(Number.isFinite(v) && v >= 1)) {
+                    n.value = String(cable.strands);
+                    this._dockSay('Type a whole number of strands, 1 or more.');
+                    return;
+                }
+                put({ strands: v }, 'Set Fiber Strand Count');
+            });
+        }
+        const ft = field('ft', input('number', `fiber-cable-ft-${cable.id}`,
+            Number(cable.ft) > 0 ? cable.ft : ''));
         ft.min = '0';
         ft.step = 'any';
         ft.placeholder = '—';
-        ft.className = 'hw-dock-cable-fiber-ft';
-        ft.value = cvt.fiberFt != null ? String(cvt.fiberFt) : '';
-        ft.dataset.lrdField = `processor-cvt-fiber-ft-${cvt.id}`;
-        ft.title = 'The fiber’s length in feet. Blank = no length.';
         ft.addEventListener('change', () => {
-            const val = ft.value.trim();
-            this._processorRequest(
-                url, 'PUT', { fiberFt: val === '' ? null : Number(val) },
-                'Set Box Fiber');
+            const v = ft.value.trim();
+            put({ ft: v === '' ? null : Number(v) }, 'Set Fiber Length');
         });
-        run.appendChild(ft);
-        const unit = document.createElement('span');
-        unit.textContent = 'ft';
-        run.appendChild(unit);
-        row.appendChild(run);
-        return row;
+        if (cable.kind === 'tac') {
+            const conn = field('ends', input('text', `fiber-cable-connector-${cable.id}`, cable.connector));
+            conn.placeholder = 'ST, LC duplex …';
+            conn.setAttribute('list', `hw-fiber-connectors-${box.id}`);
+            conn.addEventListener('change', () => put({ connector: conn.value.trim() }, 'Set Fiber Ends'));
+        }
+        const labels = document.createElement('select');
+        labels.className = 'hw-dock-cable-connector hw-dock-fiber-select';
+        labels.dataset.lrdField = `fiber-cable-labels-${cable.id}`;
+        [['colors', 'colors'], ['numbers', 'numbers']].forEach(([v, t]) => {
+            const o = document.createElement('option');
+            o.value = v;
+            o.textContent = t;
+            labels.appendChild(o);
+        });
+        labels.value = cable.labels === 'numbers' ? 'numbers' : 'colors';
+        field('strands read', labels).addEventListener('change',
+            () => put({ labels: labels.value }, 'Set Strand Labels'));
+        const sub = input('checkbox', `fiber-cable-subunits-${cable.id}`, '', 'hw-dock-fiber-check');
+        sub.checked = !!cable.subunits;
+        field('sub-units of 12', sub).addEventListener('change',
+            () => put({ subunits: sub.checked }, 'Set Strand Labels'));
+        const names = document.createElement('div');
+        names.className = 'hw-dock-fiber-names';
+        const plain = { ...cable, strandNames: {} };
+        for (let n = 1; n <= (cable.strands || 0); n++) {
+            const cell = document.createElement('label');
+            cell.className = 'hw-dock-fiber-name';
+            cell.appendChild(this._fiberSwatch(n, cable));
+            const f = input('text', `fiber-strand-name-${cable.id}-${n}`,
+                (cable.strandNames || {})[String(n)] || '');
+            f.placeholder = fiberStrandName(n, plain);
+            f.title = `Strand ${n}'s name - blank reads ${f.placeholder}.`;
+            f.addEventListener('change', () => put(
+                { strandName: { strand: n, name: f.value } }, 'Rename Strand'));
+            cell.appendChild(f);
+            names.appendChild(cell);
+        }
+        ed.appendChild(names);
+        const done = document.createElement('button');
+        done.type = 'button';
+        done.className = 'btn hw-dock-btn';
+        done.textContent = 'Done';
+        done.dataset.lrdField = `fiber-edit-done-${cable.id}`;
+        done.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this._fiberEdit = null;
+            this.renderHardwareDock();
+        });
+        ed.appendChild(done);
+        return ed;
     }
 
     // "With ticked: Fill" - the typed length into ONLY the ticked rows of

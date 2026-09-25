@@ -15,16 +15,18 @@
  */
 window.WHATS_NEW_CONTENT = {
     '1.4': {
-        title: 'TAC and opticalCON fiber by the strand, power tags by their circuit',
+        title: 'Fiber by the strand: TAC, MTP and opticalCON, and power tags by their circuit',
         items: [
-            { h: 'TAC fiber shared by the strand',
-              d: 'A breakout box\'s cable sheet picks a TAC for each link and the strands it rides, so several boxes can share one TAC 12. Any strand count, ST, LC or MTP ends, and the next free strands fill in for you.' },
-            { h: 'opticalCON DUO and QUAD',
-              d: 'A box can take its fiber on opticalCON instead: two DUOs or one QUAD on a CVT4K-S. NovaStar and Megapixel boxes have a BiDi switch for one strand per link.' },
+            { h: 'Fiber by the strand',
+              d: 'A breakout box\'s cable sheet opens on its Fiber section: each link picks a cable and the strands it rides. Pick the same TAC or MTP on another box and it takes the next free strands.' },
+            { h: 'TAC, MTP and opticalCON',
+              d: 'A TAC or MTP takes any strand count, with ST or LC duplex ends on a TAC. An opticalCON DUO or QUAD belongs to one box, and NovaStar and Megapixel boxes have a BiDi switch for one strand per link.' },
             { h: 'Strands named the standard way',
-              d: 'Strands read by the TIA-598 colors, with tracers past 12, or by number, or by subunit of 12. Rename any strand. The binder prints a strand map for every cable and the pull sheet counts each cable once.' },
+              d: 'Strands read by the TIA-598 colors, with a tracer past 12, by number, or by subunit of 12, and any strand can be renamed. The binder prints a strand map for every cable and the pull sheet counts each cable once.' },
             { h: 'Backups ride the same box',
-              d: 'A backup feed to the same box shows as that box\'s backup links with their own fiber, and no longer counts as a second box on the pull sheet.' },
+              d: 'A backup feed to the same box shows as that box\'s backup links, each with its own cable, and no longer counts as a second box on the pull sheet.' },
+            { h: 'More in the Advanced Guide',
+              d: 'New steps for the data and power jumper lengths, the fiber to a box, and picking its strands.' },
             { h: 'Power tags sit by their circuit',
               d: 'A power map\'s cable tags go above the disc when the circuit runs down, right or left, and under it when it runs up, with the 2fer or 3fer tag centered under the cable. Tags that would run off the screen go to the other side of the disc.' },
             { h: 'A grouped wall\'s whole load',

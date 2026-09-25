@@ -1484,9 +1484,10 @@ def test_a_project_with_no_processors_is_shaped_exactly_as_before(client):
     # and the server's refusals name one list - never project state, so
     # the project below stays byte-for-byte what it was.
     # `snakes` is the show's own list (2026-09-09) and rides the same
-    # payload; empty here, and reading it stamps nothing.
+    # payload, and so does `fiberCables` (2026-09-25); both empty here, and
+    # reading them stamps nothing.
     assert resp.get_json() == {
-        'processors': [], 'resolved': [], 'snakes': [],
+        'processors': [], 'resolved': [], 'snakes': [], 'fiberCables': [],
         'dataCableConnectors': catalog.data_cable_connectors()}
 
     after = client.get('/api/project').get_json()

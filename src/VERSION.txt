@@ -4,6 +4,56 @@ LED RASTER DESIGNER - VERSION HISTORY
 v1.4.0 - September 25, 2026
 ----------------------------
 
+The fiber to a breakout box is now a cable you pick, by the strand. A
+TAC or an MTP is shared by as many boxes as it feeds, an opticalCON DUO
+or QUAD belongs to one box, and the binder prints a strand map for every
+cable. A backup feed to the same box shows as that box's backup links.
+The Advanced Guide walks through the fiber and the jumper lengths, and
+the power map's cable tags now sit by their circuit.
+
+FIBER BY THE STRAND
+
+A breakout box's cable sheet opens on its Fiber section, one row for each
+link the box takes: one on a CVT10, two on a CVT4K-S. Each link picks a
+cable and the strands it rides.
+
+New TAC asks for the strand count (4, 6, 8, 12, 24, 48 or any number
+you type), the length and the ends: ST, LC duplex or your own. New MTP
+is the same cable prepackaged, and prints as "MTP 12". Pick a TAC or MTP
+on another box and it takes the next free strands; click a strand to
+move the link. A strand carries one link.
+
+An opticalCON DUO or QUAD belongs to one box: two DUOs or one QUAD on a
+CVT4K-S. NovaStar and Megapixel boxes have a BiDi switch for one strand
+per link. Strands read by the TIA-598 colors (Blue, Orange, Green,
+Brown and on), with a black tracer past 12, or by number, or by subunit
+of 12, and any strand can be renamed under Edit.
+
+The pull sheet counts each cable once, "TAC 12 · ST" or "MTP 12" with its
+length, however many boxes share it. The binder's processor page lists
+each box's strands and prints a strand map for each cable: every strand,
+the box and link it feeds, and the spares.
+
+A fiber type and length typed on a box in 1.3 stays on its Fiber section
+as a note, and the pull sheet prints it as before, until you pick a
+cable.
+
+BACKUPS RIDE THE SAME BOX
+
+A backup feed to the same box is that box taking a second fiber. A backup
+box on the same card (a NovaStar box on OPT 3 backing up OPT 1, an SX40's
+XD on the next trunk) is bound to its primary on its own; a box on a
+backup processor is bound with "Same box as". A bound backup shows as
+the primary's Backup links, each with its own cable and strands, and
+does not count as a second box on the pull sheet. Unbind puts it back.
+
+IN THE ADVANCED GUIDE
+
+Four new steps: the data jumper lengths, the fiber to the box, picking
+the strands, and the power jumper lengths.
+
+FIXES
+
 - FIX: A power map's cable tags sit by the way the circuit runs. A
   circuit that runs down, right or left has its tags above the disc; one
   that runs up has them under it. The 2fer or 3fer tag sits centered

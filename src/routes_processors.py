@@ -15,7 +15,7 @@ a second implementation in the browser that agrees today.
 """
 import math
 
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, g, request, jsonify
 
 import app
 import processor_catalog as catalog
@@ -23,6 +23,15 @@ import port_assignment as assignment
 from app import log_event, socketio
 
 processors_bp = Blueprint('processors', __name__)
+
+
+@processors_bp.before_request
+def _note_fiber_in_use():
+    # The fiber cables some link names as the request comes in, so _state
+    # can prune the ones the request let go of - the last link off a TAC,
+    # a box deleted with its links - and leave a cable made a moment ago
+    # with no link yet alone (settle_fiber).
+    g.fiber_used_before = catalog.fiber_cables_in_use(app.current_project)
 
 
 def _processors():
@@ -177,6 +186,15 @@ def _prune_backup_refs(removed_ids):
     removed = set(removed_ids)
     if not removed:
         return
+    # A backup box bound by hand to a box that went with those cards is
+    # just a box again (settle_fiber also drops a binding whose backup
+    # relation is gone, which covers the cards that stayed).
+    boxes = {cvt.get('id') for _p, c in _all_cards()
+             for cvt in c.get('cvts') or []}
+    for _proc, card in _all_cards():
+        for cvt in card.get('cvts') or []:
+            if cvt.get('boundTo') and cvt['boundTo'] not in boxes:
+                cvt.pop('boundTo', None)
     for _proc, card in _all_cards():
         if card.get('backupCardId') in removed:
             card.pop('backupCardId', None)
@@ -452,6 +470,11 @@ def _state(status=200, extra=None):
     # snake gone. Idempotent, so a route that changed nothing changes
     # nothing here either.
     _migrate_snakes()
+    # ...and the fiber cables the same way: links that no longer hold go,
+    # a backup binding nothing backs goes, an opticalCON whose box went
+    # goes, and a cable the request left with no link goes.
+    catalog.settle_fiber(app.current_project,
+                         g.get('fiber_used_before'))
     app.current_project['is_pristine'] = False
     socketio.emit('project_updated', app.current_project)
     body = {
@@ -463,6 +486,9 @@ def _state(status=200, extra=None):
         # from several devices, so the tray, the sheet and the paperwork
         # all read them beside the tree they point into.
         'snakes': catalog.resolved_show_snakes(app.current_project),
+        # The show's fiber cables ride it for the same reason: a TAC is
+        # shared by several boxes, on several processors.
+        'fiberCables': catalog.resolved_fiber_cables(app.current_project),
     }
     if extra:
         body.update(extra)
@@ -514,6 +540,7 @@ def get_processors():
         # server's refusals name the same list.
         'dataCableConnectors': catalog.data_cable_connectors(),
         'snakes': catalog.resolved_show_snakes(app.current_project),
+        'fiberCables': catalog.resolved_fiber_cables(app.current_project),
     })
 
 
@@ -913,6 +940,15 @@ def delete_cvt(processor_id, cvt_id):
     for other in card['cvts']:
         if other.get('backupOf') == cvt_id:
             other.pop('backupOf', None)
+            other.pop('unbound', None)
+    # A box bound to it by hand - a backup processor's box that was this
+    # same metal - is a box of its own again. The box's links went with its
+    # record; the opticalCONs it owned and the TACs it was the last user of
+    # go in _state (settle_fiber).
+    for _p, other_card in _all_cards():
+        for other in other_card.get('cvts') or []:
+            if other.get('boundTo') == cvt_id:
+                other.pop('boundTo', None)
     # ON A BOX-FED DEVICE THE BOX'S SOCKETS GO WITH IT. The SX40 and the
     # HELIOS Standard have no ports outside a box (the 2026-09-24 ruling:
     # "SX40's can't use ports outside of an XD box"), so once the box is
@@ -1112,4 +1148,244 @@ def delete_snake(snake_id):
     if not app.current_project['snakes']:
         app.current_project.pop('snakes', None)
     log_event('snake_delete', {'id': snake_id})
+    return _state()
+
+
+# ── Fiber cables ──────────────────────────────────────────────────────────
+#
+# TAC, MTP and opticalCON cables on the breakout boxes (2026-09-25; the
+# model is processor_catalog's fiber-cable section). A cable lives on the
+# show - a TAC is shared by several boxes' links - and a box's links live on
+# its record. Every refusal names its reason and stores nothing; every
+# answer is the whole resolved state, so one gesture is one request and one
+# undo step.
+
+
+def _fiber_boxes():
+    return catalog.fiber_box_index(_processors())
+
+
+def _fiber_cables_by_id():
+    return {c.get('id'): c for c in catalog.show_fiber_cables(
+        app.current_project) if isinstance(c, dict)}
+
+
+def _find_fiber_cable(cable_id):
+    return _fiber_cables_by_id().get(cable_id)
+
+
+def _fiber_link_strands(boxes, cables, box_id, key, cable_id, strands):
+    """The strands a link will take - the ones given, else the cable's next
+    free ones - or the refusal. Returns (strands, why)."""
+    why = catalog.check_fiber_link(boxes, cables, box_id, key, cable_id,
+                                   None)
+    if why:
+        return None, why
+    if strands is None:
+        need = catalog.fiber_link_need(boxes[box_id]['raw'])
+        taken = catalog.fiber_strands_taken(boxes, (box_id, key))
+        cable = cables[cable_id]
+        strands = catalog.fiber_next_free(cable, taken, need)
+        if strands is None:
+            return None, (f'{cable.get("name") or "That cable"} has no '
+                          f'{need} free strand{"" if need == 1 else "s"} '
+                          f'left.')
+    why = catalog.check_fiber_link(boxes, cables, box_id, key, cable_id,
+                                   strands)
+    return (None, why) if why else (list(strands), None)
+
+
+def _set_fiber_link(raw, key, cable_id, strands):
+    raw.setdefault('fiberLinks', {})[key] = {'cable': cable_id,
+                                            'strands': list(strands)}
+
+
+@processors_bp.route('/api/fiber-cables', methods=['POST'])
+def add_fiber_cable():
+    """Make one cable - a TAC or an MTP of any strand count, or a box's own
+    opticalCON DUO / QUAD - and, where the body carries `link`
+    ({boxId, key, strands?}), put that link on it in the same request (the
+    Fiber section's "New TAC…" is one gesture, one undo step)."""
+    data = request.json or {}
+    why = catalog.check_fiber_cable(data)
+    if why:
+        return jsonify({'error': why}), 400
+    link = data.get('link')
+    if link is not None and (not isinstance(link, dict)
+                             or not isinstance(link.get('boxId'), str)
+                             or not isinstance(link.get('key'), str)):
+        return jsonify({'error': 'link must be {boxId, key, strands?}.'}), 400
+    boxes = _fiber_boxes()
+    kind = data.get('kind')
+    rec = dict(data)
+    if kind in catalog.FIBER_KIND_FIBERS:
+        owner = data.get('ownerBoxId') or (link or {}).get('boxId')
+        entry = boxes.get(owner)
+        if entry is None:
+            return jsonify({'error': 'An opticalCON belongs to one box - '
+                                     'name it (ownerBoxId).'}), 400
+        if entry['res'].get('boundTo'):
+            return jsonify({'error': (
+                f'{catalog.fiber_box_title(entry)} is bound to '
+                f'{entry["res"].get("boundTitle")} - its fiber is set '
+                f'there.')}), 400
+        rec['ownerBoxId'] = owner
+    cable = catalog.store_fiber_cable(app.current_project, rec, _next_seq)
+    if link is not None:
+        strands, why = _fiber_link_strands(
+            boxes, _fiber_cables_by_id(), link['boxId'], link['key'],
+            cable['id'], link.get('strands'))
+        if why:
+            # Nothing is stored on a refusal: the cable made a moment ago
+            # goes back out.
+            left = [c for c in catalog.show_fiber_cables(app.current_project)
+                    if c is not cable]
+            if left:
+                app.current_project['fiberCables'] = left
+            else:
+                app.current_project.pop('fiberCables', None)
+            return jsonify({'error': why}), 400
+        _set_fiber_link(boxes[link['boxId']]['raw'], link['key'],
+                        cable['id'], strands)
+    log_event('fiber_cable_add', {'id': cable['id'], 'kind': kind,
+                                  'link': link})
+    return _state(201)
+
+
+@processors_bp.route('/api/fiber-cables/<cable_id>', methods=['PUT'])
+def update_fiber_cable(cable_id):
+    """Rename / re-count / re-length one cable, pick its ends, its labels,
+    its sub-units, or rename one strand ({strandName: {strand, name}}, a
+    blank name handing the strand back to its color)."""
+    cable = _find_fiber_cable(cable_id)
+    if not cable:
+        return jsonify({'error': 'Fiber cable not found'}), 404
+    data = request.json or {}
+    boxes = _fiber_boxes()
+    used = max([s for (cid, s) in catalog.fiber_strands_taken(boxes)
+                if cid == cable_id] or [0])
+    why = catalog.check_fiber_cable(data, cable, used)
+    if why:
+        return jsonify({'error': why}), 400
+    catalog.store_fiber_cable(app.current_project, data, _next_seq, cable)
+    log_event('fiber_cable_update', {'id': cable_id, 'changed': list(data)})
+    return _state()
+
+
+@processors_bp.route('/api/processors/<processor_id>/cvts/<cvt_id>/fiber-links/<key>',
+                     methods=['PUT'])
+def set_fiber_link(processor_id, cvt_id, key):
+    """Set or clear one of a box's links: {cable, strands?}, or
+    {cable: null} to clear. With no strands the cable's next free ones are
+    taken; a backup link given no cable takes its primary link's (the
+    default the owner asked for: the primary's TAC at the next free
+    strands)."""
+    proc = _find_processor(processor_id)
+    if not proc:
+        return jsonify({'error': 'Processor not found'}), 404
+    _card, cvt = _find_cvt(proc, cvt_id)
+    if not cvt:
+        return jsonify({'error': 'Breakout box not found'}), 404
+    data = request.json or {}
+    boxes = _fiber_boxes()
+    entry = boxes.get(cvt_id)
+    if 'cable' in data and not data.get('cable'):
+        links = cvt.get('fiberLinks') or {}
+        if key in links:
+            links.pop(key)
+            if not links:
+                cvt.pop('fiberLinks', None)
+        log_event('fiber_link_clear', {'box': cvt_id, 'key': key})
+        return _state()
+    cable_id = data.get('cable')
+    if 'cable' not in data and key.startswith('b'):
+        primary = catalog.resolved_fiber_links(cvt).get('p' + key[1:])
+        if not primary:
+            return jsonify({'error': (
+                f'Pick a cable for {catalog.fiber_link_title(key)} - '
+                f'{catalog.fiber_link_title("p" + key[1:])} has none to '
+                f'follow.')}), 400
+        cable_id = primary['cable']
+    if not isinstance(cable_id, str):
+        return jsonify({'error': 'cable must be a fiber cable id, or null '
+                                 'to clear the link.'}), 400
+    strands, why = _fiber_link_strands(boxes, _fiber_cables_by_id(), cvt_id,
+                                       key, cable_id, data.get('strands'))
+    if why:
+        return jsonify({'error': why}), 400
+    _set_fiber_link(entry['raw'], key, cable_id, strands)
+    log_event('fiber_link_set', {'box': cvt_id, 'key': key,
+                                 'cable': cable_id, 'strands': strands})
+    return _state()
+
+
+@processors_bp.route('/api/processors/<processor_id>/cvts/<cvt_id>/fiber',
+                     methods=['PUT'])
+def update_box_fiber(processor_id, cvt_id):
+    """A box's fiber switches: `bidi` (NovaStar and Megapixel boxes only;
+    re-fits its links), `unbound` (a same-card backup record let go of, or
+    taken back by, its primary) and `boundTo` (a backup processor's box
+    named as the same metal as one of the boxes it backs up; null clears).
+    Everything is checked before anything is written."""
+    proc = _find_processor(processor_id)
+    if not proc:
+        return jsonify({'error': 'Processor not found'}), 404
+    _card, cvt = _find_cvt(proc, cvt_id)
+    if not cvt:
+        return jsonify({'error': 'Breakout box not found'}), 404
+    data = request.json or {}
+    boxes = _fiber_boxes()
+    entry = boxes.get(cvt_id)
+    res = entry['res']
+    title = catalog.fiber_box_title(entry)
+    for field in ('bidi', 'unbound'):
+        if field in data and not isinstance(data[field], bool):
+            return jsonify({'error': f'{field} must be true or false.'}), 400
+    if 'bidi' in data:
+        if data['bidi'] and not res.get('bidiAllowed'):
+            vendor = res.get('vendor') or 'this vendor'
+            return jsonify({'error': (
+                f'{res.get("deviceName") or title} is a {vendor} box - BiDi '
+                f'is offered on NovaStar and Megapixel boxes only.')}), 400
+        if res.get('boundTo'):
+            return jsonify({'error': (
+                f'{title} is bound to {res.get("boundTitle")} - its fiber '
+                f'is set there.')}), 400
+    if 'unbound' in data and not res.get('backupOf'):
+        return jsonify({'error': (
+            f'{title} backs up no box on its card - there is nothing to '
+            f'unbind.')}), 400
+    target = data.get('boundTo') if 'boundTo' in data else None
+    if target:
+        if res.get('backupOf'):
+            return jsonify({'error': (
+                f'{title} backs up a box on its own card, so it is bound '
+                f'automatically - unbind it there instead.')}), 400
+        targets = res.get('fiberBindTargets')
+        if targets is None:
+            return jsonify({'error': (
+                f'{title} is not on a card that backs up another processor '
+                f'- only such a box is bound by hand.')}), 400
+        if target not in [t['id'] for t in targets]:
+            return jsonify({'error': (
+                f'{title} can be bound to a box of the processor it backs '
+                f'up that is not bound already.')}), 400
+    if 'bidi' in data and bool(cvt.get('bidi')) != data['bidi']:
+        if data['bidi']:
+            cvt['bidi'] = True
+        else:
+            cvt.pop('bidi', None)
+        catalog.refit_fiber_bidi(boxes, _fiber_cables_by_id(), cvt_id,
+                                 data['bidi'])
+    if 'unbound' in data:
+        if data['unbound']:
+            cvt['unbound'] = True
+        else:
+            cvt.pop('unbound', None)
+    if 'boundTo' in data:
+        if target:
+            cvt['boundTo'] = target
+        else:
+            cvt.pop('boundTo', None)
+    log_event('box_fiber_update', {'id': cvt_id, 'changed': list(data)})
     return _state()

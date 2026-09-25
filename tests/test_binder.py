@@ -2352,7 +2352,8 @@ def test_a_box_delivering_the_port_is_listed_instead_of_the_card(page):
     a CVT4K-S on card SR (both OPTs, all 16 sockets again) delivers WALL-A's
     port, so PRIMARY reads the box and its own socket ("CVT4K-S SR · 1"),
     the band is the box's - its trunk as the card's face prints it, its
-    sockets, its fiber ("12 Tac Fiber 250'") or "no fiber length" - the
+    sockets, its fiber ("12 Tac Fiber 250'" - a 1.3 typed note; "no fiber
+    length" where only a type was typed, "no fiber" where nothing was) - the
     Cables table and the processor sheet carry the fiber, and the box's
     paper title is model + typed name ("CVT4K-S SR"), the way a card is
     "H9 SR"."""
@@ -2438,7 +2439,7 @@ def test_a_box_delivering_the_port_is_listed_instead_of_the_card(page):
             # its row the return port on its own socket
             i = texts.index('SR-1')
             assert texts[i:i + 3] == ['SR-1', 'CVT4K-S SR · 1', 'backup BK-1'], texts[i:i + 6]
-            j = texts.index('CVT4K-S BK · OPT 1-2 · 16 ports · no fiber length')
+            j = texts.index('CVT4K-S BK · OPT 1-2 · 16 ports · no fiber')
             assert j > i and texts[j + 1:j + 7] == ['BK-1', 'CVT4K-S BK · 1', 'backs up SR-1', '—', '—', '—'], \
                 texts[j:j + 8]
             assert not [t for t in texts if t.endswith('…')]
@@ -2989,13 +2990,13 @@ def test_smoke_experts_only(page):
     # the box delivering the ports is the band (2026-09-07: a CVT4K-S on
     # each card, all 16 sockets), the model and the name its ⚙ carries -
     # "CVT4K-S SR A" - the ports its own labels
-    assert 'CVT4K-S SR A · OPT 1-2 · 16 ports · no fiber length' in data
+    assert 'CVT4K-S SR A · OPT 1-2 · 16 ports · no fiber' in data
     assert ['SR A-1', 'SR A-2', 'SR A-3', 'SR A-4'] == [t for t in data if re.fullmatch(r'SR A-\d', t)]
     # the return end: box SR B on Card 3, Card 1's 1:1 partner, is its OWN
     # section after SR A's (2026-09-12: "They should be different sections
     # as if it was a second cvt, since it is"), its rows the return ports
     # on its own sockets, the pairing said from both sides
-    band_b = 'CVT4K-S SR B · OPT 1-2 · 16 ports · no fiber length'
+    band_b = 'CVT4K-S SR B · OPT 1-2 · 16 ports · no fiber'
     assert data.index(band_b) > data.index('SR A-4'), data
     assert ['SR B-1', 'SR B-2', 'SR B-3', 'SR B-4'] == [t for t in data if re.fullmatch(r'SR B-\d', t)]
     assert [t for t in data if re.fullmatch(r'backup SR B-\d', t)] == [

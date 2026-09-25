@@ -35,6 +35,7 @@ import './app-canvas-ui.js';
 import './app-project-io.js';
 import './app-screen-groups.js';
 import './app-processors.js';
+import './app-fiber.js';
 import './app-port-assignment.js';
 import './app-dock.js';
 import './app-dock-cable-sheets.js';

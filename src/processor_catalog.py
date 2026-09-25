@@ -580,7 +580,8 @@ def sync_next_processor_seq(project):
     lands on whichever of the two _find_processor meets first.
 
     Seeds above the highest run already minted anywhere in the tree - proc,
-    card and cvt ids all draw from the one counter, and the heal's boxes
+    card and cvt ids all draw from the one counter (so do the show's snake
+    and fiber cable ids, snk and fib), and the heal's boxes
     carry it inside a ``cvt<N>f<i>`` id. Never lowers a counter that is
     ahead, so restoring the same project twice does not change it. A project
     with no processors and no counter is left byte-for-byte untouched - the
@@ -590,13 +591,15 @@ def sync_next_processor_seq(project):
         return 1
     processors = project.get('processors') or []
     snakes = project.get('snakes') or []
-    if not processors and not snakes and 'next_processor_seq' not in project:
+    fibers = project.get('fiberCables') or []
+    if not processors and not snakes and not fibers \
+            and 'next_processor_seq' not in project:
         return 1
     max_n = 0
 
     def _note(raw_id):
         nonlocal max_n
-        m = re.match(r'^(?:proc|card|cvt|snk)(\d+)', raw_id or '')
+        m = re.match(r'^(?:proc|card|cvt|snk|fib)(\d+)', raw_id or '')
         if m:
             n = int(m.group(1))
             if n > max_n:
@@ -618,6 +621,10 @@ def sync_next_processor_seq(project):
     # from several devices now, so they cannot live on any one of them).
     for snake in snakes:
         _note((snake or {}).get('id'))
+    # ...and so do the show's fiber cables (``fib<N>`` - a TAC is shared by
+    # several boxes, so it lives on the show beside the snakes).
+    for cable in fibers:
+        _note((cable or {}).get('id'))
     try:
         stored = int(project.get('next_processor_seq'))
     except (TypeError, ValueError):
@@ -667,8 +674,9 @@ def sync_next_processor_seq(project):
 #
 # Fiber is NOT a port's or a snake's connector: "panels dont take fiber.
 # what would take fiber is processor to breakout box" (2026-09-07). The
-# fiber trunk lives on the breakout box (cvt.fiberType / fiberFt), and the
-# list here is copper only. A file saved with a 'fiber' pick on a port or
+# fiber trunk is the breakout box's - its links onto the show's fiber
+# cables (the fiber-cable section below) - and the list here is copper
+# only. A file saved with a 'fiber' pick on a port or
 # a snake reads as "follows the port" (resolved_port_cables,
 # resolved_show_snakes).
 
@@ -708,8 +716,10 @@ def data_port_connector(cvt_device, card_device, proc_device):
     return None
 
 
-def _snake_letter_name(taken):
-    """The first free default name - SNAKE A, SNAKE B, ... SNAKE Z, SNAKE AA."""
+def _snake_letter_name(taken, prefix=SNAKE_NAME_PREFIX):
+    """The first free default name - SNAKE A, SNAKE B, ... SNAKE Z, SNAKE AA.
+    The fiber cables letter the same way under their own prefix ("TAC A",
+    "MTP A")."""
     n = 0
     while True:
         letters = ''
@@ -719,7 +729,7 @@ def _snake_letter_name(taken):
             k = k // 26 - 1
             if k < 0:
                 break
-        name = SNAKE_NAME_PREFIX + letters
+        name = prefix + letters
         if name not in taken:
             return name
         n += 1
@@ -1282,6 +1292,674 @@ def resolved_show_snakes(project):
     return out
 
 
+# ── Fiber cables: TAC, MTP and opticalCON, processor to breakout box ──────
+#
+# "tac is just for stranded fiber" (owner, 2026-09-25). The fiber that
+# feeds a breakout box is a CABLE the show owns, and a box's trunk links
+# each take strands of one:
+#
+#   project['fiberCables'] = [{id: 'fib<N>', name, kind, strands, ft?,
+#                              connector?, labels, subunits, strandNames,
+#                              ownerBoxId?}]
+#   cvt['fiberLinks'] = {'p1': {cable, strands: [1, 2]}, 'b1': {...}}
+#
+# - A TAC or an MTP ("mtp is basically a packaged tac"; its OWN kind by
+#   the 2026-09-25 ruling "If i choose tac 12 call it that if i choose mtp
+#   12 choose that") has any number of strands and is SHARED: several
+#   boxes' links take different strands of one cable. Nothing here keys
+#   strand assignment off a connector - every stranded cable, whatever its
+#   ends, assigns strands per link.
+# - An opticalCON DUO is 2 fibers and a QUAD 4, and each is ONE box's:
+#   ownerBoxId names it, and only that box's links (its bound backup's
+#   included) take its fibers.
+# - A box's links are p1..pK, K = trunks_in (a CVT4K-S takes 2), and
+#   b1..bK only where a backup record is BOUND to it - the backup is the
+#   same physical box taking a second fiber, so its picks live here, on
+#   the primary. A link takes 2 strands, 1 on a box switched to BiDi.
+# - A strand is used by one link show-wide.
+# - The list is absent when empty, and a read never creates it. A cable
+#   no link uses any more goes, the way an emptied snake goes: when the
+#   last link lets go of it (settle_fiber, with the cables in use before
+#   the request), or its owner box is deleted.
+#
+# The typed fiberType / fiberFt of 1.3 stay on the box as a NOTE, printed
+# as before until any link on that box has a cable; nothing migrates.
+
+FIBER_KINDS = ('tac', 'mtp', 'opticalcon-duo', 'opticalcon-quad')
+# The kinds whose strand count is the user's: any positive whole number.
+FIBER_STRANDED_KINDS = ('tac', 'mtp')
+# The kinds whose fiber count is the connector's.
+FIBER_KIND_FIBERS = {'opticalcon-duo': 2, 'opticalcon-quad': 4}
+# (A TAC's ends are free text - app-fiber.js offers ST and LC duplex - and
+# an MTP names none. The New TAC step's suggested counts live there too.)
+FIBER_LABELS = ('colors', 'numbers')
+# TIA-598-D, in order, with the swatch the app paints for each.
+FIBER_COLORS = (
+    ('Blue', '#1F5FA8'), ('Orange', '#F28020'), ('Green', '#1A9A48'),
+    ('Brown', '#7A4A2E'), ('Slate', '#777777'), ('White', '#F5F5F5'),
+    ('Red', '#B82535'), ('Black', '#1A1A1A'), ('Yellow', '#EDD31C'),
+    ('Violet', '#7A3F9E'), ('Rose', '#E09BA8'), ('Aqua', '#5EBFC2'),
+)
+# BiDi is offered on these vendors' boxes only (the owner's list), read off
+# the catalog's vendor - never a model special-cased.
+BIDI_VENDORS = ('NovaStar', 'Megapixel')
+_FIBER_NAME_PREFIX = {'tac': 'TAC ', 'mtp': 'MTP ',
+                      'opticalcon-duo': 'DUO ', 'opticalcon-quad': 'QUAD '}
+
+
+def fiber_bidi_allowed(cvt_device):
+    """Whether this box's catalog vendor is one BiDi is offered for."""
+    return (cvt_device or {}).get('vendor') in BIDI_VENDORS
+
+
+def fiber_link_keys(trunks, bound):
+    """A box's link keys: p1..pK, then b1..bK where a backup is bound."""
+    try:
+        k = max(1, int(trunks or 1))
+    except (TypeError, ValueError):
+        k = 1
+    keys = [f'p{i}' for i in range(1, k + 1)]
+    if bound:
+        keys += [f'b{i}' for i in range(1, k + 1)]
+    return keys
+
+
+def fiber_link_title(key):
+    """'p1' -> 'Primary 1', 'b2' -> 'Backup 2'."""
+    key = str(key or '')
+    word = 'Backup' if key.startswith('b') else 'Primary'
+    return f'{word} {key[1:]}'
+
+
+def fiber_strand_name(n, cable=None):
+    """One strand as the paper says it (TIA-598-D).
+
+    Blue, Orange, ... Aqua for 1-12; past 12 the colors repeat with a black
+    tracer ("14 Orange/Black" - the Black strand takes a WHITE one, "20
+    Black/White"), then a double tracer ("26 Orange/Black x2"), a triple,
+    and on. A cable in sub-units reads "Orange unit · 2 Orange" - the unit
+    is ceil(N/12) in the same colors, the strand its plain color. A cable
+    labelled in numbers reads "14". A typed rename wins over all of it.
+    The JS twin is fiberStrandName in app-fiber.js; a test pins that the
+    two agree.
+    """
+    cable = cable or {}
+    try:
+        n = int(n)
+    except (TypeError, ValueError):
+        return str(n)
+    typed = ((cable.get('strandNames') or {}).get(str(n)) or '')
+    if isinstance(typed, str) and typed.strip():
+        return typed.strip()
+    if n < 1:
+        return str(n)
+    if cable.get('labels') == 'numbers':
+        return str(n)
+    color = FIBER_COLORS[(n - 1) % 12][0]
+    if cable.get('subunits'):
+        unit = FIBER_COLORS[(math.ceil(n / 12) - 1) % 12][0]
+        return f'{unit} unit · {(n - 1) % 12 + 1} {color}'
+    tier = (n - 1) // 12
+    if tier == 0:
+        return f'{n} {color}'
+    tracer = 'White' if color == 'Black' else 'Black'
+    return f'{n} {color}/{tracer}' + (f' x{tier}' if tier > 1 else '')
+
+
+def show_fiber_cables(project):
+    """The show's fiber cables, never creating the key on a read."""
+    return (project or {}).get('fiberCables') or []
+
+
+def fiber_cable_strand_count(cable):
+    """How many strands a cable has: the connector's for an opticalCON, the
+    stored count for a TAC or an MTP, 0 where none is stored."""
+    kind = (cable or {}).get('kind')
+    if kind in FIBER_KIND_FIBERS:
+        return FIBER_KIND_FIBERS[kind]
+    n = (cable or {}).get('strands')
+    return n if isinstance(n, int) and not isinstance(n, bool) and n > 0 \
+        else 0
+
+
+def fiber_cable_type_text(cable):
+    """The pull sheet's words for a cable: "TAC 12 · ST", "MTP 24",
+    "opticalCON QUAD"."""
+    kind = (cable or {}).get('kind')
+    if kind == 'opticalcon-duo':
+        return 'opticalCON DUO'
+    if kind == 'opticalcon-quad':
+        return 'opticalCON QUAD'
+    word = 'MTP' if kind == 'mtp' else 'TAC'
+    text = f'{word} {fiber_cable_strand_count(cable)}'
+    conn = ((cable or {}).get('connector') or '').strip() \
+        if kind == 'tac' else ''
+    return f'{text} · {conn}' if conn else text
+
+
+def _fiber_link(raw):
+    """One stored link, shaped: {cable, strands: [int, ...]}, else None."""
+    if not isinstance(raw, dict):
+        return None
+    cable = raw.get('cable')
+    strands = raw.get('strands')
+    if not isinstance(cable, str) or not cable or not isinstance(strands,
+                                                                 list):
+        return None
+    out = []
+    for s in strands:
+        if isinstance(s, bool) or not isinstance(s, int):
+            return None
+        out.append(s)
+    return {'cable': cable, 'strands': out}
+
+
+def resolved_fiber_links(cvt):
+    """A box's links as every reader takes them - always a dict."""
+    out = {}
+    for key, raw in ((cvt or {}).get('fiberLinks') or {}).items():
+        link = _fiber_link(raw)
+        if link:
+            out[str(key)] = link
+    return out
+
+
+def fiber_link_need(cvt):
+    """Strands per link on this box: 1 with BiDi, else 2."""
+    return 1 if (cvt or {}).get('bidi') else 2
+
+
+def fiber_default_name(project, kind):
+    """The first free default name for a new cable of `kind`, show-wide:
+    TAC A, TAC B ... and MTP A ... each on its own letters (the snakes'
+    lettering), DUO 1, QUAD 1 ... numbered."""
+    taken = {(c.get('name') or '').strip() for c in show_fiber_cables(project)}
+    prefix = _FIBER_NAME_PREFIX.get(kind, 'TAC ')
+    if kind in FIBER_KIND_FIBERS:
+        n = 1
+        while f'{prefix}{n}' in taken:
+            n += 1
+        return f'{prefix}{n}'
+    return _snake_letter_name(taken, prefix)
+
+
+def fiber_box_index(processors, resolved=None):
+    """Every box, raw and resolved side by side, in tree order:
+    {boxId: {'raw', 'res', 'procId', 'cardId', 'order'}}."""
+    if resolved is None:
+        resolved = resolve_all(processors or [])
+    raw_boxes = {}
+    for proc in processors or []:
+        for slot in (proc or {}).get('slots') or []:
+            card = (slot or {}).get('card')
+            for cvt in (card or {}).get('cvts') or []:
+                if cvt and cvt.get('id'):
+                    raw_boxes[cvt['id']] = cvt
+    out = {}
+    order = 0
+    for rproc in resolved or []:
+        for slot in rproc.get('slots') or []:
+            card = (slot or {}).get('card')
+            for box in (card or {}).get('cvts') or []:
+                raw = raw_boxes.get(box.get('id'))
+                if raw is None:
+                    continue
+                out[box['id']] = {'raw': raw, 'res': box,
+                                  'procId': rproc.get('id'),
+                                  'cardId': card.get('id'), 'order': order}
+                order += 1
+    return out
+
+
+def fiber_box_title(entry):
+    res = (entry or {}).get('res') or {}
+    return res.get('displayTitle') or (res.get('name') or '').strip() \
+        or res.get('deviceName') or res.get('id') or 'a box'
+
+
+def _apply_fiber_binding(processors, resolved):
+    """Bind each backup record to the box it physically IS, tree-wide.
+
+    - Same processor, automatic: a box that backs up another on its card
+      (`backupOf` - NovaStar's copy/backup pair, or Brompton's adjacent
+      pairing, "an SX40's backup XD on the next trunk is the SAME XD taking
+      a second fiber") is bound to it, unless its record says `unbound`.
+    - Backup processor, by hand: a box on a card that backs up another
+      processor's card (backupFor) carries `boundTo` - one of that
+      processor's boxes, picked on its Fiber section - honoured only while
+      that relation stands.
+
+    A primary takes one bound backup (the first claim in tree order) and a
+    bound backup is nobody's primary. The bound record reads `boundTo` and
+    carries no links of its own; its primary reads `boundBackup` and gains
+    the backup link keys b1..bK.
+    """
+    boxes = fiber_box_index(processors, resolved)
+    backs = {}
+    for rproc in resolved or []:
+        for slot in rproc.get('slots') or []:
+            card = (slot or {}).get('card')
+            if card and card.get('backupFor'):
+                backs[card['id']] = card['backupFor'].get('processorId')
+    wants = {}
+    for bid, entry in boxes.items():
+        raw, res = entry['raw'], entry['res']
+        if res.get('backupOf'):
+            if not raw.get('unbound') and res['backupOf'] in boxes \
+                    and res['backupOf'] != bid:
+                wants[bid] = (res['backupOf'], False)
+            continue
+        target = raw.get('boundTo')
+        main_proc = backs.get(entry['cardId'])
+        if isinstance(target, str) and target in boxes \
+                and boxes[target]['cardId'] != entry['cardId'] \
+                and main_proc and boxes[target]['procId'] == main_proc:
+            wants[bid] = (target, True)
+    claimed = {}
+    for bid, (target, manual) in wants.items():
+        if target in wants or target in claimed:
+            continue
+        claimed[target] = bid
+        res, tres = boxes[bid]['res'], boxes[target]['res']
+        res['boundTo'] = target
+        res['boundManual'] = manual
+        res['boundTitle'] = fiber_box_title(boxes[target])
+        res['fiberLinks'] = {}
+        res['fiberLinkKeys'] = []
+        tres['boundBackup'] = bid
+        tres['boundBackupTitle'] = fiber_box_title(boxes[bid])
+        tres['fiberLinkKeys'] = fiber_link_keys(tres.get('trunksIn'), True)
+    # The boxes a backup-processor box may be bound to by hand: the backed
+    # processor's boxes (off its own card) that are neither bound nor
+    # already someone else's.
+    for bid, entry in boxes.items():
+        res = entry['res']
+        main_proc = backs.get(entry['cardId'])
+        if res.get('backupOf') or not main_proc:
+            res['fiberBindTargets'] = None
+            continue
+        res['fiberBindTargets'] = [
+            {'id': tid, 'title': fiber_box_title(t)}
+            for tid, t in boxes.items()
+            if t['procId'] == main_proc and t['cardId'] != entry['cardId']
+            and not t['res'].get('boundTo')
+            and t['res'].get('boundBackup') in (None, bid)]
+
+
+def fiber_cables_in_use(project):
+    """The ids of every cable some box's link names right now."""
+    used = set()
+    for proc in (project or {}).get('processors') or []:
+        for slot in (proc or {}).get('slots') or []:
+            card = (slot or {}).get('card')
+            for cvt in (card or {}).get('cvts') or []:
+                for link in resolved_fiber_links(cvt).values():
+                    used.add(link['cable'])
+    return used
+
+
+def fiber_strands_taken(boxes, skip=None):
+    """{(cableId, strand): (boxId, key)} over the show's links, one link
+    (`skip` = (boxId, key)) left out. A bound record's own leftovers are
+    not links and take nothing."""
+    taken = {}
+    for bid, entry in sorted(boxes.items(), key=lambda kv: kv[1]['order']):
+        if entry['res'].get('boundTo'):
+            continue
+        for key, link in resolved_fiber_links(entry['raw']).items():
+            if skip and (bid, key) == tuple(skip):
+                continue
+            for s in link['strands']:
+                taken.setdefault((link['cable'], s), (bid, key))
+    return taken
+
+
+def fiber_next_free(cable, taken, need):
+    """The lowest `need` strands of `cable` no link holds, else None."""
+    total = fiber_cable_strand_count(cable)
+    out = [s for s in range(1, total + 1)
+           if (cable.get('id'), s) not in taken][:need]
+    return out if len(out) == need else None
+
+
+def check_fiber_link(boxes, cables, box_id, key, cable_id, strands,
+                     taken=None, need=None):
+    """Why this link cannot be stored, or None.
+
+    The rules, each refused with its reason: the key must be one of the
+    box's links; the cable must exist and, if it is an opticalCON, belong
+    to this box; the strands must be as many as the link needs (2, 1 with
+    BiDi), each within the cable, none twice, none held by another link.
+    `strands` None checks everything but the strands (the route then picks
+    the next free ones).
+    """
+    entry = boxes.get(box_id)
+    if entry is None:
+        return 'There is no such breakout box in this project.'
+    res, raw = entry['res'], entry['raw']
+    title = fiber_box_title(entry)
+    if res.get('boundTo'):
+        return (f'{title} is bound to {res.get("boundTitle") or "its primary"}'
+                f' - its fiber is set there.')
+    if key not in (res.get('fiberLinkKeys') or []):
+        return (f'{title} has no link {fiber_link_title(key)} - its links '
+                f'are {", ".join(fiber_link_title(k) for k in res.get("fiberLinkKeys") or [])}.')
+    cable = cables.get(cable_id)
+    if cable is None:
+        return 'That fiber cable is not in this project.'
+    name = cable.get('name') or 'That cable'
+    if cable.get('kind') in FIBER_KIND_FIBERS \
+            and cable.get('ownerBoxId') != box_id:
+        owner = boxes.get(cable.get('ownerBoxId'))
+        return (f'{name} is {fiber_box_title(owner) if owner else "another box"}'
+                f'’s opticalCON - an opticalCON feeds its own box only.')
+    if strands is None:
+        return None
+    if need is None:
+        need = fiber_link_need(raw)
+    if not isinstance(strands, list) or any(
+            isinstance(s, bool) or not isinstance(s, int) for s in strands):
+        return 'strands must be a list of strand numbers.'
+    if len(strands) != need:
+        why = 'a BiDi link takes 1' if need == 1 else 'a link takes 2'
+        return (f'{title} {fiber_link_title(key)} needs {need} '
+                f'strand{"" if need == 1 else "s"} - {why}.')
+    if len(set(strands)) != len(strands):
+        return 'A strand is named twice.'
+    total = fiber_cable_strand_count(cable)
+    for s in strands:
+        if s < 1 or s > total:
+            return (f'{name} has strands 1-{total} - there is no strand '
+                    f'{s}.')
+    if taken is None:
+        taken = fiber_strands_taken(boxes, (box_id, key))
+    for s in strands:
+        held = taken.get((cable_id, s))
+        if held:
+            other = boxes.get(held[0])
+            return (f'{name} strand {fiber_strand_name(s, cable)} is already '
+                    f'used by {fiber_box_title(other)} '
+                    f'{fiber_link_title(held[1])} - a strand carries one '
+                    f'link.')
+    return None
+
+
+def settle_fiber(project, used_before=None):
+    """Hold the fiber store to its rules against the tree as it now is.
+
+    Idempotent, and a project with no fiber anywhere is left untouched:
+    - binding records a relation no longer backs go (`boundTo` whose
+      backup relation or primary is gone, `unbound` on a box that backs
+      up nothing);
+    - a link that no longer holds (a bound record's own, a key the box no
+      longer has, a cable that is gone, an opticalCON on another box, a
+      strand out of range or held twice, a count its BiDi no longer takes)
+      goes - the first holder in tree order keeps a contested strand;
+    - an opticalCON whose owner box is gone goes;
+    - a cable that a link named before this request (`used_before`) and
+      none names now goes - the last link let go of it.
+
+    Returns True where anything changed.
+    """
+    if not isinstance(project, dict):
+        return False
+    processors = project.get('processors') or []
+    has_cables = bool(show_fiber_cables(project))
+    stored = any(
+        cvt.get('fiberLinks') is not None or 'boundTo' in cvt
+        or 'unbound' in cvt
+        for proc in processors for slot in (proc or {}).get('slots') or []
+        for cvt in ((slot or {}).get('card') or {}).get('cvts') or [])
+    if not has_cables and not stored:
+        # An emptied list leaves no key behind.
+        if 'fiberCables' in project:
+            project.pop('fiberCables', None)
+            return True
+        return False
+    boxes = fiber_box_index(processors)
+    changed = False
+    for entry in boxes.values():
+        raw, res = entry['raw'], entry['res']
+        if 'boundTo' in raw and (not res.get('boundManual')
+                                 or res.get('boundTo') != raw['boundTo']):
+            raw.pop('boundTo', None)
+            changed = True
+        if 'unbound' in raw and (not raw.get('unbound')
+                                 or not res.get('backupOf')):
+            raw.pop('unbound', None)
+            changed = True
+    cables = {c.get('id'): c for c in show_fiber_cables(project)
+              if isinstance(c, dict)}
+    taken = set()
+    for bid, entry in sorted(boxes.items(), key=lambda kv: kv[1]['order']):
+        raw, res = entry['raw'], entry['res']
+        if 'fiberLinks' not in raw:
+            continue
+        keys = [] if res.get('boundTo') else (res.get('fiberLinkKeys') or [])
+        need = fiber_link_need(raw)
+        kept = {}
+        links = raw.get('fiberLinks') if isinstance(raw.get('fiberLinks'),
+                                                    dict) else {}
+        for key in keys:
+            link = _fiber_link(links.get(key))
+            if not link:
+                continue
+            cable = cables.get(link['cable'])
+            if cable is None:
+                continue
+            if cable.get('kind') in FIBER_KIND_FIBERS \
+                    and cable.get('ownerBoxId') != bid:
+                continue
+            total = fiber_cable_strand_count(cable)
+            strands = link['strands']
+            if len(strands) != need or len(set(strands)) != len(strands) \
+                    or any(s < 1 or s > total for s in strands) \
+                    or any((link['cable'], s) in taken for s in strands):
+                continue
+            taken.update((link['cable'], s) for s in strands)
+            kept[key] = link
+        if kept != links:
+            changed = True
+        if kept:
+            raw['fiberLinks'] = kept
+        else:
+            raw.pop('fiberLinks', None)
+    used = fiber_cables_in_use(project)
+    out = []
+    for cable in show_fiber_cables(project):
+        if not isinstance(cable, dict):
+            changed = True
+            continue
+        if cable.get('kind') in FIBER_KIND_FIBERS \
+                and cable.get('ownerBoxId') not in boxes:
+            changed = True
+            continue
+        if used_before is not None and cable.get('id') in used_before \
+                and cable.get('id') not in used:
+            changed = True
+            continue
+        out.append(cable)
+    if out:
+        project['fiberCables'] = out
+    elif 'fiberCables' in project:
+        project.pop('fiberCables', None)
+        changed = True
+    return changed
+
+
+def check_fiber_cable(rec, cable=None, used_strands=0):
+    """Why this body cannot make (cable None) or edit `cable`, or None.
+
+    `used_strands` is the highest strand a link holds on the cable, which
+    a smaller strand count may not cut under.
+    """
+    if not isinstance(rec, dict):
+        return 'The body must be a JSON object.'
+    kind = rec.get('kind') if cable is None else cable.get('kind')
+    if cable is None and kind not in FIBER_KINDS:
+        return ('kind must be one of tac, mtp, opticalcon-duo or '
+                'opticalcon-quad.')
+    if cable is not None and 'kind' in rec and rec['kind'] != kind:
+        return 'A cable’s kind cannot change - make a new cable instead.'
+    if 'strands' in rec or (cable is None and kind in FIBER_STRANDED_KINDS):
+        value = rec.get('strands')
+        if kind in FIBER_KIND_FIBERS:
+            if value not in (None, FIBER_KIND_FIBERS[kind]):
+                return (f'An opticalCON {"DUO" if kind.endswith("duo") else "QUAD"}'
+                        f' has {FIBER_KIND_FIBERS[kind]} fibers.')
+        else:
+            if isinstance(value, bool) or not isinstance(value, int) \
+                    or value < 1:
+                return 'The strand count must be a whole number, 1 or more.'
+            if value < used_strands:
+                return (f'Strand {used_strands} is in use - the count cannot '
+                        f'go below it. Move that link first.')
+    if 'ft' in rec and rec['ft'] not in (None, ''):
+        if isinstance(rec['ft'], bool):
+            return 'ft must be a number of feet.'
+        try:
+            ft = float(rec['ft'])
+        except (TypeError, ValueError):
+            return 'ft must be a number of feet.'
+        if not math.isfinite(ft) or ft < 0:
+            return 'ft must be a number of feet, 0 or more.'
+    if 'connector' in rec and rec['connector'] not in (None, ''):
+        if kind != 'tac':
+            return 'Only a TAC names a connector.'
+        if not isinstance(rec['connector'], str):
+            return 'connector must be text.'
+    if 'name' in rec and rec['name'] is not None \
+            and not isinstance(rec['name'], str):
+        return 'name must be text.'
+    if 'labels' in rec and rec['labels'] not in FIBER_LABELS:
+        return 'labels must be colors or numbers.'
+    if 'subunits' in rec and not isinstance(rec['subunits'], bool):
+        return 'subunits must be true or false.'
+    if 'strandName' in rec:
+        spec = rec['strandName']
+        if not isinstance(spec, dict):
+            return 'strandName must be {strand, name}.'
+        n = spec.get('strand')
+        total = rec.get('strands') if isinstance(rec.get('strands'), int) \
+            else fiber_cable_strand_count(cable or rec)
+        if isinstance(n, bool) or not isinstance(n, int) or n < 1 \
+                or n > total:
+            return f'There is no strand {n} on this cable.'
+        if spec.get('name') is not None \
+                and not isinstance(spec.get('name'), str):
+            return 'A strand’s name must be text.'
+    return None
+
+
+def store_fiber_cable(project, rec, next_seq, cable=None):
+    """Write a checked body onto `cable` (a new one when None)."""
+    fresh = cable is None
+    if fresh:
+        kind = rec.get('kind')
+        cable = {'id': f'fib{next_seq()}', 'kind': kind,
+                 'labels': 'colors', 'subunits': False, 'strandNames': {}}
+        if kind in FIBER_KIND_FIBERS:
+            cable['strands'] = FIBER_KIND_FIBERS[kind]
+            cable['ownerBoxId'] = rec.get('ownerBoxId')
+    kind = cable['kind']
+    if 'name' in rec or fresh:
+        name = (rec.get('name') or '').strip()
+        cable['name'] = name or cable.get('name') \
+            or fiber_default_name(project, kind)
+    if kind in FIBER_STRANDED_KINDS and 'strands' in rec:
+        cable['strands'] = rec['strands']
+        names = cable.get('strandNames') or {}
+        cable['strandNames'] = {k: v for k, v in names.items()
+                                if k.isdigit() and int(k) <= rec['strands']}
+    if 'ft' in rec or fresh:
+        ft = _cable_ft(rec.get('ft'))
+        if ft is None:
+            cable.pop('ft', None)
+        else:
+            cable['ft'] = ft
+    if kind == 'tac' and ('connector' in rec or fresh):
+        conn = (rec.get('connector') or '').strip()
+        if conn:
+            cable['connector'] = conn
+        else:
+            cable.pop('connector', None)
+    if 'labels' in rec:
+        cable['labels'] = rec['labels']
+    if 'subunits' in rec:
+        cable['subunits'] = rec['subunits']
+    if 'strandName' in rec:
+        spec = rec['strandName']
+        text = (spec.get('name') or '').strip()
+        names = cable.setdefault('strandNames', {})
+        if text:
+            names[str(spec['strand'])] = text
+        else:
+            names.pop(str(spec['strand']), None)
+    if fresh:
+        project.setdefault('fiberCables', []).append(cable)
+    return cable
+
+
+def refit_fiber_bidi(boxes, cables, box_id, on):
+    """Re-fit one box's links to its BiDi switch, in place.
+
+    Switched ON, each link keeps its first strand. Switched OFF, each tries
+    the strand after its own; a link that cannot have it (past the cable's
+    count, or held by any link - this box's own included) is cleared.
+    Returns the keys cleared.
+    """
+    raw = boxes[box_id]['raw']
+    links = resolved_fiber_links(raw)
+    cleared = []
+    if on:
+        for link in links.values():
+            link['strands'] = link['strands'][:1]
+    else:
+        taken = fiber_strands_taken(boxes)
+        for key in list(links):
+            link = links[key]
+            cable = cables.get(link['cable'])
+            first = link['strands'][0] if link['strands'] else None
+            nxt = first + 1 if first else None
+            if cable is None or nxt is None \
+                    or nxt > fiber_cable_strand_count(cable) \
+                    or (link['cable'], nxt) in taken:
+                links.pop(key)
+                cleared.append(key)
+            else:
+                link['strands'] = [first, nxt]
+    if links:
+        raw['fiberLinks'] = links
+    else:
+        raw.pop('fiberLinks', None)
+    return cleared
+
+
+def resolved_fiber_cables(project):
+    """The show's cables as every reader takes them, in their stored order."""
+    out = []
+    for cable in show_fiber_cables(project):
+        if not isinstance(cable, dict):
+            continue
+        rec = {
+            'id': cable.get('id'),
+            'name': cable.get('name') or '',
+            'kind': cable.get('kind'),
+            'strands': fiber_cable_strand_count(cable),
+            'ft': cable.get('ft'),
+            'labels': cable.get('labels') if cable.get('labels')
+            in FIBER_LABELS else 'colors',
+            'subunits': bool(cable.get('subunits')),
+            'strandNames': dict(cable.get('strandNames') or {}),
+        }
+        if cable.get('kind') == 'tac' and cable.get('connector'):
+            rec['connector'] = cable['connector']
+        if cable.get('kind') in FIBER_KIND_FIBERS:
+            rec['ownerBoxId'] = cable.get('ownerBoxId')
+        out.append(rec)
+    return out
+
+
 
 def stock_default_cvts(project):
     """Put the shop-default boxes back on a boxless requires-distribution
@@ -1721,6 +2399,23 @@ def resolve_card(card, proc):
             # beach's name; `location` above is only a record nobody
             # migrated yet.
             'beachId': cvt.get('beachId') or None,
+            # The box's fiber links (the fiber-cable section below): which
+            # show cable and which strands each of its trunk links takes.
+            # `bidi` halves a link to one strand, and is only offered where
+            # the catalog's vendor makes BiDi optics (bidiAllowed). The
+            # binding fields - boundTo on a backup record that IS its
+            # primary's metal, boundBackup on that primary, and the backup
+            # link keys that come with it - are filled in by resolve_all
+            # (_apply_fiber_binding), because a backup processor's box can
+            # be bound to a box on another processor.
+            'fiberLinks': resolved_fiber_links(cvt),
+            'fiberLinkKeys': fiber_link_keys(takes, False),
+            'bidi': bool(cvt.get('bidi')),
+            'bidiAllowed': fiber_bidi_allowed(cvt_device),
+            'unbound': bool(cvt.get('unbound')),
+            'boundTo': None,
+            'boundManual': False,
+            'boundBackup': None,
             'ports': [],
         }
         # The box's port cables ride the resolved box, with the connector
@@ -2353,4 +3048,5 @@ def resolve_all(processors):
     resolved = [resolve_processor(p) for p in (processors or [])]
     _apply_backup_mapping(processors, resolved)
     _derive_backup_processors(resolved)
+    _apply_fiber_binding(processors, resolved)
     return resolved

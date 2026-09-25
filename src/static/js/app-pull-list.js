@@ -52,11 +52,15 @@
 //     x 5); a short link on a screen whose length for that direction is
 //     blank counts no cable. The NAMES are per project (project.pullSheet),
 //     defaults "Data Jump" and "Tru-1 Power Jump".
-//   * a breakout box's FIBER TRUNK is one row per box, said once however
-//     many ports ride it: its type (the box's fiberType, "Fiber" untyped)
-//     and its length (fiberFt), both typed on the box's cable sheet (the
-//     first row of its ≡ sheet; 2026-09-07, moved off the ⚙ 2026-09-25);
-//     a box without a length has no row. `unmodelled` is empty.
+//   * a breakout box's FIBER is its links' CABLES (2026-09-25,
+//     app-fiber.js): each TAC, MTP or opticalCON is ONE row however many
+//     boxes' links take it - "TAC 12 · ST", "MTP 24", "opticalCON QUAD"
+//     with its length, under the cable's name, where the first box that
+//     reaches it sits. A backup record bound to its primary (the same box
+//     taking a second fiber) adds no EA row of its own. A 1.3 box's typed
+//     fiber (fiberType / fiberFt) still prints as its own row - its type,
+//     or "Fiber", and its length; none without a length - until a link on
+//     the box has a cable. `unmodelled` is empty.
 //
 //   * EDITS (2026-09-06, "edit in the app and then export a whole file i can
 //     share"): buildPullList() is the engine, recomputed from the show every
@@ -664,10 +668,37 @@ class _PullList {
         for (const { box, proc } of this._pullAllBoxes()) {
             const type = String(box.deviceName || '').trim();
             if (!type) continue;
+            // A backup record BOUND to its primary is the same physical box
+            // taking a second fiber (2026-09-25): no second EA row.
+            if (box.boundTo) continue;
             const r = { type, length: 'EA', qty: 1, label: this.pullBoxLabel(box),
                         notes: '', side: 'data' };
             if (!gearAt(r, this.pullLocationOf(box), boxFirstLayer.get(box.id))) continue;
             hw('processor', proc.id, proc.name || proc.deviceName || proc.id).rows.push({ ...r });
+        }
+        // FIBER CABLES NO SCREEN PORT REACHED: a cable is on the list once
+        // however it is used, so a TAC that only a backup link takes, or one
+        // feeding a box no screen's port comes out of yet, is still pulled -
+        // under its first box's location (tray order), else the screen that
+        // box first feeds, else the first position. The walk above said the
+        // rest, where their ports reached them.
+        if (typeof this.fiberBoxLinks === 'function') {
+            for (const { box, proc } of this._pullAllBoxes()) {
+                if (box.boundTo) continue;
+                for (const l of this.fiberBoxLinks(box)) {
+                    if (!l.cable || fiberSeen.has(`fib:${l.cable.id}`)) continue;
+                    fiberSeen.add(`fib:${l.cable.id}`);
+                    const ft = Number(l.cable.ft);
+                    const has = Number.isFinite(ft) && ft > 0;
+                    const r = { type: this.fiberCableTypeText(l.cable), length: this.pullLengthText(ft),
+                                qty: 1, label: l.cable.name || '', notes: has ? '' : 'no length', side: 'data' };
+                    if (!gearAt(r, this.pullLocationOf(box), boxFirstLayer.get(box.id))) {
+                        if (!bases.length) continue;
+                        land(bases[0].key, r, null);
+                    }
+                    hw('processor', proc.id, proc.name || proc.deviceName || proc.id).rows.push({ ...r });
+                }
+            }
         }
         const boxesOn = new Map();            // String(distroId) -> boxes in use
         for (const key of boxesSeen) {
@@ -876,11 +907,41 @@ class _PullList {
                 const box = owner.rec;
                 into.box = this.pullBoxTitle(box);
                 if (!boxFirstLayer.has(box.id)) boxFirstLayer.set(box.id, layer.id);
-                const fiberText = this.pullBoxFiberText(box);
+                // The box's fiber is set on the record it physically is -
+                // its primary, where it is a bound backup.
+                const host = typeof this.fiberHostBox === 'function' ? this.fiberHostBox(box) : box;
+                const linked = typeof this.fiberBoxLinks === 'function'
+                    ? this.fiberBoxLinks(box).filter(l => l.cable) : [];
+                // The 1.3 typed note prints as it always did - until a link
+                // on the box has a cable.
+                const fiberText = linked.length ? '' : this.pullBoxFiberText(box);
                 if (fiberText && !fiberSeen.has(box.id)) {
                     fiberSeen.add(box.id);
                     push(row((box.fiberType || '').trim() || 'Fiber',
                              this.pullLengthText(box.fiberFt), 1, into.box, '', at));
+                }
+                // Each fiber CABLE once, however many boxes' links take it
+                // (a TAC shared by four boxes is one TAC to pull): "TAC 12 ·
+                // ST", "MTP 24", "opticalCON QUAD" with its length, under the
+                // cable's name, where the first box that reaches it sits, and
+                // on that box's processor's hardware rows.
+                const hostAt = host && host !== box ? boxAt({ kind: 'cvt', rec: host }) : at;
+                const hostFound = host && host !== box && typeof this._dockFindCvt === 'function'
+                    ? this._dockFindCvt(host.id) : null;
+                for (const l of linked) {
+                    const key = `fib:${l.cable.id}`;
+                    if (fiberSeen.has(key)) continue;
+                    fiberSeen.add(key);
+                    const ft = Number(l.cable.ft);
+                    const has = Number.isFinite(ft) && ft > 0;
+                    const r = row(this.fiberCableTypeText(l.cable), this.pullLengthText(ft), 1,
+                                  l.cable.name || '', has ? '' : 'no length', hostAt);
+                    if (hostFound) {
+                        const hp = hostFound.proc;
+                        hw('processor', hp.id, hp.name || hp.deviceName || hp.id).rows.push({ ...r });
+                    } else {
+                        push(r);
+                    }
                 }
             }
             const cable = this._dataPortCableOn(owner, socket);

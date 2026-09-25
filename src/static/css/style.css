@@ -1892,32 +1892,67 @@ button.hw-dock-typechip:focus-visible { outline: 1px solid var(--ps-accent, #ef3
 .hw-dock-cable-quick-group {
     display: flex; gap: 6px; align-items: center; flex: 0 0 auto;
 }
-/* a breakout box's fiber trunk: the FIRST row of its data sheet, above
-   the quick fills and the ports (2026-09-25: "the fiber info to XD boxes
-   and whatnot should be in the cable lengths area") - "Fiber · CVT10 A",
-   the type, the length. A strip of its own, not a table row: it is a fact
-   of the box, and no quick fill or ticked fill reaches it. */
+/* a breakout box's fiber: the FIRST block of its data sheet, above the
+   quick fills and the ports (2026-09-25) - "Fiber · CVT10 A" with its BiDi
+   switch, then one row per trunk link (Primary 1..K, Backup 1..K tinted
+   where a backup is bound): the cable select, the strands as swatched
+   chips, Edit. A block of its own, not a table row: it is a fact of the
+   box, and no quick fill or ticked fill reaches it. */
 .hw-dock-cable-fiber {
-    display: flex; flex-wrap: wrap; gap: 6px; row-gap: 3px;
-    align-items: baseline; padding: 2px 4px 5px; margin-bottom: 3px;
+    display: flex; flex-direction: column; gap: 3px;
+    padding: 2px 4px 5px; margin-bottom: 3px;
     border-bottom: 1px solid #2c2c2c;
     font: 10.5px ui-monospace, Menlo, monospace; color: #dddddd;
 }
 .hw-dock-cable-fiber-cap { color: #9aa4aa; white-space: nowrap; }
-/* the row's own classes, dressed as the port rows' fields are */
-.hw-dock-cable-fiber-type,
-.hw-dock-cable-fiber-ft {
-    background: #0d0d0d; color: #eeeeee; border: 1px solid #555;
+.hw-dock-fiber-head,
+.hw-dock-fiber-link,
+.hw-dock-fiber-legacy,
+.hw-dock-fiber-bound,
+.hw-dock-fiber-wizard {
+    display: flex; flex-wrap: wrap; gap: 6px; row-gap: 3px; align-items: center;
+}
+.hw-dock-fiber-head { justify-content: space-between; }
+.hw-dock-fiber-bidi { display: inline-flex; align-items: center; gap: 3px; color: #bbbbbb; cursor: pointer; }
+.hw-dock-fiber-dim { color: #9aa4aa; }
+.hw-dock-fiber-legacy-text { color: #f0d48a; }
+.hw-dock-fiber-role { color: #9aa4aa; min-width: 7.5ch; white-space: nowrap; }
+/* a backup link is the same box's second fiber: tinted, the way a
+   backup's chips are elsewhere on the dock */
+.hw-dock-fiber-link-backup {
+    background: rgba(90, 140, 220, 0.10); border-radius: 3px; padding: 1px 2px;
+}
+.hw-dock-fiber-select { width: auto; max-width: 26ch; }
+.hw-dock-fiber-strand {
+    display: inline-flex; align-items: center; gap: 4px;
+    background: #1b1b1b; color: #eeeeee; border: 1px solid #444;
+    border-radius: 9px; padding: 0 6px 0 3px; cursor: pointer;
+    font: 10.5px ui-monospace, Menlo, monospace;
+}
+.hw-dock-fiber-strand:hover { border-color: #777; }
+.hw-dock-fiber-swatch {
+    display: inline-block; width: 10px; height: 10px; flex: 0 0 auto;
+    border-radius: 50%; border: 1px solid rgba(255, 255, 255, 0.35);
+}
+.hw-dock-fiber-text {
+    width: 14ch; background: #0d0d0d; color: #eeeeee; border: 1px solid #555;
     border-radius: 3px; padding: 1px 4px; min-width: 0;
     font: 10.5px ui-monospace, Menlo, monospace;
 }
-.hw-dock-cable-fiber-type { width: 16ch; }
-.hw-dock-cable-fiber-ft { width: 44px; -moz-appearance: textfield; }
-.hw-dock-cable-fiber-ft::-webkit-outer-spin-button,
-.hw-dock-cable-fiber-ft::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
-.hw-dock-cable-fiber-type:focus,
-.hw-dock-cable-fiber-ft:focus { outline: none; border-color: var(--ps-accent, #ef3340); }
-.hw-dock-cable-fiber-run { display: inline-flex; align-items: baseline; gap: 4px; }
+.hw-dock-fiber-text:focus { outline: none; border-color: var(--ps-accent, #ef3340); }
+.hw-dock-fiber-wizard,
+.hw-dock-fiber-editor {
+    margin-left: 7.5ch; padding: 3px 5px; border-left: 2px solid #444;
+}
+.hw-dock-fiber-editor { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+.hw-dock-fiber-field { display: inline-flex; align-items: center; gap: 4px; }
+.hw-dock-fiber-names {
+    flex: 1 1 100%; display: grid; gap: 2px 8px;
+    grid-template-columns: repeat(auto-fill, minmax(17ch, 1fr));
+    max-height: 150px; overflow-y: auto;
+}
+.hw-dock-fiber-name { display: inline-flex; align-items: center; gap: 4px; }
+.hw-dock-fiber-name .hw-dock-fiber-text { width: 100%; }
 /* A chip with a cable wears its length small at the END of one of its
    lines, in the cable's gold - IN FLOW, never over the text (2026-09-07:
    "adding the extensions on data, and power in the hardware tab you cant

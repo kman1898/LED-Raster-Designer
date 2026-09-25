@@ -144,6 +144,8 @@ const BLOCK_GAP = 22;
 // The tables' column: 3.5 in wide, a gap between columns; a view's bubble
 // takes this much under its map.
 const COL_W = 700;
+// A table cell's swatch (a fiber strand's color) and the gap after it.
+const SWATCH_W = 26;
 const DATA_COL_W = 1020;              // the Ports table's six columns of whole names
 const COL_GAP = 30;
 const BUBBLE_H = 96;
@@ -1883,7 +1885,8 @@ class _Binder {
                         n = Math.max(n, ctxM.measureText(piece.trim()).width + padX * 2);
                     }
                 } else {
-                    n = Math.max(n, ctxM.measureText(String(cell)).width + padX * 2);
+                    n = Math.max(n, ctxM.measureText(String(cell)).width + padX * 2
+                        + (c.swatch && r.swatch ? SWATCH_W : 0));
                 }
             }
             return n;
@@ -1901,8 +1904,10 @@ class _Binder {
     // each knowing its height and how to draw itself at (x, y, w). The
     // packer below lays a block's lines into columns, the head lines
     // repeated wherever a block continues.
-    //   spec = { title, width, cols: [{ title, w, align, tick, list }], rows: [
-    //             { band: 'text' } | { cells: [...], bold? } ] }
+    //   spec = { title, note?, width, cols: [{ title, w, align, tick, list, swatch }], rows: [
+    //             { band: 'text' } | { cells: [...], bold?, swatch? } ] }
+    // A `swatch` column paints the row's swatch ({ base, tracer } - a fiber
+    // strand's color and its tracer stripe) in front of its text.
     // `width` is the column the block is measured in (COL_W unless the
     // sheet's columns are another size) - a row that has to wrap knows its
     // height there, and a wider column at paint time simply wraps looser.
@@ -1928,6 +1933,14 @@ class _Binder {
                             { size: SZ.h4, weight: 700, upper: true, maxWidth: w });
                 ctx.fillStyle = RULE;
                 ctx.fillRect(x, y + H4_H - 6, w, 2);
+            } });
+        }
+        // `note`: one line of the table's own text under its title ("Also
+        // on BK RACK"), repeated with the head where the block continues.
+        if (spec.note) {
+            lines.push({ h: ROW_H, head: true, draw: (ctx, x, y, w) => {
+                this._bText(book, spec.note, x, y + 27,
+                            { size: SZ.cell, weight: 400, maxWidth: w });
             } });
         }
         lines.push({ h: TH_H, head: true, draw: (ctx, x, y, w) => {
@@ -2013,6 +2026,13 @@ class _Binder {
                     // little before it is cut, the way a heading does; a
                     // cell saying two things ("A / B" - HOME RUN with a
                     // backup end) goes to two lines rather than being cut.
+                    if (cols[i].swatch && r.swatch) {
+                        this._bSwatch(ctx, r.swatch, ax, y + 10);
+                        const o = { size: SZ.cell, weight, align: L[i].align,
+                                    maxWidth: maxWidth - SWATCH_W, shrink: !!spec.shrink };
+                        this._bText(book, cell, ax + SWATCH_W, y + 27, o);
+                        return;
+                    }
                     const o = { size: SZ.cell, weight, align: L[i].align,
                                 maxWidth, shrink: !!spec.shrink };
                     if (spec.shrink) this._bTextTwoLines(book, cell, ax, y + 27, o);
@@ -2022,6 +2042,26 @@ class _Binder {
             } });
         }
         return lines;
+    }
+
+    // A fiber strand's swatch, 18 px square at (x, y): its color, the
+    // tracer as a corner, ringed in ink so White reads on white paper.
+    _bSwatch(ctx, sw, x, y) {
+        const S = 18;
+        ctx.fillStyle = sw.base || '#777777';
+        ctx.fillRect(x, y, S, S);
+        if (sw.tracer) {
+            ctx.fillStyle = sw.tracer;
+            ctx.beginPath();
+            ctx.moveTo(x + S, y + S * 0.35);
+            ctx.lineTo(x + S, y + S);
+            ctx.lineTo(x + S * 0.35, y + S);
+            ctx.closePath();
+            ctx.fill();
+        }
+        ctx.strokeStyle = INK;
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(x, y, S, S);
     }
 
     // A key/value block (the Facts) as lines.
@@ -3097,15 +3137,32 @@ class _Binder {
             ? this.pullBoxTitle(box) : (box.displayTitle || box.name || box.deviceName);
     }
 
-    // The band over a box's ports: "CVT4K-S SR · OPT 1-2 · 16 ports · 12
-    // Tac Fiber 250'" - the trunk it hangs on as the card's face prints
-    // it, the sockets it delivers, and its fiber trunk (or that it has no
-    // length yet).
+    // The band over a box's ports: "CVT4K-S SR · OPT 1-2 · 16 ports · TAC
+    // A 1-4" - the trunk it hangs on as the card's face prints it, the
+    // sockets it delivers, and its fiber (_bBoxFiberText).
     _bBoxBandText(box) {
-        const fiber = (typeof this.pullBoxFiberText === 'function') ? this.pullBoxFiberText(box) : '';
         return [this._bBoxTitle(box), box.trunkTitle || '',
                 this._bPlural(box.portCount || (box.ports || []).length, 'port'),
-                fiber || 'no fiber length'].filter(Boolean).join(' · ');
+                this._bBoxFiberText(box)].filter(Boolean).join(' · ');
+    }
+
+    // A box's fiber as the binder says it, SHORT - the cable's name and the
+    // strands, "TAC A 9-10 · backup TAC B 1-2" (fiberLinkSummary); what a
+    // TAC A is, is its strand map's header. A bound backup record reads
+    // "same box as BK1" (its primary, by the name typed on it). With no
+    // link: the 1.3 typed note as it always read ("12 Tac Fiber 250'", "no
+    // fiber length" where only a type was typed), else "no fiber".
+    _bBoxFiberText(box) {
+        if (!box) return 'no fiber';
+        if (box.boundTo && typeof this.fiberHostBox === 'function') {
+            const host = this.fiberHostBox(box) || {};
+            return `same box as ${String(host.name || '').trim() || host.displayTitle || this._bBoxTitle(host)}`;
+        }
+        const links = typeof this.fiberLinkSummary === 'function' ? this.fiberLinkSummary(box) : '';
+        if (links) return links;
+        const fiber = (typeof this.pullBoxFiberText === 'function') ? this.pullBoxFiberText(box) : '';
+        if (fiber) return fiber;
+        return String(box.fiberType || '').trim() ? 'no fiber length' : 'no fiber';
     }
 
     // The redundancy bar's reading for a processor: "Per card", "Per port",
@@ -3942,21 +3999,26 @@ class _Binder {
         const boxRows = [];
         for (const { card } of cards) {
             for (const box of (card.cvts || [])) {
-                const fiber = (typeof this.pullBoxFiberText === 'function') ? this.pullBoxFiberText(box) : '';
                 boxRows.push({ cells: [this._bBoxTitle(box), this.cardTypedName(proc, card) || nameOf(card.id), box.trunkTitle || '—',
                                        String(box.portCount || (box.ports || []).length),
-                                       fiber || 'no fiber length'] });
+                                       this._bBoxFiberText(box)] });
             }
         }
         if (boxRows.length) {
             blocks.push({ lines: this._bTableLines(book, {
                 title: 'Breakout boxes',
+                // FIBER wraps at its " · " - a box with a backup link reads
+                // "TAC A 9-10" over "backup TAC B 1-2" - rather than being
+                // shrunk or cut.
                 cols: [{ title: 'breakout box', w: 1.3 }, { title: 'card', w: 0.7 }, { title: 'trunk', w: 0.7 },
-                       { title: 'ports', w: 0.65, align: 'right' }, { title: 'fiber', w: 1.4 }],
+                       { title: 'ports', w: 0.65, align: 'right' }, { title: 'fiber', w: 1.4, list: 2 }],
                 rows: boxRows,
                 shrink: true,
             }) });
         }
+        // A STRAND MAP for each fiber cable whose first link this processor
+        // feeds - every strand, its box and link, "spare" where none.
+        for (const map of this._bStrandMaps(proc)) blocks.push({ lines: this._bTableLines(book, map) });
         blocks.push({ lines: this._bKvLines(book, 'Redundancy', [
             ['Device', proc.deviceName || proc.deviceId || ''],
             ['Redundancy', this._bRedundancyText(proc)],
@@ -4023,6 +4085,59 @@ class _Binder {
         const hw = (book.list.hardware || []).find(h => h.kind === 'processor' && h.id === proc.id);
         blocks.push({ lines: this._bPullLines(book, 'Pull list', (hw && hw.rows) || []) });
         return blocks;
+    }
+
+    // The strand maps a processor's page carries (2026-09-25): one table per
+    // fiber cable (TAC, MTP, opticalCON) whose FIRST link - tray order, a
+    // box's links Primary 1..K then Backup 1..K - comes off this processor.
+    // A cable that also feeds boxes on other processors is mapped here only,
+    // a line under its header saying "Also on" them. Columns: the strand (its swatch and
+    // name), the box, the link; an unused strand reads "spare".
+    _bStrandMaps(proc) {
+        if (typeof this.getFiberCables !== 'function') return [];
+        const firsts = new Map();      // cableId -> processor id of its first link
+        const procsOf = new Map();     // cableId -> [processor titles]
+        const uses = new Map();        // cableId -> Map(strand -> { box, key })
+        for (const { box, proc: p } of this._fiberAllBoxes()) {
+            if (box.boundTo) continue;
+            for (const key of box.fiberLinkKeys || []) {
+                const link = (box.fiberLinks || {})[key];
+                if (!link || !this.getFiberCable(link.cable)) continue;
+                if (!firsts.has(link.cable)) firsts.set(link.cable, p.id);
+                const names = procsOf.get(link.cable) || [];
+                const title = p.name || p.deviceName || p.id;
+                if (!names.includes(title)) names.push(title);
+                procsOf.set(link.cable, names);
+                const m = uses.get(link.cable) || new Map();
+                (link.strands || []).forEach(s => { if (!m.has(s)) m.set(s, { box, key }); });
+                uses.set(link.cable, m);
+            }
+        }
+        const here = proc.name || proc.deviceName || proc.id;
+        const out = [];
+        for (const cable of this.getFiberCables()) {
+            if (firsts.get(cable.id) !== proc.id) continue;
+            const ft = Number(cable.ft);
+            const also = (procsOf.get(cable.id) || []).filter(t => t !== here);
+            const title = [`Strand map · ${cable.name || this.fiberKindWord(cable.kind)}`,
+                           this.fiberCableTypeText(cable),
+                           Number.isFinite(ft) && ft > 0 ? this.pullLengthText(ft) : '']
+                .filter(Boolean).join(' · ');
+            const m = uses.get(cable.id) || new Map();
+            const rows = [];
+            for (let n = 1; n <= (cable.strands || 0); n++) {
+                const who = m.get(n);
+                rows.push({ swatch: this.fiberStrandSwatch(n, cable),
+                            cells: [this.fiberStrandName(n, cable),
+                                    who ? this._bBoxTitle(who.box) : 'spare',
+                                    who ? this.fiberLinkTitle(who.key) : ''] });
+            }
+            out.push({ title, note: also.length ? `Also on ${also.join(', ')}` : '',
+                       cols: [{ title: 'strand', w: 1.1, swatch: true }, { title: 'box', w: 1.2 },
+                              { title: 'link', w: 0.8 }],
+                       rows, shrink: true });
+        }
+        return out;
     }
 
     // ---- the show's pull list (4.last) --------------------------------------
