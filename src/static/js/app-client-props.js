@@ -80,6 +80,9 @@ class _ClientProps {
                         if (layerProps.powerLabelTemplate !== undefined) layer.powerLabelTemplate = layerProps.powerLabelTemplate;
                         if (layerProps.powerLabelOverrides !== undefined) layer.powerLabelOverrides = layerProps.powerLabelOverrides;
                         if (layerProps.powerCircuitCables !== undefined) layer.powerCircuitCables = layerProps.powerCircuitCables;
+                        for (const k of ['dataJumpV', 'dataJumpH', 'powerJumpV', 'powerJumpH']) {
+                            if (layerProps[k] !== undefined) layer[k] = layerProps[k];
+                        }
                         if (layerProps.powerCustomPaths !== undefined) layer.powerCustomPaths = layerProps.powerCustomPaths;
                         if (layerProps.powerCustomIndex !== undefined) layer.powerCustomIndex = layerProps.powerCustomIndex;
                         if (layerProps.powerCustomOverrides !== undefined) layer.powerCustomOverrides = layerProps.powerCustomOverrides;
@@ -201,6 +204,10 @@ class _ClientProps {
             // Per-circuit cables ({circuit: {ft, connector}}) - the
             // paperwork's 10' True1 on circuit 1 (2026-09-06).
             if (layer.powerCircuitCables === undefined) layer.powerCircuitCables = {};
+            // Per-screen jumper lengths (2026-09-25): a file saved before
+            // them reads the preferences' figures (in memory - nothing is
+            // written back until an edit).
+            this.applyJumperDefaults(layer);
             if (layer.powerSocaNames === undefined) layer.powerSocaNames = {};
             // Reads the template it just defaulted above, so it has to run
             // after it: the shift it applies is the template's own start
@@ -295,6 +302,7 @@ class _ClientProps {
             layer.powerAmperage = prefs.powerAmperage;
             layer.powerAmperageCustom = prefs.powerAmperage;
             layer.panelWatts = prefs.powerWatts;
+            this.applyJumperDefaults(layer, true);
             layer.dataFlowLabelSize = prefs.dataLabelSize || 30;
             layer.powerLabelSize = prefs.powerLabelSize || 14;
             layer.primaryTextColor = layer.primaryTextColor || '#000000';

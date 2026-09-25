@@ -1702,6 +1702,9 @@ class _Presets {
         layer.powerLabelTemplate = 'S1-#';
         layer.powerLabelOverrides = {};
         layer.powerCircuitCables = {};
+        // The jumper lengths a new screen starts with (Preferences > Sheet
+        // & cables; a preset carrying its own overlays them after this).
+        this.applyJumperDefaults(layer, true);
         layer.powerSocaNames = {};
         // Born keyed by the multi's stable index, so the one-time rekey never
         // runs over a screen that was already built the new way.

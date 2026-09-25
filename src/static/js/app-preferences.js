@@ -122,11 +122,18 @@ class _Preferences {
             // fill (app-dock) and the power-cable quick fill (app-dock)
             // write. A blank snake length means a new snake starts with
             // none, as it always has.
+            // The jumper LENGTHS are what a NEW screen starts with
+            // (app-jumpers.js jumperDefaults): *JumpLength is the vertical
+            // link, *JumpLengthH the horizontal one - shipped 6 and 6, and
+            // a saved record that never held a horizontal reads its own
+            // vertical figure (getPreferences). null / blank: no cable.
             pullRev: '1.0',
             powerJumpName: 'Tru-1 Power Jump',
             powerJumpLength: 6,
+            powerJumpLengthH: 6,
             dataJumpName: 'Data Jump',
             dataJumpLength: 6,
+            dataJumpLengthH: 6,
             snakeHomeRunFt: null,
             loosePortCableFt: 100,
             powerCableFt: 10
@@ -190,7 +197,15 @@ class _Preferences {
         const saved = (this._serverPreferences && Object.keys(this._serverPreferences).length > 0)
             ? this._serverPreferences
             : this.getLocalPreferences();
-        return { ...defaults, ...saved };
+        const out = { ...defaults, ...saved };
+        // A record saved before the horizontal jumper lengths existed
+        // (2026-09-25) reads its vertical figure for them: the horizontal
+        // default is "the same as vertical".
+        for (const side of ['data', 'power']) {
+            const v = `${side}JumpLength`, h = `${side}JumpLengthH`;
+            if (saved && saved[h] === undefined && saved[v] !== undefined) out[h] = saved[v];
+        }
+        return out;
     }
 
     supportsFilePickerAPIs() {
@@ -698,8 +713,10 @@ class _Preferences {
         setVal('pref-pull-rev', prefs.pullRev);
         setVal('pref-pull-power-jump-name', prefs.powerJumpName);
         setVal('pref-pull-power-jump-length', prefs.powerJumpLength);
+        setVal('pref-pull-power-jump-length-h', prefs.powerJumpLengthH);
         setVal('pref-pull-data-jump-name', prefs.dataJumpName);
         setVal('pref-pull-data-jump-length', prefs.dataJumpLength);
+        setVal('pref-pull-data-jump-length-h', prefs.dataJumpLengthH);
         setVal('pref-snake-home-run-length', prefs.snakeHomeRunFt);
         setVal('pref-loose-port-cable-length', prefs.loosePortCableFt);
         setVal('pref-power-cable-length', prefs.powerCableFt);
@@ -844,9 +861,24 @@ class _Preferences {
             engineerName: readText('pref-pull-engineer', stored.engineerName != null ? stored.engineerName : defaults.engineerName),
             pullRev: readStr('pref-pull-rev', defaults.pullRev),
             powerJumpName: readStr('pref-pull-power-jump-name', defaults.powerJumpName),
-            powerJumpLength: readNum('pref-pull-power-jump-length', defaults.powerJumpLength),
             dataJumpName: readStr('pref-pull-data-jump-name', defaults.dataJumpName),
-            dataJumpLength: readNum('pref-pull-data-jump-length', defaults.dataJumpLength),
+            // The four jumper lengths a new screen starts with: blank is
+            // null (no cable counted); with the dialog closed, the stored
+            // figure.
+            ...(() => {
+                const pv = stored.powerJumpLength, ph = stored.powerJumpLengthH;
+                const dv = stored.dataJumpLength, dh = stored.dataJumpLengthH;
+                if (!dialogOpen) {
+                    return { powerJumpLength: pv, powerJumpLengthH: ph,
+                             dataJumpLength: dv, dataJumpLengthH: dh };
+                }
+                return {
+                    powerJumpLength: readOptNum('pref-pull-power-jump-length', pv),
+                    powerJumpLengthH: readOptNum('pref-pull-power-jump-length-h', ph),
+                    dataJumpLength: readOptNum('pref-pull-data-jump-length', dv),
+                    dataJumpLengthH: readOptNum('pref-pull-data-jump-length-h', dh),
+                };
+            })(),
             snakeHomeRunFt: dialogOpen ? readOptNum('pref-snake-home-run-length', defaults.snakeHomeRunFt)
                 : (stored.snakeHomeRunFt != null ? stored.snakeHomeRunFt : defaults.snakeHomeRunFt),
             loosePortCableFt: readNum('pref-loose-port-cable-length', defaults.loosePortCableFt),

@@ -559,9 +559,14 @@ def test_the_distro_picker_pulls_the_power_rows_to_its_beach(page):
     for row in [('12 way', 'EA', 1, 'SR', ''), ('Multi', "100'", 1, 'SR 2', ''), ('Multi', "125'", 1, 'SR 1', ''),
                 ('Tru-1 Breakout', 'EA', 2, 'SR 1-2', '')]:
         assert row in sl_rows, (row, sl_rows)
-    # the walls' power jumpers merged with CENTER's and LEFT's own, at SL
+    # the walls' power jumpers merged with CENTER's and LEFT's own, at SL -
+    # one row per length (2026-09-25): WALL-A's 1' / 2', CENTER's 3', and
+    # WALL-B's ten 6' with LEFT's three (a 2 x 2 at the preferences' 6')
     jumps = [r for r in sl_rows if r[0] == 'Tru-1 Power Jump']
-    assert len(jumps) == 1 and 'WALL-A' in jumps[0][3] and 'WALL-B' in jumps[0][3], sl_rows
+    assert jumps == [('Tru-1 Power Jump', "1'", 9, 'WALL-A', ''),
+                     ('Tru-1 Power Jump', "2'", 1, 'WALL-A', ''),
+                     ('Tru-1 Power Jump', "3'", 12, 'CENTER', ''),
+                     ('Tru-1 Power Jump', "6'", 13, 'WALL-B, LEFT', '')], sl_rows
     assert not [r for r in _rows(pos['SR']['rows']) if r[0] in ('12 way', 'Multi', 'Tru-1 Breakout')]
     assert ('Ether-con Snake', "100'", 1, 'SNAKE A', '2 channel') in _rows(pos['SR']['rows'])
     assert set(pos['SL']['layerIds']) >= {ids['a'], ids['b'], ids['c']}
@@ -614,7 +619,9 @@ def test_the_box_picker_pulls_its_rows_to_its_beach(page):
     }""", box)
     assert out['inPop'] and out['tag'] == 'SELECT' and out['value'] == '', out
     assert out['options'] == ['— no beach —', 'SR', 'SL', '+ New beach…'], out
-    assert 'Beach' in out['labels'] and 'Fiber' in out['labels'] and 'Location' not in out['labels'], out
+    # the box's fiber moved to its ≡ cable sheet (2026-09-25); the gear
+    # keeps the Beach picker
+    assert 'Beach' in out['labels'] and 'Fiber' not in out['labels'] and 'Location' not in out['labels'], out
     assert not out['typed']
     h0 = _history(pg)
     pg.select_option(f'[data-lrd-field="processor-cvt-beach-{box}"]', 'b1')

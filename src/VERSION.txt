@@ -1,6 +1,23 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v1.3.4 - September 25, 2026
+----------------------------
+
+- FIX: Jumpers are counted link by link. The next cabinet directly above
+  or below takes a vertical jumper, directly beside takes a horizontal
+  jumper, each at the length set on that screen's Data or Power sidebar
+  (blank for panels that link themselves; the defaults for new screens
+  are in Preferences, and a panel preset carries them). A cabinet that
+  is not touching takes a long jumper, measured center to center along
+  the panels plus a foot of slack and rounded up to 3, 6, 10, 15 or
+  25 ft. Grouped screens that touch count as touching. The binder and
+  the pull sheet list each length on its own row, and with Show Cable
+  Tags on a long jump shows its length on the map. Before, every step to
+  a new row counted one jumper at a single project-wide length.
+- FIX: A breakout box's fiber type and length are typed on the box's
+  cable sheet, as its first row, instead of in its gear menu.
+
 v1.3.3 - September 24, 2026
 ----------------------------
 

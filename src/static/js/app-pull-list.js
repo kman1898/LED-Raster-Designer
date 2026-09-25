@@ -40,14 +40,22 @@
 //     under the RETURN label ("SR-1R"), its box's fiber said once. "i have
 //     no way of putting lengths for redundancy cables" (2026-09-07) - the
 //     length is typed on the backup card's or box's own ≡ sheet.
-//   * JUMPERS: side-by-side cabinets link directly; each time a run steps
-//     to another ROW a long jumper is needed - one per row step within a
-//     run, counted per port (data) and per circuit (power). Names and
-//     lengths are per project (project.pullSheet), defaults "Data Jump" 6'
-//     and "Tru-1 Power Jump" 6'.
+//   * JUMPERS (2026-09-25, replacing the one-per-row-step count): every
+//     link between two consecutive cabinets of a run, per port (data) and
+//     per circuit branch (power), is a VERTICAL jumper (the cabinet above /
+//     below - across a group seam too, when the members' cabinets touch)
+//     at the screen's vertical length, a HORIZONTAL one (beside) at its
+//     horizontal length, or a LONG one (not touching) measured center
+//     to center along the panels, +1 ft, up to the stock ladder - the rule
+//     and the per-screen lengths live in app-jumpers.js. Each LENGTH is its
+//     own row under the jumper's name ("Data Jump 1'" x 200, "Data Jump 6'"
+//     x 5); a short link on a screen whose length for that direction is
+//     blank counts no cable. The NAMES are per project (project.pullSheet),
+//     defaults "Data Jump" and "Tru-1 Power Jump".
 //   * a breakout box's FIBER TRUNK is one row per box, said once however
 //     many ports ride it: its type (the box's fiberType, "Fiber" untyped)
-//     and its length (fiberFt), both typed in the box's ⚙ (2026-09-07);
+//     and its length (fiberFt), both typed on the box's cable sheet (the
+//     first row of its ≡ sheet; 2026-09-07, moved off the ⚙ 2026-09-25);
 //     a box without a length has no row. `unmodelled` is empty.
 //
 //   * EDITS (2026-09-06, "edit in the app and then export a whole file i can
@@ -115,11 +123,13 @@
 import { LEDRasterApp } from './app-core.js';
 import { sendClientLog } from './helpers.js';
 
+// The jumpers' LENGTHS are per screen since 2026-09-25 (app-jumpers.js);
+// the project keeps their names. A file that still carries the old
+// project-wide pullSheet.dataJumpLength / powerJumpLength keeps the key,
+// read by nothing.
 const PULL_SHEET_DEFAULTS = {
     dataJumpName: 'Data Jump',
-    dataJumpLength: 6,
     powerJumpName: 'Tru-1 Power Jump',
-    powerJumpLength: 6,
     rev: '1.0',
 };
 
@@ -132,22 +142,16 @@ class _PullList {
     // ---- project settings -------------------------------------------------
 
     // What a project starts from: the shipped values, under the Pull
-    // sheet & cables preferences (rev, the two jumpers' names and
-    // lengths) where those are set. The project's own pullSheet wins
-    // over both (getPullSheetSettings).
+    // sheet & cables preferences (rev, the two jumpers' names) where
+    // those are set. The project's own pullSheet wins over both
+    // (getPullSheetSettings).
     getPullSheetDefaults() {
         const prefs = (typeof this.getPreferences === 'function') ? this.getPreferences() : {};
         const out = { ...PULL_SHEET_DEFAULTS };
-        const map = { rev: 'pullRev', powerJumpName: 'powerJumpName', powerJumpLength: 'powerJumpLength',
-                      dataJumpName: 'dataJumpName', dataJumpLength: 'dataJumpLength' };
+        const map = { rev: 'pullRev', powerJumpName: 'powerJumpName', dataJumpName: 'dataJumpName' };
         for (const k of Object.keys(map)) {
             const v = prefs[map[k]];
-            if (/Length$/.test(k)) {
-                const n = parseFloat(v);
-                if (Number.isFinite(n) && n > 0) out[k] = n;
-            } else if (v != null && String(v).trim()) {
-                out[k] = String(v).trim();
-            }
+            if (v != null && String(v).trim()) out[k] = String(v).trim();
         }
         return out;
     }
@@ -164,19 +168,12 @@ class _PullList {
         return out;
     }
 
-    // One setting, one history entry, one project POST. Lengths are feet
-    // (a blank or non-number falls back to the default). Returns true when
-    // something changed.
+    // One setting, one history entry, one project POST (a blank falls
+    // back to the default). Returns true when something changed.
     setPullSheetSetting(key, value, action = 'Edit Pull Sheet Settings') {
         if (!this.project || !(key in PULL_SHEET_DEFAULTS)) return false;
         const defaults = this.getPullSheetDefaults();
-        let v = value;
-        if (/Length$/.test(key)) {
-            const n = parseFloat(v);
-            v = Number.isFinite(n) && n > 0 ? n : defaults[key];
-        } else {
-            v = String(v == null ? '' : v).trim() || defaults[key];
-        }
+        const v = String(value == null ? '' : value).trim() || defaults[key];
         const current = this.getPullSheetSettings()[key];
         if (current === v) return false;
         if (!this.project.pullSheet) this.project.pullSheet = {};
@@ -422,23 +419,6 @@ class _PullList {
         return pieces.join(', ');
     }
 
-    // ---- the row-step rule -------------------------------------------------
-
-    // How many long jumpers one run needs: a step between consecutive
-    // cabinets that changes ROW (or crosses to another member's cabinet -
-    // its rows are a different lattice, and the hop is a jump either way).
-    _pullRowSteps(panels, layers) {
-        let steps = 0;
-        for (let i = 1; i < panels.length; i++) {
-            const a = panels[i - 1], b = panels[i];
-            if (!a || !b) continue;
-            const la = layers && layers[i - 1] ? layers[i - 1] : null;
-            const lb = layers && layers[i] ? layers[i] : null;
-            if ((la || null) !== (lb || null) || a.row !== b.row) steps++;
-        }
-        return steps;
-    }
-
     // ---- positions ---------------------------------------------------------
 
     // Screens the list counts: every visible screen layer, in layer order.
@@ -581,7 +561,8 @@ class _PullList {
     //   { positions: [{ name, key, groupId, location, memberIds, layerIds, rows }],
     //     totals: [rows],
     //     byScreen: { [layerId]: { name, rows, boxes, gangs: {twofer, threefer},
-    //                              ports, snakes, jumpers: {data, power} } },
+    //                              ports, snakes, jumpers: {data, power},
+    //                              jumperLengths: {data: {ft: n}, power: {ft: n}} } },
     //     hardware: [{ kind: 'distro'|'processor', id, name, rows }],
     //     settings, unmodelled: [strings] }
     // where a row is { type, length, qty, label, notes, side }. A
@@ -751,7 +732,23 @@ class _PullList {
         const locationOf = (d) => this.pullLocationOf(d);
         const out = {
             name: layer.name || '', rows, boxes: [], gangs: { twofer: 0, threefer: 0 },
+            // jumpers: how many were counted per side; jumperLengths: the
+            // same per length in feet ({ 1: 200, 6: 5 }).
             ports: [], snakes: [], jumpers: { data: 0, power: 0 },
+            jumperLengths: { data: {}, power: {} },
+        };
+        // The jumpers of one run into `buckets` (location -> length -> count),
+        // the per-screen tallies alongside - app-jumpers.js's rule, per link.
+        const countJumpers = (side, panels, layers, at, buckets) => {
+            for (const link of this.jumperLinksOfRun(panels, layers, layer, side)) {
+                if (link.ft == null) continue;
+                out.jumpers[side]++;
+                out.jumperLengths[side][link.ft] = (out.jumperLengths[side][link.ft] || 0) + 1;
+                const key = `${at || ''}\u0000${link.ft}`;
+                const b = buckets.get(key) || { at, ft: link.ft, n: 0 };
+                b.n++;
+                buckets.set(key, b);
+            }
         };
 
         // ---- power: boxes, breakouts, circuit cables, gangs, jumpers ----
@@ -824,31 +821,24 @@ class _PullList {
         }
         // Gangs: a circuit made of two runs is a 2fer, three a 3fer. Both
         // the gang and the circuit's jumpers go with the circuit's distro.
-        const powerJumps = new Map();   // location (or '') -> { at, n }
+        const powerJumps = new Map();   // location + length -> { at, ft, n }
         for (const c of this.screenCircuits(layer)) {
             const ways = Array.isArray(c.runIds) ? c.runIds.length : 1;
             const label = this.getPowerCircuitLabel(layer, c.num);
             const at = locationOf(circuitDistro.get(c.num));
             if (ways === 2) { out.gangs.twofer++; row(`${screenConn} 2fer`, 'EA', 1, label, '', at); }
             else if (ways >= 3) { out.gangs.threefer++; row(`${screenConn} 3fer`, 'EA', 1, label, '', at); }
-            // Jumpers: one per row step within each run of the circuit.
+            // Jumpers: every link of each run (branch) of the circuit.
             const runs = Array.isArray(c.branches) && c.branches.length ? c.branches : [c.panels];
             let off = 0;
-            let steps = 0;
             for (const run of runs) {
                 const layers = c.layers ? c.layers.slice(off, off + run.length) : null;
                 off += run.length;
-                steps += this._pullRowSteps(run, layers);
+                countJumpers('power', run, layers, at, powerJumps);
             }
-            out.jumpers.power += steps;
-            const bucket = powerJumps.get(at || '') || { at, n: 0 };
-            bucket.n += steps;
-            powerJumps.set(at || '', bucket);
         }
-        for (const { at, n } of powerJumps.values()) {
-            if (n <= 0) continue;
-            row(settings.powerJumpName, this.pullLengthText(settings.powerJumpLength),
-                n, layer.name, '', at);
+        for (const { at, ft, n } of powerJumps.values()) {
+            row(settings.powerJumpName, this.pullLengthText(ft), n, layer.name, '', at);
         }
 
         // ---- data: port cables, snakes, extensions, backups, jumpers ----
@@ -954,19 +944,15 @@ class _PullList {
             }
         };
         // A run's jumpers go with the box delivering its primary socket.
-        const dataJumps = new Map();    // location (or '') -> { at, n }
+        const dataJumps = new Map();    // location + length -> { at, ft, n }
         for (const run of this._pullPortRuns(layer)) {
-            const steps = this._pullRowSteps(run.panels, run.layers);
-            out.jumpers.data += steps;
             const port = { num: run.num, label: run.label, cable: null, snake: null,
                            ext: null, box: null, backup: null };
             out.ports.push(port);
             const placed = asg && (asg.ports || []).find(p => p.number === run.num);
             const at = (placed && placed.cardId && placed.port != null)
                 ? boxAt(owned(placed.cardId, placed.port)) : null;
-            const bucket = dataJumps.get(at || '') || { at, n: 0 };
-            bucket.n += steps;
-            dataJumps.set(at || '', bucket);
+            countJumpers('data', run.panels, run.layers, at, dataJumps);
             if (!placed || !placed.cardId || placed.port == null) continue;
             walk(placed.cardId, placed.port, run.label, port);
             // The backup end: the socket this port's return comes back on
@@ -984,10 +970,8 @@ class _PullList {
                 walk(bb.cardId, bb.port, label, port.backup);
             }
         }
-        for (const { at, n } of dataJumps.values()) {
-            if (n <= 0) continue;
-            row(settings.dataJumpName, this.pullLengthText(settings.dataJumpLength),
-                n, layer.name, '', at);
+        for (const { at, ft, n } of dataJumps.values()) {
+            row(settings.dataJumpName, this.pullLengthText(ft), n, layer.name, '', at);
         }
         return out;
     }
@@ -1382,8 +1366,9 @@ class _PullList {
     // ---- the export dialog's Pull Sheet section ------------------------
 
     // Wired once from setupEventListeners. Each field commits on change:
-    // the jumper fields to project.pullSheet (one undo entry each), the
-    // engineer to the preference.
+    // the jumper names and rev to project.pullSheet (one undo entry each),
+    // the engineer to the preference. The jumper LENGTHS are per screen
+    // (the Data and Power sidebars' Jumpers row, app-jumpers.js).
     initPullSheetControls() {
         if (this._pullSheetControlsWired) return;
         this._pullSheetControlsWired = true;
@@ -1397,9 +1382,7 @@ class _PullList {
             });
         };
         bind('export-pull-sheet-data-jump-name', 'dataJumpName', 'Set Data Jumper Name');
-        bind('export-pull-sheet-data-jump-length', 'dataJumpLength', 'Set Data Jumper Length');
         bind('export-pull-sheet-power-jump-name', 'powerJumpName', 'Set Power Jumper Name');
-        bind('export-pull-sheet-power-jump-length', 'powerJumpLength', 'Set Power Jumper Length');
         bind('export-pull-sheet-rev', 'rev', 'Set Pull Sheet Revision');
         const eng = document.getElementById('export-pull-sheet-engineer');
         if (eng) {
@@ -1413,9 +1396,7 @@ class _PullList {
         const s = this.getPullSheetSettings();
         const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
         set('export-pull-sheet-data-jump-name', s.dataJumpName);
-        set('export-pull-sheet-data-jump-length', s.dataJumpLength);
         set('export-pull-sheet-power-jump-name', s.powerJumpName);
-        set('export-pull-sheet-power-jump-length', s.powerJumpLength);
         set('export-pull-sheet-rev', s.rev);
         set('export-pull-sheet-engineer', this.getEngineerName());
         const formatEl = document.getElementById('export-format');

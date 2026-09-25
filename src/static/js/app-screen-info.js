@@ -1432,6 +1432,10 @@ class _ScreenInfo {
                     powerLabelTemplate: this.currentLayer.powerLabelTemplate,
                     powerLabelOverrides: this.currentLayer.powerLabelOverrides,
                     powerCircuitCables: this.currentLayer.powerCircuitCables,
+                    dataJumpV: this.currentLayer.dataJumpV,
+                    dataJumpH: this.currentLayer.dataJumpH,
+                    powerJumpV: this.currentLayer.powerJumpV,
+                    powerJumpH: this.currentLayer.powerJumpH,
                     powerSocaLengths: this.currentLayer.powerSocaLengths,
                     powerSocaPhaseOffset: this.currentLayer.powerSocaPhaseOffset,
                     powerSocaPhasePos: this.currentLayer.powerSocaPhasePos,
@@ -1574,6 +1578,7 @@ class _ScreenInfo {
                 'powerCircuitColors', 'powerLabelSize',
                 'powerLabelBgColor', 'powerLabelTextColor',
                 'powerLabelTemplate', 'powerLabelOverrides', 'powerCircuitCables',
+                'dataJumpV', 'dataJumpH', 'powerJumpV', 'powerJumpH',
                 'powerCustomPaths', 'powerCustomIndex',
                 'powerCustomOverrides',
                 'border_color_pixel', 'border_color_cabinet',
@@ -2565,6 +2570,8 @@ class _ScreenInfo {
         if (showDataCableTagsEl) {
             showDataCableTagsEl.checked = primary.showDataCableTags === true;
         }
+        // The Jumpers rows beside them (app-jumpers.js), every selected screen.
+        if (typeof this.syncJumperControls === 'function') this.syncJumperControls(layers);
         if (document.getElementById('power-line-color')) {
             document.getElementById('power-line-color').value = primary.powerLineColor || '#FF0000';
         }

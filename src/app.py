@@ -840,6 +840,47 @@ def sync_next_layer_id():
             max_id = layer_id
     next_layer_id = max_id + 1
 
+# The jumper length a new screen starts with when the preferences never said
+# (app-jumpers.js JUMPER_SHIPPED_FT - the two literals are one figure).
+JUMPER_SHIPPED_FT = 6
+
+
+def _jumper_length_value(value):
+    """A jumper length as the layer stores it: positive feet, or None (no
+    cable) for a blank, zero, negative or non-numeric value."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        n = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(n) or n <= 0:
+        return None
+    return int(n) if n.is_integer() else n
+
+
+def jumper_seed(prefs=None):
+    """The four per-screen jumper lengths (2026-09-25) a NEW screen takes
+    from the preferences - the server's twin of app-jumpers.js
+    jumperDefaults: dataJumpLength / powerJumpLength are the VERTICAL links,
+    *JumpLengthH the horizontal ones, and a record with no horizontal key
+    reads its vertical figure (shipped: 6 and 6). A layer loaded from a file
+    is never given them here; the client reads the preferences for a screen
+    that lacks them."""
+    if prefs is None:
+        prefs = server_preferences
+    if not isinstance(prefs, dict):
+        prefs = {}
+    out = {}
+    for side in ('data', 'power'):
+        vkey, hkey = f'{side}JumpLength', f'{side}JumpLengthH'
+        v = _jumper_length_value(prefs[vkey]) if vkey in prefs else JUMPER_SHIPPED_FT
+        h = _jumper_length_value(prefs[hkey]) if hkey in prefs else v
+        out[f'{side}JumpV'] = v
+        out[f'{side}JumpH'] = h
+    return out
+
+
 def create_layer(name, columns, rows, cabinet_width, cabinet_height, offset_x=0, offset_y=0):
     global next_layer_id
     layer = {
@@ -932,6 +973,8 @@ def create_layer(name, columns, rows, cabinet_width, cabinet_height, offset_x=0,
         'powerLabelTemplate': 'S1-#',
         'powerLabelOverrides': {},
         'powerCircuitCables': {},
+        # Per-screen jumper lengths from the preferences (jumper_seed).
+        **jumper_seed(),
         'powerCustomPaths': {},
         'powerCustomIndex': 1,
         # Per-layer label settings

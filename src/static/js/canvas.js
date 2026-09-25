@@ -1656,8 +1656,13 @@ class CanvasRenderer {
     // helpers and tests address it by name; a caller mapping MANY cabinets of
     // one member should hoist _layerDrawFrame itself rather than pay for it per
     // cabinet.
+    // `srcPanel` names the real cabinet the shim stands for, so a drawn pair
+    // can look up what the model says about it (a long jump's tag,
+    // app-jumpers jumperLongLinkMap) - the rect itself is a fresh object.
     _crossMemberPanelShim(entryLayer, panel) {
-        return this._drawnPanelRect(this._layerDrawFrame(entryLayer), panel);
+        const rect = this._drawnPanelRect(this._layerDrawFrame(entryLayer), panel);
+        rect.srcPanel = panel;
+        return rect;
     }
 
     // v0.11.0: a cabinet on a member this view does not draw is not on the

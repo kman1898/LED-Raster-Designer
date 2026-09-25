@@ -1666,6 +1666,9 @@ class _Wiring {
                 window.canvasRenderer.render();
             });
         }
+        // The Jumpers rows under both switches (per-screen jumper lengths,
+        // app-jumpers.js).
+        if (typeof this.initJumperControls === 'function') this.initJumperControls();
 
         // Same rule as the ports side: the per-circuit list died with the
         // Power sidebar, so Apply Style restyles every circuit the shown

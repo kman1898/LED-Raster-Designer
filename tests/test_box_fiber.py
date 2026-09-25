@@ -11,8 +11,12 @@ now carries two facts about the fiber that feeds it:
     it; anything else is refused with the reason.
 
 Both are stored on the box record (PUT /api/processors/<id>/cvts/<cvtId>),
-ride resolve_card's box out to every reader, and are typed in the box's ⚙
-on the hardware dock - one 'Set Box Fiber' history entry per commit. The
+ride resolve_card's box out to every reader, and are typed on the Fiber
+row of the box's ≡ cable sheet on the hardware dock - the sheet's first row,
+above its quick fills and ports (2026-09-25: "the fiber info to XD boxes and
+whatnot should be in the cable lengths area not in the menu it is now"; the
+box's ⚙ no longer carries them) - one 'Set Box Fiber' history entry per
+commit. The
 pull list adds ONE row per box with a length - the type (or "Fiber"), the
 length, qty 1, the box's title - and its `unmodelled` note about fiber is
 gone. The binder's data page lists the box instead of the card for the ports
@@ -143,7 +147,7 @@ def test_the_trunk_title_follows_the_catalogs_word_or_the_letter(client):
     assert card['cvts'][0]['trunkTitle'] == 'trunk A' and card['cvts'][0]['trunkLetter'] == 'A'
 
 
-# ── the browser: the box's ⚙, one entry per commit, the pull list ────────
+# ── the browser: the box's ≡ sheet, one entry per commit, the pull list ──
 
 pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
@@ -210,6 +214,16 @@ OPEN_GEAR_JS = """(popId) => {
     if (!open) gear.click();
     const after = document.getElementById('hw-gear-popover');
     return !!(after && after.style.display !== 'none');
+}"""
+
+OPEN_SHEET_JS = """(boxId) => {
+    const up = () => document.querySelector(`[data-lrd-cable-sheet="cvt:${boxId}"]`);
+    if (!up()) {
+        const btn = document.querySelector(`[data-lrd-field="data-cable-sheet-${boxId}"]`);
+        if (!btn) return false;
+        btn.click();
+    }
+    return !!up();
 }"""
 
 LIST_JS = """() => {
@@ -284,13 +298,20 @@ def _open_box_gear(pg, ids):
     pg.wait_for_timeout(300)
 
 
-def test_the_box_gear_offers_the_gear_lists_fiber_words_and_takes_any(page):
-    """The ⚙ carries a Fiber type field (a datalist seeded from the GEAR
-    LIST's fiber-ish entries - "12 Tac Fiber", "10G Single-Mode SFP" - and
-    nothing that is not fiber) and a feet field, both keyed for focus
-    restore, both empty on a box nobody typed on."""
+def _open_box_sheet(pg, ids):
+    assert pg.evaluate(OPEN_SHEET_JS, ids['boxId']), 'the box cable sheet did not open'
+    pg.wait_for_timeout(300)
+
+
+def test_the_box_sheet_offers_the_gear_lists_fiber_words_and_takes_any(page):
+    """The box's ≡ sheet opens on a Fiber row - "Fiber · CVT10 A", above
+    the quick fills and the port rows - carrying a type field (a datalist
+    seeded from the GEAR LIST's fiber-ish entries - "12 Tac Fiber", "10G
+    Single-Mode SFP" - and nothing that is not fiber) and a feet field, both
+    keyed for focus restore, both empty on a box nobody typed on. No quick
+    fill reaches it."""
     pg, ids = page
-    _open_box_gear(pg, ids)
+    _open_box_sheet(pg, ids)
     bid = ids['boxId']
     waited = 0
     while waited < 4000 and pg.evaluate(f"() => document.querySelectorAll('#hw-fiber-types-{bid} option').length") == 0:
@@ -299,26 +320,55 @@ def test_the_box_gear_offers_the_gear_lists_fiber_words_and_takes_any(page):
     out = pg.evaluate("""(bid) => {
         const type = document.querySelector(`[data-lrd-field="processor-cvt-fiber-type-${bid}"]`);
         const ft = document.querySelector(`[data-lrd-field="processor-cvt-fiber-ft-${bid}"]`);
+        const sheet = document.querySelector(`[data-lrd-cable-sheet="cvt:${bid}"]`);
+        const row = type && type.closest('.hw-dock-cable-fiber');
+        const kids = sheet ? [...sheet.children] : [];
         return {
-            inPop: !!(type && type.closest('#hw-gear-popover')) && !!(ft && ft.closest('#hw-gear-popover')),
+            inSheet: !!(sheet && row && sheet.contains(row) && row.contains(ft)),
             typeValue: type && type.value, ftValue: ft && ft.value, ftType: ft && ft.type,
             list: type && type.getAttribute('list'),
             options: [...document.querySelectorAll(`#hw-fiber-types-${bid} option`)].map(o => o.value),
-            labels: [...document.querySelectorAll('#hw-gear-popover label')].map(l => l.textContent),
+            caption: row && row.querySelector('.hw-dock-cable-fiber-cap').textContent,
+            order: kids.map(k => k.className),
+            fillsInRow: row ? row.querySelectorAll('button, [data-lrd-field*="fill"]').length : -1,
         };
     }""", bid)
-    assert out['inPop'], out
+    assert out['inSheet'], out
     assert (out['typeValue'], out['ftValue'], out['ftType']) == ('', '', 'number')
     assert out['list'] == f'hw-fiber-types-{bid}'
     assert '12 Tac Fiber' in out['options'] and '10G Single-Mode SFP' in out['options'], out['options']
     assert not [o for o in out['options'] if o in ('Tru-1', 'Multi', 'Ether-con', 'HDMI', 'CVT Rack')], out['options']
-    assert 'Fiber' in out['labels'] and 'Fiber ft' in out['labels'], out['labels']
+    assert out['caption'] == 'Fiber · CVT10 A', out['caption']
+    # the sheet's first row, then the quick fills, then the port table
+    assert out['order'][:3] == ['hw-dock-cable-fiber', 'hw-dock-cable-quick', ''], out['order']
+    assert out['fillsInRow'] == 0, out
+
+
+def test_the_box_gear_no_longer_carries_the_fiber_fields(page):
+    """The ⚙ keeps its templates, beach, facts and removal - and nothing
+    of the fiber: no type field, no length field, no suggestion list."""
+    pg, ids = page
+    _open_box_gear(pg, ids)
+    out = pg.evaluate("""(bid) => {
+        const pop = document.getElementById('hw-gear-popover');
+        return {
+            fiber: pop.querySelectorAll(`[data-lrd-field^="processor-cvt-fiber-"], #hw-fiber-types-${bid}`).length,
+            labels: [...pop.querySelectorAll('label')].map(l => l.textContent),
+            beach: !!pop.querySelector(`[data-lrd-field="processor-cvt-beach-${bid}"]`),
+            template: !!pop.querySelector(`[data-lrd-field="processor-cvt-template-${bid}"]`),
+        };
+    }""", ids['boxId'])
+    assert out['fiber'] == 0, out
+    assert 'Fiber' not in out['labels'] and 'Fiber ft' not in out['labels'], out['labels']
+    assert out['beach'] and out['template'], out
+    pg.keyboard.press('Escape')
+    pg.wait_for_timeout(200)
 
 
 def test_each_commit_is_one_set_box_fiber_entry_and_undo_takes_it_back(page):
     pg, ids = page
     bid = ids['boxId']
-    _open_box_gear(pg, ids)
+    _open_box_sheet(pg, ids)
     index = pg.evaluate(STATE_JS, ids)['index']
     field = pg.locator(f'[data-lrd-field="processor-cvt-fiber-type-{bid}"]')
     field.fill('12 Tac Fiber')
@@ -327,7 +377,7 @@ def test_each_commit_is_one_set_box_fiber_entry_and_undo_takes_it_back(page):
     st = pg.evaluate(STATE_JS, ids)
     assert st['type'] == '12 Tac Fiber' and st['ft'] is None, st
     assert st['action'] == 'Set Box Fiber' and st['index'] == index + 1, st
-    _open_box_gear(pg, ids)
+    _open_box_sheet(pg, ids)
     ft = pg.locator(f'[data-lrd-field="processor-cvt-fiber-ft-{bid}"]')
     ft.fill('250')
     ft.press('Tab')
@@ -338,7 +388,7 @@ def test_each_commit_is_one_set_box_fiber_entry_and_undo_takes_it_back(page):
     served = _served(pg, ids, lambda s: s['ft'] == 250)
     assert served == {'type': '12 Tac Fiber', 'ft': 250}, served
     # the fields read the stored values back after the dock rebuilt
-    _open_box_gear(pg, ids)
+    _open_box_sheet(pg, ids)
     assert pg.locator(f'[data-lrd-field="processor-cvt-fiber-type-{bid}"]').input_value() == '12 Tac Fiber'
     assert pg.locator(f'[data-lrd-field="processor-cvt-fiber-ft-{bid}"]').input_value() == '250'
     # undo: the length, then the type; redo brings both back
@@ -360,7 +410,7 @@ def test_each_commit_is_one_set_box_fiber_entry_and_undo_takes_it_back(page):
     # the fill and replaced the field, so Tab left the stored 250 in place
     # (2026-09-24).
     _settled(pg, ids, lambda st: st['ft'] == 250)
-    _open_box_gear(pg, ids)
+    _open_box_sheet(pg, ids)
     ft = pg.locator(f'[data-lrd-field="processor-cvt-fiber-ft-{bid}"]')
     ft.fill('')
     assert ft.input_value() == '', 'the length field was redrawn under the edit'
@@ -380,6 +430,38 @@ def test_each_commit_is_one_set_box_fiber_entry_and_undo_takes_it_back(page):
             headers: {'Content-Type': 'application/json'}, body: JSON.stringify({fiberFt: 250})});
         await window.app.refreshProcessors();
     }""", ids)
+    assert ids['errors'] == []
+
+
+def test_the_fiber_row_survives_a_tray_rebuild(page):
+    """The tray redraws wholesale; the sheet stays open (a per-box viewing
+    choice), its Fiber row comes back first with the stored type and length,
+    and a fiber field that held focus through the wipe holds it after."""
+    pg, ids = page
+    _open_box_sheet(pg, ids)
+    bid = ids['boxId']
+    out = pg.evaluate("""async (bid) => {
+        const key = `processor-cvt-fiber-ft-${bid}`;
+        const before = document.querySelector(`[data-lrd-field="${key}"]`);
+        before.focus();
+        window.app.renderHardwareDock();
+        await new Promise(r => setTimeout(r, 50));
+        const sheet = document.querySelector(`[data-lrd-cable-sheet="cvt:${bid}"]`);
+        const type = document.querySelector(`[data-lrd-field="processor-cvt-fiber-type-${bid}"]`);
+        const ft = document.querySelector(`[data-lrd-field="${key}"]`);
+        return {
+            sheet: !!sheet, fresh: ft !== before,
+            first: sheet && sheet.firstElementChild.className,
+            rows: document.querySelectorAll(`[data-lrd-fiber-row="${bid}"]`).length,
+            type: type && type.value, ft: ft && ft.value,
+            focused: document.activeElement && document.activeElement.dataset.lrdField,
+        };
+    }""", bid)
+    assert out['sheet'] and out['fresh'], out
+    assert out['first'] == 'hw-dock-cable-fiber' and out['rows'] == 1, out
+    assert (out['type'], out['ft']) == ('12 Tac Fiber', '250'), out
+    assert out['focused'] == f'processor-cvt-fiber-ft-{bid}', out
+    pg.evaluate('() => document.activeElement && document.activeElement.blur()')
     assert ids['errors'] == []
 
 

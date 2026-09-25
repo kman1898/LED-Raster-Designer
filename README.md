@@ -1,4 +1,4 @@
-# LED Raster Designer v1.3.3
+# LED Raster Designer v1.3.4
 
 A professional LED video wall layout designer for live events, concerts, and installations.
 
@@ -168,7 +168,7 @@ Front end (`src/static/js/`):
 | `app-power.js`, `app-distros.js`, `app-phase-balance.js`, `app-naming.js` | circuits, soca splits, outputs, breakouts, cables; the distro model; three-phase balancing; port, circuit and multi labels |
 | `app-dock.js`, `app-dock-cable-sheets.js`, `app-dock-sweep.js`, `app-dock-drag.js`, `app-dock-menus.js` | the hardware tray: rendering, cable sheets, snake brackets and the Alt sweep, the drag engine, right-click menus |
 | `app-binder.js`, `app-binder-wiring.js` | the binder drawing set, sheets and title blocks; the Power Wiring and Data Wiring sheets |
-| `app-pull-list.js`, `app-pull-sheet-editor.js` | the cable pull list every paper reads; per-row edits over it |
+| `app-pull-list.js`, `app-pull-sheet-editor.js`, `app-jumpers.js` | the cable pull list every paper reads; per-row edits over it; the jumper between two cabinets of a run (vertical, horizontal, long) and each screen's jumper lengths |
 | `canvas.js` | the renderer class (classic script): viewport, view modes, base drawing |
 | `canvas-input.js`, `canvas-images.js`, `canvas-data.js`, `canvas-power.js`, `canvas-labels.js`, `canvas-selection.js`, `canvas-math.js` | renderer mixins: gestures and hit-testing; image and text layers; the Data view; the Power view; labels and cabinet IDs; selection overlays; port load math |
 | `helpers.js`, `main.js` | shared utilities and client logging; the entry point that imports every module |

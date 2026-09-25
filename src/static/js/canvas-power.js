@@ -295,6 +295,29 @@ Object.assign(CanvasRenderer.prototype, {
         // or a disc per member where a member run draws its own.
         const labelDiscs = [];
         const pendingTags = [];
+        // LONG JUMPS (2026-09-25): the data map's rule on the power side -
+        // with the cable tags on, a link between two cabinets that do not
+        // touch wears its jumper's length at the middle of its segment; a
+        // short link wears nothing (app-jumpers jumperLongLinkMap, keyed by
+        // the real cabinets, a cross-member shim through its srcPanel).
+        const jumpMap = (layer.showPowerCableTags === true && window.app
+                && typeof window.app.jumperLongLinkMap === 'function')
+            ? window.app.jumperLongLinkMap(layer, 'power') : null;
+        const pendingJumps = [];
+        const collectJumps = (panels) => {
+            if (!jumpMap || !jumpMap.size) return;
+            for (let i = 0; i < panels.length - 1; i++) {
+                const a = panels[i], b = panels[i + 1];
+                const inner = jumpMap.get(a.srcPanel || a);
+                const ft = inner ? inner.get(b.srcPanel || b) : null;
+                if (ft == null) continue;
+                pendingJumps.push({
+                    text: `${ft}'`,
+                    x: (a.x + a.width / 2 + b.x + b.width / 2) / 2,
+                    y: (a.y + a.height / 2 + b.y + b.height / 2) / 2,
+                });
+            }
+        };
         // The gang a disc's circuit number names. A shared circuit's own
         // number is its key on every path; its run ids are keys only on a
         // custom-routed screen, where they ARE drawn circuit numbers (a
@@ -334,6 +357,17 @@ Object.assign(CanvasRenderer.prototype, {
             // The pills already down: a tag is placed clear of them as
             // well as of the discs - see placeCableTag.
             const taken = [];
+            // The jump tags first, centred on their segment's midpoint in
+            // the upright frame (a 'right' hang whose gap is taken back off
+            // x); the label tags then move off them.
+            for (const j of pendingJumps) {
+                const u = F.toU(j.x, j.y);
+                const w = this.cableTagLayout(j.text, labelSize).width;
+                const at = { x: u.x - labelSize * 0.25 - w / 2, y: u.y, opts: { side: 'right' } };
+                taken.push(this.cableTagRect(j.text, at.x, at.y, labelSize, at.opts));
+                paint(j.text, at, undefined, 'jump');
+            }
+            pendingJumps.length = 0;
             for (const t of pendingTags) {
                 const own = ownU(t.disc);
                 let base = null;
@@ -505,6 +539,7 @@ Object.assign(CanvasRenderer.prototype, {
                 this.ctx.closePath();
                 this.ctx.fill();
             }
+            collectJumps(circuitPanels);
         };
 
         const drawCircuit = (circuitPanels, circuitNum) => {

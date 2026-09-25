@@ -203,10 +203,14 @@ def test_a_distro_at_its_own_beach_pulls_the_power_rows_there(page):
         ('Tru-1', "6'", 1, 'SR2-1', ''),
         ('Tru-1', "10'", 2, 'SR1-1, SR1-2', ''),
         ('Tru-1 Breakout', 'EA', 2, 'SR 1-2', ''),
-        ('Tru-1 Power Jump', "6'", 2, 'WALL-A, WALL-B', ''),
+        ('Tru-1 Power Jump', "1'", 9, 'WALL-A', ''),
+        ('Tru-1 Power Jump', "2'", 1, 'WALL-A', ''),
+        ('Tru-1 Power Jump', "6'", 10, 'WALL-B', ''),
     ]
     assert _rows(pos['SR Beach']['rows']) == [
-        ('Data Jump', "6'", 4, 'WALL-A, WALL-B', ''),
+        ('Data Jump', "1'", 9, 'WALL-A', ''),
+        ('Data Jump', "2'", 2, 'WALL-A', ''),
+        ('Data Jump', "6'", 11, 'WALL-B', ''),
         ('Ether-con Snake', "100'", 1, 'SNAKE A', '2 channel'),
     ]
     assert pos['SR Beach']['layerIds'] == [ids['a'], ids['b']]
@@ -411,7 +415,10 @@ def test_a_box_at_its_beach_pulls_its_ports_rows_and_two_boxes_list_once(page):
     assert _rows(sl['rows']) == [
         ('12 Tac Fiber', "250'", 1, 'CVT10 A', ''),
         ('CVT10', 'EA', 2, 'A, B', ''),
-        ('Data Jump', "6'", 8, 'WALL-A, WALL-B, CENTER', ''),
+        ('Data Jump', "1'", 9, 'WALL-A', ''),
+        ('Data Jump', "1.5'", 4, 'CENTER', ''),
+        ('Data Jump', "2'", 2, 'WALL-A', ''),
+        ('Data Jump', "6'", 11, 'WALL-B', ''),
         ('Ether-con', "10'", 1, out['aLabel'], f"ext · {out['snakeName']}"),
         ('Ether-con', "50'", 1, out['centerLabel'], ''),
         ('Ether-con Barrel', 'EA', 1, out['aLabel'], ''),
@@ -425,11 +432,13 @@ def test_a_box_at_its_beach_pulls_its_ports_rows_and_two_boxes_list_once(page):
         ('Tru-1', "6'", 1, 'SR2-1', ''),
         ('Tru-1', "10'", 2, 'SR1-1, SR1-2', ''),
         ('Tru-1 Breakout', 'EA', 2, 'SR 1-2', ''),
-        ('Tru-1 Power Jump', "6'", 2, 'WALL-A, WALL-B', ''),
+        ('Tru-1 Power Jump', "1'", 9, 'WALL-A', ''),
+        ('Tru-1 Power Jump', "2'", 1, 'WALL-A', ''),
+        ('Tru-1 Power Jump', "6'", 10, 'WALL-B', ''),
     ]
     assert _rows(pos['CENTER']['rows']) == [
         ('Edison 2fer', 'EA', 1, ids['centerLabel'], ''),
-        ('Tru-1 Power Jump', "6'", 12, 'CENTER', ''),
+        ('Tru-1 Power Jump', "3'", 12, 'CENTER', ''),
     ]
     # the processor's hardware list carries both boxes' gear rows
     hw = {(h['kind'],): _rows(h['rows']) for h in out['located']['hardware'] if h['kind'] == 'processor'}

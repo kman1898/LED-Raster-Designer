@@ -279,9 +279,11 @@ def test_the_file_menu_opens_the_editor_laid_out_like_the_workbook(page):
     # TOTALS is a readout block with the engine's totals
     tot = pg.locator('#pull-sheet-totals tr').evaluate_all(
         "els => els.slice(1).map(tr => [...tr.children].map(td => td.textContent))")
-    # the distro's own "12 way" row (2026-09-07) heads the totals, the jumpers next
+    # the distro's own "12 way" row (2026-09-07) heads the totals, the
+    # jumpers next - one row per length (2026-09-25, test_pull_list's seed)
     assert tot[0] == ['12 way', 'EA', '1', 'SR']
-    assert tot[1] == ['Data Jump', "6'", '8', 'WALL-A, WALL-B, CENTER']
+    assert tot[1:5] == [['Data Jump', "1'", '9', 'WALL-A'], ['Data Jump', "1.5'", '4', 'CENTER'],
+                        ['Data Jump', "2'", '2', 'WALL-A'], ['Data Jump', "6'", '11', 'WALL-B']]
     assert pg.locator('#pull-sheet-totals input').count() == 0
     assert 'tails' not in pg.locator('#pull-sheet-modal').inner_text().lower()
     # the pickers carry the GEAR LIST plus the show's own words
@@ -333,7 +335,7 @@ def test_a_qty_override_rides_into_the_wrapper_the_workbook_and_the_binder(page)
     assert ('Tru-1', "10'", 2, 'SR1-1, SR1-2', '') in _rows(engine['positions'][0]['rows'])
     # an untouched total is the engine's own, folded labels and all
     assert _totals(sheet)[('Tru-1 Breakout', 'EA')] == (2, 'SR 1-2', '')
-    assert _totals(sheet)[('Data Jump', "6'")] == (8, 'WALL-A, WALL-B, CENTER', '')
+    assert _totals(sheet)[('Data Jump', "6'")] == (11, 'WALL-B', '')
     # the TOTALS block redrew without rebuilding the edited row
     tot = pg.locator('#pull-sheet-totals tr').evaluate_all(
         "els => els.slice(1).map(tr => [...tr.children].map(td => td.textContent))")

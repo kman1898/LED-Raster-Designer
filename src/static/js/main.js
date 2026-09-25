@@ -26,6 +26,7 @@ import './app-run-overrides.js';
 import './app-custom-runs.js';
 import './app-layers-panel.js';
 import './app-pull-list.js';
+import './app-jumpers.js';
 import './app-beaches.js';
 import './app-pull-sheet-editor.js';
 import './app-binder.js';

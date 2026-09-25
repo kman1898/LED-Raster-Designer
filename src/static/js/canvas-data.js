@@ -241,11 +241,46 @@ Object.assign(CanvasRenderer.prototype, {
         // covers no other disc and stays inside the screen).
         const labelDiscs = [];
         const pendingTags = [];
+        // LONG JUMPS (2026-09-25): with the cable tags on, a link between
+        // two cabinets that do not touch wears its jumper's length at the
+        // middle of its segment ("10'"); a short link above / below or
+        // beside wears nothing. The lengths are the pull list's own
+        // (app-jumpers jumperLongLinkMap), keyed by the real cabinets - a
+        // cross-member shim through its srcPanel.
+        const jumpMap = (layer.showDataCableTags === true && window.app
+                && typeof window.app.jumperLongLinkMap === 'function')
+            ? window.app.jumperLongLinkMap(layer, 'data') : null;
+        const pendingJumps = [];
+        const collectJumps = (panels) => {
+            if (!jumpMap || !jumpMap.size) return;
+            for (let i = 0; i < panels.length - 1; i++) {
+                const a = panels[i], b = panels[i + 1];
+                const inner = jumpMap.get(a.srcPanel || a);
+                const ft = inner ? inner.get(b.srcPanel || b) : null;
+                if (ft == null) continue;
+                pendingJumps.push({
+                    text: `${ft}'`,
+                    x: (a.x + a.width / 2 + b.x + b.width / 2) / 2,
+                    y: (a.y + a.height / 2 + b.y + b.height / 2) / 2,
+                });
+            }
+        };
         const drawCableTags = () => {
             const bounds = { left: layerLeft, top: layerTop, right: layerRight, bottom: layerBottom };
             // The pills already down: a tag is placed clear of them as
             // well as of the discs - see placeCableTag.
             const taken = [];
+            // The jump tags first: they sit where their segment is, so the
+            // label tags are the ones that move off them. Centred on the
+            // midpoint (a 'right' hang whose gap is taken back off x).
+            for (const j of pendingJumps) {
+                const w = this.cableTagLayout(j.text, labelSize).width;
+                const x = j.x - labelSize * 0.25 - w / 2;
+                const opts = { side: 'right' };
+                taken.push(this.cableTagRect(j.text, x, j.y, labelSize, opts));
+                this.drawCableTag(j.text, x, j.y, labelSize, DATA_CABLE_TAG_COLORS, opts, 'jump');
+            }
+            pendingJumps.length = 0;
             for (const t of pendingTags) {
                 const at = this.placeCableTag(t.text, t.disc.x, t.disc.y, t.disc.r, labelSize,
                                               bounds, labelDiscs, t.disc, taken);
@@ -318,6 +353,7 @@ Object.assign(CanvasRenderer.prototype, {
                 this.ctx.closePath();
                 this.ctx.fill();
             }
+            collectJumps(portPanels);
             
             const firstPanel = portPanels[0];
             const lastPanel = portPanels[portPanels.length - 1];

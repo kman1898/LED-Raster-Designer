@@ -54,12 +54,13 @@ TABS = {
                'pref-binder-designer', 'pref-binder-pm-name', 'pref-binder-pm-phone',
                'pref-binder-pm-email', 'pref-binder-drafter', 'pref-binder-logo'],
     'pull': ['pref-pull-engineer', 'pref-pull-rev', 'pref-pull-power-jump-name',
-             'pref-pull-power-jump-length', 'pref-pull-data-jump-name',
-             'pref-pull-data-jump-length', 'pref-snake-home-run-length',
+             'pref-pull-power-jump-length', 'pref-pull-power-jump-length-h',
+             'pref-pull-data-jump-name', 'pref-pull-data-jump-length',
+             'pref-pull-data-jump-length-h', 'pref-snake-home-run-length',
              'pref-loose-port-cable-length', 'pref-power-cable-length'],
 }
 ALL_IDS = [i for ids in TABS.values() for i in ids]
-assert len(ALL_IDS) == 83
+assert len(ALL_IDS) == 85
 
 # Issue 28: the colour defaults a NEW screen starts with, id -> (the colour
 # the dialog is given, the preference key, the layer property it lands on).
@@ -222,8 +223,10 @@ NEW_FIELDS = [
     ('pref-pull-rev', '2.0', 'pullRev', '2.0'),
     ('pref-pull-power-jump-name', 'Power Jump X', 'powerJumpName', 'Power Jump X'),
     ('pref-pull-power-jump-length', '8', 'powerJumpLength', 8),
+    ('pref-pull-power-jump-length-h', '7', 'powerJumpLengthH', 7),
     ('pref-pull-data-jump-name', 'Data Jump X', 'dataJumpName', 'Data Jump X'),
     ('pref-pull-data-jump-length', '9', 'dataJumpLength', 9),
+    ('pref-pull-data-jump-length-h', '1.5', 'dataJumpLengthH', 1.5),
     ('pref-snake-home-run-length', '175', 'snakeHomeRunFt', 175),
     ('pref-loose-port-cable-length', '75', 'loosePortCableFt', 75),
     ('pref-power-cable-length', '12', 'powerCableFt', 12),
@@ -725,8 +728,11 @@ def test_the_export_dialog_binder_block_opens_with_the_preferences(page):
     info = pg.evaluate("() => window.app.getBinderInfo()")
     assert info['designer'] == 'Dee Signer' and info['screenOrder'] == 'power', info
     assert pg.evaluate("() => window.app.getPullSheetSettings()") == {
-        'dataJumpName': 'Data Jump X', 'dataJumpLength': 9, 'powerJumpName': 'Power Jump X',
-        'powerJumpLength': 8, 'rev': '2.0'}
+        'dataJumpName': 'Data Jump X', 'powerJumpName': 'Power Jump X', 'rev': '2.0'}
+    # the jumper LENGTHS are per screen: the preferences are what a new
+    # screen starts with (vertical / horizontal, data and power)
+    assert pg.evaluate("() => window.app.jumperDefaults()") == {
+        'dataJumpV': 9, 'dataJumpH': 1.5, 'powerJumpV': 8, 'powerJumpH': 7}
     pg.locator('#export-cancel').click()
     # the project's own values win where set, the preference fills the rest
     pg.evaluate("""() => { const app = window.app;

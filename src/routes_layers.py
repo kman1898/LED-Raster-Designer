@@ -47,6 +47,9 @@ def add_layer():
         'powerLineWidth', 'powerLineColor', 'powerArrowColor', 'powerRandomColors',
         'powerLabelSize', 'powerLabelBgColor', 'powerLabelTextColor', 'powerLabelTemplate', 'powerLabelOverrides',
         'powerCircuitCables',
+        # Per-screen jumper lengths (feet, or null for no cable) - the
+        # link to the cabinet above / below and beside (2026-09-25).
+        'dataJumpV', 'dataJumpH', 'powerJumpV', 'powerJumpH',
         'powerCustomPaths', 'powerCustomIndex', 'showPowerCircuitInfo',
         'showPowerNferTags', 'showPowerCableTags', 'showDataCableTags',
         'powerColorCodedView',
@@ -325,6 +328,10 @@ def update_layer(layer_id):
                 # length and plug on each circuit for the paperwork
                 # (2026-09-06); forgotten with the circuit's overrides.
                 'powerCircuitCables',
+                # Per-screen jumper lengths (feet, or null: no cable) for
+                # the link to the cabinet above / below (V) and beside (H),
+                # data and power (2026-09-25, app-jumpers.js).
+                'dataJumpV', 'dataJumpH', 'powerJumpV', 'powerJumpH',
                 'lastPowerFlowPattern', 'type', 'imageData', 'imageWidth', 'imageHeight', 'imageScale',
                 # Sizing a screen by physical dimensions, and the pattern a
                 # custom data path falls back to. Both were missing here, so

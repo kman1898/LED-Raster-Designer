@@ -367,6 +367,12 @@ class _Clipboard {
             powerLabelTemplate: layer.powerLabelTemplate,
             powerLabelOverrides: deep(layer.powerLabelOverrides),
             powerCircuitCables: deep(layer.powerCircuitCables),
+            // The screen's own jumper lengths (2026-09-25): its cabinets,
+            // not a claim on any box, so the copy keeps them.
+            dataJumpV: layer.dataJumpV,
+            dataJumpH: layer.dataJumpH,
+            powerJumpV: layer.powerJumpV,
+            powerJumpH: layer.powerJumpH,
             powerCustomPaths: this.copyPathsForNewOwner(layer.powerCustomPaths, layer.id, null),
             powerCustomIndex: layer.powerCustomIndex,
             powerCustomOverrides: (layer.powerCustomOverrides || []).slice(),

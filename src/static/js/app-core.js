@@ -789,6 +789,10 @@ export class LEDRasterApp {
             powerLabelTemplate: layer.powerLabelTemplate,
             powerLabelOverrides: layer.powerLabelOverrides,
             powerCircuitCables: layer.powerCircuitCables,
+            dataJumpV: layer.dataJumpV,
+            dataJumpH: layer.dataJumpH,
+            powerJumpV: layer.powerJumpV,
+            powerJumpH: layer.powerJumpH,
             powerCustomPaths: layer.powerCustomPaths,
             powerCustomIndex: layer.powerCustomIndex,
             powerCustomOverrides: layer.powerCustomOverrides,
@@ -1990,6 +1994,15 @@ export class LEDRasterApp {
         Object.keys(ensuredDefaults).forEach(k => {
             if (out[k] === undefined) out[k] = ensuredDefaults[k];
         });
+        // A panel preset carries the screen's four jumper lengths - the
+        // figures it reads (a screen from an older file reads the
+        // preferences'), null included: a blank is a decision.
+        if ((layer.type || 'screen') === 'screen' && typeof this.screenJumperLengths === 'function') {
+            const j = this.screenJumperLengths(layer);
+            const read = { dataJumpV: j.data.v, dataJumpH: j.data.h,
+                           powerJumpV: j.power.v, powerJumpH: j.power.h };
+            Object.keys(read).forEach(k => { if (out[k] === undefined) out[k] = read[k]; });
+        }
         // v0.11.0 (step 6): hand-drawn paths still travel with a preset - the
         // geometry that gives them meaning (columns / rows / cabinet size)
         // travels with it too - but only the entries that mean "a panel in

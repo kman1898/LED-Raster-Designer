@@ -1201,57 +1201,27 @@ class _Processors {
         });
         wrap.appendChild(names);
 
-        // The box's fiber trunk (2026-09-07: "we need to add fiber types
-        // when cvt's or similar are used"): what the fiber is and how long
-        // its home run is. The type offers the GEAR LIST's fiber-ish words
-        // (12 Tac Fiber, 10G Single-Mode SFP …) and takes anything typed;
-        // the feet are a number. One PUT each, one 'Set Box Fiber' entry.
-        const fiber = document.createElement('div');
-        fiber.style.display = 'flex';
-        fiber.style.flexWrap = 'wrap';
-        fiber.style.gap = '6px';
-        fiber.style.marginTop = '4px';
-        const url = `/api/processors/${proc.id}/cvts/${cvt.id}`;
-        const typeField = this._buildTextField(
-            'Fiber', cvt.fiberType, 'fiber type',
-            `processor-cvt-fiber-type-${cvt.id}`,
-            (val) => this._processorRequest(url, 'PUT', { fiberType: val },
-                                            'Set Box Fiber'));
-        const typeInput = typeField.querySelector('input');
-        const listId = `hw-fiber-types-${cvt.id}`;
-        const list = document.createElement('datalist');
-        list.id = listId;
-        typeInput.setAttribute('list', listId);
-        this._fiberTypeSuggestions().then(names => {
-            list.innerHTML = '';
-            names.forEach(n => {
-                const opt = document.createElement('option');
-                opt.value = n;
-                list.appendChild(opt);
-            });
-        });
-        typeField.appendChild(list);
-        fiber.appendChild(typeField);
-        const ftField = this._buildTextField(
-            'Fiber ft', cvt.fiberFt != null ? String(cvt.fiberFt) : '',
-            'feet', `processor-cvt-fiber-ft-${cvt.id}`,
-            (val) => this._processorRequest(
-                url, 'PUT', { fiberFt: val === '' ? null : Number(val) },
-                'Set Box Fiber'));
-        const ftInput = ftField.querySelector('input');
-        ftInput.type = 'number';
-        ftInput.min = '0';
-        ftInput.step = 'any';
-        fiber.appendChild(ftField);
+        // The box's fiber trunk - its type and length - is typed on the
+        // box's ≡ cable sheet, the first row above its ports (2026-09-25:
+        // "the fiber info to XD boxes and whatnot should be in the cable
+        // lengths area not in the menu it is now"); the gear keeps the
+        // box's place.
+        //
         // Where the box sits (2026-09-07: "We need to be able to put CVT's
         // or prcessor's at beach locations so they can be accounted for
         // on the pull sheets"; 2026-09-08: "beach locations need to be
         // addable for data" - "Replace it with the picker"): the Beach
-        // picker, beside Fiber - one of the project's beaches, or a new
-        // one made right here. The pull list files the box's rows - the
-        // data cables of the ports it delivers, its fiber, its own
-        // "CVT4K-S EA" line - under that beach. One PUT, one 'Set Box
-        // Beach' entry; the blank entry clears.
+        // picker - one of the project's beaches, or a new one made right
+        // here. The pull list files the box's rows - the data cables of
+        // the ports it delivers, its fiber, its own "CVT4K-S EA" line -
+        // under that beach. One PUT, one 'Set Box Beach' entry; the blank
+        // entry clears.
+        const place = document.createElement('div');
+        place.style.display = 'flex';
+        place.style.flexWrap = 'wrap';
+        place.style.gap = '6px';
+        place.style.marginTop = '4px';
+        const url = `/api/processors/${proc.id}/cvts/${cvt.id}`;
         const beachField = this.buildBeachPicker({
             value: cvt.beachId,
             fieldKey: `processor-cvt-beach-${cvt.id}`,
@@ -1261,11 +1231,11 @@ class _Processors {
             onPick: (beachId) => this._processorRequest(
                 url, 'PUT', { beachId }, 'Set Box Beach'),
         });
-        fiber.appendChild(beachField);
-        fiber.querySelectorAll(':scope > div').forEach((cell, i) => {
-            cell.style.flex = i === 1 ? '1 1 60px' : '2 1 110px';
+        place.appendChild(beachField);
+        place.querySelectorAll(':scope > div').forEach(cell => {
+            cell.style.flex = '1 1 110px';
         });
-        wrap.appendChild(fiber);
+        wrap.appendChild(place);
 
         const info = document.createElement('div');
         info.style.fontSize = '11px';
@@ -1331,7 +1301,8 @@ class _Processors {
 
 
 
-    // The fiber types a box's ⚙ offers: the pull sheet's GEAR LIST entries
+    // The fiber types a box's cable sheet offers on its Fiber row
+    // (app-dock-cable-sheets.js): the pull sheet's GEAR LIST entries
     // that name a fiber (Fiber, Tac, SFP, OM3/OM4, SM), read once from
     // GET /api/pull-sheet/gear-list. Free typing is always allowed; this
     // is only what the datalist suggests.
@@ -1379,8 +1350,8 @@ class _Processors {
     // ONE history entry.
 
     // Copper only: fiber is the breakout box's trunk (cvt.fiberType /
-    // fiberFt behind the box ⚙), never a port's or a snake's plug -
-    // "panels dont take fiber" (2026-09-07).
+    // fiberFt on the Fiber row of the box's ≡ sheet), never a port's or a
+    // snake's plug - "panels dont take fiber" (2026-09-07).
     getDataCableConnectors() {
         return (this._dataCableConnectors || [
             { id: 'cat', name: 'CAT' },

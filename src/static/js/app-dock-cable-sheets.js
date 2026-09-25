@@ -449,7 +449,8 @@ class _DockCableSheets {
     // dataPortConnectorId, nothing here writes it). A snake is a folded
     // row (tick · "SNAKE A · 6 channel" · name · ft) with its members dim
     // under it carrying their extensions, a free socket dim. ABOVE the
-    // rows: "With ticked: Snake / Unsnake" and the quick fills. Each
+    // rows: "With ticked: Snake / Unsnake" and the quick fills - and on a
+    // box, above those, its Fiber row (_dockBuildBoxFiberRow). Each
     // commit is ONE entry ('Set Port Cable' / 'Set Snake Home Run' /
     // 'Rename Snake' / 'Snake Ports' / 'Unsnake'); the DOM restates after
     // the round-trip, and Tab walks the ft column across it.
@@ -801,9 +802,91 @@ class _DockCableSheets {
             'Every loose port here gets the typed length as its home run; '
             + 'snakes keep theirs. One undo step.',
             (ft) => this.fillPortCables(owner, ft, ports).then(after));
+        // A box's fiber trunk is the sheet's FIRST row, above the quick
+        // fills and the ports (2026-09-25) - a fact of the box, not of a
+        // port, so the fills below it never reach it.
+        if (owner.kind === 'cvt') sheet.appendChild(this._dockBuildBoxFiberRow(owner));
         sheet.appendChild(quick);
         sheet.appendChild(table);
         return sheet;
+    }
+
+    // "the fiber info to XD boxes and whatnot should be in the cable
+    // lengths area not in the menu it is now" (2026-09-25): the box's
+    // trunk - what the fiber is and how long its home run is - typed on
+    // its ≡ sheet, where the rest of its cables are, and no longer in its
+    // ⚙. Every box gets the row, backup and copy boxes included, as every
+    // box's ⚙ offered the fields. The type offers the GEAR LIST's
+    // fiber-ish words (12 Tac Fiber, 10G Single-Mode SFP …) and takes
+    // anything typed; the feet are a number, blank clears. One PUT per
+    // commit, one 'Set Box Fiber' entry; the server validates and refuses.
+    // The field keys are the ones the ⚙ used, so focus restore and every
+    // reader of them keep working; the classes are the row's own, so no
+    // reader of the port rows' fields (.hw-dock-cable-ft / -name) finds
+    // these first. Neither field is on the ft column's
+    // Tab walk or under a quick fill - those are for port cables.
+    _dockBuildBoxFiberRow(owner) {
+        const cvt = owner.rec;
+        const url = this._dataCableOwnerUrl(owner);
+        const row = document.createElement('div');
+        row.className = 'hw-dock-cable-fiber';
+        row.dataset.lrdFiberRow = cvt.id;
+        const tag = cvt.backupOf ? ' (backup)'
+            : (cvt.duplicateOf ? ' (copy)' : '');
+        const cap = document.createElement('span');
+        cap.className = 'hw-dock-cable-fiber-cap';
+        cap.textContent = `Fiber · ${cvt.displayTitle || cvt.name
+            || cvt.deviceName}${tag}`;
+        row.appendChild(cap);
+
+        const type = document.createElement('input');
+        type.type = 'text';
+        type.className = 'hw-dock-cable-fiber-type';
+        type.value = cvt.fiberType || '';
+        type.placeholder = 'fiber type';
+        type.dataset.lrdField = `processor-cvt-fiber-type-${cvt.id}`;
+        type.title = 'The fiber that feeds this box - pick from the gear '
+            + 'list or type your own. Blank clears.';
+        const listId = `hw-fiber-types-${cvt.id}`;
+        const list = document.createElement('datalist');
+        list.id = listId;
+        type.setAttribute('list', listId);
+        this._fiberTypeSuggestions().then(names => {
+            list.innerHTML = '';
+            names.forEach(n => {
+                const opt = document.createElement('option');
+                opt.value = n;
+                list.appendChild(opt);
+            });
+        });
+        type.addEventListener('change', () => this._processorRequest(
+            url, 'PUT', { fiberType: type.value.trim() }, 'Set Box Fiber'));
+        row.appendChild(type);
+        row.appendChild(list);
+
+        const run = document.createElement('span');
+        run.className = 'hw-dock-cable-fiber-run';
+        const ft = document.createElement('input');
+        ft.type = 'number';
+        ft.min = '0';
+        ft.step = 'any';
+        ft.placeholder = '—';
+        ft.className = 'hw-dock-cable-fiber-ft';
+        ft.value = cvt.fiberFt != null ? String(cvt.fiberFt) : '';
+        ft.dataset.lrdField = `processor-cvt-fiber-ft-${cvt.id}`;
+        ft.title = 'The fiber’s length in feet. Blank = no length.';
+        ft.addEventListener('change', () => {
+            const val = ft.value.trim();
+            this._processorRequest(
+                url, 'PUT', { fiberFt: val === '' ? null : Number(val) },
+                'Set Box Fiber');
+        });
+        run.appendChild(ft);
+        const unit = document.createElement('span');
+        unit.textContent = 'ft';
+        run.appendChild(unit);
+        row.appendChild(run);
+        return row;
     }
 
     // "With ticked: Fill" - the typed length into ONLY the ticked rows of
