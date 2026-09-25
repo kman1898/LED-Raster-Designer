@@ -3039,7 +3039,8 @@ def test_the_arrow_folds_a_card_and_nothing_leaves_the_dom(panel_page):
 
 def test_the_glance_reads_the_occupancy_and_never_renumbers(panel_page):
     """The header's glance, read off the assignment summary and nothing
-    else: used over capacity, on the same header that carries the model
+    else: sockets taken (primaries and their returns) over capacity, on
+    the same header that carries the model
     text and the inline name. The redundant SX40 reads /40 - redundancy is
     a patching plan, never a renumbering, so the socket count stands (the
     'redundant' flag of the retired summary line lives in the gear's
@@ -3069,7 +3070,10 @@ def test_the_glance_reads_the_occupancy_and_never_renumbers(panel_page):
     }""", ids)
     assert summary['sx'], 'the assignment resolved no summary for the SX40'
     sx_glance = fold_state(panel_page, card_sec(ids, 'sxCard'))['glanceText']
-    assert sx_glance == (f"{summary['sx']['used']}/"
+    # n is every socket TAKEN - primaries and the returns they put on
+    # the partner box (owner, 2026-09-24: "11 primary and 11 redundant
+    # ... it's 22/40"): the redundant SX40 reads twice its primaries.
+    assert sx_glance == (f"{summary['sx']['taken']}/"
                          f"{summary['sx']['capacity']}"), (
         f'the glance is not the assignment summary\'s own count: '
         f'{sx_glance} vs {summary["sx"]}')
@@ -3078,6 +3082,8 @@ def test_the_glance_reads_the_occupancy_and_never_renumbers(panel_page):
     assert summary['sx']['used'] > 0, (
         'the live screen never landed on the first machine, so this test '
         'proves nothing')
+    assert summary['sx']['taken'] == 2 * summary['sx']['used'], (
+        f'the redundant SX40 did not count its returns: {summary["sx"]}')
     mx_glance = fold_state(panel_page, card_sec(ids, 'mxCard'))['glanceText']
     assert mx_glance == '0/6', f'an unused card should read 0/6: {mx_glance}'
     # The identity half of the retired summary line: the processor strip
@@ -3127,7 +3133,7 @@ def test_the_glance_follows_the_occupancy_as_screens_arrive(panel_page):
             f'the new screen took no ports: {before} -> {after}')
         glance = fold_state(panel_page,
                             card_sec(ids, 'sxCard'))['glanceText']
-        assert glance == f"{after['used']}/{after['capacity']}", (
+        assert glance == f"{after['taken']}/{after['capacity']}", (
             f'the glance did not follow the occupancy: {glance} vs {after}')
     finally:
         # the added layer would haunt every later seed's occupancy

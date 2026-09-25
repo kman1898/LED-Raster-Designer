@@ -1,6 +1,17 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v1.3.3 - September 24, 2026
+----------------------------
+
+- FIX: A processor's and a breakout box's port count includes the
+  backup sockets. With redundancy on, 11 primaries and their 11 backups
+  read 22/40, not 11/40, and a unit whose primaries and backups fill it
+  reads full. Each backup counts where its socket is: the paired box on
+  an SX40, the next socket in sequential mode, the back half in halves
+  mode, the partner unit in 1:1 or mirror mode. The binder's processors
+  table reads the same count.
+
 v1.3.2 - September 24, 2026
 ----------------------------
 

@@ -934,8 +934,10 @@ class _HardwareDock {
         const unit = document.createElement('div');
         unit.className = 'hw-dock-unit';
 
-        const summary = ((this._assignment && this._assignment.cards) || [])
-            .find(c => c.cardId === card.id);
+        // Every socket taken, primary or return, over the sockets there
+        // (socketsTaken - owner, 2026-09-24: "11 primary and 11 redundant
+        // ... it's 22/40").
+        const count = this.socketsTaken(card.id);
         // A unit consumed as a 1:1 backup wears the tag its box-level
         // cousin wears - dragging it is pointless (every port is refused as
         // a return end) but hiding it would hide where the returns land.
@@ -960,12 +962,12 @@ class _HardwareDock {
             // The header's glance: how full the card is, the retired
             // panel's per-card usage foot worn as n/N and a fill line - so
             // a card folded away because it is done reads as done (a
-            // green-full line) without opening it. Counts from the same
-            // assignment summary the foot printed - never re-derived.
-            summary && summary.capacityKnown && summary.capacity > 0
-                ? { frac: summary.used / summary.capacity,
-                    over: summary.used > summary.capacity,
-                    text: `${summary.used}/${summary.capacity}` }
+            // green-full line) without opening it. Counts from the
+            // assignment summary's taken sockets - never re-derived.
+            count && count.of
+                ? { frac: count.taken / count.of,
+                    over: count.taken > count.of,
+                    text: `${count.taken}/${count.of}` }
                 : null);
         // The card's NAME edits inline where it reads; everything else the
         // panel's card block carried lives behind the ⚙. The redundancy
@@ -1085,11 +1087,11 @@ class _HardwareDock {
             const boxTitle = (cvt.displayTitle
                 || cvt.name || cvt.deviceName) + tag;
             // The folded box's glance is occupancy in sockets - "8/10" and
-            // a fill line - because "this box is done" is a count of claimed
-            // sockets, read from the same occupancy the chips inside wear.
-            const taken = (cvt.ports || []).filter(
-                p => this._portOccupants(card.id, p.number).length).length;
-            const total = (cvt.ports || []).length;
+            // a fill line - because "this box is done" is a count of taken
+            // sockets: its primaries AND the returns landing on it (box B
+            // of an SX40 pair counts the returns of A's mains), the same
+            // server count the card's glance reads (socketsTaken).
+            const boxCount = this.socketsTaken(card.id, cvt.id);
             const boxHead = this._dockBuildHandle(
                 {
                     type: 'box', cardId: card.id,
@@ -1103,9 +1105,9 @@ class _HardwareDock {
                 'Drag the whole box onto a screen: the screen\'s ports fill '
                 + 'onto this box\'s sockets in order from the first '
                 + 'unassigned.',
-                total > 0
-                    ? { frac: taken / total, over: false,
-                        text: `${taken}/${total}` }
+                boxCount
+                    ? { frac: boxCount.taken / boxCount.of, over: false,
+                        text: `${boxCount.taken}/${boxCount.of}` }
                     : null);
             // The box's name edits inline; unnamed, the placeholder speaks
             // the RESOLVED title (trunk letter included), so "Tessera XD A"

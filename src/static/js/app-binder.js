@@ -3861,11 +3861,12 @@ class _Binder {
     }
 
     _bProcessorBlocks(book, proc, cards) {
-        const screens = (this._assignment && this._assignment.screens) || [];
+        // Sockets taken on the card - primaries AND the returns landing on
+        // it - the same count the tray's card header reads (socketsTaken,
+        // owner 2026-09-24: "11 primary and 11 redundant ... it's 22/40").
         const used = (cardId) => {
-            const set = new Set();
-            screens.forEach(s => (s.ports || []).forEach(p => { if (p.cardId === cardId && p.port != null) set.add(p.port); }));
-            return set.size;
+            const count = this.socketsTaken(cardId);
+            return count ? count.taken : 0;
         };
         // A card by name: its own where it is in this processor, else the
         // unit it belongs to (a 1:1 partner in ANOTHER processor - "USC B",

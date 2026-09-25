@@ -331,6 +331,14 @@ def cards_in(processors):
                 'backupSockets': {p['number']: p['backedBy']['localPort']
                                   for p in card['ports']
                                   if p.get('backedBy')},
+                # Each breakout box's sockets by card-wide number, in the
+                # box's order, so the summary can count a box's taken
+                # sockets the same way it counts the card's. A copy box
+                # lists the SAME numbers as the box it copies, because it
+                # delivers the same sockets.
+                'boxSockets': {c['id']: [p['number']
+                                         for p in c.get('ports') or []]
+                               for c in card.get('cvts') or []},
             })
     return out
 
@@ -836,6 +844,29 @@ def _mirror_returns(cards, occupancy):
                     })
 
 
+def _taken_sockets(card, claims):
+    """The sockets on one card that are TAKEN - holding a primary, or
+    carrying the return of a primary that is placed - by card-wide number.
+
+    Owner, 2026-09-24: "it shows 11/40 ports being used when I have 11
+    primary and 11 redundant. so that means it's 22/40". A socket counts
+    where the socket LIVES, whichever shape put the return there, because
+    every shape lands on the same backsUp link: the second box of an SX40
+    pair (B backing A) and the even half of a sequential card count on
+    their own card; a halves card's back half likewise; a 1:1 partner's
+    sockets count on the PARTNER card, never on the main's; a manual pick
+    counts on whichever card the picked socket sits. A return socket whose
+    main nobody placed carries nothing yet - it is not taken, only
+    reserved, and stays out of `free` the way it always did.
+    """
+    card_id = card['cardId']
+    taken = {port for (cid, port) in claims if cid == card_id}
+    for number, role in (card.get('backupRoles') or {}).items():
+        if (role.get('cardId'), role.get('port')) in claims:
+            taken.add(number)
+    return taken
+
+
 def _card_summary(card, claims):
     used = sum(1 for key in claims if key[0] == card['cardId'])
     # The sockets there ARE, which is the ceiling on a settled card and
@@ -848,6 +879,16 @@ def _card_summary(card, claims):
     # are spoken for by a role, so they come off the free count the same way
     # they come out of _free_ports.
     backing = len(card.get('backupRoles') or {})
+    # THE n OF EVERY n/N THE APP SHOWS for this card: every socket taken,
+    # primary or return (_taken_sockets). `used` stays the primaries alone -
+    # the fill arithmetic and the free count read it - and `taken` is what
+    # a person counting lit sockets on the rack would say.
+    taken = _taken_sockets(card, claims)
+    boxes = {
+        box_id: {'taken': sum(1 for n in numbers if n in taken),
+                 'sockets': len(numbers)}
+        for box_id, numbers in (card.get('boxSockets') or {}).items()
+    }
     return {
         'cardId': card['cardId'],
         'processorId': card['processorId'],
@@ -857,6 +898,10 @@ def _card_summary(card, claims):
         'capacityKnown': card['capacityKnown'],
         'used': used,
         'backing': backing,
+        'taken': len(taken),
+        # The same count per breakout box, over the sockets inside its
+        # span: {boxId: {taken, sockets}} - the box header's n/N.
+        'boxes': boxes,
         'free': None if capacity is None
         else max(0, capacity - used - backing),
         # The names the ports carry, so a panel offering somebody a choice of

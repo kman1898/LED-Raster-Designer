@@ -330,7 +330,12 @@ def test_an_unflagged_unit_keeps_its_loose_ports_after_a_box_delete(client):
     assert socket_numbers(after) == list(range(1, 41))
     assert after['cvts'] == []
     res = resolve(client, sc)
-    assert summary(res, cid) == before
+    # The card's figures stand; only the deleted box's own per-box count
+    # (the summary's `boxes`, the box header's n/N) goes with the box.
+    card_only = lambda s: {k: v for k, v in s.items() if k != 'boxes'}
+    assert card_only(summary(res, cid)) == card_only(before)
+    assert before['boxes'] == {boxes[0]['id']: {'taken': 4, 'sockets': 10}}
+    assert summary(res, cid)['boxes'] == {}
     assert ports_of(res, wall) == ([1, 2, 3, 4], [])
     assert pins(client) == [(wall, i, i + 1) for i in range(4)]
     raw = client.get('/api/project').get_json()['processors'][0]

@@ -3647,7 +3647,7 @@ def test_the_folded_header_earns_its_keep_with_a_glance(dock_page):
             f'the glance line must fill with the box load: {out}')
 
         # the data card header wears the same glance from the assignment's
-        # own used/capacity counts
+        # own taken/capacity counts
         open_view(page, 'data-flow')
         page.evaluate(RESET_DATA_JS, ids)
         page.wait_for_timeout(500)
@@ -3660,7 +3660,7 @@ def test_the_folded_header_earns_its_keep_with_a_glance(dock_page):
             return {
                 barW: bar && parseFloat(bar.style.width),
                 expect: summary && summary.capacityKnown
-                    ? (summary.used / summary.capacity) * 100 : null,
+                    ? (summary.taken / summary.capacity) * 100 : null,
             };
         }""", ids)
         assert card['expect'] and card['barW'] is not None, card

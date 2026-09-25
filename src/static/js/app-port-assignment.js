@@ -431,6 +431,30 @@ class _PortAssignment {
     // The per-card usage foot the old panel drew is the card headers'
     // n/N + fill glance now (app-dock.js _dockBuildCard reads the same
     // assignment summary). Nothing is left for a foot builder to build.
+
+    // THE ONE n/N FOR A CARD OR A BOX: sockets taken over sockets there,
+    // as { taken, of } - `of` null where nobody settled the card's
+    // count - or null where nothing is known yet. Taken is every socket
+    // holding a primary OR carrying a placed primary's return (owner,
+    // 2026-09-24: "11 primary and 11 redundant ... it's 22/40"), counted
+    // where the socket lives - port_assignment._taken_sockets says which
+    // card that is in every redundancy shape. The tray's card and box
+    // headers and the binder's Cards table all read this, so the three
+    // cannot print three numbers. `boxId` narrows it to one breakout box.
+    socketsTaken(cardId, boxId) {
+        const summary = ((this._assignment && this._assignment.cards) || [])
+            .find(c => c.cardId === cardId);
+        if (!summary) return null;
+        if (boxId != null) {
+            const box = (summary.boxes || {})[boxId];
+            return box && box.sockets > 0
+                ? { taken: box.taken, of: box.sockets } : null;
+        }
+        const taken = summary.taken != null ? summary.taken : summary.used;
+        return { taken,
+                 of: summary.capacityKnown && summary.capacity > 0
+                     ? summary.capacity : null };
+    }
 }
 
 for (const k of Object.getOwnPropertyNames(_PortAssignment.prototype)) {
