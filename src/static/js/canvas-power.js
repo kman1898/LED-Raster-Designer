@@ -277,9 +277,13 @@ Object.assign(CanvasRenderer.prototype, {
         // overlap" (2026-09-09: a "10' True1" beside S1-1-1 lay across
         // S1-1-2, the circuits a panel apart). drawLabelBubble collects
         // the discs and the tags it wants; drawCableTags places and paints
-        // them (placeCableTag: beside its label, the other side, below,
-        // above - the first that covers no other disc and stays inside
-        // the screen).
+        // them (placeCableTag: the run's side first, then beside its label,
+        // the other side, below, above - the first that covers no other
+        // disc and stays inside the screen). THE RUN'S SIDE (owner's
+        // ruling, 2026-09-25): a run that leaves its disc going DOWN,
+        // RIGHT or LEFT - or a one-cabinet circuit - hangs its tags ABOVE
+        // the disc; one going UP hangs them UNDER it (runSide below). The
+        // data map keeps the old order.
         // THE 2FER / 3FER PILL RIDES WITH THE CABLE TAG (2026-09-15). It
         // used to float on the gang bracket under the runs' feet, and on a
         // wall of row runs that line is a row seam nowhere near the runs'
@@ -368,30 +372,49 @@ Object.assign(CanvasRenderer.prototype, {
                 paint(j.text, at, undefined, 'jump');
             }
             pendingJumps.length = 0;
+            // The side the owner ruled for a head (2026-09-25), read off
+            // the run's first step AS DRAWN: the step is carried into the
+            // upright frame, so "down" is down on the sheet whatever the
+            // screen's rotation or Back-view mirror. A run that leaves its
+            // disc going UP hangs its tags under the disc; down, right,
+            // left - and a one-cabinet circuit, which has no step - hang
+            // them above it. A diagonal step goes by its larger axis (a
+            // tie by the vertical one).
+            const runSide = (step) => {
+                if (!step) return 'above';
+                const o = F.toU(0, 0), e = F.toU(step.dx, step.dy);
+                const dx = e.x - o.x, dy = e.y - o.y;
+                return (Math.abs(dy) >= Math.abs(dx) && dy < 0) ? 'below' : 'above';
+            };
             for (const t of pendingTags) {
                 const own = ownU(t.disc);
+                const prefer = runSide(t.step);
+                const nfer = t.gang ? this._nferTagText(layer, t.gang) : null;
                 let base = null;
                 if (t.text) {
+                    // A pill that will stack under this one is placed with
+                    // it: the column is judged whole, and hung ABOVE the
+                    // disc the tag stands a pill higher so the 3fer lands
+                    // between it and the disc.
+                    const stack = nfer ? this._stackReserve(nfer, labelSize) : null;
                     const at = this.placeCableTag(t.text, own.x, own.y, own.r, labelSize,
-                                                  bounds, discsU, own, taken);
+                                                  bounds, discsU, own, taken, { prefer, stack });
                     taken.push(at.rect);
                     paint(t.text, at, undefined, undefined);
                     base = at.rect;
                 }
-                if (!t.gang) continue;
-                const text = this._nferTagText(layer, t.gang);
-                if (!text) continue;
+                if (!nfer) continue;
                 const colors = this._nferTagColors(t.gang);
                 const at = base
-                    ? this.placeStackedTag(text, base, labelSize, bounds, discsU, own, taken)
-                    : this.placeCableTag(text, own.x, own.y, own.r, labelSize,
-                                         bounds, discsU, own, taken);
+                    ? this.placeStackedTag(nfer, base, labelSize, bounds, discsU, own, taken)
+                    : this.placeCableTag(nfer, own.x, own.y, own.r, labelSize,
+                                         bounds, discsU, own, taken, { prefer });
                 taken.push(at.rect);
-                paint(text, at, colors, 'gang');
+                paint(nfer, at, colors, 'gang');
             }
             pendingTags.length = 0;
         };
-        const drawLabelBubble = (layout, px, py, circuitNum) => {
+        const drawLabelBubble = (layout, px, py, circuitNum, step) => {
             this.ctx.fillStyle = powerLabelBgColor;
             this.ctx.beginPath();
             this.ctx.arc(px, py, layout.radius, 0, Math.PI * 2);
@@ -429,15 +452,23 @@ Object.assign(CanvasRenderer.prototype, {
                 if (cable) cableText = cable.text;
             }
             const gang = circuitNum != null ? gangByRun.get(circuitNum) || null : null;
-            if (cableText || gang) pendingTags.push({ text: cableText, disc, gang });
+            if (cableText || gang) pendingTags.push({ text: cableText, disc, gang, step });
         };
+        // The run's first step - its first cabinet to its second, centre
+        // to centre, in the frame the daisy is drawn in (a custom path's
+        // own order; drawCableTags turns it upright). Null for a circuit
+        // of one cabinet. The tags' side is read off it (2026-09-25).
+        const firstStep = (a, b) => (a && b)
+            ? { dx: (b.x + b.width / 2) - (a.x + a.width / 2),
+                dy: (b.y + b.height / 2) - (a.y + a.height / 2) }
+            : null;
         const drawCircuitLabel = (panelStart, panelNext, circuitNum) => {
             const label = window.app ? window.app.getPowerCircuitLabel(layer, circuitNum) : `S1-${circuitNum}`;
             const layout = labelLayout(label);
             const { px, py } = clampLabelCenter(
                 panelStart.x + panelStart.width / 2,
                 panelStart.y + panelStart.height / 2, layout.radius);
-            drawLabelBubble(layout, px, py, circuitNum);
+            drawLabelBubble(layout, px, py, circuitNum, firstStep(panelStart, panelNext));
         };
 
         if (useColorCodedView) {
@@ -589,7 +620,11 @@ Object.assign(CanvasRenderer.prototype, {
                 this.ctx.stroke();
             }
             this.ctx.restore();
-            drawLabelBubble(layout, px, py, circuitNum);
+            // The fan-out disc names every branch; its tags go by the
+            // first branch that has a step (the runs of one splitter leave
+            // their heads the same way on an organised wall).
+            const lead = live.find(b => b.length > 1);
+            drawLabelBubble(layout, px, py, circuitNum, lead ? firstStep(lead[0], lead[1]) : null);
         };
 
         if (isCustom && layer.powerCustomPaths) {
@@ -1200,40 +1235,95 @@ Object.assign(CanvasRenderer.prototype, {
     // than a flat fall back to below that could have been the worst of
     // the four. Returns the anchor and opts for drawCableTag, with the
     // pill.
-    placeCableTag(text, cx, cy, radius, labelSize, bounds, discs, own, taken) {
+    //
+    // THE POWER MAP LEADS WITH THE RUN'S SIDE (owner's ruling, 2026-09-25,
+    // chosen from rendered options on his show). A power head's tags go by
+    // the way its run LEAVES the disc: a run that goes DOWN, RIGHT or LEFT
+    // hangs them ABOVE the disc, a run that goes UP hangs them UNDER it,
+    // and a one-cabinet circuit hangs them above. `place.prefer` names that
+    // side; it is tried FIRST, then the OTHER side of the disc (above <->
+    // under: a top-row head with no room over it hangs its tags under the
+    // disc, not beside it - the owner, same day), then beside it
+    // (right-or-left, the other), with the same clear-first / least-bad
+    // scoring. The data map
+    // passes no `place` and keeps its order exactly (the owner: the data
+    // tags already read right). `place.stack` ({ w, h, gap }, _stackReserve)
+    // is a pill that will stack under this one (a head's 2fer / 3fer): the
+    // column is judged whole, and hung ABOVE the disc the tag stands that
+    // pill higher, so the stack reads tag, pill, disc top to bottom - under
+    // the disc it reads disc, tag, pill. An above / under pill is centred
+    // on the disc's x. With `place` given, a candidate that the screen's
+    // edge has slid back onto its OWN disc counts as covering it - a head
+    // on the wall's top row whose tag cannot stand over it moves on rather
+    // than print across its own label.
+    placeCableTag(text, cx, cy, radius, labelSize, bounds, discs, own, taken, place) {
         const w = this.cableTagWidth(text, labelSize);
         const rightFits = cx + radius + w <= bounds.right;
         const leftFits = cx - radius - w >= bounds.left;
         const first = (!rightFits && leftFits) ? 'left' : 'right';
-        const order = [first, first === 'right' ? 'left' : 'right', 'below', 'above'];
+        let order = [first, first === 'right' ? 'left' : 'right', 'below', 'above'];
+        const prefer = place && place.prefer;
+        if (prefer && order.includes(prefer)) {
+            // the power map's fallback is the OTHER side of the disc, then
+            // beside it (owner, 2026-09-25: a top-row head with no room
+            // above hangs its tags under the disc, not beside it)
+            const other = prefer === 'above' ? 'below' : prefer === 'below' ? 'above' : null;
+            const head = other ? [prefer, other] : [prefer];
+            order = [...head, ...order.filter(o => !head.includes(o))];
+        }
+        const stack = (place && place.stack) || null;
+        const lift = stack ? stack.h + stack.gap : 0;
         const anchor = (side) => side === 'right' ? { x: cx + radius, y: cy }
             : side === 'left' ? { x: cx - radius, y: cy }
             : side === 'below' ? { x: cx, y: cy + radius }
-            : { x: cx, y: cy - radius };
+            : { x: cx, y: cy - radius - lift };
         const candidate = (side) => {
             const a = anchor(side);
             const opts = { side, flip: side === 'left', top: bounds.top, bottom: bounds.bottom,
                            left: bounds.left, right: bounds.right };
-            return { x: a.x, y: a.y, opts, rect: this.cableTagRect(text, a.x, a.y, labelSize, opts) };
+            const rect = this.cableTagRect(text, a.x, a.y, labelSize, opts);
+            // the column the cost is read over: the pill, and the one
+            // stacked centred under it when there is one
+            let cover = rect;
+            if (stack) {
+                const sx = rect.x + rect.w / 2 - stack.w / 2;
+                const sy = rect.y + rect.h + stack.gap;
+                const x0 = Math.min(rect.x, sx), x1 = Math.max(rect.x + rect.w, sx + stack.w);
+                cover = { x: x0, y: rect.y, w: x1 - x0, h: sy + stack.h - rect.y };
+            }
+            return { x: a.x, y: a.y, opts, rect, cover };
         };
         const eps = 1e-6;
-        const cost = this._tagCover(bounds, discs, own, taken);
+        const cost = this._tagCover(bounds, discs, own, taken, !!place);
+        const strip = (c) => ({ x: c.x, y: c.y, opts: c.opts, rect: c.rect });
         let best = null, bestCost = Infinity;
         for (const side of order) {
             const c = candidate(side);
-            const k = cost(c.rect);
-            if (k <= eps) return c;
+            const k = cost(c.cover);
+            if (k <= eps) return strip(c);
             if (k < bestCost) { bestCost = k; best = c; }
         }
-        return best || candidate('below');
+        return strip(best || candidate('below'));
+    },
+
+    // The room a head's second pill (its 2fer / 3fer) takes under the
+    // first: its width and height and the hair between the two - what
+    // placeCableTag reserves and placeStackedTag then fills.
+    _stackReserve(text, labelSize) {
+        const tag = this.cableTagLayout(text, labelSize);
+        return { w: tag.width, h: tag.height, gap: Math.max(1, labelSize * 0.08) };
     },
 
     // What a pill at a candidate rect would cover, as a function of the
-    // rect: the discs it meets (`discs`, its own `own` skipped), the pills
-    // already down (`taken`), and any part of it outside the screen
-    // (`bounds`). Zero is a clear placement. Shared by placeCableTag and
-    // placeStackedTag so the two rows of a head's stack are judged alike.
-    _tagCover(bounds, discs, own, taken) {
+    // rect: the discs it meets (`discs`, its own `own` skipped unless
+    // `withOwn`), the pills already down (`taken`), and any part of it
+    // outside the screen (`bounds`). Zero is a clear placement. Shared by
+    // placeCableTag and placeStackedTag so the two rows of a head's stack
+    // are judged alike. `withOwn` (the power map's run-side placement)
+    // counts the own disc too - a pill never meets the disc it hangs off
+    // unless the screen's edge slid it there - and holds the pill half its
+    // height off the other discs above and under it.
+    _tagCover(bounds, discs, own, taken, withOwn) {
         const eps = 1e-6;
         const inside = (rc) => rc.x >= bounds.left - eps && rc.x + rc.w <= bounds.right + eps
             && rc.y >= bounds.top - eps && rc.y + rc.h <= bounds.bottom + eps;
@@ -1248,9 +1338,19 @@ Object.assign(CanvasRenderer.prototype, {
             * Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
         return (rc) => {
             let c = 0;
+            // On the run-side path a pill also keeps half its own height
+            // off any OTHER disc above or under it - the stand-off a pill
+            // keeps from the disc it hangs off (cableTagRect), so a tag
+            // hung over its disc never jams against the disc of the circuit
+            // a cabinet up the column.
+            const m = withOwn ? rc.h / 2 : 0;
+            const probe = m ? { x: rc.x, y: rc.y - m, w: rc.w, h: rc.h + 2 * m } : rc;
             for (const d of others) {
-                if (!meets(rc, d)) continue;
-                c += overlaps(rc, { x: d.x - d.r, y: d.y - d.r, w: d.r * 2, h: d.r * 2 });
+                if (!meets(probe, d)) continue;
+                c += overlaps(probe, { x: d.x - d.r, y: d.y - d.r, w: d.r * 2, h: d.r * 2 });
+            }
+            if (withOwn && own && meets(rc, own)) {
+                c += overlaps(rc, { x: own.x - own.r, y: own.y - own.r, w: own.r * 2, h: own.r * 2 });
             }
             for (const t of placed) c += overlaps(rc, t);
             if (!inside(rc)) c += rc.w * rc.h;
@@ -1259,28 +1359,29 @@ Object.assign(CanvasRenderer.prototype, {
     },
 
     // Where a second pill goes in a head's tag stack: directly UNDER the
-    // pill already there (`base`, a rect placeCableTag returned), flush
-    // with the base's edge NEAREST THE DISC - the left edge of a tag hung
-    // right of its disc, the right edge of one hung left of it - and a
-    // hair of a gap between them, so the two read as one column beside
-    // the disc: "SR 5-5 · 10' True1 · 2fer". Above the base instead when
-    // under it would leave the screen or cover a disc or a pill already
-    // down (a tag hung ABOVE its disc at the wall's bottom edge stacks
-    // upward); when neither is clear the one that covers less wins, the
-    // same give as placeCableTag. Same return shape: the anchor and opts
-    // drawCableTag takes (a 'right' hang whose gap is the quarter label
-    // cableTagRect adds, so the pill lands exactly on `rect`).
+    // pill already there (`base`, a rect placeCableTag returned), CENTRED
+    // on the base's x - "3fer etc needs to be centered under the True1
+    // extension" (owner, 2026-09-25; until then it sat flush with the
+    // base's edge nearest the disc) - and a hair of a gap between them, so
+    // the two read as one column: "SR 5-5 · 10' True1 · 3fer". A base hung
+    // ABOVE its disc was lifted by placeCableTag to leave exactly this
+    // slot, so there the pill sits between the tag and the disc. Above the
+    // base instead when under it would leave the screen or cover a disc
+    // (its own included) or a pill already down; when neither is clear the
+    // one that covers less wins, the same give as placeCableTag. Same
+    // return shape: the anchor and opts drawCableTag takes (a 'right' hang
+    // whose gap is the quarter label cableTagRect adds, so the pill lands
+    // exactly on `rect`).
     placeStackedTag(text, base, labelSize, bounds, discs, own, taken) {
         const tag = this.cableTagLayout(text, labelSize);
-        const gap = Math.max(1, labelSize * 0.08);
-        const hungLeft = !!own && base.x + base.w / 2 < own.x;
-        const left = hungLeft ? base.x + base.w - tag.width : base.x;
+        const gap = this._stackReserve(text, labelSize).gap;
+        const left = base.x + base.w / 2 - tag.width / 2;
         const candidate = (top) => {
             const rect = { x: left, y: top, w: tag.width, h: tag.height };
             return { x: rect.x - labelSize * 0.25, y: rect.y + rect.h / 2,
                      opts: { side: 'right' }, rect };
         };
-        const cost = this._tagCover(bounds, discs, own, taken);
+        const cost = this._tagCover(bounds, discs, own, taken, true);
         const below = candidate(base.y + base.h + gap);
         const above = candidate(base.y - gap - tag.height);
         const kb = cost(below.rect);
@@ -1338,6 +1439,13 @@ Object.assign(CanvasRenderer.prototype, {
         // modest rounding rather than turning into a capsule.
         const corner = (size + 4) / 2;
         const left = rc.x;
+        // The anchor as given: the pivot is the layer-frame point it came
+        // from, so the counter-rotation below is taken about IT - not about
+        // the pill's centre, which an above / under hang (or a pill slid
+        // inside the screen's edge) puts somewhere else (2026-09-25: a
+        // 3fer stacked under a tag hung over its disc printed across the
+        // tag on a 90-degree screen).
+        const anchorY = y;
         y = rc.y + pillH / 2;
         // THE PILL STANDS UP WITH ITS TEXT (2026-09-15). On a rotated
         // screen the text is kept upright by _fillText, counter-rotated
@@ -1356,7 +1464,7 @@ Object.assign(CanvasRenderer.prototype, {
             this.ctx.translate(pivot.x, pivot.y);
             if (upright) this.ctx.rotate(-this._activeRotationRad);
             if (this._mirror) this.ctx.scale(-1, 1);
-            this.ctx.translate(-x, -y);
+            this.ctx.translate(-x, -anchorY);
         }
         this._noteLabelBox(kind || 'tag', text, left, y - pillH / 2, pillW, pillH);
         this.ctx.beginPath();

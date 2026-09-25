@@ -1,6 +1,21 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v1.4.0 - September 25, 2026
+----------------------------
+
+- FIX: A power map's cable tags sit by the way the circuit runs. A
+  circuit that runs down, right or left has its tags above the disc; one
+  that runs up has them under it. The 2fer or 3fer tag sits centered
+  under the cable tag. When the tags would run off the screen they go to
+  the other side of the disc. Before, they sat beside the disc, over the
+  next circuit's run, so it was hard to tell which disc they belonged to.
+- FIX: A grouped wall's load counts every screen in the group. The
+  circuits run across the whole wall, so the binder's show totals and a
+  screen's FACTS now add in the circuits carried from the other members,
+  and FACTS has a Wall load row naming the screens. Before, the
+  "Load @ 208 V" line left out a member and its label ran into the value.
+
 v1.3.4 - September 25, 2026
 ----------------------------
 

@@ -13,13 +13,16 @@ really drew, in the bitmap's pixels):
 
   - every shared circuit's disc carries a pill (kind 'gang', the name the
     collision guards and the binder's ink price know it by), directly
-    under or over that disc's cable tag, flush with the tag's edge nearest
-    the disc, a hair of a gap between them;
+    under or over that disc's cable tag, CENTRED on the tag's x - "3fer
+    etc needs to be centered under the True1 extension" (owner,
+    2026-09-25; it used to sit flush with the tag's edge nearest the disc)
+    - a hair of a gap between them;
   - an unshared circuit's disc gets none, and no pill sits away from a
     shared disc;
-  - with Show Cable Tags off the pill takes the cable tag's place beside
-    the disc; with Show 2fer/3fer Tags off there is no pill at all (the
-    bracket under the feet stays - it is not touched here);
+  - with Show Cable Tags off the pill takes the cable tag's place by the
+    disc (the slot nearest it, on the same side, centred the same); with
+    Show 2fer/3fer Tags off there is no pill at all (the bracket under the
+    feet stays - it is not touched here);
   - the pill never covers a disc, a tag or another pill, and stays inside
     its wall; the same at any zoom and on a rotated screen, where the
     stack is a stack ON THE PAGE (the tags are placed in the upright frame
@@ -236,20 +239,18 @@ def _stack_faults(view):
         gx, gy = _gap(p, d)
         if max(gx, gy) > 14 * view['zoom']:
             bad.append('%s stands %.1f px off %s - not beside it' % (p['text'], max(gx, gy), d['text']))
-        # stacked with the disc's cable tag: same left edge, a hair apart,
-        # one directly over the other
+        # stacked with the disc's cable tag: centred on the tag's x, a
+        # hair apart, one directly over the other
         mine = [t for t in tags if _nearest_disc(t, discs) is d]
         if tags and len(mine) != 1:
             bad.append('%s at %s has %d cable tags beside it' % (p['text'], d['text'], len(mine)))
         for t in mine:
-            # flush with the tag's edge nearest the disc: the left edge of
-            # a tag hung right of its disc, the right edge of one hung left
-            if t['x'] + t['w'] / 2 >= d['x'] + d['w'] / 2:
-                if abs(t['x'] - p['x']) > 2:
-                    bad.append('%s left edge %.1f, its tag %s left edge %.1f' % (p['text'], p['x'], t['text'], t['x']))
-            elif abs((t['x'] + t['w']) - (p['x'] + p['w'])) > 2:
-                bad.append('%s right edge %.1f, its tag %s right edge %.1f'
-                           % (p['text'], p['x'] + p['w'], t['text'], t['x'] + t['w']))
+            # centred under (or over) the tag - the owner's 2026-09-25
+            # ruling; until then it sat flush with the tag's edge nearest
+            # the disc
+            pcx, tcx = p['x'] + p['w'] / 2, t['x'] + t['w'] / 2
+            if abs(pcx - tcx) > HAIR:
+                bad.append('%s centre x %.1f, its tag %s centre x %.1f' % (p['text'], pcx, t['text'], tcx))
             gx, gy = _gap(p, t)
             if gx > -HAIR:
                 bad.append('%s is beside its tag %s, not over or under it' % (p['text'], t['text']))
@@ -270,8 +271,8 @@ def _stack_faults(view):
 
 @pytest.mark.parametrize('zoom', [1.0, 3.7])
 def test_every_shared_head_stacks_its_pill_under_the_cable_tag(unrotated, zoom):
-    """Cable tags on, Nfer tags on: each shared disc reads disc · tag ·
-    pill, the pill directly under the tag with the tag's left edge; the
+    """Cable tags on, Nfer tags on: each shared disc carries tag and pill
+    as one column, the pill directly under the tag and centred on it; the
     unshared wall's discs get none; nothing is covered."""
     view = _view(unrotated, True, True, zoom)
     bad = _stack_faults(view)
@@ -280,8 +281,13 @@ def test_every_shared_head_stacks_its_pill_under_the_cable_tag(unrotated, zoom):
 
 @pytest.mark.parametrize('zoom', [1.0, 3.7])
 def test_with_cable_tags_off_the_pill_takes_the_tags_place(unrotated, zoom):
-    """The pill hangs where the cable tag would: same left edge, same
-    centre line, beside the disc."""
+    """The pill hangs where the head's column would: on the same side of
+    the disc, centred on the tag's x, in the slot NEAREST the disc. Hung
+    beside the disc (the old placement, still a fallback) that is the tag's
+    own edge and centre line; hung ABOVE it (the power map's run side,
+    2026-09-25 - both shared walls here run right or down, so above) the
+    column's bottom, where the pill already sat under its tag; hung UNDER
+    it, the tag's top."""
     with_tags = _view(unrotated, True, True, zoom)
     without = _view(unrotated, False, True, zoom)
     assert not _kind(without['boxes'], 'tag'), 'cable tags off drew a tag'
@@ -289,19 +295,38 @@ def test_with_cable_tags_off_the_pill_takes_the_tags_place(unrotated, zoom):
     pills = _kind(without['boxes'], 'gang')
     assert sorted(p['text'] for p in pills) == ['2fer', '2fer', '3fer', '3fer']
     tags = _kind(with_tags['boxes'], 'tag')
-    seen = 0
+    stacked = _kind(with_tags['boxes'], 'gang')
+    wdiscs = _kind(with_tags['boxes'], 'disc')
+    mine = lambda boxes, d: [b for b in boxes if abs(_nearest_disc(b, wdiscs)['x'] - d['x']) < HAIR
+                             and abs(_nearest_disc(b, wdiscs)['y'] - d['y']) < HAIR]
+    seen, sides = 0, set()
     for p in pills:
         d = _nearest_disc(p, discs)
         assert PILL_OF.get(d['text']) == p['text'], (p, d)
-        tag = [t for t in tags if abs(_nearest_disc(t, _kind(with_tags['boxes'], 'disc'))['x'] - d['x']) < HAIR
-               and abs(_nearest_disc(t, _kind(with_tags['boxes'], 'disc'))['y'] - d['y']) < HAIR]
-        assert len(tag) == 1, (p['text'], d['text'], tag)
-        t = tag[0]
-        assert abs(t['x'] - p['x']) <= HAIR, 'pill left %.1f, tag left %.1f' % (p['x'], t['x'])
-        assert abs((t['y'] + t['h'] / 2) - (p['y'] + p['h'] / 2)) <= HAIR, \
-            'pill centre %.1f, tag centre %.1f' % (p['y'] + p['h'] / 2, t['y'] + t['h'] / 2)
+        tag, pw = mine(tags, d), mine(stacked, d)
+        assert len(tag) == 1 and len(pw) == 1, (p['text'], d['text'], tag, pw)
+        t, pw = tag[0], pw[0]
+        dcx, dcy = d['x'] + d['w'] / 2, d['y'] + d['h'] / 2
+        tcx, tcy = t['x'] + t['w'] / 2, t['y'] + t['h'] / 2
+        if abs(tcx - dcx) <= HAIR:          # hung over or under the disc
+            assert abs((p['x'] + p['w'] / 2) - tcx) <= HAIR, (p, t)
+            if tcy < dcy:
+                sides.add('above')
+                col_bottom = max(t['y'] + t['h'], pw['y'] + pw['h'])
+                assert abs((p['y'] + p['h']) - col_bottom) <= HAIR, (p, t, pw)
+            else:
+                sides.add('below')
+                assert abs(p['y'] - t['y']) <= HAIR, (p, t)
+        else:                               # hung beside it
+            sides.add('beside')
+            near = t['x'] if tcx > dcx else t['x'] + t['w']
+            pnear = p['x'] if tcx > dcx else p['x'] + p['w']
+            assert abs(near - pnear) <= HAIR, 'pill edge %.1f, tag edge %.1f' % (pnear, near)
+            assert abs(tcy - (p['y'] + p['h'] / 2)) <= HAIR, \
+                'pill centre %.1f, tag centre %.1f' % (p['y'] + p['h'] / 2, tcy)
         seen += 1
     assert seen == 4
+    assert 'above' in sides, ('the run-side rule must hang these heads above', sides)
 
 
 @pytest.mark.parametrize('cable', [True, False])
@@ -310,10 +335,16 @@ def test_with_nfer_tags_off_there_is_no_pill(unrotated, cable):
     off = _view(unrotated, cable, False, 1.0)
     assert _kind(on['boxes'], 'gang'), 'the switch-on render drew no pill'
     assert not _kind(off['boxes'], 'gang'), [b['text'] for b in _kind(off['boxes'], 'gang')]
-    # the discs and the cable tags are untouched by the switch
-    strip = lambda bs: [(b['kind'], b['text'], round(b['x'], 1), round(b['y'], 1))
-                        for b in bs if b['kind'] in ('disc', 'tag')]
-    assert strip(off['boxes']) == strip(on['boxes'])
+    # the discs are untouched by the switch, and the cable tags keep their
+    # x; a tag hung ABOVE its disc stands a pill higher with the pill on
+    # (the pill takes the slot between it and the disc - 2026-09-25), so
+    # its y is the one thing the switch may move
+    strip = lambda bs, k: [(b['kind'], b['text'], round(b['x'], 1), round(b['y'], 1))
+                           for b in bs if b['kind'] == k]
+    assert strip(off['boxes'], 'disc') == strip(on['boxes'], 'disc')
+    assert [t[:3] for t in strip(off['boxes'], 'tag')] == [t[:3] for t in strip(on['boxes'], 'tag')]
+    for a, b in zip(strip(off['boxes'], 'tag'), strip(on['boxes'], 'tag')):
+        assert b[3] <= a[3] + HAIR, ('a pill never pushes a tag toward its disc', a, b)
 
 
 @pytest.mark.parametrize('zoom', [1.0, 3.7])

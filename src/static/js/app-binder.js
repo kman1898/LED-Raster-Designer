@@ -2033,7 +2033,15 @@ class _Binder {
             ctx.fillStyle = RULE;
             ctx.fillRect(x, y + H4_H - 6, w, 2);
         } });
-        const keyW = 150;
+        // The key column is 150 wide, and wider only where a key would
+        // reach its value: "Load @ 208 V" in the cell's bold is ~157 and
+        // printed its V into the amps at 150. Measured in the bold the
+        // key is drawn in; a key that leaves 4 of air (Redundancy, ~144)
+        // keeps the column every block has always had.
+        const ctxK = book.measureCtx;
+        ctxK.font = this._bFont(SZ.cell, 700);
+        const widest = pairs.reduce((m, [k]) => Math.max(m, ctxK.measureText(String(k)).width), 0);
+        const keyW = widest > 150 - 4 ? Math.ceil(widest) + 16 : 150;
         for (const [k, v] of pairs) {
             // Values wrap onto as many lines as they need.
             const words = String(v == null ? '' : v).split(' ');
@@ -3012,9 +3020,22 @@ class _Binder {
             }
             return s;
         }).filter(Boolean);
+        // The sheet is titled for THIS screen, so its Load is this
+        // screen's own panels. Where its circuits also carry a group
+        // peer's panels (a wall routed as one, every circuit on its first
+        // member) the circuits table above is the WALL's, so a Wall load
+        // row follows - the load those circuits draw, every member's
+        // panels counted once, naming the members - and it is the figure
+        // the table's amps sum to.
+        const loadText = (a1, a3, w) => `${this._bNum(a1, 1)} A 1φ · ${this._bNum(a3, 1)} A 3φ · ${this._bNum(w / 1000, 1)} kW`;
+        const carried = (typeof this.getCarriedPowerLoad === 'function') ? this.getCarriedPowerLoad(layer) : null;
+        const wall = carried && carried.peers.length
+            ? [['Wall load', `${loadText(carried.amps1, carried.amps3, carried.watts)} · `
+                + [layer, ...carried.peers].map(l => l.name).join(' + ')]] : [];
         blocks.push({ lines: this._bKvLines(book, 'Facts', [
             ['Screen', f.screenText],
-            ['Load', `${this._bNum(f.amps1, 1)} A 1φ · ${this._bNum(f.amps3, 1)} A 3φ · ${this._bNum(f.watts / 1000, 1)} kW`],
+            ['Load', loadText(f.amps1, f.amps3, f.watts)],
+            ...wall,
             ['Circuits', [`${circuits.length} at ${f.voltage} V / ${parseFloat(layer.powerAmperage) || 0} A`, each]
                 .filter(Boolean).join(' · ')],
             ...(fed.length ? fed.map(s => ['Fed by', s]) : [['Fed by', 'no distro']]),
@@ -3456,7 +3477,27 @@ class _Binder {
         // "Amps (1φ) @ 208V"), and the show's kW - the one figure that
         // does add up across voltages - keeps its own line under them. A
         // screen with no circuits draws nothing and joins no voltage.
+        //
+        // A group routed as one wall hands every circuit to its first
+        // member: that member's circuits carry its peers' panels and the
+        // peers carry none. Every screen on such a wall - the one whose
+        // circuits carry a peer, and a peer any of whose panels ride
+        // another screen's circuits - joins its voltage with the load ITS
+        // OWN circuits carry (getCarriedPowerLoad), so the wall's panels
+        // are counted once, at the voltage of the circuits that feed them:
+        // never dropped with the peer that has no circuits, never counted
+        // twice where a member also has circuits of its own. A screen that
+        // routes alone reads its own panels, as it always has.
         const screens = (this.project.layers || []).filter(l => (l.type || 'screen') === 'screen');
+        const carried = new Map();
+        const riding = new Set();
+        if (typeof this.getCarriedPowerLoad === 'function') {
+            for (const l of screens) {
+                const c = this.getCarriedPowerLoad(l);
+                carried.set(String(l.id), c);
+                c.peerIds.forEach(id => riding.add(String(id)));
+            }
+        }
         let panels = 0, watts = 0, circuits = 0, ports = 0;
         const byVoltage = new Map();
         for (const l of screens) {
@@ -3469,9 +3510,14 @@ class _Binder {
                 circuits += mine;
                 ports += (scr.ports || []).length;
             }
-            if (!(mine > 0) || !(f.voltage > 0)) continue;
+            const c = carried.get(String(l.id));
+            const onWall = !!c && (c.peerIds.length > 0 || riding.has(String(l.id)));
+            const w = onWall ? c.watts : f.watts;
+            if (!(f.voltage > 0) || (onWall ? !(w > 0) : !(mine > 0))) continue;
             const bucket = byVoltage.get(f.voltage) || { voltage: f.voltage, watts: 0, amps1: 0, amps3: 0 };
-            bucket.watts += f.watts; bucket.amps1 += f.amps1; bucket.amps3 += f.amps3;
+            bucket.watts += w;
+            bucket.amps1 += w / f.voltage;
+            bucket.amps3 += w / (f.voltage * 1.73);
             byVoltage.set(f.voltage, bucket);
         }
         const loadText = (b) => `${this._bNum(b.amps1, 1)} A 1φ · ${this._bNum(b.amps3, 1)} A 3φ · ${this._bNum(b.watts / 1000, 1)} kW`;

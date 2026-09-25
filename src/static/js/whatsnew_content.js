@@ -14,6 +14,23 @@
  *   h - short heading, d - one or two plain sentences. No markup, no emoji.
  */
 window.WHATS_NEW_CONTENT = {
+    '1.4': {
+        title: 'TAC and opticalCON fiber by the strand, power tags by their circuit',
+        items: [
+            { h: 'TAC fiber shared by the strand',
+              d: 'A breakout box\'s cable sheet picks a TAC for each link and the strands it rides, so several boxes can share one TAC 12. Any strand count, ST, LC or MTP ends, and the next free strands fill in for you.' },
+            { h: 'opticalCON DUO and QUAD',
+              d: 'A box can take its fiber on opticalCON instead: two DUOs or one QUAD on a CVT4K-S. NovaStar and Megapixel boxes have a BiDi switch for one strand per link.' },
+            { h: 'Strands named the standard way',
+              d: 'Strands read by the TIA-598 colors, with tracers past 12, or by number, or by subunit of 12. Rename any strand. The binder prints a strand map for every cable and the pull sheet counts each cable once.' },
+            { h: 'Backups ride the same box',
+              d: 'A backup feed to the same box shows as that box\'s backup links with their own fiber, and no longer counts as a second box on the pull sheet.' },
+            { h: 'Power tags sit by their circuit',
+              d: 'A power map\'s cable tags go above the disc when the circuit runs down, right or left, and under it when it runs up, with the 2fer or 3fer tag centered under the cable. Tags that would run off the screen go to the other side of the disc.' },
+            { h: 'A grouped wall\'s whole load',
+              d: 'The binder\'s show totals and a screen\'s FACTS count the circuits the whole wall carries, and FACTS has a Wall load row naming the screens.' }
+        ]
+    },
     '1.3': {
         title: 'A default for every screen color, True1 and powerCON on 120V, whole-row fills, a rear view binder',
         items: [

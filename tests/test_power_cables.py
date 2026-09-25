@@ -656,7 +656,12 @@ def test_a_tag_on_the_wall_s_edge_flips_inside_the_screen(page):
     on. they are to the right behind the other screen. they should be on
     the inside of the screen" (2026-09-06). Runs from the left: tags hang
     right of the label. Runs from the right: the label sits on the wall's
-    right edge and the tag flips to its left, inside."""
+    right edge and the tag flips to its left, inside.
+    Since 2026-09-25 the power map first tries the run's side (above, for
+    a row run - test_power_tag_placement.py); at 60 px labels on 200 px
+    rows a head has no room over its disc (the screen's top edge, or the
+    stand-off from the disc a row up), so these tags fall back to this
+    order, and the flip is the fallback's rule."""
     pg, ids = page
     box = pg.locator('#show-power-cable-tags')
     if not box.is_checked():

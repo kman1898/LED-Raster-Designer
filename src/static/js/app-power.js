@@ -306,8 +306,20 @@ class _Power {
 
         if (circuitsEl) circuitsEl.textContent = circuitsRequired > 0 ? circuitsRequired.toLocaleString() : '0';
         layer._powerCircuitsRequired = circuitsRequired;
-        if (amps1El) amps1El.textContent = totalAmps1 ? totalAmps1.toFixed(2) + ' A' : '0';
-        if (amps3El) amps3El.textContent = totalAmps3 ? totalAmps3.toFixed(2) + ' A' : '0';
+        // The screen that carries a wall's circuits reads the WALL's load
+        // beside the wall's circuit count - the figure its circuits draw,
+        // every member's panels counted once (getCarriedPowerLoad) - the
+        // way its canvas label already does. A screen that routes alone
+        // reads its own panels, exactly as before; the cached
+        // _powerTotalAmps1/3 stay this screen's own either way.
+        const carried = circuitsRequired > 0 ? this.getCarriedPowerLoad(layer) : null;
+        const wall = carried && carried.peers.length ? carried : null;
+        const shownAmps1 = wall ? wall.amps1 : totalAmps1;
+        const shownAmps3 = wall ? wall.amps3 : totalAmps3;
+        const wallTitle = wall
+            ? `The wall's load on these circuits: ${[layer, ...wall.peers].map(l => l.name).join(' + ')}` : '';
+        if (amps1El) { amps1El.textContent = shownAmps1 ? shownAmps1.toFixed(2) + ' A' : '0'; amps1El.title = wallTitle; }
+        if (amps3El) { amps3El.textContent = shownAmps3 ? shownAmps3.toFixed(2) + ' A' : '0'; amps3El.title = wallTitle; }
         // The cap under the custom controls reads the same figures.
         this._syncCustomFillReadout('power');
         // Deferred, not called inline: this runs synchronously inside the
@@ -1071,6 +1083,44 @@ class _Power {
                 ? (parseFloat(from.panelWatts) || 0) : panelWatts;
             return s + w * this.getPanelLoadFactor(from || layer, p);
         }, 0);
+    }
+
+    // The load this screen's CIRCUITS carry - the wall's load when the
+    // screen carries a group's walk. A wall routed as one hands every
+    // circuit to its first member and none to its peers, so the owner's
+    // own cabinets say only part of what its circuits draw and the peer's
+    // say nothing that any circuit of its own draws. This is the sum the
+    // circuit table is built from (_circuitWatts: each cabinet at its own
+    // screen's Watts per Panel and half-tile factor, at the carrying
+    // screen's voltage), a blank cabinet left out the way every load
+    // figure leaves it out, so a wall's figure is its members' panels
+    // counted once - never a member twice, never one dropped.
+    //   { watts, voltage, amps1, amps3, circuits, peerIds, peers }
+    // `peers` are the OTHER screens whose cabinets ride these circuits,
+    // in wall order; empty for every screen that routes alone.
+    getCarriedPowerLoad(layer) {
+        const voltage = layer ? (parseFloat(layer.powerVoltage) || 0) : 0;
+        const out = { watts: 0, voltage, amps1: 0, amps3: 0, circuits: 0, peerIds: [], peers: [] };
+        if (!layer || (layer.type || 'screen') !== 'screen') return out;
+        const peers = new Map();
+        for (const c of this.screenCircuits(layer)) {
+            out.circuits++;
+            const src = c.layers || [];
+            const panels = [], from = [];
+            (c.panels || []).forEach((p, i) => {
+                if (!p || p.blank) return;
+                panels.push(p);
+                from.push(src[i]);
+                const l = src[i];
+                if (l && l !== layer && l.id !== layer.id && !peers.has(String(l.id))) peers.set(String(l.id), l);
+            });
+            out.watts += this._circuitWatts(layer, panels, from);
+        }
+        out.peers = [...peers.values()];
+        out.peerIds = out.peers.map(l => l.id);
+        out.amps1 = voltage > 0 ? out.watts / voltage : 0;
+        out.amps3 = voltage > 0 ? out.watts / (voltage * 1.73) : 0;
+        return out;
     }
 
     getSocaPlan(layer) {
