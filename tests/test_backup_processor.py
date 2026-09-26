@@ -751,7 +751,8 @@ def test_a_loops_sheet_shows_the_pair_near_box_first_with_x1_and_x2(page):
 
 
 def test_the_binder_and_the_pull_sheet_name_the_ports_and_count_the_backup(page):
-    """The box summary reads "TAC A 1-2 · X2 TAC B 1-2" and "X1 Cat6 150'
+    """The box summary reads "X1 TAC A (TAC 12) 1-2 · X2 TAC B (TAC 12) 1-2"
+    - every input by its port, a cable's kind the first time - and "X1 Cat6 150'
     (…)"; a strand map names the box and its port; the loop's far box is
     marked "loop of"; the backup unit is its own column, "USC SR BU · backup
     of USC SR Main"; and the pull sheet lists every processor by model -
@@ -782,7 +783,7 @@ def test_the_binder_and_the_pull_sheet_name_the_ports_and_count_the_backup(page)
             cols: maps[0].cols.map(c => c.title),
         };
     }""", ids)
-    assert out['a'] == 'TAC A 1-2 · X2 TAC B 1-2', out
+    assert out['a'] == 'X1 TAC A (TAC 12) 1-2 · X2 TAC B (TAC 12) 1-2', out
     assert out['c'] == "X1 Cat6 150' (Cat6 runs 100 ft max at 10G)", out
     assert out['boxes'] == ['Tessera XD A', 'Tessera XD B · loop of Tessera XD A',
                             'Tessera XD C', 'Tessera XD D · loop of Tessera XD C'], out

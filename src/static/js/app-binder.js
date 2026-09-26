@@ -3139,8 +3139,8 @@ class _Binder {
             ? this.pullBoxTitle(box) : (box.displayTitle || box.name || box.deviceName);
     }
 
-    // The band over a box's ports: "CVT4K-S SR · OPT 1-2 · 16 ports · TAC
-    // A 1-4" - the trunk it hangs on as the card's face prints it, the
+    // The band over a box's ports: "CVT4K-S SR · OPT 1-2 · 16 ports · OPT
+    // 1-2 TAC A (TAC 8) 1-4" - the trunk it hangs on as the card's face prints it, the
     // sockets it delivers, and its fiber (_bBoxFiberText).
     _bBoxBandText(box) {
         return [this._bBoxTitle(box), box.trunkTitle || '',
@@ -3148,10 +3148,10 @@ class _Binder {
                 this._bBoxFiberText(box)].filter(Boolean).join(' · ');
     }
 
-    // A box's fiber as the binder says it, SHORT - the cable's name and the
-    // strands, "TAC A 9-10 · X2 TAC B 1-2", copper by its port "X1 Cat6A
-    // 150'" (fiberLinkSummary); what a TAC A is, is its strand map's
-    // header. With no
+    // A box's fiber as the binder says it - each input by its port, the
+    // cable's name (its kind in brackets the first time) and the strands,
+    // "X1 TAC A (TAC 8) 9-10 · X2 TAC B (TAC 6) 1-2", copper by its port
+    // "X1 Cat6A 150'" (fiberLinkSummary). With no
     // link: the 1.3 typed note as it always read ("12 Tac Fiber 250'", "no
     // fiber length" where only a type was typed), else "no fiber".
     _bBoxFiberText(box) {
