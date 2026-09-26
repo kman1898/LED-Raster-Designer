@@ -212,6 +212,7 @@ def test_a_distro_at_its_own_beach_pulls_the_power_rows_there(page):
         ('Data Jump', "2'", 2, 'WALL-A', ''),
         ('Data Jump', "6'", 11, 'WALL-B', ''),
         ('Ether-con Snake', "100'", 1, 'SNAKE A', '2 channel'),
+        ('H9', 'EA', 1, '', ''),
     ]
     assert pos['SR Beach']['layerIds'] == [ids['a'], ids['b']]
     assert _rows(pos['CENTER']['rows']) == _rows(_by_name(before['positions'])['CENTER']['rows'])
@@ -423,6 +424,7 @@ def test_a_box_at_its_beach_pulls_its_ports_rows_and_two_boxes_list_once(page):
         ('Ether-con', "50'", 1, out['centerLabel'], ''),
         ('Ether-con Barrel', 'EA', 1, out['aLabel'], ''),
         ('Ether-con Snake', "100'", 1, out['snakeName'], '2 channel'),
+        ('H9', 'EA', 1, '', ''),
     ]
     assert all(r['side'] == 'data' for r in sl['rows'])
     assert _rows(pos['SR Beach']['rows']) == [

@@ -305,6 +305,19 @@ class _PullList {
         return `${(box.fiberType || '').trim() || 'Fiber'} ${this.pullLengthText(ft)}`;
     }
 
+    // A copper link on a box (an XD's X1 on Cat6A) as a pull row's cells:
+    // the kind, its length, one, "Tessera XD A (X1)" - the port in brackets
+    // so the name folding never reads it as a run - and the plain warning
+    // where it runs past its 10G length ("no length" where none is typed).
+    // Rows merge by kind and length like every other cable.
+    _pullCopperCells(l) {
+        const ft = Number(l.copper.ft);
+        const has = Number.isFinite(ft) && ft > 0;
+        return [l.copper.copper, has ? this.pullLengthText(ft) : '', 1,
+                `${this.pullBoxTitle(l.box)} (${l.title})`,
+                this.copperOverText(l.copper) || (has ? '' : 'no length')];
+    }
+
     pullPowerConnectorName(appName) {
         const name = String(appName || '').trim();
         return POWER_CONNECTOR_SHEET_NAMES[name] || name;
@@ -597,6 +610,7 @@ class _PullList {
         // whose port a box delivers.
         const distroFirstLayer = new Map();   // String(distroId) -> layerId
         const boxFirstLayer = new Map();      // boxId -> layerId
+        const procFirstLayer = new Map();     // processorId -> layerId
         // The tail cache is a per-tick memo keyed by layer object; a build
         // that follows an edit in the same tick must not read stale names.
         this._circuitTailCache = null;
@@ -646,7 +660,7 @@ class _PullList {
             for (const layer of base.layers) {
                 const scr = this._pullScreenList(layer, {
                     settings, distroById, boxesSeen, snakesSeen, fiberSeen, hw,
-                    distroFirstLayer, boxFirstLayer,
+                    distroFirstLayer, boxFirstLayer, procFirstLayer,
                 });
                 byScreen[layer.id] = scr;
                 // Every row goes where the device that produced it sits;
@@ -668,13 +682,53 @@ class _PullList {
         for (const { box, proc } of this._pullAllBoxes()) {
             const type = String(box.deviceName || '').trim();
             if (!type) continue;
-            // A backup record BOUND to its primary is the same physical box
-            // taking a second fiber (2026-09-25): no second EA row.
-            if (box.boundTo) continue;
             const r = { type, length: 'EA', qty: 1, label: this.pullBoxLabel(box),
                         notes: '', side: 'data' };
             if (!gearAt(r, this.pullLocationOf(box), boxFirstLayer.get(box.id))) continue;
             hw('processor', proc.id, proc.name || proc.deviceName || proc.id).rows.push({ ...r });
+        }
+        // EVERY PROCESSOR, EA (owner, 2026-09-25: "List mains and
+        // backups"): one row per unit of its model, counted by model like
+        // the boxes, its name in the label - and a processor's BACKUP UNIT
+        // (an option on the main) one more of the same model under the
+        // backup's name, marked "(backup)". Each lands where its main's
+        // first counted box does, else the first screen its ports reach,
+        // else the first position. A backup unit's own twin of every box
+        // it does not feed on a backup input (a HELIOS's RS12 switches) is
+        // counted where, and only where, the main's box it mirrors is.
+        for (const proc of this._processorsResolved || []) {
+            const type = String(proc.deviceName || '').trim();
+            if (!type) continue;
+            const procName = proc.name || proc.deviceName || proc.id;
+            const boxes = this._pullAllBoxes().filter(b => b.proc === proc).map(b => b.box);
+            const unitRow = (label) => {
+                const r = { type, length: 'EA', qty: 1, label, notes: '', side: 'data' };
+                if (!boxes.some(b => gearAt(r, this.pullLocationOf(b), boxFirstLayer.get(b.id)))
+                        && !gearAt(r, null, procFirstLayer.get(proc.id))) {
+                    if (!bases.length) return;
+                    land(bases[0].key, r, null);
+                }
+                hw('processor', proc.id, procName).rows.push({ ...r });
+            };
+            // Its NAME is the label; an unnamed unit's model is already the
+            // row's type, so it adds none (a bare "H9" would fold as a run).
+            unitRow(String(proc.name || '').trim());
+            const unit = proc.backupUnit;
+            if (!unit) continue;
+            unitRow(`${unit.name} (backup)`);
+            for (const twin of unit.boxes || []) {
+                const of = boxes.find(b => b.id === twin.mirrorOf);
+                // "HX BU A" - the backup's name and the mirrored box's own
+                // label, where that says more than the model the row is.
+                const own = of ? String(this.pullBoxLabel(of) || '').trim() : '';
+                const t = { type: String(twin.deviceName || '').trim(), length: 'EA', qty: 1,
+                            label: own && own !== String(twin.deviceName || '').trim()
+                                ? `${unit.name} ${own}` : unit.name,
+                            notes: '', side: 'data' };
+                if (!t.type || !of) continue;
+                if (!gearAt(t, this.pullLocationOf(of), boxFirstLayer.get(of.id))) continue;
+                hw('processor', proc.id, procName).rows.push({ ...t });
+            }
         }
         // FIBER CABLES NO SCREEN PORT REACHED: a cable is on the list once
         // however it is used, so a TAC that only a backup link takes, or one
@@ -684,14 +738,20 @@ class _PullList {
         // rest, where their ports reached them.
         if (typeof this.fiberBoxLinks === 'function') {
             for (const { box, proc } of this._pullAllBoxes()) {
-                if (box.boundTo) continue;
                 for (const l of this.fiberBoxLinks(box)) {
-                    if (!l.cable || fiberSeen.has(`fib:${l.cable.id}`)) continue;
-                    fiberSeen.add(`fib:${l.cable.id}`);
-                    const ft = Number(l.cable.ft);
-                    const has = Number.isFinite(ft) && ft > 0;
-                    const r = { type: this.fiberCableTypeText(l.cable), length: this.pullLengthText(ft),
-                                qty: 1, label: l.cable.name || '', notes: has ? '' : 'no length', side: 'data' };
+                    const key = l.copper ? `cu:${l.box.id}:${l.key}` : (l.cable ? `fib:${l.cable.id}` : null);
+                    if (!key || fiberSeen.has(key)) continue;
+                    fiberSeen.add(key);
+                    let r;
+                    if (l.copper) {
+                        const [type, length, qty, label, notes] = this._pullCopperCells(l);
+                        r = { type, length, qty, label, notes, side: 'data' };
+                    } else {
+                        const ft = Number(l.cable.ft);
+                        const has = Number.isFinite(ft) && ft > 0;
+                        r = { type: this.fiberCableTypeText(l.cable), length: this.pullLengthText(ft),
+                              qty: 1, label: l.cable.name || '', notes: has ? '' : 'no length', side: 'data' };
+                    }
                     if (!gearAt(r, this.pullLocationOf(box), boxFirstLayer.get(box.id))) {
                         if (!bases.length) continue;
                         land(bases[0].key, r, null);
@@ -747,6 +807,7 @@ class _PullList {
         const { settings, distroById, boxesSeen, snakesSeen, fiberSeen, hw } = ctx;
         const distroFirstLayer = ctx.distroFirstLayer || new Map();
         const boxFirstLayer = ctx.boxFirstLayer || new Map();
+        const procFirstLayer = ctx.procFirstLayer || new Map();
         const rows = [];
         // Rows are power until the data walk below flips the switch: the
         // binder prints a screen's power cable and data cable apart.
@@ -903,15 +964,13 @@ class _PullList {
             const proc = (this.project.processors || []).find(p => p.id === owner.procId) || null;
             const procName = proc ? (proc.name || proc.deviceName || proc.id) : '';
             const push = (r) => { if (proc) hw('processor', proc.id, procName).rows.push({ ...r }); };
+            if (proc && !procFirstLayer.has(proc.id)) procFirstLayer.set(proc.id, layer.id);
             if (owner.kind === 'cvt') {
                 const box = owner.rec;
                 into.box = this.pullBoxTitle(box);
                 if (!boxFirstLayer.has(box.id)) boxFirstLayer.set(box.id, layer.id);
-                // The box's fiber is set on the record it physically is -
-                // its primary, where it is a bound backup.
-                const host = typeof this.fiberHostBox === 'function' ? this.fiberHostBox(box) : box;
                 const linked = typeof this.fiberBoxLinks === 'function'
-                    ? this.fiberBoxLinks(box).filter(l => l.cable) : [];
+                    ? this.fiberBoxLinks(box).filter(l => l.cable || l.copper) : [];
                 // The 1.3 typed note prints as it always did - until a link
                 // on the box has a cable.
                 const fiberText = linked.length ? '' : this.pullBoxFiberText(box);
@@ -925,23 +984,17 @@ class _PullList {
                 // ST", "MTP 24", "opticalCON QUAD" with its length, under the
                 // cable's name, where the first box that reaches it sits, and
                 // on that box's processor's hardware rows.
-                const hostAt = host && host !== box ? boxAt({ kind: 'cvt', rec: host }) : at;
-                const hostFound = host && host !== box && typeof this._dockFindCvt === 'function'
-                    ? this._dockFindCvt(host.id) : null;
                 for (const l of linked) {
-                    const key = `fib:${l.cable.id}`;
+                    const key = l.copper ? `cu:${l.box.id}:${l.key}` : `fib:${l.cable.id}`;
                     if (fiberSeen.has(key)) continue;
                     fiberSeen.add(key);
-                    const ft = Number(l.cable.ft);
-                    const has = Number.isFinite(ft) && ft > 0;
-                    const r = row(this.fiberCableTypeText(l.cable), this.pullLengthText(ft), 1,
-                                  l.cable.name || '', has ? '' : 'no length', hostAt);
-                    if (hostFound) {
-                        const hp = hostFound.proc;
-                        hw('processor', hp.id, hp.name || hp.deviceName || hp.id).rows.push({ ...r });
-                    } else {
-                        push(r);
-                    }
+                    const r = l.copper ? row(...this._pullCopperCells(l), at) : (() => {
+                        const ft = Number(l.cable.ft);
+                        const has = Number.isFinite(ft) && ft > 0;
+                        return row(this.fiberCableTypeText(l.cable), this.pullLengthText(ft), 1,
+                                   l.cable.name || '', has ? '' : 'no length', at);
+                    })();
+                    push(r);
                 }
             }
             const cable = this._dataPortCableOn(owner, socket);

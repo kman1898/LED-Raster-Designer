@@ -7,15 +7,18 @@ v1.4.0 - September 25, 2026
 The fiber to a breakout box is now a cable you pick, by the strand. A
 TAC or an MTP is shared by as many boxes as it feeds, an opticalCON DUO
 or QUAD belongs to one box, and the binder prints a strand map for every
-cable. A backup feed to the same box shows as that box's backup links.
-The Advanced Guide walks through the fiber and the jumper lengths, and
-the power map's cable tags now sit by their circuit.
+cable. A backup processor is now one switch on the main: name it and
+the app does the rest. An SX40's loops are set pair by pair, the
+Advanced Guide walks through the new steps, and the power map's cable
+tags now sit by their circuit.
 
 FIBER BY THE STRAND
 
 A breakout box's cable sheet opens on its Fiber section, one row for each
-link the box takes: one on a CVT10, two on a CVT4K-S. Each link picks a
-cable and the strands it rides.
+of the box's inputs, named the way the box names them: X1 and X2 on an
+XD, OPT 1 to OPT 4 on a NovaStar box. Each input picks a cable and the
+strands it rides. An XD input can take copper instead: Cat6A to 196 ft,
+Cat6 to 100 ft or Cat5e to 98 ft, and a longer run is flagged.
 
 New TAC asks for the strand count (4, 6, 8, 12, 24, 48 or any number
 you type), the length and the ends: ST, LC duplex or your own. New MTP
@@ -38,19 +41,32 @@ A fiber type and length typed on a box in 1.3 stays on its Fiber section
 as a note, and the pull sheet prints it as before, until you pick a
 cable.
 
-BACKUPS RIDE THE SAME BOX
+A BACKUP PROCESSOR IS ONE SWITCH
 
-A backup feed to the same box is that box taking a second fiber. A backup
-box on the same card (a NovaStar box on OPT 3 backing up OPT 1, an SX40's
-XD on the next trunk) is bound to its primary on its own; a box on a
-backup processor is bound with "Same box as". A bound backup shows as
-the primary's Backup links, each with its own cable and strands, and
-does not count as a second box on the pull sheet. Unbind puts it back.
+Turn on Backup processor in the main's gear and give it a name. The app
+does the rest: the backup is the same model with the same cards, it
+backs up the main output for output, it follows the main's own
+redundancy, and it keeps up as you change the main. It shows on the
+main's tray header, as its own block in the binder, and on the pull
+sheet. The backup lands on the same boxes: an XD's X2, a CVT10's OPT 2,
+a CVT4K-S's OPT 3 and 4, so each of those gets a row for the backup's
+cable and no second set of boxes is counted. A HELIOS backup keeps its
+own switches, and they are counted. The chassis "Whole unit" choice is
+replaced by this switch.
+
+LOOPS, PAIR BY PAIR
+
+An SX40 sets its loops as two options, A to B and C to D, either one
+alone or both. The box at the far end of a loop, an XD B or a NovaStar
+box backing up another on the same card, is its own box with its own
+fiber, and the two show together on one Fiber section.
+
+The pull sheet now lists every processor, mains and backups, by model.
 
 IN THE ADVANCED GUIDE
 
-Four new steps: the data jumper lengths, the fiber to the box, picking
-the strands, and the power jumper lengths.
+Five new steps: the backup processor, the data jumper lengths, the fiber
+to the box, picking the strands, and the power jumper lengths.
 
 FIXES
 

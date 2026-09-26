@@ -434,6 +434,10 @@ class _Processors {
             // facts, where the switch stood.
             wrap.appendChild(this._buildProcRedundancyBlock(proc));
         }
+        // The backup processor, under the bar and independent of it: the
+        // bar is redundancy INSIDE the unit, this is a second unit - an
+        // option on this one, named here and otherwise automatic.
+        wrap.appendChild(this._buildProcBackupBlock(proc));
 
         // The chassis's slots: which card sits in each. A fixed card (an
         // all-in-one's own outputs) is a fact, not a pick, so it draws no
@@ -541,13 +545,15 @@ class _Processors {
     // never from what was clicked, so the bar can never claim a level
     // that is not there:
     //   'off'    - the processor's redundancy is off
-    //   'backup' - this unit is consumed whole as another's backup
+    //   'backup' - this unit is consumed whole as another's 1:1 backup
     //   'fixed'  - the vendor fixes the pairing (a fact, not a level)
-    //   'unit'   - the server derives a partner mirroring this one card
-    //              for card (a standalone unit: its one card is at 1:1,
-    //              partner picked or not - "Backed up" is its level)
+    //   'unit'   - a standalone unit whose one card is at 1:1, partner
+    //              picked or not - "Backed up" is its level
     //   'port'   - every card is in a port shape
     //   'card'   - anything else: cards at 1:1, paired singly or not yet
+    // A chassis has no whole-unit level any more (2026-09-25): a second
+    // unit mirroring it whole is its backup processor, the switch under
+    // the bar.
     _procRedundancyLevel(proc) {
         if (!proc.redundancy) return 'off';
         if (this._backupUnitMainId(proc)) return 'backup';
@@ -557,31 +563,20 @@ class _Processors {
             return cards.length && this._cardPortShaped(cards[0])
                 ? 'port' : 'unit';
         }
-        if (proc.backupProcessorId) return 'unit';
         if (cards.length && cards.every(c => this._cardPortShaped(c))) {
             return 'port';
         }
         return 'card';
     }
 
-    // The segment the bar lights: the derived level, with one memory on
-    // top of it. A whole-unit pairing IS every card's 1:1 pick, so "Per
-    // card" clicked over a pairing stores nothing new and derives straight
-    // back as "Whole unit"; "Whole unit" clicked before a partner is
-    // picked has stored nothing at all. Both are intent, remembered per
-    // processor (_procRedLevelPick) until the state moves on - and only
-    // between those two: the memory never lights a segment that
-    // contradicts Off or a port shape, because those are facts the bar
-    // must report.
+    // The segment the bar lights: the derived level. (A remembered pick
+    // between "Whole unit" and "Per card" lit a chassis's bar before the
+    // backup processor had its own row; with "Whole unit" gone there is
+    // nothing left to remember.)
     _procRedundancyShown(proc) {
-        const derived = this._procRedundancyLevel(proc);
-        const pick = this._procRedLevelPick && this._procRedLevelPick[proc.id];
-        if (proc.form === 'chassis' && (pick === 'unit' || pick === 'card')
-                && (derived === 'unit' || derived === 'card')) {
-            return pick;
-        }
-        return derived;
+        return this._procRedundancyLevel(proc);
     }
+
 
     // One segment, one request, one history entry - and no request where
     // nothing would move. What a segment stores:
@@ -596,23 +591,15 @@ class _Processors {
     //          are the same stored shape read at two levels. The partner
     //          pick under either is what actually pairs.
     _setRedundancyLevel(proc, level) {
-        this._procRedLevelPick = this._procRedLevelPick || {};
         const cards = (proc.slots || []).map(s => s.card).filter(Boolean);
         const url = `/api/processors/${proc.id}`;
-        const refresh = () => {
-            if (typeof this._hwPopoverRefresh === 'function') {
-                this._hwPopoverRefresh();
-            }
-        };
         if (level === 'off' || level === 'on') {
-            delete this._procRedLevelPick[proc.id];
             if (!!proc.redundancy === (level === 'on')) return;
             this._processorRequest(url, 'PUT', { redundancy: level === 'on' },
                                    'Toggle Redundancy');
             return;
         }
         if (level === 'port') {
-            delete this._procRedLevelPick[proc.id];
             if (proc.redundancy && cards.length
                     && cards.every(c => this._cardPortShaped(c))) return;
             this._processorRequest(
@@ -621,17 +608,32 @@ class _Processors {
                 'Set Redundancy Per Port');
             return;
         }
-        if (proc.form === 'chassis') this._procRedLevelPick[proc.id] = level;
         const moving = !proc.redundancy
             || cards.some(c => this._cardPortShaped(c));
-        if (!moving) {
-            refresh();
-            return;
-        }
+        if (!moving) return;
         this._processorRequest(
             url, 'PUT', { redundancy: true, cardsRedundancyMode: '1to1' },
-            level === 'unit' ? 'Set Redundancy Whole Unit'
+            level === 'unit' ? 'Set Redundancy Backed Up'
                              : 'Set Redundancy Per Card');
+    }
+
+    // An SX40's loops, each its own switch (owner, 2026-09-25: "lets put A
+    // to B and C to D as options"): "A to B" and "C to D", either on
+    // alone, both on the old "On", both off redundancy off. One request a
+    // click - the loops the unit runs (redundancyPairs, only when a
+    // subset) and the switch under them in the same body.
+    _toggleRedundancyLoop(proc, mark) {
+        const marks = proc.redundancyPairMarks || [];
+        const on = new Set(proc.redundancy ? (proc.redundancyPairs || marks) : []);
+        if (on.has(mark)) on.delete(mark);
+        else on.add(mark);
+        const pairs = marks.filter(m => on.has(m));
+        const body = !pairs.length
+            ? { redundancy: false, redundancyPairs: null }
+            : { redundancy: true,
+                redundancyPairs: pairs.length === marks.length ? null : pairs };
+        this._processorRequest(`/api/processors/${proc.id}`, 'PUT', body,
+                               'Set Redundancy Loops');
     }
 
     // Everything redundancy offers, behind the processor's gear. The
@@ -654,6 +656,26 @@ class _Processors {
         block.className = 'hw-pop-red-block';
         const cards = (proc.slots || []).map(s => s.card).filter(Boolean);
         const level = this._procRedundancyLevel(proc);
+
+        if ((proc.redundancyPairMarks || []).length) {
+            // AN SX40'S LOOPS ARE INDEPENDENT (owner, 2026-09-25: "you can
+            // do A to B or C to D or A to B and C to D"): each is its own
+            // switch, and the state they leave is read out under them.
+            block.appendChild(this._buildLoopStrip(proc));
+            if (proc.redundancy && proc.redundancyPairing) {
+                const fact = document.createElement('div');
+                fact.className = 'hw-pop-red-fact';
+                fact.style.fontSize = '11px';
+                fact.style.color = 'var(--ps-dim, #c0c0c0)';
+                fact.style.lineHeight = '1.4';
+                fact.style.margin = '6px 0 0';
+                fact.textContent = proc.redundancyPairing.statement;
+                fact.title = 'The loops this unit runs now - each is its '
+                    + 'own switch above.';
+                block.appendChild(fact);
+            }
+            return block;
+        }
 
         if (level === 'fixed') {
             // WHERE THE VENDOR FIXES THE PAIRING, IT IS A FACT, NOT A FIELD.
@@ -711,8 +733,7 @@ class _Processors {
         const chassis = proc.form === 'chassis';
         const shown = this._procRedundancyShown(proc);
         block.appendChild(this._buildRedundancyStrip(proc, chassis
-            ? [['off', 'Off'], ['unit', 'Whole unit'], ['card', 'Per card'],
-               ['port', 'Per port']]
+            ? [['off', 'Off'], ['card', 'Per card'], ['port', 'Per port']]
             : [['off', 'Off'], ['unit', 'Backed up'], ['port', 'Per port']],
             shown));
         if (shown === 'off') return block;
@@ -729,13 +750,10 @@ class _Processors {
         }
 
         if (shown === 'unit') {
-            // One row: the partner. A chassis picks the unit that mirrors
-            // it card for card; a standalone unit is its one card, so it
-            // picks that card's 1:1 partner - the second sending card.
-            const pick = chassis
-                ? this._buildProcBackupPick(proc, cards)
-                : this._buildCardBackupPick(proc, cards[0]);
-            block.appendChild(this._buildRedRow('mirrored by', pick));
+            // One row: the partner. A standalone unit is its one card, so
+            // it picks that card's 1:1 partner - the second sending card.
+            const pick = this._buildCardBackupPick(proc, cards[0]);
+            if (pick) block.appendChild(this._buildRedRow('mirrored by', pick));
             return block;
         }
 
@@ -802,11 +820,8 @@ class _Processors {
         const tips = {
             off: 'Redundancy off for this processor.',
             on: 'Redundancy on. The device pairs its outputs itself.',
-            unit: proc.form === 'chassis'
-                ? 'Whole unit: another processor mirrors this one, card '
-                  + 'for card. Pick it in the row below.'
-                : 'Backed up: another unit mirrors this one, port for '
-                  + 'port - the second sending card. Pick it below.',
+            unit: 'Backed up: another unit mirrors this one, port for '
+                + 'port - the second sending card. Pick it below.',
             card: 'Per card: each card is mirrored 1:1 by a card you pick, '
                 + 'one row per slot.',
             // One processor can hold copper cards and fiber cards at once,
@@ -888,55 +903,106 @@ class _Processors {
         return partner;
     }
 
-    // The whole-processor partner pick: every other processor, offered
-    // with its card count and port total because those are the eligibility
-    // rule - card for card, then port for port - and the server names the
-    // slot that fails. One request carries the whole pairing, so one undo
-    // takes it back.
-    _buildProcBackupPick(proc, cards) {
-        const partner = document.createElement('select');
-        partner.dataset.lrdField = `processor-backup-${proc.id}`;
-        partner.title = cards.length
-            ? `The unit that mirrors this one, card for card. It needs `
-              + `${cards.length} card${cards.length === 1 ? '' : 's'} with `
-              + 'the same port counts, slot for slot. Nothing is backed up '
-              + 'until one is picked.'
-            : 'A processor with no cards has nothing to mirror.';
-        const blank = document.createElement('option');
-        blank.value = '';
-        blank.textContent = 'backed up by…';
-        blank.selected = !proc.backupProcessorId;
-        partner.appendChild(blank);
-        (this._processorsResolved || []).forEach(p => {
-            if (p.id === proc.id) return;
-            const opt = document.createElement('option');
-            opt.value = p.id;
-            const pcards = (p.slots || []).map(s => s.card).filter(Boolean);
-            const known = pcards.every(c => c.ceilingKnown);
-            const ports = known
-                ? pcards.reduce((n, c) => n + (c.ceiling || 0), 0) : '?';
-            let note = '';
-            const backsId = this._backupUnitMainId(p);
-            if (backsId && backsId !== proc.id) {
-                const m = (this._processorsResolved || [])
-                    .find(x => x.id === backsId);
-                note = ` (backs up ${m ? (m.name || m.deviceName) : 'another'})`;
-            }
-            opt.textContent = `${p.name || p.deviceName} - ${pcards.length} `
-                + `card${pcards.length === 1 ? '' : 's'}, ${ports} ports${note}`;
-            if (p.id === proc.backupProcessorId) opt.selected = true;
-            partner.appendChild(opt);
+    // The loops strip: the REDUNDANCY caption over one switch per trunk
+    // pair - "A to B", "C to D" - in the popover's chip recipe, each lit
+    // (gold, the backup role's family) while its loop runs. Keyed as the
+    // processor's one redundancy field, each chip carrying its pair's
+    // leading letter.
+    _buildLoopStrip(proc) {
+        const strip = document.createElement('div');
+        strip.className = 'hw-pop-red-strip';
+        const cap = document.createElement('span');
+        cap.className = 'hw-pop-red-cap';
+        cap.textContent = 'REDUNDANCY';
+        cap.title = 'Redundancy for this processor: which trunk loops run.';
+        strip.appendChild(cap);
+        const group = document.createElement('div');
+        group.className = 'hw-pop-chips hw-pop-loops';
+        group.setAttribute('role', 'group');
+        group.setAttribute('aria-label', 'Redundancy loops');
+        group.dataset.lrdField = `processor-redundancy-${proc.id}`;
+        const marks = proc.redundancyPairMarks || [];
+        const on = proc.redundancy ? (proc.redundancyPairs || marks) : [];
+        marks.forEach(m => {
+            const next = String.fromCharCode(m.charCodeAt(0) + 1);
+            const lit = on.includes(m);
+            const chip = document.createElement('button');
+            chip.type = 'button';
+            chip.className = 'hw-pop-chip' + (lit ? ' hw-pop-chip-on' : '');
+            chip.setAttribute('aria-pressed', lit ? 'true' : 'false');
+            chip.dataset.pair = m;
+            chip.textContent = `${m} to ${next}`;
+            chip.title = `${m} to ${next}: the strings run out of ${m}'s box and `
+                + `back into ${next}'s, and ${next} carries ${m}'s returns. `
+                + (lit ? 'Click to run them as primaries.' : 'Click to loop them.');
+            chip.addEventListener('click', () => this._toggleRedundancyLoop(proc, m));
+            group.appendChild(chip);
         });
-        partner.addEventListener('change', () => {
-            // A stored answer outranks a remembered pick: once the server
-            // reports the pairing (or its absence) the level derives again.
-            if (this._procRedLevelPick) delete this._procRedLevelPick[proc.id];
-            this._processorRequest(
-                `/api/processors/${proc.id}`, 'PUT',
-                { backupProcessorId: partner.value },
-                'Change Backup Processor');
+        strip.appendChild(group);
+        return strip;
+    }
+
+    // THE BACKUP PROCESSOR (owner, 2026-09-25: "when we add backup
+    // processor it's just an option on the primary and then we are
+    // capable of naming but everything else is automatic"). Under the
+    // bar, on every processor's ⚙: a BACKUP PROCESSOR switch, Off · On, in
+    // the bar's own recipe, and - on - the backup unit's name, "<main> BU"
+    // until one is typed (Enter ends the edit). Nothing else is asked: the
+    // backup unit is this unit again - its model, cards, loops - each
+    // output backing up this one's same output, landing on the same boxes'
+    // backup inputs (X2, OPT 2, OPT 3-4), whose rows appear in each box's
+    // Fiber section. Off takes the unit and those rows away; one undo
+    // brings both back. One request a gesture.
+    _buildProcBackupBlock(proc) {
+        const block = document.createElement('div');
+        block.className = 'hw-pop-red-block hw-pop-backup';
+        const strip = document.createElement('div');
+        strip.className = 'hw-pop-red-strip';
+        const cap = document.createElement('span');
+        cap.className = 'hw-pop-red-cap';
+        cap.textContent = 'BACKUP PROCESSOR';
+        cap.title = 'A second unit of this model feeding the same boxes’ '
+            + 'backup inputs.';
+        strip.appendChild(cap);
+        const bar = document.createElement('div');
+        bar.className = 'hw-pop-seg';
+        bar.setAttribute('role', 'radiogroup');
+        bar.setAttribute('aria-label', 'Backup processor');
+        bar.dataset.lrdField = `processor-backup-${proc.id}`;
+        const on = !!proc.backupUnit;
+        [['off', 'Off', 'No backup processor.'],
+         ['on', 'On', 'A second ' + (proc.deviceName || 'unit') + ' mirrors this one, '
+             + 'output for output, on the boxes’ backup inputs.']].forEach(([level, text, tip]) => {
+            const lit = (level === 'on') === on;
+            const seg = document.createElement('button');
+            seg.type = 'button';
+            seg.className = 'hw-pop-seg-btn' + (lit ? ' hw-pop-seg-on' : '');
+            seg.setAttribute('role', 'radio');
+            seg.setAttribute('aria-checked', lit ? 'true' : 'false');
+            seg.dataset.level = level;
+            seg.textContent = text;
+            seg.title = tip;
+            seg.addEventListener('click', () => {
+                if (lit) return;
+                this._processorRequest(`/api/processors/${proc.id}`, 'PUT',
+                    { backupUnit: level === 'on' ? {} : null },
+                    level === 'on' ? 'Add Backup Processor' : 'Remove Backup Processor');
+            });
+            bar.appendChild(seg);
         });
-        return partner;
+        strip.appendChild(bar);
+        block.appendChild(strip);
+        if (!on) return block;
+        const main = proc.name || proc.deviceName || 'Processor';
+        const field = this._buildTextField(
+            'Name', proc.backupUnit.typedName || '', `${main} BU`,
+            `processor-backup-name-${proc.id}`,
+            (val) => this._processorRequest(`/api/processors/${proc.id}`, 'PUT',
+                { backupUnit: { name: val } }, 'Rename Backup Processor'));
+        field.style.marginTop = '6px';
+        field.title = `The backup unit's name - ${main} BU until one is typed.`;
+        block.appendChild(field);
+        return block;
     }
 
     // The card's gear: templates, mode, a read-only redundancy line,

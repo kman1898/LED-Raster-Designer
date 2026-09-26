@@ -2086,7 +2086,8 @@ def test_redundancy_on_no_longer_limits_the_sx40_to_20_renumbered_primaries(
     assert all(c['duplicateOf'] is None for c in card['cvts']), (
         'a backup box was drawn as a second delivery of its primary\'s ports')
     assert card['redundancyShape'] == {'mode': 'sequential', 'forced': True,
-                                       'level': 'trunk', 'usable': 20}
+                                       'level': 'trunk', 'usable': 20,
+                                       'pairs': [0, 2]}
 
 
 def test_brompton_boxes_pair_adjacent_and_the_pairing_is_enforced(client):
@@ -2424,7 +2425,7 @@ def test_the_gear_states_the_pairing_and_offers_no_control_for_it():
     assert '_buildProcRedundancyBlock(proc)' in proc_gear, (
         'the processor gear no longer builds its redundancy block')
     block = source[source.index('_buildProcRedundancyBlock(proc) {'):]
-    block = block[:block.index('_buildProcBackupPick(proc, cards) {')]
+    block = block[:block.index('_buildRedundancyStrip(proc, segments, shown) {')]
     assert 'redundancyPairing.statement' in block, (
         'the pairing statement left the processor gear popover')
     card_gear = source[source.index('_buildCardGearContent(proc, card) {'):
@@ -3641,13 +3642,14 @@ def test_backup_links_never_dangle(client):
     assert 'backupPorts' not in stored, 'a manual pick outlived its unit'
 
 
-# ── 14b. The whole-processor pairing, as one gesture ──────────────────────
+# ── 14b. The chassis's levels, and the whole unit that became a switch ────
 #
 # The user's ruling (2026-09-04): "if you need to do processor redundancy i
 # need to be able to set that. but also sending card or port redundancy needs
-# to be an option." A whole-processor backup is every card pointed 1:1 at the
-# partner's card in the same position, stored as exactly that and derived
-# back for the view; one PUT sets or clears the lot.
+# to be an option." The whole-processor level was every card pointed 1:1 at
+# a partner's card; since 2026-09-25 a second unit mirroring this one whole
+# is its BACKUP PROCESSOR - an option on the main, named and otherwise
+# automatic (tests/test_backup_processor.py). Per card and per port stay.
 
 def add_chassis(client, cards=('novastar-card-h-16xrj45-2xfiber',) * 2,
                 device='novastar-h9'):
@@ -3675,154 +3677,27 @@ def stored_cards(client, pid):
             if s.get('card')]
 
 
-def test_a_whole_processor_pairs_slot_for_slot_in_one_put(client):
-    """One PUT with backupProcessorId points every card of the main at the
-    partner's card in the same position and drops every stored mode to
-    1:1 (absence); the view derives the pairing back as backupProcessorId
-    on the main and nothing on the partner."""
+def test_the_whole_unit_pick_is_gone_and_cards_still_pair_card_by_card(client):
+    """backupProcessorId - the old whole-unit pick - is refused with where
+    the backup processor lives now; a chassis's cards still pair 1:1 one
+    card at a time, onto another unit's cards, and that unit's consumed
+    cards say whose returns they carry."""
     a = add_chassis(client)
     b = add_chassis(client)
     client.put(f'/api/processors/{a}', json={'redundancy': True})
-    a_cards = stored_cards(client, a)
-    client.put(f'/api/processors/{a}/cards/{a_cards[1]["id"]}',
-               json={'redundancyMode': 'halves'})
-
     resp = client.put(f'/api/processors/{a}', json={'backupProcessorId': b})
-    assert resp.status_code == 200, resp.get_data(as_text=True)
-    a_cards = stored_cards(client, a)
-    b_cards = stored_cards(client, b)
-    assert [c.get('backupCardId') for c in a_cards] == \
-        [c['id'] for c in b_cards]
-    assert all('redundancyMode' not in c for c in a_cards), (
-        'a whole-processor mirror left a per-port mode behind')
-    assert 'backupProcessorId' not in stored_proc(client, a), (
-        'the pairing is derived, never stored')
-    assert resolved_proc(client, a)['backupProcessorId'] == b
-    assert resolved_proc(client, b)['backupProcessorId'] is None
-    # The response itself carries the derived view, like every mutation.
-    view = next(p for p in resp.get_json()['resolved'] if p['id'] == a)
-    assert view['backupProcessorId'] == b
+    assert resp.status_code == 400
+    assert 'option on its main' in resp.get_json()['error']
+    assert 'backupProcessorId' not in stored_proc(client, a)
+    for mc, bc in zip(stored_cards(client, a), stored_cards(client, b)):
+        resp = client.put(f'/api/processors/{a}/cards/{mc["id"]}',
+                          json={'backupCardId': bc['id']})
+        assert resp.status_code == 200, resp.get_data(as_text=True)
     for slot in resolved_proc(client, b)['slots']:
         if slot['card']:
             assert slot['card']['backupFor']['processorId'] == a
-
-
-def test_a_whole_processor_pairing_refuses_whole_and_names_the_slot(client):
-    """A card-count mismatch refuses with both counts; a port-count
-    mismatch in any slot refuses naming that slot in the wording the
-    single 1:1 pick uses - and either way NOTHING is written, not even the
-    slots that would have passed."""
-    a = add_chassis(client)
-    one = add_chassis(client, cards=('novastar-card-h-16xrj45-2xfiber',))
-    client.put(f'/api/processors/{a}', json={'redundancy': True})
-
-    resp = client.put(f'/api/processors/{a}',
-                      json={'backupProcessorId': one})
-    assert resp.status_code == 400
-    why = resp.get_json()['error']
-    assert 'has 1 card and' in why and 'has 2 cards' in why, why
-    assert 'card for card' in why, why
-
-    mixed = add_chassis(client, cards=('novastar-card-h-16xrj45-2xfiber',
-                                       'novastar-card-h-20xrj45'))
-    resp = client.put(f'/api/processors/{a}',
-                      json={'backupProcessorId': mixed})
-    assert resp.status_code == 400
-    why = resp.get_json()['error']
-    assert why.startswith('Slot 2:'), why
-    assert 'has 20 ports' in why and 'has 16' in why, why
-    assert 'counts must match' in why, why
-    assert all('backupCardId' not in c for c in stored_cards(client, a)), (
-        'a refused pairing wrote its passing slot')
-    assert resolved_proc(client, a)['backupProcessorId'] is None
-
-    resp = client.put(f'/api/processors/{a}', json={'backupProcessorId': a})
-    assert resp.status_code == 400
-    assert 'cannot back itself' in resp.get_json()['error']
-    resp = client.put(f'/api/processors/{a}',
-                      json={'backupProcessorId': 'proc999'})
-    assert resp.status_code == 400
-    assert resp.get_json()['error'] == 'That processor is not in this project.'
-
-
-def test_clearing_the_whole_processor_pairing_releases_every_card(client):
-    """backupProcessorId: '' pops the pick on every card that pointed at
-    the partner, and the partner's cards stop reporting a role."""
-    a = add_chassis(client)
-    b = add_chassis(client)
-    client.put(f'/api/processors/{a}', json={'redundancy': True})
-    assert client.put(f'/api/processors/{a}',
-                      json={'backupProcessorId': b}).status_code == 200
-    resp = client.put(f'/api/processors/{a}', json={'backupProcessorId': ''})
-    assert resp.status_code == 200
-    assert all('backupCardId' not in c for c in stored_cards(client, a))
-    assert resolved_proc(client, a)['backupProcessorId'] is None
-    for slot in resolved_proc(client, b)['slots']:
-        assert not (slot['card'] or {}).get('backupFor')
-
-
-def test_the_derived_pairing_drops_the_moment_one_card_is_repointed(client):
-    """The view says "whole processor" only while every card mirrors slot
-    for slot: repoint one card elsewhere and the main reads as a per-card
-    arrangement, with the other card's pick left exactly as it was."""
-    a = add_chassis(client)
-    b = add_chassis(client)
-    c = add_chassis(client)
-    client.put(f'/api/processors/{a}', json={'redundancy': True})
-    assert client.put(f'/api/processors/{a}',
-                      json={'backupProcessorId': b}).status_code == 200
-    assert resolved_proc(client, a)['backupProcessorId'] == b
-
-    a_cards = stored_cards(client, a)
-    c_cards = stored_cards(client, c)
-    resp = client.put(f'/api/processors/{a}/cards/{a_cards[1]["id"]}',
-                      json={'backupCardId': c_cards[1]['id']})
-    assert resp.status_code == 200, resp.get_data(as_text=True)
-    assert resolved_proc(client, a)['backupProcessorId'] is None
-    b_cards = stored_cards(client, b)
-    assert stored_cards(client, a)[0]['backupCardId'] == b_cards[0]['id']
-    # Switching that one card to a port-level mode leaves the same reading.
-    client.put(f'/api/processors/{a}/cards/{a_cards[1]["id"]}',
-               json={'backupCardId': b_cards[1]['id']})
-    assert resolved_proc(client, a)['backupProcessorId'] == b
-    client.put(f'/api/processors/{a}/cards/{a_cards[1]["id"]}',
-               json={'redundancyMode': 'sequential'})
-    assert resolved_proc(client, a)['backupProcessorId'] is None
-
-
-def test_whole_processor_links_never_dangle(client):
-    """Deleting the partner clears every card's pick, the same rule the
-    single 1:1 pick follows - a link into reused ids is a trap."""
-    a = add_chassis(client)
-    b = add_chassis(client)
-    client.put(f'/api/processors/{a}', json={'redundancy': True})
-    assert client.put(f'/api/processors/{a}',
-                      json={'backupProcessorId': b}).status_code == 200
-    client.delete(f'/api/processors/{b}')
-    assert all('backupCardId' not in c for c in stored_cards(client, a)), (
-        'a whole-processor pick outlived its partner')
-    assert resolved_proc(client, a)['backupProcessorId'] is None
-
-
-def test_a_backup_processor_cannot_be_shared_or_back_a_backup(client):
-    """Consumed means consumed at the unit level too: a partner already
-    mirroring one main is refused to a second, naming the slot and the
-    card's role; a main cannot be picked as somebody's backup."""
-    a = add_chassis(client)
-    b = add_chassis(client)
-    c = add_chassis(client)
-    for pid in (a, c):
-        client.put(f'/api/processors/{pid}', json={'redundancy': True})
-    assert client.put(f'/api/processors/{a}',
-                      json={'backupProcessorId': b}).status_code == 200
-    resp = client.put(f'/api/processors/{c}', json={'backupProcessorId': b})
-    assert resp.status_code == 400
-    why = resp.get_json()['error']
-    assert why.startswith('Slot 1:') and 'already backs up' in why, why
-    resp = client.put(f'/api/processors/{c}', json={'backupProcessorId': a})
-    assert resp.status_code == 400
-    why = resp.get_json()['error']
-    assert why.startswith('Slot 1:') and 'has a backup of its own' in why, why
+    assert 'backupProcessorId' not in resolved_proc(client, a)
+    assert resolved_proc(client, a)['backupUnit'] is None
 
 
 def test_cards_redundancy_mode_sets_every_card_or_none(client):
@@ -3995,7 +3870,9 @@ def test_the_gear_wires_the_modes_the_house_way():
             f'a fixed pairing grew a control in {builder}')
     for action in ("'Change Redundancy Mode'", "'Change Backup Unit'",
                    "'Set Redundancy Per Port'", "'Set Redundancy Per Card'",
-                   "'Set Redundancy Whole Unit'", "'Toggle Redundancy'"):
+                   "'Set Redundancy Backed Up'", "'Toggle Redundancy'",
+                   "'Set Redundancy Loops'", "'Add Backup Processor'",
+                   "'Remove Backup Processor'", "'Rename Backup Processor'"):
         assert action in source, f'{action} takes no history snapshot'
     # The old surface is gone: no checkbox switch, no level select, no
     # four-way mode select - the bar is the one control.
@@ -4087,6 +3964,8 @@ BAR_JS = """(pid) => {
     return {
         role: bar.getAttribute('role'),
         levels: Array.from(bar.children).map(b => b.dataset.level),
+        pairs: Array.from(bar.children).map(b => b.dataset.pair || null),
+        pressed: Array.from(bar.children).map(b => b.getAttribute('aria-pressed')),
         texts: Array.from(bar.children).map(b => b.textContent),
         lit: lit ? lit.dataset.level : null,
         litCount: bar.querySelectorAll('.hw-pop-seg-on').length,
@@ -4198,9 +4077,12 @@ def test_the_bar_draws_the_partner_row_only_where_the_vendor_does_not_fix(
 
     assert page.evaluate(OPEN_GEAR_JS, f"proc-{ids['sxId']}"), (
         'the SX40 processor gear did not open')
+    # The SX40's loops are two switches (2026-09-25: "lets put A to B and C
+    # to D as options"), both on for a plain redundancy: true.
     bar = page.evaluate(BAR_JS, ids['sxId'])
-    assert bar and bar['levels'] == ['off', 'on'], bar
-    assert bar['texts'] == ['Off', 'On'] and bar['lit'] == 'on', bar
+    assert bar and bar['pairs'] == ['A', 'C'], bar
+    assert bar['texts'] == ['A to B', 'C to D'], bar
+    assert bar['pressed'] == ['true', 'true'], bar
     out = page.evaluate("""() => {
         const pop = document.getElementById('hw-gear-popover');
         const texts = Array.from(pop.querySelectorAll('div'))
@@ -4242,7 +4124,7 @@ CAPTION_JS = """(pid) => {
         insideBar: !!(cap && bar.contains(cap)),
         color: cap ? getComputedStyle(cap).color : null, want,
         upper: cap ? getComputedStyle(cap).textTransform : null,
-        levels: Array.from(bar.children).map(b => b.dataset.level),
+        levels: Array.from(bar.children).map(b => b.dataset.level || b.dataset.pair),
         field: !!(cap && cap.dataset.lrdField),
     };
 }"""
@@ -4253,9 +4135,9 @@ def test_the_bar_says_it_is_for_redundancy_on_every_device(panel_page):
     redundancy it doesnt say it is for redundancy." Every device's bar
     wears a REDUNDANCY legend - the dock's strip caption, primary text -
     just before the segmented control and outside it (the bar's children
-    stay its segments, its field key stays): the chassis's Off · Whole
-    unit · Per card · Per port, the standalone's three, and the SX40's
-    Off · On with the fixed statement still under it."""
+    stay its segments, its field key stays): the chassis's Off · Per card
+    · Per port, the standalone's three, and the SX40's two loop switches,
+    A to B and C to D, with the fixed statement still under them."""
     pytest.importorskip("playwright.sync_api",
                         reason="playwright is not installed")
     page = panel_page
@@ -4270,9 +4152,9 @@ def test_the_bar_says_it_is_for_redundancy_on_every_device(panel_page):
         return h2.id;
     }""")
     page.wait_for_timeout(800)
-    for key, levels in (('h2Id', ['off', 'unit', 'card', 'port']),
+    for key, levels in (('h2Id', ['off', 'card', 'port']),
                         ('mxId', ['off', 'unit', 'port']),
-                        ('sxId', ['off', 'on'])):
+                        ('sxId', ['A', 'C'])):
         assert page.evaluate(OPEN_GEAR_JS, f"proc-{ids[key]}"), (
             f'the {key} processor gear did not open')
         out = page.evaluate(CAPTION_JS, ids[key])
@@ -4420,8 +4302,14 @@ async ([ids, spec]) => {
                    { redundancy: spec.redundancy });
     }
     if ('partner' in spec) {
+        for (const [i, cid] of ids.mainCards.entries()) {
+            await send(`/api/processors/${ids.mainId}/cards/${cid}`, 'PUT',
+                       { backupCardId: spec.partner ? ids.backCards[i] : '' });
+        }
+    }
+    if ('backupUnit' in spec) {
         await send(`/api/processors/${ids.mainId}`, 'PUT',
-                   { backupProcessorId: spec.partner });
+                   { backupUnit: spec.backupUnit });
     }
     if (spec.modes) {
         for (const [i, mode] of spec.modes.entries()) {
@@ -4442,18 +4330,39 @@ CHASSIS_CLEAN_JS = """async (ids) => {
 }"""
 
 
-def test_a_chassis_chooses_its_level_and_pairs_whole_in_one_gesture(
+BACKUP_JS = """(pid) => {
+    const pop = document.getElementById('hw-gear-popover');
+    const bar = pop && pop.querySelector(`[data-lrd-field="processor-backup-${pid}"]`);
+    const name = pop && pop.querySelector(`[data-lrd-field="processor-backup-name-${pid}"]`);
+    const block = bar && bar.closest('.hw-pop-red-block');
+    const red = pop && pop.querySelector(`[data-lrd-field="processor-redundancy-${pid}"]`);
+    const strip = document.querySelector(`[data-lrd-field="processor-name-${pid}"]`);
+    const head = strip && strip.closest('.hw-dock-proc-name');
+    const pill = head && head.querySelector('.hw-dock-backuppill');
+    const lit = bar && bar.querySelector('.hw-pop-seg-on');
+    return {
+        cap: block ? block.querySelector('.hw-pop-red-cap').textContent : null,
+        levels: bar ? Array.from(bar.children).map(b => b.dataset.level) : null,
+        lit: lit ? lit.dataset.level : null,
+        underBar: !!(red && bar && (red.compareDocumentPosition(bar)
+            & Node.DOCUMENT_POSITION_FOLLOWING)),
+        name: name ? { value: name.value, placeholder: name.placeholder } : null,
+        pill: pill ? pill.textContent : null,
+        procs: window.app._processorsResolved.length,
+    };
+}"""
+
+
+def test_a_chassis_chooses_its_level_and_switches_its_backup_processor_on(
         panel_page):
-    """The user's ruling (2026-09-04) in the DOM, on the calm surface he
-    picked: behind the processor's gear an H9 with two cards gets the
-    four-segment bar. It lights "Per card" with nothing paired and lists
-    one row per slot - the slot and the card's name, one partner pick,
-    no mode select. "Whole unit" is presentation until a partner is
-    picked (no request, no history): one row, "mirrored by", the partner
-    pick. Choosing a partner sends ONE request that pairs card for card,
-    enters history as ONE entry, derives the bar back to "Whole unit",
-    nests the partner under its main on the dock, and undoes as one
-    step."""
+    """The user's rulings (2026-09-04, 2026-09-25) in the DOM: behind the
+    processor's gear an H9 with two cards gets the three-segment bar - Off
+    · Per card · Per port, "Whole unit" gone - lit Per card with one
+    partner row per slot. Under it, the BACKUP PROCESSOR switch, Off · On:
+    On is ONE request and ONE history entry, adds no processor to the tray,
+    shows the name field ("SR BU" until one is typed - Enter ends the
+    edit) and the gold "+ BU: SR BU" pill on the main's header; Off takes
+    it away, and undo brings it back."""
     pytest.importorskip("playwright.sync_api",
                         reason="playwright is not installed")
     page = panel_page
@@ -4463,152 +4372,67 @@ def test_a_chassis_chooses_its_level_and_pairs_whole_in_one_gesture(
         'the chassis gear did not open')
     bar = page.evaluate(BAR_JS, ids['mainId'])
     assert bar, 'no bar in the chassis gear'
-    assert bar['levels'] == ['off', 'unit', 'card', 'port'], bar
-    assert bar['texts'] == ['Off', 'Whole unit', 'Per card', 'Per port'], bar
+    assert bar['levels'] == ['off', 'card', 'port'], bar
+    assert bar['texts'] == ['Off', 'Per card', 'Per port'], bar
     assert bar['lit'] == 'card' and bar['litCount'] == 1, bar
     assert bar['rows'] == ['Slot 1 · H_16xRJ45+2xfiber',
                            'Slot 2 · H_16xRJ45+2xfiber'], bar
-    out = page.evaluate("""(ids) => {
-        const pop = document.getElementById('hw-gear-popover');
-        return {
-            partners: ids.mainCards.map(id => !!pop.querySelector(
-                `[data-lrd-field="processor-card-backup-${id}"]`)),
-            modeSelects: !!pop.querySelector(
-                'select[data-lrd-field^="processor-card-redundancy-"]'),
-            chips: !!pop.querySelector(
-                '[data-lrd-field^="processor-card-shape-"]'),
-            procPartner: !!pop.querySelector(
-                `[data-lrd-field="processor-backup-${ids.mainId}"]`),
-        };
-    }""", ids)
-    assert out['partners'] == [True, True], out
-    assert not out['modeSelects'], 'a per-slot mode select is back'
-    assert not out['chips'], 'Per card drew the port-shape chips'
-    assert not out['procPartner'], 'per-card view drew the unit partner pick'
-
-    # Whole unit: the bar flips locally, the partner pick appears empty,
-    # and nothing has been stored or entered into history yet.
+    out = page.evaluate(BACKUP_JS, ids['mainId'])
+    assert out['cap'] == 'BACKUP PROCESSOR' and out['underBar'], out
+    assert out['levels'] == ['off', 'on'] and out['lit'] == 'off', out
+    assert out['name'] is None and out['pill'] is None, out
+    procs = out['procs']
     hist_before = page.evaluate(HISTORY_LEN_JS)
-    assert page.evaluate(CLICK_SEG_JS, [ids['mainId'], 'unit'])
-    page.wait_for_timeout(300)
-    bar = page.evaluate(BAR_JS, ids['mainId'])
-    assert bar['lit'] == 'unit' and bar['rows'] == ['mirrored by'], bar
-    out = page.evaluate("""(ids) => {
-        const pop = document.getElementById('hw-gear-popover');
-        const partner = pop.querySelector(
-            `[data-lrd-field="processor-backup-${ids.mainId}"]`);
-        return {
-            open: pop.style.display !== 'none',
-            partner: !!partner,
-            value: partner ? partner.value : null,
-            texts: partner
-                ? Array.from(partner.options).map(o => o.textContent) : [],
-            cardPartners: !!pop.querySelector(
-                'select[data-lrd-field^="processor-card-backup-"]'),
-        };
-    }""", ids)
-    assert out['open'] and out['partner'], out
-    assert out['value'] == '', out
-    assert 'SL - 2 cards, 32 ports' in out['texts'], out
-    assert not out['cardPartners'], out
-    assert page.evaluate(HISTORY_LEN_JS) == hist_before
 
-    page.evaluate("""(ids) => {
-        const sel = document.getElementById('hw-gear-popover').querySelector(
-            `[data-lrd-field="processor-backup-${ids.mainId}"]`);
-        sel.value = ids.backId;
-        sel.dispatchEvent(new Event('change', { bubbles: true }));
-    }""", ids)
-    page.wait_for_timeout(1000)
-    assert page.evaluate(LAST_ACTION_JS) == ['Change Backup Processor']
+    page.locator(f'#hw-gear-popover [data-lrd-field="processor-backup-{ids["mainId"]}"] '
+                 '[data-level="on"]').click()
+    page.wait_for_timeout(900)
+    assert page.evaluate(LAST_ACTION_JS) == ['Add Backup Processor']
     assert page.evaluate(HISTORY_LEN_JS) == hist_before + 1
-    bar = page.evaluate(BAR_JS, ids['mainId'])
-    assert bar['lit'] == 'unit', bar
-    out = page.evaluate("""(ids) => {
-        const main = window.app._processorsResolved
-            .find(p => p.id === ids.mainId);
-        const stored = window.app.project.processors
-            .find(p => p.id === ids.mainId);
-        const pop = document.getElementById('hw-gear-popover');
-        const partner = pop.querySelector(
-            `[data-lrd-field="processor-backup-${ids.mainId}"]`);
-        const wrapOf = (pid) => {
-            const strip = document.querySelector(
-                `[data-lrd-field="processor-name-${pid}"]`);
-            return strip && strip.closest('.hw-dock-proc');
-        };
-        const backWrap = wrapOf(ids.backId);
-        return {
-            derived: main.backupProcessorId,
-            picks: stored.slots.filter(s => s.card)
-                .map(s => s.card.backupCardId),
-            partner: partner ? partner.value : null,
-            nested: !!(backWrap
-                && backWrap.classList.contains('lrd-red-backup')
-                && backWrap.parentElement.contains(wrapOf(ids.mainId))),
-        };
-    }""", ids)
-    assert out['derived'] == ids['backId'], out
-    assert out['picks'] == ids['backCards'], out
-    assert out['partner'] == ids['backId'], out
-    assert out['nested'], 'the backup processor is not nested under its main'
-
-    # The partner's own gear: redundancy off on its own bar (Off lit);
-    # once on, it states its role and offers no bar and no controls.
-    assert page.evaluate(OPEN_GEAR_JS, f"proc-{ids['backId']}"), (
-        'the partner gear did not open')
-    bar = page.evaluate(BAR_JS, ids['backId'])
-    assert bar and bar['lit'] == 'off' and bar['rows'] == [], bar
-    assert page.evaluate(CLICK_SEG_JS, [ids['backId'], 'card'])
-    page.wait_for_timeout(800)
-    assert page.evaluate(LAST_ACTION_JS) == ['Set Redundancy Per Card']
-    out = page.evaluate("""(ids) => {
-        const pop = document.getElementById('hw-gear-popover');
-        const fact = pop.querySelector('.hw-pop-red-fact');
-        return {
-            fact: fact ? fact.textContent : null,
-            bar: !!pop.querySelector(
-                `[data-lrd-field="processor-redundancy-${ids.backId}"]`),
-            controls: !!pop.querySelector(
-                'select[data-lrd-field*="redundancy"], '
-                + 'select[data-lrd-field^="processor-backup-"], '
-                + 'select[data-lrd-field^="processor-card-backup-"], '
-                + '[data-lrd-field^="processor-card-shape-"]'),
-        };
-    }""", ids)
-    assert out['fact'] and out['fact'].startswith('Backs up SR'), out
-    assert not out['bar'], 'a consumed unit still draws the bar'
-    assert not out['controls'], out
+    assert page.evaluate(OPEN_GEAR_JS, f"proc-{ids['mainId']}")
+    out = page.evaluate(BACKUP_JS, ids['mainId'])
+    assert out['lit'] == 'on', out
+    assert out['name'] == {'value': '', 'placeholder': 'SR BU'}, out
+    assert out['pill'] == '+ BU: SR BU', out
+    assert out['procs'] == procs, 'the backup processor became a tray unit'
+    stored = page.evaluate("""(pid) => window.app.project.processors
+        .find(p => p.id === pid).backupUnit""", ids['mainId'])
+    assert stored == {'name': ''}, stored
+    # the name, Enter ending the edit
+    field = page.locator(f'[data-lrd-field="processor-backup-name-{ids["mainId"]}"]')
+    field.fill('SR BACKUP')
+    field.press('Enter')
+    page.wait_for_timeout(900)
+    assert page.evaluate(LAST_ACTION_JS) == ['Rename Backup Processor']
+    assert page.evaluate(OPEN_GEAR_JS, f"proc-{ids['mainId']}")
+    out = page.evaluate(BACKUP_JS, ids['mainId'])
+    assert out['pill'] == '+ BU: SR BACKUP', out
+    assert out['name']['value'] == 'SR BACKUP', out
+    # Off, then one undo brings it back
+    page.locator(f'#hw-gear-popover [data-lrd-field="processor-backup-{ids["mainId"]}"] '
+                 '[data-level="off"]').click()
+    page.wait_for_timeout(900)
+    assert page.evaluate(LAST_ACTION_JS) == ['Remove Backup Processor']
+    assert page.evaluate(OPEN_GEAR_JS, f"proc-{ids['mainId']}")
+    assert page.evaluate(BACKUP_JS, ids['mainId'])['pill'] is None
+    page.keyboard.press('Escape')
+    page.evaluate("() => window.app.undo()")
+    page.wait_for_timeout(1000)
+    assert page.evaluate(OPEN_GEAR_JS, f"proc-{ids['mainId']}")
+    out = page.evaluate(BACKUP_JS, ids['mainId'])
+    assert out['pill'] == '+ BU: SR BACKUP' and out['lit'] == 'on', out
     page.keyboard.press('Escape')
     page.wait_for_timeout(100)
-
-    # One undo takes the whole pairing back (the partner's own level
-    # step above is its own entry, so two steps back lands before the
-    # pairing).
-    page.evaluate("() => window.app.undo()")
-    page.wait_for_timeout(800)
-    page.evaluate("() => window.app.undo()")
-    page.wait_for_timeout(1000)
-    out = page.evaluate("""(ids) => {
-        const stored = window.app.project.processors
-            .find(p => p.id === ids.mainId);
-        return stored.slots.filter(s => s.card)
-            .map(s => s.card.backupCardId || null);
-    }""", ids)
-    assert out == [None, None], out
-    assert page.evaluate(HISTORY_LEN_JS) == hist_before + 2
-    # Leave the shared server the way the module's other tests expect it.
     page.evaluate(CHASSIS_CLEAN_JS, ids)
     page.wait_for_timeout(600)
 
 
 def test_the_bar_lights_the_derived_segment_for_each_state(panel_page):
     """The lit segment is DERIVED from what is stored, never from what was
-    clicked: Off with redundancy off, Whole unit when the server derives
-    a partner, Per port when every card is in a port shape, Per card
-    otherwise - a half-and-half chassis included. A remembered pick can
-    move the light between Whole unit and Per card, and never past Off
-    or a port shape."""
+    clicked: Off with redundancy off, Per port when every card is in a
+    port shape, Per card otherwise - every card paired onto another unit
+    and a half-and-half chassis included. The backup processor's switch
+    beside it moves none of that."""
     pytest.importorskip("playwright.sync_api",
                         reason="playwright is not installed")
     page = panel_page
@@ -4628,21 +4452,14 @@ def test_the_bar_lights_the_derived_segment_for_each_state(panel_page):
 
     assert lit_after({'redundancy': False}) == ('off', [])
     assert lit_after({'redundancy': True})[0] == 'card'
-    assert lit_after({'partner': ids['backId']}) == ('unit', ['mirrored by'])
+    lit, rows = lit_after({'partner': ids['backId']})
+    assert lit == 'card' and len(rows) == 2, (lit, rows)
     lit, rows = lit_after({'partner': '', 'modes': ['sequential', 'halves']})
     assert lit == 'port' and len(rows) == 2, (lit, rows)
     assert lit_after({'modes': ['1to1', 'halves']})[0] == 'card'
     assert lit_after({'modes': ['manual', 'manual']})[0] == 'port'
-    # A remembered pick never contradicts a fact: Whole unit remembered,
-    # then the cards go to a port shape - the bar reports the shape; then
-    # redundancy goes off - the bar reports Off.
-    page.evaluate("(pid) => { window.app._procRedLevelPick = "
-                  "{ [pid]: 'unit' }; }", ids['mainId'])
-    assert lit_after({'modes': ['halves', 'halves']})[0] == 'port'
-    page.evaluate("(pid) => { window.app._procRedLevelPick = "
-                  "{ [pid]: 'unit' }; }", ids['mainId'])
-    assert lit_after({'redundancy': False}) == ('off', [])
-    page.evaluate("() => { window.app._procRedLevelPick = {}; }")
+    assert lit_after({'backupUnit': {}})[0] == 'port'
+    assert lit_after({'backupUnit': None, 'redundancy': False}) == ('off', [])
     page.keyboard.press('Escape')
     page.wait_for_timeout(100)
     page.evaluate(CHASSIS_CLEAN_JS, ids)

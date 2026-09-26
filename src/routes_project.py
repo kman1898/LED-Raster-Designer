@@ -129,9 +129,15 @@ def save_project():
     # the device that delivers its socket. Idempotent: a project already in
     # the new shape passes through untouched.
     processor_catalog.migrate_device_snakes(app.current_project)
+    # Backup processors (2026-09-25): a chassis mirrored card for card by
+    # one same-model unit reads as that Backup processor, a 1.4.0 beta
+    # file's loop links move onto the loop's far box, and every backup
+    # follows its main's redundancy. Before the fiber settle, which would
+    # otherwise drop the links the move keeps. Idempotent.
+    processor_catalog.migrate_backup_processors(app.current_project)
     # The fiber store held to its rules the same way (links that no longer
-    # hold, bindings nothing backs, an opticalCON whose box is gone) - never
-    # a cable pruned for being unused here: a restore is what it restores.
+    # hold, an opticalCON whose box is gone) - never a cable pruned for
+    # being unused here: a restore is what it restores.
     processor_catalog.settle_fiber(app.current_project)
     # Same funnel duty for port attachment: see restore_project below.
     if port_assignment.retire_auto(app.current_project):
@@ -253,9 +259,15 @@ def restore_project():
     # the device that delivers its socket. Idempotent: a project already in
     # the new shape passes through untouched.
     processor_catalog.migrate_device_snakes(app.current_project)
+    # Backup processors (2026-09-25): a chassis mirrored card for card by
+    # one same-model unit reads as that Backup processor, a 1.4.0 beta
+    # file's loop links move onto the loop's far box, and every backup
+    # follows its main's redundancy. Before the fiber settle, which would
+    # otherwise drop the links the move keeps. Idempotent.
+    processor_catalog.migrate_backup_processors(app.current_project)
     # The fiber store held to its rules the same way (links that no longer
-    # hold, bindings nothing backs, an opticalCON whose box is gone) - never
-    # a cable pruned for being unused here: a restore is what it restores.
+    # hold, an opticalCON whose box is gone) - never a cable pruned for
+    # being unused here: a restore is what it restores.
     processor_catalog.settle_fiber(app.current_project)
     # Auto-numbering retired (user ruling, 2026-09-03): a file saved before
     # it carries no `autoRetired` mark, and its auto-drawn ports have to be

@@ -10,10 +10,11 @@ of the box's trunk links takes strands of one (cvt['fiberLinks']):
   - an opticalCON DUO (2) or QUAD (4) is one box's (ownerBoxId);
   - a link takes 2 strands, 1 on a NovaStar or Megapixel box switched to
     BiDi; a strand carries one link show-wide;
-  - a backup record bound to its primary - NovaStar backupOf and Brompton's
-    adjacent pair automatically, a backup processor's box by hand - is the
-    same physical box taking a second fiber: its backup links live on the
-    primary, and it is not a second box on the pull sheet;
+  - a link is named by the box's own port (OPT 1 on a CVT10, X1 on an XD);
+    a loop's far box (NovaStar backupOf, an SX40's XD B) is its OWN box with
+    its own links, shown with its near box as a pair (the backup
+    processor's binding onto a box's backup input is
+    tests/test_backup_processor.py);
   - strand names follow TIA-598-D;
   - a cable no link uses any more is pruned; the list is absent when empty.
 
@@ -116,7 +117,7 @@ def _links(client, box_id):
 def test_a_tac_is_made_named_and_shared_by_strand_across_two_boxes(client):
     """A new TAC takes the first free letter show-wide, its fields as sent;
     a link picking it with no strands takes its next free ones - box A's
-    Primary 1 takes 1-2, box B's 3-4 - and one TAC carries both."""
+    OPT 1 takes 1-2, box B's 3-4 - and one TAC carries both."""
     pid, cid = _h9(client)
     a = _add_box(client, pid, cid)[0]
     b = _add_box(client, pid, cid)[-1]
@@ -137,8 +138,8 @@ def test_a_tac_is_made_named_and_shared_by_strand_across_two_boxes(client):
 
 
 def test_a_cvt4k_takes_two_primary_links(client):
-    """A CVT4K-S takes 2 trunks in (catalog trunksIn), so it has Primary 1
-    and Primary 2 - and no Primary 3."""
+    """A CVT4K-S takes 2 trunks in (catalog trunksIn), so it has OPT 1
+    and OPT 2 - and no third link."""
     pid, cid = _h9(client, H16)
     box = _add_box(client, pid, cid, 'novastar-cvt4k-s')[0]
     assert _res_box(client, box)['fiberLinkKeys'] == ['p1', 'p2']
@@ -146,7 +147,8 @@ def test_a_cvt4k_takes_two_primary_links(client):
     _ok(_link(client, pid, box, 'p2', {'cable': tac['id']}))
     assert _links(client, box) == {'p1': {'cable': tac['id'], 'strands': [1, 2]},
                                    'p2': {'cable': tac['id'], 'strands': [3, 4]}}
-    assert 'Primary 3' in _refused(_link(client, pid, box, 'p3', {'cable': tac['id']}))
+    why = _refused(_link(client, pid, box, 'p3', {'cable': tac['id']}))
+    assert 'has no link Link 3 - its links are OPT 1, OPT 2.' in why, why
 
 
 def test_the_refusals_say_why_and_store_nothing(client):
@@ -155,7 +157,7 @@ def test_the_refusals_say_why_and_store_nothing(client):
     tac = _new_tac(client, 6, link={'boxId': a, 'key': 'p1'})
     # a strand another link holds
     why = _refused(_link(client, pid, b, 'p1', {'cable': tac['id'], 'strands': [2, 3]}))
-    assert 'strand 2 Orange is already used by' in why and 'Primary 1' in why, why
+    assert 'strand 2 Orange is already used by CVT10 A OPT 1' in why, why
     # a count the link does not take
     assert 'needs 2 strands' in _refused(_link(client, pid, b, 'p1', {'cable': tac['id'], 'strands': [3]}))
     assert 'needs 2 strands' in _refused(_link(client, pid, b, 'p1', {'cable': tac['id'], 'strands': [3, 4, 5]}))
@@ -166,7 +168,7 @@ def test_the_refusals_say_why_and_store_nothing(client):
     assert 'named twice' in _refused(_link(client, pid, b, 'p1', {'cable': tac['id'], 'strands': [3, 3]}))
     # no such cable / link
     assert 'not in this project' in _refused(_link(client, pid, b, 'p1', {'cable': 'fib999'}))
-    assert 'no link Backup 1' in _refused(_link(client, pid, b, 'b1', {'cable': tac['id']}))
+    assert 'no link OPT 2' in _refused(_link(client, pid, b, 'b1', {'cable': tac['id']}))
     # an opticalCON on another box
     duo = _ok(client.post('/api/fiber-cables', json={'kind': 'opticalcon-quad', 'ownerBoxId': a}), 201)['fiberCables'][-1]
     assert duo['name'] == 'QUAD 1' and duo['ownerBoxId'] == a and duo['strands'] == 4
@@ -197,7 +199,7 @@ def test_a_refused_first_link_leaves_no_cable_behind(client):
     assert 'needs 2 strands' in why
     why = _refused(client.post('/api/fiber-cables', json={
         'kind': 'tac', 'strands': 12, 'link': {'boxId': a, 'key': 'p9'}}))
-    assert 'no link Primary 9' in why
+    assert 'no link Link 9' in why
     assert len(_state(client)['fiberCables']) == n
     for body in ({'kind': 'tac'}, {'kind': 'tac', 'strands': 0}, {'kind': 'tac', 'strands': 2.5},
                  {'kind': 'tac', 'strands': True}, {'kind': 'fiber', 'strands': 12},
@@ -370,123 +372,6 @@ def test_cable_edits_rename_recount_and_name_strands(client):
     assert client.put('/api/fiber-cables/fib999', json={'name': 'x'}).status_code == 404
 
 
-# ── binding a backup record to its physical box ─────────────────────────
-
-def test_a_novastar_backup_box_is_bound_automatically_and_can_be_unbound(client):
-    """An H_4xfiber in copy/backup pairs a new box with a backup on OPT 3
-    (backupOf). The backup record IS the primary taking a second fiber: it
-    is bound (boundTo / boundBackup), the primary gains Backup 1, and the
-    backup's pick defaults to the primary's TAC at the next free strands."""
-    pid, cid = _h9(client, H4, 'copy-backup')
-    a, ab = _add_box(client, pid, cid, pair=True)
-    res_a, res_ab = _res_box(client, a), _res_box(client, ab)
-    assert res_ab['boundTo'] == a and res_ab['boundManual'] is False
-    assert res_a['boundBackup'] == ab and res_a['fiberLinkKeys'] == ['p1', 'b1']
-    assert res_ab['fiberLinkKeys'] == []
-    tac = _new_tac(client, 12, link={'boxId': a, 'key': 'p1'})
-    _ok(_link(client, pid, a, 'b1', {}))
-    assert _links(client, a) == {'p1': {'cable': tac['id'], 'strands': [1, 2]},
-                                 'b1': {'cable': tac['id'], 'strands': [3, 4]}}
-    # the bound record takes no link of its own
-    assert 'its fiber is set there' in _refused(_link(client, pid, ab, 'p1', {'cable': tac['id']}))
-    # a backup link can take a different TAC
-    tac_b = _new_tac(client, 12)
-    _ok(_link(client, pid, a, 'b1', {'cable': tac_b['id']}))
-    assert _links(client, a)['b1'] == {'cable': tac_b['id'], 'strands': [1, 2]}
-    # unbind: the backup link goes (and TAC B with it, its last link)
-    st = _ok(_box_fiber(client, pid, ab, {'unbound': True}))
-    assert _raw_box(client, ab)['unbound'] is True
-    assert _res_box(client, ab)['boundTo'] is None
-    assert _res_box(client, a)['fiberLinkKeys'] == ['p1']
-    assert _links(client, a) == {'p1': {'cable': tac['id'], 'strands': [1, 2]}}
-    assert tac_b['id'] not in [c['id'] for c in st['fiberCables']]
-    # unbound, the backup box has links of its own
-    _ok(_link(client, pid, ab, 'p1', {'cable': tac['id']}))
-    # rebind: the flag clears, its own links go
-    _ok(_box_fiber(client, pid, ab, {'unbound': False}))
-    assert 'unbound' not in _raw_box(client, ab)
-    assert _res_box(client, ab)['boundTo'] == a and _links(client, ab) is None
-    # a box that backs up nothing has nothing to unbind
-    assert 'nothing to unbind' in _refused(_box_fiber(client, pid, a, {'unbound': True}))
-    # deleting the primary: the backup is its own box again
-    _ok(client.delete(f'/api/processors/{pid}/cvts/{a}'))
-    raw = _raw_box(client, ab)
-    assert 'backupOf' not in raw and 'unbound' not in raw
-    assert _res_box(client, ab)['boundTo'] is None
-
-
-def test_an_sx40s_backup_xd_is_the_same_xd_taking_a_second_fiber(client):
-    """Brompton's adjacent pairing: with redundancy on, the XD on trunk B
-    backs up A's - "an SX40's backup XD on the next trunk is the SAME XD
-    taking a second fiber" - so B is bound to A, D to C."""
-    st = _ok(client.post('/api/processors', json={'deviceId': 'brompton-sx40'}), 201)
-    pid = st['processors'][-1]['id']
-    xds = [b['id'] for b in st['processors'][-1]['slots'][0]['card']['cvts']]
-    assert all(_res_box(client, x)['boundTo'] is None for x in xds)
-    _ok(client.put(f'/api/processors/{pid}', json={'redundancy': True}))
-    res = [_res_box(client, x) for x in xds]
-    assert [r['boundTo'] for r in res] == [None, xds[0], None, xds[2]]
-    assert [r['boundBackup'] for r in res] == [xds[1], None, xds[3], None]
-    assert res[0]['fiberLinkKeys'] == ['p1', 'b1']
-    tac = _new_tac(client, 12, link={'boxId': xds[0], 'key': 'p1'})
-    _ok(_link(client, pid, xds[0], 'b1', {}))
-    assert _links(client, xds[0])['b1'] == {'cable': tac['id'], 'strands': [3, 4]}
-    # redundancy off: no binding, the backup link lets go
-    _ok(client.put(f'/api/processors/{pid}', json={'redundancy': False}))
-    assert _res_box(client, xds[1])['boundTo'] is None
-    assert _links(client, xds[0]) == {'p1': {'cable': tac['id'], 'strands': [1, 2]}}
-
-
-def _paired_h9s(client):
-    """Two H9s with an H_16xRJ45+2xfiber and a CVT10 each. The first is
-    the main; the second backs it up whole (the main's cards point 1:1 at
-    the backup's - backupProcessorId on the main names its backup)."""
-    main, mcard = _h9(client, H16)
-    back, bcard = _h9(client, H16)
-    primary = _add_box(client, main, mcard)[0]
-    backup = _add_box(client, back, bcard)[0]
-    _ok(client.put(f'/api/processors/{main}', json={'redundancy': True,
-                                                    'backupProcessorId': back}))
-    return main, back, primary, backup
-
-
-def test_a_backup_processors_box_is_bound_by_hand_and_cleared_with_its_primary(client):
-    main, back, primary, backup = _paired_h9s(client)
-    targets = _res_box(client, backup)['fiberBindTargets']
-    assert [t['id'] for t in targets] == [primary], targets
-    assert _res_box(client, backup)['boundTo'] is None
-    # the main's box is on no backup card: it is not bound by hand
-    assert _res_box(client, primary)['fiberBindTargets'] is None
-    assert 'bound by hand' in _refused(_box_fiber(client, main, primary, {'boundTo': backup}))
-    assert 'not bound already' in _refused(_box_fiber(client, back, backup, {'boundTo': 'cvt999'}))
-    _ok(_box_fiber(client, back, backup, {'boundTo': primary}))
-    assert _raw_box(client, backup)['boundTo'] == primary
-    res = _res_box(client, backup)
-    assert res['boundTo'] == primary and res['boundManual'] is True
-    assert _res_box(client, primary)['fiberLinkKeys'] == ['p1', 'b1']
-    # the backup link lives on the primary, and may take another TAC
-    tac = _new_tac(client, 12, link={'boxId': primary, 'key': 'p1'})
-    _ok(_link(client, main, primary, 'b1', {}))
-    assert _links(client, primary)['b1'] == {'cable': tac['id'], 'strands': [3, 4]}
-    # the primary's delete clears the binding
-    _ok(client.delete(f'/api/processors/{main}/cvts/{primary}'))
-    assert 'boundTo' not in _raw_box(client, backup)
-    assert _res_box(client, backup)['boundTo'] is None
-
-
-def test_a_manual_binding_goes_when_the_backup_relation_does(client):
-    main, back, primary, backup = _paired_h9s(client)
-    _ok(_box_fiber(client, back, backup, {'boundTo': primary}))
-    # the pairing released: the relation is gone, and so is the binding
-    _ok(client.put(f'/api/processors/{main}', json={'backupProcessorId': ''}))
-    assert 'boundTo' not in _raw_box(client, backup)
-    # unbind by hand: boundTo null
-    _ok(client.put(f'/api/processors/{main}', json={'backupProcessorId': back}))
-    _ok(_box_fiber(client, back, backup, {'boundTo': primary}))
-    _ok(_box_fiber(client, back, backup, {'boundTo': None}))
-    assert 'boundTo' not in _raw_box(client, backup)
-
-
 # ── strand names (TIA-598-D) ─────────────────────────────────────────────
 
 @pytest.mark.parametrize('n, name', [
@@ -523,8 +408,8 @@ pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
 # SR RACK, an H9: slot 0 an H_4xfiber (independent) with CVT10s A-D, one
 # per OPT. BK RACK, a second H9: an H_4xfiber in copy/backup with a CVT10
-# pair - BK1 on OPT 1, its backup (bound to it) on OPT 3 - both at "SR
-# Beach". An SX40 beside them (Brompton: no BiDi). Four walls W1-W4, 8 x 12
+# pair - BK1 on OPT 1, the loop's far box on OPT 3 (its own box, shown
+# with BK1 as a pair) - both at "SR Beach". An SX40 beside them (Brompton: no BiDi). Four walls W1-W4, 8 x 12
 # cabinets of 200 px on the Legacy platform (six ports each), are placed
 # one on each of A-D's spans, so every box delivers ports.
 SEED_JS = """async () => {
@@ -665,7 +550,7 @@ def _section(pg, box_id):
 
 def test_the_fiber_section_builds_a_tac_through_new_tac(page):
     """The box's ≡ sheet opens on its Fiber section - the first block -
-    with Primary 1. "New TAC…" asks the strand count, the length, then the
+    with OPT 1. "New TAC…" asks the strand count, the length, then the
     ends; the TAC is made on the link in ONE step (one history entry) and
     takes strands 1-2, swatched and named."""
     pg, ids = page
@@ -674,7 +559,7 @@ def test_the_fiber_section_builds_a_tac_through_new_tac(page):
     sec = _section(pg, a)
     assert sec['first'], sec
     assert sec['caption'] == 'Fiber · CVT10 A', sec
-    assert [(r['role'], r['backup']) for r in sec['rows']] == [('Primary 1', False)]
+    assert [(r['role'], r['backup']) for r in sec['rows']] == [('OPT 1', False)]
     opts = sec['rows'][0]['options']
     assert opts == ['New TAC…', 'New MTP…', 'New opticalCON DUO…', 'New opticalCON QUAD…', 'None'], opts
     assert sec['rows'][0]['value'] == ''
@@ -706,10 +591,11 @@ def test_the_fiber_section_builds_a_tac_through_new_tac(page):
 
 def test_picking_the_tac_on_other_boxes_fills_the_next_free_strands(page):
     """B, C and D pick TAC A and take 3-4, 5-6, 7-8. BK1 on the other
-    processor takes 9-10; its backup record is bound to it, so BK1 has a
-    tinted Backup 1 that lists its primary's TAC first and takes 11-12, and
-    the backup record says where its fiber is set. A strand chip changes
-    through a pick where the strands other links hold are disabled."""
+    processor takes 9-10; the far box of its loop is its own box, shown with
+    BK1 as ONE section on either sheet - "Fiber · BK1 ↔ CVT10 C (loop)",
+    BK1's row first - and takes 11-12 on its own OPT 1. With both sheets
+    open the pair is drawn once, on BK1's. A strand chip changes through a
+    pick where the strands other links hold are disabled."""
     pg, ids = page
     a, b, c, d = ids['boxes']
     tac = _served(pg)['fiberCables'][0]
@@ -720,14 +606,18 @@ def test_picking_the_tac_on_other_boxes_fills_the_next_free_strands(page):
         assert _box_links(st, box) == {'p1': {'cable': tac['id'], 'strands': want}}, box
     e, f = ids['e'], ids['f']
     sec = _section(pg, e)
-    assert [(r['role'], r['backup']) for r in sec['rows']] == [('Primary 1', False), ('Backup 1', True)]
+    assert sec['caption'] == 'Fiber · BK1 ↔ CVT10 C (loop)', sec
+    assert [(r['role'], r['backup']) for r in sec['rows']] == \
+        [('BK1 · OPT 1', False), ('CVT10 C · OPT 1', False)], sec
     assert sec['rows'][1]['value'] == '' and sec['rows'][1]['options'][0].startswith('TAC A'), sec
-    pg.locator(f'[data-lrd-field="fiber-link-cable-{e}-b1"]').select_option(tac['id'])
-    st = _wait(pg, lambda s: 'b1' in (_box_links(s, e) or {}))
-    assert _box_links(st, e)['b1'] == {'cable': tac['id'], 'strands': [11, 12]}
+    pg.locator(f'[data-lrd-field="fiber-link-cable-{f}-p1"]').select_option(tac['id'])
+    st = _wait(pg, lambda s: _box_links(s, f))
+    assert _box_links(st, f) == {'p1': {'cable': tac['id'], 'strands': [11, 12]}}
+    # the far box's own sheet, with BK1's open too: the pair is drawn once
     sec = _section(pg, f)
-    assert sec['bound'] == 'Bound to BK1; its fiber is set there.', sec
-    assert sec['rows'] == [] and not sec['bidi']
+    assert sec['caption'] == 'Fiber · BK1 ↔ CVT10 C (loop)', sec
+    assert sec['bound'] == 'Set with BK1 on its sheet.', sec
+    assert sec['rows'] == [], sec
     sec = _section(pg, b)
     assert sec['rows'][0]['chips'] == ['3 Green', '4 Brown'], sec
     pg.locator(f'[data-lrd-field="fiber-strand-{b}-p1-0"]').click()
@@ -784,16 +674,17 @@ FIT_JS = """(titles) => {
 def test_the_binder_maps_every_strand_and_summarises_each_box(page):
     """The strand map sits on the page of the processor feeding the cable's
     first link and nowhere else - TAC A on SR RACK's, "Also on BK RACK" on
-    its own line under the header; TAC B (BK1's Backup 1 only) on BK RACK's.
-    Every strand is listed, "spare" where no link holds it. The box's fiber
-    reads SHORT - "TAC A 9-10 · backup TAC B 1-2", the bound backup record
-    "same box as BK1" - in its band and in the Breakout boxes table, and on
-    a tabloid sheet nothing of it is shrunk or cut: FIBER wraps at its " · "
+    its own line under the header; TAC B (the loop's far box only) on BK
+    RACK's. Every strand is listed, its link as the box and its port -
+    "CVT10 A · OPT 1" - and "spare" where no link holds it. The box's fiber
+    reads SHORT - "TAC A 9-10" - in its band and in the Breakout boxes
+    table, the loop's far box marked "loop of" BK1, and on a tabloid sheet
+    nothing of it is shrunk or cut: those cells wrap at their " · "
     instead."""
     pg, ids = page
     made = pg.evaluate(PUT_JS, ['/api/fiber-cables', {
         'kind': 'tac', 'strands': 6, 'ft': 1000, 'connector': 'LC duplex',
-        'link': {'boxId': ids['e'], 'key': 'b1'}}])
+        'link': {'boxId': ids['f'], 'key': 'p1'}}])
     tac_b = made['fiberCables'][-1]
     assert tac_b['name'] == 'TAC B', made['fiberCables']
     pg.wait_for_timeout(300)
@@ -811,29 +702,29 @@ def test_the_binder_maps_every_strand_and_summarises_each_box(page):
     bands, fiber = out['bands'], out['fiber']
     assert bands[0] == 'CVT10 A · OPT 1 · 8 ports · TAC A 1-2', bands
     assert fiber[1] == 'TAC A 4, 13', fiber
-    assert fiber[4] == 'TAC A 9-10 · backup TAC B 1-2', fiber
-    assert fiber[5] == 'same box as BK1', fiber
-    assert bands[5].endswith(' · same box as BK1'), bands
+    assert fiber[4] == 'TAC A 9-10', fiber
+    assert fiber[5] == 'TAC B 1-2', fiber
+    assert bands[5].endswith(' · TAC B 1-2'), bands
     assert len(out['maps']) == 1 and out['sx'] == 0
     m = out['maps'][0]
     assert m['title'] == "Strand map · TAC A · TAC 24 · ST · 1000'", m['title']
     assert m['note'] == 'Also on BK RACK', m
     rows = m['rows']
     assert len(rows) == 24
-    assert rows[0] == ['1 Blue', 'CVT10 A', 'Primary 1']
-    assert rows[2] == ['3 Green', 'spare', '']
-    assert rows[3] == ['4 Brown', 'CVT10 B', 'Primary 1']
-    assert rows[8] == ['9 Yellow', 'CVT10 BK1', 'Primary 1']
-    assert rows[10] == ['11 Rose', 'spare', '']
-    assert rows[12] == ['13 Blue/Black', 'CVT10 B', 'Primary 1']
-    assert rows[23] == ['24 Aqua/Black', 'spare', '']
+    assert rows[0] == ['1 Blue', 'CVT10 A · OPT 1']
+    assert rows[2] == ['3 Green', 'spare']
+    assert rows[3] == ['4 Brown', 'CVT10 B · OPT 1']
+    assert rows[8] == ['9 Yellow', 'CVT10 BK1 · OPT 1']
+    assert rows[10] == ['11 Rose', 'spare']
+    assert rows[12] == ['13 Blue/Black', 'CVT10 B · OPT 1']
+    assert rows[23] == ['24 Aqua/Black', 'spare']
     assert m['swatch'] == {'base': '#1F5FA8', 'tracer': None}
     assert m['sw13'] == {'base': '#1F5FA8', 'tracer': '#1A1A1A'}
     assert [(x['title'], x['note']) for x in out['bk']] == \
         [("Strand map · TAC B · TAC 6 · LC duplex · 1000'", '')], out['bk']
-    assert out['bk'][0]['rows'][:3] == [['1 Blue', 'CVT10 BK1', 'Backup 1'],
-                                        ['2 Orange', 'CVT10 BK1', 'Backup 1'],
-                                        ['3 Green', 'spare', '']]
+    assert out['bk'][0]['rows'][:3] == [['1 Blue', 'CVT10 C · OPT 1'],
+                                        ['2 Orange', 'CVT10 C · OPT 1'],
+                                        ['3 Green', 'spare']]
     # the fit, on the painted sheets: every fiber text whole, at the cell's
     # own size (never shrunk), nothing on the sheets cut to an ellipsis
     fit = pg.evaluate(FIT_JS, ['Processors -', 'W1 - Data - Front View'])
@@ -842,15 +733,15 @@ def test_the_binder_maps_every_strand_and_summarises_each_box(page):
     for info in (procs, data):
         assert not [t for t in info if t['text'].endswith('…')], [t['text'] for t in info if t['text'].endswith('…')]
     size = {t['text']: t['size'] for t in procs}
-    for text in ('TAC A 1-2', 'TAC A 4, 13', 'same box as BK1', 'Also on BK RACK'):
+    for text in ('TAC A 1-2', 'TAC A 4, 13', 'TAC B 1-2', 'Also on BK RACK'):
         assert size.get(text) == 24, (text, sorted(k for k in size if 'TAC' in k or 'BK' in k))
-    # the two-link box wraps at its " · ", each line whole at the cell's
+    # the loop's far box wraps at its " · ", each line whole at the cell's
     # size (a list cell is logged as the one text it drew)
-    assert size.get('TAC A 9-10 · backup TAC B 1-2') == 24, sorted(k for k in size if 'TAC' in k)
+    assert size.get('CVT10 C · loop of CVT10 BK1') == 24, sorted(k for k in size if 'CVT10' in k)
     lines = pg.evaluate("""() => {
         const app = window.app;
         const book = { measureCtx: document.createElement('canvas').getContext('2d') };
-        return app._bCellLines(book, 'TAC A 9-10 · backup TAC B 1-2', 24, 400, 200, 2);
+        return app._bCellLines(book, 'TAC A 9-10 · X2 TAC B 1-2', 24, 400, 200, 2);
     }""")
     assert all(not t.endswith('…') and 'more' not in t for t in lines), lines
     assert size.get("STRAND MAP · TAC A · TAC 24 · ST · 1000'") == 25, sorted(k for k in size if 'STRAND' in k)
@@ -872,11 +763,12 @@ LIST_JS = """() => {
 
 
 
-def test_the_pull_sheet_counts_a_shared_tac_once_and_no_second_box_for_a_bound_backup(page):
+def test_the_pull_sheet_counts_a_shared_tac_once_and_the_loops_far_box_as_a_box(page):
     """TAC A is taken by five links on five boxes and two processors: it is
-    ONE row, "TAC 24 · ST" 1000'. TAC B, taken only by a backup link on a
-    box no screen port reaches, is one row too. The CVT10s count A-D and BK1 - five; BK1's
-    bound backup is BK1 taking a second fiber and adds none. A typed 1.3
+    ONE row, "TAC 24 · ST" 1000'. TAC B, taken only by the loop's far box -
+    a box no screen port reaches - is one row too. The CVT10s count A-D, BK1
+    and the loop's far box - six: a loop's far box is its own box (a backup
+    processor's bound box is not; tests/test_backup_processor.py). A typed 1.3
     note does not print on a box with a link, and prints as before once the
     box has none. An MTP 12 shared by two boxes is one "MTP 12" row."""
     pg, ids = page
@@ -888,12 +780,12 @@ def test_the_pull_sheet_counts_a_shared_tac_once_and_no_second_box_for_a_bound_b
     out = pg.evaluate(LIST_JS)
     tacs = [r for r in out['totals'] if r[0].startswith('TAC 24')]
     assert tacs == [['TAC 24 · ST', "1000'", 1, 'TAC A', '']], out['totals']
-    assert sum(r[2] for r in out['totals'] if r[0] == 'CVT10') == 5, out['totals']
+    assert sum(r[2] for r in out['totals'] if r[0] == 'CVT10') == 6, out['totals']
     assert not [r for r in out['totals'] if r[0] in ('12 Tac Fiber', 'OLD')], out['totals']
     hw = dict(out['hardware'])[pid]
     assert ['TAC 24 · ST', "1000'", 1, 'TAC A', ''] in hw, hw
-    # TAC B, taken ONLY by BK1's Backup 1 - a box no screen's port comes
-    # out of - is still one row, on BK RACK's list and in the totals
+    # TAC B, taken ONLY by the loop's far box - a box no screen's port
+    # comes out of - is still one row, on BK RACK's list and in the totals
     assert [r for r in out['totals'] if r[0] == 'TAC 6 · LC duplex'] == \
         [['TAC 6 · LC duplex', "1000'", 1, 'TAC B', '']], out['totals']
     bk = dict(out['hardware'])[ids['bkId']]

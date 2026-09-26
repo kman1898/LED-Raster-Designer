@@ -1894,10 +1894,11 @@ button.hw-dock-typechip:focus-visible { outline: 1px solid var(--ps-accent, #ef3
 }
 /* a breakout box's fiber: the FIRST block of its data sheet, above the
    quick fills and the ports (2026-09-25) - "Fiber · CVT10 A" with its BiDi
-   switch, then one row per trunk link (Primary 1..K, Backup 1..K tinted
-   where a backup is bound): the cable select, the strands as swatched
-   chips, Edit. A block of its own, not a table row: it is a fact of the
-   box, and no quick fill or ticked fill reaches it. */
+   switch, then one row per link by the box's own port (X1, OPT 1 ...;
+   the backup unit's X2, OPT 2-4 tinted; a loop's two boxes in one block):
+   the cable select, the strands as swatched chips or a copper length,
+   Edit. A block of its own, not a table row: it is a fact of the box, and
+   no quick fill or ticked fill reaches it. */
 .hw-dock-cable-fiber {
     display: flex; flex-direction: column; gap: 3px;
     padding: 2px 4px 5px; margin-bottom: 3px;
@@ -1916,9 +1917,11 @@ button.hw-dock-typechip:focus-visible { outline: 1px solid var(--ps-accent, #ef3
 .hw-dock-fiber-bidi { display: inline-flex; align-items: center; gap: 3px; color: #bbbbbb; cursor: pointer; }
 .hw-dock-fiber-dim { color: #9aa4aa; }
 .hw-dock-fiber-legacy-text { color: #f0d48a; }
+/* a copper link past its kind's 10G length: said plainly, never refused */
+.hw-dock-fiber-warn { color: #f0d48a; }
 .hw-dock-fiber-role { color: #9aa4aa; min-width: 7.5ch; white-space: nowrap; }
-/* a backup link is the same box's second fiber: tinted, the way a
-   backup's chips are elsewhere on the dock */
+/* a backup link is the backup processor's feed into the same box: tinted,
+   the way a backup's chips are elsewhere on the dock */
 .hw-dock-fiber-link-backup {
     background: rgba(90, 140, 220, 0.10); border-radius: 3px; padding: 1px 2px;
 }

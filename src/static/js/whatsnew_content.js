@@ -15,7 +15,7 @@
  */
 window.WHATS_NEW_CONTENT = {
     '1.4': {
-        title: 'Fiber by the strand: TAC, MTP and opticalCON, and power tags by their circuit',
+        title: 'Fiber by the strand, a backup processor in one switch, and power tags by their circuit',
         items: [
             { h: 'Fiber by the strand',
               d: 'A breakout box\'s cable sheet opens on its Fiber section: each link picks a cable and the strands it rides. Pick the same TAC or MTP on another box and it takes the next free strands.' },
@@ -23,10 +23,10 @@ window.WHATS_NEW_CONTENT = {
               d: 'A TAC or MTP takes any strand count, with ST or LC duplex ends on a TAC. An opticalCON DUO or QUAD belongs to one box, and NovaStar and Megapixel boxes have a BiDi switch for one strand per link.' },
             { h: 'Strands named the standard way',
               d: 'Strands read by the TIA-598 colors, with a tracer past 12, by number, or by subunit of 12, and any strand can be renamed. The binder prints a strand map for every cable and the pull sheet counts each cable once.' },
-            { h: 'Backups ride the same box',
-              d: 'A backup feed to the same box shows as that box\'s backup links, each with its own cable, and no longer counts as a second box on the pull sheet.' },
+            { h: 'A backup processor is one switch',
+              d: 'Turn on Backup processor in the main\'s gear and name it. It mirrors the main output for output, lands on the same boxes\' X2 or OPT 2 inputs, and an SX40 sets its loops as A to B and C to D.' },
             { h: 'More in the Advanced Guide',
-              d: 'New steps for the data and power jumper lengths, the fiber to a box, and picking its strands.' },
+              d: 'New steps for the backup processor, the data and power jumper lengths, the fiber to a box, and picking its strands.' },
             { h: 'Power tags sit by their circuit',
               d: 'A power map\'s cable tags go above the disc when the circuit runs down, right or left, and under it when it runs up, with the 2fer or 3fer tag centered under the cable. Tags that would run off the screen go to the other side of the disc.' },
             { h: 'A grouped wall\'s whole load',

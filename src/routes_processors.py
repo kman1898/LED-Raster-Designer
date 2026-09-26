@@ -186,15 +186,6 @@ def _prune_backup_refs(removed_ids):
     removed = set(removed_ids)
     if not removed:
         return
-    # A backup box bound by hand to a box that went with those cards is
-    # just a box again (settle_fiber also drops a binding whose backup
-    # relation is gone, which covers the cards that stayed).
-    boxes = {cvt.get('id') for _p, c in _all_cards()
-             for cvt in c.get('cvts') or []}
-    for _proc, card in _all_cards():
-        for cvt in card.get('cvts') or []:
-            if cvt.get('boundTo') and cvt['boundTo'] not in boxes:
-                cvt.pop('boundTo', None)
     for _proc, card in _all_cards():
         if card.get('backupCardId') in removed:
             card.pop('backupCardId', None)
@@ -310,69 +301,54 @@ def _proc_title(proc):
         or device.get('name', (proc or {}).get('deviceId'))
 
 
-def _derived_backup_processor(proc):
-    """The processor that currently mirrors `proc` card for card, from the
-    resolved view - the same derivation the panel reads - or None."""
-    for rproc in catalog.resolve_all(_processors()):
-        if rproc.get('id') == proc.get('id'):
-            return rproc.get('backupProcessorId')
+def _set_backup_unit(proc, value):
+    """Switch the processor's backup unit on or off, or name it.
+
+    The owner (2026-09-25): "when we add backup processor it's just an
+    option on the primary and then we are capable of naming but everything
+    else is automatic". So the switch stores the unit's NAME on the main
+    and nothing else - {name}, '' reading as "<main> BU" - and the rest is
+    the main's (processor_catalog._apply_backup_unit). `true` or an object
+    switches it on (an object may carry `name`, text); null or false
+    switches it off, which takes its backup links off the main's boxes
+    with it (settle_fiber) - one undo brings them back."""
+    if value is None or value is False:
+        proc.pop('backupUnit', None)
+        return None
+    if value is True:
+        value = {}
+    if not isinstance(value, dict):
+        return 'backupUnit must be true, null or {name}.'
+    name = value.get('name', (proc.get('backupUnit') or {}).get('name', ''))
+    if name is not None and not isinstance(name, str):
+        return 'The backup processor’s name must be text.'
+    proc['backupUnit'] = {'name': (name or '').strip()}
     return None
 
 
-def _set_backup_processor(proc, partner_id):
-    """Pair two processors whole, card for card, in ONE gesture - or undo it.
-
-    The user's ruling (2026-09-04): "if you need to do processor redundancy
-    i need to be able to set that." A whole-processor backup is nothing
-    the cards do not already know how to be: it is every card of this
-    processor pointed 1:1 at the partner's card in the same position, so
-    that is exactly what is stored - no new key, and the view derives the
-    pairing back from the cards (resolve_all). Card N mirrors card N in
-    slot order; the two must have the SAME number of cards, and every
-    pair must pass the SAME checks a single 1:1 pick passes (settled and
-    equal port counts, not already consumed, no backup of a backup).
-    All checks run first; the first failure names its slot and refuses
-    the lot, and nothing is written.
-
-    Clearing (an empty id) releases every card that pointed at the
-    derived partner - the pairing the view was reporting - and touches no
-    card pointed elsewhere.
-    """
-    mine = [(slot, card) for slot, card in _cards_of(proc)]
-    if not partner_id:
-        current = _derived_backup_processor(proc)
-        partner = _find_processor(current) if current else None
-        if not partner:
-            return None
-        theirs = {card.get('id') for _s, card in _cards_of(partner)}
-        for _slot, card in mine:
-            if card.get('backupCardId') in theirs:
-                card.pop('backupCardId', None)
+def _set_redundancy_pairs(proc, pairs):
+    """Store which loops a trunk-paired unit runs - "you can do A to B or C
+    to D or A to B and C to D" (owner, 2026-09-25). A list of the letters
+    that lead the pairs (['A'], ['C'], ['A', 'C']); every pair, or null,
+    stores nothing, which is how a plain `redundancy: true` has always
+    read. Only a unit whose catalog entry letters its trunk pairs (the
+    SX40) takes one."""
+    device = catalog.get_device(proc.get('deviceId')) or {}
+    marks = catalog.trunk_pair_marks(device)
+    if not marks:
+        return (f'{device.get("name", "This device")} has no trunk pairs to '
+                f'pick - its redundancy is on or off.')
+    if pairs is None:
+        proc.pop('redundancyPairs', None)
         return None
-    if partner_id == proc.get('id'):
-        return 'A processor cannot back itself.'
-    partner = _find_processor(partner_id)
-    if partner is None:
-        return 'That processor is not in this project.'
-    theirs = [(slot, card) for slot, card in _cards_of(partner)]
-    if not mine:
-        return f'{_proc_title(proc)} has no cards to mirror.'
-    if len(mine) != len(theirs):
-        def count(cards):
-            return f'{len(cards)} card{"" if len(cards) == 1 else "s"}'
-        return (f'{_proc_title(partner)} has {count(theirs)} and '
-                f'{_proc_title(proc)} has {count(mine)} - a whole-processor '
-                f'backup mirrors card for card, so the counts must match.')
-    for (slot, card), (_pslot, pcard) in zip(mine, theirs):
-        why = _fixed_pairing_refusal(card) \
-            or _check_backup_card(card, card.get('id'), pcard.get('id'))
-        if why:
-            return f'Slot {slot.get("index", 0) + 1}: {why}'
-    for (_slot, card), (_pslot, pcard) in zip(mine, theirs):
-        # 1:1 is stored as absence (see _set_redundancy_mode); a card that
-        # was sequential or manual a moment ago becomes a plain mirror.
-        card.pop('redundancyMode', None)
-        card['backupCardId'] = pcard.get('id')
+    if not isinstance(pairs, list) or not pairs \
+            or any(p not in marks for p in pairs):
+        return (f'redundancyPairs must name the pairs by their first trunk '
+                f'- {" or ".join(marks)}.')
+    if set(pairs) == set(marks):
+        proc.pop('redundancyPairs', None)
+    else:
+        proc['redundancyPairs'] = [m for m in marks if m in pairs]
     return None
 
 
@@ -471,8 +447,8 @@ def _state(status=200, extra=None):
     # nothing here either.
     _migrate_snakes()
     # ...and the fiber cables the same way: links that no longer hold go,
-    # a backup binding nothing backs goes, an opticalCON whose box went
-    # goes, and a cable the request left with no link goes.
+    # an opticalCON whose box went goes, and a cable the request left with
+    # no link goes.
     catalog.settle_fiber(app.current_project,
                          g.get('fiber_used_before'))
     app.current_project['is_pristine'] = False
@@ -600,19 +576,26 @@ def update_processor(processor_id):
     # with its reason, and nothing is stored. The level rides in the same
     # body as `redundancy: true`, so the bar's "Per card" / "Per port" is
     # ONE request and ONE undo step.
+    if 'backupProcessorId' in data:
+        return jsonify({'error': (
+            'A backup processor is an option on its main now - switch it '
+            'on behind the main’s ⚙ (backupUnit).')}), 400
+    if 'redundancyPairs' in data:
+        why = _set_redundancy_pairs(proc, data.get('redundancyPairs'))
+        if why:
+            return jsonify({'error': why}), 400
     if 'cardsRedundancyMode' in data:
         why = _set_cards_redundancy_mode(proc, data.get('cardsRedundancyMode'))
         if why:
             return jsonify({'error': why}), 400
-    if 'backupProcessorId' in data:
-        why = _set_backup_processor(proc, data.get('backupProcessorId') or '')
+    if 'backupUnit' in data:
+        why = _set_backup_unit(proc, data.get('backupUnit'))
         if why:
             return jsonify({'error': why}), 400
     changed = _apply(proc, data, ('name', 'mode', 'redundancy'))
-    if 'backupProcessorId' in data:
-        changed['backupProcessorId'] = data.get('backupProcessorId') or None
-    if 'cardsRedundancyMode' in data:
-        changed['cardsRedundancyMode'] = data.get('cardsRedundancyMode')
+    for key in ('backupUnit', 'redundancyPairs', 'cardsRedundancyMode'):
+        if key in data:
+            changed[key] = data.get(key)
     log_event('processor_update', {'id': processor_id, 'changed': list(changed)})
     return _state()
 
@@ -940,15 +923,9 @@ def delete_cvt(processor_id, cvt_id):
     for other in card['cvts']:
         if other.get('backupOf') == cvt_id:
             other.pop('backupOf', None)
-            other.pop('unbound', None)
-    # A box bound to it by hand - a backup processor's box that was this
-    # same metal - is a box of its own again. The box's links went with its
-    # record; the opticalCONs it owned and the TACs it was the last user of
-    # go in _state (settle_fiber).
-    for _p, other_card in _all_cards():
-        for other in other_card.get('cvts') or []:
-            if other.get('boundTo') == cvt_id:
-                other.pop('boundTo', None)
+    # The box's links - its backup unit's included - went with its record;
+    # the opticalCONs it owned and the TACs it was the last user of go in
+    # _state (settle_fiber).
     # ON A BOX-FED DEVICE THE BOX'S SOCKETS GO WITH IT. The SX40 and the
     # HELIOS Standard have no ports outside a box (the 2026-09-24 ruling:
     # "SX40's can't use ports outside of an XD box"), so once the box is
@@ -1224,11 +1201,6 @@ def add_fiber_cable():
         if entry is None:
             return jsonify({'error': 'An opticalCON belongs to one box - '
                                      'name it (ownerBoxId).'}), 400
-        if entry['res'].get('boundTo'):
-            return jsonify({'error': (
-                f'{catalog.fiber_box_title(entry)} is bound to '
-                f'{entry["res"].get("boundTitle")} - its fiber is set '
-                f'there.')}), 400
         rec['ownerBoxId'] = owner
     cable = catalog.store_fiber_cable(app.current_project, rec, _next_seq)
     if link is not None:
@@ -1289,6 +1261,8 @@ def set_fiber_link(processor_id, cvt_id, key):
     data = request.json or {}
     boxes = _fiber_boxes()
     entry = boxes.get(cvt_id)
+    if 'copper' in data:
+        return _set_copper_link(entry, key, data)
     if 'cable' in data and not data.get('cable'):
         links = cvt.get('fiberLinks') or {}
         if key in links:
@@ -1298,13 +1272,14 @@ def set_fiber_link(processor_id, cvt_id, key):
         log_event('fiber_link_clear', {'box': cvt_id, 'key': key})
         return _state()
     cable_id = data.get('cable')
+    device = catalog.get_device(cvt.get('deviceId'))
     if 'cable' not in data and key.startswith('b'):
         primary = catalog.resolved_fiber_links(cvt).get('p' + key[1:])
-        if not primary:
+        if not primary or not primary.get('cable'):
             return jsonify({'error': (
-                f'Pick a cable for {catalog.fiber_link_title(key)} - '
-                f'{catalog.fiber_link_title("p" + key[1:])} has none to '
-                f'follow.')}), 400
+                f'Pick a cable for {catalog.fiber_link_title(key, device)} - '
+                f'{catalog.fiber_link_title("p" + key[1:], device)} has no '
+                f'fiber to follow.')}), 400
         cable_id = primary['cable']
     if not isinstance(cable_id, str):
         return jsonify({'error': 'cable must be a fiber cable id, or null '
@@ -1319,14 +1294,56 @@ def set_fiber_link(processor_id, cvt_id, key):
     return _state()
 
 
+def _set_copper_link(entry, key, data):
+    """A link on copper instead of fiber: {copper: 'Cat6A', ft?}. Only on a
+    box whose catalog entry takes copper on its links (the Tessera XD's
+    etherCON beside each opticalCON DUO); the kind is one of the 10G
+    kinds (COPPER_LINK_KINDS). A length past the kind's maximum is NOT
+    refused - the row and the binder say so - because the run is the
+    owner's to plan."""
+    res, raw = entry['res'], entry['raw']
+    title = catalog.fiber_box_title(entry)
+    device = catalog.get_device(res.get('deviceId'))
+    if key not in (res.get('fiberLinkKeys') or []):
+        return jsonify({'error': (
+            f'{title} has no link {catalog.fiber_link_title(key, device)}.')
+        }), 400
+    if not res.get('copperLinks'):
+        return jsonify({'error': (
+            f'{res.get("deviceName") or title} takes fiber only on its links '
+            f'- copper is offered on a Tessera XD.')}), 400
+    kind = data.get('copper')
+    if catalog.copper_link_max_ft(kind) is None:
+        kinds = ', '.join(k for k, _ft in catalog.COPPER_LINK_KINDS)
+        return jsonify({'error': f'copper must be one of {kinds}.'}), 400
+    link = {'copper': kind}
+    ft = data.get('ft')
+    if ft not in (None, ''):
+        if isinstance(ft, bool):
+            return jsonify({'error': 'ft must be a number of feet.'}), 400
+        try:
+            value = float(ft)
+        except (TypeError, ValueError):
+            return jsonify({'error': 'ft must be a number of feet.'}), 400
+        if not math.isfinite(value) or value < 0:
+            return jsonify({'error': 'ft must be a number of feet, 0 or '
+                                     'more.'}), 400
+        stored = catalog._cable_ft(value)
+        if stored is not None:
+            link['ft'] = stored
+    raw.setdefault('fiberLinks', {})[key] = link
+    log_event('copper_link_set', {'box': res.get('id'), 'key': key,
+                                  'copper': kind, 'ft': link.get('ft')})
+    return _state()
+
+
 @processors_bp.route('/api/processors/<processor_id>/cvts/<cvt_id>/fiber',
                      methods=['PUT'])
 def update_box_fiber(processor_id, cvt_id):
-    """A box's fiber switches: `bidi` (NovaStar and Megapixel boxes only;
-    re-fits its links), `unbound` (a same-card backup record let go of, or
-    taken back by, its primary) and `boundTo` (a backup processor's box
-    named as the same metal as one of the boxes it backs up; null clears).
-    Everything is checked before anything is written."""
+    """A box's fiber switch: `bidi` (NovaStar and Megapixel boxes only;
+    re-fits its links). Nothing is bound here any more (2026-09-25): a
+    loop's far box is its own box, and a backup unit feeds a box on its
+    backup input."""
     proc = _find_processor(processor_id)
     if not proc:
         return jsonify({'error': 'Processor not found'}), 404
@@ -1338,38 +1355,19 @@ def update_box_fiber(processor_id, cvt_id):
     entry = boxes.get(cvt_id)
     res = entry['res']
     title = catalog.fiber_box_title(entry)
-    for field in ('bidi', 'unbound'):
-        if field in data and not isinstance(data[field], bool):
-            return jsonify({'error': f'{field} must be true or false.'}), 400
+    if 'boundTo' in data or 'unbound' in data:
+        return jsonify({'error': (
+            'Boxes are not bound any more: a loop’s far box is a box of its '
+            'own, and a backup processor - an option behind the main’s ⚙ - '
+            'feeds each box on its backup input.')}), 400
+    if 'bidi' in data and not isinstance(data['bidi'], bool):
+        return jsonify({'error': 'bidi must be true or false.'}), 400
     if 'bidi' in data:
         if data['bidi'] and not res.get('bidiAllowed'):
             vendor = res.get('vendor') or 'this vendor'
             return jsonify({'error': (
                 f'{res.get("deviceName") or title} is a {vendor} box - BiDi '
                 f'is offered on NovaStar and Megapixel boxes only.')}), 400
-        if res.get('boundTo'):
-            return jsonify({'error': (
-                f'{title} is bound to {res.get("boundTitle")} - its fiber '
-                f'is set there.')}), 400
-    if 'unbound' in data and not res.get('backupOf'):
-        return jsonify({'error': (
-            f'{title} backs up no box on its card - there is nothing to '
-            f'unbind.')}), 400
-    target = data.get('boundTo') if 'boundTo' in data else None
-    if target:
-        if res.get('backupOf'):
-            return jsonify({'error': (
-                f'{title} backs up a box on its own card, so it is bound '
-                f'automatically - unbind it there instead.')}), 400
-        targets = res.get('fiberBindTargets')
-        if targets is None:
-            return jsonify({'error': (
-                f'{title} is not on a card that backs up another processor '
-                f'- only such a box is bound by hand.')}), 400
-        if target not in [t['id'] for t in targets]:
-            return jsonify({'error': (
-                f'{title} can be bound to a box of the processor it backs '
-                f'up that is not bound already.')}), 400
     if 'bidi' in data and bool(cvt.get('bidi')) != data['bidi']:
         if data['bidi']:
             cvt['bidi'] = True
@@ -1377,15 +1375,5 @@ def update_box_fiber(processor_id, cvt_id):
             cvt.pop('bidi', None)
         catalog.refit_fiber_bidi(boxes, _fiber_cables_by_id(), cvt_id,
                                  data['bidi'])
-    if 'unbound' in data:
-        if data['unbound']:
-            cvt['unbound'] = True
-        else:
-            cvt.pop('unbound', None)
-    if 'boundTo' in data:
-        if target:
-            cvt['boundTo'] = target
-        else:
-            cvt.pop('boundTo', None)
     log_event('box_fiber_update', {'id': cvt_id, 'changed': list(data)})
     return _state()

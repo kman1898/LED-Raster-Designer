@@ -853,9 +853,10 @@ class _HardwareDock {
                     `/api/processors/${proc.id}`, 'PUT', { name: val },
                     'Rename Processor'),
             }));
-            const procPill = this._dockRedundancyPill(proc, null);
+            const procPills = [this._dockRedundancyPill(proc, null),
+                               this._dockBackupProcPill(proc)].filter(Boolean);
             this._dockHeadAugment(title, {
-                controls: procPill ? [procPill] : [],
+                controls: procPills,
                 gear: {
                     id: `proc-${proc.id}`,
                     title: 'Configure this processor - redundancy, slots, '
@@ -2644,28 +2645,25 @@ class _HardwareDock {
             }
         } else {
             const level = this._procRedundancyLevel(proc);
-            const procs = this._processorsResolved || [];
             if (level === 'off') return null;
             if (level === 'unit') {
-                const partner = procs.find(
-                    p => p.id === proc.backupProcessorId);
-                if (partner) {
-                    text = `R → ${partner.name || partner.deviceName}`;
-                } else {
-                    // A standalone unit at 1:1 with no partner picked yet:
-                    // its one card's own reading.
-                    const one = (proc.slots || []).map(s => s.card)
-                        .find(Boolean);
-                    const found = one && one.backupCardId
-                        ? this._otherCards(one.id)
-                            .find(x => x.card.id === one.backupCardId)
-                        : null;
-                    text = found
-                        ? `R → ${this._backupUnitTitle(found.proc, found.card)}`
-                        : 'R 1:1 — no partner';
-                }
+                // A standalone unit at 1:1: its one card's own reading.
+                const one = (proc.slots || []).map(s => s.card)
+                    .find(Boolean);
+                const found = one && one.backupCardId
+                    ? this._otherCards(one.id)
+                        .find(x => x.card.id === one.backupCardId)
+                    : null;
+                text = found
+                    ? `R → ${this._backupUnitTitle(found.proc, found.card)}`
+                    : 'R 1:1 — no partner';
             } else if (level === 'fixed') {
-                text = 'R on';
+                // An SX40 running one loop of two says which.
+                const marks = proc.redundancyPairMarks || [];
+                const on = proc.redundancyPairs || marks;
+                text = marks.length && on.length < marks.length
+                    ? `R ${on.map(m => `${m} to ${String.fromCharCode(m.charCodeAt(0) + 1)}`).join(', ')}`
+                    : 'R on';
             } else {
                 text = `R per ${level}`;
             }
@@ -2676,6 +2674,28 @@ class _HardwareDock {
         pill.textContent = text;
         pill.title = `Redundancy: ${text}. Click to open the processor’s `
             + '⚙, where it is set.';
+        pill.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this._dockOpenProcGear(proc.id);
+        });
+        return pill;
+    }
+
+    // The backup processor's pill (2026-09-25), beside the redundancy one:
+    // "+ BU: USC SR BU" - the backup unit is an option ON this processor,
+    // never a unit of its own in the tray, so its name rides the main's
+    // header, in the gold redundancy family, and a click opens the main's
+    // ⚙ where it is switched and named. Nothing without one.
+    _dockBackupProcPill(proc) {
+        const unit = proc.backupUnit;
+        if (!unit) return null;
+        const pill = document.createElement('button');
+        pill.type = 'button';
+        pill.className = 'hw-dock-redpill hw-dock-backuppill';
+        pill.textContent = `+ BU: ${unit.name}`;
+        pill.title = `Backup processor ${unit.name}: a second `
+            + `${proc.deviceName || 'unit'} mirroring this one. Click to open `
+            + 'the processor’s ⚙, where it is switched and named.';
         pill.addEventListener('click', (e) => {
             e.stopPropagation();
             this._dockOpenProcGear(proc.id);

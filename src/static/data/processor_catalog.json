@@ -529,6 +529,8 @@
       "family": "novastar",
       "trunksIn": 2,
       "trunkRate": "10G",
+      "linkPorts": {"primary": ["OPT 1", "OPT 2"], "backup": ["OPT 3", "OPT 4"]},
+      "linkPortsNote": "OPT 1 and OPT 2 take the main processor, OPT 3 and OPT 4 the backup processor.",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 16}]},
       "capAtTrunk": true,
       "note": "16x Neutrik etherCON out on 2 OPT in. Its four LC connectors are TWO optical ports - LC is duplex - and counting them as four would double the box. Two OPTs at 8 per trunk is exactly its 16, so behind an H_4xfiber it delivers the lot; one box also takes both OPTs of an H_16xRJ45+2xfiber and delivers all 16 there, where CVT10s need two boxes."
@@ -542,6 +544,8 @@
       "family": "novastar",
       "trunksIn": 1,
       "trunkRate": "10G",
+      "linkPorts": {"primary": ["OPT 1"], "backup": ["OPT 2"]},
+      "linkPortsNote": "NovaStar: OPT 1 is the primary port and OPT 2 is the backup port.",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 10}]},
       "capAtTrunk": true,
       "note": "10 ports on a 10.3125 Gbps 64B/66B trunk, 8 on an 8B/10B one - the box fans out whatever the trunk carries, so its real count is capped by the card's ports per fiber."
@@ -555,6 +559,8 @@
       "family": "novastar",
       "trunksIn": 1,
       "trunkRate": "10G",
+      "linkPorts": {"primary": ["OPT 1"], "backup": ["OPT 2"]},
+      "linkPortsNote": "NovaStar: OPT 1 is the primary port and OPT 2 is the backup port.",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 10}]},
       "capAtTrunk": true,
       "note": "Same figures as the CVT10: 1 OPT in, 10 ports on a 10.3125 Gbps 64B/66B trunk and only the first 8 from a 10G 8B/10B source."
@@ -653,6 +659,10 @@
       "kind": "cvt",
       "family": "brompton",
       "capAtTrunk": true,
+      "linkPorts": {"primary": ["X1"], "backup": ["X2"]},
+      "linkPortsNote": "X1 takes the main processor, X2 the backup processor (owner, 2026-09-25: \"sx40 primary uses X1 and backup uses x2. x1 and 2 are on all XD boxes\").",
+      "copperLinks": true,
+      "copperLinksNote": "etherCON beside the opticalCON DUO on each of X1 and X2, auto-switching: a link may be 10G copper instead of fiber.",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 10}]},
       "note": "10G in, 10x 1G out."
     },
@@ -663,6 +673,8 @@
       "kind": "cvt",
       "family": "brompton",
       "capAtTrunk": true,
+      "linkPorts": {"primary": ["X1"], "backup": ["X2"]},
+      "linkPortsNote": "X1 takes the main processor, X2 the backup processor (owner, 2026-09-25: \"sx40 primary uses X1 and backup uses x2. x1 and 2 are on all XD boxes\").",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 12}]},
       "note": "12 on the box, but both datasheets say only the first 10 work behind an SX40 - which is what the trunk cap produces. The XD-S product page contradicts them and claims 12 unqualified."
     },
@@ -673,6 +685,8 @@
       "kind": "cvt",
       "family": "brompton",
       "capAtTrunk": true,
+      "linkPorts": {"primary": ["X1"], "backup": ["X2"]},
+      "linkPortsNote": "X1 takes the main processor, X2 the backup processor (owner, 2026-09-25: \"sx40 primary uses X1 and backup uses x2. x1 and 2 are on all XD boxes\").",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 12}]},
       "note": "Same as the XD-S: 12 on the box, first 10 only behind an SX40."
     },

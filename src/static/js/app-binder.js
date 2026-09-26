@@ -185,9 +185,9 @@ const PULL_COL_W = 660;
 const BINDER_TYPE_WORDS = {};
 
 // The redundancy bar's own words (app-processors.js), so the page reads
-// what the tray reads: "Per card", "Whole unit → H9 BACKUP", "Off".
+// what the tray reads: "Per card", "Backed up → MX20 B", "Off".
 const REDUNDANCY_WORDS = {
-    off: 'Off', port: 'Per port', card: 'Per card', unit: 'Whole unit',
+    off: 'Off', port: 'Per port', card: 'Per card', unit: 'Backed up',
     fixed: 'On', backup: 'Backed up',
 };
 
@@ -1033,6 +1033,8 @@ class _Binder {
             for (const proc of (this._processorsResolved || [])) {
                 const g = this._bProcessorGroup(book, proc);
                 if (g) hardware.push(g);
+                const bu = g && this._bBackupUnitGroup(book, proc, g.name);
+                if (bu) hardware.push(bu);
             }
         }
         if (opts.pull) hardware.push(this._bTotalsGroup(book));
@@ -3147,17 +3149,13 @@ class _Binder {
     }
 
     // A box's fiber as the binder says it, SHORT - the cable's name and the
-    // strands, "TAC A 9-10 · backup TAC B 1-2" (fiberLinkSummary); what a
-    // TAC A is, is its strand map's header. A bound backup record reads
-    // "same box as BK1" (its primary, by the name typed on it). With no
+    // strands, "TAC A 9-10 · X2 TAC B 1-2", copper by its port "X1 Cat6A
+    // 150'" (fiberLinkSummary); what a TAC A is, is its strand map's
+    // header. With no
     // link: the 1.3 typed note as it always read ("12 Tac Fiber 250'", "no
     // fiber length" where only a type was typed), else "no fiber".
     _bBoxFiberText(box) {
         if (!box) return 'no fiber';
-        if (box.boundTo && typeof this.fiberHostBox === 'function') {
-            const host = this.fiberHostBox(box) || {};
-            return `same box as ${String(host.name || '').trim() || host.displayTitle || this._bBoxTitle(host)}`;
-        }
         const links = typeof this.fiberLinkSummary === 'function' ? this.fiberLinkSummary(box) : '';
         if (links) return links;
         const fiber = (typeof this.pullBoxFiberText === 'function') ? this.pullBoxFiberText(box) : '';
@@ -3166,23 +3164,29 @@ class _Binder {
     }
 
     // The redundancy bar's reading for a processor: "Per card", "Per port",
-    // "Whole unit → H9 BACKUP" (the partner the unit mirrors onto), "Off".
+    // "Backed up → MX20 B" (the unit its one card mirrors onto), "A to B"
+    // (an SX40 running one loop), "Off" - then its backup processor, "·
+    // backed up by USC SR BU".
     _bRedundancyText(proc) {
         const level = (typeof this._procRedundancyLevel === 'function') ? this._procRedundancyLevel(proc) : 'off';
         let text = REDUNDANCY_WORDS[level] || level;
-        if (level === 'unit') {
-            const procs = this._processorsResolved || [];
-            const partner = procs.find(p => p.id === proc.backupProcessorId);
-            if (partner) text += ` → ${partner.name || partner.deviceName}`;
-            else {
-                const one = (proc.slots || []).map(s => s.card).find(Boolean);
-                const found = one && one.backupCardId && typeof this._otherCards === 'function'
-                    ? this._otherCards(one.id).find(x => x.card.id === one.backupCardId) : null;
-                if (found && typeof this._backupUnitTitle === 'function') {
-                    text += ` → ${this._backupUnitTitle(found.proc, found.card)}`;
-                }
+        const procs = this._processorsResolved || [];
+        if (level === 'fixed') {
+            const marks = proc.redundancyPairMarks || [];
+            const on = proc.redundancyPairs || marks;
+            if (marks.length && on.length < marks.length) {
+                text = on.map(m => `${m} to ${String.fromCharCode(m.charCodeAt(0) + 1)}`).join(', ');
             }
         }
+        if (level === 'unit') {
+            const one = (proc.slots || []).map(s => s.card).find(Boolean);
+            const found = one && one.backupCardId && typeof this._otherCards === 'function'
+                ? this._otherCards(one.id).find(x => x.card.id === one.backupCardId) : null;
+            if (found && typeof this._backupUnitTitle === 'function') {
+                text += ` → ${this._backupUnitTitle(found.proc, found.card)}`;
+            }
+        }
+        if (proc.backupUnit) text += ` · backed up by ${proc.backupUnit.name}`;
         return text;
     }
 
@@ -3963,6 +3967,43 @@ class _Binder {
         return { kind: 'processor', name: procTitle, blocks: this._bProcessorBlocks(book, proc, cards) };
     }
 
+    // A processor's BACKUP UNIT as its own column (owner, 2026-09-25): "USC
+    // SR BU · backup of USC SR Main", its cards - the main's again, slot
+    // for slot, each backing up the main's - the switches it keeps of its
+    // own (a HELIOS's RS12s, any box with no documented backup input),
+    // and its redundancy, which is the main's. null without one.
+    _bBackupUnitGroup(book, proc, mainTitle) {
+        const unit = proc.backupUnit;
+        if (!unit) return null;
+        const cards = (proc.slots || []).filter(s => s && s.card);
+        const blocks = [];
+        blocks.push({ lines: this._bTableLines(book, {
+            title: 'Cards',
+            cols: [{ title: 'slot', w: 0.5, align: 'right' }, { title: 'device', w: 1.6 },
+                   { title: 'ports', w: 0.6, align: 'right' }, { title: 'backs up', w: 1.3 }],
+            rows: cards.map(s => ({ cells: [String((s.index || 0) + 1), s.card.deviceName,
+                                            s.card.ceilingKnown ? String(s.card.ceiling) : '?',
+                                            this.cardTypedName(proc, s.card) || mainTitle] })),
+        }) });
+        if ((unit.boxes || []).length) {
+            blocks.push({ lines: this._bTableLines(book, {
+                title: 'Breakout boxes',
+                cols: [{ title: 'breakout box', w: 1.3 }, { title: 'trunk', w: 0.7 },
+                       { title: 'ports', w: 0.65, align: 'right' }, { title: 'mirrors', w: 1.2 }],
+                rows: unit.boxes.map(b => ({ cells: [b.deviceName, b.trunkTitle || '—',
+                                                     String(b.portCount || ''), b.displayTitle || b.deviceName] })),
+                shrink: true,
+            }) });
+        }
+        const text = this._bRedundancyText(proc).replace(/ · backed up by .*$/, '');
+        blocks.push({ lines: this._bKvLines(book, 'Redundancy', [
+            ['Device', proc.deviceName || proc.deviceId || ''],
+            ['Redundancy', `${text} (the main's)`],
+            ['Backs up', mainTitle],
+        ]) });
+        return { kind: 'processor', name: `${unit.name} · backup of ${mainTitle}`, blocks };
+    }
+
     _bProcessorBlocks(book, proc, cards) {
         // Sockets taken on the card - primaries AND the returns landing on
         // it - the same count the tray's card header reads (socketsTaken,
@@ -3996,10 +4037,25 @@ class _Binder {
         }) });
         // The breakout boxes hanging off the cards, each with the trunk it
         // takes, the sockets it delivers and its fiber trunk (2026-09-07).
+        // A LOOP's two boxes (an SX40's XD A and B) sit together, the far
+        // one marked "loop of" the near one (owner, 2026-09-25: "loops are
+        // seperate boxes yes but really they are paired"); each keeps its
+        // own fiber.
         const boxRows = [];
         for (const { card } of cards) {
-            for (const box of (card.cvts || [])) {
-                boxRows.push({ cells: [this._bBoxTitle(box), this.cardTypedName(proc, card) || nameOf(card.id), box.trunkTitle || '—',
+            const list = card.cvts || [];
+            const fars = new Set(list.filter(b => b.backupOf && list.some(n => n.id === b.backupOf))
+                .map(b => b.id));
+            const ordered = [];
+            list.forEach(b => {
+                if (fars.has(b.id)) return;
+                ordered.push(b);
+                list.filter(f => fars.has(f.id) && f.backupOf === b.id).forEach(f => ordered.push(f));
+            });
+            for (const box of ordered) {
+                const near = fars.has(box.id) ? list.find(n => n.id === box.backupOf) : null;
+                const title = this._bBoxTitle(box) + (near ? ` · loop of ${this._bBoxTitle(near)}` : '');
+                boxRows.push({ cells: [title, this.cardTypedName(proc, card) || nameOf(card.id), box.trunkTitle || '—',
                                        String(box.portCount || (box.ports || []).length),
                                        this._bBoxFiberText(box)] });
             }
@@ -4008,9 +4064,9 @@ class _Binder {
             blocks.push({ lines: this._bTableLines(book, {
                 title: 'Breakout boxes',
                 // FIBER wraps at its " · " - a box with a backup link reads
-                // "TAC A 9-10" over "backup TAC B 1-2" - rather than being
-                // shrunk or cut.
-                cols: [{ title: 'breakout box', w: 1.3 }, { title: 'card', w: 0.7 }, { title: 'trunk', w: 0.7 },
+                // "TAC A 9-10" over "X2 TAC B 1-2" - rather than being
+                // shrunk or cut; a loop's far box wraps "loop of" the same way.
+                cols: [{ title: 'breakout box', w: 1.3, list: 2 }, { title: 'card', w: 0.7 }, { title: 'trunk', w: 0.7 },
                        { title: 'ports', w: 0.65, align: 'right' }, { title: 'fiber', w: 1.4, list: 2 }],
                 rows: boxRows,
                 shrink: true,
@@ -4089,20 +4145,20 @@ class _Binder {
 
     // The strand maps a processor's page carries (2026-09-25): one table per
     // fiber cable (TAC, MTP, opticalCON) whose FIRST link - tray order, a
-    // box's links Primary 1..K then Backup 1..K - comes off this processor.
+    // box's primaries then its backup inputs - comes off this processor.
     // A cable that also feeds boxes on other processors is mapped here only,
-    // a line under its header saying "Also on" them. Columns: the strand (its swatch and
-    // name), the box, the link; an unused strand reads "spare".
+    // a line under its header saying "Also on" them. Columns: the strand (its
+    // swatch and name) and the link - the box and its port, "USR B · X1";
+    // an unused strand reads "spare".
     _bStrandMaps(proc) {
         if (typeof this.getFiberCables !== 'function') return [];
         const firsts = new Map();      // cableId -> processor id of its first link
         const procsOf = new Map();     // cableId -> [processor titles]
         const uses = new Map();        // cableId -> Map(strand -> { box, key })
         for (const { box, proc: p } of this._fiberAllBoxes()) {
-            if (box.boundTo) continue;
             for (const key of box.fiberLinkKeys || []) {
                 const link = (box.fiberLinks || {})[key];
-                if (!link || !this.getFiberCable(link.cable)) continue;
+                if (!link || !link.cable || !this.getFiberCable(link.cable)) continue;
                 if (!firsts.has(link.cable)) firsts.set(link.cable, p.id);
                 const names = procsOf.get(link.cable) || [];
                 const title = p.name || p.deviceName || p.id;
@@ -4129,12 +4185,11 @@ class _Binder {
                 const who = m.get(n);
                 rows.push({ swatch: this.fiberStrandSwatch(n, cable),
                             cells: [this.fiberStrandName(n, cable),
-                                    who ? this._bBoxTitle(who.box) : 'spare',
-                                    who ? this.fiberLinkTitle(who.key) : ''] });
+                                    who ? `${this._bBoxTitle(who.box)} · ${this.fiberLinkTitle(who.key, who.box)}`
+                                        : 'spare'] });
             }
             out.push({ title, note: also.length ? `Also on ${also.join(', ')}` : '',
-                       cols: [{ title: 'strand', w: 1.1, swatch: true }, { title: 'box', w: 1.2 },
-                              { title: 'link', w: 0.8 }],
+                       cols: [{ title: 'strand', w: 1.1, swatch: true }, { title: 'link', w: 2 }],
                        rows, shrink: true });
         }
         return out;

@@ -1796,10 +1796,11 @@ def test_the_redundancy_pill_reads_the_state_and_opens_the_processor_gear(
     pill on the processor and card headers that states the shape in force
     and opens the PROCESSOR's gear, where the bar that sets it lives.
     Nothing while redundancy is off; `R per card` / `R 1:1 — no partner`
-    with nothing paired; `R → SL` on the main and `backs up SR` on the
-    partner once paired whole (the partner's consumed cards carry the
-    role in their names and get no pill); `R per port` / `R seq` / `R
-    halves` / `R manual` in the port shapes. Measured, it is a plugged
+    with nothing paired; `R per card` on the main and `backs up SR` on the
+    partner once every card is paired onto it (the partner's consumed cards
+    carry the role in their names and get no pill); `R per port` / `R
+    seq` / `R halves` / `R manual` in the port shapes; and, beside it, the
+    backup processor's `+ BU: SR BU` (2026-09-25). Measured, it is a plugged
     socket in the backup gold, never the accent, and a button - so the
     drag pickup skips it."""
     page, ids = dock_page
@@ -1837,8 +1838,14 @@ def test_the_redundancy_pill_reads_the_state_and_opens_the_processor_gear(
                        { redundancy: spec.redundancy });
         }
         if ('partner' in spec) {
+            for (const [i, cid] of made.mainCards.entries()) {
+                await send(`/api/processors/${made.mainId}/cards/${cid}`, 'PUT',
+                           { backupCardId: spec.partner ? made.backCards[i] : '' });
+            }
+        }
+        if ('backupUnit' in spec) {
             await send(`/api/processors/${made.mainId}`, 'PUT',
-                       { backupProcessorId: spec.partner });
+                       { backupUnit: spec.backupUnit });
         }
         if (spec.modes) {
             for (const [i, mode] of spec.modes.entries()) {
@@ -1854,7 +1861,14 @@ def test_the_redundancy_pill_reads_the_state_and_opens_the_processor_gear(
             const strip = document.querySelector(
                 `[data-lrd-field="processor-name-${pid}"]`);
             const head = strip && strip.closest('.hw-dock-proc-name');
-            const pill = head && head.querySelector('.hw-dock-redpill');
+            const pill = head && head.querySelector('.hw-dock-redpill:not(.hw-dock-backuppill)');
+            return pill ? pill.textContent : null;
+        };
+        const buPill = (pid) => {
+            const strip = document.querySelector(
+                `[data-lrd-field="processor-name-${pid}"]`);
+            const head = strip && strip.closest('.hw-dock-proc-name');
+            const pill = head && head.querySelector('.hw-dock-backuppill');
             return pill ? pill.textContent : null;
         };
         const cardPill = (cid) => {
@@ -1865,6 +1879,7 @@ def test_the_redundancy_pill_reads_the_state_and_opens_the_processor_gear(
         return {
             main: procPill(made.mainId),
             back: procPill(made.backId),
+            bu: buPill(made.mainId),
             mainCards: made.mainCards.map(cardPill),
             backCards: made.backCards.map(cardPill),
         };
@@ -1877,14 +1892,14 @@ def test_the_redundancy_pill_reads_the_state_and_opens_the_processor_gear(
 
     try:
         assert pills({'redundancy': False}) == {
-            'main': None, 'back': None,
+            'main': None, 'back': None, 'bu': None,
             'mainCards': [None, None], 'backCards': [None, None]}
         assert pills({'redundancy': True}) == {
-            'main': 'R per card', 'back': None,
+            'main': 'R per card', 'back': None, 'bu': None,
             'mainCards': ['R 1:1 — no partner', 'R 1:1 — no partner'],
             'backCards': [None, None]}
         out = pills({'partner': made['backId']})
-        assert out['main'] == 'R → SL', out
+        assert out['main'] == 'R per card', out
         assert out['back'] == 'backs up SR', out
         assert out['mainCards'] == ['R 1:1 → H_16xRJ45+2xfiber in SL'] * 2, out
         assert out['backCards'] == [None, None], out
@@ -1897,6 +1912,11 @@ def test_the_redundancy_pill_reads_the_state_and_opens_the_processor_gear(
         out = pills({'modes': ['1to1', 'halves']})
         assert out['main'] == 'R per card', out
         assert out['mainCards'] == ['R 1:1 — no partner', 'R OPT split'], out
+        # the backup processor rides the main's header beside it
+        out = pills({'backupUnit': {}})
+        assert out['bu'] == '+ BU: SR BU' and out['main'] == 'R per card', out
+        out = pills({'backupUnit': None})
+        assert out['bu'] is None, out
 
         # Measured: a plugged socket in the backup gold, a button, titled.
         style = page.evaluate("""(made) => {

@@ -176,7 +176,41 @@ def port_capacity(device_id, mode=None, redundancy=False):
     return {'count': count, 'known': True, 'mode': chosen_id, 'reason': ''}
 
 
-def redundancy_pairing(device, redundancy_on):
+def trunk_pair_marks(device):
+    """The trunk letters that lead a fixed adjacent pair - ['A', 'C'] on a
+    four-trunk device whose pairing is 'adjacent' - or [] where the device
+    has no lettered trunk pairs (the S8 pairs PORTS, the SQ200 publishes no
+    trunks). Read off the catalog's pairing and trunk count only: the rule
+    it states is the SX40's, and no other device carries both."""
+    if ((device or {}).get('redundancy') or {}).get('pairing') != 'adjacent':
+        return []
+    trunks = (device or {}).get('trunks') or 0
+    return [chr(ord('A') + i) for i in range(0, trunks - 1, 2)]
+
+
+def proc_redundancy_pairs(proc, device=None):
+    """The trunk pairs one unit runs as loops, by their leading letter -
+    ['A'] for A to B alone, ['A', 'C'] for both - or None where the unit
+    has no lettered pairs to choose from.
+
+    Owner, 2026-09-25: "you can do A to B or C to D or A to B and C to D".
+    Stored as `redundancyPairs` on the processor only where it is a subset:
+    absent means every pair, so a file saved as plain `redundancy: true`
+    reads as both, the way it always ran. Only meaningful with redundancy
+    on; a stored letter that leads no pair is ignored."""
+    if device is None:
+        device = get_device((proc or {}).get('deviceId')) or {}
+    marks = trunk_pair_marks(device)
+    if not marks:
+        return None
+    stored = (proc or {}).get('redundancyPairs')
+    if not isinstance(stored, list):
+        return list(marks)
+    picked = [m for m in marks if m in stored]
+    return picked or list(marks)
+
+
+def redundancy_pairing(device, redundancy_on, only=None):
     """The documented backup pairing of one device, or None where none is.
 
     Only Brompton documents one, and each rule arrived verbatim, per device.
@@ -212,19 +246,34 @@ def redundancy_pairing(device, redundancy_on):
     else:
         count = port_capacity(device.get('id'))['count'] or 0
         marks = [str(n) for n in range(1, count + 1)]
-    pairs = [{'primary': marks[i], 'backup': marks[i + 1]}
-             for i in range(0, len(marks) - 1, 2)]
+    pairs_all = [{'primary': marks[i], 'backup': marks[i + 1]}
+                 for i in range(0, len(marks) - 1, 2)]
+    # A unit running only some of its loops (redundancyPairs - the SX40's
+    # "A to B or C to D") states only those.
+    pairs = [p for p in pairs_all
+             if only is None or not trunks or p['primary'] in only]
     if pairs:
         text = ', '.join(f'{p["primary"]} backs up to {p["backup"]}'
                          for p in pairs)
     else:
         text = 'adjacent outputs back each other (A to B, C to D)'
+    statement = f'{text} - automatic, and the only way this device pairs.'
+    if trunks:
+        # Lettered loops are each optional ("you can do A to B or C to D or
+        # A to B and C to D"), so the sentence reads the state, not a rule:
+        # "A backs up to B and C backs up to D.", "A backs up to B; C and D
+        # are primaries."
+        said = ' and '.join(f'{p["primary"]} backs up to {p["backup"]}'
+                            for p in pairs)
+        alone = [m for p in pairs_all if p not in pairs
+                 for m in (p['primary'], p['backup'])]
+        statement = f'{said}.' if not alone else \
+            f'{said}; {" and ".join(alone)} are primaries.'
     return {
         'scheme': 'adjacent',
         'fixed': True,
         'pairs': pairs,
-        'statement': f'{text} - automatic, and the only way this device '
-                     f'pairs.',
+        'statement': statement,
     }
 
 
@@ -276,8 +325,15 @@ def card_redundancy_shape(card, proc, device=None):
     if red.get('supported') is False:
         return None
     if red.get('pairing') == 'adjacent':
-        return {'mode': 'sequential', 'forced': True,
-                'level': 'trunk' if device.get('trunks') else 'port'}
+        shape = {'mode': 'sequential', 'forced': True,
+                 'level': 'trunk' if device.get('trunks') else 'port'}
+        if shape['level'] == 'trunk':
+            # The loops this unit runs, as the 0-based trunk that leads
+            # each - [0, 2] for A to B and C to D, [0] for A to B alone.
+            shape['pairs'] = [ord(m) - ord('A')
+                              for m in proc_redundancy_pairs(proc, device)
+                              or []]
+        return shape
     mode = (card or {}).get('redundancyMode') or '1to1'
     if mode not in REDUNDANCY_MODES:
         mode = '1to1'
@@ -508,6 +564,10 @@ def new_processor(device_id, seq, name=''):
         'name': name or '',
         'mode': (device.get('ports') or {}).get('defaultMode'),
         'redundancy': False,
+        # Made by a build with the backup-processor option: a card paired
+        # 1:1 onto another unit's card here is a per-card pairing somebody
+        # chose, never the retired "Whole unit" (migrate_backup_processors).
+        'pairingsPerCard': True,
         'slots': [],
     }
     if device.get('form') == 'chassis':
@@ -1310,12 +1370,14 @@ def resolved_show_snakes(project):
 #   strand assignment off a connector - every stranded cable, whatever its
 #   ends, assigns strands per link.
 # - An opticalCON DUO is 2 fibers and a QUAD 4, and each is ONE box's:
-#   ownerBoxId names it, and only that box's links (its bound backup's
+#   ownerBoxId names it, and only that box's links (its backup links
 #   included) take its fibers.
 # - A box's links are p1..pK, K = trunks_in (a CVT4K-S takes 2), and
-#   b1..bK only where a backup record is BOUND to it - the backup is the
-#   same physical box taking a second fiber, so its picks live here, on
-#   the primary. A link takes 2 strands, 1 on a box switched to BiDi.
+#   b1..bK only where its processor's backup unit feeds it on its
+#   documented backup input (_apply_backup_unit) - named by the box's own
+#   ports, X1 / X2, OPT 1-4 (fiber_link_title). A link takes 2 strands, 1
+#   on a box switched to BiDi; an XD's link may be copper instead
+#   ({copper, ft} - COPPER_LINK_KINDS), with no cable and no strands.
 # - A strand is used by one link show-wide.
 # - The list is absent when empty, and a read never creates it. A cable
 #   no link uses any more goes, the way an emptied snake goes: when the
@@ -1353,7 +1415,8 @@ def fiber_bidi_allowed(cvt_device):
 
 
 def fiber_link_keys(trunks, bound):
-    """A box's link keys: p1..pK, then b1..bK where a backup is bound."""
+    """A box's link keys: p1..pK, then b1..bK where a backup unit feeds
+    it."""
     try:
         k = max(1, int(trunks or 1))
     except (TypeError, ValueError):
@@ -1364,11 +1427,41 @@ def fiber_link_keys(trunks, bound):
     return keys
 
 
-def fiber_link_title(key):
-    """'p1' -> 'Primary 1', 'b2' -> 'Backup 2'."""
+def fiber_link_title(key, cvt_device=None):
+    """A link by the box's own port name (2026-09-25: "call novastar Opt
+    1,2,3,4"): 'p1' -> 'X1' and 'b1' -> 'X2' on a Tessera XD, 'OPT 1' /
+    'OPT 2' on a CVT10, 'OPT 1'-'OPT 4' on a CVT4K-S - the catalog's
+    linkPorts. A box that documents none keeps a neutral 'Link 1', 'Link
+    2' for its primaries (and 'Backup 1' for a backup link it could only
+    carry on a stale file)."""
     key = str(key or '')
-    word = 'Backup' if key.startswith('b') else 'Primary'
-    return f'{word} {key[1:]}'
+    backup = key.startswith('b')
+    try:
+        n = int(key[1:])
+    except ValueError:
+        return key
+    names = ((cvt_device or {}).get('linkPorts') or {}) \
+        .get('backup' if backup else 'primary') or []
+    if 1 <= n <= len(names):
+        return names[n - 1]
+    return f'{"Backup" if backup else "Link"} {n}'
+
+
+# Copper on a box link (2026-09-25, owner: "anything that does 10Gbps max
+# length is allowed. Cat 6A and under"): offered only on a box whose
+# catalog entry says copperLinks - the Tessera XD, whose X1 and X2 each
+# carry an etherCON beside the opticalCON DUO (the XD-S and XD-T are fiber
+# only by their datasheets). Each kind with its 10G maximum in feet:
+# Cat6A 60 m and Cat5e 30 m are Brompton's, Cat6 100 ft is the owner's.
+COPPER_LINK_KINDS = (('Cat6A', 196), ('Cat6', 100), ('Cat5e', 98))
+
+
+def copper_link_max_ft(kind):
+    return dict(COPPER_LINK_KINDS).get(kind)
+
+
+def copper_links():
+    return [{'kind': k, 'maxFt': ft} for k, ft in COPPER_LINK_KINDS]
 
 
 def fiber_strand_name(n, cable=None):
@@ -1438,9 +1531,18 @@ def fiber_cable_type_text(cable):
 
 
 def _fiber_link(raw):
-    """One stored link, shaped: {cable, strands: [int, ...]}, else None."""
+    """One stored link, shaped: {cable, strands: [int, ...]} - or a copper
+    link, {copper: 'Cat6A', ft?} - else None."""
     if not isinstance(raw, dict):
         return None
+    if 'copper' in raw:
+        if raw.get('copper') not in dict(COPPER_LINK_KINDS):
+            return None
+        link = {'copper': raw['copper']}
+        ft = _cable_ft(raw.get('ft'))
+        if ft is not None:
+            link['ft'] = ft
+        return link
     cable = raw.get('cable')
     strands = raw.get('strands')
     if not isinstance(cable, str) or not cable or not isinstance(strands,
@@ -1517,73 +1619,82 @@ def fiber_box_title(entry):
         or res.get('deviceName') or res.get('id') or 'a box'
 
 
-def _apply_fiber_binding(processors, resolved):
-    """Bind each backup record to the box it physically IS, tree-wide.
+def box_backup_ports(cvt_device):
+    """The backup inputs a box's catalog entry documents - ['X2'] on a
+    Tessera XD, ['OPT 2'] on a CVT10, ['OPT 3', 'OPT 4'] on a CVT4K-S - or
+    [] where none is documented (the CVT8-5G, the QD-S, every Megapixel
+    box): the backup processor feeds such a box's own twin instead."""
+    return list(((cvt_device or {}).get('linkPorts') or {}).get('backup')
+                or [])
 
-    - Same processor, automatic: a box that backs up another on its card
-      (`backupOf` - NovaStar's copy/backup pair, or Brompton's adjacent
-      pairing, "an SX40's backup XD on the next trunk is the SAME XD taking
-      a second fiber") is bound to it, unless its record says `unbound`.
-    - Backup processor, by hand: a box on a card that backs up another
-      processor's card (backupFor) carries `boundTo` - one of that
-      processor's boxes, picked on its Fiber section - honoured only while
-      that relation stands.
 
-    A primary takes one bound backup (the first claim in tree order) and a
-    bound backup is nobody's primary. The bound record reads `boundTo` and
-    carries no links of its own; its primary reads `boundBackup` and gains
-    the backup link keys b1..bK.
+def backup_unit_name(proc):
+    """The backup unit's name: the one typed on it, else "<main> BU" - the
+    main's name, or its model where nobody named it."""
+    unit = (proc or {}).get('backupUnit')
+    typed = (unit.get('name') or '').strip() \
+        if isinstance(unit, dict) and isinstance(unit.get('name'), str) \
+        else ''
+    if typed:
+        return typed
+    main = ((proc or {}).get('name') or '').strip() \
+        or (get_device((proc or {}).get('deviceId')) or {}).get('name') \
+        or (proc or {}).get('id') or 'Processor'
+    return f'{main} BU'
+
+
+def _apply_backup_unit(processors, resolved):
+    """Fill in each main's BACKUP UNIT on the resolved view.
+
+    The owner (2026-09-25): "when we add backup processor it's just an
+    option on the primary and then we are capable of naming but everything
+    else is automatic". A backup unit is stored as nothing but its name
+    (proc['backupUnit'] = {name}); it IS the main again - the same model,
+    the same cards in the same slots, the same in-unit loops, each output
+    backing up the main's same output - so it is derived here and never
+    kept in step by hand. Its outputs land on the SAME boxes as the main's,
+    on each box's documented backup input: every main box whose model
+    names one (box_backup_ports - an XD's X2, a CVT10's OPT 2, a CVT4K-S's
+    OPT 3 and 4) gains the backup link keys b1..bK, each taking its own
+    fiber or copper. Every other box - a HELIOS's RS12 switch, an
+    undocumented box - is not fed that way: the backup unit has its OWN
+    twin of it (Megapixel: a backup HELIOS keeps its own switches), listed
+    here as `boxes` so the paperwork counts it.
+
+    Loops inside one unit - a NovaStar backupOf box, an SX40's XD B - are
+    never folded into their near box: a loop's far box is its OWN box with
+    its own links (the 1.4.0 beta did; the owner, after Brompton's manual:
+    XD B "is its OWN box").
     """
-    boxes = fiber_box_index(processors, resolved)
-    backs = {}
+    raw_by_id = {p.get('id'): p for p in processors or []
+                 if isinstance(p, dict)}
     for rproc in resolved or []:
+        raw = raw_by_id.get(rproc.get('id')) or {}
+        if not isinstance(raw.get('backupUnit'), dict):
+            continue
+        twins = []
         for slot in rproc.get('slots') or []:
-            card = (slot or {}).get('card')
-            if card and card.get('backupFor'):
-                backs[card['id']] = card['backupFor'].get('processorId')
-    wants = {}
-    for bid, entry in boxes.items():
-        raw, res = entry['raw'], entry['res']
-        if res.get('backupOf'):
-            if not raw.get('unbound') and res['backupOf'] in boxes \
-                    and res['backupOf'] != bid:
-                wants[bid] = (res['backupOf'], False)
-            continue
-        target = raw.get('boundTo')
-        main_proc = backs.get(entry['cardId'])
-        if isinstance(target, str) and target in boxes \
-                and boxes[target]['cardId'] != entry['cardId'] \
-                and main_proc and boxes[target]['procId'] == main_proc:
-            wants[bid] = (target, True)
-    claimed = {}
-    for bid, (target, manual) in wants.items():
-        if target in wants or target in claimed:
-            continue
-        claimed[target] = bid
-        res, tres = boxes[bid]['res'], boxes[target]['res']
-        res['boundTo'] = target
-        res['boundManual'] = manual
-        res['boundTitle'] = fiber_box_title(boxes[target])
-        res['fiberLinks'] = {}
-        res['fiberLinkKeys'] = []
-        tres['boundBackup'] = bid
-        tres['boundBackupTitle'] = fiber_box_title(boxes[bid])
-        tres['fiberLinkKeys'] = fiber_link_keys(tres.get('trunksIn'), True)
-    # The boxes a backup-processor box may be bound to by hand: the backed
-    # processor's boxes (off its own card) that are neither bound nor
-    # already someone else's.
-    for bid, entry in boxes.items():
-        res = entry['res']
-        main_proc = backs.get(entry['cardId'])
-        if res.get('backupOf') or not main_proc:
-            res['fiberBindTargets'] = None
-            continue
-        res['fiberBindTargets'] = [
-            {'id': tid, 'title': fiber_box_title(t)}
-            for tid, t in boxes.items()
-            if t['procId'] == main_proc and t['cardId'] != entry['cardId']
-            and not t['res'].get('boundTo')
-            and t['res'].get('boundBackup') in (None, bid)]
+            card = slot.get('card')
+            for box in (card or {}).get('cvts') or []:
+                device = get_device(box.get('deviceId'))
+                if box_backup_ports(device):
+                    box['backupInputs'] = True
+                    box['fiberLinkKeys'] = fiber_link_keys(box.get('trunksIn'),
+                                                           True)
+                    continue
+                twins.append({'mirrorOf': box['id'],
+                              'deviceId': box.get('deviceId'),
+                              'deviceName': box.get('deviceName'),
+                              'displayTitle': box.get('displayTitle'),
+                              'trunkTitle': box.get('trunkTitle') or '',
+                              'portCount': box.get('portCount'),
+                              'cardId': (card or {}).get('id')})
+        rproc['backupUnit'] = {'name': backup_unit_name(raw),
+                               'typedName': (raw['backupUnit'].get('name')
+                                             or '').strip()
+                               if isinstance(raw['backupUnit'].get('name'),
+                                             str) else '',
+                               'boxes': twins}
 
 
 def fiber_cables_in_use(project):
@@ -1594,22 +1705,20 @@ def fiber_cables_in_use(project):
             card = (slot or {}).get('card')
             for cvt in (card or {}).get('cvts') or []:
                 for link in resolved_fiber_links(cvt).values():
-                    used.add(link['cable'])
+                    if link.get('cable'):
+                        used.add(link['cable'])
     return used
 
 
 def fiber_strands_taken(boxes, skip=None):
     """{(cableId, strand): (boxId, key)} over the show's links, one link
-    (`skip` = (boxId, key)) left out. A bound record's own leftovers are
-    not links and take nothing."""
+    (`skip` = (boxId, key)) left out."""
     taken = {}
     for bid, entry in sorted(boxes.items(), key=lambda kv: kv[1]['order']):
-        if entry['res'].get('boundTo'):
-            continue
         for key, link in resolved_fiber_links(entry['raw']).items():
             if skip and (bid, key) == tuple(skip):
                 continue
-            for s in link['strands']:
+            for s in link.get('strands') or []:
                 taken.setdefault((link['cable'], s), (bid, key))
     return taken
 
@@ -1638,12 +1747,10 @@ def check_fiber_link(boxes, cables, box_id, key, cable_id, strands,
         return 'There is no such breakout box in this project.'
     res, raw = entry['res'], entry['raw']
     title = fiber_box_title(entry)
-    if res.get('boundTo'):
-        return (f'{title} is bound to {res.get("boundTitle") or "its primary"}'
-                f' - its fiber is set there.')
+    device = get_device(res.get('deviceId'))
     if key not in (res.get('fiberLinkKeys') or []):
-        return (f'{title} has no link {fiber_link_title(key)} - its links '
-                f'are {", ".join(fiber_link_title(k) for k in res.get("fiberLinkKeys") or [])}.')
+        return (f'{title} has no link {fiber_link_title(key, device)} - its '
+                f'links are {", ".join(fiber_link_title(k, device) for k in res.get("fiberLinkKeys") or [])}.')
     cable = cables.get(cable_id)
     if cable is None:
         return 'That fiber cable is not in this project.'
@@ -1662,7 +1769,7 @@ def check_fiber_link(boxes, cables, box_id, key, cable_id, strands,
         return 'strands must be a list of strand numbers.'
     if len(strands) != need:
         why = 'a BiDi link takes 1' if need == 1 else 'a link takes 2'
-        return (f'{title} {fiber_link_title(key)} needs {need} '
+        return (f'{title} {fiber_link_title(key, device)} needs {need} '
                 f'strand{"" if need == 1 else "s"} - {why}.')
     if len(set(strands)) != len(strands):
         return 'A strand is named twice.'
@@ -1677,10 +1784,12 @@ def check_fiber_link(boxes, cables, box_id, key, cable_id, strands,
         held = taken.get((cable_id, s))
         if held:
             other = boxes.get(held[0])
+            other_device = get_device(((other or {}).get('res') or {})
+                                      .get('deviceId'))
             return (f'{name} strand {fiber_strand_name(s, cable)} is already '
                     f'used by {fiber_box_title(other)} '
-                    f'{fiber_link_title(held[1])} - a strand carries one '
-                    f'link.')
+                    f'{fiber_link_title(held[1], other_device)} - a strand '
+                    f'carries one link.')
     return None
 
 
@@ -1688,13 +1797,15 @@ def settle_fiber(project, used_before=None):
     """Hold the fiber store to its rules against the tree as it now is.
 
     Idempotent, and a project with no fiber anywhere is left untouched:
-    - binding records a relation no longer backs go (`boundTo` whose
-      backup relation or primary is gone, `unbound` on a box that backs
-      up nothing);
-    - a link that no longer holds (a bound record's own, a key the box no
-      longer has, a cable that is gone, an opticalCON on another box, a
-      strand out of range or held twice, a count its BiDi no longer takes)
-      goes - the first holder in tree order keeps a contested strand;
+    - the 1.4.0 beta's binding records go (`boundTo` and `unbound` on a
+      box: a loop's far box is never bound now, and a backup unit's feed
+      is the main box's own backup link - migrate_backup_processors has
+      already moved what they carried);
+    - a link that no longer holds (a key the box no longer has - a backup
+      link whose backup unit was switched off among them - a cable that is gone, an opticalCON on another box, a
+      strand out of range or held twice, a count its BiDi no longer takes,
+      copper on a box that takes none) goes - the first holder in tree
+      order keeps a contested strand;
     - an opticalCON whose owner box is gone goes;
     - a cable that a link named before this request (`used_before`) and
       none names now goes - the last link let go of it.
@@ -1719,15 +1830,11 @@ def settle_fiber(project, used_before=None):
     boxes = fiber_box_index(processors)
     changed = False
     for entry in boxes.values():
-        raw, res = entry['raw'], entry['res']
-        if 'boundTo' in raw and (not res.get('boundManual')
-                                 or res.get('boundTo') != raw['boundTo']):
-            raw.pop('boundTo', None)
-            changed = True
-        if 'unbound' in raw and (not raw.get('unbound')
-                                 or not res.get('backupOf')):
-            raw.pop('unbound', None)
-            changed = True
+        raw = entry['raw']
+        for key in ('boundTo', 'unbound'):
+            if key in raw:
+                raw.pop(key, None)
+                changed = True
     cables = {c.get('id'): c for c in show_fiber_cables(project)
               if isinstance(c, dict)}
     taken = set()
@@ -1735,7 +1842,7 @@ def settle_fiber(project, used_before=None):
         raw, res = entry['raw'], entry['res']
         if 'fiberLinks' not in raw:
             continue
-        keys = [] if res.get('boundTo') else (res.get('fiberLinkKeys') or [])
+        keys = res.get('fiberLinkKeys') or []
         need = fiber_link_need(raw)
         kept = {}
         links = raw.get('fiberLinks') if isinstance(raw.get('fiberLinks'),
@@ -1743,6 +1850,10 @@ def settle_fiber(project, used_before=None):
         for key in keys:
             link = _fiber_link(links.get(key))
             if not link:
+                continue
+            if 'copper' in link:
+                if res.get('copperLinks'):
+                    kept[key] = link
                 continue
             cable = cables.get(link['cable'])
             if cable is None:
@@ -1913,11 +2024,14 @@ def refit_fiber_bidi(boxes, cables, box_id, on):
     cleared = []
     if on:
         for link in links.values():
-            link['strands'] = link['strands'][:1]
+            if 'strands' in link:
+                link['strands'] = link['strands'][:1]
     else:
         taken = fiber_strands_taken(boxes)
         for key in list(links):
             link = links[key]
+            if 'copper' in link:
+                continue
             cable = cables.get(link['cable'])
             first = link['strands'][0] if link['strands'] else None
             nxt = first + 1 if first else None
@@ -1959,6 +2073,248 @@ def resolved_fiber_cables(project):
         out.append(rec)
     return out
 
+
+
+# ── Backup processors: the load migration and the follow ─────────────────
+
+def migrate_backup_processors(project):
+    """The 2026-09-25 migration, run on the load funnels. Idempotent, and a
+    project with no processors is left untouched. Returns True where
+    anything moved.
+
+    1. A chassis mirrored card for card by ONE other unit of the same model
+       - what the bar used to derive as "Whole unit" - becomes that main's
+       backup unit (backupUnit, named as the partner was), the partner's
+       record goes, and the partner's boxes' fiber moves onto the main's
+       matching boxes' backup links. Only where that converts CLEANLY
+       (_whole_unit_partner says what that takes); anything else is left
+       exactly as it is. A 1:1 pairing inside one chassis is in-unit
+       redundancy and stays. Only a file from before the option converts:
+       a processor this build made or has loaded carries pairingsPerCard,
+       and its pairings are per card by choice.
+    2. The 1.4.0 beta bound a loop's far box to its near box and kept its
+       fiber there, as the near box's backup links. A loop's far box is its
+       OWN box now, so each such link moves to the far box's own link of the
+       same number, keeping its cable and strands - USR A's b1 becomes USR
+       B's p1 - where that link is empty, and is dropped where it is not. A
+       box a backup unit feeds keeps its backup links: those are its X2.
+    """
+    if not isinstance(project, dict) or not project.get('processors'):
+        return False
+    changed = _adopt_whole_unit_pairings(project)
+    # Every processor is now of this build's model: from here on a card
+    # paired onto another unit's card is a per-card pairing somebody made,
+    # and nothing converts it - not the next undo, not the next load.
+    for proc in project.get('processors') or []:
+        if isinstance(proc, dict) and not proc.get('pairingsPerCard'):
+            proc['pairingsPerCard'] = True
+            changed = True
+    if _move_beta_loop_links(project):
+        changed = True
+    return changed
+
+
+def _slot_cards(proc):
+    for slot in (proc or {}).get('slots') or []:
+        if (slot or {}).get('card'):
+            yield slot, slot['card']
+
+
+def _adopt_whole_unit_pairings(project):
+    changed = False
+    while True:
+        found = _whole_unit_partner(project)
+        if not found:
+            return changed
+        main, partner, moves = found
+        name = (partner.get('name') or '').strip()
+        main['backupUnit'] = {'name': name}
+        main['redundancy'] = False
+        for _slot, card in _slot_cards(main):
+            card.pop('backupCardId', None)
+        for box, key, link in moves:
+            box.setdefault('fiberLinks', {})[key] = link
+        project['processors'] = [p for p in project['processors']
+                                 if p is not partner]
+        changed = True
+
+
+def _whole_unit_partner(project):
+    """The first (main, partner, fiber moves) whose old whole-unit pairing
+    converts cleanly into a backup unit, else None.
+
+    Clean means nothing of the partner is lost or left dangling: it is the
+    same catalog device as the main, its cards the same cards in the same
+    modes slot for slot, each backing the main's card in its slot 1:1 (the
+    old derivation), and it is nobody's main and backs nothing else. It
+    carries nothing of its own the backup unit cannot say - no typed port
+    names or templates, no port cables, no pins, no snake members, no
+    beach or location - and its boxes are the main's again, trunk for
+    trunk and model for model, each link it holds landing on the main
+    box's free backup input."""
+    processors = project.get('processors') or []
+    owner = {}
+    for proc in processors:
+        for _slot, card in _slot_cards(proc):
+            owner[card.get('id')] = proc
+    pinned = _pinned_card_ids(project)
+    snaked = {m.get('id') for s in show_snakes(project)
+              for m in (s.get('members') or []) if isinstance(m, dict)}
+    resolved = {p['id']: p for p in resolve_all(processors)}
+    for main in processors:
+        if main.get('backupUnit') or not main.get('redundancy') \
+                or main.get('pairingsPerCard') or not unit_is_chassis(main):
+            continue
+        cards = list(_slot_cards(main))
+        targets = [card.get('backupCardId') for _s, card in cards]
+        if not cards or not all(targets) or any(
+                card.get('redundancyMode') not in (None, '', '1to1')
+                for _s, card in cards):
+            continue
+        partner = owner.get(targets[0])
+        if partner is None or partner is main \
+                or partner.get('deviceId') != main.get('deviceId') \
+                or partner.get('backupUnit'):
+            continue
+        theirs = list(_slot_cards(partner))
+        if [c.get('id') for _s, c in theirs] != targets \
+                or [s.get('index') for s, _c in theirs] \
+                != [s.get('index') for s, _c in cards]:
+            continue
+        if any((a.get('deviceId'), a.get('mode')) != (b.get('deviceId'),
+                                                      b.get('mode'))
+               for (_s, a), (_t, b) in zip(cards, theirs)):
+            continue
+        # nobody else points into the partner, and it points nowhere
+        partner_cards = {c.get('id') for _s, c in theirs}
+        if any(c.get('backupCardId') in partner_cards
+               or any((v or {}).get('cardId') in partner_cards
+                      for v in (c.get('backupPorts') or {}).values())
+               for p in processors if p is not main
+               for _s, c in _slot_cards(p)):
+            continue
+        if any(c.get(k) for _s, c in theirs
+               for k in ('backupCardId', 'backupPorts', 'portNames',
+                         'returnPortNames', 'portLabelTemplate',
+                         'returnLabelTemplate', 'portCables', 'snakes')):
+            continue
+        if partner_cards & pinned or partner_cards & snaked:
+            continue
+        moves = _partner_box_moves(main, partner, resolved, snaked)
+        if moves is None:
+            continue
+        return main, partner, moves
+    return None
+
+
+def _pinned_card_ids(project):
+    """Every card id a screen's port is pinned to."""
+    out = set()
+
+    def walk(node):
+        if isinstance(node, dict):
+            if isinstance(node.get('cardId'), str):
+                out.add(node['cardId'])
+            for v in node.values():
+                walk(v)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v)
+    walk(project.get('port_assignments'))
+    return out
+
+
+def _partner_box_moves(main, partner, resolved, snaked):
+    """[(main box raw, backup key, link)] for the partner's boxes' fiber, or
+    None where a box does not convert cleanly."""
+    rmain, rpart = resolved.get(main.get('id')), resolved.get(partner.get('id'))
+    if not rmain or not rpart:
+        return None
+    raw_main = {c.get('id'): c for _s, card in _slot_cards(main)
+                for c in card.get('cvts') or []}
+    raw_part = {c.get('id'): c for _s, card in _slot_cards(partner)
+                for c in card.get('cvts') or []}
+    mcards = {s.get('index'): s.get('card') for s in rmain.get('slots') or []}
+    moves = []
+    for slot in rpart.get('slots') or []:
+        pcard, mcard = slot.get('card'), mcards.get(slot.get('index'))
+        if not pcard:
+            continue
+        pboxes = pcard.get('cvts') or []
+        mboxes = mcard.get('cvts') or []
+        mine = {(b.get('trunkIndex'), b.get('deviceId')): b for b in mboxes}
+        if len(pboxes) != len(mboxes) or len(mine) != len(mboxes):
+            return None
+        for pbox in pboxes:
+            mbox = mine.get((pbox.get('trunkIndex'), pbox.get('deviceId')))
+            praw = raw_part.get(pbox.get('id')) or {}
+            if mbox is None or pbox.get('id') in snaked or any(
+                    praw.get(k) for k in ('portCables', 'snakes', 'location',
+                                          'beachId', 'portLabelTemplate',
+                                          'returnLabelTemplate', 'fiberType',
+                                          'fiberFt')):
+                return None
+            links = resolved_fiber_links(praw)
+            if not links:
+                continue
+            if not box_backup_ports(get_device(mbox.get('deviceId'))):
+                return None
+            mraw = raw_main.get(mbox.get('id')) or {}
+            have = resolved_fiber_links(mraw)
+            for key, link in links.items():
+                target = 'b' + key[1:] if key.startswith('p') else None
+                if target is None or target in have:
+                    return None
+                moves.append((mraw, target, link))
+    return moves
+
+
+def _move_beta_loop_links(project):
+    processors = project.get('processors') or []
+    carrying = any(
+        isinstance(cvt.get('fiberLinks'), dict)
+        and any(str(k).startswith('b') for k in cvt['fiberLinks'])
+        for proc in processors for _slot, card in _slot_cards(proc)
+        for cvt in card.get('cvts') or [])
+    if not carrying:
+        return False
+    boxes = fiber_box_index(processors)
+    ordered = sorted(boxes.items(), key=lambda kv: kv[1]['order'])
+    far_of = {}
+    for bid, entry in ordered:
+        near = entry['res'].get('backupOf')
+        if near in boxes and near != bid and near not in far_of \
+                and boxes[near]['cardId'] == entry['cardId']:
+            far_of[near] = bid
+    changed = False
+    for bid, entry in ordered:
+        raw, res = entry['raw'], entry['res']
+        links = raw.get('fiberLinks')
+        if not isinstance(links, dict):
+            continue
+        keys = sorted(k for k in links if str(k).startswith('b')
+                      and k not in (res.get('fiberLinkKeys') or []))
+        if not keys:
+            continue
+        far = boxes.get(far_of.get(bid))
+        if far is not None and far['raw'].get('unbound'):
+            far = None
+        for key in keys:
+            link = links.pop(key)
+            changed = True
+            own = 'p' + str(key)[1:]
+            if far is None or own not in (far['res'].get('fiberLinkKeys')
+                                          or []):
+                continue
+            theirs = far['raw'].get('fiberLinks')
+            if isinstance(theirs, dict) and _fiber_link(theirs.get(own)):
+                continue
+            if not isinstance(theirs, dict):
+                theirs = far['raw']['fiberLinks'] = {}
+            theirs[own] = link
+        if not links:
+            raw.pop('fiberLinks', None)
+    return changed
 
 
 def stock_default_cvts(project):
@@ -2217,6 +2573,20 @@ def _fiber_ft(value):
     return int(ft) if ft == int(ft) else ft
 
 
+def _usable_ports(shape, ceiling, device):
+    """What a redundancy shape leaves usable on a card of `ceiling` ports:
+    half under sequential and halves - and, on a trunk-paired unit running
+    only some of its loops, the ceiling less one trunk's block per loop
+    (A to B alone on an SX40 leaves 30 of 40)."""
+    if not ceiling or shape['mode'] not in ('sequential', 'halves'):
+        return ceiling
+    per_trunk = (device or {}).get('portsPerTrunk')
+    if shape.get('level') == 'trunk' and per_trunk \
+            and shape.get('pairs') is not None:
+        return max(0, ceiling - per_trunk * len(shape['pairs']))
+    return ceiling - ceiling // 2
+
+
 def resolve_card(card, proc):
     """Expand one card into its ports, with the label each port carries."""
     device = get_device(card.get('deviceId')) or {}
@@ -2403,19 +2773,21 @@ def resolve_card(card, proc):
             # show cable and which strands each of its trunk links takes.
             # `bidi` halves a link to one strand, and is only offered where
             # the catalog's vendor makes BiDi optics (bidiAllowed). The
-            # binding fields - boundTo on a backup record that IS its
-            # primary's metal, boundBackup on that primary, and the backup
-            # link keys that come with it - are filled in by resolve_all
-            # (_apply_fiber_binding), because a backup processor's box can
-            # be bound to a box on another processor.
+            # backup link keys a backup unit adds are filled in by
+            # resolve_all (_apply_backup_unit).
             'fiberLinks': resolved_fiber_links(cvt),
             'fiberLinkKeys': fiber_link_keys(takes, False),
+            # Each link by the box's own port name (X1 / X2, OPT 1-4, else
+            # Link 1..) - every key the box could carry, backups included.
+            'linkTitles': {k: fiber_link_title(k, cvt_device)
+                           for k in fiber_link_keys(takes, True)},
+            # Whether a link may be copper instead of fiber (the XD).
+            'copperLinks': bool(cvt_device.get('copperLinks')),
             'bidi': bool(cvt.get('bidi')),
             'bidiAllowed': fiber_bidi_allowed(cvt_device),
-            'unbound': bool(cvt.get('unbound')),
-            'boundTo': None,
-            'boundManual': False,
-            'boundBackup': None,
+            # Whether the main's backup unit feeds this box on its backup
+            # input (_apply_backup_unit) - the rows X2, OPT 2, OPT 3-4.
+            'backupInputs': False,
             'ports': [],
         }
         # The box's port cables ride the resolved box, with the connector
@@ -2437,12 +2809,16 @@ def resolve_card(card, proc):
     # panel's "backs up A" line reads off one field either way; derived here
     # every resolve and stored nowhere, because a fact of the device is not
     # project state.
+    # Only the loops the unit runs pair (shape['pairs'] - "A to B or C to
+    # D"): a trunk outside them is a primary with its own box.
     if paired:
+        loops = set(shape.get('pairs') or [])
         on_trunk = {c['trunkIndex']: c for c in cvts
                     if c['trunksIn'] == 1 and not c['beyondTrunks']}
         for index, box in on_trunk.items():
             primary = on_trunk.get(index - 1)
-            if index % 2 == 1 and primary and not box['backupOf']:
+            if index % 2 == 1 and (index - 1) in loops and primary \
+                    and not box['backupOf']:
                 box['backupOf'] = primary['id']
 
     # WHAT A MESSAGE CALLS EACH BOX, stated once for every reader. Since the
@@ -2709,8 +3085,9 @@ def resolve_card(card, proc):
         # The vendor's fixed backup pairing, where one is documented and
         # redundancy is on - derived every resolve, stored nowhere, because a
         # fact is not project state and must not become editable by accident.
-        'redundancyPairing': redundancy_pairing(device,
-                                                proc.get('redundancy')),
+        'redundancyPairing': redundancy_pairing(
+            device, proc.get('redundancy'),
+            proc_redundancy_pairs(proc, device)),
         # The data-redundancy shape in force, with what it leaves usable.
         # Derived every resolve like the pairing above it; the STORED pieces
         # (redundancyMode, backupCardId, backupPorts) echo back beside it so
@@ -2725,10 +3102,8 @@ def resolve_card(card, proc):
         # the card instead of the evens. 1to1 and manual leave usable at
         # the ceiling: what they consume is a backup unit, or exactly the
         # ports picked.
-        'redundancyShape': dict(shape, usable=(
-            ceiling - ceiling // 2
-            if (ceiling and shape['mode'] in ('sequential', 'halves'))
-            else ceiling)) if shape else None,
+        'redundancyShape': dict(shape, usable=_usable_ports(
+            shape, ceiling, device)) if shape else None,
         'redundancyMode': card.get('redundancyMode') or '',
         'backupCardId': card.get('backupCardId') or None,
         'backupPorts': {str(k): v for k, v in
@@ -2811,14 +3186,23 @@ def resolve_processor(proc):
         # backs which, where the vendor fixes it. A fact the panel displays,
         # never a control - Brompton pairs adjacent outputs automatically and
         # offers no other arrangement.
-        'redundancyPairing': redundancy_pairing(device, proc.get('redundancy')),
-        # The processor that mirrors this one whole, card for card - filled
-        # in by resolve_all once every card's 1:1 link has resolved, because
-        # the partner is another processor and one cannot see that far from
-        # here. DERIVED, never stored: a whole-processor pairing IS its
-        # cards' 1:1 picks, and a second copy of that fact would be one
-        # more thing to drift.
-        'backupProcessorId': None,
+        'redundancyPairing': redundancy_pairing(
+            device, proc.get('redundancy'),
+            proc_redundancy_pairs(proc, device)),
+        # The loops a trunk-paired unit runs ("A to B or C to D"), by their
+        # leading letter, and every loop it could run - None / [] on a unit
+        # with no lettered trunk pairs (everything but the SX40).
+        'redundancyPairs': proc_redundancy_pairs(proc, device)
+        if proc.get('redundancy') else [],
+        'redundancyPairMarks': trunk_pair_marks(device),
+        # The BACKUP PROCESSOR (2026-09-25): an option ON this unit - "when
+        # we add backup processor it's just an option on the primary and
+        # then we are capable of naming but everything else is automatic".
+        # Stored as proc['backupUnit'] = {name}; everything else is the
+        # main's (resolve_all's _apply_backup_unit fills this in).
+        # Independent of the in-unit redundancy above - the owner's "full
+        # redundancy" is both.
+        'backupUnit': None,
         'requiresDistribution': bool(device.get('requiresDistribution')),
         'ceiling': ceiling,
         'ceilingKnown': known,
@@ -2887,6 +3271,20 @@ def _apply_backup_mapping(processors, resolved):
                      for c in res_cards[cid][0].get('cvts') or []
                      if c['id'] == port['cvtId']), None)
 
+    def backs_up(main_id, n):
+        """What a port backing main socket `n` of `main_id` says it backs."""
+        mcard, mproc = res_cards[main_id]
+        mport = ports_of[main_id][n]
+        return {
+            'processorId': mproc['id'],
+            'processorName': mproc['name'] or mproc['deviceName'],
+            'cardId': mcard['id'],
+            'cardTitle': card_display_name(mcard, mproc),
+            'boxTitle': box_title(main_id, mport),
+            'port': n, 'localPort': mport['localNumber'],
+            'label': mport['label'],
+        }
+
     def link(main_id, n, target_id, t):
         mcard, mproc = res_cards[main_id]
         tcard, tproc = res_cards[target_id]
@@ -2911,15 +3309,7 @@ def _apply_backup_mapping(processors, resolved):
             'port': t, 'localPort': tport['localNumber'],
             'label': tport['label'],
         }
-        tport['backsUp'] = {
-            'processorId': mproc['id'],
-            'processorName': mproc['name'] or mproc['deviceName'],
-            'cardId': mcard['id'],
-            'cardTitle': card_display_name(mcard, mproc),
-            'boxTitle': box_title(main_id, mport),
-            'port': n, 'localPort': mport['localNumber'],
-            'label': mport['label'],
-        }
+        tport['backsUp'] = backs_up(main_id, n)
         if mport.get('returnDerived') and tport['label']:
             mport['returnLabel'] = tport['label']
             mport['returnLabelSource'] = 'backup'
@@ -2968,11 +3358,15 @@ def _apply_backup_mapping(processors, resolved):
             # in ROLE, never in numbering - the mains are the even blocks
             # (sockets 1-10, 21-30) and each returns on the same socket of
             # the block beside it (11-20, 31-40). "10 per box", per the
-            # 2026-08-25 ruling.
+            # 2026-08-25 ruling. Only the loops the unit runs map
+            # (shape['pairs'], "A to B or C to D"): an unpaired block is a
+            # plain primary.
             per_trunk = res_cards[cid][0].get('portsPerTrunk')
+            loops = set(shape.get('pairs') or [])
             if per_trunk:
                 for n in sorted(ports_of[cid]):
-                    if ((n - 1) // per_trunk) % 2 == 0 \
+                    block = (n - 1) // per_trunk
+                    if block % 2 == 0 and block in loops \
                             and (n + per_trunk) in ports_of[cid]:
                         link(cid, n, cid, n + per_trunk)
         elif shape['mode'] == 'halves':
@@ -3007,46 +3401,8 @@ def _apply_backup_mapping(processors, resolved):
                 link(cid, n, target_id, t)
 
 
-def _derive_backup_processors(resolved):
-    """Name, on each main, the processor that backs it WHOLE.
-
-    The unit-level reading of the card-level facts, the same rule the
-    dock uses to nest a backup unit under its main: a processor whose
-    every card is consumed backing the cards of ONE other processor, card
-    N for card N in slot order, with no card left over on either side, is
-    that processor's backup unit. The reading drops the moment any one
-    card is repointed - a half-mirror is a per-card arrangement, and the
-    panel's level select follows this value.
-    """
-    by_id = {p['id']: p for p in resolved}
-
-    def cards_of(p):
-        return [s['card'] for s in p.get('slots') or [] if s.get('card')]
-
-    for backup in resolved:
-        cards = cards_of(backup)
-        if not cards or not all(c.get('backupFor') for c in cards):
-            continue
-        main_id = cards[0]['backupFor']['processorId']
-        if main_id == backup['id'] \
-                or any(c['backupFor']['processorId'] != main_id
-                       for c in cards):
-            continue
-        main = by_id.get(main_id)
-        if not main:
-            continue
-        main_cards = cards_of(main)
-        if len(main_cards) != len(cards):
-            continue
-        if any(bc['backupFor']['cardId'] != mc['id']
-               for mc, bc in zip(main_cards, cards)):
-            continue
-        main['backupProcessorId'] = backup['id']
-
-
 def resolve_all(processors):
     resolved = [resolve_processor(p) for p in (processors or [])]
     _apply_backup_mapping(processors, resolved)
-    _derive_backup_processors(resolved)
-    _apply_fiber_binding(processors, resolved)
+    _apply_backup_unit(processors, resolved)
     return resolved

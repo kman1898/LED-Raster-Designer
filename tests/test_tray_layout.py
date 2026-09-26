@@ -93,8 +93,8 @@ SEED_JS = """async () => {
     const imagA = await chassis('IMAG A', false);
     const imagB = await chassis('IMAG B', false);
     await j('PUT', `/api/processors/${imagA.id}`, {redundancy: true});
-    await j('PUT', `/api/processors/${imagA.id}`,
-            {backupProcessorId: imagB.id});
+    await j('PUT', `/api/processors/${imagA.id}/cards/${imagA.cardId}`,
+            {backupCardId: imagB.cardId});
     const app = window.app;
     const p0 = await j('GET', '/api/project');
     for (const l of p0.layers) {
@@ -642,10 +642,10 @@ def test_the_data_tray_holds_still_through_every_interaction(tray):
     audit(page, 'redundancy mode → 1to1', f'card-{imag}',
           lambda: mode('1to1'), 1100, regroups=True)
     # and the pair is whole again, in one cell, exactly as it started
-    page.evaluate("""([pid, bid]) => window.app._processorRequest(
-        `/api/processors/${pid}`, 'PUT',
-        {backupProcessorId: bid}, 'Set Backup Processor')""",
-                  [ids['imagAId'], ids['imagBId']])
+    page.evaluate("""([pid, cid, bid]) => window.app._processorRequest(
+        `/api/processors/${pid}/cards/${cid}`, 'PUT',
+        {backupCardId: bid}, 'Change Backup Unit')""",
+                  [ids['imagAId'], imag, ids['imagBCard']])
     page.wait_for_timeout(1100)
     shot = page.evaluate(CELLS_JS)
     assert len(shot['cells']) == 2, [c['own'] for c in shot['cells']]

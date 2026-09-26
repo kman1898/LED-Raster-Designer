@@ -343,7 +343,7 @@ def test_the_box_sheet_opens_on_its_fiber_section_with_the_typed_note_read_only(
     assert out['caption'] == 'Fiber · CVT10 A', out['caption']
     assert out['note'] == "12 Tac Fiber 250'" and out['clear'], out
     assert out['typed'] == 0, out
-    assert out['rows'] == ['Primary 1'], out
+    assert out['rows'] == ['OPT 1'], out
     # the sheet's first block, then the quick fills, then the port table
     assert out['order'][:3] == ['hw-dock-cable-fiber', 'hw-dock-cable-quick', ''], out['order']
     assert out['fills'] == 0, out
@@ -449,7 +449,8 @@ def test_the_pull_list_lists_the_boxs_fiber_once_and_nothing_is_unmodelled(page)
     assert out['unmodelled'] == []
     # the box's own gear row (2026-09-07) rides the processor's list too
     assert out['hardware'] == [[['12 Tac Fiber', "250'", 1, 'CVT10 A', '', 'data'],
-                                ['CVT10', 'EA', 1, 'A', '', 'data']]], out['hardware']
+                                ['CVT10', 'EA', 1, 'A', '', 'data'],
+                                ['H9', 'EA', 1, '', '', 'data']]], out['hardware']
     assert out['ports'] == [[n, 'CVT10 A'] for n in range(1, 7)], out['ports']
     pg.evaluate("""async (ids) => {
         await fetch(`/api/processors/${ids.procId}/cvts/${ids.boxId}`, {method: 'PUT',

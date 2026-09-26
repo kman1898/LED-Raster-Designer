@@ -247,7 +247,9 @@
         var b = box(), a = A();
         var l = b && b.fiberLinks && b.fiberLinks.p1;
         var c = l && a.getFiberCable ? a.getFiberCable(l.cable) : null;
-        return c ? { link: l, cable: c } : null;
+        // The link by the box's own port name - "OPT 1" on a CVT10.
+        var title = a.fiberLinkTitle ? a.fiberLinkTitle('p1', b) : 'OPT 1';
+        return c ? { link: l, cable: c, title: title } : null;
     }
     function boxStrandsText(bl) {
         var a = A();
@@ -2762,6 +2764,33 @@
             },
             after: function () { closePopover(); }
         },
+        // The backup processor (2026-09-25): an option ON the unit, named
+        // and otherwise automatic - no second unit is added to the tray.
+        backupProcessor: {
+            target: function () { var p = proc(); return p ? '[data-hwpop="proc-' + p.id + '"]' : '#hardware-dock-body .hw-dock-gear'; },
+            place: 'top', title: 'A backup processor',
+            body: 'Under REDUNDANCY, switch BACKUP PROCESSOR on: a second unit of this model mirrors this one on the boxes&rsquo; backup inputs. Name it here; everything else follows the main.',
+            before: function () { switchView('data-flow'); },
+            act: function (t) {
+                var p = proc();
+                return t.click('[data-hwpop="proc-' + p.id + '"]').then(function () {
+                    return t.wait(function () { var pop = $('#hw-gear-popover'); return pop && pop.style.display === 'block' ? pop : null; });
+                }).then(function (pop) {
+                    if (!pop) throw new Error('the gear popover did not open');
+                    var seg = $('[data-lrd-field="processor-backup-' + p.id + '"] [data-level="on"]');
+                    if (!seg) throw new Error('no backup processor switch on this unit');
+                    return t.click(seg, { hover: 400, rest: 1200 });
+                }).then(function () {
+                    return t.wait(function () { var q = proc(); return q && q.backupUnit; });
+                });
+            },
+            check: function () {
+                var p = proc();
+                if (!p || !p.backupUnit) return null;
+                return p.backupUnit.name + ' backs up ' + (p.name || p.deviceName) + ' output for output; the header wears + BU.';
+            },
+            after: function () { closePopover(); }
+        },
         overrideRun: {
             target: '#main-canvas', place: 'top', title: 'Take over one run',
             body: 'Hold Alt and the run under the cursor lights up. Alt+click takes over just that port: click cabinets to redraw it, Esc when done.',
@@ -2912,7 +2941,7 @@
                 if (!bl) return null;
                 var c = bl.cable;
                 return (c.name || 'TAC A') + ' · ' + c.strands + ' strands · ' + (c.ft ? c.ft + '\' · ' : '')
-                    + (c.connector || '') + '. Primary 1 rides ' + boxStrandsText(bl) + '.';
+                    + (c.connector || '') + '. ' + bl.title + ' rides ' + boxStrandsText(bl) + '.';
             },
             after: function (next) { if (!next || !next.fiberStep) closeBoxSheet(); }
         },
@@ -2944,7 +2973,7 @@
             check: function () {
                 var bl = boxLink();
                 if (!bl || bl.link.strands.join() !== '3,4') return null;
-                return 'Primary 1 rides ' + boxStrandsText(bl) + ' of ' + (bl.cable.name || 'TAC A') + '; 1 and 2 are spare for the next box.';
+                return bl.title + ' rides ' + boxStrandsText(bl) + ' of ' + (bl.cable.name || 'TAC A') + '; 1 and 2 are spare for the next box.';
             },
             after: function () { closeBoxSheet(); }
         },
@@ -3849,7 +3878,7 @@
             seed: { name: 'New Show', layer: { panelWatts: 100, powerBreakoutType: 'soca-powercon' } },
             steps: ['introAdvanced', 'projectName', 'cabinetSize', 'gridSize', 'fit', 'blankCabinet',
                     'cabinetIdStyle', 'showLook', 'processing', 'flowPattern', 'addProcessor',
-                    'nameProcessor', 'redundancy', 'dropProcessor', 'releasePort', 'attachmentFlag', 'pinPort',
+                    'nameProcessor', 'redundancy', 'backupProcessor', 'dropProcessor', 'releasePort', 'attachmentFlag', 'pinPort',
                     'clearPortByMenu', 'clearCard', 'dropProcessorAgain',
                     'snakePorts', 'cableSheet', 'snakeHomeRun', 'loosePortLength', 'dataJumpers', 'dataCableTags',
                     'overrideRun', 'addBreakoutBox', 'boxFiber', 'fiberStrands', 'panelWatts', 'breakoutType', 'addDistro', 'nameDistro',
