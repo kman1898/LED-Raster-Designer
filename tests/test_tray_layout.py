@@ -848,6 +848,79 @@ def test_each_processor_is_one_accent_framed_panel(tray):
     assert all(set(c['border']) == {shot['accent']} for c in back['cells'])
 
 
+DISTRO_FRAMES_JS = """() => {
+    const probe = document.createElement('div');
+    probe.style.color = 'var(--ps-accent)';
+    document.body.appendChild(probe);
+    const accent = getComputedStyle(probe).color;
+    probe.remove();
+    const cols = [...document.querySelectorAll('#hardware-dock-body > .hw-dock-col')];
+    return {
+        accent,
+        cols: cols.map(c => getComputedStyle(c).borderTopStyle),
+        units: cols.flatMap(c => [...c.querySelectorAll(':scope > .hw-dock-distro')]).map(el => {
+            const cs = getComputedStyle(el);
+            const head = el.querySelector(':scope > .hw-dock-head-row');
+            const name = head.querySelector('.hw-dock-name');
+            const info = head.querySelector('.hw-dock-unit-info');
+            const gear = head.querySelector('.hw-dock-gear');
+            const r = el.getBoundingClientRect();
+            const g = gear.getBoundingClientRect();
+            const kids = [...head.children];
+            return {
+                id: el.dataset.lrdDistro,
+                border: [cs.borderTopColor, cs.borderRightColor,
+                         cs.borderBottomColor, cs.borderLeftColor],
+                width: parseFloat(cs.borderTopWidth),
+                radius: parseFloat(cs.borderTopLeftRadius),
+                pad: parseFloat(cs.paddingLeft),
+                ground: cs.backgroundColor,
+                nameFirst: kids.indexOf(name) < kids.indexOf(info),
+                nameSize: parseFloat(getComputedStyle(name).fontSize),
+                nameWeight: parseInt(getComputedStyle(name).fontWeight, 10),
+                infoSize: parseFloat(getComputedStyle(info).fontSize),
+                gearInside: g.right <= r.right + 0.5 && g.left >= r.left,
+                top: r.top, bottom: r.bottom, left: r.left,
+            };
+        }),
+    };
+}"""
+
+
+def test_each_distro_is_one_accent_framed_panel(tray):
+    """"The separation we added for processing in the hardware tab. We need
+    to do the same for distro" (owner, 2026-09-26). Every distro - not its
+    column, which holds several - is the processor frame's raised panel
+    outlined in the ACCENT, its name leading bold at the processor name's
+    size, the gear inside the frame, and the distros in one column 10px
+    apart."""
+    page, ids = tray
+    open_view(page, 'power')
+    shot = page.evaluate(DISTRO_FRAMES_JS)
+    print('\ndistro frames:', json.dumps(shot))
+    assert len(shot['units']) == len(ids['distros']), shot
+    assert set(shot['cols']) == {'none'}, shot['cols']
+    for u in shot['units']:
+        assert set(u['border']) == {shot['accent']}, (u, shot['accent'])
+        assert u['width'] >= 1 and u['radius'] >= 3 and u['pad'] >= 4, u
+        assert u['ground'] not in ('rgba(0, 0, 0, 0)', 'transparent'), u
+        assert u['nameFirst'] and u['gearInside'], u
+        assert u['nameSize'] == 13 and u['nameWeight'] >= 600, u
+        assert u['nameSize'] > u['infoSize'], u
+    by_col = {}
+    for u in shot['units']:
+        by_col.setdefault(round(u['left']), []).append(u)
+    for col in by_col.values():
+        col.sort(key=lambda u: u['top'])
+        for above, below in zip(col, col[1:]):
+            assert abs(below['top'] - above['bottom'] - 10) <= 2, (above, below)
+    shots = os.environ.get('LRD_BACKUP_BUILD_DIR')
+    if shots:
+        os.makedirs(shots, exist_ok=True)
+        page.locator('#hardware-dock-body').screenshot(
+            path=os.path.join(shots, 'distro-frames.png'))
+
+
 def _in_webkit(body):
     """Run `body(browser)` in WebKit - the engine the Mac app's window is -
     on a worker thread with a driver of its own (a second sync_playwright()
