@@ -49,8 +49,8 @@ HELPERS_JS = """
 window.__tw = {
     // The tag's own register: the font it is measured and drawn in.
     register(labelSize) {
-        const size = Math.max(8, labelSize * 0.7);
-        return { size, padX: size * 0.45, cap: labelSize * 4.5 };
+        const size = Math.max(8, labelSize * 0.85);
+        return { size, padX: size * 0.45, cap: size * (4.5 / 0.7) };
     },
     // Each string's width in the tag font, as the renderer measures it.
     measure(strings, labelSize) {

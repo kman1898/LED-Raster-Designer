@@ -79,6 +79,8 @@ FIXES
   rule as the power map: above the marker when the run goes down, right
   or left, under it when the run goes up, and on the other side when the
   tag would run off the screen. Before, they sat beside the marker.
+- FIX: Cable tags on the maps are larger: their text is 85% of the
+  map's label size, up from 70%.
 - FIX: Copy in the log window copies on the first click in the Mac app.
 - FIX: The hardware tray's columns stack on their own. An open unit
   pushes down only the units under it in its own column, so a short

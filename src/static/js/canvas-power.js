@@ -1125,14 +1125,19 @@ Object.assign(CanvasRenderer.prototype, {
      * the three-line split stands - it is as narrow as the tag gets.
      */
     cableTagLayout(text, labelSize) {
-        const size = Math.max(8, labelSize * 0.7);
+        // The tag's text is 85% of the map's label size (owner, 2026-09-26,
+        // picked from rendered sizes on his show: at 70% "the cable length
+        // text is a bit small").
+        const size = Math.max(8, labelSize * 0.85);
         const padX = size * 0.45;
         const lineHeight = size;
         const str = String(text);
         this.ctx.save();
         this.ctx.font = `bold ${size}px ${projectFontFamily()}`;
         const widthOf = (s) => this.ctx.measureText(s).width;
-        const cap = labelSize * 4.5;
+        // The wrap cap grows with the text (4.5 labels at the old 70%
+        // register), so a bigger tag wraps exactly where it used to.
+        const cap = size * (4.5 / 0.7);
         let lines = [str];
         let widest = widthOf(str);
         if (widest > cap) {
