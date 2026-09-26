@@ -352,35 +352,49 @@ def test_the_sheets_are_the_sheet_size(shows):
 
 
 
-# ── 5. a backup unit is its own section ──────────────────────────────────
+# ── 5. a port and its backup end are one row, in two halves ─────────────
 #
-# "this doesn't really differentiate between CVT A and B. They should be
-# different sections as if it was a second cvt, since it is" (2026-09-12,
-# Experts Only rev 1.1, SR - MAIN - DATA). Every unit that carries a port -
-# a backup box or card exactly as a primary one - is its own band, with its
-# own snake heading and its own rows. The pairing is said from both sides
-# ("backup SR B-1" / "backs up SR A-1"); PANELS and PX are counted once, on
-# the primary's row, so a total down PX is never doubled; HOME RUN on a row
-# is that end's own extension; the backup's section follows its primary's.
+# 2026-09-12 gave a backup unit its own section ("They should be different
+# sections as if it was a second cvt, since it is"); 2026-09-26 folded it
+# back beside its primary: "we can fit XD A and B next to each other in the
+# same table you already put what it's backing up", then "break the table
+# up half and half the xd A and b being directly on top of each other is
+# confusing". So a sheet with a backup end prints its Ports table as two
+# halves under PRIMARY and BACKUP - each its own PORT, OUTPUT and HOME RUN,
+# both runs even where they read the same ("that only shows one
+# extension") - with each unit's band over its own half (the box, then its
+# fiber) and each half's snake heading its own rows; PANELS once, at the
+# end; no PX ("we dont need to be putting the amount of pixels each port
+# has").
+
+PORT_KEYS = ('PORT', 'OUTPUT', 'HOME RUN')
+
 
 def _ports_table(page):
     """The Ports table of a data sheet, read off its text ops: a list of
-    sections {band, groups: [{head, rows}]}, a row being a dict keyed by the
-    column headings. The band is drawn at the PORT column's x, a snake
-    heading indented past it, and a row puts a cell under every heading."""
+    sections {band: [lines], backup: [lines], groups: [{head: (primary,
+    backup), rows}]}, a row being a dict keyed by the column headings, the
+    backup half's prefixed "B ". A band's lines sit at their half's PORT
+    column, a snake heading indented past it, and a row puts a cell under
+    its half's headings."""
     texts = page['texts']
     port = next(o for o in texts if o['t'] == 'PORT')
-    heads = [o for o in texts if abs(o['y'] - port['y']) < 0.5
-             and o['t'] in ('PORT', 'PRIMARY', 'BACKUP', 'PANELS', 'PX', 'HOME RUN')]
-    assert [h['t'] for h in heads] == ['PORT', 'PRIMARY', 'BACKUP', 'PANELS', 'PX', 'HOME RUN'], heads
-    xs = {round(h['x'], 1): h['t'] for h in heads}
+    heads = sorted([o for o in texts if abs(o['y'] - port['y']) < 0.5
+                    and o['t'] in PORT_KEYS + ('PANELS', 'PX')], key=lambda o: o['x'])
+    names = [h['t'] for h in heads]
+    split = names.count('PORT') >= 2 and names.index('PANELS') > 3
+    want = list(PORT_KEYS) + (list(PORT_KEYS) if split else []) + ['PANELS']
+    assert names[:len(want)] == want, names
+    heads = heads[:len(want)]
+    last = heads[-1]['x']
+    keys = list(PORT_KEYS) + (['B ' + k for k in PORT_KEYS] if split else []) + ['PANELS']
+    xs = {round(h['x'], 1): k for h, k in zip(heads, keys)}
+    bx = heads[3]['x'] if split else float('inf')
     # the next table's column starts where its own headings do, on the
     # same line as these
-    last = max(h['x'] for h in heads)
     right = min([o['x'] for o in texts if o['x'] > last + 1 and (
                      abs(o['y'] - port['y']) < 0.5 or o['t'] in ('CABLES THIS SCREEN', 'FACTS'))]
                 + [float('inf')])
-    # the table's own ops: below the headings, left of the next column's
     ops = [o for o in texts if o['y'] > port['y'] + 1 and port['x'] - 1 <= o['x'] < right]
     stop = next((o['y'] for o in sorted(texts, key=lambda o: o['y'])
                  if o['y'] > port['y'] and o['x'] < right
@@ -390,93 +404,84 @@ def _ports_table(page):
     lines = {}
     for o in ops:
         lines.setdefault(round(o['y'], 1), []).append(o)
-    sections = []
+    sections, prev = [], None
     for y in sorted(lines):
         line = sorted(lines[y], key=lambda o: o['x'])
         cells = {xs.get(round(o['x'], 1)): o['t'] for o in line}
-        if len(line) == 1 and None not in cells and len(cells) == 1 and 'PORT' in cells:
-            sections.append({'band': line[0]['t'], 'groups': [{'head': None, 'rows': []}]})
-        elif len(line) == 1 and None in cells:
-            assert sections, (y, line)
-            sections[-1]['groups'].append({'head': line[0]['t'], 'rows': []})
+        if None in cells:
+            # a snake heading, in halves, indented past the band's edge
+            assert sections and set(cells) == {None}, (y, line)
+            half = lambda b: next((o['t'] for o in line if (o['x'] >= bx) == b), None)
+            sections[-1]['groups'].append({'head': (half(False), half(True)), 'rows': []})
+            prev = 'head'
+        elif 'OUTPUT' not in cells and 'B OUTPUT' not in cells:
+            # a band line: a new band, or its second (fiber) line
+            if prev != 'band':
+                sections.append({'band': [], 'backup': [], 'groups': [{'head': None, 'rows': []}]})
+            if 'PORT' in cells:
+                sections[-1]['band'].append(cells['PORT'])
+            if 'B PORT' in cells:
+                sections[-1]['backup'].append(cells['B PORT'])
+            prev = 'band'
         else:
-            assert None not in cells and len(cells) == 6, ('a row puts a cell under every heading', line)
+            assert set(cells) >= set(PORT_KEYS) | {'PANELS'}, ('a row fills its primary half', line)
             sections[-1]['groups'][-1]['rows'].append(cells)
+            prev = 'row'
     for sec in sections:
         sec['groups'] = [g for g in sec['groups'] if g['head'] or g['rows']]
     return sections
 
 
-def _px(cell):
-    return int(cell.replace(',', ''))
-
-
-def _assert_two_sections(sections, a, b, a_head, b_head, a_runs, b_runs, panels, px):
-    """SR A's band, then SR B's, each with its own snake heading and its own
-    rows, the pairing said from both sides, the pixels counted once."""
-    bands = [s['band'] for s in sections]
-    ia = next(i for i, t in enumerate(bands) if t.startswith(f'CVT4K-S {a} · '))
-    ib = next(i for i, t in enumerate(bands) if t.startswith(f'CVT4K-S {b} · '))
-    assert ib == ia + 1, ('the backup section follows its primary', bands)
-    sa, sb = sections[ia], sections[ib]
-    assert [g['head'] for g in sa['groups']] == [a_head], sa
-    assert [g['head'] for g in sb['groups']] == [b_head], sb
-    ra, rb = sa['groups'][0]['rows'], sb['groups'][0]['rows']
+def _assert_backup_half(sections, a, b, a_head, b_head, a_runs, b_runs, panels):
+    """SR A's band over the primary half and SR B's over the backup half of
+    ONE section, each half's snake over its own rows, the ports side by
+    side, each end's own run."""
+    sec = next(s for s in sections if s['band'] and s['band'][0].startswith(f'CVT4K-S {a} · '))
+    assert sec['backup'] and sec['backup'][0].startswith(f'CVT4K-S {b} · '), sec
+    assert not [s for s in sections if s['band'] and s['band'][0].startswith(f'CVT4K-S {b} · ')], (
+        'the backup box has no section of its own', sections)
+    assert [g['head'] for g in sec['groups']] == [(a_head, b_head)], sec
+    rows = sec['groups'][0]['rows']
     n = len(a_runs)
-    assert [r['PORT'] for r in ra] == [f'{a}-{i}' for i in range(1, n + 1)], ra
-    assert [r['PRIMARY'] for r in ra] == [f'CVT4K-S {a} · {i}' for i in range(1, n + 1)], ra
-    assert [r['BACKUP'] for r in ra] == [f'backup {b}-{i}' for i in range(1, n + 1)], ra
-    assert [r['PANELS'] for r in ra] == panels, ra
-    assert [r['PX'] for r in ra] == px, ra
-    assert [r['HOME RUN'] for r in ra] == a_runs, ra
-    assert [r['PORT'] for r in rb] == [f'{b}-{i}' for i in range(1, n + 1)], rb
-    assert [r['PRIMARY'] for r in rb] == [f'CVT4K-S {b} · {i}' for i in range(1, n + 1)], rb
-    assert [r['BACKUP'] for r in rb] == [f'backs up {a}-{i}' for i in range(1, n + 1)], rb
-    assert [r['PANELS'] for r in rb] == ['—'] * n, rb
-    assert [r['PX'] for r in rb] == ['—'] * n, rb
-    assert [r['HOME RUN'] for r in rb] == b_runs, rb
+    assert [r['PORT'] for r in rows] == [f'{a}-{i}' for i in range(1, n + 1)], rows
+    assert [r['OUTPUT'] for r in rows] == [f'{a} · {i}' for i in range(1, n + 1)], rows
+    assert [r['HOME RUN'] for r in rows] == a_runs, rows
+    assert [r['B PORT'] for r in rows] == [f'{b}-{i}' for i in range(1, n + 1)], rows
+    assert [r['B OUTPUT'] for r in rows] == [f'{b} · {i}' for i in range(1, n + 1)], rows
+    assert [r['B HOME RUN'] for r in rows] == b_runs, rows
+    assert [r['PANELS'] for r in rows] == panels, rows
 
 
 def _all_rows(sections):
     return [r for s in sections for g in s['groups'] for r in g['rows']]
 
 
-def test_a_backup_box_is_its_own_section_on_experts_only(shows):
+def test_a_backup_box_is_the_backup_half_on_experts_only(shows):
     """The user's own show: one H9, per-card 1:1, Card 1's box SR A backed
-    by Card 3's box SR B. SR - MAIN's Ports table is the shape he chose -
-    SR A's band, its own snake, rows that say "backup SR B-n"; then SR B's
-    band, its own snake, rows that say "backs up SR A-n" with "—" for
-    PANELS and PX; each end's own extension on its own row. The same for
-    SL A / SL B on SL - MAIN. The PX column sums to the wall once."""
+    by Card 3's box SR B. SR - MAIN's Ports table is one section in two
+    halves - SR A's band and snake over the primary half, SR B's over the
+    backup half, each port's two ends side by side with each end's own
+    extension. The same for SL A / SL B on SL - MAIN. No sheet prints PX."""
     if 'experts only' not in shows:
         pytest.skip(private_fixture_missing(EXPERTS_FIXTURE))
     pages = {p['title']: p for p in shows['experts only']['pages']}
     sr = _ports_table(pages['SR - MAIN - Data - Front View'])
-    _assert_two_sections(
+    _assert_backup_half(
         sr, 'SR A', 'SR B', "SR A · 4 channel snake · 150'", "SR B · 4 channel snake · 100'",
-        ["+10'", '—', "+25'", "+25'"], ["+10'", '—', "+10'", "+75'"],
-        ['84', '84', '84', '56'], ['604,800', '604,800', '604,800', '403,200'])
-    assert sum(_px(r['PX']) for r in _all_rows(sr) if r['PX'] != '—') == 1680 * 1320
+        ["+10'", '—', "+25'", "+25'"], ["+10'", '—', "+10'", "+75'"], ['84', '84', '84', '56'])
     sl = _ports_table(pages['SL - MAIN - Data - Front View'])
-    _assert_two_sections(
+    _assert_backup_half(
         sl, 'SL A', 'SL B', "SL A · 4 channel snake · 100'", "SL B · 4 channel snake · 150'",
-        ["+10'", '—', "+25'", "+25'"], ["+10'", '—', "+10'", "+100'"],
-        ['84', '84', '84', '56'], ['604,800', '604,800', '604,800', '403,200'])
+        ["+10'", '—', "+25'", "+25'"], ["+10'", '—', "+10'", "+100'"], ['84', '84', '84', '56'])
     # the loose return: SR - Return's one port, a cable at each end
     ret = _ports_table(pages['SR - Return - Data - Front View'])
-    assert [s['band'].split(' · ')[0] for s in ret] == ['CVT4K-S SR A', 'CVT4K-S SR B'], ret
-    (a5,), (b5,) = [_all_rows([s]) for s in ret]
-    assert (a5['PORT'], a5['BACKUP'], b5['PORT'], b5['BACKUP']) == (
-        'SR A-5', 'backup SR B-5', 'SR B-5', 'backs up SR A-5'), ret
-    assert b5['PANELS'] == '—' and b5['PX'] == '—' and a5['PX'] != '—', ret
-    # no heading anywhere names the other end's snake
+    assert [s['band'][0].split(' · ')[0] for s in ret] == ['CVT4K-S SR A'], ret
+    assert ret[0]['backup'][0].split(' · ')[0] == 'CVT4K-S SR B', ret
+    (a5,) = _all_rows(ret)
+    assert (a5['PORT'], a5['B PORT'], a5['B OUTPUT']) == ('SR A-5', 'SR B-5', 'SR B · 5'), ret
     for page in shows['experts only']['pages']:
-        if page['kind'] != 'data':
-            continue
-        for sec in _ports_table(page):
-            for g in sec['groups']:
-                assert not g['head'] or (' / ' not in g['head'] and not g['head'].startswith('backup ')
-                                         and 'both ends' not in g['head']), (page['title'], g['head'])
+        if page['kind'] == 'data':
+            assert 'PX' not in [o['t'] for o in page['texts']], page['title']
 
 
 # The suite's own show, so the rule runs where the user's save is absent: a
@@ -556,31 +561,61 @@ def seeded(e2e_server, pw_browser):
     context.close()
 
 
-def test_a_backup_box_is_its_own_section(seeded):
-    """The rule on the suite's own show: two sections, SR B's after SR A's,
-    each snake heading its own, the pairing from both sides, PANELS and PX
-    "—" on the backup's rows and summing to the wall once, each end's own
-    extension on its own row."""
-    sections = _ports_table(seeded['MAIN - Data - Front View'])
-    assert len(sections) == 2, sections
-    _assert_two_sections(
+def test_a_backup_box_is_the_backup_half(seeded):
+    """The rule on the suite's own show: ONE section, SR A's band and snake
+    over the primary half and SR B's over the backup half, each port's two
+    ends on one row with each end's own extension, PANELS once and summing
+    to the wall, and no PX column."""
+    page = seeded['MAIN - Data - Front View']
+    sections = _ports_table(page)
+    assert len(sections) == 1, sections
+    _assert_backup_half(
         sections, 'SR A', 'SR B', "SR A · 4 channel snake · 150'", "SR B · 4 channel snake · 100'",
-        ["+10'", '—', "+25'", "+25'"], ["+10'", '—', "+10'", "+75'"],
-        ['84', '84', '84', '56'], ['604,800', '604,800', '604,800', '403,200'])
+        ["+10'", '—', "+25'", "+25'"], ["+10'", '—', "+10'", "+75'"], ['84', '84', '84', '56'])
     rows = _all_rows(sections)
-    assert sum(_px(r['PX']) for r in rows if r['PX'] != '—') == 28 * 60 * 11 * 120
-    assert sum(int(r['PANELS']) for r in rows if r['PANELS'] != '—') == 28 * 11
+    assert sum(int(r['PANELS']) for r in rows) == 28 * 11
+    assert 'PX' not in [o['t'] for o in page['texts']]
 
 
 def test_a_same_unit_pairing_is_one_section(seeded):
     """A card in HALVES mode returns each port on its own other half: the
-    primary and the return are ONE unit, so the sheet has one section - no
-    second band is invented - and every row counts its own pixels."""
+    primary and the return are ONE unit, so the sheet has one section with
+    no band over the backup half - no second unit is invented - and every
+    row carries its return end beside it."""
     sections = _ports_table(seeded['SOLO - Data - Front View'])
-    assert len(sections) == 1, sections
+    assert len(sections) == 1 and sections[0]['backup'] == [], sections
     rows = _all_rows(sections)
-    assert rows and all(r['PANELS'] != '—' and r['PX'] != '—' for r in rows), rows
+    assert rows and all(r['PANELS'] != '—' for r in rows), rows
     # every port has its return - on the same card, SOLO's other half
-    assert all(r['BACKUP'] != '—' and 'SOLO' in r['BACKUP'] for r in rows), rows
-    assert not [r for r in rows if r['BACKUP'].startswith('backs up')], rows
-    assert sum(_px(r['PX']) for r in rows) == 10 * 100 * 5 * 100
+    assert all('SOLO' in r.get('B OUTPUT', '') for r in rows), rows
+    assert sum(int(r['PANELS']) for r in rows) == 10 * 5
+
+
+
+# ── 6. the tables wrap around a wall that leaves the sheet half empty ────
+#
+# "look at page 3 here we are wasting tons of space due to the shape of the
+# screen" (2026-09-26): side and stack keep every block whole in its column,
+# so a long table beside a wide wall held the wall to the width it left, and
+# under it to the height it left. The wrap layout runs the tables down the
+# columns beside the map, as tall as the map and its bubble, then across the
+# full width under it - taken only where it makes the wall 10% larger - and
+# a short block (the Facts, the Cables) is never split to get there.
+
+def test_the_tables_wrap_around_the_map(seeded):
+    """MAIN's power sheet on Tabloid: the 28 x 11 wall over the tables, its
+    circuit table - too long for one column under the wall at a size
+    worth having - running on from one column to the next, the Cables and
+    the Facts whole in the third, each once, everything under the view."""
+    page = seeded['MAIN - Power - Front View']
+    assert page['layout'] == 'wrap', (page['layout'], page['extent'])
+    t = [o['t'] for o in page['texts']]
+    assert t.count('FACTS') == 1 and t.count('CABLES THIS SCREEN') == 1, t
+    view = next(o for o in page['texts'] if o['t'] == 'MAIN · POWER · FRONT VIEW' and o['x'] < 1000)
+    at = lambda name: [(o['x'], o['y']) for o in page['texts'] if o['t'] == name]
+    circuits, cables, facts = at('CIRCUITS'), at('CABLES THIS SCREEN'), at('FACTS')
+    # the circuits table in two columns, side by side, its heading repeated
+    assert len(circuits) == 2 and circuits[0][1] == circuits[1][1] and circuits[0][0] < circuits[1][0], circuits
+    # the short blocks whole, together, in the next column
+    assert cables[0][0] == facts[0][0] > circuits[1][0] and cables[0][1] < facts[0][1], (cables, facts)
+    assert all(y > view['y'] for _x, y in circuits + cables + facts), view

@@ -138,6 +138,8 @@ const ROW_H = 38;
 const LIST_H = 30;
 const LIST_LINES = 3;
 const BAND_H = 46;
+const WRAP_WHOLE = 12;                // a wrap layout never splits a block this short (lines)
+const WRAP_GAIN = 1.1;                // wrap wins only with a wall this much larger than side's or stack's
 const TH_H = 40;
 const H4_H = 46;
 const BLOCK_GAP = 22;
@@ -146,7 +148,7 @@ const BLOCK_GAP = 22;
 const COL_W = 700;
 // A table cell's swatch (a fiber strand's color) and the gap after it.
 const SWATCH_W = 26;
-const DATA_COL_W = 1020;              // the Ports table's six columns of whole names
+const DATA_COL_W = 1020;              // the Ports table's five columns of whole names
 const COL_GAP = 30;
 const BUBBLE_H = 96;
 // The map keeps at least this share of the drawing area whatever the
@@ -1906,8 +1908,15 @@ class _Binder {
     // each knowing its height and how to draw itself at (x, y, w). The
     // packer below lays a block's lines into columns, the head lines
     // repeated wherever a block continues.
-    //   spec = { title, note?, width, cols: [{ title, w, align, tick, list, swatch }], rows: [
-    //             { band: 'text' } | { cells: [...], bold?, swatch? } ] }
+    //   spec = { title, note?, width, groups?, cols: [{ title, w, align, tick, list, swatch, rule }],
+    //            rows: [ { band: 'text' } | { band: '', halves: [[line, ...], ...] }
+    //                    | { cells: [...], bold?, swatch? } ] }
+    // `groups` - [{ title, from, to }] - is a heading over a run of
+    // columns (the data sheet's PRIMARY and BACKUP halves); a `rule`
+    // column draws a vertical rule at its left edge, down the heading and
+    // every row, so the halves read as two; a band with `halves` states
+    // each group's own unit over its columns, a line each (the box, then
+    // its fiber), side by side in one band.
     // A `swatch` column paints the row's swatch ({ base, tracer } - a fiber
     // strand's color and its tracer stripe) in front of its text.
     // `width` is the column the block is measured in (COL_W unless the
@@ -1945,8 +1954,31 @@ class _Binder {
                             { size: SZ.cell, weight: 400, maxWidth: w });
             } });
         }
+        const groups = spec.groups || [];
+        const spanOf = (L, g) => ({ x: L[g.from].x, w: L[g.to].x + L[g.to].w - L[g.from].x });
+        const rules = (ctx, L, x, y, h) => {
+            cols.forEach((c, i) => {
+                if (!c.rule || !L[i]) return;
+                ctx.fillStyle = RULE;
+                ctx.fillRect(x + L[i].x - 1, y, 2, h);
+            });
+        };
+        if (groups.length) {
+            lines.push({ h: TH_H, head: true, draw: (ctx, x, y, w) => {
+                const L = layout(w);
+                for (const g of groups) {
+                    const sp = spanOf(L, g);
+                    this._bText(book, g.title, x + sp.x + padX, y + 28,
+                                { size: SZ.th, weight: 700, upper: true,
+                                  maxWidth: sp.w - padX * 2, shrink: true });
+                    ctx.fillStyle = RULE;
+                    ctx.fillRect(x + sp.x + (g.from ? 6 : 0), y + TH_H - 4, sp.w - (g.from ? 6 : 0), 2);
+                }
+            } });
+        }
         lines.push({ h: TH_H, head: true, draw: (ctx, x, y, w) => {
             const L = layout(w);
+            rules(ctx, L, x, y, TH_H);
             cols.forEach((c, i) => {
                 if (c.tick) return;
                 const ax = L[i].align === 'right' ? x + L[i].x + L[i].w - padX : x + L[i].x + padX;
@@ -1958,6 +1990,36 @@ class _Binder {
             ctx.fillRect(x, y + TH_H - 4, w, 4);
         } });
         for (const r of spec.rows || []) {
+            if (r.halves) {
+                // A sub-band in halves (each half's snake) keeps the
+                // sub-band's look: set in, no fill, a thin rule.
+                const sub = !!r.sub;
+                const ind = sub ? 22 : 0;
+                const n = r.halves.reduce((m, h) => Math.max(m, h.length), 1);
+                const h = BAND_H + (n - 1) * LIST_H;
+                lines.push({ h, band: true, draw: (ctx, x, y, w) => {
+                    const L = layout(w);
+                    if (book.meta.palette === 'printer') {
+                        ctx.fillStyle = INK;
+                        ctx.fillRect(x + ind, y + 2, w - ind, sub ? 2 : 3);
+                    } else if (!sub) {
+                        ctx.fillStyle = BAND_BG;
+                        ctx.fillRect(x, y, w, h - 4);
+                    }
+                    rules(ctx, L, x, y, h);
+                    r.halves.forEach((half, j) => {
+                        const g = groups[j];
+                        if (!g) return;
+                        const sp = spanOf(L, g);
+                        half.forEach((t, k) => this._bText(book, t, x + sp.x + ind + padX, y + 31 + k * LIST_H,
+                            { size: SZ.cell, weight: k ? 400 : 700, shrink: true,
+                              maxWidth: sp.w - ind - padX * 2 }));
+                    });
+                    ctx.fillStyle = RULE;
+                    ctx.fillRect(x + ind, y + h - 4, w - ind, sub ? 2 : 4);
+                } });
+                continue;
+            }
             if (r.band !== undefined) {
                 // A SUB-BAND is a second level inside a band: the snake a
                 // run of ports rides, named once over them (2026-09-09).
@@ -1995,6 +2057,7 @@ class _Binder {
             const h = ROW_H + (rowLines - 1) * LIST_H;
             lines.push({ h, draw: (ctx, x, y, w) => {
                 const L = layout(w);
+                rules(ctx, L, x, y, h);
                 if (r.bold) { ctx.fillStyle = RULE; ctx.fillRect(x, y, w, 3); }
                 (r.cells || []).forEach((cell, i) => {
                     if (!L[i]) return;
@@ -2123,12 +2186,21 @@ class _Binder {
     // it continues, a band never left as the last line over nothing. What
     // no column holds comes back as `rest`, blocks again (the split
     // block's remainder headed), for the next sheet.
+    // `colH` is one height for every column, or a function of the
+    // column's index for columns of different heights (the wrap layout's
+    // short columns beside the map and tall ones under it).
+    // `wholeUnder` (the wrap layout's) keeps every block of that many
+    // lines or fewer whole - the Facts, the Cables - moving it to the next
+    // column, or to `rest`, rather than splitting it: only a long table
+    // runs on from one column to the next.
     //   { cols: [{ h, items: [{ line, y }] }], rest: [{ lines }] }
-    _bPack(blocks, colH, maxCols) {
+    _bPack(blocks, colH0, maxCols, wholeUnder = 0) {
+        const heightOf = typeof colH0 === 'function' ? colH0 : () => colH0;
         const cols = [];
-        let col = null;
+        let col = null, colH = 0;
         const open = () => {
             if (cols.length >= maxCols) return false;
+            colH = heightOf(cols.length);
             col = { h: 0, items: [] };
             cols.push(col);
             return true;
@@ -2141,8 +2213,15 @@ class _Binder {
             const total = block.lines.reduce((s, l) => s + l.h, 0);
             if (!col && !open()) break;
             let y = col.items.length ? col.h + BLOCK_GAP : 0;
-            if (col.items.length && y + total > colH && total <= colH) {
-                // whole in the next column rather than split here
+            if (block.lines.length <= wholeUnder && y + total > colH) {
+                if (!open()) break;
+                continue;
+            }
+            if (col.items.length && y + total > colH
+                    && total <= (cols.length < maxCols ? heightOf(cols.length) : colH)) {
+                // whole in the next column rather than split here - judged
+                // by THAT column's height, which in a wrap layout is not
+                // this one's
                 if (!open()) break;
                 y = 0;
             }
@@ -2364,16 +2443,97 @@ class _Binder {
                       colX: (i) => da.x + i * (wide + COL_GAP),
                       toBase: toBase(s) };
         }
-        // The layout with the larger wall wins; where the two walls are
-        // within 3 per cent of each other, the one that covers more of the
-        // sheet (stack on a tie).
+        // wrap: the tables around the map (2026-09-26, "look at page 3 here
+        // we are wasting tons of space due to the shape of the screen" /
+        // "trim and wrap if need be"). Side and stack keep a block whole in
+        // its column, so a long Ports table beside a wide, short wall held
+        // the map to the width it left and emptied the sheet under it, and
+        // under the wall it held the map to the height it left. Wrap splits
+        // the tables across columns the packer's way: first the columns
+        // BESIDE the map, as tall as the map and its bubble, then the
+        // columns across the full width UNDER it. For each count of columns
+        // beside (none is a stack that splits), the map's height is the
+        // tallest whose leftovers still hold every table; the type grows the
+        // way it does in side and stack, while it costs the map nothing.
+        const wrapAt = (k1, v) => {
+            const bubble = BUBBLE_H * v;
+            const roomW = da.w - k1 * (colW + COL_GAP) * v;
+            if (roomW < minW) return null;
+            const acrossU = Math.max(1, Math.floor((da.w / v + COL_GAP) / (colW + COL_GAP)));
+            const layFor = (mapH) => {
+                const m = fit(roomW, mapH);
+                const besideW = (da.w - m.w) / v - COL_GAP;
+                const kB = k1 ? Math.max(0, Math.floor((besideW + COL_GAP) / (colW + COL_GAP))) : 0;
+                const wideB = kB ? (besideW - (kB - 1) * COL_GAP) / kB : 0;
+                const besideH = (m.h + bubble) / v;
+                const underH = (da.h - m.h - bubble) / v - COL_GAP;
+                const heights = (i) => (i < kB ? besideH : underH);
+                const pack = this._bPack(blocks, heights, kB + (underH > 0 ? acrossU : 0), WRAP_WHOLE);
+                return { m, kB, wideB, besideH, underH, pack };
+            };
+            let lo = minH, hi = da.h - bubble, best = null;
+            const first = layFor(lo);
+            if (first.pack.rest.length || !first.pack.cols.length) return null;
+            best = first;
+            for (let n = 0; n < 14 && hi - lo > 2; n++) {
+                const mid = (lo + hi) / 2;
+                const t = layFor(mid);
+                if (!t.pack.rest.length && t.pack.cols.length) { best = t; lo = mid; } else hi = mid;
+            }
+            return best.m.zoom > 0 ? { ...best, k1, v } : null;
+        };
+        const wrapBest = (v) => {
+            let b = null;
+            for (let k1 = 0; k1 <= kmax; k1++) {
+                const t = wrapAt(k1, v);
+                if (t && (!b || t.m.zoom > b.m.zoom)) b = t;
+            }
+            return b;
+        };
+        let wrap = null;
+        const w1 = wrapBest(1);
+        if (w1) {
+            let pick = w1;
+            for (let v = Math.round(clamp(FILL_CAP) * 100); v > 100; v -= 5) {
+                const t = wrapBest(v / 100);
+                if (t && t.m.zoom >= w1.m.zoom * FREE) { pick = t; break; }
+            }
+            const { m, kB, wideB, besideH, pack, v } = pick;
+            const acrossU = Math.max(1, Math.floor((da.w / v + COL_GAP) / (colW + COL_GAP)));
+            const wideU = (da.w / v - (acrossU - 1) * COL_GAP) / acrossU;
+            const underTop = da.y + besideH + COL_GAP;
+            const inked = pack.cols.reduce((sum, c, i) => sum + c.h * (i < kB ? wideB : wideU), 0) * v * v;
+            const lowest = pack.cols.reduce((mx, c, i) => Math.max(mx, (i < kB ? 0 : besideH + COL_GAP) + c.h), 0);
+            wrap = { kind: 'wrap', cols: pack.cols.length, colW: wideU, top: da.y, pack, scale: v,
+                     mapArea: { x: da.x, y: da.y, w: m.w, h: m.h },
+                     extent: { w: da.w, h: Math.max(besideH, lowest) * v },
+                     coverage: (m.w * m.h + inked) / area,
+                     map: { zoom: m.zoom, w: m.w, h: m.h },
+                     colX: (i) => (i < kB ? da.x + m.w / v + COL_GAP + i * (wideB + COL_GAP)
+                                          : da.x + (i - kB) * (wideU + COL_GAP)),
+                     colTop: (i) => (i < kB ? da.y : underTop),
+                     colWOf: (i) => (i < kB ? wideB : wideU),
+                     toBase: toBase(v) };
+        }
+
+        // The layout with the larger wall wins; where two walls are within
+        // 3 per cent of each other, the one that covers more of the sheet
+        // (stack on a tie). Wrap takes the sheet only where its wall is
+        // WRAP_GAIN larger: it is for the sheet side and stack leave half
+        // empty, and a sheet they already lay out well keeps its layout
+        // and its larger type.
+        const kept = [stack, side].filter(Boolean);
+        let pick = null;
         if (side && stack) {
             const zs = side.map.zoom, zt = stack.map.zoom;
-            if (zs > zt * 1.03) return side;
-            if (zt > zs * 1.03) return stack;
-            return stack.coverage >= side.coverage ? stack : side;
+            if (zs > zt * 1.03) pick = side;
+            else if (zt > zs * 1.03) pick = stack;
+            else pick = stack.coverage >= side.coverage ? stack : side;
+        } else if (kept.length) {
+            pick = kept[0];
         }
-        if (side || stack) return side || stack;
+        if (wrap && (!pick || wrap.map.zoom > pick.map.zoom * WRAP_GAIN)) return wrap;
+        if (pick) return pick;
 
         // tons of info: neither holds the tables at 1 - the map over the
         // tables in the columns that fit, the rest continuing
@@ -2435,7 +2595,9 @@ class _Binder {
     _bDrawLayout(book, L) {
         L.pack.cols.forEach((col, i) => {
             const x = L.colX(i);
-            for (const it of col.items) it.line.draw(book.ctx, x, L.top + it.y, L.colW);
+            const top = L.colTop ? L.colTop(i) : L.top;
+            const w = L.colWOf ? L.colWOf(i) : L.colW;
+            for (const it of col.items) it.line.draw(book.ctx, x, top + it.y, w);
         });
     }
 
@@ -3097,15 +3259,6 @@ class _Binder {
         return blocks;
     }
 
-    // The return end of a port, as the tray states it: the backup port's
-    // label ("SR-1R") and where it lands - the breakout box's title where
-    // one delivers it, else the backup card's name (or its slot on its
-    // processor) - and the socket, "SR-1R · H9 BACKUP · 1".
-    _bBackupText(layer, portNum, bb) {
-        const end = this._bBackupEnd(layer, portNum, bb);
-        return [end.label, end.socketText].filter(Boolean).join(' · ');
-    }
-
     // The return end's parts: its label, the unit it lands on and that
     // unit's band key and band text (the key the primary's unit would
     // have, so an end on the SAME unit is known to be one), and the socket
@@ -3120,15 +3273,17 @@ class _Binder {
         }
         const socket = bb.localPort != null ? bb.localPort : bb.port;
         const socketText = `${where} · ${socket}`;
-        let key, bandText;
+        const shortSocket = home && home.box ? `${this._bBoxShort(home.box)} · ${socket}` : socketText;
+        let key, bandParts;
         if (home && home.box) {
-            key = `box:${home.box.id}`; bandText = this._bBoxBandText(home.box);
+            key = `box:${home.box.id}`; bandParts = this._bBoxBandParts(home.box);
         } else if (home) {
-            key = `card:${home.card.id}`; bandText = this._bCardBandText(home);
+            key = `card:${home.card.id}`; bandParts = [this._bCardBandText(home)];
         } else {
-            key = `card:${bb.cardId}`; bandText = bb.cardTitle || this._bCardShort(bb.cardId);
+            key = `card:${bb.cardId}`; bandParts = [bb.cardTitle || this._bCardShort(bb.cardId)];
         }
-        return { label, socketText, name: label || socketText, key, bandText };
+        return { label, socketText, shortSocket, name: label || socketText, key,
+                 bandText: bandParts.join(' · '), bandParts };
     }
 
     // What a sheet calls a breakout box: "CVT4K-S SR" - the model and the
@@ -3143,9 +3298,23 @@ class _Binder {
     // 1-2 TAC A (TAC 8) 1-4" - the trunk it hangs on as the card's face prints it, the
     // sockets it delivers, and its fiber (_bBoxFiberText).
     _bBoxBandText(box) {
-        return [this._bBoxTitle(box), box.trunkTitle || '',
-                this._bPlural(box.portCount || (box.ports || []).length, 'port'),
-                this._bBoxFiberText(box)].filter(Boolean).join(' · ');
+        return this._bBoxBandParts(box).join(' · ');
+    }
+
+    // The same band as two lines, for a half-width band over the data
+    // sheet's PRIMARY or BACKUP half: the box on the first, its fiber on
+    // the second.
+    _bBoxBandParts(box) {
+        return [[this._bBoxTitle(box), box.trunkTitle || '',
+                 this._bPlural(box.portCount || (box.ports || []).length, 'port')]
+                    .filter(Boolean).join(' · '),
+                this._bBoxFiberText(box)];
+    }
+
+    // A box as a row names it under a band that already gave it in full:
+    // the name typed on it - "USR A" - else its title.
+    _bBoxShort(box) {
+        return String(box.name || '').trim() || this._bBoxTitle(box);
     }
 
     // A box's fiber as the binder says it - each input by its port, the
@@ -3213,84 +3382,27 @@ class _Binder {
                  unitTitle: unit.title, named: unit.named };
     }
 
-    // The two ends of a port's run as one cell: "SR A 250' +10' / SR B
-    // 200'" where they are two runs, the run ONCE where they are one - the
-    // same snake carrying both ends, or the same reading on both - so a
-    // cell never says one thing twice. Where one end is a longer reading of
-    // the other (the same snake plus an extension) the fuller one stands.
-    _bHomeRunText(primary, backup, headed = false) {
-        if (headed) return this._bHomeRunRest(primary, backup);
-        const a = this.runText(primary);
-        if (!backup) return a;
-        const b = this.runText(backup);
-        if (a === b) return a;
-        const oneSnake = primary && backup && primary.kind === 'snake' && backup.kind === 'snake'
-            && primary.snake && backup.snake && primary.snake.id === backup.snake.id;
-        if (oneSnake) return a.length >= b.length ? a : b;
-        return `${a} / ${b}`;
-    }
-
-    // WHAT IS LEFT TO SAY once the snake heading above has said the run.
-    // A snake is ONE home run carrying several ports - "why is the same
-    // data written multiple times under the snake under a specific port
-    // number" (2026-09-09) - so under its heading a row carries only what
-    // is the PORT'S OWN: its extension from the fan-out to the panel,
-    // typed on the member row and nobody else's. An end with no extension
-    // has nothing left to say; an end that is NOT on a snake still reads
-    // its whole run, because no heading said it.
-    _bHomeRunRest(primary, backup) {
-        const rest = (c) => (c && c.kind === 'snake' && c.snake
-            ? (c.ext != null ? `+${this.cableText(c.ext, '')}` : '')
-            : this.runText(c));
-        const a = rest(primary);
-        if (!backup) return a || '—';
-        const b = rest(backup);
-        // Which end it belongs to is said in words rather than by
-        // position where only one end has anything: "+25' primary" cannot
-        // be read as the backup's, and "+10' both ends" is not the same
-        // reading printed twice.
-        if (a && b) return a === b ? `${a} both ends` : `${a} / ${b}`;
-        if (a) return `${a} primary`;
-        if (b) return `${b} backup`;
-        return '—';
-    }
-
     // THE HEADING OVER A RUN OF PORTS ON A SNAKE: the loom as the bracket,
     // the tray and the pull sheet already name it - "SNAKE A · 6 channel ·
     // 100'" (snakeTagText) - once, over every port riding it. Null where
-    // neither end of the row is on a snake.
-    //
-    // A heading names its OWN unit's snake: a backup unit is its own
-    // section with its own heading (2026-09-12), so `backup` is only given
-    // where both ends sit on ONE unit (sequential, halves). There the two
-    // looms are both named, the primary's first; one snake carrying both
-    // ends says so ("· both ends") instead of printing itself twice. A
+    // the end is not on a snake. Each end's loom heads its own half of the
+    // data sheet's Ports table (2026-09-26), so a heading names one loom. A
     // snake reaching past this unit names the sockets it holds elsewhere,
     // so its channels and the rows under it never disagree.
     //
-    // A SNAKE'S HOME RUN IS SAID ONCE ON A SHEET: a loom holding sockets on
-    // a primary box and its backup heads both sections, and `said` (the
-    // snakes already headed, in the order the sheet prints) keeps the
-    // length to the first of them - the second names the loom and where
-    // the rest of it is.
-    _bSnakeHeadText(primary, backup, said = null) {
-        const on = (c) => (c && c.kind === 'snake' && c.snake ? c : null);
-        const p = on(primary), b = on(backup);
-        if (!p && !b) return null;
-        const one = (c) => {
-            const again = !!(said && said.has(c.snake.id));
-            if (said) said.add(c.snake.id);
-            return this.snakeTagText(c.snake, !again)
-                + (typeof this.snakeElsewhere === 'function' && c.owner
-                    ? this.snakeElsewhere(c.snake, c.owner)
-                          .map(a => ` · also ${a.text}`).join('')
-                    : '');
-        };
-        if (p && b) {
-            return p.snake.id === b.snake.id
-                ? `${one(p)} · both ends` : `${one(p)} / backup ${one(b)}`;
-        }
-        return p ? one(p) : `backup ${one(b)}`;
+    // A SNAKE'S HOME RUN IS SAID ONCE ON A SHEET: a loom heading both
+    // halves, or two sections, keeps its length to the first heading -
+    // `said` holds the snakes already headed, in the order the sheet
+    // prints - and the next names the loom and where the rest of it is.
+    _bSnakeHeadText(cable, said = null) {
+        if (!(cable && cable.kind === 'snake' && cable.snake)) return null;
+        const again = !!(said && said.has(cable.snake.id));
+        if (said) said.add(cable.snake.id);
+        return this.snakeTagText(cable.snake, !again)
+            + (typeof this.snakeElsewhere === 'function' && cable.owner
+                ? this.snakeElsewhere(cable.snake, cable.owner)
+                      .map(a => ` · also ${a.text}`).join('')
+                : '');
     }
 
     // The band over a card's ports: the unit, its model, how many ports -
@@ -3337,19 +3449,23 @@ class _Binder {
         // and inside it the SNAKE a run of its ports rides - one heading
         // each, in the order the ports come.
         //
-        // EVERY UNIT THAT CARRIES A PORT IS ITS OWN SECTION, a backup unit
-        // exactly as a primary one (2026-09-12, Experts Only: "They should
-        // be different sections as if it was a second cvt, since it is").
-        // A port whose return lands on another card or box puts a row in
-        // each: the primary's reads "backup SR B-1", the backup's "backs up
-        // SR A-1". The backup section follows the section of the primary
-        // that first sent a port to it (`after`), so a reader meets SR A
-        // then SR B. A port whose two ends sit on ONE unit (sequential,
-        // halves) is one unit and one row, read as before.
-        const bands = new Map();      // key -> { text, groups: Map, after }
-        const band = (key, text, after = null) => {
+        // A PORT IS ONE ROW, ITS BACKUP END BESIDE IT (2026-09-26, on an
+        // SX40 sheet whose loop ends filled half the table with "backs up
+        // USR A-n": "we can fit XD A and B next to each other in the same
+        // table you already put what it's backing up", then "break the
+        // table up half and half the xd A and b being directly on top of
+        // each other is confusing"). This retires the 2026-09-12 rule that
+        // gave a backup unit its own section. Where any port on the sheet
+        // has a backup end, the table is two halves under PRIMARY and
+        // BACKUP: each half its own PORT, OUTPUT and HOME RUN - both runs,
+        // even where they read the same ("that only shows one extension")
+        // - and each unit's band stands over its own half, the unit on one
+        // line and its fiber on the next. PANELS is said once, at the end.
+        // A sheet with no backup end prints the one half.
+        const bands = new Map();      // key -> { parts, groups: Map, partners: Map }
+        const band = (key, parts) => {
             let b = bands.get(key);
-            if (!b) { b = { text, groups: new Map(), after }; bands.set(key, b); }
+            if (!b) { b = { parts, groups: new Map(), partners: new Map() }; bands.set(key, b); }
             return b;
         };
         // A group keeps the cables its heading is read from, and the
@@ -3357,117 +3473,129 @@ class _Binder {
         // so a snake heading two sections states its length in the first.
         const group = (b, key, primary, backup = null) => {
             let g = b.groups.get(key);
-            if (!g) { g = { primary, backup, rows: [] }; b.groups.set(key, g); }
+            if (!g) { g = { primary, backup, ports: [] }; b.groups.set(key, g); }
             return g;
         };
         const snakeId = (c) => (c && c.kind === 'snake' && c.snake ? c.snake.id : '');
-        const headed = (c, o = null) => !!(snakeId(c) || snakeId(o));
+        // An end's run. A snake is ONE home run carrying several ports -
+        // "why is the same data written multiple times under the snake
+        // under a specific port number" (2026-09-09) - so under its heading
+        // an end on it carries only what is the PORT'S OWN, its extension
+        // from the fan-out to the panel ('—' with none); an end that is not
+        // on a snake reads its whole run, because no heading said it.
+        const runOf = (c, headed) => (headed
+            ? (snakeId(c) ? (c.ext != null ? `+${this.cableText(c.ext, '')}` : '—') : this.runText(c))
+            : this.runText(c));
+        const partnered = new Set();
         let procs = new Map();
+        let split = false;
         for (const run of runs) {
             const placed = asg && (asg.ports || []).find(p => p.number === run.num);
             const home = placed && placed.cardId ? this._bPortHome(placed.cardId, placed.port) : null;
             const cable = (typeof this.dataPortCableForScreen === 'function')
                 ? this.dataPortCableForScreen(layer, run.num) : null;
-            const px = (run.panels || []).reduce((s, p) => s + this.getPanelPixelArea(p), 0);
+            // PANELS only: the pixels a port carries are the processor's
+            // business, not the tech's at the wall (2026-09-26: "we dont
+            // need to be putting the amount of pixels each port has").
             const panelsText = this._bNum((run.panels || []).length, 0);
-            const pxText = this._bNum(px, 0);
             if (!home) {
-                const g = group(band('none', 'Not placed'), `${snakeId(cable)}|`, cable);
-                g.rows.push({ cells: [run.label, '—', '—', panelsText, pxText,
-                                      this._bHomeRunText(cable, null, headed(cable))] });
+                group(band('none', ['Not placed']), `${snakeId(cable)}|`, cable)
+                    .ports.push({ label: run.label, out: '—', cable, back: null, panels: panelsText });
                 continue;
             }
-            // PRIMARY is where the port lands - the sending card ("H9 SR ·
+            // OUTPUT is where the port lands - the sending card ("H9 SR ·
             // 1") or, where a breakout box delivers it, the BOX instead
-            // ("CVT4K-S SR · 3", its own silkscreen number) (2026-09-07:
-            // "list the sending card order on primary and backup … if
-            // cvt's are used then we will list those instead of sending
-            // card").
+            // ("USR A · 3", its own silkscreen number) (2026-09-07: "list
+            // the sending card order on primary and backup … if cvt's are
+            // used then we will list those instead of sending card"). The
+            // band over the half names the box in full.
             procs.set(home.proc.id, home.proc);
             const socket = String(home.port && home.port.localNumber != null ? home.port.localNumber : placed.port);
-            let key, primary, b;
+            let key, out, b;
             if (home.box) {
                 key = `box:${home.box.id}`;
-                b = band(key, this._bBoxBandText(home.box));
-                primary = `${this._bBoxTitle(home.box)} · ${socket}`;
+                b = band(key, this._bBoxBandParts(home.box));
+                out = `${this._bBoxShort(home.box)} · ${socket}`;
             } else {
                 key = `card:${home.card.id}`;
-                b = band(key, this._bCardBandText(home));
-                primary = `${home.unitTitle} · ${socket}`;
+                b = band(key, [this._bCardBandText(home)]);
+                out = `${home.unitTitle} · ${socket}`;
             }
             const bb = (home.port && home.port.backedBy) || null;
             const end = bb ? this._bBackupEnd(layer, run.num, bb) : null;
             // The backup end's own run, as the backup card's or box's own ≡
             // sheet typed it.
-            const backupCable = bb && typeof this.dataPortCable === 'function'
+            const backupCable = end && typeof this.dataPortCable === 'function'
                 ? this.dataPortCable(bb.cardId, bb.port) : null;
-            if (!end || end.key === key) {
-                // ONE unit: BACKUP is the return end whole, and HOME RUN
-                // says both ends where there are two - the run ONCE where
-                // they are one (a return riding the very snake its primary
-                // does), the fuller reading winning so an extension is not
-                // lost.
-                const other = end ? backupCable : null;
-                const g = group(b, `${snakeId(cable)}|${snakeId(other)}`, cable, other);
-                g.rows.push({ cells: [run.label, primary,
-                                      end ? this._bBackupText(layer, run.num, bb) : '—',
-                                      panelsText, pxText,
-                                      this._bHomeRunText(cable, other, headed(cable, other))] });
-                continue;
+            if (end) {
+                split = true;
+                // A return on ANOTHER unit names that unit once, over the
+                // backup half of the first primary band that sends a port
+                // to it.
+                if (end.key !== key && !partnered.has(end.key)) {
+                    partnered.add(end.key);
+                    b.partners.set(end.key, end.bandParts);
+                }
             }
-            // TWO units, two sections. PANELS and PX are counted once, on
-            // the primary's row - the backup carries the same pixels, and a
-            // total down PX must not double them - and HOME RUN on each row
-            // is that end's own.
-            group(b, `${snakeId(cable)}|`, cable).rows.push({ cells: [
-                run.label, primary, `backup ${end.name}`, panelsText, pxText,
-                this._bHomeRunText(cable, null, headed(cable))] });
-            const bBand = band(end.key, end.bandText, key);
-            group(bBand, `${snakeId(backupCable)}|`, backupCable).rows.push({ cells: [
-                end.label || end.socketText, end.socketText, `backs up ${run.label}`, '—', '—',
-                this._bHomeRunText(backupCable, null, headed(backupCable))] });
-        }
-        // Print order: each section, then the backup sections that follow
-        // it.
-        const order = [];
-        const emit = (k) => {
-            order.push(bands.get(k));
-            for (const [k2, b2] of bands) if (b2.after === k) emit(k2);
-        };
-        for (const [k, b] of bands) {
-            if (!b.after || !bands.has(b.after)) emit(k);
+            group(b, `${snakeId(cable)}|${snakeId(backupCable)}`, cable, backupCable).ports.push({
+                label: run.label, out, cable, panels: panelsText,
+                back: end ? { label: end.label || '—', out: end.shortSocket, cable: backupCable } : null,
+            });
         }
         const said = new Set();
         const rows = [];
-        for (const b of order) {
-            rows.push({ band: b.text });
+        for (const b of bands.values()) {
+            if (split) {
+                const back = [...b.partners.values()];
+                rows.push({ band: '', halves: [b.parts, back.length ? back.flat() : []] });
+            } else {
+                rows.push({ band: b.parts.join(' · ') });
+            }
             for (const g of b.groups.values()) {
-                const head = this._bSnakeHeadText(g.primary, g.backup, said);
-                if (head) rows.push({ band: head, sub: true });
-                rows.push(...g.rows);
+                // Each half's snake heads its own half: the primary's loom
+                // over the primary's rows, the backup's over the backup's.
+                if (split) {
+                    const heads = [g.primary, g.backup].map(c => (snakeId(c)
+                        ? this._bSnakeHeadText(c, said) : null));
+                    if (heads.some(Boolean)) {
+                        rows.push({ band: '', sub: true, halves: heads.map(t => (t ? [t] : [])) });
+                    }
+                } else {
+                    const head = this._bSnakeHeadText(g.primary, said);
+                    if (head) rows.push({ band: head, sub: true });
+                }
+                const headed = !!(snakeId(g.primary) || snakeId(g.backup));
+                for (const p of g.ports) {
+                    const left = [p.label, p.out, runOf(p.cable, headed)];
+                    if (!split) { rows.push({ cells: [...left, p.panels] }); continue; }
+                    const right = p.back ? [p.back.label, p.back.out, runOf(p.back.cable, headed)] : ['', '', ''];
+                    rows.push({ cells: [...left, ...right, p.panels] });
+                }
             }
         }
         // PORT takes the width its longest label needs, whole - "SR A-1"
         // was cut to "SR A…" at a fixed share (2026-09-07) - measured
         // against the tables' column, and never under its old share; the
         // other columns divide the rest.
-        const otherW = 1.6 + 2.0 + 0.9 + 0.9 + 2.0;
         const colW = DATA_COL_W;
         const ctxM = book.measureCtx;
         ctxM.font = this._bFont(SZ.cell, 400);
-        const labelW = runs.reduce((m, run) => Math.max(m, ctxM.measureText(String(run.label || '')).width), 0);
+        const labels = rows.filter(r => r.cells).flatMap(r => (split ? [r.cells[0], r.cells[3]] : [r.cells[0]]));
+        const labelW = labels.reduce((m, t) => Math.max(m, ctxM.measureText(String(t || '')).width), 0);
         const needW = Math.ceil(labelW) + 12 * 2 + 4;
-        const portW = Math.max(0.7, needW < colW ? needW * otherW / (colW - needW) : 0.7);
+        const half = [{ w: 1.7 }, { w: 1.0 }];      // OUTPUT, HOME RUN
+        const otherW = (split ? 2 : 1) * (1.7 + 1.0) + 0.7;
+        const ports = split ? 2 : 1;
+        const portW = Math.max(0.7, needW * ports < colW
+            ? needW * otherW / (colW - needW * ports) : 0.7);
+        const halfCols = (rule) => [{ title: 'port', w: portW, rule },
+                                    { title: 'output', w: half[0].w }, { title: 'home run', w: half[1].w }];
         blocks.push({ minW: DATA_COL_W, lines: this._bTableLines(book, {
             title: 'Ports',
-            // PRIMARY and BACKUP carry whole names - "SR-1R · H9 BACKUP SR ·
-            // 1" - and HOME RUN both ends' runs - "SR Primary 150' / SR
-            // Backup 150'" - so they take most of the width and shrink
-            // before they cut.
             width: DATA_COL_W,
-            cols: [{ title: 'port', w: portW }, { title: 'primary', w: 1.6 }, { title: 'backup', w: 2.0 },
-                   { title: 'panels', w: 0.9, align: 'right' }, { title: 'px', w: 0.9, align: 'right' },
-                   { title: 'home run', w: 2.0 }],
+            groups: split ? [{ title: 'primary', from: 0, to: 2 }, { title: 'backup', from: 3, to: 5 }] : [],
+            cols: [...halfCols(false), ...(split ? halfCols(true) : []),
+                   { title: 'panels', w: 0.7, align: 'right', rule: split }],
             rows,
             shrink: true,
         }) });

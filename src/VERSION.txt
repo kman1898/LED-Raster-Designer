@@ -74,6 +74,15 @@ to the box, picking the strands, and the power jumper lengths.
 
 FIXES
 
+- FIX: A data sheet's Ports table puts each port and its backup on one
+  row. The table is two halves, PRIMARY and BACKUP, each with its own
+  port, output and home run, and each box's name and fiber over its own
+  half, so XD A and XD B read side by side instead of one list stacked on
+  the other. The PX column is gone; PANELS stays.
+- FIX: A binder sheet whose wall leaves the page half empty runs its
+  tables around the wall: in the columns beside it, then on across the
+  page under it, so the wall prints larger. The Facts and Cables tables
+  are never split to get there.
 - FIX: An SX40's card row in the hardware tray names its loops in words,
   "Loop A to B" or "Loops A to B, C to D", where it used to say "R seq".
   The processor's header carries only its backup processor, "Backup: SR
