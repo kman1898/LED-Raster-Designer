@@ -154,47 +154,47 @@ def test_every_table_row_scales_as_one_over_frame_rate():
 
 # brompton-ull is the RETIRED table, kept only so a stale value that slipped
 # past the migration still resolves to a real capacity. The live path is
-# brompton + Low Latency, which halves and FLOORS. Two of its 48 cells round up
-# instead, so the retired table and the live path differ by a single pixel per
-# port there - about 1 part in 73,000, far too small to move a cabinet count.
-#
-# Left as published rather than floored, per the rule that a manufacturer's
-# figure is not adjusted to fit our arithmetic. Pinned by value so the gap
-# cannot silently widen.
-BROMPTON_ULL_PUBLISHED_ROUNDING = {
-    (12, 144): 72917,   # floor(145833 / 2) = 72916
-    (12, 192): 54688,   # floor(109375 / 2) = 54687
-}
+# brompton + Low Latency, which halves and FLOORS - and since 2026-09-26 the
+# table is floored too (owner: "make sure the table values are rounded
+# down"), so every cell is exactly the halved figure.
 
 
 def test_brompton_ull_table_is_the_brompton_column_halved():
-    """Every cell is the halved figure, bar two the retired table publishes
-    rounded up - those are pinned by value above."""
+    """Every cell is floor(brompton / 2)."""
     bad = []
     for bd, row in sorted(TABLES['brompton'].items()):
         for fr, cap in sorted(row.items()):
             ull = TABLES['brompton-ull'][bd][fr]
-            pinned = BROMPTON_ULL_PUBLISHED_ROUNDING.get((bd, fr))
-            if pinned is not None:
-                if ull != pinned:
-                    bad.append('brompton-ull %d-bit %dHz = %d, published %d'
-                               % (bd, fr, ull, pinned))
-                continue
             if ull != cap // 2:
                 bad.append('brompton-ull %d-bit %dHz = %d, floor(%d/2) = %d'
                            % (bd, fr, ull, cap, cap // 2))
     assert not bad, '\n'.join(bad)
 
 
-def test_the_two_rounded_ull_cells_cannot_change_a_cabinet_count():
-    """The reason the 1-pixel gap above is acceptable, asserted rather than
-    assumed: a cabinet is at minimum 64x64 = 4,096 px, so one pixel of port
-    capacity cannot add or remove one."""
-    for (bd, fr), pinned in BROMPTON_ULL_PUBLISHED_ROUNDING.items():
-        live = TABLES['brompton'][bd][fr] // 2
-        assert abs(pinned - live) == 1, (bd, fr, pinned, live)
-        smallest_cabinet_px = 64 * 64
-        assert abs(pinned - live) < smallest_cabinet_px
+def test_every_derived_capacity_is_rounded_down():
+    """The owner's rule (2026-09-26): "make sure the table values are rounded
+    down". A pixel over the real limit is a port that does not fit, so every
+    figure that comes from a bandwidth formula is its FLOOR:
+      - NovaStar legacy (armor) and COEX 1G: 1 Gb x 0.95 / (M x fps), M = 24
+        at 8-bit, 48 at 10/12-bit on armor, 24/32/48 on COEX 1G;
+      - Brompton: the 24 Hz figure x 24 / fps, halved for the retired ULL table.
+    NovaStar 5G is their published table verbatim (already below its formula)
+    and Megapixel HELIOS is theirs too, so neither is checked here."""
+    import math
+    formulas = {
+        'novastar-armor': lambda bd, fr: 1e9 * 0.95 / ({8: 24, 10: 48, 12: 48}[bd] * fr),
+        'novastar-coex-1g': lambda bd, fr: 1e9 * 0.95 / ({8: 24, 10: 32, 12: 48}[bd] * fr),
+        'brompton': lambda bd, fr: TABLES['brompton'][bd][24] * 24 / fr,
+        'brompton-ull': lambda bd, fr: TABLES['brompton'][bd][24] * 24 / fr / 2,
+    }
+    bad = []
+    for name, f in formulas.items():
+        for bd, row in sorted(TABLES[name].items()):
+            for fr, cap in sorted(row.items()):
+                want = math.floor(f(bd, fr) + 1e-9)
+                if cap != want:
+                    bad.append('%s %d-bit %dHz = %d, floor = %d' % (name, bd, fr, cap, want))
+    assert not bad, '\n'.join(bad)
 
 
 def test_megapixel_helios_figures_are_not_derivable_from_anything_in_the_repo():
@@ -497,9 +497,9 @@ def test_frame_rate_above_a_processors_table_has_no_capacity(page):
             })(),
         };
     """)
-    assert got['armor120'] == 164931
+    assert got['armor120'] == 164930
     # Armor publishes nothing past 120 Hz, so 240 Hz has no answer. It used to
-    # report 164,931 - double the correct 82,465 the same bandwidth model gives.
+    # report 164,930 - double the correct 82,465 the same bandwidth model gives.
     assert got['armor240'] == 0, got
     # COEX publishes 240 Hz, and stops there: 250 Hz is out of table for it.
     assert got['coex240'] == 82465
@@ -509,7 +509,7 @@ def test_frame_rate_above_a_processors_table_has_no_capacity(page):
     assert got['armorPorts'] == 0, got
     # Below the table still clamps to the lowest published row (the safe
     # direction), so 23.976 Hz keeps working.
-    assert got['armor10'] == got['armor24'] == 824653, got
+    assert got['armor10'] == got['armor24'] == 824652, got
 
 
 def test_group_settings_dialog_allows_a_processor_frame_rate_combination_that_does_not_exist(page):

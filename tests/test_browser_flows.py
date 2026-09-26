@@ -1245,9 +1245,9 @@ def test_brompton_low_latency_reproduces_legacy_ull_table(page):
 
     'brompton-ull' used to be its own 48-cell table. It is now brompton +
     lowLatency, so every published cell has to come back out the other side.
-    We floor the halves; Brompton's own manual rounds two 12-bit cells UP by
-    1 px, so we may land 1 px LOW there and must never land high --
-    understating a port's capacity is safe, overstating it goes dark.
+    We floor the halves and the table is floored too, so every cell comes
+    back exactly; landing high would be the failure -- understating a port's
+    capacity is safe, overstating it goes dark.
     """
     rows = page.evaluate("""() => {
         const legacy = window.app.portCapacityTables['brompton-ull'];
@@ -1280,10 +1280,10 @@ def test_brompton_low_latency_reproduces_legacy_ull_table(page):
         # And it really is the normal column halved, not a second table.
         assert row['migrated'] * 2 in (row['normal'], row['normal'] - 1), row
 
-    # The only permitted drift, documented in the descriptor: Brompton rounds
-    # these two cells up. Anything else here means the migration lost data.
-    assert {c for c, _ in off_by_one} == {(12, 144), (12, 192)}, off_by_one
-    assert all(d == -1 for _, d in off_by_one), off_by_one
+    # No drift at all since 2026-09-26: every table value is rounded down
+    # (owner), so the retired table and the halve-and-floor path agree on
+    # all 48 cells. Anything here means the migration lost data.
+    assert off_by_one == [], off_by_one
 
 
 @pytest.mark.parametrize('processor', ['megapixel-1g', 'megapixel-2.5g'])

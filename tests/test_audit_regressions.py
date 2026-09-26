@@ -1419,12 +1419,9 @@ def test_brompton_ull_capacities_survive_the_migration(page):
     }""")
     assert len(got) == 48, f"the ULL table is no longer 48 cells ({len(got)})"
     off = [c for c in got if c['old'] != c['now']]
-    assert sorted((c['bd'], c['fps'], c['old'], c['now']) for c in off) == [
-        (12, 144, 72917, 72916),
-        (12, 192, 54688, 54687),
-    ], f"the ULL migration drifted: {off}"
-    for c in off:
-        assert abs(c['old'] - c['now']) == 1, "a ULL cell moved by more than rounding"
+    # every table value is rounded down since 2026-09-26, so the retired
+    # table and the live halve-and-floor path now agree cell for cell
+    assert off == [], f"the ULL migration drifted: {off}"
 
 
 def test_max_capacity_on_a_legacy_screen_opens_as_organized(page):
