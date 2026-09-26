@@ -650,11 +650,43 @@ def _shot(pg, locator, name):
         locator.screenshot(path=os.path.join(SCRATCH, name))
 
 
+def test_a_folded_sx40_card_counts_its_boxes(page):
+    """Folded, the card row names the boxes hanging off it by model - "4 ×
+    Tessera XD" - since the strips that show them are folded away; open,
+    the tally draws nothing (owner, 2026-09-26)."""
+    pg, ids = page
+    sx = ids['sx']
+    read = """([sx, fold]) => {
+        const app = window.app;
+        const proc = app._processorsResolved.find(p => p.id === sx);
+        const card = proc.slots.map(s => s.card).find(Boolean);
+        const unit = document.querySelector(`[data-lrd-sec="hwdock-card-${card.id}"]`).parentElement;
+        app._setSectionCollapsed(unit, fold);
+        const tally = unit.querySelector(':scope > .hw-dock-head-row > .hw-dock-boxcount');
+        return {
+            boxes: card.cvts.length,
+            text: tally ? tally.textContent : null,
+            shown: !!tally && getComputedStyle(tally).display !== 'none',
+        };
+    }"""
+    try:
+        out = pg.evaluate(read, [sx, True])
+        assert out['boxes'] and out == {
+            'boxes': out['boxes'], 'text': f"{out['boxes']} × Tessera XD",
+            'shown': True}, out
+        _shot(pg, pg.locator(f'[data-lrd-field="processor-name-{sx}"]')
+              .locator('xpath=ancestor::*[contains(@class,"hw-dock-proc-name")][1]/..'),
+              'sx40-folded-card.png')
+    finally:
+        out = pg.evaluate(read, [sx, False])
+    assert out['shown'] is False, out
+
+
 def test_the_sx40_gear_has_the_two_loops_and_the_backup_processor_switch(page):
     """The ⚙: REDUNDANCY as two switches, "A to B" and "C to D" - either
     alone, both the old On - each click one request and one history entry;
     under them BACKUP PROCESSOR, On, with its name; and the main's header
-    carries "+ BU: USC SR BU"."""
+    carries "Backup: USC SR BU"."""
     pg, ids = page
     sx = ids['sx']
     assert pg.evaluate(OPEN_GEAR_JS, f'proc-{sx}')
@@ -674,7 +706,23 @@ def test_the_sx40_gear_has_the_two_loops_and_the_backup_processor_switch(page):
         const p = strip.closest('.hw-dock-proc-name').querySelector('.hw-dock-backuppill');
         return p ? [p.textContent, getComputedStyle(p).color] : null;
     }""", sx)
-    assert pill == ['+ BU: USC SR BU', 'rgb(240, 212, 138)'], pill
+    assert pill == ['Backup: USC SR BU', 'rgb(240, 212, 138)'], pill
+    # The loops read on the card row in words, never "R seq"; the header
+    # carries only the backup pill (owner, 2026-09-26).
+    pills = """(sx) => {
+        const strip = document.querySelector(`[data-lrd-field="processor-name-${sx}"]`);
+        const head = strip.closest('.hw-dock-proc-name');
+        const proc = window.app._processorsResolved.find(p => p.id === sx);
+        const card = proc.slots.map(s => s.card).find(Boolean);
+        const row = document.querySelector(`[data-hwdock="card-${card.id}"]`);
+        const own = row && row.querySelector(':scope > .hw-dock-redpill');
+        return {
+            header: [...head.querySelectorAll('.hw-dock-redpill')].map(p => p.textContent),
+            card: own ? own.textContent : null,
+        };
+    }"""
+    assert pg.evaluate(pills, sx) == {'header': ['Backup: USC SR BU'],
+                                      'card': 'Loops A to B, C to D'}
     # A to B off: C to D alone
     index = pg.evaluate('() => window.app.historyIndex')
     pg.locator(loops + ' [data-pair="A"]').click()
@@ -685,6 +733,7 @@ def test_the_sx40_gear_has_the_two_loops_and_the_backup_processor_switch(page):
     assert stored['redundancy'] is True and stored['redundancyPairs'] == ['C'], stored
     assert pg.evaluate(OPEN_GEAR_JS, f'proc-{sx}')
     assert pg.evaluate(read, loops) == [['A to B', 'false'], ['C to D', 'true']]
+    assert pg.evaluate(pills, sx)['card'] == 'Loop C to D'
     # C to D off too: redundancy off; A to B back on alone
     pg.locator(loops + ' [data-pair="C"]').click()
     pg.wait_for_timeout(900)

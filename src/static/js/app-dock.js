@@ -1173,6 +1173,17 @@ class _HardwareDock {
             ...cvts.map(cvt => (cvt.ports || []).length)));
         const cardOwner = { kind: 'card', id: card.id, procId: proc.id,
                             cardId: card.id, rec: card };
+        // The folded card's second glance: the boxes hanging off it, by
+        // model - "4 × Tessera XD" (owner, 2026-09-26: "the tray when
+        // minimized it shows how many boxes are connected too"). Open, the
+        // strips below already show them, so the CSS draws it folded only.
+        const boxCount = this._dockBoxCountText(cvts);
+        if (boxCount) {
+            const tally = document.createElement('span');
+            tally.className = 'hw-dock-boxcount';
+            tally.textContent = boxCount;
+            head.insertBefore(tally, head.querySelector('.hw-dock-unit-info'));
+        }
         const cardControls = cardPill ? [cardPill] : [];
         if (loose.length) {
             cardControls.push(this._dockBuildDataCableSheetButton(cardOwner));
@@ -1251,6 +1262,18 @@ class _HardwareDock {
                 : this._dockBuildBox(proc, card, cvt));
         });
         return unit;
+    }
+
+    // "4 × Tessera XD", or "2 × CVT10 · 1 × CVT4K-S" on a mixed card, in
+    // the order the card lists them; '' with no boxes.
+    _dockBoxCountText(cvts) {
+        const byModel = new Map();
+        (cvts || []).forEach(c => {
+            const model = c.deviceName || 'box';
+            byModel.set(model, (byModel.get(model) || 0) + 1);
+        });
+        return [...byModel].map(([model, n]) => `${n} × ${model}`)
+            .join(' · ');
     }
 
     // What a box is called where it is named in running text - its hand
@@ -2913,6 +2936,14 @@ class _HardwareDock {
                 ? (main.name || main.deviceName) : 'another processor'}`;
         } else if (!proc.redundancy || !proc.redundancySupported) {
             return null;
+        } else if (card && this._procRedundancyLevel(proc) === 'fixed') {
+            // A vendor-fixed pairing (an SX40's loops) is read on the card
+            // row, where its boxes are - never "R seq", the stored shape
+            // the pairing happens to resolve through (owner, 2026-09-26:
+            // "why does it say R seq? its A to B with SX40's"). The header
+            // leaves it to this row ("dont know we need the A to B top
+            // part. the bottom one is fine").
+            text = this._dockLoopText(proc);
         } else if (card) {
             if (card.backupFor) return null;
             const shape = card.redundancyShape;
@@ -2952,12 +2983,9 @@ class _HardwareDock {
                     ? `R → ${this._backupUnitTitle(found.proc, found.card)}`
                     : 'R 1:1 — no partner';
             } else if (level === 'fixed') {
-                // An SX40 running one loop of two says which.
-                const marks = proc.redundancyPairMarks || [];
-                const on = proc.redundancyPairs || marks;
-                text = marks.length && on.length < marks.length
-                    ? `R ${on.map(m => `${m} to ${String.fromCharCode(m.charCodeAt(0) + 1)}`).join(', ')}`
-                    : 'R on';
+                // The card row states the loops (above); the header
+                // carries only the backup processor's pill.
+                return null;
             } else {
                 text = `R per ${level}`;
             }
@@ -2975,8 +3003,20 @@ class _HardwareDock {
         return pill;
     }
 
+    // A vendor-fixed pairing in words: "Loop A to B", "Loops A to B, C to
+    // D" - every pair the SX40 runs, by its trunk letters - and plain
+    // "Redundancy on" for a fixed unit whose pairs carry no letters.
+    _dockLoopText(proc) {
+        const marks = proc.redundancyPairMarks || [];
+        const on = proc.redundancyPairs || marks;
+        if (!marks.length || !on.length) return 'Redundancy on';
+        const pairs = on.map(m =>
+            `${m} to ${String.fromCharCode(m.charCodeAt(0) + 1)}`);
+        return `${pairs.length > 1 ? 'Loops' : 'Loop'} ${pairs.join(', ')}`;
+    }
+
     // The backup processor's pill (2026-09-25), beside the redundancy one:
-    // "+ BU: USC SR BU" - the backup unit is an option ON this processor,
+    // "Backup: USC SR BU" - the backup unit is an option ON this processor,
     // never a unit of its own in the tray, so its name rides the main's
     // header, in the gold redundancy family, and a click opens the main's
     // ⚙ where it is switched and named. Nothing without one.
@@ -2986,7 +3026,7 @@ class _HardwareDock {
         const pill = document.createElement('button');
         pill.type = 'button';
         pill.className = 'hw-dock-redpill hw-dock-backuppill';
-        pill.textContent = `+ BU: ${unit.name}`;
+        pill.textContent = `Backup: ${unit.name}`;
         pill.title = `Backup processor ${unit.name}: a second `
             + `${proc.deviceName || 'unit'} mirroring this one. Click to open `
             + 'the processor’s ⚙, where it is switched and named.';

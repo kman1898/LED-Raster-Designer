@@ -536,6 +536,10 @@ select, .info-select {
 .hw-dock-unit > .lrd-sec-body { padding:0 5px; }
 .hw-dock-unit.lrd-sec-collapsed { padding-bottom:0 !important; }
 .hw-dock-unit.lrd-sec-collapsed > .hw-dock-head-row { border-bottom:none; }
+/* the folded card's box tally: open, the box strips below say it */
+.hw-dock-boxcount { display:none; flex:0 0 auto; white-space:nowrap;
+  font:600 11px/1.6 var(--font-ps); color:var(--ps-dim); }
+.hw-dock-unit.lrd-sec-collapsed > .hw-dock-head-row > .hw-dock-boxcount { display:inline; }
 .hw-dock-box {
   background:var(--ps-inset) !important; border:1px solid #383838 !important;
   border-left:2px solid #4a4a4a !important; border-radius:4px !important;
@@ -696,8 +700,8 @@ select, .info-select {
 .hw-dock-redpill {
   flex:0 0 auto; min-width:0; max-width:48%; overflow:hidden;
   text-overflow:ellipsis; white-space:nowrap;
-  font:600 9.5px/1.6 var(--font-ps); text-transform:none; letter-spacing:0;
-  padding:0 6px; border-radius:4px; cursor:pointer; margin:0;
+  font:600 11px/1.6 var(--font-ps); text-transform:none; letter-spacing:0;
+  padding:0 7px; border-radius:4px; cursor:pointer; margin:0;
   color:#f0d48a; border:1px solid #c8a04a;
   background:#2a2010 linear-gradient(rgba(255,255,255,0.09), rgba(0,0,0,0.10));
   box-shadow:inset 0 1px 0 rgba(255,255,255,0.13),

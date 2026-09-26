@@ -74,6 +74,11 @@ to the box, picking the strands, and the power jumper lengths.
 
 FIXES
 
+- FIX: An SX40's card row in the hardware tray names its loops in words,
+  "Loop A to B" or "Loops A to B, C to D", where it used to say "R seq".
+  The processor's header carries only its backup processor, "Backup: SR
+  BU", and the redundancy pills are larger. A folded card lists the
+  boxes on it, such as "4 × Tessera XD".
 - FIX: Each processor in the hardware tray is its own panel, outlined in
   the app's accent color, with its name first and larger and the model
   after it, so one processor is easy to tell from the next.

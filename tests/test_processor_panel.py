@@ -4367,7 +4367,7 @@ def test_a_chassis_chooses_its_level_and_switches_its_backup_processor_on(
     partner row per slot. Under it, the BACKUP PROCESSOR switch, Off · On:
     On is ONE request and ONE history entry, adds no processor to the tray,
     shows the name field ("SR BU" until one is typed - Enter ends the
-    edit) and the gold "+ BU: SR BU" pill on the main's header; Off takes
+    edit) and the gold "Backup: SR BU" pill on the main's header; Off takes
     it away, and undo brings it back."""
     pytest.importorskip("playwright.sync_api",
                         reason="playwright is not installed")
@@ -4399,7 +4399,7 @@ def test_a_chassis_chooses_its_level_and_switches_its_backup_processor_on(
     out = page.evaluate(BACKUP_JS, ids['mainId'])
     assert out['lit'] == 'on', out
     assert out['name'] == {'value': '', 'placeholder': 'SR BU'}, out
-    assert out['pill'] == '+ BU: SR BU', out
+    assert out['pill'] == 'Backup: SR BU', out
     assert out['procs'] == procs, 'the backup processor became a tray unit'
     stored = page.evaluate("""(pid) => window.app.project.processors
         .find(p => p.id === pid).backupUnit""", ids['mainId'])
@@ -4412,7 +4412,7 @@ def test_a_chassis_chooses_its_level_and_switches_its_backup_processor_on(
     assert page.evaluate(LAST_ACTION_JS) == ['Rename Backup Processor']
     assert page.evaluate(OPEN_GEAR_JS, f"proc-{ids['mainId']}")
     out = page.evaluate(BACKUP_JS, ids['mainId'])
-    assert out['pill'] == '+ BU: SR BACKUP', out
+    assert out['pill'] == 'Backup: SR BACKUP', out
     assert out['name']['value'] == 'SR BACKUP', out
     # Off, then one undo brings it back
     page.locator(f'#hw-gear-popover [data-lrd-field="processor-backup-{ids["mainId"]}"] '
@@ -4426,7 +4426,7 @@ def test_a_chassis_chooses_its_level_and_switches_its_backup_processor_on(
     page.wait_for_timeout(1000)
     assert page.evaluate(OPEN_GEAR_JS, f"proc-{ids['mainId']}")
     out = page.evaluate(BACKUP_JS, ids['mainId'])
-    assert out['pill'] == '+ BU: SR BACKUP' and out['lit'] == 'on', out
+    assert out['pill'] == 'Backup: SR BACKUP' and out['lit'] == 'on', out
     page.keyboard.press('Escape')
     page.wait_for_timeout(100)
     page.evaluate(CHASSIS_CLEAN_JS, ids)

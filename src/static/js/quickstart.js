@@ -2787,7 +2787,7 @@
             check: function () {
                 var p = proc();
                 if (!p || !p.backupUnit) return null;
-                return p.backupUnit.name + ' backs up ' + (p.name || p.deviceName) + ' output for output; the header wears + BU.';
+                return p.backupUnit.name + ' backs up ' + (p.name || p.deviceName) + ' output for output; the header reads Backup: ' + p.backupUnit.name + '.';
             },
             after: function () { closePopover(); }
         },

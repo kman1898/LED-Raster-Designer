@@ -1802,7 +1802,7 @@ def test_the_redundancy_pill_reads_the_state_and_opens_the_processor_gear(
     partner once every card is paired onto it (the partner's consumed cards
     carry the role in their names and get no pill); `R per port` / `R
     seq` / `R halves` / `R manual` in the port shapes; and, beside it, the
-    backup processor's `+ BU: SR BU` (2026-09-25). Measured, it is a plugged
+    backup processor's `Backup: SR BU` (2026-09-25). Measured, it is a plugged
     socket in the backup gold, never the accent, and a button - so the
     drag pickup skips it."""
     page, ids = dock_page
@@ -1916,7 +1916,7 @@ def test_the_redundancy_pill_reads_the_state_and_opens_the_processor_gear(
         assert out['mainCards'] == ['R 1:1 — no partner', 'R OPT split'], out
         # the backup processor rides the main's header beside it
         out = pills({'backupUnit': {}})
-        assert out['bu'] == '+ BU: SR BU' and out['main'] == 'R per card', out
+        assert out['bu'] == 'Backup: SR BU' and out['main'] == 'R per card', out
         out = pills({'backupUnit': None})
         assert out['bu'] is None, out
 
