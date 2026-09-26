@@ -79,6 +79,9 @@ FIXES
   port, output and home run, and each box's name and fiber over its own
   half, so XD A and XD B read side by side instead of one list stacked on
   the other. The PX column is gone; PANELS stays.
+- FIX: On data and power sheets each box's or multi's heading, with its
+  fiber or home run, sits above its column headings, and the headings
+  repeat under every one, so a table reads box, headings, rows.
 - FIX: A binder sheet whose wall leaves the page half empty runs its
   tables around the wall: in the columns beside it, then on across the
   page under it, so the wall prints larger. The Facts and Cables tables

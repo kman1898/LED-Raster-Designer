@@ -571,10 +571,12 @@ def test_the_power_sheet_carries_its_title_block_and_says_home_run_once_per_box(
     assert not any(re.search(r'\btails?\b', t.lower()) for t in texts), [t for t in texts if 'tail' in t.lower()]
     # the bracket outside the wall carries the box and its home run once
     assert texts.count("SR1 · 125'") == 1
-    # the circuit rows under CIRCUIT · NO. · PANELS · AMPS · CABLE, the
-    # cable typed on each, the cables table, the facts
+    # the multi's band, then its circuit rows under CIRCUIT · NO. · PANELS
+    # · AMPS · CABLE - the band above the headings (2026-09-26: "same with
+    # distros") - the cable typed on each, the cables table, the facts
     i = texts.index('CIRCUITS')
-    assert texts[i + 1:i + 6] == ['CIRCUIT', 'NO.', 'PANELS', 'AMPS', 'CABLE']
+    assert texts[i + 1:i + 7] == ["SR1 · Multi 208 · 125' · 2 circuits",
+                                  'CIRCUIT', 'NO.', 'PANELS', 'AMPS', 'CABLE'], texts[i:i + 8]
     assert 'SR1-1' in texts and 'SR1-2' in texts
     assert texts.count("10' True1") >= 2
     assert 'CABLES THIS SCREEN' in texts and 'FACTS' in texts
@@ -2271,21 +2273,20 @@ def test_the_data_sheet_prints_the_return_end_and_the_processor_once(page):
     try:
         out = _render(pg, SHOW, 'WALL-A - Data - Front View')
         texts = out['texts']
-        p0 = texts.index('PORTS')
-        assert texts[p0 + 1:p0 + 10] == ['PRIMARY', 'BACKUP', 'PORT', 'OUTPUT', 'HOME RUN',
-                                         'PORT', 'OUTPUT', 'HOME RUN', 'PANELS'], texts[p0:p0 + 12]
         # ONE section in two halves (2026-09-26: "break the table up half
         # and half"): SR's band over the primary half, the backup card's
-        # over the backup half, then each half's snake heading its own
-        # rows - a snake states its home run ONCE (2026-09-10: "Why is the
-        # same data written multiple times under the snake under a
-        # specific port number").
-        i = texts.index('H9 SR · H_16xRJ45+2xfiber · 16 ports')
-        assert texts[i + 1:i + 4] == ['H9 slot 2 · H_16xRJ45+2xfiber · 16 ports',
-                                      "SR Primary · 1 channel snake · 100'",
-                                      "SR Backup · 1 channel snake · 150'"], texts[i:i + 5]
+        # over the backup half - the bands above the headings - then each
+        # half's snake heading its own rows - a snake states its home run
+        # ONCE (2026-09-10: "Why is the same data written multiple times
+        # under the snake under a specific port number").
+        p0 = texts.index('PORTS')
+        assert texts[p0 + 1:p0 + 14] == [
+            'PRIMARY', 'BACKUP', 'H9 SR · H_16xRJ45+2xfiber · 16 ports',
+            'H9 slot 2 · H_16xRJ45+2xfiber · 16 ports',
+            'PORT', 'OUTPUT', 'HOME RUN', 'PORT', 'OUTPUT', 'HOME RUN', 'PANELS',
+            "SR Primary · 1 channel snake · 100'", "SR Backup · 1 channel snake · 150'"], texts[p0:p0 + 16]
         rows = []
-        k = i + 4
+        k = p0 + 14
         while k + 6 < len(texts) and re.fullmatch(r'SR-\d+', texts[k]):
             rows.append(texts[k:k + 7]); k += 7
         assert rows, texts[i:i + 20]
@@ -2371,7 +2372,8 @@ def test_a_box_delivering_the_port_is_listed_instead_of_the_card(page):
         band = "CVT4K-S A-B · OPT 1-2 · 16 ports · 12 Tac Fiber 250'"
         assert band in texts, texts
         i = texts.index(band)
-        assert texts[i + 1:i + 4] == ['SR-1', 'CVT4K-S A-B · 1', '—'], texts[i:i + 8]
+        assert texts[i + 1:i + 8] == ['PORT', 'OUTPUT', 'HOME RUN', 'PANELS',
+                                      'SR-1', 'CVT4K-S A-B · 1', '—'], texts[i:i + 10]
         assert not [t for t in texts if t.startswith('H9 SR ·')], 'the card is not listed where the box delivers'
         k = texts.index('CABLES THIS SCREEN')
         assert texts[k + 4:k + 7] == ['12 Tac Fiber', "250'", '1'], texts[k:k + 12]
@@ -2434,6 +2436,8 @@ def test_a_box_delivering_the_port_is_listed_instead_of_the_card(page):
             j = texts.index('CVT4K-S SR · OPT 1-2 · 16 ports')
             assert texts[j:j + 4] == ['CVT4K-S SR · OPT 1-2 · 16 ports', 'no fiber length',
                                       'CVT4K-S BK · OPT 1-2 · 16 ports', 'no fiber'], texts[j:j + 6]
+            assert texts[j + 4:j + 11] == ['PORT', 'OUTPUT', 'HOME RUN', 'PORT', 'OUTPUT', 'HOME RUN',
+                                           'PANELS'], texts[j:j + 12]
             i = texts.index('SR-1')
             assert i > j and texts[i:i + 5] == ['SR-1', 'SR · 1', '—', 'BK-1', 'BK · 1'], texts[i:i + 8]
             assert not [t for t in texts if t.endswith('…')]
@@ -2835,13 +2839,14 @@ def test_smoke_experts_only(page):
     assert layouts['Overview'] == ('overview', 3, 1) and layouts[PULL4] == ('tables', 2, None)
     assert not [t for _n, t in plan if '(cont.)' in t]
     # the fill: SR - MAIN's 22 circuits are tons of info - the tables
-    # reach the height at ~1.22 and the wall keeps the width they leave;
+    # (each multi's band over its own headings since 2026-09-26) reach the
+    # height at ~1.12 and the wall keeps the width they leave;
     # its data sheet stacks at 1.03, its extent the whole area; the Return's tables scale to the height at ~1.38; every
     # extent inside the area; the pull sheet (a column per beach) and the
     # hardware sheets scale by the column rule, unchanged. Measured on the
     # save of 2026-09-15 (2026-09-24).
     main_s = scales['SR - MAIN - Power - Front View']
-    assert 1.15 < main_s < 1.35 and scales['SR - MAIN - Data - Front View'] == 1.03, scales
+    assert 1.05 < main_s < 1.25 and scales['SR - MAIN - Data - Front View'] == 1.03, scales
     ret_s = scales['SR - Return - Power - Front View']
     assert 1.3 < ret_s < 1.45, scales
     for t in ('SR - MAIN - Power - Front View', 'SR - MAIN - Data - Front View', 'SR - Return - Power - Front View', 'SR - Return - Data - Front View'):
@@ -2895,7 +2900,9 @@ def test_smoke_experts_only(page):
     assert m['w'] / room_w > 0.75 and m['scale'] == main_s, m
     # the CIRCUITS table beside the map, disjoint from it: every heading
     # right of the map's area, at the scale
-    heads = {t: (x, y) for t, x, y in main['headings']}
+    # (the tables' own headings: at ~1.12 a heading is set at the size the
+    # map's bracket labels are, so the log's headings carry "SR1 · 125'")
+    heads = {t: (x, y) for t, x, y in main['headings'] if t in ('CIRCUITS', 'CABLES THIS SCREEN', 'FACTS')}
     assert 'CIRCUITS' in heads and 'CABLES THIS SCREEN' in heads and 'FACTS' in heads, heads
     assert all(x >= m['area']['x'] + m['area']['w'] + COL_GAP * main_s - 1 for x, _y in heads.values()), (heads, m['area'])
     assert all(x + COL_W * main_s <= DA['x'] + DA['w'] + 1 for x, _y in heads.values()), heads
@@ -2934,10 +2941,13 @@ def test_smoke_experts_only(page):
     # no screen-name plate over them - the title block names the screen
     assert _on_map(main['mapTexts'], 'SR1-1') and "10' True1" in main['mapTexts'], main['mapTexts'][:20]
     assert not _on_map(main['mapTexts'], 'SR - MAIN')
-    # the band rule: every band is followed straight by its first circuit
+    # the band rule: every band is followed straight by its headings and
+    # then its first circuit (2026-09-26: the band above the headings)
     for band in bands:
-        assert texts[texts.index(band) + 1] == band.split(' ')[0] + '-' + ('2' if band.startswith('SR2') else '1'), \
-            (band, texts[texts.index(band):texts.index(band) + 3])
+        k = texts.index(band)
+        assert texts[k + 1:k + 6] == ['CIRCUIT', 'NO.', 'PANELS', 'AMPS', 'CABLE'], texts[k:k + 7]
+        assert texts[k + 6] == band.split(' ')[0] + '-' + ('2' if band.startswith('SR2') else '1'), \
+            (band, texts[k:k + 8])
     assert not [t for t in texts if '(cont.)' in t or '(CONT.)' in t]
     # printer: no colour, ten distinct dashes across 22 circuits
     printer = _render(pg, SHOW.replace("palette: 'colour'", "palette: 'printer'"), 'SR - MAIN - Power - Front View')
@@ -3227,8 +3237,12 @@ def test_the_fill_picks_the_layout_that_covers_most(page):
     mc = _map_of(archc)
     sc = pc['scale']
     assert pc['layout'] == 'stack' and pc['cols'] == 3 and 1 <= sc <= 2.05, pc
-    assert mc['area']['w'] == DA_ARCHC['w'] and abs(mc['w'] - (DA_ARCHC['w'] - GUT['left'] - GUT['right'])) <= 2, mc
-    assert abs(mc['zoom'] - (DA_ARCHC['w'] - GUT['left'] - GUT['right']) / ww) < 0.01 and mc['zoom'] < MAP_ZOOM_CAP, mc
+    # (within 2% of the width: each multi's band over its own headings,
+    # 2026-09-26, makes the tables a row taller per multi, and the wall
+    # gives the height back)
+    full = (DA_ARCHC['w'] - GUT['left'] - GUT['right'])
+    assert mc['area']['w'] == DA_ARCHC['w'] and full * 0.98 <= mc['w'] <= full + 2, mc
+    assert full / ww * 0.98 <= mc['zoom'] <= full / ww + 0.01 and mc['zoom'] < MAP_ZOOM_CAP, mc
     assert pc['coverage'] >= 0.8, pc
     cheads = {t: (x, y) for t, x, y in archc['headings']}
     assert all(y >= mc['area']['y'] + mc['area']['h'] for _x, y in cheads.values()), (cheads, mc['area'])

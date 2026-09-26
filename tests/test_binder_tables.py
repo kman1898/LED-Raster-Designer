@@ -395,7 +395,14 @@ def _ports_table(page):
     right = min([o['x'] for o in texts if o['x'] > last + 1 and (
                      abs(o['y'] - port['y']) < 0.5 or o['t'] in ('CABLES THIS SCREEN', 'FACTS'))]
                 + [float('inf')])
-    ops = [o for o in texts if o['y'] > port['y'] + 1 and port['x'] - 1 <= o['x'] < right]
+    # a band reads ABOVE its headings (2026-09-26), so the table starts
+    # at its title, and a headings line - repeated under every band - is
+    # skipped
+    title = max((o for o in texts if o['t'] == 'PORTS' and o['y'] < port['y']), key=lambda o: o['y'])
+    # (PANELS is right-aligned: its heading's x is the table's right edge)
+    right = min(right, last + 1)
+    ops = [o for o in texts if o['y'] > title['y'] + 1 and port['x'] - 1 <= o['x'] < right
+           and o['t'] not in ('PRIMARY', 'BACKUP')]
     stop = next((o['y'] for o in sorted(texts, key=lambda o: o['y'])
                  if o['y'] > port['y'] and o['x'] < right
                  and o['t'] in ('CABLES THIS SCREEN', 'FACTS')), None)
@@ -407,6 +414,9 @@ def _ports_table(page):
     sections, prev = [], None
     for y in sorted(lines):
         line = sorted(lines[y], key=lambda o: o['x'])
+        if [o['t'] for o in line] == names[:len(want)]:
+            prev = 'heads'
+            continue
         cells = {xs.get(round(o['x'], 1)): o['t'] for o in line}
         if None in cells:
             # a snake heading, in halves, indented past the band's edge

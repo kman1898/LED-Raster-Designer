@@ -1976,7 +1976,7 @@ class _Binder {
                 }
             } });
         }
-        lines.push({ h: TH_H, head: true, draw: (ctx, x, y, w) => {
+        const th = { h: TH_H, head: true, draw: (ctx, x, y, w) => {
             const L = layout(w);
             rules(ctx, L, x, y, TH_H);
             cols.forEach((c, i) => {
@@ -1988,7 +1988,18 @@ class _Binder {
             });
             ctx.fillStyle = RULE;
             ctx.fillRect(x, y + TH_H - 4, w, 4);
-        } });
+        } };
+        // `bandsLead`: the band over a run of rows - the unit and its fiber,
+        // the multi and its run - reads ABOVE the column headings, which
+        // follow it under every band (2026-09-26: "should put XD and fiber
+        // info above where it says port and home runs etc reads werid
+        // otherwise" / "same with distros"). A column the table runs on
+        // into starts with the headings again (`contHeads`); a band and its
+        // headings are never left at the foot of a column over nothing.
+        const lead = !!spec.bandsLead;
+        const topBand = (r) => r.band !== undefined && !r.sub;
+        const underBand = { ...th, head: false, band: true };
+        if (!lead || !(spec.rows || []).length || !topBand(spec.rows[0])) lines.push(th);
         for (const r of spec.rows || []) {
             if (r.halves) {
                 // A sub-band in halves (each half's snake) keeps the
@@ -2018,6 +2029,7 @@ class _Binder {
                     ctx.fillStyle = RULE;
                     ctx.fillRect(x + ind, y + h - 4, w - ind, sub ? 2 : 4);
                 } });
+                if (lead && topBand(r)) lines.push(underBand);
                 continue;
             }
             if (r.band !== undefined) {
@@ -2042,6 +2054,7 @@ class _Binder {
                     ctx.fillStyle = RULE;
                     ctx.fillRect(x + ind, y + BAND_H - 4, w - ind, sub ? 2 : 4);
                 } });
+                if (lead && topBand(r)) lines.push(underBand);
                 continue;
             }
             // A LIST column's cell wraps rather than being cut, so the row
@@ -2106,6 +2119,10 @@ class _Binder {
                 if (!r.bold) { ctx.fillStyle = FAINT; ctx.fillRect(x, y + h - 2, w, 2); }
             } });
         }
+        // where the table runs on into another column, its heads again -
+        // the headings included, which a band-led table otherwise prints
+        // only under its bands
+        if (lead) lines.contHeads = [...lines.filter(l => l.head && l !== th), th];
         return lines;
     }
 
@@ -2206,10 +2223,14 @@ class _Binder {
             return true;
         };
         const rest = [];
-        const queue = blocks.filter(b => b && (b.lines || []).length).map(b => ({ lines: b.lines.slice() }));
+        const queue = blocks.filter(b => b && (b.lines || []).length)
+            .map(b => ({ lines: b.lines.slice(), contHeads: b.contHeads || b.lines.contHeads || null }));
         while (queue.length) {
             const block = queue[0];
-            const heads = block.lines.filter(l => l.head);
+            // the lines a continuation starts with: a table's own list
+            // where it has one (a band-led table's headings), else its
+            // head lines
+            const heads = block.contHeads || block.lines.filter(l => l.head);
             const total = block.lines.reduce((s, l) => s + l.h, 0);
             if (!col && !open()) break;
             let y = col.items.length ? col.h + BLOCK_GAP : 0;
@@ -2260,7 +2281,7 @@ class _Binder {
                 queue.shift();
             }
         }
-        for (const b of queue) rest.push({ lines: b.lines });
+        for (const b of queue) rest.push({ lines: b.lines, contHeads: b.contHeads });
         return { cols, rest };
     }
 
@@ -3184,6 +3205,7 @@ class _Binder {
         }
         blocks.push({ lines: this._bTableLines(book, {
             title: 'Circuits',
+            bandsLead: true,
             cols: [{ title: 'circuit', w: 1.5 }, { title: 'no.', w: 0.6, align: 'right' },
                    { title: 'panels', w: 0.8, align: 'right' }, { title: 'amps', w: 0.8, align: 'right' },
                    { title: 'cable', w: 1.4 }],
@@ -3594,6 +3616,7 @@ class _Binder {
             title: 'Ports',
             width: DATA_COL_W,
             groups: split ? [{ title: 'primary', from: 0, to: 2 }, { title: 'backup', from: 3, to: 5 }] : [],
+            bandsLead: true,
             cols: [...halfCols(false), ...(split ? halfCols(true) : []),
                    { title: 'panels', w: 0.7, align: 'right', rule: split }],
             rows,
