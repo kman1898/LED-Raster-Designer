@@ -472,12 +472,41 @@ select, .info-select {
 #hw-dock-fold { color:var(--ps-dim); font-size:13px; }
 #hw-dock-fold:hover { color:#fff; }
 
-/* ---- processor strip: a small titled row above its cards ---- */
+/* ---- the processor FRAME (2026-09-25: "make the different processors
+   more obvious" - the owner's option 2, "Framed unit", with "the color
+   should match the color for the whole app. since we have that as a
+   setting"). Each top-level processor cell - a processor wrap, or the pair
+   wrapper a designated backup machine nests into - is ONE raised panel:
+   a rung up the ground ladder from the tray (--ps-panel over the body's
+   --ps-panel-2), the lifted surfaces' top light and drop shadow, rounded,
+   padded, and outlined in the ACCENT. var(--ps-accent), never a literal,
+   so the frame follows the Preferences colour live (theme.js rewrites the
+   variable; nothing here re-renders). Only the top-level cell is framed:
+   a backup machine nested inside a pair keeps its gold indent inside its
+   main's frame, one unit. The distro side's cells are COLUMNS of several
+   distros, so they stay as they are - a frame there would read as one
+   unit holding three. Border and padding are inside the cell's measured
+   height, so the masonry spans (app-dock.js _dockMasonry) take them in
+   with no margin to feed back. ---- */
+#hardware-dock-body > .hw-dock-proc,
+#hardware-dock-body > .lrd-red-pair {
+  background:var(--ps-panel);
+  border:1px solid var(--ps-accent);
+  border-radius:5px;
+  padding:6px 5px 6px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.06),
+             0 2px 5px rgba(0,0,0,0.5);
+}
+/* the strip on top of it: the NAME leads, big and bright; the model
+   follows in the secondary colour */
 .hw-dock-proc-name {
   color:var(--ps-dim) !important; font-size:10px !important;
-  font-weight:600; letter-spacing:0.05em !important;
+  font-weight:600; letter-spacing:0 !important;
 }
-.hw-dock-proc-name > span:first-child { color:var(--ps-text); }
+.hw-dock-proc-name .hw-dock-name {
+  font-family:var(--font-ps); color:var(--ps-text) !important;
+}
+.hw-dock-proc-model { color:var(--ps-dim); font-weight:500; }
 
 /* ---- units and boxes: framed tiles on the tray, headers as mini
    titlebars. Grounds stay DARK below the chips' #0d0d0d/#1e1e1e rungs so

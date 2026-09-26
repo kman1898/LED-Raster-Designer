@@ -3063,11 +3063,16 @@ def test_the_glance_reads_the_occupancy_and_never_renumbers(panel_page):
         return {
             sx: byCard[ids.sxCard] || null,
             mx: byCard[ids.mxCard] || null,
-            // not(.hw-dock-grip): the strip leads with the ⋮⋮ drag grip
-            // (2026-09-09, reorder by drag); the model is the span after it
-            stripModel: strip.querySelector('span:not(.hw-dock-grip)')
+            // the strip leads with the ⋮⋮ drag grip (2026-09-09, reorder
+            // by drag), then the NAME, then the model in the secondary
+            // colour (2026-09-25, option 2 "Framed unit")
+            stripModel: strip.querySelector('.hw-dock-proc-model')
                 .textContent,
             stripName: strip.querySelector('input').value,
+            nameLeads: [...strip.children].indexOf(
+                strip.querySelector('input'))
+                < [...strip.children].indexOf(
+                    strip.querySelector('.hw-dock-proc-model')),
         };
     }""", ids)
     assert summary['sx'], 'the assignment resolved no summary for the SX40'
@@ -3091,6 +3096,7 @@ def test_the_glance_reads_the_occupancy_and_never_renumbers(panel_page):
     # The identity half of the retired summary line: the processor strip
     # speaks the model as static text and the name in its inline field.
     assert summary['stripModel'] == ids['resolved'][0]['deviceName']
+    assert summary['nameLeads'], 'the processor strip must lead with its name'
     assert summary['stripName'] == 'SL IMAG'
 
 

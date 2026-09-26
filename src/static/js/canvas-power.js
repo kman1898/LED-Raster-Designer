@@ -282,8 +282,8 @@ Object.assign(CanvasRenderer.prototype, {
         // disc and stays inside the screen). THE RUN'S SIDE (owner's
         // ruling, 2026-09-25): a run that leaves its disc going DOWN,
         // RIGHT or LEFT - or a one-cabinet circuit - hangs its tags ABOVE
-        // the disc; one going UP hangs them UNDER it (runSide below). The
-        // data map keeps the old order.
+        // the disc; one going UP hangs them UNDER it (_tagRunSide). The
+        // data map's port tags go by the same rule.
         // THE 2FER / 3FER PILL RIDES WITH THE CABLE TAG (2026-09-15). It
         // used to float on the gang bracket under the runs' feet, and on a
         // wall of row runs that line is a row seam nowhere near the runs'
@@ -372,23 +372,10 @@ Object.assign(CanvasRenderer.prototype, {
                 paint(j.text, at, undefined, 'jump');
             }
             pendingJumps.length = 0;
-            // The side the owner ruled for a head (2026-09-25), read off
-            // the run's first step AS DRAWN: the step is carried into the
-            // upright frame, so "down" is down on the sheet whatever the
-            // screen's rotation or Back-view mirror. A run that leaves its
-            // disc going UP hangs its tags under the disc; down, right,
-            // left - and a one-cabinet circuit, which has no step - hang
-            // them above it. A diagonal step goes by its larger axis (a
-            // tie by the vertical one).
-            const runSide = (step) => {
-                if (!step) return 'above';
-                const o = F.toU(0, 0), e = F.toU(step.dx, step.dy);
-                const dx = e.x - o.x, dy = e.y - o.y;
-                return (Math.abs(dy) >= Math.abs(dx) && dy < 0) ? 'below' : 'above';
-            };
             for (const t of pendingTags) {
                 const own = ownU(t.disc);
-                const prefer = runSide(t.step);
+                // the side the owner ruled for a head (_tagRunSide)
+                const prefer = this._tagRunSide(t.step, F);
                 const nfer = t.gang ? this._nferTagText(layer, t.gang) : null;
                 let base = null;
                 if (t.text) {
@@ -1208,7 +1195,7 @@ Object.assign(CanvasRenderer.prototype, {
             if (left + tag.width > opts.right) left = opts.right - tag.width;
             if (left < opts.left) left = opts.left;
         }
-        return { x: left, y: top, w: tag.width, h: tag.height, side, layout: tag };
+        return { x: left, y: top, w: tag.width, h: tag.height, side, layout: tag, gap };
     },
 
     // Where a cable tag goes so it covers no OTHER label of its screen -
@@ -1236,18 +1223,20 @@ Object.assign(CanvasRenderer.prototype, {
     // the four. Returns the anchor and opts for drawCableTag, with the
     // pill.
     //
-    // THE POWER MAP LEADS WITH THE RUN'S SIDE (owner's ruling, 2026-09-25,
-    // chosen from rendered options on his show). A power head's tags go by
-    // the way its run LEAVES the disc: a run that goes DOWN, RIGHT or LEFT
-    // hangs them ABOVE the disc, a run that goes UP hangs them UNDER it,
-    // and a one-cabinet circuit hangs them above. `place.prefer` names that
-    // side; it is tried FIRST, then the OTHER side of the disc (above <->
-    // under: a top-row head with no room over it hangs its tags under the
-    // disc, not beside it - the owner, same day), then beside it
-    // (right-or-left, the other), with the same clear-first / least-bad
-    // scoring. The data map
-    // passes no `place` and keeps its order exactly (the owner: the data
-    // tags already read right). `place.stack` ({ w, h, gap }, _stackReserve)
+    // BOTH MAPS LEAD WITH THE RUN'S SIDE (owner's ruling, 2026-09-25,
+    // chosen from rendered options on his show; the power map first, the
+    // data map's port tags the same day - "we need to make the cable tag
+    // in the top correct not on the side like it is"). A head's tags go by
+    // the way its run LEAVES the disc (_tagRunSide): a run that goes DOWN,
+    // RIGHT or LEFT hangs them ABOVE the disc, a run that goes UP hangs
+    // them UNDER it, and a one-cabinet run hangs them above.
+    // `place.prefer` names that side; it is tried FIRST, then the OTHER
+    // side of the disc (above <-> under: a top-row head with no room over
+    // it hangs its tags under the disc, not beside it - the owner, same
+    // day), then beside it (right-or-left, the other), with the same
+    // clear-first / least-bad scoring. Called with no `place` the order is
+    // the old one (beside first) - no map calls it that way any more.
+    // `place.stack` ({ w, h, gap }, _stackReserve)
     // is a pill that will stack under this one (a head's 2fer / 3fer): the
     // column is judged whole, and hung ABOVE the disc the tag stands that
     // pill higher, so the stack reads tag, pill, disc top to bottom - under
@@ -1264,7 +1253,7 @@ Object.assign(CanvasRenderer.prototype, {
         let order = [first, first === 'right' ? 'left' : 'right', 'below', 'above'];
         const prefer = place && place.prefer;
         if (prefer && order.includes(prefer)) {
-            // the power map's fallback is the OTHER side of the disc, then
+            // the run-side fallback is the OTHER side of the disc, then
             // beside it (owner, 2026-09-25: a top-row head with no room
             // above hangs its tags under the disc, not beside it)
             const other = prefer === 'above' ? 'below' : prefer === 'below' ? 'above' : null;
@@ -1289,7 +1278,7 @@ Object.assign(CanvasRenderer.prototype, {
                 const sx = rect.x + rect.w / 2 - stack.w / 2;
                 const sy = rect.y + rect.h + stack.gap;
                 const x0 = Math.min(rect.x, sx), x1 = Math.max(rect.x + rect.w, sx + stack.w);
-                cover = { x: x0, y: rect.y, w: x1 - x0, h: sy + stack.h - rect.y };
+                cover = { x: x0, y: rect.y, w: x1 - x0, h: sy + stack.h - rect.y, gap: rect.gap };
             }
             return { x: a.x, y: a.y, opts, rect, cover };
         };
@@ -1319,10 +1308,16 @@ Object.assign(CanvasRenderer.prototype, {
     // `withOwn`), the pills already down (`taken`), and any part of it
     // outside the screen (`bounds`). Zero is a clear placement. Shared by
     // placeCableTag and placeStackedTag so the two rows of a head's stack
-    // are judged alike. `withOwn` (the power map's run-side placement)
+    // are judged alike. `withOwn` (the run-side placement, both maps)
     // counts the own disc too - a pill never meets the disc it hangs off
     // unless the screen's edge slid it there - and holds the pill half its
-    // height off the other discs above and under it.
+    // height off the other discs above and under it. Off its OWN disc it
+    // is held the lesser of that and the stand-off cableTagRect gave it
+    // (`rc.gap`): a pill where cableTagRect hung it is clear, one the
+    // screen's edge slid in toward its disc is not - a head on the top
+    // row of a short wall (Kelly's DJ Booth, data, 2026-09-25) had its tag
+    // pushed down to a third of its height off the disc, the rims reading
+    // as one; it goes to the other side instead.
     _tagCover(bounds, discs, own, taken, withOwn) {
         const eps = 1e-6;
         const inside = (rc) => rc.x >= bounds.left - eps && rc.x + rc.w <= bounds.right + eps
@@ -1349,8 +1344,12 @@ Object.assign(CanvasRenderer.prototype, {
                 if (!meets(probe, d)) continue;
                 c += overlaps(probe, { x: d.x - d.r, y: d.y - d.r, w: d.r * 2, h: d.r * 2 });
             }
-            if (withOwn && own && meets(rc, own)) {
-                c += overlaps(rc, { x: own.x - own.r, y: own.y - own.r, w: own.r * 2, h: own.r * 2 });
+            if (withOwn && own) {
+                const mo = Math.min(rc.h / 2, rc.gap || 0);
+                const near = mo ? { x: rc.x, y: rc.y - mo, w: rc.w, h: rc.h + 2 * mo } : rc;
+                if (meets(near, own)) {
+                    c += overlaps(near, { x: own.x - own.r, y: own.y - own.r, w: own.r * 2, h: own.r * 2 });
+                }
             }
             for (const t of placed) c += overlaps(rc, t);
             if (!inside(rc)) c += rc.w * rc.h;
@@ -1388,6 +1387,22 @@ Object.assign(CanvasRenderer.prototype, {
         if (kb <= 1e-6) return below;
         const ka = cost(above.rect);
         return ka < kb ? above : below;
+    },
+
+    // The side the owner ruled for a head's cable tags (2026-09-25; power
+    // and data maps alike), read off the run's first step AS DRAWN
+    // ({ dx, dy } in the layer's frame, or null): the step is carried into
+    // `F`, the upright frame of _tagFrame, so "down" is down on the sheet
+    // whatever the screen's rotation or Back-view mirror. A run that
+    // leaves its disc going UP hangs its tags under the disc ('below');
+    // down, right, left - and a one-cabinet run, which has no step - hang
+    // them above it. A diagonal step goes by its larger axis (a tie by the
+    // vertical one).
+    _tagRunSide(step, F) {
+        if (!step) return 'above';
+        const o = F.toU(0, 0), e = F.toU(step.dx, step.dy);
+        const dx = e.x - o.x, dy = e.y - o.y;
+        return (Math.abs(dy) >= Math.abs(dx) && dy < 0) ? 'below' : 'above';
     },
 
     // The frame a tag is placed in: the layer's own, turned by the

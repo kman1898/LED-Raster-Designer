@@ -228,18 +228,27 @@ class _HardwareDock {
     }
 
     // One ResizeObserver for the body (its width decides the track count)
-    // and every cell (a height change re-stacks its column). Its callback
-    // runs after layout and before paint, so a fold or a sheet re-stacks
-    // in the same frame - nothing is ever painted in the old place. Cells
-    // are observed as they appear and let go as they leave; a rebuild
+    // and every cell (a height change re-stacks its column). Cells are
+    // observed as they appear and let go as they leave; a rebuild
     // (renderHardwareDock) lays the tray out synchronously first, so the
     // observer only ever sees the cells it was already told about.
+    //
+    // The callback WRITES NOTHING (2026-09-25, the owner's log, beta.3 in
+    // the Mac app: "ResizeObserver loop completed with undelivered
+    // notifications" on a fold). A re-stack moves the column's bottom, the
+    // body's scrollbar can come or go with it (theme.css draws a real 14px
+    // one), and that re-sizes every cell in the same observation cycle -
+    // WebKit reports that as a window error. So the callback only asks
+    // for a pass on the next animation frame (one frame, coalesced), and
+    // the tray's own gestures - a rebuild, a section fold - lay out
+    // synchronously where they happen (_dockMasonryNow), so a fold still
+    // re-stacks in the frame it is painted in.
     _dockMasonryWatch(body, cells) {
         if (typeof ResizeObserver !== 'function') return;
         if (!this._dockMasonryObs || this._dockMasonryBody !== body) {
             if (this._dockMasonryObs) this._dockMasonryObs.disconnect();
             this._dockMasonryObs = new ResizeObserver(
-                () => this._dockMasonry(body));
+                () => this._dockMasonryLater(body));
             this._dockMasonryObs.observe(body);
             this._dockMasonryBody = body;
             this._dockMasonrySeen = new Set();
@@ -252,6 +261,24 @@ class _HardwareDock {
             if (!this._dockMasonrySeen.has(el)) this._dockMasonryObs.observe(el);
         });
         this._dockMasonrySeen = now;
+    }
+
+    // A pass on the next frame, however many observations asked for it.
+    _dockMasonryLater(body) {
+        if (this._dockMasonryRaf) return;
+        this._dockMasonryRaf = requestAnimationFrame(() => {
+            this._dockMasonryRaf = 0;
+            this._dockMasonry(body);
+        });
+    }
+
+    // A pass NOW, for a change made inside the tray outside a rebuild (a
+    // section fold): called from the gesture itself, never from an
+    // observer, so it re-stacks in the frame the change is painted in.
+    _dockMasonryNow(el) {
+        if (this._dockWiringFolds) return;
+        const body = document.getElementById('hardware-dock-body');
+        if (body && el && body.contains(el)) this._dockMasonry(body);
     }
 
     // Re-deal the power columns when a tray RESIZE crosses a column-count
@@ -445,7 +472,14 @@ class _HardwareDock {
         // The wipe above threw the wired nodes away; wire the fresh ones and
         // the stored per-section state re-applies.
         if (typeof this._wireSectionCollapse === 'function') {
-            this._wireSectionCollapse(body);
+            // wiring re-applies every stored fold; the one pass below
+            // stands for all of them (_dockMasonryNow stands down)
+            this._dockWiringFolds = true;
+            try {
+                this._wireSectionCollapse(body);
+            } finally {
+                this._dockWiringFolds = false;
+            }
         }
         // Stack the columns now, before anything below measures a cell:
         // the anchor that keeps the clicked unit under the pointer reads
@@ -952,10 +986,13 @@ class _HardwareDock {
         procs.forEach(proc => {
             const wrap = document.createElement('div');
             wrap.className = 'hw-dock-proc';
-            // The processor's own strip: the model as static text, the name
-            // edited inline, and the machine-level configuration
-            // (redundancy, slots, remove) behind its ⚙. Not a drag handle -
-            // a whole processor is not a droppable thing; its cards are.
+            // The processor's own strip: the NAME leads, edited inline,
+            // then the model in the secondary colour, then the
+            // machine-level configuration (redundancy, slots, remove)
+            // behind its ⚙ (owner, 2026-09-25, option 2 "Framed unit":
+            // "make the different processors more obvious" - the wrap is
+            // one accent-framed panel, style/theme.css .hw-dock-proc, and
+            // what a processor is CALLED is the first thing it says).
             const title = document.createElement('div');
             title.className = 'hw-dock-proc-name';
             const grip = document.createElement('span');
@@ -963,8 +1000,8 @@ class _HardwareDock {
             grip.textContent = '⋮⋮';
             title.appendChild(grip);
             const model = document.createElement('span');
+            model.className = 'hw-dock-proc-model';
             model.textContent = proc.deviceName;
-            title.appendChild(model);
             // A one-box unit has ONE name slot, and this is it (ruling,
             // 2026-09-24): its fixed card's strip below carries no name
             // field. A chassis's cards each take a name of their own.
@@ -982,6 +1019,7 @@ class _HardwareDock {
                     `/api/processors/${proc.id}`, 'PUT', { name: val },
                     'Rename Processor'),
             }));
+            title.appendChild(model);
             const procPills = [this._dockRedundancyPill(proc, null),
                                this._dockBackupProcPill(proc)].filter(Boolean);
             this._dockHeadAugment(title, {

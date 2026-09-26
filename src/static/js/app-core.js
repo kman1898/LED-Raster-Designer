@@ -282,6 +282,11 @@ export class LEDRasterApp {
 
     _setSectionCollapsed(container, collapsed) {
         container.classList.toggle('lrd-sec-collapsed', collapsed);
+        // A tray section re-stacks its column now, in this frame (the
+        // tray's observer only schedules, app-dock.js _dockMasonryWatch).
+        if (typeof this._dockMasonryNow === 'function') {
+            this._dockMasonryNow(container);
+        }
         const btn = container.querySelector(
             ':scope > .panel-header .lrd-sec-arrow, '
             + ':scope > .lrd-sec-head .lrd-sec-arrow');

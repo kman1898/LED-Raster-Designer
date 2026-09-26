@@ -10,9 +10,17 @@ or the binder. Now the RETURN marker reads the backup end the same way:
     resolved card port -> backedBy ({cardId, port}, via _pullBackedBy, the
     pull list's own walker) -> dataPortCable(bb.cardId, bb.port). Null with
     no backup, or a backup socket carrying nothing.
-  - canvas.js draws that reading's `text` beside the return marker with the
-    same drawer, colours and flip-inside rule the primary's tag uses, on
-    screen and in exportMode alike (the binder reads through the renderer).
+  - canvas.js draws that reading's `text` on the return marker with the
+    same drawer, colours and placement the primary's tag uses, on screen
+    and in exportMode alike (the binder reads through the renderer).
+
+Where a tag hangs is the owner's run-side ruling (2026-09-25, power first,
+then the data map the same day - tests/test_power_tag_placement.py): by the
+way the run LEAVES the marker, ABOVE the disc for a run going down, right or
+left, UNDER it for one going up, centred on the disc. A return marker's run
+leaves it the way the backup feeds it, from the last cabinet back to the one
+before. Every run of this fixture's two flows leaves its markers sideways,
+so every tag here hangs above its disc.
 
 The fixture: card SR (H_16xRJ45+2xfiber, box A) carries WALL's six ports on
 box A's sockets 1-6, backed Per card (1:1) by a second H_16 with its own box
@@ -98,7 +106,7 @@ SEED_JS = """async () => {
 
 # One data-flow frame, interactively and in exportMode, read off the
 # renderer: every drawCableTag call (text, the circle edge it hangs off,
-# whether it flipped, the colours, the lines it wraps to) with the pill
+# the side it hangs on, the colours, the lines it wraps to) with the pill
 # roundRect it drew; every fillText with its anchor; every arc. Plus the
 # screen's bounds in the same (panel-local) frame, each port's primary and
 # return label, and the two readings the tags come from. `opts.flag`
@@ -123,7 +131,7 @@ FRAME_JS = """([ids, opts]) => {
             return oR.call(ctx, x, y, w, h, c);
         };
         r.drawCableTag = function (text, x, y, labelSize, colors, o) {
-            tags.push({text, x, y, flip: !!(o && o.flip), colors: colors || null,
+            tags.push({text, x, y, side: (o && o.side) || null, colors: colors || null,
                        w: r.cableTagWidth(text, labelSize),
                        lines: r.cableTagLayout(text, labelSize).lines});
             inTag = true;
@@ -240,14 +248,17 @@ def _disc_radius(frame_pass, x, y):
     return rads.pop()
 
 
-def _tag_beside(frame_pass, text, x, y, radius):
+def _tag_over(frame_pass, text, x, y, radius):
     """The one drawCableTag call for `text` hanging off the circle at (x, y):
-    its `x` is the circle's right edge, or its left edge when it flipped."""
-    hits = [t for t in frame_pass['tags'] if t['text'] == text and abs(t['y'] - y) < 1e-6]
-    assert len(hits) == 1, (text, (x, y), hits)
+    hung ABOVE it (the run-side ruling - every run here leaves its markers
+    sideways), anchored at the circle's top on its x, so the pill is
+    centred over the disc."""
+    hits = [t for t in frame_pass['tags'] if t['text'] == text
+            and abs(t['x'] - x) < 1e-6 and abs(t['y'] - (y - radius)) < 1e-6]
+    assert len(hits) == 1, (text, (x, y, radius),
+                            [t for t in frame_pass['tags'] if t['text'] == text])
     tag = hits[0]
-    edge = x - radius if tag['flip'] else x + radius
-    assert abs(tag['x'] - edge) < 1e-6, (text, tag, x, radius)
+    assert tag['side'] == 'above', (text, tag)
     return tag
 
 
@@ -268,9 +279,9 @@ def _check_pass(frame, frame_pass):
         p = _marker(frame_pass, lab['primary'])
         rt = _marker(frame_pass, lab['ret'])
         assert (p['x'], p['y']) != (rt['x'], rt['y']), (n, p, rt)
-        prim = _tag_beside(frame_pass, 'SR Primary', p['x'], p['y'],
+        prim = _tag_over(frame_pass, 'SR Primary', p['x'], p['y'],
                            _disc_radius(frame_pass, p['x'], p['y']))
-        back = _tag_beside(frame_pass, "SR Backup +25'" if n == 1 else 'SR Backup',
+        back = _tag_over(frame_pass, "SR Backup +25'" if n == 1 else 'SR Backup',
                            rt['x'], rt['y'], _disc_radius(frame_pass, rt['x'], rt['y']))
         for tag in (prim, back):
             assert tag['colors'] == DATA_TAG_COLORS, tag
@@ -305,8 +316,8 @@ def test_the_readings_say_both_ends(page):
 
 def test_both_markers_wear_their_tags_on_screen_and_in_export(page):
     """Off (the default): no tag on either marker, on screen or in
-    exportMode. On: "SR Primary" beside every primary marker and "SR Backup"
-    ("SR Backup +25'" on port 1) beside every RETURN marker, both passes
+    exportMode. On: "SR Primary" over every primary marker and "SR Backup"
+    ("SR Backup +25'" on port 1) over every RETURN marker, both passes
     alike."""
     pg, ids = page
     off = _frame(pg, ids)
@@ -316,7 +327,7 @@ def test_both_markers_wear_their_tags_on_screen_and_in_export(page):
     _check_pass(on, on['interactive'])
     _check_pass(on, on['exported'])
     # the export pass paints the same tags at the same places
-    key = lambda t: (t['text'], round(t['x'], 3), round(t['y'], 3), t['flip'])
+    key = lambda t: (t['text'], round(t['x'], 3), round(t['y'], 3), t['side'])
     assert sorted(map(key, on['exported']['tags'])) == sorted(map(key, on['interactive']['tags']))
     # and the flag left alone afterwards
     assert pg.evaluate("(ids) => window.app.project.layers.find(x => x.id === ids.id).showDataCableTags", ids) in (None, False)
@@ -344,7 +355,7 @@ def test_a_port_with_no_backup_draws_one_tag_only(page):
             assert [t['text'] for t in frame_pass['tags']] == ['SR Primary'] * 6, frame_pass['tags']
             for n in range(1, 7):
                 p = _marker(frame_pass, frame['labels'][str(n)]['primary'])
-                _tag_beside(frame_pass, 'SR Primary', p['x'], p['y'],
+                _tag_over(frame_pass, 'SR Primary', p['x'], p['y'],
                             _disc_radius(frame_pass, p['x'], p['y']))
     finally:
         pg.evaluate("""async (ids) => {
@@ -362,53 +373,33 @@ def test_a_port_with_no_backup_draws_one_tag_only(page):
     _check_pass(frame, frame['interactive'])
 
 
-def _flip_expected(tag, x, radius, b):
-    """The primary tag's rule, verbatim: flip when the tag would leave the
-    screen on the right and fits on the left."""
-    return (x + radius + tag['w'] > b['right']
-            and x - radius - tag['w'] >= b['left'])
-
-
 def test_a_return_marker_at_the_right_edge_hangs_its_tag_inside(page):
-    """The flip rule, on the return marker: a top-right, row-first flow ends
-    every port's run in the right-hand column, so its return marker sits
-    there and its tag would leave the screen - it hangs off the LEFT edge
-    instead, the pill left of the marker and inside the screen, while the
-    primaries (in the left-hand column) keep theirs on the right. In the
-    default flow (runs end in the left-hand column) no return tag flips.
-    Same in exportMode."""
+    """A top-right, row-first flow ends every port's run in the right-hand
+    column, so its return marker sits against the wall's right edge. Its
+    run leaves it sideways, so its tag hangs ABOVE it, centred on the disc,
+    and inside the screen - no longer a pill beside the marker that had to
+    flip left to stay on the wall. The primaries, in the same column, the
+    same. Same in exportMode."""
     pg, ids = page
     frame = _frame(pg, ids, flag=True, pattern='tr-h')
+    b = frame['bounds']
     for frame_pass in (frame['interactive'], frame['exported']):
         _check_pass(frame, frame_pass)
-        b = frame['bounds']
         for n in range(1, 7):
             lab = frame['labels'][str(n)]
             rt = _marker(frame_pass, lab['ret'])
             rad = _disc_radius(frame_pass, rt['x'], rt['y'])
-            tag = _tag_beside(frame_pass, "SR Backup +25'" if n == 1 else 'SR Backup',
-                              rt['x'], rt['y'], rad)
-            pill = frame_pass['pills'][frame_pass['tags'].index(tag)]
-            # the run ends in the right-hand column and the tag would not fit
+            # the run ends in the right-hand column: beside it, right, the
+            # tag would leave the screen
+            tag = _tag_over(frame_pass, "SR Backup +25'" if n == 1 else 'SR Backup',
+                            rt['x'], rt['y'], rad)
             assert rt['x'] + rad + tag['w'] > b['right'], (n, tag, rt, rad, b)
-            assert _flip_expected(tag, rt['x'], rad, b) is True, (n, tag, rt, rad, b)
-            assert tag['flip'] is True, (n, tag, rt, b)
-            assert pill['right'] <= rt['x'] - rad + 1e-6, (n, pill, rt, rad)
-            assert pill['left'] >= b['left'] - 1e-6, (n, pill, b)
+            pill = frame_pass['pills'][frame_pass['tags'].index(tag)]
+            assert abs((pill['left'] + pill['right']) / 2 - rt['x']) < 1e-6, (n, pill, rt)
+            assert pill['bottom'] <= rt['y'] - rad + 1e-6, (n, pill, rt, rad)
+            assert pill['right'] <= b['right'] + 1e-6, (n, pill, b)
             p = _marker(frame_pass, lab['primary'])
-            prad = _disc_radius(frame_pass, p['x'], p['y'])
-            prim = _tag_beside(frame_pass, 'SR Primary', p['x'], p['y'], prad)
-            assert prim['flip'] is _flip_expected(prim, p['x'], prad, b), (n, prim, p, b)
-    # the default flow: every return marker sits in the left-hand column,
-    # nothing flips, and the rule agrees with what was drawn
-    plain = _frame(pg, ids, flag=True)
-    b = plain['bounds']
-    for frame_pass in (plain['interactive'], plain['exported']):
-        for n in range(1, 7):
-            rt = _marker(frame_pass, plain['labels'][str(n)]['ret'])
-            rad = _disc_radius(frame_pass, rt['x'], rt['y'])
-            tag = _tag_beside(frame_pass, "SR Backup +25'" if n == 1 else 'SR Backup',
-                              rt['x'], rt['y'], rad)
-            assert tag['flip'] is False and _flip_expected(tag, rt['x'], rad, b) is False, (n, tag, rt, b)
+            _tag_over(frame_pass, 'SR Primary', p['x'], p['y'],
+                      _disc_radius(frame_pass, p['x'], p['y']))
     # the pattern was put back
     assert pg.evaluate("(ids) => window.app.project.layers.find(x => x.id === ids.id).flowPattern", ids) != 'tr-h'

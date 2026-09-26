@@ -394,10 +394,11 @@ class _LogsRecent {
         const pre = document.getElementById('logs-content');
         if (!pre) return;
         const text = pre.textContent || '';
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(text).then(() => this._flashCopyButton());
-        } else {
-            // Fallback: temporary textarea
+        // Fallback: a temporary textarea and execCommand. Also taken when
+        // the clipboard API refuses - the Mac app's web view rejects
+        // writeText now and then (the owner's log, 2026-09-25, showed an
+        // unhandled rejection and a Copy that needed a second click).
+        const viaTextarea = () => {
             const ta = document.createElement('textarea');
             ta.value = text;
             document.body.appendChild(ta);
@@ -405,6 +406,12 @@ class _LogsRecent {
             try { document.execCommand('copy'); } catch (e) { /* ignore */ }
             document.body.removeChild(ta);
             this._flashCopyButton();
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text)
+                .then(() => this._flashCopyButton(), viaTextarea);
+        } else {
+            viaTextarea();
         }
     }
 

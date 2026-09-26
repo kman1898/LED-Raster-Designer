@@ -1420,9 +1420,12 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
    Inside a column the cells stack with the 10px gap: the rows below are
    1px (.hw-dock-masonry) and each cell's grid-row starts under the cells
    above it in its column and spans its measured height. A two-track cell
-   starts under the taller of its two columns. A ResizeObserver on the
-   body and on every cell re-spans them before the next paint, so a cell
-   that grows or shrinks pushes down only the cells below it in the SAME
+   starts under the taller of its two columns. A rebuild and a section
+   fold re-span the cells where they happen, and a ResizeObserver on the
+   body and on every cell catches the rest on the next frame (it never
+   writes inside its own callback - WebKit raises a loop error when a
+   re-stack brings or takes the scrollbar), so a cell that grows or
+   shrinks pushes down only the cells below it in the SAME
    column - never one in another column, never anything sideways. No
    feedback loop: align-items: start keeps a cell's height its content's,
    whatever rows it spans, and the span is taken off that height (plus
@@ -1480,9 +1483,20 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
     display: flex; flex-direction: column; gap: 8px; align-items: stretch;
     min-width: 0;
 }
+/* The processor's strip leads with its NAME (2026-09-25, option 2 "Framed
+   unit"): the name field at heading size, the model after it in the
+   secondary colour - "USC SR Main  Tessera SX40", where it used to read a
+   small grey "TESSERA SX40" and then the name. One line at the 440px
+   track: the model and the pills give way (ellipsis) before the name
+   does, and the name itself shrinks to a floor rather than push the gear
+   out of the cell. */
 .hw-dock-proc-name {
-    font-size: 10px; color: #888;
-    text-transform: uppercase; letter-spacing: 0.4px;
+    font-size: 10px; color: #888; min-width: 0;
+}
+.hw-dock-proc-model {
+    font-size: 11px; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+    flex: 0 1 auto; min-width: 0;
 }
 .hw-dock-unit {
     border: 1px solid #262626; border-radius: 3px; background: #0d0d0d;
@@ -1711,7 +1725,10 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 .hw-dock-name:focus {
     outline: none; border-bottom-color: #3a5d96; background: #0d0d0d;
 }
-.hw-dock-proc-name .hw-dock-name { font-size: 10px; }
+.hw-dock-proc-name .hw-dock-name {
+    font-size: 13px; font-weight: 700;
+    flex: 0 1 auto; min-width: 4em;
+}
 .hw-dock-proc-name { display: flex; align-items: center; gap: 6px; }
 /* The gear is the way into a unit's configuration (redundancy, templates,
    ratings, remove) - at name-text size it disappeared next to the name it

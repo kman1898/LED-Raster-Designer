@@ -16,8 +16,14 @@ extension") - so above the disc the column reads tag, pill, disc and under
 it disc, tag, pill. The direction is the run's first step AS DRAWN: on a
 rotated screen "down" is down on the sheet. When the preferred spot would
 leave the screen or cover another disc or pill, the tags fall back through
-the old order (right-or-left, the other, below, above - least bad wins when
-none is clear). The data map's order is untouched.
+the OTHER side of the disc (above <-> under), and beside it only after
+that - least bad wins when none is clear.
+
+The DATA map's port tags go by the same rule (the owner, same day: "we need
+to make the cable tag in the top correct not on the side like it is"),
+read off the port run's first step; a RETURN marker's run leaves it the way
+the backup feeds it, from the last cabinet back to the one before. A data
+tag has no second pill.
 
 Read off canvas.js's label registry (startLabelProbe / endLabelProbe: the
 boxes the map really drew, in the bitmap's pixels, 'disc' / 'tag' /
@@ -45,10 +51,12 @@ HAIR = 1.0
 # gangs [3, 2]: circuit 1 a 3fer, circuit 2 a 2fer, on whichever axis the
 # flow pattern runs. ONE: a single cabinet, a circuit with no step. SHORT
 # (the fallback): the WALL's shape on cabinets 40 tall, so a head on the
-# top row has no room over its disc inside the screen.
+# top row has no room over its disc inside the screen. DWALL, DONE and
+# DSHORT are their data-map twins (the data pass, flowPattern = the
+# pattern; 12-bit at 250 Hz, so a port holds one run of five cabinets).
 BUILD_JS = """async ([walls, pattern, rot]) => {
     const app = window.app;
-    const screen = (o) => {
+    const screen = ({ dataFlow, ...o }) => {
         const panels = [];
         for (let r = 0; r < o.rows; r++) for (let c = 0; c < o.columns; c++) panels.push({
             row: r, col: c, x: o.offset_x + c * o.cabinet_width, y: o.offset_y + r * o.cabinet_height,
@@ -57,8 +65,9 @@ BUILD_JS = """async ([walls, pattern, rot]) => {
             panel_weight: 20, weight_unit: 'kg', panelWatts: 100, powerVoltage: 100, powerAmperage: 15,
             powerBreakoutType: 'soca-true1',
             processorType: 'brompton', bitDepth: 8, frameRate: 60, lowLatency: false,
-            flowPattern: 'tl-h', portMappingMode: 'organized', powerOrganized: true, powerMaximize: false,
-            powerFlowPattern: pattern, rotation: rot || 0,
+            flowPattern: dataFlow ? pattern : 'tl-h', portMappingMode: 'organized',
+            powerOrganized: true, powerMaximize: false,
+            powerFlowPattern: dataFlow ? 'tl-h' : pattern, rotation: rot || 0,
             powerSplitters: { enabled: true, maxWays: 3, manual: { merge: [], split: [] } },
             powerCircuitCables: { 1: { ft: 10 }, 2: { ft: 25 } },
             showPowerCableTags: true, showPowerNferTags: true, powerLabelSize: 14,
@@ -70,6 +79,18 @@ BUILD_JS = """async ([walls, pattern, rot]) => {
                powerSplitters: { enabled: false, maxWays: 3, manual: { merge: [], split: [] } } },
         SHORT: { id: 3, name: 'SHORT', columns: 5, rows: 5, offset_x: 0, offset_y: 0,
                  cabinet_height: 40 },
+        DWALL: { id: 4, name: 'DWALL', columns: 5, rows: 5, offset_x: 0, offset_y: 0,
+                 dataFlow: true, bitDepth: 12, frameRate: 250,
+                 showDataCableTags: true, dataFlowLabelSize: 14 },
+        DONE: { id: 5, name: 'DONE', columns: 1, rows: 1, offset_x: 900, offset_y: 0,
+                dataFlow: true, bitDepth: 12, frameRate: 250,
+                showDataCableTags: true, dataFlowLabelSize: 14 },
+        DSHORT: { id: 6, name: 'DSHORT', columns: 5, rows: 5, offset_x: 0, offset_y: 0,
+                  cabinet_height: 24, dataFlow: true, showDataCableTags: true,
+                  dataFlowLabelSize: 14,
+                  // a port down each column, top to bottom (flow 'custom')
+                  customPortPaths: Object.fromEntries([1, 2, 3, 4, 5].map(n =>
+                      [n, [0, 1, 2, 3, 4].map(row => ({ row, col: n - 1 }))])) },
     };
     const layers = walls.map(n => screen(all[n]));
     const j = (method, url, body) => fetch(url, {method, headers: {'Content-Type': 'application/json'},
@@ -321,20 +342,112 @@ def test_with_no_room_over_the_disc_the_tags_go_under_it(page):
     assert errors == []
 
 
-def test_the_data_map_keeps_its_order(page):
-    """placeCableTag with no `place` argument is the data map's call: it
-    still hangs a tag right of its disc when that is clear, whatever run
-    it names - the power ruling reaches only the power pass."""
-    pg, _ = page
-    out = pg.evaluate("""() => {
-        const r = window.canvasRenderer;
-        const bounds = { left: 0, top: 0, right: 1000, bottom: 1000 };
-        const own = { x: 500, y: 500, r: 20 };
-        const plain = r.placeCableTag("10' Cat6", 500, 500, 20, 14, bounds, [own], own, []);
-        const ruled = r.placeCableTag("10' Cat6", 500, 500, 20, 14, bounds, [own], own, [],
-                                      { prefer: 'above' });
-        return { plain: plain.opts.side, ruled: ruled.opts.side,
-                 ruledCx: ruled.rect.x + ruled.rect.w / 2 };
-    }""")
-    assert out['plain'] == 'right', out
-    assert out['ruled'] == 'above' and abs(out['ruledCx'] - 500) < 1e-6, out
+# THE DATA MAP (the owner, 2026-09-25: "we need to make the cable tag in
+# the top correct not on the side like it is"): a port's tag goes by the
+# same rule, read off the port run's first step. A data tag's text comes
+# from the processor's card and cable sheet; the placement is what is
+# under test here, so the probe hands every primary marker "25'" (and,
+# with `backup`, every return marker "BU 25'") for the one frame and puts
+# the readings back. The frame is drawn in the data view.
+DATA_PROBE_JS = """(backup) => {
+    const r = window.canvasRenderer, app = window.app;
+    const prevMode = r.viewMode;
+    app.dataPortCableForScreen = () => ({ text: "25'" });
+    app.dataPortBackupCableForScreen = () => (backup ? { text: "BU 25'" } : null);
+    r.viewMode = 'data-flow';
+    r.zoom = 1;
+    r.panX = 120;
+    r.panY = 120;
+    r.startLabelProbe();
+    let boxes;
+    try { r.render(); } finally {
+        boxes = r.endLabelProbe();
+        delete app.dataPortCableForScreen;
+        delete app.dataPortBackupCableForScreen;
+        r.viewMode = prevMode;
+    }
+    return boxes;
+}"""
+
+
+def _data_probe(pg, walls, pattern, backup=False, rot=0):
+    built = pg.evaluate(BUILD_JS, [walls, pattern, rot])
+    assert [b[0] for b in built] == walls, built
+    pg.wait_for_timeout(300)
+    return pg.evaluate(DATA_PROBE_JS, backup)
+
+
+@pytest.mark.parametrize('pattern,step,want', FLOWS, ids=[f[1] for f in FLOWS])
+def test_a_data_tag_hangs_by_the_way_the_port_run_leaves_its_disc(page, pattern, step, want):
+    """The data map, each flow direction on a 5 x 5 wall of five ports:
+    every port's tag hangs on the ruled side of its primary marker, centred
+    on it, covering nothing - the ISR B-8 head of the owner's show, whose
+    run goes down, wore its "25'" LEFT of the disc. The one-cabinet port
+    beside the wall hangs its tag above whatever the pattern."""
+    pg, errors = page
+    boxes = _data_probe(pg, ['DWALL', 'DONE'], pattern)
+    heads = _heads(boxes)
+    wall = [h for h in heads if _cx(h[0]) < 120 + 800]
+    one = [h for h in heads if _cx(h[0]) >= 120 + 800]
+    # the fixture: five ports on the wall, each primary with its tag
+    assert sorted((d['text'], t['text']) for d, t, _ in wall) == [
+        ('P%d' % n, "25'") for n in range(1, 6)], [(d['text'], t['text']) for d, t, _ in wall]
+    assert [t['text'] for _, t, _ in one] == ["25'"], one
+    bad = _faults(_wall_boxes(boxes, wall), want)
+    bad += _faults(_wall_boxes(boxes, one), 'above')
+    assert not bad, '\n'.join([''] + bad)
+    assert errors == []
+
+
+def test_a_return_marker_hangs_its_tag_by_the_way_the_backup_leaves_it(page):
+    """Run down the columns with backups on: each primary's tag above its
+    disc on the top row; each RETURN marker sits at its run's foot, where
+    the backup feeds the run back up the column - so its tag hangs UNDER
+    the disc, centred on it, covering nothing."""
+    pg, errors = page
+    boxes = _data_probe(pg, ['DWALL'], 'tl-v', backup=True)
+    heads = _heads(boxes)
+    prim = [h for h in heads if h[0]['text'].startswith('P')]
+    ret = [h for h in heads if h[0]['text'].startswith('R')]
+    assert sorted(t['text'] for _, t, _ in prim) == ["25'"] * 5, heads
+    assert sorted(t['text'] for _, t, _ in ret) == ["BU 25'"] * 5, heads
+    bad = _faults(_wall_boxes(boxes, prim), 'above')
+    bad += _faults(_wall_boxes(boxes, ret), 'under')
+    assert not bad, '\n'.join([''] + bad)
+    assert errors == []
+
+
+def test_a_turned_data_screen_reads_the_run_on_the_sheet(page):
+    """A quarter turn on the data map: turned 90 degrees, a row run that
+    goes left along the wall goes UP on the sheet - so its tags hang under
+    its discs, on the page."""
+    pg, errors = page
+    try:
+        boxes = _data_probe(pg, ['DWALL'], 'tr-h', rot=90)
+        heads = _heads(boxes)
+        assert sorted(d['text'] for d, _, _ in heads) == ['P%d' % n for n in range(1, 6)], heads
+        bad = _faults(boxes, 'under')
+        assert not bad, '\n'.join([''] + bad)
+    finally:
+        pg.evaluate(BUILD_JS, [['WALL'], 'tl-h', 0])
+    assert errors == []
+
+
+def test_a_data_tag_with_no_room_over_its_disc_goes_under_it(page):
+    """DSHORT: the data wall on cabinets 24 px tall, a port run down each
+    column (drawn as custom paths - a wall this small is one port).
+    The ruling wants each tag over its head, but the heads sit on the top
+    row and a tag over the disc would leave the screen - so it goes to the
+    OTHER side of the disc, UNDER it, centred on it (not beside it, where
+    the data map used to put it), covering nothing."""
+    pg, errors = page
+    boxes = _data_probe(pg, ['DSHORT'], 'custom')
+    heads = _heads(boxes)
+    assert sorted(d['text'] for d, _, _ in heads) == ['P%d' % n for n in range(1, 6)], heads
+    top = min(e['y'] for e in _kind(boxes, 'wallEdge'))
+    for d, t, _ in heads:
+        # the preferred spot really is off the screen
+        assert d['y'] - t['h'] < top, ('the fixture must leave no room above', d, t, top)
+    bad = _faults(boxes, 'under')
+    assert not bad, '\n'.join([''] + bad)
+    assert errors == []

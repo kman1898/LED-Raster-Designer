@@ -237,8 +237,15 @@ Object.assign(CanvasRenderer.prototype, {
         // cables added to the power or data sometimes go under labels and
         // overlap" (2026-09-09). drawPort collects the discs and the tags
         // it wants; drawCableTags places and paints them (placeCableTag:
-        // beside its label, the other side, below, above - the first that
-        // covers no other disc and stays inside the screen).
+        // the run's side first, then the other side of the disc, then
+        // beside it - the first that covers no disc and stays inside the
+        // screen). THE RUN'S SIDE is the power map's ruling (2026-09-25),
+        // reached to the data map the same day - "we need to make the
+        // cable tag in the top correct not on the side like it is": a port
+        // run that leaves its disc going DOWN, RIGHT or LEFT - or a port of
+        // one cabinet - hangs its tag ABOVE the disc; one going UP hangs it
+        // UNDER (_tagRunSide). A return marker's run leaves it the way the
+        // backup feeds it: from the last cabinet back to the one before.
         const labelDiscs = [];
         const pendingTags = [];
         // LONG JUMPS (2026-09-25): with the cable tags on, a link between
@@ -266,7 +273,24 @@ Object.assign(CanvasRenderer.prototype, {
             }
         };
         const drawCableTags = () => {
-            const bounds = { left: layerLeft, top: layerTop, right: layerRight, bottom: layerBottom };
+            // Placed in the UPRIGHT frame (_tagFrame), as the power map's
+            // are: on a rotated screen "above the disc" is above on the
+            // page, and the pill stands up with its text. Unrotated, the
+            // frame is the layer's own and every number is what it was.
+            const F = this._tagFrame();
+            const corners = [[layerLeft, layerTop], [layerRight, layerTop],
+                             [layerLeft, layerBottom], [layerRight, layerBottom]]
+                .map(([x, y]) => F.toU(x, y));
+            const bounds = { left: Math.min(...corners.map(c => c.x)),
+                             top: Math.min(...corners.map(c => c.y)),
+                             right: Math.max(...corners.map(c => c.x)),
+                             bottom: Math.max(...corners.map(c => c.y)) };
+            const discsU = labelDiscs.map(d => Object.assign(F.toU(d.x, d.y), { r: d.r }));
+            const paint = (text, at, kind) => {
+                const pivot = F.fromU(at.x, at.y);
+                this.drawCableTag(text, at.x, at.y, labelSize, DATA_CABLE_TAG_COLORS,
+                                  Object.assign({ pivot }, at.opts), kind);
+            };
             // The pills already down: a tag is placed clear of them as
             // well as of the discs - see placeCableTag.
             const taken = [];
@@ -274,21 +298,33 @@ Object.assign(CanvasRenderer.prototype, {
             // label tags are the ones that move off them. Centred on the
             // midpoint (a 'right' hang whose gap is taken back off x).
             for (const j of pendingJumps) {
+                const u = F.toU(j.x, j.y);
                 const w = this.cableTagLayout(j.text, labelSize).width;
-                const x = j.x - labelSize * 0.25 - w / 2;
-                const opts = { side: 'right' };
-                taken.push(this.cableTagRect(j.text, x, j.y, labelSize, opts));
-                this.drawCableTag(j.text, x, j.y, labelSize, DATA_CABLE_TAG_COLORS, opts, 'jump');
+                const at = { x: u.x - labelSize * 0.25 - w / 2, y: u.y, opts: { side: 'right' } };
+                taken.push(this.cableTagRect(j.text, at.x, at.y, labelSize, at.opts));
+                paint(j.text, at, 'jump');
             }
             pendingJumps.length = 0;
             for (const t of pendingTags) {
-                const at = this.placeCableTag(t.text, t.disc.x, t.disc.y, t.disc.r, labelSize,
-                                              bounds, labelDiscs, t.disc, taken);
+                const own = discsU[labelDiscs.indexOf(t.disc)];
+                // no stacked second pill on a data tag, so no `stack`
+                const at = this.placeCableTag(t.text, own.x, own.y, own.r, labelSize,
+                                              bounds, discsU, own, taken,
+                                              { prefer: this._tagRunSide(t.step, F) });
                 taken.push(at.rect);
-                this.drawCableTag(t.text, at.x, at.y, labelSize, DATA_CABLE_TAG_COLORS, at.opts);
+                paint(t.text, at, undefined);
             }
             pendingTags.length = 0;
         };
+
+        // A run's step off a marker - its cabinet to the next one along,
+        // centre to centre, in the frame the ports are drawn in (a custom
+        // path's own order; drawCableTags turns it upright). Null for a
+        // port of one cabinet. The tag's side is read off it (2026-09-25).
+        const runStep = (a, b) => (a && b)
+            ? { dx: (b.x + b.width / 2) - (a.x + a.width / 2),
+                dy: (b.y + b.height / 2) - (a.y + a.height / 2) }
+            : null;
 
         const drawPort = (portPanels, portNum, loadPanels) => {
             if (portPanels.length === 0) return;
@@ -449,16 +485,18 @@ Object.assign(CanvasRenderer.prototype, {
 
             if (layer.showDataCableTags === true && window.app
                     && typeof window.app.dataPortCableForScreen === 'function') {
-                // One tag beside one marker, drawn in a second pass once
+                // One tag on one marker, drawn in a second pass once
                 // every label of the screen is placed (see drawCableTags
-                // below): right of the circle when that fits, else left
-                // of it, and off any OTHER label's disc. A wrapped tag is
+                // above): on the run's side of the circle - above it, or
+                // under it where the run leaves going up - and off any
+                // OTHER label's disc. A wrapped tag is
                 // taller than its label circle, so it carries the
                 // screen's top and bottom too and shifts inside them the
                 // way the circle's centre was shifted.
                 const cable = window.app.dataPortCableForScreen(layer, portNum);
                 if (cable && cable.text) {
-                    pendingTags.push({ text: cable.text, disc: primaryDisc });
+                    pendingTags.push({ text: cable.text, disc: primaryDisc,
+                                       step: runStep(portPanels[0], portPanels[1]) });
                 }
                 // The return marker wears the BACKUP socket's own tag the
                 // same way - the backup box's snake, its extension, or its
@@ -468,7 +506,9 @@ Object.assign(CanvasRenderer.prototype, {
                 const backup = typeof window.app.dataPortBackupCableForScreen === 'function'
                     ? window.app.dataPortBackupCableForScreen(layer, portNum) : null;
                 if (backup && backup.text) {
-                    pendingTags.push({ text: backup.text, disc: returnDisc });
+                    const n = portPanels.length;
+                    pendingTags.push({ text: backup.text, disc: returnDisc,
+                                       step: runStep(portPanels[n - 1], portPanels[n - 2]) });
                 }
             }
 

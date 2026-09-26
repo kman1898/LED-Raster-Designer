@@ -746,6 +746,225 @@ def test_a_resized_tray_deals_its_columns_again(tray):
     assert len(page.evaluate(CELLS_JS)['cells']) == 2
 
 
+# Each top-level processor cell's frame, its header, and the accent the
+# app's Preferences set - resolved to rgb through a probe, so it compares
+# with the computed border colour whatever form the variable was set in.
+FRAMES_JS = """() => {
+    const probe = document.createElement('div');
+    probe.style.color = 'var(--ps-accent)';
+    document.body.appendChild(probe);
+    const accent = getComputedStyle(probe).color;
+    probe.remove();
+    const body = document.getElementById('hardware-dock-body');
+    const cells = [...body.children].filter(el =>
+        el.matches('.hw-dock-proc, .lrd-red-pair'));
+    return {
+        accent,
+        raw: getComputedStyle(document.documentElement)
+            .getPropertyValue('--ps-accent').trim(),
+        cells: cells.map(el => {
+            const cs = getComputedStyle(el);
+            const head = el.querySelector('.hw-dock-proc-name');
+            const kids = [...head.children];
+            const name = head.querySelector('.hw-dock-name');
+            const model = head.querySelector('.hw-dock-proc-model');
+            const gear = head.querySelector('.hw-dock-gear');
+            const r = el.getBoundingClientRect();
+            const g = gear.getBoundingClientRect();
+            return {
+                border: [cs.borderTopColor, cs.borderRightColor,
+                         cs.borderBottomColor, cs.borderLeftColor],
+                width: parseFloat(cs.borderTopWidth),
+                radius: parseFloat(cs.borderTopLeftRadius),
+                pad: parseFloat(cs.paddingLeft),
+                ground: cs.backgroundColor,
+                nameFirst: kids.indexOf(name) < kids.indexOf(model),
+                nameSize: parseFloat(getComputedStyle(name).fontSize),
+                nameWeight: parseInt(getComputedStyle(name).fontWeight, 10),
+                modelSize: parseFloat(getComputedStyle(model).fontSize),
+                model: model.textContent,
+                gearInside: g.right <= r.right + 0.5 && g.left >= r.left,
+                headFits: head.scrollWidth <= head.clientWidth + 1,
+            };
+        }),
+    };
+}"""
+
+
+def test_each_processor_is_one_accent_framed_panel(tray):
+    """"make the different processors more obvious" (owner, 2026-09-25,
+    option 2 "Framed unit": "the color should match the color for the
+    whole app. since we have that as a setting"). Every top-level
+    processor cell - a lone processor, or the pair a backup machine nests
+    into - is one raised, rounded, padded panel outlined in the ACCENT,
+    and the outline follows the accent when Preferences changes it. Its
+    header leads with the NAME, bigger and bold, the model after it in a
+    smaller hand, and the whole strip fits the track: the gear stays in
+    the cell. The frame keeps the columns 10px apart."""
+    page, ids = tray
+    open_view(page, 'data-flow')
+    shot = page.evaluate(FRAMES_JS)
+    print('\nframes:', json.dumps(shot))
+    assert len(shot['cells']) == 2, shot
+    for c in shot['cells']:
+        assert set(c['border']) == {shot['accent']}, (c, shot['accent'])
+        assert c['width'] >= 1 and c['radius'] >= 3 and c['pad'] >= 4, c
+        assert c['ground'] not in ('rgba(0, 0, 0, 0)', 'transparent'), c
+        assert c['nameFirst'], c
+        assert c['nameSize'] > c['modelSize'] and c['nameWeight'] >= 600, c
+        assert c['gearInside'] and c['headFits'], c
+    # stacked framed cells still sit 10px apart
+    cells = page.evaluate(CELLS_JS)
+    for above, c in _stacks(cells):
+        g = c['cy'] - (above['cy'] + above['h'])
+        assert abs(g - 10) <= 2, (above['key'], c['key'], g)
+
+    # the accent changes in Preferences: the frame follows, no re-render
+    # The Preferences swatch's own click handler (theme.js), pressed
+    # through the DOM: the swatch row sits low in a tall dialog.
+    pick = """(label) => {
+        const sw = document.querySelector(
+            `#ps-accent-ui .ps-accent-sw[title="${label}"]`);
+        if (sw) sw.click();
+        return !!sw;
+    }"""
+    page.locator('#btn-preferences').click()
+    page.wait_for_timeout(500)
+    try:
+        assert page.evaluate(pick, 'Blue'), 'no accent swatches in Preferences'
+        page.wait_for_timeout(200)
+        blue = page.evaluate(FRAMES_JS)
+        assert blue['raw'].lower() == '#2f7ad6', blue['raw']
+        assert blue['accent'] != shot['accent'], blue
+        for c in blue['cells']:
+            assert set(c['border']) == {blue['accent']}, (c, blue['accent'])
+    finally:
+        page.evaluate(pick, 'Red')
+        page.evaluate("() => { try { localStorage.removeItem("
+                      "'lrd_theme_accent'); } catch (e) {} }")
+        page.locator('#preferences-cancel').click()
+        page.wait_for_timeout(400)
+    back = page.evaluate(FRAMES_JS)
+    assert all(set(c['border']) == {shot['accent']} for c in back['cells'])
+
+
+def _in_webkit(body):
+    """Run `body(browser)` in WebKit - the engine the Mac app's window is -
+    on a worker thread with a driver of its own (a second sync_playwright()
+    cannot start inside the session driver's loop; test_tour_anchors.py
+    _in_engine does the same). Skips where WebKit is not installed (CI
+    installs Chromium only)."""
+    import threading
+    from playwright.sync_api import sync_playwright
+    outcome = {}
+
+    def run():
+        try:
+            with sync_playwright() as p:
+                try:
+                    browser = p.webkit.launch(headless=True)
+                except Exception as e:
+                    if "Executable doesn't exist" in str(e) \
+                            or 'not installed' in str(e).lower():
+                        outcome['skip'] = ('webkit is not installed '
+                                           '(python3 -m playwright install '
+                                           'webkit)')
+                        return
+                    raise
+                try:
+                    outcome['value'] = body(browser)
+                finally:
+                    browser.close()
+        except BaseException as e:
+            outcome['error'] = e
+
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    t.join(600)
+    if t.is_alive():
+        pytest.fail('webkit: the test did not finish in 600 s')
+    if 'skip' in outcome:
+        pytest.skip(outcome['skip'])
+    if 'error' in outcome:
+        raise outcome['error']
+    return outcome.get('value')
+
+
+def test_the_tray_raises_no_resize_observer_loop_in_webkit(tray, e2e_server):
+    """The owner's log, beta.3 in the Mac app (a WebKit window): "ResizeObserver
+    loop completed with undelivered notifications" on a fold, three times.
+    A re-stack moved the column's bottom, the body's real 14px scrollbar
+    came or went with it, and that re-sized every cell inside the same
+    observation cycle - an error WebKit raises and Chromium does not. The
+    observer only schedules now; the gestures lay out where they happen.
+    Driven in WebKit: fold and unfold across the scrollbar's threshold,
+    open and close a cable sheet, resize the window - and not one
+    ResizeObserver error reaches the page."""
+    page, ids = tray   # the seeded project, on the server both engines read
+    folds = [f'hwdock-card-{ids[k]}' for k in ('djCard', 'imagACard',
+                                                'imagBCard')]
+
+    def body(browser):
+        context = browser.new_context(viewport={'width': 1440, 'height': 900})
+        context.add_init_script(
+            "try{localStorage.setItem('lrd_quickstart_disabled','1');}"
+            "catch(e){}")
+        errors = []
+        try:
+            pg = context.new_page()
+            pg.on('pageerror', lambda e: errors.append(str(e)))
+            pg.on('console', lambda m: m.type == 'error'
+                  and errors.append(m.text))
+            pg.goto(e2e_server, wait_until='domcontentloaded')
+            pg.wait_for_timeout(2000)
+            pg.locator('[data-mode="data-flow"]').click()
+            pg.wait_for_timeout(800)
+            pg.evaluate("""() => { window.__roErrs = [];
+                window.addEventListener('error',
+                    e => window.__roErrs.push(String(e.message))); }""")
+
+            def fold(key):
+                pg.locator(f'[data-lrd-sec="{key}"] .lrd-sec-arrow') \
+                    .first.click()
+                pg.wait_for_timeout(250)
+            for key in folds:
+                fold(key)
+            # the tray exactly as tall as its folded content: the next
+            # unfold brings the scrollbar, the fold after takes it away
+            bar = pg.evaluate("""() => {
+                const d = document.getElementById('hardware-dock');
+                const b = document.getElementById('hardware-dock-body');
+                d.style.height = (d.offsetHeight - b.clientHeight
+                                  + b.scrollHeight + 2) + 'px';
+                window.app.settleLayout && window.app.settleLayout();
+                return b.offsetWidth - b.clientWidth;
+            }""")
+            pg.wait_for_timeout(400)
+            assert bar == 0, 'the folded tray must not scroll yet'
+            for key in folds + folds:
+                fold(key)
+            grew = pg.evaluate("""() => {
+                const b = document.getElementById('hardware-dock-body');
+                return b.offsetWidth - b.clientWidth;
+            }""")
+            for _ in range(2):
+                pg.locator(f'[data-lrd-field="data-cable-sheet-'
+                           f'{ids["djCard"]}"]').click()
+                pg.wait_for_timeout(400)
+            for w in (1900, 900, 1300, 1440):
+                pg.set_viewport_size({'width': w, 'height': 900})
+                pg.wait_for_timeout(400)
+            errors.extend(pg.evaluate('() => window.__roErrs'))
+            return {'errors': errors, 'bar': grew}
+        finally:
+            context.close()
+
+    out = _in_webkit(body)
+    print('\nwebkit:', out)
+    ro = [e for e in out['errors'] if 'ResizeObserver' in e]
+    assert not ro, ro
+
+
 DATA_ACTS = ['card sheet', 'box sheet', 'fold card', 'fold processor',
              'fold pair backup', 'chip editor', 'rename card',
              'redundancy mode']
