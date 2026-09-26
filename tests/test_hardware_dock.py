@@ -1698,10 +1698,11 @@ def test_a_mirrored_return_refuses_clear_and_drag_back_naming_the_screen(
 
 def test_a_redundant_pair_reads_as_one_group_in_the_dock(dock_page):
     """A redundant pair is ONE loom and reads as ONE group: on a redundant
-    SX40 box B nests under the A it backs and D under C - two pairs, not
-    four sibling strips - and a designated 1:1 backup machine nests whole,
-    name strip and all, under its main. Same rule, both levels; the chips
-    inside keep their keys either way."""
+    SX40 box B is a row of A's loop strip and D a row of C's - two strips,
+    not four sibling ones (option 2, 2026-09-25: the loop's far box is the
+    strip's "loop end" row, not a nested "(backup)" box) - and a
+    designated 1:1 backup machine nests whole, name strip and all, under
+    its main. The chips inside keep their keys either way."""
     page, ids = dock_page
     open_view(page, 'data-flow')
     made = page.evaluate("""async () => {
@@ -1746,17 +1747,18 @@ def test_a_redundant_pair_reads_as_one_group_in_the_dock(dock_page):
         const backProcEl = backUnit && backUnit.closest('.hw-dock-proc');
         const mainUnit = document.querySelector(
             `[data-hwdock="card-${made.mainCard}"]`);
-        const paired = (main, backup) => !!(main && backup
-            && main.parentElement.classList.contains('lrd-red-pair')
-            && main.parentElement === backup.parentElement);
+        const strip = (el) => el && el.closest('.hw-dock-loop');
+        const paired = (near, far) => !!(near && far && strip(near)
+            && strip(near) === strip(far)
+            && near.classList.contains('hw-dock-loop-row')
+            && !near.classList.contains('hw-dock-loop-far'));
         return {
             built: !!(a && b && c && d && backUnit && mainUnit),
-            bIsBackup: !!(b && b.classList.contains('lrd-red-backup')),
-            dIsBackup: !!(d && d.classList.contains('lrd-red-backup')),
+            bIsBackup: !!(b && b.classList.contains('hw-dock-loop-far')),
+            dIsBackup: !!(d && d.classList.contains('hw-dock-loop-far')),
             abPaired: paired(a, b),
             cdPaired: paired(c, d),
-            pairsDistinct: !!(a && c
-                              && a.parentElement !== c.parentElement),
+            pairsDistinct: !!(a && c && strip(a) !== strip(c)),
             unitNested: !!(backProcEl
                 && backProcEl.classList.contains('lrd-red-backup')),
             unitPairHoldsMain: !!(backProcEl && mainUnit
@@ -3109,8 +3111,12 @@ def test_the_dock_sections_ports_by_box_with_lettered_headers(dock_page):
     box, headed in the dock's own register - static MODEL text plus an
     inline name INPUT whose placeholder speaks the resolved lettered
     title, lettered by its trunk where nothing else tells four identical
-    boxes apart - and its port span; the backup box's section nests under
-    its main's. A boxless card keeps its single flat grid.
+    boxes apart - and its port span. A loop's two boxes share ONE strip
+    (option 2, 2026-09-25): its header names both - "Tessera XD  A ↔ B",
+    the trunk letters while nobody has named them - and each box is a row
+    of it, the far one marked "· loop end"; "(backup)" is the backup
+    processor's word now and no box wears it. A boxless card keeps its
+    single flat grid.
 
     The spans read in each box's OWN numbers - all four sections say
     "ports 1-10" - by the 2026-08-27 ruling ("B is 1-10 and D is 1-10",
@@ -3141,22 +3147,33 @@ def test_the_dock_sections_ports_by_box_with_lettered_headers(dock_page):
         const read = (id) => {
             const h = document.querySelector(`[data-hwdock="box-${id}"]`);
             const box = h && h.closest('.hw-dock-box');
-            if (!box) return null;
+            const strip = box && box.closest('.hw-dock-loop');
+            if (!box || !strip) return null;
+            const top = strip.querySelector(':scope > .hw-dock-head-row');
             const inline = h.querySelector('.hw-dock-name');
+            const end = h.querySelector('.hw-dock-loop-end');
             return {
-                name: h.querySelector('.hw-dock-unit-name').textContent,
+                name: top.querySelector('.hw-dock-unit-name').textContent,
+                pair: top.querySelector('.hw-dock-loop-names').textContent,
+                tag: (top.querySelector('.hw-dock-looptag') || {})
+                    .textContent,
                 inline: inline && inline.placeholder,
                 key: inline && inline.dataset.lrdField,
                 detail: h.querySelector('.hw-dock-unit-info').textContent,
                 tiles: box.querySelectorAll('.lrd-tile').length,
-                backup: box.classList.contains('lrd-red-backup'),
+                far: box.classList.contains('hw-dock-loop-far'),
+                end: end && end.textContent,
             };
         };
         const flat = document.querySelector(
             `[data-hwdock="card-${cardId}"]`);
         const flatUnit = flat && flat.closest('.hw-dock-unit');
+        const sxHead = document.querySelector(
+            `[data-hwdock="box-${made.sxCvts[0]}"]`);
+        const sxUnit = sxHead && sxHead.closest('.hw-dock-unit');
         return {
             boxes: made.sxCvts.map(read),
+            sxText: sxUnit ? sxUnit.innerText : '',
             flatBoxes: flatUnit
                 ? flatUnit.querySelectorAll('.hw-dock-box').length : null,
             flatGrids: flatUnit
@@ -3169,15 +3186,21 @@ def test_the_dock_sections_ports_by_box_with_lettered_headers(dock_page):
         # identity - "Tessera XD A" - is the inline name input's
         # placeholder, the resolved displayTitle the server's refusals
         # also speak.
-        names = [(b['name'], b['inline'], b['detail'], b['backup'])
-                 for b in out['boxes']]
+        names = [(b['name'], b['pair'], b['tag'], b['inline'], b['detail'],
+                  b['far'], b['end']) for b in out['boxes']]
         assert names == [
-            ('Tessera XD', 'Tessera XD A', 'ports 1-10', False),
-            ('Tessera XD (backup)', 'Tessera XD B', 'ports 1-10', True),
-            ('Tessera XD', 'Tessera XD C', 'ports 1-10', False),
-            ('Tessera XD (backup)', 'Tessera XD D', 'ports 1-10', True),
+            ('Tessera XD', 'A ↔ B', 'loop', 'Tessera XD A', 'ports 1-10',
+             False, None),
+            ('Tessera XD', 'A ↔ B', 'loop', 'Tessera XD B', 'ports 1-10',
+             True, '· loop end'),
+            ('Tessera XD', 'C ↔ D', 'loop', 'Tessera XD C', 'ports 1-10',
+             False, None),
+            ('Tessera XD', 'C ↔ D', 'loop', 'Tessera XD D', 'ports 1-10',
+             True, '· loop end'),
         ], f'the sections must be lettered, paired and locally numbered: ' \
            f'{names}'
+        assert '(backup)' not in out['sxText'], (
+            'a loop box still wears "(backup)"', out['sxText'][:400])
         assert [b['key'] for b in out['boxes']] == \
             [f'processor-cvt-name-{c}' for c in made['sxCvts']], (
             f'each box name must edit under its own key: {out}')
@@ -3554,12 +3577,14 @@ def test_a_reveal_into_a_folded_section_opens_it(dock_page):
     assert out['visible'], f'the revealed chip is still hidden: {out}'
 
 
-def test_a_backup_section_folds_with_its_main_and_alone(dock_page):
-    """A redundant pair is one thing: folding the MAIN box hides the whole
-    nested backup with it (header and all), and unfolding brings it back.
-    The backup still folds alone through its own header without touching
-    the main - and a reveal aimed inside the hidden backup opens the main
-    around it."""
+def test_a_loop_pair_folds_as_one_strip_that_names_both_boxes(dock_page):
+    """A loop pair is ONE strip (option 2, 2026-09-25). Folding it hides
+    both rows of chips at once - and the folded header still names BOTH
+    boxes, "Tessera XD  ISR A ↔ ISR B" with its gold "loop" tag and the
+    pair's count, so the far box never looks missing (it used to vanish
+    under the near box's fold). A reveal aimed at a chip of the far box
+    opens the strip around it. Each row keeps its own box: its drag
+    handle, name, count, ≡ and ⚙."""
     page, ids = dock_page
     open_view(page, 'data-flow')
     made = page.evaluate("""async () => {
@@ -3572,65 +3597,166 @@ def test_a_backup_section_folds_with_its_main_and_alone(dock_page):
         await send(`/api/processors/${sxProc.id}`, 'PUT',
                    { redundancy: true });
         await window.app.refreshProcessors();
-        const resolved = window.app._processorsResolved
-            .find(p => p.id === sxProc.id);
-        const card = resolved.slots[0].card;
+        let card = window.app._processorsResolved
+            .find(p => p.id === sxProc.id).slots[0].card;
+        const [a, b] = card.cvts;
+        for (const [cvt, name] of [[a, 'ISR A'], [b, 'ISR B']]) {
+            await send(`/api/processors/${sxProc.id}/cvts/${cvt.id}`, 'PUT',
+                       { name });
+        }
+        await window.app.refreshProcessors();
+        window.app.renderHardwareDock();
         return { sxId: sxProc.id, cardId: card.id,
-                 cvtA: card.cvts[0].id, cvtB: card.cvts[1].id };
+                 cvtA: a.id, cvtB: b.id };
     }""")
     page.wait_for_timeout(1200)
     try:
         read_pair = """(made) => {
-            const headA = document.querySelector(
+            const head = document.querySelector(
                 `[data-lrd-sec="hwdock-box-${made.cvtA}"]`);
-            const headB = document.querySelector(
-                `[data-lrd-sec="hwdock-box-${made.cvtB}"]`);
-            const boxA = headA && headA.parentElement;
-            const boxB = headB && headB.parentElement;
-            if (!boxA || !boxB) return null;
+            const strip = head && head.parentElement;
+            if (!strip) return null;
+            const rowA = document.querySelector(
+                `[data-hwdock="box-${made.cvtA}"]`);
+            const rowB = document.querySelector(
+                `[data-hwdock="box-${made.cvtB}"]`);
+            const shown = (el) => !!(el && el.offsetParent);
             return {
-                aCollapsed: boxA.classList.contains('lrd-sec-collapsed'),
-                bCollapsed: boxB.classList.contains('lrd-sec-collapsed'),
-                bShown: getComputedStyle(boxB).display !== 'none',
-                aBodyShown: getComputedStyle(boxA.querySelector(
-                    ':scope > .lrd-sec-body')).display !== 'none',
-                paired: !!boxB.closest('.lrd-red-pair')
-                    && boxB.classList.contains('lrd-red-backup'),
+                isStrip: strip.classList.contains('hw-dock-loop'),
+                headText: [...head.querySelectorAll(
+                    '.hw-dock-unit-name, .hw-dock-loop-names')]
+                    .map(el => el.textContent).join('  '),
+                tag: (head.querySelector('.hw-dock-looptag') || {})
+                    .textContent,
+                use: (head.querySelector('.hw-dock-unit-use') || {})
+                    .textContent,
+                collapsed: strip.classList.contains('lrd-sec-collapsed'),
+                aShown: shown(rowA), bShown: shown(rowB),
+                bInStrip: !!(rowB && strip.contains(rowB)),
+                // no fold of B's own any more: the strip folds the pair
+                bSection: !!document.querySelector(
+                    `[data-lrd-sec="hwdock-box-${made.cvtB}"]`),
+                perBox: [rowA, rowB].map(h => h && {
+                    gear: !!h.querySelector(
+                        `[data-hwpop="box-${h.dataset.hwdock.slice(4)}"]`),
+                    sheet: !!h.querySelector('.hw-dock-cablebtn-data'),
+                    use: (h.querySelector('.hw-dock-unit-use') || {})
+                        .textContent,
+                    drag: !!h.dataset.hwdockPayload,
+                }),
             };
         }"""
         st = page.evaluate(read_pair, made)
-        assert st and st['paired'], f'B must nest under A as a pair: {st}'
-        assert st['bShown'], st
+        assert st and st['isStrip'] and st['bInStrip'], st
+        assert not st['bSection'], st
+        assert st['aShown'] and st['bShown'] and not st['collapsed'], st
+        for row in st['perBox']:
+            assert row and row['gear'] and row['sheet'] and row['drag'], st
+            assert row['use'] and '/' in row['use'], st
 
-        # folding the main takes the backup with it, whole
+        # folded, the strip hides both rows and its header names both
         fold_arrow(page, f'hwdock-box-{made["cvtA"]}')
         st = page.evaluate(read_pair, made)
-        assert st['aCollapsed'] and not st['bShown'], (
-            f'folding the main must fold the pair: {st}')
+        print('\nfolded loop header:', st['headText'])
+        assert st['collapsed'], st
+        assert not st['aShown'] and not st['bShown'], (
+            f'folding the strip must fold both boxes: {st}')
+        assert st['headText'] == 'Tessera XD  ISR A ↔ ISR B', st
+        assert st['tag'] == 'loop', st
+        assert st['use'] and '/' in st['use'], st
+        assert '(backup)' not in st['headText'], st
 
-        # a reveal aimed inside the hidden backup opens the main around it
-        out = page.evaluate("""(made) => {
+        # a reveal aimed inside the far box opens the strip around it
+        page.evaluate("""(made) => {
             const chip = document.querySelector(
                 `[data-hwdock="port-${made.cardId}-11"]`);
             window.app._expandSectionsFor(chip);
-            return null;
         }""", made)
         st = page.evaluate(read_pair, made)
-        assert not st['aCollapsed'] and st['bShown'], (
-            f'the reveal did not open the main around the backup: {st}')
-
-        # the backup folds alone, main untouched
-        fold_arrow(page, f'hwdock-box-{made["cvtB"]}')
-        st = page.evaluate(read_pair, made)
-        assert st['bCollapsed'] and not st['aCollapsed'], st
-        assert st['bShown'] and st['aBodyShown'], (
-            f'the backup folding alone must leave the main open: {st}')
+        assert not st['collapsed'] and st['bShown'], (
+            f'the reveal did not open the strip around the far box: {st}')
     finally:
         page.evaluate("""async (made) => {
             await fetch(`/api/processors/${made.sxId}`,
                         { method: 'DELETE' });
             await window.app.refreshProcessors();
         }""", made)
+        page.wait_for_timeout(600)
+
+
+def test_an_idle_loop_end_socket_reads_free(dock_page):
+    """"ISR B-9 and B-10 read 'backs…' while ISR A-9 and A-10 are free"
+    (owner, 2026-09-25). A loop's far socket whose near socket carries
+    nothing is free and says so - the plain free chip, no gold - while a
+    far socket whose near socket IS carrying a screen still reads that
+    screen's return."""
+    page, ids = dock_page
+    open_view(page, 'data-flow')
+    made = page.evaluate("""async (ids) => {
+        const send = (url, method, body) => fetch(url, { method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body) }).then(r => r.json());
+        const sx = await send('/api/processors', 'POST',
+                              { deviceId: 'brompton-sx40' });
+        const sxProc = sx.resolved[sx.resolved.length - 1];
+        await send(`/api/processors/${sxProc.id}`, 'PUT',
+                   { redundancy: true });
+        await window.app.refreshProcessors();
+        const card = window.app._processorsResolved
+            .find(p => p.id === sxProc.id).slots[0].card;
+        // A Brompton screen of its own (the seed's walls are COEX, and a
+        // screen only maps onto its own platform), its first port onto XD
+        // A socket 1: B-1 carries its return, every other B socket backs
+        // a free A socket
+        const wall = await send('/api/layer/add', 'POST', { name: 'LOOP',
+            columns: 4, rows: 2, cabinet_width: 200, cabinet_height: 200,
+            offset_x: 6000, offset_y: 0 });
+        await send(`/api/layer/${wall.id}`, 'PUT',
+                   { processorType: 'brompton' });
+        window.app.project = await (await fetch('/api/project')).json();
+        window.app.renderLayers();
+        await window.app._assignmentRequest('/api/port-assignments/pin',
+            'POST', { layerId: String(wall.id), index: 0, cardId: card.id,
+                      port: card.cvts[0].ports[0].number });
+        window.app.renderHardwareDock();
+        return { sxId: sxProc.id, cardId: card.id, wallId: wall.id,
+                 a1: card.cvts[0].ports[0].number,
+                 b1: card.cvts[1].ports[0].number,
+                 b9: card.cvts[1].ports[8].number,
+                 a9: card.cvts[0].ports[8].number };
+    }""", ids)
+    page.wait_for_timeout(1200)
+    chip = """([cardId, n]) => {
+        const face = document.querySelector(
+            `[data-hwdock="port-${cardId}-${n}"]`);
+        if (!face) return null;
+        const tile = face.closest('.lrd-tile');
+        const lines = [...face.querySelectorAll(':scope > .lrd-tile-line')];
+        return { who: (lines[1] || {}).innerText,
+                 gold: tile.classList.contains('lrd-tile-gold'),
+                 title: face.title };
+    }"""
+    try:
+        a9 = page.evaluate(chip, [made['cardId'], made['a9']])
+        b9 = page.evaluate(chip, [made['cardId'], made['b9']])
+        b1 = page.evaluate(chip, [made['cardId'], made['b1']])
+        print('\nA-9:', a9, '\nB-9:', b9, '\nB-1:', b1)
+        assert a9 and a9['who'].startswith('free'), a9
+        assert b9 and b9['who'].startswith('free') and not b9['gold'], (
+            f'an idle loop end must read free: {b9}')
+        assert 'loop end' in b9['title'], b9
+        # the busy socket beside it still says whose return it carries
+        assert b1 and 'return' in b1['who'] and b1['gold'], b1
+    finally:
+        page.evaluate("""async (made) => {
+            await fetch(`/api/layer/${made.wallId}`, { method: 'DELETE' });
+            await fetch(`/api/processors/${made.sxId}`,
+                        { method: 'DELETE' });
+            window.app.project = await (await fetch('/api/project')).json();
+            window.app.renderLayers();
+            await window.app.refreshProcessors();
+        }""", made)
+        page.evaluate(RESET_DATA_JS, ids)
         page.wait_for_timeout(600)
 
 

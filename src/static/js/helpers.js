@@ -73,14 +73,46 @@ function sendClientLog(action, details = {}) {
     }
 }
 
+// The field an element is known by in the log: its id, else the
+// data-lrd-field every generated control carries (most tray and popover
+// fields have no id, so a bare id logged "" for them).
+function clientLogField(el) {
+    if (!el || !el.getAttribute) return '';
+    return el.id || el.getAttribute('data-lrd-field') || '';
+}
+
 function registerGlobalClientLogging() {
+    // The last thing the person did, for an error that arrives with no
+    // file or line. WebKit hands the page a bare "Script error." for a
+    // throw in a script it treats as foreign (the desktop window's own
+    // injected script), and on 2026-09-25 the owner's log held a run of
+    // them while he typed processor names - which the app itself could
+    // not reproduce in Chromium or WebKit. Recording the last key and
+    // field beside each error is the evidence the next one needs.
+    let lastInput = null;
+    const noteInput = (event) => {
+        lastInput = {
+            type: event.type,
+            key: event.key && event.key.length === 1 ? 'char' : (event.key || ''),
+            meta: !!(event.metaKey || event.ctrlKey),
+            field: clientLogField(event.target),
+            at: Date.now()
+        };
+    };
+    document.addEventListener('keydown', noteInput, true);
+    document.addEventListener('focusout', noteInput, true);
+    document.addEventListener('mousedown', noteInput, true);
     window.addEventListener('error', (event) => {
         sendClientLog('client_error', {
             message: event.message,
             filename: event.filename,
             lineno: event.lineno,
             colno: event.colno,
-            stack: event.error ? String(event.error.stack || event.error) : ''
+            stack: event.error ? String(event.error.stack || event.error) : '',
+            lastInput: lastInput
+                ? Object.assign({}, lastInput, { msAgo: Date.now() - lastInput.at, at: undefined })
+                : null,
+            activeField: clientLogField(document.activeElement)
         });
     });
 
@@ -96,7 +128,7 @@ function registerGlobalClientLogging() {
         const tag = target.tagName;
         if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') {
             sendClientLog('ui_change', {
-                id: target.id || '',
+                id: clientLogField(target),
                 type: target.type || '',
                 value: target.type === 'checkbox' ? target.checked : target.value
             });

@@ -719,6 +719,17 @@ def test_a_loops_sheet_shows_the_pair_near_box_first_with_x1_and_x2(page):
         ('Tessera XD B · X1', False), ('Tessera XD B · X2', True)], sec
     assert [r['link'] for r in sec['rows']] == [f'{a}:p1', f'{a}:b1', f'{b}:p1', f'{b}:b1']
     assert 'Cat6A copper' in sec['rows'][2]['options'], sec['rows'][2]['options']
+    # an empty X2 offers its X1's cable on top, named, with a gap under it,
+    # and the rest of the list keeps its own order ("that reads as
+    # confusing ... maybe we do this with a gap", owner 2026-09-25)
+    for i in (1, 3):
+        x1, x2 = sec['rows'][i - 1], sec['rows'][i]
+        if x2['value'] or not x1['value']:
+            continue
+        opts = x2['options']
+        assert opts[0].endswith(' · same as X1') and opts[1] == '──────────', opts
+        rest = [o for o in opts[2:] if o.startswith(('TAC', 'MTP'))]
+        assert rest == sorted(rest), opts
     pg.wait_for_timeout(300)
     _shot(pg, pg.locator(f'[data-lrd-fiber-row="{b}"]'), 'xd-loop-fiber-section.png')
     sec = pg.evaluate(SHEET_JS, [c, ids['xds']])

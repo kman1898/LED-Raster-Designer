@@ -1010,16 +1010,34 @@ class _DockCableSheets {
             o.textContent = label;
             sel.appendChild(o);
         };
-        let stranded = this.getFiberCables().filter(c => this.fiberCableIsStranded(c));
+        // A gap between the groups of the list - a disabled rule, so the
+        // eye finds the cables, the New steps, copper and None apart.
+        const gap = () => {
+            const o = document.createElement('option');
+            o.disabled = true;
+            o.textContent = '──────────';
+            sel.appendChild(o);
+        };
+        const stranded = this.getFiberCables().filter(c => this.fiberCableIsStranded(c));
+        // An empty backup link offers its primary's cable ON TOP, named as
+        // such and set off by a gap, and the full list follows in its own
+        // order - "that reads as confusing ... maybe we do this with a
+        // gap" (owner, 2026-09-25), where it used to reorder the list.
         if (l.backup && !l.link) {
-            const primary = ((box.fiberLinks || {})[`p${l.key.slice(1)}`] || {}).cable;
-            stranded = stranded.filter(c => c.id === primary)
-                .concat(stranded.filter(c => c.id !== primary));
+            const pKey = `p${l.key.slice(1)}`;
+            const primary = ((box.fiberLinks || {})[pKey] || {}).cable;
+            const same = primary && stranded.find(c => c.id === primary);
+            if (same) {
+                const port = (box.linkTitles || {})[pKey] || 'the primary';
+                opt(same.id, `${this.fiberCableOptionText(same)} · same as ${port}`);
+                gap();
+            }
         }
         stranded.forEach(c => opt(c.id, this.fiberCableOptionText(c)));
         this.getFiberCables()
             .filter(c => !this.fiberCableIsStranded(c) && c.ownerBoxId === box.id)
             .forEach(c => opt(c.id, this.fiberCableOptionText(c)));
+        if (sel.options.length) gap();
         opt('new:tac', 'New TAC…');
         opt('new:mtp', 'New MTP…');
         opt('new:opticalcon-duo', 'New opticalCON DUO…');
@@ -1027,8 +1045,10 @@ class _DockCableSheets {
         // An XD's link may run on copper instead (its etherCON beside the
         // opticalCON DUO) - the 10G kinds, Cat6A and under.
         if (box.copperLinks) {
+            gap();
             COPPER_LINK_KINDS.forEach(([kind]) => opt(`cu:${kind}`, `${kind} copper`));
         }
+        gap();
         opt('', 'None');
         sel.value = l.copper ? `cu:${l.copper.copper}` : (l.link ? l.link.cable : '');
         sel.addEventListener('change', () => {

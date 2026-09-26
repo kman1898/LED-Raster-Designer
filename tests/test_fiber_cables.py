@@ -561,7 +561,7 @@ def test_the_fiber_section_builds_a_tac_through_new_tac(page):
     assert sec['caption'] == 'Fiber · CVT10 A', sec
     assert [(r['role'], r['backup']) for r in sec['rows']] == [('OPT 1', False)]
     opts = sec['rows'][0]['options']
-    assert opts == ['New TAC…', 'New MTP…', 'New opticalCON DUO…', 'New opticalCON QUAD…', 'None'], opts
+    assert opts == ['New TAC…', 'New MTP…', 'New opticalCON DUO…', 'New opticalCON QUAD…', '──────────', 'None'], opts
     assert sec['rows'][0]['value'] == ''
     index = pg.evaluate('() => window.app.historyIndex')
     pg.locator(f'[data-lrd-field="fiber-link-cable-{a}-p1"]').select_option('new:tac')

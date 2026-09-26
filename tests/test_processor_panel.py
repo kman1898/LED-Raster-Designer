@@ -4724,11 +4724,11 @@ def test_the_partner_pick_and_the_manual_picker_commit(panel_page):
 
 def test_a_redundant_pair_presents_as_one_group_on_the_dock(panel_page):
     """A redundant pair is ONE loom and draws as ONE group, at both levels
-    that state a backup: the redundant SX40's boxes nest as A-with-B and
-    C-with-D pairs inside the card - two brackets, not four sibling boxes
-    - and a designated 1:1 backup unit nests whole (proc strip and all)
-    under its main's block in the tray. One presentation rule for "X backs
-    up Y", never an SX40 special case - and layout only: the fold
+    that state a backup: the redundant SX40's boxes draw as an A-and-B
+    and a C-and-D loop strip inside the card - two strips, not four
+    sibling boxes, the far box each strip's "loop end" row (option 2,
+    2026-09-25) - and a designated 1:1 backup unit nests whole (proc strip
+    and all) under its main's block in the tray. Layout only: the fold
     machinery keeps working on the nested unit's card."""
     pytest.importorskip("playwright.sync_api",
                         reason="playwright is not installed")
@@ -4754,7 +4754,8 @@ def test_a_redundant_pair_presents_as_one_group_on_the_dock(panel_page):
         const field = (id) => document.querySelector(
             `[data-lrd-field="processor-cvt-name-${id}"]`);
         const [a, b, c, d] = sxCvts.map(field);
-        const pairOf = (el) => el && el.closest('.lrd-red-pair');
+        const pairOf = (el) => el && el.closest('.hw-dock-loop');
+        const farRow = (el) => !!(el && el.closest('.hw-dock-loop-far'));
         const wrapOf = (pid) => {
             const strip = document.querySelector(
                 `[data-lrd-field="processor-name-${pid}"]`);
@@ -4766,8 +4767,8 @@ def test_a_redundant_pair_presents_as_one_group_on_the_dock(panel_page):
             `[data-lrd-sec="hwdock-card-${ids.bkCardId}"]`);
         return {
             built: !!(a && b && c && d && bkWrap && mxWrap && bkCardHead),
-            bNested: !!(b && b.closest('.lrd-red-backup')),
-            aPlain: !!(a && !a.closest('.lrd-red-backup')),
+            bNested: farRow(b) && farRow(d),
+            aPlain: !!(a && c && !farRow(a) && !farRow(c)),
             abPaired: !!(pairOf(a) && pairOf(a) === pairOf(b)),
             cdPaired: !!(pairOf(c) && pairOf(c) === pairOf(d)),
             pairsDistinct: !!(pairOf(a) && pairOf(a) !== pairOf(c)),

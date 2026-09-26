@@ -102,15 +102,25 @@ class _HardwareDock {
     // How many TRACKS the tray grid holds - the same sum the CSS's
     // repeat(auto-fill, minmax(440px, 1fr)) does, so the columns
     // _dockRenderPower deals land one per track and none is ever left
-    // empty or wrapped. Measured from the body's content box;
-    // unmeasurable (hidden tray, no layout yet) falls back to the
-    // 3-across default and the first real resize corrects it.
+    // empty or wrapped. Measured from the body's content box - to the
+    // sub-pixel, the width the grid itself divides (clientWidth rounds,
+    // and a tray a fraction of a pixel short of two tracks must count
+    // one, as the grid does, or _dockMasonry would stamp a cell into a
+    // column the grid does not have); unmeasurable (hidden tray, no
+    // layout yet) falls back to the 3-across default and the first real
+    // resize corrects it.
     _dockPickColCount() {
         const body = document.getElementById('hardware-dock-body');
         let w = 0;
         if (body && body.clientWidth > 0) {
             const cs = getComputedStyle(body);
-            w = body.clientWidth - (parseFloat(cs.paddingLeft) || 0)
+            const borders = (parseFloat(cs.borderLeftWidth) || 0)
+                + (parseFloat(cs.borderRightWidth) || 0);
+            // a vertical scrollbar's gutter: whole pixels either way
+            const bar = Math.max(0,
+                body.offsetWidth - body.clientWidth - borders);
+            w = body.getBoundingClientRect().width - borders - bar
+                - (parseFloat(cs.paddingLeft) || 0)
                 - (parseFloat(cs.paddingRight) || 0);
         }
         if (w <= 0) return 3;
@@ -127,6 +137,121 @@ class _HardwareDock {
         if (!body) return;
         body.classList.toggle('hw-dock-one-col',
                               this._dockPickColCount() < 2);
+    }
+
+    // ── the columns stack on their own (2026-09-25) ──────────────────────
+    //
+    // "the large gap between processors on the left side": grid rows made
+    // every row as tall as its tallest cell, so one expanded SX40 left a
+    // hole under each short cell beside it. Each track is now a column that
+    // stacks by itself (style.css, the note above #hardware-dock-body):
+    // cell i sits in a FIXED column - i mod the track count in DOM order, a
+    // two-track cell taking two slots and wrapping to the first column when
+    // it would not fit - and its grid-row starts under the cells above it
+    // in that column, spanning its measured height in the 1px rows the
+    // .hw-dock-masonry class lays down. Only a height is ever measured, so
+    // a cell growing pushes down the cells under it in its own column and
+    // moves nothing sideways; which column a cell is in never depends on
+    // any height. The DOM stays flat: every cell is still a direct child
+    // of the body, the thing the reorder marker and the drag read.
+    _dockMasonryCells(body) {
+        return [...body.children].filter(el => el.classList
+            && !el.classList.contains('hw-dock-drop-mark'));
+    }
+
+    // How many tracks to deal into: the tray's own track arithmetic
+    // (_dockPickColCount, the same sum the CSS's auto-fill does and the
+    // one the power deal and the one-track stamp already follow), NOT the
+    // computed grid-template-columns. The resolved value lists IMPLICIT
+    // tracks too, and a cell this very function stamped into a third
+    // column makes one the moment the tray narrows to two - so the grid
+    // would read back the count it is being asked to give up, and the
+    // cells would never come back. 0 while the tray is not laid out
+    // (hidden, folded, another view): nothing to measure.
+    _dockMasonryTracks(body) {
+        return body.clientWidth ? this._dockPickColCount() : 0;
+    }
+
+    _dockMasonry(bodyEl) {
+        const body = bodyEl || document.getElementById('hardware-dock-body');
+        if (!body) return;
+        const cells = this._dockMasonryCells(body);
+        this._dockMasonryWatch(body, cells);
+        const n = this._dockMasonryTracks(body);
+        if (!n) return;     // unmeasurable: the observer calls again on show
+        // The one-track stamp follows the same count, now rather than
+        // after the resize watcher's debounce, so the span rule and the
+        // deal never disagree for a frame.
+        this._dockStampTracks();
+        if (n < 2) {
+            // One track: the plain grid, exactly as it always was.
+            body.classList.remove('hw-dock-masonry');
+            cells.forEach(cell => {
+                cell.style.removeProperty('grid-column');
+                cell.style.removeProperty('grid-row');
+            });
+            return;
+        }
+        body.classList.add('hw-dock-masonry');
+        // Columns first, from ORDER alone - then every width is final
+        // before a single height is read.
+        let slot = 0;
+        const plan = cells.map(cell => {
+            const span = cell.classList.contains('hw-dock-span2') ? 2 : 1;
+            if (slot + span > n) slot = 0;
+            const col = slot;
+            slot = (slot + span) % n;
+            const gc = `${col + 1} / span ${span}`;
+            if (cell.style.gridColumn !== gc) cell.style.gridColumn = gc;
+            return { cell, col, span };
+        });
+        // Then the rows: under the taller of the columns the cell covers,
+        // spanning its own height. align-items: start keeps that height
+        // the content's whatever the span is, so the span cannot feed
+        // back into itself.
+        const gap = parseFloat(getComputedStyle(body).columnGap) || 0;
+        const bottom = new Array(n).fill(null);
+        plan.forEach(({ cell, col, span }) => {
+            let top = 0;
+            for (let k = col; k < col + span; k++) {
+                if (bottom[k] != null) top = Math.max(top, bottom[k] + gap);
+            }
+            top = Math.ceil(top);
+            const ccs = getComputedStyle(cell);
+            const h = Math.max(1, Math.ceil(cell.getBoundingClientRect().height
+                + (parseFloat(ccs.marginTop) || 0)
+                + (parseFloat(ccs.marginBottom) || 0)));
+            for (let k = col; k < col + span; k++) bottom[k] = top + h;
+            const gr = `${top + 1} / span ${h}`;
+            if (cell.style.gridRow !== gr) cell.style.gridRow = gr;
+        });
+    }
+
+    // One ResizeObserver for the body (its width decides the track count)
+    // and every cell (a height change re-stacks its column). Its callback
+    // runs after layout and before paint, so a fold or a sheet re-stacks
+    // in the same frame - nothing is ever painted in the old place. Cells
+    // are observed as they appear and let go as they leave; a rebuild
+    // (renderHardwareDock) lays the tray out synchronously first, so the
+    // observer only ever sees the cells it was already told about.
+    _dockMasonryWatch(body, cells) {
+        if (typeof ResizeObserver !== 'function') return;
+        if (!this._dockMasonryObs || this._dockMasonryBody !== body) {
+            if (this._dockMasonryObs) this._dockMasonryObs.disconnect();
+            this._dockMasonryObs = new ResizeObserver(
+                () => this._dockMasonry(body));
+            this._dockMasonryObs.observe(body);
+            this._dockMasonryBody = body;
+            this._dockMasonrySeen = new Set();
+        }
+        const now = new Set(cells);
+        this._dockMasonrySeen.forEach(el => {
+            if (!now.has(el)) this._dockMasonryObs.unobserve(el);
+        });
+        now.forEach(el => {
+            if (!this._dockMasonrySeen.has(el)) this._dockMasonryObs.observe(el);
+        });
+        this._dockMasonrySeen = now;
     }
 
     // Re-deal the power columns when a tray RESIZE crosses a column-count
@@ -322,6 +447,10 @@ class _HardwareDock {
         if (typeof this._wireSectionCollapse === 'function') {
             this._wireSectionCollapse(body);
         }
+        // Stack the columns now, before anything below measures a cell:
+        // the anchor that keeps the clicked unit under the pointer reads
+        // its final place, and nothing is painted in a transient one.
+        this._dockMasonry(body);
         // The snake brackets ride under their chips by measurement, so
         // they are placed once the grids have laid out - after the fold
         // state above, which decides what is visible to measure.
@@ -1060,108 +1189,219 @@ class _HardwareDock {
             unitBody.appendChild(
                 this._dockBuildPortGrid(proc, card, loose, '', cardOwner));
         }
-        const boxEls = new Map();
+        // A LOOP pair - an SX40's XD on trunk B (or D), the far end of the
+        // A-to-B (C-to-D) loop, or a NovaStar same-card `backupOf` box -
+        // draws as ONE strip holding both boxes (owner, 2026-09-25, "option
+        // 2"): the far box is not a thing of its own on the tray, it is
+        // where its near box's strings come home. Keyed by the NEAR box;
+        // the far one is drawn inside its near box's strip, wherever the
+        // card lists it.
+        const byId = new Map(cvts.map(c => [c.id, c]));
+        const farOf = new Map();
+        cvts.forEach(c => {
+            const near = c.backupOf && byId.get(c.backupOf);
+            if (near && near !== c && !farOf.has(near.id)
+                    && (c.ports || []).length && (near.ports || []).length) {
+                farOf.set(near.id, c);
+            }
+        });
+        const fars = new Set([...farOf.values()].map(c => c.id));
         cvts.forEach(cvt => {
-            const nums = (cvt.ports || []).map(p => p.number);
-            if (!nums.length) return;
-            const box = document.createElement('div');
-            box.className = 'hw-dock-box';
-            // The span reads in the BOX's own numbers - 1-10 on every XD,
-            // whichever trunk it hangs on - because that is what is
-            // silkscreened on its face (the 2026-08-27 ruling: "B is 1-10
-            // and D is 1-10"). The card-wide first/last ride the payload
-            // below untouched; they are the server's window keys, not a
-            // number anyone reads off metal.
-            const locals = (cvt.ports || []).map(
-                p => p.localNumber || p.number);
-            const span = `${Math.min(...locals)}-${Math.max(...locals)}`;
-            const tag = cvt.backupOf ? ' (backup)'
-                : (cvt.duplicateOf ? ' (copy)' : '');
-            // Four boxes all reading "Tessera XD" are four sections nobody
-            // can tell apart, so an unnamed box on a trunked card wears its
-            // trunk letter - "Tessera XD A" - the letters the pairing rule
-            // itself is written in ("A backs up to B"). A hand-named box is
-            // already told apart by its name. The name comes RESOLVED
-            // (displayTitle) since every box numbers its own sockets from 1
-            // and the server's refusals must call a box exactly what this
-            // section header calls it - one implementation of the letter.
-            const boxTitle = (cvt.displayTitle
-                || cvt.name || cvt.deviceName) + tag;
-            // The folded box's glance is occupancy in sockets - "8/10" and
-            // a fill line - because "this box is done" is a count of taken
-            // sockets: its primaries AND the returns landing on it (box B
-            // of an SX40 pair counts the returns of A's mains), the same
-            // server count the card's glance reads (socketsTaken).
-            const boxCount = this.socketsTaken(card.id, cvt.id);
-            const boxHead = this._dockBuildHandle(
-                {
-                    type: 'box', cardId: card.id,
-                    first: Math.min(...nums), last: Math.max(...nums),
-                    title: boxTitle,
-                    beyondTrunks: !!cvt.beyondTrunks,
-                },
-                `box-${cvt.id}`,
-                cvt.deviceName + tag,
-                `ports ${span}`,
-                'Drag the whole box onto a screen: the screen\'s ports fill '
-                + 'onto this box\'s sockets in order from the first '
-                + 'unassigned.',
-                boxCount
-                    ? { frac: boxCount.taken / boxCount.of, over: false,
-                        text: `${boxCount.taken}/${boxCount.of}` }
-                    : null);
-            // The box's name edits inline; unnamed, the placeholder speaks
-            // the RESOLVED title (trunk letter included), so "Tessera XD A"
-            // still reads on the header the server's refusals name.
-            const boxOwner = { kind: 'cvt', id: cvt.id, procId: proc.id,
-                               cardId: card.id, rec: cvt };
-            this._dockHeadAugment(boxHead, {
-                // The box's ≡: its cable sheet, for the sockets it
-                // delivers (2026-09-06).
-                controls: [this._dockBuildDataCableSheetButton(boxOwner)],
-                name: {
-                    value: cvt.name,
-                    placeholder: cvt.displayTitle || 'unnamed',
-                    key: `processor-cvt-name-${cvt.id}`,
-                    title: 'Name this box. Its sockets read the name the '
-                        + 'way a card\'s ports read the card\'s.',
-                    onCommit: (val) => this._processorRequest(
-                        `/api/processors/${proc.id}/cvts/${cvt.id}`, 'PUT',
-                        { name: val }, 'Rename Breakout Box'),
-                },
-                gear: {
-                    id: `box-${cvt.id}`,
-                    title: 'Configure this box - templates, facts, remove.',
-                    build: () => {
-                        const found = this._dockFindCvt(cvt.id);
-                        return found ? this._buildBoxGearContent(
-                            found.proc, found.card, found.cvt) : null;
-                    },
-                },
-            });
-            box.appendChild(boxHead);
-            // The box's sheet sits outside its fold too (same rule).
-            const boxSheetUp = this._dataCableSheetOpen(boxOwner);
-            if (boxSheetUp) {
-                box.classList.add('hw-dock-sheet-up');
-                box.appendChild(this._dockBuildDataCableSheet(
-                    boxOwner, cvt.ports || []));
-            }
-            const boxBody = this._dockSectionBody(box, boxHead,
-                                                  `hwdock-box-${cvt.id}`);
-            if (!boxSheetUp) {
-                boxBody.appendChild(this._dockBuildPortGrid(
-                    proc, card, cvt.ports || [], boxTitle, boxOwner));
-            }
-            // A redundant pair of boxes is one group here too: B nests
-            // under the A it backs (the panel's rule, worn by the tray),
-            // and a box with no role stays the plain strip it was.
-            boxEls.set(cvt.id, box);
-            const main = cvt.backupOf && boxEls.get(cvt.backupOf);
-            if (main) this._nestBackupUnder(main, box);
-            else unitBody.appendChild(box);
+            if (!(cvt.ports || []).length || fars.has(cvt.id)) return;
+            unitBody.appendChild(farOf.has(cvt.id)
+                ? this._dockBuildLoopPair(proc, card, cvt, farOf.get(cvt.id))
+                : this._dockBuildBox(proc, card, cvt));
         });
         return unit;
+    }
+
+    // What a box is called where it is named in running text - its hand
+    // name, else its resolved title (trunk letter included) - and the
+    // same with the model taken off the front, for a header that already
+    // prints the model: "Tessera XD  A ↔ B", never "Tessera XD  Tessera
+    // XD A ↔ Tessera XD B".
+    _dockBoxLabel(cvt, bare) {
+        if (cvt.name) return cvt.name;
+        const title = cvt.displayTitle || cvt.deviceName || 'box';
+        const model = cvt.deviceName || '';
+        if (bare && model && title.startsWith(`${model} `)) {
+            return title.slice(model.length + 1);
+        }
+        return title;
+    }
+
+    // One breakout box: its header (the box's drag handle, its name, its
+    // count, its ≡ and ⚙), its cable sheet when open, its chips. On its
+    // own it is a foldable section of the card - `row` makes it one ROW of
+    // a loop pair's strip instead (_dockBuildLoopPair): no model text and
+    // no fold of its own (the strip folds the pair), `row.far` adds the
+    // "· loop end" beside its name. Everything else - the drag, the
+    // counts, the sheet, the gear, the keys - is the same box either way.
+    _dockBuildBox(proc, card, cvt, row = null) {
+        const nums = (cvt.ports || []).map(p => p.number);
+        const box = document.createElement('div');
+        box.className = 'hw-dock-box';
+        if (row) {
+            box.classList.add('hw-dock-loop-row');
+            if (row.far) box.classList.add('hw-dock-loop-far');
+        }
+        // The span reads in the BOX's own numbers - 1-10 on every XD,
+        // whichever trunk it hangs on - because that is what is
+        // silkscreened on its face (the 2026-08-27 ruling: "B is 1-10
+        // and D is 1-10"). The card-wide first/last ride the payload
+        // below untouched; they are the server's window keys, not a
+        // number anyone reads off metal.
+        const locals = (cvt.ports || []).map(
+            p => p.localNumber || p.number);
+        const span = `${Math.min(...locals)}-${Math.max(...locals)}`;
+        // "(backup)" is the backup PROCESSOR's word now (2026-09-25): a
+        // loop's far box says what it is on its row ("· loop end"), and
+        // only a copy box still wears a tag.
+        const tag = cvt.duplicateOf ? ' (copy)' : '';
+        // Four boxes all reading "Tessera XD" are four sections nobody
+        // can tell apart, so an unnamed box on a trunked card wears its
+        // trunk letter - "Tessera XD A" - the letters the pairing rule
+        // itself is written in ("A backs up to B"). A hand-named box is
+        // already told apart by its name. The name comes RESOLVED
+        // (displayTitle) since every box numbers its own sockets from 1
+        // and the server's refusals must call a box exactly what this
+        // section header calls it - one implementation of the letter.
+        const boxTitle = (cvt.displayTitle
+            || cvt.name || cvt.deviceName) + tag;
+        // The folded box's glance is occupancy in sockets - "8/10" and
+        // a fill line - because "this box is done" is a count of taken
+        // sockets: its primaries AND the returns landing on it (box B
+        // of an SX40 pair counts the returns of A's mains), the same
+        // server count the card's glance reads (socketsTaken).
+        const boxCount = this.socketsTaken(card.id, cvt.id);
+        const boxHead = this._dockBuildHandle(
+            {
+                type: 'box', cardId: card.id,
+                first: Math.min(...nums), last: Math.max(...nums),
+                title: boxTitle,
+                beyondTrunks: !!cvt.beyondTrunks,
+            },
+            `box-${cvt.id}`,
+            // a loop row's strip header already prints the model
+            row ? '' : cvt.deviceName + tag,
+            `ports ${span}`,
+            'Drag the whole box onto a screen: the screen\'s ports fill '
+            + 'onto this box\'s sockets in order from the first '
+            + 'unassigned.',
+            boxCount
+                ? { frac: boxCount.taken / boxCount.of, over: false,
+                    text: `${boxCount.taken}/${boxCount.of}` }
+                : null);
+        // The box's name edits inline; unnamed, the placeholder speaks
+        // the RESOLVED title (trunk letter included), so "Tessera XD A"
+        // still reads on the header the server's refusals name.
+        const boxOwner = { kind: 'cvt', id: cvt.id, procId: proc.id,
+                           cardId: card.id, rec: cvt };
+        this._dockHeadAugment(boxHead, {
+            // The box's ≡: its cable sheet, for the sockets it
+            // delivers (2026-09-06).
+            controls: [this._dockBuildDataCableSheetButton(boxOwner)],
+            name: {
+                value: cvt.name,
+                placeholder: cvt.displayTitle || 'unnamed',
+                key: `processor-cvt-name-${cvt.id}`,
+                title: 'Name this box. Its sockets read the name the '
+                    + 'way a card\'s ports read the card\'s.',
+                onCommit: (val) => this._processorRequest(
+                    `/api/processors/${proc.id}/cvts/${cvt.id}`, 'PUT',
+                    { name: val }, 'Rename Breakout Box'),
+            },
+            gear: {
+                id: `box-${cvt.id}`,
+                title: 'Configure this box - templates, facts, remove.',
+                build: () => {
+                    const found = this._dockFindCvt(cvt.id);
+                    return found ? this._buildBoxGearContent(
+                        found.proc, found.card, found.cvt) : null;
+                },
+            },
+        });
+        if (row && row.far) {
+            const end = document.createElement('span');
+            end.className = 'hw-dock-loop-end';
+            end.textContent = '· loop end';
+            const field = boxHead.querySelector('.hw-dock-name');
+            if (field) field.after(end);
+        }
+        box.appendChild(boxHead);
+        // The box's sheet sits outside its fold too (same rule). A loop
+        // row has no fold of its own: its sheet stands where its chips
+        // would, inside the strip, beside the ≡ that opened it.
+        const boxSheetUp = this._dataCableSheetOpen(boxOwner);
+        if (boxSheetUp) {
+            box.classList.add('hw-dock-sheet-up');
+            box.appendChild(this._dockBuildDataCableSheet(
+                boxOwner, cvt.ports || []));
+        }
+        const boxBody = row ? box
+            : this._dockSectionBody(box, boxHead, `hwdock-box-${cvt.id}`);
+        if (!boxSheetUp) {
+            boxBody.appendChild(this._dockBuildPortGrid(
+                proc, card, cvt.ports || [], boxTitle, boxOwner));
+        }
+        return box;
+    }
+
+    // A loop pair as ONE strip (owner, 2026-09-25, "option 2"). The header
+    // names both boxes - "Tessera XD  ISR A ↔ ISR B" - with a small gold
+    // "loop" tag in the redundancy pill's family and the pair's count, so
+    // folded it still says both are there (the far box used to vanish
+    // under the near one's fold). Open, two labelled rows of chips: the
+    // near box, then the far one marked "· loop end", each row still its
+    // own box - its own drag handle, name, count, ≡ and ⚙. The strip
+    // folds as one, under the near box's fold key; its header drags the
+    // near box, the way grabbing the old near header did.
+    _dockBuildLoopPair(proc, card, near, far) {
+        const strip = document.createElement('div');
+        strip.className = 'hw-dock-loop';
+        const nums = (near.ports || []).map(p => p.number);
+        const a = this._dockBoxLabel(near, true);
+        const b = this._dockBoxLabel(far, true);
+        const counts = [near, far].map(c => this.socketsTaken(card.id, c.id))
+            .filter(Boolean);
+        const taken = counts.reduce((t, c) => t + c.taken, 0);
+        const of = counts.reduce((t, c) => t + c.of, 0);
+        const head = this._dockBuildHandle(
+            {
+                type: 'box', cardId: card.id,
+                first: Math.min(...nums), last: Math.max(...nums),
+                title: near.displayTitle || near.name || near.deviceName,
+                beyondTrunks: !!near.beyondTrunks,
+            },
+            `loop-${near.id}`,
+            near.deviceName || far.deviceName || 'Box',
+            '',
+            `${this._dockBoxLabel(near)} and ${this._dockBoxLabel(far)} `
+            + 'are one loop. Drag this header onto a screen to fill '
+            + `${this._dockBoxLabel(near)}; its returns come home on `
+            + `${this._dockBoxLabel(far)}.`,
+            of ? { frac: taken / of, over: false, text: `${taken}/${of}` }
+                : null);
+        const names = document.createElement('span');
+        names.className = 'hw-dock-loop-names';
+        names.textContent = `${a} ↔ ${b}`;
+        const tag = document.createElement('span');
+        tag.className = 'hw-dock-redpill hw-dock-looptag';
+        tag.textContent = 'loop';
+        tag.title = `${this._dockBoxLabel(far)} is the far end of `
+            + `${this._dockBoxLabel(near)}'s loop: each of its sockets `
+            + 'carries the return of the same socket on '
+            + `${this._dockBoxLabel(near)}.`;
+        const before = head.querySelector(
+            '.hw-dock-unit-use, .hw-dock-headbar, .hw-dock-unit-info');
+        head.insertBefore(names, before || null);
+        head.insertBefore(tag, before || null);
+        strip.appendChild(head);
+        const body = this._dockSectionBody(strip, head,
+                                           `hwdock-box-${near.id}`);
+        body.appendChild(this._dockBuildBox(proc, card, near, { far: false }));
+        body.appendChild(this._dockBuildBox(proc, card, far, { far: true }));
+        return strip;
     }
 
     // Turn a dock unit into one of the app's foldable sections: the header
@@ -1278,8 +1518,19 @@ class _HardwareDock {
         face.appendChild(top);
         const who = document.createElement('div');
         who.className = 'lrd-tile-line';
+        // A loop's far socket whose near socket carries nothing is FREE,
+        // and reads it (owner, 2026-09-25: B-9 and B-10 read "backs…"
+        // beside an A-9 and A-10 that read "free"). Its role is still
+        // there - nothing else may land on it - and the hover and the
+        // open editor still say whose return end it is; the face just
+        // stops shouting about a return nobody is sending.
+        const bu = port.backsUp;
+        const idleLoopEnd = !!(bu && !occupants.length && owner
+            && owner.kind === 'cvt' && owner.rec && owner.rec.backupOf
+            && bu.cardId === card.id
+            && !this._portOccupants(bu.cardId, bu.port).length);
         if (!occupants.length) {
-            if (port.backsUp) {
+            if (port.backsUp && !idleLoopEnd) {
                 // Claimed by role: this socket is another main's return end.
                 // Same gold as the backup boxes, because it is the same job.
                 // The class puts the role's gold rim on the socket geometry
@@ -1349,7 +1600,12 @@ class _HardwareDock {
             + (occupants.length
                 ? ` - ${occupants.map(o => `${o.name} p${o.number}`
                     + (o.role === 'return' ? ' return' : '')).join(', ')}`
-                : (port.backsUp
+                : (idleLoopEnd
+                    ? ` - free: the loop end of ${bu.label
+                        || `port ${bu.localPort || bu.port} on `
+                            + `${bu.boxTitle || bu.cardTitle}`}, which `
+                        + 'carries nothing yet'
+                : port.backsUp
                     ? ` - backs up ${port.backsUp.label
                         || `port ${port.backsUp.localPort
                             || port.backsUp.port} on ${port.backsUp.boxTitle

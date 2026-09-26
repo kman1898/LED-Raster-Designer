@@ -498,7 +498,8 @@ select, .info-select {
   padding:0 0 5px !important; overflow:hidden;
 }
 .hw-dock-unit > .hw-dock-head-row,
-.hw-dock-box > .hw-dock-head-row {
+.hw-dock-box > .hw-dock-head-row,
+.hw-dock-loop > .hw-dock-head-row {
   background:linear-gradient(#383838,#2e2e2e); border-bottom:1px solid var(--ps-dark);
   box-shadow:inset 0 1px 0 #454545;
   padding:3px 6px; border-radius:0;
@@ -514,6 +515,29 @@ select, .info-select {
 .hw-dock-box > .lrd-sec-body { padding:0 5px; }
 .hw-dock-box.lrd-sec-collapsed { padding-bottom:0 !important; }
 .hw-dock-box.lrd-sec-collapsed > .hw-dock-head-row { border-bottom:none; }
+/* a loop pair's strip wears the box frame; its two rows wear none - they
+   are the strip's lines, each keeping its own header as a plain label row
+   (name, count, ≡, ⚙) - and the loop's far end sits under a quiet rule */
+.hw-dock-loop {
+  background:var(--ps-inset); border:1px solid #383838;
+  border-left:2px solid #4a4a4a; border-radius:4px;
+  padding:0 0 5px; overflow:hidden;
+}
+.hw-dock-loop > .lrd-sec-body { padding:0 5px; }
+.hw-dock-loop.lrd-sec-collapsed { padding-bottom:0; }
+.hw-dock-loop.lrd-sec-collapsed > .hw-dock-head-row { border-bottom:none; }
+.hw-dock-box.hw-dock-loop-row {
+  background:none !important; border:none !important;
+  border-radius:0 !important; padding:0 !important; overflow:visible;
+}
+.hw-dock-box.hw-dock-loop-row > .hw-dock-head-row {
+  background:none; box-shadow:none; border-bottom:none; padding:2px 1px;
+}
+.hw-dock-box.hw-dock-loop-far {
+  border-top:1px solid #333 !important; margin-top:6px; padding-top:3px !important;
+}
+.hw-dock-loop-names { color:var(--ps-text); font-weight:600; }
+.hw-dock-loop-end { color:var(--ps-faint); }
 /* the distro's always-on legs line sits OUTSIDE the foldable body, so the
    unit's zeroed padding must not glue it to the frame */
 .hw-dock-unit > .hw-dock-legs { margin:2px 6px; }
@@ -660,6 +684,15 @@ select, .info-select {
   box-shadow:inset 0 2px 3px rgba(0,0,0,0.5), 0 1px 0 rgba(255,255,255,0.08);
 }
 .hw-dock-redpill:focus-visible { outline:1px solid #f0d48a; outline-offset:1px; }
+/* the loop tag is the pill's family as a LABEL: it states the pairing and
+   opens nothing, so it neither lifts on hover nor presses in, and the
+   header's grab cursor reads through it (the strip still drags) */
+.hw-dock-redpill.hw-dock-looptag, .hw-dock-redpill.hw-dock-looptag:hover {
+  cursor:inherit; color:#f0d48a; border-color:#c8a04a;
+  background:#2a2010 linear-gradient(rgba(255,255,255,0.09), rgba(0,0,0,0.10));
+  font-size:9px; padding:0 5px;
+}
+.hw-dock-redpill.hw-dock-looptag:active { transform:none; }
 /* the meter wash follows the well's rounding */
 .hw-dock-fill { border-radius:3px 0 0 3px; }
 /* ---- the cable sheet's ≡: the gear's raised recipe, one size down, on

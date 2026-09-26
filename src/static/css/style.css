@@ -1403,10 +1403,34 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
    wrapper, a lone unit, a distro column - is ONE cell, and a cell's width
    is decided by the TRAY's width alone: never by its content, never by a
    sibling's state. Opening a sheet, folding a section, typing a name,
-   nesting a pair or editing a chip changes a cell's HEIGHT only, which
-   pushes lower rows down and moves nothing sideways.
+   nesting a pair or editing a chip changes a cell's HEIGHT only, and
+   nothing ever moves sideways.
+
+   ── the columns STACK ON THEIR OWN (2026-09-25: "the large gap between
+   processors on the left side") ─────────────────────────────────────────
+   Grid ROWS made every row as tall as its tallest cell, so one expanded
+   SX40 left a hole under each short cell beside it. Now each track is a
+   column that stacks by itself, masonry-style, and the DOM stays flat
+   (the reorder marker and the drag read the cells as the body's
+   children). app-dock.js _dockMasonry deals cell i to a FIXED column -
+   i mod the track count, in DOM order, a two-track cell taking two slots
+   and wrapping to the first column when it would not fit - so the
+   reading order stays left to right, top to bottom, and a cell's column
+   is decided by its ORDER and the tray's width, never by any height.
+   Inside a column the cells stack with the 10px gap: the rows below are
+   1px (.hw-dock-masonry) and each cell's grid-row starts under the cells
+   above it in its column and spans its measured height. A two-track cell
+   starts under the taller of its two columns. A ResizeObserver on the
+   body and on every cell re-spans them before the next paint, so a cell
+   that grows or shrinks pushes down only the cells below it in the SAME
+   column - never one in another column, never anything sideways. No
+   feedback loop: align-items: start keeps a cell's height its content's,
+   whatever rows it spans, and the span is taken off that height (plus
+   the cell's own margins, which the span does not change). A one-track
+   tray drops the class and the inline placement and stays the plain
+   grid it always was.
    position: relative so the drag-reorder marker (app-dock.js
-   _dockReorderMarker) can place itself against the scrolled body. */
+   _dockMarkReorder) can place itself against the scrolled body. */
 #hardware-dock-body {
     flex: 1 1 auto; min-height: 0;
     overflow-y: auto; overflow-x: hidden;
@@ -1419,6 +1443,13 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
     align-items: start; justify-items: stretch;
     align-content: start;
 }
+/* Masonry: 1px rows and no row gap - the 10px between two stacked cells
+   is written into their grid-row by _dockMasonry, read off column-gap so
+   the one `gap` above stays the only number. */
+#hardware-dock-body.hw-dock-masonry {
+    grid-auto-rows: 1px;
+    row-gap: 0;
+}
 /* A device with more than 24 sockets gets two tracks - by its PORT COUNT,
    a static fact of the model, never by what its unit is doing. Counted
    per drawn block since 2026-09-24 ("10 ports isn't more than 24 on a
@@ -1427,7 +1458,9 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
    track, not 40. Suppressed
    while the tray holds a single track (app-dock.js stamps hw-dock-one-col
    from the measured width), where a span would invent a second column and
-   push the tray sideways. */
+   push the tray sideways. On a masonry tray _dockMasonry writes the span
+   inline with the cell's column, so this rule is the one-track fallback's
+   and the unmeasured tray's. */
 #hardware-dock-body:not(.hw-dock-one-col) > .hw-dock-span2 {
     grid-column: span 2;
 }
@@ -1477,6 +1510,23 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
     margin-top: 6px; padding: 2px 6px 5px;
     background: #111; border: 1px solid #262626; border-radius: 3px;
     border-left: 2px solid #3a3a3a;
+}
+/* A LOOP pair (2026-09-25, "option 2" - app-dock.js _dockBuildLoopPair):
+   one strip for an SX40's XD A and the XD B its loop comes home on (or a
+   NovaStar same-card backup box), framed like one box, holding the two
+   boxes as labelled ROWS. A row keeps its box's header and chips but none
+   of the box's frame - the strip is the frame - and the far row is set
+   off by a rule above it. */
+.hw-dock-loop { margin-top: 6px; }
+.hw-dock-box.hw-dock-loop-row { margin-top: 4px; }
+.hw-dock-loop-names {
+    font-size: 11px; font-family: monospace;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    min-width: 0;
+}
+.hw-dock-loop-end {
+    flex: 0 0 auto; font-size: 10px; font-family: monospace;
+    white-space: nowrap;
 }
 .hw-dock-grid { margin-top: 4px; }
 /* A redundant pair reads as ONE group everywhere "X backs up Y" is drawn -

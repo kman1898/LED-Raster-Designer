@@ -59,7 +59,9 @@ LOOPS, PAIR BY PAIR
 An SX40 sets its loops as two options, A to B and C to D, either one
 alone or both. The box at the far end of a loop, an XD B or a NovaStar
 box backing up another on the same card, is its own box with its own
-fiber, and the two show together on one Fiber section.
+fiber. The two show as one strip in the tray, "ISR A ↔ ISR B" with a
+loop tag, folded or open, and together on one Fiber section. A socket
+at the far end whose partner carries nothing reads free.
 
 The pull sheet now lists every processor, mains and backups, by model.
 
@@ -70,6 +72,9 @@ to the box, picking the strands, and the power jumper lengths.
 
 FIXES
 
+- FIX: The hardware tray's columns stack on their own. An open unit
+  pushes down only the units under it in its own column, so a short
+  unit beside a tall one no longer leaves a gap under itself.
 - FIX: A power map's cable tags sit by the way the circuit runs. A
   circuit that runs down, right or left has its tags above the disc; one
   that runs up has them under it. The 2fer or 3fer tag sits centered

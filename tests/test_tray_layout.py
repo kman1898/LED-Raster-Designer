@@ -12,8 +12,11 @@ auto; max-width: 300px` - so one card's state re-packed every row: the card
 beside it grew to the whole row, the rows below moved sideways and dropped
 hundreds of pixels. Now the body is a GRID of equal 440px tracks. Every
 top-level item is one cell, a cell's width is the tray's business alone, and
-a state change can only make a cell TALLER, which pushes lower rows down and
-moves nothing sideways.
+a state change can only make a cell TALLER, which pushes lower cells down and
+moves nothing sideways. Since 2026-09-25 ("the large gap between processors
+on the left side") each track stacks on its own, masonry-style: cell i sits
+in column i mod n, and a cell that grows pushes down only the cells under it
+in its own column.
 
 This is the "each and every time" audit: for every interaction the tray
 offers, in BOTH views, every cell's rect is snapshotted before and after and
@@ -238,9 +241,28 @@ def _tracks(shot):
     return out
 
 
+def _shares_column(a, b):
+    """Whether two cells overlap horizontally - stand in one column (a
+    two-track cell shares a column with each of the cells it covers)."""
+    return min(a['x'] + a['w'], b['x'] + b['w']) - max(a['x'], b['x']) > 1
+
+
+def _stacks(shot):
+    """Every cell with the cell straight above it in its column, as
+    (above, cell) pairs: the nearest cell overlapping it horizontally
+    whose bottom is at or above its top."""
+    out = []
+    for c in shot['cells']:
+        above = [o for o in shot['cells'] if o is not c
+                 and _shares_column(o, c) and o['cy'] + o['h'] <= c['cy'] + 0.5]
+        if above:
+            out.append((max(above, key=lambda o: o['cy'] + o['h']), c))
+    return out
+
+
 def audit(page, what, unit_key, act, settle=700, regroups=False):
     """Do `act`, then hold the tray to the rule: nothing changes x or
-    width, only cells at or below the interacted one's row move in y, and
+    width, only cells under the interacted one IN ITS COLUMN move in y, and
     the scroll either stands still or moves exactly enough to keep the
     interacted unit's top where it was in the viewport.
 
@@ -284,6 +306,13 @@ def audit(page, what, unit_key, act, settle=700, regroups=False):
             assert b['cy'] >= bcell['cy'] - 0.5, (
                 f'{what}: {b["key"]} sits above the interacted cell and '
                 f'still moved\n{note}')
+            # The columns stack on their own (2026-09-25): a cell that
+            # moved in y is one UNDER the interacted cell, in its column -
+            # a cell in another column holds its place.
+            if not regroups:
+                assert _shares_column(b, bcell), (
+                    f'{what}: {b["key"]} is in another column than the '
+                    f'interacted cell and still moved\n{note}')
     if abs(after['scrollTop'] - before['scrollTop']) > 0.5:
         assert unit_key in before['tops'] and unit_key in after['tops'], note
         assert abs(after['tops'][unit_key] - before['tops'][unit_key]) <= 1.5, (
@@ -578,6 +607,143 @@ def test_a_box_fed_unit_is_one_track_whatever_boxes_it_holds(tray):
     back = page.evaluate(CELLS_JS)
     assert [c['key'] for c in back['cells']] \
         == [c['key'] for c in before['cells']], back
+
+
+def test_the_columns_stack_on_their_own(tray):
+    """"the large gap between processors on the left side" (owner,
+    2026-09-25). Grid ROWS made every row as tall as its tallest cell, so
+    a short cell beside an expanded one left a hole under it. Now each
+    track stacks by itself: cell i sits in column i mod n, and the cell
+    under it in that column starts 10px under IT - not under the tallest
+    cell of the row. Expanding a cell in the first column moves only the
+    cells under it in that column: no cell anywhere changes x, and the
+    other columns hold their y."""
+    page, ids = tray
+    open_view(page, 'data-flow')
+    n = len(_tracks(page.evaluate(CELLS_JS)))
+    assert n >= 2, 'the tray must hold two tracks or this proves nothing'
+    # enough cells for a second row in every column: the seed's two, and
+    # plain 16-port units after them
+    added = [page.evaluate(ADD_UNIT_JS, [
+        'novastar-h9', f'STACK {i}', 'novastar-card-h-16xrj45-2xfiber'])
+        for i in range(2 * n - 2)]
+    page.wait_for_timeout(900)
+    dj, imag = ids['djCard'], ids['imagACard']
+    try:
+        # DJ (column 1) folded short; the IMAG pair (column 2) with its
+        # sheet open, the tallest cell of the first row by far
+        fold_arrow(page, f'hwdock-card-{dj}')
+        click_field(page, f'data-cable-sheet-{imag}')
+        page.wait_for_timeout(700)
+        shot = page.evaluate(CELLS_JS)
+        note = json.dumps(shot['cells'])
+        cells = shot['cells']
+        assert len(cells) == 2 * n, note
+        first_row = cells[:n]
+        tallest = max(c['cy'] + c['h'] for c in first_row)
+        # a fixed column per cell, in reading order
+        xs = sorted({round(c['x']) for c in first_row})
+        assert len(xs) == n, note
+        for i, c in enumerate(cells):
+            assert abs(c['x'] - xs[i % n]) <= 1, (
+                f'cell {i} is not in column {i % n + 1}', note)
+        under = cells[n]
+        gap = under['cy'] - (cells[0]['cy'] + cells[0]['h'])
+        print(f'\nunder DJ: gap {gap:.1f}px, the row\'s tallest ends '
+              f'{tallest - (cells[0]["cy"] + cells[0]["h"]):.0f}px lower')
+        assert abs(gap - 10) <= 2, (f'gap {gap}', note)
+        assert under['cy'] < tallest - 50, (
+            'the cell under DJ waited for the tallest cell of the row', note)
+        # every stacked cell sits 10px under the one above it
+        for above, c in _stacks(shot):
+            g = c['cy'] - (above['cy'] + above['h'])
+            assert abs(g - 10) <= 2, (above['key'], c['key'], g, note)
+
+        # now DJ grows: unfolded, its sheet open - column 1 only
+        def grow():
+            fold_arrow(page, f'hwdock-card-{dj}')
+            page.wait_for_timeout(400)
+            click_field(page, f'data-cable-sheet-{dj}')
+        _before, after = audit(page, 'DJ expands in column 1', f'card-{dj}',
+                               grow, 900)
+        cells2 = after['cells']
+        assert cells2[0]['h'] > cells[0]['h'] + 50, (
+            'DJ did not grow', json.dumps(cells2))
+        for i, (a, b) in enumerate(zip(cells, cells2)):
+            assert abs(a['x'] - b['x']) <= 0.5, (i, a, b)
+            if i % n:
+                assert abs(a['cy'] - b['cy']) <= 0.5, (
+                    f'cell {i} is in another column and moved', a, b)
+        g2 = cells2[n]['cy'] - (cells2[0]['cy'] + cells2[0]['h'])
+        assert abs(g2 - 10) <= 2, (g2, json.dumps(cells2))
+    finally:
+        page.evaluate("""([dj, imag]) => {
+            const open = (id) => document.querySelector(
+                `[data-lrd-field="data-cable-sheet-${id}"].hw-dock-cablebtn-on`);
+            [dj, imag].forEach(id => { const b = open(id); if (b) b.click(); });
+        }""", [dj, imag])
+        page.wait_for_timeout(600)
+        if page.evaluate(f"""() => !!document.querySelector(
+                '[data-lrd-sec-id="hwdock-card-{dj}"].lrd-sec-collapsed')"""):
+            fold_arrow(page, f'hwdock-card-{dj}')
+        for unit in added:
+            page.evaluate(DELETE_PROC_JS, unit['id'])
+        page.wait_for_timeout(800)
+    assert len(page.evaluate(CELLS_JS)['cells']) == 2
+
+
+def test_a_resized_tray_deals_its_columns_again(tray):
+    """The deal follows the tray's width both ways. A cell dealt into a
+    third column must come back when the tray narrows to two: the grid's
+    resolved track list counts IMPLICIT tracks too, so a count read back
+    from it would keep the third column alive under its own cell - the
+    tray wider than its body, clipped on the right. Widened to three
+    tracks, narrowed to one, back to where it began: every time the cells
+    sit in exactly the tracks the width holds, in reading order."""
+    page, ids = tray
+    open_view(page, 'data-flow')
+    added = [page.evaluate(ADD_UNIT_JS, [
+        'novastar-h9', f'DEAL {i}', 'novastar-card-h-16xrj45-2xfiber'])
+        for i in range(3)]
+    page.wait_for_timeout(900)
+    start = page.evaluate(CELLS_JS)
+
+    def dealt(what):
+        shot = page.evaluate(CELLS_JS)
+        tracks = _tracks(shot)
+        body = page.evaluate("""() => {
+            const b = document.getElementById('hardware-dock-body');
+            const cs = getComputedStyle(b);
+            return b.clientWidth - parseFloat(cs.paddingLeft)
+                - parseFloat(cs.paddingRight);
+        }""")
+        used = sum(tracks) + 10 * (len(tracks) - 1)
+        assert used <= body + 1, (
+            f'{what}: the tracks overrun the body - an implicit column',
+            shot['tracks'], body)
+        n = len(tracks)
+        xs = sorted({round(c['x']) for c in shot['cells']})
+        assert len(xs) == min(n, len(shot['cells'])), (what, shot['tracks'],
+                                                       shot['cells'])
+        for i, c in enumerate(shot['cells']):
+            assert abs(c['x'] - xs[i % n]) <= 1, (what, i, shot['cells'])
+        return shot
+    try:
+        for w in (1900, 1440, 900, 1900, 1440):
+            page.set_viewport_size({'width': w, 'height': 900})
+            page.wait_for_timeout(700)
+            shot = dealt(f'{w}px')
+            print(f'\n{w}px: {shot["tracks"]}')
+        back = page.evaluate(CELLS_JS)
+        assert [(round(c['x']), round(c['cy'])) for c in back['cells']] \
+            == [(round(c['x']), round(c['cy'])) for c in start['cells']], (
+                start['cells'], back['cells'])
+    finally:
+        page.set_viewport_size({'width': 1440, 'height': 900})
+        for unit in added:
+            page.evaluate(DELETE_PROC_JS, unit['id'])
+        page.wait_for_timeout(800)
+    assert len(page.evaluate(CELLS_JS)['cells']) == 2
 
 
 DATA_ACTS = ['card sheet', 'box sheet', 'fold card', 'fold processor',
