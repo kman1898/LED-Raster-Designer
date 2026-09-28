@@ -713,6 +713,25 @@ class _PullList {
             // Its NAME is the label; an unnamed unit's model is already the
             // row's type, so it adds none (a bare "H9" would fold as a run).
             unitRow(String(proc.name || '').trim());
+            // A CARD THAT IS A UNIT OF ITS OWN - a QD-S, 1U on an SQ200's
+            // OUT port (catalog separateUnit) - is gear on the truck, one
+            // row each under its title ("QD 1"), where its first located
+            // box is, else where its processor's is. A backup SQ200 feeds
+            // the same QD-S on IN 2, so it brings none of its own.
+            for (const slot of proc.slots || []) {
+                const c = slot && slot.card;
+                const cType = String((c && c.deviceName) || '').trim();
+                if (!c || !c.separateUnit || !cType) continue;
+                const r = { type: cType, length: 'EA', qty: 1,
+                            label: String(c.name || c.unitTitle || '').trim(),
+                            notes: '', side: 'data' };
+                if (!(c.cvts || []).some(b => gearAt(r, this.pullLocationOf(b), boxFirstLayer.get(b.id)))
+                        && !gearAt(r, null, procFirstLayer.get(proc.id))) {
+                    if (!bases.length) continue;
+                    land(bases[0].key, r, null);
+                }
+                hw('processor', proc.id, procName).rows.push({ ...r });
+            }
             const unit = proc.backupUnit;
             if (!unit) continue;
             unitRow(`${unit.name} (backup)`);
@@ -737,7 +756,10 @@ class _PullList {
         // box first feeds, else the first position. The walk above said the
         // rest, where their ports reached them.
         if (typeof this.fiberBoxLinks === 'function') {
-            for (const { box, proc } of this._pullAllBoxes()) {
+            // Every link host - a QD-S's IN 1 / IN 2 as well as each box.
+            const hosts = typeof this._fiberAllBoxes === 'function'
+                ? this._fiberAllBoxes() : this._pullAllBoxes();
+            for (const { box, proc } of hosts) {
                 for (const l of this.fiberBoxLinks(box)) {
                     const key = l.copper ? `cu:${l.box.id}:${l.key}` : (l.cable ? `fib:${l.cable.id}` : null);
                     if (!key || fiberSeen.has(key)) continue;

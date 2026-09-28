@@ -13,10 +13,12 @@ that awkward:
   and an H9 of H_4xfiber cards are 100 ports and 160 ports. Read a ceiling off
   the chassis and you cap a wall at the wrong number.
 * A COUNT CAN BE UNKNOWN, AND MUST STAY UNKNOWN. docs/processor-port-table.md
-  marks Brompton's SQ200 NOT FOUND and records HELIOS Standard 4K as 2 or 3
-  depending on the document's age. Filling either in from a sibling model is
-  the failure this whole file exists to prevent - the table spends a section
-  explaining why two cards with four fiber connectors are 32 and 40 ports.
+  records HELIOS Standard 4K as 2 or 3 depending on the document's age.
+  Filling that in from a sibling model is the failure this whole file exists
+  to prevent - the table spends a section explaining why two cards with four
+  fiber connectors are 32 and 40 ports. (Brompton's SQ200 was NOT FOUND there
+  until the owner ruled its shape on 2026-09-28: two OUT slots, a QD-S on
+  each, its ports its boxes' sockets - tests/test_sq200.py.)
 * THE NEAREST NAMED DEVICE UPSTREAM OWNS THE LABEL. A fiber card's ports
   arrive at a CVT box, so the CVT's name beats the card's; a card's name beats
   the processor's.
@@ -284,14 +286,15 @@ def test_a_documented_10g_opt_device_accepts_a_box(device_id, trunks,
 def test_the_qd_s_never_hangs_off_an_sx40():
     """"the QDs from brompton is only used to connect the SQ200 the newest
     processor they have to the XD boxes. it has 100G ports and 10G ports to
-    connect to the XD trunks" (owner, 2026-09-28). The SX40's trunks are
-    10G and the QD-S takes a 100G input, so the rate rule refuses it - with
-    both rates in the reason - while every XD still goes on."""
+    connect to the XD trunks" (owner, 2026-09-28). The QD-S is the SQ200's
+    card now - "one QD-S per OUT port ... so a max of 2 per SQ200" - and its
+    old box entry is kept only so a saved file opens: it goes on no card as
+    a box, an SX40 included, while every XD still goes on."""
     assert catalog.get_device('brompton-sx40')['trunkRate'] == '10G'
-    assert catalog.get_device('brompton-qd-s')['trunkRate'] == '100G'
+    assert catalog.get_device('brompton-qd-s')['legacy'] is True
     card = catalog.new_card('brompton-sx40', 'sweep', fixed=True)
     ok, why = catalog.can_add_cvt(card, 'brompton-qd-s')
-    assert not ok and '100G' in why and '10G' in why, why
+    assert not ok and 'not a breakout box' in why and 'SQ200' in why, why
     assert 'OPT' not in why, why
     for box in ('brompton-xd', 'brompton-xd-s', 'brompton-xd-t'):
         ok, why = catalog.can_add_cvt(card, box)
@@ -495,18 +498,24 @@ def test_the_legacy_senders_are_copper_only_and_say_so(client):
         assert not ok, f'{device_id} accepted a box with no fiber to carry it'
 
 
-def test_a_device_the_table_could_not_settle_declares_itself_unknown():
-    """Brompton's SQ200 publishes "2x 100G QSFP28" and no port count, and is
-    absent from Brompton's own capacity tool. It is a real device someone
-    specs, so it stays selectable - but a guessed ceiling silently caps a
-    wall, so it reports no number at all rather than an S8's or an SX40's."""
-    cap = catalog.port_capacity('brompton-sq200')
-    assert cap['count'] is None, f'a count was invented for the SQ200: {cap}'
-    assert cap['known'] is False
-    assert cap['reason'], 'unknown, but with no explanation of why'
-    assert catalog.get_device('brompton-sq200') is not None, (
-        'the SQ200 was dropped from the catalog instead of being marked '
-        'unknown - an unknown count is not a reason to hide a real device')
+def test_the_sq200_counts_its_boxes_sockets_and_invents_nothing():
+    """Brompton's SQ200 publishes "2x 100G QSFP28" and no port count. The
+    owner ruled its shape on 2026-09-28 - one QD-S per OUT port, "so a max
+    of 2 per SQ200", each QD-S "up to 12 [XDs] but with a max 10G capacity"
+    - so its ports are its boxes' sockets and nothing else. The unit itself
+    still states no count of its own (a chassis never does): an empty SQ200
+    is none, and a QD-S is its twelve outputs' worth (12 x 12)."""
+    assert catalog.port_capacity('brompton-sq200')['count'] is None
+    sq = catalog.get_device('brompton-sq200')
+    assert sq['form'] == 'chassis' and sq['slots']['count'] == 2
+    assert sq['slots']['names'] == ['OUT 1', 'OUT 2']
+    qd = catalog.get_device('brompton-card-qd-s')
+    assert (qd['kind'], qd['trunks'], qd['portsPerTrunk'], qd['trunkRate']) \
+        == ('card', 12, 12, '10G')
+    assert catalog.port_capacity('brompton-card-qd-s')['count'] == 144
+    assert catalog.is_box_fed(qd), 'a QD-S has ports of its own'
+    proc = catalog.resolve_processor(catalog.new_processor('brompton-sq200', 1))
+    assert (proc['ceiling'], proc['defined']) == (0, 0), proc
 
 
 def test_a_device_whose_sources_conflict_is_not_adjudicated():
@@ -621,12 +630,26 @@ def test_an_all_in_one_gets_its_ports_without_a_slot_to_fill(client):
 
 
 def test_a_processor_whose_count_is_unknown_still_goes_in_a_project(client):
-    state = add_processor(client, 'brompton-sq200')
+    """The HELIOS Standard 4K's sources disagree (2 or 3) and neither is a
+    default: it goes in a project, says its count is not settled, and
+    lists no socket its boxes do not deliver."""
+    state = add_processor(client, 'megapixel-helios-4k')
     proc = only(state)
     assert proc['ceilingKnown'] is False
     assert proc['ceiling'] is None
     assert first_card(proc)['ports'] == [], (
         'ports were enumerated for a device with no known count')
+
+
+def test_an_sq200_goes_in_empty_and_lists_only_its_boxes_sockets(client):
+    """Owner, 2026-09-28: its LED outputs are OUT 1 and OUT 2, "so a max of
+    2 [QD-S] per SQ200". It arrives with both outputs empty and no ports at
+    all: every socket it will ever drive is inside an XD box on a QD-S."""
+    state = add_processor(client, 'brompton-sq200')
+    proc = only(state)
+    assert [(s['index'], s['name'], s['card']) for s in proc['slots']] == \
+        [(0, 'OUT 1', None), (1, 'OUT 2', None)]
+    assert (proc['ceiling'], proc['defined'], proc['maxCards']) == (0, 0, 2)
 
 
 # ── 3. Names and labels ───────────────────────────────────────────────────
@@ -2206,11 +2229,12 @@ def test_brompton_adds_one_box_per_add(client):
         'a pairing fact leaked into stored state')
 
 
-def test_the_sq200_states_the_rule_without_lettering_unknown_outputs(client):
-    """The SQ200 pairs the same fixed way - the user's rule names it - while
-    its output count stays unpublished. So the statement states the rule and
-    the pairs list stays empty: lettering outputs nobody has counted would be
-    a guessed ceiling wearing a different hat."""
+def test_the_sq200_states_its_loops_off_its_qd_s_count(client):
+    """The SQ200's loops are its QD-S outputs' (owner, 2026-09-28,
+    provisional "at least until we can verify with a manual"): with none
+    fitted the statement says nothing loops yet and letters nothing - a
+    pairing never invents an output - and with one it is A to B inside it,
+    the SX40's way. tests/test_sq200.py has the two-QD-S form."""
     state = add_processor(client, 'brompton-sq200')
     proc = only(state)
     assert proc['redundancySupported'] is True
@@ -2219,8 +2243,13 @@ def test_the_sq200_states_the_rule_without_lettering_unknown_outputs(client):
     proc = only(resp.get_json())
     assert proc['redundancyPairing']['fixed'] is True
     assert proc['redundancyPairing']['pairs'] == []
+    assert 'until a QD-S is fitted' in proc['redundancyPairing']['statement']
+    assert 'Provisional' in proc['redundancyPairing']['statement']
+    assert proc['defined'] == 0, 'the pairing invented a port'
+    proc = only(set_card(client, pid, 0, 'brompton-card-qd-s'))
+    assert proc['redundancyPairing']['pairs'][0] == {
+        'primary': 'QD 1 A', 'backup': 'QD 1 B'}
     assert 'A to B' in proc['redundancyPairing']['statement']
-    assert proc['ceilingKnown'] is False, 'the pairing invented a count'
 
 
 def test_the_s8_pairs_fixed_adjacent_ports_by_the_2026_08_23_ruling(client):
@@ -3597,7 +3626,9 @@ def test_the_1to1_partner_pick_is_validated_with_the_counts(client):
     assert 'has 40 ports' in why and 'has 6' in why, why
     assert 'counts must match' in why, why
 
-    state = add_processor(client, 'brompton-sq200')
+    # A unit whose count its sources never settled (the HELIOS Standard
+    # 4K: 2 or 3) cannot be checked port for port.
+    state = add_processor(client, 'megapixel-helios-4k')
     unknown_card = first_card(state['resolved'][3])['id']
     resp = client.put(f'/api/processors/{a_pid}/cards/{a_card}',
                       json={'backupCardId': unknown_card})

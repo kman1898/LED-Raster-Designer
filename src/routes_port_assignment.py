@@ -95,6 +95,18 @@ def _payload(state=None):
     }
 
 
+def _link_refused(state):
+    """The 409 for an edit that would push a box past its link cap (a box
+    behind a QD-S - port_assignment.link_cap_refusal), else None. Checked
+    on the working copy BEFORE it is stored, so a refused edit leaves the
+    project exactly as it found it."""
+    why = assignment.link_cap_refusal(_processors(), _screens(), _state(),
+                                      _screens(), state)
+    if not why:
+        return None
+    return jsonify({'error': why, 'linkCap': True}), 409
+
+
 def _saved(state, status=200, extra=None):
     """Every mutating route answers with the whole resolved assignment. A
     caller that only got back what it sent could not tell a stored edit from a
@@ -128,6 +140,24 @@ def resolve_assignments():
     if migrated:
         body['migrated'] = True
     return jsonify(body)
+
+
+@port_assignment_bp.route('/api/port-assignments/link-check', methods=['POST'])
+def link_check():
+    """Whether a PROCESSING change may go ahead: `before` is the screens as
+    they are, `screens` as they would be with the new bit depth, frame rate
+    or ULL - pixels and settings both, from the client's port maths. The
+    pins stay as stored. 409 with the reason where a box behind a QD-S
+    would be pushed past its link cap (port_assignment.link_cap_refusal) -
+    the client then leaves the setting as it was - else 200. Read-only:
+    nothing is stored, and the legacy freeze is not run on counts that are
+    only a proposal."""
+    data = request.json or {}
+    why = assignment.link_cap_refusal(_processors(), data.get('before') or [],
+                                      _state(), _screens(), _state())
+    if why:
+        return jsonify({'error': why, 'linkCap': True}), 409
+    return jsonify({'ok': True})
 
 
 @port_assignment_bp.route('/api/port-assignments', methods=['PUT'])
@@ -173,6 +203,9 @@ def pin_port():
         _processors(), _screens(), state, layer_id, index, card_id, port)
     if error:
         return jsonify({'error': error}), 409
+    refused = _link_refused(state)
+    if refused:
+        return refused
     log_event('port_assignment_pin', {'layer': layer_id, 'index': index,
                                       'card': card_id, 'port': pinned['port']})
     return _saved(_store(state), extra={'pinned': pinned})
@@ -220,6 +253,9 @@ def place_port():
         if conflict:
             body['conflict'] = conflict
         return jsonify(body), 409
+    refused = _link_refused(state)
+    if refused:
+        return refused
     log_event('port_assignment_place', {'layer': layer_id, 'index': index,
                                         'card': card_id, 'port': placed['port'],
                                         'confirmed': bool(data.get('confirm'))})
@@ -266,6 +302,9 @@ def move_block():
         last_port=None if last is None else int(last))
     if error:
         return jsonify({'error': error}), 409
+    refused = _link_refused(state)
+    if refused:
+        return refused
     log_event('port_assignment_move_block', {'layer': layer_id, 'to': moved})
     return _saved(_store(state), extra={'moved': moved})
 
@@ -292,6 +331,9 @@ def place_overflow():
         last_index=None if last_index is None else int(last_index))
     if error:
         return jsonify({'error': error}), 409
+    refused = _link_refused(state)
+    if refused:
+        return refused
     log_event('port_assignment_overflow', {'layer': layer_id, 'card': card_id,
                                            'ports': len(moved['moved'])})
     return _saved(_store(state), extra={'moved': moved})

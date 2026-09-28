@@ -1021,7 +1021,8 @@ class _HardwareDock {
             }));
             title.appendChild(model);
             const procPills = [this._dockRedundancyPill(proc, null),
-                               this._dockBackupProcPill(proc)].filter(Boolean);
+                               this._dockBackupProcPill(proc),
+                               this._dockAddUnitButton(proc)].filter(Boolean);
             this._dockHeadAugment(title, {
                 controls: procPills,
                 gear: {
@@ -1115,14 +1116,20 @@ class _HardwareDock {
         // (the processor strip holds the unit's one name slot), so its
         // header carries no name field and its drag wears the unit's name.
         const unitFace = this.cardIsUnitFace(proc, card);
+        // A card that is a unit of its own leads with its title - "QD 1"
+        // for the QD-S on OUT 1 (owner, 2026-09-28) - the name its boxes
+        // wear ("QD 1 A").
+        const model = card.unitTitle
+            ? `${card.unitTitle} · ${card.deviceName}` : card.deviceName;
         const head = this._dockBuildHandle(
             {
                 type: 'card', cardId: card.id,
-                title: (this.cardTypedName(proc, card) || card.deviceName)
+                title: (this.cardTypedName(proc, card) || card.unitTitle
+                        || card.deviceName)
                     + cardTag,
             },
             `card-${card.id}`,
-            card.deviceName + cardTag,
+            model + cardTag,
             '',
             'Drag the whole card onto a screen: its unplaced ports fill in '
             + 'order up to the port under your cursor. Cards keep their slot '
@@ -1190,7 +1197,10 @@ class _HardwareDock {
         // card's ⚙ - only while a box still fits a free trunk.
         const boxFits = typeof this._cardBoxFits === 'function' ? this._cardBoxFits(card) : [];
         if (boxFits.length) cardControls.push(this._dockAddBoxButton(proc, card));
-        if (loose.length) {
+        // A card cabled to its processor on links of its own (a QD-S's IN 1
+        // and IN 2 - card.linkHost) has a ≡ for them even with no loose
+        // port: its sheet is its Fiber section and nothing else.
+        if (loose.length || card.linkHost) {
             cardControls.push(this._dockBuildDataCableSheetButton(cardOwner));
         }
         this._dockHeadAugment(head, {
@@ -1228,6 +1238,15 @@ class _HardwareDock {
         if (cardSheetUp) {
             unit.classList.add('hw-dock-sheet-up');
             unit.appendChild(this._dockBuildDataCableSheet(cardOwner, loose));
+        } else if (card.linkHost && this._dataCableSheetOpen(cardOwner)) {
+            // A link-host card's sheet: its Fiber section alone, above
+            // its boxes (which keep drawing - the sheet names no port).
+            const sheet = document.createElement('div');
+            sheet.className = 'hw-dock-cablesheet hw-dock-cablesheet-data';
+            sheet.dataset.lrdCableSheet = `card:${card.id}`;
+            sheet.appendChild(this._dockBuildBoxFiberSection(cardOwner));
+            unit.classList.add('hw-dock-sheet-up');
+            unit.appendChild(sheet);
         }
         // Everything under the header folds as one body - the section
         // machinery's shape, transposed onto the tray's card unit.
@@ -1285,6 +1304,37 @@ class _HardwareDock {
             e.stopPropagation();
             this._hwPopoverToggle(btn, `addbox-${card.id}`,
                                   () => this._dockAddBoxMenu(card.id));
+        });
+        return btn;
+    }
+
+    // "+ QD-S" on an SQ200's strip: a unit whose slots are its named
+    // outputs (OUT 1, OUT 2 - the catalog's slot names) and that takes one
+    // kind of card fits the next one from its own row, the way "+ Box" puts
+    // a box on a card - into the lowest empty output, one request, one
+    // history entry. Nothing once every output is full, and nothing on a
+    // chassis whose slots carry no names (the H series picks by slot).
+    _dockAddUnitButton(proc) {
+        const empty = (proc.slots || []).find(s => s.name && !s.card);
+        if (!empty || proc.form !== 'chassis') return null;
+        const device = this._processorDevice(proc.deviceId);
+        const accepts = (device && device.accepts) || [];
+        const kinds = this._processorDevices('card')
+            .filter(d => accepts.includes(d.family));
+        if (kinds.length !== 1) return null;
+        const kind = kinds[0];
+        const word = kind.shortName || kind.name;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'hw-dock-addbox hw-dock-addunit';
+        btn.textContent = `+ ${word}`;
+        btn.title = `Add a ${kind.name} on ${empty.name}.`;
+        btn.dataset.lrdField = `dock-addunit-${proc.id}`;
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this._processorRequest(
+                `/api/processors/${proc.id}/slots/${empty.index}`, 'PUT',
+                { deviceId: kind.id }, `Add ${word}`);
         });
         return btn;
     }
@@ -3113,6 +3163,10 @@ class _HardwareDock {
     // D" - every pair the SX40 runs, by its trunk letters - and plain
     // "Redundancy on" for a fixed unit whose pairs carry no letters.
     _dockLoopText(proc) {
+        // An SQ200's loops follow its QD-S count, and the server words
+        // them: "Loops A to B … K to L" on one, "Loops QD 1 to QD 2" on two.
+        const pairing = proc.redundancyPairing;
+        if (pairing && pairing.short) return pairing.short;
         const marks = proc.redundancyPairMarks || [];
         const on = proc.redundancyPairs || marks;
         if (!marks.length || !on.length) return 'Redundancy on';

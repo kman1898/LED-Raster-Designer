@@ -143,19 +143,24 @@ def logged(path, action):
 def test_the_h_series_and_the_mx2000_and_mx6000_are_the_chassis():
     """Read off the catalog, never hard-coded here: every chassis it marks
     is an H-series unit or an MX2000 / MX6000, and every one of those it
-    lists is marked a chassis. No other device is."""
+    lists is marked a chassis. No other device is - but the SQ200, since
+    the owner's 2026-09-28 ruling: its outputs are OUT 1 and OUT 2, "one
+    QD-S per OUT port ... so a max of 2 per SQ200", and each QD-S (its own
+    1U unit, "QD 1" / "QD 2") is the card in that slot."""
+    sq200 = 'Tessera SQ200'
     marked = {d['id']: d.get('name', '') for d in processors()
               if catalog.is_chassis(d)}
     assert marked, 'the catalog marks no chassis at all'
     for device_id, name in marked.items():
         assert name.startswith('H') or name.startswith('MX2000') \
-            or name.startswith('MX6000'), (
+            or name.startswith('MX6000') or name == sq200, (
             f'{device_id} ({name}) is marked a chassis but is not an H '
-            f'series unit or an MX2000 / MX6000')
+            f'series unit, an MX2000 / MX6000 or the SQ200')
     for d in processors():
         name = d.get('name', '')
         expected = (name.startswith('H') and d['id'].startswith('novastar-')) \
-            or name.startswith('MX2000') or name.startswith('MX6000')
+            or name.startswith('MX2000') or name.startswith('MX6000') \
+            or name == sq200
         assert catalog.is_chassis(d) is expected, (
             f'{d["id"]} ({name}) chassis={catalog.is_chassis(d)}, '
             f'the ruling says {expected}')

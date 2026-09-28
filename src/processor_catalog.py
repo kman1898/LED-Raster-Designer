@@ -14,9 +14,11 @@ Three things here are deliberately awkward, and all three are the hardware:
   H_20xRJ45 and an H9 full of H_4xfiber are 100 ports and 160 ports, and
   nothing about the chassis says so. So the ceiling is summed from the cards,
   never read off the processor.
-* A COUNT CAN BE UNKNOWN. The SQ200 publishes connectors and no port count.
-  It is still a real device someone specs, so it stays selectable and reports
-  its ceiling as unknown. A guessed ceiling silently caps a wall.
+* A COUNT CAN BE UNKNOWN. A device whose sources never settled a count
+  stays selectable and reports its ceiling as unknown. A guessed ceiling
+  silently caps a wall. (The SQ200 was the first such device until the
+  owner ruled its shape on 2026-09-28: two OUT slots, each taking a QD-S
+  whose twelve outputs feed boxes - its ports are its boxes' sockets.)
 * A COUNT CAN BE CONDITIONAL. H_4xfiber is 32 independent and 16 in
   copy/backup; MX40 Pro is 40 or 20 by optical mode. Those are modes on the
   device, chosen per instance, not separate devices. A redundant Brompton
@@ -115,15 +117,54 @@ def card_is_unit_face(card, proc):
 
 def card_display_name(card, proc):
     """The name a card goes by in a message or a tag: its own typed name on
-    a chassis, the unit's name for a one-box's fixed card, else the model."""
+    a chassis, the unit's name for a one-box's fixed card, else its unit
+    title where the catalog words one (a QD-S is "QD 1" on OUT 1), else the
+    model."""
     if card_is_unit_face(card, proc):
         typed = ((proc or {}).get('name') or '').strip()
     else:
         typed = ((card or {}).get('name') or '').strip()
-    return typed or (card or {}).get('deviceName') \
+    return typed or card_unit_title(card, proc) \
+        or (card or {}).get('deviceName') \
         or (get_device((card or {}).get('deviceId')) or {}).get('name') \
         or (card or {}).get('id') or ''
 
+
+def slot_names(device):
+    """What a chassis's own face calls its slots - ['OUT 1', 'OUT 2'] on
+    an SQ200 - or [] where the catalog words none (the tray says "Slot 1")."""
+    names = ((device or {}).get('slots') or {}).get('names')
+    return [str(n) for n in names] if isinstance(names, list) else []
+
+
+def card_unit_title(card, proc):
+    """The name a card that is a unit of its own goes by - "QD 1" for the
+    QD-S on OUT 1, "QD 2" on OUT 2 (owner, 2026-09-28) - read off the
+    catalog's `unitWord` and the slot the card sits in, or '' where the
+    catalog words none. Works on raw and resolved trees alike (both carry
+    the slot's index beside its card)."""
+    if card and card.get('unitTitle'):
+        return card['unitTitle']
+    word = ((get_device((card or {}).get('deviceId')) or {})
+            .get('unitWord') or '').strip()
+    if not word or not card:
+        return ''
+    for slot in (proc or {}).get('slots') or []:
+        held = (slot or {}).get('card')
+        if held is card or (held and held.get('id') == card.get('id')):
+            try:
+                return f'{word} {int(slot.get("index") or 0) + 1}'
+            except (TypeError, ValueError):
+                return ''
+    return ''
+
+
+def is_link_host(device):
+    """Whether a CARD takes fiber links of its own - the QD-S's IN 1 / IN 2
+    from the SQ200 (its catalog `linkPorts`). Every box does; a card does
+    only where it is a separate unit cabled to its processor."""
+    return bool((device or {}).get('kind') == 'card'
+                and ((device or {}).get('linkPorts') or {}).get('primary'))
 
 
 def cards_for(chassis_device):
@@ -141,7 +182,7 @@ def port_capacity(device_id, mode=None, redundancy=False):
 
     Returns {'count', 'known', 'mode', 'reason'}. `count` is None whenever the
     number is not knowable from the source table - either the table never found
-    one (SQ200) or its sources disagree and it declined to adjudicate (HELIOS
+    one or its sources disagree and it declined to adjudicate (HELIOS
     Standard 4K, 2 or 3). Callers must carry the None through rather than
     substituting a zero or a sibling's number.
     """
@@ -179,9 +220,9 @@ def port_capacity(device_id, mode=None, redundancy=False):
 def trunk_pair_marks(device):
     """The trunk letters that lead a fixed adjacent pair - ['A', 'C'] on a
     four-trunk device whose pairing is 'adjacent' - or [] where the device
-    has no lettered trunk pairs (the S8 pairs PORTS, the SQ200 publishes no
-    trunks). Read off the catalog's pairing and trunk count only: the rule
-    it states is the SX40's, and no other device carries both."""
+    has no lettered trunk pairs (the S8 pairs PORTS; the SQ200's trunks are
+    its QD-S cards', and its loops are one On/Off switch). Read off the
+    catalog's pairing and trunk count only."""
     if ((device or {}).get('redundancy') or {}).get('pairing') != 'adjacent':
         return []
     trunks = (device or {}).get('trunks') or 0
@@ -226,9 +267,10 @@ def redundancy_pairing(device, redundancy_on, only=None):
 
     `pairs` letters the device's trunks where it has trunks to letter, and
     numbers its ports where it has no trunks but a settled port count (the
-    S8). Where neither holds - the SQ200 publishes no output count - `pairs`
-    is empty: lettering outputs nobody has counted would be a guessed ceiling
-    wearing a different hat. The statement still states the rule.
+    S8). Where neither holds `pairs` is empty: lettering outputs nobody has
+    counted would be a guessed ceiling wearing a different hat. The
+    statement still states the rule. (The SQ200's loops are its QD-S
+    cards', stated by across_pairing.)
 
     NovaStar carries no entry here - its redundancy is a DEFAULT pair of
     boxes, primary plus backup, built in add_cvt's caller and freely
@@ -325,6 +367,13 @@ def card_redundancy_shape(card, proc, device=None):
     if red.get('supported') is False:
         return None
     if red.get('pairing') == 'adjacent':
+        # TWO QD-S ON ONE SQ200 LOOP ACROSS, letter for letter (owner,
+        # 2026-09-28, provisional: "with dual 100G then Box 1 A loops to Box
+        # 2 A") - the first fitted card is the near end, the second the far
+        # one, and neither pairs inside itself.
+        across = across_partner(card, proc)
+        if across:
+            return dict(across, mode='across', forced=True, level='card')
         shape = {'mode': 'sequential', 'forced': True,
                  'level': 'trunk' if device.get('trunks') else 'port'}
         if shape['level'] == 'trunk':
@@ -338,6 +387,77 @@ def card_redundancy_shape(card, proc, device=None):
     if mode not in REDUNDANCY_MODES:
         mode = '1to1'
     return {'mode': mode, 'forced': False, 'level': 'port'}
+
+
+def across_partner(card, proc):
+    """{'role': 'near' | 'far', 'partner': card id} where this card loops
+    whole onto another card of the same unit, else None.
+
+    Only a processor whose catalog entry says `acrossCards` (the SQ200)
+    does, and only with two cards of this model fitted: QD 1 X loops to QD
+    2 X for the same letter X. With one it pairs inside the card, A to B,
+    the SX40's way (provisional, owner 2026-09-28: "at least until we can
+    verify with a manual")."""
+    pdev = get_device((proc or {}).get('deviceId')) or {}
+    if not (pdev.get('redundancy') or {}).get('acrossCards') or not card:
+        return None
+    slots = sorted((proc or {}).get('slots') or [],
+                   key=lambda s: (s or {}).get('index') or 0)
+    fitted = [c for c in ((s or {}).get('card') for s in slots)
+              if c and c.get('deviceId') == card.get('deviceId')]
+    if len(fitted) < 2:
+        return None
+    near, far = fitted[0], fitted[1]
+    if near.get('id') == card.get('id'):
+        return {'role': 'near', 'partner': far.get('id')}
+    if far.get('id') == card.get('id'):
+        return {'role': 'far', 'partner': near.get('id')}
+    return None
+
+
+def across_pairing(proc, device, cards):
+    """The SQ200's loop statement, from how many QD-S are fitted (`cards`,
+    resolved, in slot order), or None with redundancy off or on a device
+    that does not loop across. Provisional, and says so. `short` is the
+    card row's pill ("Loops QD 1 to QD 2")."""
+    red = (device or {}).get('redundancy') or {}
+    if not red.get('acrossCards') or not (proc or {}).get('redundancy'):
+        return None
+    fitted = [c for c in cards or [] if c.get('unitTitle')]
+    note = 'Provisional until verified in a Brompton manual.'
+    if len(fitted) >= 2:
+        near, far = fitted[0]['unitTitle'], fitted[1]['unitTitle']
+        letters = [chr(ord('A') + i)
+                   for i in range(fitted[0].get('trunks') or 0)]
+        last = letters[-1] if letters else 'A'
+        return {
+            'scheme': 'across', 'fixed': True, 'provisional': True,
+            'pairs': [{'primary': f'{near} {m}', 'backup': f'{far} {m}'}
+                      for m in letters],
+            'statement': (f'Each output of {near} loops to the same output '
+                          f'of {far} - {near} A to {far} A, through {near} '
+                          f'{last} to {far} {last}. {note}'),
+            'short': f'Loops {near} to {far}',
+        }
+    if fitted:
+        unit = fitted[0]['unitTitle']
+        marks = [chr(ord('A') + i)
+                 for i in range(fitted[0].get('trunks') or 0)]
+        duos = [(marks[i], marks[i + 1]) for i in range(0, len(marks) - 1, 2)]
+        said = ', '.join(f'{a} to {b}' for a, b in duos)
+        short = (f'Loops {duos[0][0]} to {duos[0][1]} … {duos[-1][0]} to '
+                 f'{duos[-1][1]}' if len(duos) > 2 else f'Loops {said}')
+        return {
+            'scheme': 'adjacent', 'fixed': True, 'provisional': True,
+            'pairs': [{'primary': f'{unit} {a}', 'backup': f'{unit} {b}'}
+                      for a, b in duos],
+            'statement': f'{unit} loops in pairs: {said}. {note}',
+            'short': short,
+        }
+    return {'scheme': 'adjacent', 'fixed': True, 'provisional': True,
+            'pairs': [],
+            'statement': f'Nothing loops until a QD-S is fitted. {note}',
+            'short': 'Redundancy on'}
 
 
 def trunks_in(cvt_device):
@@ -512,8 +632,14 @@ def can_add_cvt(card, device_id, inputs=None):
         return False, (f'{name} has no optical trunks - its ports come out on '
                        f'copper, so there is nothing to hang a box off.')
     box = get_device(device_id)
-    if not box:
+    if not box or box.get('kind') != 'cvt':
         return False, f'Unknown device: {device_id}'
+    # A RETIRED BOX ENTRY is kept only so an old file opens (the QD-S was a
+    # box before 2026-09-28 and is the SQ200's card now); it never goes on.
+    if box.get('legacy'):
+        return False, (f'The {box.get("name", device_id)} is not a breakout '
+                       f'box - it goes in an SQ200 OUT slot, and its outputs '
+                       f'take the boxes.')
     # A BOX ONLY HANGS OFF ITS OWN VENDOR'S TRUNKS - vendor_mismatch above,
     # the same rule _fills_the_card declines to advise by, now refusing the
     # add as well. Both vendors go in the reason: which side is the wrong one
@@ -561,7 +687,7 @@ def _fills_the_card(card_device, ceiling):
         return []
     out = []
     for box in devices('cvt'):
-        if vendor_mismatch(card_device, box):
+        if vendor_mismatch(card_device, box) or box.get('legacy'):
             continue
         # Never name a box the rate rule refuses: a CVT8-5G's 8-out would
         # arithmetically fill a plain H_4xfiber, and it does not go there.
@@ -1656,23 +1782,40 @@ def fiber_default_name(project, kind):
     return _snake_letter_name(taken, prefix)
 
 
-def fiber_box_index(processors, resolved=None):
-    """Every box, raw and resolved side by side, in tree order:
-    {boxId: {'raw', 'res', 'procId', 'cardId', 'order'}}."""
-    if resolved is None:
-        resolved = resolve_all(processors or [])
-    raw_boxes = {}
+def _link_records(processors):
+    """Every raw record that can carry fiber links, in tree order: each
+    link-host card (a QD-S - is_link_host), then each box."""
     for proc in processors or []:
         for slot in (proc or {}).get('slots') or []:
             card = (slot or {}).get('card')
-            for cvt in (card or {}).get('cvts') or []:
+            if not card:
+                continue
+            if card.get('id') and is_link_host(get_device(card.get('deviceId'))):
+                yield card
+            for cvt in card.get('cvts') or []:
                 if cvt and cvt.get('id'):
-                    raw_boxes[cvt['id']] = cvt
+                    yield cvt
+
+
+def fiber_box_index(processors, resolved=None):
+    """Every box, raw and resolved side by side, in tree order:
+    {boxId: {'raw', 'res', 'procId', 'cardId', 'order'}}. A link-host card
+    (a QD-S, cabled to its SQ200 on IN 1 / IN 2) is one more entry, ahead
+    of its boxes and keyed by its card id - its links follow every rule a
+    box's do."""
+    if resolved is None:
+        resolved = resolve_all(processors or [])
+    raw_boxes = {rec['id']: rec for rec in _link_records(processors)}
     out = {}
     order = 0
     for rproc in resolved or []:
         for slot in rproc.get('slots') or []:
             card = (slot or {}).get('card')
+            if card and card.get('linkHost') and card.get('id') in raw_boxes:
+                out[card['id']] = {'raw': raw_boxes[card['id']], 'res': card,
+                                   'procId': rproc.get('id'),
+                                   'cardId': card['id'], 'order': order}
+                order += 1
             for box in (card or {}).get('cvts') or []:
                 raw = raw_boxes.get(box.get('id'))
                 if raw is None:
@@ -1693,8 +1836,9 @@ def fiber_box_title(entry):
 def box_backup_ports(cvt_device):
     """The backup inputs a box's catalog entry documents - ['X2'] on a
     Tessera XD, ['OPT 2'] on a CVT10, ['OPT 3', 'OPT 4'] on a CVT4K-S - or
-    [] where none is documented (the CVT8-5G, the QD-S, every Megapixel
-    box): the backup processor feeds such a box's own twin instead."""
+    [] where none is documented (the CVT8-5G, every Megapixel box): the
+    backup processor feeds such a box's own twin instead. A link-host card
+    reads the same field - ['IN 2'] on a QD-S."""
     return list(((cvt_device or {}).get('linkPorts') or {}).get('backup')
                 or [])
 
@@ -1746,6 +1890,16 @@ def _apply_backup_unit(processors, resolved):
         twins = []
         for slot in rproc.get('slots') or []:
             card = slot.get('card')
+            # A CARD CABLED TO ITS PROCESSOR TAKES THE BACKUP ITSELF: the
+            # backup SQ200 feeds each QD-S's IN 2 (owner, 2026-09-28:
+            # "Backup SQ200 is handled with the second port on the QDs"),
+            # so the XDs behind it keep their X1 link only and nothing
+            # binds to an XD's X2 in this rig.
+            if card and card.get('linkHost') \
+                    and box_backup_ports(get_device(card.get('deviceId'))):
+                card['backupInputs'] = True
+                card['fiberLinkKeys'] = fiber_link_keys(1, True)
+                continue
             for box in (card or {}).get('cvts') or []:
                 device = get_device(box.get('deviceId'))
                 if box_backup_ports(device):
@@ -1771,13 +1925,10 @@ def _apply_backup_unit(processors, resolved):
 def fiber_cables_in_use(project):
     """The ids of every cable some box's link names right now."""
     used = set()
-    for proc in (project or {}).get('processors') or []:
-        for slot in (proc or {}).get('slots') or []:
-            card = (slot or {}).get('card')
-            for cvt in (card or {}).get('cvts') or []:
-                for link in resolved_fiber_links(cvt).values():
-                    if link.get('cable'):
-                        used.add(link['cable'])
+    for rec in _link_records((project or {}).get('processors') or []):
+        for link in resolved_fiber_links(rec).values():
+            if link.get('cable'):
+                used.add(link['cable'])
     return used
 
 
@@ -1888,10 +2039,9 @@ def settle_fiber(project, used_before=None):
     processors = project.get('processors') or []
     has_cables = bool(show_fiber_cables(project))
     stored = any(
-        cvt.get('fiberLinks') is not None or 'boundTo' in cvt
-        or 'unbound' in cvt
-        for proc in processors for slot in (proc or {}).get('slots') or []
-        for cvt in ((slot or {}).get('card') or {}).get('cvts') or [])
+        rec.get('fiberLinks') is not None or 'boundTo' in rec
+        or 'unbound' in rec
+        for rec in _link_records(processors))
     if not has_cables and not stored:
         # An emptied list leaves no key behind.
         if 'fiberCables' in project:
@@ -2442,6 +2592,37 @@ def stock_default_cvts(project):
                         (new_cvt(default_box, m) for m in minted) if box]
 
 
+def reslot_chassis_units(project):
+    """Give a unit that became a chassis its empty slots back.
+
+    An SQ200 saved before 2026-09-28 was a one-box unit: one slot holding
+    a fixed card of its own model, with no port (its count was unknown)
+    and no box (it had no trunks). The owner's ruling that day made it a
+    two-output unit - OUT 1 and OUT 2, a QD-S on each - so such a record
+    gets the chassis's slots, empty, and keeps its name, redundancy and
+    backup unit. Only where every filled slot holds a fixed card of the
+    processor's OWN model - a shape no chassis has - so nothing else is
+    touched. Pins that pointed at the old card read as a card no longer in
+    the project, with Release offered, never silently moved. Runs where a
+    whole project enters server state (beside stock_default_cvts), never on
+    a read. Idempotent. Returns the ids reshaped, for the caller to log.
+    """
+    out = []
+    for proc in (project or {}).get('processors') or []:
+        device = get_device((proc or {}).get('deviceId'))
+        if not is_chassis(device):
+            continue
+        cards = [s['card'] for s in proc.get('slots') or []
+                 if (s or {}).get('card')]
+        if not cards or not all(c.get('fixed') and c.get('deviceId')
+                                == proc.get('deviceId') for c in cards):
+            continue
+        proc['slots'] = [{'index': i, 'card': None} for i in
+                         range((device.get('slots') or {}).get('count') or 0)]
+        out.append(proc.get('id'))
+    return out
+
+
 def adopt_fixed_card_names(project):
     """Move a name typed on a one-box unit's fixed card up to the unit.
 
@@ -2649,6 +2830,9 @@ def _usable_ports(shape, ceiling, device):
     half under sequential and halves - and, on a trunk-paired unit running
     only some of its loops, the ceiling less one trunk's block per loop
     (A to B alone on an SX40 leaves 30 of 40)."""
+    if shape['mode'] == 'across':
+        # The near QD-S keeps every socket; the far one is all returns.
+        return ceiling if shape.get('role') == 'near' else 0
     if not ceiling or shape['mode'] not in ('sequential', 'halves'):
         return ceiling
     per_trunk = (device or {}).get('portsPerTrunk')
@@ -2867,6 +3051,15 @@ def resolve_card(card, proc):
             # Whether the main's backup unit feeds this box on its backup
             # input (_apply_backup_unit) - the rows X2, OPT 2, OPT 3-4.
             'backupInputs': False,
+            # THE BOX'S LINK CAP, in ports' worth of the vendor's per-port
+            # capacity, where the card it hangs on documents one (a QD-S
+            # output: 10 - the 10G link carries 5.25M px at 8-bit 60 Hz,
+            # owner 2026-09-28). port_assignment refuses a placement that
+            # pushes the box's summed pixels past it; None everywhere else.
+            'linkCapPorts': (device.get('linkCap') or {}).get('ports'),
+            # ...and which per-port capacity table it multiplies (the
+            # vendor's own - scr_project.PORT_CAPACITY_TABLES' key).
+            'linkCapTable': (device.get('linkCap') or {}).get('table'),
             'ports': [],
         }
         # The box's port cables ride the resolved box, with the connector
@@ -2909,6 +3102,12 @@ def resolve_card(card, proc):
     # itself is written in ("A backs up to B") - while a hand-named box is
     # already told apart by its name. No letter where there is nothing to
     # letter: a card without two trunks, or a box hanging past them.
+    #
+    # A card that is a unit of its own names its boxes by ITS title and the
+    # output letter instead of the box's model: the XD-S on output A of the
+    # QD-S on OUT 1 is "QD 1 A" (owner, 2026-09-28) - the way an SX40's XD
+    # is "Tessera XD A". A name typed on the box still wins.
+    unit = card_unit_title(card, proc)
     for box in cvts:
         letter = ''
         if (trunks >= 2 and not box['beyondTrunks']
@@ -2920,6 +3119,7 @@ def resolve_card(card, proc):
                       if takes > 1 else first)
         box['trunkLetter'] = letter
         box['displayTitle'] = (box['name'] or '').strip() \
+            or (f'{unit} {letter}' if unit and letter else '') \
             or (box['deviceName'] + (f' {letter}' if letter else ''))
         # THE TRUNK AS THE CARD'S FACE PRINTS IT, for paper that names where
         # a box hangs: "OPT 1" ("OPT 1-2" for a box eating two) on a card
@@ -2929,7 +3129,9 @@ def resolve_card(card, proc):
         box['trunkTitle'] = ''
         if letter:
             word = (device.get('trunkWord') or '').strip()
-            if word:
+            if unit:
+                box['trunkTitle'] = f'{unit} {letter}'
+            elif word:
                 first = box['trunkIndex'] + 1
                 last = first + (box['trunksIn'] or 1) - 1
                 box['trunkTitle'] = (f'{word} {first}-{last}' if last > first
@@ -3209,6 +3411,30 @@ def resolve_card(card, proc):
     out['portCables'] = resolved_port_cables(card)
     out['portConnector'] = data_port_connector(
         None, device, get_device(proc.get('deviceId')))
+    # A card that is a unit of its own (a QD-S): its title - "QD 1" on OUT
+    # 1 - and the box its "+ Box" offers first (the catalog's defaultCvt,
+    # the XD-S). Where it is cabled to its processor it takes fiber links
+    # like a box does - IN 1 from the SQ200, IN 2 from a backup SQ200
+    # (_apply_backup_unit) - and every fiber reader takes it as one
+    # (fiber_box_index).
+    out['unitTitle'] = unit
+    out['separateUnit'] = bool(device.get('separateUnit'))
+    out['defaultCvt'] = device.get('defaultCvt') or None
+    if is_link_host(device):
+        out.update({
+            'linkHost': True,
+            'displayTitle': (card.get('name') or '').strip() or unit
+            or out['deviceName'],
+            'trunksIn': 1,
+            'fiberLinks': resolved_fiber_links(card),
+            'fiberLinkKeys': fiber_link_keys(1, False),
+            'linkTitles': {k: fiber_link_title(k, device)
+                           for k in fiber_link_keys(1, True)},
+            'copperLinks': False,
+            'bidi': bool(card.get('bidi')),
+            'bidiAllowed': fiber_bidi_allowed(device),
+            'backupInputs': False,
+        })
     return out
 
 
@@ -3216,12 +3442,25 @@ def resolve_processor(proc):
     device = get_device(proc.get('deviceId')) or {}
     slots = []
     cards = []
+    names = slot_names(device)
     for slot in proc.get('slots') or []:
         card = slot.get('card')
         resolved = resolve_card(card, proc) if card else None
         if resolved:
             cards.append(resolved)
-        slots.append({'index': slot.get('index'), 'card': resolved})
+        index = slot.get('index')
+        # The slot as the unit's face prints it ("OUT 1" on an SQ200), or
+        # '' where the catalog words none and the tray says "Slot 1".
+        name = names[index] if isinstance(index, int) \
+            and 0 <= index < len(names) else ''
+        slots.append({'index': index, 'name': name, 'card': resolved})
+    # THE SQ200'S LOOPS follow from how many QD-S are fitted (one: A to B
+    # inside it; two: QD 1 X to QD 2 X) - provisional, and stated as such
+    # on the unit and on each of its cards.
+    across = across_pairing(proc, device, cards)
+    if across is not None:
+        for resolved in cards:
+            resolved['redundancyPairing'] = across
 
     # Summed from the cards, never read off the chassis: the table records no
     # source for a chassis-wide total, only per-card capacities. One unknown
@@ -3265,9 +3504,9 @@ def resolve_processor(proc):
         # backs which, where the vendor fixes it. A fact the panel displays,
         # never a control - Brompton pairs adjacent outputs automatically and
         # offers no other arrangement.
-        'redundancyPairing': redundancy_pairing(
-            device, proc.get('redundancy'),
-            proc_redundancy_pairs(proc, device)),
+        'redundancyPairing': across if across is not None
+        else redundancy_pairing(device, proc.get('redundancy'),
+                                proc_redundancy_pairs(proc, device)),
         # The loops a trunk-paired unit runs ("A to B or C to D"), by their
         # leading letter, and every loop it could run - None / [] on a unit
         # with no lettered trunk pairs (everything but the SX40).
@@ -3448,6 +3687,30 @@ def _apply_backup_mapping(processors, resolved):
                     if block % 2 == 0 and block in loops \
                             and (n + per_trunk) in ports_of[cid]:
                         link(cid, n, cid, n + per_trunk)
+        elif shape['mode'] == 'across' and shape.get('role') == 'near':
+            # TWO QD-S ON ONE SQ200 (provisional, owner 2026-09-28: "with
+            # dual 100G then Box 1 A loops to Box 2 A"): every socket of QD
+            # 1 returns on the same socket of QD 2 - output for output, box
+            # socket for box socket - and QD 2 is its near card's return
+            # end, the way a 1:1 backup card is (backupFor). Each far box
+            # says which box it closes the loop of (backupOf), as XD B
+            # does on an SX40, across the two cards.
+            far_id = shape.get('partner')
+            if far_id not in res_cards or far_id in consumed:
+                continue
+            rnear, rproc = res_cards[cid]
+            rfar = res_cards[far_id][0]
+            rfar['backupFor'] = {'processorId': rproc['id'], 'cardId': cid,
+                                 'title': card_display_name(rnear, rproc)}
+            for n in sorted(ports_of[cid]):
+                if n in ports_of[far_id]:
+                    link(cid, n, far_id, n)
+            near_on = {b['trunkIndex']: b for b in rnear.get('cvts') or []
+                       if b['trunksIn'] == 1 and not b['beyondTrunks']}
+            for box in rfar.get('cvts') or []:
+                mate = near_on.get(box['trunkIndex'])
+                if mate and not box['beyondTrunks'] and not box['backupOf']:
+                    box['backupOf'] = mate['id']
         elif shape['mode'] == 'halves':
             # The 2026-08-27 arrangement: "1-8 on processor 1 and 9-16 as
             # backups" - the back half of the card carries the front half's

@@ -82,23 +82,117 @@ class _PortAssignment {
     // size, by anything - would renumber a show behind the user's back.
     _assignmentScreens() {
         const layers = (this.project && this.project.layers) || [];
+        // THE LINK CAP (a box behind a Brompton QD-S carries at most its
+        // 10G link - port_assignment.link_cap_refusal) is held on the
+        // server, off the pixels each port carries - which only the port
+        // maths here knows. So where any box has a cap, every screen sends
+        // its per-port pixels and the settings its capacity is read at;
+        // everywhere else the payload is what it always was.
+        const capped = this._linkCapsInPlay();
         return layers
             .filter(l => (l.type || 'screen') === 'screen')
-            .map(l => ({
-                layerId: String(l.id),
-                name: l.name || `Screen ${l.id}`,
-                ports: (typeof this.getLayerPortsRequired === 'function'
-                    ? this.getLayerPortsRequired(l) : 0) || 0,
-                // The layer's Processing setting rides with the count, so
-                // the server can hold the platform wall (a Legacy screen
-                // never lands on COEX gear) in the one place the matrix
-                // lives. Which cards accept what comes BACK on each card
-                // summary's `platforms`; nothing here re-derives it.
-                platform: l.processorType || null,
-            }))
+            .map(l => {
+                const ports = (typeof this.getLayerPortsRequired === 'function'
+                    ? this.getLayerPortsRequired(l) : 0) || 0;
+                const scr = {
+                    layerId: String(l.id),
+                    name: l.name || `Screen ${l.id}`,
+                    ports,
+                    // The layer's Processing setting rides with the count,
+                    // so the server can hold the platform wall (a Legacy
+                    // screen never lands on COEX gear) in the one place the
+                    // matrix lives. Which cards accept what comes BACK on
+                    // each card summary's `platforms`; nothing here
+                    // re-derives it.
+                    platform: l.processorType || null,
+                };
+                if (capped && ports > 0) {
+                    Object.assign(scr, this._linkCapFields(l, ports));
+                }
+                return scr;
+            })
             // A screen needing no ports has nothing to assign and would only
             // draw an empty row. Text layers are already gone above.
             .filter(s => s.ports > 0);
+    }
+
+    // Whether any resolved box carries a link cap (resolve_card's
+    // linkCapPorts - a box on a QD-S output).
+    _linkCapsInPlay() {
+        return (this._processorsResolved || []).some(p => (p.slots || [])
+            .some(s => s.card && (s.card.cvts || [])
+                .some(b => b && b.linkCapPorts)));
+    }
+
+    // One screen's link-cap fields: the pixels each port carries (index 0
+    // = port 1), scored by the canvas's own load reading
+    // (getPortPixelLoad over the panels _dockRunPanels gathers - the same
+    // run the chip's fill line reads), and the settings the server reads
+    // the vendor's per-port capacity at.
+    _linkCapFields(layer, ports) {
+        const r = window.canvasRenderer;
+        const pixels = [];
+        for (let n = 1; n <= ports; n++) {
+            const panels = typeof this._dockRunPanels === 'function'
+                ? this._dockRunPanels(layer, n) : [];
+            pixels.push(r && typeof r.getPortPixelLoad === 'function'
+                ? Math.round(r.getPortPixelLoad(layer, panels) || 0) : 0);
+        }
+        return {
+            portPixels: pixels,
+            bitDepth: layer.bitDepth || 8,
+            frameRate: layer.frameRate || 60,
+            lowLatency: !!layer.lowLatency,
+        };
+    }
+
+    // THE PROCESSING GUARD: a bit depth, frame rate or ULL change that would
+    // push a box already carrying screens past its link cap is refused, and
+    // the setting stays as it was. `apply` writes the change onto the
+    // selected layers (in memory), `revert` puts them back, `commit` is the
+    // handler's usual save. With no capped box in the project nothing is
+    // asked and the change commits at once, exactly as it always did; with
+    // one, the server is asked first (/link-check) with the screens as they
+    // are and as they would be, and says why where it refuses.
+    _guardLinkCaps(apply, revert, commit) {
+        if (!this._linkCapsInPlay()) {
+            apply();
+            commit();
+            return Promise.resolve(true);
+        }
+        const before = this._assignmentScreens();
+        apply();
+        // The run-panel memo is keyed by layer object for one tick, and the
+        // layers just changed under it.
+        this._dockRunPanelsCache = null;
+        const screens = this._assignmentScreens();
+        return fetch('/api/port-assignments/link-check', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ before, screens }),
+        })
+            .then(r => r.json().then(data => ({ ok: r.ok, data })))
+            .then(({ ok, data }) => {
+                if (ok) {
+                    commit();
+                    return true;
+                }
+                revert();
+                const why = data.error || 'That setting is refused.';
+                this._assignmentError = why;
+                this._assignmentNote = null;
+                if (typeof this.renderPortAssignmentPanel === 'function') {
+                    this.renderPortAssignmentPanel();
+                }
+                if (typeof this._dockSay === 'function') this._dockSay(why);
+                sendClientLog('link_cap_setting_refused', { error: why });
+                return false;
+            })
+            .catch(err => {
+                revert();
+                sendClientLog('link_cap_check_failed', { error: String(err) });
+                return false;
+            });
     }
 
     refreshPortAssignment() {
@@ -137,6 +231,11 @@ class _PortAssignment {
                     this._assignmentError = data.error || 'That move is not possible.';
                     this._assignmentNote = null;
                     this.renderPortAssignmentPanel();
+                    // A link-cap refusal also speaks where the drop was
+                    // made: nothing landed, and the strip may be folded.
+                    if (data.linkCap && typeof this._dockSay === 'function') {
+                        this._dockSay(data.error);
+                    }
                     return;
                 }
                 // A move that worked still has something to say: which socket

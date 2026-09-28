@@ -54,6 +54,9 @@ that cross into a group peer, Low Latency derating); a second implementation
 would agree in the office and disagree on a wall.
 """
 import processor_catalog as catalog
+# The per-port capacity tables (app-core.js portCapacityTables' twin): the
+# one source the link cap below multiplies, never a table of its own.
+from scr_project import calculate_port_capacity
 
 STATE_KEY = 'port_assignments'
 
@@ -254,6 +257,9 @@ def cards_in(processors):
                 # A one-box unit's fixed card IS the unit: messages name the
                 # unit, never "<unit> slot 1" (one name slot, 2026-09-24).
                 'unitFace': catalog.card_is_unit_face(card, proc),
+                # A card that is a unit of its own ("QD 1", a QD-S on OUT
+                # 1): messages call it that rather than "slot 1".
+                'unitTitle': card.get('unitTitle') or '',
                 'deviceName': card['deviceName'],
                 'deviceId': card['deviceId'],
                 # Which processing platforms this card's ports may carry
@@ -339,6 +345,17 @@ def cards_in(processors):
                 'boxSockets': {c['id']: [p['number']
                                          for p in c.get('ports') or []]
                                for c in card.get('cvts') or []},
+                # The boxes whose summed pixels are capped by their one
+                # link (a QD-S output - resolve_card's linkCapPorts), with
+                # what a refusal calls each and the line's rate: see
+                # link_cap_refusal. Empty everywhere else.
+                'linkCaps': {c['id']: {'ports': c['linkCapPorts'],
+                                       'title': c.get('displayTitle')
+                                       or c.get('deviceName'),
+                                       'rate': card.get('trunkRate') or '',
+                                       'table': c.get('linkCapTable')}
+                             for c in card.get('cvts') or []
+                             if c.get('linkCapPorts') and c.get('linkCapTable')},
             })
     return out
 
@@ -350,6 +367,8 @@ def _card_title(card):
         return card['processorName'] or card['deviceName']
     if card['name']:
         return card['name']
+    if card['processorName'] and card.get('unitTitle'):
+        return f"{card['processorName']} {card['unitTitle']}"
     if card['processorName']:
         return f"{card['processorName']} slot {(card['slot'] or 0) + 1}"
     return card['deviceName']
@@ -410,6 +429,11 @@ def _port_title(card, port):
         spoken = (card.get('localNumbers') or {}).get(port, port)
         box = (card.get('boxTitles') or {}).get(port)
         where = f'{title} {box}' if box else title
+        unit = card.get('unitTitle')
+        if box and unit and title.endswith(f' {unit}') \
+                and box.startswith(f'{unit} '):
+            # "SQ200 QD 1" + "QD 1 A" says QD 1 once: "SQ200 QD 1 A".
+            where = f'{title[:-len(unit) - 1]} {box}'
         return f'{where} port {spoken}'
     # A label is usually built out of the card's own name - the template is
     # {name}-# - so naming both would read "SR SR-1". Where it is not, because
@@ -454,7 +478,36 @@ def _clean_screens(screens):
             'name': scr.get('name') or str(layer_id),
             'ports': max(0, count),
             'platform': platform or None,
+            # The pixels each port carries (index 0 = port 1) and the
+            # settings its capacity is read at - sent by the client, which
+            # owns the port maths, only where a box has a link cap to hold
+            # (link_cap_refusal). Absent is "not measured": such a screen
+            # adds nothing to a box's load and is refused nothing.
+            'portPixels': _clean_pixels(scr.get('portPixels')),
+            'bitDepth': _clean_number(scr.get('bitDepth')),
+            'frameRate': _clean_number(scr.get('frameRate')),
+            'lowLatency': bool(scr.get('lowLatency')),
         })
+    return out
+
+
+def _clean_number(value):
+    if isinstance(value, bool):
+        return None
+    try:
+        n = float(value)
+    except (TypeError, ValueError):
+        return None
+    return n if n > 0 else None
+
+
+def _clean_pixels(values):
+    if not isinstance(values, list):
+        return None
+    out = []
+    for v in values:
+        n = _clean_number(v)
+        out.append(int(n) if n else 0)
     return out
 
 
@@ -1077,6 +1130,106 @@ def _capacity_issues(cards, screens):
             'offers': [],
         })
     return out
+
+
+# ── The link cap ──────────────────────────────────────────────────────────
+#
+# A box behind a Brompton QD-S hangs off ONE 10G link, and that link - not
+# the box's twelve sockets - is what runs out first. The owner (2026-09-28):
+# "The 5.25M pixels is right. the 12 is in case you dont max out each port
+# on the unit then you have more bandwidth to be used on ports 11 and 12."
+# So a box's cap is 10 x the vendor's per-port capacity at the screen's bit
+# depth and frame rate (5.25M px at 8-bit 60 Hz; ULL halves it the way the
+# port table does), read off the one table the port maths already uses.
+#
+# Over it is REFUSED, never warned: a placement, a drag or a fill that would
+# push a box's summed pixels past its cap writes nothing, and neither does a
+# Processing change (bit depth, frame rate, ULL) that would push a box that
+# is already carrying screens past it. Only a box whose card documents a cap
+# has one - the SX40's XDs do not, by the owner's ruling on this rig alone.
+#
+# The pixels come from the client with the screens (portPixels, per port),
+# for the same reason the port counts do: the port maths lives there.
+
+def _mpx(n):
+    """Megapixels to two places, ROUNDED DOWN like every capacity figure
+    the app prints: 5,250,000 is "5.25M", 2,625,000 "2.62M"."""
+    text = f'{(int(n) // 10_000) / 100:.2f}'.rstrip('0').rstrip('.')
+    return f'{text}M'
+
+
+def _settings_text(settings):
+    bit_depth, frame_rate, low_latency = settings
+    return (f'{bit_depth:g}-bit {frame_rate:g} Hz'
+            + (' ULL' if low_latency else ''))
+
+
+def link_loads(processors, screens, state):
+    """{boxId: {'title', 'rate', 'load', 'cap', 'settings'}} for every capped
+    box that carries a measured screen port, in tree order. `load` sums the
+    pixels of every pinned port on the box's sockets; `cap` is the smallest
+    of its screens' caps (one link carries every screen on it)."""
+    screens_by_id = {s['layerId']: s for s in _clean_screens(screens)}
+    pins = _clean_pins((state or {}).get('pins'))
+    out = {}
+    for card in cards_in(processors):
+        caps = card.get('linkCaps') or {}
+        if not caps:
+            continue
+        box_of = {}
+        for box_id, numbers in (card.get('boxSockets') or {}).items():
+            if box_id in caps:
+                for n in numbers:
+                    box_of.setdefault(n, box_id)
+        for pin in pins:
+            if pin['cardId'] != card['cardId']:
+                continue
+            box_id = box_of.get(pin['port'])
+            scr = screens_by_id.get(pin['layerId'])
+            pixels = (scr or {}).get('portPixels')
+            if not box_id or pixels is None:
+                continue
+            spec = caps[box_id]
+            settings = (scr['bitDepth'] or 8, scr['frameRate'] or 60,
+                        scr['lowLatency'])
+            per_port = calculate_port_capacity(settings[0], settings[1],
+                                               spec['table'], settings[2])
+            rec = out.setdefault(box_id, {
+                'title': spec['title'], 'rate': spec['rate'], 'load': 0,
+                'cap': None, 'settings': None})
+            if 0 <= pin['index'] < len(pixels):
+                rec['load'] += pixels[pin['index']]
+            cap = spec['ports'] * per_port
+            if cap > 0 and (rec['cap'] is None or cap < rec['cap']):
+                rec['cap'] = cap
+                rec['settings'] = settings
+    return out
+
+
+def link_cap_refusal(processors, screens_before, state_before,
+                     screens_after, state_after):
+    """Why going from `before` to `after` is refused on a box's link cap,
+    or None. Refused where a box ends up over its cap AND fuller than it
+    was - so an edit that leaves an already-over box no worse (a legacy
+    file, a release) still goes through, and the first box in tree order
+    that the edit pushed over is the one named."""
+    before = link_loads(processors, screens_before, state_before)
+    after = link_loads(processors, screens_after, state_after)
+    for box_id, rec in after.items():
+        cap = rec['cap']
+        if not cap or rec['load'] <= cap:
+            continue
+        was = before.get(box_id)
+        if was and was['cap'] and was['load'] / was['cap'] >= rec['load'] / cap:
+            continue
+        load_text, cap_text = _mpx(rec['load']), _mpx(cap)
+        if load_text == cap_text:
+            load_text, cap_text = f'{rec["load"]:,}', f'{cap:,}'
+        link = f'{rec["rate"]} link' if rec['rate'] else 'link'
+        return (f'{rec["title"]} carries {load_text} px - over its {link}\'s '
+                f'{cap_text} at {_settings_text(rec["settings"])}. Lower the '
+                f'frame rate or bit depth.')
+    return None
 
 
 # ── Edits ─────────────────────────────────────────────────────────────────

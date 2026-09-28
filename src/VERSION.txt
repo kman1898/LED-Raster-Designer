@@ -9,8 +9,9 @@ TAC or an MTP is shared by as many boxes as it feeds, an opticalCON DUO
 or QUAD belongs to one box, and the binder prints a strand map for every
 cable. A backup processor is now one switch on the main: name it and
 the app does the rest. An SX40's loops are set pair by pair, the
-Advanced Guide walks through the new steps, and the power map's cable
-tags now sit by their circuit.
+Advanced Guide walks through the new steps, the power map's cable
+tags now sit by their circuit, and a Brompton SQ200 lays out with its
+QD-S units.
 
 FIBER BY THE STRAND
 
@@ -66,6 +67,24 @@ loop tag, folded or open, and together on one Fiber section. A socket
 at the far end whose partner carries nothing reads free.
 
 The pull sheet now lists every processor, mains and backups, by model.
+
+THE SQ200 AND ITS QD-S
+
+A Brompton SQ200 takes a QD-S on each of its two outputs, OUT 1 and OUT
+2, named QD 1 and QD 2, with + QD-S on its tray header. Each QD-S has
+twelve outputs, A to L, and an XD, XD-S or XD-T goes on each with + Box:
+"QD 1 A" to "QD 1 L". Behind a QD-S an XD-S or XD-T uses all 12 ports,
+but each box carries no more than its 10G link, 5.25 million pixels at
+8-bit 60 Hz and less at higher bit depths or frame rates. A placement
+that would take a box past that is refused, and so is a bit depth or
+frame rate change that would, with a note to lower the frame rate or
+bit depth.
+
+With redundancy on, one QD-S loops its outputs in pairs, A to B through
+K to L, and two QD-S loop to each other, QD 1 A to QD 2 A. Both are
+provisional until confirmed in Brompton's manual. A backup SQ200 lands
+on each QD-S's second input, IN 2, beside IN 1 on the QD-S's cable
+sheet, and the pull sheet counts each QD-S.
 
 IN THE ADVANCED GUIDE
 

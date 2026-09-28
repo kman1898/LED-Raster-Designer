@@ -394,13 +394,33 @@ def test_ports_taken_out_at_a_box_carry_that_boxs_label(one_card):
         'the box changed the numbering as well as the label')
 
 
+def test_an_sq200_fills_only_the_sockets_its_boxes_deliver(client):
+    """The SQ200 published connectors and no port count, until the owner
+    ruled its shape (2026-09-28): one QD-S per OUT port, "so a max of 2 per
+    SQ200", each QD-S output feeding an XD box. So a drop onto its QD-S
+    lands on the boxes' sockets and nowhere else - an XD-S behind a QD-S
+    delivers all 12 - and a QD-S with no box yet has nothing to fill."""
+    state = add_processor(client, 'brompton-sq200')
+    pid = state['resolved'][0]['id']
+    card = card_ids(set_card(client, pid, 0, 'brompton-card-qd-s'))[0]
+    resp = client.post('/api/port-assignments/place-overflow',
+                       json={'layerId': 'Main', 'cardId': card,
+                             'screens': screens(('Main', 4))})
+    assert resp.status_code == 409, resp.get_data(as_text=True)
+    assert 'no free ports' in resp.get_json()['error']
+    assert client.post(f'/api/processors/{pid}/cards/{card}/cvts',
+                       json={'deviceId': 'brompton-xd-s'}).status_code == 201
+    res = attach(client, 'Main', card, screens(('Main', 14)))
+    assert numbers(res, 'Main') == list(range(1, 13)) + [None, None]
+    assert 'capacity-unknown' not in kinds(res)
+
+
 def test_a_card_with_no_settled_port_count_takes_no_whole_card_fill(client):
-    """The SQ200 publishes connectors and no port count. Filling onto a
+    """The HELIOS Standard 4K's sources disagree (2 or 3). Filling onto a
     guessed ceiling would silently cap a wall, which is the failure the
     catalog exists to prevent, so a card drop is refused and the strip row
-    says the ports can still be placed one at a time (section 3b proves
-    that path)."""
-    state = add_processor(client, 'brompton-sq200')
+    says the count is not settled."""
+    state = add_processor(client, 'megapixel-helios-4k')
     card = card_ids(state)[0]
     resp = client.post('/api/port-assignments/place-overflow',
                        json={'layerId': 'Main', 'cardId': card,
@@ -584,7 +604,7 @@ def test_a_legacy_file_with_no_hardware_is_stamped_at_the_funnel(client):
     add_screen(client, 'Main')
     assert make_legacy(client, None) == STAMP
     assert make_legacy(client, {'auto': True, 'pins': []}) == STAMP
-    add_processor(client, 'brompton-sq200')  # connectors, no settled count
+    add_processor(client, 'brompton-sq200')  # no QD-S yet: not one socket
     assert make_legacy(client, None) == STAMP
 
 
@@ -1060,16 +1080,25 @@ def test_a_placement_of_a_port_the_screen_does_not_have_is_refused(one_card):
     assert 'no port 8' in resp.get_json()['error']
 
 
-def test_a_card_with_no_settled_count_still_takes_a_placement(client):
-    """"Ports can still be placed on it one at a time" is what the
-    capacity-unknown row on the dock strip says about an SQ200, and this is
-    that path. There is no ceiling to check against, and inventing one to
-    check against is the failure the catalog exists to prevent."""
+def test_an_sq200_takes_a_placement_only_on_a_boxs_socket(client):
+    """The SQ200 used to be the card with no settled count that took any
+    number by hand. The owner's 2026-09-28 ruling gives it its shape - a
+    QD-S on each OUT port, every output an XD box - so a hand placement
+    lands on a box's socket (QD 1 A socket 6) and a number no box delivers
+    is refused the way an SX40's is."""
     state = add_processor(client, 'brompton-sq200')
-    card = card_ids(state)[0]
+    pid = state['resolved'][0]['id']
+    card = card_ids(set_card(client, pid, 0, 'brompton-card-qd-s'))[0]
+    resp = place(client, 'Main', 0, card, 6, screens(('Main', 2),))
+    assert resp.status_code == 409
+    assert 'only inside a breakout box' in resp.get_json()['error']
+    assert client.post(f'/api/processors/{pid}/cards/{card}/cvts',
+                       json={'deviceId': 'brompton-xd-s'}).status_code == 201
     resp = place(client, 'Main', 0, card, 6, screens(('Main', 2),))
     assert resp.status_code == 200, resp.get_data(as_text=True)
-    assert spots(resp.get_json()['resolution'], 'Main')[0] == (card, 6)
+    main = by_name(resp.get_json()['resolution'], 'Main')
+    assert (main['ports'][0]['cardId'], main['ports'][0]['port']) == (card, 6)
+    assert main['ports'][0]['cardName'] == 'Tessera SQ200 QD 1'
 
 
 def test_assigning_from_the_socket_lands_where_pinning_from_the_screen_does(

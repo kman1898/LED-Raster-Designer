@@ -119,6 +119,10 @@ def save_project():
     # payload already holds.
     processor_catalog.sync_next_processor_seq(app.current_project)
     processor_catalog.stock_default_cvts(app.current_project)
+    # An SQ200 saved as a one-box unit (before 2026-09-28) gets its two
+    # empty OUT slots; logged, once - the pass is idempotent.
+    for proc_id in processor_catalog.reslot_chassis_units(app.current_project):
+        log_event('processor_reslotted', {'processorId': proc_id})
     # A one-box unit has ONE name slot (2026-09-24); a name a 1.3 file left
     # on its fixed card moves up to the unit here, once, and is logged.
     for moved in processor_catalog.adopt_fixed_card_names(app.current_project):
@@ -249,6 +253,10 @@ def restore_project():
     # exists for.
     processor_catalog.sync_next_processor_seq(app.current_project)
     processor_catalog.stock_default_cvts(app.current_project)
+    # An SQ200 saved as a one-box unit (before 2026-09-28) gets its two
+    # empty OUT slots; logged, once - the pass is idempotent.
+    for proc_id in processor_catalog.reslot_chassis_units(app.current_project):
+        log_event('processor_reslotted', {'processorId': proc_id})
     # A one-box unit has ONE name slot (2026-09-24); a name a 1.3 file left
     # on its fixed card moves up to the unit here, once, and is logged.
     for moved in processor_catalog.adopt_fixed_card_names(app.current_project):

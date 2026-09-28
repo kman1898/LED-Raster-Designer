@@ -454,7 +454,9 @@ class _Processors {
             num.style.color = 'var(--ps-dim, #c0c0c0)';
             num.style.fontFamily = 'monospace';
             num.style.minWidth = '38px';
-            num.textContent = `Slot ${slot.index + 1}`;
+            // The slot as the unit's face prints it - "OUT 1" on an SQ200 -
+            // where the catalog words one.
+            num.textContent = slot.name || `Slot ${slot.index + 1}`;
             const device = this._processorDevice(proc.deviceId);
             const accepts = (device && device.accepts) || [];
             // A chassis takes its own line's cards, and of those only the
@@ -515,7 +517,7 @@ class _Processors {
         if (this.cardIsUnitFace(p, c)) {
             return p.name || p.deviceName || c.deviceName;
         }
-        return `${c.name || c.deviceName} in ${p.name || p.deviceName}`;
+        return `${c.name || c.unitTitle || c.deviceName} in ${p.name || p.deviceName}`;
     }
 
     // Whether the vendor fixes this unit's pairing (Brompton's adjacent
@@ -1017,9 +1019,16 @@ class _Processors {
     // inputs: 1. Each fit is the catalog device, or a copy of it carrying
     // `addInputs` and its own `pickKey` - so a remembered 2-OPT pick never
     // passes for the 1-OPT offer.
+    //
+    // A retired box entry (catalog `legacy` - the QD-S, a card since
+    // 2026-09-28) is never offered, and the card's own default box (its
+    // catalog defaultCvt - the XD-S on a QD-S) leads the list.
     _cardBoxFits(card) {
         if (!card || !card.trunks) return [];
+        const lead = card.defaultCvt;
         return this._processorDevices('cvt')
+            .filter(d => !d.legacy)
+            .sort((a, b) => (b.id === lead) - (a.id === lead))
             .filter(d => !d.trunkRate || !card.trunkRate
                          || d.trunkRate === card.trunkRate)
             .filter(d => !d.vendor || !card.vendor
@@ -1655,7 +1664,9 @@ class _Processors {
         const slot = (((proc || {}).slots) || [])
             .find(s => s && s.card && s.card.id === card.id);
         const host = p || proc.deviceName || proc.id || '';
-        const part = c || (slot ? `slot ${(slot.index || 0) + 1}` : card.deviceName || '');
+        // A card that is a unit of its own goes by its title ("QD 1").
+        const part = c || card.unitTitle
+            || (slot ? `slot ${(slot.index || 0) + 1}` : card.deviceName || '');
         const named = !!(p || c);
         if (!host || !part) return { title: host || part, named };
         const a = host.toLowerCase(), b = part.toLowerCase();

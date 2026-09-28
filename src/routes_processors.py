@@ -621,6 +621,18 @@ def set_slot_card(processor_id, index):
     if not proc:
         return jsonify({'error': 'Processor not found'}), 404
     slot = next((s for s in proc.get('slots') or [] if s.get('index') == index), None)
+    device = catalog.get_device(proc.get('deviceId')) or {}
+    names = catalog.slot_names(device)
+    if slot is None and names:
+        # A unit whose slots are its named outputs has no slot past them:
+        # an SQ200 takes a QD-S on OUT 1 and one on OUT 2 and no third
+        # (owner, 2026-09-28: "so a max of 2 per SQ200").
+        kinds = catalog.cards_for(device)
+        each = kinds[0].get('name') if len(kinds) == 1 else 'card'
+        return jsonify({'error': (
+            f'{device.get("name", "This processor")} has {len(names)} '
+            f'outputs, {_and_list(names)}, and each takes one {each} - '
+            f'there is no place for another.')}), 400
     if slot is None:
         return jsonify({'error': 'Slot not found'}), 404
     if slot.get('card') and slot['card'].get('fixed'):
@@ -633,6 +645,19 @@ def set_slot_card(processor_id, index):
         _prune_backup_refs([outgoing] if outgoing else [])
         log_event('processor_slot_clear', {'id': processor_id, 'slot': index})
         return _state()
+    # A QD-S goes on an SQ200's OUT port and nowhere else, and an SQ200's
+    # outputs take nothing but a QD-S: where either side is a unit whose
+    # outputs are named (the catalog's slot names, a card's unitWord), the
+    # card must be one the chassis accepts - the slot picker's own filter.
+    # Every other chassis keeps taking what it always took.
+    card_device = catalog.get_device(device_id) or {}
+    accepts = device.get('accepts')
+    if (names or card_device.get('unitWord')) \
+            and (card_device.get('kind') != 'card'
+                 or card_device.get('family') not in (accepts or [])):
+        return jsonify({'error': (
+            f'{card_device.get("name", device_id)} does not go in '
+            f'{device.get("name", "this processor")}.')}), 400
     card = catalog.new_card(device_id, _next_seq(), data.get('name', ''))
     if not card:
         return jsonify({'error': f'Unknown device: {device_id}'}), 400
@@ -1300,18 +1325,34 @@ def update_fiber_cable(cable_id):
     return _state()
 
 
+def _find_link_record(proc, rec_id):
+    """The raw record whose fiber links a route edits: a breakout box, or a
+    card cabled to its processor on links of its own (a QD-S's IN 1 / IN 2
+    - processor_catalog.is_link_host). None where it is neither."""
+    _card, cvt = _find_cvt(proc, rec_id)
+    if cvt:
+        return cvt
+    card = _find_card(proc, rec_id)
+    if card and catalog.is_link_host(catalog.get_device(card.get('deviceId'))):
+        return card
+    return None
+
+
 @processors_bp.route('/api/processors/<processor_id>/cvts/<cvt_id>/fiber-links/<key>',
+                     methods=['PUT'])
+@processors_bp.route('/api/processors/<processor_id>/cards/<cvt_id>/fiber-links/<key>',
                      methods=['PUT'])
 def set_fiber_link(processor_id, cvt_id, key):
     """Set or clear one of a box's links: {cable, strands?}, or
     {cable: null} to clear. With no strands the cable's next free ones are
     taken; a backup link given no cable takes its primary link's (the
     default the owner asked for: the primary's TAC at the next free
-    strands)."""
+    strands). A QD-S's IN 1 / IN 2 are set the same way, at its card's
+    URL."""
     proc = _find_processor(processor_id)
     if not proc:
         return jsonify({'error': 'Processor not found'}), 404
-    _card, cvt = _find_cvt(proc, cvt_id)
+    cvt = _find_link_record(proc, cvt_id)
     if not cvt:
         return jsonify({'error': 'Breakout box not found'}), 404
     data = request.json or {}
@@ -1395,6 +1436,8 @@ def _set_copper_link(entry, key, data):
 
 @processors_bp.route('/api/processors/<processor_id>/cvts/<cvt_id>/fiber',
                      methods=['PUT'])
+@processors_bp.route('/api/processors/<processor_id>/cards/<cvt_id>/fiber',
+                     methods=['PUT'])
 def update_box_fiber(processor_id, cvt_id):
     """A box's fiber switch: `bidi` (NovaStar and Megapixel boxes only;
     re-fits its links). Nothing is bound here any more (2026-09-25): a
@@ -1403,7 +1446,7 @@ def update_box_fiber(processor_id, cvt_id):
     proc = _find_processor(processor_id)
     if not proc:
         return jsonify({'error': 'Processor not found'}), 404
-    _card, cvt = _find_cvt(proc, cvt_id)
+    cvt = _find_link_record(proc, cvt_id)
     if not cvt:
         return jsonify({'error': 'Breakout box not found'}), 404
     data = request.json or {}

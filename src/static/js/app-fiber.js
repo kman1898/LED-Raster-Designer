@@ -155,13 +155,17 @@ class _Fiber {
         return `${copper.copper} runs ${max} ft max at 10G`;
     }
 
-    // Every resolved box, in tray order: [{ box, proc, card }].
+    // Every resolved box, in tray order: [{ box, proc, card }]. A card
+    // cabled to its processor on links of its own - a QD-S's IN 1 / IN 2
+    // (card.linkHost) - is one more, ahead of its boxes, with `box` the
+    // card itself: its links read, list and pull exactly as a box's do.
     _fiberAllBoxes() {
         const out = [];
         for (const proc of this._processorsResolved || []) {
             for (const slot of (proc && proc.slots) || []) {
                 const card = slot && slot.card;
                 if (!card) continue;
+                if (card.linkHost) out.push({ box: card, proc, card });
                 for (const box of card.cvts || []) if (box) out.push({ box, proc, card });
             }
         }
@@ -307,7 +311,11 @@ class _Fiber {
     // The URL of a box's own routes, from its id.
     _fiberBoxUrl(box) {
         const found = typeof this._dockFindCvt === 'function' ? this._dockFindCvt(box.id) : null;
-        return found ? `/api/processors/${found.proc.id}/cvts/${box.id}` : null;
+        if (found) return `/api/processors/${found.proc.id}/cvts/${box.id}`;
+        // A link-host card (a QD-S) takes its links at its card's URL.
+        const card = box.linkHost && typeof this._dockFindCard === 'function'
+            ? this._dockFindCard(box.id) : null;
+        return card ? `/api/processors/${card.proc.id}/cards/${box.id}` : null;
     }
 
     // ---- writes: one request per gesture, one history entry ----------------

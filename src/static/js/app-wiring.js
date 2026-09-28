@@ -851,20 +851,47 @@ class _Wiring {
             });
         }
 
+        // THE LINK CAP GUARD (owner, 2026-09-28): a bit depth, frame rate or
+        // ULL change that would push a box behind a QD-S past its 10G link
+        // is REFUSED, and the setting stays as it was. `apply` writes the
+        // change the way each handler always did; the server is asked
+        // (_guardLinkCaps) before anything commits, and a refusal puts
+        // every layer's three fields - group peers included - and the
+        // three controls back. With no capped box nothing is asked.
+        const lowLatencyCheckbox = document.getElementById('low-latency');
+        const guardProcessing = (apply, commit) => {
+            const keys = ['bitDepth', 'frameRate', 'lowLatency'];
+            const was = ((this.project && this.project.layers) || []).map(l =>
+                [l, keys.map(k => [k, Object.prototype.hasOwnProperty.call(l, k), l[k]])]);
+            const revert = () => {
+                was.forEach(([l, fields]) => fields.forEach(([k, had, v]) => {
+                    if (had) l[k] = v;
+                    else delete l[k];
+                }));
+                const cur = this.currentLayer || {};
+                if (bitDepthSelect) bitDepthSelect.value = cur.bitDepth || 8;
+                this.updateFrameRateOptions();
+                if (lowLatencyCheckbox) lowLatencyCheckbox.checked = !!cur.lowLatency;
+                if (typeof this.updateLowLatencyUI === 'function') this.updateLowLatencyUI();
+                this.updatePortCapacityDisplay();
+            };
+            return this._guardLinkCaps(apply, revert, commit);
+        };
+
         // v0.11.0: Low Latency mirrors the Processor Type handler above - same
         // capacity + port-label refresh, and a single updateLayers(..., true)
         // so the toggle records exactly ONE undo step.
-        const lowLatencyCheckbox = document.getElementById('low-latency');
         if (lowLatencyCheckbox) {
             lowLatencyCheckbox.addEventListener('change', () => {
-                this.applyToSelectedLayers(layer => {
+                guardProcessing(() => this.applyToSelectedLayers(layer => {
                     layer.lowLatency = lowLatencyCheckbox.checked;
+                }), () => {
+                    this.saveClientSideProperties();
+                    this.updatePortCapacityDisplay();
+                    this.updatePortLabelEditor();
+                    this.updateLayers(this.getSelectedLayers(), true, 'Change Low Latency');
+                    window.canvasRenderer.render();
                 });
-                this.saveClientSideProperties();
-                this.updatePortCapacityDisplay();
-                this.updatePortLabelEditor();
-                this.updateLayers(this.getSelectedLayers(), true, 'Change Low Latency');
-                window.canvasRenderer.render();
             });
         }
 
@@ -887,28 +914,35 @@ class _Wiring {
 
         if (bitDepthSelect) {
             bitDepthSelect.addEventListener('change', () => {
-                this.applyToSelectedLayers(layer => {
-                    layer.bitDepth = parseInt(bitDepthSelect.value);
+                guardProcessing(() => {
+                    this.applyToSelectedLayers(layer => {
+                        layer.bitDepth = parseInt(bitDepthSelect.value);
+                    });
+                    // Inside the change: a depth that does not publish the
+                    // current rate moves the rate too, and the guard must
+                    // weigh the pair.
+                    this.updateFrameRateOptions();
+                }, () => {
+                    this.saveClientSideProperties();
+                    this.updatePortCapacityDisplay();
+                    this.updatePortLabelEditor();
+                    this.updateLayers(this.getSelectedLayers(), true, 'Change Bit Depth');
+                    window.canvasRenderer.render();
                 });
-                this.updateFrameRateOptions();
-                this.saveClientSideProperties();
-                this.updatePortCapacityDisplay();
-                this.updatePortLabelEditor();
-                this.updateLayers(this.getSelectedLayers(), true, 'Change Bit Depth');
-                window.canvasRenderer.render();
             });
         }
-        
+
         if (frameRateSelect) {
             frameRateSelect.addEventListener('change', () => {
-                this.applyToSelectedLayers(layer => {
+                guardProcessing(() => this.applyToSelectedLayers(layer => {
                     layer.frameRate = parseFloat(frameRateSelect.value);
+                }), () => {
+                    this.saveClientSideProperties();
+                    this.updatePortCapacityDisplay();
+                    this.updatePortLabelEditor();
+                    this.updateLayers(this.getSelectedLayers(), true, 'Change Frame Rate');
+                    window.canvasRenderer.render();
                 });
-                this.saveClientSideProperties();
-                this.updatePortCapacityDisplay();
-                this.updatePortLabelEditor();
-                this.updateLayers(this.getSelectedLayers(), true, 'Change Frame Rate');
-                window.canvasRenderer.render();
             });
         }
         
