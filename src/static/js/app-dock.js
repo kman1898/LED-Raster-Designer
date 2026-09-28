@@ -1185,6 +1185,11 @@ class _HardwareDock {
             head.insertBefore(tally, head.querySelector('.hw-dock-unit-info'));
         }
         const cardControls = cardPill ? [cardPill] : [];
+        // "+ Box" (2026-09-26, the owner's options 1 and 2 together): a
+        // breakout box goes on from the card row itself, not only from the
+        // card's ⚙ - only while a box still fits a free trunk.
+        const boxFits = typeof this._cardBoxFits === 'function' ? this._cardBoxFits(card) : [];
+        if (boxFits.length) cardControls.push(this._dockAddBoxButton(proc, card));
         if (loose.length) {
             cardControls.push(this._dockBuildDataCableSheetButton(cardOwner));
         }
@@ -1261,7 +1266,103 @@ class _HardwareDock {
                 ? this._dockBuildLoopPair(proc, card, cvt, farOf.get(cvt.id))
                 : this._dockBuildBox(proc, card, cvt));
         });
+        // ...and the empty slot after the last box: where the next one goes
+        if (boxFits.length) unitBody.appendChild(this._dockAddBoxSlot(proc, card, boxFits));
         return unit;
+    }
+
+    // The card row's "+ Box": a click lists the boxes that fit, and a pick
+    // puts one on - one request, one history entry, as the ⚙'s picker.
+    _dockAddBoxButton(proc, card) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'hw-dock-addbox';
+        btn.textContent = '+ Box';
+        btn.title = 'Add a breakout box to this card.';
+        btn.dataset.lrdField = `dock-addbox-${card.id}`;
+        btn.dataset.hwpop = `addbox-${card.id}`;
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this._hwPopoverToggle(btn, `addbox-${card.id}`,
+                                  () => this._dockAddBoxMenu(card.id));
+        });
+        return btn;
+    }
+
+    // The dashed row under a card's boxes: one fitting model adds on a
+    // click; several open the same list as "+ Box". It says how many trunks
+    // are free rather than which one the box takes - the server lays a box
+    // on the next free trunk, and a sheet only ever repeats the server.
+    _dockAddBoxSlot(proc, card, fits) {
+        const slot = document.createElement('button');
+        slot.type = 'button';
+        slot.className = 'hw-dock-addslot';
+        slot.dataset.lrdField = `dock-addslot-${card.id}`;
+        slot.dataset.hwpop = `addslot-${card.id}`;
+        const plus = document.createElement('span');
+        plus.className = 'hw-dock-addslot-plus';
+        plus.textContent = '+';
+        slot.appendChild(plus);
+        const text = document.createElement('span');
+        text.textContent = fits.length === 1
+            ? `Add a ${fits[0].name}` : 'Add a breakout box';
+        slot.appendChild(text);
+        const free = document.createElement('span');
+        free.className = 'hw-dock-addslot-free';
+        free.textContent = this._dockTrunksFreeText(card);
+        slot.appendChild(free);
+        slot.title = fits.length === 1
+            ? `Add a ${fits[0].name} to this card.`
+            : 'Add a breakout box to this card.';
+        slot.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (fits.length === 1) {
+                this._dockAddBox(card.id, fits[0].id);
+                return;
+            }
+            this._hwPopoverToggle(slot, `addslot-${card.id}`,
+                                  () => this._dockAddBoxMenu(card.id));
+        });
+        return slot;
+    }
+
+    _dockTrunksFreeText(card) {
+        return `${card.trunksFree} of ${card.trunks} trunks free`;
+    }
+
+    // The list both open: the fitting models, read fresh from the card
+    // (the tray may have moved on since the button was drawn).
+    _dockAddBoxMenu(cardId) {
+        const found = this._dockFindCard(cardId);
+        const fits = found ? this._cardBoxFits(found.card) : [];
+        if (!fits.length) return null;
+        const wrap = document.createElement('div');
+        wrap.className = 'hw-dock-addbox-menu';
+        const cap = document.createElement('div');
+        cap.className = 'hw-dock-addbox-cap';
+        cap.textContent = this._dockTrunksFreeText(found.card);
+        wrap.appendChild(cap);
+        fits.forEach(d => {
+            const item = document.createElement('button');
+            item.type = 'button';
+            item.className = 'btn hw-dock-addbox-item';
+            item.textContent = d.name;
+            item.dataset.lrdField = `dock-addbox-${cardId}-${d.id}`;
+            item.addEventListener('click', () => this._dockAddBox(cardId, d.id));
+            wrap.appendChild(item);
+        });
+        return wrap;
+    }
+
+    _dockAddBox(cardId, deviceId) {
+        const found = this._dockFindCard(cardId);
+        if (!found) return;
+        if (typeof this._hwPopoverClose === 'function') this._hwPopoverClose();
+        // the ⚙'s picker keeps the last pick per card; this is the same pick
+        (this._procCvtPick = this._procCvtPick || {})[cardId] = deviceId;
+        this._processorRequest(
+            `/api/processors/${found.proc.id}/cards/${cardId}/cvts`, 'POST',
+            { deviceId }, 'Add Breakout Box');
     }
 
     // "4 × Tessera XD", or "2 × CVT10 · 1 × CVT4K-S" on a mixed card, in

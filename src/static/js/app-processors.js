@@ -1008,6 +1008,18 @@ class _Processors {
     // The card's gear: templates, mode, a read-only redundancy line,
     // capacity, and the breakout-box work - everything the panel's card block carried except
     // the name, which edits inline on the card's dock header.
+    // The breakout boxes that FIT a card's free trunks - the gear's picker
+    // and the tray's "+ Box" read this one list (reasons at the picker).
+    _cardBoxFits(card) {
+        if (!card || !card.trunks) return [];
+        return this._processorDevices('cvt')
+            .filter(d => (d.trunksIn || 1) <= card.trunksFree)
+            .filter(d => !d.trunkRate || !card.trunkRate
+                         || d.trunkRate === card.trunkRate)
+            .filter(d => !d.vendor || !card.vendor
+                         || d.vendor === card.vendor);
+    }
+
     _buildCardGearContent(proc, card) {
         const wrap = document.createElement('div');
         // A one-box unit's card IS the unit, so its gear is headed by the
@@ -1121,12 +1133,7 @@ class _Processors {
             // has always advised by and can_add_cvt now refuses by) and read
             // the same way here - including its no-inference half: where
             // either sheet names no vendor, nothing is filtered out.
-            const fits = this._processorDevices('cvt')
-                .filter(d => (d.trunksIn || 1) <= card.trunksFree)
-                .filter(d => !d.trunkRate || !card.trunkRate
-                             || d.trunkRate === card.trunkRate)
-                .filter(d => !d.vendor || !card.vendor
-                             || d.vendor === card.vendor);
+            const fits = this._cardBoxFits(card);
             // THE PICK SURVIVES THE ADD: "i added one cvt 10 and after i
             // added it it cleared the dropdown but it shouldn't clear the
             // drop down". Adding rebuilds this whole panel, so the chosen

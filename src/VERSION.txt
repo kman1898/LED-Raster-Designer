@@ -74,6 +74,11 @@ to the box, picking the strands, and the power jumper lengths.
 
 FIXES
 
+- FIX: A breakout box goes on from the hardware tray itself: "+ Box" on
+  the card row lists the boxes that fit the free trunks, and a dashed
+  row under the card's boxes adds the next one. Both show how many
+  trunks are free and go away once none is. The card's gear still has
+  its picker.
 - FIX: A data sheet's Ports table puts each port and its backup on one
   row. The table is two halves, PRIMARY and BACKUP, each with its own
   port, output and home run, and each box's name and fiber over its own

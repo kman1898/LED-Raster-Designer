@@ -1165,6 +1165,65 @@ def test_a_whole_card_is_refused_when_nothing_is_unassigned(dock_page):
     page.wait_for_timeout(300)
 
 
+def test_a_breakout_box_goes_on_from_the_card_row(dock_page):
+    """"+ Box" on the card row and a dashed slot under its boxes (owner,
+    2026-09-26, options 1 and 2): the button lists the boxes that fit the
+    free trunks under a "N of M trunks free" caption, a pick adds that box
+    in ONE history entry, and both go once no box fits; undo puts it back."""
+    page, ids = dock_page
+    open_view(page, 'data-flow')
+    btn = page.locator(f'[data-lrd-field="dock-addbox-{ids["cardId"]}"]')
+    slot = page.locator(f'[data-lrd-field="dock-addslot-{ids["cardId"]}"]')
+    assert btn.count() == 1 and slot.count() == 1
+    start = page.evaluate("""(ids) => {
+        const card = window.app._dockFindCard(ids.cardId).card;
+        return {boxes: card.cvts.length, free: card.trunksFree, trunks: card.trunks,
+                index: window.app.historyIndex};
+    }""", ids)
+    assert start['free'] > 0, start
+    assert f"{start['free']} of {start['trunks']} trunks free" in slot.text_content()
+    btn.click()
+    page.wait_for_timeout(300)
+    menu = page.evaluate("""() => {
+        const m = document.querySelector('#hw-gear-popover .hw-dock-addbox-menu');
+        return m ? {cap: m.querySelector('.hw-dock-addbox-cap').textContent,
+                    items: [...m.querySelectorAll('.hw-dock-addbox-item')].map(b => b.textContent)} : null;
+    }""")
+    assert menu and menu['cap'] == f"{start['free']} of {start['trunks']} trunks free", menu
+    assert 'CVT4K-S' in ' '.join(menu['items']), menu
+    page.locator(f'[data-lrd-field="dock-addbox-{ids["cardId"]}-novastar-cvt4k-s"]').click()
+    page.wait_for_timeout(900)
+    after = page.evaluate("""(ids) => {
+        const app = window.app;
+        const card = app._dockFindCard(ids.cardId).card;
+        return {boxes: card.cvts.length, model: card.cvts[card.cvts.length - 1].deviceId,
+                index: app.historyIndex, action: app.history[app.historyIndex].action,
+                open: !!app._hwPopover};
+    }""", ids)
+    assert after == {'boxes': start['boxes'] + 1, 'model': 'novastar-cvt4k-s',
+                     'index': start['index'] + 1, 'action': 'Add Breakout Box', 'open': False}, after
+    # fill every trunk left: the button and the slot go
+    page.evaluate("""async (ids) => {
+        const app = window.app;
+        for (let n = 0; n < 8; n++) {
+            const card = app._dockFindCard(ids.cardId).card;
+            const fits = app._cardBoxFits(card);
+            if (!fits.length) break;
+            await app._processorRequest(`/api/processors/${ids.procId}/cards/${ids.cardId}/cvts`,
+                                        'POST', {deviceId: fits[0].id}, 'Add Breakout Box');
+        }
+    }""", ids)
+    page.wait_for_timeout(600)
+    assert btn.count() == 0 and slot.count() == 0
+    # undo, back to where it started
+    while page.evaluate('() => window.app.historyIndex') > start['index']:
+        page.evaluate('() => window.app.undo()')
+        page.wait_for_timeout(250)
+    page.wait_for_timeout(500)
+    assert page.evaluate("(ids) => window.app._dockFindCard(ids.cardId).card.cvts.length", ids) == start['boxes']
+    assert btn.count() == 1
+
+
 def test_a_breakout_box_fills_only_its_own_span(dock_page):
     """The box is a span of card ports; the fill deals around a socket
     already claimed inside the span and never leaves it. A copy/backup box
