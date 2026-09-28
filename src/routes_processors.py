@@ -757,17 +757,30 @@ def add_cvt(processor_id, card_id):
         return jsonify({'error': 'Card not found'}), 404
     data = request.json or {}
     device_id = data.get('deviceId')
+    # The new box's input switch (update_cvt's `inputs`): a CVT4K-S may go
+    # on ONE OPT where only one is free - "+ Box" and the gear's picker
+    # send inputs: 1 then. Absent or null is the nameplate's count.
+    inputs = data.get('inputs')
+    box_device = catalog.get_device(device_id)
+    if inputs is not None and box_device:
+        why = catalog.box_inputs_refusal(box_device, inputs)
+        if why:
+            return jsonify({'error': why}), 400
     # A card has a fixed number of trunks and nothing can add one, so a box
     # with no trunk left is refused rather than drawn and flagged. This is the
     # one place in the feature that blocks instead of reporting: an
     # over-subscribed CARD is a real situation with a real answer, but a box
     # hung on a trunk that does not exist is not a situation at all.
-    ok, why = catalog.can_add_cvt(card, device_id)
+    ok, why = catalog.can_add_cvt(card, device_id, inputs)
     if not ok:
         return jsonify({'error': why}), 400
     cvt = catalog.new_cvt(device_id, _next_seq(), data.get('name', ''))
     if not cvt:
         return jsonify({'error': f'Unknown device: {device_id}'}), 400
+    # Stored only when short of the nameplate: absent means all its inputs.
+    if inputs is not None \
+            and inputs < catalog.trunks_in(box_device):
+        cvt['inputs'] = inputs
     card.setdefault('cvts', []).append(cvt)
     # NOVASTAR'S DEFAULT IS A PAIR: a primary box and a backup box, unit to
     # unit, whenever the card's mode has trunks backing other trunks - and a
@@ -778,13 +791,17 @@ def add_cvt(processor_id, card_id):
     # Brompton pairs the fixed way it pairs, and Megapixel gets no default.
     backup_id = None
     if data.get('pair') is not False and catalog.default_backup_pair(card):
-        ok_backup, _why = catalog.can_add_cvt(card, device_id)
+        ok_backup, _why = catalog.can_add_cvt(card, device_id, inputs)
         if ok_backup:
             backup = catalog.new_cvt(device_id, _next_seq(), '')
             backup['backupOf'] = cvt['id']
+            # The backup is the same box on the same inputs.
+            if 'inputs' in cvt:
+                backup['inputs'] = cvt['inputs']
             card['cvts'].append(backup)
             backup_id = backup['id']
     log_event('processor_cvt_add', {'card': card_id, 'device': device_id,
+                                    'inputs': cvt.get('inputs'),
                                     'backup': backup_id})
     return _state(201)
 
@@ -831,6 +848,35 @@ def update_cvt(processor_id, cvt_id):
     if not cvt:
         return jsonify({'error': 'Breakout box not found'}), 404
     data = request.json or {}
+    # THE BOX'S INPUT SWITCH (owner, 2026-09-26: "A switch on the box"): a
+    # CVT4K-S may run on ONE OPT - "each one only uses one optical port" -
+    # and then carries only that OPT's share, 8 of its 16 (box_trunks_in,
+    # _cvt_port_count). 1 or the nameplate's trunksIn, nothing else; going
+    # back up needs the trunk it gives back, so with none free the edit is
+    # refused before anything is written. Checked first, applied with the
+    # other plain fields below; the links past the new count (OPT 2, OPT 4)
+    # go in _state's settle_fiber, in this same request.
+    inputs = None
+    if 'inputs' in data:
+        box_device = catalog.get_device(cvt.get('deviceId')) or {}
+        inputs = data.get('inputs')
+        why = catalog.box_inputs_refusal(box_device, inputs)
+        if why:
+            return jsonify({'error': why}), 400
+        more = inputs - catalog.box_trunks_in(cvt, box_device)
+        if more > 0:
+            card_device = catalog.get_device(card.get('deviceId')) or {}
+            trunks = card_device.get('trunks') or 0
+            free = trunks - catalog.trunks_used(card)
+            if more > free:
+                name = card_device.get('name', 'This card')
+                word = catalog.box_input_word(box_device)
+                have = (f'all {trunks} trunks on {name} are used'
+                        if free <= 0 else f'{name} has {free} free')
+                return jsonify({'error': (
+                    f'{box_device.get("name", "This box")} on {inputs} '
+                    f'{word} takes {inputs} trunks, and {have}. Free a '
+                    f'trunk first.')}), 400
     # The box's snakes and port home runs, against the sockets IT delivers
     # (2026-09-06). Same door as the card's, same refusals.
     why = _take_cable_store(cvt, data, card.get('id'), cvt_id)
@@ -876,13 +922,23 @@ def update_cvt(processor_id, cvt_id):
             cvt.pop('location', None)
     changed = _apply(cvt, data, ('name', 'portLabelTemplate',
                                  'returnLabelTemplate', 'mode'))
+    if inputs is not None:
+        # Stored only when short of the nameplate: absent is all inputs.
+        box_device = catalog.get_device(cvt.get('deviceId')) or {}
+        if inputs < catalog.trunks_in(box_device):
+            cvt['inputs'] = inputs
+        else:
+            cvt.pop('inputs', None)
+        changed['inputs'] = inputs
     for key in ('fiberType', 'fiberFt', 'location', 'beachId'):
         if key in data:
             changed[key] = cvt.get(key)
     for key in ('snakes', 'portCables'):
         if key in data:
             changed[key] = cvt.get(key)
-    if 'mode' in data:
+    # A box on fewer inputs delivers fewer sockets (16 to 8 on a CVT4K-S):
+    # its port cables past them go, the way a mode change prunes them.
+    if 'mode' in data or inputs is not None:
         catalog.prune_cable_store(cvt, _port_numbers(card.get('id'), cvt_id))
     # Same clearing rule as the card's, for the same reason: a blank hands
     # either template back to what it derives from, and stores nothing.

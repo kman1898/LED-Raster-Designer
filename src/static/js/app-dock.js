@@ -1317,7 +1317,7 @@ class _HardwareDock {
         slot.addEventListener('click', (e) => {
             e.stopPropagation();
             if (fits.length === 1) {
-                this._dockAddBox(card.id, fits[0].id);
+                this._dockAddBox(card.id, fits[0].id, fits[0].addInputs);
                 return;
             }
             this._hwPopoverToggle(slot, `addslot-${card.id}`,
@@ -1347,22 +1347,27 @@ class _HardwareDock {
             item.type = 'button';
             item.className = 'btn hw-dock-addbox-item';
             item.textContent = d.name;
-            item.dataset.lrdField = `dock-addbox-${cardId}-${d.id}`;
-            item.addEventListener('click', () => this._dockAddBox(cardId, d.id));
+            item.dataset.lrdField = `dock-addbox-${cardId}-${d.pickKey || d.id}`;
+            item.addEventListener('click',
+                () => this._dockAddBox(cardId, d.id, d.addInputs));
             wrap.appendChild(item);
         });
         return wrap;
     }
 
-    _dockAddBox(cardId, deviceId) {
+    // `inputs` rides a fit that goes on short of its nameplate - a CVT4K-S
+    // on the one OPT left (_cardBoxFits' addInputs); absent is all of them.
+    _dockAddBox(cardId, deviceId, inputs) {
         const found = this._dockFindCard(cardId);
         if (!found) return;
         if (typeof this._hwPopoverClose === 'function') this._hwPopoverClose();
         // the ⚙'s picker keeps the last pick per card; this is the same pick
-        (this._procCvtPick = this._procCvtPick || {})[cardId] = deviceId;
+        (this._procCvtPick = this._procCvtPick || {})[cardId] =
+            inputs ? `${deviceId}:${inputs}` : deviceId;
         this._processorRequest(
             `/api/processors/${found.proc.id}/cards/${cardId}/cvts`, 'POST',
-            { deviceId }, 'Add Breakout Box');
+            this._boxFitBody({ id: deviceId, addInputs: inputs }),
+            'Add Breakout Box');
     }
 
     // "4 × Tessera XD", or "2 × CVT10 · 1 × CVT4K-S" on a mixed card, in

@@ -351,6 +351,61 @@ def trunks_in(cvt_device):
     return (cvt_device or {}).get('trunksIn') or 1
 
 
+def single_input(cvt_device):
+    """The one-input option a box's catalog entry documents - {ports} - or
+    None. Only a box whose sheet says so gets it (today the CVT4K-S, by the
+    owner's 2026-09-26 ruling: "each one only uses one optical port"); no
+    other box is assumed to run short of its inputs."""
+    opt = (cvt_device or {}).get('singleInput')
+    if not isinstance(opt, dict) or trunks_in(cvt_device) <= 1:
+        return None
+    return opt
+
+
+def box_inputs_allowed(cvt_device):
+    """The input counts a box record may store: its full trunksIn, and 1
+    where the catalog documents the one-input option."""
+    full = trunks_in(cvt_device)
+    return (1, full) if single_input(cvt_device) else (full,)
+
+
+def box_input_word(cvt_device):
+    """What a box's own face calls one input - 'OPT' off a CVT4K-S's
+    'OPT 1' (its linkPorts) - else plain 'input' (an XD's 'X1' names a
+    port, not a word to count by)."""
+    names = ((cvt_device or {}).get('linkPorts') or {}).get('primary') or []
+    hit = re.match(r'^(.*\S)\s+\d+$', str(names[0])) if names else None
+    return hit.group(1) if hit else 'input'
+
+
+def box_inputs_refusal(cvt_device, value):
+    """Why `value` is not an input count this box may store, or ''.
+    1 or the nameplate's trunksIn where the catalog documents one input;
+    the nameplate's count alone everywhere else."""
+    allowed = box_inputs_allowed(cvt_device)
+    if isinstance(value, bool) or not isinstance(value, int) \
+            or value not in allowed:
+        name = (cvt_device or {}).get('name', 'This box')
+        word = box_input_word(cvt_device)
+        return (f'{name} runs on '
+                f'{" or ".join(str(n) for n in allowed)} {word}.')
+    return ''
+
+
+def box_trunks_in(cvt, cvt_device=None):
+    """How many trunks a PLACED box takes: its record's `inputs` switch
+    where the catalog allows one input, else the device's trunksIn. Absent
+    means the full count, so no file saved before the switch changes.
+    trunks_in stays the catalog's meaning - what the box takes by its
+    nameplate."""
+    if cvt_device is None:
+        cvt_device = get_device((cvt or {}).get('deviceId')) or {}
+    n = (cvt or {}).get('inputs')
+    if n == 1 and not isinstance(n, bool) and single_input(cvt_device):
+        return 1
+    return trunks_in(cvt_device)
+
+
 def held_trunk(cvt):
     """The trunk a box record holds, 0-based, or None where it holds none.
     Stamped by hold_box_trunks (a box delete on a box-fed device) and
@@ -378,7 +433,7 @@ def hold_box_trunks(card, resolved_card):
 def trunks_used(card):
     """Trunks already spoken for on one card. Trunks, not boxes - a CVT4K-S is
     two of them, so it fills a two-trunk card on its own."""
-    return sum(trunks_in(get_device(cvt.get('deviceId')))
+    return sum(box_trunks_in(cvt)
                for cvt in (card or {}).get('cvts') or [])
 
 
@@ -435,8 +490,9 @@ def vendor_mismatch(card_device, box_device):
     return bool(card_vendor and box_vendor and card_vendor != box_vendor)
 
 
-def can_add_cvt(card, device_id):
-    """Whether one more box will physically go on this card.
+def can_add_cvt(card, device_id, inputs=None):
+    """Whether one more box will physically go on this card - `inputs` the
+    new box's input switch (box_trunks_in), None for its full trunksIn.
 
     A card has a fixed number of trunks and there is no way round it: a
     16xRJ45+2xfiber has two, so two CVT10s fill it and so does one CVT4K-S. A
@@ -480,7 +536,7 @@ def can_add_cvt(card, device_id):
         return False, (f'{box.get("name", device_id)} hangs off a {box_rate} '
                        f'trunk and the OPTs on {name} are {card_rate} - the '
                        f'rates must match.')
-    need = trunks_in(box)
+    need = box_trunks_in({'inputs': inputs}, box)
     free = trunks - trunks_used(card)
     if need > free:
         if free <= 0:
@@ -521,10 +577,15 @@ def _fills_the_card(card_device, ceiling):
     return out
 
 
-def _cvt_port_count(cvt_device, card_device):
+def _cvt_port_count(cvt_device, card_device, takes=None):
     """How many ports actually land on one breakout box:
 
         min(box ports, trunks in x the card's ports per trunk)
+
+    `takes` is the trunks the placed box really takes (box_trunks_in), None
+    for its nameplate. A box on fewer inputs than its nameplate carries
+    only its documented one-input share (single_input - a CVT4K-S on one
+    OPT is 8 of its 16), and never more than that one trunk carries.
 
     A box fans out whatever its trunks carry, so the box's own port count is a
     maximum and not a promise. Both halves of the minimum are load-bearing and
@@ -541,10 +602,19 @@ def _cvt_port_count(cvt_device, card_device):
     count = own['count']
     if count is None:
         return None
-    if cvt_device.get('capAtTrunk'):
-        per_trunk = (card_device or {}).get('portsPerTrunk')
+    full = trunks_in(cvt_device)
+    if takes is None:
+        takes = full
+    per_trunk = (card_device or {}).get('portsPerTrunk')
+    single = single_input(cvt_device) if takes < full else None
+    if single:
+        if single.get('ports'):
+            count = min(count, single['ports'])
         if per_trunk:
-            count = min(count, trunks_in(cvt_device) * per_trunk)
+            count = min(count, takes * per_trunk)
+    if cvt_device.get('capAtTrunk'):
+        if per_trunk:
+            count = min(count, takes * per_trunk)
     return count
 
 
@@ -1372,7 +1442,8 @@ def resolved_show_snakes(project):
 # - An opticalCON DUO is 2 fibers and a QUAD 4, and each is ONE box's:
 #   ownerBoxId names it, and only that box's links (its backup links
 #   included) take its fibers.
-# - A box's links are p1..pK, K = trunks_in (a CVT4K-S takes 2), and
+# - A box's links are p1..pK, K = box_trunks_in (a CVT4K-S takes 2, or 1
+#   switched to one input - OPT 1, its backup on OPT 3), and
 #   b1..bK only where its processor's backup unit feeds it on its
 #   documented backup input (_apply_backup_unit) - named by the box's own
 #   ports, X1 / X2, OPT 1-4 (fiber_link_title). A link takes 2 strands, 1
@@ -2685,7 +2756,7 @@ def resolve_card(card, proc):
     held = {}
     for cvt in card.get('cvts') or []:
         want = held_trunk(cvt)
-        takes = trunks_in(get_device(cvt.get('deviceId')) or {})
+        takes = box_trunks_in(cvt)
         if want is None or want + takes > trunks:
             continue
         run = range(want, want + takes)
@@ -2695,8 +2766,10 @@ def resolve_card(card, proc):
         held[cvt.get('id')] = want
     for cvt in card.get('cvts') or []:
         cvt_device = get_device(cvt.get('deviceId')) or {}
-        size = _cvt_port_count(cvt_device, device)
-        takes = trunks_in(cvt_device)
+        # What this box really takes - one OPT for a CVT4K-S switched to
+        # one input - and so what it really delivers.
+        takes = box_trunks_in(cvt, cvt_device)
+        size = _cvt_port_count(cvt_device, device, takes)
         used_trunks += takes
         # A box created as another box's BACKUP sits on the trunk that
         # duplicates its primary's - OPT 3 for a primary on OPT 1 - rather
@@ -2747,6 +2820,12 @@ def resolve_card(card, proc):
             'firstPort': first,
             'trunkIndex': index,
             'trunksIn': takes,
+            # The box's input switch (update_cvt's `inputs`): offered only
+            # where the catalog documents one input (singleInput), with
+            # the nameplate count beside it for the gear's other segment.
+            'singleInput': bool(single_input(cvt_device)),
+            'inputsFull': trunks_in(cvt_device),
+            'inputWord': box_input_word(cvt_device),
             'trunkBlock': block,
             # A second delivery of ports an earlier box already carries: OPT 3
             # backing up OPT 1, or a copy OPT mirroring the card's own copper.

@@ -1210,7 +1210,7 @@ def test_a_breakout_box_goes_on_from_the_card_row(dock_page):
             const fits = app._cardBoxFits(card);
             if (!fits.length) break;
             await app._processorRequest(`/api/processors/${ids.procId}/cards/${ids.cardId}/cvts`,
-                                        'POST', {deviceId: fits[0].id}, 'Add Breakout Box');
+                                        'POST', app._boxFitBody(fits[0]), 'Add Breakout Box');
         }
     }""", ids)
     page.wait_for_timeout(600)

@@ -5213,6 +5213,10 @@ def test_the_picker_keeps_its_pick_until_the_pick_stops_fitting(panel_page):
     assert out, 'the picker went away with a trunk still free'
     assert out['value'] == '', out
     assert 'novastar-cvt4k-s' not in out['ids'], out
+    # ...though a CVT4K-S on ONE OPT (owner, 2026-09-26) still goes on the
+    # trunk that is left - a different offer, under its own key, so the
+    # 2-OPT pick did not stay chosen as it.
+    assert 'novastar-cvt4k-s:1' in out['ids'], out
     assert 'novastar-cvt10' in out['ids'], out
     assert out['addDisabled'] is False, out
     page.keyboard.press('Escape')

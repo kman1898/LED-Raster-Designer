@@ -1010,14 +1010,47 @@ class _Processors {
     // the name, which edits inline on the card's dock header.
     // The breakout boxes that FIT a card's free trunks - the gear's picker
     // and the tray's "+ Box" read this one list (reasons at the picker).
+    // A box whose catalog entry documents ONE input (singleInput - the
+    // CVT4K-S, owner 2026-09-26: "each one only uses one optical port")
+    // still fits where fewer trunks are free than its nameplate takes, as
+    // long as one is: it is offered as "CVT4K-S (1 OPT)" and goes on with
+    // inputs: 1. Each fit is the catalog device, or a copy of it carrying
+    // `addInputs` and its own `pickKey` - so a remembered 2-OPT pick never
+    // passes for the 1-OPT offer.
     _cardBoxFits(card) {
         if (!card || !card.trunks) return [];
         return this._processorDevices('cvt')
-            .filter(d => (d.trunksIn || 1) <= card.trunksFree)
             .filter(d => !d.trunkRate || !card.trunkRate
                          || d.trunkRate === card.trunkRate)
             .filter(d => !d.vendor || !card.vendor
-                         || d.vendor === card.vendor);
+                         || d.vendor === card.vendor)
+            .map(d => {
+                if ((d.trunksIn || 1) <= card.trunksFree) return d;
+                if (d.singleInput && card.trunksFree >= 1) {
+                    return Object.assign({}, d, {
+                        name: `${d.name} (1 ${this._boxInputWord(d)})`,
+                        addInputs: 1,
+                        pickKey: `${d.id}:1`,
+                    });
+                }
+                return null;
+            })
+            .filter(Boolean);
+    }
+
+    // What a box's face calls one input - 'OPT' off its linkPorts' 'OPT 1'
+    // - else 'input'. The server's box_input_word, for catalog devices.
+    _boxInputWord(d) {
+        const first = (((d && d.linkPorts) || {}).primary || [])[0];
+        const hit = /^(.*\S)\s+\d+$/.exec(String(first || ''));
+        return hit ? hit[1] : 'input';
+    }
+
+    // The POST body that adds one fit from _cardBoxFits.
+    _boxFitBody(fit) {
+        const body = { deviceId: fit.id };
+        if (fit.addInputs) body.inputs = fit.addInputs;
+        return body;
     }
 
     _buildCardGearContent(proc, card) {
@@ -1141,11 +1174,15 @@ class _Processors {
             // identical box is then one click. Only while it still FITS:
             // once its trunks are gone the picker falls back to its
             // placeholder rather than showing something it cannot add.
+            // Keyed by each fit's pickKey where it has one (a CVT4K-S on one
+            // OPT), so a 2-OPT pick does not stay chosen as the 1-OPT offer.
             const picks = (this._procCvtPick = this._procCvtPick || {});
-            const held = fits.some(d => d.id === picks[card.id])
+            const keyOf = d => d.pickKey || d.id;
+            const held = fits.some(d => keyOf(d) === picks[card.id])
                 ? picks[card.id] : '';
-            const picker = this._buildDeviceSelect(fits, held,
-                                                   'Add a breakout box...');
+            const picker = this._buildDeviceSelect(
+                fits.map(d => Object.assign({}, d, { id: keyOf(d) })), held,
+                'Add a breakout box...');
             picker.dataset.lrdField = `processor-cvt-add-${card.id}`;
             picker.addEventListener('change', () => {
                 picks[card.id] = picker.value;
@@ -1156,11 +1193,12 @@ class _Processors {
             btn.style.padding = '6px 12px';
             btn.disabled = !fits.length;
             btn.addEventListener('click', () => {
-                if (!picker.value) return;
+                const fit = fits.find(d => keyOf(d) === picker.value);
+                if (!fit) return;
                 picks[card.id] = picker.value;
                 this._processorRequest(
                     `/api/processors/${proc.id}/cards/${card.id}/cvts`, 'POST',
-                    { deviceId: picker.value }, 'Add Breakout Box');
+                    this._boxFitBody(fit), 'Add Breakout Box');
             });
             if (fits.length) {
                 row.appendChild(picker);
@@ -1244,6 +1282,54 @@ class _Processors {
         return wrap;
     }
 
+    // THE BOX'S INPUT SWITCH (owner, 2026-09-26: "A switch on the box"):
+    // INPUTS, 1 OPT · 2 OPT, in the backup-processor bar's recipe - only on
+    // a box whose catalog entry documents one input (the CVT4K-S). One OPT
+    // carries that OPT's share, 8 of the 16 outputs; the links past it
+    // (OPT 2, OPT 4) go with the same request. Going back to 2 needs a free
+    // trunk, and with none the server says which card is full. One PUT,
+    // one 'Set Box Inputs' entry.
+    _buildBoxInputsStrip(proc, cvt) {
+        const strip = document.createElement('div');
+        strip.className = 'hw-pop-red-strip hw-pop-box-inputs';
+        strip.style.marginTop = '6px';
+        const cap = document.createElement('span');
+        cap.className = 'hw-pop-red-cap';
+        cap.textContent = 'INPUTS';
+        cap.title = 'How many optical inputs this box runs on.';
+        strip.appendChild(cap);
+        const bar = document.createElement('div');
+        bar.className = 'hw-pop-seg';
+        bar.setAttribute('role', 'radiogroup');
+        bar.setAttribute('aria-label', 'Inputs');
+        bar.dataset.lrdField = `processor-cvt-inputs-${cvt.id}`;
+        const word = cvt.inputWord || 'input';
+        const full = cvt.inputsFull || 2;
+        const now = cvt.trunksIn || full;
+        [[1, `One ${word}: this box delivers only that ${word}'s ports.`],
+         [full, `${full} ${word}: this box delivers all its ports.`]]
+            .forEach(([n, tip]) => {
+                const lit = n === now;
+                const seg = document.createElement('button');
+                seg.type = 'button';
+                seg.className = 'hw-pop-seg-btn' + (lit ? ' hw-pop-seg-on' : '');
+                seg.setAttribute('role', 'radio');
+                seg.setAttribute('aria-checked', lit ? 'true' : 'false');
+                seg.dataset.level = String(n);
+                seg.textContent = `${n} ${word}`;
+                seg.title = tip;
+                seg.addEventListener('click', () => {
+                    if (lit) return;
+                    this._processorRequest(
+                        `/api/processors/${proc.id}/cvts/${cvt.id}`, 'PUT',
+                        { inputs: n }, 'Set Box Inputs');
+                });
+                bar.appendChild(seg);
+            });
+        strip.appendChild(bar);
+        return strip;
+    }
+
     // The breakout box's gear: its templates, its facts, its removal. The
     // name edits inline on the box's dock header.
     _buildBoxGearContent(proc, card, cvt) {
@@ -1316,6 +1402,8 @@ class _Processors {
             cell.style.flex = '1 1 110px';
         });
         wrap.appendChild(place);
+
+        if (cvt.singleInput) wrap.appendChild(this._buildBoxInputsStrip(proc, cvt));
 
         const info = document.createElement('div');
         info.style.fontSize = '11px';
