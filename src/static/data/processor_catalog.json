@@ -589,6 +589,8 @@
       "form": "all-in-one",
       "family": "brompton",
       "trunks": 4,
+      "trunkRate": "10G",
+      "trunkRateNote": "Its trunks are 10G (8 physical 10G connectors). The QD-S takes a 100G input, so it never hangs off an SX40 - owner, 2026-09-28: \"the QDs from brompton is only used to connect the SQ200 the newest processor they have to the XD boxes\".",
       "portsPerTrunk": 10,
       "requiresDistribution": true,
       "defaultCvt": "brompton-xd",
@@ -699,6 +701,8 @@
       "kind": "cvt",
       "family": "brompton",
       "capAtTrunk": false,
+      "trunkRate": "100G",
+      "trunkRateNote": "Owner, 2026-09-28: \"the QDs from brompton is only used to connect the SQ200 the newest processor they have to the XD boxes. it has 100G ports and 10G ports to connect to the XD trunks\". Its input is 100G, so it hangs off no 10G trunk.",
       "portRate": "10G",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 12}]},
       "note": "100G in, 12x 10G out. Those twelve are 10G trunks, not 1G fixture ports."

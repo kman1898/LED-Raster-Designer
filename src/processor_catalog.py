@@ -534,7 +534,7 @@ def can_add_cvt(card, device_id, inputs=None):
     box_rate = box.get('trunkRate')
     if card_rate and box_rate and card_rate != box_rate:
         return False, (f'{box.get("name", device_id)} hangs off a {box_rate} '
-                       f'trunk and the OPTs on {name} are {card_rate} - the '
+                       f'trunk and the trunks on {name} are {card_rate} - the '
                        f'rates must match.')
     need = box_trunks_in({'inputs': inputs}, box)
     free = trunks - trunks_used(card)

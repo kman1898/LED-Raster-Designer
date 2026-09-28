@@ -84,6 +84,9 @@ FIXES
   one trunk, so a NovaPro UHD Jr takes four of them (OPT 1 ports 1-8, OPT
   2 ports 9-16, OPT 3 and 4 their copies) and a VX1000 takes one. + Box
   offers "CVT4K-S (1 OPT)" when only one trunk is free.
+- FIX: A Tessera QD-S is no longer offered on an SX40. The QD-S takes a
+  100G input and connects the SQ200 to XD boxes; the SX40's trunks are
+  10G, so its box list is the XD, XD-S and XD-T.
 - FIX: A data sheet's Ports table puts each port and its backup on one
   row. The table is two halves, PRIMARY and BACKUP, each with its own
   port, output and home run, and each box's name and fiber over its own

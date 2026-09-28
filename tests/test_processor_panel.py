@@ -281,6 +281,23 @@ def test_a_documented_10g_opt_device_accepts_a_box(device_id, trunks,
     assert '40G' in why and '10G' in why, why
 
 
+def test_the_qd_s_never_hangs_off_an_sx40():
+    """"the QDs from brompton is only used to connect the SQ200 the newest
+    processor they have to the XD boxes. it has 100G ports and 10G ports to
+    connect to the XD trunks" (owner, 2026-09-28). The SX40's trunks are
+    10G and the QD-S takes a 100G input, so the rate rule refuses it - with
+    both rates in the reason - while every XD still goes on."""
+    assert catalog.get_device('brompton-sx40')['trunkRate'] == '10G'
+    assert catalog.get_device('brompton-qd-s')['trunkRate'] == '100G'
+    card = catalog.new_card('brompton-sx40', 'sweep', fixed=True)
+    ok, why = catalog.can_add_cvt(card, 'brompton-qd-s')
+    assert not ok and '100G' in why and '10G' in why, why
+    assert 'OPT' not in why, why
+    for box in ('brompton-xd', 'brompton-xd-s', 'brompton-xd-t'):
+        ok, why = catalog.can_add_cvt(card, box)
+        assert ok, (box, why)
+
+
 @pytest.mark.parametrize('device_id,trunks,per_trunk,delivery',
                          NOVASTAR_40G_TRUNKS)
 def test_a_documented_40g_opt_device_takes_only_the_cvt8_5g(device_id, trunks,
