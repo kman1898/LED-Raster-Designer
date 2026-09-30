@@ -2965,10 +2965,10 @@ class _HardwareDock {
                     && layer.customPortPaths) {
                 Object.keys(layer.customPortPaths).forEach(numStr => {
                     const n = parseInt(numStr, 10);
-                    byPort.set(n, (layer.customPortPaths[numStr] || [])
-                        .map(pos => (layer.panels || []).find(
-                            p => p.row === pos.row && p.col === pos.col))
-                        .filter(p => p && !p.hidden));
+                    // each step on the screen it names (group peers too)
+                    byPort.set(n, this.getResolvedPathPanels(
+                        layer, layer.customPortPaths[numStr] || [])
+                        .map(r => r.panel));
                 });
             } else {
                 const items =

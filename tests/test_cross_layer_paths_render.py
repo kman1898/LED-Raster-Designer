@@ -411,6 +411,38 @@ def test_a_port_crossing_into_a_peer_draws_one_continuous_line(page):
     assert all(s['x2'] != B00_PROC[0] for s in segs), segs
 
 
+def test_a_card_dropped_on_a_peer_lands_on_the_owners_crossing_port(page):
+    """"groups need to be 1 screen remember?" (owner, 2026-09-30): a card
+    dropped on a group member that carries no path of its own said "That
+    screen needs no ports". A group routed as one screen keeps every path
+    on one member, stepping into the others, and the dock read a step's
+    row/col on the OWNER alone - so a peer's cabinet was nobody's run, and
+    the owner's cabinet at the same row/col was claimed twice. Every step
+    is now resolved on the screen it names: B's cabinet is A's port 1, and
+    the dock's run for that port holds exactly the three cabinets drawn."""
+    out = _run(page, """
+        A.flowPattern = 'custom';
+        A.customPortPaths = { 1: [{row: 0, col: 1}, {row: 0, col: 0, layerId: 2}] };
+        B.flowPattern = 'custom';
+        B.customPortPaths = {};
+        const app = window.app;
+        const map = app._dockBuildDataMap();
+        const at = (L, row, col) => {
+            const p = L.panels.find(q => q.row === row && q.col === col);
+            const r = map.get(p);
+            return r ? [r.ownerId, r.portNum] : null;
+        };
+        app._dockRunPanelsCache = null;
+        const run = app._dockRunPanels(A, 1).map(p =>
+            [A.panels.includes(p) ? 'A' : 'B', p.row, p.col]);
+        return { b00: at(B, 0, 0), a01: at(A, 0, 1), a00: at(A, 0, 0), run };
+    """)
+    assert out['b00'] == [1, 1], out      # B's cabinet: A's (id 1) port 1
+    assert out['a01'] == [1, 1], out
+    assert out['a00'] is None, out        # A's own (0,0) is on no port
+    assert out['run'] == [['A', 0, 1], ['B', 0, 0]], out
+
+
 def test_a_crossing_power_circuit_draws_the_same_way(page):
     """Power is a second, independent copy of the same branch - it has to be
     asserted separately or it can drift out of step with data flow."""

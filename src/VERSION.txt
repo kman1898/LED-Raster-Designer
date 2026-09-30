@@ -93,6 +93,10 @@ to the box, picking the strands, and the power jumper lengths.
 
 FIXES
 
+- FIX: A card or box dragged from the hardware tray onto any screen of a
+  group routed as one screen lands on the group's ports. When the group's
+  custom paths were drawn from one member, a drop on another member said
+  "That screen needs no ports" and nothing could be mapped.
 - FIX: A breakout box goes on from the hardware tray itself: "+ Box" on
   the card row lists the boxes that fit the free trunks, and a dashed
   row under the card's boxes adds the next one. Both show how many

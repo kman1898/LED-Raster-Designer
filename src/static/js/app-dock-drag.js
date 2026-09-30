@@ -985,16 +985,18 @@ class _DockDrag {
             if (layer.visible === false) continue;
             if ((layer.flowPattern || 'tl-h') === 'custom'
                     && layer.customPortPaths) {
+                // Each step resolved on the screen it names (its
+                // `layerId`): a group routed as one screen keeps every
+                // path on one member, stepping through the others, and a
+                // row/col looked up on the owner alone put the peers'
+                // cabinets on nobody's run (2026-09-30: a card dropped on
+                // a peer said "That screen needs no ports").
                 Object.keys(layer.customPortPaths).forEach(numStr => {
                     const num = parseInt(numStr, 10);
-                    (layer.customPortPaths[numStr] || []).forEach(pos => {
-                        const panel = (layer.panels || []).find(
-                            p => p.row === pos.row && p.col === pos.col);
-                        if (panel && !panel.hidden) {
-                            map.set(panel,
-                                    { ownerId: layer.id, portNum: num });
-                        }
-                    });
+                    this.getResolvedPathPanels(
+                        layer, layer.customPortPaths[numStr] || [])
+                        .forEach(r => map.set(r.panel,
+                                              { ownerId: layer.id, portNum: num }));
                 });
                 continue;
             }
