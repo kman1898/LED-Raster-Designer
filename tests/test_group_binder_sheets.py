@@ -504,3 +504,103 @@ def test_the_pull_sheet_follows_each_side(page):
     assert texts[i + 3] == '—' and texts[i + 4] != '—', texts[i:i + 6]
     assert texts[li + 3] != '—' and texts[li + 4] == '—', texts[li:li + 6]
     assert not errors, errors
+
+
+# ── A group is one pull-sheet section; its jumpers per member ──────────────
+# Owner, 2026-10-01: "So the jumpers should go on the beach they are on on
+# the pull sheet and the group screens should be in the same section so i
+# would think together".
+
+BEACH_JS = """([ids, lBeach, rBeach]) => {
+    const app = window.app;
+    const L = app.project.layers.find(l => l.id === ids.l);
+    const R = app.project.layers.find(l => l.id === ids.r);
+    const keep = { beaches: app.project.beaches, l: L.beachId, r: R.beachId };
+    app.project.beaches = [{ id: 'bx1', name: 'BX1' }, { id: 'bx2', name: 'BX2' }];
+    L.beachId = lBeach; R.beachId = rBeach;
+    try {
+        const list = app.buildPullList();
+        return {
+            positions: list.positions.map(p => ({ name: p.name, key: p.key, memberIds: p.memberIds })),
+            shown: [L, R].map(l => app.screenBeachId(l)),
+        };
+    } finally {
+        app.project.beaches = keep.beaches; L.beachId = keep.l; R.beachId = keep.r;
+    }
+}"""
+
+
+def test_a_group_is_one_section_on_its_first_members_beach(page):
+    """The group's section is the beach of its first member (group order)
+    that is on one; every member follows it there, none dropped or printed
+    twice; no member on a beach, the group keeps its own position."""
+    pg, ids, errors = page
+    both = sorted([ids['l'], ids['r']])
+    out = pg.evaluate(BEACH_JS, [ids, None, 'bx2'])
+    sections = {p['name']: sorted(p['memberIds']) for p in out['positions']}
+    assert sections.get('BX2') == both, out
+    assert out['shown'] == ['bx2', 'bx2'], out
+    out = pg.evaluate(BEACH_JS, [ids, 'bx1', 'bx2'])
+    sections = {p['name']: sorted(p['memberIds']) for p in out['positions']}
+    assert sections.get('BX1') == both and 'BX2' not in sections, out
+    assert out['shown'] == ['bx1', 'bx1'], out
+    members = [m for p in out['positions'] for m in p['memberIds']]
+    assert sorted(m for m in members if m in both) == both, out
+    out = pg.evaluate(BEACH_JS, [ids, None, None])
+    wall = [p for p in out['positions'] if p['key'] == 'g1']
+    assert len(wall) == 1 and sorted(wall[0]['memberIds']) == both, out
+    assert not errors, errors
+
+
+def test_a_beach_picked_on_a_member_is_the_walls(page):
+    """A pick on one member is the group's: its peer takes it in the same
+    edit (beachId is a shared field)."""
+    pg, ids, errors = page
+    out = pg.evaluate("""(ids) => {
+        const app = window.app;
+        const L = app.project.layers.find(l => l.id === ids.l);
+        const R = app.project.layers.find(l => l.id === ids.r);
+        const keep = { l: L.beachId, r: R.beachId, sel: [...(app.selectedLayerIds || [])] };
+        try {
+            app.setSelectedLayersByIds([L.id], L.id);
+            app.applyToSelectedLayers(l => { l.beachId = 'bx1'; });
+            return { l: L.beachId, r: R.beachId };
+        } finally {
+            if (app._pendingGroupPeerIds) app._pendingGroupPeerIds.clear();
+            L.beachId = keep.l; R.beachId = keep.r;
+            app.setSelectedLayersByIds(keep.sel);
+        }
+    }""", ids)
+    assert out == {'l': 'bx1', 'r': 'bx1'}, out
+    assert not errors, errors
+
+
+def test_a_groups_jumpers_are_a_row_per_member_counted_once(page):
+    """In the group's section each member's jumpers are their own row,
+    labelled by the screen they sit on; a jumper joining the two walls is
+    counted once, on its first cabinet's screen; the totals still read
+    every jumper once."""
+    pg, ids, errors = page
+    out = pg.evaluate("""(ids) => {
+        const app = window.app;
+        const list = app.buildPullList();
+        const wall = list.positions.find(p => p.key === 'g1');
+        const jumps = (rows) => rows.filter(r => r.type === 'Data Jump');
+        return {
+            rows: jumps(wall.rows).map(r => [r.length, r.qty, r.label, r.split || null]),
+            total: jumps(list.totals).reduce((a, r) => a + r.qty, 0),
+            totalRows: jumps(list.totals).length,
+            links: [ids.l, ids.r].reduce((a, id) => a + list.byScreen[id].jumpers.data, 0),
+            listed: list.positions.reduce((a, p) => a + jumps(p.rows).reduce((b, r) => b + r.qty, 0), 0),
+            keys: jumps(wall.rows).map(r => app.pullRowKey(r)),
+        };
+    }""", ids)
+    labels = sorted({r[2] for r in out['rows']})
+    assert labels == ['WALL-L', 'WALL-R'], out
+    assert all(r[2] == r[3] for r in out['rows']), out
+    assert sum(r[1] for r in out['rows']) == out['links'] > 0, out
+    assert out['listed'] == out['total'], out
+    assert len(set(out['keys'])) == len(out['keys']), out
+    # the totals fold the members back into one row per length
+    assert out['totalRows'] == len({r[0] for r in out['rows']}), out
+    assert not errors, errors

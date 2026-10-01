@@ -263,8 +263,11 @@ class _Beaches {
         if (under && under.closest && under.closest('#hardware-dock')) return null;
         const screens = this.getSelectedScreenLayers();
         if (!screens.length) return null;
-        const first = screens[0].beachId || null;
-        const same = screens.every(l => (l.beachId || null) === first);
+        // where each screen IS pulled (a group member rides its group's
+        // beach - screenBeachId), not only what was picked on it
+        const at = (l) => (typeof this.screenBeachId === 'function' ? this.screenBeachId(l) : l.beachId) || null;
+        const first = at(screens[0]);
+        const same = screens.every(l => at(l) === first);
         const entries = this.getBeaches().map(b => ({
             label: b.name || b.id,
             checked: same && first === b.id,
@@ -313,8 +316,10 @@ class _Beaches {
         const select = document.getElementById('layer-beach');
         if (!select) return;
         const list = Array.isArray(layers) ? layers : [];
-        const first = list.length ? (list[0].beachId || null) : null;
-        const mixed = list.some(l => (l.beachId || null) !== first);
+        // a group member shows the beach its group is pulled to
+        const at = (l) => (typeof this.screenBeachId === 'function' ? this.screenBeachId(l) : l.beachId) || null;
+        const first = list.length ? at(list[0]) : null;
+        const mixed = list.some(l => at(l) !== first);
         this.fillBeachPicker(select, first, mixed);
     }
 
@@ -330,7 +335,12 @@ class _Beaches {
         const beaches = this.getBeaches();
         const counts = new Map();
         const bump = (id) => { if (id) counts.set(id, (counts.get(id) || 0) + 1); };
-        for (const l of ((this.project && this.project.layers) || [])) bump(l && l.beachId);
+        // a screen counts on the beach it is pulled to - a group member on
+        // its group's (screenBeachId, 2026-10-01)
+        for (const l of ((this.project && this.project.layers) || [])) {
+            if (!l || (l.type || 'screen') !== 'screen') { bump(l && l.beachId); continue; }
+            bump(typeof this.screenBeachId === 'function' ? this.screenBeachId(l) : l.beachId);
+        }
         for (const d of (typeof this.getDistros === 'function' ? this.getDistros() : [])) bump(d && d.beachId);
         for (const proc of ((this.project && this.project.processors) || [])) {
             for (const slot of (proc && proc.slots) || []) {

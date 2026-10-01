@@ -559,14 +559,18 @@ def test_the_distro_picker_pulls_the_power_rows_to_its_beach(page):
     for row in [('12 way', 'EA', 1, 'SR', ''), ('Multi', "100'", 1, 'SR 2', ''), ('Multi', "125'", 1, 'SR 1', ''),
                 ('Tru-1 Breakout', 'EA', 2, 'SR 1-2', '')]:
         assert row in sl_rows, (row, sl_rows)
-    # the walls' power jumpers merged with CENTER's and LEFT's own, at SL -
-    # one row per length (2026-09-25): WALL-A's 1' / 2', CENTER's 3', and
-    # WALL-B's ten 6' with LEFT's three (a 2 x 2 at the preferences' 6')
+    # the walls' power jumpers beside CENTER's and LEFT's own, at SL - one
+    # row per length (2026-09-25): WALL-A's 1' / 2', CENTER's 3', LEFT's
+    # three 6' (a 2 x 2 at the preferences' 6'). WALL-A and WALL-B are a
+    # GROUP, so their jumpers are said per member, each under the screen it
+    # sits on (2026-10-01: "the jumpers should go on the beach they are on")
+    # - WALL-B's ten 6' its own row, no longer folded into LEFT's
     jumps = [r for r in sl_rows if r[0] == 'Tru-1 Power Jump']
     assert jumps == [('Tru-1 Power Jump', "1'", 9, 'WALL-A', ''),
                      ('Tru-1 Power Jump', "2'", 1, 'WALL-A', ''),
                      ('Tru-1 Power Jump', "3'", 12, 'CENTER', ''),
-                     ('Tru-1 Power Jump', "6'", 13, 'WALL-B, LEFT', '')], sl_rows
+                     ('Tru-1 Power Jump', "6'", 10, 'WALL-B', ''),
+                     ('Tru-1 Power Jump', "6'", 3, 'LEFT', '')], sl_rows
     assert not [r for r in _rows(pos['SR']['rows']) if r[0] in ('12 way', 'Multi', 'Tru-1 Breakout')]
     assert ('Ether-con Snake', "100'", 1, 'SNAKE A', '2 channel') in _rows(pos['SR']['rows'])
     assert set(pos['SL']['layerIds']) >= {ids['a'], ids['b'], ids['c']}

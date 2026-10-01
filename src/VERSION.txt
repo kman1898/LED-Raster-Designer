@@ -102,7 +102,10 @@ FIXES
   by screen, each sheet lists its own cables and the ports and circuits
   that land on it, and a run that crosses into another screen is on both
   sheets, marked "also on", though the pull sheet counts it once. The
-  pull sheet's power and data lines each follow their own tab.
+  pull sheet's power and data lines each follow their own tab. A group
+  is always one section of the pull sheet, on the beach of its first
+  screen that is on one, and its jumpers are listed by the screen they
+  sit on: "Data Jump 2' 115 USC SR" and "110 USC SL".
 - FIX: A bare MX40 Pro is 20 ports, its RJ45s. In 40-port mode ports 21
   to 40 come only through breakout boxes on OPT 3 and 4, so the unit
   reaches 30 with a third box and 40 with a fourth. Its halves backup

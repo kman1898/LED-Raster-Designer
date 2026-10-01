@@ -94,7 +94,10 @@
 //     have no beach). A screen GROUP named like a beach folds INTO that
 //     beach's position (its members with no beachId count as on it), so
 //     the earlier "groups are beaches" files keep working; any other group
-//     is a position of its own as before. Position keys: `beach:<id>`,
+//     is a position of its own as before. A group is always ONE position
+//     (2026-10-01): its members all stand on the beach of its first member
+//     that is on one (screenBeachId), and its jumpers are a row per member
+//     under the screen they sit on. Position keys: `beach:<id>`,
 //     the group id, `layer:<id>`. The free-text `location` the ⚙ fields
 //     used to carry is migrated on load into a beach of that name
 //     (app.py _normalize_beaches); pullLocationOf still reads a leftover
@@ -369,15 +372,21 @@ class _PullList {
     }
 
     // Merge rows sharing (type, length): quantities add, labels and notes
-    // union in first-seen order. Output is sorted.
-    _pullMergeRows(rows) {
+    // union in first-seen order. Output is sorted. With `keepSplit` a row
+    // carrying `split` (a group member's jumpers, one row per member on the
+    // group's pull sheet) merges only with rows of the same split, and keeps
+    // it; without, every row of a type and length folds into one - the
+    // totals, and a screen's own reading.
+    _pullMergeRows(rows, keepSplit = false) {
         const byKey = new Map();
         for (const r of rows) {
             if (!r || !r.type) continue;
-            const key = `${r.type}\u0000${r.length}`;
+            const split = keepSplit && r.split ? r.split : '';
+            const key = `${r.type}\u0000${r.length}\u0000${split}`;
             let hit = byKey.get(key);
             if (!hit) {
                 hit = { type: r.type, length: r.length, qty: 0, _labels: [], _notes: [] };
+                if (split) hit.split = split;
                 byKey.set(key, hit);
             }
             hit.qty += Number(r.qty) || 0;
@@ -396,6 +405,7 @@ class _PullList {
                 label: this._pullCompressNames(r._labels),
                 notes: r._notes.join('; '),
                 side: r.side || 'power',
+                ...(r.split ? { split: r.split } : {}),
                 _labels: r._labels, _notes: r._notes,
             })));
     }
@@ -460,25 +470,9 @@ class _PullList {
         const screens = this._pullScreens();
         const beaches = (typeof this.getBeaches === 'function')
             ? this.getBeaches() : ((this.project && this.project.beaches) || []).filter(b => b && b.id);
-        const beachIds = new Set(beaches.map(b => b.id));
-        const beachByNorm = new Map();
-        for (const b of beaches) {
-            const norm = String(b.name == null ? '' : b.name).trim().toLowerCase();
-            if (norm && !beachByNorm.has(norm)) beachByNorm.set(norm, b.id);
-        }
         const groupOf = (layer) => (typeof this.getGroupOfLayer === 'function')
             ? this.getGroupOfLayer(layer) : null;
-        // The beach a screen is on: its own pick first, else its group's name
-        // when a beach is called that (the "groups are beaches" files).
-        const beachOf = (layer) => {
-            if (layer.beachId && beachIds.has(layer.beachId)) return layer.beachId;
-            const group = groupOf(layer);
-            if (group) {
-                const norm = String(group.name == null ? '' : group.name).trim().toLowerCase();
-                if (norm && beachByNorm.has(norm)) return beachByNorm.get(norm);
-            }
-            return null;
-        };
+        const beachOf = this._pullBeachResolver();
         for (const beach of beaches) {
             const name = String(beach.name == null ? '' : beach.name).trim() || beach.id;
             out.push({ name, groupId: null, beachId: beach.id, key: `beach:${beach.id}`,
@@ -503,6 +497,58 @@ class _PullList {
             }
         }
         return out;
+    }
+
+    // The beach a screen is pulled to (null: none) - what pullPositions,
+    // the Beaches line's counts and the Screen Info picker all read.
+    screenBeachId(layer) {
+        return layer ? this._pullBeachResolver()(layer) : null;
+    }
+
+    // The beach of a screen, as a function over one reading of the beaches.
+    // A screen's own pick first, else its group's name when a beach is
+    // called that (the "groups are beaches" files). A screen GROUP is ONE
+    // position (owner, 2026-10-01: "the group screens should be in the same
+    // section so i would think together"): every member is on the beach of
+    // its FIRST member in group order that is on one - by its own pick or
+    // by the group's name - and a group with no member on a beach is a
+    // position of its own. Members once picked onto different beaches all
+    // print on that first one; none is dropped and none printed twice.
+    _pullBeachResolver() {
+        const beaches = (typeof this.getBeaches === 'function')
+            ? this.getBeaches() : ((this.project && this.project.beaches) || []).filter(b => b && b.id);
+        const beachIds = new Set(beaches.map(b => b.id));
+        const beachByNorm = new Map();
+        for (const b of beaches) {
+            const norm = String(b.name == null ? '' : b.name).trim().toLowerCase();
+            if (norm && !beachByNorm.has(norm)) beachByNorm.set(norm, b.id);
+        }
+        const groupOf = (layer) => (typeof this.getGroupOfLayer === 'function')
+            ? this.getGroupOfLayer(layer) : null;
+        const own = (layer, group) => {
+            if (layer.beachId && beachIds.has(layer.beachId)) return layer.beachId;
+            if (group) {
+                const norm = String(group.name == null ? '' : group.name).trim().toLowerCase();
+                if (norm && beachByNorm.has(norm)) return beachByNorm.get(norm);
+            }
+            return null;
+        };
+        const byGroup = new Map();
+        return (layer) => {
+            const group = groupOf(layer);
+            if (!group) return own(layer, null);
+            if (!byGroup.has(group.id)) {
+                const members = (typeof this.getGroupMembers === 'function' ? this.getGroupMembers(group) : [])
+                    .filter(m => m && (m.type || 'screen') === 'screen' && m.visible !== false);
+                let at = null;
+                for (const m of members.length ? members : [layer]) {
+                    at = own(m, group);
+                    if (at) break;
+                }
+                byGroup.set(group.id, at);
+            }
+            return byGroup.get(group.id);
+        };
     }
 
     // ---- per-screen readings -----------------------------------------------
@@ -802,7 +848,7 @@ class _PullList {
 
         // A device location is a position only while rows land on it.
         const listed = positions.filter(p => p.memberIds.length || p.rows.length);
-        listed.forEach(p => { p.rows = this._pullMergeRows(p.rows); });
+        listed.forEach(p => { p.rows = this._pullMergeRows(p.rows, true); });
         const totals = this._pullMergeRows(listed.flatMap(p => p.rows));
         const hardware = [...hardwareRows.values()].map(h => ({
             kind: h.kind, id: h.id, name: h.name, rows: this._pullMergeRows(h.rows),
@@ -811,7 +857,8 @@ class _PullList {
         // cable apart from its data cable; the workbook ignores it. `_at`
         // (where the row was pulled) has done its work.
         const strip = r => ({ type: r.type, length: r.length, qty: r.qty,
-                              label: r.label, notes: r.notes, side: r.side || 'power' });
+                              label: r.label, notes: r.notes, side: r.side || 'power',
+                              ...(r.split ? { split: r.split } : {}) });
         listed.forEach(p => { p.rows = p.rows.map(strip); });
         hardware.forEach(h => { h.rows = h.rows.map(strip); });
         // `rowsOn`: the screen's rows unmerged, each with the screens its
@@ -874,6 +921,12 @@ class _PullList {
             return r;
         };
         const locationOf = (d) => this.pullLocationOf(d);
+        // A grouped screen's jumpers are said per member: each row under
+        // the screen its jumpers sit on (a link joining two members' cabinets
+        // counted once, on its first cabinet's), one row each on the group's
+        // pull sheet (owner, 2026-10-01: "the jumpers should go on the beach
+        // they are on"). An ungrouped screen's are its own, as before.
+        const grouped = typeof this.groupMembersOf === 'function' && this.groupMembersOf(layer).length > 1;
         const out = {
             name: layer.name || '', rows, boxes: [], gangs: { twofer: 0, threefer: 0 },
             // jumpers: how many were counted per side; jumperLengths: the
@@ -892,7 +945,7 @@ class _PullList {
                 out.jumperLengths[side][link.ft] = (out.jumperLengths[side][link.ft] || 0) + 1;
                 const ends = [...new Set([(link.la || layer).id, (link.lb || layer).id])];
                 const key = `${at || ''}\u0000${link.ft}\u0000${ends.join(',')}`;
-                const b = buckets.get(key) || { at, ft: link.ft, n: 0, on: ends };
+                const b = buckets.get(key) || { at, ft: link.ft, n: 0, on: ends, first: link.la || layer };
                 b.n++;
                 buckets.set(key, b);
             }
@@ -992,10 +1045,12 @@ class _PullList {
                 countJumpers('power', run, layers, at, powerJumps);
             }
         }
-        for (const { at, ft, n, on: ends } of powerJumps.values()) {
+        const jumpRow = (name, { at, ft, n, on: ends, first }) => {
             on = ends;
-            row(settings.powerJumpName, this.pullLengthText(ft), n, layer.name, '', at);
-        }
+            const r = row(name, this.pullLengthText(ft), n, grouped ? first.name : layer.name, '', at);
+            if (grouped) r.split = first.name;
+        };
+        for (const b of powerJumps.values()) jumpRow(settings.powerJumpName, b);
 
         // ---- data: port cables, snakes, extensions, backups, jumpers ----
         side = 'data';
@@ -1155,10 +1210,7 @@ class _PullList {
                 walk(bb.cardId, bb.port, label, port.backup);
             }
         }
-        for (const { at, ft, n, on: ends } of dataJumps.values()) {
-            on = ends;
-            row(settings.dataJumpName, this.pullLengthText(ft), n, layer.name, '', at);
-        }
+        for (const b of dataJumps.values()) jumpRow(settings.dataJumpName, b);
         return out;
     }
 
@@ -1185,8 +1237,11 @@ class _PullList {
         return `layer:${id}`;
     }
 
+    // A group member's jumper row (`split`) is keyed with its screen, so an
+    // edit to "Data Jump 2' USC SL" never lands on USC SR's.
     pullRowKey(row) {
-        return `${row && row.type != null ? row.type : ''}|${row && row.length != null ? row.length : ''}`;
+        return `${row && row.type != null ? row.type : ''}|${row && row.length != null ? row.length : ''}`
+            + (row && row.split ? `|${row.split}` : '');
     }
 
     // The stored edits, never the store itself (readers must not mutate).
@@ -1253,6 +1308,8 @@ class _PullList {
     applyPullSheetEdits(list) {
         const edits = this.getPullSheetEdits();
         const out = { ...list, positions: [], totals: (list.totals || []).slice() };
+        // the totals are by type and length, whatever split a row carries
+        const totalKey = (r) => `${r && r.type != null ? r.type : ''}|${r && r.length != null ? r.length : ''}`;
         const touched = new Set();
         const touchedRows = [];
         let any = false;
@@ -1264,7 +1321,7 @@ class _PullList {
                 const e = pe ? pe.rows.find(x => x.key === key) : null;
                 if (!e) { rows.push({ ...r }); continue; }
                 any = true;
-                touched.add(key);
+                touched.add(totalKey(r));
                 if (e.removed) continue;
                 const row = { ...r };
                 const qty = this._pullQtyValue(e.qty);
@@ -1285,18 +1342,18 @@ class _PullList {
                     side: a.side === 'data' || a.side === 'power' ? a.side : this.pullGuessSide(type),
                     added: true,
                 };
-                touched.add(this.pullRowKey(row));
+                touched.add(totalKey(row));
                 rows.push(row);
                 touchedRows.push(row);
             }
             out.positions.push({ ...pos, rows: this._pullSortRows(rows) });
         }
         if (!any) return { ...list, positions: out.positions };
-        const kept = out.totals.filter(t => !touched.has(this.pullRowKey(t)));
+        const kept = out.totals.filter(t => !touched.has(totalKey(t)));
         const rebuilt = new Map();
         for (const pos of out.positions) {
             for (const r of pos.rows) {
-                const key = this.pullRowKey(r);
+                const key = totalKey(r);
                 if (!touched.has(key)) continue;
                 let hit = rebuilt.get(key);
                 if (!hit) {

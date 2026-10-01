@@ -135,6 +135,10 @@ class _ScreenGroups {
             'show_numbers', 'number_size',
             'cabinetIdColor', 'cabinetIdPosition', 'cabinetIdStyle',
             'weight_unit',
+            // The beach: a group is ONE pull-sheet position (2026-10-01:
+            // "the group screens should be in the same section"), so a
+            // beach picked on a member is the wall's
+            'beachId',
         ];
     }
 

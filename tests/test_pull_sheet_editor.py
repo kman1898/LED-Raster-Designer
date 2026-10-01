@@ -269,7 +269,11 @@ def test_the_file_menu_opens_the_editor_laid_out_like_the_workbook(page):
     assert heads == ['Cable Type', 'Length', 'Qty', 'Label', 'Notes', '']
     engine = pg.evaluate(LIST_JS)
     keys = _pos(pg, ids['sr']).locator('tr.pull-row').evaluate_all("els => els.map(e => e.dataset.key)")
-    assert keys == [f"{r['type']}|{r['length']}" for r in engine['positions'][0]['rows']]
+    # a grouped wall's jumper rows are one per member (2026-10-01), keyed
+    # with the screen they sit on so an edit lands on that screen's row
+    assert keys == [f"{r['type']}|{r['length']}" + (f"|{r['split']}" if r.get('split') else '')
+                    for r in engine['positions'][0]['rows']]
+    assert "Data Jump|1'|WALL-A" in keys, keys
     # type and length are readouts, the three others fields
     first = _pos(pg, ids['sr']).locator('tr.pull-row').first
     assert first.locator('td.pull-ro').count() == 2 and first.locator('input').count() == 3
