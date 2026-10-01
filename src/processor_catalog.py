@@ -94,6 +94,19 @@ def is_box_fed(device):
     return bool((device or {}).get('requiresDistribution'))
 
 
+def own_ports(device, mode_id=None):
+    """How many ports a device's chosen mode has on its own face, where
+    the mode's count is reached only with breakout boxes - the MX40 Pro in
+    40-port mode: 20 RJ45s, and 21-40 only through boxes on OPT 3/4. None
+    where every port of the mode is the device's own (every other device).
+    Read off the catalog mode's `ownPorts` and nothing else."""
+    modes = ((device or {}).get('ports') or {}).get('modes') or []
+    chosen = mode_id or ((device or {}).get('ports') or {}).get('defaultMode')
+    mode = next((m for m in modes if m.get('id') == chosen), None)
+    n = (mode or {}).get('ownPorts')
+    return n if isinstance(n, int) and n > 0 else None
+
+
 def box_fed_device_ids():
     """The ids of every catalog processor that is_box_fed - the set the
     rule applies to, taken from the catalog so a test can name the rule
@@ -3160,6 +3173,13 @@ def resolve_card(card, proc):
     # not flagged keeps its own ports exactly as before.
     box_fed = is_box_fed(device)
     top = claimed if box_fed else max(ceiling or 0, claimed)
+    # THE SAME RULE PAST A DEVICE'S OWN PORTS. An MX40 Pro in 40-port mode
+    # has 20 RJ45s of its own; ports 21-40 come out only through breakout
+    # boxes on OPT 3/4 (owner, 2026-09-30: "40 port's o mx40 only works with
+    # breakouts connected. simple mx40 can only do 20 ports"). So past
+    # own_ports a number no box covers is skipped, as on a box-fed card -
+    # a bare MX40 Pro lists 20 sockets, not 40 of which half are nowhere.
+    own = own_ports(device, cap['mode'])
 
     ports = []
     for number in range(1, top + 1):
@@ -3171,7 +3191,7 @@ def resolve_card(card, proc):
                     if c['portCount']
                     and c['firstPort'] <= number < c['firstPort'] + c['portCount']]
         cvt = covering[0] if covering else None
-        if box_fed and cvt is None:
+        if cvt is None and (box_fed or (own and number > own)):
             continue
         local = number - cvt['firstPort'] + 1 if cvt else number
         owner, owner_source = _label_owner(cvt, card, proc)
@@ -3279,7 +3299,18 @@ def resolve_card(card, proc):
     # the count is top; on a box-fed card the enumeration has gaps (A, C
     # and D with B removed is thirty sockets numbered up to 40), so the
     # count is the sockets actually listed.
-    defined = len(ports) if box_fed else top
+    defined = len(ports) if (box_fed or own) else top
+    # The count such a card REACHES: its own ports, or as far as its boxes
+    # deliver past them - 20 on a bare MX40 Pro, 40 with boxes on OPT 3/4.
+    # It is the ceiling the card reports, so the free-socket count and the
+    # halves split read it: a bare MX40 Pro in halves backs 1-10 with
+    # 11-20, where the 40 it was handed put the split at 21 ("that only
+    # works when you have CVTs"). The full mode count stays the block model
+    # above, which is what lays the boxes on their OPTs.
+    reach = ceiling
+    if own and ceiling:
+        reach = min(ceiling, max([own] + [p['number'] for p in ports
+                                          if not p['beyondCeiling']]))
 
     # THE BOX DECIDES WHETHER A CARD REACHES ITS OWN CEILING.
     #
@@ -3336,7 +3367,10 @@ def resolve_card(card, proc):
         'connector': device.get('connector', ''),
         'mode': cap['mode'],
         'modes': (device.get('ports') or {}).get('modes') or [],
-        'ceiling': ceiling,
+        'ceiling': reach,
+        # the mode's whole count, where boxes are what reach it (own_ports)
+        'modeCeiling': ceiling,
+        'ownPorts': own,
         'ceilingKnown': cap['known'],
         'ceilingReason': cap['reason'],
         'trunks': device.get('trunks'),
@@ -3384,7 +3418,7 @@ def resolve_card(card, proc):
         # the ceiling: what they consume is a backup unit, or exactly the
         # ports picked.
         'redundancyShape': dict(shape, usable=_usable_ports(
-            shape, ceiling, device)) if shape else None,
+            shape, reach, device)) if shape else None,
         'redundancyMode': card.get('redundancyMode') or '',
         'backupCardId': card.get('backupCardId') or None,
         'backupPorts': {str(k): v for k, v in

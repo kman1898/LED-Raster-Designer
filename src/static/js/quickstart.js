@@ -171,16 +171,22 @@
     }
     // A spare MAIN socket from 20 up: free, and not claimed by role as
     // another socket's return (under sequential pairing the evens are).
+    // The highest free socket the card actually lists - a bare MX40 Pro is
+    // its 20 RJ45s (2026-09-30), so no fixed range is assumed.
     function sparePinSocket() {
         var c = card();
         if (!c) return 20;
-        for (var n = 20; n <= 40; n++) {
-            var face = $('[data-hwdock="port-' + c.id + '-' + n + '"]');
-            if (!face) continue;
-            var tile = face.closest('.lrd-tile');
+        var prefix = 'port-' + c.id + '-';
+        var nums = $$('[data-hwdock^="' + prefix + '"]')
+            .map(function (f) { return Number(f.getAttribute('data-hwdock').slice(prefix.length)); })
+            .filter(function (n) { return n > 0; })
+            .sort(function (a, b) { return b - a; });
+        for (var i = 0; i < nums.length; i++) {
+            var face = $('[data-hwdock="' + prefix + nums[i] + '"]');
+            var tile = face && face.closest('.lrd-tile');
             if (tile && (tile.classList.contains('lrd-tile-occupied') || tile.classList.contains('lrd-tile-gold'))) continue;
-            if (/backs up/.test(face.textContent || '')) continue;
-            return n;
+            if (/backs up/.test((face && face.textContent) || '')) continue;
+            return nums[i];
         }
         return 20;
     }
@@ -194,7 +200,7 @@
         return list[0] || 5;
     }
     // The screen port pinned by hand: the wall pin on the highest socket
-    // (Pin a port by hand parks one on a spare socket from 20 up).
+    // (Pin a port by hand parks one on the card's highest free socket).
     function handPinnedScreenPort() {
         var top = null;
         wallPins().forEach(function (p) { if (!top || Number(p.port) > Number(top.port)) top = p; });

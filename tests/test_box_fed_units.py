@@ -304,16 +304,16 @@ def test_the_helios_8k_the_same(client):
 
 
 def test_an_unflagged_unit_keeps_its_loose_ports_after_a_box_delete(client):
-    """The MX40 Pro's forty are on its face; a CVT10 on OPT 1 is another
-    place to plug into 1-10. Delete the box and the ports, the labels, the
-    summary and the pins stand exactly as they were - no note, no
-    pruning."""
+    """The MX40 Pro's own twenty are on its face (21-40 only through boxes
+    on OPT 3/4, owner 2026-09-30); a CVT10 on OPT 1 is another place to
+    plug into 1-10. Delete the box and the ports, the labels, the summary
+    and the pins stand exactly as they were - no note, no pruning."""
     wall = add_layer(client, 'WALL')
     state = add_processor(client, MX40)
     proc, card, boxes = unit(state)
     pid, cid = proc['id'], card['id']
     assert card['boxFed'] is False and boxes == []
-    assert socket_numbers(card) == list(range(1, 41))
+    assert socket_numbers(card) == list(range(1, 21))
     state = add_box(client, pid, cid, CVT10)
     _proc, card, boxes = unit(state)
     assert [p['number'] for p in boxes[0]['ports']] == list(range(1, 11))
@@ -327,7 +327,7 @@ def test_an_unflagged_unit_keeps_its_loose_ports_after_a_box_delete(client):
     body = resp.get_json()
     assert 'note' not in body and 'portAssignments' not in body
     after = body['resolved'][0]['slots'][0]['card']
-    assert socket_numbers(after) == list(range(1, 41))
+    assert socket_numbers(after) == list(range(1, 21))
     assert after['cvts'] == []
     res = resolve(client, sc)
     # The card's figures stand; only the deleted box's own per-box count

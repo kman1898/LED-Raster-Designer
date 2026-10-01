@@ -283,6 +283,43 @@ def test_a_documented_10g_opt_device_accepts_a_box(device_id, trunks,
     assert '40G' in why and '10G' in why, why
 
 
+def _mx40(boxes=0, halves=False):
+    card = {'id': 'c1', 'deviceId': 'novastar-mx40-pro', 'fixed': True, 'mode': '40-port',
+            'cvts': [{'id': f'b{i}', 'deviceId': 'novastar-cvt10'} for i in range(boxes)]}
+    proc = {'id': 'p1', 'deviceId': 'novastar-mx40-pro', 'slots': [{'index': 0, 'card': card}]}
+    if halves:
+        proc['redundancy'] = True
+        card['redundancyMode'] = 'halves'
+    return catalog.resolve_all([proc])[0]['slots'][0]['card']
+
+
+def test_a_bare_mx40_pro_is_twenty_ports_and_splits_its_halves_at_eleven():
+    """"40 port's o mx40 only works with breakouts connected. simple mx40 can
+    only do 20 ports" and "the backup split on an MX40 defaults to port 21 as
+    the split. While thats right it only works when you have CVTs" (owner,
+    2026-09-30). In 40-port mode the MX40 Pro has its 20 RJ45s; 21-40 exist
+    only where boxes on OPT 3/4 deliver them. So a bare unit lists 20
+    sockets and halves backs 1-10 with 11-20; boxes on all four OPTs reach
+    40 and the split is back at 21."""
+    bare = _mx40()
+    assert (bare['ceiling'], bare['defined'], bare['modeCeiling']) == (20, 20, 40), bare['ceiling']
+    assert [p['number'] for p in bare['ports']] == list(range(1, 21))
+    split = _mx40(halves=True)
+    pairs = [(p['number'], p['backedBy']['port']) for p in split['ports'] if p.get('backedBy')]
+    assert pairs == [(n, n + 10) for n in range(1, 11)], pairs
+    assert split['redundancyShape']['usable'] == 10
+    # boxes on OPT 1/2 only: still the unit's 20; on OPT 3 too: 30; all four: 40
+    assert _mx40(2)['ceiling'] == 20 and _mx40(3)['ceiling'] == 30
+    full = _mx40(4, halves=True)
+    assert full['ceiling'] == 40
+    pairs = [(p['number'], p['backedBy']['port']) for p in full['ports'] if p.get('backedBy')]
+    assert pairs[0] == (1, 21) and pairs[-1] == (20, 40), pairs
+    # 20-port mode is unchanged
+    card = {'id': 'c2', 'deviceId': 'novastar-mx40-pro', 'fixed': True, 'mode': '20-port', 'cvts': []}
+    proc = {'id': 'p2', 'deviceId': 'novastar-mx40-pro', 'slots': [{'index': 0, 'card': card}]}
+    assert catalog.resolve_all([proc])[0]['slots'][0]['card']['ceiling'] == 20
+
+
 def test_the_qd_s_never_hangs_off_an_sx40():
     """"the QDs from brompton is only used to connect the SQ200 the newest
     processor they have to the XD boxes. it has 100G ports and 10G ports to
@@ -616,13 +653,15 @@ def test_an_unsettled_card_makes_the_whole_processor_unknown(client):
 
 def test_an_all_in_one_gets_its_ports_without_a_slot_to_fill(client):
     """A fixed-output device has no cards to choose, but the tree keeps its
-    shape so the label rules need no second code path."""
+    shape so the label rules need no second code path. (A bare MX40 Pro is
+    its 20 RJ45s - 21-40 come only through boxes on OPT 3/4, owner
+    2026-09-30.)"""
     state = add_processor(client, 'novastar-mx40-pro')
     proc = only(state)
-    assert proc['ceiling'] == 40
+    assert proc['ceiling'] == 20
     card = first_card(proc)
     assert card['fixed'] is True
-    assert len(card['ports']) == 40
+    assert len(card['ports']) == 20
     # And its slot refuses a card, rather than pretending to take one.
     resp = client.put(f'/api/processors/{proc["id"]}/slots/0',
                       json={'deviceId': 'novastar-card-h-4xfiber'})

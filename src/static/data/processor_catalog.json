@@ -20,10 +20,11 @@
       "ports": {
         "defaultMode": "40-port",
         "modes": [
-          {"id": "40-port", "label": "40-port mode", "count": 40},
+          {"id": "40-port", "label": "40-port mode", "count": 40, "ownPorts": 20},
           {"id": "20-port", "label": "20-port mode", "count": 20}
         ]
       },
+      "ownPortsNote": "Owner, 2026-09-30: \"40 port's o mx40 only works with breakouts connected. simple mx40 can only do 20 ports\". 20 RJ45s on the unit; 21-40 only through boxes on OPT 3/4, so a bare MX40 Pro reaches 20 and its halves split falls at 11.",
       "note": "40 via the 4x 10G optical outs. In 20-port mode OPT 3/4 are copies of OPT 1/2; in 40-port mode they carry ports 21-40. The summary spec sheet leads with 20, which is why two research passes both came back 20."
     },
     {

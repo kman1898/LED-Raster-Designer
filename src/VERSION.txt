@@ -93,6 +93,11 @@ to the box, picking the strands, and the power jumper lengths.
 
 FIXES
 
+- FIX: A bare MX40 Pro is 20 ports, its RJ45s. In 40-port mode ports 21
+  to 40 come only through breakout boxes on OPT 3 and 4, so the unit
+  reaches 30 with a third box and 40 with a fourth. Its halves backup
+  splits at 11 without those boxes (1-10 backed by 11-20) and at 21 with
+  them.
 - FIX: A card or box dragged from the hardware tray onto any screen of a
   group routed as one screen lands on the group's ports. When the group's
   custom paths were drawn from one member, a drop on another member said
