@@ -186,19 +186,26 @@ class _BinderWiring {
     // drawing area. `sides` = { power, data } names the ONE side this sheet
     // draws - the caller asks once per side, and only for a side the screen
     // has and the dialog's Maps choice wants; anything else draws no sheet.
-    _bWiringPage(book, layer, pos, sides) {
+    // `target` is a screen or a sheet subject (_bSubject, app-binder.js): a
+    // grouped wall printed as its group wires every member on one sheet
+    // under the group's name; a member printed by screens wires the runs
+    // and circuits landing on its own cabinets (2026-10-01).
+    _bWiringPage(book, target, pos, sides) {
         const power = !!(sides && sides.power), data = !!(sides && sides.data);
         if (power === data) return;
+        const subject = this._bSubject(target);
+        const layer = subject.layers[0];
         const side = power ? 'power' : 'signal';
         const scr = book.list.byScreen[layer.id] || {};
-        const title = `${layer.name} - ${power ? 'Power' : 'Data'} Wiring`;
-        const sheetTitle = `${layer.name} · ${power ? 'POWER' : 'DATA'} WIRING`;
+        const title = `${subject.name} - ${power ? 'Power' : 'Data'} Wiring`;
+        const sheetTitle = `${subject.name} · ${power ? 'POWER' : 'DATA'} WIRING`;
         const area = this._bwArea(book);
-        const plan = this._bwPlanHalf(book, layer, scr, side, area.half);
+        const plan = this._bwPlanHalf(book, subject, scr, side, area.half);
         const view = ++book.views;
         this._bPage(book, {
             kind: 'wiring', title, sheetTitle, viewName: sheetTitle, view,
-            layerId: layer.id, subject: layer.name, position: pos ? pos.name : null,
+            layerId: subject.id, subject: subject.name, position: pos ? pos.name : null,
+            ...(subject.groupId != null ? { groupId: subject.groupId, layerIds: subject.layers.map(l => l.id) } : {}),
             layout: 'wiring', cols: 1, scale: plan.K,
             sides: { power, data },
             halves: [{ side: plan.side, scale: plan.K, rows: plan.rows,
@@ -206,7 +213,7 @@ class _BinderWiring {
                        blocks: plan.blocks.length, unplaced: plan.unplaced }],
         }, () => {
             if (book.log) book.log.wiring = { halves: [] };
-            this._bwDrawHalf(book, layer, plan);
+            this._bwDrawHalf(book, subject, plan);
             this._bViewBubble(book, view, sheetTitle, book.geo.da.x + 20, area.bubbleY);
         });
     }
@@ -226,10 +233,13 @@ class _BinderWiring {
     //   stubs:   [{ kind: 'primary'|'return', text, panel, port }]
     //   devices: [{ key, title, n, sockets: Map(n -> 'primary'|'return'), notes: Map }]
     //   wires:   [{ stub, device, socket, kind }]
-    _bwSignalFacts(book, layer) {
-        const asg = ((this._assignment && this._assignment.screens) || [])
-            .find(s => String(s.layerId) === String(layer.id));
-        const runs = this._pullPortRuns(layer);
+    // Each stub carries the screen its panel is on (`layer`), which places
+    // its disc on a sheet drawing more than one.
+    _bwSignalFacts(book, target) {
+        const subject = this._bSubject(target);
+        const asgOf = (l) => ((this._assignment && this._assignment.screens) || [])
+            .find(s => String(s.layerId) === String(l.id));
+        const runs = this._bSubjectRuns(subject);
         const devices = [];
         const byKey = new Map();
         const device = (home) => {
@@ -252,13 +262,22 @@ class _BinderWiring {
             return d;
         };
         const stubs = [], wires = [];
-        for (const run of runs) {
-            const own = (run.panels || []).filter((p, i) => p && !p.hidden
-                && (!run.layers || !run.layers[i] || run.layers[i] === layer || run.layers[i].id === layer.id));
+        for (const { carrier, run } of runs) {
+            // the run's cabinets this sheet draws, each with its screen
+            const own = [];
+            (run.panels || []).forEach((p, i) => {
+                if (!p || p.hidden) return;
+                const on = (run.layers && run.layers[i]) || carrier;
+                const drawn = subject.kind === 'group'
+                    ? subject.layers.some(l => this._bSameLayer(l, on))
+                    : this._bSameLayer(on, subject.member || carrier);
+                if (drawn) own.push({ p, on });
+            });
             if (!own.length) continue;
+            const asg = asgOf(carrier);
             const placed = asg && (asg.ports || []).find(p => p.number === run.num);
             const home = placed && placed.cardId ? this._bPortHome(placed.cardId, placed.port) : null;
-            const primary = { kind: 'primary', text: run.label, panel: own[0], port: run.num };
+            const primary = { kind: 'primary', text: run.label, panel: own[0].p, layer: own[0].on, port: run.num };
             stubs.push(primary);
             if (!home) continue;
             const d = device(home);
@@ -268,8 +287,9 @@ class _BinderWiring {
             wires.push({ stub: primary, device: d, socket, kind: 'primary' });
             const bb = home.port && home.port.backedBy;
             if (!bb) continue;
-            const ret = { kind: 'return', text: this.getPortLabelText(layer, run.num, 'return'),
-                          panel: own[own.length - 1], port: run.num };
+            const last = own[own.length - 1];
+            const ret = { kind: 'return', text: this.getPortLabelText(carrier, run.num, 'return'),
+                          panel: last.p, layer: last.on, port: run.num };
             stubs.push(ret);
             const bh = bb.cardId ? this._bPortHome(bb.cardId, bb.port) : null;
             if (!bh) continue;
@@ -286,15 +306,44 @@ class _BinderWiring {
     // a BREAKOUT block per multi the screen's circuits are on (its slots as
     // sockets; a slot another screen uses on a shared multi noted with
     // that screen's name), a wire per circuit.
-    _bwPowerFacts(book, layer, scr) {
-        const circuits = (typeof this.screenCircuits === 'function') ? this.screenCircuits(layer) : [];
-        const byNum = new Map(circuits.map(c => [c.num, c]));
-        const own = (c) => (c.layers
-            ? c.panels.filter((p, i) => !c.layers[i] || c.layers[i] === layer || c.layers[i].id === layer.id)
-            : c.panels).filter(p => p && !p.hidden);
+    _bwPowerFacts(book, target, scr) {
+        const subject = this._bSubject(target);
+        const layer = subject.layers[0];
+        const circuitsOf = new Map();
+        const byNumOf = (carrier) => {
+            if (!circuitsOf.has(carrier)) {
+                const list = (typeof this.screenCircuits === 'function') ? this.screenCircuits(carrier) : [];
+                circuitsOf.set(carrier, new Map(list.map(c => [c.num, c])));
+            }
+            return circuitsOf.get(carrier);
+        };
+        // a circuit's cabinets this sheet draws, each with its screen
+        const own = (c, carrier) => {
+            const out = [];
+            (c.panels || []).forEach((p, i) => {
+                if (!p || p.hidden) return;
+                const on = (c.layers && c.layers[i]) || carrier;
+                const drawn = subject.kind === 'group'
+                    ? subject.layers.some(l => this._bSameLayer(l, on))
+                    : this._bSameLayer(on, subject.member || layer);
+                if (drawn) out.push({ p, on });
+            });
+            return out;
+        };
         const types = (typeof this.getDistroOutputTypes === 'function') ? this.getDistroOutputTypes() : [];
         const devices = [], stubs = [], wires = [];
-        for (const box of scr.boxes || []) {
+        // a group's members can share a multi: one breakout per multi
+        const byKey = new Map();
+        const units = subject.kind === 'layer'
+            ? (scr.boxes || []).map(box => ({ carrier: layer, box }))
+            : this._bSubjectBoxes(book, subject);
+        const sheetIds = new Set(subject.members.map(m => String(m.id)));
+        for (const { carrier, box } of units) {
+            if (byKey.has(box.key)) {
+                const d = byKey.get(box.key);
+                for (const c of box.circuits || []) this._bwPowerWire(d, c, byNumOf(carrier).get(c.num), carrier, own, stubs, wires);
+                continue;
+            }
             const t = types.find(x => x.id === box.typeId) || null;
             const tails = (box.circuits || []).map(c => Number(c.tail) || 0);
             const slots = t ? (Number(t.boxSize) || 6) : Math.max(6, ...tails);
@@ -305,7 +354,7 @@ class _BinderWiring {
             const d = { key: box.key, title: caption, n: slots, sockets: new Map(), notes: new Map() };
             if (box.distroId) {
                 for (const [id, other] of Object.entries(book.list.byScreen)) {
-                    if (String(id) === String(layer.id)) continue;
+                    if (sheetIds.has(String(id))) continue;
                     for (const ob of other.boxes || []) {
                         if (ob.key !== box.key) continue;
                         for (const oc of ob.circuits || []) {
@@ -316,19 +365,23 @@ class _BinderWiring {
                 }
             }
             devices.push(d);
-            for (const c of box.circuits || []) {
-                const k = Number(c.tail);
-                d.sockets.set(k, 'power');
-                d.notes.delete(k);
-                const circuit = byNum.get(c.num);
-                const panels = circuit ? own(circuit) : [];
-                if (!panels.length) continue;
-                const stub = { kind: 'power', text: c.label, panel: panels[0], circuit: c.num };
-                stubs.push(stub);
-                wires.push({ stub, device: d, socket: k, kind: 'power' });
-            }
+            byKey.set(box.key, d);
+            for (const c of box.circuits || []) this._bwPowerWire(d, c, byNumOf(carrier).get(c.num), carrier, own, stubs, wires);
         }
         return { stubs, devices, wires };
+    }
+
+    // One circuit onto its breakout: its socket taken, and a stub and a
+    // wire where the sheet draws any of its cabinets.
+    _bwPowerWire(d, c, circuit, carrier, own, stubs, wires) {
+        const k = Number(c.tail);
+        d.sockets.set(k, 'power');
+        d.notes.delete(k);
+        const panels = circuit ? own(circuit, carrier) : [];
+        if (!panels.length) return;
+        const stub = { kind: 'power', text: c.label, panel: panels[0].p, layer: panels[0].on, circuit: c.num };
+        stubs.push(stub);
+        wires.push({ stub, device: d, socket: k, kind: 'power' });
     }
 
     // ---- the wall's own discs -----------------------------------------------
@@ -338,17 +391,20 @@ class _BinderWiring {
     // padding, and the bounds a disc is shifted inside. Read from the very
     // fields renderDataFlowArrows / renderPowerArrows read, so the disc
     // this sheet aims at is the disc the wall draws.
+    // `boundsOf(screen)` is the screen a disc stands on, for a sheet that
+    // draws more than one.
     _bwDiscRule(layer, side) {
         const r = window.canvasRenderer || null;
-        const bounds = r && typeof r.getLayerBounds === 'function' ? r.getLayerBounds(layer) : null;
+        const boundsOf = (l) => (r && typeof r.getLayerBounds === 'function' ? r.getLayerBounds(l) : null);
+        const bounds = boundsOf(layer);
         const family = (typeof this.getProjectFont === 'function') ? this.getProjectFont() : 'Arial';
         if (side === 'signal') {
             const size = layer.dataFlowLabelSize || 30;
-            return { r, bounds, family, size, minRadius: size * 1.2, padding: Math.max(4, size * 0.2) };
+            return { r, bounds, boundsOf, family, size, minRadius: size * 1.2, padding: Math.max(4, size * 0.2) };
         }
         const size = layer.powerLabelSize || 14;
         const pen = Math.max(1, Math.round(layer.powerLineWidth || 8));
-        return { r, bounds, family, size,
+        return { r, bounds, boundsOf, family, size,
                  minRadius: Math.max(size * 0.7, pen * 1.4), padding: Math.max(6, size * 0.25) };
     }
 
@@ -358,7 +414,7 @@ class _BinderWiring {
     // screen by that radius, both carried onto the sheet through the map's
     // own rect(). A renderer that cannot be asked falls back to a third of
     // the panel.
-    _bwDisc(book, rule, geo, panel, text) {
+    _bwDisc(book, rule, geo, panel, text, onLayer = null) {
         const p = panel;
         let rad = Math.min(p.width, p.height) / 3;
         if (rule.r && typeof rule.r._layoutCircleLabel === 'function') {
@@ -371,12 +427,13 @@ class _BinderWiring {
             } catch (_) { /* the fallback stands */ } finally { rule.r.ctx = saved; }
         }
         let cx = p.x + p.width / 2, cy = p.y + p.height / 2;
-        const b = rule.bounds;
+        const b = onLayer && rule.boundsOf ? rule.boundsOf(onLayer) : rule.bounds;
         if (b && b.width > 2 * rad) cx = Math.min(Math.max(cx, b.x + rad), b.x + b.width - rad);
         if (b && b.height > 2 * rad) cy = Math.min(Math.max(cy, b.y + rad), b.y + b.height - rad);
-        const rc = geo ? geo.rect(cx - rad, cy - rad, 2 * rad, 2 * rad)
+        const on = onLayer || undefined;
+        const rc = geo ? geo.rect(cx - rad, cy - rad, 2 * rad, 2 * rad, on)
                        : { x: cx, y: cy, w: 0, h: 0 };
-        const pr = geo ? geo.rect(p.x, p.y, p.width, p.height) : { x: cx, y: cy, w: 0, h: 0 };
+        const pr = geo ? geo.rect(p.x, p.y, p.width, p.height, on) : { x: cx, y: cy, w: 0, h: 0 };
         return { x: rc.x + rc.w / 2, y: rc.y + rc.h / 2, r: rc.w / 2,
                  panel: { x: pr.x, y: pr.y, w: pr.w, h: pr.h } };
     }
@@ -488,8 +545,12 @@ class _BinderWiring {
 
     // One half laid out in page units, nothing painted. The prototype's
     // page is 1000 wide; K carries its every number onto this half.
-    _bwPlanHalf(book, layer, scr, side, A) {
-        const facts = side === 'signal' ? this._bwSignalFacts(book, layer) : this._bwPowerFacts(book, layer, scr);
+    _bwPlanHalf(book, target, scr, side, A) {
+        const subject = this._bSubject(target);
+        const layer = subject.layers[0];
+        // the runs' inks are the screen that carries them
+        const inks = subject.carriers[0];
+        const facts = side === 'signal' ? this._bwSignalFacts(book, subject) : this._bwPowerFacts(book, subject, scr);
         const view = side === 'signal' ? 'data-flow' : 'power';
         const isData = side === 'signal';
         const printer = book.meta.palette === 'printer';
@@ -546,7 +607,7 @@ class _BinderWiring {
         const nRuns = facts.wires.length;
         const railRoom = Math.min(RAIL_MAX, RAIL_BASE + Math.ceil(nRuns / 2) * RAIL_GAP);
         const wallRoomW = Math.max(80, availW - 2 * railRoom);
-        const spec = { measure: (area) => this._bMap(book, layer, view, area, GUT) };
+        const spec = { measure: (area) => this._bMap(book, subject, view, area, GUT) };
         const foot = FOOT_PAD + (facts.stubs.length > facts.wires.length ? FOOT_LINE : 0);
         // The room over the wall's head and under its foot: the air before
         // the blocks, plus a lane apiece for the runs that have to travel
@@ -573,7 +634,7 @@ class _BinderWiring {
         const rule = this._bwDiscRule(layer, side);
         const placeDiscs = (geo) => {
             discOf.clear();
-            for (const st of facts.stubs) discOf.set(st, this._bwDisc(book, rule, geo, st.panel, st.text));
+            for (const st of facts.stubs) discOf.set(st, this._bwDisc(book, rule, geo, st.panel, st.text, st.layer));
         };
         placeDiscs(W.geo);
         const meanOf = (key) => {
@@ -626,8 +687,8 @@ class _BinderWiring {
             hue.set(d.key, printer ? INK : HUES[i % HUES.length]);
             dash.set(d.key, DASHES[i % DASHES.length]);
         });
-        const primaryInk = printer ? INK : (layer.primaryColor || '#00FF00');
-        const backupInk = printer ? INK : (layer.backupColor || '#FF0000');
+        const primaryInk = printer ? INK : (inks.primaryColor || '#00FF00');
+        const backupInk = printer ? INK : (inks.backupColor || '#FF0000');
         const blocks = [];
         const socketX = new Map();
         rows.forEach((row, ri) => {
@@ -996,6 +1057,7 @@ class _BinderWiring {
     // disc's centre and radius without a word of the placement being
     // guessed here. A renderer that cannot be wrapped simply reports none.
     _bwPaintMap(book, layer, view, area) {
+        // (`layer` may be a sheet subject - _bMap takes either)
         const r = window.canvasRenderer;
         if (!r || typeof r._layoutCircleLabel !== 'function' || typeof r._fillWrappedLabel !== 'function') {
             return { geo: this._bMap(book, layer, view, area, GUT), discs: null, labels: [] };
@@ -1048,7 +1110,9 @@ class _BinderWiring {
         };
         try {
             const geo = this._bMap(book, layer, view, area, GUT);
-            return { geo, discs: seen, labels: carry(geo && geo.area) };
+            // a member's sheet reads only the lettering left on its bitmap
+            const labels = carry(geo && geo.area).filter(k => !geo || geo.keep(k));
+            return { geo, discs: seen, labels };
         } finally {
             delete r._layoutCircleLabel;
             delete r._fillWrappedLabel;
@@ -1080,8 +1144,9 @@ class _BinderWiring {
                 const v = (d.x - cx) * (d.x - cx) + (d.y - cy) * (d.y - cy);
                 if (v < bestD) { best = d; bestD = v; }
             }
-            const rc = geo.rect(best.x - best.r, best.y - best.r, 2 * best.r, 2 * best.r);
-            const pr = geo.rect(p.x, p.y, p.width, p.height);
+            const on = st.layer || undefined;
+            const rc = geo.rect(best.x - best.r, best.y - best.r, 2 * best.r, 2 * best.r, on);
+            const pr = geo.rect(p.x, p.y, p.width, p.height, on);
             placed.set(st, { x: rc.x + rc.w / 2, y: rc.y + rc.h / 2, r: rc.w / 2,
                              panel: { x: pr.x, y: pr.y, w: pr.w, h: pr.h } });
         }
@@ -1090,7 +1155,9 @@ class _BinderWiring {
 
     // ---- the paint ----------------------------------------------------------
 
-    _bwDrawHalf(book, layer, P) {
+    _bwDrawHalf(book, target, P) {
+        const subject = this._bSubject(target);
+        const layer = subject.carriers[0];
         const ctx = book.ctx;
         const K = P.K;
         const A = P.A;
@@ -1098,7 +1165,7 @@ class _BinderWiring {
         // no head word over the wall: the sheet's own title names the side
         // the wall - the same render, painted now, its own discs on it and
         // noted as they go, so the runs leave the discs that are really there
-        const painted = this._bwPaintMap(book, layer, P.view, P.mapArea);
+        const painted = this._bwPaintMap(book, subject, P.view, P.mapArea);
         const geo = painted.geo;
         if (P.redraw) {
             // The runs are laid again on what the wall REALLY drew: the

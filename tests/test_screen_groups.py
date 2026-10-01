@@ -793,9 +793,51 @@ def test_name_display_survives_undo_and_a_file_load(client):
 
 def test_a_fresh_project_has_no_name_display_field(client):
     """Absent means 'group', the pre-switch behaviour - a new project must
-    not pin the field so older builds keep reading the file untouched."""
+    not pin the field so older builds keep reading the file untouched; nor
+    the per-tab field that replaced it (2026-10-01)."""
     client.post('/api/project/new')
     assert 'groupNameDisplay' not in _get_project(client)
+    assert 'groupNameDisplayByView' not in _get_project(client)
+
+
+# The switch went PER TAB (owner, 2026-10-01: "Yes, per tab"): Pixel Map,
+# Cabinet ID, Data, Power and Show Look each keep their own value in
+# groupNameDisplayByView. An old show's single groupNameDisplay starts every
+# tab on it - migrated on load, idempotently, the old field left in place.
+NAME_VIEWS = ('pixel-map', 'cabinet-id', 'data-flow', 'power', 'show-look')
+
+
+def test_an_old_show_starts_every_tab_on_its_single_value(client):
+    project, gid, ids = _grouped_project(client)
+    project['groupNameDisplay'] = 'screens'
+    project.pop('groupNameDisplayByView', None)
+    loaded = _put(client, project)
+    assert loaded['groupNameDisplayByView'] == {v: 'screens' for v in NAME_VIEWS}
+    assert loaded['groupNameDisplay'] == 'screens'
+    again = _put(client, _clean(json.loads(json.dumps(loaded))))
+    assert again['groupNameDisplayByView'] == loaded['groupNameDisplayByView']
+
+
+def test_a_tab_set_on_its_own_keeps_its_value(client):
+    project, gid, ids = _grouped_project(client)
+    project['groupNameDisplay'] = 'both'
+    project['groupNameDisplayByView'] = {'power': 'group', 'data-flow': 'nonsense'}
+    loaded = _put(client, project)
+    by = loaded['groupNameDisplayByView']
+    assert by['power'] == 'group'
+    assert by['data-flow'] == 'both' and by['pixel-map'] == 'both' and by['show-look'] == 'both'
+
+
+def test_per_tab_names_survive_save_and_load(client):
+    project, gid, ids = _grouped_project(client)
+    by = {'pixel-map': 'group', 'cabinet-id': 'both', 'data-flow': 'screens',
+          'power': 'group', 'show-look': 'screens'}
+    project['groupNameDisplayByView'] = by
+    assert client.post('/api/project', json=project).status_code == 200
+    assert _get_project(client)['groupNameDisplayByView'] == by
+    on_disk = json.loads(json.dumps(_get_project(client)))
+    client.post('/api/project/new')
+    assert _put(client, _clean(on_disk))['groupNameDisplayByView'] == by
 
 
 def test_group_headline_offsets_ride_the_group_through_a_round_trip(client):

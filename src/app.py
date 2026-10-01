@@ -1590,6 +1590,41 @@ def _hashable_id_set(values):
     return {v for v in values if _is_hashable(v)}
 
 
+# The tabs the NAMES switch (Screens / Group / Both) keeps a value for - the
+# canvas's view modes. app-core.js NAME_DISPLAY_VIEWS is the client's copy.
+NAME_DISPLAY_VIEWS = ('pixel-map', 'cabinet-id', 'data-flow', 'power', 'show-look')
+NAME_DISPLAY_VALUES = ('screens', 'group', 'both')
+
+
+def _migrate_group_name_display(project):
+    """The NAMES switch went per tab (owner, 2026-10-01: "Yes, per tab").
+
+    Before, one project field - ``groupNameDisplay`` - named every tab's
+    convention. A file that carries it gets ``groupNameDisplayByView`` with
+    every tab that has no valid value of its own set to that value, so an
+    old show opens with each tab where the one switch was. The old field is
+    left in place (the client reads it as the fallback, and an older build
+    still reads it). A project without the old field is untouched - a new
+    project pins neither field. Idempotent. Returns True when it wrote.
+    """
+    if not isinstance(project, dict):
+        return False
+    old = project.get('groupNameDisplay')
+    if old not in NAME_DISPLAY_VALUES:
+        return False
+    by = project.get('groupNameDisplayByView')
+    if not isinstance(by, dict):
+        by = {}
+    changed = False
+    for view in NAME_DISPLAY_VIEWS:
+        if by.get(view) not in NAME_DISPLAY_VALUES:
+            by[view] = old
+            changed = True
+    if changed or project.get('groupNameDisplayByView') is not by:
+        project['groupNameDisplayByView'] = by
+    return changed
+
+
 def _enforce_group_integrity(project):
     """Repair the group model in place, idempotently.
 

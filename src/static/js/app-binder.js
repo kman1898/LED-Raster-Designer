@@ -199,6 +199,10 @@ const BINDER_DEFAULTS = {
     venue: '', dates: '', designer: '',
     projectManager: { name: '', phone: '', email: '' },
     drafter: '', revisions: [], screenOrder: 'alpha', view: 'front',
+    // a grouped wall whose tab says Both on the Names switch: the export's
+    // answer per group and side, { [groupId]: { power, data } }, each
+    // 'group' or 'screens' (absent = group)
+    groupSheets: {},
 };
 // The side the set's Power and Data maps are drawn from (project.binder
 // .view, the export dialog's "View"): ONE choice for the whole set, every
@@ -324,6 +328,18 @@ class _Binder {
         field('export-binder-pm-phone', 'projectManager.phone', 'Set Binder Project Manager Phone');
         field('export-binder-pm-email', 'projectManager.email', 'Set Binder Project Manager Email');
         field('export-binder-drafter', 'drafter', 'Set Binder Drafter');
+        // A Both group's Group / Screens: saved as it is picked.
+        const groups = document.getElementById('export-binder-groups');
+        if (groups) {
+            groups.addEventListener('click', (e) => {
+                const btn = e.target && e.target.closest ? e.target.closest('.binder-group-btn') : null;
+                const line = btn ? btn.closest('[data-group]') : null;
+                if (!line) return;
+                this.setBinderGroupSheet(line.dataset.group, btn.dataset.side, btn.dataset.mode);
+                this._renderBinderGroupRows();
+                if (typeof this.updateExportPreview === 'function') this.updateExportPreview();
+            });
+        }
         // The revision log's rows: a field edits its row in place, × removes
         // the row and the rows after it renumber.
         const revs = document.getElementById('export-binder-revisions');
@@ -424,6 +440,7 @@ class _Binder {
         if (drafter) drafter.placeholder = this.getEngineerName() || 'Name';
         // the Revision note is this export's and stays as typed
         this._renderBinderRevisionRows();
+        this._renderBinderGroupRows();
     }
 
     // The logo row: the preview and Remove when one is set, "None" when not.
@@ -511,7 +528,61 @@ class _Binder {
             // unless the box says otherwise (a preference, so the dialog
             // opens the way it was left)
             titleBlock: on('export-binder-title-block', this.getBinderTitleBlock()),
+            // a Both group's Group / Screens per side - the dialog's Groups
+            // row saves each answer on the project as it is picked
+            groupSheets: this.getBinderInfo().groupSheets,
         };
+    }
+
+    // The dialog's Groups row: one line per grouped wall whose Power or Data
+    // tab says Both on the Names switch, routed as one on that side - "USC
+    // Data: [Group] [Screens]", both sides on the line where both ask. The
+    // buttons show the saved answer, Group where there is none.
+    _renderBinderGroupRows() {
+        const box = document.getElementById('export-binder-groups');
+        const row = document.getElementById('export-binder-groups-row');
+        if (!box) return;
+        box.innerHTML = '';
+        const answers = this.getBinderInfo().groupSheets;
+        let n = 0;
+        for (const gp of this._bGroupPlans({ groupSheets: answers }).values()) {
+            const sides = ['power', 'data'].filter(side => gp.asks[side]);
+            if (!sides.length) continue;
+            n++;
+            const line = document.createElement('div');
+            line.className = 'binder-group-row';
+            line.dataset.group = String(gp.id);
+            line.style.cssText = 'display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center;';
+            const name = document.createElement('span');
+            name.className = 'binder-group-name';
+            name.textContent = gp.name;
+            name.style.cssText = 'flex: none; min-width: 60px; color: #ddd;';
+            line.appendChild(name);
+            for (const side of sides) {
+                const part = document.createElement('span');
+                part.style.cssText = 'display: flex; gap: 4px; align-items: center; flex: none;';
+                const word = document.createElement('span');
+                word.textContent = side === 'power' ? 'Power:' : 'Data:';
+                part.appendChild(word);
+                for (const mode of ['group', 'screens']) {
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = 'btn btn-secondary binder-group-btn';
+                    btn.dataset.side = side;
+                    btn.dataset.mode = mode;
+                    btn.textContent = mode === 'group' ? 'Group' : 'Screens';
+                    btn.style.cssText = 'padding: 3px 8px; font-size: 11px;';
+                    btn.classList.toggle('active', gp.mode[side] === mode);
+                    btn.setAttribute('data-tooltip', mode === 'group'
+                        ? `One ${side === 'power' ? 'Power' : 'Data'} sheet for ${gp.name}, every screen in it on one map.`
+                        : `A ${side === 'power' ? 'Power' : 'Data'} sheet for each screen in ${gp.name}.`);
+                    part.appendChild(btn);
+                }
+                line.appendChild(part);
+            }
+            box.appendChild(line);
+        }
+        if (row) row.style.display = n ? 'flex' : 'none';
     }
 
     // The canvas's right-click: "Export this screen..." opens the same
@@ -591,7 +662,41 @@ class _Binder {
                 ? stored.revisions.filter(r => r && typeof r === 'object')
                     .map((r, i) => ({ no: i + 1, rev: s(r.rev), date: s(r.date), by: s(r.by), description: s(r.description) }))
                 : [],
+            groupSheets: this._binderGroupSheets(stored.groupSheets),
         };
+    }
+
+    // The stored answers as the set reads them: only 'group' / 'screens'
+    // per side survive, anything else is no answer.
+    _binderGroupSheets(raw) {
+        const out = {};
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+        for (const [gid, v] of Object.entries(raw)) {
+            if (!v || typeof v !== 'object') continue;
+            const one = {};
+            for (const side of ['power', 'data']) {
+                if (v[side] === 'group' || v[side] === 'screens') one[side] = v[side];
+            }
+            if (Object.keys(one).length) out[gid] = one;
+        }
+        return out;
+    }
+
+    // The export dialog's answer for one group's side (2026-10-01: "if set
+    // to both then ask per group"), saved with the project's binder
+    // settings so the next export remembers it: one undo entry, the same
+    // POST as the title block's fields. Returns true when it changed.
+    setBinderGroupSheet(groupId, side, mode) {
+        if (!this.project || !['power', 'data'].includes(side) || !['group', 'screens'].includes(mode)) return false;
+        const all = this.getBinderInfo().groupSheets;
+        if ((all[groupId] || {})[side] === mode) return false;
+        all[groupId] = { ...(all[groupId] || {}), [side]: mode };
+        if (!this.project.binder || typeof this.project.binder !== 'object') this.project.binder = {};
+        this.project.binder.groupSheets = all;
+        this.saveState('Set Group Sheets');
+        this._persistBinderInfo();
+        sendClientLog('binder_group_sheets_set', { groupId, side, mode });
+        return true;
     }
 
     // One field ('venue', 'projectManager.phone', 'revisions'), one history
@@ -910,7 +1015,9 @@ class _Binder {
                  extent: p.extent ? { w: p.extent.w, h: p.extent.h } : null,
                  coverage: Number.isFinite(p.coverage) ? Math.round(p.coverage * 1000) / 1000 : null,
                  names: p.names || null, sides: p.sides || null, halves: p.halves || null,
-                 w: book.sheet.w, h: book.sheet.h, sheet: book.sheet.key };
+                 w: book.sheet.w, h: book.sheet.h, sheet: book.sheet.key,
+                 // a grouped wall's sheet: its group and the screens it draws
+                 ...(p.groupId != null ? { groupId: p.groupId, layerIds: p.layerIds || null } : {}) };
     }
 
     // Every sheet's record, in order: { name, width, height, page_size,
@@ -983,6 +1090,7 @@ class _Binder {
             series: {}, views: 0,
             pages: [], records: [], canvas, realCtx, measureCtx, ctx: null, page: null,
         };
+        book.groups = this._bGroupPlans(opts);
         const scopeLayer = opts.scope && opts.scope.kind === 'screen'
             ? layers.get(String(opts.scope.layerId)) || null : null;
         if (opts.scope && opts.scope.kind === 'screen' && !scopeLayer) return this._binderFinish(book);
@@ -1006,24 +1114,38 @@ class _Binder {
         // WIRING sheet; 3 the pull sheets, positions side by side; 4 the hardware - the distros, the processors, the show's
         // pull list.
         if (opts.cover) this._bOverviewPage(book);
-        for (const { layer, pos } of this._bScreenRun(book, positions)) {
+        // grouped by system: a map, then the sheet that wires it - the
+        // wall wired to its breakouts or its devices, that one side on a
+        // page of its own (app-binder-wiring.js). No map, no wiring sheet:
+        // a screen with no circuits has neither power sheet.
+        const wiring = opts.wiring !== false;
+        const emit = (subject, pos, side) => {
+            this._bScreenPage(book, subject, pos, side);
+            if (wiring) this._bWiringPage(book, subject, pos, { power: side === 'power', data: side === 'data' });
+        };
+        // A GROUP ROUTED AS ONE SCREEN prints by its tab's Names switch,
+        // side by side (2026-10-01, _bGroupUnits): one sheet for the group
+        // or a sheet per member - never the carrier alone, which dropped
+        // the member that carries nothing of its own. The group's sheets
+        // stand where its first member's would.
+        const sheets = this._bScreenRun(book, positions);
+        const order = sheets.map(e => e.layer);
+        const posOf = new Map(sheets.map(e => [e.layer, e.pos]));
+        const printed = new Set();
+        for (const { layer, pos } of sheets) {
+            const gp = this._bGroupPlanOf(book, layer);
+            if (gp) {
+                if (printed.has(gp.id)) continue;
+                printed.add(gp.id);
+                for (const [subject, side] of this._bGroupUnits(book, gp, order, scopeLayer)) {
+                    emit(subject, (subject.anchor && posOf.get(subject.anchor)) || pos, side);
+                }
+                continue;
+            }
             const scr = list.byScreen[layer.id];
             if (!scr) continue;
-            const sides = { power: !!opts.sides.power && this._bHasPower(layer, scr),
-                            data: !!opts.sides.data && this._bHasData(layer, scr) };
-            // grouped by system: a map, then the sheet that wires it - the
-            // wall wired to its breakouts or its devices, that one side on
-            // a page of its own (app-binder-wiring.js). No map, no wiring
-            // sheet: a screen with no circuits has neither power sheet.
-            const wiring = opts.wiring !== false;
-            if (sides.power) {
-                this._bScreenPage(book, layer, pos, 'power');
-                if (wiring) this._bWiringPage(book, layer, pos, { power: true, data: false });
-            }
-            if (sides.data) {
-                this._bScreenPage(book, layer, pos, 'data');
-                if (wiring) this._bWiringPage(book, layer, pos, { power: false, data: true });
-            }
+            if (opts.sides.power && this._bHasPower(layer, scr)) emit(layer, pos, 'power');
+            if (opts.sides.data && this._bHasData(layer, scr)) emit(layer, pos, 'data');
         }
         if (opts.pull) this._bPullSheets(book, positions);
         const hardware = [];
@@ -1056,6 +1178,279 @@ class _Binder {
 
     _bHasData(layer, scr) {
         return (scr.ports || []).length > 0;
+    }
+
+    // ---- grouped screens ----------------------------------------------------
+
+    // A GROUP ROUTED AS ONE SCREEN keeps every port and circuit on ONE
+    // member - the carrier - and its peers carry none of their own, so a
+    // set made a sheet per member with something on it printed the carrier
+    // alone, its map the carrier's wall alone, its tables the whole group's
+    // (owner, 2026-10-01: "when i print a grouped screen it doesnt include
+    // USC SL in the binder. this is bad and needs fixing"). Such a group now
+    // prints by its tab's NAMES switch, each side on its own ("say power is
+    // set to label by group name then power will be by group and if data is
+    // set to screens then it will be 2 different"):
+    //   group    ONE sheet for the group on that side, titled by the group's
+    //            name, its map every member as it sits on the canvas, its
+    //            rulers numbering straight through, its tables and FACTS the
+    //            group's
+    //   screens  a sheet per member, titled by the member, its map that
+    //            member alone, its tables what lands on its cabinets - a port
+    //            or circuit crossing members listed on each, saying where the
+    //            rest of it is ("also on USC SL")
+    //   both     asked per group at export ("if set to both then ask per
+    //            group"): the dialog's Groups row, saved in
+    //            project.binder.groupSheets, read through readBinderOptions
+    // A group whose members each carry their own (not routed as one) keeps
+    // its per-member sheets whatever the switch says.
+    //
+    // { id, name, group, members, routed: {power, data}, mode: {power, data},
+    //   asks: {power, data} } per group, by id - `mode` null on a side that
+    // is not routed as one, `asks` true where the tab says Both.
+    _bGroupPlans(opts) {
+        const out = new Map();
+        const groups = (this.project && this.project.groups) || [];
+        if (!groups.length || typeof this.getGroupMembers !== 'function') return out;
+        const shown = new Set(this._pullScreens());
+        const answers = (opts && opts.groupSheets && typeof opts.groupSheets === 'object')
+            ? opts.groupSheets : this.getBinderInfo().groupSheets;
+        const canvasOf = (l) => l.show_canvas_id || l.canvas_id || null;
+        for (const g of groups) {
+            if (!g || g.id == null) continue;
+            const members = this.getGroupMembers(g).filter(m => shown.has(m));
+            // A wall drawn across two canvases is no one picture, and
+            // crossing never spans them (getPathScopeLayers).
+            if (members.length < 2 || !members.every(m => canvasOf(m) === canvasOf(members[0]))) continue;
+            const routed = { power: this._bRoutedAsOne(members, 'power'),
+                             data: this._bRoutedAsOne(members, 'data') };
+            if (!routed.power && !routed.data) continue;
+            const mode = { power: null, data: null }, asks = { power: false, data: false };
+            for (const side of ['power', 'data']) {
+                if (!routed[side]) continue;
+                const tab = this.groupNameDisplayFor(side === 'power' ? 'power' : 'data-flow');
+                asks[side] = tab === 'both';
+                const asked = (answers[g.id] || {})[side];
+                mode[side] = tab === 'both' ? (asked === 'screens' ? 'screens' : 'group') : tab;
+            }
+            out.set(String(g.id), { id: g.id, name: g.name || String(g.id), group: g, members,
+                                    routed, mode, asks });
+        }
+        return out;
+    }
+
+    // Is this side of the wall routed as ONE screen - does any member's port
+    // or circuit land on another member's cabinets? An automatic walk across
+    // the group (getAutoRoutePlan: data unless the group's "Route data as
+    // one screen" is off, power where the members match) and hand-drawn runs
+    // stepping onto a peer both count; members each on their own runs do not.
+    _bRoutedAsOne(members, side) {
+        const kind = side === 'power' ? 'power' : 'data';
+        if (typeof this.isServedByPeerRouting === 'function'
+                && members.some(m => this.isServedByPeerRouting(m, kind))) return true;
+        const ids = new Set(members.map(m => String(m.id)));
+        for (const m of members) {
+            const items = side === 'power'
+                ? ((typeof this.screenCircuits === 'function') ? this.screenCircuits(m) : [])
+                : this._pullPortRuns(m);
+            for (const it of items) {
+                if ((it.layers || []).some(l => l && String(l.id) !== String(m.id) && ids.has(String(l.id)))) return true;
+            }
+        }
+        return false;
+    }
+
+    _bGroupPlanOf(book, layer) {
+        if (!book.groups || !book.groups.size || !layer || layer.group_id == null) return null;
+        return book.groups.get(String(layer.group_id)) || null;
+    }
+
+    // The group's sheets, in the order the set runs them: [[subject, side]].
+    // A side printed by the GROUP is one sheet; a side by SCREENS a sheet per
+    // member whenever anything in the group is on that side - every member,
+    // so the one carrying nothing of its own still prints (the bug); a side
+    // not routed as one, a sheet per member with something of its own, as
+    // before. Where neither side is the group's, each member runs Power then
+    // Data the way an ungrouped screen does; otherwise the Power sheets come
+    // first, then the Data. A one-screen scope prints the group's sheet that
+    // holds the screen, or the screen's own.
+    _bGroupUnits(book, gp, order, scopeLayer) {
+        const at = (m) => { const i = order.indexOf(m); return i < 0 ? order.length : i; };
+        const members = gp.members.slice().sort((a, b) => at(a) - at(b));
+        const own = (m, side) => {
+            const scr = book.list.byScreen[m.id];
+            return !!scr && (side === 'power' ? this._bHasPower(m, scr) : this._bHasData(m, scr));
+        };
+        const inScope = (m) => !scopeLayer || m === scopeLayer;
+        const group = this._bGroupSubject(gp);
+        const member = (m) => this._bMemberSubject(gp, m);
+        const units = (side) => {
+            if (!book.opts.sides[side]) return [];
+            const any = gp.members.some(m => own(m, side));
+            if (gp.mode[side] === 'group') return any && members.some(inScope) ? [[group, side]] : [];
+            if (gp.mode[side] === 'screens') return any ? members.filter(inScope).map(m => [member(m), side]) : [];
+            return members.filter(m => inScope(m) && own(m, side)).map(m => [this._bSubject(m), side]);
+        };
+        const power = units('power'), data = units('data');
+        if (gp.mode.power === 'group' || gp.mode.data === 'group') return [...power, ...data];
+        const out = [];
+        for (const m of members) {
+            for (const u of power) if (u[0].anchor === m) out.push(u);
+            for (const u of data) if (u[0].anchor === m) out.push(u);
+        }
+        return out;
+    }
+
+    _bGroupSubject(gp) {
+        return { kind: 'group', name: gp.name, id: gp.members[0].id, groupId: gp.id,
+                 layers: gp.members, carriers: gp.members, members: gp.members,
+                 member: null, anchor: null };
+    }
+
+    _bMemberSubject(gp, m) {
+        return { kind: 'member', name: m.name, id: m.id, groupId: gp.id,
+                 layers: [m], carriers: gp.members, members: gp.members,
+                 member: m, anchor: m };
+    }
+
+    // What a screen sheet is OF: a screen as before (`kind` 'layer'), a group
+    // printed as one ('group') or one member of a group printed by screens
+    // ('member'). `layers` are the screens its map draws, `carriers` the
+    // screens whose ports and circuits it reads, `members` the group's
+    // screens kept drawn while it paints (the walk across the group is only
+    // the group's while every member is on the wall), `member` the screen
+    // whose cabinets decide what is listed, `id` the plan's layerId.
+    _bSubject(target) {
+        if (target && target.kind && Array.isArray(target.layers)) return target;
+        return { kind: 'layer', name: target.name, id: target.id, groupId: null,
+                 layers: [target], carriers: [target], members: [target], member: null, anchor: target };
+    }
+
+    _bSameLayer(a, b) {
+        return !!a && !!b && (a === b || String(a.id) === String(b.id));
+    }
+
+    // The screen each drawn cabinet of a run or circuit is on: its own entry
+    // in `layers` where the item carries one (a run crossing members), else
+    // the screen that owns the item.
+    _bItemLayers(carrier, panels, layers) {
+        const out = [];
+        (panels || []).forEach((p, i) => {
+            if (!p || p.hidden) return;
+            out.push((layers && layers[i]) || carrier);
+        });
+        return out;
+    }
+
+    // Where the rest of a crossing item is, on a member's sheet: "also on
+    // USC SL" - the snake heading's "also" (snakeElsewhere) said of a
+    // screen; '' where it is all on this member.
+    _bAlsoOn(s, ls) {
+        if (s.kind !== 'member') return '';
+        const names = s.members
+            .filter(m => !this._bSameLayer(m, s.member) && ls.some(l => this._bSameLayer(l, m)))
+            .map(m => m.name);
+        return names.length ? `also on ${names.join(', ')}` : '';
+    }
+
+    // The ports a sheet lists: [{ carrier, run, also }] - every run of its
+    // carriers, on a member's sheet only those landing on its cabinets.
+    _bSubjectRuns(s) {
+        const out = [];
+        for (const carrier of s.carriers) {
+            for (const run of this._pullPortRuns(carrier)) {
+                if (s.kind === 'layer') { out.push({ carrier, run, also: '' }); continue; }
+                const ls = this._bItemLayers(carrier, run.panels, run.layers);
+                if (s.kind === 'member' && !ls.some(l => this._bSameLayer(l, s.member))) continue;
+                out.push({ carrier, run, also: this._bAlsoOn(s, ls) });
+            }
+        }
+        return out;
+    }
+
+    // The multis a sheet lists: [{ carrier, box, also: Map(circuit -> text) }]
+    // - the pull list's own units, a member's holding only the circuits that
+    // land on its cabinets.
+    _bSubjectBoxes(book, s) {
+        const out = [];
+        for (const carrier of s.carriers) {
+            const scr = book.list.byScreen[carrier.id];
+            if (!scr) continue;
+            if (s.kind === 'layer') {
+                for (const box of scr.boxes || []) out.push({ carrier, box, also: new Map() });
+                continue;
+            }
+            const byNum = new Map(((typeof this.screenCircuits === 'function') ? this.screenCircuits(carrier) : [])
+                .map(c => [c.num, c]));
+            for (const box of scr.boxes || []) {
+                const also = new Map();
+                const circuits = (box.circuits || []).filter(c => {
+                    const circuit = byNum.get(c.num);
+                    const ls = circuit ? this._bItemLayers(carrier, circuit.panels, circuit.layers) : [carrier];
+                    if (s.kind === 'member' && !ls.some(l => this._bSameLayer(l, s.member))) return false;
+                    const text = this._bAlsoOn(s, ls);
+                    if (text) also.set(c.num, text);
+                    return true;
+                });
+                if (s.kind === 'member' && !circuits.length) continue;
+                out.push({ carrier, box: s.kind === 'member' ? { ...box, circuits } : box, also });
+            }
+        }
+        return out;
+    }
+
+    // The CABLES THIS SCREEN rows: the screen's own (the pull list's
+    // attribution, a member's included); the group's, every member's
+    // merged the way the pull list merges.
+    _bSubjectRows(book, s, side) {
+        const of = (l) => ((book.list.byScreen[l.id] || {}).rows || []);
+        const pick = (rows) => rows.filter(r => (side === 'power' ? (r.side || 'power') === 'power' : r.side === 'data'));
+        if (s.kind !== 'group') return pick(of(s.member || s.layers[0]));
+        return pick(this._pullMergeRows(s.members.flatMap(of)));
+    }
+
+    // The CABLES THIS SCREEN table's rows. The pull list puts a wall's
+    // cables on the screen that carries its runs, so a member's sheet
+    // listing another member's ports or circuits says where their cables
+    // are: "listed with USC SR" (`from` - the screens the sheet's items
+    // come from).
+    _bCableRows(book, s, side, from) {
+        const rows = this._bSubjectRows(book, s, side)
+            .map(r => ({ cells: [this._bType(r.type), r.length || '—', String(r.qty)] }));
+        if (s.kind === 'member') {
+            const names = [...new Set(from)].filter(l => !this._bSameLayer(l, s.member)
+                && this._bSubjectRows(book, this._bSubject(l), side).length).map(l => l.name);
+            if (names.length) rows.push({ cells: [`listed with ${names.join(', ')}`, '', ''] });
+        }
+        return rows.length ? rows : [{ cells: ['no cables typed', '', ''] }];
+    }
+
+    // The group's FACTS figures: _bScreenFacts across its members - every
+    // panel, watt and pixel summed once, the size the union of the walls.
+    _bGroupFacts(members) {
+        const fs = members.map(m => this._bScreenFacts(m));
+        const r = window.canvasRenderer;
+        let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+        for (const m of members) {
+            const b = r ? r.getLayerBounds(m) : null;
+            if (!b) continue;
+            x1 = Math.min(x1, b.x); y1 = Math.min(y1, b.y);
+            x2 = Math.max(x2, b.x + b.width); y2 = Math.max(y2, b.y + b.height);
+        }
+        const sum = (k) => fs.reduce((a, f) => a + (f[k] || 0), 0);
+        const voltage = fs.length ? fs[0].voltage : 0;
+        const watts = sum('watts');
+        const active = sum('active');
+        const sizes = [...new Set(members.map(m => `${m.cabinet_width}×${m.cabinet_height}`))];
+        return {
+            active, equivalent: sum('equivalent'), watts, voltage,
+            amps1: voltage > 0 ? watts / voltage : 0,
+            amps3: voltage > 0 ? watts / (voltage * 1.73) : 0,
+            pixels: sum('pixels'),
+            width: Number.isFinite(x1) ? x2 - x1 : 0, height: Number.isFinite(y1) ? y2 - y1 : 0,
+            screenText: `${members.map(m => `${m.columns} × ${m.rows}`).join(' + ')} · ${this._bPlural(active, 'panel')}`
+                + ` · ${sizes.join(' / ')} px`,
+        };
     }
 
     // ---- the screen order ---------------------------------------------------
@@ -2797,13 +3192,26 @@ class _Binder {
         }
     }
 
-    _bPaintMap(book, layer, view, area, gutter) {
+    // `target` is a screen, or a sheet subject (_bSubject): a GROUP draws
+    // every member as it sits on the canvas, framed on their union; a
+    // MEMBER of a group printed by screens is framed on its own wall with
+    // the rest of the group still on (hidden, the walk across the group
+    // would fall apart and the member would draw a routing of its own -
+    // getAutoRoutePlan skips a hidden member) and everything of the other
+    // members cut off the bitmap: their cabinets, and whatever stands
+    // outside this member's wall and its gutters. The Names switch reads
+    // the sheet's own choice while it paints - 'group' on a group sheet,
+    // 'screens' on a member's.
+    _bPaintMap(book, target, view, area, gutter) {
         const r = window.canvasRenderer;
+        const subject = this._bSubject(target);
+        const layer = subject.layers[0];
         // the gutters: the rulers' and the brackets' room by default; a
         // caller that draws neither (the wiring sheet) passes its own
         const G = gutter || MAP_GUTTER;
         const S = (book.scale || 2) * ((book.fill && book.fill.s) || 1);
         const canvases = (this.project && Array.isArray(this.project.canvases)) ? this.project.canvases : [];
+        const hadBy = !!this.project && Object.prototype.hasOwnProperty.call(this.project, 'groupNameDisplayByView');
         const saved = {
             canvas: r.canvas, ctx: r.ctx, exportMode: r.exportMode, transparent: r.exportTransparentBg,
             printer: r.printerMode, viewMode: r.viewMode, zoom: r.zoom, panX: r.panX, panY: r.panY,
@@ -2812,6 +3220,7 @@ class _Binder {
             active: this.project ? this.project.active_canvas_id : null,
             canvasVis: canvases.map(c => [c, c.visible]),
             layerVis: (this.project.layers || []).map(l => [l, l.visible]),
+            nameBy: hadBy ? this.project.groupNameDisplayByView : undefined,
         };
         const inner = {
             x: area.x + G.left, y: area.y + G.top,
@@ -2825,19 +3234,32 @@ class _Binder {
             const canvas = canvases.find(c => c && c.id === cid) || null;
             canvases.forEach(c => { c.visible = (canvas ? c.id === canvas.id : true); });
             if (canvas && this.project) this.project.active_canvas_id = canvas.id;
-            (this.project.layers || []).forEach(l => { if (l !== layer) l.visible = false; });
-            layer.visible = true;
-            const b = r.getLayerBounds(layer);
-            const { dx, dy } = r.getLayerRenderOffset(layer);
+            const on = new Set(subject.members);
+            (this.project.layers || []).forEach(l => { if (!on.has(l)) l.visible = false; });
+            subject.members.forEach(l => { l.visible = true; });
+            if (subject.kind !== 'layer') {
+                this.project.groupNameDisplayByView = { ...(saved.nameBy || {}),
+                    [view]: subject.kind === 'group' ? 'group' : 'screens' };
+            }
             const ws = r._canvasWorkspace(canvas);
             const mirrored = !!(canvas && r._isCanvasMirrored(canvas));
             const crw = canvas ? ((canvas.show_raster_width) || canvas.raster_width || 0) : 0;
-            // A processor-coord rect of this layer, in the canvas's drawn
-            // frame (mirrored around the raster's right edge on a Back view).
-            const local = (px, py, pw, ph) => ({
-                x: mirrored ? crw - (px + dx + pw) : px + dx, y: py + dy, w: pw, h: ph,
-            });
-            const wall = local(b.x, b.y, b.width, b.height);
+            const offs = new Map(subject.members.map(l => [l, r.getLayerRenderOffset(l)]));
+            // A processor-coord rect of a screen (this layer unless named),
+            // in the canvas's drawn frame (mirrored around the raster's right
+            // edge on a Back view).
+            const local = (px, py, pw, ph, l = layer) => {
+                const { dx, dy } = offs.get(l) || r.getLayerRenderOffset(l);
+                return { x: mirrored ? crw - (px + dx + pw) : px + dx, y: py + dy, w: pw, h: ph };
+            };
+            const boundsOf = (l) => { const b = r.getLayerBounds(l); return local(b.x, b.y, b.width, b.height, l); };
+            let wall = boundsOf(layer);
+            for (const l of subject.layers.slice(1)) {
+                const w = boundsOf(l);
+                const x1 = Math.min(wall.x, w.x), y1 = Math.min(wall.y, w.y);
+                wall = { x: x1, y: y1, w: Math.max(wall.x + wall.w, w.x + w.w) - x1,
+                         h: Math.max(wall.y + wall.h, w.y + w.h) - y1 };
+            }
             const ww = Math.max(1, wall.w), wh = Math.max(1, wall.h);
             // One zoom for both axes - the wall is never scaled
             // non-uniformly: it fits the area, and never past the cap.
@@ -2852,12 +3274,35 @@ class _Binder {
                 zoom, wall: { x: ox, y: oy, w: drawW, h: drawH }, mirrored, area: used,
                 extent: { x: ox - G.left, y: area.y,
                           w: Math.ceil(drawW) + G.left + G.right, h: used.h },
-                rect: (px, py, pw, ph) => {
-                    const l = local(px, py, pw, ph);
+                rect: (px, py, pw, ph, onLayer) => {
+                    const l = local(px, py, pw, ph, onLayer || layer);
                     const p = toPage(l.x, l.y);
                     return { x: p.x, y: p.y, w: l.w * zoom, h: l.h * zoom };
                 },
+                // what a box of ink (sheet units) has to clear to stay on the
+                // sheet: everything is kept but on a member's sheet, which
+                // keeps its own wall and gutters and none of another member's
+                keep: () => true,
             };
+            // A member's sheet: what is cut off its bitmap - every other
+            // member's wall - and the room it keeps, its own wall with the
+            // gutters (a hair past them where the gutter is none).
+            let cut = null;
+            if (subject.kind === 'member') {
+                const pad = 8;
+                const keep = { x: ox - G.left - pad, y: oy - G.top - pad,
+                               w: drawW + G.left + G.right + pad * 2, h: drawH + G.top + G.bottom + pad * 2 };
+                const peers = subject.members.filter(l => l !== layer).map(l => {
+                    const b = r.getLayerBounds(l);
+                    return geo.rect(b.x, b.y, b.width, b.height, l);
+                });
+                const meets = (a, b) => Math.min(a.x + a.w, b.x + b.w) > Math.max(a.x, b.x)
+                    && Math.min(a.y + a.h, b.y + b.h) > Math.max(a.y, b.y);
+                const inside = (a, b) => a.x >= b.x - 0.5 && a.y >= b.y - 0.5
+                    && a.x + a.w <= b.x + b.w + 0.5 && a.y + a.h <= b.y + b.h + 0.5;
+                geo.keep = (box) => meets(box, keep) && !peers.some(pr => inside(box, pr));
+                cut = { keep, peers };
+            }
             if (book.page && book.page.painting) {
                 if (book.log) {
                     // in page units (a map sheet paints its map outside the
@@ -2911,12 +3356,38 @@ class _Binder {
                 const probe = outerProbe || ((typeof r.startLabelProbe === 'function')
                     ? r.startLabelProbe() : null);
                 r.render();
+                if (cut) {
+                    // the other members off the bitmap, then everything past
+                    // this member's own room
+                    const px = (rc) => [(rc.x - area.x) * S, (rc.y - area.y) * S, rc.w * S, rc.h * S];
+                    offCtx.save();
+                    offCtx.setTransform(1, 0, 0, 1, 0, 0);
+                    offCtx.globalCompositeOperation = 'destination-out';
+                    offCtx.fillStyle = '#000000';
+                    // a peer's wall a little past its edge (the outline the
+                    // renderer strokes round it), never into this member's
+                    offCtx.save();
+                    offCtx.beginPath();
+                    offCtx.rect(0, 0, off.width, off.height);
+                    offCtx.rect(...px(geo.wall));
+                    offCtx.clip('evenodd');
+                    const m = 6;
+                    for (const pr of cut.peers) {
+                        offCtx.fillRect(...px({ x: pr.x - m, y: pr.y - m, w: pr.w + 2 * m, h: pr.h + 2 * m }));
+                    }
+                    offCtx.restore();
+                    offCtx.globalCompositeOperation = 'destination-in';
+                    offCtx.fillRect(...px(cut.keep));
+                    offCtx.restore();
+                }
                 if (probe) {
                     const boxes = outerProbe ? outerProbe.slice(outerLen)
                                              : r.endLabelProbe();
                     let minY = Infinity, minX = Infinity;
                     for (const b of boxes) {
                         if (!b) continue;
+                        if (cut && !geo.keep({ x: area.x + b.x / S, y: area.y + b.y / S,
+                                               w: (b.w || 0) / S, h: (b.h || 0) / S })) continue;
                         if (typeof b.y === 'number') minY = Math.min(minY, b.y);
                         if (typeof b.x === 'number') minX = Math.min(minX, b.x);
                     }
@@ -2932,6 +3403,10 @@ class _Binder {
             saved.canvasVis.forEach(([c, v]) => { c.visible = v; });
             saved.layerVis.forEach(([l, v]) => { l.visible = v; });
             if (this.project) this.project.active_canvas_id = saved.active;
+            if (this.project && subject.kind !== 'layer') {
+                if (hadBy) this.project.groupNameDisplayByView = saved.nameBy;
+                else delete this.project.groupNameDisplayByView;
+            }
             r.canvas = saved.canvas;
             r.ctx = saved.ctx;
             r.exportMode = saved.exportMode;
@@ -2947,12 +3422,47 @@ class _Binder {
         return geo;
     }
 
+    // A GROUP's rulers number straight through the wall ("both just depends
+    // on label", 2026-10-01): the columns and the rows are the members'
+    // cabinets as they stand on the sheet, gathered by position - a column
+    // is the cabinets whose centres line up, whatever member they are on -
+    // and numbered from the front's left (from the right on a Back view,
+    // where the front's first column is drawn), the top row 1.
+    _bRulersAcross(book, layers, geo) {
+        const rects = [];
+        for (const l of layers) {
+            for (const p of (l.panels || [])) {
+                if (p && !p.hidden) rects.push(geo.rect(p.x, p.y, p.width, p.height, l));
+            }
+        }
+        if (!rects.length) return;
+        const gather = (lo, size) => {
+            const tol = Math.max(1, Math.min(...rects.map(size)) / 2);
+            const sorted = rects.slice().sort((a, b) => (lo(a) + size(a) / 2) - (lo(b) + size(b) / 2));
+            const out = [];
+            for (const rc of sorted) {
+                const c = lo(rc) + size(rc) / 2;
+                const last = out[out.length - 1];
+                if (last && c - last.c <= tol) {
+                    last.a = Math.min(last.a, lo(rc)); last.b = Math.max(last.b, lo(rc) + size(rc));
+                } else {
+                    out.push({ c, a: lo(rc), b: lo(rc) + size(rc) });
+                }
+            }
+            return out;
+        };
+        const xs = gather(r => r.x, r => r.w);
+        if (geo.mirrored) xs.reverse();
+        const cols = new Map(xs.map((c, i) => [i, { x1: c.a, x2: c.b }]));
+        const rows = new Map(gather(r => r.y, r => r.h).map((c, i) => [i, { y1: c.a, y2: c.b }]));
+        this._bRulersDraw(book, geo, cols, rows);
+    }
+
     // The rulers (numbering "2"): every column ticked above the wall, every
     // fifth and the two ends numbered bold; every row numbered bold down
     // the left. Positions come from the cabinets themselves, so a half
     // tile or a rotated member is numbered where it draws.
     _bRulers(book, layer, geo) {
-        const ctx = book.ctx;
         const panels = (layer.panels || []).filter(p => p && !p.hidden);
         if (!panels.length) return;
         const cols = new Map(), rows = new Map();
@@ -2965,6 +3475,13 @@ class _Binder {
             if (!rr) rows.set(p.row, { y1: rc.y, y2: rc.y + rc.h });
             else { rr.y1 = Math.min(rr.y1, rc.y); rr.y2 = Math.max(rr.y2, rc.y + rc.h); }
         }
+        this._bRulersDraw(book, geo, cols, rows);
+    }
+
+    // The ticks and numbers for `cols` / `rows` (index -> sheet span), the
+    // index + 1 printed.
+    _bRulersDraw(book, geo, cols, rows) {
+        const ctx = book.ctx;
         const colKeys = [...cols.keys()].sort((a, b) => a - b);
         const rowKeys = [...rows.keys()].sort((a, b) => a - b);
         // Above the map's OWN lettering, never through it. geo.mapInkTop is
@@ -3043,22 +3560,44 @@ class _Binder {
     // edge (rows 1-6 over rows 7-11) sit at the same distance. A stepped
     // bracket takes the nearest free level. The text stays vertical,
     // centred on the span.
-    _bBoxBrackets(book, layer, scr, geo) {
+    //
+    // On a grouped wall's sheet (`subject`, _bSubject) the multis are the
+    // sheet's own (_bSubjectBoxes) and a bracket spans their cabinets on the
+    // screens the map draws - every member's on a group sheet, the member's
+    // own on a member's.
+    _bBoxBrackets(book, layer, scr, geo, subject) {
         const ctx = book.ctx;
-        const circuits = (typeof this.screenCircuits === 'function') ? this.screenCircuits(layer) : [];
-        const byNum = new Map(circuits.map(c => [c.num, c]));
-        const own = (c) => (c.layers
-            ? c.panels.filter((p, i) => !c.layers[i] || c.layers[i] === layer || c.layers[i].id === layer.id)
-            : c.panels).filter(p => p && !p.hidden);
+        const s = subject && subject.kind !== 'layer' ? subject : null;
+        const units = s ? this._bSubjectBoxes(book, s)
+            : (scr.boxes || []).map(box => ({ carrier: layer, box }));
+        const circuitsOf = new Map();
+        const byNumOf = (carrier) => {
+            if (!circuitsOf.has(carrier)) {
+                const list = (typeof this.screenCircuits === 'function') ? this.screenCircuits(carrier) : [];
+                circuitsOf.set(carrier, new Map(list.map(c => [c.num, c])));
+            }
+            return circuitsOf.get(carrier);
+        };
+        // [panel, the screen it is on] of a circuit's cabinets this map draws
+        const drawn = (c, carrier) => {
+            const out = [];
+            (c.panels || []).forEach((p, i) => {
+                if (!p || p.hidden) return;
+                const on = (c.layers && c.layers[i]) || carrier;
+                if (s ? s.layers.some(l => this._bSameLayer(l, on)) : this._bSameLayer(on, layer)) out.push([p, on]);
+            });
+            return out;
+        };
         const wallCx = geo.wall.x + geo.wall.w / 2;
         const placed = { L: [], R: [] };
-        for (const box of scr.boxes || []) {
+        for (const { carrier, box } of units) {
             let x1 = Infinity, x2 = -Infinity, y1 = Infinity, y2 = -Infinity;
+            const byNum = byNumOf(carrier);
             for (const c of box.circuits || []) {
                 const circuit = byNum.get(c.num);
                 if (!circuit) continue;
-                for (const p of own(circuit)) {
-                    const rc = geo.rect(p.x, p.y, p.width, p.height);
+                for (const [p, on] of drawn(circuit, carrier)) {
+                    const rc = geo.rect(p.x, p.y, p.width, p.height, s ? on : undefined);
                     x1 = Math.min(x1, rc.x); x2 = Math.max(x2, rc.x + rc.w);
                     y1 = Math.min(y1, rc.y); y2 = Math.max(y2, rc.y + rc.h);
                 }
@@ -3109,24 +3648,34 @@ class _Binder {
     // the title block's sheet title and the CONTENTS line alike, the plan
     // title "WALL-A - Power - Rear View". The wiring sheets keep their own
     // titles (app-binder-wiring.js); the overview stays OVERVIEW.
-    _bScreenPage(book, layer, pos, view) {
+    // A group printed as one names the GROUP ("USC · DATA · FRONT VIEW") and
+    // a member printed by screens names the member; `target` is a screen or
+    // a sheet subject (_bSubject).
+    _bScreenPage(book, target, pos, view) {
+        const s = this._bSubject(target);
+        const layer = s.layers[0];
         const scr = book.list.byScreen[layer.id];
         const word = view === 'power' ? 'POWER' : 'DATA';
         const rear = book.meta.view === 'rear';
-        const title = `${layer.name} - ${view === 'power' ? 'Power' : 'Data'} - ${rear ? 'Rear' : 'Front'} View`;
-        const sheetTitle = `${layer.name} · ${word} · ${rear ? 'REAR' : 'FRONT'} VIEW`;
+        const title = `${s.name} - ${view === 'power' ? 'Power' : 'Data'} - ${rear ? 'Rear' : 'Front'} View`;
+        const sheetTitle = `${s.name} · ${word} · ${rear ? 'REAR' : 'FRONT'} VIEW`;
         const blocks = view === 'power'
-            ? this._bPowerBlocks(book, layer, scr)
-            : this._bDataBlocks(book, layer, scr);
+            ? this._bPowerBlocks(book, s, scr)
+            : this._bDataBlocks(book, s, scr);
+        const mode = view === 'power' ? 'power' : 'data-flow';
         this._bMapSheets(book, {
             kind: view, title, sheetTitle, viewName: sheetTitle,
-            layerId: layer.id, subject: layer.name, position: pos.name,
-            measure: (area) => this._bMap(book, layer, view === 'power' ? 'power' : 'data-flow', area),
+            layerId: s.id, subject: s.name, position: pos.name,
+            ...(s.groupId != null ? { groupId: s.groupId, layerIds: s.layers.map(l => l.id) } : {}),
+            measure: (area) => this._bMap(book, s, mode, area),
             draw: (area) => {
-                const geo = this._bMap(book, layer, view === 'power' ? 'power' : 'data-flow', area);
+                const geo = this._bMap(book, s, mode, area);
                 if (!geo) return null;
-                this._bRulers(book, layer, geo);
-                if (view === 'power') this._bBoxBrackets(book, layer, scr, geo);
+                // rulers straight through a group ("both just depends on
+                // label"), from 1 on a screen of its own
+                if (s.kind === 'group') this._bRulersAcross(book, s.layers, geo);
+                else this._bRulers(book, layer, geo);
+                if (view === 'power') this._bBoxBrackets(book, layer, scr, geo, s);
                 return geo.area;
             },
         }, blocks);
@@ -3136,14 +3685,16 @@ class _Binder {
     // circuits" - the type is Multi (user, 2026-09-08: "should be multi"),
     // and the length stands alone: a Multi's length IS its home run, so
     // "125' home run" said it twice ("saying home run is redundant").
-    // Plus the circuits on it that belong to another screen.
-    _bBoxBand(book, layer, box) {
+    // Plus the circuits on it that belong to another screen - `sheetIds`
+    // the screens the sheet already lists (a grouped wall's members), the
+    // screen itself by default.
+    _bBoxBand(book, layer, box, sheetIds = null) {
         const n = (box.circuits || []).length;
         const parts = [box.name, box.type || 'no distro',
                        box.homeRun ? this.pullLengthText(box.homeRun) : 'no length',
                        this._bPlural(n, 'circuit')];
         for (const [id, other] of Object.entries(book.list.byScreen)) {
-            if (String(id) === String(layer.id)) continue;
+            if (sheetIds ? sheetIds.has(String(id)) : String(id) === String(layer.id)) continue;
             for (const ob of other.boxes || []) {
                 if (ob.key !== box.key || !box.distroId) continue;
                 const legs = (ob.circuits || []).map(c => c.tail);
@@ -3181,52 +3732,83 @@ class _Binder {
     // counts them. Null where the tray prints no LEGS line either: a
     // single-phase distro, or one the project does not hold.
     _bScreenLegsOn(layer, distroId) {
+        return this._bSubjectLegsOn([layer], distroId);
+    }
+
+    // The same reading over several screens' multis at once - a grouped
+    // wall's carriers, ONE phasor walk (leg amps do not add as magnitudes) -
+    // and, where `listed` names circuits ("<layerId>:<circuit>"), only
+    // those carrying amps: the rest keep their slot on the multi at 0 W, so
+    // every listed circuit still lands on its own leg.
+    _bSubjectLegsOn(layers, distroId, listed = null) {
         const distro = (typeof this.getDistros === 'function' ? this.getDistros() : [])
             .find(d => d && d.id === distroId);
         if (!distro || Number(distro.phase) !== 3 || typeof this.boxFeedLegAmps !== 'function') return null;
-        const assign = layer.powerSocaDistro || {};
-        const members = this.getSocaPlan(layer)
-            .filter(s => assign[s.soca] === distroId)
-            .map(s => ({ layer, s }));
+        const members = [];
+        for (const layer of layers) {
+            const assign = layer.powerSocaDistro || {};
+            for (const s of this.getSocaPlan(layer)) {
+                if (assign[s.soca] !== distroId) continue;
+                members.push({ layer, s: listed ? { ...s, legs: s.legs.map(l => (listed.has(`${layer.id}:${l.circuit}`)
+                    ? l : { ...l, watts: 0 })) } : s });
+            }
+        }
         return this.boxFeedLegAmps(distro, members);
     }
 
-    _bPowerBlocks(book, layer, scr) {
+    // `target` is a screen or a sheet subject (_bSubject): a group's sheet
+    // lists every member's multis and reads the group's figures; a member's
+    // lists the circuits on its cabinets, each crossing one saying where the
+    // rest of it is, and reads its own.
+    _bPowerBlocks(book, target, scr) {
+        const s = this._bSubject(target);
+        const layer = s.layers[0];
+        const grouped = s.kind !== 'layer';
         const blocks = [];
+        const units = this._bSubjectBoxes(book, s);
+        const sheetIds = grouped ? new Set(s.members.map(m => String(m.id))) : null;
         // Circuits, banded per soca / L21-30; NO. is the circuit's number
         // on its unit (the band says which).
         const rows = [];
-        for (const box of scr.boxes || []) {
-            rows.push({ band: this._bBoxBand(book, layer, box) });
+        let crossing = false;
+        for (const { carrier, box, also } of units) {
+            rows.push({ band: this._bBoxBand(book, carrier, box, sheetIds) });
             for (const c of box.circuits || []) {
-                rows.push({ cells: [c.label, String(c.tail), this._bNum(c.tiles, 0),
+                const where = also.get(c.num);
+                if (where) crossing = true;
+                rows.push({ cells: [where ? `${c.label} · ${where}` : c.label, String(c.tail), this._bNum(c.tiles, 0),
                                     this._bNum(c.amps, 1), c.cable || '—'] });
             }
         }
         blocks.push({ lines: this._bTableLines(book, {
             title: 'Circuits',
             bandsLead: true,
-            cols: [{ title: 'circuit', w: 1.5 }, { title: 'no.', w: 0.6, align: 'right' },
+            // a crossing circuit's "· also on …" wraps under its name
+            cols: [{ title: 'circuit', w: 1.5, ...(crossing ? { list: 2 } : {}) }, { title: 'no.', w: 0.6, align: 'right' },
                    { title: 'panels', w: 0.8, align: 'right' }, { title: 'amps', w: 0.8, align: 'right' },
                    { title: 'cable', w: 1.4 }],
             rows,
         }) });
         // Cables this screen (power side).
-        const cables = (scr.rows || []).filter(r => (r.side || 'power') === 'power');
         blocks.push({ lines: this._bTableLines(book, {
             title: 'Cables this screen',
             cols: [{ title: 'cable', w: 1.7 }, { title: 'len', w: 0.7 }, { title: 'qty', w: 0.6, align: 'right' }],
-            rows: cables.length ? cables.map(r => ({ cells: [this._bType(r.type), r.length || '—', String(r.qty)] }))
-                : [{ cells: ['no cables typed', '', ''] }],
+            rows: this._bCableRows(book, s, 'power', units.map(u => u.carrier)),
         }) });
         // Facts.
-        const f = this._bScreenFacts(layer);
-        const circuits = (scr.boxes || []).flatMap(b => b.circuits || []);
+        const f = s.kind === 'group' ? this._bGroupFacts(s.members) : this._bScreenFacts(s.member || layer);
+        const circuits = units.flatMap(u => u.box.circuits || []);
         const tiles = circuits.map(c => Number(c.tiles) || 0);
         const tMin = tiles.length ? Math.min(...tiles) : 0, tMax = tiles.length ? Math.max(...tiles) : 0;
         const each = tiles.length ? (tMin === tMax ? `${tMin} panels each` : `${tMin}–${tMax} panels each`) : '';
-        const distroIds = [...new Set((scr.boxes || []).map(b => b.distroId).filter(Boolean))];
+        const distroIds = [...new Set(units.map(u => u.box.distroId).filter(Boolean))];
         const loads = (typeof this.getDistroLoads === 'function') ? this.getDistroLoads() : [];
+        // A member's sheet reads the amps of the circuits it lists; where
+        // one of them carries another member's panels too, those are the
+        // circuits' amps, not the member's, and the row says so.
+        const listed = s.kind === 'member'
+            ? new Set(units.flatMap(u => (u.box.circuits || []).map(c => `${u.carrier.id}:${c.num}`))) : null;
+        const whose = s.kind === 'member' && units.some(u => u.also.size) ? 'these circuits' : 'this screen';
         // One FED BY row per distro: the service as it is, then THIS
         // SCREEN's amps on its legs - not the service's whole legs, which
         // count every screen it feeds (the user, 2026-09-15, on SR - MAIN
@@ -3235,16 +3817,16 @@ class _Binder {
         const fed = distroIds.map(id => {
             const d = loads.find(x => x.id === id);
             if (!d) return null;
-            let s = `${d.name} · ${d.ratingA} A ${d.voltage} V ${d.phase === 3 ? '3φ' : '1φ'}`;
-            const legs = this._bScreenLegsOn(layer, id);
+            let line = `${d.name} · ${d.ratingA} A ${d.voltage} V ${d.phase === 3 ? '3φ' : '1φ'}`;
+            const legs = grouped ? this._bSubjectLegsOn(s.carriers, id, listed) : this._bScreenLegsOn(layer, id);
             if (legs) {
                 // a leg's letter and its figure stay on one line where
                 // the row wraps (no-break spaces; the KV rows wrap at
                 // plain spaces only)
-                s += ` · this screen on its legs X\u00a0${this._bNum(legs.X, 1)} Y\u00a0${this._bNum(legs.Y, 1)}`
-                    + ` Z\u00a0${this._bNum(legs.Z, 1)}\u00a0A`;
+                line += ` · ${whose} on its legs X ${this._bNum(legs.X, 1)} Y ${this._bNum(legs.Y, 1)}`
+                    + ` Z ${this._bNum(legs.Z, 1)} A`;
             }
-            return s;
+            return line;
         }).filter(Boolean);
         // The sheet is titled for THIS screen, so its Load is this
         // screen's own panels. Where its circuits also carry a group
@@ -3252,30 +3834,48 @@ class _Binder {
         // member) the circuits table above is the WALL's, so a Wall load
         // row follows - the load those circuits draw, every member's
         // panels counted once, naming the members - and it is the figure
-        // the table's amps sum to.
+        // the table's amps sum to. A group's sheet reads the group's own
+        // Load and the same Wall load row; a member's, its own Load and
+        // the Wall load of the circuits on its cabinets.
         const loadText = (a1, a3, w) => `${this._bNum(a1, 1)} A 1φ · ${this._bNum(a3, 1)} A 3φ · ${this._bNum(w / 1000, 1)} kW`;
-        const carried = (typeof this.getCarriedPowerLoad === 'function') ? this.getCarriedPowerLoad(layer) : null;
-        const wall = carried && carried.peers.length
-            ? [['Wall load', `${loadText(carried.amps1, carried.amps3, carried.watts)} · `
-                + [layer, ...carried.peers].map(l => l.name).join(' + ')]] : [];
+        const wallOf = (carrier) => {
+            const carried = (typeof this.getCarriedPowerLoad === 'function') ? this.getCarriedPowerLoad(carrier) : null;
+            return carried && carried.peers.length
+                ? [['Wall load', `${loadText(carried.amps1, carried.amps3, carried.watts)} · `
+                    + [carrier, ...carried.peers].map(l => l.name).join(' + ')]] : [];
+        };
+        const wall = grouped
+            ? s.carriers.filter(c => s.kind === 'group' || units.some(u => u.carrier === c)).flatMap(wallOf)
+            : wallOf(layer);
         blocks.push({ lines: this._bKvLines(book, 'Facts', [
             ['Screen', f.screenText],
             ['Load', loadText(f.amps1, f.amps3, f.watts)],
             ...wall,
             ['Circuits', [`${circuits.length} at ${f.voltage} V / ${parseFloat(layer.powerAmperage) || 0} A`, each]
                 .filter(Boolean).join(' · ')],
-            ...(fed.length ? fed.map(s => ['Fed by', s]) : [['Fed by', 'no distro']]),
+            ...(fed.length ? fed.map(t => ['Fed by', t]) : [['Fed by', 'no distro']]),
         ]) });
-        // Gangs, only when the screen has any.
-        const gangs = scr.gangs || { twofer: 0, threefer: 0 };
-        if ((gangs.twofer || 0) + (gangs.threefer || 0) > 0 && typeof this.screenCircuits === 'function') {
-            const amps = new Map(circuits.map(c => [c.num, c.amps]));
-            const shared = this.screenCircuits(layer).filter(c => Array.isArray(c.runIds) && c.runIds.length > 1);
+        // Gangs, only when the sheet's circuits have any.
+        const shared = [];
+        if (typeof this.screenCircuits === 'function') {
+            for (const carrier of [...new Set(units.map(u => u.carrier))]) {
+                const gangs = (book.list.byScreen[carrier.id] || {}).gangs || { twofer: 0, threefer: 0 };
+                if ((gangs.twofer || 0) + (gangs.threefer || 0) <= 0) continue;
+                const mine = new Map(units.filter(u => u.carrier === carrier)
+                    .flatMap(u => (u.box.circuits || []).map(c => [c.num, c.amps])));
+                for (const c of this.screenCircuits(carrier)) {
+                    if (!(Array.isArray(c.runIds) && c.runIds.length > 1)) continue;
+                    if (grouped && !mine.has(c.num)) continue;
+                    shared.push({ cells: [this.getPowerCircuitLabel(carrier, c.num),
+                                          `${c.runIds.length}fer`, this._bNum(mine.get(c.num), 1)] });
+                }
+            }
+        }
+        if (shared.length) {
             blocks.push({ lines: this._bTableLines(book, {
                 title: 'Shared circuits',
                 cols: [{ title: 'circuit', w: 1.3 }, { title: 'splitter', w: 0.8 }, { title: 'amps', w: 0.8, align: 'right' }],
-                rows: shared.map(c => ({ cells: [this.getPowerCircuitLabel(layer, c.num),
-                                                 `${c.runIds.length}fer`, this._bNum(amps.get(c.num), 1)] })),
+                rows: shared,
             }) });
         }
         return blocks;
@@ -3462,11 +4062,17 @@ class _Binder {
         return slot ? `slot ${(slot.index || 0) + 1}` : found.card.deviceName;
     }
 
-    _bDataBlocks(book, layer, scr) {
+    // `target` is a screen or a sheet subject (_bSubject): a group's sheet
+    // lists every member's ports, a member's the ports landing on its
+    // cabinets - a port crossing into another member says where the rest of
+    // it is ("also on USC SL"), under its label.
+    _bDataBlocks(book, target, scr) {
+        const subject = this._bSubject(target);
+        const layer = subject.layers[0];
         const blocks = [];
-        const asg = ((this._assignment && this._assignment.screens) || [])
-            .find(s => String(s.layerId) === String(layer.id));
-        const runs = this._pullPortRuns(layer);
+        const asgOf = (l) => ((this._assignment && this._assignment.screens) || [])
+            .find(s => String(s.layerId) === String(l.id));
+        const runs = this._bSubjectRuns(subject);
         // Two levels: the UNIT a port lands on (a card or a breakout box),
         // and inside it the SNAKE a run of its ports rides - one heading
         // each, in the order the ports come.
@@ -3511,18 +4117,19 @@ class _Binder {
         const partnered = new Set();
         let procs = new Map();
         let split = false;
-        for (const run of runs) {
+        for (const { carrier, run, also } of runs) {
+            const asg = asgOf(carrier);
             const placed = asg && (asg.ports || []).find(p => p.number === run.num);
             const home = placed && placed.cardId ? this._bPortHome(placed.cardId, placed.port) : null;
             const cable = (typeof this.dataPortCableForScreen === 'function')
-                ? this.dataPortCableForScreen(layer, run.num) : null;
+                ? this.dataPortCableForScreen(carrier, run.num) : null;
             // PANELS only: the pixels a port carries are the processor's
             // business, not the tech's at the wall (2026-09-26: "we dont
             // need to be putting the amount of pixels each port has").
             const panelsText = this._bNum((run.panels || []).length, 0);
             if (!home) {
                 group(band('none', ['Not placed']), `${snakeId(cable)}|`, cable)
-                    .ports.push({ label: run.label, out: '—', cable, back: null, panels: panelsText });
+                    .ports.push({ label: run.label, also, out: '—', cable, back: null, panels: panelsText });
                 continue;
             }
             // OUTPUT is where the port lands - the sending card ("H9 SR ·
@@ -3544,7 +4151,7 @@ class _Binder {
                 out = `${home.unitTitle} · ${socket}`;
             }
             const bb = (home.port && home.port.backedBy) || null;
-            const end = bb ? this._bBackupEnd(layer, run.num, bb) : null;
+            const end = bb ? this._bBackupEnd(carrier, run.num, bb) : null;
             // The backup end's own run, as the backup card's or box's own ≡
             // sheet typed it.
             const backupCable = end && typeof this.dataPortCable === 'function'
@@ -3560,7 +4167,7 @@ class _Binder {
                 }
             }
             group(b, `${snakeId(cable)}|${snakeId(backupCable)}`, cable, backupCable).ports.push({
-                label: run.label, out, cable, panels: panelsText,
+                label: run.label, also, out, cable, panels: panelsText,
                 back: end ? { label: end.label || '—', out: end.shortSocket, cable: backupCable } : null,
             });
         }
@@ -3588,7 +4195,7 @@ class _Binder {
                 }
                 const headed = !!(snakeId(g.primary) || snakeId(g.backup));
                 for (const p of g.ports) {
-                    const left = [p.label, p.out, runOf(p.cable, headed)];
+                    const left = [p.also ? `${p.label} · ${p.also}` : p.label, p.out, runOf(p.cable, headed)];
                     if (!split) { rows.push({ cells: [...left, p.panels] }); continue; }
                     const right = p.back ? [p.back.label, p.back.out, runOf(p.back.cable, headed)] : ['', '', ''];
                     rows.push({ cells: [...left, ...right, p.panels] });
@@ -3602,7 +4209,11 @@ class _Binder {
         const colW = DATA_COL_W;
         const ctxM = book.measureCtx;
         ctxM.font = this._bFont(SZ.cell, 400);
-        const labels = rows.filter(r => r.cells).flatMap(r => (split ? [r.cells[0], r.cells[3]] : [r.cells[0]]));
+        // (a crossing port's "· also on …" wraps under the label, so the
+        // label alone is what PORT is sized to)
+        const crossing = runs.some(r => r.also);
+        const bare = (t) => String(t || '').split(' · also on ')[0];
+        const labels = rows.filter(r => r.cells).flatMap(r => (split ? [bare(r.cells[0]), r.cells[3]] : [bare(r.cells[0])]));
         const labelW = labels.reduce((m, t) => Math.max(m, ctxM.measureText(String(t || '')).width), 0);
         const needW = Math.ceil(labelW) + 12 * 2 + 4;
         const half = [{ w: 1.7 }, { w: 1.0 }];      // OUTPUT, HOME RUN
@@ -3610,7 +4221,7 @@ class _Binder {
         const ports = split ? 2 : 1;
         const portW = Math.max(0.7, needW * ports < colW
             ? needW * otherW / (colW - needW * ports) : 0.7);
-        const halfCols = (rule) => [{ title: 'port', w: portW, rule },
+        const halfCols = (rule) => [{ title: 'port', w: portW, rule, ...(crossing && !rule ? { list: 2 } : {}) },
                                     { title: 'output', w: half[0].w }, { title: 'home run', w: half[1].w }];
         blocks.push({ minW: DATA_COL_W, lines: this._bTableLines(book, {
             title: 'Ports',
@@ -3622,14 +4233,15 @@ class _Binder {
             rows,
             shrink: true,
         }) });
-        const cables = (scr.rows || []).filter(r => r.side === 'data');
         blocks.push({ lines: this._bTableLines(book, {
             title: 'Cables this screen',
             cols: [{ title: 'cable', w: 1.7 }, { title: 'len', w: 0.7 }, { title: 'qty', w: 0.6, align: 'right' }],
-            rows: cables.length ? cables.map(r => ({ cells: [this._bType(r.type), r.length || '—', String(r.qty)] }))
-                : [{ cells: ['no cables typed', '', ''] }],
+            rows: this._bCableRows(book, subject, 'data', runs.map(r => r.carrier)),
         }) });
-        const f = this._bScreenFacts(layer);
+        // A group's FACTS are the group's (every member's pixels and panels);
+        // a member's its own.
+        const f = subject.kind === 'group' ? this._bGroupFacts(subject.members)
+            : this._bScreenFacts(subject.member || layer);
         // The port count alone - "we dont need port max" (2026-09-07).
         const pairs = [
             ['Screen', f.screenText],
@@ -3963,17 +4575,45 @@ class _Binder {
             cols: [tick, { title: 'item', w: 1.2 }, { title: 'detail', w: 2, list: true }],
             rows: hw.length ? hw : [{ cells: ['', 'none', ''] }],
         }) });
-        // Screens with their gang counts.
-        const screens = members.map(layer => {
+        // Screens with their gang counts - named as the set prints them
+        // (2026-10-01): a group routed as one and printed as the group on
+        // both sides is ONE row under its name, every member's figures
+        // summed; a member printed by screens counts what its own sheet
+        // lists - the circuits and ports landing on its cabinets, a crossing
+        // one on each member it touches.
+        const gangText = (g) => [g.twofer ? `${g.twofer}× 2fer` : '', g.threefer ? `${g.threefer}× 3fer` : '']
+            .filter(Boolean).join(', ') || '—';
+        const own = (layer) => {
             const scr = list.byScreen[layer.id] || { boxes: [], ports: [], gangs: {} };
-            const circuits = (scr.boxes || []).reduce((a, b) => a + (b.circuits || []).length, 0);
-            const g = scr.gangs || {};
-            const gangs = [g.twofer ? `${g.twofer}× 2fer` : '', g.threefer ? `${g.threefer}× 3fer` : '']
-                .filter(Boolean).join(', ') || '—';
-            const panels = (layer.panels || []).filter(p => p && !p.blank && !p.hidden).length;
-            return { cells: ['', layer.name, `${layer.columns} × ${layer.rows}`, String(panels),
-                             String(circuits), String((scr.ports || []).length), gangs] };
-        });
+            return { circuits: (scr.boxes || []).reduce((a, b) => a + (b.circuits || []).length, 0),
+                     ports: (scr.ports || []).length, gangs: scr.gangs || {},
+                     panels: (layer.panels || []).filter(p => p && !p.blank && !p.hidden).length };
+        };
+        const screens = [];
+        const rowed = new Set();
+        for (const layer of members) {
+            const gp = this._bGroupPlanOf(book, layer);
+            if (gp && gp.mode.power === 'group' && gp.mode.data === 'group') {
+                if (rowed.has(gp.id)) continue;
+                rowed.add(gp.id);
+                const fs = gp.members.map(own);
+                const sum = (k) => fs.reduce((a, f) => a + f[k], 0);
+                const gangs = { twofer: fs.reduce((a, f) => a + (f.gangs.twofer || 0), 0),
+                                threefer: fs.reduce((a, f) => a + (f.gangs.threefer || 0), 0) };
+                screens.push({ cells: ['', gp.name, gp.members.map(m => `${m.columns} × ${m.rows}`).join(' + '),
+                                       String(sum('panels')), String(sum('circuits')), String(sum('ports')),
+                                       gangText(gangs)] });
+                continue;
+            }
+            const f = own(layer);
+            if (gp && gp.mode.power === 'screens') {
+                f.circuits = this._bSubjectBoxes(book, this._bMemberSubject(gp, layer))
+                    .reduce((a, u) => a + (u.box.circuits || []).length, 0);
+            }
+            if (gp && gp.mode.data === 'screens') f.ports = this._bSubjectRuns(this._bMemberSubject(gp, layer)).length;
+            screens.push({ cells: ['', layer.name, `${layer.columns} × ${layer.rows}`, String(f.panels),
+                                   String(f.circuits), String(f.ports), gangText(f.gangs)] });
+        }
         blocks.push({ lines: this._bTableLines(book, {
             title: 'Screens',
             width: PULL_COL_W,
@@ -4040,7 +4680,11 @@ class _Binder {
             for (const m of members) {
                 const layer = book.layers.get(String(m.layerId));
                 if (!layer) continue;
-                names.push(layer.name);
+                // a wall printed as its group on Power is named by the
+                // group, the way its Power sheet is (2026-10-01)
+                const gp = this._bGroupPlanOf(book, layer);
+                if (!(gp && gp.mode.power === 'group')) names.push(layer.name);
+                else if (!names.includes(gp.name)) names.push(gp.name);
                 const s = this.getSocaPlan(layer).find(x => x.soca === m.soca);
                 if (!s) continue;
                 if (!homeRun && s.length) homeRun = s.length;

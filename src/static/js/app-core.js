@@ -2,6 +2,10 @@
 // Feature areas live in the app-*.js modules, which extend the prototype.
 import { evaluateMathExpression, sendClientLog, setupColorPickerWithHex, isTypingTarget, installEnterEndsEdit } from './helpers.js';
 
+// The tabs the NAMES switch keeps a value for, by the canvas's view mode
+// (setupNameDisplayToggles; owner, 2026-10-01: "Yes, per tab").
+export const NAME_DISPLAY_VIEWS = ['pixel-map', 'cabinet-id', 'data-flow', 'power', 'show-look'];
+
 export class LEDRasterApp {
     constructor() {
         this.project = null;
@@ -1667,39 +1671,73 @@ export class LEDRasterApp {
 
     /**
      * Wire the NAMES switch (Screens / Group / Both) for grouped screens.
-     * One project-level setting (project.groupNameDisplay): it names a
-     * drawing convention for every grouped wall, the way perspective names
-     * one for a whole canvas - not any single layer's toggle. The switch is
-     * mirrored beside each tab's Screen Name control (the same way the
-     * Border checkbox is mirrored across tabs), every copy driving the same
-     * field. 'group' is the default and the pre-switch behaviour.
+     * PER TAB (owner, 2026-10-01: "Yes, per tab"): Pixel Map, Cabinet ID,
+     * Data, Power and Show Look each keep their own value in
+     * project.groupNameDisplayByView, keyed by the canvas's view mode. It
+     * still names a drawing convention for every grouped wall - not any
+     * single layer's toggle - but one tab's convention, and the binder's
+     * Power and Data sheets follow their own tab's (a wall named by its
+     * group on Power prints one Power sheet; set to Screens on Data it
+     * prints a Data sheet per member). The switch beside each tab's Screen
+     * Name control drives that tab's value only (data-name-view). Before
+     * this it was ONE field, project.groupNameDisplay: an old show starts
+     * every tab on that value (groupNameDisplayFor reads it as the
+     * fallback, and the first change copies it onto every tab). 'group' is
+     * the default and the pre-switch behaviour.
      */
     setupNameDisplayToggles() {
         document.querySelectorAll('.name-display-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 const value = btn.getAttribute('data-name-display');
-                if (!value || !this.project) return;
-                const current = this.project.groupNameDisplay || 'group';
-                if (current === value) return;
-                this.project.groupNameDisplay = value;
+                const view = btn.getAttribute('data-name-view');
+                if (!value || !this.project || !NAME_DISPLAY_VIEWS.includes(view)) return;
+                if (this.groupNameDisplayFor(view) === value) return;
+                this.migrateGroupNameDisplay();
+                this.project.groupNameDisplayByView[view] = value;
                 this.refreshNameDisplayButtons();
                 this.saveProject();
                 this.saveState('Change Name Display');
                 if (window.canvasRenderer) window.canvasRenderer.render();
                 if (typeof sendClientLog === 'function') {
-                    sendClientLog('name_display_change', { value });
+                    sendClientLog('name_display_change', { value, view });
                 }
             });
         });
         this.refreshNameDisplayButtons();
     }
 
+    // One tab's Names value: its own where it has one, else the single
+    // project field every tab shared before 2026-10-01, else 'group'.
+    groupNameDisplayFor(view) {
+        const ok = (m) => m === 'screens' || m === 'both' || m === 'group';
+        const p = this.project || {};
+        const by = (p.groupNameDisplayByView && typeof p.groupNameDisplayByView === 'object')
+            ? p.groupNameDisplayByView : {};
+        if (ok(by[view])) return by[view];
+        return ok(p.groupNameDisplay) ? p.groupNameDisplay : 'group';
+    }
+
+    // Every tab given its own stored value, each from what it reads now -
+    // so an old show's single value lands on all five, and a tab already
+    // set keeps its own. Idempotent; the old field is left where it was
+    // (an older build still reads it). The server does the same on load
+    // (routes_project.restore_project).
+    migrateGroupNameDisplay() {
+        if (!this.project) return;
+        const by = (this.project.groupNameDisplayByView
+            && typeof this.project.groupNameDisplayByView === 'object')
+            ? this.project.groupNameDisplayByView : {};
+        const next = {};
+        for (const v of NAME_DISPLAY_VIEWS) next[v] = this.groupNameDisplayFor(v);
+        this.project.groupNameDisplayByView = { ...by, ...next };
+    }
+
     refreshNameDisplayButtons() {
         if (!this.project) return;
-        const current = this.project.groupNameDisplay || 'group';
         document.querySelectorAll('.name-display-btn').forEach(btn => {
+            const view = btn.getAttribute('data-name-view');
             btn.classList.toggle('active',
-                btn.getAttribute('data-name-display') === current);
+                btn.getAttribute('data-name-display') === this.groupNameDisplayFor(view));
         });
     }
 

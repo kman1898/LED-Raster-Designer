@@ -12,9 +12,11 @@ between members, TOTALS combine):
   * the load a screen's circuits carry (getCarriedPowerLoad) is the sum
     the circuit table is built from - the sheet's circuit amps add up to it;
   * the screen carrying a wall's circuits reads the wall's load in the
-    sidebar and prints a "Wall load" row beside its own "Load" on its
-    power sheet (the sheet is titled for the screen, so "Load" stays the
-    screen's own);
+    sidebar; the wall's Power sheets follow the Power tab's Names switch
+    (2026-10-01: "It should depend if it is set to group vs screens"): on
+    Group ONE sheet titled by the group, its Load the group's panels beside
+    a "Wall load" row; on Screens a sheet per member, each Load the
+    member's own beside the Wall load of the circuits on its cabinets;
   * the overview's SHOW TOTALS counts every panel once, at the voltage of
     the circuits that feed it - no member dropped, none doubled where a
     member also has circuits of its own;
@@ -184,16 +186,26 @@ def _show_totals(texts):
     return [(body[i], body[i + 1]) for i in range(0, len(body) - 1, 2)]
 
 
-def _facts(texts):
-    """The power sheet's FACTS pairs."""
-    s = texts.index('FACTS')
-    body = texts[s + 1:]
+def _facts(sheet):
+    """The power sheet's FACTS pairs, from its rendered text ops: a key
+    stands at the block's left edge, its value to the right of it - and a
+    value the column wraps is drawn a line at a time, each further line at
+    the value's x, so the lines are joined back into one value."""
+    ops = sheet['ops']
+    s = next(i for i, o in enumerate(ops) if o['text'] == 'FACTS')
+    left = ops[s]['x']
+    keys = ('Screen', 'Load', 'Wall load', 'Circuits', 'Fed by')
     out = []
-    for i in range(0, len(body) - 1, 2):
-        if body[i] not in ('Screen', 'Load', 'Wall load', 'Circuits', 'Fed by'):
+    for o in ops[s + 1:]:
+        if abs(o['x'] - left) < 0.5:
+            if o['text'] not in keys:
+                break
+            out.append([o['text'], None])
+        elif out:
+            out[-1][1] = o['text'] if out[-1][1] is None else out[-1][1] + ' ' + o['text']
+        else:
             break
-        out.append((body[i], body[i + 1]))
-    return out
+    return [(k, v) for k, v in out]
 
 
 def _fmt(a1, a3, w):
@@ -228,24 +240,67 @@ def test_the_walls_load_is_both_members_and_its_circuits_sum_to_it(page):
     assert not errors, errors
 
 
+# The Power tab's Names switch decides the wall's Power sheets (owner,
+# 2026-10-01: "It should depend if it is set to group vs screens"). Absent,
+# it is Group: ONE sheet, titled by the group.
+GROUP_POWER = 'WALL - Power - Front View'
+R_POWER = 'WALL-R - Power - Front View'
+SCREENS_ON_POWER = """
+    const had = Object.prototype.hasOwnProperty.call(app.project, 'groupNameDisplayByView');
+    const was = app.project.groupNameDisplayByView;
+    app.project.groupNameDisplayByView = { ...(was || {}), power: 'screens' };
+    return () => { if (had) app.project.groupNameDisplayByView = was;
+                   else delete app.project.groupNameDisplayByView; };
+"""
+
+
+def _chain(*setups):
+    """Several setups as one, undone in reverse."""
+    body = ['const undos = [];']
+    for s in setups:
+        body.append('undos.push((() => {' + s + '})());')
+    body.append('return () => undos.reverse().forEach(u => typeof u === "function" && u());')
+    return '\n'.join(body)
+
+
 def test_the_power_sheet_prints_the_screens_load_and_the_walls(page):
-    """WALL-L's power sheet is titled for WALL-L: its Load is WALL-L's own
-    panels; its circuit table is the wall's, so a Wall load row names both
-    members and carries the amps the table's circuits sum to."""
+    """Names on Group (the default): the wall prints ONE Power sheet, titled
+    WALL - no WALL-L or WALL-R sheet. Its Load is the group's panels, every
+    member's, and a Wall load row names both members and carries the amps
+    the table's circuits sum to."""
     pg, ids, _e = page
-    out = _run(pg, ids, what=[L_POWER])
-    assert 'WALL-R - Power - Front View' not in out['plan'], out['plan']
-    facts = dict(_facts(out[L_POWER]['texts']))
+    out = _run(pg, ids, what=[GROUP_POWER])
+    assert GROUP_POWER in out['plan'], out['plan']
+    assert L_POWER not in out['plan'] and R_POWER not in out['plan'], out['plan']
+    facts = dict(_facts(out[GROUP_POWER]))
     ol, orr, _ = out['own']
-    cl = out['carried'][0]
-    assert facts['Load'] == _fmt(ol['amps1'], ol['amps3'], ol['watts']), facts
+    assert facts['Load'] == _fmt(ol['amps1'] + orr['amps1'], ol['amps3'] + orr['amps3'],
+                                 ol['watts'] + orr['watts']), facts
     m = WALL_LINE.match(facts['Wall load'])
     assert m and m.group(4) == 'WALL-L + WALL-R', facts
     assert abs(float(m.group(1)) - out['legAmps'][0]) <= 0.05, (m.group(1), out['legAmps'])
     assert abs(float(m.group(1)) - (ol['amps1'] + orr['amps1'])) <= 0.05
     assert m.group(3) == '%.1f' % ((ol['watts'] + orr['watts']) / 1000)
-    keys = [k for k, _v in _facts(out[L_POWER]['texts'])]
+    keys = [k for k, _v in _facts(out[GROUP_POWER])]
     assert keys[:3] == ['Screen', 'Load', 'Wall load'], keys
+    assert facts['Screen'].startswith('4 × 3 + 4 × 3 · 24 panels'), facts
+
+
+def test_screens_on_power_prints_each_member_with_its_own_load(page):
+    """Names on Screens: WALL-L and WALL-R each get a Power sheet - WALL-R
+    too, which carries no circuit of its own (the 2026-10-01 bug). Each
+    reads its own Load and the Wall load of the circuits on its cabinets."""
+    pg, ids, _e = page
+    out = _run(pg, ids, SCREENS_ON_POWER, what=[L_POWER, R_POWER])
+    assert L_POWER in out['plan'] and R_POWER in out['plan'], out['plan']
+    assert GROUP_POWER not in out['plan'], out['plan']
+    ol, orr, _ = out['own']
+    lf, rf = dict(_facts(out[L_POWER])), dict(_facts(out[R_POWER]))
+    assert lf['Load'] == _fmt(ol['amps1'], ol['amps3'], ol['watts']), lf
+    assert rf['Load'] == _fmt(orr['amps1'], orr['amps3'], orr['watts']), rf
+    for f in (lf, rf):
+        m = WALL_LINE.match(f['Wall load'])
+        assert m and m.group(4) == 'WALL-L + WALL-R', f
 
 
 def test_the_show_totals_count_every_screen_once(page):
@@ -277,7 +332,7 @@ def test_a_member_with_circuits_of_its_own_is_not_counted_twice(page):
         R.powerCustomPaths = {1: R.panels.filter(p => p !== first).map(p => ({row: p.row, col: p.col}))};
         return () => keep.forEach(k => { k.l.powerFlowPattern = k.p; k.l.powerCustomPaths = k.c; });
     """
-    out = _run(pg, ids, setup, what=['Overview', L_POWER, 'WALL-R - Power - Front View'])
+    out = _run(pg, ids, setup, what=['Overview', GROUP_POWER])
     cl, cr, _ = out['carried']
     assert cl['peerIds'] == [ids['r']] and cl['watts'] == pytest.approx(13 * 200), cl
     assert cr['peerIds'] == [] and cr['watts'] == pytest.approx(11 * 200), cr
@@ -286,12 +341,38 @@ def test_a_member_with_circuits_of_its_own_is_not_counted_twice(page):
     totals = _show_totals(out['Overview']['texts'])
     loads = [(k, v) for k, v in totals if k.startswith('Load')]
     assert loads == [('Load', _fmt(watts / 208, watts / (208 * 1.73), watts))], totals
-    # WALL-R prints its own load and no wall row (its circuits carry only it)
-    r_keys = [k for k, _v in _facts(out['WALL-R - Power - Front View']['texts'])]
-    assert 'Wall load' not in r_keys, r_keys
-    facts = dict(_facts(out[L_POWER]['texts']))
-    m = WALL_LINE.match(facts['Wall load'])
-    assert m and abs(float(m.group(1)) - 13 * 200 / 208) <= 0.05, facts
+    # A hand-drawn circuit crossing onto WALL-R is a wall routed as one: the
+    # group's ONE Power sheet (2026-10-01) carries a single Wall load row -
+    # WALL-L's circuit, 13 cabinets; WALL-R's own circuit carries only it.
+    assert L_POWER not in out['plan'] and R_POWER not in out['plan'], out['plan']
+    pairs = _facts(out[GROUP_POWER])
+    walls = [v for k, v in pairs if k == 'Wall load']
+    assert len(walls) == 1, pairs
+    m = WALL_LINE.match(walls[0])
+    assert m and abs(float(m.group(1)) - 13 * 200 / 208) <= 0.05, pairs
+
+
+def test_a_crossing_circuit_is_listed_on_each_member_it_touches(page):
+    """Names on Screens with WALL-L's circuit stepping onto WALL-R's first
+    cabinet: WALL-R's sheet lists that circuit too, saying where the rest of
+    it is ("also on WALL-L"), beside WALL-R's own; WALL-L's lists it saying
+    "also on WALL-R"."""
+    pg, ids, _e = page
+    setup = """
+        const keep = [L, R].map(l => ({ l, p: l.powerFlowPattern, c: l.powerCustomPaths }));
+        L.powerFlowPattern = 'custom'; R.powerFlowPattern = 'custom';
+        const mine = L.panels.map(p => ({row: p.row, col: p.col}));
+        const first = R.panels.find(p => p.row === 0 && p.col === 0);
+        L.powerCustomPaths = {1: [...mine, {row: 0, col: 0, layerId: R.id}]};
+        R.powerCustomPaths = {1: R.panels.filter(p => p !== first).map(p => ({row: p.row, col: p.col}))};
+        return () => keep.forEach(k => { k.l.powerFlowPattern = k.p; k.l.powerCustomPaths = k.c; });
+    """
+    out = _run(pg, ids, _chain(setup, SCREENS_ON_POWER), what=[L_POWER, R_POWER])
+    l_texts, r_texts = out[L_POWER]['texts'], out[R_POWER]['texts']
+    assert any('also on WALL-R' in t for t in l_texts), l_texts
+    assert any('also on WALL-L' in t for t in r_texts), r_texts
+    # WALL-R lists two circuits: WALL-L's crossing one and its own
+    assert dict(_facts(out[R_POWER]))['Circuits'].startswith('2 at 208'), _facts(out[R_POWER])
 
 
 def test_members_each_on_their_own_circuits_read_as_before(page):
@@ -306,7 +387,7 @@ def test_members_each_on_their_own_circuits_read_as_before(page):
     out = _run(pg, ids, setup, what=['Overview', L_POWER])
     cl, cr, _ = out['carried']
     assert cl['peerIds'] == [] and cr['peerIds'] == [] and cr['circuits'] > 0, out['carried']
-    assert 'Wall load' not in dict(_facts(out[L_POWER]['texts']))
+    assert 'Wall load' not in dict(_facts(out[L_POWER]))
     own = out['own']
     totals = _show_totals(out['Overview']['texts'])
     watts = sum(f['watts'] for f in own)
@@ -329,9 +410,9 @@ def test_an_ungrouped_show_is_unchanged(page):
     totals = dict(_show_totals(out['Overview']['texts']))
     assert totals['Load'] == '27.4 A 1φ · 15.8 A 3φ · 5.7 kW', totals
     assert totals['Panels'] == '30' and totals['Screens'] == '3', totals
-    lf = dict(_facts(out[L_POWER]['texts']))
+    lf = dict(_facts(out[L_POWER]))
     assert lf['Load'] == '11.5 A 1φ · 6.7 A 3φ · 2.4 kW' and 'Wall load' not in lf, lf
-    nf = dict(_facts(out[LONE_POWER]['texts']))
+    nf = dict(_facts(out[LONE_POWER]))
     assert nf['Load'] == '4.3 A 1φ · 2.5 A 3φ · 0.9 kW' and 'Wall load' not in nf, nf
     side = out['sidebar']
     assert side['WALL-L']['amps1'] == '11.54 A' and side['WALL-L']['amps3'] == '6.67 A', side

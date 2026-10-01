@@ -93,6 +93,12 @@ to the box, picking the strands, and the power jumper lengths.
 
 FIXES
 
+- FIX: A screen group prints in the binder by the Names switch on its
+  tab, now set per tab. Group prints one sheet for the whole group,
+  titled by its name, with every screen in the group on its map; Screens
+  prints a sheet for each screen; Both asks at export, group by group.
+  Before, a group routed as one screen printed only the screen that
+  carried its ports and circuits, and the others were left out.
 - FIX: A bare MX40 Pro is 20 ports, its RJ45s. In 40-port mode ports 21
   to 40 come only through breakout boxes on OPT 3 and 4, so the unit
   reaches 30 with a third box and 40 with a fourth. Its halves backup

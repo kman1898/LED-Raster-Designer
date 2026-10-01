@@ -412,15 +412,16 @@
                             <input type="checkbox" id="show-label-name" checked>
                             <label for="show-label-name">Screen Name</label>
                         </div>
-                        <!-- Names for grouped screens: one project-wide drawing
-                             convention, mirrored beside every tab's Screen Name
-                             control the way the Border checkbox is. -->
-                        <div class="info-row" data-tooltip="Names, How grouped screens are named on the canvas. Screens draws each layer's own name, Group draws one name across the whole group, Both draws the group name plus every layer's. Ungrouped screens always keep their own name.">
+                        <!-- Names for grouped screens: a drawing convention per
+                             tab (2026-10-01), beside every tab's Screen Name
+                             control; each copy drives its own tab's value
+                             (data-name-view). -->
+                        <div class="info-row" data-tooltip="Names, How grouped screens are named on this tab. Screens draws each layer's own name, Group draws one name across the whole group, Both draws the group name plus every layer's. Each tab keeps its own choice. Ungrouped screens always keep their own name.">
                             <label>Names</label>
                             <div style="display: flex; gap: 4px;">
-                                <button type="button" class="btn btn-secondary name-display-btn" data-name-display="screens" style="flex: 1; padding: 4px 6px; font-size: 11px;">Screens</button>
-                                <button type="button" class="btn btn-secondary name-display-btn" data-name-display="group" style="flex: 1; padding: 4px 6px; font-size: 11px;">Group</button>
-                                <button type="button" class="btn btn-secondary name-display-btn" data-name-display="both" style="flex: 1; padding: 4px 6px; font-size: 11px;">Both</button>
+                                <button type="button" class="btn btn-secondary name-display-btn" data-name-view="pixel-map" data-name-display="screens" style="flex: 1; padding: 4px 6px; font-size: 11px;">Screens</button>
+                                <button type="button" class="btn btn-secondary name-display-btn" data-name-view="pixel-map" data-name-display="group" style="flex: 1; padding: 4px 6px; font-size: 11px;">Group</button>
+                                <button type="button" class="btn btn-secondary name-display-btn" data-name-view="pixel-map" data-name-display="both" style="flex: 1; padding: 4px 6px; font-size: 11px;">Both</button>
                             </div>
                         </div>
                         <div class="info-row checkbox-row" data-tooltip="Layer Size (px), Show the total pixel dimensions of the screen layer.">
@@ -510,12 +511,12 @@
                             <label for="show-label-name-cabinet">Screen Name</label>
                         </div>
 
-                        <div class="info-row" data-tooltip="Names, How grouped screens are named on the canvas. Screens draws each layer's own name, Group draws one name across the whole group, Both draws the group name plus every layer's. Ungrouped screens always keep their own name.">
+                        <div class="info-row" data-tooltip="Names, How grouped screens are named on this tab. Screens draws each layer's own name, Group draws one name across the whole group, Both draws the group name plus every layer's. Each tab keeps its own choice. Ungrouped screens always keep their own name.">
                             <label>Names</label>
                             <div style="display: flex; gap: 4px;">
-                                <button type="button" class="btn btn-secondary name-display-btn" data-name-display="screens" style="flex: 1; padding: 4px 6px; font-size: 11px;">Screens</button>
-                                <button type="button" class="btn btn-secondary name-display-btn" data-name-display="group" style="flex: 1; padding: 4px 6px; font-size: 11px;">Group</button>
-                                <button type="button" class="btn btn-secondary name-display-btn" data-name-display="both" style="flex: 1; padding: 4px 6px; font-size: 11px;">Both</button>
+                                <button type="button" class="btn btn-secondary name-display-btn" data-name-view="cabinet-id" data-name-display="screens" style="flex: 1; padding: 4px 6px; font-size: 11px;">Screens</button>
+                                <button type="button" class="btn btn-secondary name-display-btn" data-name-view="cabinet-id" data-name-display="group" style="flex: 1; padding: 4px 6px; font-size: 11px;">Group</button>
+                                <button type="button" class="btn btn-secondary name-display-btn" data-name-view="cabinet-id" data-name-display="both" style="flex: 1; padding: 4px 6px; font-size: 11px;">Both</button>
                             </div>
                         </div>
 
@@ -624,6 +625,14 @@
                             <label>Show Offset Y</label>
                             <input type="text" id="show-offset-y" value="0">
                         </div>
+                        <div class="info-row" data-tooltip="Names, How grouped screens are named on this tab. Screens draws each layer's own name, Group draws one name across the whole group, Both draws the group name plus every layer's. Each tab keeps its own choice. Ungrouped screens always keep their own name.">
+                            <label>Names</label>
+                            <div style="display: flex; gap: 4px;">
+                                <button type="button" class="btn btn-secondary name-display-btn" data-name-view="show-look" data-name-display="screens" style="flex: 1; padding: 4px 6px; font-size: 11px;">Screens</button>
+                                <button type="button" class="btn btn-secondary name-display-btn" data-name-view="show-look" data-name-display="group" style="flex: 1; padding: 4px 6px; font-size: 11px;">Group</button>
+                                <button type="button" class="btn btn-secondary name-display-btn" data-name-view="show-look" data-name-display="both" style="flex: 1; padding: 4px 6px; font-size: 11px;">Both</button>
+                            </div>
+                        </div>
                         <div style="margin-top: 12px;">
                             <button id="show-look-reset" class="btn" style="width:100%;" data-tooltip="Reset this screen's Show Look position to match its Pixel Map position. Also re-links its canvas's Show Look raster to its Pixel Map raster.">Reset to Pixel Map Position</button>
                         </div>
@@ -653,12 +662,12 @@
                             <label for="show-label-name-data">Screen Name</label>
                         </div>
 
-                        <div class="info-row" data-tooltip="Names, How grouped screens are named on the canvas. Screens draws each layer's own name, Group draws one name across the whole group, Both draws the group name plus every layer's. Ungrouped screens always keep their own name.">
+                        <div class="info-row" data-tooltip="Names, How grouped screens are named on this tab. Screens draws each layer's own name, Group draws one name across the whole group, Both draws the group name plus every layer's. Each tab keeps its own choice. Ungrouped screens always keep their own name. The binder's Data sheets follow it: Group prints one sheet for the group, Screens a sheet per screen, Both asks at export.">
                             <label>Names</label>
                             <div style="display: flex; gap: 4px;">
-                                <button type="button" class="btn btn-secondary name-display-btn" data-name-display="screens" style="flex: 1; padding: 4px 6px; font-size: 11px;">Screens</button>
-                                <button type="button" class="btn btn-secondary name-display-btn" data-name-display="group" style="flex: 1; padding: 4px 6px; font-size: 11px;">Group</button>
-                                <button type="button" class="btn btn-secondary name-display-btn" data-name-display="both" style="flex: 1; padding: 4px 6px; font-size: 11px;">Both</button>
+                                <button type="button" class="btn btn-secondary name-display-btn" data-name-view="data-flow" data-name-display="screens" style="flex: 1; padding: 4px 6px; font-size: 11px;">Screens</button>
+                                <button type="button" class="btn btn-secondary name-display-btn" data-name-view="data-flow" data-name-display="group" style="flex: 1; padding: 4px 6px; font-size: 11px;">Group</button>
+                                <button type="button" class="btn btn-secondary name-display-btn" data-name-view="data-flow" data-name-display="both" style="flex: 1; padding: 4px 6px; font-size: 11px;">Both</button>
                             </div>
                         </div>
 
@@ -1137,12 +1146,12 @@
                             <label for="show-label-name-power">Screen Name</label>
                         </div>
 
-                        <div class="info-row" data-tooltip="Names, How grouped screens are named on the canvas. Screens draws each layer's own name, Group draws one name across the whole group, Both draws the group name plus every layer's. Ungrouped screens always keep their own name.">
+                        <div class="info-row" data-tooltip="Names, How grouped screens are named on this tab. Screens draws each layer's own name, Group draws one name across the whole group, Both draws the group name plus every layer's. Each tab keeps its own choice. Ungrouped screens always keep their own name. The binder's Power sheets follow it: Group prints one sheet for the group, Screens a sheet per screen, Both asks at export.">
                             <label>Names</label>
                             <div style="display: flex; gap: 4px;">
-                                <button type="button" class="btn btn-secondary name-display-btn" data-name-display="screens" style="flex: 1; padding: 4px 6px; font-size: 11px;">Screens</button>
-                                <button type="button" class="btn btn-secondary name-display-btn" data-name-display="group" style="flex: 1; padding: 4px 6px; font-size: 11px;">Group</button>
-                                <button type="button" class="btn btn-secondary name-display-btn" data-name-display="both" style="flex: 1; padding: 4px 6px; font-size: 11px;">Both</button>
+                                <button type="button" class="btn btn-secondary name-display-btn" data-name-view="power" data-name-display="screens" style="flex: 1; padding: 4px 6px; font-size: 11px;">Screens</button>
+                                <button type="button" class="btn btn-secondary name-display-btn" data-name-view="power" data-name-display="group" style="flex: 1; padding: 4px 6px; font-size: 11px;">Group</button>
+                                <button type="button" class="btn btn-secondary name-display-btn" data-name-view="power" data-name-display="both" style="flex: 1; padding: 4px 6px; font-size: 11px;">Both</button>
                             </div>
                         </div>
 
@@ -2109,6 +2118,15 @@
                         <span style="flex: none; width: 92px;" data-tooltip="The side the Power and Data maps are drawn from. The overview is always the front. Saved with the project.">View</span>
                         <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;" data-tooltip="The maps as seen from the front of the wall. Every screen sheet says FRONT VIEW."><input type="radio" name="export-binder-view" id="export-binder-view-front" value="front" checked> Front</label>
                         <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;" data-tooltip="The maps as seen from behind the wall, mirrored. Every screen sheet says REAR VIEW; the overview stays the front."><input type="radio" name="export-binder-view" id="export-binder-view-rear" value="rear"> Rear</label>
+                    </div>
+                    <!-- Grouped screens whose tab says Both on the Names switch
+                         (2026-10-01: "if set to both then ask per group"): a row
+                         per group, Group or Screens per side, built by
+                         syncBinderControls. Hidden while no group asks.
+                         Saved with the project (project.binder.groupSheets). -->
+                    <div id="export-binder-groups-row" style="display: none; gap: 14px; align-items: flex-start; font-size: 12px; color: #aaa;">
+                        <span style="flex: none; width: 92px; line-height: 22px;" data-tooltip="A grouped wall whose Names switch is Both on the Power or Data tab: print one sheet for the group (Group) or a sheet per screen (Screens) on that side. Saved with the project.">Groups</span>
+                        <div id="export-binder-groups" style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px;"></div>
                     </div>
                     <!-- Four boxes are wider than the modal, so this row wraps and each
                          box keeps its own words on one line - a two-word box once broke

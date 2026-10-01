@@ -669,8 +669,11 @@ def test_a_hidden_member_does_not_stretch_the_pattern(page):
 
 # ── The NAMES switch: Screens / Group / Both ──────────────────────────────
 #
-# project.groupNameDisplay chooses what a grouped wall is CALLED on the
-# drawing. 'group' is the default and the behaviour above: one name, the
+# The Names switch chooses what a grouped wall is CALLED on the drawing -
+# PER TAB since 2026-10-01 ("Yes, per tab"): project.groupNameDisplayByView
+# holds each view's value, and the single project.groupNameDisplay these
+# tests set is what an old show carries, read as every tab's fallback
+# (app.groupNameDisplayFor) - so setting it is still an old show's drawing. 'group' is the default and the behaviour above: one name, the
 # group's. 'screens' hands every member its own name back (exactly the
 # ungrouped path); 'both' draws the group's headline AND the member names.
 # The combined figures stay consolidated on the group's single label in all
@@ -695,6 +698,7 @@ def test_the_name_display_defaults_to_group_byte_for_byte(page):
                 return JSON.stringify(calls);
             };
             delete window.app.project.groupNameDisplay;
+            delete window.app.project.groupNameDisplayByView;
             const absent = record();
             window.app.project.groupNameDisplay = 'group';
             const explicit = record();
@@ -983,18 +987,25 @@ def test_the_display_choice_rides_the_undo_snapshot(page):
     the snapshot of the change holds the new one."""
     result = _grouped_wall(page, """
             const app = window.app;
+            delete app.project.groupNameDisplayByView;
             app.saveState('Setup');
-            app.project.groupNameDisplay = 'both';
+            // the switch is per tab (2026-10-01): the Data tab's own value
+            app.migrateGroupNameDisplay();
+            app.project.groupNameDisplayByView['data-flow'] = 'both';
             app.saveState('Change Name Display');
-            return {
+            const by = (i) => (app.history[i].project.groupNameDisplayByView || null);
+            const out = {
                 actions: app.history.map(h => h.action),
-                before: app.history[app.historyIndex - 1].project.groupNameDisplay || null,
-                after: app.history[app.historyIndex].project.groupNameDisplay,
+                before: by(app.historyIndex - 1),
+                after: by(app.historyIndex),
             };
+            delete app.project.groupNameDisplayByView;
+            return out;
     """)
     assert result['actions'] == ['Setup', 'Change Name Display']
     assert result['before'] is None
-    assert result['after'] == 'both'
+    assert result['after']['data-flow'] == 'both'
+    assert result['after']['power'] == 'group'
 
 
 def test_export_mode_bakes_the_display_choice(page):

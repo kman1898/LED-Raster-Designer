@@ -1246,10 +1246,13 @@ class CanvasRenderer {
     // read before it was grouped. 'both': the group's name headlines the
     // wall AND every member keeps its own. Project-level, because it names
     // a drawing convention for every grouped wall - not one layer's toggle -
-    // and the exports simply bake whatever the canvas draws.
+    // and the exports simply bake whatever the canvas draws. PER TAB since
+    // 2026-10-01 ("Yes, per tab"): the value of the view being drawn
+    // (app.groupNameDisplayFor, which falls back to the old single field).
     _groupNameMode() {
-        const m = window.app && window.app.project
-            && window.app.project.groupNameDisplay;
+        const app = window.app;
+        const m = app && app.project && (typeof app.groupNameDisplayFor === 'function'
+            ? app.groupNameDisplayFor(this.viewMode) : app.project.groupNameDisplay);
         return (m === 'screens' || m === 'both') ? m : 'group';
     }
 

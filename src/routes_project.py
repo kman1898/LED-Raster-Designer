@@ -203,6 +203,9 @@ def restore_project():
         app.current_project['data_flow_perspective'] = 'front'
     if app.current_project.get('power_perspective') not in ('front', 'back'):
         app.current_project['power_perspective'] = 'front'
+    # The NAMES switch is per tab since 2026-10-01: a file carrying the one
+    # project-wide groupNameDisplay starts every tab on it. Idempotent.
+    app._migrate_group_name_display(app.current_project)
     # Multi-canvas migration. Additive: leaves root-level raster fields in
     # place so the existing single-canvas client keeps working. Slice 6 will
     # switch the source-of-truth to per-canvas fields.
