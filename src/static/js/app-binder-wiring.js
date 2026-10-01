@@ -1139,13 +1139,19 @@ class _BinderWiring {
             if (!list || !list.length) continue;
             const p = st.panel;
             const cx = p.x + p.width / 2, cy = p.y + p.height / 2;
-            let best = null, bestD = Infinity;
-            for (const d of list) {
-                const v = (d.x - cx) * (d.x - cx) + (d.y - cy) * (d.y - cy);
-                if (v < bestD) { best = d; bestD = v; }
-            }
             const on = st.layer || undefined;
-            const rc = geo.rect(best.x - best.r, best.y - best.r, 2 * best.r, 2 * best.r, on);
+            // only a disc this sheet shows: on a member's sheet a crossing
+            // port's label can stand on the other member, cut off the map
+            // (its stub then keeps the disc measured on this member)
+            let best = null, bestD = Infinity, bestRc = null;
+            for (const d of list) {
+                const rcd = geo.rect(d.x - d.r, d.y - d.r, 2 * d.r, 2 * d.r, on);
+                if (typeof geo.keep === 'function' && !geo.keep(rcd)) continue;
+                const v = (d.x - cx) * (d.x - cx) + (d.y - cy) * (d.y - cy);
+                if (v < bestD) { best = d; bestD = v; bestRc = rcd; }
+            }
+            if (!best) continue;
+            const rc = bestRc;
             const pr = geo.rect(p.x, p.y, p.width, p.height, on);
             placed.set(st, { x: rc.x + rc.w / 2, y: rc.y + rc.h / 2, r: rc.w / 2,
                              panel: { x: pr.x, y: pr.y, w: pr.w, h: pr.h } });

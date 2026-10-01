@@ -98,7 +98,11 @@ FIXES
   titled by its name, with every screen in the group on its map; Screens
   prints a sheet for each screen; Both asks at export, group by group.
   Before, a group routed as one screen printed only the screen that
-  carried its ports and circuits, and the others were left out.
+  carried its ports and circuits, and the others were left out. Printed
+  by screen, each sheet lists its own cables and the ports and circuits
+  that land on it, and a run that crosses into another screen is on both
+  sheets, marked "also on", though the pull sheet counts it once. The
+  pull sheet's power and data lines each follow their own tab.
 - FIX: A bare MX40 Pro is 20 ports, its RJ45s. In 40-port mode ports 21
   to 40 come only through breakout boxes on OPT 3 and 4, so the unit
   reaches 30 with a third box and 40 with a fourth. Its halves backup

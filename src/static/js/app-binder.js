@@ -1400,29 +1400,53 @@ class _Binder {
     }
 
     // The CABLES THIS SCREEN rows: the screen's own (the pull list's
-    // attribution, a member's included); the group's, every member's
-    // merged the way the pull list merges.
+    // attribution); the group's, every member's merged the way the pull
+    // list merges; a MEMBER's, the cables landing on its own cabinets
+    // (owner, 2026-10-01: "separate them. if the data or power splits then
+    // mention it on both. pull sheets only account for one though not
+    // double") - read off every member's rows tagged with the screens each
+    // cable lands on (the pull list's `rowsOn`), a cable crossing into
+    // another member listed on both with `also` saying where the rest of it
+    // is. The pull list and its totals count each cable once whatever this
+    // prints.
     _bSubjectRows(book, s, side) {
         const of = (l) => ((book.list.byScreen[l.id] || {}).rows || []);
         const pick = (rows) => rows.filter(r => (side === 'power' ? (r.side || 'power') === 'power' : r.side === 'data'));
-        if (s.kind !== 'group') return pick(of(s.member || s.layers[0]));
-        return pick(this._pullMergeRows(s.members.flatMap(of)));
+        if (s.kind === 'group') return pick(this._pullMergeRows(s.members.flatMap(of)));
+        if (s.kind !== 'member') return pick(of(s.layers[0]));
+        const mine = String(s.member.id);
+        const byAlso = new Map();          // also text -> rows
+        for (const carrier of s.carriers) {
+            for (const r of pick((book.list.byScreen[carrier.id] || {}).rowsOn || [])) {
+                const on = (r.on || [carrier.id]).map(String);
+                if (!on.includes(mine)) continue;
+                const also = this._bAlsoOn(s, s.members.filter(m => on.includes(String(m.id))));
+                if (!byAlso.has(also)) byAlso.set(also, []);
+                byAlso.get(also).push(r);
+            }
+        }
+        const out = [];
+        for (const also of ['', ...[...byAlso.keys()].filter(Boolean)]) {
+            for (const r of this._pullMergeRows(byAlso.get(also) || [])) out.push({ ...r, also });
+        }
+        return out;
     }
 
-    // The CABLES THIS SCREEN table's rows. The pull list puts a wall's
-    // cables on the screen that carries its runs, so a member's sheet
-    // listing another member's ports or circuits says where their cables
-    // are: "listed with USC SR" (`from` - the screens the sheet's items
-    // come from).
-    _bCableRows(book, s, side, from) {
-        const rows = this._bSubjectRows(book, s, side)
-            .map(r => ({ cells: [this._bType(r.type), r.length || '—', String(r.qty)] }));
-        if (s.kind === 'member') {
-            const names = [...new Set(from)].filter(l => !this._bSameLayer(l, s.member)
-                && this._bSubjectRows(book, this._bSubject(l), side).length).map(l => l.name);
-            if (names.length) rows.push({ cells: [`listed with ${names.join(', ')}`, '', ''] });
-        }
-        return rows.length ? rows : [{ cells: ['no cables typed', '', ''] }];
+    // The CABLES THIS SCREEN table: CABLE, LEN, QTY - a cable crossing into
+    // another member reading "Data Cable · also on USC SL", wrapped under
+    // its type.
+    _bCableTable(book, s, side) {
+        const rows = this._bSubjectRows(book, s, side);
+        const crossing = rows.some(r => r.also);
+        return this._bTableLines(book, {
+            title: 'Cables this screen',
+            cols: [{ title: 'cable', w: 1.7, ...(crossing ? { list: 2 } : {}) }, { title: 'len', w: 0.7 },
+                   { title: 'qty', w: 0.6, align: 'right' }],
+            rows: rows.length
+                ? rows.map(r => ({ cells: [r.also ? `${this._bType(r.type)} · ${r.also}` : this._bType(r.type),
+                                           r.length || '—', String(r.qty)] }))
+                : [{ cells: ['no cables typed', '', ''] }],
+        });
     }
 
     // The group's FACTS figures: _bScreenFacts across its members - every
@@ -3371,7 +3395,7 @@ class _Binder {
                     offCtx.rect(0, 0, off.width, off.height);
                     offCtx.rect(...px(geo.wall));
                     offCtx.clip('evenodd');
-                    const m = 6;
+                    const m = 24;
                     for (const pr of cut.peers) {
                         offCtx.fillRect(...px({ x: pr.x - m, y: pr.y - m, w: pr.w + 2 * m, h: pr.h + 2 * m }));
                     }
@@ -3790,11 +3814,7 @@ class _Binder {
             rows,
         }) });
         // Cables this screen (power side).
-        blocks.push({ lines: this._bTableLines(book, {
-            title: 'Cables this screen',
-            cols: [{ title: 'cable', w: 1.7 }, { title: 'len', w: 0.7 }, { title: 'qty', w: 0.6, align: 'right' }],
-            rows: this._bCableRows(book, s, 'power', units.map(u => u.carrier)),
-        }) });
+        blocks.push({ lines: this._bCableTable(book, s, 'power') });
         // Facts.
         const f = s.kind === 'group' ? this._bGroupFacts(s.members) : this._bScreenFacts(s.member || layer);
         const circuits = units.flatMap(u => u.box.circuits || []);
@@ -4233,11 +4253,7 @@ class _Binder {
             rows,
             shrink: true,
         }) });
-        blocks.push({ lines: this._bTableLines(book, {
-            title: 'Cables this screen',
-            cols: [{ title: 'cable', w: 1.7 }, { title: 'len', w: 0.7 }, { title: 'qty', w: 0.6, align: 'right' }],
-            rows: this._bCableRows(book, subject, 'data', runs.map(r => r.carrier)),
-        }) });
+        blocks.push({ lines: this._bCableTable(book, subject, 'data') });
         // A group's FACTS are the group's (every member's pixels and panels);
         // a member's its own.
         const f = subject.kind === 'group' ? this._bGroupFacts(subject.members)
@@ -4575,12 +4591,19 @@ class _Binder {
             cols: [tick, { title: 'item', w: 1.2 }, { title: 'detail', w: 2, list: true }],
             rows: hw.length ? hw : [{ cells: ['', 'none', ''] }],
         }) });
-        // Screens with their gang counts - named as the set prints them
-        // (2026-10-01): a group routed as one and printed as the group on
-        // both sides is ONE row under its name, every member's figures
-        // summed; a member printed by screens counts what its own sheet
-        // lists - the circuits and ports landing on its cabinets, a crossing
-        // one on each member it touches.
+        // Screens with their gang counts - named as the set prints them,
+        // each SIDE by its own tab (owner, 2026-10-01: "Depends on if it is
+        // power or data and on if grouped or screen group"). A group routed
+        // as one and printed as the group on a side has ONE line carrying
+        // that side's figures - the circuits and shared circuits for Power,
+        // the ports for Data - every member's summed; printed by screens,
+        // a line per member carrying them, each counting what its own sheet
+        // lists (a crossing circuit or port on each member it touches). So
+        // Power on Group with Data on Screens is one power line for the
+        // group and a data line per member; Group on both, one line. The
+        // group's line leaves SIZE and PANELS to the member lines where
+        // there are any, so no cabinet is counted twice.
+        // A side not routed as one reads each member's own.
         const gangText = (g) => [g.twofer ? `${g.twofer}× 2fer` : '', g.threefer ? `${g.threefer}× 3fer` : '']
             .filter(Boolean).join(', ') || '—';
         const own = (layer) => {
@@ -4589,30 +4612,61 @@ class _Binder {
                      ports: (scr.ports || []).length, gangs: scr.gangs || {},
                      panels: (layer.panels || []).filter(p => p && !p.blank && !p.hidden).length };
         };
+        // A member's figures on a side printed by screens: what its sheet lists.
+        const listed = (gp, layer) => {
+            const s = this._bMemberSubject(gp, layer);
+            const units = this._bSubjectBoxes(book, s);
+            const gangs = { twofer: 0, threefer: 0 };
+            for (const u of units) {
+                const byNum = new Map(((typeof this.screenCircuits === 'function') ? this.screenCircuits(u.carrier) : [])
+                    .map(c => [c.num, c]));
+                for (const c of u.box.circuits || []) {
+                    const ways = ((byNum.get(c.num) || {}).runIds || []).length;
+                    if (ways === 2) gangs.twofer++; else if (ways >= 3) gangs.threefer++;
+                }
+            }
+            return { circuits: units.reduce((a, u) => a + (u.box.circuits || []).length, 0),
+                     ports: this._bSubjectRuns(s).length, gangs };
+        };
         const screens = [];
         const rowed = new Set();
         for (const layer of members) {
             const gp = this._bGroupPlanOf(book, layer);
-            if (gp && gp.mode.power === 'group' && gp.mode.data === 'group') {
-                if (rowed.has(gp.id)) continue;
-                rowed.add(gp.id);
-                const fs = gp.members.map(own);
-                const sum = (k) => fs.reduce((a, f) => a + f[k], 0);
-                const gangs = { twofer: fs.reduce((a, f) => a + (f.gangs.twofer || 0), 0),
-                                threefer: fs.reduce((a, f) => a + (f.gangs.threefer || 0), 0) };
-                screens.push({ cells: ['', gp.name, gp.members.map(m => `${m.columns} × ${m.rows}`).join(' + '),
-                                       String(sum('panels')), String(sum('circuits')), String(sum('ports')),
-                                       gangText(gangs)] });
+            if (!gp) {
+                const f = own(layer);
+                screens.push({ cells: ['', layer.name, `${layer.columns} × ${layer.rows}`, String(f.panels),
+                                       String(f.circuits), String(f.ports), gangText(f.gangs)] });
                 continue;
             }
-            const f = own(layer);
-            if (gp && gp.mode.power === 'screens') {
-                f.circuits = this._bSubjectBoxes(book, this._bMemberSubject(gp, layer))
-                    .reduce((a, u) => a + (u.box.circuits || []).length, 0);
+            if (rowed.has(gp.id)) continue;
+            rowed.add(gp.id);
+            const here = gp.members.filter(m => members.includes(m));
+            const fs = gp.members.map(own);
+            const sum = (k) => fs.reduce((a, f) => a + f[k], 0);
+            const groupGangs = { twofer: fs.reduce((a, f) => a + (f.gangs.twofer || 0), 0),
+                                 threefer: fs.reduce((a, f) => a + (f.gangs.threefer || 0), 0) };
+            const pGroup = gp.mode.power === 'group', dGroup = gp.mode.data === 'group';
+            const size = gp.members.map(m => `${m.columns} × ${m.rows}`).join(' + ');
+            if (pGroup && dGroup) {
+                screens.push({ cells: ['', gp.name, size, String(sum('panels')), String(sum('circuits')),
+                                       String(sum('ports')), gangText(groupGangs)] });
+                continue;
             }
-            if (gp && gp.mode.data === 'screens') f.ports = this._bSubjectRuns(this._bMemberSubject(gp, layer)).length;
-            screens.push({ cells: ['', layer.name, `${layer.columns} × ${layer.rows}`, String(f.panels),
-                                   String(f.circuits), String(f.ports), gangText(f.gangs)] });
+            if (pGroup || dGroup) {
+                screens.push({ cells: ['', gp.name, '—', '—',
+                                       pGroup ? String(sum('circuits')) : '—',
+                                       dGroup ? String(sum('ports')) : '—',
+                                       pGroup ? gangText(groupGangs) : '—'] });
+            }
+            for (const m of here) {
+                const o = own(m);
+                const mine = (gp.mode.power === 'screens' || gp.mode.data === 'screens') ? listed(gp, m) : null;
+                const circuits = pGroup ? '—' : String(gp.mode.power === 'screens' ? mine.circuits : o.circuits);
+                const ports = dGroup ? '—' : String(gp.mode.data === 'screens' ? mine.ports : o.ports);
+                const gangs = pGroup ? '—' : gangText(gp.mode.power === 'screens' ? mine.gangs : o.gangs);
+                screens.push({ cells: ['', m.name, `${m.columns} × ${m.rows}`, String(o.panels),
+                                       circuits, ports, gangs] });
+            }
         }
         blocks.push({ lines: this._bTableLines(book, {
             title: 'Screens',

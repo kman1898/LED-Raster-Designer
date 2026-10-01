@@ -137,7 +137,7 @@ RUN_JS = """([ids, opts, names, setupSrc, titles]) => {
             const i = plan.findIndex(p => p.title === t);
             if (i < 0) { out.sheets[t] = null; continue; }
             const r = app.renderBinderPage(opts, i);
-            out.sheets[t] = { texts: r.texts, map: r.map,
+            out.sheets[t] = { texts: r.texts, map: r.map, wiring: r.wiring,
                               ops: r.record.ops.filter(o => o.op === 'text') };
         }
         out.after = { byView: app.project.groupNameDisplayByView || null,
@@ -413,4 +413,94 @@ def test_pull_sheet_names_the_group_it_prints(page):
     out = _run(pg, ids, SCREENS, titles=pull)
     texts = _screens_table(out['sheets'][pull[0]]['texts'])
     assert 'WALL-L' in texts and 'WALL-R' in texts and 'WALL' not in texts, texts
+    assert not errors, errors
+
+
+# ── Follow-ups, the owner's answers of 2026-10-01 ─────────────────────────
+
+def _cables(texts):
+    """A screen sheet's CABLES THIS SCREEN cells, up to its FACTS."""
+    i = texts.index('CABLES THIS SCREEN')
+    return texts[i + 1:texts.index('FACTS', i)]
+
+
+def test_a_members_cables_are_its_own_and_a_split_one_is_on_both(page):
+    """"separate them. if the data or power splits then mention it on both.
+    pull sheets only account for one though not double": on Screens each
+    member's CABLES THIS SCREEN lists the cables landing on its own
+    cabinets - WALL-R's no longer an empty table or a pointer to WALL-L -
+    and a jumper joining the two walls is listed on both, marked "also on"
+    the other; the pull list still counts every jumper once."""
+    pg, ids, errors = page
+    titles = ['WALL-L - Data - Front View', 'WALL-R - Data - Front View',
+              'WALL-L - Power - Front View', 'WALL-R - Power - Front View']
+    out = _run(pg, ids, SCREENS, titles=titles)
+    for t in titles:
+        cells = _cables(out['sheets'][t]['texts'])
+        assert 'no cables typed' not in cells and not any(c.startswith('listed with') for c in cells), (t, cells)
+    l_data = _cables(out['sheets']['WALL-L - Data - Front View']['texts'])
+    r_data = _cables(out['sheets']['WALL-R - Data - Front View']['texts'])
+    assert 'Data Jump · also on WALL-R' in l_data, l_data
+    assert 'Data Jump · also on WALL-L' in r_data, r_data
+    assert 'Data Jump' in r_data, r_data          # its own, inside its wall
+    counts = pg.evaluate("""(ids) => {
+        const app = window.app;
+        const list = app.buildPullSheet();
+        const jumps = (rows) => rows.filter(r => r.type === 'Data Jump').reduce((a, r) => a + r.qty, 0);
+        return { total: jumps(list.totals),
+                 links: Object.values(list.byScreen).reduce((a, s) => a + s.jumpers.data, 0),
+                 merged: Object.values(list.byScreen).reduce((a, s) => a + jumps(s.rows), 0) };
+    }""", ids)
+    assert counts['total'] == counts['links'] == counts['merged'] and counts['total'] > 0, counts
+    assert not errors, errors
+
+
+def test_a_crossing_port_lists_on_the_member_without_its_label(page):
+    """"make sure it's shown on both if the label is on there": a port whose
+    run starts - its label disc - on WALL-L and runs on into WALL-R is a row
+    on WALL-R's Data sheet too, "<label> · also on WALL-L", with the whole
+    port's PANELS; and WALL-R's Data Wiring sheet carries a stub for it."""
+    pg, ids, errors = page
+    port = pg.evaluate("""(ids) => {
+        const app = window.app;
+        const L = app.project.layers.find(l => l.id === ids.l);
+        const run = app._pullPortRuns(L).find(r => r.layers[0] && r.layers[0].id === ids.l
+            && r.layers.some(x => x && x.id === ids.r));
+        return run ? { label: run.label, panels: run.panels.length,
+                       onR: run.layers.filter(x => x && x.id === ids.r).length } : null;
+    }""", ids)
+    assert port and port['onR'] > 0, port
+    out = _run(pg, ids, SCREENS, opts=dict(OPTS, wiring=True),
+               titles=['WALL-R - Data - Front View', 'WALL-R - Data Wiring'])
+    texts = out['sheets']['WALL-R - Data - Front View']['texts']
+    row = '%s · also on WALL-L' % port['label']
+    assert row in texts, texts
+    assert texts[texts.index(row) + 3] == str(port['panels']), texts[texts.index(row):texts.index(row) + 4]
+    discs = [d['text'] for h in out['sheets']['WALL-R - Data Wiring']['wiring']['halves'] for d in h['discs']]
+    assert port['label'] in discs, discs
+    assert not errors, errors
+
+
+def test_the_pull_sheet_follows_each_side(page):
+    """"Depends on if it is power or data and on if grouped or screen
+    group": Power on Group with Data on Screens - the SCREENS table has one
+    WALL line carrying the circuits and none of the ports, and a line per
+    member carrying the ports and none of the circuits; the panels sit on
+    the member lines only, so none is counted twice."""
+    pg, ids, errors = page
+    out = _run(pg, ids, {'power': 'group', 'data-flow': 'screens'})
+    pull = [p['title'] for p in out['plan'] if p['kind'] == 'pull']
+    out = _run(pg, ids, {'power': 'group', 'data-flow': 'screens'}, titles=pull)
+    texts = _screens_table(out['sheets'][pull[0]]['texts'])
+    i, li, ri = texts.index('WALL'), texts.index('WALL-L'), texts.index('WALL-R')
+    wall, lrow, rrow = texts[i:i + 6], texts[li:li + 6], texts[ri:ri + 6]
+    assert wall[1] == '—' and wall[2] == '—' and wall[3] != '—' and wall[4] == '—', wall
+    assert lrow[2] == '12' and lrow[3] == '—' and lrow[4] != '—', lrow
+    assert rrow[2] == '12' and rrow[3] == '—' and rrow[4] != '—', rrow
+    # the other way round: one data line, a power line per member
+    out = _run(pg, ids, {'power': 'screens', 'data-flow': 'group'}, titles=pull)
+    texts = _screens_table(out['sheets'][pull[0]]['texts'])
+    i, li = texts.index('WALL'), texts.index('WALL-L')
+    assert texts[i + 3] == '—' and texts[i + 4] != '—', texts[i:i + 6]
+    assert texts[li + 3] != '—' and texts[li + 4] == '—', texts[li:li + 6]
     assert not errors, errors

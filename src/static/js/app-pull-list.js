@@ -604,6 +604,10 @@ class _PullList {
         // several screens).
         const boxesSeen = new Set();
         const snakesSeen = new Set();
+        // A row said once for several runs (a snake, a box's fiber) is
+        // tagged with every screen those runs land on, whichever screen's
+        // walk said it (_pullScreenList's `on`).
+        const saidOnce = new Map();
         const fiberSeen = new Set();      // a box's fiber trunk, said once
         // Where a device's gear row falls back to when the device has no
         // location: the first screen a distro feeds, the first screen
@@ -659,7 +663,7 @@ class _PullList {
         for (const base of bases) {
             for (const layer of base.layers) {
                 const scr = this._pullScreenList(layer, {
-                    settings, distroById, boxesSeen, snakesSeen, fiberSeen, hw,
+                    settings, distroById, boxesSeen, snakesSeen, fiberSeen, hw, saidOnce,
                     distroFirstLayer, boxFirstLayer, procFirstLayer,
                 });
                 byScreen[layer.id] = scr;
@@ -810,7 +814,15 @@ class _PullList {
                               label: r.label, notes: r.notes, side: r.side || 'power' });
         listed.forEach(p => { p.rows = p.rows.map(strip); });
         hardware.forEach(h => { h.rows = h.rows.map(strip); });
-        Object.values(byScreen).forEach(s => { s.rows = this._pullMergeRows(s.rows).map(strip); });
+        // `rowsOn`: the screen's rows unmerged, each with the screens its
+        // cable lands on (`on`, layer ids) - what a grouped wall's member
+        // sheet lists as its own (2026-10-01: "separate them. if the data
+        // or power splits then mention it on both"). The merged `rows` and
+        // every total are untouched: each cable is still counted once.
+        Object.values(byScreen).forEach(s => {
+            s.rowsOn = s.rows.map(r => ({ ...strip(r), on: (r._on || []).slice() }));
+            s.rows = this._pullMergeRows(s.rows).map(strip);
+        });
         return {
             positions: listed,
             totals: totals.map(strip),
@@ -834,12 +846,30 @@ class _PullList {
         // Rows are power until the data walk below flips the switch: the
         // binder prints a screen's power cable and data cable apart.
         let side = 'power';
+        // `on`: the screens (layer ids) the cable a row stands for lands on
+        // - this screen unless a run crosses into a group peer. Set before
+        // each run's rows; a jumper row names its own link's two ends.
+        let on = [layer.id];
+        const onOf = (panels, layers) => {
+            const ids = [];
+            (panels || []).forEach((pn, i) => {
+                if (!pn || pn.hidden) return;
+                const l = (layers && layers[i]) || layer;
+                if (!ids.includes(l.id)) ids.push(l.id);
+            });
+            return ids.length ? ids : [layer.id];
+        };
+        const saidOnce = ctx.saidOnce || new Map();
+        const tagOnce = (key) => {
+            const r = saidOnce.get(key);
+            if (r) for (const id of on) if (!r._on.includes(id)) r._on.push(id);
+        };
         // `at` is the location of the device that produced the row (the
         // distro's, the box's) - buildPullList pulls the row there; null
         // leaves it with the screen.
         const row = (type, length, qty, label, notes, at) => {
             const r = { type, length, qty, label: label || '', notes: notes || '', side,
-                        _at: at || null };
+                        _at: at || null, _on: on.slice() };
             rows.push(r);
             return r;
         };
@@ -853,13 +883,16 @@ class _PullList {
         };
         // The jumpers of one run into `buckets` (location -> length -> count),
         // the per-screen tallies alongside - app-jumpers.js's rule, per link.
+        // A bucket per screen pair a link joins, so each jumper row knows
+        // where its jumpers are; merged, the rows read as they always did.
         const countJumpers = (side, panels, layers, at, buckets) => {
             for (const link of this.jumperLinksOfRun(panels, layers, layer, side)) {
                 if (link.ft == null) continue;
                 out.jumpers[side]++;
                 out.jumperLengths[side][link.ft] = (out.jumperLengths[side][link.ft] || 0) + 1;
-                const key = `${at || ''}\u0000${link.ft}`;
-                const b = buckets.get(key) || { at, ft: link.ft, n: 0 };
+                const ends = [...new Set([(link.la || layer).id, (link.lb || layer).id])];
+                const key = `${at || ''}\u0000${link.ft}\u0000${ends.join(',')}`;
+                const b = buckets.get(key) || { at, ft: link.ft, n: 0, on: ends };
                 b.n++;
                 buckets.set(key, b);
             }
@@ -869,6 +902,8 @@ class _PullList {
         const breakout = this.getPowerBreakout(layer);
         const screenConn = this.pullPowerConnectorName(breakout.connector);
         const plan = this.getSocaPlan(layer);
+        const circuitOn = new Map(this.screenCircuits(layer).map(c => [c.num, onOf(c.panels, c.layers)]));
+        const boxOn = new Map();    // box key -> the screens its circuits land on
         const boxes = new Map();    // "distroId|number" -> box
         const circuitDistro = new Map();   // circuit number -> its distro, or null
         for (const s of plan) {
@@ -897,6 +932,10 @@ class _PullList {
             const d = box.distroId ? distroById.get(box.distroId) || null : null;
             for (const leg of s.legs) {
                 circuitDistro.set(leg.circuit, d);
+                on = circuitOn.get(leg.circuit) || [layer.id];
+                const bo = boxOn.get(key) || [];
+                for (const id of on) if (!bo.includes(id)) bo.push(id);
+                boxOn.set(key, bo);
                 const cable = this.powerCircuitCable(layer, leg.circuit);
                 box.circuits.push({
                     num: leg.circuit, label: leg.label, tail: leg.leg,
@@ -923,6 +962,7 @@ class _PullList {
                 distroFirstLayer.set(String(box.distroId), layer.id);
             }
             const boxLabel = `${distroName}${box.number}`;
+            on = boxOn.get(box.key) || [layer.id];
             const isL2130 = String(box.typeId || '').startsWith('l2130');
             const homeType = isL2130 ? 'L21-30' : 'Multi';
             const r = row(homeType, this.pullLengthText(box.homeRun), 1, boxLabel,
@@ -940,6 +980,7 @@ class _PullList {
             const ways = Array.isArray(c.runIds) ? c.runIds.length : 1;
             const label = this.getPowerCircuitLabel(layer, c.num);
             const at = locationOf(circuitDistro.get(c.num));
+            on = circuitOn.get(c.num) || [layer.id];
             if (ways === 2) { out.gangs.twofer++; row(`${screenConn} 2fer`, 'EA', 1, label, '', at); }
             else if (ways >= 3) { out.gangs.threefer++; row(`${screenConn} 3fer`, 'EA', 1, label, '', at); }
             // Jumpers: every link of each run (branch) of the circuit.
@@ -951,7 +992,8 @@ class _PullList {
                 countJumpers('power', run, layers, at, powerJumps);
             }
         }
-        for (const { at, ft, n } of powerJumps.values()) {
+        for (const { at, ft, n, on: ends } of powerJumps.values()) {
+            on = ends;
             row(settings.powerJumpName, this.pullLengthText(ft), n, layer.name, '', at);
         }
 
@@ -998,8 +1040,12 @@ class _PullList {
                 const fiberText = linked.length ? '' : this.pullBoxFiberText(box);
                 if (fiberText && !fiberSeen.has(box.id)) {
                     fiberSeen.add(box.id);
-                    push(row((box.fiberType || '').trim() || 'Fiber',
-                             this.pullLengthText(box.fiberFt), 1, into.box, '', at));
+                    const fr = row((box.fiberType || '').trim() || 'Fiber',
+                                   this.pullLengthText(box.fiberFt), 1, into.box, '', at);
+                    saidOnce.set(`fiber:${box.id}`, fr);
+                    push(fr);
+                } else if (fiberText) {
+                    tagOnce(`fiber:${box.id}`);
                 }
                 // Each fiber CABLE once, however many boxes' links take it
                 // (a TAC shared by four boxes is one TAC to pull): "TAC 12 ·
@@ -1008,7 +1054,7 @@ class _PullList {
                 // on that box's processor's hardware rows.
                 for (const l of linked) {
                     const key = l.copper ? `cu:${l.box.id}:${l.key}` : `fib:${l.cable.id}`;
-                    if (fiberSeen.has(key)) continue;
+                    if (fiberSeen.has(key)) { tagOnce(key); continue; }
                     fiberSeen.add(key);
                     const r = l.copper ? row(...this._pullCopperCells(l), at) : (() => {
                         const ft = Number(l.cable.ft);
@@ -1016,6 +1062,7 @@ class _PullList {
                         return row(this.fiberCableTypeText(l.cable), this.pullLengthText(ft), 1,
                                    l.cable.name || '', has ? '' : 'no length', at);
                     })();
+                    saidOnce.set(key, r);
                     push(r);
                 }
             }
@@ -1049,7 +1096,7 @@ class _PullList {
                 // touches, so a snake shared between two machines is on
                 // both their sheets and counted once on the show's.
                 const snakeKey = `snake:${s.id}`;
-                if (snakesSeen.has(snakeKey)) return;
+                if (snakesSeen.has(snakeKey)) { tagOnce(snakeKey); return; }
                 snakesSeen.add(snakeKey);
                 out.snakes.push({ name: s.name || '', ways, ft: s.ft || null,
                                   connector: connId || null, owner: owner.kind,
@@ -1066,6 +1113,7 @@ class _PullList {
                                        .filter(Boolean).join('; ') };
                 const r = row(snakeRow.type, snakeRow.length, snakeRow.qty,
                               snakeRow.label, snakeRow.notes, at);
+                saidOnce.set(snakeKey, r);
                 for (const pid of this._snakeProcessorIds(s)) {
                     const p2 = (this.project.processors || [])
                         .find(x => x.id === pid) || null;
@@ -1085,6 +1133,7 @@ class _PullList {
             const port = { num: run.num, label: run.label, cable: null, snake: null,
                            ext: null, box: null, backup: null };
             out.ports.push(port);
+            on = onOf(run.panels, run.layers);
             const placed = asg && (asg.ports || []).find(p => p.number === run.num);
             const at = (placed && placed.cardId && placed.port != null)
                 ? boxAt(owned(placed.cardId, placed.port)) : null;
@@ -1106,7 +1155,8 @@ class _PullList {
                 walk(bb.cardId, bb.port, label, port.backup);
             }
         }
-        for (const { at, ft, n } of dataJumps.values()) {
+        for (const { at, ft, n, on: ends } of dataJumps.values()) {
+            on = ends;
             row(settings.dataJumpName, this.pullLengthText(ft), n, layer.name, '', at);
         }
         return out;
