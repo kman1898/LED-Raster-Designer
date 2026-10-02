@@ -1444,6 +1444,12 @@ class CanvasRenderer {
                 added = true;
             });
         });
+        // Screen Info was filled for the screen clicked alone; refill it for
+        // the whole group. Left stale it showed one member's columns as if
+        // every member shared them, and the next edit of any field wrote them
+        // to all (2026-10-02: a cabinet height change turned a 20-wide member
+        // into 21).
+        if (added && typeof window.app.loadLayerToInputs === 'function') window.app.loadLayerToInputs();
         return added;
     }
 
@@ -1521,6 +1527,7 @@ class CanvasRenderer {
     _addGroupPeersToDrag(layers) {
         if (!window.app || !Array.isArray(layers)) return layers;
         const seen = new Set(layers.map(l => l && l.id));
+        let added = false;
         layers.slice().forEach(l => {
             const g = this._groupForLayer(l);
             if (!g || typeof window.app.getGroupMembers !== 'function') return;
@@ -1530,8 +1537,12 @@ class CanvasRenderer {
                 seen.add(m.id);
                 layers.push(m);
                 if (window.app.selectedLayerIds) window.app.selectedLayerIds.add(m.id);
+                added = true;
             });
         });
+        // As _extendSelectionToGroups: the peers joined the selection, so
+        // Screen Info must show the group, not the member pressed on.
+        if (added && typeof window.app.loadLayerToInputs === 'function') window.app.loadLayerToInputs();
         return layers;
     }
 

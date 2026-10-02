@@ -534,6 +534,46 @@ def test_clicking_one_member_selects_the_group(page):
     assert selected['current'] == 2, 'the clicked member is still the primary'
 
 
+def test_a_group_click_refills_screen_info_so_an_edit_keeps_each_members_grid(page):
+    """2026-10-02: "i changed the pixel size on this group and it changed the
+    second screen from 20 panels wide to 21. this is not correct". A canvas
+    click selected the clicked member, filled Screen Info from it alone, then
+    widened the selection to the group without refilling - so the panel showed
+    one member's columns as the group's, and the next edit (cabinet height)
+    wrote every field, columns included, to both members. Here the members
+    differ in columns (20 vs 40) and cabinet height (128 vs 64); the panel must
+    read mixed after the click, and a height edit must leave each grid alone."""
+    result = _grouped_wall(page, """
+            const app = window.app;
+            const proto = Object.getPrototypeOf(app);
+            app.loadLayerToInputs = proto.loadLayerToInputs;   // the real one
+            const saveState = app.saveState;
+            app.saveState = () => {};
+            try {
+                window.canvasRenderer._selectLayerFromCanvas(app.project.layers[0]);
+                const colsShown = document.getElementById('screen-columns').value;
+                document.getElementById('cabinet-height').value = '96';
+                app._lastChangedInputId = 'cabinet-height';
+                app.updateLayerFromInputs();
+                return {
+                    ids: [...app.selectedLayerIds].sort(),
+                    colsShown,
+                    layers: app.project.layers.map(l => ({
+                        id: l.id, columns: l.columns, rows: l.rows,
+                        h: l.cabinet_height })),
+                };
+            } finally {
+                app.saveState = saveState;
+            }
+    """)
+    assert result['ids'] == [1, 2]
+    assert result['colsShown'] == '', 'Screen Info must read mixed columns for the group'
+    by_id = {row['id']: row for row in result['layers']}
+    assert by_id[1]['columns'] == 20 and by_id[2]['columns'] == 40, by_id
+    assert by_id[1]['rows'] == 9 and by_id[2]['rows'] == 2, by_id
+    assert by_id[1]['h'] == 96 and by_id[2]['h'] == 96, 'the edit itself applies to the group'
+
+
 # ── Ungrouped layers are completely unaffected ────────────────────────────
 
 def test_an_ungrouped_neighbour_is_untouched_by_a_group_drag(page):
