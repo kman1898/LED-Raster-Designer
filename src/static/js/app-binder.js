@@ -4830,8 +4830,10 @@ class _Binder {
             title: 'Cards',
             cols: [{ title: 'slot', w: 0.5, align: 'right' }, { title: 'device', w: 1.6 },
                    { title: 'ports', w: 0.6, align: 'right' }, { title: 'backs up', w: 1.3 }],
+            // a box-fed card counts its boxes' sockets (_bCardPortCount)
             rows: cards.map(s => ({ cells: [String((s.index || 0) + 1), s.card.deviceName,
-                                            s.card.ceilingKnown ? String(s.card.ceiling) : '?',
+                                            s.card.ceilingKnown || s.card.boxFed
+                                                ? String(this._bCardPortCount(s.card)) : '?',
                                             this.cardTypedName(proc, s.card) || mainTitle] })),
         }) });
         if ((unit.boxes || []).length) {

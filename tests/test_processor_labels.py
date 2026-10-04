@@ -1164,10 +1164,13 @@ def test_the_box_in_front_carries_its_own_return_template(client):
     """The template lives at the same level the primary naming lives: a named
     box owns its ports' labels, so its return template names their backups -
     and the card's template does not reach past it, exactly as the card's
-    primary template does not."""
+    primary template does not. On the H_16xRJ45+2xfiber, whose own copper
+    9-16 no box on OPT 1 reaches - a fiber-only card has no port outside
+    its boxes (owner, 2026-10-04: "you cannot show it as having 32 ...
+    without having CVT's")."""
     state = add_processor(client, 'novastar-h9')
     pid = only(state)['id']
-    state = set_card(client, pid, 0, 'novastar-card-h-4xfiber')
+    state = set_card(client, pid, 0, 'novastar-card-h-16xrj45-2xfiber')
     card_id = first_card(only(state))['id']
     name_card(client, pid, card_id, 'SR')
     set_return_template(client, pid, card_id, 'CARD-#')

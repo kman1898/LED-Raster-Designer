@@ -715,10 +715,15 @@ def test_naming_a_card_names_its_ports(client):
 
 def test_a_boxes_name_beats_the_cards(client):
     """A fiber card's ports physically arrive at the CVT box, and that box is
-    what the tech is standing in front of, so its name is the one on the port."""
+    what the tech is standing in front of, so its name is the one on the port.
+
+    On the H_16xRJ45+2xfiber, whose own copper 9-16 no box on OPT 1 reaches:
+    a fiber-only card (H_4xfiber) has no port outside its boxes since the
+    owner's 2026-10-04 ruling - "you cannot show it as having 32 ...
+    without having CVT's" - so it has no "direct" port to compare."""
     state = add_processor(client, 'novastar-h9')
     pid = only(state)['id']
-    state = set_card(client, pid, 0, 'novastar-card-h-4xfiber')
+    state = set_card(client, pid, 0, 'novastar-card-h-16xrj45-2xfiber')
     card_id = first_card(only(state))['id']
     client.put(f'/api/processors/{pid}/cards/{card_id}', json={'name': 'SR'})
     resp = client.post(f'/api/processors/{pid}/cards/{card_id}/cvts',

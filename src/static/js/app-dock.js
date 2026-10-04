@@ -361,9 +361,9 @@ class _HardwareDock {
         if (addBtn && picker) addBtn.addEventListener('click', () => {
             if (!picker.value) return;
             sendClientLog('processor_add_clicked', { deviceId: picker.value });
-            this._processorRequest('/api/processors', 'POST',
-                                   { deviceId: picker.value },
-                                   'Add Processor');
+            this._processorAddRequest('/api/processors', 'POST',
+                                      { deviceId: picker.value },
+                                      'Add Processor');
         });
         // The flag pill toggles its rows open and closed - view state, no
         // undo entry, no localStorage: only the session remembers, and only
@@ -1332,7 +1332,7 @@ class _HardwareDock {
         btn.dataset.lrdField = `dock-addunit-${proc.id}`;
         btn.addEventListener('click', (e) => {
             e.stopPropagation();
-            this._processorRequest(
+            this._processorAddRequest(
                 `/api/processors/${proc.id}/slots/${empty.index}`, 'PUT',
                 { deviceId: kind.id }, `Add ${word}`);
         });
@@ -1418,6 +1418,48 @@ class _HardwareDock {
             `/api/processors/${found.proc.id}/cards/${cardId}/cvts`, 'POST',
             this._boxFitBody({ id: deviceId, addInputs: inputs }),
             'Add Breakout Box');
+    }
+
+    // AN ADD THAT BRINGS A CARD WITH NO PORTS OPENS ITS BOX PICKER (owner,
+    // 2026-10-04: "you cannot show it as having 32 or 40/80 with backup
+    // without having CVT's so when you add that maybe we throw up a dialog
+    // asking you to add them?" - and "Yes, same dialog" for the SX40 and
+    // HELIOS). A box-fed card (card.boxFed: the fiber-only cards, an SX40,
+    // a HELIOS Standard) has no port outside a box, so the add is followed
+    // by the same list "+ Box" opens, on the new card. A pick puts one box
+    // on; closing it leaves the card with no ports. Only the add gestures
+    // call this - the Add-processor button, a slot's card pick, "+ QD-S" -
+    // so a load, an undo or a redo never opens anything.
+    _processorAddRequest(url, method, body, action) {
+        const before = new Set();
+        (this._processorsResolved || []).forEach(p => (p.slots || [])
+            .forEach(s => { if (s.card) before.add(s.card.id); }));
+        return this._processorRequest(url, method, body, action)
+            .then(() => this._dockOfferBoxPicker(before));
+    }
+
+    // The new card the picker opens on: one the add brought (not in
+    // `before`), box-fed, with no box yet (a stocked SX40 arrives with its
+    // four XDs and opens nothing) and at least one box that fits.
+    _dockOfferBoxPicker(before) {
+        for (const proc of this._processorsResolved || []) {
+            for (const slot of proc.slots || []) {
+                const card = slot.card;
+                if (!card || before.has(card.id) || !card.boxFed
+                        || (card.cvts || []).length
+                        || !this._cardBoxFits(card).length) continue;
+                const btn = document.querySelector(
+                    `[data-lrd-field="dock-addbox-${CSS.escape(card.id)}"]`);
+                if (!btn) return;
+                btn.scrollIntoView({ block: 'nearest' });
+                const r = btn.getBoundingClientRect();
+                if (r.width === 0 && r.height === 0) return;  // tray folded
+                this._hwPopover = { id: `addbox-${card.id}`,
+                                    build: () => this._dockAddBoxMenu(card.id) };
+                this._hwPopoverRender(btn);
+                return;
+            }
+        }
     }
 
     // "4 × Tessera XD", or "2 × CVT10 · 1 × CVT4K-S" on a mixed card, in

@@ -432,7 +432,15 @@ def test_a_device_past_24_sockets_takes_two_tracks(tray):
     than 24 sockets (H_4xfiber enhanced, 40) takes two of the tray's
     tracks so its chips still wrap into a readable block. A static fact of
     the model - the port count - so no sheet, fold, name or pairing ever
-    changes it, and the cells beside it keep their own x and width."""
+    changes it, and the cells beside it keep their own x and width.
+
+    No catalog card has more than 24 loose sockets any more: the fiber-only
+    cards (the 40-socket H_4xfiber enhanced was this test's card) have no
+    port outside a box since the owner's 2026-10-04 ruling - "you cannot
+    show it as having 32 or 40/80 with backup without having CVT's". The
+    rule still stands, so it is measured on a 16-port card drawn with 40
+    loose sockets: its resolved ports copied out to 40 before the tray
+    draws it."""
     page, ids = tray
     open_view(page, 'data-flow')
     before = page.evaluate(CELLS_JS)
@@ -446,8 +454,14 @@ def test_a_device_past_24_sockets_takes_two_tracks(tray):
                          {deviceId: 'novastar-h9', name: 'WIDE'});
         const id = st.processors[st.processors.length - 1].id;
         await j('PUT', `/api/processors/${id}/slots/0`,
-                {deviceId: 'novastar-card-h-4xfiber-enhanced'});
+                {deviceId: 'novastar-card-h-16xrj45-2xfiber'});
         await app.refreshProcessors();
+        const card = app._processorsResolved.find(p => p.id === id)
+            .slots[0].card;
+        const first = card.ports[0];
+        card.ports = Array.from({length: 40}, (_, i) => Object.assign(
+            {}, first, {number: i + 1, localNumber: i + 1,
+                        labelNumber: i + 1}));
         app.renderHardwareDock();
         return id;
     }""")
@@ -538,11 +552,13 @@ def test_a_box_fed_unit_is_one_track_whatever_boxes_it_holds(tray):
 
       - an SX40 (box-fed: every port is inside an XD) is ONE track with
         four XDs, and stays one track as its boxes come off, down to none;
-      - the H9's 40-socket card beside it, no boxes, still spans two - the
-        rule is kept;
-      - that same 40-socket card, NOT box-fed, goes to one track once no
-        more than 24 of its sockets are left loose (two CVT10s take 20),
-        and back to two when a box comes off and 30 loose remain.
+      - the H9's H_4xfiber enhanced beside it is box-fed too since the
+        owner's 2026-10-04 ruling ("you cannot show it as having 32 or
+        40/80 with backup without having CVT's"): bare it has no socket,
+        and each CVT10 is a 10-chip block, so it is ONE track with no
+        box, with four, and on the way back down. (It used to be the
+        40-loose-socket card that spanned; the span rule itself is
+        test_a_device_past_24_sockets_takes_two_tracks.)
 
     Throughout, every cell is exactly one track or exactly two, and the
     cells the seed put in the tray never move or change width."""
@@ -582,24 +598,24 @@ def test_a_box_fed_unit_is_one_track_whatever_boxes_it_holds(tray):
 
     try:
         assert len(sx['boxes']) == 4, sx
-        check('four XDs, a bare 40-socket card', False, True)
+        check('four XDs, a bare fiber card', False, False)
         # the SX40 sheds its boxes: one track every step, down to none
         for n, box in enumerate(sx['boxes'], 1):
             page.evaluate(REMOVE_BOX_JS, [sx['id'], box])
             page.wait_for_timeout(500)
-            check(f'the SX40 with {4 - n} XDs', False, True)
-        # the 40-socket card takes CVT10s: 30 loose, then 20, 10, none
+            check(f'the SX40 with {4 - n} XDs', False, False)
+        # the fiber card takes CVT10s: one 10-chip block more each time
         boxes = []
-        for n, span in ((1, True), (2, False), (3, False), (4, False)):
+        for n in (1, 2, 3, 4):
             boxes = page.evaluate(ADD_BOX_JS, [wide['id'], wide['cardId']])
             page.wait_for_timeout(500)
             assert len(boxes) == n, boxes
-            check(f'the 40-socket card with {n} CVT10s', False, span)
-        # and back: three boxes come off, 30 loose on the last
-        for n, span in ((3, False), (2, False), (1, True)):
+            check(f'the fiber card with {n} CVT10s', False, False)
+        # and back: three boxes come off
+        for n in (3, 2, 1):
             page.evaluate(REMOVE_BOX_JS, [wide['id'], boxes[n]])
             page.wait_for_timeout(500)
-            check(f'the 40-socket card back to {n} CVT10s', False, span)
+            check(f'the fiber card back to {n} CVT10s', False, False)
     finally:
         for pid in (sx['id'], wide['id']):
             page.evaluate(DELETE_PROC_JS, pid)

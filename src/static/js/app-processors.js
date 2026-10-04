@@ -468,7 +468,9 @@ class _Processors {
             const picker = this._buildDeviceSelect(
                 cards, slot.card ? slot.card.deviceId : '', 'empty');
             picker.dataset.lrdField = `processor-slot-${proc.id}-${slot.index}`;
-            picker.addEventListener('change', () => this._processorRequest(
+            // An add: a box-fed card opens its box picker after it
+            // (_processorAddRequest); emptying the slot opens nothing.
+            picker.addEventListener('change', () => this._processorAddRequest(
                 `/api/processors/${proc.id}/slots/${slot.index}`, 'PUT',
                 { deviceId: picker.value || null }, 'Change Slot Card'));
             row.appendChild(num);
@@ -890,7 +892,9 @@ class _Processors {
             const opt = document.createElement('option');
             opt.value = c.id;
             const title = this._backupUnitTitle(p, c);
-            const count = c.ceilingKnown ? `${c.ceiling}` : '?';
+            // A box-fed card has only its boxes' sockets (2026-10-04).
+            const count = c.boxFed ? `${(c.ports || []).length}`
+                : (c.ceilingKnown ? `${c.ceiling}` : '?');
             let note = '';
             if (c.backupFor && c.id !== card.backupCardId) {
                 note = ` (backs up ${c.backupFor.title})`;

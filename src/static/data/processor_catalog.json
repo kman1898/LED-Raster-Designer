@@ -472,6 +472,8 @@
       "trunkWord": "OPT",
       "portsPerTrunk": 8,
       "trunkRate": "10G",
+      "requiresDistribution": true,
+      "requiresDistributionNote": "Owner, 2026-10-04: \"when using quad opt or quad opt enhanced which is 8 OPT's, you cannot show it as having 32 or 40/80 with backup without having CVT's\" - and every fiber-only card the same. No port of its own: every port comes out of a breakout box on an OPT, so a bare card has none.",
       "ports": {
         "defaultMode": "independent",
         "modes": [
@@ -492,6 +494,8 @@
       "trunkWord": "OPT",
       "portsPerTrunk": 10,
       "trunkRate": "10G",
+      "requiresDistribution": true,
+      "requiresDistributionNote": "Owner, 2026-10-04: \"when using quad opt or quad opt enhanced which is 8 OPT's, you cannot show it as having 32 or 40/80 with backup without having CVT's\" - and every fiber-only card the same. No port of its own: every port comes out of a breakout box on an OPT, so a bare card has none.",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 40}]},
       "note": "EIGHT 10G connectors but still four primaries - OPT 5-8 back up OPT 1-4 - and one OPT = 10 Ethernet ports. 4 x 10 = 40. Counting connectors gets this wrong in both directions: not 8, not 80. Max 26,000,000 px. Needs NovaLCT 5.8.0 or above."
     },
@@ -505,6 +509,8 @@
       "trunks": 4,
       "portsPerTrunk": 10,
       "trunkRate": "10G",
+      "requiresDistribution": true,
+      "requiresDistributionNote": "Owner, 2026-10-04: \"when using quad opt or quad opt enhanced which is 8 OPT's, you cannot show it as having 32 or 40/80 with backup without having CVT's\" - and every fiber-only card the same. No port of its own: every port comes out of a breakout box on an OPT, so a bare card has none.",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 40}]},
       "note": "64B/66B, 10 ports per fiber."
     },
@@ -518,6 +524,8 @@
       "trunks": 1,
       "portsPerTrunk": 8,
       "trunkRate": "40G",
+      "requiresDistribution": true,
+      "requiresDistributionNote": "Owner, 2026-10-04: \"when using quad opt or quad opt enhanced which is 8 OPT's, you cannot show it as having 32 or 40/80 with backup without having CVT's\" - and every fiber-only card the same. No port of its own: every port comes out of a breakout box on an OPT, so a bare card has none.",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 8}]},
       "note": "The 40G card gives 8, not 40 - the fiber-to-logical ratio follows the line rate, never the connector. Its 40G trunk takes the CVT8-5G and only the CVT8-5G."
     },

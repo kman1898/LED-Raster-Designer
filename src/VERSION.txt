@@ -131,6 +131,12 @@ FIXES
   one trunk, so a NovaPro UHD Jr takes four of them (OPT 1 ports 1-8, OPT
   2 ports 9-16, OPT 3 and 4 their copies) and a VX1000 takes one. + Box
   offers "CVT4K-S (1 OPT)" when only one trunk is free.
+- FIX: A fiber-only card - the NovaStar H_4xfiber, H_4xfiber
+  (enhanced), MX_4x10G and MX_1x40G - has no ports until a breakout box
+  is on it, as on the SX40 and HELIOS. Before, a bare card counted its
+  full 32 or 40 ports and they could be mapped with nothing to plug into.
+  Adding one of these cards, or a unit or QD-S that arrives with no
+  boxes, opens the + Box list on it.
 - FIX: A Tessera QD-S is no longer offered on an SX40. The QD-S takes a
   100G input and connects the SQ200 to XD boxes; the SX40's trunks are
   10G, so its box list is the XD, XD-S and XD-T.

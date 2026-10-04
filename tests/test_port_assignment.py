@@ -339,10 +339,13 @@ def test_boxes_hung_on_trunks_that_do_not_exist_hand_out_no_ports(client):
 
 def test_a_card_whose_boxes_cannot_reach_its_ceiling_says_so_here_too(client):
     """Two CVT4K-S boxes on an enhanced H_4xfiber use all four OPTs and deliver
-    32 of its 40. Assignment still plans against the card's 40 - which box
-    delivers a port is a patching decision and can still change - but the eight
-    that no box will hand out have to be said out loud on the dock strip that
-    is handing ports to walls."""
+    32 of its 40, and the eight that no box will hand out have to be said out
+    loud on the dock strip that is handing ports to walls.
+
+    The card is box-fed since the owner's 2026-10-04 ruling - "you cannot
+    show it as having 32 or 40/80 with backup without having CVT's" - so
+    assignment plans against the 32 sockets the boxes deliver, not the
+    card's 40: a 40-port wall lands 32 and leaves 8 unplaced."""
     state = add_processor(client, 'novastar-h9')
     pid = state['resolved'][0]['id']
     state = set_card(client, pid, 0, 'novastar-card-h-4xfiber-enhanced')
@@ -353,8 +356,8 @@ def test_a_card_whose_boxes_cannot_reach_its_ceiling_says_so_here_too(client):
                            ).status_code == 201
 
     res = attach(client, 'Main', card, screens(('Main', 40)))
-    assert res['cards'][0]['capacity'] == 40
-    assert by_name(res, 'Main')['unplaced'] == []
+    assert res['cards'][0]['capacity'] == 32
+    assert by_name(res, 'Main')['unplaced'] == list(range(32, 40))
     short = issue(res, 'card-short-of-its-ceiling')
     assert short['delivered'] == 32 and short['capacity'] == 40
     assert 'CVT10' in short['message']
@@ -2384,11 +2387,14 @@ def test_the_40g_mx_card_is_5g_gear(client):
     """The MX chassis card whose one trunk is 40G feeds the CVT8-5G and
     only the CVT8-5G, so its ports are 5GBASE-T: "mx6000 and 2000 with 5g
     fiber only work with 5g settings". The 1G COEX setting its chassis
-    family would suggest is refused."""
+    family would suggest is refused. The card is box-fed (2026-10-04: no
+    port without a CVT), so its CVT8-5G goes on first."""
     state = add_processor(client, 'novastar-mx2000-pro')
     pid = state['resolved'][0]['id']
     state = set_card(client, pid, 0, 'novastar-card-mx-1x40g')
     card = card_ids(state)[0]
+    assert client.post(f'/api/processors/{pid}/cards/{card}/cvts',
+                       json={'deviceId': 'novastar-cvt8-5g'}).status_code == 201
     ok = place(client, 'FIVE', 0, card, 1,
                pscreens(('FIVE', 1, 'novastar-5g')))
     assert ok.status_code == 200, ok.get_data(as_text=True)

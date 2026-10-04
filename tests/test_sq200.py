@@ -497,8 +497,12 @@ def test_the_tray_adds_a_qd_s_and_an_xd_s_and_names_it_qd_1_a(page):
     assert card, 'no QD-S went on OUT 1'
     assert pg.evaluate('() => window.app.history[window.app.historyIndex].action') \
         == 'Add QD-S'
-    pg.locator(f'[data-lrd-field="dock-addbox-{card}"]').click()
-    pg.wait_for_timeout(300)
+    # A QD-S has no port outside a box (box-fed), so the add opens its box
+    # picker on its own - the "+ Box" list (owner, 2026-10-04: "throw up a
+    # dialog asking you to add them"). No click on "+ Box" first: that
+    # would toggle the open list shut.
+    assert pg.evaluate('() => window.app._hwPopover && window.app._hwPopover.id') \
+        == f'addbox-{card}'
     items = pg.evaluate("""() => [...document.querySelectorAll(
         '.hw-dock-addbox-menu .hw-dock-addbox-item')].map(b => b.textContent)""")
     assert items == ['Tessera XD-S', 'Tessera XD', 'Tessera XD-T'], items

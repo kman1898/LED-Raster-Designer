@@ -90,7 +90,14 @@ def is_box_fed(device):
     that functionality" and "same goes for Helios", and the catalog is the
     one statement of which devices those are (the SX40 and the HELIOS
     Standard 8K / 4K carry the flag; the HELIOS Jr, 1G copper straight to
-    tiles, does not and keeps its own ports)."""
+    tiles, does not and keeps its own ports).
+
+    A CARD carries it the same way, and means the same: the QD-S, and since
+    2026-10-04 every fiber-only sending card - the H_4xfiber, the
+    H_4xfiber enhanced, the MX_4x10G and the MX_1x40G. The owner: "you
+    cannot show it as having 32 or 40/80 with backup without having
+    CVT's". Such a card's mode count is what boxes on every OPT reach; with
+    none on, it has no port at all."""
     return bool((device or {}).get('requiresDistribution'))
 
 
@@ -3169,8 +3176,10 @@ def resolve_card(card, proc):
     # the ruling (2026-09-24): "I can remove boxes from SX40's but then it
     # adds those ports back to the SX40 outside of an XD box. SX40's can't
     # use ports outside of an XD box. So that makes no sense and we need to
-    # remove that functionality" and "same goes for Helios". A card that is
-    # not flagged keeps its own ports exactly as before.
+    # remove that functionality" and "same goes for Helios". The fiber-only
+    # cards joined them on 2026-10-04 (an H_4xfiber with no CVT has no
+    # port - "you cannot show it as having 32 ... without having CVT's").
+    # A card that is not flagged keeps its own ports exactly as before.
     box_fed = is_box_fed(device)
     top = claimed if box_fed else max(ceiling or 0, claimed)
     # THE SAME RULE PAST A DEVICE'S OWN PORTS. An MX40 Pro in 40-port mode

@@ -218,9 +218,16 @@ def test_a_box_refuses_a_socket_it_does_not_deliver(client):
 
 def test_a_mode_change_prunes_what_the_card_no_longer_has(client):
     """H_4xfiber independent → copy/backup halves the card 32 → 16: a
-    snake on 20-25 goes, one on 1-3 stays, and a cable on 30 goes."""
-    pid, cid, bid = _h9_with_card_and_box(client, 'novastar-card-h-4xfiber',
-                                          None)
+    snake on 20-25 goes, one on 1-3 stays, and a cable on 30 goes. The
+    card's ports come out of CVTs alone (the owner, 2026-10-04: "you cannot
+    show it as having 32 ... without having CVT's"), so a CVT10 on every
+    OPT is what gives it 1-32 to snake, and the snake that stays is held
+    by the box that delivers its sockets."""
+    pid, cid, bid = _h9_with_card_and_box(client, 'novastar-card-h-4xfiber')
+    for _ in range(3):
+        r = client.post(f'/api/processors/{pid}/cards/{cid}/cvts',
+                        json={'deviceId': 'novastar-cvt10', 'pair': False})
+        assert r.status_code == 201, r.get_data(as_text=True)
     r = client.put(f'/api/processors/{pid}/cards/{cid}', json={
         'snakes': [{'ports': [1, 2, 3]}, {'ports': [20, 21, 22, 23, 24, 25]}],
         'portCables': {'30': {'ft': 10}, '4': {'ft': 10}}})
@@ -229,7 +236,9 @@ def test_a_mode_change_prunes_what_the_card_no_longer_has(client):
                    json={'mode': 'copy-backup'})
     assert r.status_code == 200
     card = _raw(client, pid)['slots'][0]['card']
-    assert [s['ports'] for s in _snakes(client, 'card', cid)] == [[1, 2, 3]]
+    # 1-3 stays, on the box on OPT 1 that delivers those sockets
+    assert [s['ports'] for s in _snakes(client)] == [[1, 2, 3]]
+    assert [s['ports'] for s in _snakes(client, 'cvt', bid)] == [[1, 2, 3]]
     assert card['portCables'] == {'4': {'ft': 10}}
 
 
