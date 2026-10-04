@@ -574,6 +574,46 @@ def test_a_group_click_refills_screen_info_so_an_edit_keeps_each_members_grid(pa
     assert by_id[1]['h'] == 96 and by_id[2]['h'] == 96, 'the edit itself applies to the group'
 
 
+def test_an_edit_writes_only_the_field_changed_even_from_a_stale_panel(page):
+    """2026-10-02: "i never moved columns so it shouldnt have overrided" and
+    "i only want values to change for all in a group if i change them". Even
+    when Screen Info shows ONE member's values with the whole group selected,
+    an edit writes only the field the user changed - every other field on
+    every member stays exactly as it was."""
+    result = _grouped_wall(page, """
+            const app = window.app;
+            app.loadLayerToInputs = Object.getPrototypeOf(app).loadLayerToInputs;
+            const saveState = app.saveState;
+            app.saveState = () => {};
+            try {
+                // Screen Info filled for the first member alone...
+                app.currentLayer = app.project.layers[0];
+                app.selectedLayerIds = new Set([1]);
+                app.loadLayerToInputs();
+                // ...then the peer joins the selection with no refill.
+                app.selectedLayerIds.add(2);
+                const colsShown = document.getElementById('screen-columns').value;
+                document.getElementById('cabinet-height').value = '96';
+                app.updateLayerFromInputs();
+                return {
+                    colsShown,
+                    layers: app.project.layers.map(l => ({
+                        id: l.id, columns: l.columns, rows: l.rows,
+                        w: l.cabinet_width, h: l.cabinet_height,
+                        weight: l.panel_weight, mmW: l.panel_width_mm })),
+                };
+            } finally {
+                app.saveState = saveState;
+            }
+    """)
+    assert result['colsShown'] == '20', 'the panel is stale on purpose'
+    by_id = {row['id']: row for row in result['layers']}
+    assert by_id[1]['h'] == 96 and by_id[2]['h'] == 96, by_id
+    assert by_id[2]['columns'] == 40 and by_id[2]['rows'] == 2, by_id
+    assert by_id[2]['w'] == 64 and by_id[2]['weight'] == 6, by_id
+    assert by_id[1]['columns'] == 20 and by_id[1]['w'] == 128, by_id
+
+
 # ── Ungrouped layers are completely unaffected ────────────────────────────
 
 def test_an_ungrouped_neighbour_is_untouched_by_a_group_drag(page):

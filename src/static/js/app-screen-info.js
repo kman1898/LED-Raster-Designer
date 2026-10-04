@@ -1693,9 +1693,21 @@ class _ScreenInfo {
         const targetLayers = this.getSelectedLayers();
         if (targetLayers.length === 0) return;
         
+        // ONLY WHAT WAS EDITED IS WRITTEN (2026-10-02: a cabinet height edit
+        // on a group turned a 20-wide member 21 wide - "i only want values to
+        // change for all in a group if i change them"). Every field below is
+        // read through pick(), which hands back the input only when it no
+        // longer shows what Screen Info last displayed; an untouched field
+        // reads as absent and its value on each layer stays as it is. So a
+        // panel showing one member's columns can never copy them to the rest.
+        const pick = (id) => {
+            const el = document.getElementById(id);
+            return el && this._screenInfoTouched(el) ? el : null;
+        };
+
         // Evaluate math expressions and update the input fields with results
         const readNumber = (id) => {
-            const el = document.getElementById(id);
+            const el = pick(id);
             if (!el) return { value: null, raw: null };
             const raw = String(el.value || '').trim();
             if (raw === '') return { value: null, raw: '' };
@@ -1727,9 +1739,9 @@ class _ScreenInfo {
         // v0.10.2: Size by Wall Dimensions mode - the user enters the wall
         // size they want and columns/rows are derived per layer (rounded to
         // the nearest whole tile).
-        const sizeByDimEl = document.getElementById('size-by-dimensions');
+        const sizeByDimEl = pick('size-by-dimensions');
         const sizeByDimVal = sizeByDimEl && !sizeByDimEl.indeterminate ? sizeByDimEl.checked : null;
-        const targetUnitEl = document.getElementById('target-unit');
+        const targetUnitEl = pick('target-unit');
         const targetUnitVal = targetUnitEl ? targetUnitEl.value : null;
         const targetWidthVal = readNumber('target-width').value;
         const targetHeightVal = readNumber('target-height').value;
@@ -1747,22 +1759,22 @@ class _ScreenInfo {
         const panelWidthMMVal = readNumber('panel-width-mm').value;
         const panelHeightMMVal = readNumber('panel-height-mm').value;
         const panelWeightVal = readNumber('panel-weight-kg').value;
-        const panelWeightUnitEl = document.getElementById('panel-weight-unit');
+        const panelWeightUnitEl = pick('panel-weight-unit');
         const panelWeightUnitVal = panelWeightUnitEl ? panelWeightUnitEl.value : null;
-        const imageScaleEl = document.getElementById('image-scale');
+        const imageScaleEl = pick('image-scale');
         const imageScaleVal = imageScaleEl ? (parseFloat(imageScaleEl.value) / 100) : null;
         
         // Border settings
-        const showPanelBordersEl = document.getElementById('show-panel-borders');
-        const showCircleWithXEl = document.getElementById('show-circle-with-x');
-        const borderColorEl = document.getElementById('border-color');
-        const borderColorCabinetEl = document.getElementById('border-color-cabinet');
-        const borderColorDataEl = document.getElementById('border-color-data');
-        const borderColorPowerEl = document.getElementById('border-color-power');
-        const primaryTextColorEl = document.getElementById('primary-text-color');
-        const backupTextColorEl = document.getElementById('backup-text-color');
-        const powerLabelBgColorEl = document.getElementById('power-label-bg-color');
-        const powerLabelTextColorEl = document.getElementById('power-label-text-color');
+        const showPanelBordersEl = pick('show-panel-borders');
+        const showCircleWithXEl = pick('show-circle-with-x');
+        const borderColorEl = pick('border-color');
+        const borderColorCabinetEl = pick('border-color-cabinet');
+        const borderColorDataEl = pick('border-color-data');
+        const borderColorPowerEl = pick('border-color-power');
+        const primaryTextColorEl = pick('primary-text-color');
+        const backupTextColorEl = pick('backup-text-color');
+        const powerLabelBgColorEl = pick('power-label-bg-color');
+        const powerLabelTextColorEl = pick('power-label-text-color');
         const showPanelBordersVal = showPanelBordersEl && !showPanelBordersEl.indeterminate ? showPanelBordersEl.checked : null;
         const showCircleWithXVal = showCircleWithXEl && !showCircleWithXEl.indeterminate ? showCircleWithXEl.checked : null;
         const borderColorVal = borderColorEl ? borderColorEl.value : null;
@@ -1776,19 +1788,19 @@ class _ScreenInfo {
         
         
         // Per-layer label settings
-        const showLabelNameEl = document.getElementById('show-label-name');
-        const showLabelSizePxEl = document.getElementById('show-label-size-px');
-        const showLabelSizeMEl = document.getElementById('show-label-size-m');
-        const showLabelSizeFtEl = document.getElementById('show-label-size-ft');
-        const showLabelInfoEl = document.getElementById('show-label-info');
-        const showLabelWeightEl = document.getElementById('show-label-weight');
-        const labelsColorEl = document.getElementById('labels-color');
+        const showLabelNameEl = pick('show-label-name');
+        const showLabelSizePxEl = pick('show-label-size-px');
+        const showLabelSizeMEl = pick('show-label-size-m');
+        const showLabelSizeFtEl = pick('show-label-size-ft');
+        const showLabelInfoEl = pick('show-label-info');
+        const showLabelWeightEl = pick('show-label-weight');
+        const labelsColorEl = pick('labels-color');
         // labelsFontSize is now read via readNumber('labels-fontsize') below;
         // the element handle above used to be referenced directly with parseInt
         // and converted blank input into NaN, which then leaked through the
         // multi-select bulk update as a real null write. The readNumber path
         // returns null cleanly and skips the assignment in that case.
-        const useFractionalInchesEl = document.getElementById('use-fractional-inches');
+        const useFractionalInchesEl = pick('use-fractional-inches');
 
         const showLabelNameVal = showLabelNameEl && !showLabelNameEl.indeterminate ? showLabelNameEl.checked : null;
         const showLabelSizePxVal = showLabelSizePxEl && !showLabelSizePxEl.indeterminate ? showLabelSizePxEl.checked : null;
@@ -1806,16 +1818,16 @@ class _ScreenInfo {
         const useFractionalInchesVal = useFractionalInchesEl && !useFractionalInchesEl.indeterminate ? useFractionalInchesEl.checked : null;
         
         // Per-layer offset settings
-        const showOffsetTLEl = document.getElementById('show-offset-tl');
-        const showOffsetTREl = document.getElementById('show-offset-tr');
-        const showOffsetBLEl = document.getElementById('show-offset-bl');
-        const showOffsetBREl = document.getElementById('show-offset-br');
+        const showOffsetTLEl = pick('show-offset-tl');
+        const showOffsetTREl = pick('show-offset-tr');
+        const showOffsetBLEl = pick('show-offset-bl');
+        const showOffsetBREl = pick('show-offset-br');
         const showOffsetTLVal = showOffsetTLEl && !showOffsetTLEl.indeterminate ? showOffsetTLEl.checked : null;
         const showOffsetTRVal = showOffsetTREl && !showOffsetTREl.indeterminate ? showOffsetTREl.checked : null;
         const showOffsetBLVal = showOffsetBLEl && !showOffsetBLEl.indeterminate ? showOffsetBLEl.checked : null;
         const showOffsetBRVal = showOffsetBREl && !showOffsetBREl.indeterminate ? showOffsetBREl.checked : null;
         
-        const showNumbersEl = document.getElementById('show-numbers');
+        const showNumbersEl = pick('show-numbers');
         const showNumbersVal = showNumbersEl && !showNumbersEl.indeterminate ? showNumbersEl.checked : null;
 
         // v0.11.0: screen groups. Snapshot the shareable fields BEFORE the
@@ -1969,6 +1981,7 @@ class _ScreenInfo {
         if (panelWidthMMVal !== null && document.getElementById('panel-width-mm')) document.getElementById('panel-width-mm').value = panelWidthMMVal;
         if (panelHeightMMVal !== null && document.getElementById('panel-height-mm')) document.getElementById('panel-height-mm').value = panelHeightMMVal;
         if (panelWeightVal !== null && document.getElementById('panel-weight-kg')) document.getElementById('panel-weight-kg').value = panelWeightVal;
+        this._captureScreenInfoBaseline();
         
         // Update port capacity display when panel size changes (screen layers only)
         if (this.currentLayer && (this.currentLayer.type || 'screen') === 'screen') {
@@ -2662,6 +2675,32 @@ class _ScreenInfo {
         // v0.8.7.8: sync the gradient editor to the (now current) layer.
         if (typeof this.loadGradientEditor === 'function') this.loadGradientEditor();
         if (typeof this.loadPaletteEditor === 'function') this.loadPaletteEditor();
+        this._captureScreenInfoBaseline();
+    }
+
+    // What Screen Info shows right now, input by input: the baseline that
+    // updateLayerFromInputs compares against to tell an edited field from one
+    // merely on display. Taken after every fill and every applied edit.
+    _captureScreenInfoBaseline() {
+        const shown = new Map();
+        document.querySelectorAll('input[id], select[id], textarea[id]').forEach(el => {
+            shown.set(el.id, this._screenInfoState(el));
+        });
+        this._screenInfoShown = shown;
+    }
+
+    _screenInfoState(el) {
+        return (el.type === 'checkbox' || el.type === 'radio')
+            ? `${el.checked}|${el.indeterminate}` : String(el.value);
+    }
+
+    // True when `el` no longer shows what was last displayed. With no
+    // baseline yet (or an input added since), it counts as edited - the
+    // behaviour before the baseline existed.
+    _screenInfoTouched(el) {
+        const shown = this._screenInfoShown;
+        if (!shown || !shown.has(el.id)) return true;
+        return shown.get(el.id) !== this._screenInfoState(el);
     }
 
     updateLayerPanelVisibility(allImages, allText) {

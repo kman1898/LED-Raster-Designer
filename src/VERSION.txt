@@ -106,13 +106,12 @@ FIXES
   is always one section of the pull sheet, on the beach of its first
   screen that is on one, and its jumpers are listed by the screen they
   sit on: "Data Jump 2' 115 USC SR" and "110 USC SL".
-- FIX: Editing a screen group in Screen Info changes only the field you
-  edit. Clicking a group on the canvas left Screen Info showing the
-  clicked screen's own values as if the whole group shared them, so the
-  next change, such as cabinet height, also copied that screen's columns
-  and rows onto every screen in the group, turning a 20-wide screen
-  21 wide. Screen Info now shows the group, and a value the screens don't
-  share reads blank.
+- FIX: A Screen Info edit changes only the field you edit, on every
+  screen selected or in the group. Before, any edit also wrote every
+  other field the panel showed, so changing a group's cabinet height
+  copied one screen's columns onto the other and turned a 20-wide screen
+  21 wide. Clicking a group on the canvas also now fills Screen Info for
+  the whole group, and a value its screens don't share reads blank.
 - FIX: A bare MX40 Pro is 20 ports, its RJ45s. In 40-port mode ports 21
   to 40 come only through breakout boxes on OPT 3 and 4, so the unit
   reaches 30 with a third box and 40 with a fourth. Its halves backup
