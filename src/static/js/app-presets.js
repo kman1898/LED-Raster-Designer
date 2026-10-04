@@ -371,10 +371,12 @@ class _Presets {
         });
     }
 
-    // Background check on app boot, fetches the upstream catalog SHA and
-    // stashes the fresh catalog in localStorage if it differs from what the
-    // user currently has loaded. Sets `_catalogUpdateAvailable` so the picker
-    // can show an "Update available" badge next time it's opened.
+    // Background check on app boot, the panel catalog's own update check.
+    // New cabinets reach main as panel_catalog.json alone, never ahead in a
+    // build (CI keeps dev/draft's copy equal to main's), so main's copy is
+    // the newest any version can have: when it differs from what the user
+    // has, it is applied straight away and a toast says so. The Refresh
+    // button still pulls on demand. Offline, the current catalog stays.
     checkPanelCatalogUpdate() {
         // Resolve the user's current effective SHA (cached refresh wins over bundled).
         const cachedSha = this._getCachedCatalogSha();
@@ -383,11 +385,29 @@ class _Presets {
             this._latestCatalogSha = payload.sha;
             this._latestCatalogFetchedAt = payload.fetchedAt || '';
             this._latestCatalogPanelCount = payload.panelCount || 0;
-            // Stash the catalog so the user can apply it instantly without
-            // another network call when they click the badge.
-            if (payload.catalog) this._pendingCatalog = payload.catalog;
             const baseline = cachedSha || (this._bundledCatalogSha || '');
-            this._catalogUpdateAvailable = !!baseline && payload.sha !== baseline;
+            if (!baseline || payload.sha === baseline) {
+                this._catalogUpdateAvailable = false;
+                this._renderCatalogSourceTag();
+                return;
+            }
+            if (payload.catalog) {
+                this._setCachedCatalog(payload.catalog, payload.sha, payload.fetchedAt);
+                this._ingestCatalog(payload.catalog);
+                this._catalogUpdateAvailable = false;
+                this._pendingCatalog = null;
+                // Redraw only an open picker; a closed one draws the new
+                // catalog when it next opens. Drawing ~2,700 rows into a
+                // hidden list at launch was work for nobody.
+                const picker = document.getElementById('preset-picker-modal');
+                if (picker && picker.style.display !== 'none') this._loadPanelCatalog();
+                else this._renderCatalogSourceTag();
+                const count = payload.panelCount || 0;
+                this._toast(`Panel catalog updated, ${count.toLocaleString()} panels`);
+                return;
+            }
+            // No catalog in the answer: offer it on the badge as before.
+            this._catalogUpdateAvailable = true;
             this._renderCatalogSourceTag();
         };
         // First pull bundled SHA (cheap, no network), then ask the upstream proxy.

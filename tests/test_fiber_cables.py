@@ -846,3 +846,28 @@ def test_the_js_and_python_strand_names_agree(page):
         assert js == py, cable
     js = pg.evaluate("""() => import('/static/js/app-fiber.js').then(m => m.FIBER_COLORS)""")
     assert [tuple(c) for c in js] == list(catalog.FIBER_COLORS)
+
+
+def test_the_wizard_focus_survives_a_redraw_before_the_next_frame(page):
+    """The wizard's next field takes focus in the next animation frame. If the
+    tray was redrawn first - a socket echo, a processor fetch, the column
+    redeal - the field it meant to focus was already gone, and the caret
+    landed nowhere. On a machine that paints frames 500 ms apart that is the
+    usual order, not a rare one. The redraw is forced here in the same task
+    as the click, so it always comes first."""
+    pg, ids = page
+    a = ids['boxes'][0]
+    _section(pg, a)
+    pg.locator(f'[data-lrd-field="fiber-link-cable-{a}-p1"]').select_option('')
+    _wait(pg, lambda s: _box_links(s, a) is None)
+    pg.wait_for_timeout(300)
+    pg.locator(f'[data-lrd-field="fiber-link-cable-{a}-p1"]').select_option('new:tac')
+    pg.wait_for_timeout(300)
+    pg.evaluate("""(key) => {
+        document.querySelector(`[data-lrd-field="${key}"]`).click();
+        window.app.renderHardwareDock();
+    }""", f'fiber-new-{a}-p1-strands-24')
+    focused = settled(pg, lambda: pg.evaluate('() => document.activeElement.dataset.lrdField'),
+                      lambda v: v == f'fiber-new-{a}-p1-ft')
+    assert focused == f'fiber-new-{a}-p1-ft', f'the caret is on {focused!r}, not the length field'
+    assert ids['errors'] == []

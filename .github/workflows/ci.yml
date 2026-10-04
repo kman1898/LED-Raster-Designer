@@ -21,6 +21,28 @@ permissions:
   contents: read
 
 jobs:
+  # New cabinets go to main first, as panel_catalog.json alone, and reach
+  # dev/draft by merging main back. Every app version pulls main's copy on
+  # launch, so a build carrying a catalog main does not have would be ahead
+  # of what every other version can get. This fails dev/draft when its copy
+  # is not main's - a tile edited here, or main not merged back yet.
+  catalog-check:
+    name: Panel catalog matches main
+    if: github.ref == 'refs/heads/dev/draft'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: dev/draft carries main's panel catalog
+        run: |
+          git fetch --no-tags --depth=1 origin main
+          if ! git diff --quiet FETCH_HEAD -- src/static/data/panel_catalog.json; then
+            echo "::error::src/static/data/panel_catalog.json differs from main's. Tiles go to main first (dev/tiles cut from main), then main is merged into dev/draft."
+            git diff --stat FETCH_HEAD -- src/static/data/panel_catalog.json
+            exit 1
+          fi
+          echo "OK: panel_catalog.json is main's"
+
   version-check:
     name: Version Consistency
     runs-on: ubuntu-latest

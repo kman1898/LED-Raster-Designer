@@ -297,6 +297,14 @@
          too (.view-hidden), so one observer covers both ways a panel can stop
          being draggable. */
       try { new MutationObserver(repaint).observe(s, { attributes: true, attributeFilter: ['class', 'style'] }); } catch (e) { /* ignore */ }
+      /* A fold animates the panel's size, and the strips sit on its edges.
+         They were placed 220 ms after the toggle and swept every 1.2 s - a
+         guess at when the fold ends, wrong on a machine that paints slowly,
+         where a strip went missing or sat mid-panel for a second. Every size
+         the panel passes through, the last included, now places them. */
+      if (typeof ResizeObserver === 'function') {
+        try { new ResizeObserver(repaint).observe(s); } catch (e) { /* ignore */ }
+      }
       var b = document.getElementById(p.toggleId);
       if (b) b.addEventListener('click', function () { setTimeout(reposition, 220); });
     });

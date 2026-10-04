@@ -93,6 +93,22 @@ to the box, picking the strands, and the power jumper lengths.
 
 FIXES
 
+- FIX: The panel catalog updates itself. A few seconds after the app
+  opens it fetches the latest catalog, the way it checks for a new
+  version, and when there are new or corrected cabinets it loads them
+  and says so. Before, it only showed "Update available" and waited for
+  a click. Refresh still pulls it any time, and offline the app keeps
+  the catalog it has.
+- FIX: The resize strips stay on the panels' edges while a panel folds
+  or opens. Before, on a busy computer a strip could be missing, sit in
+  the middle of a panel, or hang over the hardware tray for about a
+  second after a fold.
+- FIX: A show opened with a side panel folded is fitted to the canvas
+  it ends up with. Before, the fit could be made while the panel was
+  still folding, and the wall loaded off-centre until you pressed Fit.
+- FIX: Making a new fiber cable puts the cursor in the next box every
+  time. Before, if the hardware tray redrew at that moment, the cursor
+  landed nowhere and typing did nothing.
 - FIX: Folding or opening a side panel or the hardware tray leaves the
   map at the canvas's real size. Before, on a busy computer the fold
   could still be running when the app last measured the canvas, and the

@@ -122,6 +122,14 @@ def e2e_server():
     app_module.current_project = _build_initial_project()
     app_module.next_layer_id = 1
     app.config['TESTING'] = True
+    # The browser tests never reach GitHub for the panel catalog. The app
+    # applies a newer catalog by itself on launch, so a live answer that
+    # differed from the checkout (GitHub's cache lagging a push) "updated"
+    # every page in the run. A port nothing listens on fails at once, the
+    # way an offline launch does; test_panel_catalog_auto_update answers
+    # the request itself, in the browser.
+    import routes_panel_catalog
+    routes_panel_catalog._PANEL_CATALOG_RAW_URL = 'http://127.0.0.1:9/panel_catalog.json'
     with app.test_client() as c:
         c.post('/api/layer/add', json={
             'name': 'Screen1',

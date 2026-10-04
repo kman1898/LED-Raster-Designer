@@ -953,6 +953,18 @@ export class LEDRasterApp {
                 // at +100ms, which computes zoom 0 and leaves the canvas blank
                 // until the user manually hits Fit.
                 const initialFit = (attempt = 0) => {
+                    // A panel saved folded folds again as the app starts. A
+                    // fit made mid-fold measured a canvas that was still
+                    // changing size and left the wall off-centre until the
+                    // user pressed Fit, so a running fold is waited out.
+                    const folding = (document.getAnimations ? document.getAnimations() : []).filter(a =>
+                        a.playState === 'running' && a.effect && a.effect.target
+                        && ['left-sidebar', 'right-sidebar', 'hardware-dock'].includes(a.effect.target.id));
+                    if (folding.length && attempt < 8) {
+                        Promise.all(folding.map(a => a.finished.catch(() => {})))
+                            .then(() => initialFit(attempt + 1));
+                        return;
+                    }
                     window.canvasRenderer.setupCanvas();
                     window.canvasRenderer.fitToView();
                     if (!window.canvasRenderer.zoom && attempt < 8) {

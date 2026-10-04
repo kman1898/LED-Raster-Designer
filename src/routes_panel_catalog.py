@@ -54,10 +54,20 @@ def _sha256_bytes(data):
     return hashlib.sha256(data).hexdigest()
 
 
+def _catalog_sha(data):
+    """The catalog's identity: a hash of its CONTENT, not its bytes. A
+    Windows checkout writes the file with CRLF line endings, so hashing the
+    bytes made every Windows build's copy look different from GitHub's
+    identical one - "Update available" forever, and once updates applied
+    themselves, an update on every fresh launch."""
+    canonical = json.dumps(json.loads(data), sort_keys=True, separators=(',', ':'), ensure_ascii=False)
+    return _sha256_bytes(canonical.encode('utf-8'))
+
+
 def _bundled_panel_catalog_sha():
     try:
         with open(_bundled_panel_catalog_path(), 'rb') as f:
-            return _sha256_bytes(f.read())
+            return _catalog_sha(f.read())
     except Exception:
         return ''
 
@@ -72,7 +82,7 @@ def panel_catalog_info():
         catalog = json.loads(data)
         panel_count = sum(len(v) for v in catalog.values() if isinstance(v, list))
         return jsonify({
-            'bundledSha': _sha256_bytes(data),
+            'bundledSha': _catalog_sha(data),
             'panelCount': panel_count,
             'mfrCount': len(catalog),
         })
@@ -103,7 +113,7 @@ def panel_catalog_refresh():
         catalog = json.loads(data)
         if not isinstance(catalog, dict):
             raise ValueError('unexpected catalog shape')
-        sha = _sha256_bytes(data)
+        sha = _catalog_sha(data)
         panel_count = sum(len(v) for v in catalog.values() if isinstance(v, list))
         payload = {
             'catalog': catalog,

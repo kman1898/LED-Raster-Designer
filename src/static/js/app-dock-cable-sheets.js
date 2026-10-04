@@ -1171,7 +1171,13 @@ class _DockCableSheets {
             div.appendChild(f);
             if (wz.focus) {
                 wz.focus = false;
-                requestAnimationFrame(() => f.focus());
+                // By the next frame the tray may have been redrawn (a socket
+                // echo, the column redeal) and `f` replaced, so focus the
+                // field that is there then, found by its key.
+                requestAnimationFrame(() => {
+                    const live = document.querySelector(`[data-lrd-field="${key}"]`);
+                    (live || f).focus();
+                });
             }
             return f;
         };
