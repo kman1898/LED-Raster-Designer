@@ -188,6 +188,6 @@ def test_launcher_log_falls_back_to_file_when_app_unimportable(monkeypatch, tmp_
 
     fallback = tmp_path / 'launcher_crash.log'
     assert fallback.exists(), 'no on-disk record of an early crash'
-    entry = json.loads(fallback.read_text().strip().splitlines()[-1])
+    entry = json.loads(fallback.read_text(encoding='utf-8').strip().splitlines()[-1])
     assert entry['action'] == 'launcher_crash'
     assert entry['details']['error'] == 'early boom'

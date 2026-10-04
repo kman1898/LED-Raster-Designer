@@ -1099,7 +1099,7 @@ def test_smoke_experts_only_sr_main(page):
     PRINTER: no colour anywhere, a dash of its own per device, and the
     wall's discs white with a black rim - read off the painted pixels."""
     pg, ids = page
-    with open(SCRATCH_FIXTURE) as fh:
+    with open(SCRATCH_FIXTURE, encoding='utf-8') as fh:
         project = json.load(fh)
     pg.evaluate(LOAD_JS, project)
     opts = json.loads(_SHOW_JSON)
@@ -1280,7 +1280,7 @@ def test_a_row_of_circuits_leaves_by_the_top_and_an_unplaced_port_draws_no_run(p
     loads the show - the wall, its circuits and every other screen as saved
     - which is the state the earlier save was in."""
     pg, ids = page
-    with open(KELLY_FIXTURE) as fh:
+    with open(KELLY_FIXTURE, encoding='utf-8') as fh:
         project = json.load(fh)
     sr = next(l['id'] for l in project['layers'] if l['name'] == 'SR')
     pins = project['port_assignments']['pins']
@@ -1338,7 +1338,7 @@ def test_the_dj_booth_sheet_the_user_pointed_at(page, palette):
     it, and back along a lane under its foot - four segments, and nothing of
     the wall crossed but the stub off its own disc."""
     pg, ids = page
-    with open(KELLY_FIXTURE) as fh:
+    with open(KELLY_FIXTURE, encoding='utf-8') as fh:
         pg.evaluate(LOAD_JS, json.load(fh))
     opts = {**json.loads(_SHOW_JSON), 'palette': palette}
     halves = [h for title in _wiring('DJ Booth') for h in _probe(pg, opts, title)]
@@ -1370,7 +1370,7 @@ def test_the_dj_booth_sheet_the_user_pointed_at(page, palette):
 # covered either".
 
 def _sweep_off_the_wall(pg, fixture, palette, titles):
-    with open(fixture) as fh:
+    with open(fixture, encoding='utf-8') as fh:
         pg.evaluate(LOAD_JS, json.load(fh))
     opts = {**json.loads(_SHOW_JSON), 'palette': palette}
     seen = 0

@@ -51,17 +51,17 @@ def _guard(server_project_guard):
 # ── the wiring (new files must not rot) ──────────────────────────────────
 
 def test_the_beaches_module_is_imported_and_defines_the_picker():
-    main_js = open(os.path.join(HERE, '..', 'src', 'static', 'js', 'main.js')).read()
+    main_js = open(os.path.join(HERE, '..', 'src', 'static', 'js', 'main.js'), encoding='utf-8').read()
     assert "import './app-beaches.js';" in main_js
-    src = open(os.path.join(HERE, '..', 'src', 'static', 'js', 'app-beaches.js')).read()
+    src = open(os.path.join(HERE, '..', 'src', 'static', 'js', 'app-beaches.js'), encoding='utf-8').read()
     for fn in ('fillBeachPicker(', 'wireBeachPicker(', 'buildBeachPicker(', 'renderBeaches(',
                'createBeach(', 'renameBeach(', 'removeBeach(', 'reorderBeaches('):
         assert fn in src, fn
-    html = open(os.path.join(HERE, '..', 'src', 'templates', 'index.html')).read()
+    html = open(os.path.join(HERE, '..', 'src', 'templates', 'index.html'), encoding='utf-8').read()
     assert 'id="layer-beach"' in html and 'id="beaches-panel"' in html
     # the typed Location fields are gone with the picker
     for name in ('app-power.js', 'app-distros.js', 'app-processors.js'):
-        js = open(os.path.join(HERE, '..', 'src', 'static', 'js', name), errors='replace').read()
+        js = open(os.path.join(HERE, '..', 'src', 'static', 'js', name), errors='replace', encoding='utf-8').read()
         assert 'distro-location-' not in js and 'processor-cvt-location-' not in js, name
         assert 'pullLocationDatalist' not in js, name
 

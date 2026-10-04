@@ -222,13 +222,13 @@ def test_the_menu_items_the_format_option_and_the_section_are_served(client):
     # the title block's fields sit in their own raised group
     assert sec.count('class="export-views"') == 2
     assert 'Title block:' in sec
-    main_js = open(os.path.join(HERE, '..', 'src', 'static', 'js', 'main.js')).read()
+    main_js = open(os.path.join(HERE, '..', 'src', 'static', 'js', 'main.js'), encoding='utf-8').read()
     assert "import './app-binder.js';" in main_js
     assert "import './app-binder-wiring.js';" in main_js
     # the binder's own strings say circuits - never tails, never Multi,
     # never "breakout" as the generic noun (the data side's "breakout box"
     # keeps its name), and never "Palette" on a sheet
-    binder_js = open(os.path.join(HERE, '..', 'src', 'static', 'js', 'app-binder.js')).read()
+    binder_js = open(os.path.join(HERE, '..', 'src', 'static', 'js', 'app-binder.js'), encoding='utf-8').read()
     code = '\n'.join(l for l in binder_js.splitlines() if not l.strip().startswith('//'))
     literals = re.findall(r"'[^'\n]*'|\"[^\"\n]*\"|`[^`]*`", code)
     assert not [l for l in literals if re.search(r'\btails?\b', l)], [l for l in literals if 'tail' in l]
@@ -239,7 +239,7 @@ def test_the_menu_items_the_format_option_and_the_section_are_served(client):
     assert not [l for l in literals if 'Palette' in l], [l for l in literals if 'Palette' in l]
     # the wiring sheet's own strings the same - save the power block's
     # caption, which names the multi's BREAKOUT by its type
-    wiring_js = open(os.path.join(HERE, '..', 'src', 'static', 'js', 'app-binder-wiring.js')).read()
+    wiring_js = open(os.path.join(HERE, '..', 'src', 'static', 'js', 'app-binder-wiring.js'), encoding='utf-8').read()
     wcode = '\n'.join(l for l in wiring_js.splitlines() if not l.strip().startswith('//'))
     wliterals = re.findall(r"'[^'\n]*'|\"[^\"\n]*\"|`[^`]*`", wcode)
     assert not [l for l in wliterals if re.search(r'\btails?\b', l)], [l for l in wliterals if 'tail' in l]
@@ -250,7 +250,7 @@ def test_the_menu_items_the_format_option_and_the_section_are_served(client):
     assert not [l for l in wliterals if BREAKOUT_WORD.search(l) and not caption.match(l)], wliterals
     # the modal's textareas wear the inset look the fields do; the
     # revision log's rows and their × have their own recipe
-    css = open(os.path.join(HERE, '..', 'src', 'static', 'css', 'theme.css')).read()
+    css = open(os.path.join(HERE, '..', 'src', 'static', 'css', 'theme.css'), encoding='utf-8').read()
     assert '#export-modal textarea' in css
     assert '.binder-rev-row' in css and '.binder-rev-remove' in css
 
@@ -1119,8 +1119,13 @@ def test_every_sheet_record_is_a_display_list_of_its_texts(page):
         # the title block first: its REVISIONS label, then the sheet
         # number set large in the corner
         assert (texts[0]['text'], texts[0]['size'], texts[0]['weight']) == ('Revisions:', 26, 700), texts[0]
-        numbers = [o for o in texts if o['size'] == 56]
-        assert [(o['text'], o['weight']) for o in numbers] == [(number, 800)], numbers
+        # Set at 56 and shrunk only as far as the corner needs: the number
+        # is drawn with shrink, and Arial on Windows is wide enough that
+        # "2.10" comes out at 52 where Helvetica keeps it at 56.
+        numbers = [o for o in texts if o['text'] == number and o['weight'] == 800]
+        assert len(numbers) == 1, numbers
+        assert 44 <= numbers[0]['size'] <= 56, numbers
+        assert not [o for o in texts if o['size'] == 56 and o is not numbers[0]], numbers
         assert numbers[0]['x'] > TB_X and numbers[0]['y'] > H - PAD - 150, numbers[0]
         for o in ops:
             if o['op'] == 'rect':
@@ -2799,7 +2804,7 @@ def test_smoke_experts_only(page):
     its tables in two columns at 1.03; a Return (6 x 11) is a tall wall
     beside its tables at ~1.38, the tables to the height."""
     pg, ids = page
-    with open(SCRATCH_FIXTURE) as fh:
+    with open(SCRATCH_FIXTURE, encoding='utf-8') as fh:
         project = json.load(fh)
     pages = pg.evaluate("""async (project) => {
         const app = window.app;
@@ -3088,7 +3093,7 @@ def test_experts_only_screens_carry_their_own_legs(page):
     neither the service's 301 / 311 / 311 A; the Distros sheet still
     prints SR's whole legs, the walk over both."""
     pg, ids = page
-    with open(EXPERTS_JSON) as fh:
+    with open(EXPERTS_JSON, encoding='utf-8') as fh:
         project = json.load(fh)
     layer_ids = pg.evaluate("""async (project) => {
         const app = window.app;

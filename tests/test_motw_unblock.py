@@ -59,11 +59,11 @@ def test_it_targets_loadable_code_and_leaves_data_alone(frozen_win, monkeypatch)
     would cost startup time for no benefit."""
     internal = frozen_win / '_internal' / 'pythonnet' / 'runtime'
     internal.mkdir(parents=True)
-    (internal / 'Python.Runtime.dll').write_text('x')
-    (frozen_win / 'LED Raster Designer.exe').write_text('x')
-    (internal / 'clr_loader.pyd').write_text('x')
-    (frozen_win / 'panel_catalog.json').write_text('{}')
-    (frozen_win / 'notes.txt').write_text('x')
+    (internal / 'Python.Runtime.dll').write_text('x', encoding='utf-8')
+    (frozen_win / 'LED Raster Designer.exe').write_text('x', encoding='utf-8')
+    (internal / 'clr_loader.pyd').write_text('x', encoding='utf-8')
+    (frozen_win / 'panel_catalog.json').write_text('{}', encoding='utf-8')
+    (frozen_win / 'notes.txt').write_text('x', encoding='utf-8')
 
     removed = []
     monkeypatch.setattr(lw.os, 'remove', lambda p: removed.append(p))
@@ -79,7 +79,7 @@ def test_it_targets_loadable_code_and_leaves_data_alone(frozen_win, monkeypatch)
 
 
 def test_it_runs_once_and_leaves_a_sentinel(frozen_win, monkeypatch):
-    (frozen_win / 'a.dll').write_text('x')
+    (frozen_win / 'a.dll').write_text('x', encoding='utf-8')
     calls = []
     monkeypatch.setattr(lw.os, 'remove', lambda p: calls.append(p))
 
@@ -94,7 +94,7 @@ def test_it_runs_once_and_leaves_a_sentinel(frozen_win, monkeypatch):
 
 def test_an_untagged_file_is_not_an_error(frozen_win, monkeypatch):
     """FileNotFoundError is the COMMON case - most files carry no tag."""
-    (frozen_win / 'a.dll').write_text('x')
+    (frozen_win / 'a.dll').write_text('x', encoding='utf-8')
 
     def not_tagged(path):
         raise FileNotFoundError(path)
@@ -107,7 +107,7 @@ def test_a_locked_file_does_not_stop_the_rest(frozen_win, monkeypatch):
     """A denied or locked file must not abort the walk - the remaining DLLs
     still need clearing, and a partial pass beats none."""
     for name in ('a.dll', 'b.dll', 'c.dll'):
-        (frozen_win / name).write_text('x')
+        (frozen_win / name).write_text('x', encoding='utf-8')
     seen = []
 
     def sometimes_denied(path):
@@ -122,7 +122,7 @@ def test_a_locked_file_does_not_stop_the_rest(frozen_win, monkeypatch):
 def test_a_read_only_install_dir_still_clears(frozen_win, monkeypatch):
     """The sentinel is an optimisation, not a precondition. If it cannot be
     written the work must still happen - just again next launch."""
-    (frozen_win / 'a.dll').write_text('x')
+    (frozen_win / 'a.dll').write_text('x', encoding='utf-8')
     monkeypatch.setattr(lw.os, 'remove', lambda p: None)
 
     real_open = open

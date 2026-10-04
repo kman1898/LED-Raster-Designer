@@ -47,6 +47,8 @@ import sys
 
 import pytest
 
+from conftest import settled  # noqa: E402
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 pytest.importorskip("playwright.sync_api", reason="playwright not installed")
@@ -819,25 +821,24 @@ def test_a_collapsed_dock_hides_its_chips_and_hands_them_back(panel_page):
     assert tile_state(panel_page, tid)['open']
 
     panel_page.locator('#hardware-dock-toggle').click()
-    panel_page.wait_for_timeout(500)
     # The collapse folds the tray to nothing and clips its content
     # (height 0 + overflow hidden - the sidebar collapse transposed), so
     # the proof is the tray's height, not display:none on each chip.
-    folded = panel_page.evaluate("""() => {
+    folded = settled(panel_page, lambda: panel_page.evaluate("""() => {
         const dock = document.getElementById('hardware-dock');
         return {
             collapsed: dock.classList.contains('collapsed'),
             dockH: dock.getBoundingClientRect().height,
         };
-    }""")
+    }"""), lambda f: f['collapsed'] and f['dockH'] < 2)
     assert folded['collapsed'] and folded['dockH'] < 2, (
         f'the toggle did not fold the tray away: {folded}')
     assert tile_state(panel_page, tid)['bodyInDom'], (
         'the collapse detached the chips')
 
     panel_page.locator('#hardware-dock-toggle').click()
-    panel_page.wait_for_timeout(500)
-    s = tile_state(panel_page, tid)
+    s = settled(panel_page, lambda: tile_state(panel_page, tid),
+                lambda s: s['facePainted'] and s['open'] and s['bodyPainted'])
     assert s['facePainted'], 'expanding did not hand the chips back'
     assert s['open'] and s['bodyPainted'], (
         f'expanding lost the open chip: {s}')

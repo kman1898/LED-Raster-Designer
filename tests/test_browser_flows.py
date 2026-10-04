@@ -1176,7 +1176,7 @@ def test_armor_max_capacity_normalized_on_file_open(page, flows_server, tmp_path
 
     project = armor_fixture_project(flows_server, 'ArmorFixtureOpen')
     path = tmp_path / 'armor_fixture.json'
-    path.write_text(json.dumps(project))
+    path.write_text(json.dumps(project), encoding='utf-8')
 
     with page.expect_file_chooser() as chooser:
         page.evaluate("window.app.loadProjectFromFile()")
@@ -2547,7 +2547,7 @@ def test_brompton_ull_project_migrates_on_file_open(page, flows_server, tmp_path
 
     project = brompton_ull_fixture_project(flows_server, 'LegacyULLOpen')
     path = tmp_path / 'legacy_ull.json'
-    path.write_text(json.dumps(project))
+    path.write_text(json.dumps(project), encoding='utf-8')
 
     legacy_capacity = page.evaluate(
         "() => window.app.portCapacityTables['brompton-ull'][8][60]")

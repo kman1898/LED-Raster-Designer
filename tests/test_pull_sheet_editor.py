@@ -56,7 +56,7 @@ def test_the_menu_item_the_modal_the_button_and_the_gear_list_are_served(client)
     sec = html[html.index('id="export-pull-sheet-section"'):html.index('id="export-binder-section"')]
     assert 'id="export-pull-sheet-edit-rows" class="btn"' in sec
     assert 'tails' not in sec.lower()
-    main_js = open(os.path.join(HERE, '..', 'src', 'static', 'js', 'main.js')).read()
+    main_js = open(os.path.join(HERE, '..', 'src', 'static', 'js', 'main.js'), encoding='utf-8').read()
     assert "import './app-pull-sheet-editor.js';" in main_js
     # the vocabulary route serves the template's GEAR LIST
     r = client.get('/api/pull-sheet/gear-list')
@@ -684,7 +684,7 @@ def test_smoke_experts_only(page):
     SR - MAIN, two on SR - Return) edited to 9 in the editor; the
     workbook's cell reads 9."""
     pg, ids = page
-    with open(SCRATCH_FIXTURE) as fh:
+    with open(SCRATCH_FIXTURE, encoding='utf-8') as fh:
         project = json.load(fh)
     project.pop('pullSheetEdits', None)
     sr_beach = pg.evaluate("""async (project) => {

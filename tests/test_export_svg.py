@@ -260,7 +260,7 @@ def experts(page):
     if private_fixture_missing(EXPERTS_JSON):
         pytest.skip(private_fixture_missing(EXPERTS_JSON))
     pg, errors = page
-    with open(EXPERTS_JSON) as fh:
+    with open(EXPERTS_JSON, encoding='utf-8') as fh:
         project = json.load(fh)
     layers = pg.evaluate("""async (project) => {
         const app = window.app;

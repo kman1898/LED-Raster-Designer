@@ -234,7 +234,7 @@ def page(e2e_server, pw_browser):
 
 
 def _maps(pg, fixture, palette):
-    with open(fixture) as fh:
+    with open(fixture, encoding='utf-8') as fh:
         project = json.load(fh)
     pg.evaluate(LOAD_JS, project)
     opts = json.loads(_SHOW_JSON)

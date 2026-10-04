@@ -132,13 +132,13 @@ def test_gradient_survives_a_later_unrelated_edit(client_with_layer):
 # ── The guard that would have caught it ───────────────────────────────────
 
 def _put_allow_list():
-    body = (SRC / 'routes_layers.py').read_text()
+    body = (SRC / 'routes_layers.py').read_text(encoding='utf-8')
     block = body.split('def update_layer(layer_id):')[1].split(']:')[0]
     return set(re.findall(r"'([A-Za-z_][A-Za-z0-9_]*)'", block))
 
 
 def _client_side_props():
-    lines = (SRC / 'static' / 'js' / 'app-core.js').read_text().splitlines()
+    lines = (SRC / 'static' / 'js' / 'app-core.js').read_text(encoding='utf-8').splitlines()
     start = next(i for i, l in enumerate(lines)
                  if 'extractClientSideProps(layer) {' in l)
     end = next(i for i in range(start + 1, len(lines)) if lines[i] == '    }')
@@ -233,7 +233,7 @@ def test_duplicate_route_does_not_disturb_panel_geometry(client):
 
 
 def test_create_route_allow_list_covers_the_appearance_fields():
-    body = (SRC / 'routes_layers.py').read_text()
+    body = (SRC / 'routes_layers.py').read_text(encoding='utf-8')
     block = body.split('optional_fields = [')[1].split(']')[0]
     optional = set(re.findall(r"'([A-Za-z_][A-Za-z0-9_]*)'", block))
     missing = sorted(set(APPEARANCE_FIELDS) - optional)

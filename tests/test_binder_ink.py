@@ -306,7 +306,7 @@ def test_kelly_live_prints_nothing_on_its_own_maps(page, palette):
         pytest.skip(private_fixture_missing(KELLY_LIVE))
     pg, _ids = page
     import json
-    pg.evaluate(LOAD_JS, json.load(open(KELLY_LIVE)))
+    pg.evaluate(LOAD_JS, json.load(open(KELLY_LIVE, encoding='utf-8')))
     report = pg.evaluate(INK_JS, [_opts(palette)])
     assert report, 'the binder planned no pages at all'
     bad = _complaints(report)
@@ -368,7 +368,7 @@ def test_kelly_live_has_no_rule_through_a_string(page, palette):
         pytest.skip(private_fixture_missing(KELLY_LIVE))
     pg, _ids = page
     import json
-    pg.evaluate(LOAD_JS, json.load(open(KELLY_LIVE)))
+    pg.evaluate(LOAD_JS, json.load(open(KELLY_LIVE, encoding='utf-8')))
     report = pg.evaluate(RULE_JS, [_opts(palette)])
     assert report, 'the binder planned no pages at all'
     bad = _struck(report)
@@ -400,7 +400,7 @@ def test_no_wiring_run_is_drawn_over_the_maps_own_lettering(page, palette):
         if fixture is None:
             pg.evaluate(SEED_JS)
         else:
-            pg.evaluate(LOAD_JS, json.load(open(fixture)))
+            pg.evaluate(LOAD_JS, json.load(open(fixture, encoding='utf-8')))
         opts = {**json.loads(_SHOW_JSON), 'palette': palette}
         for title in titles:
             halves = _probe(pg, opts, title)

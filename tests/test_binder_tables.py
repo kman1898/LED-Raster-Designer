@@ -143,7 +143,7 @@ def shows(e2e_server, pw_browser):
     pg.wait_for_timeout(2000)
     out = {}
     for name, path in present.items():
-        with open(path) as fh:
+        with open(path, encoding='utf-8') as fh:
             project = json.load(fh)
         out[name] = pg.evaluate(SHEETS_JS, [project, OPTS])
         assert out[name]['pages'], (name, 'the show planned no sheet at all')

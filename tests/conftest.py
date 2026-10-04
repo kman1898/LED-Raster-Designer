@@ -40,6 +40,26 @@ def private_fixture_missing(*paths):
     return None
 
 
+# ── Waiting for the page to settle ───────────────────────────────────────
+# A fixed sleep and then a read is a guess about how fast the machine is.
+# On a busy Windows box the dock's fold transition and the next animation
+# frame landed after the sleep (a focus that comes in a requestAnimationFrame
+# arrived 556 ms after the click, not the usual 20 ms), the read saw the old
+# state, and a test that failed half-way left the dock folded for every test
+# after it in that worker.
+
+def settled(page, read, ok, timeout_ms=5000):
+    """read() until ok(value) holds or TIMEOUT_MS passes; return the last
+    value, so the caller's own assert still says what was wrong."""
+    value = read()
+    waited = 0
+    while not ok(value) and waited < timeout_ms:
+        page.wait_for_timeout(50)
+        waited += 50
+        value = read()
+    return value
+
+
 def pytest_addoption(parser):
     """Add --browser CLI option for Playwright browser tests."""
     parser.addoption(

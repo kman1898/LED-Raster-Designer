@@ -219,7 +219,7 @@ def test_the_menu_item_and_the_format_option_are_served(client):
     for side in ('data', 'power'):
         assert f'id="{side}-jump-v"' in html and f'id="{side}-jump-h"' in html, side
     # the module is registered
-    main_js = open(os.path.join(HERE, '..', 'src', 'static', 'js', 'main.js')).read()
+    main_js = open(os.path.join(HERE, '..', 'src', 'static', 'js', 'main.js'), encoding='utf-8').read()
     assert "import './app-pull-list.js';" in main_js
 
 
@@ -1031,7 +1031,7 @@ def test_smoke_experts_only(page):
     per extension, six. SL A / SL B on Cards 2 / 4 are the same shape
     with SL A 100', SL B 150' and SL B-4's extension 100'."""
     pg, ids = page
-    with open(SCRATCH_FIXTURE) as fh:
+    with open(SCRATCH_FIXTURE, encoding='utf-8') as fh:
         project = json.load(fh)
     out = pg.evaluate("""async (project) => {
         const app = window.app;

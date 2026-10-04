@@ -53,7 +53,7 @@ class TestLoadSaveSettings:
     def test_load_handles_corrupted_json(self, tmp_path, monkeypatch):
         monkeypatch.setattr(launcher_settings, 'get_config_dir', lambda: str(tmp_path))
         settings_path = os.path.join(str(tmp_path), 'settings.json')
-        with open(settings_path, 'w') as f:
+        with open(settings_path, 'w', encoding='utf-8') as f:
             f.write('not valid json {{{')
         settings = launcher_settings.load_settings()
         # Should fall back to defaults
@@ -63,7 +63,7 @@ class TestLoadSaveSettings:
         monkeypatch.setattr(launcher_settings, 'get_config_dir', lambda: str(tmp_path))
         # Save only port
         settings_path = os.path.join(str(tmp_path), 'settings.json')
-        with open(settings_path, 'w') as f:
+        with open(settings_path, 'w', encoding='utf-8') as f:
             json.dump({'port': 1234}, f)
         loaded = launcher_settings.load_settings()
         assert loaded['port'] == 1234
@@ -74,7 +74,7 @@ class TestLoadSaveSettings:
         monkeypatch.setattr(launcher_settings, 'get_config_dir', lambda: str(tmp_path))
         launcher_settings.save_settings({'port': 5555, 'interface': '0.0.0.0'})
         settings_path = os.path.join(str(tmp_path), 'settings.json')
-        with open(settings_path, 'r') as f:
+        with open(settings_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
         assert data['port'] == 5555
         assert data['interface'] == '0.0.0.0'
@@ -146,7 +146,7 @@ class TestRunAtLogin:
                             lambda p: p.replace('~', home) if p.startswith('~') else original_expanduser(p))
         launcher_settings.set_run_at_login(True, '/usr/bin/python3')
         assert os.path.exists(plist_path)
-        with open(plist_path, 'r') as f:
+        with open(plist_path, 'r', encoding='utf-8') as f:
             content = f.read()
         assert 'RunAtLoad' in content
         assert launcher_settings.BUNDLE_ID in content
@@ -157,7 +157,7 @@ class TestRunAtLogin:
         plist_dir = os.path.join(home, 'Library', 'LaunchAgents')
         os.makedirs(plist_dir, exist_ok=True)
         plist_path = os.path.join(plist_dir, f'{launcher_settings.BUNDLE_ID}.plist')
-        with open(plist_path, 'w') as f:
+        with open(plist_path, 'w', encoding='utf-8') as f:
             f.write('<plist></plist>')
         original_expanduser = os.path.expanduser
         monkeypatch.setattr(os.path, 'expanduser',
@@ -175,7 +175,7 @@ class TestRunAtLogin:
                             lambda p: p.replace('~', home) if p.startswith('~') else original_expanduser(p))
         exe_path = '/Applications/LED Raster Designer.app/Contents/MacOS/LED Raster Designer'
         launcher_settings.set_run_at_login(True, exe_path)
-        with open(plist_path, 'r') as f:
+        with open(plist_path, 'r', encoding='utf-8') as f:
             content = f.read()
         assert 'open' in content
         assert '.app' in content

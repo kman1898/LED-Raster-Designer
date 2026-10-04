@@ -31,6 +31,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 import processor_catalog as catalog  # noqa: E402
+from conftest import settled  # noqa: E402
 
 H4 = 'novastar-card-h-4xfiber'
 H16 = 'novastar-card-h-16xrj45-2xfiber'
@@ -567,9 +568,11 @@ def test_the_fiber_section_builds_a_tac_through_new_tac(page):
     pg.locator(f'[data-lrd-field="fiber-link-cable-{a}-p1"]').select_option('new:tac')
     pg.wait_for_timeout(300)
     pg.locator(f'[data-lrd-field="fiber-new-{a}-p1-strands-24"]').click()
-    pg.wait_for_timeout(300)
     ft = pg.locator(f'[data-lrd-field="fiber-new-{a}-p1-ft"]')
-    assert pg.evaluate('() => document.activeElement.dataset.lrdField') == f'fiber-new-{a}-p1-ft'
+    # the step focuses its field in the next animation frame
+    focused = settled(pg, lambda: pg.evaluate('() => document.activeElement.dataset.lrdField'),
+                      lambda v: v == f'fiber-new-{a}-p1-ft')
+    assert focused == f'fiber-new-{a}-p1-ft'
     ft.fill('1000')
     ft.press('Enter')
     pg.wait_for_timeout(300)

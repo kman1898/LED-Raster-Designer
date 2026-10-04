@@ -168,6 +168,14 @@ export class LEDRasterApp {
                     sendClientLog('sidebar_toggle', { side: key, collapsed: nowCollapsed });
                 }
             });
+            // The timers in settleLayout guess when the fold is over; on a
+            // busy machine it can still be running at the last one, and the
+            // canvas kept a mid-fold size. The fold's own end measures again.
+            sidebar.addEventListener('transitionend', (e) => {
+                if (e.target === sidebar && (e.propertyName === 'width' || e.propertyName === 'height')) {
+                    this.remeasureCanvas();
+                }
+            });
             // Keep the toggle pinned to the sidebar edge whenever the
             // sidebar resizes (window resize, scrollbar appearance, etc.).
             if (typeof ResizeObserver === 'function') {

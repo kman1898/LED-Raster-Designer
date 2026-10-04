@@ -90,6 +90,8 @@ import sys
 
 import pytest
 
+from conftest import settled  # noqa: E402
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 pytest.importorskip("playwright.sync_api", reason="playwright not installed")
@@ -425,8 +427,7 @@ def test_folding_the_dock_hands_the_room_back_to_the_canvas(dock_page):
     before = page.evaluate(
         "() => document.getElementById('canvas-wrapper').clientHeight")
     page.locator('#hw-dock-fold').click()
-    page.wait_for_timeout(600)
-    folded = page.evaluate("""() => ({
+    folded = settled(page, lambda: page.evaluate("""() => ({
         wrapH: document.getElementById('canvas-wrapper').clientHeight,
         canvasH: document.getElementById('main-canvas').height,
         dockH: document.getElementById('hardware-dock')
@@ -434,7 +435,8 @@ def test_folding_the_dock_hands_the_room_back_to_the_canvas(dock_page):
         collapsed: document.getElementById('hardware-dock')
             .classList.contains('collapsed'),
         stored: localStorage.getItem('ledRasterSidebarCollapsed_dock'),
-    })""")
+    })"""), lambda f: f['collapsed'] and f['dockH'] < 2 and f['wrapH'] > before
+        and f['canvasH'] == f['wrapH'])
     assert folded['collapsed'] and folded['dockH'] < 2, (
         f'the header chevron did not fold the tray: {folded}')
     assert folded['stored'] == '1', (
@@ -444,15 +446,47 @@ def test_folding_the_dock_hands_the_room_back_to_the_canvas(dock_page):
     assert folded['canvasH'] == folded['wrapH'], (
         f'the canvas backing store missed the fold: {folded}')
     page.locator('#hardware-dock-toggle').click()
-    page.wait_for_timeout(600)
-    after = page.evaluate("""() => ({
+    after = settled(page, lambda: page.evaluate("""() => ({
         wrapH: document.getElementById('canvas-wrapper').clientHeight,
         canvasH: document.getElementById('main-canvas').height,
         stored: localStorage.getItem('ledRasterSidebarCollapsed_dock'),
-    })""")
+    })"""), lambda a: a['stored'] == '0' and a['wrapH'] == before
+        and a['canvasH'] == a['wrapH'])
     assert after['stored'] == '0', f'unfolding did not store back: {after}'
     assert after['wrapH'] == before and after['canvasH'] == after['wrapH'], (
         f'unfolding did not restore the layout: {before} -> {after}')
+
+
+def test_a_slow_fold_still_leaves_the_canvas_its_real_size(dock_page):
+    """The canvas was re-measured on timers (a frame, 60 ms, 220 ms) and
+    nowhere else, so a fold that ran past 220 ms - a busy Windows box was
+    painting frames 500 ms apart - left the backing store at a mid-fold
+    height. The fold's own end now measures it again. Slowed to 900 ms
+    here, every timer lands mid-fold and only that last measure is right."""
+    page, ids = dock_page
+    open_view(page, 'data-flow')
+    read = """() => ({
+        wrapH: document.getElementById('canvas-wrapper').clientHeight,
+        canvasH: document.getElementById('main-canvas').height,
+        dockH: document.getElementById('hardware-dock')
+            .getBoundingClientRect().height,
+    })"""
+    page.evaluate("""() => { document.getElementById('hardware-dock')
+        .style.transition = 'height 0.9s linear'; }""")
+    try:
+        for click, done in (('#hw-dock-fold', lambda s: s['dockH'] < 2),
+                            ('#hardware-dock-toggle', lambda s: s['dockH'] > 100)):
+            page.locator(click).click()
+            settled(page, lambda: page.evaluate(read), done)
+            page.wait_for_timeout(400)
+            out = page.evaluate(read)
+            assert done(out) and out['canvasH'] == out['wrapH'], (
+                f'the canvas kept a mid-fold height after {click}: {out}')
+    finally:
+        page.evaluate("""() => {
+            document.getElementById('hardware-dock').style.transition = '';
+            localStorage.setItem('ledRasterSidebarCollapsed_dock', '0');
+        }""")
 
 
 # ── the header bar, the issues strip and the gear popover ─────────────────

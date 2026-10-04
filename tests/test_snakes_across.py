@@ -334,7 +334,7 @@ def test_the_smoke_fixture_migrates_to_the_show(client):
     the boxes' sockets, no per-device key anywhere, the boxes' extensions
     untouched. What the paperwork prints is what test_pull_list's and
     test_binder's smoke pin."""
-    with open(SCRATCH_FIXTURE) as fh:
+    with open(SCRATCH_FIXTURE, encoding='utf-8') as fh:
         project = json.load(fh)
     saved = [(s['name'], s['ft'], len(s['members'])) for s in project['snakes']]
     assert not [1 for proc in project['processors'] for slot in proc['slots'] if slot.get('card')

@@ -37,6 +37,14 @@ import routes_dialog as rd  # noqa: E402
 
 # ── the three outcomes are told apart ─────────────────────────────────────
 
+def _helper(code):
+    """A stand-in dialog helper that runs everywhere. This was `sh -c`, which
+    is only on PATH on Windows when Git Bash's tools are, so from a plain
+    PowerShell the helper was "missing" and these failed - or, for the
+    failing-helper case, passed without the helper ever running."""
+    return [sys.executable, '-c', code]
+
+
 def test_a_missing_helper_is_unavailable_not_a_cancel():
     path, status = rd._run_dialog_command(['no-such-binary-xyz-123'], 'probe')
     assert path is None
@@ -45,21 +53,21 @@ def test_a_missing_helper_is_unavailable_not_a_cancel():
 
 def test_a_failing_helper_is_unavailable_not_a_cancel():
     path, status = rd._run_dialog_command(
-        ['sh', '-c', 'echo boom >&2; exit 3'], 'probe')
+        _helper('import sys; sys.stderr.write("boom"); sys.exit(3)'), 'probe')
     assert path is None
     assert status == 'unavailable'
 
 
 def test_exit_zero_with_no_path_is_a_user_cancel():
     """The user dismissed the dialog. Nothing should be written anywhere."""
-    path, status = rd._run_dialog_command(['sh', '-c', 'exit 0'], 'probe')
+    path, status = rd._run_dialog_command(_helper('pass'), 'probe')
     assert path is None
     assert status == 'cancelled'
 
 
 def test_a_chosen_path_comes_back_ok():
     path, status = rd._run_dialog_command(
-        ['sh', '-c', 'echo /tmp/somewhere'], 'probe')
+        _helper('print("/tmp/somewhere")'), 'probe')
     assert path == '/tmp/somewhere'
     assert status == 'ok'
 

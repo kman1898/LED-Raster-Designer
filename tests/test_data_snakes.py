@@ -1569,7 +1569,7 @@ def test_the_backup_boxs_sheet_reads_like_the_primarys(e2e_server, pw_browser):
     both boxes. Runs in its own
     page so the module's seed is left alone, and puts the server's project
     back when it is done."""
-    with open(SCRATCH_FIXTURE) as fh:
+    with open(SCRATCH_FIXTURE, encoding='utf-8') as fh:
         project = json.load(fh)
     context = pw_browser.new_context(viewport={'width': 1700, 'height': 950})
     context.add_init_script(

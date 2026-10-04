@@ -37,7 +37,7 @@ def _guard(server_project_guard):
 
 
 def _parse_port_capacity_tables():
-    src = open(APP_CORE).read()
+    src = open(APP_CORE, encoding='utf-8').read()
     i = src.index('portCapacityTables = {')
     start = src.index('{', i)
     depth = 0

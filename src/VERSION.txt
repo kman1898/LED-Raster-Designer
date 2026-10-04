@@ -93,6 +93,10 @@ to the box, picking the strands, and the power jumper lengths.
 
 FIXES
 
+- FIX: Folding or opening a side panel or the hardware tray leaves the
+  map at the canvas's real size. Before, on a busy computer the fold
+  could still be running when the app last measured the canvas, and the
+  map stayed drawn at a mid-fold size until something else resized it.
 - FIX: A screen group prints in the binder by the Names switch on its
   tab, now set per tab. Group prints one sheet for the whole group,
   titled by its name, with every screen in the group on its map; Screens
