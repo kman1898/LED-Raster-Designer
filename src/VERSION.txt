@@ -136,7 +136,13 @@ FIXES
   is on it, as on the SX40 and HELIOS. Before, a bare card counted its
   full 32 or 40 ports and they could be mapped with nothing to plug into.
   Adding one of these cards, or a unit or QD-S that arrives with no
-  boxes, opens the + Box list on it.
+  boxes, opens the + Box list on it. On any unit or card that takes its
+  ports from boxes, the port count follows the boxes: a bare card reads
+  0 / 0, one CVT10 on an H_4xfiber (enhanced) reads 10 / 10, and the
+  processor total, the backup split and the backup partner list count
+  the same way. A box missing between two others shows a red warning,
+  "OPT 2 has no box - ports 11-20 are missing.", and a halves backup
+  splits only the ports that exist.
 - FIX: A Tessera QD-S is no longer offered on an SX40. The QD-S takes a
   100G input and connects the SQ200 to XD boxes; the SX40's trunks are
   10G, so its box list is the XD, XD-S and XD-T.

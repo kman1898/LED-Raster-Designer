@@ -297,6 +297,10 @@ def cards_in(processors):
                 # boxes still short of the ceiling, which is a wall planned
                 # onto ports that no box will ever hand out.
                 'shortfall': card.get('shortfall'),
+                # The empty trunks between boxes on a box-fed card (owner,
+                # 2026-10-04: "we should throw an error") - resolve_card's
+                # gaps, each said on the dock strip as an error.
+                'gaps': card.get('gaps') or [],
                 'labels': {p['number']: p['label'] for p in card['ports']},
                 # Both ends of every socket, resolved once in resolve_card.
                 # The return rides beside the primary so the canvas indexes
@@ -1115,6 +1119,20 @@ def _capacity_issues(cards, screens):
                        f'{" or ".join(reach)}.' if reach else
                        'No box in the catalog reaches its full count on this '
                        'card.')),
+                'offers': [],
+            })
+        # A box missing between boxes on a box-fed card: an error, not a
+        # condition - its ports are gone until a box goes back on the trunk
+        # (owner, 2026-10-04: "we should throw an error but only do real
+        # ports beyond that"). Named with the card, since the strip lists
+        # every card's issues together.
+        for gap in card.get('gaps') or []:
+            out.append({
+                'kind': 'card-trunk-gap',
+                'cardId': card['cardId'],
+                'trunkIndex': gap['trunkIndex'],
+                'ports': gap['ports'],
+                'message': f'{_card_title(card)}: {gap["message"]}',
                 'offers': [],
             })
         if card['capacityKnown']:

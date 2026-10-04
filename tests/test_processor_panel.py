@@ -601,7 +601,11 @@ def test_a_chassis_states_no_port_count_of_its_own():
 
 def test_the_same_chassis_is_a_different_machine_with_a_different_card(client):
     """An H9 with 20xRJ45 cards and an H9 with 4xfiber cards are 100 ports and
-    160 ports. Nothing about the chassis says so."""
+    160 ports. Nothing about the chassis says so.
+
+    A fiber card's count follows its boxes (owner, 2026-10-04: "Follow the
+    boxes"): bare it is 0, and the 32 is its modeCeiling - what CVTs on
+    every OPT reach."""
     state = add_processor(client, 'novastar-h9')
     pid = only(state)['id']
 
@@ -610,19 +614,27 @@ def test_the_same_chassis_is_a_different_machine_with_a_different_card(client):
     assert only(rj45)['ceiling'] == 20
 
     fiber = set_card(client, pid, 0, 'novastar-card-h-4xfiber')
-    assert first_card(only(fiber))['ceiling'] == 32
-    assert only(fiber)['ceiling'] == 32, (
+    assert first_card(only(fiber))['ceiling'] == 0
+    assert first_card(only(fiber))['modeCeiling'] == 32
+    assert only(fiber)['ceiling'] == 0, (
         'the chassis ceiling did not follow the card into the slot')
 
 
 def test_a_chassis_ceiling_is_summed_from_the_cards_in_it(client):
+    """Summed from the cards' reach: a bare fiber card adds nothing until
+    its CVTs go on ("Follow the boxes", 2026-10-04), then what they give."""
     state = add_processor(client, 'novastar-h9')
     pid = only(state)['id']
     set_card(client, pid, 0, 'novastar-card-h-20xrj45')
     set_card(client, pid, 1, 'novastar-card-h-20xrj45')
     state = set_card(client, pid, 2, 'novastar-card-h-4xfiber')
     proc = only(state)
-    assert proc['ceiling'] == 20 + 20 + 32
+    assert proc['ceiling'] == 20 + 20 + 0
+    fiber = proc['slots'][2]['card']
+    resp = client.post(f'/api/processors/{pid}/cards/{fiber["id"]}/cvts',
+                       json={'deviceId': 'novastar-cvt10'})
+    assert resp.status_code == 201
+    assert only(resp.get_json())['ceiling'] == 20 + 20 + 8
     assert proc['cardsUsed'] == 3
     assert proc['maxCards'] == 5, 'the H9 takes five output cards'
     assert proc['cardsOver'] is False
@@ -1151,7 +1163,10 @@ def test_the_same_card_falls_eight_short_on_cvt4k_s_and_says_so(client):
                              'novastar-card-h-4xfiber-enhanced')
     state = add_boxes(client, pid, card_id, 2, 'novastar-cvt4k-s')
     card = first_card(only(state))
-    assert card['ceiling'] == 40
+    # the card reads what the boxes give ("Follow the boxes", 2026-10-04);
+    # the 40 it could reach is its modeCeiling, and the shortfall says so
+    assert card['ceiling'] == 32
+    assert card['modeCeiling'] == 40
     assert card['trunksUsed'] == 4, 'both boxes should have eaten two OPTs each'
     assert card['delivered'] == 32
     assert card['shortfall'] is not None, (
@@ -1514,7 +1529,10 @@ def test_the_tree_round_trips_through_save_and_reload(client):
     card = first_card(proc)
     assert card['name'] == 'SR'
     assert card['mode'] == 'copy-backup'
-    assert card['ceiling'] == 16, 'the stored mode was lost on reload'
+    # the mode's count; the card's own ceiling follows its boxes
+    # ("Follow the boxes", 2026-10-04) - one CVT10 pair, ports 1-8
+    assert card['modeCeiling'] == 16, 'the stored mode was lost on reload'
+    assert card['ceiling'] == 8
     assert card['cvts'][0]['name'] == 'CVT-A'
     assert card['ports'][0]['label'] == 'CVT-A-1'
 

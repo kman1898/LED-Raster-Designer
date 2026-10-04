@@ -2845,6 +2845,63 @@ def _fiber_ft(value):
     return int(ft) if ft == int(ft) else ft
 
 
+def _trunk_title(device, unit, index, takes=1):
+    """One trunk (or a run of `takes`) as the card's face prints it: the
+    unit's title and letter on a card that is a unit of its own ("QD 1 A"),
+    "OPT 2" ("OPT 1-2") where the catalog documents the card's trunkWord,
+    else the app's own letter, "trunk B"."""
+    first = chr(ord('A') + index)
+    letter = (f'{first}-{chr(ord("A") + index + takes - 1)}'
+              if takes > 1 else first)
+    word = ((device or {}).get('trunkWord') or '').strip()
+    if unit:
+        return f'{unit} {letter}'
+    if word:
+        last = index + takes
+        return (f'{word} {index + 1}-{last}' if takes > 1
+                else f'{word} {index + 1}')
+    return f'trunk {letter}'
+
+
+def _number_spans(numbers):
+    """Socket numbers as runs - '11-20', '1-10, 21-25', '7' - sorted."""
+    runs = []
+    for n in sorted(set(numbers)):
+        if runs and n == runs[-1][1] + 1:
+            runs[-1][1] = n
+        else:
+            runs.append([n, n])
+    return ', '.join(f'{a}-{b}' if b > a else f'{a}' for a, b in runs)
+
+
+def halves_split(numbers):
+    """The split (halves) pairing over the ports a card really has: the
+    front ceil(n/2) are mains, each returned on the port half the list
+    further on - (main, backup) pairs. Over a list, never a range, because
+    a box-fed card's ports can have a hole in them (owner, 2026-10-04, on a
+    box missing between boxes: "we should throw an error but only do real
+    ports beyond that"): an enhanced H_4xfiber with CVT10s on OPT 1, 3 and
+    4 is ports 1-10 and 21-40, so 1-10 and 21-25 are backed by 26-40, and
+    nothing is paired onto 11-20, which no box delivers. On a card whose
+    ports run 1..N it is the old arithmetic exactly - N returned half a
+    card on, the middle port of an odd count a main with no backup."""
+    real = sorted(numbers)
+    half = len(real) - len(real) // 2
+    return [(real[i], real[i + half]) for i in range(len(real) // 2)]
+
+
+def _halves_spans(ports):
+    """halves_split over a resolved card's real ports, as the two runs the
+    gear's Split tip names: {'mains': '1-10, 21-25', 'backs': '26-40'}, or
+    None where there is no pair to make."""
+    pairs = halves_split(p['number'] for p in ports
+                         if not p['beyondCeiling'])
+    if not pairs:
+        return None
+    return {'mains': _number_spans(m for m, _b in pairs),
+            'backs': _number_spans(b for _m, b in pairs)}
+
+
 def _usable_ports(shape, ceiling, device):
     """What a redundancy shape leaves usable on a card of `ceiling` ports:
     half under sequential and halves - and, on a trunk-paired unit running
@@ -3146,18 +3203,9 @@ def resolve_card(card, proc):
         # whose catalog entry documents that word (trunkWord - the NovaStar
         # H cards' notes say OPT), else the app's own letter, "trunk A".
         # Nothing where there is nothing to name.
-        box['trunkTitle'] = ''
-        if letter:
-            word = (device.get('trunkWord') or '').strip()
-            if unit:
-                box['trunkTitle'] = f'{unit} {letter}'
-            elif word:
-                first = box['trunkIndex'] + 1
-                last = first + (box['trunksIn'] or 1) - 1
-                box['trunkTitle'] = (f'{word} {first}-{last}' if last > first
-                                     else f'{word} {first}')
-            else:
-                box['trunkTitle'] = f'trunk {letter}'
+        box['trunkTitle'] = (_trunk_title(device, unit, box['trunkIndex'],
+                                          box['trunksIn'] or 1)
+                             if letter else '')
 
     # A box can only claim past the ceiling by hanging off a trunk that is not
     # there - five CVT10s on a four-trunk card. That stays visible rather than
@@ -3320,6 +3368,56 @@ def resolve_card(card, proc):
     if own and ceiling:
         reach = min(ceiling, max([own] + [p['number'] for p in ports
                                           if not p['beyondCeiling']]))
+    # ON A BOX-FED CARD THE REACH IS WHAT THE BOXES GIVE. Owner, 2026-10-04:
+    # "Follow the boxes" - the capacity row, the processor's sum, the usable
+    # count and the split all read the sockets the boxes deliver, never the
+    # mode count: a bare enhanced H_4xfiber is 0, one CVT10 on it is 10. A
+    # count, not the highest number, because a box missing between boxes
+    # leaves a hole (1-10 and 21-40 is 30). The mode count stays the block
+    # model above, and rides out as modeCeiling. A stocked SX40 - four XDs
+    # on four trunks - is 40 either way. Only where a box can go on at all:
+    # a box-fed device with no trunk documented (the HELIOS Standard 4K,
+    # whose outputs are still being confirmed on a real unit) is left
+    # reading exactly as it did.
+    if box_fed and ceiling is not None and trunks:
+        reach = sum(1 for p in ports if not p['beyondCeiling'])
+
+    # A BOX MISSING BETWEEN BOXES IS AN ERROR (owner, 2026-10-04: "we should
+    # throw an error but only do real ports beyond that"). On a box-fed card
+    # the boxes hold their trunks, so a box removed from between two others
+    # leaves its trunk empty and its block of ports gone. Each such trunk is
+    # said, by the name the card's face prints and the ports nobody now
+    # delivers - "OPT 2 has no box - ports 11-20 are missing." - and the
+    # card works on with the ports that exist (halves_split). An empty trunk
+    # past the last box is a card not finished yet, not a hole; and a trunk
+    # whose block another box still delivers (a copy OPT) loses nothing.
+    gaps = []
+    if box_fed and block_count and trunks >= 2:
+        covered = {p['number'] for p in ports}
+        fitted = {t for c in cvts if not c['beyondTrunks']
+                  for t in range(c['trunkIndex'],
+                                 c['trunkIndex'] + (c['trunksIn'] or 1))}
+        for index in range(max(fitted) if fitted else 0):
+            if index in fitted:
+                continue
+            block = index % block_count
+            missing = [n for n in range(block * per_trunk + 1,
+                                        min((block + 1) * per_trunk,
+                                            ceiling) + 1)
+                       if n not in covered]
+            if not missing:
+                continue
+            title = _trunk_title(device, unit, index)
+            many = len(missing) > 1
+            gaps.append({
+                'trunkIndex': index,
+                'trunkTitle': title,
+                'ports': missing,
+                'message': (f'{title} has no box - '
+                            f'{"ports" if many else "port"} '
+                            f'{_number_spans(missing)} '
+                            f'{"are" if many else "is"} missing.'),
+            })
 
     # THE BOX DECIDES WHETHER A CARD REACHES ITS OWN CEILING.
     #
@@ -3434,6 +3532,14 @@ def resolve_card(card, proc):
                         (card.get('backupPorts') or {}).items() if v},
         'delivered': delivered,
         'shortfall': shortfall,
+        # The empty trunks between boxes on a box-fed card, each with its
+        # message (above); [] everywhere else.
+        'gaps': gaps,
+        # The split over the ports that exist, for the gear's tip to quote
+        # rather than re-derive: mains and backs as runs ('1-10, 21-25' /
+        # '26-40'). Box-fed cards only - every other card's ports run
+        # 1..ceiling and the tip's own arithmetic says the same thing.
+        'halvesSpans': _halves_spans(ports) if box_fed else None,
         'defined': defined,
         # Whether every socket of this card is a box's (is_box_fed): the
         # assignment reads it to bound fills and hand placements to the
@@ -3765,8 +3871,19 @@ def _apply_backup_mapping(processors, resolved):
             # way sequential leaves the last odd port unpaired. A card with
             # no settled count maps nothing - guessing where its half falls
             # is the guessed-ceiling mistake wearing a redundancy hat.
-            ceiling = res_cards[cid][0].get('ceiling')
-            if ceiling:
+            #
+            # A BOX-FED card splits the ports that EXIST (halves_split, the
+            # 2026-10-04 rulings "Follow the boxes" and "only do real ports
+            # beyond that"): a box missing between boxes leaves a hole, and
+            # no main or backup ever lands in it.
+            rcard = res_cards[cid][0]
+            ceiling = rcard.get('ceiling')
+            if rcard.get('boxFed'):
+                for n, t in halves_split(
+                        n for n, p in ports_of[cid].items()
+                        if not p.get('beyondCeiling')):
+                    link(cid, n, cid, t)
+            elif ceiling:
                 half = ceiling - ceiling // 2
                 for n in sorted(ports_of[cid]):
                     if n <= ceiling // 2 and (n + half) in ports_of[cid]:

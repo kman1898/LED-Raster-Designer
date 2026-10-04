@@ -892,9 +892,9 @@ class _Processors {
             const opt = document.createElement('option');
             opt.value = c.id;
             const title = this._backupUnitTitle(p, c);
-            // A box-fed card has only its boxes' sockets (2026-10-04).
-            const count = c.boxFed ? `${(c.ports || []).length}`
-                : (c.ceilingKnown ? `${c.ceiling}` : '?');
+            // The card's reach - on a box-fed card, what its boxes give
+            // ("Follow the boxes", 2026-10-04).
+            const count = c.ceilingKnown ? `${c.ceiling}` : '?';
             let note = '';
             if (c.backupFor && c.id !== card.backupCardId) {
                 note = ` (backs up ${c.backupFor.title})`;
@@ -1275,6 +1275,22 @@ class _Processors {
                         : `these boxes cannot reach ${s.ceiling} on this card.`);
                 wrap.appendChild(short);
             }
+
+            // A box missing between boxes on a box-fed card is an error
+            // (owner, 2026-10-04: "we should throw an error but only do
+            // real ports beyond that"): each empty trunk said in the
+            // server's words - "OPT 2 has no box - ports 11-20 are
+            // missing." - in the capacity row's over-capacity red.
+            (card.gaps || []).forEach(gap => {
+                const line = document.createElement('div');
+                line.className = 'hw-pop-gap';
+                line.style.fontSize = '11px';
+                line.style.color = '#d05a52';
+                line.style.marginTop = '2px';
+                line.style.lineHeight = '1.4';
+                line.textContent = gap.message;
+                wrap.appendChild(line);
+            });
         }
 
         // A slotted card is removed by emptying its slot - the same PUT the
@@ -2240,7 +2256,16 @@ class _Processors {
          // carry OPT 1's returns. On an MX20, whose two OPTs each carry
          // all six ports, the split is INSIDE one of them, and the tip
          // says nothing it cannot show.
-         ['halves', this._portShapeSplitLabel(card), half
+         // A box-fed card splits the ports its boxes give, holes and all
+         // (2026-10-04), so its spans are the server's (halvesSpans) -
+         // "Ports 26-40 carry the returns of 1-10, 21-25." - and the
+         // trunk sentence only where no box is missing between boxes.
+         ['halves', this._portShapeSplitLabel(card), card.halvesSpans
+             ? `Ports ${card.halvesSpans.backs} carry the returns of `
+               + `${card.halvesSpans.mains}.`
+               + ((card.gaps || []).length ? ''
+                   : this._splitTrunkClause(card, half))
+             : half && !card.boxFed
              ? `Ports ${card.ceiling - half + 1}-${card.ceiling} carry the `
                + `returns of 1-${half}.` + this._splitTrunkClause(card, half)
              : 'The back half of the ports are the front half’s '

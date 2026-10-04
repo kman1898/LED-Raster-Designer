@@ -319,7 +319,9 @@ def test_two_qd_s_loop_qd_1_to_qd_2_letter_for_letter(client):
     assert p1[1]['backedBy']['cardId'] == two
     assert p1[13]['backedBy']['boxTitle'] == 'QD 2 B'
     assert all(p.get('backsUp') for p in c2['ports'])
-    assert c1['redundancyShape']['usable'] == 144
+    # QD 1 keeps every socket its two XD-S give - 24, not the 144 its
+    # twelve outputs could reach ("Follow the boxes", 2026-10-04)
+    assert c1['redundancyShape']['usable'] == 24
     assert c2['redundancyShape']['usable'] == 0
     proc = _res_proc(client, pid)
     assert proc['redundancyPairing']['short'] == 'Loops QD 1 to QD 2'
