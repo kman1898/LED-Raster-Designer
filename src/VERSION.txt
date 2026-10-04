@@ -142,7 +142,9 @@ FIXES
   processor total, the backup split and the backup partner list count
   the same way. A box missing between two others shows a red warning,
   "OPT 2 has no box - ports 11-20 are missing.", and a halves backup
-  splits only the ports that exist.
+  splits only the ports that exist. Every NovaStar unit and card now
+  calls its fiber connectors OPT, so a box hangs on "OPT 3", not
+  "trunk C".
 - FIX: A Tessera QD-S is no longer offered on an SX40. The QD-S takes a
   100G input and connects the SQ200 to XD boxes; the SX40's trunks are
   10G, so its box list is the XD, XD-S and XD-T.

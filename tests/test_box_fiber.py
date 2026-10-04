@@ -136,7 +136,8 @@ def test_the_trunk_title_follows_the_catalogs_word_or_the_letter(client):
     assert r.status_code == 201
     card = next(p for p in r.get_json()['resolved'] if p['id'] == pid)['slots'][0]['card']
     assert [c['trunkTitle'] for c in card['cvts']] == ['OPT 1', 'OPT 2']
-    # a card whose entry carries no trunk word: the letter
+    # 2026-10-04 "any novastar should be OPT": the MX_4x10G names its
+    # trunks OPT too
     st = client.post('/api/processors', json={'deviceId': 'novastar-mx6000-pro'}).get_json()
     mx = st['processors'][-1]['id']
     st = client.put(f'/api/processors/{mx}/slots/0', json={'deviceId': 'novastar-card-mx-4x10g'}).get_json()
@@ -144,6 +145,12 @@ def test_the_trunk_title_follows_the_catalogs_word_or_the_letter(client):
     r = client.post(f'/api/processors/{mx}/cards/{mxcard}/cvts', json={'deviceId': 'novastar-cvt10', 'pair': False})
     assert r.status_code == 201, r.get_data(as_text=True)
     card = next(p for p in r.get_json()['resolved'] if p['id'] == mx)['slots'][0]['card']
+    assert card['cvts'][0]['trunkTitle'] == 'OPT 1' and card['cvts'][0]['trunkLetter'] == 'A'
+    # a unit whose entry carries no trunk word (the SX40, stocked with its
+    # XDs): the letter
+    st = client.post('/api/processors', json={'deviceId': 'brompton-sx40'}).get_json()
+    sx = st['processors'][-1]['id']
+    card = next(p for p in st['resolved'] if p['id'] == sx)['slots'][0]['card']
     assert card['cvts'][0]['trunkTitle'] == 'trunk A' and card['cvts'][0]['trunkLetter'] == 'A'
 
 

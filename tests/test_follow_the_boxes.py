@@ -205,6 +205,31 @@ def test_the_rule_is_one_helper():
 
 # ── 3. The SX40 reads as before ───────────────────────────────────────────
 
+def test_every_novastar_trunk_is_called_opt():
+    """2026-10-04: "any novastar should be OPT". Every NovaStar unit and card
+    with trunks names them OPT, so a box hangs on "OPT 3" and a gap reads
+    "OPT 2 has no box", never "trunk B"."""
+    missing = [d['id'] for d in catalog.devices()
+               if (d.get('vendor') == 'NovaStar'
+                   or str(d.get('family', '')).startswith('novastar'))
+               and d.get('trunks') and d.get('trunkWord') != 'OPT']
+    assert missing == []
+
+
+def test_a_one_box_novastar_unit_names_its_boxes_by_opt(client):
+    """The word reaches a unit's own card too: an MX40 Pro's boxes hang on
+    OPT 1, OPT 2, ..."""
+    st = client.post('/api/processors', json={'deviceId': 'novastar-mx40-pro'}
+                     ).get_json()
+    pid = st['processors'][-1]['id']
+    cid = next(p for p in st['processors'] if p['id'] == pid
+               )['slots'][0]['card']['id']
+    add_box(client, pid, cid)
+    card = card_of(client, cid)
+    assert card['trunkWord'] == 'OPT'
+    assert [b['trunkTitle'] for b in card['cvts']][:1] == ['OPT 1'], card['cvts']
+
+
 def test_a_stocked_sx40_reads_as_before(client):
     st = client.post('/api/processors', json={'deviceId': SX40}).get_json()
     proc = st['resolved'][-1]
