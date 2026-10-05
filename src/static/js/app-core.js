@@ -116,13 +116,16 @@ export class LEDRasterApp {
      * toggle hugs its top edge, the sidebars' rule turned on its side.
      */
     initSidebarToggles() {
-        const sides = [
-            // The Signal and Power middle rows retired with their sidebars:
-            // the hardware dock is the one view-scoped member left.
-            { key: 'left', edge: 'left', label: 'left', sidebarId: 'left-sidebar', toggleId: 'left-sidebar-toggle', expandSym: '›', collapseSym: '‹' },
-            { key: 'right', edge: 'right', label: 'right', sidebarId: 'right-sidebar', toggleId: 'right-sidebar-toggle', expandSym: '‹', collapseSym: '›' },
-            { key: 'dock', edge: 'bottom', label: 'hardware', sidebarId: 'hardware-dock', toggleId: 'hardware-dock-toggle', expandSym: '▴', collapseSym: '▾' },
-        ];
+        // The panels and the edge each docks to come from the frame's one
+        // table (layout.js). A toggle's chevrons point the way its panel
+        // folds: toward the panel's own edge to fold, away to open.
+        const CHEVRONS = {
+            left: { expandSym: '›', collapseSym: '‹' },
+            right: { expandSym: '‹', collapseSym: '›' },
+            bottom: { expandSym: '▴', collapseSym: '▾' },
+        };
+        const sides = (window.LRD_LAYOUT ? window.LRD_LAYOUT.panels() : [])
+            .map(p => Object.assign({}, p, CHEVRONS[p.edge]));
         // Kept so a panel entering or leaving layout (see
         // updateViewSidebars) can re-pin every toggle at once.
         this._sidebarPositioners = [];

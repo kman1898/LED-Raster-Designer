@@ -148,14 +148,26 @@
      screen needs to be able to drag all the way up to give more room to
      work" (2026-09-07) retired the old constant 420, which at a tall window
      left most of the column to a canvas nobody was looking at. */
-  var PANELS = [
-    /* The Signal and Power middle rows retired with their sidebars (the
-       dock absorbed the hardware surfaces); the dock's row is the one
-       view-scoped member left, and the one without a constant `max`. */
-    { key: 'left',  sidebarId: 'left-sidebar',  toggleId: 'left-sidebar-toggle',  storageKey: 'lrd_left_w',  cssVar: '--lrd-left-w',  dragEdge: 'right', axis: 'x', min: 180, max: 560, fallback: 260 },
-    { key: 'right', sidebarId: 'right-sidebar', toggleId: 'right-sidebar-toggle', storageKey: 'lrd_right_w', cssVar: '--lrd-right-w', dragEdge: 'left',  axis: 'x', min: 180, max: 560, fallback: 260 },
-    { key: 'dock',  sidebarId: 'hardware-dock', toggleId: 'hardware-dock-toggle', storageKey: 'lrd_dock_h',  cssVar: '--lrd-dock-h',  dragEdge: 'top',   axis: 'y', min: 100, fallback: 172 }
-  ];
+  /* Each panel's size: its own storage key and CSS var, so no two panels'
+     sizes ever move together. The Signal and Power middle rows retired with
+     their sidebars (the dock absorbed the hardware surfaces); the dock's row
+     is the one without a constant `max`. */
+  var SIZES = {
+    left:  { storageKey: 'lrd_left_w',  cssVar: '--lrd-left-w',  min: 180, max: 560, fallback: 260 },
+    right: { storageKey: 'lrd_right_w', cssVar: '--lrd-right-w', min: 180, max: 560, fallback: 260 },
+    dock:  { storageKey: 'lrd_dock_h',  cssVar: '--lrd-dock-h',  min: 100, fallback: 172 }
+  };
+  /* Where a panel docks decides its strip's edge and the axis it resizes
+     along: the strip is on the inner edge, the one facing the canvas. The
+     edge itself comes from the frame's one table (layout.js). */
+  var BY_EDGE = {
+    left:   { dragEdge: 'right', axis: 'x' },
+    right:  { dragEdge: 'left',  axis: 'x' },
+    bottom: { dragEdge: 'top',   axis: 'y' }
+  };
+  var PANELS = (window.LRD_LAYOUT ? window.LRD_LAYOUT.panels() : []).map(function (p) {
+    return Object.assign({ key: p.key, sidebarId: p.sidebarId, toggleId: p.toggleId }, BY_EDGE[p.edge], SIZES[p.key]);
+  });
 
   /* What the tray must leave of its column: the raster toolbar
      (#canvas-controls, ~30px of inputs and padding) stays reachable and a

@@ -98,8 +98,8 @@ body, #app {
 
 /* ---- docked titled panels ---- */
 #left-sidebar, #right-sidebar { background:var(--ps-panel) !important; border-color:var(--ps-dark) !important; }
-#left-sidebar { border-right:1px solid var(--ps-dark) !important; }
-#right-sidebar { border-left:1px solid var(--ps-dark) !important; }
+.lrd-panel[data-lrd-edge="left"] { border-right:1px solid var(--ps-dark) !important; }
+.lrd-panel[data-lrd-edge="right"] { border-left:1px solid var(--ps-dark) !important; }
 .panel { background:var(--ps-panel) !important; border:1px solid var(--ps-dark) !important; border-radius:0 !important; }
 /* the title bar is the wrapper (.panel-header) or a standalone section header */
 .panel-header, .sidebar-section-header,
@@ -351,14 +351,12 @@ label:has(#use-fractional-inches) { margin-left:8px !important; flex-shrink:0; }
 /* width is driven by CSS vars (set/persisted by theme.js); collapse still wins */
 #left-sidebar:not(.collapsed) { width:var(--lrd-left-w, 260px) !important; flex:0 0 auto !important; }
 #right-sidebar:not(.collapsed) { width:var(--lrd-right-w, 260px) !important; }
-#left-sidebar.collapsed,
-#right-sidebar.collapsed { width:0 !important; min-width:0 !important; }
+.lrd-panel[data-lrd-edge="left"].collapsed,
+.lrd-panel[data-lrd-edge="right"].collapsed { width:0 !important; min-width:0 !important; }
 /* no size animation while actively dragging - every resizable panel has one,
    and a panel that keeps it rubber-bands behind the pointer. The dock's is
    its height transition, same rule turned on its side. */
-#app.lrd-resizing #left-sidebar,
-#app.lrd-resizing #right-sidebar,
-#app.lrd-resizing #hardware-dock { transition:none !important; }
+#app.lrd-resizing .lrd-panel { transition:none !important; }
 /* drag strip on the inner edge of each panel; the -y variant is the dock's,
    lying along its top edge (theme.js sets left/width there, so only the
    fixed dimension and the cursor change) */
@@ -749,8 +747,11 @@ select, .info-select {
    dock - the backup tiles, the pair edge - and a state colour never
    follows the accent. The header it sits on is uppercase caption text,
    so the pill resets case and tracking to read as the label it is. */
+/* It is the one header piece that may give way: in a tray too narrow for
+   the whole row it shortens with an ellipsis rather than pushing the row
+   past the card's edge. */
 .hw-dock-redpill {
-  flex:0 0 auto; min-width:0; max-width:48%; overflow:hidden;
+  flex:0 1 auto; min-width:0; max-width:48%; overflow:hidden;
   text-overflow:ellipsis; white-space:nowrap;
   font:600 11px/1.6 var(--font-ps); text-transform:none; letter-spacing:0;
   padding:0 7px; border-radius:4px; cursor:pointer; margin:0;
