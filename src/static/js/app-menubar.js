@@ -450,6 +450,11 @@ class _MenuBar {
                     window.canvasRenderer.render();
                 }
                 break;
+            case 'reset-layout':
+                // Every panel back to its own edge and the order the frame
+                // has always had; sizes and folds are left as they are.
+                if (window.LRD_LAYOUT) window.LRD_LAYOUT.reset();
+                break;
             case 'toggle-snap':
                 if (window.canvasRenderer) {
                     window.canvasRenderer.magneticSnap = !window.canvasRenderer.magneticSnap;

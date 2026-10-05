@@ -57,6 +57,8 @@
             <div class="menu-option" data-action="fit" data-label="Fit to View" data-shortcut-mac="Cmd+Shift+1" data-shortcut-win="Ctrl+Shift+1"></div>
             <div class="menu-option" data-action="actual-size" data-label="Zoom to Selection" data-shortcut-mac="Cmd+Shift+2" data-shortcut-win="Ctrl+Shift+2"></div>
             <div class="menu-option" data-action="toggle-snap" data-label="Toggle Snap" data-shortcut-mac="Cmd+Shift+'" data-shortcut-win="Ctrl+Shift+'"></div>
+            <div class="menu-divider"></div>
+            <div class="menu-option" data-action="reset-layout" data-label="Reset Layout"></div>
         </div>
 
         <div id="menu-help" class="menu-dropdown">
@@ -238,6 +240,12 @@
         <div id="main-container">
             <button id="left-sidebar-toggle" class="sidebar-toggle" data-side="left" title="Collapse left panel" aria-label="Toggle left panel">‹</button>
             <div id="left-sidebar">
+                <!-- The panel's title bar: its handle for moving it to another
+                     edge (drag it, or right-click for Move to...). The other two
+                     panels' handles are their own headers. -->
+                <div id="left-sidebar-head" class="lrd-panel-head" data-lrd-grip="settings" title="Drag to move this panel, or right-click for options">
+                    <span class="lrd-grip" aria-hidden="true">&#x2807;&#x2807;</span><span class="lrd-panel-title">Settings</span><span id="left-sidebar-view" class="lrd-panel-sub"></span>
+                </div>
                 <!-- Pixel Map Controls -->
                 <div class="panel tab-panel" data-tab="pixel-map">
                     <div class="panel-header" data-tooltip="Screen Info, Set the position, cabinet size, grid layout, physical dimensions, and weight of the selected LED screen layer.">
@@ -1848,7 +1856,7 @@
                          still exactly one collapse mechanism and one stored
                          state. The add picker's options come from the same
                          processor catalog the old panel read. -->
-                    <div class="hw-dock-head" style="font-weight: 600; padding: 3px 8px;">
+                    <div class="hw-dock-head" data-lrd-grip="hardware" style="font-weight: 600; padding: 3px 8px;">
                         <label>Hardware</label>
                         <span id="hw-dock-data-controls" class="hw-dock-ctl view-hidden">
                             <select id="processor-add-device" data-lrd-field="processor-add-device" data-tooltip="Add a processor, Pick a model and press Add. Its cards, boxes and ports appear in this tray to drag onto screens."></select>
@@ -1883,7 +1891,7 @@
         <button id="right-sidebar-toggle" class="sidebar-toggle" data-side="right" title="Collapse right panel" aria-label="Toggle right panel">›</button>
         <div id="right-sidebar">
             <div class="panel">
-                <div class="panel-header" data-tooltip="Screens, Manage screen and image layers: reorder, lock, add, or remove layers in the design.">
+                <div class="panel-header" data-lrd-grip="screens" data-tooltip="Screens, Manage screen and image layers: reorder, lock, add, or remove layers in the design.">
                     <h2>Screens</h2>
                 </div>
                 <div class="panel-content">
@@ -1935,6 +1943,9 @@
     <!-- Puts the frame into its rings around the canvas before the first
          paint: the panels' places are data (layout.js), not markup. -->
     <script src="/static/js/layout.js"></script>
+    <!-- Moving panels: drag a panel's title bar to an edge, or right-click
+         it. Works on the rings layout.js built. -->
+    <script defer src="/static/js/layout-dock.js"></script>
 
     <input type="file" id="add-image-input" accept="image/*" style="display:none;">
 

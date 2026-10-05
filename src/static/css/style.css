@@ -2320,3 +2320,39 @@ button.hw-dock-typechip:focus-visible { outline: 1px solid var(--ps-accent, #ef3
 }
 .hw-dock-cable-run > .hw-dock-cable-ft { flex: 0 0 auto; }
 .hw-dock-cable-run > .hw-dock-cable-unit { flex: 0 0 auto; }
+
+/* ── Moving panels (layout-dock.js) ─────────────────────────────────────
+   The Settings panel's title bar is its handle; the Screens and Hardware
+   headers are theirs. It stays at the top of the panel while it scrolls,
+   and across the top or bottom it spans the panel's columns. */
+.lrd-panel-head {
+    position: sticky; top: -10px; z-index: 2;
+    display: flex; align-items: center; gap: 6px;
+    height: 24px; margin: -10px -10px 10px; padding: 0 10px;
+    background: #2a2a2a; border-bottom: 1px solid #3a3a3a;
+    font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #aaa;
+    cursor: grab;
+}
+#left-sidebar:is([data-lrd-edge="top"],[data-lrd-edge="bottom"]) > .lrd-panel-head { grid-column: 1 / -1; margin-bottom: 0; }
+.lrd-panel-head .lrd-grip { color: #666; letter-spacing: -3px; font-size: 12px; }
+.lrd-panel-head .lrd-panel-sub { color: #777; font-weight: 400; text-transform: none; letter-spacing: 0; }
+.lrd-panel-head .lrd-panel-sub:not(:empty)::before { content: "\00b7"; margin: 0 6px 0 2px; }
+#right-sidebar > .panel > .panel-header[data-lrd-grip],
+#hardware-dock .hw-dock-head[data-lrd-grip] { cursor: grab; }
+#right-sidebar > .panel > .panel-header[data-lrd-grip] h2::before,
+#hardware-dock .hw-dock-head[data-lrd-grip] > label::before {
+    content: "\2807\2807"; color: #666; letter-spacing: -3px; margin-right: 8px; font-weight: 400;
+}
+body.lrd-panel-dragging, body.lrd-panel-dragging * { cursor: grabbing !important; }
+.lrd-drop-layer { position: fixed; inset: 0; z-index: 2500; pointer-events: none; }
+.lrd-drop-zone {
+    position: fixed; box-sizing: border-box; border-radius: 3px;
+    border: 1px dashed rgba(74, 144, 226, 0.6); background: rgba(74, 144, 226, 0.08);
+}
+.lrd-drop-zone.lrd-drop-hot { border: 2px solid #4A90E2; background: rgba(74, 144, 226, 0.28); }
+.lrd-drag-ghost {
+    position: fixed; z-index: 2600; pointer-events: none;
+    padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: 600;
+    background: #2a2a2a; color: #e0e0e0; border: 1px solid #4A90E2; box-shadow: 0 6px 16px rgba(0,0,0,0.5);
+}
+.lrd-panel-menu { position: fixed; }

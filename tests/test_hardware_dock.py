@@ -2510,9 +2510,12 @@ def test_a_dock_power_chip_menu_offers_only_that_chips_action(dock_page):
 
 
 def test_a_chipless_dock_spot_opens_no_menu_at_all(dock_page):
-    """The tray's header and its empty ground have no actions, and an empty
-    menu is worse than none. The no-menu must also CLOSE a menu a previous
-    right-click left open, or the stale one reads as this click's answer."""
+    """The tray's header and its empty ground have no chip actions, and an
+    empty menu is worse than none. (The header is the tray's handle, so a
+    right-click there opens the panel's own menu - Move to, Fold - which is
+    not this menu; test_layout_dock covers it.) Either way the click must
+    CLOSE a chip menu a previous right-click left open, or the stale one
+    reads as this click's answer."""
     page, ids = dock_page
     open_view(page, 'data-flow')
     page.evaluate(RESET_DATA_JS, ids)

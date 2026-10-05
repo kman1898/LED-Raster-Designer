@@ -351,6 +351,17 @@
     window.addEventListener('resize', function () { reclamp(); repaint(); });
     /* a panel took another edge: its size and its strip follow it */
     window.addEventListener('lrd-layout-change', function () { reclamp(); repaint(); });
+    /* Reset size (a panel's right-click menu): both of its saved sizes are
+       forgotten, so it is back to its default width and height */
+    window.addEventListener('lrd-reset-size', function (e) {
+      var sizes = SIZES[e.detail && e.detail.key];
+      if (!sizes) return;
+      ['x', 'y'].forEach(function (axis) {
+        try { localStorage.removeItem(sizes[axis].storageKey); } catch (err) { /* ignore */ }
+        document.documentElement.style.removeProperty(sizes[axis].cssVar);
+      });
+      reclamp(); repaint(); settle();
+    });
     window.addEventListener('scroll', repaint, true);
     setInterval(reposition, 1200);
   }

@@ -553,6 +553,10 @@ export class LEDRasterApp {
      * leaving its views must not silently re-expand it on the way back.
      */
     updateViewSidebars(mode) {
+        // The Settings panel's title bar says which view's settings it holds.
+        const viewName = document.getElementById('left-sidebar-view');
+        const tab = document.querySelector(`.view-tab[data-mode="${mode}"]`);
+        if (viewName) viewName.textContent = tab ? tab.textContent.trim() : '';
         const panels = [
             { sidebarId: 'hardware-dock', toggleId: 'hardware-dock-toggle', modes: ['data-flow', 'power'] },
         ];
