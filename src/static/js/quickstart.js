@@ -546,6 +546,19 @@
             if (a && typeof a._setSectionCollapsed === 'function') a._setSectionCollapsed(n, false);
         });
     }
+    // The panels where the guides expect them: a guide's steps point at the
+    // default places (Screens down the right, the tray under the canvas), so
+    // a person's own arrangement is set aside for the guide - not saved over,
+    // the screen's saved arrangement stays as it was - and given back at the
+    // end, or on the next launch if the guide never ended.
+    function seedLayout() {
+        var L = window.LRD_LAYOUT;
+        if (L && !L.isDefault()) L.reset({ save: false });
+    }
+    function restoreLayout(rings) {
+        var L = window.LRD_LAYOUT;
+        if (L && Array.isArray(rings)) L.apply(rings);
+    }
     function restorePanels(p) {
         var a = A();
         if (!p) return;
@@ -1959,6 +1972,7 @@
             zoom: r ? r.zoom : null, panX: r ? r.panX : 0, panY: r ? r.panY : 0,
             tray: captureTray(),
             panels: capturePanels(),
+            layout: window.LRD_LAYOUT ? window.LRD_LAYOUT.rings() : null,
             prefs: null
         };
         return capturePrefs().then(function (p) {
@@ -1971,7 +1985,7 @@
         try {
             localStorage.setItem(STASH_KEY, JSON.stringify({
                 project: w.project, mode: w.mode, sheets: w.sheets, prefs: w.prefs,
-                tray: w.tray, panels: w.panels, currentLayerId: w.currentLayerId, at: Date.now()
+                tray: w.tray, panels: w.panels, layout: w.layout, currentLayerId: w.currentLayerId, at: Date.now()
             }));
         } catch (e) { /* a project too big for the stash still restores on exit */ }
     }
@@ -2002,6 +2016,7 @@
                 var l = a.project.layers.find(function (x) { return x.id === w.currentLayerId; });
                 if (l) a.selectLayer(l);
             }
+            restoreLayout(w.layout);
             restoreTray(w.tray);
             restorePanels(w.panels);
             a.resetHistory('Recovered');
@@ -2093,6 +2108,7 @@
                 if (l) a.selectLayer(l);
             }
             if (r && w.zoom) { r.zoom = w.zoom; r.panX = w.panX; r.panY = w.panY; }
+            restoreLayout(w.layout);
             restoreTray(w.tray);
             restorePanels(w.panels);
             closeTransients();
@@ -2171,6 +2187,7 @@
             a.resetHistory('Tutorial');
             // The tray and the side panels for the demo, then the walls
             // framed in the canvas they leave.
+            seedLayout();
             seedTray();
             seedPanels();
             try { a.renderHardwareDock(); } catch (e) {}

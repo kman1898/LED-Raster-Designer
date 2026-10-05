@@ -239,6 +239,8 @@
     isDefault: function () { return same(rings, DEFAULT); },
     apply: apply,
     move: move,
-    reset: function () { return apply(copy(DEFAULT)); }
+    /* opts.save === false sets the default look without forgetting the
+       screen's own (a guide borrows the default and gives it back) */
+    reset: function (opts) { return apply(copy(DEFAULT), opts); }
   };
 })();
