@@ -51,7 +51,7 @@ document.addEventListener('DOMContentLoaded', () => {
     sendClientLog('client_ready', { ua: navigator.userAgent });
     window.app = new LEDRasterApp();
 
-    // Resolume-style help tooltip panel
+    // Help tooltip panel: describes whatever the pointer is over
     const helpBody = document.getElementById('help-tooltip-body');
     const helpDefaultText = 'Move your mouse over the interface element that you would like more info about.';
     if (helpBody) {
