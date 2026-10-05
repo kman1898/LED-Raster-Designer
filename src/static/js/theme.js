@@ -351,6 +351,37 @@
     window.addEventListener('resize', function () { reclamp(); repaint(); });
     /* a panel took another edge: its size and its strip follow it */
     window.addEventListener('lrd-layout-change', function () { reclamp(); repaint(); });
+    /* A named layout carries every panel's saved sizes (null = never
+       resized, the default): snapshot reads them, restore puts them back
+       - clamped like any other size - or forgets them. */
+    window.LRD_SIZES = {
+      snapshot: function () {
+        var out = {};
+        Object.keys(SIZES).forEach(function (key) {
+          ['x', 'y'].forEach(function (axis) {
+            var k = SIZES[key][axis].storageKey, v = null;
+            try { v = parseInt(localStorage.getItem(k), 10) || null; } catch (e) { /* ignore */ }
+            out[k] = v;
+          });
+        });
+        return out;
+      },
+      restore: function (map) {
+        map = map || {};
+        panels().forEach(function (p) {
+          ['x', 'y'].forEach(function (axis) {
+            var size = Object.assign({ sidebarId: p.sidebarId, axis: axis }, SIZES[p.key][axis]);
+            if (!(size.storageKey in map)) return;
+            var v = parseInt(map[size.storageKey], 10);
+            try {
+              if (v > 0) { setSize(size, v); localStorage.setItem(size.storageKey, clamp(size, v)); }
+              else { localStorage.removeItem(size.storageKey); document.documentElement.style.removeProperty(size.cssVar); }
+            } catch (e) { /* the sizes still apply for this session */ }
+          });
+        });
+        reclamp(); repaint(); settle();
+      }
+    };
     /* Reset size (a panel's right-click menu): both of its saved sizes are
        forgotten, so it is back to its default width and height */
     window.addEventListener('lrd-reset-size', function (e) {

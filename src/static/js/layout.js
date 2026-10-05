@@ -207,9 +207,32 @@
     });
   }
 
+  /* A whole look - places, sizes and folds - for a named layout (the
+     server keeps those, shared by every screen). Sizes come from theme.js
+     and folds from the toggles' own keys; restoring one checks the list
+     before anything moves, so a layout this screen cannot read changes
+     nothing. */
+  function snapshot() {
+    var folds = {};
+    Object.keys(PANELS).forEach(function (k) {
+      var key = PANELS[k].key;
+      try { folds[key] = localStorage.getItem('ledRasterSidebarCollapsed_' + key) === '1'; } catch (e) { folds[key] = false; }
+    });
+    return { v: 1, rings: copy(rings), sizes: window.LRD_SIZES ? window.LRD_SIZES.snapshot() : {}, folds: folds };
+  }
+  function restore(snap) {
+    if (!snap || snap.v !== 1 || !valid(snap.rings)) return false;
+    apply(snap.rings);
+    if (window.LRD_SIZES) window.LRD_SIZES.restore(snap.sizes || {});
+    window.dispatchEvent(new CustomEvent('lrd-apply-folds', { detail: { folds: snap.folds || {} } }));
+    return true;
+  }
+
   rings = load();
   build(rings);
   window.LRD_LAYOUT = {
+    snapshot: snapshot,
+    restore: restore,
     panels: panels,
     edgeOf: edgeOf,
     rings: function () { return copy(rings); },

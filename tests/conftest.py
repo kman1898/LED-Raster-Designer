@@ -40,6 +40,18 @@ def private_fixture_missing(*paths):
     return None
 
 
+# ── Named layouts never touch a real file ───────────────────────────────
+# routes_layouts keeps the named panel layouts in one JSON file beside the
+# presets folder; every test session gets a scratch one instead, so a run
+# never reads or rewrites a person's saved layouts.
+
+@pytest.fixture(scope="session", autouse=True)
+def _scratch_layouts_file(tmp_path_factory):
+    import routes_layouts
+    routes_layouts.LAYOUTS_FILE = str(tmp_path_factory.mktemp('layouts') / 'layouts.json')
+    yield routes_layouts.LAYOUTS_FILE
+
+
 # ── Waiting for the page to settle ───────────────────────────────────────
 # A fixed sleep and then a read is a guess about how fast the machine is.
 # On a busy Windows box the dock's fold transition and the next animation

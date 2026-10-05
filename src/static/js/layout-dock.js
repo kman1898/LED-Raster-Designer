@@ -227,8 +227,197 @@
     document.addEventListener('keydown', escMenu, true);
   }
 
+  /* ── View › Layouts: the named layouts every screen shares ─────────── */
+  var saved = [];
+
+  /* Two layouts are the same look when their contents match, whatever order
+     their keys arrived in (the server hands them back sorted). */
+  function canon(v) {
+    if (Array.isArray(v)) return '[' + v.map(canon).join(',') + ']';
+    if (v && typeof v === 'object') {
+      return '{' + Object.keys(v).sort().map(function (k) { return JSON.stringify(k) + ':' + canon(v[k]); }).join(',') + '}';
+    }
+    return JSON.stringify(v);
+  }
+
+  function api(method, body) {
+    return fetch('/api/layouts', {
+      method: method,
+      headers: body ? { 'Content-Type': 'application/json' } : undefined,
+      body: body ? JSON.stringify(body) : undefined
+    }).then(function (r) {
+      return r.json().then(function (d) { if (!r.ok) throw new Error(d.error || 'the layout was not saved'); return d; });
+    });
+  }
+  function say(text) {
+    var s = document.getElementById('status-message');
+    if (s) s.textContent = text;
+  }
+  function closeMenus() {
+    document.querySelectorAll('.menu-dropdown').forEach(function (m) { m.style.display = 'none'; });
+    document.querySelectorAll('#menu-bar .menu-item').forEach(function (m) { m.classList.remove('active'); });
+  }
+  function option(label, handler, opts) {
+    var row = document.createElement('div');
+    row.className = 'menu-option' + (opts && opts.disabled ? ' menu-disabled' : '') + (opts && opts.current ? ' lrd-layout-current' : '');
+    row.textContent = label;
+    if (opts && opts.name) row.dataset.lrdLayout = opts.name;
+    if (opts && opts.act) row.dataset.lrdLayoutAct = opts.act;
+    row.addEventListener('click', function (e) {
+      e.stopPropagation();
+      if (row.classList.contains('menu-disabled')) return;
+      closeMenus();
+      handler();
+    });
+    return row;
+  }
+  function divider() { var d = document.createElement('div'); d.className = 'menu-divider'; return d; }
+
+  /* Fill the submenu from the server each time it is shown: another screen
+     may have saved or deleted one since. The look this screen has now gets
+     a tick beside the layout it matches. */
+  function fillLayouts() {
+    var box = document.getElementById('layouts-submenu');
+    if (!box) return Promise.resolve();
+    return api('GET').then(function (d) { saved = d.layouts || []; }, function () { saved = []; }).then(function () {
+      var now = canon(layout().snapshot());
+      box.innerHTML = '';
+      if (!saved.length) {
+        var none = document.createElement('div');
+        none.className = 'recent-files-empty';
+        none.textContent = 'No saved layouts';
+        box.appendChild(none);
+      }
+      saved.forEach(function (item) {
+        var current = canon(item.layout) === now;
+        box.appendChild(option(item.name, function () {
+          if (layout().restore(item.layout)) say('Layout "' + item.name + '"');
+          else say('Layout "' + item.name + '" could not be opened on this screen');
+        }, { name: item.name, current: current }));
+      });
+      box.appendChild(divider());
+      box.appendChild(option('Save Current Layout…', function () { saveDialog(); }, { act: 'save' }));
+      box.appendChild(option('Delete Layout…', function () { deleteDialog(); }, { act: 'delete', disabled: !saved.length }));
+      box.appendChild(divider());
+      box.appendChild(option('Reset Layout', function () { layout().reset(); }, { act: 'reset', disabled: layout().isDefault() }));
+    });
+  }
+
+  function dialog(title) {
+    var back = document.createElement('div');
+    back.className = 'lrd-layout-dialog';
+    var box = document.createElement('div');
+    box.className = 'lrd-layout-dialog-box';
+    box.setAttribute('role', 'dialog');
+    box.setAttribute('aria-label', title);
+    var h = document.createElement('h3');
+    h.textContent = title;
+    box.appendChild(h);
+    back.appendChild(box);
+    document.body.appendChild(back);
+    function close() { back.remove(); document.removeEventListener('keydown', esc, true); }
+    function esc(e) { if (e.key === 'Escape') { e.preventDefault(); close(); } }
+    document.addEventListener('keydown', esc, true);
+    back.addEventListener('pointerdown', function (e) { if (e.target === back) close(); });
+    return { back: back, box: box, close: close };
+  }
+  function button(text, primary, onClick) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'btn' + (primary ? ' btn-primary' : '');
+    b.textContent = text;
+    b.addEventListener('click', onClick);
+    return b;
+  }
+
+  function saveDialog() {
+    var d = dialog('Save Current Layout');
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.id = 'lrd-layout-name';
+    input.maxLength = 60;
+    input.placeholder = 'e.g. Show day';
+    var now = canon(layout().snapshot());
+    var match = saved.filter(function (s) { return canon(s.layout) === now; })[0];
+    input.value = match ? match.name : '';
+    var note = document.createElement('p');
+    note.className = 'lrd-layout-note';
+    var err = document.createElement('p');
+    err.className = 'lrd-layout-error';
+    function noteFor() {
+      var v = input.value.trim().toLowerCase();
+      var hit = saved.filter(function (s) { return s.name.toLowerCase() === v; })[0];
+      note.textContent = hit ? 'Saving replaces the layout "' + hit.name + '".'
+                             : 'Saved layouts are shared with every screen connected to this app.';
+    }
+    function save() {
+      var name = input.value.trim();
+      if (!name) { input.focus(); return; }
+      api('PUT', { name: name, layout: layout().snapshot() }).then(function (r) {
+        saved = r.layouts || saved;
+        d.close();
+        say('Layout "' + name + '" saved');
+      }, function (e) { err.textContent = e.message; });
+    }
+    input.addEventListener('input', noteFor);
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); save(); }
+    });
+    var row = document.createElement('div');
+    row.className = 'lrd-layout-buttons';
+    row.appendChild(button('Cancel', false, d.close));
+    row.appendChild(button('Save', true, save));
+    d.box.appendChild(input);
+    d.box.appendChild(note);
+    d.box.appendChild(err);
+    d.box.appendChild(row);
+    noteFor();
+    input.focus();
+    input.select();
+  }
+
+  function deleteDialog() {
+    var d = dialog('Delete Layout');
+    var list = document.createElement('div');
+    list.className = 'lrd-layout-list';
+    var err = document.createElement('p');
+    err.className = 'lrd-layout-error';
+    function render() {
+      list.innerHTML = '';
+      if (!saved.length) { list.textContent = 'No saved layouts.'; return; }
+      saved.forEach(function (item) {
+        var row = document.createElement('div');
+        row.className = 'lrd-layout-row';
+        var name = document.createElement('span');
+        name.textContent = item.name;
+        row.appendChild(name);
+        row.appendChild(button('Delete', false, function () {
+          api('DELETE', { name: item.name }).then(function (r) {
+            saved = r.layouts || [];
+            say('Layout "' + item.name + '" deleted');
+            render();
+          }, function (e) { err.textContent = e.message; });
+        }));
+        list.appendChild(row);
+      });
+    }
+    render();
+    var row = document.createElement('div');
+    row.className = 'lrd-layout-buttons';
+    row.appendChild(button('Done', true, d.close));
+    d.box.appendChild(list);
+    d.box.appendChild(err);
+    d.box.appendChild(row);
+  }
+
   function init() {
     if (!layout()) return;
+    var parent = document.querySelector('#menu-view .menu-has-submenu[data-action="layouts"]');
+    if (parent) parent.addEventListener('mouseenter', fillLayouts);
+    var viewItem = Array.prototype.filter.call(document.querySelectorAll('#menu-bar .menu-item'), function (m) {
+      return m.textContent.trim() === 'View';
+    })[0];
+    if (viewItem) viewItem.addEventListener('click', fillLayouts);
     document.addEventListener('pointerdown', function (e) {
       if (e.button !== 0 || drag) return;
       var grip = e.target.closest && e.target.closest('[data-lrd-grip]');

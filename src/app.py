@@ -1915,6 +1915,7 @@ from routes_export import (  # noqa: E402,F401
 from routes_system import system_bp  # noqa: E402
 from routes_dialog import dialog_bp  # noqa: E402
 from routes_presets import presets_bp  # noqa: E402
+from routes_layouts import layouts_bp  # noqa: E402
 from routes_version import version_bp  # noqa: E402
 from routes_logs import logs_bp  # noqa: E402
 from routes_panel_catalog import panel_catalog_bp  # noqa: E402
@@ -1928,6 +1929,7 @@ from routes_pull_sheet import pull_sheet_bp  # noqa: E402
 app.register_blueprint(system_bp)
 app.register_blueprint(dialog_bp)
 app.register_blueprint(presets_bp)
+app.register_blueprint(layouts_bp)
 app.register_blueprint(version_bp)
 app.register_blueprint(logs_bp)
 app.register_blueprint(panel_catalog_bp)

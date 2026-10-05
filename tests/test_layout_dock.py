@@ -195,12 +195,13 @@ def test_the_right_click_menu_moves_folds_and_resets(page):
     assert errors == [], errors
 
 
-def test_view_menu_reset_layout(page):
+def test_view_layouts_reset_layout(page):
     pg, errors = page
     pg.evaluate("() => window.LRD_LAYOUT.move('settings', 'bottom')")
     _settle(pg)
     pg.locator('.menu-item', has_text='View').first.click()
-    pg.locator('#menu-view .menu-option[data-action="reset-layout"]').click()
+    pg.locator('#menu-view .menu-has-submenu[data-action="layouts"]').hover()
+    pg.locator('#layouts-submenu .menu-option[data-lrd-layout-act="reset"]').click()
     _settle(pg)
     assert pg.evaluate("() => window.LRD_LAYOUT.isDefault()")
     assert errors == [], errors

@@ -55,6 +55,22 @@ import sys
 
 import pytest
 
+from conftest import settled  # noqa: E402
+
+_MOVING_JS = """() => document.getAnimations().filter(a => a.playState === 'running'
+    && a.effect && a.effect.target && a.effect.target.matches
+    && a.effect.target.matches('.lrd-panel, .sidebar-toggle')).length"""
+
+
+def _settle(page, ms):
+    """The wait these tests always had, and then the panels' folds and
+    resizes, and their tabs, actually finished. On a machine that paints a
+    frame every 550 ms (this one does, at times) a fold was still at its
+    start when the fixed wait ended, and the check read the old size."""
+    page.wait_for_timeout(ms)
+    settled(page, lambda: page.evaluate(_MOVING_JS), lambda n: n == 0, timeout_ms=5000)
+    page.evaluate('() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))')
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 pytest.importorskip("playwright.sync_api", reason="playwright not installed")
@@ -132,7 +148,7 @@ def page(e2e_server, pw_browser):
 
 def open_view(page, mode):
     page.locator(f'[data-mode="{mode}"]').click()
-    page.wait_for_timeout(400)
+    _settle(page, 400)
 
 
 def reset_widths(page, mode='data-flow'):
@@ -150,7 +166,7 @@ def reset_widths(page, mode='data-flow'):
                 k => localStorage.setItem('ledRasterSidebarCollapsed_' + k, '0'));
         }""", {'w': DEFAULT_W, 'dockH': DOCK_DEFAULT_H})
     page.reload(wait_until='domcontentloaded')
-    page.wait_for_timeout(2000)
+    _settle(page, 2000)
     open_view(page, mode)
 
 
@@ -190,7 +206,7 @@ def drag(page, key, dx):
     for step in range(1, 5):
         page.mouse.move(h['x'] + dx * step / 4.0, h['y'])
     page.mouse.up()
-    page.wait_for_timeout(400)
+    _settle(page, 400)
     return width(page, key)
 
 
@@ -276,7 +292,7 @@ def test_a_sidebars_width_survives_a_reload(page, key):
     dragged = widen(page, key, 120)
 
     page.reload(wait_until='domcontentloaded')
-    page.wait_for_timeout(2000)
+    _settle(page, 2000)
     open_view(page, 'data-flow')
     assert abs(width(page, key) - dragged) <= 2, (
         f"the {key} panel came back at {width(page, key)}, not {dragged}")
@@ -330,9 +346,9 @@ def test_no_resize_or_collapse_pass_writes_the_retired_keys(page):
         set_collapsed(page, key, True)
         set_collapsed(page, key, False)
     page.locator('#hardware-dock-toggle').click()
-    page.wait_for_timeout(500)
+    _settle(page, 500)
     page.locator('#hardware-dock-toggle').click()
-    page.wait_for_timeout(500)
+    _settle(page, 500)
 
     written = page.evaluate(
         """(keys) => Object.fromEntries(
@@ -350,11 +366,11 @@ def test_no_resize_or_collapse_pass_writes_the_retired_keys(page):
 def test_a_strip_is_gone_while_the_panel_is_collapsed(page, key):
     reset_widths(page)
     page.locator(f'#{key}-sidebar-toggle').click()
-    page.wait_for_timeout(500)
+    _settle(page, 500)
     assert handle(page, key) is None, (
         f"a collapsed {key} panel still offers a strip to drag")
     page.locator(f'#{key}-sidebar-toggle').click()
-    page.wait_for_timeout(500)
+    _settle(page, 500)
     assert handle(page, key), f"the {key} strip did not come back with the panel"
 
 
@@ -406,7 +422,7 @@ def test_the_canvas_keeps_up_during_the_drag_not_only_at_the_end(page, key):
     page.wait_for_timeout(120)
     mid = page.evaluate(CANVAS_JS)
     page.mouse.up()
-    page.wait_for_timeout(400)
+    _settle(page, 400)
     assert mid['canvasW'] == mid['wrapperW'], (
         f"the canvas lagged the pointer mid-drag on the {key} panel: {mid}")
 
@@ -547,7 +563,7 @@ def set_collapsed(page, key, want):
     if is_collapsed == want:
         return
     page.locator(f'#{key}-sidebar-toggle').click()
-    page.wait_for_timeout(500)
+    _settle(page, 500)
 
 
 @pytest.mark.parametrize('mode', ['data-flow', 'power'])
@@ -558,7 +574,7 @@ def test_collapsing_the_left_sidebar_takes_the_dock_controls_with_it(page, mode)
     positioners are re-run."""
     reset_widths(page, mode)
     set_collapsed(page, 'left', True)
-    page.wait_for_timeout(500)
+    _settle(page, 500)
     assert_nothing_stranded(
         page, f"after collapsing the left sidebar in {mode}")
     set_collapsed(page, 'left', False)
@@ -679,7 +695,7 @@ def test_the_distro_rows_fit_inside_the_hardware_dock(page):
     seeded = page.evaluate(DISTRO_SEED_JS)
     try:
         assert seeded['distros'] > 0, f"no distro row to measure: {seeded}"
-        page.wait_for_timeout(300)
+        _settle(page, 300)
         m = page.evaluate(DOCK_DISTRO_FIT_JS)
         assert m['headers'] > 0, (
             f"the dock built no distro section to measure: {m}")
@@ -786,7 +802,7 @@ def test_the_power_knobs_fit_inside_the_left_sidebar(page, w, enabled):
             f"display:flex only while sharing is on: {seeded}")
         if w != DEFAULT_W:
             assert drag(page, 'left', w - DEFAULT_W) == w
-        page.wait_for_timeout(300)
+        _settle(page, 300)
         m = page.evaluate(KNOB_OVERFLOW_JS, POWER_KNOB_IDS)
         assert not m['strays'], (
             f"power knobs hang outside the left sidebar at {w}px with sharing "
@@ -844,9 +860,9 @@ def test_the_distro_gear_popover_shows_its_controls_inside_its_own_box(page):
     seeded = page.evaluate(DISTRO_SEED_JS)
     try:
         assert seeded['distros'] > 0, f"no distro to open a gear on: {seeded}"
-        page.wait_for_timeout(300)
+        _settle(page, 300)
         page.locator('[data-hwpop^="distro-"]').first.click()
-        page.wait_for_timeout(300)
+        _settle(page, 300)
         m = page.evaluate(GEAR_POPOVER_FIT_JS)
         assert m, "clicking the distro gear made no #hw-gear-popover"
         assert m['display'] != 'none' and m['w'] > 1 and m['h'] > 1, (
@@ -941,11 +957,11 @@ def test_every_gear_popovers_remove_is_on_screen_at_a_short_window(page):
     element a click at its center would land on."""
     reset_widths(page, 'data-flow')
     page.set_viewport_size({'width': 1280, 'height': 700})
-    page.wait_for_timeout(300)
+    _settle(page, 300)
     ids = page.evaluate(POPOVER_KINDS_SEED_JS)
     try:
         assert ids['boxId'], f"no breakout box would go on the card: {ids}"
-        page.wait_for_timeout(400)
+        _settle(page, 400)
         kinds = [('data-flow', f'proc-{ids["procId"]}', 'Remove processor'),
                  ('data-flow', f'card-{ids["cardId"]}', 'Remove card'),
                  ('data-flow', f'box-{ids["boxId"]}', 'Remove box'),
@@ -958,7 +974,7 @@ def test_every_gear_popovers_remove_is_on_screen_at_a_short_window(page):
                 if (el) el.scrollIntoView({block: 'nearest'});
             }""", key)
             page.locator(f'[data-hwpop="{key}"]').click()
-            page.wait_for_timeout(300)
+            _settle(page, 300)
             m = page.evaluate(POPOVER_REMOVE_JS)
             seen[label] = m
             assert m, f"clicking the {key} gear opened no popover"
@@ -977,7 +993,7 @@ def test_every_gear_popovers_remove_is_on_screen_at_a_short_window(page):
         page.keyboard.press('Escape')
         page.evaluate(POPOVER_KINDS_CLEANUP_JS, ids)
         page.set_viewport_size(VIEWPORT)
-        page.wait_for_timeout(300)
+        _settle(page, 300)
 
 
 # ── the hardware dock: the same system turned on its side ─────────────────
@@ -1046,7 +1062,7 @@ def drag_dock(page, dy):
     for step in range(1, 5):
         page.mouse.move(h['x'], h['y'] + dy * step / 4.0)
     page.mouse.up()
-    page.wait_for_timeout(400)
+    _settle(page, 400)
     return dock_height(page)
 
 
@@ -1122,7 +1138,7 @@ def test_a_saved_tray_taller_than_the_column_is_clamped_on_load(page):
     reset_widths(page, 'data-flow')
     page.evaluate("() => localStorage.setItem('lrd_dock_h', '900')")
     page.reload(wait_until='domcontentloaded')
-    page.wait_for_timeout(2000)
+    _settle(page, 2000)
     open_view(page, 'data-flow')
     ceiling = dock_ceiling(page)
     assert dock_height(page) == ceiling, (
@@ -1131,7 +1147,7 @@ def test_a_saved_tray_taller_than_the_column_is_clamped_on_load(page):
     assert_canvas_matches_wrapper(page, "loading a saved tray past the ceiling")
     try:
         page.set_viewport_size({'width': VIEWPORT['width'], 'height': 600})
-        page.wait_for_timeout(500)
+        _settle(page, 500)
         small = dock_ceiling(page)
         assert small < ceiling, (small, ceiling)
         assert dock_height(page) == small, (
@@ -1141,7 +1157,7 @@ def test_a_saved_tray_taller_than_the_column_is_clamped_on_load(page):
         assert drag_dock(page, -900) == small, "a drag on the small window passed its ceiling"
     finally:
         page.set_viewport_size(VIEWPORT)
-        page.wait_for_timeout(500)
+        _settle(page, 500)
     reset_widths(page, 'data-flow')
     assert dock_height(page) == DOCK_DEFAULT_H
 
@@ -1150,7 +1166,7 @@ def test_the_dock_height_survives_a_reload(page):
     reset_widths(page, 'data-flow')
     dragged = drag_dock(page, -100)
     page.reload(wait_until='domcontentloaded')
-    page.wait_for_timeout(2000)
+    _settle(page, 2000)
     open_view(page, 'data-flow')
     assert abs(dock_height(page) - dragged) <= 2, (
         f"the dock came back at {dock_height(page)}, not {dragged}")
@@ -1173,7 +1189,7 @@ def test_the_canvas_keeps_up_during_a_dock_drag_not_only_at_the_end(page):
     page.wait_for_timeout(120)
     mid = page.evaluate(CANVAS_JS)
     page.mouse.up()
-    page.wait_for_timeout(400)
+    _settle(page, 400)
     assert mid['canvasH'] == mid['wrapperH'], (
         f"the canvas lagged the pointer mid-drag on the dock: {mid}")
 
@@ -1181,7 +1197,7 @@ def test_the_canvas_keeps_up_during_a_dock_drag_not_only_at_the_end(page):
 def test_the_dock_collapse_toggle_folds_and_persists(page):
     reset_widths(page, 'data-flow')
     page.locator('#hardware-dock-toggle').click()
-    page.wait_for_timeout(500)
+    _settle(page, 500)
     folded = page.evaluate(DOCK_STATE_JS)
     assert folded['collapsed'] and folded['height'] < 2, (
         f"the toggle did not fold the tray: {folded}")
@@ -1193,13 +1209,13 @@ def test_the_dock_collapse_toggle_folds_and_persists(page):
     assert_nothing_stranded(page, "with the dock folded")
 
     page.reload(wait_until='domcontentloaded')
-    page.wait_for_timeout(2000)
+    _settle(page, 2000)
     open_view(page, 'data-flow')
     assert page.evaluate(DOCK_STATE_JS)['collapsed'], (
         "the fold did not survive a reload")
 
     page.locator('#hardware-dock-toggle').click()
-    page.wait_for_timeout(500)
+    _settle(page, 500)
     back = page.evaluate(DOCK_STATE_JS)
     assert not back['collapsed'] and back['height'] == DOCK_DEFAULT_H, (
         f"expanding did not restore the tray: {back}")
@@ -1230,7 +1246,7 @@ def test_a_folded_dock_stays_folded_across_a_view_switch(page):
     nothing else."""
     reset_widths(page, 'data-flow')
     page.locator('#hardware-dock-toggle').click()
-    page.wait_for_timeout(500)
+    _settle(page, 500)
     open_view(page, 'pixel-map')
     assert_nothing_stranded(page, "in pixel-map with the dock folded")
     open_view(page, 'power')
@@ -1238,4 +1254,4 @@ def test_a_folded_dock_stays_folded_across_a_view_switch(page):
         "the dock came back expanded in Power after folding in Data")
     assert_nothing_stranded(page, "in power with the dock still folded")
     page.locator('#hardware-dock-toggle').click()
-    page.wait_for_timeout(500)
+    _settle(page, 500)

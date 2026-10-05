@@ -26,6 +26,8 @@ logs/
 
 # User presets (per-install user data, not source)
 presets/
+# Named panel layouts, kept beside the presets when run from source
+/src/layouts/
 
 # Claude Code local config
 .claude/

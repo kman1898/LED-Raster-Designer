@@ -2356,3 +2356,16 @@ body.lrd-panel-dragging, body.lrd-panel-dragging * { cursor: grabbing !important
     background: #2a2a2a; color: #e0e0e0; border: 1px solid #4A90E2; box-shadow: 0 6px 16px rgba(0,0,0,0.5);
 }
 .lrd-panel-menu { position: fixed; }
+/* View › Layouts: the tick on the layout this screen's look matches, and
+   the small save / delete dialogs (layout-dock.js). */
+.menu-option.lrd-layout-current::after { content: "\2713"; float: right; margin-left: 16px; color: #4A90E2; }
+.lrd-layout-dialog { position: fixed; inset: 0; z-index: 4000; background: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; }
+.lrd-layout-dialog-box { background: #252525; border: 1px solid #3a3a3a; border-radius: 8px; padding: 18px 20px; width: 360px; max-width: calc(100vw - 32px); box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+.lrd-layout-dialog-box h3 { margin: 0 0 12px; font-size: 14px; color: #e0e0e0; }
+.lrd-layout-dialog-box input[type="text"] { width: 100%; box-sizing: border-box; background: #1a1a1a; border: 1px solid #3a3a3a; color: #e0e0e0; padding: 6px 8px; border-radius: 4px; font-size: 13px; }
+.lrd-layout-note { margin: 8px 0 0; font-size: 11px; color: #888; }
+.lrd-layout-error { margin: 6px 0 0; font-size: 12px; color: #e06c6c; min-height: 0; }
+.lrd-layout-error:empty { display: none; }
+.lrd-layout-buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+.lrd-layout-list { display: flex; flex-direction: column; gap: 6px; max-height: 50vh; overflow-y: auto; font-size: 13px; color: #ccc; }
+.lrd-layout-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }

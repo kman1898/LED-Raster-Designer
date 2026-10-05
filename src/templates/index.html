@@ -58,7 +58,12 @@
             <div class="menu-option" data-action="actual-size" data-label="Zoom to Selection" data-shortcut-mac="Cmd+Shift+2" data-shortcut-win="Ctrl+Shift+2"></div>
             <div class="menu-option" data-action="toggle-snap" data-label="Toggle Snap" data-shortcut-mac="Cmd+Shift+'" data-shortcut-win="Ctrl+Shift+'"></div>
             <div class="menu-divider"></div>
-            <div class="menu-option" data-action="reset-layout" data-label="Reset Layout"></div>
+            <!-- Named panel layouts, shared by every screen (layout-dock.js
+                 fills this each time the menu opens), and Reset Layout. -->
+            <div class="menu-option menu-has-submenu" data-action="layouts">
+                <span class="menu-label-text">Layouts</span>
+                <div id="layouts-submenu" class="menu-submenu"></div>
+            </div>
         </div>
 
         <div id="menu-help" class="menu-dropdown">

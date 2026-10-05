@@ -190,6 +190,15 @@ export class LEDRasterApp {
                 apply(sidebar.classList.contains('collapsed'));
                 positionToggle();
             });
+            // A named layout sets the folds it carries, and they are kept
+            // exactly as a click on the tab keeps them.
+            window.addEventListener('lrd-apply-folds', (e) => {
+                const folds = (e.detail && e.detail.folds) || {};
+                if (!(key in folds)) return;
+                try { localStorage.setItem(storageKey, folds[key] ? '1' : '0'); } catch (err) { /* ignore */ }
+                apply(!!folds[key]);
+                positionToggle();
+            });
             const saved = localStorage.getItem(storageKey) === '1';
             apply(saved);
             btn.addEventListener('click', () => {
