@@ -280,3 +280,55 @@ def test_the_tray_still_leaves_layout_outside_its_views_wherever_it_is(page):
     g = pg.evaluate(GEOM_JS, PANELS['hardware'])
     assert g['panel']['shown'] and g['edge'] == 'left', g
     assert errors == [], errors
+
+
+def test_a_hidden_panels_tab_is_not_parked_at_the_window_edge(page):
+    """Reported with the tray folded down the right: switching between the
+    views left its tab floating. Out of Data and Power the tray is out of
+    layout and measures as nothing at the window's corner; re-pinning its
+    tab then parked it at the window's far edge, and when the tray came back
+    the tab slid across the whole window from there. A hidden panel's tab
+    now stays where it was."""
+    pg, errors = page
+    pg.locator('[data-mode="power"]').click()
+    pg.evaluate("""() => { const L = window.LRD_LAYOUT; const r = L.rings().filter(x => x.panel !== 'hardware');
+        r.splice(1, 0, {panel: 'hardware', edge: 'right'}); L.apply(r); }""")
+    _settle(pg)
+    pg.locator('#hardware-dock-toggle').click()
+    _settle(pg)
+    before = pg.evaluate("() => document.getElementById('hardware-dock-toggle').style.right")
+    pg.locator('[data-mode="show-look"]').click()
+    pg.evaluate("() => window.app.remeasureCanvas()")   # what every settle does
+    hidden = pg.evaluate("() => document.getElementById('hardware-dock-toggle').style.right")
+    assert hidden == before, f'the hidden tray\'s tab was moved to {hidden} (it was {before})'
+    pg.locator('[data-mode="power"]').click()
+    _settle(pg)
+    g = pg.evaluate(GEOM_JS, PANELS['hardware'])
+    assert g['toggle']['shown'] and abs(g['toggle']['right'] - g['panel']['left']) <= 2, g
+    assert errors == [], errors
+
+
+def test_a_tab_follows_its_panel_while_a_neighbour_folds(page):
+    """Two panels down the right: folding the outer one slides the inner one
+    along without changing its size. Its tab is re-pinned every frame of the
+    fold, not only once the fold has ended. (The tab eases to each new pin
+    over its own short slide, so the pin is read, not the painted box.)"""
+    pg, errors = page
+    pg.evaluate("""() => { const L = window.LRD_LAYOUT; const r = L.rings().filter(x => x.panel !== 'hardware');
+        r.splice(1, 0, {panel: 'hardware', edge: 'right'}); L.apply(r); }""")
+    _settle(pg)
+    pg.evaluate("() => { document.getElementById('hardware-dock').style.transition = 'width 3s linear'; }")
+    pg.locator('#hardware-dock-toggle').click()
+    hw = "() => document.getElementById('hardware-dock').getBoundingClientRect().width"
+    settled(pg, lambda: pg.evaluate(hw), lambda w: 40 < w < 420, timeout_ms=5000)   # mid-fold
+    mid = pg.evaluate("""() => {
+        const p = document.getElementById('right-sidebar').getBoundingClientRect();
+        const pin = parseFloat(document.getElementById('right-sidebar-toggle').style.right);
+        const hw = document.getElementById('hardware-dock').getBoundingClientRect().width;
+        return { pinnedAt: window.innerWidth - pin, panelLeft: p.left, hardwareWidth: hw };
+    }""")
+    assert 0 < mid['hardwareWidth'] < 460, f'not mid-fold: {mid}'
+    assert abs(mid['pinnedAt'] - mid['panelLeft']) <= 3, f'the Screens tab was not re-pinned mid-fold: {mid}'
+    _settle(pg)
+    pg.evaluate("() => { document.getElementById('hardware-dock').style.transition = ''; }")
+    assert errors == [], errors

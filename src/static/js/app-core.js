@@ -147,6 +147,13 @@ export class LEDRasterApp {
                 return Math.max(0, shared.findIndex(r => r.panel === name)) * TAB_STEP;
             };
             const positionToggle = () => {
+                // A panel out of layout (the tray outside Data and Power)
+                // measures as nothing at the window's corner. Pinning its
+                // tab there parked it at the window's edge, and when the
+                // panel came back the tab slid across the whole window from
+                // that spot - stranded mid-screen if the machine was busy.
+                // Its tab is hidden with it, so it simply stays put.
+                if (!sidebar.offsetParent && getComputedStyle(sidebar).display === 'none') return;
                 const edge = edgeNow();
                 const step = stepNow(edge);
                 const rect = sidebar.getBoundingClientRect();
@@ -217,14 +224,20 @@ export class LEDRasterApp {
                     this.remeasureCanvas();
                 }
             });
-            // Keep the toggle pinned to the sidebar edge whenever the
-            // sidebar resizes (window resize, scrollbar appearance, etc.).
-            if (typeof ResizeObserver === 'function') {
-                new ResizeObserver(positionToggle).observe(sidebar);
-            }
             window.addEventListener('resize', positionToggle);
             this._sidebarPositioners.push(positionToggle);
         });
+        // Keep every tab pinned whenever ANY panel changes size (a fold, a
+        // drag, the window, a scrollbar): panels share edges, so the outer
+        // one folding slides the inner one along without resizing it, and
+        // its tab has to follow. One observer re-pins them all.
+        if (typeof ResizeObserver === 'function') {
+            const all = new ResizeObserver(() => this._sidebarPositioners.forEach(fn => fn()));
+            sides.forEach(({ sidebarId }) => {
+                const el = document.getElementById(sidebarId);
+                if (el) all.observe(el);
+            });
+        }
     }
 
     /**

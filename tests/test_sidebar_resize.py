@@ -66,10 +66,15 @@ def _settle(page, ms):
     """The wait these tests always had, and then the panels' folds and
     resizes, and their tabs, actually finished. On a machine that paints a
     frame every 550 ms (this one does, at times) a fold was still at its
-    start when the fixed wait ended, and the check read the old size."""
+    start when the fixed wait ended, and the check read the old size.
+    Two frames go first: a window resize that arrives late is dispatched in
+    one of them, and the transition it starts (the tray re-clamped to the
+    smaller window) must be running before anything is asked if it moves."""
+    two_frames = '() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))'
     page.wait_for_timeout(ms)
+    page.evaluate(two_frames)
     settled(page, lambda: page.evaluate(_MOVING_JS), lambda n: n == 0, timeout_ms=5000)
-    page.evaluate('() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))')
+    page.evaluate(two_frames)
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
