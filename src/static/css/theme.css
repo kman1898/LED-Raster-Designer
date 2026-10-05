@@ -100,6 +100,11 @@ body, #app {
 #left-sidebar, #right-sidebar { background:var(--ps-panel) !important; border-color:var(--ps-dark) !important; }
 .lrd-panel[data-lrd-edge="left"] { border-right:1px solid var(--ps-dark) !important; }
 .lrd-panel[data-lrd-edge="right"] { border-left:1px solid var(--ps-dark) !important; }
+.lrd-panel[data-lrd-edge="bottom"] { border-top:1px solid var(--ps-dark) !important; }
+.lrd-panel[data-lrd-edge="top"] { border-bottom:1px solid var(--ps-dark) !important; }
+/* folded across the top or bottom, a panel leaves no seam line behind */
+#app .lrd-panel[data-lrd-edge="bottom"].collapsed,
+#app .lrd-panel[data-lrd-edge="top"].collapsed { border-top:none !important; border-bottom:none !important; box-shadow:none !important; }
 .panel { background:var(--ps-panel) !important; border:1px solid var(--ps-dark) !important; border-radius:0 !important; }
 /* the title bar is the wrapper (.panel-header) or a standalone section header */
 .panel-header, .sidebar-section-header,
@@ -349,8 +354,11 @@ label:has(#use-fractional-inches) { margin-left:8px !important; flex-shrink:0; }
 
 /* ════════ RESIZABLE SIDEBARS ════════ */
 /* width is driven by CSS vars (set/persisted by theme.js); collapse still wins */
-#left-sidebar:not(.collapsed) { width:var(--lrd-left-w, 260px) !important; flex:0 0 auto !important; }
-#right-sidebar:not(.collapsed) { width:var(--lrd-right-w, 260px) !important; }
+#left-sidebar:is([data-lrd-edge="left"],[data-lrd-edge="right"]):not(.collapsed) { width:var(--lrd-left-w, 260px) !important; flex:0 0 auto !important; }
+#right-sidebar:is([data-lrd-edge="left"],[data-lrd-edge="right"]):not(.collapsed) { width:var(--lrd-right-w, 260px) !important; }
+#hardware-dock:is([data-lrd-edge="left"],[data-lrd-edge="right"]):not(.collapsed) { width:var(--lrd-hardware-w, 460px) !important; }
+#left-sidebar:is([data-lrd-edge="top"],[data-lrd-edge="bottom"]):not(.collapsed) { height:var(--lrd-settings-h, 220px) !important; }
+#right-sidebar:is([data-lrd-edge="top"],[data-lrd-edge="bottom"]):not(.collapsed) { height:var(--lrd-screens-h, 200px) !important; }
 .lrd-panel[data-lrd-edge="left"].collapsed,
 .lrd-panel[data-lrd-edge="right"].collapsed { width:0 !important; min-width:0 !important; }
 /* no size animation while actively dragging - every resizable panel has one,
@@ -425,11 +433,11 @@ select, .info-select {
 /* Same strip chrome as #canvas-controls / #status-bar, seam on its own top
    edge: the canvas above stays borderless and the status bar below keeps its
    border-top, so the dock owns exactly one line. */
-#hardware-dock { background:linear-gradient(#333,#2c2c2c) !important; border-top:1px solid var(--ps-dark) !important;
-  box-shadow:inset 0 1px 0 #424242 !important; }
+#hardware-dock { background:linear-gradient(#333,#2c2c2c) !important; }
+#hardware-dock[data-lrd-edge="bottom"] { box-shadow:inset 0 1px 0 #424242 !important; }
 /* folded, the tray must leave no seam line behind - the border and highlight
    above carry !important, so their removal has to as well */
-#hardware-dock.collapsed { border-top:none !important; box-shadow:none !important; }
+#hardware-dock.collapsed { box-shadow:none !important; }
 #hardware-dock-body { background:var(--ps-panel-2) !important; }
 /* Drag feedback lives here, not in style.css: theme.css's !important tile
    rules silently killed the layer list's drag indicators once already

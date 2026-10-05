@@ -148,26 +148,40 @@
      screen needs to be able to drag all the way up to give more room to
      work" (2026-09-07) retired the old constant 420, which at a tall window
      left most of the column to a canvas nobody was looking at. */
-  /* Each panel's size: its own storage key and CSS var, so no two panels'
-     sizes ever move together. The Signal and Power middle rows retired with
-     their sidebars (the dock absorbed the hardware surfaces); the dock's row
-     is the one without a constant `max`. */
+  /* Each panel's sizes: a width (`x`) for down a side and a height (`y`) for
+     across the top or bottom, each with its own storage key and CSS var, so
+     no two panels' sizes ever move together and a panel moved back finds the
+     size it had there. The keys the three panels have always used are kept,
+     so nobody's saved sizes move. A height has no constant `max`: it is
+     measured (ceilingOf). The tray down a side may run to 930px: two of its
+     440px tracks and their gap, with its padding, border and a scrollbar. */
   var SIZES = {
-    left:  { storageKey: 'lrd_left_w',  cssVar: '--lrd-left-w',  min: 180, max: 560, fallback: 260 },
-    right: { storageKey: 'lrd_right_w', cssVar: '--lrd-right-w', min: 180, max: 560, fallback: 260 },
-    dock:  { storageKey: 'lrd_dock_h',  cssVar: '--lrd-dock-h',  min: 100, fallback: 172 }
+    left:  { x: { storageKey: 'lrd_left_w',     cssVar: '--lrd-left-w',     min: 180, max: 560, fallback: 260 },
+             y: { storageKey: 'lrd_settings_h', cssVar: '--lrd-settings-h', min: 100, fallback: 220 } },
+    right: { x: { storageKey: 'lrd_right_w',    cssVar: '--lrd-right-w',    min: 180, max: 560, fallback: 260 },
+             y: { storageKey: 'lrd_screens_h',  cssVar: '--lrd-screens-h',  min: 100, fallback: 200 } },
+    dock:  { x: { storageKey: 'lrd_hardware_w', cssVar: '--lrd-hardware-w', min: 180, max: 930, fallback: 460 },
+             y: { storageKey: 'lrd_dock_h',     cssVar: '--lrd-dock-h',     min: 100, fallback: 172 } }
   };
   /* Where a panel docks decides its strip's edge and the axis it resizes
      along: the strip is on the inner edge, the one facing the canvas. The
-     edge itself comes from the frame's one table (layout.js). */
+     edge itself comes from the frame's one table (layout.js), read fresh
+     each time - a panel can move. */
   var BY_EDGE = {
-    left:   { dragEdge: 'right', axis: 'x' },
-    right:  { dragEdge: 'left',  axis: 'x' },
-    bottom: { dragEdge: 'top',   axis: 'y' }
+    left:   { dragEdge: 'right',  axis: 'x' },
+    right:  { dragEdge: 'left',   axis: 'x' },
+    bottom: { dragEdge: 'top',    axis: 'y' },
+    top:    { dragEdge: 'bottom', axis: 'y' }
   };
-  var PANELS = (window.LRD_LAYOUT ? window.LRD_LAYOUT.panels() : []).map(function (p) {
-    return Object.assign({ key: p.key, sidebarId: p.sidebarId, toggleId: p.toggleId }, BY_EDGE[p.edge], SIZES[p.key]);
-  });
+  function panels() {
+    return (window.LRD_LAYOUT ? window.LRD_LAYOUT.panels() : []).map(function (p) {
+      var g = BY_EDGE[p.edge];
+      return Object.assign({ key: p.key, sidebarId: p.sidebarId, toggleId: p.toggleId }, g, SIZES[p.key][g.axis]);
+    });
+  }
+  function panelFor(key) {
+    return panels().filter(function (p) { return p.key === key; })[0] || null;
+  }
 
   /* What the tray must leave of its column: the raster toolbar
      (#canvas-controls, ~30px of inputs and padding) stays reachable and a
@@ -194,9 +208,14 @@
   function currentSize(p) {
     return parseInt(getComputedStyle(document.documentElement).getPropertyValue(p.cssVar), 10) || p.fallback;
   }
+  /* Both of every panel's sizes, whichever direction it is in now: the
+     other is waiting for the day it moves. */
   function applySaved() {
-    PANELS.forEach(function (p) {
-      try { var v = parseInt(localStorage.getItem(p.storageKey), 10); if (v) setSize(p, v); } catch (e) { /* ignore */ }
+    panels().forEach(function (p) {
+      ['x', 'y'].forEach(function (axis) {
+        var size = Object.assign({ sidebarId: p.sidebarId, axis: axis }, SIZES[p.key][axis]);
+        try { var v = parseInt(localStorage.getItem(size.storageKey), 10); if (v) setSize(size, v); } catch (e) { /* ignore */ }
+      });
     });
   }
   /* The measured ceiling moves with the window: a 900px tray saved on a
@@ -207,7 +226,7 @@
      resize pass has already measured it mid-transition. */
   function reclamp() {
     var moved = false;
-    PANELS.forEach(function (p) {
+    panels().forEach(function (p) {
       if (p.axis !== 'y') return;
       var cur = currentSize(p), want = clamp(p, cur);
       if (want !== cur) { setSize(p, want); moved = true; }
@@ -224,8 +243,10 @@
 
   var handles = {}, raf;
   function reposition() {
-    PANELS.forEach(function (p) {
+    panels().forEach(function (p) {
       var h = handles[p.key], s = sb(p); if (!h || !s) return;
+      /* the -y variant swaps the strip's fixed dimension and cursor */
+      h.classList.toggle('lrd-resize-handle-y', p.axis === 'y');
       /* offset size 0 covers both a collapsed panel and one that has left
          layout altogether - the dock is display:none outside its own views,
          and a fixed strip left floating over the canvas there would be a
@@ -235,10 +256,12 @@
       var r = s.getBoundingClientRect();
       h.style.display = 'block';
       if (p.axis === 'y') {
-        /* the dock's strip lies along its top edge, spanning its width */
+        /* across the top or bottom the strip lies along the panel's inner
+           edge - its top at the bottom, its bottom at the top - spanning
+           its width */
         h.style.left = r.left + 'px';
         h.style.width = r.width + 'px';
-        h.style.top = (r.top - 3) + 'px';
+        h.style.top = (p.dragEdge === 'top' ? r.top - 3 : r.bottom - 4) + 'px';
         h.style.height = '';
       } else {
         h.style.top = r.top + 'px';
@@ -250,10 +273,13 @@
   }
   function repaint() { if (raf) cancelAnimationFrame(raf); raf = requestAnimationFrame(reposition); }
 
-  function startDrag(p, h) {
+  function startDrag(key, h) {
     return function (e) {
       e.preventDefault();
-      var s = sb(p); if (!s) return;
+      /* the panel as it is docked now - it may have moved since the strip
+         was made */
+      var p = panelFor(key);
+      var s = p && sb(p); if (!s) return;
       var app = document.getElementById('app');
       if (app) app.classList.add('lrd-resizing');
       h.classList.add('lrd-dragging');
@@ -262,10 +288,11 @@
       function move(ev) {
         /* The panel's outer edge is the one that doesn't move while dragging,
            so measure from it: the pointer sets the distance to the edge being
-           dragged. The dock's outer edge is its bottom - the status bar side. */
+           dragged. Along the bottom the outer edge is the panel's bottom (the
+           status bar side), along the top its top. */
         var r = s.getBoundingClientRect();
         var v = p.axis === 'y'
-          ? (r.bottom - ev.clientY)
+          ? (p.dragEdge === 'top' ? (r.bottom - ev.clientY) : (ev.clientY - r.top))
           : (p.dragEdge === 'right' ? (ev.clientX - r.left) : (r.right - ev.clientX));
         setSize(p, v);
         /* .lrd-resizing suppresses the size transition, so the new size is
@@ -291,18 +318,17 @@
   }
 
   function init() {
-    if (!PANELS.some(sb)) return;
+    if (!panels().some(sb)) return;
     applySaved();
-    PANELS.forEach(function (p) {
+    panels().forEach(function (p) {
       var s = sb(p);
       if (!s) return;
       var h = document.createElement('div');
-      /* the -y variant swaps the strip's fixed dimension and cursor */
       h.className = 'lrd-resize-handle'
         + (p.axis === 'y' ? ' lrd-resize-handle-y' : '');
       h.dataset.lrdResize = p.key;
       h.title = 'Drag to resize panel';
-      h.addEventListener('mousedown', startDrag(p, h));
+      h.addEventListener('mousedown', startDrag(p.key, h));
       document.body.appendChild(h);
       handles[p.key] = h;
       /* Collapse toggles `class`, and leaving a panel's own view toggles it
@@ -323,6 +349,8 @@
     reposition();
     reclamp();
     window.addEventListener('resize', function () { reclamp(); repaint(); });
+    /* a panel took another edge: its size and its strip follow it */
+    window.addEventListener('lrd-layout-change', function () { reclamp(); repaint(); });
     window.addEventListener('scroll', repaint, true);
     setInterval(reposition, 1200);
   }

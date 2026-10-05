@@ -116,51 +116,80 @@ export class LEDRasterApp {
      * toggle hugs its top edge, the sidebars' rule turned on its side.
      */
     initSidebarToggles() {
-        // The panels and the edge each docks to come from the frame's one
-        // table (layout.js). A toggle's chevrons point the way its panel
-        // folds: toward the panel's own edge to fold, away to open.
+        // The panels come from the frame's one table (layout.js), and each
+        // one's edge is read when it is needed, never kept: a panel can move.
+        // A toggle's chevrons point the way its panel folds: toward the
+        // panel's own edge to fold, away to open.
         const CHEVRONS = {
             left: { expandSym: '›', collapseSym: '‹' },
             right: { expandSym: '‹', collapseSym: '›' },
             bottom: { expandSym: '▴', collapseSym: '▾' },
+            top: { expandSym: '▾', collapseSym: '▴' },
         };
-        const sides = (window.LRD_LAYOUT ? window.LRD_LAYOUT.panels() : [])
-            .map(p => Object.assign({}, p, CHEVRONS[p.edge]));
+        const sides = window.LRD_LAYOUT ? window.LRD_LAYOUT.panels() : [];
         // Kept so a panel entering or leaving layout (see
         // updateViewSidebars) can re-pin every toggle at once.
         this._sidebarPositioners = [];
-        sides.forEach(({ key, edge, label, sidebarId, toggleId, expandSym, collapseSym }) => {
+        // Two panels on one edge put their tabs on the same line, and with
+        // one of them folded on the same spot: each tab steps along its edge
+        // by its panel's place among those sharing it, the outermost staying
+        // put - so a lone panel's tab is exactly where it always was.
+        const TAB_STEP = 64;
+        sides.forEach(({ name, key, label, sidebarId, toggleId }) => {
             const sidebar = document.getElementById(sidebarId);
             const btn = document.getElementById(toggleId);
             if (!sidebar || !btn) return;
             const storageKey = `ledRasterSidebarCollapsed_${key}`;
+            const edgeNow = () => sidebar.dataset.lrdEdge || 'left';
+            const stepNow = (edge) => {
+                if (!window.LRD_LAYOUT) return 0;
+                const shared = window.LRD_LAYOUT.rings().filter(r => r.panel && r.edge === edge);
+                return Math.max(0, shared.findIndex(r => r.panel === name)) * TAB_STEP;
+            };
             const positionToggle = () => {
+                const edge = edgeNow();
+                const step = stepNow(edge);
                 const rect = sidebar.getBoundingClientRect();
                 if (edge === 'left') {
                     btn.style.left = `${Math.round(rect.right)}px`;
                     btn.style.right = '';
+                    btn.style.top = step ? `calc(50% + ${step}px)` : '';
                 } else if (edge === 'right') {
                     btn.style.right = `${Math.round(window.innerWidth - rect.left)}px`;
                     btn.style.left = '';
+                    btn.style.top = step ? `calc(50% + ${step}px)` : '';
                 } else {
-                    // Bottom-docked: the toggle hangs above the tray's top
-                    // edge, centred on it - "hug the inner edge" turned on
-                    // its side. The CSS translate(-50%, -100%) makes these
-                    // coordinates the tab's centre and bottom.
-                    btn.style.left = `${Math.round(rect.left + rect.width / 2)}px`;
-                    btn.style.top = `${Math.round(rect.top)}px`;
+                    // Across the top or bottom: the tab sits on the panel's
+                    // inner edge, centred on it - "hug the inner edge" turned
+                    // on its side. Its CSS translate makes these coordinates
+                    // the tab's centre and its side against that edge.
+                    btn.style.left = `${Math.round(rect.left + rect.width / 2 + step)}px`;
+                    btn.style.top = `${Math.round(edge === 'top' ? rect.bottom : rect.top)}px`;
                     btn.style.right = '';
                 }
             };
             const apply = (collapsed) => {
+                const syms = CHEVRONS[edgeNow()];
                 sidebar.classList.toggle('collapsed', collapsed);
                 document.body.classList.toggle(`${key}-sidebar-collapsed`, collapsed);
-                btn.textContent = collapsed ? expandSym : collapseSym;
+                btn.textContent = collapsed ? syms.expandSym : syms.collapseSym;
                 btn.title = collapsed
                     ? `Expand ${label} panel`
                     : `Collapse ${label} panel`;
+                // The tray's own fold chevron in its header points the same
+                // way the tab does.
+                if (key === 'dock') {
+                    const fold = document.getElementById('hw-dock-fold');
+                    if (fold) fold.textContent = syms.collapseSym;
+                }
                 this.settleLayout();
             };
+            // A panel that took another edge keeps its fold, turns its
+            // chevrons and moves its tab.
+            window.addEventListener('lrd-layout-change', () => {
+                apply(sidebar.classList.contains('collapsed'));
+                positionToggle();
+            });
             const saved = localStorage.getItem(storageKey) === '1';
             apply(saved);
             btn.addEventListener('click', () => {
