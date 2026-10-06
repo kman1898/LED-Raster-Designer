@@ -22,7 +22,7 @@ window.WHATS_NEW_CONTENT = {
             { h: 'TAC, MTP and opticalCON',
               d: 'A TAC or MTP takes any strand count, with ST or LC duplex ends on a TAC. An opticalCON DUO or QUAD belongs to one box, and NovaStar and Megapixel boxes have a BiDi switch for one strand per link.' },
             { h: 'Strands named the standard way',
-              d: 'Strands read by the TIA-598 colors, with a tracer past 12, by number, or by subunit of 12, and any strand can be renamed. The binder prints a strand map for every cable and the pull sheet counts each cable once.' },
+              d: 'Strands read by the TIA-598 colors, with a tracer past 12, by number, or by subunit of 12, and any strand can be renamed. The binder prints each processor\'s fiber connections, a TAC pair flipped at the box, and a strand map for every cable; the pull sheet counts each cable once.' },
             { h: 'A backup processor is one switch',
               d: 'Turn on Backup processor in the main\'s gear and name it. It mirrors the main output for output, lands on the same boxes\' X2 or OPT 2 inputs, and an SX40 sets its loops as A to B and C to D.' },
             { h: 'Panels go where you want them',

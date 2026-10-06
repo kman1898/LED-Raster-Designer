@@ -3488,6 +3488,12 @@ def resolve_card(card, proc):
         # name). The panel's port-shape chip needs it to say "OPT Split"
         # without ever saying OPT about a trunk nobody silkscreens OPT.
         'trunkWord': (device.get('trunkWord') or '').strip(),
+        # Every output of the card by the name its face prints, in order -
+        # "trunk A".."trunk D" on an SX40, "OPT 1".."OPT 4" on an H card,
+        # "QD 1 A".. on a QD-S - so the binder's fiber connections can name
+        # each link of a box taking two (OPT 1 and OPT 2, never "OPT 1-2")
+        # and the outputs no box hangs on. _trunk_title, one rule.
+        'trunkTitles': [_trunk_title(device, unit, i) for i in range(trunks)],
         'portsPerTrunk': device.get('portsPerTrunk'),
         # The trunks' line rate, where the sheet states one. The panel's box
         # picker filters on it the same way the server refuses on it - a
