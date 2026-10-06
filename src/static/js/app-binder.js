@@ -5163,17 +5163,19 @@ class _Binder {
     // per fiber output of the processor - OUTPUT (the name the card's face
     // prints, card.trunkTitles; an SQ200's slot, "OUT 1", for the QD-S IN
     // link it feeds), CABLE (its kind in brackets the first time this table
-    // names it), the strands AT THE PROCESSOR, the strands AT THE INPUT, and
-    // the INPUT itself (box · input) as the strand map writes a held strand.
-    // A link's strands are stored in the order they plug in at the
+    // names it), the strands AT THE PROCESSOR, then the BREAKOUT it plugs
+    // into - its input on its box, "X1 on Tessera XD A" (Matt, 2026-10-06:
+    // "that needs to read X1 on whatever XD"; "call it breakout") - and the
+    // strands AT THE BREAKOUT, each end's strands beside the thing they plug
+    // into. A link's strands are stored in the order they plug in at the
     // processor - 1 Blue · 2 Orange as the app picks them:
-    //   * a TAC's duplex pair FLIPS between its ends, so AT THE INPUT reads
+    //   * a TAC's duplex pair FLIPS between its ends, so AT THE BREAKOUT reads
     //     2 Orange · 1 Blue - the order the box's own Fiber section shows
     //     (Matt, 2026-10-06: the XD shows Orange · Blue); a pair rearranged
     //     on the box flips the processor side with it. A BiDi link's one
     //     strand is the same at both;
     //   * an MTP crosses inside the cable: both ends read the stored order,
-    //     and the input says so; an opticalCON is one plug that crosses
+    //     and the breakout end says so; an opticalCON is one plug that crosses
     //     inside;
     //   * copper reads its run (fiberLinkSummary's words), no strands;
     //   * a box input with no cable: "no fiber picked";
@@ -5184,8 +5186,8 @@ class _Binder {
     // backup mirrors the main output for output; a box the backup unit
     // twins (an RS12) has no link and no row. Cards in tray order, each
     // card's outputs in order. [] where the processor feeds no box at all.
-    // Rows: { cells: [output, cable, at processor, at box, box · input],
-    // parts: { 2: [{ text, swatch }], 3: [...] } } - the strands swatched.
+    // Rows: { cells: [output, cable, at processor, breakout, at breakout],
+    // parts: { 2: [{ text, swatch }], 4: [...] } } - the strands swatched.
     _bFiberConnectionRows(proc, backup = false) {
         if (!proc || typeof this.fiberBoxLinks !== 'function') return [];
         if (backup && !proc.backupUnit) return [];
@@ -5202,21 +5204,21 @@ class _Binder {
         const joined = (parts) => parts.map(p => p.text).join(' · ');
         const linkRow = (output, l) => {
             linked++;
-            const input = `${this._bBoxTitle(l.box)} · ${l.title}`;
+            const input = `${l.title} on ${this._bBoxTitle(l.box)}`;
             if (l.copper) {
                 const ft = Number(l.copper.ft);
                 const over = this.copperOverText(l.copper);
                 const run = [l.copper.copper, Number.isFinite(ft) && ft > 0 ? this.pullLengthText(ft) : '']
                     .filter(Boolean).join(' ') + (over ? ` (${over})` : '');
-                return { cells: [output, run, 'copper', 'copper', input] };
+                return { cells: [output, run, 'copper', input, 'copper'] };
             }
             const cable = l.cable;
-            if (!cable) return { cells: [output, 'no fiber picked', '', '', input] };
+            if (!cable) return { cells: [output, 'no fiber picked', '', input, ''] };
             let name = cable.name || this.fiberCableTypeText(cable);
             if (cable.name && !typed.has(cable.id)) name += ` (${this.fiberCableTypeText(cable)})`;
             typed.add(cable.id);
             if (cable.kind === 'opticalcon-duo' || cable.kind === 'opticalcon-quad') {
-                return { cells: [output, name, 'one plug', 'one plug, crosses inside', input] };
+                return { cells: [output, name, 'one plug', input, 'one plug, crosses inside'] };
             }
             const set = strands(l.link);
             const atProcessor = swatched(set, cable);
@@ -5224,8 +5226,8 @@ class _Binder {
                 ? swatched(set, cable).concat([{ text: 'crosses inside' }])
                 : cable.kind === 'tac' ? swatched(set.slice().reverse(), cable)
                     : swatched(set, cable);
-            return { cells: [output, name, joined(atProcessor), joined(atInput), input],
-                     parts: { 2: atProcessor, 3: atInput } };
+            return { cells: [output, name, joined(atProcessor), input, joined(atInput)],
+                     parts: { 2: atProcessor, 4: atInput } };
         };
         const linksOf = (box) => this.fiberBoxLinks(box).filter(l => l.key.startsWith(side));
         const slots = (proc.slots || []).filter(Boolean);
@@ -5288,15 +5290,15 @@ class _Binder {
             title: `Fiber connections · ${name}${backup ? ' (backup)' : ''}`,
             titleShrink: true,
             // CABLE wraps between its words, the strands between strands
-            // (each swatched), BOX · INPUT at its " · " - nothing is cut.
+            // (each swatched), BREAKOUT between its words - nothing is cut.
             // A heading may shrink rather than widen the table past the
             // sheet's column (headShrink): on a narrow sheet "AT THE
             // PROCESSOR" is the widest thing in its column.
             cols: [{ title: 'output', w: 0.55, list: 2, headShrink: true },
                    { title: 'cable', w: 1.1, list: 4, words: true, headShrink: true },
                    { title: 'at the processor', w: 1.45, list: 3, parts: true, headShrink: true },
-                   { title: 'at the input', w: 1.2, list: 3, parts: true, headShrink: true },
-                   { title: 'input', w: 1.15, list: 2, headShrink: true }],
+                   { title: 'breakout', w: 1.15, list: 3, words: true, headShrink: true },
+                   { title: 'at the breakout', w: 1.2, list: 3, parts: true, headShrink: true }],
             rows,
         };
     }

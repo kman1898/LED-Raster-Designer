@@ -101,10 +101,16 @@ BREAKOUT_WORD = re.compile(r'\bbreakouts?\b', re.I)
 POWER_BREAKOUT = re.compile(r'\b(Multi (208|120)|L21-30) breakout\b')
 
 
+# The Fiber connections table's own headings say BREAKOUT for the end of a
+# cable a breakout box takes (Matt, 2026-10-06: "Dont call it input call it
+# breakout") - the one place a sheet says it bare.
+FIBER_BREAKOUT_HEADS = {'BREAKOUT', 'AT THE BREAKOUT'}
+
+
 def _generic_breakout(texts):
     return [t for t in texts if BREAKOUT_WORD.search(t)
             and 'breakout box' not in t.lower() and 'Tru-1 Breakout' not in t
-            and not POWER_BREAKOUT.search(t)]
+            and not POWER_BREAKOUT.search(t) and t not in FIBER_BREAKOUT_HEADS]
 
 
 # The sheets (app-binder.js): inches x 200 in page pixels, inches x 72 in
@@ -234,7 +240,8 @@ def test_the_menu_items_the_format_option_and_the_section_are_served(client):
     assert not [l for l in literals if re.search(r'\btails?\b', l)], [l for l in literals if 'tail' in l]
     # "Multi" may name a CABLE (the GEAR LIST's word); it never names the unit
     assert not [l for l in literals if 'Multi' in l], [l for l in literals if 'Multi' in l]
-    generic = [l for l in literals if BREAKOUT_WORD.search(l) and 'breakout box' not in l.lower()]
+    generic = [l for l in literals if BREAKOUT_WORD.search(l) and 'breakout box' not in l.lower()
+               and l.strip("'").upper() not in FIBER_BREAKOUT_HEADS]
     assert not generic, generic
     assert not [l for l in literals if 'Palette' in l], [l for l in literals if 'Palette' in l]
     # the wiring sheet's own strings the same - save the power block's

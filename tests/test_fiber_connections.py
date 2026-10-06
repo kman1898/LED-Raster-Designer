@@ -5,14 +5,16 @@ processor - the output by the name the card's face prints ("trunk A" on an
 SX40, "OPT 1" on a NovaStar H card, "QD 1 A" on a QD-S, the SQ200's own
 "OUT 1"), the cable on it (its kind in brackets the first time the table
 names it), the strands in the order they plug in AT THE PROCESSOR, the same
-strands AT THE INPUT, and the box input it lands on. A link's strands are
-stored in the order they plug in at the processor:
+BREAKOUT it plugs into ("X1 on Tessera XD A") and the strands AT THE
+BREAKOUT. A link's strands are stored in the order they plug in at the
+processor:
 
   - a TAC's duplex pair FLIPS between its ends, so the 1 Blue · 2 Orange
-    stored reads 2 Orange · 1 Blue AT THE INPUT, as the box's own Fiber
+    stored reads 2 Orange · 1 Blue AT THE BREAKOUT, as the box's own Fiber
     section shows it; a BiDi link's one strand is the same at both;
   - an MTP crosses inside the cable (both ends read the stored order, and
-    the input says so), an opticalCON is one plug that crosses inside;
+    the breakout end says so), an opticalCON is one plug that crosses
+    inside;
   - an output with no box reads "not used", an input with no cable "no
     fiber picked", a copper run its copper and length;
   - the backup unit's page carries its own table for the backup inputs
@@ -212,19 +214,19 @@ def test_an_sx40_lists_each_trunk_flips_the_tac_and_says_not_used(page):
     duo = ids['cables']['duo']['name']
     rows = _rows(pg, ids['sx'])
     assert [r['cells'] for r in rows] == [
-        ['trunk A', 'TAC A (TAC 12 · ST)', '1 Blue · 2 Orange', '2 Orange · 1 Blue', 'Tessera XD A · X1'],
-        ['trunk B', 'TAC A', '3 Green · 4 Brown', '4 Brown · 3 Green', 'Tessera XD B · X1'],
-        ['trunk C', f'{duo} (opticalCON DUO)', 'one plug', 'one plug, crosses inside', 'Tessera XD C · X1'],
+        ['trunk A', 'TAC A (TAC 12 · ST)', '1 Blue · 2 Orange', 'X1 on Tessera XD A', '2 Orange · 1 Blue'],
+        ['trunk B', 'TAC A', '3 Green · 4 Brown', 'X1 on Tessera XD B', '4 Brown · 3 Green'],
+        ['trunk C', f'{duo} (opticalCON DUO)', 'one plug', 'X1 on Tessera XD C', 'one plug, crosses inside'],
         ['trunk D', 'not used', '', '', ''],
     ], rows
     first = rows[0]['parts']
     assert [p['text'] for p in first['2']] == ['1 Blue', '2 Orange']
     assert [p['swatch'] for p in first['2']] == [{'base': '#1F5FA8', 'tracer': None},
                                                  {'base': '#F28020', 'tracer': None}]
-    assert [p['swatch']['base'] for p in first['3']] == ['#F28020', '#1F5FA8']
+    assert [p['swatch']['base'] for p in first['4']] == ['#F28020', '#1F5FA8']
     assert rows[2]['parts'] is None and rows[3]['parts'] is None
     # no backup input on the main's table
-    assert not [r for r in rows if 'X2' in r['cells'][4]], rows
+    assert not [r for r in rows if 'X2' in r['cells'][3]], rows
     assert ids['errors'] == []
 
 
@@ -235,9 +237,9 @@ def test_the_backup_units_table_holds_the_backup_inputs_flipped(page):
     pg, ids = page
     rows = _rows(pg, ids['sx'], True)
     assert [r['cells'] for r in rows] == [
-        ['trunk A', 'TAC B (TAC 12 · ST)', '1 Blue · 2 Orange', '2 Orange · 1 Blue', 'Tessera XD A · X2'],
-        ['trunk B', "Cat6 150' (Cat6 runs 100 ft max at 10G)", 'copper', 'copper', 'Tessera XD B · X2'],
-        ['trunk C', 'no fiber picked', '', '', 'Tessera XD C · X2'],
+        ['trunk A', 'TAC B (TAC 12 · ST)', '1 Blue · 2 Orange', 'X2 on Tessera XD A', '2 Orange · 1 Blue'],
+        ['trunk B', "Cat6 150' (Cat6 runs 100 ft max at 10G)", 'copper', 'X2 on Tessera XD B', 'copper'],
+        ['trunk C', 'no fiber picked', '', 'X2 on Tessera XD C', ''],
         ['trunk D', 'not used', '', '', ''],
     ], rows
     # a processor with no backup unit has no backup table
@@ -280,13 +282,13 @@ def test_a_bidi_box_keeps_its_one_strand_and_an_mtp_is_not_flipped(page):
     cells = [r['cells'] for r in rows]
     box = pg.evaluate("(id) => window.app._bBoxTitle(window.app._dockFindCvt(id).cvt)", ids['cvt4k'])
     assert cells == [
-        ['OPT 1', 'TAC C (TAC 12)', '1', '1', 'CVT10 A · OPT 1'],
-        ['OPT 2', 'MTP A (MTP 12)', '1 Blue · Rack A', '1 Blue · Rack A · crosses inside', f'{box} · OPT 1'],
-        ['OPT 3', 'MTP A', '3 Green · 4 Brown', '3 Green · 4 Brown · crosses inside', f'{box} · OPT 2'],
+        ['OPT 1', 'TAC C (TAC 12)', '1', 'OPT 1 on CVT10 A', '1'],
+        ['OPT 2', 'MTP A (MTP 12)', '1 Blue · Rack A', f'OPT 1 on {box}', '1 Blue · Rack A · crosses inside'],
+        ['OPT 3', 'MTP A', '3 Green · 4 Brown', f'OPT 2 on {box}', '3 Green · 4 Brown · crosses inside'],
         ['OPT 4', 'not used', '', '', ''],
     ], cells
     # the words "crosses inside" carry no swatch; every strand does
-    far = rows[1]['parts']['3']
+    far = rows[1]['parts']['4']
     assert [bool(p.get('swatch')) for p in far] == [True, True, False], far
     assert ids['errors'] == []
 
@@ -312,8 +314,8 @@ def test_strand_names_come_through_the_one_namer(page):
     names = out['names']
     assert names == ['Blue unit · 1 Blue', 'Rack A', 'Blue unit · 3 Green', 'Blue unit · 4 Brown'], names
     assert out['rows'][1][2] == f'{names[0]} · {names[1]}', out['rows']
-    assert out['rows'][2][3] == f'{names[2]} · {names[3]} · crosses inside', out['rows']
-    assert out['rows'][0][2:4] == ['1', '1'], out['rows']
+    assert out['rows'][2][4] == f'{names[2]} · {names[3]} · crosses inside', out['rows']
+    assert [out['rows'][0][2], out['rows'][0][4]] == ['1', '1'], out['rows']
 
 
 def test_an_sq200_lists_its_outs_and_the_qd_s_outputs(page):
@@ -322,14 +324,14 @@ def test_an_sq200_lists_its_outs_and_the_qd_s_outputs(page):
     Its backup SQ200's table is OUT 1 onto the QD-S's IN 2, and OUT 2."""
     pg, ids = page
     cells = [r['cells'] for r in _rows(pg, ids['sq'])]
-    assert cells[0] == ['OUT 1', 'TAC D (TAC 12 · LC duplex)', '1 Blue · 2 Orange', '2 Orange · 1 Blue',
-                        'QD 1 · IN 1'], cells
-    assert cells[1] == ['QD 1 A', 'TAC D', '3 Green · 4 Brown', '4 Brown · 3 Green', 'QD 1 A · X1'], cells
+    assert cells[0] == ['OUT 1', 'TAC D (TAC 12 · LC duplex)', '1 Blue · 2 Orange', 'IN 1 on QD 1',
+                        '2 Orange · 1 Blue'], cells
+    assert cells[1] == ['QD 1 A', 'TAC D', '3 Green · 4 Brown', 'X1 on QD 1 A', '4 Brown · 3 Green'], cells
     assert cells[2:13] == [[f'QD 1 {chr(ord("B") + i)}', 'not used', '', '', ''] for i in range(11)], cells
     assert cells[13:] == [['OUT 2', 'not used', '', '', '']], cells
     # its backup SQ200 feeds the QD-S's IN 2 and nothing behind it
     assert [r['cells'] for r in _rows(pg, ids['sq'], True)] == [
-        ['OUT 1', 'no fiber picked', '', '', 'QD 1 · IN 2'],
+        ['OUT 1', 'no fiber picked', '', 'IN 2 on QD 1', ''],
         ['OUT 2', 'not used', '', '', '']]
 
 
@@ -340,11 +342,11 @@ def test_each_card_of_a_chassis_names_its_own_outputs(page):
     pg, ids = page
     cells = [r['cells'] for r in _rows(pg, ids['dual'])]
     assert cells == [
-        ['SR · OPT 1', 'no fiber picked', '', '', 'CVT10 A · OPT 1'],
+        ['SR · OPT 1', 'no fiber picked', '', 'OPT 1 on CVT10 A', ''],
         ['SR · OPT 2', 'not used', '', '', ''],
         ['SR · OPT 3', 'not used', '', '', ''],
         ['SR · OPT 4', 'not used', '', '', ''],
-        ['slot 2 · OPT 1', 'no fiber picked', '', '', 'CVT10 A · OPT 1'],
+        ['slot 2 · OPT 1', 'no fiber picked', '', 'OPT 1 on CVT10 A', ''],
         ['slot 2 · OPT 2', 'not used', '', '', ''],
         ['slot 2 · OPT 3', 'not used', '', '', ''],
         ['slot 2 · OPT 4', 'not used', '', '', ''],
@@ -394,7 +396,7 @@ def test_the_painted_table_is_titled_headed_and_never_cut(page):
               'FIBER CONNECTIONS · NOVA · H9', 'FIBER CONNECTIONS · SQ A · TESSERA SQ200')
     for title in titles:
         assert size.get(title) == 25, (title, sorted(t for t in size if 'FIBER' in t))
-    heads = ('OUTPUT', 'CABLE', 'AT THE PROCESSOR', 'AT THE INPUT', 'INPUT')
+    heads = ('OUTPUT', 'CABLE', 'AT THE PROCESSOR', 'BREAKOUT', 'AT THE BREAKOUT')
     for head in heads:
         assert size.get(head) == 21, (head, size.get(head))
     cells = set()
@@ -415,7 +417,7 @@ def test_the_painted_table_is_titled_headed_and_never_cut(page):
 def test_a_pair_rearranged_flips_both_ends(page):
     """The stored order is the processor's: store 4 Brown · 3 Green on XD
     B's X1 (the box's sheet then shows 3 Green · 4 Brown) and AT THE
-    PROCESSOR reads 4 Brown · 3 Green, AT THE INPUT 3 Green · 4 Brown.
+    PROCESSOR reads 4 Brown · 3 Green, AT THE BREAKOUT 3 Green · 4 Brown.
     (Last in the module: it puts the link back as it was.)"""
     pg, ids = page
     sx, xd_b = ids['sx'], ids['xds'][1]
@@ -430,7 +432,7 @@ def test_a_pair_rearranged_flips_both_ends(page):
     try:
         assert pg.evaluate(set_js, [sx, xd_b, tac, [4, 3]]) == 200
         row = [r['cells'] for r in _rows(pg, sx) if r['cells'][0] == 'trunk B'][0]
-        assert row[2:4] == ['4 Brown · 3 Green', '3 Green · 4 Brown'], row
+        assert [row[2], row[4]] == ['4 Brown · 3 Green', '3 Green · 4 Brown'], row
     finally:
         pg.evaluate(set_js, [sx, xd_b, tac, [3, 4]])
     assert ids['errors'] == []
