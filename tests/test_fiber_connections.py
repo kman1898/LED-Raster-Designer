@@ -5,13 +5,14 @@ processor - the output by the name the card's face prints ("trunk A" on an
 SX40, "OPT 1" on a NovaStar H card, "QD 1 A" on a QD-S, the SQ200's own
 "OUT 1"), the cable on it (its kind in brackets the first time the table
 names it), the strands in the order they plug in AT THE PROCESSOR, the same
-strands AT THE BOX, and the box input it lands on:
+strands AT THE INPUT, and the box input it lands on. A link's strands are
+set on the box's own sheet, so their order there is the order at the box:
 
-  - a TAC's duplex pair FLIPS between its ends - 1 Blue · 2 Orange at the
-    processor is 2 Orange · 1 Blue at the box; a BiDi link's one strand is
-    the same at both;
-  - an MTP crosses inside the cable (the box end reads the same order and
-    says so), an opticalCON is one plug that crosses inside;
+  - AT THE INPUT reads them as set; a TAC's duplex pair FLIPS between its
+    ends, so 1 Blue · 2 Orange set at the box is 2 Orange · 1 Blue at the
+    processor; a BiDi link's one strand is the same at both;
+  - an MTP crosses inside the cable (both ends read the order as set, and
+    the input says so), an opticalCON is one plug that crosses inside;
   - an output with no box reads "not used", an input with no cable "no
     fiber picked", a copper run its copper and length;
   - the backup unit's page carries its own table for the backup inputs
@@ -205,22 +206,22 @@ def _rows(pg, pid, backup=False):
 
 def test_an_sx40_lists_each_trunk_flips_the_tac_and_says_not_used(page):
     """trunk A and B share TAC A - its kind and ends said once - each pair
-    flipped at the box; trunk C's opticalCON DUO is one plug that crosses
+    as set at the box, flipped at the processor; trunk C's opticalCON DUO is one plug that crosses
     inside; trunk D has no box. The strands carry their swatches."""
     pg, ids = page
     duo = ids['cables']['duo']['name']
     rows = _rows(pg, ids['sx'])
     assert [r['cells'] for r in rows] == [
-        ['trunk A', 'TAC A (TAC 12 · ST)', '1 Blue · 2 Orange', '2 Orange · 1 Blue', 'Tessera XD A · X1'],
-        ['trunk B', 'TAC A', '3 Green · 4 Brown', '4 Brown · 3 Green', 'Tessera XD B · X1'],
+        ['trunk A', 'TAC A (TAC 12 · ST)', '2 Orange · 1 Blue', '1 Blue · 2 Orange', 'Tessera XD A · X1'],
+        ['trunk B', 'TAC A', '4 Brown · 3 Green', '3 Green · 4 Brown', 'Tessera XD B · X1'],
         ['trunk C', f'{duo} (opticalCON DUO)', 'one plug', 'one plug, crosses inside', 'Tessera XD C · X1'],
         ['trunk D', 'not used', '', '', ''],
     ], rows
     first = rows[0]['parts']
-    assert [p['text'] for p in first['2']] == ['1 Blue', '2 Orange']
-    assert [p['swatch'] for p in first['2']] == [{'base': '#1F5FA8', 'tracer': None},
+    assert [p['text'] for p in first['3']] == ['1 Blue', '2 Orange']
+    assert [p['swatch'] for p in first['3']] == [{'base': '#1F5FA8', 'tracer': None},
                                                  {'base': '#F28020', 'tracer': None}]
-    assert [p['swatch']['base'] for p in first['3']] == ['#F28020', '#1F5FA8']
+    assert [p['swatch']['base'] for p in first['2']] == ['#F28020', '#1F5FA8']
     assert rows[2]['parts'] is None and rows[3]['parts'] is None
     # no backup input on the main's table
     assert not [r for r in rows if 'X2' in r['cells'][4]], rows
@@ -234,7 +235,7 @@ def test_the_backup_units_table_holds_the_backup_inputs_flipped(page):
     pg, ids = page
     rows = _rows(pg, ids['sx'], True)
     assert [r['cells'] for r in rows] == [
-        ['trunk A', 'TAC B (TAC 12 · ST)', '1 Blue · 2 Orange', '2 Orange · 1 Blue', 'Tessera XD A · X2'],
+        ['trunk A', 'TAC B (TAC 12 · ST)', '2 Orange · 1 Blue', '1 Blue · 2 Orange', 'Tessera XD A · X2'],
         ['trunk B', "Cat6 150' (Cat6 runs 100 ft max at 10G)", 'copper', 'copper', 'Tessera XD B · X2'],
         ['trunk C', 'no fiber picked', '', '', 'Tessera XD C · X2'],
         ['trunk D', 'not used', '', '', ''],
@@ -321,9 +322,9 @@ def test_an_sq200_lists_its_outs_and_the_qd_s_outputs(page):
     Its backup SQ200's table is OUT 1 onto the QD-S's IN 2, and OUT 2."""
     pg, ids = page
     cells = [r['cells'] for r in _rows(pg, ids['sq'])]
-    assert cells[0] == ['OUT 1', 'TAC D (TAC 12 · LC duplex)', '1 Blue · 2 Orange', '2 Orange · 1 Blue',
+    assert cells[0] == ['OUT 1', 'TAC D (TAC 12 · LC duplex)', '2 Orange · 1 Blue', '1 Blue · 2 Orange',
                         'QD 1 · IN 1'], cells
-    assert cells[1] == ['QD 1 A', 'TAC D', '3 Green · 4 Brown', '4 Brown · 3 Green', 'QD 1 A · X1'], cells
+    assert cells[1] == ['QD 1 A', 'TAC D', '4 Brown · 3 Green', '3 Green · 4 Brown', 'QD 1 A · X1'], cells
     assert cells[2:13] == [[f'QD 1 {chr(ord("B") + i)}', 'not used', '', '', ''] for i in range(11)], cells
     assert cells[13:] == [['OUT 2', 'not used', '', '', '']], cells
     # its backup SQ200 feeds the QD-S's IN 2 and nothing behind it
@@ -408,4 +409,28 @@ def test_the_painted_table_is_titled_headed_and_never_cut(page):
     cut = [t['text'] for t in texts if t['text'].endswith('…')
            and any(o.startswith(t['text'][:-1]) for o in ours)]
     assert not cut, cut
+    assert ids['errors'] == []
+
+
+def test_the_input_reads_the_strands_as_set_on_the_box(page):
+    """The strands are picked on the box's own sheet, so the order they were
+    set in is the order at the box: set 4 Brown · 3 Green on XD B's X1 and
+    that is what AT THE INPUT reads, flipped to 3 Green · 4 Brown AT THE
+    PROCESSOR. (Last in the module: it puts the link back as it was.)"""
+    pg, ids = page
+    sx, xd_b = ids['sx'], ids['xds'][1]
+    tac = ids['cables']['tacA']['id']
+    set_js = """async ([sx, box, cable, strands]) => {
+        const r = await fetch(`/api/processors/${sx}/cvts/${box}/fiber-links/p1`, {
+            method: 'PUT', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({cable, strands})});
+        await window.app.refreshProcessors();
+        return r.status;
+    }"""
+    try:
+        assert pg.evaluate(set_js, [sx, xd_b, tac, [4, 3]]) == 200
+        row = [r['cells'] for r in _rows(pg, sx) if r['cells'][0] == 'trunk B'][0]
+        assert row[2:4] == ['3 Green · 4 Brown', '4 Brown · 3 Green'], row
+    finally:
+        pg.evaluate(set_js, [sx, xd_b, tac, [3, 4]])
     assert ids['errors'] == []

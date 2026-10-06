@@ -5163,13 +5163,18 @@ class _Binder {
     // per fiber output of the processor - OUTPUT (the name the card's face
     // prints, card.trunkTitles; an SQ200's slot, "OUT 1", for the QD-S IN
     // link it feeds), CABLE (its kind in brackets the first time this table
-    // names it), the strands AT THE PROCESSOR ascending, the same strands AT
-    // THE INPUT, and the INPUT itself (box · input) as the strand map writes a held strand.
-    //   * a TAC's duplex pair FLIPS between its ends: 1 Blue · 2 Orange at
-    //     the processor lands 2 Orange · 1 Blue at the box (a BiDi link's
-    //     one strand is the same at both);
-    //   * an MTP crosses inside the cable: the box end reads the same order
-    //     and says so; an opticalCON is one plug that crosses inside;
+    // names it), the strands AT THE PROCESSOR, the strands AT THE INPUT, and
+    // the INPUT itself (box · input) as the strand map writes a held strand.
+    // A link's strands are set on the box's own sheet, so their order there
+    // is the order at the box (Matt, 2026-10-06: "if i set to blue orange
+    // then on processor side it would be orange blue"):
+    //   * AT THE INPUT reads the strands as set; a TAC's duplex pair FLIPS
+    //     between its ends, so set 1 Blue · 2 Orange at the box is
+    //     2 Orange · 1 Blue AT THE PROCESSOR (a BiDi link's one strand is
+    //     the same at both);
+    //   * an MTP crosses inside the cable: both ends read the order as set,
+    //     and the input says so; an opticalCON is one plug that crosses
+    //     inside;
     //   * copper reads its run (fiberLinkSummary's words), no strands;
     //   * a box input with no cable: "no fiber picked";
     //   * an output with no box on a card that feeds boxes: "not used".
@@ -5189,8 +5194,9 @@ class _Binder {
         const typed = new Set();
         let linked = 0;
         const unused = (output) => ({ cells: [output, 'not used', '', '', ''] });
+        // the order the strands were set in on the box: the order at the box
         const strands = (link) => [...new Set(((link && link.strands) || []).map(Number))]
-            .filter(Number.isFinite).sort((a, b) => a - b);
+            .filter(Number.isFinite);
         const swatched = (list, cable) => list.map(n => ({ text: this.fiberStrandName(n, cable),
                                                            swatch: this.fiberStrandSwatch(n, cable) }));
         const joined = (parts) => parts.map(p => p.text).join(' · ');
@@ -5212,13 +5218,15 @@ class _Binder {
             if (cable.kind === 'opticalcon-duo' || cable.kind === 'opticalcon-quad') {
                 return { cells: [output, name, 'one plug', 'one plug, crosses inside', input] };
             }
-            const up = strands(l.link);
-            const near = swatched(up, cable);
-            const far = cable.kind === 'mtp'
-                ? swatched(up, cable).concat([{ text: 'crosses inside' }])
-                : swatched(up.slice().reverse(), cable);
-            return { cells: [output, name, joined(near), joined(far), input],
-                     parts: { 2: near, 3: far } };
+            const set = strands(l.link);
+            const atInput = cable.kind === 'mtp'
+                ? swatched(set, cable).concat([{ text: 'crosses inside' }])
+                : swatched(set, cable);
+            const atProcessor = cable.kind === 'tac'
+                ? swatched(set.slice().reverse(), cable)
+                : swatched(set, cable);
+            return { cells: [output, name, joined(atProcessor), joined(atInput), input],
+                     parts: { 2: atProcessor, 3: atInput } };
         };
         const linksOf = (box) => this.fiberBoxLinks(box).filter(l => l.key.startsWith(side));
         const slots = (proc.slots || []).filter(Boolean);
