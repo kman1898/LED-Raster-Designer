@@ -11,7 +11,8 @@ cable. A backup processor is now one switch on the main: name it and
 the app does the rest. An SX40's loops are set pair by pair, the
 Advanced Guide walks through the new steps, the power map's cable
 tags now sit by their circuit, and a Brompton SQ200 lays out with its
-QD-S units.
+QD-S units. Settings, Screens and the hardware tray now move to any edge
+of the window, and a layout can be saved by name.
 
 FIBER BY THE STRAND
 
@@ -86,6 +87,24 @@ provisional until confirmed in Brompton's manual. A backup SQ200 lands
 on each QD-S's second input, IN 2, beside IN 1 on the QD-S's cable
 sheet, and the pull sheet counts each QD-S.
 
+PANELS WHERE YOU WANT THEM
+
+Settings, Screens and the hardware tray each move to any edge of the
+window: left, right, top or bottom. Drag a panel by its title bar and
+the places it can go light up; let go on one. Two panels on the same
+edge sit side by side, each with its own size and fold. Right-click a
+title bar to move a panel by name, fold it, or put its size back. At
+the top or bottom a panel lays its sections out in columns, and down a
+side the tray can be up to 930 px wide, room for two columns of
+hardware. Settings has a title bar of its own, "SETTINGS · Data", to
+drag it by.
+
+Each window remembers its own arrangement. View > Layouts saves the
+whole look, where each panel sits, its size and whether it is folded,
+under a name, and every window connected to the app can pick it. Reset
+Layout puts everything back where it started. A guide runs on the
+default layout and gives yours back when it ends.
+
 IN THE ADVANCED GUIDE
 
 Five new steps: the backup processor, the data jumper lengths, the fiber
@@ -93,6 +112,11 @@ to the box, picking the strands, and the power jumper lengths.
 
 FIXES
 
+- FIX: The app fits a narrow window. Below about 1040 px wide with both
+  side panels open it ran about 20 px past the window's right edge; now
+  the canvas narrows and the canvas toolbar wraps.
+- FIX: A folded card's header fits a narrow hardware tray. Its
+  redundancy pill shortens with "..." instead of running past the edge.
 - FIX: The panel catalog updates itself. A few seconds after the app
   opens it fetches the latest catalog, the way it checks for a new
   version, and when there are new or corrected cabinets it loads them

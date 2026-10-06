@@ -15,7 +15,7 @@
  */
 window.WHATS_NEW_CONTENT = {
     '1.4': {
-        title: 'Fiber by the strand, a backup processor in one switch, and power tags by their circuit',
+        title: 'Fiber by the strand, a backup processor in one switch, and panels you can move',
         items: [
             { h: 'Fiber by the strand',
               d: 'A breakout box\'s cable sheet opens on its Fiber section: each link picks a cable and the strands it rides. Pick the same TAC or MTP on another box and it takes the next free strands.' },
@@ -25,6 +25,8 @@ window.WHATS_NEW_CONTENT = {
               d: 'Strands read by the TIA-598 colors, with a tracer past 12, by number, or by subunit of 12, and any strand can be renamed. The binder prints a strand map for every cable and the pull sheet counts each cable once.' },
             { h: 'A backup processor is one switch',
               d: 'Turn on Backup processor in the main\'s gear and name it. It mirrors the main output for output, lands on the same boxes\' X2 or OPT 2 inputs, and an SX40 sets its loops as A to B and C to D.' },
+            { h: 'Panels go where you want them',
+              d: 'Drag Settings, Screens or the hardware tray by its title bar to any edge of the window, or two to one edge side by side. View > Layouts saves the arrangement by name for every window connected to the app.' },
             { h: 'More in the Advanced Guide',
               d: 'New steps for the backup processor, the data and power jumper lengths, the fiber to a box, and picking its strands.' },
             { h: 'Power tags sit by their circuit',
