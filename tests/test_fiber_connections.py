@@ -17,8 +17,9 @@ processor:
     inside;
   - an output with no box reads "not used", an input with no cable "no
     fiber picked", a copper run its copper and length;
-  - the backup unit's page carries its own table for the backup inputs
-    (X2, OPT 2, IN 2), under the same output names as the main's.
+  - a backup processor is listed with its main, output by output: the
+    main's output, then the backup's same output onto the same breakout's
+    backup input (X2, OPT 2, IN 2), each named by its processor.
 
 Run locally (each session takes its own free port):
     python3 -m pytest tests/test_fiber_connections.py -v --browser chromium
@@ -171,10 +172,10 @@ SEED_JS = """async () => {
             cables: {tacA, tacB, tacC, tacD, duo, mtp}};
 }"""
 
-ROWS_JS = """([pid, backup]) => {
+ROWS_JS = """(pid) => {
     const app = window.app;
     const proc = app._processorsResolved.find(p => p.id === pid);
-    return app._bFiberConnectionRows(proc, backup)
+    return app._bFiberConnectionRows(proc)
         .map(r => ({cells: r.cells, parts: r.parts || null}));
 }"""
 
@@ -202,21 +203,28 @@ def page(e2e_server, pw_browser):
     context.close()
 
 
-def _rows(pg, pid, backup=False):
-    return pg.evaluate(ROWS_JS, [pid, backup])
+def _rows(pg, pid):
+    return pg.evaluate(ROWS_JS, pid)
 
 
-def test_an_sx40_lists_each_trunk_flips_the_tac_and_says_not_used(page):
-    """trunk A and B share TAC A - its kind and ends said once - each pair
-    as stored at the processor, flipped at the box; trunk C's opticalCON DUO is one plug that crosses
-    inside; trunk D has no box. The strands carry their swatches."""
+def test_an_sx40_lists_its_backup_output_by_output(page):
+    """USC SR and its backup USC SR BU in one table, output by output: the
+    main's trunk, then the backup's same trunk onto the same XD's X2, each
+    named by its processor. TAC A and TAC B - each kind said once - are
+    flipped at the breakout; the backup's trunk B is copper, its trunk C has
+    nothing picked; trunk C's opticalCON DUO is one plug that crosses
+    inside; trunk D, on neither, is named alone. The strands carry their
+    swatches."""
     pg, ids = page
     duo = ids['cables']['duo']['name']
     rows = _rows(pg, ids['sx'])
     assert [r['cells'] for r in rows] == [
-        ['trunk A', 'TAC A (TAC 12 · ST)', '1 Blue · 2 Orange', 'X1 on Tessera XD A', '2 Orange · 1 Blue'],
-        ['trunk B', 'TAC A', '3 Green · 4 Brown', 'X1 on Tessera XD B', '4 Brown · 3 Green'],
-        ['trunk C', f'{duo} (opticalCON DUO)', 'one plug', 'X1 on Tessera XD C', 'one plug, crosses inside'],
+        ['USC SR · trunk A', 'TAC A (TAC 12 · ST)', '1 Blue · 2 Orange', 'X1 on Tessera XD A', '2 Orange · 1 Blue'],
+        ['USC SR BU · trunk A', 'TAC B (TAC 12 · ST)', '1 Blue · 2 Orange', 'X2 on Tessera XD A', '2 Orange · 1 Blue'],
+        ['USC SR · trunk B', 'TAC A', '3 Green · 4 Brown', 'X1 on Tessera XD B', '4 Brown · 3 Green'],
+        ['USC SR BU · trunk B', "Cat6 150' (Cat6 runs 100 ft max at 10G)", 'copper', 'X2 on Tessera XD B', 'copper'],
+        ['USC SR · trunk C', f'{duo} (opticalCON DUO)', 'one plug', 'X1 on Tessera XD C', 'one plug, crosses inside'],
+        ['USC SR BU · trunk C', 'no fiber picked', '', 'X2 on Tessera XD C', ''],
         ['trunk D', 'not used', '', '', ''],
     ], rows
     first = rows[0]['parts']
@@ -224,26 +232,15 @@ def test_an_sx40_lists_each_trunk_flips_the_tac_and_says_not_used(page):
     assert [p['swatch'] for p in first['2']] == [{'base': '#1F5FA8', 'tracer': None},
                                                  {'base': '#F28020', 'tracer': None}]
     assert [p['swatch']['base'] for p in first['4']] == ['#F28020', '#1F5FA8']
-    assert rows[2]['parts'] is None and rows[3]['parts'] is None
-    # no backup input on the main's table
-    assert not [r for r in rows if 'X2' in r['cells'][3]], rows
+    assert all(rows[i]['parts'] is None for i in (3, 4, 5, 6)), rows
     assert ids['errors'] == []
 
 
-def test_the_backup_units_table_holds_the_backup_inputs_flipped(page):
-    """USC SR BU's table: X2 on every XD under the main's output names -
-    TAC B flipped at the box, the copper run in its own words, an input
-    with nothing picked, and trunk D not used."""
+def test_the_table_is_on_the_mains_page_and_names_both(page):
+    """One table, after Breakout boxes and before the strand maps on the
+    main's page, titled with both processors; the backup's page carries
+    none of its own."""
     pg, ids = page
-    rows = _rows(pg, ids['sx'], True)
-    assert [r['cells'] for r in rows] == [
-        ['trunk A', 'TAC B (TAC 12 · ST)', '1 Blue · 2 Orange', 'X2 on Tessera XD A', '2 Orange · 1 Blue'],
-        ['trunk B', "Cat6 150' (Cat6 runs 100 ft max at 10G)", 'copper', 'X2 on Tessera XD B', 'copper'],
-        ['trunk C', 'no fiber picked', '', 'X2 on Tessera XD C', ''],
-        ['trunk D', 'not used', '', '', ''],
-    ], rows
-    # a processor with no backup unit has no backup table
-    assert _rows(pg, ids['nova'], True) == []
     out = pg.evaluate("""(sx) => {
         const app = window.app;
         const proc = app._processorsResolved.find(p => p.id === sx);
@@ -264,12 +261,17 @@ def test_the_backup_units_table_holds_the_backup_inputs_flipped(page):
         }
     }""", ids['sx'])
     main, bu = out['main'], out['bu']
-    # after Breakout boxes, before the strand maps; the backup's on its page
-    conn = 'Fiber connections · USC SR · Tessera SX40'
+    conn = 'Fiber connections · USC SR and USC SR BU · Tessera SX40'
     assert main.index(conn) == main.index('Breakout boxes') + 1, main
     assert main[main.index(conn) + 1].startswith('Strand map · '), main
-    assert 'Fiber connections · USC SR BU · Tessera SX40 (backup)' in bu, bu
-    assert not [t for t in bu if t.startswith('Fiber connections') and 'backup' not in t], bu
+    assert not [t for t in bu if t.startswith('Fiber connections')], bu
+    # a processor without a backup names itself alone
+    nova = pg.evaluate("""(id) => {
+        const app = window.app;
+        const proc = app._processorsResolved.find(p => p.id === id);
+        return app._bFiberConnections(proc, proc.name).title;
+    }""", ids['nova'])
+    assert nova == 'Fiber connections · NOVA · H9', nova
 
 
 def test_a_bidi_box_keeps_its_one_strand_and_an_mtp_is_not_flipped(page):
@@ -319,20 +321,17 @@ def test_strand_names_come_through_the_one_namer(page):
 
 
 def test_an_sq200_lists_its_outs_and_the_qd_s_outputs(page):
-    """SQ A: OUT 1 feeds the QD-S's IN 1, the XD-S on QD 1 A takes TAC D on
-    its X1, the QD-S's other eleven outputs are not used, and so is OUT 2.
-    Its backup SQ200's table is OUT 1 onto the QD-S's IN 2, and OUT 2."""
+    """SQ A: OUT 1 feeds the QD-S's IN 1 and its backup SQ B's OUT 1 the
+    IN 2 (nothing picked yet), the XD-S on QD 1 A takes TAC D on its X1,
+    the QD-S's other eleven outputs are not used, and so is OUT 2."""
     pg, ids = page
     cells = [r['cells'] for r in _rows(pg, ids['sq'])]
-    assert cells[0] == ['OUT 1', 'TAC D (TAC 12 · LC duplex)', '1 Blue · 2 Orange', 'IN 1 on QD 1',
+    assert cells[0] == ['SQ A · OUT 1', 'TAC D (TAC 12 · LC duplex)', '1 Blue · 2 Orange', 'IN 1 on QD 1',
                         '2 Orange · 1 Blue'], cells
-    assert cells[1] == ['QD 1 A', 'TAC D', '3 Green · 4 Brown', 'X1 on QD 1 A', '4 Brown · 3 Green'], cells
-    assert cells[2:13] == [[f'QD 1 {chr(ord("B") + i)}', 'not used', '', '', ''] for i in range(11)], cells
-    assert cells[13:] == [['OUT 2', 'not used', '', '', '']], cells
-    # its backup SQ200 feeds the QD-S's IN 2 and nothing behind it
-    assert [r['cells'] for r in _rows(pg, ids['sq'], True)] == [
-        ['OUT 1', 'no fiber picked', '', 'IN 2 on QD 1', ''],
-        ['OUT 2', 'not used', '', '', '']]
+    assert cells[1] == ['SQ B · OUT 1', 'no fiber picked', '', 'IN 2 on QD 1', ''], cells
+    assert cells[2] == ['SQ A · QD 1 A', 'TAC D', '3 Green · 4 Brown', 'X1 on QD 1 A', '4 Brown · 3 Green'], cells
+    assert cells[3:14] == [[f'QD 1 {chr(ord("B") + i)}', 'not used', '', '', ''] for i in range(11)], cells
+    assert cells[14:] == [['OUT 2', 'not used', '', '', '']], cells
 
 
 def test_each_card_of_a_chassis_names_its_own_outputs(page):
@@ -391,17 +390,21 @@ def test_the_painted_table_is_titled_headed_and_never_cut(page):
     size = {}
     for t in texts:
         size.setdefault(t['text'], t['size'])
-    titles = ('FIBER CONNECTIONS · USC SR · TESSERA SX40',
-              'FIBER CONNECTIONS · USC SR BU · TESSERA SX40 (BACKUP)',
-              'FIBER CONNECTIONS · NOVA · H9', 'FIBER CONNECTIONS · SQ A · TESSERA SQ200')
+    titles = ('FIBER CONNECTIONS · USC SR AND USC SR BU · TESSERA SX40',
+              'FIBER CONNECTIONS · NOVA · H9', 'FIBER CONNECTIONS · SQ A AND SQ B · TESSERA SQ200')
     for title in titles:
         assert size.get(title) == 25, (title, sorted(t for t in size if 'FIBER' in t))
     heads = ('OUTPUT', 'CABLE', 'AT THE PROCESSOR', 'BREAKOUT', 'AT THE BREAKOUT')
+    # a heading is at the table's 21 unless the table cannot hold it whole:
+    # here the outputs named by both processors ("USC SR BU · trunk A")
+    # take the room, and a heading shrinks only as far as it must - never
+    # under the 14 it stops at, never cut (below)
     for head in heads:
-        assert size.get(head) == 21, (head, size.get(head))
+        assert 14 <= size.get(head, 0) <= 21, (head, size.get(head))
+    assert size.get('OUTPUT') == 21, size.get('OUTPUT')
     cells = set()
-    for pid, backup in ((ids['sx'], False), (ids['sx'], True), (ids['nova'], False), (ids['sq'], False)):
-        for row in _rows(pg, pid, backup):
+    for pid in (ids['sx'], ids['nova'], ids['sq']):
+        for row in _rows(pg, pid):
             cells.update(c for c in row['cells'] if c)
     assert "Cat6 150' (Cat6 runs 100 ft max at 10G)" in cells and '1 Blue · Rack A · crosses inside' in cells
     for cell in sorted(cells):
@@ -431,7 +434,7 @@ def test_a_pair_rearranged_flips_both_ends(page):
     }"""
     try:
         assert pg.evaluate(set_js, [sx, xd_b, tac, [4, 3]]) == 200
-        row = [r['cells'] for r in _rows(pg, sx) if r['cells'][0] == 'trunk B'][0]
+        row = [r['cells'] for r in _rows(pg, sx) if r['cells'][0] == 'USC SR · trunk B'][0]
         assert [row[2], row[4]] == ['4 Brown · 3 Green', '3 Green · 4 Brown'], row
     finally:
         pg.evaluate(set_js, [sx, xd_b, tac, [3, 4]])

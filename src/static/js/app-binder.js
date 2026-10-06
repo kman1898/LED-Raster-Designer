@@ -4951,9 +4951,8 @@ class _Binder {
                 shrink: true,
             }) });
         }
-        // the backup inputs it feeds, output for output as the main's
-        const conn = this._bFiberConnectionsBlock(book, proc, unit.name, true);
-        if (conn) blocks.push(conn);
+        // the backup inputs it feeds are in the main's Fiber connections,
+        // beside the main's own (a backup is listed with its main)
         const text = this._bRedundancyText(proc).replace(/ · backed up by .*$/, '');
         blocks.push({ lines: this._bKvLines(book, 'Redundancy', [
             ['Device', proc.deviceName || proc.deviceId || ''],
@@ -5181,17 +5180,23 @@ class _Binder {
     //   * a box input with no cable: "no fiber picked";
     //   * an output with no box on a card that feeds boxes: "not used".
     // A box taking two trunks (a CVT4K-S) has a row per link, each on its
-    // own output - OPT 1 and OPT 2. `backup`: the backup unit's table, the
-    // b links (X2, OPT 2, OPT 3-4, IN 2) under the SAME output names - the
-    // backup mirrors the main output for output; a box the backup unit
-    // twins (an RS12) has no link and no row. Cards in tray order, each
+    // own output - OPT 1 and OPT 2. A backup processor is listed WITH its
+    // main (Matt, 2026-10-06: it backs up the primary and its redundant
+    // breakouts): each breakout's rows from the main, then its backup
+    // inputs (X2, OPT 2, OPT 3-4, IN 2) from the backup under the SAME
+    // output names - the backup mirrors the main output for output - and
+    // with a backup every output is named by its processor, "S1 · trunk A"
+    // and "S1 BU · trunk A". An output with nothing on it is not used on
+    // either, so it is named alone. A box the backup unit twins (an RS12)
+    // has no backup input and no backup row. Cards in tray order, each
     // card's outputs in order. [] where the processor feeds no box at all.
     // Rows: { cells: [output, cable, at processor, breakout, at breakout],
     // parts: { 2: [{ text, swatch }], 4: [...] } } - the strands swatched.
-    _bFiberConnectionRows(proc, backup = false) {
+    _bFiberConnectionRows(proc, mainTitle) {
         if (!proc || typeof this.fiberBoxLinks !== 'function') return [];
-        if (backup && !proc.backupUnit) return [];
-        const side = backup ? 'b' : 'p';
+        const main = mainTitle || proc.name || proc.deviceName || '';
+        const bu = (proc.backupUnit && proc.backupUnit.name) || '';
+        const named = (who, output) => (bu ? `${who} · ${output}` : output);
         const rows = [];
         const typed = new Set();
         let linked = 0;
@@ -5229,7 +5234,18 @@ class _Binder {
             return { cells: [output, name, joined(atProcessor), input, joined(atInput)],
                      parts: { 2: atProcessor, 4: atInput } };
         };
-        const linksOf = (box) => this.fiberBoxLinks(box).filter(l => l.key.startsWith(side));
+        // output by output (Matt's option 1): the main's output, then the
+        // backup's same output onto the same breakout - p1 then b1, p2
+        // then b2 on a box taking two
+        const both = (box, outputOf) => {
+            const links = this.fiberBoxLinks(box);
+            const nth = (l) => Number(l.key.slice(1)) || 0;
+            const ks = [...new Set(links.map(nth))].sort((x, y) => x - y);
+            for (const k of ks) {
+                links.filter(l => l.key === `p${k}`).forEach(l => rows.push(linkRow(named(main, outputOf(l)), l)));
+                if (bu) links.filter(l => l.key === `b${k}`).forEach(l => rows.push(linkRow(named(bu, outputOf(l)), l)));
+            }
+        };
         const slots = (proc.slots || []).filter(Boolean);
         const hosts = slots.some(s => s.card && s.card.linkHost);
         // In a chassis of several cards each card has its own OPT 1: the
@@ -5250,44 +5266,42 @@ class _Binder {
                 if (hosts) rows.push(unused(slotName));
                 continue;
             }
-            if (card.linkHost) {
-                linksOf(card).forEach(l => rows.push(linkRow(slotName, l)));
-                // the backup SQ200 feeds the QD-S's IN 2 and nothing behind it
-                if (backup) continue;
-            }
+            // an SQ200's OUT onto the QD-S's IN 1, and the backup SQ200's
+            // same OUT onto its IN 2
+            if (card.linkHost) both(card, () => slotName);
             const boxes = card.cvts || [];
             if (!boxes.length) continue;
             const titles = card.trunkTitles || [];
             const outputOf = (box, l) => onCard(slot, card,
                 titles[(box.trunkIndex || 0) + Number(l.key.slice(1)) - 1] || box.trunkTitle || '—');
             const onTrunk = boxes.filter(b => !b.beyondTrunks && Number.isInteger(b.trunkIndex));
-            const twinned = (box) => backup && !box.backupInputs;
             for (let t = 0; t < titles.length; t++) {
                 const covering = onTrunk.find(b => b.trunkIndex <= t && t < b.trunkIndex + (b.trunksIn || 1));
                 if (!covering) { rows.push(unused(onCard(slot, card, titles[t]))); continue; }
-                if (covering.trunkIndex !== t || twinned(covering)) continue;
-                linksOf(covering).forEach(l => rows.push(linkRow(outputOf(covering, l), l)));
+                if (covering.trunkIndex !== t) continue;
+                both(covering, l => outputOf(covering, l));
             }
             // a box hanging past the card's trunks (an old file), or a card
             // that names none: by the box's own trunk, after the rest
             for (const box of boxes) {
                 if (titles.length && onTrunk.includes(box) && box.trunkIndex < titles.length) continue;
-                if (twinned(box)) continue;
-                linksOf(box).forEach(l => rows.push(linkRow(outputOf(box, l), l)));
+                both(box, l => outputOf(box, l));
             }
         }
         return linked ? rows : [];
     }
 
-    // The Fiber connections table: on the processor's page, and on its
-    // backup unit's for the backup inputs. null where there is nothing.
-    _bFiberConnections(proc, title, backup = false) {
-        const rows = this._bFiberConnectionRows(proc, backup);
+    // The Fiber connections table, on the processor's page, its backup
+    // processor's rows with it. null where there is nothing.
+    _bFiberConnections(proc, title) {
+        const rows = this._bFiberConnectionRows(proc, title);
         if (!rows.length) return null;
         const model = proc.deviceName || proc.deviceId || '';
-        const name = [title, model && model !== title ? model : ''].filter(Boolean).join(' · ');
+        const bu = (proc.backupUnit && proc.backupUnit.name) || '';
+        const who = bu ? `${title} and ${bu}` : title;
+        const name = [who, model && model !== title ? model : ''].filter(Boolean).join(' · ');
         return {
-            title: `Fiber connections · ${name}${backup ? ' (backup)' : ''}`,
+            title: `Fiber connections · ${name}`,
             titleShrink: true,
             // CABLE wraps between its words, the strands between strands
             // (each swatched), BREAKOUT between its words - nothing is cut.
@@ -5309,8 +5323,8 @@ class _Binder {
     // widest output, cable word, strand or box needs more for nothing to be
     // cut, up to the data sheet's DATA_COL_W. The block widens the sheet's
     // columns (minW), the way the Ports table does. null without one.
-    _bFiberConnectionsBlock(book, proc, title, backup = false) {
-        const spec = this._bFiberConnections(proc, title, backup);
+    _bFiberConnectionsBlock(book, proc, title) {
+        const spec = this._bFiberConnections(proc, title);
         if (!spec) return null;
         const need = book && book.measureCtx
             ? this._bColNeeds(book, spec.cols, spec.rows, 12).reduce((a, b) => a + b, 0) : 0;

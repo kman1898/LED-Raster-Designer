@@ -42,9 +42,11 @@ first time it appears: "X1 TAC A (TAC 8) 1-2 · X2 TAC A 3-4". The
 processor page prints its fiber connections, output by output: the
 cable, the strands in the order they plug in at the processor, the
 breakout it plugs into ("X1 on Tessera XD A"), and the same strands
-there, flipped for a TAC as the box's Fiber section shows them; a backup
-processor's page does the same for the backup inputs. It also prints a strand map for each cable: every
-strand, the box and input it feeds, and the spares.
+there, flipped for a TAC as the box's Fiber section shows them. A backup
+processor is listed with its main, output by output: S1's trunk A onto
+an XD's X1, then S1 BU's trunk A onto its X2. The page also prints a
+strand map for each cable: every strand, the box and input it feeds,
+and the spares.
 
 A fiber type and length typed on a box in 1.3 stays on its Fiber section
 as a note, and the pull sheet prints it as before, until you pick a
