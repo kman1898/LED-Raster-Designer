@@ -1,14 +1,15 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
-v1.4.0 - September 25, 2026
+v1.4.0 - October 6, 2026
 ----------------------------
 
 The fiber to a breakout box is now a cable you pick, by the strand. A
 TAC or an MTP is shared by as many boxes as it feeds, an opticalCON DUO
-or QUAD belongs to one box, and the binder prints a strand map for every
-cable. A backup processor is now one switch on the main: name it and
-the app does the rest. An SX40's loops are set pair by pair, the
+or QUAD belongs to one box, and the binder prints each processor's
+fiber connections, a TAC's pair flipped at the box, and a strand map for
+every cable. A backup processor is now one switch on the main: name it
+and the app does the rest. An SX40's loops are set pair by pair, the
 Advanced Guide walks through the new steps, the power map's cable
 tags now sit by their circuit, and a Brompton SQ200 lays out with its
 QD-S units. Settings, Screens and the hardware tray now move to any edge
