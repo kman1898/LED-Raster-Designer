@@ -587,7 +587,8 @@ def test_the_fiber_section_builds_a_tac_through_new_tac(page):
     assert pg.evaluate('() => window.app.historyIndex') == index + 1
     sec = _section(pg, a)
     assert sec['rows'][0]['value'] == tac['id']
-    assert sec['rows'][0]['chips'] == ['1 Blue', '2 Orange'], sec
+    # strands 1-2, a TAC pair read as it plugs in at the box
+    assert sec['rows'][0]['chips'] == ['2 Orange', '1 Blue'], sec
     assert "TAC A · 24 · 1000' · ST" in sec['rows'][0]['options']
     assert ids['errors'] == []
 
@@ -622,7 +623,10 @@ def test_picking_the_tac_on_other_boxes_fills_the_next_free_strands(page):
     assert sec['bound'] == 'Set with BK1 on its sheet.', sec
     assert sec['rows'] == [], sec
     sec = _section(pg, b)
-    assert sec['rows'][0]['chips'] == ['3 Green', '4 Brown'], sec
+    # the box's sheet reads a TAC pair as it plugs in at the box: the pair
+    # crosses, so 3 Green · 4 Brown stored (the processor's order) reads
+    # 4 Brown · 3 Green here; each chip still edits its own strand
+    assert sec['rows'][0]['chips'] == ['4 Brown', '3 Green'], sec
     pg.locator(f'[data-lrd-field="fiber-strand-{b}-p1-0"]').click()
     pick = pg.locator(f'[data-lrd-field="fiber-strand-pick-{b}-p1-0"]')
     disabled = pick.evaluate("s => [...s.options].filter(o => o.disabled).map(o => o.value)")
@@ -631,7 +635,7 @@ def test_picking_the_tac_on_other_boxes_fills_the_next_free_strands(page):
     st = _wait(pg, lambda s: (_box_links(s, b) or {}).get('p1', {}).get('strands') == [13, 4])
     assert _box_links(st, b)['p1']['strands'] == [13, 4]
     sec = _section(pg, b)
-    assert sec['rows'][0]['chips'] == ['13 Blue/Black', '4 Brown'], sec
+    assert sec['rows'][0]['chips'] == ['4 Brown', '13 Blue/Black'], sec
     assert ids['errors'] == []
 
 

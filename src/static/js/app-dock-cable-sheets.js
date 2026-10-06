@@ -936,7 +936,16 @@ class _DockCableSheets {
                     const over = this.copperOverText(l.copper);
                     if (over) row.appendChild(text('hw-dock-fiber-warn', over));
                 } else if (l.cable) {
-                    (l.link.strands || []).forEach((st, i) =>
+                    // This is the box's sheet, so a TAC's pair reads the way
+                    // it plugs in here: the pair crosses between its ends, so
+                    // the 1 Blue · 2 Orange stored (the processor's order) is
+                    // 2 Orange · 1 Blue at the box - the binder's Fiber
+                    // connections AT THE INPUT. An MTP or opticalCON crosses
+                    // inside the cable and reads as stored. Each chip keeps
+                    // its own index, so a pick still edits its own strand.
+                    const order = (l.link.strands || []).map((st, i) => [st, i]);
+                    if (l.cable.kind === 'tac') order.reverse();
+                    order.forEach(([st, i]) =>
                         row.appendChild(this._dockBuildFiberStrandChip(m, l, st, i)));
                     button('Edit', `fiber-edit-${m.id}-${l.key}`,
                         `${l.cable.name}’s name, strand count, length, ends and `

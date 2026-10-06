@@ -40,10 +40,10 @@ length, however many boxes share it. On the binder's data and processor
 pages each box reads its inputs by name and says what each cable is the
 first time it appears: "X1 TAC A (TAC 8) 1-2 · X2 TAC A 3-4". The
 processor page prints its fiber connections, output by output: the
-cable, the strands in the order they plug in at the box, as set on its
-sheet, the same strands at the processor, flipped for a TAC, and the box
-input it lands on; a backup processor's page does the same for the
-backup inputs. It also prints a strand map for each cable: every
+cable, the strands in the order they plug in at the processor, the same
+strands at the box, flipped for a TAC as the box's Fiber section shows
+them, and the box input it lands on; a backup processor's page does the
+same for the backup inputs. It also prints a strand map for each cable: every
 strand, the box and input it feeds, and the spares.
 
 A fiber type and length typed on a box in 1.3 stays on its Fiber section

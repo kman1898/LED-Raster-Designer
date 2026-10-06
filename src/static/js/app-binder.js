@@ -5165,14 +5165,14 @@ class _Binder {
     // link it feeds), CABLE (its kind in brackets the first time this table
     // names it), the strands AT THE PROCESSOR, the strands AT THE INPUT, and
     // the INPUT itself (box · input) as the strand map writes a held strand.
-    // A link's strands are set on the box's own sheet, so their order there
-    // is the order at the box (Matt, 2026-10-06: "if i set to blue orange
-    // then on processor side it would be orange blue"):
-    //   * AT THE INPUT reads the strands as set; a TAC's duplex pair FLIPS
-    //     between its ends, so set 1 Blue · 2 Orange at the box is
-    //     2 Orange · 1 Blue AT THE PROCESSOR (a BiDi link's one strand is
-    //     the same at both);
-    //   * an MTP crosses inside the cable: both ends read the order as set,
+    // A link's strands are stored in the order they plug in at the
+    // processor - 1 Blue · 2 Orange as the app picks them:
+    //   * a TAC's duplex pair FLIPS between its ends, so AT THE INPUT reads
+    //     2 Orange · 1 Blue - the order the box's own Fiber section shows
+    //     (Matt, 2026-10-06: the XD shows Orange · Blue); a pair rearranged
+    //     on the box flips the processor side with it. A BiDi link's one
+    //     strand is the same at both;
+    //   * an MTP crosses inside the cable: both ends read the stored order,
     //     and the input says so; an opticalCON is one plug that crosses
     //     inside;
     //   * copper reads its run (fiberLinkSummary's words), no strands;
@@ -5194,7 +5194,7 @@ class _Binder {
         const typed = new Set();
         let linked = 0;
         const unused = (output) => ({ cells: [output, 'not used', '', '', ''] });
-        // the order the strands were set in on the box: the order at the box
+        // the stored order: the order at the processor
         const strands = (link) => [...new Set(((link && link.strands) || []).map(Number))]
             .filter(Number.isFinite);
         const swatched = (list, cable) => list.map(n => ({ text: this.fiberStrandName(n, cable),
@@ -5219,12 +5219,11 @@ class _Binder {
                 return { cells: [output, name, 'one plug', 'one plug, crosses inside', input] };
             }
             const set = strands(l.link);
+            const atProcessor = swatched(set, cable);
             const atInput = cable.kind === 'mtp'
                 ? swatched(set, cable).concat([{ text: 'crosses inside' }])
-                : swatched(set, cable);
-            const atProcessor = cable.kind === 'tac'
-                ? swatched(set.slice().reverse(), cable)
-                : swatched(set, cable);
+                : cable.kind === 'tac' ? swatched(set.slice().reverse(), cable)
+                    : swatched(set, cable);
             return { cells: [output, name, joined(atProcessor), joined(atInput), input],
                      parts: { 2: atProcessor, 3: atInput } };
         };
