@@ -905,7 +905,8 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
     overflow: hidden;
 }
 #preferences-modal .pm-modal > h2 { margin: 0; padding: 9px 14px; font-size: 15px; }
-#preferences-modal .pm-tabstrip {
+#preferences-modal .pm-tabstrip,
+#license-modal .pm-tabstrip {
     display: flex;
     align-items: flex-end;
     gap: 0;
@@ -915,7 +916,8 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
     border-bottom: 1px solid #131313;
     flex: none;
 }
-#preferences-modal .pm-tabstrip .view-tab { font-size: 12px; }
+#preferences-modal .pm-tabstrip .view-tab,
+#license-modal .pm-tabstrip .view-tab { font-size: 12px; }
 /* one body height - the tallest tab's (Look, since issue 28 gave it the
    colour defaults; Binder before) - so the dialog never resizes as the
    tabs change */

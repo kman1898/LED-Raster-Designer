@@ -1,4 +1,4 @@
-# LED Raster Designer v1.4.0
+# LED Raster Designer v1.4.1
 
 A professional LED video wall layout designer for live events, concerts, and installations.
 
@@ -213,6 +213,16 @@ the matching `src/VERSION.txt` entry, never the auto-generated PR list alone, so
 the GitHub Releases page reads consistently. Internal test builds are produced via
 the workflow's manual dispatch and are **not** tagged, so the public release
 history has no gaps.
+
+---
+
+## License
+
+LED Raster Designer is free to use for any lawful purpose, including paid shows and productions, and anything you make with it is yours. It is licensed under the LED Raster Designer License, a source-available license; see [LICENSE](LICENSE) for the full terms.
+
+- You may not sell it, include it in paid software or a commercial product, or run it as a paid online service without a commercial license: contact kman1898@gmail.com.
+- Forks are shared free, under the same license, say "Based on LED Raster Designer", and use a different name.
+- Third-party components keep their own licenses; see [THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES).
 
 ---
 

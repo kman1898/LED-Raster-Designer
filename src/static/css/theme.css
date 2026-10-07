@@ -246,7 +246,7 @@ input[type="radio"] { accent-color:var(--ps-accent) !important; }
 .modal, .modal-overlay { background:rgba(0,0,0,0.55) !important; }
 .modal-content, .export-modal, .preferences-modal,
 #export-modal .modal-content, #preferences-modal .modal-content,
-#shortcuts-modal .modal-content, #logs-modal .modal-content,
+#shortcuts-modal .modal-content, #logs-modal .modal-content, #license-modal .modal-content,
 #preset-picker-modal .modal-content, #preset-save-modal .modal-content {
   background:var(--ps-panel) !important; border:1px solid var(--ps-dark) !important; border-radius:4px !important;
   box-shadow:0 12px 44px rgba(0,0,0,0.6), inset 0 1px 0 #3f3f3f !important; color:var(--ps-text) !important; }

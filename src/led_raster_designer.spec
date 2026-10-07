@@ -31,6 +31,8 @@ a = Analysis(
         ('templates', 'templates'),
         ('static', 'static'),
         ('VERSION.txt', '.'),
+        (os.path.join('..', 'LICENSE'), '.'),  # repo-root LICENSE, served by /api/license (Help > License)
+        (os.path.join('..', 'THIRD-PARTY-NOTICES'), '.'),  # served by /api/third-party-notices (Help > License)
         ('launcher_window.html', '.'),  # splash/control window UI
         (certifi.where(), 'certifi'),
     ] + collect_data_files('webview'),  # pywebview bridge/runtime data files
@@ -108,8 +110,8 @@ if IS_MAC:
         info_plist={
             'CFBundleName': 'LED Raster Designer',
             'CFBundleDisplayName': 'LED Raster Designer',
-            'CFBundleShortVersionString': '1.4.0',
-            'CFBundleVersion': '1.4.0',
+            'CFBundleShortVersionString': '1.4.1',
+            'CFBundleVersion': '1.4.1',
             'NSHighResolutionCapable': True,
             # Menu-bar app, no Dock icon (same as the pre-window launcher):
             # the launcher window hides to the menu-bar status item, which is

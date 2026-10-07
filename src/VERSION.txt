@@ -1,6 +1,19 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v1.4.1 - October 7, 2026
+----------------------------
+
+- NEW: LED Raster Designer has a license, the LED Raster Designer
+  License. It is free to use for any lawful purpose, including paid
+  shows and productions, and everything you make with it is yours.
+  Selling it, including it in paid software or a commercial product, or
+  running it as a paid online service needs a commercial license
+  (kman1898@gmail.com). Forks are shared free, under the same license,
+  and use a different name. Help > License shows the full text.
+- NEW: Help > License has a Third-party notices tab listing the
+  open-source components the app includes and their licenses.
+
 v1.4.0 - October 6, 2026
 ----------------------------
 

@@ -480,6 +480,9 @@ class _MenuBar {
             case 'show-logs':
                 this.openLogsModal();
                 break;
+            case 'license':
+                this.openLicenseModal();
+                break;
             case 'about':
                 this.openAboutModal();
                 break;
@@ -556,6 +559,86 @@ class _MenuBar {
         }
         modal.onclick = function(e) {
             if (e.target === modal) modal.style.display = 'none';
+        };
+    }
+
+    // Help > License: two tabs over one text panel - License (GET
+    // /api/license) and Third-party notices (GET /api/third-party-notices),
+    // both offline: the server reads the bundled files. Each tab's text is
+    // fetched once and cached; a failed fetch is not cached, so the next
+    // visit to that tab tries again. Every open starts on License.
+    openLicenseModal() {
+        var modal = document.getElementById('license-modal');
+        if (!modal) return;
+        var self = this;
+        var contentEl = document.getElementById('license-content');
+        var tabs = modal.querySelectorAll('.pm-tabstrip .view-tab');
+        var sources = {
+            license: { url: '/api/license',
+                       missing: 'The license file is missing from this build.' },
+            notices: { url: '/api/third-party-notices',
+                       missing: 'The third-party notices are missing from this build.' }
+        };
+        if (!this._licenseTexts) this._licenseTexts = {};
+        if (!this._licensePending) this._licensePending = {};
+        var show = function(key) {
+            self._licenseTab = key;
+            tabs.forEach(function(t) {
+                var on = t.dataset.key === key;
+                t.classList.toggle('active', on);
+                t.setAttribute('aria-selected', on ? 'true' : 'false');
+            });
+            if (!contentEl) return;
+            contentEl.scrollTop = 0;
+            if (self._licenseTexts[key]) {
+                contentEl.textContent = self._licenseTexts[key];
+                return;
+            }
+            contentEl.textContent = 'Loading…';
+            if (self._licensePending[key]) return;
+            var src = sources[key];
+            self._licensePending[key] = fetch(src.url)
+                .then(function(r) {
+                    if (!r.ok) throw new Error(key + ' ' + r.status);
+                    return r.text();
+                })
+                .then(function(text) {
+                    self._licenseTexts[key] = text;
+                    if (self._licenseTab === key) {
+                        contentEl.textContent = text;
+                        contentEl.scrollTop = 0;
+                    }
+                })
+                .catch(function() {
+                    if (self._licenseTab === key) contentEl.textContent = src.missing;
+                })
+                .then(function() { self._licensePending[key] = null; });
+        };
+        tabs.forEach(function(t) {
+            t.onclick = function() { show(t.dataset.key); };
+        });
+        show('license');
+        var close = function() {
+            modal.style.display = 'none';
+            document.removeEventListener('keydown', onKey, true);
+        };
+        var onKey = function(e) {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                e.stopPropagation();
+                close();
+            }
+        };
+        modal.style.display = 'block';
+        document.removeEventListener('keydown', this._licenseOnKey || onKey, true);
+        this._licenseOnKey = onKey;
+        document.addEventListener('keydown', onKey, true);
+        var closeBtn = document.getElementById('license-close');
+        if (closeBtn) {
+            closeBtn.onclick = close;
+        }
+        modal.onclick = function(e) {
+            if (e.target === modal) close();
         };
     }
 }
