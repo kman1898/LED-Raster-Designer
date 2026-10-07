@@ -1049,6 +1049,22 @@ class _HardwareDock {
                 title: proc.name || proc.deviceName,
             }, `processor-${proc.id}`);
             wrap.appendChild(title);
+            // A show already past this processor's canvas (an old file, an
+            // edit made before the rule): never changed, flagged here in
+            // the red the tray's other errors wear - the server's sentence
+            // (port_assignment.canvas_spans).
+            const span = ((this._assignment && this._assignment.canvas) || {})[proc.id];
+            if (span && !span.fits && span.message) {
+                const warn = document.createElement('div');
+                warn.className = 'hw-dock-proc-canvas';
+                warn.dataset.lrdField = `processor-canvas-${proc.id}`;
+                warn.style.fontSize = '11px';
+                warn.style.color = '#d05a52';
+                warn.style.lineHeight = '1.4';
+                warn.style.margin = '2px 6px 4px';
+                warn.textContent = span.message;
+                wrap.appendChild(warn);
+            }
             (proc.slots || []).forEach(slot => {
                 if (!slot.card) return;
                 const unit = this._dockBuildCard(proc, slot.card);

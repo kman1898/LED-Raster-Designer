@@ -13,6 +13,13 @@ v1.4.1 - October 7, 2026
   and use a different name. Help > License shows the full text.
 - NEW: Help > License has a Third-party notices tab listing the
   open-source components the app includes and their licenses.
+- NEW: A Brompton processor is held to the canvas Brompton publishes
+  for it. An SX40 or S8 maps up to 4096 x 2160, or a custom canvas up
+  to 4094 wide and 4095 tall within 9 million pixels (2047 tall with
+  low latency); an M2, S4 or T1 1920 x 1080 or one of its fixed sizes;
+  an SQ200 up to 65,535 px wide or tall. Mapping or resizing a screen
+  past its processor's canvas is refused, with the reason, and a show
+  already past it is flagged on the processor.
 
 v1.4.0 - October 6, 2026
 ----------------------------

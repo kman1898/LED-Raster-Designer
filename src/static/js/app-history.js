@@ -34,6 +34,10 @@ class _History {
         // then (e.g. a debounced picker commit flushing during setup) rather than
         // throwing on this.history.length and aborting the caller mid-setup.
         if (!Array.isArray(this.history)) return;
+        // A layer edit the canvas guard just refused put the screens back;
+        // the caller's own step in the same task has nothing to record
+        // (app-port-assignment _canvasGuardEdit).
+        if (this._canvasRefusedEdit) return;
         // v0.10.5: a debounced snapshot still waiting to fire must land BEFORE
         // this one, or history ends up out of order (and the pending timer
         // would later snapshot a state that already includes this action).

@@ -89,6 +89,19 @@ class _PortAssignment {
         // its per-port pixels and the settings its capacity is read at;
         // everywhere else the payload is what it always was.
         const capped = this._linkCapsInPlay();
+        // THE CANVAS (a Brompton processor's - port_assignment.
+        // canvas_refusal) is held off the Pixel Map rect each port's
+        // cabinets cover, so where any processor has one every screen sends
+        // its portRects (and its ULL, which lowers an SX40's canvas).
+        const canvas = this._canvasInPlay();
+        let owners = null;
+        const ownerOf = (panel) => {
+            if (!owners) {
+                owners = new Map();
+                layers.forEach(l => (l.panels || []).forEach(p => owners.set(p, l)));
+            }
+            return owners.get(panel);
+        };
         return layers
             .filter(l => (l.type || 'screen') === 'screen')
             .map(l => {
@@ -108,6 +121,9 @@ class _PortAssignment {
                 };
                 if (capped && ports > 0) {
                     Object.assign(scr, this._linkCapFields(l, ports));
+                }
+                if (canvas && ports > 0) {
+                    Object.assign(scr, this._canvasFields(l, ports, ownerOf));
                 }
                 return scr;
             })
@@ -155,7 +171,10 @@ class _PortAssignment {
     // one, the server is asked first (/link-check) with the screens as they
     // are and as they would be, and says why where it refuses.
     _guardLinkCaps(apply, revert, commit) {
-        if (!this._linkCapsInPlay()) {
+        // The same question is asked of a processor's CANVAS: ULL lowers
+        // an SX40's canvas height, and the port runs move with the bit
+        // depth (port_assignment.canvas_refusal, on /link-check too).
+        if (!this._linkCapsInPlay() && !this._canvasInPlay()) {
             apply();
             commit();
             return Promise.resolve(true);
@@ -233,7 +252,8 @@ class _PortAssignment {
                     this.renderPortAssignmentPanel();
                     // A link-cap refusal also speaks where the drop was
                     // made: nothing landed, and the strip may be folded.
-                    if (data.linkCap && typeof this._dockSay === 'function') {
+                    if ((data.linkCap || data.canvas)
+                            && typeof this._dockSay === 'function') {
                         this._dockSay(data.error);
                     }
                     return;
@@ -292,6 +312,9 @@ class _PortAssignment {
     // reads to say which screen is sitting on each of its ports. All three
     // move together or the app shows three different answers at once.
     _applyAssignmentResolution() {
+        // A quiet point: the edit guard's base meets a replaced project or
+        // a screen it has not seen.
+        if (typeof this._canvasKeepBase === 'function') this._canvasKeepBase();
         this._indexAssignmentLabels();
         this.renderPortAssignmentPanel();
         // The Processors panel only needs redrawing when what is ON its ports
@@ -553,6 +576,467 @@ class _PortAssignment {
         return { taken,
                  of: summary.capacityKnown && summary.capacity > 0
                      ? summary.capacity : null };
+    }
+
+    // ── THE PROCESSING CANVAS ─────────────────────────────────────────────
+    //
+    // A Brompton processor maps every screen it drives into one canvas, and
+    // all of it has to fit (owner, 2026-10-07: "refuse" / "throw an error
+    // and not allow it"). A processor's SPAN is the bounding box, in Pixel
+    // Map pixels, of every visible cabinet riding one of its pinned ports.
+    // The server holds a MAPPING to the canvas (port_assignment.
+    // canvas_refusal) off the rect each port covers, which only the port
+    // maths here knows - so where a canvas is in play every screen sends
+    // its portRects. A layer EDIT (columns, rows, cabinet size, a move,
+    // rotation, half tiles, showing cabinets) is held here, in
+    // _canvasGuardEdit, because it has to be refused before the screen's
+    // PUT and its undo step: canvasFit below is the client twin of
+    // processor_catalog.canvas_fit, and tests/test_brompton_canvas.py
+    // holds the two to one table.
+
+    // Whether any processor in the tray publishes a canvas.
+    _canvasInPlay() {
+        return (this._processorsResolved || []).some(p => p && p.canvas);
+    }
+
+    // One screen's canvas fields: the Pixel Map rect each port's visible
+    // cabinets cover ([x0, y0, x1, y1], null for none; index 0 = port 1),
+    // read off the same run gathering the chip fill uses (_dockRunPanels -
+    // group peers' cabinets included), and the ULL setting the canvas is
+    // read at. A rotated screen's cabinets are taken where they are drawn.
+    _canvasFields(layer, ports, ownerOf) {
+        const rects = [];
+        for (let n = 1; n <= ports; n++) {
+            const panels = typeof this._dockRunPanels === 'function'
+                ? this._dockRunPanels(layer, n) : [];
+            let box = null;
+            panels.forEach(panel => {
+                if (!panel || panel.hidden || panel.blank) return;
+                const r = this._canvasPanelRect(ownerOf(panel) || layer, panel);
+                if (!r || !(r.x1 > r.x0) || !(r.y1 > r.y0)) return;
+                box = box ? [Math.min(box[0], r.x0), Math.min(box[1], r.y0),
+                             Math.max(box[2], r.x1), Math.max(box[3], r.y1)]
+                    : [r.x0, r.y0, r.x1, r.y1];
+            });
+            rects.push(box);
+        }
+        return { portRects: rects, lowLatency: !!layer.lowLatency };
+    }
+
+    // A cabinet's Pixel Map rect, turned with its screen's rotation the way
+    // the renderer draws it (canvas.js _drawnPanelRect) but never shifted
+    // by a Show Look offset - the canvas is the processor's map.
+    _canvasPanelRect(layer, panel) {
+        const r = window.canvasRenderer;
+        const w = Number(panel.width) || 0;
+        const h = Number(panel.height) || 0;
+        let x = Number(panel.x) || 0;
+        let y = Number(panel.y) || 0;
+        let fw = w, fh = h;
+        if (r && typeof r._layerDrawFrame === 'function') {
+            const frame = r._layerDrawFrame(layer);
+            if (frame && frame.rot) {
+                const c = r._drawnPoint(frame, x + w / 2, y + h / 2);
+                fw = frame.swap ? h : w;
+                fh = frame.swap ? w : h;
+                x = c.x - fw / 2;
+                y = c.y - fh / 2;
+            }
+        }
+        return { x0: x, y0: y, x1: x + fw, y1: y + fh };
+    }
+
+    // processor_catalog.canvas_extent's twin: a span edge in whole pixels.
+    canvasExtent(value) {
+        return Math.ceil((Number(value) || 0) - 1e-6);
+    }
+
+    // processor_catalog.canvas_fits's twin.
+    canvasFits(spec, width, height, ull) {
+        const w = this.canvasExtent(width);
+        const h = this.canvasExtent(height);
+        if (w <= 0 || h <= 0 || !spec) return true;
+        const ullRule = ull ? spec.ull : null;
+        if (!(ullRule && ullRule.presets === false)) {
+            if ((spec.presets || []).some(([pw, ph]) => w <= pw && h <= ph)) return true;
+        }
+        const custom = spec.custom;
+        if (custom) {
+            const cw = custom.evenWidth ? w + (w % 2) : w;
+            let maxH = custom.maxH;
+            if (ullRule && ullRule.maxH != null) maxH = ullRule.maxH;
+            return cw <= (custom.maxW || 0) && h <= (maxH || 0)
+                && cw * h <= (custom.maxPixels || 0);
+        }
+        if (spec.maxW != null || spec.maxH != null) {
+            return w <= (spec.maxW || 0) && h <= (spec.maxH || 0);
+        }
+        return false;
+    }
+
+    // processor_catalog.canvas_limit_text's twin.
+    canvasLimitText(spec, ull) {
+        const says = spec.says || 'This processor';
+        const num = n => Number(n).toLocaleString('en-US');
+        const custom = spec.custom;
+        const ullRule = ull ? spec.ull : null;
+        const sizes = (spec.presets || []).map(([pw, ph]) => `${pw} × ${ph}`);
+        if (custom) {
+            if (ullRule) {
+                const maxH = ullRule.maxH != null ? ullRule.maxH : custom.maxH;
+                const lead = says[0].toLowerCase() + says.slice(1);
+                return `With low latency on, ${lead}'s canvas is up to `
+                    + `${custom.maxW} wide and ${maxH} tall within `
+                    + `${num(custom.maxPixels)} px.`;
+            }
+            const head = sizes.length ? `${sizes[0]}, or ` : '';
+            return `${says}'s canvas is ${head}up to ${custom.maxW} wide and `
+                + `${custom.maxH} tall within ${num(custom.maxPixels)} px.`;
+        }
+        if (sizes.length) {
+            const listed = sizes.length === 1 ? sizes[0]
+                : `${sizes.slice(0, -1).join(', ')} or ${sizes[sizes.length - 1]}`;
+            return `${says}'s canvas is ${listed}.`;
+        }
+        if (spec.maxW === spec.maxH) {
+            return `${says}'s canvas is up to ${num(spec.maxW)} px wide or tall.`;
+        }
+        return `${says}'s canvas is up to ${num(spec.maxW)} px wide and `
+            + `${num(spec.maxH)} px tall.`;
+    }
+
+    // processor_catalog.canvas_fit's twin, on the device's canvas record:
+    // null where the span fits, else the sentence that refuses it.
+    canvasFit(spec, width, height, ull, title, present) {
+        if (!spec || this.canvasFits(spec, width, height, ull)) return null;
+        const verb = present ? 'span' : 'would span';
+        return `${title || 'This processor'} can't take this: its screens `
+            + `${verb} ${this.canvasExtent(width)} × ${this.canvasExtent(height)} px. `
+            + this.canvasLimitText(spec, ull);
+    }
+
+    // port_assignment.canvas_spans's twin, over the screens as
+    // _assignmentScreens sends them and the project's pins.
+    _canvasSpans(screens) {
+        const byLayer = new Map((screens || []).map(s => [String(s.layerId), s]));
+        const procOf = new Map();
+        (this._processorsResolved || []).forEach(p => (p.slots || []).forEach(s => {
+            if (s && s.card) procOf.set(s.card.id, p);
+        }));
+        const pins = ((this.project && this.project.port_assignments) || {}).pins || [];
+        const recs = new Map();
+        pins.forEach(pin => {
+            const proc = procOf.get(String(pin.cardId));
+            const scr = byLayer.get(String(pin.layerId));
+            if (!proc || !scr || !Array.isArray(scr.portRects)) return;
+            const rec = recs.get(proc.id) || { box: null, ull: false };
+            recs.set(proc.id, rec);
+            if (scr.lowLatency) rec.ull = true;
+            const r = scr.portRects[Number(pin.index)];
+            if (!r) return;
+            rec.box = rec.box ? [Math.min(rec.box[0], r[0]), Math.min(rec.box[1], r[1]),
+                                 Math.max(rec.box[2], r[2]), Math.max(rec.box[3], r[3])]
+                : r.slice();
+        });
+        const out = new Map();
+        (this._processorsResolved || []).forEach(p => {
+            const rec = recs.get(p.id);
+            if (!rec || !rec.box || !p.canvas) return;
+            const model = p.deviceName || p.deviceId || 'Processor';
+            const name = (p.name || '').trim();
+            const title = name && name !== model ? `${model} ${name}` : model;
+            const width = this.canvasExtent(rec.box[2] - rec.box[0]);
+            const height = this.canvasExtent(rec.box[3] - rec.box[1]);
+            out.set(p.id, { proc: p, title, width, height, ull: rec.ull,
+                            fits: this.canvasFits(p.canvas, width, height, rec.ull) });
+        });
+        return out;
+    }
+
+    // port_assignment.canvas_refusal's twin: refused where a processor
+    // ends up past its canvas AND worse than it was.
+    _canvasRefusalBetween(before, after) {
+        for (const [id, rec] of after) {
+            if (rec.fits) continue;
+            const was = before.get(id);
+            if (was && !was.fits && rec.width <= was.width && rec.height <= was.height
+                    && (was.ull || !rec.ull)) continue;
+            return this.canvasFit(rec.proc.canvas, rec.width, rec.height, rec.ull, rec.title);
+        }
+        return null;
+    }
+
+    // ── the edit guard ────────────────────────────────────────────────────
+    //
+    // Layer edits are made on the live layer first and PUT after (the
+    // drag, the Screen Info fields, rotation, a half tile), and the server
+    // rebuilds the panels from the grid. So the guard keeps a BASE - every
+    // screen's geometry as last accepted - and at the commit compares:
+    // a screen whose geometry moved has its spans measured before (the
+    // base) and after (its fields now, the panels rebuilt the way the
+    // server will rebuild them), both on the live objects for one
+    // synchronous moment. Refused, the base goes back onto the screen and
+    // nothing is PUT or recorded.
+
+    _canvasGeomKeys() {
+        return ['columns', 'rows', 'cabinet_width', 'cabinet_height',
+                'offset_x', 'offset_y', 'showOffsetX', 'showOffsetY',
+                'rotation', 'flowPattern', 'portMappingMode',
+                'customPortPaths', 'customPortOverrides', 'sizeByDimensions',
+                'targetWidth', 'targetHeight', 'targetUnit', 'panels'];
+    }
+
+    // What decides where a screen's cabinets sit and which port each
+    // rides - compared, never stored on the layer.
+    _canvasGeomRecord(layer) {
+        return JSON.stringify([
+            layer.columns, layer.rows, layer.cabinet_width, layer.cabinet_height,
+            layer.offset_x, layer.offset_y, Number(layer.rotation) || 0,
+            layer.flowPattern || null, layer.portMappingMode || null,
+            layer.customPortPaths || null, layer.customPortOverrides || null,
+            (layer.panels || []).map(p => [p.row, p.col, !!p.hidden, !!p.blank,
+                                           p.halfTile || 'none']),
+        ]);
+    }
+
+    _canvasFieldsOf(layer) {
+        const out = {};
+        this._canvasGeomKeys().forEach(k => {
+            out[k] = layer[k] === undefined ? undefined
+                : JSON.parse(JSON.stringify(layer[k]));
+        });
+        return out;
+    }
+
+    _canvasScreenLayers() {
+        return ((this.project && this.project.layers) || [])
+            .filter(l => l && (l.type || 'screen') === 'screen');
+    }
+
+    // The accepted geometry, every screen.
+    _canvasTakeBase() {
+        const layers = new Map();
+        this._canvasScreenLayers().forEach(l => layers.set(l.id, {
+            rec: this._canvasGeomRecord(l), fields: this._canvasFieldsOf(l) }));
+        this._canvasBase = { project: this.project, layers };
+    }
+
+    // The geometry the last undo step recorded, by screen id - the base
+    // where the guard's own has not met this project (an undo, a load or
+    // a repaired restore swapped it in between quiet points) or this
+    // screen. The step is the state before the edit being guarded: every
+    // geometry commit records its step after its PUT.
+    _canvasHistoryLayers() {
+        const out = new Map();
+        const entry = Array.isArray(this.history) ? this.history[this.historyIndex] : null;
+        const layers = ((entry && entry.project && entry.project.layers) || [])
+            .filter(l => l && (l.type || 'screen') === 'screen');
+        // A step from ANOTHER project (one swapped in before its history
+        // was reset) is no base: its screens are not these, even where
+        // their ids collide. The screens must be the same set.
+        const ids = (list) => JSON.stringify(list.map(l => l.id).sort());
+        if (ids(layers) !== ids(this._canvasScreenLayers())) return out;
+        layers.forEach(l => {
+            out.set(l.id, { rec: this._canvasGeomRecord(l), fields: this._canvasFieldsOf(l) });
+        });
+        return out;
+    }
+
+    // At a quiet point (updateUI, a landed resolution): a replaced project
+    // (load, undo, redo) is taken whole; a screen the base has not met yet
+    // is added as it stands.
+    _canvasKeepBase() {
+        if (!this._canvasInPlay()) {
+            this._canvasBase = null;
+            return;
+        }
+        const base = this._canvasBase;
+        if (!base || base.project !== this.project) {
+            this._canvasTakeBase();
+            return;
+        }
+        this._canvasScreenLayers().forEach(l => {
+            if (!base.layers.has(l.id)) {
+                base.layers.set(l.id, { rec: this._canvasGeomRecord(l),
+                                        fields: this._canvasFieldsOf(l) });
+            }
+        });
+    }
+
+    // app.py _build_panels's twin: the panels the server builds from a
+    // screen's grid, keeping each cabinet's hidden/blank/half-tile state by
+    // its row and column.
+    _canvasBuildPanels(layer) {
+        const rows = parseInt(layer.rows, 10) || 0;
+        const cols = parseInt(layer.columns, 10) || 0;
+        const ox = Number(layer.offset_x) || 0;
+        const oy = Number(layer.offset_y) || 0;
+        const cw = Number(layer.cabinet_width) || 0;
+        const ch = Number(layer.cabinet_height) || 0;
+        const states = new Map();
+        (layer.panels || []).forEach(p => {
+            if (p) states.set(`${p.row || 0},${p.col || 0}`, p);
+        });
+        const st = (r, c) => states.get(`${r},${c}`) || {};
+        const half = (r, c) => {
+            const h = st(r, c).halfTile;
+            return h === 'width' || h === 'height' ? h : 'none';
+        };
+        const pw = (r, c) => (half(r, c) === 'width' ? cw / 2 : cw);
+        const ph = (r, c) => (half(r, c) === 'height' ? ch / 2 : ch);
+        const colW = [];
+        for (let c = 0; c < cols; c++) {
+            let m = rows ? -Infinity : cw;
+            for (let r = 0; r < rows; r++) m = Math.max(m, pw(r, c));
+            colW.push(m);
+        }
+        const rowH = [];
+        for (let r = 0; r < rows; r++) {
+            let m = cols ? -Infinity : ch;
+            for (let c = 0; c < cols; c++) m = Math.max(m, ph(r, c));
+            rowH.push(m);
+        }
+        const colX = [];
+        let xc = ox;
+        for (let c = 0; c < cols; c++) { colX.push(xc); xc += colW[c]; }
+        const rowY = [];
+        let yc = oy;
+        for (let r = 0; r < rows; r++) { rowY.push(yc); yc += rowH[r]; }
+        const visible = (r, c) => r >= 0 && r < rows && c >= 0 && c < cols
+            && !st(r, c).hidden;
+        const panels = [];
+        let num = 1;
+        for (let r = 0; r < rows; r++) {
+            for (let c = 0; c < cols; c++) {
+                const s = st(r, c);
+                const ht = half(r, c);
+                const w = pw(r, c);
+                const h = ph(r, c);
+                let x = colX[c];
+                let y = rowY[r];
+                if (ht === 'height' && h < rowH[r]) {
+                    if (!visible(r - 1, c) && visible(r + 1, c)) y = rowY[r] + (rowH[r] - h);
+                } else if (ht === 'width' && w < colW[c]) {
+                    if (!visible(r, c - 1) && visible(r, c + 1)) x = colX[c] + (colW[c] - w);
+                }
+                panels.push({ id: num, number: num, row: r, col: c, x, y,
+                              width: w, height: h, blank: !!s.blank,
+                              hidden: !!s.hidden, halfTile: ht,
+                              is_color1: (r + c) % 2 === 0 });
+                num++;
+            }
+        }
+        return panels;
+    }
+
+    // Every canvas processor's span with `overrides` (layer id -> fields)
+    // written onto those screens - their panels rebuilt from them - for the
+    // length of the measurement, then put back exactly as they were.
+    _canvasSpansWith(overrides) {
+        const keys = this._canvasGeomKeys();
+        const saved = [];
+        const layers = this._canvasScreenLayers();
+        try {
+            layers.forEach(l => {
+                const fields = overrides.get(l.id);
+                if (!fields) return;
+                const had = {};
+                keys.forEach(k => {
+                    had[k] = [Object.prototype.hasOwnProperty.call(l, k), l[k]];
+                });
+                saved.push([l, had]);
+                keys.forEach(k => {
+                    if (fields[k] === undefined) delete l[k];
+                    else l[k] = JSON.parse(JSON.stringify(fields[k]));
+                });
+                l.panels = this._canvasBuildPanels(l);
+            });
+            this._dockRunPanelsCache = null;
+            return this._canvasSpans(this._assignmentScreens());
+        } finally {
+            saved.forEach(([l, had]) => keys.forEach(k => {
+                if (had[k][0]) l[k] = had[k][1];
+                else delete l[k];
+            }));
+            this._dockRunPanelsCache = null;
+        }
+    }
+
+    // THE EDIT GUARD. Called at every layer commit (updateLayers,
+    // updateLayer, the cabinet hide/half-tile gestures) after the edit is
+    // on the live layers and before anything is sent or recorded. True =
+    // go ahead (the base moves to this state); false = refused: the
+    // screens are back as they were, the reason is said, and the caller
+    // stops. A screen no canvas processor drives never changes a span,
+    // so it is never refused.
+    _canvasGuardEdit() {
+        if (!this._canvasInPlay()) {
+            this._canvasBase = null;
+            return true;
+        }
+        let base = this._canvasBase;
+        if (!base || base.project !== this.project) {
+            base = { project: this.project, layers: this._canvasHistoryLayers() };
+            this._canvasBase = base;
+        }
+        let history = null;
+        const changed = [];
+        this._canvasScreenLayers().forEach(l => {
+            let was = base.layers.get(l.id);
+            if (!was) {
+                if (!history) history = this._canvasHistoryLayers();
+                was = history.get(l.id);
+            }
+            if (was && was.rec !== this._canvasGeomRecord(l)) changed.push([l, was]);
+        });
+        if (!changed.length) {
+            this._canvasKeepBase();
+            return true;
+        }
+        let why = null;
+        try {
+            const before = this._canvasSpansWith(
+                new Map(changed.map(([l, was]) => [l.id, was.fields])));
+            const after = this._canvasSpansWith(
+                new Map(changed.map(([l]) => [l.id, this._canvasFieldsOf(l)])));
+            why = this._canvasRefusalBetween(before, after);
+        } catch (err) {
+            sendClientLog('canvas_guard_failed', { error: String(err) });
+            why = null;
+        }
+        if (!why) {
+            this._canvasTakeBase();
+            return true;
+        }
+        // Refused: every moved screen goes back to the base.
+        changed.forEach(([l, was]) => {
+            this._canvasGeomKeys().forEach(k => {
+                if (was.fields[k] === undefined) delete l[k];
+                else l[k] = JSON.parse(JSON.stringify(was.fields[k]));
+            });
+            // The base may hold panels taken before the server's rebuild
+            // landed; built from its grid they are the server's own.
+            l.panels = this._canvasBuildPanels(l);
+        });
+        this._dockRunPanelsCache = null;
+        if (this._pendingGroupPeerIds) this._pendingGroupPeerIds.clear();
+        // The caller's own undo step in this same task (a drag's, Screen
+        // Info's) would record the restored state as a step of its own.
+        this._canvasRefusedEdit = true;
+        Promise.resolve().then(() => { this._canvasRefusedEdit = false; });
+        this._assignmentError = why;
+        this._assignmentNote = null;
+        if (typeof this.renderPortAssignmentPanel === 'function') {
+            this.renderPortAssignmentPanel();
+        }
+        if (typeof this._dockSay === 'function') this._dockSay(why);
+        if (typeof this.loadLayerToInputs === 'function' && this.currentLayer) {
+            try { this.loadLayerToInputs(); } catch (_) { /* inputs only */ }
+        }
+        if (window.canvasRenderer) window.canvasRenderer.render();
+        sendClientLog('canvas_edit_refused', {
+            error: why, layers: changed.map(([l]) => l.id) });
+        return false;
     }
 }
 

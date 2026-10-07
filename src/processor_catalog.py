@@ -237,6 +237,104 @@ def port_capacity(device_id, mode=None, redundancy=False):
     return {'count': count, 'known': True, 'mode': chosen_id, 'reason': ''}
 
 
+# ── The processing canvas ─────────────────────────────────────────────────
+#
+# A Brompton processor maps its screens into ONE processing canvas, and
+# everything it drives has to fit inside it (owner, 2026-10-07, on
+# Brompton's own figures - each device's `canvas` in the catalog carries
+# the page and the words). THE FIT IS DECIDED HERE AND NOWHERE ELSE on the
+# server; app-port-assignment.js canvasFit is its twin for the client's edit
+# guard, held to this one by tests/test_brompton_canvas.py.
+#
+# Three shapes, by what Brompton publishes:
+#   * SX40 / S8 - a preset (4K DCI) OR a custom canvas: width rounded up
+#     to even, within maxW x maxH and maxPixels. Ultra Low Latency takes
+#     the presets away and lowers the height limit (`ull`).
+#   * M2 / S4 / T1 - fixed canvases only (`presets`, no `custom`).
+#   * SQ200 - up to maxW wide and maxH tall.
+
+def canvas_spec(device):
+    """The device's canvas record, or None where the catalog holds none
+    (every processor this rule is not documented for)."""
+    spec = (device or {}).get('canvas')
+    return spec if isinstance(spec, dict) else None
+
+
+def canvas_extent(value):
+    """A span edge in whole pixels. Half tiles can leave a .5 edge; the
+    canvas has to hold the whole pixel, so it rounds up (a hair of float
+    noise never adds one)."""
+    return int(math.ceil(float(value or 0) - 1e-6))
+
+
+def canvas_fits(spec, width, height, ull=False):
+    """Does a span of width x height px fit this canvas record?"""
+    w, h = canvas_extent(width), canvas_extent(height)
+    if w <= 0 or h <= 0:
+        return True
+    if not spec:
+        return True
+    ull_rule = spec.get('ull') if ull else None
+    presets = spec.get('presets') or []
+    if not (ull_rule and ull_rule.get('presets') is False):
+        if any(w <= pw and h <= ph for pw, ph in presets):
+            return True
+    custom = spec.get('custom')
+    if custom:
+        cw = w + (w % 2) if custom.get('evenWidth') else w
+        max_h = custom.get('maxH')
+        if ull_rule and ull_rule.get('maxH') is not None:
+            max_h = ull_rule['maxH']
+        return (cw <= custom.get('maxW', 0) and h <= (max_h or 0)
+                and cw * h <= custom.get('maxPixels', 0))
+    if spec.get('maxW') is not None or spec.get('maxH') is not None:
+        return w <= spec.get('maxW', 0) and h <= spec.get('maxH', 0)
+    return False
+
+
+def canvas_limit_text(spec, ull=False):
+    """The canvas said in one sentence - "An SX40's canvas is 4096 × 2160,
+    or up to 4094 wide and 4095 tall within 9,000,000 px." """
+    says = spec.get('says') or 'This processor'
+    custom = spec.get('custom')
+    ull_rule = spec.get('ull') if ull else None
+    sizes = [f'{pw} × {ph}' for pw, ph in spec.get('presets') or []]
+    if custom:
+        if ull_rule:
+            max_h = ull_rule.get('maxH', custom.get('maxH'))
+            lead = says[0].lower() + says[1:]
+            return (f'With low latency on, {lead}\'s canvas is up to '
+                    f'{custom["maxW"]} wide and {max_h} tall within '
+                    f'{custom["maxPixels"]:,} px.')
+        head = f'{sizes[0]}, or ' if sizes else ''
+        return (f'{says}\'s canvas is {head}up to {custom["maxW"]} wide and '
+                f'{custom["maxH"]} tall within {custom["maxPixels"]:,} px.')
+    if sizes:
+        listed = sizes[0] if len(sizes) == 1 \
+            else ', '.join(sizes[:-1]) + ' or ' + sizes[-1]
+        return f'{says}\'s canvas is {listed}.'
+    if spec.get('maxW') == spec.get('maxH'):
+        return f'{says}\'s canvas is up to {spec["maxW"]:,} px wide or tall.'
+    return (f'{says}\'s canvas is up to {spec["maxW"]:,} px wide and '
+            f'{spec["maxH"]:,} px tall.')
+
+
+def canvas_fit(device, width, height, ull=False, title=None, present=False):
+    """None where a span of width x height px fits the device's canvas, else
+    the sentence that refuses it: "Tessera SX40 S1 can't take this: its
+    screens would span 4352 × 2160 px. An SX40's canvas is ...". `present`
+    words it for a show already past the canvas ("its screens span").
+    `ull` is the processor's Ultra Low Latency (any screen it drives)."""
+    spec = canvas_spec(device)
+    if not spec or canvas_fits(spec, width, height, ull):
+        return None
+    who = title or (device or {}).get('name') or 'This processor'
+    verb = 'span' if present else 'would span'
+    return (f'{who} can\'t take this: its screens {verb} '
+            f'{canvas_extent(width)} × {canvas_extent(height)} px. '
+            f'{canvas_limit_text(spec, ull)}')
+
+
 def trunk_pair_marks(device):
     """The trunk letters that lead a fixed adjacent pair - ['A', 'C'] on a
     four-trunk device whose pairing is 'adjacent' - or [] where the device
@@ -3677,6 +3775,9 @@ def resolve_processor(proc):
         # redundancy" is both.
         'backupUnit': None,
         'requiresDistribution': bool(device.get('requiresDistribution')),
+        # The processing canvas everything this unit drives must fit
+        # (canvas_fit) - the catalog's record, None where none is published.
+        'canvas': canvas_spec(device),
         'ceiling': ceiling,
         'ceilingKnown': known,
         'defined': defined,

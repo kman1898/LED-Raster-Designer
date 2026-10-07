@@ -614,6 +614,7 @@
       "kind": "processor",
       "form": "all-in-one",
       "family": "brompton",
+      "canvas": {"says": "An SX40", "presets": [[4096, 2160]], "custom": {"maxW": 4094, "maxH": 4095, "maxPixels": 9000000, "evenWidth": true}, "ull": {"maxH": 2047, "presets": false}, "source": "https://www.bromptontech.com/online-help/Content/Tessera%20User%20Manual/03.%20Features/06.3%20-%20Canvas%20Resolutions.htm", "sourceText": "Width: Minimum: 720 pixels Maximum: 4094 pixels It must be an even value. Height Minimum: 720 pixels Maximum: 4095 pixels. The maximum total number of supported pixels is 9,000,000. 4K DCI (4096x2160) or 4K UHD (3840x2160) can be selected as native resolutions.", "ullSource": "https://www.bromptontech.com/online-help/Content/Tessera%20User%20Manual/03.%20Features/12.2.4%20-%20Ultra%20Low%20Latency.htm", "ullSourceText": "Maximum (px): Height 2047, Width 4094"},
       "trunks": 4,
       "trunkRate": "10G",
       "trunkRateNote": "Its trunks are 10G (8 physical 10G connectors). The QD-S takes a 100G input, so it never hangs off an SX40 - owner, 2026-09-28: \"the QDs from brompton is only used to connect the SQ200 the newest processor they have to the XD boxes\".",
@@ -631,6 +632,7 @@
       "kind": "processor",
       "form": "all-in-one",
       "family": "brompton",
+      "canvas": {"says": "An S8", "presets": [[4096, 2160]], "custom": {"maxW": 4094, "maxH": 4095, "maxPixels": 9000000, "evenWidth": true}, "ull": {"maxH": 2047, "presets": false}, "source": "https://www.bromptontech.com/online-help/Content/Tessera%20User%20Manual/03.%20Features/06.3%20-%20Canvas%20Resolutions.htm", "sourceText": "Width: Minimum: 720 pixels Maximum: 4094 pixels It must be an even value. Height Minimum: 720 pixels Maximum: 4095 pixels. The maximum total number of supported pixels is 9,000,000. 4K DCI (4096x2160) or 4K UHD (3840x2160) can be selected as native resolutions.", "ullSource": "https://www.bromptontech.com/online-help/Content/Tessera%20User%20Manual/03.%20Features/12.2.4%20-%20Ultra%20Low%20Latency.htm", "ullSourceText": "Maximum (px): Height 2047, Width 4094"},
       "redundancy": {"supported": true, "halvesPorts": true, "pairing": "adjacent"},
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 8}]},
       "note": "Redundancy pairs fixed adjacent ports - 1 backed by 2, 3 by 4, and so on - automatically; that is the only way this device pairs. The rule arrived by name (2026-08-23): the SX40 does A to B and C to D, 'and S8 does 1to2 and so on'. It names the S8 only: the S4 and M2 still halve and still claim no pairing shape."
@@ -642,6 +644,7 @@
       "kind": "processor",
       "form": "all-in-one",
       "family": "brompton",
+      "canvas": {"says": "An S4", "presets": [[1920, 1080], [1080, 1920], [1600, 1200], [2880, 720], [720, 2880]], "source": "https://www.bromptontech.com/online-help/Content/Tessera%20User%20Manual/03.%20Features/06.3%20-%20Canvas%20Resolutions.htm", "sourceText": "The native canvas size for processors is 1920x1080 pixels. Non-standard sizes: 1080x1920, 1600x1200, 2880x720, 720x2880."},
       "redundancy": {"supported": true, "halvesPorts": true},
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 4}]}
     },
@@ -652,6 +655,7 @@
       "kind": "processor",
       "form": "all-in-one",
       "family": "brompton",
+      "canvas": {"says": "An M2", "presets": [[1920, 1080], [1080, 1920], [1600, 1200], [2880, 720], [720, 2880]], "source": "https://www.bromptontech.com/online-help/Content/Tessera%20User%20Manual/03.%20Features/06.3%20-%20Canvas%20Resolutions.htm", "sourceText": "The native canvas size for processors is 1920x1080 pixels. Non-standard sizes: 1080x1920, 1600x1200, 2880x720, 720x2880."},
       "redundancy": {"supported": true, "halvesPorts": true},
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 4}]}
     },
@@ -662,6 +666,7 @@
       "kind": "processor",
       "form": "all-in-one",
       "family": "brompton",
+      "canvas": {"says": "A T1", "presets": [[1920, 1080], [1080, 1920], [1600, 1200], [2880, 720], [720, 2880]], "source": "https://www.bromptontech.com/online-help/Content/Tessera%20User%20Manual/03.%20Features/06.3%20-%20Canvas%20Resolutions.htm", "sourceText": "The native canvas size for processors is 1920x1080 pixels. Non-standard sizes: 1080x1920, 1600x1200, 2880x720, 720x2880."},
       "redundancy": {"supported": false},
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 1}]},
       "note": "Single output, so it cannot do closed-loop redundancy at all."
@@ -673,6 +678,7 @@
       "kind": "processor",
       "form": "chassis",
       "family": "brompton",
+      "canvas": {"says": "An SQ200", "maxW": 65535, "maxH": 65535, "source": "https://www.bromptontech.com/wp-content/uploads/2025/10/Brompton-SQ200-Data-Sheet-Oct2025-EN.pdf", "sourceText": "Custom Resolutions: Up to 65535 pixels wide or tall", "sourceNote": "Preliminary data sheet (October 2025)."},
       "accepts": ["brompton"],
       "slots": {"count": 2, "names": ["OUT 1", "OUT 2"]},
       "slotsNote": "Its LED outputs are OUT 1 and OUT 2, two 100G QSFP28 ports, and each takes one QD-S - owner, 2026-09-28: \"so a max of 2 per SQ200\". Its ports are its boxes' sockets: every fixture port comes out of an XD, XD-S or XD-T on a QD-S output.",

@@ -491,7 +491,28 @@ def _clean_screens(screens):
             'bitDepth': _clean_number(scr.get('bitDepth')),
             'frameRate': _clean_number(scr.get('frameRate')),
             'lowLatency': bool(scr.get('lowLatency')),
+            # The Pixel Map rect each port's cabinets cover (index 0 = port
+            # 1; [x0, y0, x1, y1], None for a port with no visible cabinet),
+            # sent by the client - which owns which cabinets ride which
+            # port - only where a processor has a canvas to hold
+            # (canvas_spans). Absent is "not measured": such a screen adds
+            # nothing to a span and is refused nothing.
+            'portRects': _clean_rects(scr.get('portRects')),
         })
+    return out
+
+
+def _clean_rects(values):
+    if not isinstance(values, list):
+        return None
+    out = []
+    for rect in values:
+        try:
+            x0, y0, x1, y1 = (float(v) for v in rect)
+        except (TypeError, ValueError):
+            out.append(None)
+            continue
+        out.append((x0, y0, x1, y1) if x1 > x0 and y1 > y0 else None)
     return out
 
 
@@ -704,6 +725,9 @@ def resolve(processors, screens, state=None, _legacy_auto=False):
         'screens': resolved_screens,
         'occupancy': occupancy,
         'issues': issues,
+        # Each canvas processor's span and whether it fits - the tray's
+        # and the binder's flag for a show already past its canvas.
+        'canvas': canvas_spans(processors, screens, state),
     }
 
 
@@ -1247,6 +1271,95 @@ def link_cap_refusal(processors, screens_before, state_before,
         return (f'{rec["title"]} carries {load_text} px - over its {link}\'s '
                 f'{cap_text} at {_settings_text(rec["settings"])}. Lower the '
                 f'frame rate or bit depth.')
+    return None
+
+
+# ── The processing canvas ─────────────────────────────────────────────────
+#
+# A Brompton processor maps every screen it drives into one canvas
+# (processor_catalog.canvas_fit says whether a span fits). Its SPAN is the
+# bounding box, in Pixel Map pixels, of every visible cabinet whose data
+# reaches it - through its own ports, its cards' or any box on it - read
+# off the pins and the rect each pinned port covers (portRects, from the
+# client's port maths). A backup unit mirrors its main and carries no pin
+# of its own, so only the main is measured. Over the canvas is REFUSED for
+# a mapping (owner, 2026-10-07: "throw an error and not allow it"); a show
+# already over is left alone and flagged (resolve's `canvas`).
+
+def _proc_title(proc, device):
+    """"Tessera SX40 S1": the model, then the name typed on the unit."""
+    model = (device or {}).get('name') or proc.get('deviceId') or 'Processor'
+    name = (proc.get('name') or '').strip()
+    return f'{model} {name}' if name and name != model else model
+
+
+def canvas_spans(processors, screens, state):
+    """{processorId: {'title', 'width', 'height', 'ull', 'fits', 'message'}}
+    for every processor with a published canvas that carries a measured
+    pinned port, in tree order. `ull` is on where any screen it drives
+    runs Ultra Low Latency; `message` is the present-tense flag where the
+    span is past the canvas, else None."""
+    screens_by_id = {s['layerId']: s for s in _clean_screens(screens)}
+    pins = _clean_pins((state or {}).get('pins'))
+    raw = {p.get('id'): p for p in processors or [] if isinstance(p, dict)}
+    proc_of = {c['cardId']: c['processorId'] for c in cards_in(processors)}
+    boxes = {}
+    for pin in pins:
+        proc_id = proc_of.get(pin['cardId'])
+        scr = screens_by_id.get(pin['layerId'])
+        rects = (scr or {}).get('portRects')
+        if proc_id is None or rects is None:
+            continue
+        rect = rects[pin['index']] if 0 <= pin['index'] < len(rects) else None
+        rec = boxes.setdefault(proc_id, {'box': None, 'ull': False})
+        if scr['lowLatency']:
+            rec['ull'] = True
+        if rect is None:
+            continue
+        box = rec['box']
+        rec['box'] = rect if box is None else (
+            min(box[0], rect[0]), min(box[1], rect[1]),
+            max(box[2], rect[2]), max(box[3], rect[3]))
+    out = {}
+    for proc_id, proc in raw.items():
+        rec = boxes.get(proc_id)
+        device = catalog.get_device(proc.get('deviceId'))
+        if not rec or not rec['box'] or not catalog.canvas_spec(device):
+            continue
+        x0, y0, x1, y1 = rec['box']
+        title = _proc_title(proc, device)
+        width = catalog.canvas_extent(x1 - x0)
+        height = catalog.canvas_extent(y1 - y0)
+        message = catalog.canvas_fit(device, width, height, rec['ull'],
+                                     title=title, present=True)
+        out[proc_id] = {'title': title, 'width': width, 'height': height,
+                        'ull': rec['ull'], 'fits': message is None,
+                        'message': message}
+    return out
+
+
+def canvas_refusal(processors, screens_before, state_before,
+                   screens_after, state_after):
+    """Why going from `before` to `after` is refused on a processor's
+    canvas, or None. Refused where a processor ends up past its canvas AND
+    worse than it was - it fitted, or its span grew, or low latency came
+    on - so an edit that leaves an already-over show no worse (a legacy
+    file, a release) still goes through. The first such processor in tree
+    order is the one named."""
+    before = canvas_spans(processors, screens_before, state_before)
+    after = canvas_spans(processors, screens_after, state_after)
+    raw = {p.get('id'): p for p in processors or [] if isinstance(p, dict)}
+    for proc_id, rec in after.items():
+        if rec['fits']:
+            continue
+        was = before.get(proc_id)
+        if was and not was['fits'] and rec['width'] <= was['width'] \
+                and rec['height'] <= was['height'] \
+                and (was['ull'] or not rec['ull']):
+            continue
+        device = catalog.get_device(raw[proc_id].get('deviceId'))
+        return catalog.canvas_fit(device, rec['width'], rec['height'],
+                                  rec['ull'], title=rec['title'])
     return None
 
 

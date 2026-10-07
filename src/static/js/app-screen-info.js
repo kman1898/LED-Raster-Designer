@@ -1286,6 +1286,10 @@ class _ScreenInfo {
     }
 
     togglePanelBlank(layerId, panelId) {
+        // Showing a blanked cabinet can widen a processor's canvas span:
+        // the flip is tried on the live panel first and put back when the
+        // canvas guard refuses it (the server flips it again on the POST).
+        if (!this._canvasTryPanelFlip(layerId, panelId, 'blank')) return;
         fetch(`/api/layer/${layerId}/panel/${panelId}/toggle`, {
             method: 'POST'
         })
@@ -1303,6 +1307,7 @@ class _ScreenInfo {
     }
     
     togglePanelHidden(layerId, panelId) {
+        if (!this._canvasTryPanelFlip(layerId, panelId, 'hidden')) return;
         fetch(`/api/layer/${layerId}/panel/${panelId}/toggle_hidden`, {
             method: 'POST'
         })
@@ -1328,8 +1333,27 @@ class _ScreenInfo {
         });
     }
     
+    // One cabinet's hidden or blank flag flipped on trial for the canvas
+    // guard: true = go ahead (the live flag is put back as it was, so the
+    // server's toggle and its echo stay the one write); false = refused.
+    _canvasTryPanelFlip(layerId, panelId, key) {
+        if (typeof this._canvasGuardEdit !== 'function' || !this._canvasInPlay()) return true;
+        const layer = (this.project.layers || []).find(l => l.id === layerId);
+        const panel = layer && (layer.panels || []).find(p => p.id === panelId);
+        if (!panel) return true;
+        const was = panel[key];
+        panel[key] = !was;
+        if (!this._canvasGuardEdit()) return false;
+        panel[key] = was;
+        return true;
+    }
+
     updateLayer(saveHistory = false, historyAction = 'Update Layer') {
         if (!this.currentLayer) return;
+        // A Brompton processor's canvas (app-port-assignment
+        // _canvasGuardEdit): an edit that would take its screens past it is
+        // put back here, before the PUT and before the undo step.
+        if (typeof this._canvasGuardEdit === 'function' && !this._canvasGuardEdit()) return;
         
         // Save state before update if requested
         if (saveHistory) {
@@ -1503,6 +1527,14 @@ class _ScreenInfo {
         // those peers ride along on THIS call - same PUT, same history entry -
         // so a group can never be left half-updated on the server.
         if (this._withPendingGroupPeers) layers = this._withPendingGroupPeers(layers);
+
+        // THE CANVAS GUARD (owner, 2026-10-07): a change to a mapped
+        // screen - columns, rows, cabinet size, a move, rotation - that
+        // would take a Brompton processor's screens past its canvas is
+        // refused: the screens go back as they were, the reason is said,
+        // and nothing is PUT or recorded (app-port-assignment
+        // _canvasGuardEdit). Every layer commit funnels through here.
+        if (typeof this._canvasGuardEdit === 'function' && !this._canvasGuardEdit()) return;
 
         if (saveHistory) {
             this.saveState(historyAction);

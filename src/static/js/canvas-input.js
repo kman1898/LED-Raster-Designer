@@ -1007,7 +1007,12 @@ Object.assign(CanvasRenderer.prototype, {
                     // Merge the response first, snapshot second.
                     const newHidden = this.altPaintMode === 'hide';
                     const panels = [...this.altPaintedPanelIds].map(id => ({ id, hidden: newHidden }));
-                    fetch(`/api/layer/${this.altPaintLayerId}/panels/set_hidden`, {
+                    // Showing cabinets can widen a Brompton processor's
+                    // canvas span: refused, the painted flags go back and
+                    // nothing is sent.
+                    const refused = typeof window.app._canvasGuardEdit === 'function'
+                        && !window.app._canvasGuardEdit();
+                    if (!refused) fetch(`/api/layer/${this.altPaintLayerId}/panels/set_hidden`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ panels })
@@ -1424,12 +1429,16 @@ Object.assign(CanvasRenderer.prototype, {
                 }
 
                 if (!crossCanvasHandled) {
+                    // The PUT first, then the snapshot: updateLayers holds a
+                    // Brompton processor's canvas (_canvasGuardEdit), and a
+                    // refused drag snaps back there - the snapshot taken
+                    // after it then records nothing.
+                    const toUpdate = window.app.getSelectedLayers ? window.app.getSelectedLayers() : [window.app.currentLayer];
+                    window.app.updateLayers(toUpdate, false);
                     // Snapshot POST-drag state so one Cmd+Z reverts this drag.
                     if (typeof window.app.saveState === 'function') {
                         window.app.saveState(this.dragLayerMode === 'show' ? 'Move Layers (Show Look)' : 'Move Layers');
                     }
-                    const toUpdate = window.app.getSelectedLayers ? window.app.getSelectedLayers() : [window.app.currentLayer];
-                    window.app.updateLayers(toUpdate, false);
                 }
                 this.dragLayerMode = null;
             }

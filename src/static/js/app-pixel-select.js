@@ -424,6 +424,9 @@ class _PixelSelect {
         // Apply locally so the canvas updates immediately while the POST is in
         // flight; the flags alone are enough to redraw at the old geometry.
         panels.forEach(p => { p.halfTile = resolved; });
+        // A half tile moves cabinets: held to a Brompton processor's canvas
+        // like any layer edit (refused = the flags are back as they were).
+        if (typeof this._canvasGuardEdit === 'function' && !this._canvasGuardEdit()) return;
         if (window.canvasRenderer) window.canvasRenderer.render();
         // v0.10.8: the snapshot must wait for the server's rebuilt layer.
         // Setting halfTile resizes every panel, and that rebuild only happens
@@ -470,6 +473,8 @@ class _PixelSelect {
         if (toChange.length === 0) return;
         // Apply locally so the canvas updates immediately while the server PUT is in flight.
         toChange.forEach(p => { p.hidden = targetHidden; });
+        // Showing cabinets can widen a processor's canvas span.
+        if (typeof this._canvasGuardEdit === 'function' && !this._canvasGuardEdit()) return;
         if (window.canvasRenderer) window.canvasRenderer.render();
         // v0.10.8.1: same contract as setPanelsHalfTileBulk above. Hiding a
         // panel re-anchors any neighbouring half-tile, and that rebuild only

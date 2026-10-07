@@ -97,14 +97,22 @@ def _payload(state=None):
 
 def _link_refused(state):
     """The 409 for an edit that would push a box past its link cap (a box
-    behind a QD-S - port_assignment.link_cap_refusal), else None. Checked
+    behind a QD-S - port_assignment.link_cap_refusal) or a processor past
+    its canvas (port_assignment.canvas_refusal), else None. Checked
     on the working copy BEFORE it is stored, so a refused edit leaves the
     project exactly as it found it."""
     why = assignment.link_cap_refusal(_processors(), _screens(), _state(),
                                       _screens(), state)
-    if not why:
-        return None
-    return jsonify({'error': why, 'linkCap': True}), 409
+    if why:
+        return jsonify({'error': why, 'linkCap': True}), 409
+    # THE CANVAS (owner, 2026-10-07): a mapping that would take a Brompton
+    # processor's screens past the canvas it publishes is refused the same
+    # way, on the same working copy - port_assignment.canvas_refusal.
+    why = assignment.canvas_refusal(_processors(), _screens(), _state(),
+                                    _screens(), state)
+    if why:
+        return jsonify({'error': why, 'canvas': True}), 409
+    return None
 
 
 def _saved(state, status=200, extra=None):
@@ -157,6 +165,12 @@ def link_check():
                                       _state(), _screens(), _state())
     if why:
         return jsonify({'error': why, 'linkCap': True}), 409
+    # Low latency lowers an SX40's canvas height and the port maths moves
+    # with the bit depth, so a Processing change is held to the canvas too.
+    why = assignment.canvas_refusal(_processors(), data.get('before') or [],
+                                    _state(), _screens(), _state())
+    if why:
+        return jsonify({'error': why, 'canvas': True}), 409
     return jsonify({'ok': True})
 
 

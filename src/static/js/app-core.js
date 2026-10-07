@@ -1502,6 +1502,9 @@ export class LEDRasterApp {
         // exactly as it did before this panel existed.
         if (typeof this.refreshPortAssignment === 'function' && this.project
                 && (this.project.processors || []).length) {
+            // A quiet point for the canvas guard's base (a loaded or
+            // restored project, a screen it has not met).
+            if (typeof this._canvasKeepBase === 'function') this._canvasKeepBase();
             const raw = this._assignmentKey();
             if (raw !== this._assignmentKeyRaw) this.refreshPortAssignment();
         }

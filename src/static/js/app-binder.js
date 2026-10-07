@@ -5038,9 +5038,13 @@ class _Binder {
         // A STRAND MAP for each fiber cable whose first link this processor
         // feeds - every strand, its box and link, "spare" where none.
         for (const map of this._bStrandMaps(proc)) blocks.push({ lines: this._bTableLines(book, map) });
+        // A show past this processor's canvas is flagged on its page in the
+        // tray's words (port_assignment.canvas_spans) - never changed.
+        const span = ((this._assignment && this._assignment.canvas) || {})[proc.id];
         blocks.push({ lines: this._bKvLines(book, 'Redundancy', [
             ['Device', proc.deviceName || proc.deviceId || ''],
             ['Redundancy', this._bRedundancyText(proc)],
+            ...(span && !span.fits && span.message ? [['Canvas', span.message]] : []),
         ]) });
         // Snakes and home runs on every card and breakout box of this
         // processor. A snake is the SHOW's since 2026-09-09 ("Any sockets,
