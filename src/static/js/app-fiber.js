@@ -2,13 +2,15 @@
 //
 // "tac is just for stranded fiber" (owner, 2026-09-25). The fiber that
 // feeds a box is a CABLE the show owns - project.fiberCables = [{ id, name,
-// kind, strands, ft, connector, labels, subunits, strandNames,
-// ownerBoxId }] - and each of the box's trunk links takes strands of one:
+// kind, strands, ft, connector, labels, subunits, strandNames }] - and
+// each of the box's trunk links takes strands of one:
 // box.fiberLinks = { p1: { cable, strands: [1, 2] }, b1: {…} }.
 //   * a TAC or an MTP (its own kind: "if i choose mtp 12 choose that") has
 //     any number of strands and is SHARED - several boxes take different
 //     strands of one cable;
-//   * an opticalCON DUO (2 fibers) or QUAD (4) is ONE box's (ownerBoxId);
+//   * an opticalCON DUO (2 fibers) or QUAD (4) is shared the same way
+//     (owner, 2026-10-08): a QUAD feeds two XD inputs or four BiDi links,
+//     a DUO one XD input or two BiDi links;
 //   * a link takes 2 strands, 1 on a box switched to BiDi;
 //   * a link on a Tessera XD may be COPPER instead - { copper: 'Cat6A',
 //     ft } - with no cable and no strands (owner: "anything that does

@@ -447,8 +447,7 @@ def _state(status=200, extra=None):
     # nothing here either.
     _migrate_snakes()
     # ...and the fiber cables the same way: links that no longer hold go,
-    # an opticalCON whose box went goes, and a cable the request left with
-    # no link goes.
+    # and a cable the request left with no link goes.
     catalog.settle_fiber(app.current_project,
                          g.get('fiber_used_before'))
     app.current_project['is_pristine'] = False
@@ -1005,7 +1004,7 @@ def delete_cvt(processor_id, cvt_id):
         if other.get('backupOf') == cvt_id:
             other.pop('backupOf', None)
     # The box's links - its backup unit's included - went with its record;
-    # the opticalCONs it owned and the TACs it was the last user of go in
+    # the cables it was the last user of - TAC, MTP or opticalCON - go in
     # _state (settle_fiber).
     # ON A BOX-FED DEVICE THE BOX'S SOCKETS GO WITH IT. The SX40 and the
     # HELIOS Standard have no ports outside a box (the 2026-09-24 ruling:
@@ -1260,8 +1259,9 @@ def _set_fiber_link(raw, key, cable_id, strands):
 
 @processors_bp.route('/api/fiber-cables', methods=['POST'])
 def add_fiber_cable():
-    """Make one cable - a TAC or an MTP of any strand count, or a box's own
-    opticalCON DUO / QUAD - and, where the body carries `link`
+    """Make one cable - a TAC or an MTP of any strand count, or an
+    opticalCON DUO / QUAD (shared the same way) - and, where the body
+    carries `link`
     ({boxId, key, strands?}), put that link on it in the same request (the
     Fiber section's "New TAC…" is one gesture, one undo step)."""
     data = request.json or {}
@@ -1275,15 +1275,7 @@ def add_fiber_cable():
         return jsonify({'error': 'link must be {boxId, key, strands?}.'}), 400
     boxes = _fiber_boxes()
     kind = data.get('kind')
-    rec = dict(data)
-    if kind in catalog.FIBER_KIND_FIBERS:
-        owner = data.get('ownerBoxId') or (link or {}).get('boxId')
-        entry = boxes.get(owner)
-        if entry is None:
-            return jsonify({'error': 'An opticalCON belongs to one box - '
-                                     'name it (ownerBoxId).'}), 400
-        rec['ownerBoxId'] = owner
-    cable = catalog.store_fiber_cable(app.current_project, rec, _next_seq)
+    cable = catalog.store_fiber_cable(app.current_project, data, _next_seq)
     if link is not None:
         strands, why = _fiber_link_strands(
             boxes, _fiber_cables_by_id(), link['boxId'], link['key'],

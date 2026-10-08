@@ -1673,8 +1673,7 @@ def resolved_show_snakes(project):
 # each take strands of one:
 #
 #   project['fiberCables'] = [{id: 'fib<N>', name, kind, strands, ft?,
-#                              connector?, labels, subunits, strandNames,
-#                              ownerBoxId?}]
+#                              connector?, labels, subunits, strandNames}]
 #   cvt['fiberLinks'] = {'p1': {cable, strands: [1, 2]}, 'b1': {...}}
 #
 # - A TAC or an MTP ("mtp is basically a packaged tac"; its OWN kind by
@@ -1683,9 +1682,14 @@ def resolved_show_snakes(project):
 #   boxes' links take different strands of one cable. Nothing here keys
 #   strand assignment off a connector - every stranded cable, whatever its
 #   ends, assigns strands per link.
-# - An opticalCON DUO is 2 fibers and a QUAD 4, and each is ONE box's:
-#   ownerBoxId names it, and only that box's links (its backup links
-#   included) take its fibers.
+# - An opticalCON DUO is 2 fibers and a QUAD 4, and it is SHARED the same
+#   way (owner, 2026-10-08: "I need to be able to use opticalCON QUAD or
+#   DUO etc across CVTs or XDs"): any box's link - a backup input's
+#   included - takes its next free strands. Nothing special-cases a model:
+#   an XD link needs 2, so a DUO fills one XD input and a QUAD two; a BiDi
+#   link needs 1, so a DUO feeds two and a QUAD four. A 1.4.0 file's
+#   ownerBoxId (the one-box rule this replaces) is dropped by settle_fiber,
+#   every link it had kept.
 # - A box's links are p1..pK, K = box_trunks_in (a CVT4K-S takes 2, or 1
 #   switched to one input - OPT 1, its backup on OPT 3), and
 #   b1..bK only where its processor's backup unit feeds it on its
@@ -1697,7 +1701,7 @@ def resolved_show_snakes(project):
 # - The list is absent when empty, and a read never creates it. A cable
 #   no link uses any more goes, the way an emptied snake goes: when the
 #   last link lets go of it (settle_fiber, with the cables in use before
-#   the request), or its owner box is deleted.
+#   the request) - an opticalCON the same as a TAC.
 #
 # The typed fiberType / fiberFt of 1.3 stay on the box as a NOTE, printed
 # as before until any link on that box has a cable; nothing migrates.
@@ -2076,9 +2080,10 @@ def check_fiber_link(boxes, cables, box_id, key, cable_id, strands,
     """Why this link cannot be stored, or None.
 
     The rules, each refused with its reason: the key must be one of the
-    box's links; the cable must exist and, if it is an opticalCON, belong
-    to this box; the strands must be as many as the link needs (2, 1 with
-    BiDi), each within the cable, none twice, none held by another link.
+    box's links; the cable must exist (any kind, on any box - an opticalCON
+    is shared like a TAC); the strands must be as many as the link needs
+    (2, 1 with BiDi), each within the cable, none twice, none held by
+    another link.
     `strands` None checks everything but the strands (the route then picks
     the next free ones).
     """
@@ -2095,11 +2100,6 @@ def check_fiber_link(boxes, cables, box_id, key, cable_id, strands,
     if cable is None:
         return 'That fiber cable is not in this project.'
     name = cable.get('name') or 'That cable'
-    if cable.get('kind') in FIBER_KIND_FIBERS \
-            and cable.get('ownerBoxId') != box_id:
-        owner = boxes.get(cable.get('ownerBoxId'))
-        return (f'{name} is {fiber_box_title(owner) if owner else "another box"}'
-                f'’s opticalCON - an opticalCON feeds its own box only.')
     if strands is None:
         return None
     if need is None:
@@ -2142,11 +2142,12 @@ def settle_fiber(project, used_before=None):
       is the main box's own backup link - migrate_backup_processors has
       already moved what they carried);
     - a link that no longer holds (a key the box no longer has - a backup
-      link whose backup unit was switched off among them - a cable that is gone, an opticalCON on another box, a
-      strand out of range or held twice, a count its BiDi no longer takes,
-      copper on a box that takes none) goes - the first holder in tree
-      order keeps a contested strand;
-    - an opticalCON whose owner box is gone goes;
+      link whose backup unit was switched off among them - a cable that is
+      gone, a strand out of range or held twice, a count its BiDi no longer
+      takes, copper on a box that takes none) goes - the first holder in
+      tree order keeps a contested strand;
+    - a 1.4.0 opticalCON's ownerBoxId goes (an opticalCON is shared now,
+      2026-10-08) - every link on it stays;
     - a cable that a link named before this request (`used_before`) and
       none names now goes - the last link let go of it.
 
@@ -2197,9 +2198,6 @@ def settle_fiber(project, used_before=None):
             cable = cables.get(link['cable'])
             if cable is None:
                 continue
-            if cable.get('kind') in FIBER_KIND_FIBERS \
-                    and cable.get('ownerBoxId') != bid:
-                continue
             total = fiber_cable_strand_count(cable)
             strands = link['strands']
             if len(strands) != need or len(set(strands)) != len(strands) \
@@ -2220,10 +2218,9 @@ def settle_fiber(project, used_before=None):
         if not isinstance(cable, dict):
             changed = True
             continue
-        if cable.get('kind') in FIBER_KIND_FIBERS \
-                and cable.get('ownerBoxId') not in boxes:
+        if 'ownerBoxId' in cable:
+            cable.pop('ownerBoxId', None)
             changed = True
-            continue
         if used_before is not None and cable.get('id') in used_before \
                 and cable.get('id') not in used:
             changed = True
@@ -2310,7 +2307,6 @@ def store_fiber_cable(project, rec, next_seq, cable=None):
                  'labels': 'colors', 'subunits': False, 'strandNames': {}}
         if kind in FIBER_KIND_FIBERS:
             cable['strands'] = FIBER_KIND_FIBERS[kind]
-            cable['ownerBoxId'] = rec.get('ownerBoxId')
     kind = cable['kind']
     if 'name' in rec or fresh:
         name = (rec.get('name') or '').strip()
@@ -2407,8 +2403,6 @@ def resolved_fiber_cables(project):
         }
         if cable.get('kind') == 'tac' and cable.get('connector'):
             rec['connector'] = cable['connector']
-        if cable.get('kind') in FIBER_KIND_FIBERS:
-            rec['ownerBoxId'] = cable.get('ownerBoxId')
         out.append(rec)
     return out
 

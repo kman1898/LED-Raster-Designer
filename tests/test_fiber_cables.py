@@ -7,7 +7,8 @@ of the box's trunk links takes strands of one (cvt['fiberLinks']):
   - a TAC or an MTP ("mtp is basically a packaged tac", its own kind by the
     ruling "If i choose tac 12 call it that if i choose mtp 12 choose
     that") has any strand count and is SHARED by several boxes' links;
-  - an opticalCON DUO (2) or QUAD (4) is one box's (ownerBoxId);
+  - an opticalCON DUO (2) or QUAD (4) is shared the same way (2026-10-08;
+    tests/test_shared_opticalcon.py);
   - a link takes 2 strands, 1 on a NovaStar or Megapixel box switched to
     BiDi; a strand carries one link show-wide;
   - a link is named by the box's own port (OPT 1 on a CVT10, X1 on an XD);
@@ -170,11 +171,11 @@ def test_the_refusals_say_why_and_store_nothing(client):
     # no such cable / link
     assert 'not in this project' in _refused(_link(client, pid, b, 'p1', {'cable': 'fib999'}))
     assert 'no link OPT 2' in _refused(_link(client, pid, b, 'b1', {'cable': tac['id']}))
-    # an opticalCON on another box
-    duo = _ok(client.post('/api/fiber-cables', json={'kind': 'opticalcon-quad', 'ownerBoxId': a}), 201)['fiberCables'][-1]
-    assert duo['name'] == 'QUAD 1' and duo['ownerBoxId'] == a and duo['strands'] == 4
-    why = _refused(_link(client, pid, b, 'p1', {'cable': duo['id']}))
-    assert 'opticalCON feeds its own box only' in why, why
+    # an opticalCON is any box's (2026-10-08): no refusal for another box
+    quad = _ok(client.post('/api/fiber-cables', json={'kind': 'opticalcon-quad'}), 201)['fiberCables'][-1]
+    assert quad['name'] == 'QUAD 1' and 'ownerBoxId' not in quad and quad['strands'] == 4
+    _ok(_link(client, pid, b, 'p1', {'cable': quad['id']}))
+    assert _links(client, b) == {'p1': {'cable': quad['id'], 'strands': [1, 2]}}
     # shrinking a TAC below a used strand
     _ok(_link(client, pid, b, 'p1', {'cable': tac['id'], 'strands': [5, 6]}))
     why = _refused(client.put(f'/api/fiber-cables/{tac["id"]}', json={'strands': 5}))
@@ -205,7 +206,7 @@ def test_a_refused_first_link_leaves_no_cable_behind(client):
     for body in ({'kind': 'tac'}, {'kind': 'tac', 'strands': 0}, {'kind': 'tac', 'strands': 2.5},
                  {'kind': 'tac', 'strands': True}, {'kind': 'fiber', 'strands': 12},
                  {'kind': 'mtp', 'strands': 12, 'connector': 'ST'},
-                 {'kind': 'opticalcon-duo'}, {'kind': 'opticalcon-duo', 'ownerBoxId': a, 'strands': 4},
+                 {'kind': 'opticalcon-duo', 'strands': 4},
                  {'kind': 'tac', 'strands': 12, 'ft': 'far'}, {'kind': 'tac', 'strands': 12, 'labels': 'hex'}):
         _refused(client.post('/api/fiber-cables', json=body))
     assert len(_state(client)['fiberCables']) == n
@@ -271,7 +272,7 @@ def test_bidi_is_offered_on_novastar_and_megapixel_boxes_only_and_refits_the_lin
     _ok(_box_fiber(client, hel['id'], rs, {'bidi': True}))
 
 
-def test_a_cable_goes_with_its_last_link_and_an_opticalcon_with_its_box(client):
+def test_a_cable_goes_with_its_last_link_an_opticalcon_the_same(client):
     pid, cid = _h9(client)
     a, b = _add_box(client, pid, cid)[0], _add_box(client, pid, cid)[-1]
     tac = _new_tac(client, 12, link={'boxId': a, 'key': 'p1'})
@@ -289,12 +290,13 @@ def test_a_cable_goes_with_its_last_link_and_an_opticalcon_with_its_box(client):
     spare = _new_tac(client, 12)
     _ok(client.put(f'/api/processors/{pid}/cvts/{a}', json={'name': 'SR'}))
     assert [c['id'] for c in _state(client)['fiberCables']] == [spare['id']]
-    # box delete: its links go, its opticalCON goes, a TAC it last used goes
+    # box delete: its links go, and the cables it was the last user of - an
+    # opticalCON made on it, a TAC - go with them
     tac2 = _new_tac(client, 12, link={'boxId': b, 'key': 'p1'})
     st = _ok(client.post('/api/fiber-cables', json={'kind': 'opticalcon-duo',
                                                      'link': {'boxId': a, 'key': 'p1'}}), 201)
     duo = st['fiberCables'][-1]
-    assert duo['ownerBoxId'] == a and _links(client, a)['p1'] == {'cable': duo['id'], 'strands': [1, 2]}
+    assert _links(client, a)['p1'] == {'cable': duo['id'], 'strands': [1, 2]}
     st = _ok(client.delete(f'/api/processors/{pid}/cvts/{a}'))
     assert duo['id'] not in [c['id'] for c in st['fiberCables']]
     st = _ok(client.delete(f'/api/processors/{pid}/cvts/{b}'))

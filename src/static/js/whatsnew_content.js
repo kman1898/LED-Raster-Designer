@@ -20,7 +20,7 @@ window.WHATS_NEW_CONTENT = {
             { h: 'Fiber by the strand',
               d: 'A breakout box\'s cable sheet opens on its Fiber section: each link picks a cable and the strands it rides. Pick the same TAC or MTP on another box and it takes the next free strands.' },
             { h: 'TAC, MTP and opticalCON',
-              d: 'A TAC or MTP takes any strand count, with ST or LC duplex ends on a TAC. An opticalCON DUO or QUAD belongs to one box, and NovaStar and Megapixel boxes have a BiDi switch for one strand per link.' },
+              d: 'A TAC or MTP takes any strand count, with ST or LC duplex ends on a TAC. A TAC, MTP or opticalCON is shared across boxes by the strand, and NovaStar and Megapixel boxes have a BiDi switch for one strand per link.' },
             { h: 'Strands named the standard way',
               d: 'Strands read by the TIA-598 colors, with a tracer past 12, by number, or by subunit of 12, and any strand can be renamed. The binder prints each processor\'s fiber connections, a TAC pair flipped between its ends, and a strand map for every cable; the pull sheet counts each cable once.' },
             { h: 'A backup processor is one switch',

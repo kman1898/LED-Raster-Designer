@@ -13,8 +13,8 @@ processor:
     stored reads 2 Orange · 1 Blue AT THE BREAKOUT, as the box's own Fiber
     section shows it; a BiDi link's one strand is the same at both;
   - an MTP crosses inside the cable (both ends read the stored order, and
-    the breakout end says so), an opticalCON is one plug that crosses
-    inside;
+    the breakout end says so), and so does an opticalCON - shared by the
+    strand like a TAC since 2026-10-08, so its link's strands print too;
   - an output with no box reads "not used", an input with no cable "no
     fiber picked", a copper run its copper and length;
   - a backup processor is listed with its main, output by output: the
@@ -110,7 +110,7 @@ SEED_JS = """async () => {
                                                link: {boxId: xds[0], key: 'p1'}});
     const tacA = cable(st);
     await j('PUT', `/api/processors/${sx}/cvts/${xds[1]}/fiber-links/p1`, {cable: tacA.id});
-    st = await j('POST', '/api/fiber-cables', {kind: 'opticalcon-duo', ownerBoxId: xds[2],
+    st = await j('POST', '/api/fiber-cables', {kind: 'opticalcon-duo',
                                                link: {boxId: xds[2], key: 'p1'}});
     const duo = cable(st);
     st = await j('POST', '/api/fiber-cables', {kind: 'tac', strands: 12, ft: 500, connector: 'ST',
@@ -212,8 +212,8 @@ def test_an_sx40_lists_its_backup_output_by_output(page):
     main's trunk, then the backup's same trunk onto the same XD's X2, each
     named by its processor. TAC A and TAC B - each kind said once - are
     flipped at the breakout; the backup's trunk B is copper, its trunk C has
-    nothing picked; trunk C's opticalCON DUO is one plug that crosses
-    inside; trunk D, on neither, is named alone. The strands carry their
+    nothing picked; trunk C's opticalCON DUO prints its strands, the
+    breakout end in the same order, crossing inside; trunk D, on neither, is named alone. The strands carry their
     swatches."""
     pg, ids = page
     duo = ids['cables']['duo']['name']
@@ -223,7 +223,8 @@ def test_an_sx40_lists_its_backup_output_by_output(page):
         ['USC SR BU · trunk A', 'TAC B (TAC 12 · ST)', '1 Blue · 2 Orange', 'X2 on Tessera XD A', '2 Orange · 1 Blue'],
         ['USC SR · trunk B', 'TAC A', '3 Green · 4 Brown', 'X1 on Tessera XD B', '4 Brown · 3 Green'],
         ['USC SR BU · trunk B', "Cat6 150' (Cat6 runs 100 ft max at 10G)", 'copper', 'X2 on Tessera XD B', 'copper'],
-        ['USC SR · trunk C', f'{duo} (opticalCON DUO)', 'one plug', 'X1 on Tessera XD C', 'one plug, crosses inside'],
+        ['USC SR · trunk C', f'{duo} (opticalCON DUO)', '1 Blue · 2 Orange', 'X1 on Tessera XD C',
+         '1 Blue · 2 Orange · crosses inside'],
         ['USC SR BU · trunk C', 'no fiber picked', '', 'X2 on Tessera XD C', ''],
         ['trunk D', 'not used', '', '', ''],
     ], rows
@@ -232,7 +233,8 @@ def test_an_sx40_lists_its_backup_output_by_output(page):
     assert [p['swatch'] for p in first['2']] == [{'base': '#1F5FA8', 'tracer': None},
                                                  {'base': '#F28020', 'tracer': None}]
     assert [p['swatch']['base'] for p in first['4']] == ['#F28020', '#1F5FA8']
-    assert all(rows[i]['parts'] is None for i in (3, 4, 5, 6)), rows
+    assert all(rows[i]['parts'] is None for i in (3, 5, 6)), rows
+    assert [p['text'] for p in rows[4]['parts']['4']] == ['1 Blue', '2 Orange', 'crosses inside'], rows[4]
     assert ids['errors'] == []
 
 

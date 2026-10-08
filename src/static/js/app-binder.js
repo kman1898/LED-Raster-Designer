@@ -5178,8 +5178,10 @@ class _Binder {
     //     on the box flips the processor side with it. A BiDi link's one
     //     strand is the same at both;
     //   * an MTP crosses inside the cable: both ends read the stored order,
-    //     and the breakout end says so; an opticalCON is one plug that crosses
-    //     inside;
+    //     and the breakout end says so; an opticalCON the same - it is
+    //     shared by the strand like a TAC (owner, 2026-10-08), so each
+    //     link's channels are printed, then "crosses inside" at the
+    //     breakout;
     //   * copper reads its run (fiberLinkSummary's words), no strands;
     //   * a box input with no cable: "no fiber picked";
     //   * an output with no box on a card that feeds boxes: "not used".
@@ -5226,12 +5228,11 @@ class _Binder {
             let name = cable.name || this.fiberCableTypeText(cable);
             if (cable.name && !typed.has(cable.id)) name += ` (${this.fiberCableTypeText(cable)})`;
             typed.add(cable.id);
-            if (cable.kind === 'opticalcon-duo' || cable.kind === 'opticalcon-quad') {
-                return { cells: [output, name, 'one plug', input, 'one plug, crosses inside'] };
-            }
             const set = strands(l.link);
             const atProcessor = swatched(set, cable);
-            const atInput = cable.kind === 'mtp'
+            const crosses = cable.kind === 'mtp' || cable.kind === 'opticalcon-duo'
+                || cable.kind === 'opticalcon-quad';
+            const atInput = crosses
                 ? swatched(set, cable).concat([{ text: 'crosses inside' }])
                 : cable.kind === 'tac' ? swatched(set.slice().reverse(), cable)
                     : swatched(set, cable);

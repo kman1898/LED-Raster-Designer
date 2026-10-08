@@ -1002,10 +1002,13 @@ class _DockCableSheets {
     }
 
     // One link's cable select: the show's TACs and MTPs ("TAC A · 12 ·
-    // 1000' · ST"), this box's own opticalCONs, the four New… entries, and
-    // None. An unset backup link lists its primary link's cable first - the
-    // default the owner asked for - and picking any cable takes its next
-    // free strands.
+    // 1000' · ST"), then every opticalCON in the show with the free strands
+    // this link needs - an opticalCON is shared like a TAC (owner,
+    // 2026-10-08), so a QUAD made on one box is offered on the next while
+    // it has strands to give; the one this link already takes is always
+    // listed - the four New… entries, and None. An unset backup link lists
+    // its primary link's cable first - the default the owner asked for -
+    // and picking any cable takes its next free strands.
     _dockBuildFiberSelect(box, l) {
         const sel = document.createElement('select');
         sel.className = 'hw-dock-cable-connector hw-dock-fiber-select';
@@ -1027,6 +1030,21 @@ class _DockCableSheets {
             o.textContent = '──────────';
             sel.appendChild(o);
         };
+        // An opticalCON is listed while it has the strands this link needs
+        // (1 on a BiDi box, else 2) free of other links - or when this link
+        // already takes it.
+        const need = box.bidi ? 1 : 2;
+        const fits = (c) => {
+            if (l.link && l.link.cable === c.id) return true;
+            const users = this.fiberStrandUsers(c.id);
+            let free = 0;
+            for (let n = 1; n <= (c.strands || 0); n++) {
+                const who = users.get(n);
+                if (!who || (who.box.id === box.id && who.key === l.key)) free++;
+            }
+            return free >= need;
+        };
+        const connectors = this.getFiberCables().filter(c => !this.fiberCableIsStranded(c) && fits(c));
         const stranded = this.getFiberCables().filter(c => this.fiberCableIsStranded(c));
         // An empty backup link offers its primary's cable ON TOP, named as
         // such and set off by a gap, and the full list follows in its own
@@ -1035,7 +1053,8 @@ class _DockCableSheets {
         if (l.backup && !l.link) {
             const pKey = `p${l.key.slice(1)}`;
             const primary = ((box.fiberLinks || {})[pKey] || {}).cable;
-            const same = primary && stranded.find(c => c.id === primary);
+            const same = primary && (stranded.find(c => c.id === primary)
+                || connectors.find(c => c.id === primary));
             if (same) {
                 const port = (box.linkTitles || {})[pKey] || 'the primary';
                 opt(same.id, `${this.fiberCableOptionText(same)} · same as ${port}`);
@@ -1043,9 +1062,7 @@ class _DockCableSheets {
             }
         }
         stranded.forEach(c => opt(c.id, this.fiberCableOptionText(c)));
-        this.getFiberCables()
-            .filter(c => !this.fiberCableIsStranded(c) && c.ownerBoxId === box.id)
-            .forEach(c => opt(c.id, this.fiberCableOptionText(c)));
+        connectors.forEach(c => opt(c.id, this.fiberCableOptionText(c)));
         if (sel.options.length) gap();
         opt('new:tac', 'New TAC…');
         opt('new:mtp', 'New MTP…');

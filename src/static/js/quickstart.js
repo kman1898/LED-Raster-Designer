@@ -2935,7 +2935,7 @@
         boxFiber: {
             target: function () { var b = box(); return b ? '[data-lrd-field="data-cable-sheet-' + b.id + '"]' : '#hardware-dock-body .hw-dock-cablebtn-data'; },
             place: 'top', title: 'Fiber to the box',
-            body: 'A box&rsquo;s fiber is a TAC, an MTP or an opticalCON, set at the top of its &#8801; sheet. A TAC or MTP is shared by the strand: the next box that picks it takes the next free strands.',
+            body: 'A box&rsquo;s fiber is a TAC, an MTP or an opticalCON, set at the top of its &#8801; sheet. A TAC, MTP or opticalCON is shared by the strand: the next box that picks it takes the next free strands.',
             before: function () { switchView('data-flow'); closePopover(); closeSheet(); },
             act: function (t) {
                 var b = box();

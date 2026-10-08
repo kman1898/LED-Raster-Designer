@@ -140,7 +140,7 @@ def save_project():
     # otherwise drop the links the move keeps. Idempotent.
     processor_catalog.migrate_backup_processors(app.current_project)
     # The fiber store held to its rules the same way (links that no longer
-    # hold, an opticalCON whose box is gone) - never a cable pruned for
+    # hold, a 1.4.0 opticalCON's ownerBoxId) - never a cable pruned for
     # being unused here: a restore is what it restores.
     processor_catalog.settle_fiber(app.current_project)
     # Same funnel duty for port attachment: see restore_project below.
@@ -277,7 +277,7 @@ def restore_project():
     # otherwise drop the links the move keeps. Idempotent.
     processor_catalog.migrate_backup_processors(app.current_project)
     # The fiber store held to its rules the same way (links that no longer
-    # hold, an opticalCON whose box is gone) - never a cable pruned for
+    # hold, a 1.4.0 opticalCON's ownerBoxId) - never a cable pruned for
     # being unused here: a restore is what it restores.
     processor_catalog.settle_fiber(app.current_project)
     # Auto-numbering retired (user ruling, 2026-09-03): a file saved before
