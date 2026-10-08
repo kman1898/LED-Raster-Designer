@@ -1456,6 +1456,10 @@ def update_box_fiber(processor_id, cvt_id):
     if 'bidi' in data:
         if data['bidi'] and not res.get('bidiAllowed'):
             vendor = res.get('vendor') or 'this vendor'
+            if vendor in catalog.BIDI_VENDORS:
+                return jsonify({'error': (
+                    f'{res.get("deviceName") or title} runs duplex only - a '
+                    f'pair per link, like an XD - so it has no BiDi.')}), 400
             return jsonify({'error': (
                 f'{res.get("deviceName") or title} is a {vendor} box - BiDi '
                 f'is offered on NovaStar and Megapixel boxes only.')}), 400

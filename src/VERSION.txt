@@ -25,6 +25,9 @@ v1.4.1 - October 7, 2026
   A QUAD can feed two XD inputs, or four BiDi links on CVTs; a DUO fills
   one XD input, or two BiDi links. The binder prints each link's strands
   on an opticalCON.
+- FIX: A CVT10 Pro runs duplex only, a pair per link like an XD, and no
+  longer offers BiDi. A show saved with BiDi on one opens with it off and
+  each link given its pair where the strand is free.
 
 v1.4.0 - October 6, 2026
 ----------------------------

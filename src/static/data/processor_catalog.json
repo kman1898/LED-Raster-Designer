@@ -583,6 +583,7 @@
       "id": "novastar-cvt10-pro",
       "vendor": "NovaStar",
       "name": "CVT10 Pro",
+      "bidi": false,
       "kind": "cvt",
       "family": "novastar",
       "trunksIn": 1,

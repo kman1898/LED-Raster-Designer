@@ -1721,16 +1721,22 @@ FIBER_COLORS = (
     ('Red', '#B82535'), ('Black', '#1A1A1A'), ('Yellow', '#EDD31C'),
     ('Violet', '#7A3F9E'), ('Rose', '#E09BA8'), ('Aqua', '#5EBFC2'),
 )
-# BiDi is offered on these vendors' boxes only (the owner's list), read off
-# the catalog's vendor - never a model special-cased.
+# BiDi is offered on these vendors' boxes (the owner's list), read off the
+# catalog's vendor. A model whose catalog entry says `"bidi": false` runs
+# duplex only, whatever its vendor: the CVT10 Pro, "really a different
+# unit", has only duplex, like an XD (the owner, 2026-10-08).
 BIDI_VENDORS = ('NovaStar', 'Megapixel')
 _FIBER_NAME_PREFIX = {'tac': 'TAC ', 'mtp': 'MTP ',
                       'opticalcon-duo': 'DUO ', 'opticalcon-quad': 'QUAD '}
 
 
 def fiber_bidi_allowed(cvt_device):
-    """Whether this box's catalog vendor is one BiDi is offered for."""
-    return (cvt_device or {}).get('vendor') in BIDI_VENDORS
+    """Whether this box can run BiDi: its vendor is one BiDi is offered for,
+    and its own catalog entry does not say it is duplex only."""
+    device = cvt_device or {}
+    if device.get('bidi') is False:
+        return False
+    return device.get('vendor') in BIDI_VENDORS
 
 
 def fiber_link_keys(trunks, bound):
@@ -2177,6 +2183,14 @@ def settle_fiber(project, used_before=None):
                 changed = True
     cables = {c.get('id'): c for c in show_fiber_cables(project)
               if isinstance(c, dict)}
+    # BiDi left on a box that cannot run it (a CVT10 Pro saved before it was
+    # known to be duplex only) goes off, and its links are re-fitted to a
+    # pair each, the way switching it off does.
+    for bid, entry in sorted(boxes.items(), key=lambda kv: kv[1]['order']):
+        if entry['raw'].get('bidi') and not entry['res'].get('bidiAllowed'):
+            entry['raw'].pop('bidi', None)
+            refit_fiber_bidi(boxes, cables, bid, False)
+            changed = True
     taken = set()
     for bid, entry in sorted(boxes.items(), key=lambda kv: kv[1]['order']):
         raw, res = entry['raw'], entry['res']
