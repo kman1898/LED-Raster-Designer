@@ -374,6 +374,95 @@ def test_a_quad_on_bidi_reaches_four_two_opt_cvts_by_their_first_link(client):
     assert 'free strand' in _refused(_link(client, pid, a, 'p2', {'cable': quad['id']}))
 
 
+def _h9_with_boxes(client, device, count, bidi):
+    """An H9 with an H_4xfiber in slot 0 and `count` boxes of `device` on it,
+    BiDi switched as asked: (pid, [boxIds])."""
+    st = _ok(client.post('/api/processors', json={'deviceId': 'novastar-h9'}), 201)
+    pid = st['processors'][-1]['id']
+    st = _ok(client.put(f'/api/processors/{pid}/slots/0', json={'deviceId': H4}))
+    cid = next(s for s in next(p for p in st['processors'] if p['id'] == pid)['slots']
+               if s['index'] == 0)['card']['id']
+    for _ in range(count):
+        st = _ok(client.post(f'/api/processors/{pid}/cards/{cid}/cvts',
+                             json={'deviceId': device, 'pair': False}), 201)
+    card = next(s for s in next(p for p in st['processors'] if p['id'] == pid)['slots']
+                if s['index'] == 0)['card']
+    boxes = [b['id'] for b in card['cvts']]
+    assert len(boxes) == count
+    if bidi:
+        for box in boxes:
+            _ok(client.put(f'/api/processors/{pid}/cvts/{box}/fiber', json={'bidi': True}))
+    return pid, boxes
+
+
+@pytest.mark.parametrize('device', ['novastar-cvt10', 'novastar-cvt10-pro'])
+def test_a_quad_on_bidi_feeds_four_cvt10s_one_strand_each(client, device):
+    """A CVT10 (or CVT10 Pro) takes one trunk - OPT 1 - so four fill an
+    H_4xfiber; on BiDi each OPT 1 takes one strand of one QUAD, 1 to 4."""
+    pid, boxes = _h9_with_boxes(client, device, 4, bidi=True)
+    assert all(_res_box(client, b)['fiberLinkKeys'] == ['p1'] for b in boxes)
+    quad = _new(client, 'opticalcon-quad', boxes[0], 'p1')
+    for box in boxes[1:]:
+        _ok(_link(client, pid, box, 'p1', {'cable': quad['id']}))
+    assert [_links(client, b)['p1']['strands'] for b in boxes] == [[1], [2], [3], [4]]
+
+
+@pytest.mark.parametrize('device', ['novastar-cvt10', 'novastar-cvt10-pro'])
+def test_without_bidi_a_quad_feeds_two_cvt10s_and_a_duo_one(client, device):
+    """Off BiDi a CVT10's OPT 1 takes a pair: a QUAD feeds two (1-2, 3-4)
+    and a third finds none left; a DUO fills one."""
+    pid, boxes = _h9_with_boxes(client, device, 4, bidi=False)
+    quad = _new(client, 'opticalcon-quad', boxes[0], 'p1')
+    _ok(_link(client, pid, boxes[1], 'p1', {'cable': quad['id']}))
+    assert [_links(client, b)['p1']['strands'] for b in boxes[:2]] == [[1, 2], [3, 4]]
+    assert 'free strands' in _refused(_link(client, pid, boxes[2], 'p1', {'cable': quad['id']}))
+    duo = _new(client, 'opticalcon-duo', boxes[2], 'p1')
+    assert _links(client, boxes[2])['p1'] == {'cable': duo['id'], 'strands': [1, 2]}
+    assert 'free strands' in _refused(_link(client, pid, boxes[3], 'p1', {'cable': duo['id']}))
+
+
+@pytest.mark.parametrize('device', ['novastar-cvt10', 'novastar-cvt10-pro'])
+def test_a_quad_on_bidi_feeds_two_cvt10s_main_and_backup(client, device):
+    """With a backup processor a CVT10 has OPT 2 for the backup: on BiDi two
+    CVT10s' OPT 1 and OPT 2 take the QUAD's four strands between them."""
+    pid, boxes = _h9_with_boxes(client, device, 2, bidi=True)
+    _ok(client.put(f'/api/processors/{pid}', json={'backupUnit': {'name': 'H9 BU'}}))
+    assert all(_res_box(client, b)['fiberLinkKeys'] == ['p1', 'b1'] for b in boxes)
+    quad = _new(client, 'opticalcon-quad', boxes[0], 'p1')
+    for box, key in ((boxes[0], 'b1'), (boxes[1], 'p1'), (boxes[1], 'b1')):
+        _ok(_link(client, pid, box, key, {'cable': quad['id']}))
+    assert [{k: v['strands'] for k, v in _links(client, b).items()} for b in boxes] == [
+        {'p1': [1], 'b1': [2]}, {'p1': [3], 'b1': [4]}]
+
+
+@pytest.mark.parametrize('device,inputs', [('novastar-cvt10', None), ('novastar-cvt10-pro', None),
+                                          ('novastar-cvt4k-s', 1)])
+def test_a_duo_on_bidi_splits_across_two_boxes(client, device, inputs):
+    """The owner: "opticalCON DUO can split this same way too". On BiDi a
+    single-link box - a CVT10, a CVT10 Pro, a CVT4K-S on one OPT - takes one
+    strand, so one DUO feeds two of them (1 and 2) and a third finds none."""
+    st = _ok(client.post('/api/processors', json={'deviceId': 'novastar-h9'}), 201)
+    pid = st['processors'][-1]['id']
+    st = _ok(client.put(f'/api/processors/{pid}/slots/0', json={'deviceId': H4}))
+    cid = next(s for s in next(p for p in st['processors'] if p['id'] == pid)['slots']
+               if s['index'] == 0)['card']['id']
+    body = {'deviceId': device, 'pair': False}
+    if inputs:
+        body['inputs'] = inputs
+    for _ in range(3):
+        st = _ok(client.post(f'/api/processors/{pid}/cards/{cid}/cvts', json=body), 201)
+    boxes = [b['id'] for b in next(s for s in next(p for p in st['processors'] if p['id'] == pid)['slots']
+                                   if s['index'] == 0)['card']['cvts']]
+    for box in boxes:
+        _ok(client.put(f'/api/processors/{pid}/cvts/{box}/fiber', json={'bidi': True}))
+        assert _res_box(client, box)['fiberLinkKeys'] == ['p1']
+    duo = _new(client, 'opticalcon-duo', boxes[0], 'p1')
+    _ok(_link(client, pid, boxes[1], 'p1', {'cable': duo['id']}))
+    assert [_links(client, b)['p1'] for b in boxes[:2]] == [
+        {'cable': duo['id'], 'strands': [1]}, {'cable': duo['id'], 'strands': [2]}]
+    assert 'free strand' in _refused(_link(client, pid, boxes[2], 'p1', {'cable': duo['id']}))
+
+
 SEED_JS = """async () => {
     const j = (method, url, body) => fetch(url, {method,
         headers: {'Content-Type': 'application/json'},
