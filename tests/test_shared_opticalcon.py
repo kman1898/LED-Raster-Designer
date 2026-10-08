@@ -324,6 +324,56 @@ pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 # takes P (A)'s OPT 1 and OPT 2 on strands 1 and 2; QUAD 2 (1000') R (A)'s
 # the same. An SX40: QUAD 3 on XD A's X1 (1-2) and XD B's X1 (3-4). One
 # screen, so the pull sheet has a position.
+def test_a_quad_on_bidi_feeds_four_cvts_one_strand_each(client):
+    """The owner: on BiDi a QUAD can in theory reach four CVTs. Four CVT4K-S
+    on one OPT each (`inputs: 1`, one link apiece) fill an H_4xfiber's four
+    trunks; on BiDi each link takes one strand, so one QUAD feeds all four -
+    strand 1, 2, 3, 4 - and a fifth box's link finds none left."""
+    st = _ok(client.post('/api/processors', json={'deviceId': 'novastar-h9'}), 201)
+    pid = st['processors'][-1]['id']
+    st = _ok(client.put(f'/api/processors/{pid}/slots/0', json={'deviceId': H4}))
+    cid = next(s for s in next(p for p in st['processors'] if p['id'] == pid)['slots']
+               if s['index'] == 0)['card']['id']
+    for _ in range(4):
+        st = _ok(client.post(f'/api/processors/{pid}/cards/{cid}/cvts',
+                             json={'deviceId': CVT4K, 'inputs': 1, 'pair': False}), 201)
+    card = next(s for s in next(p for p in st['processors'] if p['id'] == pid)['slots']
+                if s['index'] == 0)['card']
+    boxes = [b['id'] for b in card['cvts']]
+    assert len(boxes) == 4
+    for box in boxes:
+        assert _raw_box(client, box)['inputs'] == 1
+        _ok(client.put(f'/api/processors/{pid}/cvts/{box}/fiber', json={'bidi': True}))
+        assert _res_box(client, box)['fiberLinkKeys'] == ['p1'], _res_box(client, box)['fiberLinkKeys']
+    quad = _new(client, 'opticalcon-quad', boxes[0], 'p1')
+    for box in boxes[1:]:
+        _ok(_link(client, pid, box, 'p1', {'cable': quad['id']}))
+    assert [_links(client, b)['p1'] for b in boxes] == [
+        {'cable': quad['id'], 'strands': [n]} for n in (1, 2, 3, 4)]
+    # a fifth CVT, on the next card, finds no strand left on the QUAD
+    st = _ok(client.put(f'/api/processors/{pid}/slots/1', json={'deviceId': H4}))
+    cid2 = next(s for s in next(p for p in st['processors'] if p['id'] == pid)['slots']
+                if s['index'] == 1)['card']['id']
+    st = _ok(client.post(f'/api/processors/{pid}/cards/{cid2}/cvts',
+                         json={'deviceId': CVT4K, 'inputs': 1, 'pair': False}), 201)
+    fifth = next(s for s in next(p for p in st['processors'] if p['id'] == pid)['slots']
+                 if s['index'] == 1)['card']['cvts'][0]['id']
+    _ok(client.put(f'/api/processors/{pid}/cvts/{fifth}/fiber', json={'bidi': True}))
+    assert 'free strand' in _refused(_link(client, pid, fifth, 'p1', {'cable': quad['id']}))
+
+
+def test_a_quad_on_bidi_reaches_four_two_opt_cvts_by_their_first_link(client):
+    """The owner's own shape - two H_4xfiber cards, two CVT4K-S on BiDi on
+    each - with every box using only its OPT 1: one QUAD reaches all four
+    boxes across both cards, a strand each."""
+    (pid, _c1, (a, b)), (_pid, _c2, (c, d)) = _h5(client)
+    quad = _new(client, 'opticalcon-quad', a, 'p1')
+    for box in (b, c, d):
+        _ok(_link(client, pid, box, 'p1', {'cable': quad['id']}))
+    assert [_links(client, x)['p1']['strands'] for x in (a, b, c, d)] == [[1], [2], [3], [4]]
+    assert 'free strand' in _refused(_link(client, pid, a, 'p2', {'cable': quad['id']}))
+
+
 SEED_JS = """async () => {
     const j = (method, url, body) => fetch(url, {method,
         headers: {'Content-Type': 'application/json'},
