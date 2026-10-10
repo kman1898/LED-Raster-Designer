@@ -25,9 +25,24 @@ const IDM_FIELD_BORDERS = ['shade', 'lines', 'ticks', 'none'];
 // outer pixel ring at 65%.
 const IDM_SHADE_ALT = 0.85;
 const IDM_SHADE_RING = 0.65;
+// Lines, ticks and Module ID numbers: the field's hue at these shares - 50%
+// for cabinet edges and the numbers, 70% for module edges. A field whose
+// brightest channel is under IDM_DARK_MAX counts as black (lit greys then).
+const IDM_INK_CABINET = 0.5;
+const IDM_INK_MODULE = 0.7;
+const IDM_DARK_MAX = 40;
 // How far apart (RGB distance) a mark and the field must be for the mark to
 // keep its own colour on the wall.
 const IDM_MARK_MIN_DISTANCE = 110;
+// Module ID labels: the type's size as a share of a full module's smaller
+// side (centred, and the smaller corner label), the corner label's stand-off
+// from the module's edge, and the least size in bitmap pixels a label is
+// drawn at - below it no module on that screen is numbered (a smear reads
+// as nothing and would run into its neighbours).
+const IDM_MODULE_ID_CENTRE = 0.5;
+const IDM_MODULE_ID_CORNER = 0.3;
+const IDM_MODULE_ID_INSET = 0.1;
+const IDM_MODULE_ID_FLOOR_PX = 8;
 
 Object.assign(CanvasRenderer.prototype, {
     // Modules across and down in one cabinet of `layer`: integers 1..64.
@@ -97,6 +112,23 @@ Object.assign(CanvasRenderer.prototype, {
         return `${panel.col || 0},${panel.row || 0},${cell.mx},${cell.my}`;
     },
 
+    // A module's label, as the Module ID labels, the locator list and the
+    // highlight readout all print it - one function, so the three never
+    // disagree. It is the screen's Cabinet ID style (cabinetIdFormat, the
+    // Cabinet ID tab's setting) applied to the cabinet's own module grid,
+    // starting again in every cabinet: in A1, B1 style a 2 x 2 cabinet
+    // reads A1 B1 / A2 B2, in A1, A2 style A1 A2 / B1 B2, in 1,1 style
+    // 1,1 1,2 / 2,1 2,2; any other style numbers the modules 1.. row by
+    // row. The position is the module's in the FULL cabinet grid, seen
+    // from the front (the screen as built, before any Pixel Map rotation),
+    // so a half cabinet's modules read as the same modules of a whole one.
+    // Returns cell -> text.
+    idmModuleLabeler(layer) {
+        const style = (layer && layer.cabinetIdStyle) || 'column-row';
+        const counts = this.idmCounts(layer);
+        return (cell) => this.cabinetIdFormat(style, cell.my, cell.mx, cell.my * counts.x + cell.mx + 1);
+    },
+
     // Every cabinet of `layer` with its modules: [{panel, cells}].
     idmLayerCells(layer) {
         const counts = this.idmCounts(layer);
@@ -112,7 +144,8 @@ Object.assign(CanvasRenderer.prototype, {
     // and bad-module check on the real wall, with a border style that says
     // where modules and cabinets meet. The project keeps it as
     //   idmField: {color: '#rrggbb', border: 'shade' | 'lines' | 'ticks' | 'none'}
-    // (app.sanitize_idm_field; white with shaded borders when missing).
+    // (app.sanitize_idm_field; white with shaded borders when missing), and
+    // moduleIds: true numbers every module (_idmDrawModuleIds).
     // What is drawn here goes into the raster - the output window gets
     // exactly this - except the on-screen grid (designer only, never in an
     // export pass) and the accent outline round the live highlight.
@@ -125,19 +158,24 @@ Object.assign(CanvasRenderer.prototype, {
     //          a cabinet edge reads as a line and a module edge as a step.
     //          On a black (or nearly black) field the levels go UP instead:
     //          very dark grey modules, a slightly lighter cabinet ring.
-    //   lines  a 1 px line at every module edge in the contrasting colour at
-    //          half strength, the cabinet's outer ring at full strength.
+    //   lines  a 1 px line at every module edge at 70% of the field, the
+    //          cabinet's outer ring at 50%.
     //   ticks  short L ticks in each module's corners (length scaled to the
-    //          module), longer and 2 px thick at each cabinet's corners.
+    //          module) at 70%, longer and 2 px thick at each cabinet's
+    //          corners at 50%.
     //   none   the field alone.
-    // The contrasting colour is black on a light field, white on a dark one.
+    // Nothing drawn into the field is ever black: an unlit pixel inside a
+    // line or a number would hide a dead one, or pass for one, and dead
+    // pixels are what the crew is looking for. Lines, ticks and the Module
+    // ID numbers are the field's own hue, dimmer (idmInkLevels); on a black
+    // (or nearly black) field they are lit greys instead.
     idmFieldSpec() {
         const app = window.app;
         const raw = (app && app.project && app.project.idmField && typeof app.project.idmField === 'object')
             ? app.project.idmField : {};
         const hex = this._idmHexOrNull(raw.color) || IDM_FIELD_DEFAULT_COLOR;
         const border = IDM_FIELD_BORDERS.includes(raw.border) ? raw.border : 'shade';
-        return { color: hex, border, rgb: this._idmRgb(hex) };
+        return { color: hex, border, rgb: this._idmRgb(hex), moduleIds: raw.moduleIds === true };
     },
 
     _idmHexOrNull(value) {
@@ -173,12 +211,25 @@ Object.assign(CanvasRenderer.prototype, {
     // cabinet ring's. Darker than the field, or on a (nearly) black field
     // lighter, so every pixel stays lit either way.
     idmShadeLevels(rgb) {
-        const dark = Math.max(rgb[0], rgb[1], rgb[2]) < 40;
+        const dark = Math.max(rgb[0], rgb[1], rgb[2]) < IDM_DARK_MAX;
         const lift = (k) => rgb.map(v => Math.min(255, v + k));
         const dim = (f) => rgb.map(v => Math.round(v * f));
         return dark
             ? { alt: lift(26), ring: lift(52) }
             : { alt: dim(IDM_SHADE_ALT), ring: dim(IDM_SHADE_RING) };
+    },
+
+    // What lines, ticks and Module ID numbers are drawn in on a field (or a
+    // colour mark) of `rgb`: the same hue at 50% (cabinet edges, numbers)
+    // and 70% (module edges) - every pixel lit. On a black or nearly black
+    // field, where half is still dark, lit greys: 40% for the cabinet and
+    // the numbers, 20% for the modules.
+    idmInkLevels(rgb) {
+        if (Math.max(rgb[0], rgb[1], rgb[2]) < IDM_DARK_MAX) {
+            return { cabinet: [102, 102, 102], module: [51, 51, 51] };
+        }
+        const dim = (f) => rgb.map(v => Math.round(v * f));
+        return { cabinet: dim(IDM_INK_CABINET), module: dim(IDM_INK_MODULE) };
     },
 
     // The colour a mark is DRAWN in: its own, unless that is too close to
@@ -188,6 +239,19 @@ Object.assign(CanvasRenderer.prototype, {
         const own = this._idmHexOrNull(color) || '#ff1a1a';
         if (this._idmDistance(this._idmRgb(own), fieldRgb) >= IDM_MARK_MIN_DISTANCE) return own;
         return this._idmCss(this.idmContrastRgb(fieldRgb));
+    },
+
+    // idmMarkInk as [r, g, b].
+    _idmMarkInkRgb(color, fieldRgb) {
+        const own = this._idmRgb(this._idmHexOrNull(color) || '#ff1a1a');
+        return this._idmDistance(own, fieldRgb) >= IDM_MARK_MIN_DISTANCE ? own : this.idmContrastRgb(fieldRgb);
+    },
+
+    // The shade style's checker: true for a module drawn at the alternate
+    // level. It runs across the whole screen, cabinet after cabinet.
+    _idmIsAlt(panel, cell, counts) {
+        const gx0 = (panel.col || 0) * counts.x, gy0 = (panel.row || 0) * counts.y;
+        return (gx0 + cell.mx + gy0 + cell.my) % 2 === 1;
     },
 
     // The live highlight blinks between full white and this: the field's
@@ -233,15 +297,14 @@ Object.assign(CanvasRenderer.prototype, {
         if (field.border === 'shade') {
             const lv = this.idmShadeLevels(F);
             ctx.fillStyle = this._idmCss(lv.alt);
-            const gx0 = (panel.col || 0) * counts.x, gy0 = (panel.row || 0) * counts.y;
             for (const c of cells) {
-                if ((gx0 + c.mx + gy0 + c.my) % 2 === 1) ctx.fillRect(c.x, c.y, c.w, c.h);
+                if (this._idmIsAlt(panel, c, counts)) ctx.fillRect(c.x, c.y, c.w, c.h);
             }
             ctx.fillStyle = this._idmCss(lv.ring);
             this._idmRing(ctx, panel.x, panel.y, panel.width, panel.height, 1);
         } else if (field.border === 'lines') {
-            const C = this.idmContrastRgb(F);
-            ctx.fillStyle = this._idmCss(F.map((v, i) => Math.round((v + C[i]) / 2)));
+            const ink = this.idmInkLevels(F);
+            ctx.fillStyle = this._idmCss(ink.module);
             const xs = new Set(), ys = new Set();
             for (const c of cells) {
                 if (c.x > panel.x + 1e-6) xs.add(c.x);
@@ -249,15 +312,16 @@ Object.assign(CanvasRenderer.prototype, {
             }
             xs.forEach(x => ctx.fillRect(x, panel.y, 1, panel.height));
             ys.forEach(y => ctx.fillRect(panel.x, y, panel.width, 1));
-            ctx.fillStyle = this._idmCss(C);
+            ctx.fillStyle = this._idmCss(ink.cabinet);
             this._idmRing(ctx, panel.x, panel.y, panel.width, panel.height, 1);
         } else if (field.border === 'ticks') {
-            const C = this.idmContrastRgb(F);
-            ctx.fillStyle = this._idmCss(C);
+            const ink = this.idmInkLevels(F);
+            ctx.fillStyle = this._idmCss(ink.module);
             for (const c of cells) {
                 const len = Math.max(2, Math.min(16, Math.round(Math.min(c.w, c.h) * 0.15)));
                 this._idmTicks(ctx, c.x, c.y, c.w, c.h, len, 1);
             }
+            ctx.fillStyle = this._idmCss(ink.cabinet);
             const cab = Math.max(3, Math.min(32, Math.round(Math.min(panel.width, panel.height) * 0.12)));
             this._idmTicks(ctx, panel.x, panel.y, panel.width, panel.height, cab, 2);
         }
@@ -285,6 +349,158 @@ Object.assign(CanvasRenderer.prototype, {
             ctx.fillStyle = ink;
             ctx.fillRect(c.x + c.w * inset, c.y + c.h * inset, c.w * (1 - 2 * inset), c.h * (1 - 2 * inset));
         }
+    },
+
+    // ── Module ID labels ────────────────────────────────────────────────
+    //
+    // With idmField.moduleIds on, every module carries its label - the
+    // Cabinet ID style run over the cabinet's module grid (idmModuleLabeler),
+    // the locator list's and the highlight readout's own "Module A2" - in
+    // the app and on the wall. Placed where the screen's Cabinet ID labels
+    // are (its cabinetIdPosition: centred, or the top-left corner), in the
+    // project font the Cabinet ID view uses, one size per screen scaled to
+    // a full module (a share of its smaller side, pulled in until the
+    // widest label of a whole cabinet fits) and floored to whole bitmap
+    // pixels so the wall's type is crisp. Under IDM_MODULE_ID_FLOOR_PX on
+    // the bitmap nothing is labelled; a module with no room for its label
+    // at that size (a half cabinet's sliver) goes without. Never black (see
+    // the field above): the field's hue at 50% (idmInkLevels), or on a
+    // colour mark the mark's. Drawn in the screen's own frame, so a turned
+    // screen's labels turn with it as its Cabinet IDs do; the live
+    // highlight is drawn over them.
+
+    // The labels of one screen, worked out but not drawn: {px, position,
+    // sites: [{key, text, x, y, w, h, ascent, left, right, color}]} with
+    // each label's ink box (x, y, w, h) in the screen's own frame. px 0
+    // and no sites when the switch is off or the size is under the floor.
+    // opts.scale: bitmap px per world unit (read off the ctx otherwise).
+    idmModuleLabels(layer, opts = {}) {
+        const out = { px: 0, position: 'center', sites: [] };
+        const field = opts.field || this.idmFieldSpec();
+        if (!field.moduleIds || !layer || (layer.type || 'screen') !== 'screen' || !Array.isArray(layer.panels)) return out;
+        const ctx = opts.ctx || this.ctx;
+        let scale = Number(opts.scale);
+        if (!(scale > 0)) {
+            try {
+                const m = ctx.getTransform();
+                scale = Math.hypot(m.a, m.b) || 1;
+            } catch (_) { scale = 1; }
+        }
+        const counts = this.idmCounts(layer);
+        const fullW = Math.round(Number(layer.cabinet_width) || 0);
+        const fullH = Math.round(Number(layer.cabinet_height) || 0);
+        const modW = Math.floor(fullW / counts.x), modH = Math.floor(fullH / counts.y);
+        const side = Math.min(modW, modH);
+        if (!(side > 0)) return out;
+        const centred = layer.cabinetIdPosition !== 'top-left';
+        out.position = centred ? 'center' : 'top-left';
+        const inset = centred ? 0 : Math.max(3, Math.round(IDM_MODULE_ID_INSET * side));
+        const groups = this.idmLayerCells(layer);
+        if (!groups.some(g => g.cells.length)) return out;
+        const labelOf = this.idmModuleLabeler(layer);
+        const family = projectFontFamily();
+        const marks = (layer.idm && layer.idm.marks && typeof layer.idm.marks === 'object') ? layer.idm.marks : {};
+        const fieldInk = this.idmInkLevels(field.rgb).cabinet;
+        ctx.save();
+        try {
+            // Type scales with its size, so one measurement at a reference
+            // size gives every size: the widest label of a whole cabinet and
+            // the labels' height, per px.
+            const metrics = this._idmLabelMetrics(ctx, family, layer, counts, labelOf);
+            const perW = metrics.w, perA = metrics.a, perD = metrics.d;
+            const roomW = centred ? modW * 0.8 : modW - 2 * inset;
+            const roomH = centred ? modH * 0.8 : modH - 2 * inset;
+            let px = side * (centred ? IDM_MODULE_ID_CENTRE : IDM_MODULE_ID_CORNER);
+            if (perW > 0) px = Math.min(px, roomW / perW);
+            if (perA + perD > 0) px = Math.min(px, roomH / (perA + perD));
+            px = Math.floor(px * scale) / scale;
+            if (!(px * scale >= IDM_MODULE_ID_FLOOR_PX)) return out;
+            out.px = px;
+            ctx.font = `bold ${px}px ${family}`;
+            const A = perA * px, H = (perA + perD) * px;
+            const seen = new Map();
+            const measure = (text) => {
+                let m = seen.get(text);
+                if (!m) {
+                    const r = ctx.measureText(text);
+                    const l = Number.isFinite(r.actualBoundingBoxLeft) ? r.actualBoundingBoxLeft : 0;
+                    const rt = Number.isFinite(r.actualBoundingBoxRight) ? r.actualBoundingBoxRight : r.width;
+                    m = { l, r: rt, w: l + rt };
+                    seen.set(text, m);
+                }
+                return m;
+            };
+            for (const { panel, cells } of groups) {
+                for (const c of cells) {
+                    const text = labelOf(c);
+                    const m = measure(text);
+                    const x = centred ? c.x + (c.w - m.w) / 2 : c.x + inset;
+                    const y = centred ? c.y + (c.h - H) / 2 : c.y + inset;
+                    if (x < c.x || y < c.y || x + m.w > c.x + c.w - (centred ? 0 : 1)
+                        || y + H > c.y + c.h - (centred ? 0 : 1)) continue;
+                    const key = this.idmCellKey(panel, c);
+                    const mark = marks[key];
+                    const ink = (mark && mark.style !== 'x')
+                        ? this.idmInkLevels(this._idmMarkInkRgb(mark.color, field.rgb)).cabinet : fieldInk;
+                    out.sites.push({
+                        key, text, x, y, w: m.w, h: H, ascent: A, left: m.l, right: m.r,
+                        color: this._idmCss(ink),
+                    });
+                }
+            }
+        } finally {
+            ctx.restore();
+        }
+        return out;
+    },
+
+    // Per px of type: the widest label a whole cabinet of `layer` carries
+    // and the labels' ascent and descent. Kept for the font, style and
+    // module grid it was measured for (labels are the same in every
+    // cabinet), so a redraw measures nothing.
+    _idmLabelMetrics(ctx, family, layer, counts, labelOf) {
+        const style = layer.cabinetIdStyle || 'column-row';
+        const key = `${family}|${style}|${counts.x}|${counts.y}`;
+        if (this._idmLabelMetricsKey === key && this._idmLabelMetricsVal) return this._idmLabelMetricsVal;
+        const REF = 100;
+        ctx.font = `bold ${REF}px ${family}`;
+        let w = 0;
+        const chars = new Set();
+        for (let my = 0; my < counts.y; my++) {
+            for (let mx = 0; mx < counts.x; mx++) {
+                const text = labelOf({ mx, my });
+                w = Math.max(w, ctx.measureText(text).width);
+                for (const ch of text) chars.add(ch);
+            }
+        }
+        const dm = ctx.measureText([...chars].join('') || '0');
+        const a = Number.isFinite(dm.actualBoundingBoxAscent) ? dm.actualBoundingBoxAscent : 0.72 * REF;
+        const d = Number.isFinite(dm.actualBoundingBoxDescent) ? Math.max(0, dm.actualBoundingBoxDescent) : 0;
+        this._idmLabelMetricsKey = key;
+        this._idmLabelMetricsVal = { w: w / REF, a: a / REF, d: d / REF };
+        return this._idmLabelMetricsVal;
+    },
+
+    _idmDrawModuleIds(ctx, layer, field) {
+        const L = this.idmModuleLabels(layer, { field, ctx });
+        if (!L.sites.length) return;
+        ctx.save();
+        ctx.font = `bold ${L.px}px ${projectFontFamily()}`;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'alphabetic';
+        let colour = null;
+        for (const s of L.sites) {
+            if (s.color !== colour) {
+                colour = s.color;
+                ctx.fillStyle = colour;
+            }
+            // The anchor puts the ink on its box, on a whole pixel on the
+            // wall. A mirrored canvas has _fillText turn the type about the
+            // anchor, so there the anchor is the box's other side.
+            const ax = this._mirror ? s.x + s.right : s.x + s.left;
+            this._fillText(s.text, this.snap(ax), this.snap(s.y + s.ascent));
+        }
+        ctx.restore();
     },
 
     // Drawn inside the screen's own frame (its offset and Pixel Map rotation
@@ -374,6 +590,9 @@ Object.assign(CanvasRenderer.prototype, {
             }
             ctx.restore();
         }
+        // Module ID labels over the field and the marks (under the live
+        // highlight, which is drawn after every screen).
+        if (field.moduleIds) this._idmDrawModuleIds(ctx, layer, field);
         ctx.restore();
     },
 

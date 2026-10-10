@@ -24,18 +24,25 @@
 //
 // The FIELD: the tab draws every screen in one solid colour (the crew puts it
 // on the real wall to spot dead pixels and bad modules) with a border style
-// drawn into the raster - project.idmField = {color, border}, canvas-idm.js
-// draws it. View state, not an edit: it saves with the show and reaches every
-// client on the LAN (PUT /api/project/idm-field, `idm_field_updated`), but it
-// is never an undo step - every history entry is stamped with the field as
-// it changes, so an undo never puts an older one back.
+// drawn into the raster - project.idmField = {color, border, moduleIds},
+// canvas-idm.js draws it. moduleIds (the Module ID switch) labels every
+// module in the screen's Cabinet ID style over its cabinet's module grid
+// (A1, B1 ... starting again in every cabinet), in the app and on the wall,
+// placed where the screen's Cabinet ID labels are. View state, not an edit: it saves with the
+// show and reaches every client on the LAN (PUT /api/project/idm-field,
+// `idm_field_updated`), but it is never an undo step - every history entry
+// is stamped with the field as it changes, so an undo never puts an older
+// one back.
 //
 // The LIVE HIGHLIGHT: the module the crew is pointing at - by mouse (hover),
 // by the arrow keys, or from a tablet at the wall (a tap, or the arrow pad in
-// the panel). It is never saved and never an undo step; it goes to every
-// client over Socket.IO (`idm_highlight`, throttled, the server only relays
-// it, the last mover wins), so the machine driving the wall shows a highlight
-// moved from a tablet. It blinks white / the field's inverse on the wall
+// the panel). It lives on the project as project.idmHighlight = {layerId,
+// key} (or null) like the field: view state, never an undo step (every
+// history entry is stamped with it as it moves). It goes to every client
+// over Socket.IO (`idm_highlight`, throttled, the last mover wins) and the
+// server keeps it, so the machine driving the wall shows a highlight moved
+// from a tablet, a client that connects or reloads later shows it at once,
+// and a saved show opens with it. It blinks white / the field's inverse on the wall
 // (canvas-idm.js renderIdmHighlight); the blink refreshes the output window by
 // laying the highlight over its last frame (app-output-display.js), not by
 // rendering it again. It stays until Esc or Clear highlight, and goes when
@@ -51,7 +58,7 @@ const STYLE_KEY = 'lrdIdmMarkStyle';
 const COLOR_KEY = 'lrdIdmMarkColor';
 // The field's border styles; white with shaded borders when unset.
 const FIELD_BORDERS = ['shade', 'lines', 'ticks', 'none'];
-const FIELD_DEFAULT = { color: '#ffffff', border: 'shade' };
+const FIELD_DEFAULT = { color: '#ffffff', border: 'shade', moduleIds: false };
 const FIELD_PUT_MS = 150;
 // The live highlight: half a blink (2.5 blinks a second) and the least time
 // between two sends to the other clients (25 a second).
@@ -138,7 +145,17 @@ export function idmFieldSanitize(value) {
     return {
         color: idmColor(v.color) || FIELD_DEFAULT.color,
         border: FIELD_BORDERS.includes(v.border) ? v.border : FIELD_DEFAULT.border,
+        moduleIds: v.moduleIds === true,
     };
+}
+
+// The stored highlight held to its shape: {layerId, key} or null.
+function idmHighlightOf(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const id = value.layerId;
+    if (typeof id !== 'number' || !Number.isInteger(id)) return null;
+    const key = typeof value.key === 'string' ? idmKey(value.key) : null;
+    return key ? { layerId: id, key } : null;
 }
 
 // What a copy of `layer` carries: its module layout, no marks. Undefined
@@ -172,8 +189,9 @@ class _IdmLocator {
                 fieldsKey: '', listKey: '', fieldUiKey: '', readoutKey: '',
                 // the field's PUT, held back while a colour is dragged
                 fieldTimer: null, fieldPending: null,
-                // the live highlight: {layerId, key} or null
-                hl: null, blinkOn: true, blinkStart: 0, blinkTimer: null,
+                // the live highlight's blink (the highlight itself is
+                // project.idmHighlight - _idmHl)
+                blinkOn: true, blinkStart: 0, blinkTimer: null,
                 sendTimer: null, lastSend: 0, cabinetJump: false,
                 // the last pointer's kind ('mouse', 'touch', 'pen') and when
                 lastPointer: '', lastPointerAt: 0,
@@ -223,6 +241,10 @@ class _IdmLocator {
                 this._idmSetField({ border: btn.dataset.idmBorder });
                 this._idmBlurButton(btn);
             });
+        });
+        on('idm-module-ids', 'click', (e) => {
+            this._idmSetField({ moduleIds: !this._idmFieldNow().moduleIds });
+            this._idmBlurButton(e.currentTarget);
         });
         // The highlight pad: arrows, the cabinet jump, Mark, Clear.
         document.querySelectorAll('[data-idm-step]').forEach(btn => {
@@ -331,7 +353,8 @@ class _IdmLocator {
         return idmFieldSanitize(this.project && this.project.idmField);
     }
 
-    // A change of colour or border from this client: drawn at once, sent to
+    // A change of colour, border or the Module ID switch from this client:
+    // drawn at once, sent to
     // the server (which tells every other client). `soon` holds the send
     // back while a colour is being dragged in the picker.
     _idmSetField(patch, { soon = false } = {}) {
@@ -341,9 +364,11 @@ class _IdmLocator {
         const next = {
             color: idmColor(patch && patch.color) || cur.color,
             border: FIELD_BORDERS.includes(patch && patch.border) ? patch.border : cur.border,
+            moduleIds: typeof (patch && patch.moduleIds) === 'boolean' ? patch.moduleIds : cur.moduleIds,
         };
         const stored = this.project.idmField;
-        const same = !!stored && stored.color === next.color && stored.border === next.border;
+        const same = !!stored && stored.color === next.color && stored.border === next.border
+            && (stored.moduleIds === true) === next.moduleIds;
         if (same && !st.fieldPending) return;
         if (!same) this._idmAdoptField(next);
         st.fieldPending = next;
@@ -381,11 +406,12 @@ class _IdmLocator {
         if (window.canvasRenderer) window.canvasRenderer.render();
     }
 
-    // The panel's swatches and border buttons say what the project holds.
+    // The panel's swatches, border buttons and Module ID switch say what
+    // the project holds.
     _idmSyncField(force = false) {
         const st = this._idmState();
         const f = this._idmFieldNow();
-        const key = `${f.color}|${f.border}`;
+        const key = `${f.color}|${f.border}|${f.moduleIds}`;
         if (!force && key === st.fieldUiKey) return;
         st.fieldUiKey = key;
         let quick = false;
@@ -406,17 +432,57 @@ class _IdmLocator {
             btn.classList.toggle('active', on);
             btn.setAttribute('aria-pressed', on ? 'true' : 'false');
         });
+        const ids = document.getElementById('idm-module-ids');
+        if (ids) {
+            ids.classList.toggle('active', f.moduleIds);
+            ids.setAttribute('aria-pressed', f.moduleIds ? 'true' : 'false');
+        }
     }
 
     // ── the live highlight ────────────────────────────────────────────────
+
+    // The highlight as the project holds it: {layerId, key} or null.
+    _idmHl() {
+        return idmHighlightOf(this.project && this.project.idmHighlight);
+    }
+
+    // The highlight onto this window's project - and onto every history
+    // entry, so it is never an undo step and the next snapshot does not
+    // count a move as a change (the field's way, _idmAdoptField).
+    _idmPutHighlight(next) {
+        if (!this.project) return;
+        const value = next ? { layerId: next.layerId, key: next.key } : null;
+        this.project.idmHighlight = value;
+        (Array.isArray(this.history) ? this.history : []).forEach(entry => {
+            if (entry && entry.project && typeof entry.project === 'object') {
+                entry.project.idmHighlight = value ? { ...value } : null;
+            }
+        });
+    }
+
+    // The blink runs while there is a highlight - whichever way it came
+    // (this client, another one, a project or file load, a reconnect).
+    _idmEnsureBlink() {
+        const st = this._idmState();
+        const has = !!this._idmHl();
+        if (has && !st.blinkTimer) {
+            st.blinkOn = true;
+            st.blinkStart = Date.now();
+            st.blinkTimer = setInterval(() => this._idmBlinkTick(), BLINK_HALF_MS);
+        } else if (!has && st.blinkTimer) {
+            clearInterval(st.blinkTimer);
+            st.blinkTimer = null;
+        }
+    }
 
     // The highlighted module as the canvas draws it: {layer, panel, cell,
     // key, on} (on: the white half of the blink), or null. A highlight on a
     // screen or module that is gone answers null.
     _idmHighlightTarget() {
-        const st = this._idmS;
-        const hl = st && st.hl;
+        const st = this._idmState();
+        const hl = this._idmHl();
         const r = window.canvasRenderer;
+        if (hl && !st.blinkTimer) this._idmEnsureBlink();
         if (!hl || !r || !this.project) return null;
         const layer = (this.project.layers || []).find(l => l && l.id === hl.layerId);
         if (!layer || (layer.type || 'screen') !== 'screen') return null;
@@ -435,19 +501,15 @@ class _IdmLocator {
     // (false for a move that came from one of them).
     _idmSetHighlight(layerId, key, { send = true } = {}) {
         const st = this._idmState();
-        const next = (layerId === null || layerId === undefined || !key) ? null : { layerId, key };
-        const same = (!next && !st.hl)
-            || (next && st.hl && st.hl.layerId === next.layerId && st.hl.key === next.key);
+        const next = idmHighlightOf({ layerId, key });
+        const cur = this._idmHl();
+        const same = (!next && !cur)
+            || (next && cur && cur.layerId === next.layerId && cur.key === next.key);
         if (same) return;
-        st.hl = next;
+        this._idmPutHighlight(next);
         st.blinkOn = true;
         st.blinkStart = Date.now();
-        if (st.hl && !st.blinkTimer) {
-            st.blinkTimer = setInterval(() => this._idmBlinkTick(), BLINK_HALF_MS);
-        } else if (!st.hl && st.blinkTimer) {
-            clearInterval(st.blinkTimer);
-            st.blinkTimer = null;
-        }
+        this._idmEnsureBlink();
         if (send) this._idmSendHighlight();
         this._idmRefreshReadout();
         this._idmRepaint();
@@ -465,7 +527,7 @@ class _IdmLocator {
         const flush = () => {
             st.sendTimer = null;
             st.lastSend = Date.now();
-            const hl = st.hl;
+            const hl = this._idmHl();
             this.socket.emit('idm_highlight', {
                 layerId: hl ? hl.layerId : null, key: hl ? hl.key : null, origin: st.origin,
             });
@@ -476,12 +538,14 @@ class _IdmLocator {
     }
 
     // Half a blink: the highlight changes colour. A highlight whose screen
-    // or module has gone is dropped here (on every client alike).
+    // or module has gone is dropped here (on every client alike; the server
+    // clears its own copy when the screen changes), and one a project load
+    // took away stops the blink and leaves the wall.
     _idmBlinkTick() {
         const st = this._idmState();
-        if (!st.hl) return;
-        if (!this._idmHighlightTarget()) {
-            st.hl = null;
+        const gone = !this._idmHl() || !this._idmHighlightTarget();
+        if (gone) {
+            if (this._idmHl()) this._idmPutHighlight(null);
             clearInterval(st.blinkTimer);
             st.blinkTimer = null;
             this._idmRefreshReadout();
@@ -640,20 +704,21 @@ class _IdmLocator {
             return true;
         }
         if (e.code === 'Space') {
-            if (!st.hl) return false;
+            if (!this._idmHl()) return false;
             if (!e.repeat) this._idmMarkHighlight();
             return true;
         }
         if (e.key === 'Escape') {
-            if (!st.hl) return false;
+            if (!this._idmHl()) return false;
             this._idmClearHighlight();
             return true;
         }
         return false;
     }
 
-    // Screen · Cabinet ID · Module N for one module - the locator list's own
-    // naming (_idmMarkGroups). Null when the module is not there.
+    // Screen · Cabinet ID · Module label for one module - the locator list's
+    // own naming (_idmMarkGroups), the module label the Module ID labels
+    // draw (canvas-idm idmModuleLabeler). Null when the module is not there.
     _idmDescribe(layer, key) {
         const r = window.canvasRenderer;
         if (!r || !layer) return null;
@@ -662,16 +727,17 @@ class _IdmLocator {
         if (!panel) return null;
         const counts = r.idmCounts(layer);
         const cells = r.idmModuleCells(layer, panel, counts.x, counts.y, r._idmVisibleLookup(layer));
-        const index = cells.findIndex(c => c.mx === parts[2] && c.my === parts[3]);
-        if (index < 0) return null;
+        const cell = cells.find(c => c.mx === parts[2] && c.my === parts[3]);
+        if (!cell) return null;
         const xs = [...new Set(cells.map(c => c.mx))].sort((a, b) => a - b);
         const ys = [...new Set(cells.map(c => c.my))].sort((a, b) => a - b);
         const screen = layer.name || 'Screen';
         const cabinet = r.cabinetIdLabeler(layer)(panel);
+        const module = r.idmModuleLabeler(layer)(cell);
         return {
-            screen, cabinet, module: index + 1,
+            screen, cabinet, module,
             row: ys.indexOf(parts[3]) + 1, col: xs.indexOf(parts[2]) + 1,
-            text: `${screen} · ${cabinet} · Module ${index + 1}`,
+            text: `${screen} · ${cabinet} · Module ${module}`,
         };
     }
 
@@ -710,7 +776,7 @@ class _IdmLocator {
             cab.classList.toggle('active', !!st.cabinetJump);
             cab.setAttribute('aria-pressed', st.cabinetJump ? 'true' : 'false');
         }
-        const has = !!st.hl;
+        const has = !!this._idmHl();
         ['idm-pad-mark', 'idm-pad-clear'].forEach(id => {
             const el = document.getElementById(id);
             if (el) el.disabled = !has;
@@ -1029,11 +1095,12 @@ class _IdmLocator {
         }
     }
 
-    // Every mark, screen by screen: Screen · Cabinet ID · Module N, and the
-    // module's row and column inside its cabinet. Modules are numbered 1..
-    // row by row from the top-left of the cabinet as seen from the front
-    // (the screen as built, before any Pixel Map rotation). Cabinet IDs are
-    // the Cabinet ID view's own (canvas-labels cabinetIdLabeler).
+    // Every mark, screen by screen: Screen · Cabinet ID · Module label, and
+    // the module's row and column inside its cabinet. A module's label is
+    // the screen's Cabinet ID style over the cabinet's module grid, as seen
+    // from the front (canvas-idm idmModuleLabeler - what the Module ID
+    // labels draw); Cabinet IDs are the Cabinet ID view's own (canvas-labels
+    // cabinetIdLabeler). Rows run in reading order, cabinet by cabinet.
     _idmMarkGroups() {
         const r = window.canvasRenderer;
         const groups = [];
@@ -1041,6 +1108,7 @@ class _IdmLocator {
         for (const layer of (this.project.layers || [])) {
             if (!layer || (layer.type || 'screen') !== 'screen' || markCount(layer) === 0) continue;
             const labelOf = r.cabinetIdLabeler(layer);
+            const moduleOf = r.idmModuleLabeler(layer);
             const counts = r.idmCounts(layer);
             const seen = r._idmVisibleLookup(layer);
             const byCell = new Map();
@@ -1051,15 +1119,16 @@ class _IdmLocator {
                 const panel = byCell.get(`${parts[0]},${parts[1]}`);
                 if (!panel) return;
                 const cells = r.idmModuleCells(layer, panel, counts.x, counts.y, seen);
-                const index = cells.findIndex(c => c.mx === parts[2] && c.my === parts[3]);
-                if (index < 0) return;
+                const cell = cells.find(c => c.mx === parts[2] && c.my === parts[3]);
+                if (!cell) return;
+                const index = cells.indexOf(cell);
                 const xs = [...new Set(cells.map(c => c.mx))].sort((a, b) => a - b);
                 const ys = [...new Set(cells.map(c => c.my))].sort((a, b) => a - b);
                 const mark = layer.idm.marks[key];
                 rows.push({
                     key, panel, index,
                     cabinet: labelOf(panel),
-                    module: index + 1,
+                    module: moduleOf(cell),
                     row: ys.indexOf(parts[3]) + 1,
                     col: xs.indexOf(parts[2]) + 1,
                     style: mark.style === 'x' ? 'x' : 'color',

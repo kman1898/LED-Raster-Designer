@@ -427,7 +427,9 @@ class _OutputDisplay {
 
     // What the output picture depends on: the project (runtime caches
     // dropped, as history does), the preferences, the renderer's display
-    // switches and which images have finished loading.
+    // switches and which images have finished loading. Not the IDM
+    // Locator's live highlight: an IDM output lays it over its last frame
+    // (_outputDisplayBlink), so a move never costs a render.
     _outputDisplaySignature() {
         const r = window.canvasRenderer;
         const flags = [];
@@ -438,7 +440,8 @@ class _OutputDisplay {
         }
         const images = ((this.project && this.project.layers) || [])
             .map(l => (l && l._imageObj) ? (l._imageObj.complete ? '1' : '0') : '').join('');
-        return JSON.stringify(this.project, this._snapshotReplacer)
+        const replacer = (k, v) => (k === 'idmHighlight' ? undefined : this._snapshotReplacer(k, v));
+        return JSON.stringify(this.project, replacer)
             + '|' + JSON.stringify(this._serverPreferences || null)
             + '|' + flags.join(',') + '|' + images;
     }

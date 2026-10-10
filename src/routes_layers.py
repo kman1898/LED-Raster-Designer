@@ -603,6 +603,8 @@ def delete_layer(layer_id):
     # The same pass drops the deleted screen's data port pins
     # (port_assignment.prune_orphan_pins), so the response carries none.
     app._enforce_group_integrity(app.current_project)
+    # The IDM Locator's stored highlight goes with its screen.
+    app.normalize_idm_highlight(app.current_project)
     app.current_project['is_pristine'] = False
     log_event('delete_layer', {'id': layer_id, 'name': deleted_name, 'remaining_layers': len(app.current_project['layers'])})
     socketio.emit('layer_deleted', {'id': layer_id})

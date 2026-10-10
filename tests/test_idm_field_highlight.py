@@ -10,14 +10,17 @@ at. What this file pins:
   funnels; the route broadcasts it and leaves a pristine project pristine.
   In the browser the quick colours and the border styles change the pixels
   the output window shows (white, the shade checker at 85% with the cabinet
-  ring at 65%, contrasting lines, corner ticks, a uniform field with none,
+  ring at 65%, lines and corner ticks in the field's own hue at 70% / 50% -
+  never black - a uniform field with none,
   the lifted levels on black), the designer's on-screen grid never reaches
   the output, a mark the colour of the field is drawn in the contrasting
   colour (its stored colour unchanged), the field reaches a second client,
   is never an undo step, and survives save and load; an older project draws
   white with shaded borders.
-* The live highlight: the server relays it to every other client and never
-  stores it (app.sanitize_idm_highlight). Hover highlights a module and the
+* The live highlight: the server relays it to every other client
+  (app.sanitize_idm_highlight) and keeps it on the project only when it
+  names a module that exists (the rest of what keeping it means is pinned
+  by tests/test_idm_module_ids.py). Hover highlights a module and the
   pad and status bar name it the locator list's way; the arrows step one
   module across cabinet edges and onto the next screen, Shift a whole
   cabinet; Space marks it (one undo step), Esc clears it; a text field
@@ -50,11 +53,11 @@ from app import app as flask_app, socketio  # noqa: E402
 
 def test_the_field_sanitizer_holds_colour_and_border():
     s = app_module.sanitize_idm_field
-    assert s({'color': '#FF0000', 'border': 'lines'}) == {'color': '#ff0000', 'border': 'lines'}
-    assert s({'color': 'abc', 'border': 'ticks', 'stray': 1}) == {'color': '#aabbcc', 'border': 'ticks'}
+    assert s({'color': '#FF0000', 'border': 'lines'}) == {'color': '#ff0000', 'border': 'lines', 'moduleIds': False}
+    assert s({'color': 'abc', 'border': 'ticks', 'stray': 1}) == {'color': '#aabbcc', 'border': 'ticks', 'moduleIds': False}
     # unusable parts take the defaults: white, shade
-    assert s({}) == {'color': '#ffffff', 'border': 'shade'}
-    assert s({'color': 'red', 'border': 'dots'}) == {'color': '#ffffff', 'border': 'shade'}
+    assert s({}) == {'color': '#ffffff', 'border': 'shade', 'moduleIds': False}
+    assert s({'color': 'red', 'border': 'dots'}) == {'color': '#ffffff', 'border': 'shade', 'moduleIds': False}
     assert s({'color': None, 'border': None}) == app_module.IDM_FIELD_DEFAULT
     # not a block: removed
     assert s(None) is None and s('white') is None and s([1]) is None
@@ -70,13 +73,13 @@ def test_the_field_route_stores_broadcasts_and_keeps_a_pristine_project(client):
         resp = client.put('/api/project/idm-field',
                           json={'field': {'color': '#0000FF', 'border': 'ticks'}, 'origin': 'tab1'})
         assert resp.status_code == 200
-        assert resp.get_json() == {'idmField': {'color': '#0000ff', 'border': 'ticks'}}
-        assert app_module.current_project['idmField'] == {'color': '#0000ff', 'border': 'ticks'}
+        assert resp.get_json() == {'idmField': {'color': '#0000ff', 'border': 'ticks', 'moduleIds': False}}
+        assert app_module.current_project['idmField'] == {'color': '#0000ff', 'border': 'ticks', 'moduleIds': False}
         # view state, not an edit: the pristine startup project stays so
         assert app_module.current_project['is_pristine'] is True
         got = [r for r in sock.get_received() if r['name'] == 'idm_field_updated']
         assert got and got[0]['args'][0] == {
-            'field': {'color': '#0000ff', 'border': 'ticks'}, 'origin': 'tab1'}, got
+            'field': {'color': '#0000ff', 'border': 'ticks', 'moduleIds': False}, 'origin': 'tab1'}, got
         # junk is refused and the stored field kept
         assert client.put('/api/project/idm-field', json={'field': 'red'}).status_code == 400
         assert client.put('/api/project/idm-field', json=[1]).status_code == 400
@@ -89,14 +92,14 @@ def test_the_project_funnels_hold_the_field_and_an_old_file_loads_without_it(cli
     project = client.get('/api/project').get_json()
     project['idmField'] = {'color': '#F0F', 'border': 'bogus'}
     restored = client.put('/api/project', json=project).get_json()
-    assert restored['idmField'] == {'color': '#ff00ff', 'border': 'shade'}
+    assert restored['idmField'] == {'color': '#ff00ff', 'border': 'shade', 'moduleIds': False}
     project['idmField'] = 'not a block'
     restored = client.put('/api/project', json=project).get_json()
     assert 'idmField' not in restored
     # the save funnel too
     project['idmField'] = {'color': '#123', 'border': 'none'}
     assert client.post('/api/project', json=project).status_code == 200
-    assert app_module.current_project['idmField'] == {'color': '#112233', 'border': 'none'}
+    assert app_module.current_project['idmField'] == {'color': '#112233', 'border': 'none', 'moduleIds': False}
     # an older file has no key and gets none
     del project['idmField']
     restored = client.put('/api/project', json=project).get_json()
@@ -117,13 +120,14 @@ def test_the_highlight_sanitizer():
     assert len(s({'layerId': 1, 'key': '0,0,0,0', 'origin': 'o' * 500})['origin']) == 64
 
 
-def test_the_server_relays_the_highlight_to_the_others_and_stores_nothing(client):
+def test_the_server_relays_the_highlight_to_the_others(client):
     a = socketio.test_client(flask_app, flask_test_client=client)
     b = socketio.test_client(flask_app, flask_test_client=client)
     try:
         a.get_received()
         b.get_received()
         before = dict(app_module.current_project)
+        before.pop('idmHighlight', None)
         a.emit('idm_highlight', {'layerId': 7, 'key': '2,1,0,1', 'origin': 'tablet'})
         got_b = [r['args'][0] for r in b.get_received() if r['name'] == 'idm_highlight']
         got_a = [r for r in a.get_received() if r['name'] == 'idm_highlight']
@@ -139,9 +143,11 @@ def test_the_server_relays_the_highlight_to_the_others_and_stores_nothing(client
         b.emit('idm_highlight', {'layerId': 7, 'key': '0,0,0,0', 'origin': 'host'})
         got_a = [r['args'][0]['key'] for r in a.get_received() if r['name'] == 'idm_highlight']
         assert got_a == ['0,0,0,0']
-        # nothing stored on the project
-        assert app_module.current_project == before
-        assert 'idmHighlight' not in app_module.current_project
+        # screen 7 is not in the project: relayed, but nothing kept - the
+        # project is otherwise untouched
+        after = dict(app_module.current_project)
+        assert after.pop('idmHighlight', None) is None
+        assert after == before
     finally:
         a.disconnect()
         b.disconnect()
@@ -270,7 +276,7 @@ def marks_of(pg, name):
 
 def hl(pg):
     return pg.evaluate("""() => {
-        const st = window.app._idmS, h = st && st.hl;
+        const h = window.app._idmHl();
         if (!h) return null;
         const l = window.app.project.layers.find(x => x.id === h.layerId);
         return [l ? l.name : null, h.key];
@@ -365,27 +371,34 @@ def test_the_field_buttons_change_the_output_pixels(page):
         wait_pixel(out, 32, 32, (0, 0, 0))
         wait_pixel(out, 96, 32, (26, 26, 26))
         wait_pixel(out, 0, 32, (52, 52, 52))
-        # Lines on white: module edges grey (half way to black), cabinet
-        # edges black, the modules themselves white.
+        # Lines on white: never black - module edges the field at 70%,
+        # cabinet edges at 50%, the modules themselves white.
         click_field(page, '#ffffff', 'lines')
-        wait_pixel(out, 64, 32, (128, 128, 128))
-        wait_pixel(out, 32, 64, (128, 128, 128))
-        wait_pixel(out, 0, 32, (0, 0, 0))
-        wait_pixel(out, 127, 32, (0, 0, 0))
+        wait_pixel(out, 64, 32, (179, 179, 179))
+        wait_pixel(out, 32, 64, (179, 179, 179))
+        wait_pixel(out, 0, 32, (128, 128, 128))
+        wait_pixel(out, 127, 32, (128, 128, 128))
         wait_pixel(out, 32, 32, (255, 255, 255))
         wait_pixel(out, 96, 96, (255, 255, 255))
-        # ... and white lines on a dark field.
+        # ... the field's own hue on a colour field ...
         click_field(page, '#0000ff')
-        wait_pixel(out, 0, 32, (255, 255, 255))
-        wait_pixel(out, 64, 32, (128, 128, 255))
+        wait_pixel(out, 0, 32, (0, 0, 128))
+        wait_pixel(out, 64, 32, (0, 0, 179))
+        click_field(page, '#ff0000')
+        wait_pixel(out, 0, 32, (128, 0, 0))
+        # ... and lit greys on black.
+        click_field(page, '#000000')
+        wait_pixel(out, 0, 32, (102, 102, 102))
+        wait_pixel(out, 64, 32, (51, 51, 51))
         # Ticks on white: an L in each module corner (10 px for a 64 px
-        # module), the middle of an edge left alone.
+        # module) at 70%, the middle of an edge left alone, the cabinet's
+        # corners at 50%.
         click_field(page, '#ffffff', 'ticks')
-        wait_pixel(out, 66, 0, (0, 0, 0))        # module (1,0)'s top-left tick
-        wait_pixel(out, 64, 3, (0, 0, 0))
+        wait_pixel(out, 66, 0, (179, 179, 179))   # module (1,0)'s top-left tick
+        wait_pixel(out, 64, 3, (179, 179, 179))
         wait_pixel(out, 66, 3, (255, 255, 255))
         wait_pixel(out, 96, 0, (255, 255, 255))   # mid-edge: no line
-        wait_pixel(out, 1, 1, (0, 0, 0))          # the cabinet corner, 2 px thick
+        wait_pixel(out, 1, 1, (128, 128, 128))    # the cabinet corner, 2 px thick
         # None: one uniform field across every module and cabinet edge.
         click_field(page, None, 'none')
         for x, y in [(0, 0), (32, 32), (63, 32), (64, 32), (96, 96), (127, 127), (128, 128), (383, 255)]:
@@ -402,7 +415,7 @@ def test_the_field_buttons_change_the_output_pixels(page):
             return min;
         }""")
         assert dark < 200, dark
-        assert served_field(page) == {'color': '#ffffff', 'border': 'none'}
+        assert served_field(page) == {'color': '#ffffff', 'border': 'none', 'moduleIds': False}
     finally:
         out.close()
     assert not page._errors, page._errors
@@ -453,8 +466,8 @@ def test_the_field_reaches_a_second_client_and_is_never_an_undo_step(page, e2e_s
         before = page.evaluate("() => window.app.historyIndex")
         click_field(page, '#00ff00', 'lines')
         got = settled(other, lambda: other.evaluate("() => window.app.project.idmField || null"),
-                      lambda v: v == {'color': '#00ff00', 'border': 'lines'})
-        assert got == {'color': '#00ff00', 'border': 'lines'}, got
+                      lambda v: v == {'color': '#00ff00', 'border': 'lines', 'moduleIds': False})
+        assert got == {'color': '#00ff00', 'border': 'lines', 'moduleIds': False}, got
         # the other client's tab follows when it is opened
         open_tab(other)
         assert other.get_attribute('[data-idm-field="#00ff00"]', 'aria-pressed') == 'true'
@@ -462,8 +475,8 @@ def test_the_field_reaches_a_second_client_and_is_never_an_undo_step(page, e2e_s
         # and the other way round
         other.click('[data-idm-field="#0000ff"]')
         got = settled(page, lambda: page.evaluate("() => window.app.project.idmField"),
-                      lambda v: v == {'color': '#0000ff', 'border': 'lines'})
-        assert got == {'color': '#0000ff', 'border': 'lines'}, got
+                      lambda v: v == {'color': '#0000ff', 'border': 'lines', 'moduleIds': False})
+        assert got == {'color': '#0000ff', 'border': 'lines', 'moduleIds': False}, got
         assert page.get_attribute('[data-idm-field="#0000ff"]', 'aria-pressed') == 'true'
         # never an undo step
         assert page.evaluate("() => window.app.historyIndex") == before
@@ -478,12 +491,12 @@ def test_the_field_reaches_a_second_client_and_is_never_an_undo_step(page, e2e_s
         page.evaluate("() => window.app.undo()")
         settled(page, lambda: marks_of(page, 'IdmA'), lambda v: v == {})
         assert marks_of(page, 'IdmA') == {}
-        assert page.evaluate("() => window.app.project.idmField") == {'color': '#ff0000', 'border': 'ticks'}
+        assert page.evaluate("() => window.app.project.idmField") == {'color': '#ff0000', 'border': 'ticks', 'moduleIds': False}
         page.wait_for_timeout(400)
-        assert served_field(page) == {'color': '#ff0000', 'border': 'ticks'}
+        assert served_field(page) == {'color': '#ff0000', 'border': 'ticks', 'moduleIds': False}
         page.evaluate("() => window.app.redo()")
         settled(page, lambda: marks_of(page, 'IdmA'), lambda v: '0,0,0,0' in v)
-        assert page.evaluate("() => window.app.project.idmField") == {'color': '#ff0000', 'border': 'ticks'}
+        assert page.evaluate("() => window.app.project.idmField") == {'color': '#ff0000', 'border': 'ticks', 'moduleIds': False}
         assert not other._errors, other._errors
     finally:
         context.close()
@@ -495,7 +508,7 @@ def test_the_field_survives_save_and_load_and_an_older_project_is_white_shade(pa
     assert page.evaluate("() => 'idmField' in window.app.project") is False
     assert served_field(page) is None
     assert page.evaluate("() => window.canvasRenderer.idmFieldSpec()") == {
-        'color': '#ffffff', 'border': 'shade', 'rgb': [255, 255, 255]}
+        'color': '#ffffff', 'border': 'shade', 'rgb': [255, 255, 255], 'moduleIds': False}
     assert page.get_attribute('[data-idm-field="#ffffff"]', 'aria-pressed') == 'true'
     assert page.get_attribute('[data-idm-border="shade"]', 'aria-pressed') == 'true'
     # a custom colour through the swatch (the app's colour picker writes
@@ -504,7 +517,7 @@ def test_the_field_survives_save_and_load_and_an_older_project_is_white_shade(pa
         c.value = '#336699'; c.dispatchEvent(new Event('input', {bubbles: true}));
         c.dispatchEvent(new Event('change', {bubbles: true})); }""")
     click_field(page, None, 'ticks')
-    want = {'color': '#336699', 'border': 'ticks'}
+    want = {'color': '#336699', 'border': 'ticks', 'moduleIds': False}
     got = settled(page, lambda: served_field(page), lambda v: v == want)
     assert got == want, got
     assert page.evaluate("() => document.querySelector('.idm-swatch-custom').classList.contains('active')")
@@ -537,19 +550,19 @@ def test_hover_arrows_shift_space_and_esc_drive_the_highlight(page):
     page.mouse.move(pt['x'], pt['y'])
     got = settled(page, lambda: hl(page), lambda v: v == ['IdmA', '0,0,0,0'])
     assert got == ['IdmA', '0,0,0,0'], got
-    assert page.inner_text('#idm-hl-readout') == 'IdmA · A1 · Module 1'
+    assert page.inner_text('#idm-hl-readout') == 'IdmA · A1 · Module A1'
     assert page.is_visible('#idm-status-readout')
-    assert page.inner_text('#idm-status-readout') == 'IdmA · A1 · Module 1'
+    assert page.inner_text('#idm-status-readout') == 'IdmA · A1 · Module A1'
     assert 'Row 1, col 1' in page.inner_text('#idm-hl-where')
     page.mouse.move(5, 5)
     assert hl(page) == ['IdmA', '0,0,0,0']        # off the canvas it stays
     # one module at a time, across the cabinet edge
     page.keyboard.press('ArrowRight')
     assert hl(page) == ['IdmA', '0,0,1,0']
-    assert page.inner_text('#idm-hl-readout') == 'IdmA · A1 · Module 2'
+    assert page.inner_text('#idm-hl-readout') == 'IdmA · A1 · Module B1'
     page.keyboard.press('ArrowRight')
     assert hl(page) == ['IdmA', '1,0,0,0']
-    assert page.inner_text('#idm-hl-readout') == 'IdmA · B1 · Module 1'
+    assert page.inner_text('#idm-hl-readout') == 'IdmA · B1 · Module A1'
     page.keyboard.press('ArrowDown')
     assert hl(page) == ['IdmA', '1,0,0,1']
     page.keyboard.press('ArrowDown')
@@ -576,7 +589,7 @@ def test_hover_arrows_shift_space_and_esc_drive_the_highlight(page):
     assert hl(page) == ['IdmA', '2,0,1,0']
     page.keyboard.press('ArrowRight')
     assert hl(page) == ['IdmB', '0,0,0,0']
-    assert page.inner_text('#idm-hl-readout') == 'IdmB · A1 · Module 1'
+    assert page.inner_text('#idm-hl-readout') == 'IdmB · A1 · Module A1'
     page.keyboard.press('ArrowRight')
     page.keyboard.press('ArrowRight')
     assert hl(page) == ['IdmB', '1,0,0,0']        # IdmB's right edge
@@ -614,7 +627,7 @@ def test_hover_arrows_shift_space_and_esc_drive_the_highlight(page):
     assert not page.is_visible('#idm-status-readout')
     assert hl(page) == ['IdmA', '0,0,0,0']
     open_tab(page)
-    assert page.inner_text('#idm-status-readout') == 'IdmA · A1 · Module 1'
+    assert page.inner_text('#idm-status-readout') == 'IdmA · A1 · Module A1'
     assert not page._errors, page._errors
 
 
@@ -668,7 +681,7 @@ def test_a_tablet_drives_the_highlight_on_the_host_output_and_it_blinks(page, e2
         got = settled(page, lambda: served_idm(page, 'IdmA'), lambda v: v and '1,1,0,1' in v['marks'])
         assert '1,1,0,1' in got['marks'], got
         settled(page, lambda: marks_of(page, 'IdmA'), lambda v: '1,1,0,1' in v)
-        assert tab.inner_text('#idm-hl-readout') == 'IdmA · B2 · Module 3'
+        assert tab.inner_text('#idm-hl-readout') == 'IdmA · B2 · Module A2'
         # the host's output shows the highlight on the new module: x 128..192,
         # y 192..256, its mark (red) in the middle
         seen = set()
@@ -702,7 +715,7 @@ def test_a_deleted_screen_takes_its_highlight_with_it(page):
         app.deleteCurrentLayer();
     }""")
     wait_layers(page, 1)
-    got = settled(page, lambda: page.evaluate("() => window.app._idmS.hl"), lambda v: v is None)
+    got = settled(page, lambda: page.evaluate("() => window.app._idmHl()"), lambda v: v is None)
     assert got is None, got
     assert page.inner_text('#idm-hl-readout') == 'No module highlighted'
 

@@ -1000,7 +1000,11 @@ def sanitize_idm(value, layer):
 
 
 def normalize_idm_layer(layer):
-    """sanitize_idm on one layer, in place. True when it changed anything."""
+    """sanitize_idm on one layer, in place. True when it changed anything.
+    Every route that reshapes a screen's cabinets or modules ends here, so
+    the stored IDM highlight is checked against the screen as well: one on
+    a module this screen no longer has is cleared (prune_idm_highlight_on)."""
+    prune_idm_highlight_on(layer)
     if not isinstance(layer, dict) or 'idm' not in layer:
         return False
     clean = sanitize_idm(layer.get('idm'), layer)
@@ -1035,24 +1039,30 @@ def strip_copied_idm_marks(layer):
 # The IDM Locator tab draws every screen in ONE solid field colour (the crew
 # puts it on the wall to find dead pixels and bad modules), with a border
 # style that says where the modules and cabinets meet. The project keeps it as
-#   idmField: {color: '#rrggbb', border: 'shade' | 'lines' | 'ticks' | 'none'}
+#   idmField: {color: '#rrggbb', border: 'shade' | 'lines' | 'ticks' | 'none',
+#              moduleIds: bool}
+# moduleIds draws each module's label (the screen's Cabinet ID style over
+# the cabinet's own module grid, as seen from the front) in the app and on
+# the wall; off when false or missing.
 # View state, not an edit: written by its own route (routes_project.py), told
 # to every client on the LAN, never an undo step. A project without the key
-# draws white with shaded borders.
+# draws white with shaded borders and no module numbers.
 IDM_FIELD_BORDERS = ('shade', 'lines', 'ticks', 'none')
-IDM_FIELD_DEFAULT = {'color': '#ffffff', 'border': 'shade'}
+IDM_FIELD_DEFAULT = {'color': '#ffffff', 'border': 'shade', 'moduleIds': False}
 
 
 def sanitize_idm_field(value):
     """The field block held to its shape: colour '#rrggbb' (white when it is
-    not a colour), border one of IDM_FIELD_BORDERS (shade otherwise). None
-    when `value` is not a dict. Idempotent."""
+    not a colour), border one of IDM_FIELD_BORDERS (shade otherwise),
+    moduleIds a bool (only a real true turns it on). None when `value` is
+    not a dict. Idempotent."""
     if not isinstance(value, dict):
         return None
     border = value.get('border')
     return {
         'color': idm_color(value.get('color')) or IDM_FIELD_DEFAULT['color'],
         'border': border if border in IDM_FIELD_BORDERS else IDM_FIELD_DEFAULT['border'],
+        'moduleIds': value.get('moduleIds') is True,
     }
 
 
@@ -1075,8 +1085,8 @@ def sanitize_idm_highlight(value):
     """The module the IDM Locator's live highlight sits on, as one client
     sends it to be passed on to the others: {layerId, key, origin}, key
     "col,row,mx,my"; {layerId: None, key: None} clears it. None when the
-    payload is not usable (nothing is passed on). The highlight is never
-    stored: the server only relays it."""
+    payload is not usable (nothing is passed on). What the project keeps of
+    it is idm_highlight_stored."""
     if not isinstance(value, dict):
         return None
     origin = value.get('origin')
@@ -1091,6 +1101,90 @@ def sanitize_idm_highlight(value):
     if clean_key is None:
         return None
     return {'layerId': layer_id, 'key': clean_key, 'origin': origin}
+
+
+# The live highlight is kept on the project too, so a client that connects
+# or reloads later - a tablet joining at the wall, the machine driving the
+# output - shows it at once, and a saved show opens with it:
+#   idmHighlight: {layerId, key: "col,row,mx,my"} | None
+# View state like idmField: written by the `idm_highlight` socket event (the
+# last mover wins) and by a file load or undo carrying the one on screen,
+# never an undo step, and it leaves a pristine project pristine. A save
+# (POST /api/project) never writes it - the socket event is its writer. It
+# only ever names a module that exists: a highlight whose screen, cabinet
+# or module goes is cleared (prune_idm_highlight_on on every route that
+# reshapes a screen, normalize_idm_highlight in the load and save funnels).
+
+
+def _idm_layer_has_module(layer, key):
+    """True when screen `layer` has the module `key` ("col,row,mx,my"): a
+    shown, unblanked cabinet at col,row and a module mx,my inside it."""
+    if not isinstance(layer, dict) or (layer.get('type') or 'screen') != 'screen':
+        return False
+    k = _idm_key(key) if isinstance(key, str) else None
+    if k is None:
+        return False
+    col, row, mx, my = (int(n) for n in k.split(','))
+    panels = [p for p in (layer.get('panels') or []) if isinstance(p, dict)]
+    panel = next((p for p in panels
+                  if (p.get('col', 0) or 0) == col and (p.get('row', 0) or 0) == row), None)
+    if panel is None:
+        return False
+    shown = {(p.get('row', 0), p.get('col', 0)) for p in panels if not p.get('hidden')}
+    idm = layer.get('idm') if isinstance(layer.get('idm'), dict) else {}
+    cells = idm_module_cells(layer, panel, _idm_count(idm.get('modulesX')),
+                             _idm_count(idm.get('modulesY')),
+                             lambda r, c: (r, c) in shown)
+    return any(c[0] == mx and c[1] == my for c in cells)
+
+
+def idm_highlight_stored(value, project):
+    """What the project keeps of a highlight: {layerId, key} on a module
+    `project` has, else None (a clear, junk, or a module that is not
+    there)."""
+    if not isinstance(value, dict):
+        return None
+    layer_id = value.get('layerId')
+    if isinstance(layer_id, bool) or not isinstance(layer_id, int):
+        return None
+    key = _idm_key(value.get('key')) if isinstance(value.get('key'), str) else None
+    if key is None:
+        return None
+    layers = project.get('layers') if isinstance(project, dict) else None
+    layer = next((l for l in (layers or [])
+                  if isinstance(l, dict) and not isinstance(l.get('id'), bool)
+                  and l.get('id') == layer_id), None)
+    if layer is None or not _idm_layer_has_module(layer, key):
+        return None
+    return {'layerId': layer_id, 'key': key}
+
+
+def normalize_idm_highlight(project):
+    """The stored highlight held to its shape and to the screens as they
+    stand, in place (the load and save funnels). A project without the key
+    is left without it. True when it changed."""
+    if not isinstance(project, dict) or 'idmHighlight' not in project:
+        return False
+    clean = idm_highlight_stored(project.get('idmHighlight'), project)
+    if clean != project.get('idmHighlight'):
+        project['idmHighlight'] = clean
+        return True
+    return False
+
+
+def prune_idm_highlight_on(layer):
+    """The current project's highlight cleared when it sits on `layer` and
+    `layer` no longer has that module. True when it cleared it."""
+    project = current_project
+    hl = project.get('idmHighlight') if isinstance(project, dict) else None
+    if not isinstance(hl, dict) or not isinstance(layer, dict):
+        return False
+    if hl.get('layerId') != layer.get('id'):
+        return False
+    if _idm_layer_has_module(layer, hl.get('key')):
+        return False
+    project['idmHighlight'] = None
+    return True
 
 
 def normalize_power_breakouts(project, at=None):
@@ -2264,11 +2358,14 @@ def handle_disconnect():
 def handle_idm_highlight(data):
     """The IDM Locator's live highlight moved on one client (a mouse, the
     arrow keys, a tablet at the wall): pass it on to every other client, so
-    the machine driving the wall shows it. Ephemeral - never stored, never
-    an undo step; the last mover wins (sanitize_idm_highlight)."""
+    the machine driving the wall shows it - and keep it on the project
+    (idmHighlight), so a client that connects or reloads later shows it at
+    once and a saved show keeps it. Never an undo step, and a pristine
+    project stays pristine; the last mover wins (sanitize_idm_highlight)."""
     clean = sanitize_idm_highlight(data)
     if clean is None:
         return
+    current_project['idmHighlight'] = idm_highlight_stored(clean, current_project)
     emit('idm_highlight', clean, broadcast=True, include_self=False)
 
 

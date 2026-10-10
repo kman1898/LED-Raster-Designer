@@ -2525,6 +2525,7 @@ body.lrd-panel-dragging, body.lrd-panel-dragging * { cursor: grabbing !important
 .idm-seg .idm-seg-btn:last-child { border-radius: 0 4px 4px 0; }
 .idm-seg .idm-seg-btn.active { background: linear-gradient(var(--ps-accent-hi, #ef3340), var(--ps-accent, #e22330)) !important;
     color: var(--ps-on-accent, #fff) !important; border-color: var(--ps-accent-deep, #8f1218) !important; }
+.idm-module-ids { display: block; width: 100%; margin: 4px 0 2px; padding: 4px 6px; }
 .idm-hl-readout { font-size: 13px; font-weight: 600; color: var(--ps-text, #f0f0f0); margin: 0 0 2px; overflow-wrap: anywhere; }
 .idm-hl-readout.idm-hl-none { font-weight: 400; color: var(--ps-faint, #969696); }
 .idm-pad { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: center; margin-bottom: 4px; }
@@ -2556,6 +2557,7 @@ body.lrd-panel-dragging, body.lrd-panel-dragging * { cursor: grabbing !important
     body.idm-tab .idm-swatches { grid-template-columns: repeat(6, minmax(0, 1fr)); }
     body.idm-tab .idm-swatch-custom input[type="color"] { width: 28px; height: 28px; }
     body.idm-tab .idm-seg .idm-seg-btn { min-height: 40px; font-size: 13px !important; }
+    body.idm-tab .idm-module-ids { min-height: 40px; font-size: 13px !important; }
     body.idm-tab .idm-hl-readout { font-size: 15px; }
     body.idm-tab .idm-pad-arrows { grid-template-columns: repeat(3, 52px); grid-template-rows: repeat(3, 52px); gap: 4px; }
     body.idm-tab .idm-pad-arrows .idm-pad-arrow { font-size: 18px !important; }

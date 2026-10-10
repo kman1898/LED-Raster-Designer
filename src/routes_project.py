@@ -77,6 +77,10 @@ def save_project():
     # Read the way PUT /api/layer/<id> reads ?edited: only true / 1 / yes
     # keep the flag. bool() took the string 'false' as true (2026-09-23).
     keep_pristine = str(data.pop('keep_pristine', False)).lower() in ('1', 'true', 'yes')
+    # The IDM Locator's live highlight is written by its socket event alone
+    # (app.handle_idm_highlight): a save carries whatever copy that client
+    # last had, which another client may have moved on since.
+    data.pop('idmHighlight', None)
     # Slice 6: source-of-truth for raster lives on the active canvas. If the
     # client sent root-level raster_* fields without a canvases payload
     # (backwards-compat clients / older tests), propagate those into the
@@ -158,6 +162,8 @@ def save_project():
     app.normalize_idm(app.current_project)
     # The IDM Locator's field colour and border style held to their shape.
     app.normalize_idm_field(app.current_project)
+    # ... and its stored highlight to a module the screens still have.
+    app.normalize_idm_highlight(app.current_project)
     log_event('save_project', {'name': app.current_project.get('name')})
     return jsonify({'status': 'success'})
 
@@ -313,6 +319,9 @@ def restore_project():
     # ... and the tab's field colour and border style (a file without the
     # key loads without it and draws white with shaded borders).
     app.normalize_idm_field(app.current_project)
+    # ... and its live highlight, kept as the file (or the undo snapshot,
+    # which carries the one on screen) has it, on a module that is there.
+    app.normalize_idm_highlight(app.current_project)
     log_event('restore_project', {
         'name': app.current_project.get('name', '?'),
         'layers': len(app.current_project.get('layers', [])),
@@ -360,7 +369,8 @@ def save_stage3d_view():
 @project_bp.route('/api/project/idm-field', methods=['PUT'])
 def put_idm_field():
     """The IDM Locator's field: one solid colour for every screen and the
-    border style drawn into it (app.sanitize_idm_field). View state, not an
+    border style drawn into it, and whether each module's label is drawn
+    (app.sanitize_idm_field). View state, not an
     edit - no undo entry on the client and a pristine project stays
     pristine - but saved with the show and told to every client on the LAN
     through `idm_field_updated`, so a tablet at the wall changes what the
