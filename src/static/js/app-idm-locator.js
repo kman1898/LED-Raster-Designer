@@ -34,6 +34,14 @@
 // is stamped with the field as it changes, so an undo never puts an older
 // one back.
 //
+// The COLOURS ride in the same block, one set for the show: the Module ID
+// label colour, the module and cabinet edge colours, the shade level (a
+// colour or a percent of the field) and the saved mark colours beside the
+// toolbar's mark swatch (labelColor, moduleEdgeColor, cabinetEdgeColor,
+// shade, markPresets). Each key is there only when the crew set it: missing
+// is Auto, drawn exactly as before (canvas-idm idmBorderInks). A chosen
+// colour is drawn as chosen; pure black gets a note in the panel.
+//
 // The LIVE HIGHLIGHT: the module the crew is pointing at - by mouse (hover),
 // by the arrow keys, or from a tablet at the wall (a tap, or the arrow pad in
 // the panel). It lives on the project as project.idmHighlight = {layerId,
@@ -60,6 +68,11 @@ const COLOR_KEY = 'lrdIdmMarkColor';
 const FIELD_BORDERS = ['shade', 'lines', 'ticks', 'none'];
 const FIELD_DEFAULT = { color: '#ffffff', border: 'shade', moduleIds: false };
 const FIELD_PUT_MS = 150;
+// The Colours (app.sanitize_idm_field): the three plain colour settings,
+// the saved mark colours a show starts with, and how many it may keep.
+const COLOUR_KEYS = ['labelColor', 'moduleEdgeColor', 'cabinetEdgeColor'];
+const PRESETS_DEFAULT = ['#ff1a1a', '#ffff00', '#00ffff', '#ff00ff', '#ff8000'];
+const PRESETS_MAX = 12;
 // The live highlight: half a blink (2.5 blinks a second) and the least time
 // between two sends to the other clients (25 a second).
 const BLINK_HALF_MS = 200;
@@ -138,15 +151,48 @@ export function idmSanitize(value, layer) {
     return out;
 }
 
+// The shade setting: '#rrggbb', a whole percent 0..100 (half up), or null
+// for Auto (app.idm_shade_level).
+function idmShadeLevel(value) {
+    if (typeof value === 'number') {
+        if (!Number.isFinite(value) || value < 0 || value > 100) return null;
+        return Math.floor(value + 0.5);
+    }
+    return idmColor(value);
+}
+
+// The saved mark colours: '#rrggbb' each, no repeats, at most PRESETS_MAX;
+// null when not a list (app.idm_mark_presets).
+function idmMarkPresets(value) {
+    if (!Array.isArray(value)) return null;
+    const out = [];
+    for (const item of value) {
+        const c = idmColor(item);
+        if (c && !out.includes(c)) out.push(c);
+        if (out.length >= PRESETS_MAX) break;
+    }
+    return out;
+}
+
 // The field block held to its shape (the client's copy of
-// app.sanitize_idm_field): the defaults for anything unusable.
+// app.sanitize_idm_field): the defaults for anything unusable, and a
+// Colours key only when it holds something usable (missing = Auto).
 export function idmFieldSanitize(value) {
     const v = (value && typeof value === 'object' && !Array.isArray(value)) ? value : {};
-    return {
+    const out = {
         color: idmColor(v.color) || FIELD_DEFAULT.color,
         border: FIELD_BORDERS.includes(v.border) ? v.border : FIELD_DEFAULT.border,
         moduleIds: v.moduleIds === true,
     };
+    COLOUR_KEYS.forEach(k => {
+        const c = idmColor(v[k]);
+        if (c) out[k] = c;
+    });
+    const shade = idmShadeLevel(v.shade);
+    if (shade !== null) out.shade = shade;
+    const presets = idmMarkPresets(v.markPresets);
+    if (presets) out.markPresets = presets;
+    return out;
 }
 
 // The stored highlight held to its shape: {layerId, key} or null.
@@ -186,7 +232,7 @@ class _IdmLocator {
             this._idmS = {
                 active: false, wired: false, style, color,
                 stroke: null, flash: null, flashTimer: null,
-                fieldsKey: '', listKey: '', fieldUiKey: '', readoutKey: '',
+                fieldsKey: '', listKey: '', fieldUiKey: '', readoutKey: '', presetsKey: '',
                 // the field's PUT, held back while a colour is dragged
                 fieldTimer: null, fieldPending: null,
                 // the live highlight's blink (the highlight itself is
@@ -244,6 +290,51 @@ class _IdmLocator {
         });
         on('idm-module-ids', 'click', (e) => {
             this._idmSetField({ moduleIds: !this._idmFieldNow().moduleIds });
+            this._idmBlurButton(e.currentTarget);
+        });
+        // The Colours: each row's Auto button and swatch (the app's colour
+        // picker opens on it), the shade's percent.
+        document.querySelectorAll('[data-idm-auto]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                this._idmSetField({ [btn.dataset.idmAuto]: null });
+                this._idmBlurButton(btn);
+            });
+        });
+        document.querySelectorAll('input[data-idm-colour]').forEach(input => {
+            const key = input.dataset.idmColour;
+            input.addEventListener('input', () => this._idmSetField({ [key]: input.value }, { soon: true }));
+            input.addEventListener('change', () => this._idmSetField({ [key]: input.value }));
+        });
+        on('idm-shade-percent', 'change', () => this._idmCommitShadePercent());
+        // The saved mark colours beside the mark swatch: a click picks one,
+        // its x or a right-click removes it, + saves the mark colour.
+        const presets = document.getElementById('idm-mark-presets');
+        if (presets) {
+            presets.addEventListener('click', (e) => {
+                const del = e.target.closest('[data-idm-preset-del]');
+                if (del) {
+                    this._idmRemovePreset(del.dataset.idmPresetDel);
+                    return;
+                }
+                const pick = e.target.closest('[data-idm-preset]');
+                if (pick) {
+                    this._idmSetColor(pick.dataset.idmPreset);
+                    this._idmBlurButton(pick);
+                }
+            });
+            presets.addEventListener('contextmenu', (e) => {
+                const pick = e.target.closest('[data-idm-preset]');
+                if (!pick) return;
+                // This right-click is the preset's: the app's own menu
+                // never hears it.
+                e.preventDefault();
+                e.stopPropagation();
+                if (typeof this.hideContextMenu === 'function') this.hideContextMenu();
+                this._idmRemovePreset(pick.dataset.idmPreset);
+            });
+        }
+        on('idm-preset-add', 'click', (e) => {
+            this._idmAddPreset();
             this._idmBlurButton(e.currentTarget);
         });
         // The highlight pad: arrows, the cabinet jump, Mark, Clear.
@@ -353,25 +444,38 @@ class _IdmLocator {
         return idmFieldSanitize(this.project && this.project.idmField);
     }
 
-    // A change of colour, border or the Module ID switch from this client:
-    // drawn at once, sent to
-    // the server (which tells every other client). `soon` holds the send
-    // back while a colour is being dragged in the picker.
+    // A change of colour, border, the Module ID switch or one of the
+    // Colours from this client: drawn at once, sent to the server (which
+    // tells every other client). A Colours key set to null goes back to
+    // Auto. `soon` holds the send back while a colour is being dragged in
+    // the picker.
     _idmSetField(patch, { soon = false } = {}) {
         const st = this._idmState();
         if (!this.project) return;
+        const p = (patch && typeof patch === 'object') ? patch : {};
         const cur = this._idmFieldNow();
-        const next = {
-            color: idmColor(patch && patch.color) || cur.color,
-            border: FIELD_BORDERS.includes(patch && patch.border) ? patch.border : cur.border,
-            moduleIds: typeof (patch && patch.moduleIds) === 'boolean' ? patch.moduleIds : cur.moduleIds,
-        };
+        const next = { ...cur };
+        if (idmColor(p.color)) next.color = idmColor(p.color);
+        if (FIELD_BORDERS.includes(p.border)) next.border = p.border;
+        if (typeof p.moduleIds === 'boolean') next.moduleIds = p.moduleIds;
+        COLOUR_KEYS.forEach(k => {
+            if (!(k in p)) return;
+            const c = idmColor(p[k]);
+            if (c) next[k] = c;
+            else if (p[k] === null) delete next[k];
+        });
+        if ('shade' in p) {
+            const v = idmShadeLevel(p.shade);
+            if (v !== null) next.shade = v;
+            else if (p.shade === null) delete next.shade;
+        }
+        if (Array.isArray(p.markPresets)) next.markPresets = p.markPresets;
+        const clean = idmFieldSanitize(next);
         const stored = this.project.idmField;
-        const same = !!stored && stored.color === next.color && stored.border === next.border
-            && (stored.moduleIds === true) === next.moduleIds;
+        const same = !!stored && JSON.stringify(idmFieldSanitize(stored)) === JSON.stringify(clean);
         if (same && !st.fieldPending) return;
-        if (!same) this._idmAdoptField(next);
-        st.fieldPending = next;
+        if (!same) this._idmAdoptField(clean);
+        st.fieldPending = clean;
         clearTimeout(st.fieldTimer);
         st.fieldTimer = null;
         const send = () => {
@@ -411,9 +515,11 @@ class _IdmLocator {
     _idmSyncField(force = false) {
         const st = this._idmState();
         const f = this._idmFieldNow();
-        const key = `${f.color}|${f.border}|${f.moduleIds}`;
+        const key = JSON.stringify(f);
         if (!force && key === st.fieldUiKey) return;
         st.fieldUiKey = key;
+        this._idmSyncColours(f);
+        this._idmRenderPresets();
         let quick = false;
         document.querySelectorAll('[data-idm-field]').forEach(btn => {
             const on = btn.dataset.idmField === f.color;
@@ -437,6 +543,147 @@ class _IdmLocator {
             ids.classList.toggle('active', f.moduleIds);
             ids.setAttribute('aria-pressed', f.moduleIds ? 'true' : 'false');
         }
+    }
+
+    // ── the Colours ───────────────────────────────────────────────────────
+
+    // The Colours rows say what the project holds: Auto pressed, or the
+    // swatch outlined with the chosen colour in it. On Auto a swatch shows
+    // the colour Auto draws in on this field (so the picker opens on it),
+    // and a chosen colour that comes out pure black carries the note.
+    _idmSyncColours(f) {
+        const r = window.canvasRenderer;
+        if (!r || typeof r.idmBorderInks !== 'function') return;
+        const rgb = r._idmRgb(f.color);
+        const spec = { ...f, rgb, labelColor: null, moduleEdgeColor: null, cabinetEdgeColor: null, shade: null };
+        const auto = r.idmBorderInks(spec);
+        const used = r.idmBorderInks({ ...spec, shade: r._idmShadeOrNull(f.shade) });
+        const autoLabel = r.idmInkLevels(rgb).cabinet;
+        const hex = (c) => '#' + c.map(v => Math.max(0, Math.min(255, v)).toString(16).padStart(2, '0')).join('');
+        const rows = {
+            labelColor: { set: !!f.labelColor, value: f.labelColor || hex(autoLabel) },
+            moduleEdgeColor: { set: !!f.moduleEdgeColor, value: f.moduleEdgeColor || hex(auto.module) },
+            cabinetEdgeColor: {
+                set: !!f.cabinetEdgeColor,
+                value: f.cabinetEdgeColor || hex(f.border === 'shade' ? auto.ring : auto.cabinet),
+            },
+            // the shade: Auto, a colour (the swatch outlined) or a percent
+            // (the percent box outlined, the swatch showing what it makes)
+            shade: {
+                set: f.shade !== undefined,
+                value: hex(used.alt),
+                swatch: typeof f.shade === 'string',
+            },
+        };
+        Object.keys(rows).forEach(k => {
+            const row = rows[k];
+            const btn = document.querySelector(`[data-idm-auto="${k}"]`);
+            if (btn) {
+                btn.classList.toggle('active', !row.set);
+                btn.setAttribute('aria-pressed', row.set ? 'false' : 'true');
+            }
+            const input = document.querySelector(`input[data-idm-colour="${k}"]`);
+            if (input) {
+                if (input.value.toLowerCase() !== row.value) input.value = row.value;
+                const wrap = input.closest('.idm-swatch-custom');
+                if (wrap) wrap.classList.toggle('active', row.swatch !== undefined ? row.swatch : row.set);
+            }
+            const note = document.querySelector(`[data-idm-black="${k}"]`);
+            if (note) note.hidden = !(row.set && row.value === '#000000');
+        });
+        const pct = document.getElementById('idm-shade-percent');
+        if (pct) {
+            if (document.activeElement !== pct) pct.value = typeof f.shade === 'number' ? String(f.shade) : '';
+            pct.classList.toggle('active', typeof f.shade === 'number');
+        }
+    }
+
+    // The shade percent typed in: a whole 0..100 (Enter or Tab ends the
+    // edit). Empty or not a number puts the box back.
+    _idmCommitShadePercent() {
+        const el = document.getElementById('idm-shade-percent');
+        if (!el) return;
+        const text = String(el.value).trim().replace(/%$/, '').trim();
+        const n = Number(text);
+        if (text === '' || !Number.isFinite(n)) {
+            const f = this._idmFieldNow();
+            el.value = typeof f.shade === 'number' ? String(f.shade) : '';
+            return;
+        }
+        const pct = Math.max(0, Math.min(100, Math.round(n)));
+        el.value = String(pct);
+        this._idmSetField({ shade: pct });
+    }
+
+    // The show's saved mark colours (the defaults until the crew changes
+    // them).
+    _idmPresets() {
+        const f = this._idmFieldNow();
+        return Array.isArray(f.markPresets) ? f.markPresets.slice() : PRESETS_DEFAULT.slice();
+    }
+
+    _idmAddPreset() {
+        const st = this._idmState();
+        const list = this._idmPresets();
+        if (list.includes(st.color)) {
+            this._toast('That colour is already a preset.');
+            return false;
+        }
+        if (list.length >= PRESETS_MAX) {
+            this._toast(`Up to ${PRESETS_MAX} presets. Remove one first.`);
+            return false;
+        }
+        sendClientLog('idm_preset_add', { color: st.color });
+        this._idmSetField({ markPresets: [...list, st.color] });
+        return true;
+    }
+
+    _idmRemovePreset(hex) {
+        const c = idmColor(hex);
+        const list = this._idmPresets();
+        if (!c || !list.includes(c)) return false;
+        sendClientLog('idm_preset_remove', { color: c });
+        this._idmSetField({ markPresets: list.filter(x => x !== c) });
+        return true;
+    }
+
+    // The preset buttons beside the mark swatch, rebuilt only when the
+    // list or the mark colour changed; the one that is the mark colour is
+    // outlined.
+    _idmRenderPresets() {
+        const st = this._idmState();
+        const host = document.getElementById('idm-mark-presets');
+        if (!host) return;
+        const list = this._idmPresets();
+        const key = `${list.join(',')}|${st.color}`;
+        if (key === st.presetsKey) return;
+        st.presetsKey = key;
+        host.innerHTML = '';
+        list.forEach(c => {
+            const on = c === st.color;
+            const wrap = document.createElement('span');
+            wrap.className = 'idm-preset';
+            const pick = document.createElement('button');
+            pick.type = 'button';
+            pick.className = 'idm-preset-pick' + (on ? ' active' : '');
+            pick.dataset.idmPreset = c;
+            pick.style.setProperty('--idm-sw', c);
+            pick.setAttribute('aria-label', `Mark colour ${c}`);
+            pick.setAttribute('aria-pressed', on ? 'true' : 'false');
+            pick.dataset.tooltip = `Mark colour ${c}, Use this colour for the next mark. Right-click it, or press its x, to remove it from the show's presets.`;
+            const del = document.createElement('button');
+            del.type = 'button';
+            del.className = 'idm-preset-del';
+            del.dataset.idmPresetDel = c;
+            del.setAttribute('aria-label', `Remove preset ${c}`);
+            del.dataset.tooltip = `Remove preset, Take ${c} off the show's mark colour presets.`;
+            del.textContent = '\u00d7';
+            wrap.appendChild(pick);
+            wrap.appendChild(del);
+            host.appendChild(wrap);
+        });
+        const add = document.getElementById('idm-preset-add');
+        if (add) add.disabled = list.length >= PRESETS_MAX;
     }
 
     // ── the live highlight ────────────────────────────────────────────────
@@ -796,6 +1043,7 @@ class _IdmLocator {
         if (!c) return;
         st.color = c;
         try { localStorage.setItem(COLOR_KEY, c); } catch (_) { /* per-viewer only */ }
+        this._idmSyncToolbar();
     }
 
     _idmSyncToolbar() {
@@ -807,6 +1055,7 @@ class _IdmLocator {
         });
         const colour = document.getElementById('idm-color');
         if (colour && colour.value.toLowerCase() !== st.color) colour.value = st.color;
+        this._idmRenderPresets();
     }
 
     // ── marking ───────────────────────────────────────────────────────────

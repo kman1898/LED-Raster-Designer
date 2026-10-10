@@ -508,7 +508,9 @@ def test_the_field_survives_save_and_load_and_an_older_project_is_white_shade(pa
     assert page.evaluate("() => 'idmField' in window.app.project") is False
     assert served_field(page) is None
     assert page.evaluate("() => window.canvasRenderer.idmFieldSpec()") == {
-        'color': '#ffffff', 'border': 'shade', 'rgb': [255, 255, 255], 'moduleIds': False}
+        'color': '#ffffff', 'border': 'shade', 'rgb': [255, 255, 255], 'moduleIds': False,
+        # the Colours, all Auto (tests/test_idm_colours.py)
+        'labelColor': None, 'moduleEdgeColor': None, 'cabinetEdgeColor': None, 'shade': None}
     assert page.get_attribute('[data-idm-field="#ffffff"]', 'aria-pressed') == 'true'
     assert page.get_attribute('[data-idm-border="shade"]', 'aria-pressed') == 'true'
     # a custom colour through the swatch (the app's colour picker writes

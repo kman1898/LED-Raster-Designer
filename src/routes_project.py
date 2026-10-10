@@ -369,8 +369,9 @@ def save_stage3d_view():
 @project_bp.route('/api/project/idm-field', methods=['PUT'])
 def put_idm_field():
     """The IDM Locator's field: one solid colour for every screen and the
-    border style drawn into it, and whether each module's label is drawn
-    (app.sanitize_idm_field). View state, not an
+    border style drawn into it, whether each module's label is drawn, and
+    the tab's Colours - labels, edges, the shade level and the saved mark
+    colours (app.sanitize_idm_field). View state, not an
     edit - no undo entry on the client and a pristine project stays
     pristine - but saved with the show and told to every client on the LAN
     through `idm_field_updated`, so a tablet at the wall changes what the

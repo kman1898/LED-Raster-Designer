@@ -1047,23 +1047,77 @@ def strip_copied_idm_marks(layer):
 # View state, not an edit: written by its own route (routes_project.py), told
 # to every client on the LAN, never an undo step. A project without the key
 # draws white with shaded borders and no module numbers.
+#
+# The tab's Colours, one set for the whole show, each key present only when
+# the crew chose something (missing = Auto, drawn exactly as before):
+#   labelColor        '#rrggbb'  the Module ID labels
+#   moduleEdgeColor   '#rrggbb'  Lines and Ticks module edges
+#   cabinetEdgeColor  '#rrggbb'  Lines and Ticks cabinet edges, the Shade
+#                                style's cabinet ring
+#   shade             '#rrggbb' or a whole percent 0..100 of the field: the
+#                     Shade style's second (alternate) level
+#   markPresets       ['#rrggbb', ...] the saved mark colours beside the
+#                     mark swatch (missing = IDM_MARK_PRESETS_DEFAULT; an
+#                     empty list is the crew's own choice and stays empty)
 IDM_FIELD_BORDERS = ('shade', 'lines', 'ticks', 'none')
 IDM_FIELD_DEFAULT = {'color': '#ffffff', 'border': 'shade', 'moduleIds': False}
+IDM_FIELD_COLOUR_KEYS = ('labelColor', 'moduleEdgeColor', 'cabinetEdgeColor')
+IDM_MARK_PRESETS_DEFAULT = ('#ff1a1a', '#ffff00', '#00ffff', '#ff00ff', '#ff8000')
+IDM_MARK_PRESETS_MAX = 12
+
+
+def idm_shade_level(value):
+    """The Shade style's second level: '#rrggbb', or a whole percent 0..100
+    (rounded half up, as the client rounds). None for anything else - Auto."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        if not math.isfinite(value) or value < 0 or value > 100:
+            return None
+        return int(math.floor(value + 0.5))
+    return idm_color(value)
+
+
+def idm_mark_presets(value):
+    """The saved mark colours: a list of '#rrggbb', junk and repeats
+    dropped, at most IDM_MARK_PRESETS_MAX. None when `value` is not a list."""
+    if not isinstance(value, list):
+        return None
+    out = []
+    for item in value:
+        c = idm_color(item)
+        if c and c not in out:
+            out.append(c)
+        if len(out) >= IDM_MARK_PRESETS_MAX:
+            break
+    return out
 
 
 def sanitize_idm_field(value):
     """The field block held to its shape: colour '#rrggbb' (white when it is
     not a colour), border one of IDM_FIELD_BORDERS (shade otherwise),
-    moduleIds a bool (only a real true turns it on). None when `value` is
-    not a dict. Idempotent."""
+    moduleIds a bool (only a real true turns it on), and the Colours above
+    kept only when usable (anything else is Auto and leaves no key). None
+    when `value` is not a dict. Idempotent."""
     if not isinstance(value, dict):
         return None
     border = value.get('border')
-    return {
+    out = {
         'color': idm_color(value.get('color')) or IDM_FIELD_DEFAULT['color'],
         'border': border if border in IDM_FIELD_BORDERS else IDM_FIELD_DEFAULT['border'],
         'moduleIds': value.get('moduleIds') is True,
     }
+    for key in IDM_FIELD_COLOUR_KEYS:
+        c = idm_color(value.get(key))
+        if c:
+            out[key] = c
+    shade = idm_shade_level(value.get('shade'))
+    if shade is not None:
+        out['shade'] = shade
+    presets = idm_mark_presets(value.get('markPresets'))
+    if presets is not None:
+        out['markPresets'] = presets
+    return out
 
 
 def normalize_idm_field(project):

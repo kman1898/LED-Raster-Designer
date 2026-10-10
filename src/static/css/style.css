@@ -2526,6 +2526,39 @@ body.lrd-panel-dragging, body.lrd-panel-dragging * { cursor: grabbing !important
 .idm-seg .idm-seg-btn.active { background: linear-gradient(var(--ps-accent-hi, #ef3340), var(--ps-accent, #e22330)) !important;
     color: var(--ps-on-accent, #fff) !important; border-color: var(--ps-accent-deep, #8f1218) !important; }
 .idm-module-ids { display: block; width: 100%; margin: 4px 0 2px; padding: 4px 6px; }
+/* The Colours: one row per setting - its name, Auto, the swatch (and the
+   shade's percent) - with the black note under a row that needs it. */
+.idm-colours { display: flex; flex-direction: column; gap: 4px; margin-bottom: 4px; }
+.idm-colour-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.idm-colour-label { flex: 1 1 auto; min-width: 0; font-size: 11px; line-height: 1.2; color: var(--ps-dim, #c0c0c0);
+    overflow-wrap: anywhere; }
+.idm-colour-row .idm-auto { flex: 0 0 auto; padding: 2px 6px; font-size: 11px; }
+.idm-colour-row .idm-auto.active { background: linear-gradient(var(--ps-accent-hi, #ef3340), var(--ps-accent, #e22330)) !important;
+    color: var(--ps-on-accent, #fff) !important; border-color: var(--ps-accent-deep, #8f1218) !important; }
+.idm-colour-row .idm-colour-swatch { flex: 0 0 26px; width: 26px; height: 26px; aspect-ratio: auto; background: none; }
+/* the swatch IS the colour in use (Auto's, or the chosen one) */
+.idm-colour-row .idm-colour-swatch input[type="color"] { width: 100%; height: 100%; border: none; border-radius: 3px; }
+.idm-colour-row .idm-colour-swatch input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+.idm-colour-row .idm-colour-swatch input[type="color"]::-webkit-color-swatch { border: none; border-radius: 3px; }
+.idm-pct-wrap { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 2px; }
+.idm-pct-wrap input.idm-pct { width: 34px; min-width: 0; padding: 2px 4px; text-align: right; }
+.idm-pct-wrap input.idm-pct.active { border-color: var(--ps-accent, #e22330); }
+.idm-pct-sign { font-size: 11px; color: var(--ps-faint, #969696); }
+.idm-black-note { margin: 0 0 2px; color: var(--ps-accent-hi, #ef3340); }
+.idm-black-note[hidden] { display: none; }
+/* The show's mark colour presets beside the toolbar's mark swatch: each a
+   small swatch with an x that shows on hover (right-click removes too). */
+.idm-presets { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 3px; }
+.idm-preset { position: relative; display: inline-flex; }
+.idm-preset-pick { width: 18px; height: 18px; min-height: 0; padding: 0; border-radius: 3px; cursor: pointer;
+    background: var(--idm-sw, #ff1a1a) !important; border: 1px solid var(--ps-dark, #131313); }
+.idm-preset-pick.active, .idm-preset-pick:focus-visible { outline: 2px solid var(--ps-accent, #e22330); outline-offset: 1px; }
+.idm-preset-del { position: absolute; top: -6px; right: -6px; width: 13px; height: 13px; min-height: 0; padding: 0;
+    border-radius: 50%; font-size: 10px; line-height: 11px; text-align: center; cursor: pointer; display: none; z-index: 1;
+    background: var(--ps-panel, #2e2e2e); color: var(--ps-text, #f0f0f0); border: 1px solid var(--ps-dark, #131313); }
+.idm-preset:hover .idm-preset-del, .idm-preset:focus-within .idm-preset-del { display: block; }
+#idm-toolbar .idm-preset-add { min-width: 22px; padding: 0 6px; }
+#idm-toolbar .idm-preset-add:disabled { opacity: 0.45; cursor: default; }
 .idm-hl-readout { font-size: 13px; font-weight: 600; color: var(--ps-text, #f0f0f0); margin: 0 0 2px; overflow-wrap: anywhere; }
 .idm-hl-readout.idm-hl-none { font-weight: 400; color: var(--ps-faint, #969696); }
 .idm-pad { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: center; margin-bottom: 4px; }
@@ -2558,6 +2591,16 @@ body.lrd-panel-dragging, body.lrd-panel-dragging * { cursor: grabbing !important
     body.idm-tab .idm-swatch-custom input[type="color"] { width: 28px; height: 28px; }
     body.idm-tab .idm-seg .idm-seg-btn { min-height: 40px; font-size: 13px !important; }
     body.idm-tab .idm-module-ids { min-height: 40px; font-size: 13px !important; }
+    body.idm-tab .idm-colour-row { gap: 8px; }
+    body.idm-tab .idm-colour-label { font-size: 13px; }
+    body.idm-tab .idm-colour-row .idm-auto { min-height: 36px; font-size: 13px !important; }
+    body.idm-tab .idm-colour-row .idm-colour-swatch { flex-basis: 36px; width: 36px; height: 36px; }
+    body.idm-tab .idm-colour-row .idm-colour-swatch input[type="color"] { width: 100%; height: 100%; }
+    body.idm-tab .idm-pct-wrap input.idm-pct { width: 46px; min-height: 36px; font-size: 13px; }
+    body.idm-tab .idm-preset-pick { width: 28px; height: 28px; }
+    body.idm-tab .idm-preset-del { display: block; width: 18px; height: 18px; top: -8px; right: -8px;
+        font-size: 13px; line-height: 16px; }
+    body.idm-tab #idm-toolbar .idm-preset-add { min-height: 28px; min-width: 28px; }
     body.idm-tab .idm-hl-readout { font-size: 15px; }
     body.idm-tab .idm-pad-arrows { grid-template-columns: repeat(3, 52px); grid-template-rows: repeat(3, 52px); gap: 4px; }
     body.idm-tab .idm-pad-arrows .idm-pad-arrow { font-size: 18px !important; }

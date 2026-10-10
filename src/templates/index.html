@@ -1645,6 +1645,48 @@
                             <button type="button" class="btn idm-seg-btn" data-idm-border="none" data-tooltip="None, The colour alone.">None</button>
                         </div>
                         <button type="button" id="idm-module-ids" class="btn idm-toggle idm-module-ids" aria-pressed="false" data-tooltip="Module ID, Label every module inside its cabinet in the Cabinet ID tab's style (A1, B1 ... starting again in each cabinet), in the app and on the wall. The labels sit where the Cabinet ID tab's Label Position puts the cabinet IDs.">Module ID</button>
+                        <!-- The Colours: one set for the show (project.idmField).
+                             Auto draws what the tab always drew; a swatch
+                             opens the app's colour picker. -->
+                        <div class="idm-sub">Colours</div>
+                        <div class="idm-colours">
+                            <div class="idm-colour-row" data-tooltip="Module ID colour, The colour of the Module ID labels. Auto draws them in the field's own colour at half brightness (on a colour mark, the mark's).">
+                                <span class="idm-colour-label">Module ID</span>
+                                <button type="button" class="btn idm-auto" data-idm-auto="labelColor" aria-pressed="true">Auto</button>
+                                <span class="idm-swatch idm-swatch-custom idm-colour-swatch">
+                                    <input type="color" id="idm-label-colour" data-idm-colour="labelColor" value="#808080" aria-label="Module ID colour">
+                                </span>
+                            </div>
+                            <div class="idm-note idm-black-note" data-idm-black="labelColor" hidden>Black pixels can look like dead pixels on the wall.</div>
+                            <div class="idm-colour-row" data-tooltip="Module edges, The colour of the module edges in the Lines and Ticks borders. Auto draws them in the field's own colour at 70%.">
+                                <span class="idm-colour-label">Module edges</span>
+                                <button type="button" class="btn idm-auto" data-idm-auto="moduleEdgeColor" aria-pressed="true">Auto</button>
+                                <span class="idm-swatch idm-swatch-custom idm-colour-swatch">
+                                    <input type="color" id="idm-module-edge-colour" data-idm-colour="moduleEdgeColor" value="#b3b3b3" aria-label="Module edge colour">
+                                </span>
+                            </div>
+                            <div class="idm-note idm-black-note" data-idm-black="moduleEdgeColor" hidden>Black pixels can look like dead pixels on the wall.</div>
+                            <div class="idm-colour-row" data-tooltip="Cabinet edges, The colour of the cabinet edges in the Lines and Ticks borders, and of each cabinet's edge in the Shade border. Auto draws them in the field's own colour at 50% (65% in Shade).">
+                                <span class="idm-colour-label">Cabinet edges</span>
+                                <button type="button" class="btn idm-auto" data-idm-auto="cabinetEdgeColor" aria-pressed="true">Auto</button>
+                                <span class="idm-swatch idm-swatch-custom idm-colour-swatch">
+                                    <input type="color" id="idm-cabinet-edge-colour" data-idm-colour="cabinetEdgeColor" value="#a6a6a6" aria-label="Cabinet edge colour">
+                                </span>
+                            </div>
+                            <div class="idm-note idm-black-note" data-idm-black="cabinetEdgeColor" hidden>Black pixels can look like dead pixels on the wall.</div>
+                            <div class="idm-colour-row" data-tooltip="Shade level, The darker modules of the Shade border's checker: a colour, or a percent of the field colour. Auto is 85% of the field.">
+                                <span class="idm-colour-label">Shade level</span>
+                                <button type="button" class="btn idm-auto" data-idm-auto="shade" aria-pressed="true">Auto</button>
+                                <span class="idm-swatch idm-swatch-custom idm-colour-swatch">
+                                    <input type="color" id="idm-shade-colour" data-idm-colour="shade" value="#d9d9d9" aria-label="Shade level colour">
+                                </span>
+                                <span class="idm-pct-wrap">
+                                    <input type="text" id="idm-shade-percent" class="idm-num idm-pct" inputmode="numeric" autocomplete="off" placeholder="85" aria-label="Shade level percent of the field">
+                                    <span class="idm-pct-sign">%</span>
+                                </span>
+                            </div>
+                            <div class="idm-note idm-black-note" data-idm-black="shade" hidden>Black pixels can look like dead pixels on the wall.</div>
+                        </div>
                         <div class="idm-sub">Highlight</div>
                         <div id="idm-hl-readout" class="idm-hl-readout idm-hl-none">No module highlighted</div>
                         <div id="idm-hl-where" class="idm-note">Point at a module, tap it, or use the arrows.</div>
@@ -2019,6 +2061,10 @@
                         <button type="button" id="idm-style-color" class="idm-toggle" data-idm-style="color" data-tooltip="Colour, The next mark fills the module with the colour.">Colour</button>
                         <button type="button" id="idm-style-x" class="idm-toggle" data-idm-style="x" data-tooltip="X, The next mark draws an X corner to corner across the module, in the colour.">X</button>
                         <input type="color" id="idm-color" value="#ff1a1a" data-tooltip="Mark colour, The colour of the next mark.">
+                        <!-- The show's saved mark colours (project.idmField.markPresets),
+                             built by app-idm-locator.js _idmRenderPresets. -->
+                        <span id="idm-mark-presets" class="idm-presets" role="group" aria-label="Mark colour presets"></span>
+                        <button type="button" id="idm-preset-add" class="idm-preset-add" aria-label="Add the mark colour as a preset" data-tooltip="Add preset, Save the mark colour as a preset for this show. Right-click a preset, or press its x, to remove it.">+</button>
                         <span class="idm-bar-gap"></span>
                         <button type="button" id="idm-clear-screen" data-tooltip="Clear screen marks, Clear every mark on the selected screens.">Clear screen marks</button>
                         <button type="button" id="idm-clear-all" data-tooltip="Clear all marks, Clear every mark on every screen.">Clear all marks</button>

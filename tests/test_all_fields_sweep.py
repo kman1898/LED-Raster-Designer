@@ -212,6 +212,11 @@ SKIP = {
     'idm-field-custom':
         'writes project.idmField through PUT /api/project/idm-field, not the '
         'layer; driven end-to-end by tests/test_idm_field_highlight.py',
+    # ... and so are its Colours (the same block, the same route).
+    **{key: 'writes project.idmField through PUT /api/project/idm-field, not '
+            'the layer; driven end-to-end by tests/test_idm_colours.py'
+       for key in ('idm-label-colour', 'idm-module-edge-colour', 'idm-cabinet-edge-colour',
+                   'idm-shade-colour', 'idm-shade-percent')},
 }
 
 ALL_FIELDS = _discover_fields()

@@ -164,18 +164,58 @@ Object.assign(CanvasRenderer.prototype, {
     //          module) at 70%, longer and 2 px thick at each cabinet's
     //          corners at 50%.
     //   none   the field alone.
-    // Nothing drawn into the field is ever black: an unlit pixel inside a
-    // line or a number would hide a dead one, or pass for one, and dead
-    // pixels are what the crew is looking for. Lines, ticks and the Module
-    // ID numbers are the field's own hue, dimmer (idmInkLevels); on a black
-    // (or nearly black) field they are lit greys instead.
+    // Nothing drawn into the field is ever black on Auto: an unlit pixel
+    // inside a line or a number would hide a dead one, or pass for one, and
+    // dead pixels are what the crew is looking for. Lines, ticks and the
+    // Module ID numbers are the field's own hue, dimmer (idmInkLevels); on a
+    // black (or nearly black) field they are lit greys instead.
+    //
+    // The Colours (one set for the show, each missing = Auto, the levels
+    // above): labelColor, moduleEdgeColor, cabinetEdgeColor ('#rrggbb') and
+    // shade ('#rrggbb' or a percent of the field) - a colour the crew chose
+    // is drawn as chosen, black included (the panel warns about black).
     idmFieldSpec() {
         const app = window.app;
         const raw = (app && app.project && app.project.idmField && typeof app.project.idmField === 'object')
             ? app.project.idmField : {};
         const hex = this._idmHexOrNull(raw.color) || IDM_FIELD_DEFAULT_COLOR;
         const border = IDM_FIELD_BORDERS.includes(raw.border) ? raw.border : 'shade';
-        return { color: hex, border, rgb: this._idmRgb(hex), moduleIds: raw.moduleIds === true };
+        return {
+            color: hex, border, rgb: this._idmRgb(hex), moduleIds: raw.moduleIds === true,
+            labelColor: this._idmHexOrNull(raw.labelColor),
+            moduleEdgeColor: this._idmHexOrNull(raw.moduleEdgeColor),
+            cabinetEdgeColor: this._idmHexOrNull(raw.cabinetEdgeColor),
+            shade: this._idmShadeOrNull(raw.shade),
+        };
+    },
+
+    // The shade setting held to its shape: '#rrggbb', a whole percent
+    // 0..100, or null (Auto) - app.idm_shade_level's twin.
+    _idmShadeOrNull(value) {
+        if (typeof value === 'number') {
+            if (!Number.isFinite(value) || value < 0 || value > 100) return null;
+            return Math.floor(value + 0.5);
+        }
+        return this._idmHexOrNull(value);
+    },
+
+    // What the field's borders are drawn in, the Colours applied over the
+    // Auto levels: {alt, ring} for the shade style (the alternate modules,
+    // the cabinet ring), {module, cabinet} for lines and ticks.
+    idmBorderInks(field) {
+        const F = field.rgb;
+        const shade = this.idmShadeLevels(F);
+        const ink = this.idmInkLevels(F);
+        const pick = (hex, auto) => (hex ? this._idmRgb(hex) : auto);
+        let alt = shade.alt;
+        if (typeof field.shade === 'number') alt = F.map(v => Math.round(v * field.shade / 100));
+        else if (field.shade) alt = this._idmRgb(field.shade);
+        return {
+            alt,
+            ring: pick(field.cabinetEdgeColor, shade.ring),
+            module: pick(field.moduleEdgeColor, ink.module),
+            cabinet: pick(field.cabinetEdgeColor, ink.cabinet),
+        };
     },
 
     _idmHexOrNull(value) {
@@ -295,7 +335,7 @@ Object.assign(CanvasRenderer.prototype, {
         ctx.fillStyle = this._idmCss(F);
         ctx.fillRect(panel.x, panel.y, panel.width, panel.height);
         if (field.border === 'shade') {
-            const lv = this.idmShadeLevels(F);
+            const lv = this.idmBorderInks(field);
             ctx.fillStyle = this._idmCss(lv.alt);
             for (const c of cells) {
                 if (this._idmIsAlt(panel, c, counts)) ctx.fillRect(c.x, c.y, c.w, c.h);
@@ -303,7 +343,7 @@ Object.assign(CanvasRenderer.prototype, {
             ctx.fillStyle = this._idmCss(lv.ring);
             this._idmRing(ctx, panel.x, panel.y, panel.width, panel.height, 1);
         } else if (field.border === 'lines') {
-            const ink = this.idmInkLevels(F);
+            const ink = this.idmBorderInks(field);
             ctx.fillStyle = this._idmCss(ink.module);
             const xs = new Set(), ys = new Set();
             for (const c of cells) {
@@ -315,7 +355,7 @@ Object.assign(CanvasRenderer.prototype, {
             ctx.fillStyle = this._idmCss(ink.cabinet);
             this._idmRing(ctx, panel.x, panel.y, panel.width, panel.height, 1);
         } else if (field.border === 'ticks') {
-            const ink = this.idmInkLevels(F);
+            const ink = this.idmBorderInks(field);
             ctx.fillStyle = this._idmCss(ink.module);
             for (const c of cells) {
                 const len = Math.max(2, Math.min(16, Math.round(Math.min(c.w, c.h) * 0.15)));
@@ -400,7 +440,10 @@ Object.assign(CanvasRenderer.prototype, {
         const labelOf = this.idmModuleLabeler(layer);
         const family = projectFontFamily();
         const marks = (layer.idm && layer.idm.marks && typeof layer.idm.marks === 'object') ? layer.idm.marks : {};
-        const fieldInk = this.idmInkLevels(field.rgb).cabinet;
+        // The Colours' label colour, when chosen, everywhere (marks too);
+        // Auto is the field's hue at 50%, on a colour mark the mark's.
+        const chosen = field.labelColor ? this._idmRgb(field.labelColor) : null;
+        const fieldInk = chosen || this.idmInkLevels(field.rgb).cabinet;
         ctx.save();
         try {
             // Type scales with its size, so one measurement at a reference
@@ -440,7 +483,7 @@ Object.assign(CanvasRenderer.prototype, {
                         || y + H > c.y + c.h - (centred ? 0 : 1)) continue;
                     const key = this.idmCellKey(panel, c);
                     const mark = marks[key];
-                    const ink = (mark && mark.style !== 'x')
+                    const ink = (!chosen && mark && mark.style !== 'x')
                         ? this.idmInkLevels(this._idmMarkInkRgb(mark.color, field.rgb)).cabinet : fieldInk;
                     out.sites.push({
                         key, text, x, y, w: m.w, h: H, ascent: A, left: m.l, right: m.r,
