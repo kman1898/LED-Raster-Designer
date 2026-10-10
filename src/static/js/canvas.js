@@ -2058,6 +2058,13 @@ class CanvasRenderer {
     }
 
     render() {
+        // Output to Display (app-output-display.js): a main render may mean
+        // the picture changed, so the open output windows get a look. It only
+        // schedules; the output's own offscreen pass runs in exportMode and
+        // never comes back through here.
+        if (!this.exportMode && window.app && typeof window.app._outputDisplayOnRender === 'function') {
+            window.app._outputDisplayOnRender();
+        }
         // v0.8.7.8: bump a per-render token so screen-fill gradients are built
         // at most once per layer per frame (cached on the layer keyed by this).
         this._renderPass = (this._renderPass || 0) + 1;

@@ -1472,6 +1472,8 @@ export class LEDRasterApp {
         // Load project notes
         const notesEl = document.getElementById('project-notes');
         if (notesEl) notesEl.value = this.project.notes || '';
+        // ...and the checklist under them (app-notes-checklist.js).
+        if (typeof this._notesChecklistRender === 'function') this._notesChecklistRender();
 
         this.renderLayers();
         this.loadTextLayerToInputs();

@@ -455,6 +455,13 @@ class _MenuBar {
                 // has always had; sizes and folds are left as they are.
                 if (window.LRD_LAYOUT) window.LRD_LAYOUT.reset();
                 break;
+            case 'output-to-display':
+                this.openOutputDisplayDialog();
+                break;
+            case 'output-canvas-to-display':
+                // The canvas the right-click landed on (showContextMenu).
+                this.openOutputDisplayDialog(this._outputDisplayMenuCanvasId);
+                break;
             case 'toggle-snap':
                 if (window.canvasRenderer) {
                     window.canvasRenderer.magneticSnap = !window.canvasRenderer.magneticSnap;
