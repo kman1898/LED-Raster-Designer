@@ -723,6 +723,115 @@ def strip_copied_feeds(layer):
     return [k for k in COPIED_SCREEN_FEED_KEYS if layer.pop(k, None) is not None]
 
 
+# ── 3D view (app-stage3d.js) ─────────────────────────────────────────────
+# A screen's place on the stage lives on the layer as `stage3d`:
+#   {x, y, z}            its centre, in mm (Y up, +Z towards the audience)
+#   {pitch, yaw, roll}   degrees
+#   curveCol / curveRow  the bend at every joint between columns / rows,
+#                        degrees, one figure for the whole screen
+#   jointsCol / jointsRow  per-joint overrides {"<joint index>": degrees};
+#                        joint i sits between column (row) i and i + 1
+# Every bend is held to +/-STAGE3D_JOINT_LIMIT degrees. A layer without the
+# key is placed by the client from its Show Look position, so older files
+# load unchanged. The project keeps the last camera (`stage3dCamera`), the
+# length units the panel shows (`stage3dUnits`) and the floor grid switch
+# (`stage3dGrid`); those three are view state and are written by their own
+# route (routes_project.py), never by the layer PUT.
+STAGE3D_JOINT_LIMIT = 15.0
+STAGE3D_UNITS = ('ft', 'm')
+
+
+def _stage3d_number(value, default=0.0):
+    """`value` as a finite float, or `default` (bools are not numbers)."""
+    if isinstance(value, bool):
+        return default
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return default
+    if math.isnan(f) or math.isinf(f):
+        return default
+    return f
+
+
+def _stage3d_joint(value):
+    f = _stage3d_number(value, 0.0)
+    return max(-STAGE3D_JOINT_LIMIT, min(STAGE3D_JOINT_LIMIT, f))
+
+
+def sanitize_stage3d(value):
+    """The `stage3d` block held to its shape: the six placement figures as
+    finite numbers, both curves and every joint override clamped to the
+    joint limit, joint keys as non-negative integer strings, anything else
+    dropped. None when `value` is not a dict (the key is then removed).
+    Idempotent - the client's own copy of this rule (app-stage3d.js
+    s3dSanitize) produces the same block, so a restore never re-adopts."""
+    if not isinstance(value, dict):
+        return None
+    out = {}
+    for key in ('x', 'y', 'z', 'pitch', 'yaw', 'roll'):
+        out[key] = _stage3d_number(value.get(key), 0.0)
+    for key in ('curveCol', 'curveRow'):
+        out[key] = _stage3d_joint(value.get(key))
+    for key in ('jointsCol', 'jointsRow'):
+        raw = value.get(key)
+        joints = {}
+        if isinstance(raw, dict):
+            for idx, deg in raw.items():
+                text = str(idx).strip()
+                if not text.isdigit():
+                    continue
+                if isinstance(deg, bool) or _stage3d_number(deg, None) is None:
+                    continue
+                joints[str(int(text))] = _stage3d_joint(deg)
+        out[key] = joints
+    return out
+
+
+def normalize_stage3d(project):
+    """Run sanitize_stage3d over every layer that carries the key (the load
+    and save funnels). Returns the ids it changed."""
+    changed = []
+    layers = project.get('layers') if isinstance(project, dict) else None
+    for layer in (layers or []):
+        if not isinstance(layer, dict) or 'stage3d' not in layer:
+            continue
+        clean = sanitize_stage3d(layer.get('stage3d'))
+        if clean is None:
+            layer.pop('stage3d', None)
+            changed.append(layer.get('id'))
+        elif clean != layer.get('stage3d'):
+            layer['stage3d'] = clean
+            changed.append(layer.get('id'))
+    return changed
+
+
+def sanitize_stage3d_camera(value):
+    """The saved 3D camera: mode ('perspective' | 'ortho'), position and
+    target as three finite numbers each, zoom a positive number. None when
+    `value` is not a dict or a vector is unusable."""
+    if not isinstance(value, dict):
+        return None
+
+    def vec(raw):
+        if not isinstance(raw, (list, tuple)) or len(raw) != 3:
+            return None
+        nums = [_stage3d_number(v, None) for v in raw]
+        return None if any(n is None for n in nums) else nums
+
+    position = vec(value.get('position'))
+    target = vec(value.get('target'))
+    if position is None or target is None:
+        return None
+    zoom = _stage3d_number(value.get('zoom'), 1.0)
+    return {
+        'mode': 'ortho' if value.get('mode') == 'ortho' else 'perspective',
+        'position': position,
+        'target': target,
+        'zoom': zoom if zoom > 0 else 1.0,
+    }
+
+
 def normalize_power_breakouts(project, at=None):
     """Run normalize_power_breakout over every layer of `project`. Returns the
     ids it wrote; logs them under `at` when given (a route naming itself), so

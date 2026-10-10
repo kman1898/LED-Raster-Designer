@@ -241,6 +241,7 @@
             <button class="view-tab" data-mode="show-look" data-tooltip="Show Look, rearrange screens to the real-world stage layout. Drives the layout shown in Data and Power views.">Show Look</button>
             <button class="view-tab" data-mode="data-flow" data-tooltip="Data flow view, signal routing and ports (uses Show Look layout)">Data</button>
             <button class="view-tab" data-mode="power" data-tooltip="Power view, electrical distribution (uses Show Look layout)">Power</button>
+            <button class="view-tab" data-mode="3d" data-tooltip="3D view, the screens standing on the stage in three dimensions. Shows the screens Show Look shows, each with its Pixel Map on the front.">3D</button>
         </div>
 
         <div id="main-container">
@@ -1522,6 +1523,89 @@
                     </div>
                 </div>
 
+                <!-- 3D: where each Show Look screen stands on the stage
+                     (app-stage3d.js). Placement is per screen, stored on the
+                     layer as stage3d; the camera, units and grid are the
+                     view's own and are saved with the project. The fields
+                     are built here once and only their values change, so a
+                     round trip never takes focus from a field. -->
+                <div class="panel tab-panel" data-tab="3d" style="display: none;">
+                    <div class="panel-header" data-tooltip="3D Placement, Where the selected screen stands on the stage: its position, its rotation and how far each joint between its cabinets bends.">
+                        <h2>3D Placement</h2>
+                    </div>
+                    <div class="panel-content">
+                        <div id="s3d-none" class="s3d-note">Select a screen to place it: click it in the view or in the Screens list.</div>
+                        <div id="s3d-fields" hidden>
+                            <div id="s3d-screen-name" class="s3d-name"></div>
+                            <div id="s3d-group-note" class="s3d-note" hidden></div>
+                            <div class="s3d-sub">Position</div>
+                            <div class="info-row" data-tooltip="X, Left and right on the stage, measured to the centre of the screen. Math OK (e.g., 10+2.5). In feet, 12' 6&quot; works too.">
+                                <label for="s3d-x">X</label>
+                                <input type="text" id="s3d-x" class="s3d-num" inputmode="decimal" autocomplete="off"><span class="s3d-unit" data-s3d-unit>ft</span>
+                            </div>
+                            <div class="info-row" data-tooltip="Y, Height above the floor, measured to the centre of the screen. Math OK.">
+                                <label for="s3d-y">Y</label>
+                                <input type="text" id="s3d-y" class="s3d-num" inputmode="decimal" autocomplete="off"><span class="s3d-unit" data-s3d-unit>ft</span>
+                            </div>
+                            <div class="info-row" data-tooltip="Z, Upstage and downstage, measured to the centre of the screen. Positive is towards the audience. Math OK.">
+                                <label for="s3d-z">Z</label>
+                                <input type="text" id="s3d-z" class="s3d-num" inputmode="decimal" autocomplete="off"><span class="s3d-unit" data-s3d-unit>ft</span>
+                            </div>
+                            <div class="s3d-sub">Rotation</div>
+                            <div class="info-row" data-tooltip="Pitch, Tilt the screen forward or back, in degrees (about the left-right line through its centre). Math OK.">
+                                <label for="s3d-pitch">Pitch</label>
+                                <input type="text" id="s3d-pitch" class="s3d-num" inputmode="decimal" autocomplete="off"><span class="s3d-unit">&deg;</span>
+                            </div>
+                            <div class="s3d-steps" data-s3d-axis="pitch">
+                                <button type="button" class="btn btn-secondary" data-s3d-step="-90">-90</button><button type="button" class="btn btn-secondary" data-s3d-step="-15">-15</button><button type="button" class="btn btn-secondary" data-s3d-step="15">+15</button><button type="button" class="btn btn-secondary" data-s3d-step="90">+90</button>
+                            </div>
+                            <div class="info-row" data-tooltip="Yaw, Turn the screen left or right, in degrees (about the upright line through its centre). Math OK.">
+                                <label for="s3d-yaw">Yaw</label>
+                                <input type="text" id="s3d-yaw" class="s3d-num" inputmode="decimal" autocomplete="off"><span class="s3d-unit">&deg;</span>
+                            </div>
+                            <div class="s3d-steps" data-s3d-axis="yaw">
+                                <button type="button" class="btn btn-secondary" data-s3d-step="-90">-90</button><button type="button" class="btn btn-secondary" data-s3d-step="-15">-15</button><button type="button" class="btn btn-secondary" data-s3d-step="15">+15</button><button type="button" class="btn btn-secondary" data-s3d-step="90">+90</button>
+                            </div>
+                            <div class="info-row" data-tooltip="Roll, Lean the screen sideways, in degrees (about the line through its centre towards the audience). Math OK.">
+                                <label for="s3d-roll">Roll</label>
+                                <input type="text" id="s3d-roll" class="s3d-num" inputmode="decimal" autocomplete="off"><span class="s3d-unit">&deg;</span>
+                            </div>
+                            <div class="s3d-steps" data-s3d-axis="roll">
+                                <button type="button" class="btn btn-secondary" data-s3d-step="-90">-90</button><button type="button" class="btn btn-secondary" data-s3d-step="-15">-15</button><button type="button" class="btn btn-secondary" data-s3d-step="15">+15</button><button type="button" class="btn btn-secondary" data-s3d-step="90">+90</button>
+                            </div>
+                            <div class="s3d-sub">Curve</div>
+                            <div class="info-row" data-tooltip="Column joints, How far every joint between two columns bends, in degrees, -15 to 15. Positive brings the ends of the screen towards the audience (a curved wall around the audience); negative takes them away.">
+                                <label for="s3d-curve-col">Column joints</label>
+                                <input type="text" id="s3d-curve-col" class="s3d-num" inputmode="decimal" autocomplete="off"><span class="s3d-unit">&deg;</span>
+                            </div>
+                            <div id="s3d-arc-col" class="s3d-arc"></div>
+                            <div class="info-row" data-tooltip="Row joints, How far every joint between two rows bends, in degrees, -15 to 15. Positive brings the top and bottom of the screen towards the audience; negative takes them away.">
+                                <label for="s3d-curve-row">Row joints</label>
+                                <input type="text" id="s3d-curve-row" class="s3d-num" inputmode="decimal" autocomplete="off"><span class="s3d-unit">&deg;</span>
+                            </div>
+                            <div id="s3d-arc-row" class="s3d-arc"></div>
+                            <div class="s3d-sub">Joint</div>
+                            <div id="s3d-joint-label" class="s3d-note">Click a seam between two columns or two rows of the selected screen to bend that joint alone.</div>
+                            <div class="info-row" data-tooltip="Joint angle, The bend at the joint picked in the view, in degrees, -15 to 15. Leave it empty to follow the screen's own figure.">
+                                <label for="s3d-joint-angle">Joint angle</label>
+                                <input type="text" id="s3d-joint-angle" class="s3d-num" inputmode="decimal" autocomplete="off" disabled><span class="s3d-unit">&deg;</span>
+                            </div>
+                            <div class="s3d-buttons">
+                                <button type="button" id="s3d-joint-clear" class="btn btn-secondary" data-tooltip="Use screen figure, The picked joint goes back to the screen's own Column joints or Row joints figure.">Use screen figure</button>
+                                <button type="button" id="s3d-clear-joints" class="btn btn-secondary" data-tooltip="Clear joint angles, Every joint of this screen goes back to the screen's own figures.">Clear joint angles</button>
+                            </div>
+                            <div class="s3d-buttons">
+                                <button type="button" id="s3d-reset" class="btn" data-tooltip="Reset to Show Look, Put this screen (and its group) back where its Show Look position stands it: upright, flat, facing the audience.">Reset to Show Look</button>
+                            </div>
+                        </div>
+                        <div class="s3d-sub">Units</div>
+                        <div class="s3d-buttons" data-tooltip="Units, The length units the 3D panel and the floor grid use. Positions are stored in millimetres either way.">
+                            <button type="button" id="s3d-units-ft" class="btn btn-secondary s3d-toggle" data-s3d-units="ft">Feet</button>
+                            <button type="button" id="s3d-units-m" class="btn btn-secondary s3d-toggle" data-s3d-units="m">Metres</button>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Colors panel - only for Pixel Map -->
                 <div class="panel tab-panel screen-only" data-tab="pixel-map">
                     <div class="panel-header" data-tooltip="Colors, Set the two alternating checkerboard colors used to distinguish cabinets in the pixel map view.">
@@ -1836,6 +1920,23 @@
                          count. canvas.js _drawActiveBadge is its only writer;
                          it hides on any frame that draws no custom run. -->
                     <span id="custom-run-readout" hidden data-tooltip="Active run, The port or circuit you are drawing, how many cabinets it holds against its capacity, and how many cabinets a pending selection would add."><span class="cr-label"></span><span class="cr-pill"></span><span class="cr-selected" hidden></span></span>
+                    <!-- The 3D view's camera bar: shown in place of the raster
+                         and zoom controls while the 3D tab is open. -->
+                    <span id="s3d-toolbar" hidden>
+                        <button type="button" id="s3d-mode-persp" class="s3d-toggle" data-tooltip="Perspective, Draw the stage the way a camera sees it.">Perspective</button>
+                        <button type="button" id="s3d-mode-ortho" class="s3d-toggle" data-tooltip="Orthographic, Draw the stage without perspective, so sizes read true across the view.">Orthographic</button>
+                        <span class="s3d-bar-gap"></span>
+                        <button type="button" data-s3d-view="front" data-tooltip="Front, Look at the stage from the audience.">Front</button>
+                        <button type="button" data-s3d-view="back" data-tooltip="Back, Look at the stage from behind the screens.">Back</button>
+                        <button type="button" data-s3d-view="left" data-tooltip="Left, Look at the stage from the left side.">Left</button>
+                        <button type="button" data-s3d-view="right" data-tooltip="Right, Look at the stage from the right side.">Right</button>
+                        <button type="button" data-s3d-view="top" data-tooltip="Top, Look straight down on the stage.">Top</button>
+                        <button type="button" data-s3d-view="iso" data-tooltip="Iso, Look at the stage from above and to one side.">Iso</button>
+                        <button type="button" id="s3d-fit" data-tooltip="Fit, Frame every screen in the view (Ctrl/Cmd+Shift+1).">Fit</button>
+                        <span class="s3d-bar-gap"></span>
+                        <button type="button" id="s3d-grid" class="s3d-toggle" data-tooltip="Floor grid, Show or hide the floor grid and the origin mark.">Grid</button>
+                        <span class="s3d-bar-hint">Drag to orbit, right-drag to pan, wheel to zoom. Drag a selected screen to move it; Shift-drag raises or lowers it.</span>
+                    </span>
                     <label class="magnet-toggle" style="margin-left: 15px;" data-tooltip="Snap layers to grid when dragging (Ctrl/Cmd+Shift+')">
                         <input type="checkbox" id="magnetic-snap" checked>
                         <span>🧲 Snap</span>
@@ -1843,6 +1944,11 @@
                 </div>
                 <div id="canvas-wrapper">
                     <canvas id="main-canvas"></canvas>
+                    <!-- The 3D tab's viewport, over the 2D canvas while that
+                         tab is open (app-stage3d.js puts its own canvas in). -->
+                    <div id="s3d-view" hidden>
+                        <div id="s3d-message" hidden></div>
+                    </div>
                 </div>
                 <!-- The hardware dock: the tray the Data and Power views'
                      hardware sits in, dragged from here onto the canvas to
@@ -3234,6 +3340,10 @@
 
     <!-- Bundled locally (not a CDN) so the app works over a LAN without the
          client needing internet access. Must match the python-socketio server. -->
+    <!-- Bare "three" for the 3D tab's library (vendored, MIT); it has to
+         come before the first module script. app-stage3d.js imports it on
+         first use, so nothing loads until the 3D tab opens. -->
+    <script type="importmap">{"imports": {"three": "/static/vendor/three/three.module.min.js"}}</script>
     <script src="/static/js/socket.io.min.js"></script>
     <script src="/static/js/canvas.js"></script>
     <!-- CanvasRenderer mixins: classic scripts that Object.assign onto

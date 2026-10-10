@@ -5,6 +5,7 @@
 // carry. Undo / redo and delete stay in app-history.js.
 import { LEDRasterApp } from './app-core.js';
 import { sendClientLog } from './helpers.js';
+import { s3dCopyPlacement } from './app-stage3d.js';
 
 // Carry an image layer's Drop Shadow and Opacity onto its duplicate / paste.
 // /api/layer/add-image only stores what it is sent, so a field left out here
@@ -393,6 +394,11 @@ class _Clipboard {
             // (v0.8.6.3) so a layer dragged in Show Look is copied where it
             // sits there, not snapped back to mirror Pixel Map.
             ..._carryShow(layer, dx, dy),
+            // Its place in the 3D view, nudged the same distance so the copy
+            // does not stand inside the original (app-stage3d.js). None when
+            // the source has none: the copy then stands at its own nudged
+            // Show Look position.
+            stage3d: s3dCopyPlacement(layer, dx, dy),
         };
 
         // Panel geometry. Older server builds only knew hiddenPanels; the

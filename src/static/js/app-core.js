@@ -2075,6 +2075,9 @@ export class LEDRasterApp {
         return new Set([
             'id', 'name', 'visible', 'locked',
             'offset_x', 'offset_y',
+            // Where the screen stands in the 3D view is placement, like the
+            // offsets - never a setting a preset hands another screen.
+            'stage3d',
             // v0.11.0: group membership is identity, not a setting. A preset
             // is a bag of hardware/appearance values reused across projects,
             // and a group id only means anything inside the one project that

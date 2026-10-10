@@ -248,7 +248,9 @@ class CanvasRenderer {
      * real-world stage layout per the Show Look feature spec.
      */
     isShowLookView(mode = this.viewMode) {
-        return mode === 'show-look' || mode === 'data-flow' || mode === 'power';
+        // 3D stands the screens Show Look shows (app-stage3d.js), so the
+        // Screens list and the totals group by the Show Look canvas there.
+        return mode === 'show-look' || mode === 'data-flow' || mode === 'power' || mode === '3d';
     }
 
     /**
@@ -2058,6 +2060,14 @@ class CanvasRenderer {
     }
 
     render() {
+        // The 3D tab has its own viewport over this canvas (app-stage3d.js):
+        // nothing is drawn here, and the redraw - which every edit, selection
+        // change, undo and LAN update ends in - tells the stage to catch up.
+        // An export or a 3D texture paint sets its own view first.
+        if (this.viewMode === '3d' && !this.exportMode) {
+            if (window.app && typeof window.app._s3dOnRender === 'function') window.app._s3dOnRender();
+            return;
+        }
         // v0.8.7.8: bump a per-render token so screen-fill gradients are built
         // at most once per layer per frame (cached on the layer keyed by this).
         this._renderPass = (this._renderPass || 0) + 1;
@@ -2831,6 +2841,11 @@ class CanvasRenderer {
     }
 
     fitToView() {
+        // Fit on the 3D tab frames the stage instead (app-stage3d.js).
+        if (this.viewMode === '3d') {
+            if (window.app && typeof window.app._s3dFit === 'function') window.app._s3dFit(true);
+            return;
+        }
         // Multi-canvas (v0.8 Slice 3): fit to the union bbox of all visible
         // canvases instead of just the active canvas's raster.
         const bb = this._workspaceBounds();

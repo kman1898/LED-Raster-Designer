@@ -6,6 +6,10 @@ import { sendClientLog } from './helpers.js';
 class _History {
     // ===== HISTORY SYSTEM =====
     resetHistory(initialAction = 'Initial State') {
+        // Every project load and new project comes through here: the 3D
+        // view takes the opened project's saved camera when this moves
+        // (app-stage3d.js _s3dAdoptViewState).
+        this._projectEpoch = (this._projectEpoch || 0) + 1;
         this.history = [];
         this.historyIndex = -1;
         this.saveState(initialAction);

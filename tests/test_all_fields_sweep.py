@@ -199,6 +199,13 @@ SKIP = {
     'route-group-as-one':
         'writes group.routeDataAsOne on the project, not the layer; driven '
         'end-to-end by tests/test_audit_cross_member.py',
+    # The 3D panel's joint field bends ONE joint - the seam picked by
+    # clicking it in the 3D view - and stays disabled until one is picked,
+    # so there is nothing for a typed value to land on here. Picked and
+    # driven end-to-end (layer, server, undo) by tests/test_stage3d.py.
+    's3d-joint-angle':
+        'bends the joint picked in the 3D view and is disabled until a seam '
+        'is clicked; driven end-to-end by tests/test_stage3d.py',
 }
 
 ALL_FIELDS = _discover_fields()

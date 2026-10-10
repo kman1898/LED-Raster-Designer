@@ -47,6 +47,8 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 REQUIREMENTS = os.path.join(ROOT, 'src', 'requirements.txt')
 RELEASE_YML = os.path.join(ROOT, '.github', 'workflows', 'release.yml')
 SOCKETIO_JS = os.path.join(ROOT, 'src', 'static', 'js', 'socket.io.min.js')
+THREE_DIR = os.path.join(ROOT, 'src', 'static', 'vendor', 'three')
+THREE_JS = os.path.join(THREE_DIR, 'three.module.min.js')
 OUTPUT = os.path.join(ROOT, 'THIRD-PARTY-NOTICES')
 
 # Bundled by a build but not in requirements.txt: release.yml installs rumps
@@ -270,8 +272,27 @@ def _socketio_block():
     return '\n'.join(lines) + '\n'
 
 
+def _three_block():
+    """three.js (the 3D tab's drawing library) in src/static/vendor/three,
+    when it is there. Its LICENSE file ships beside it, so the text is
+    named rather than repeated."""
+    try:
+        with open(THREE_JS, encoding='utf-8', errors='replace') as f:
+            head = f.read(400)
+    except OSError:
+        return ''
+    holder = re.search(r'Copyright\s+([^\n*]+)', head)
+    lines = ['', '  three.js (src/static/vendor/three)']
+    if holder:
+        lines.append('  Copyright ' + holder.group(1).strip())
+    lines += ['  License: MIT',
+              '  license text: src/static/vendor/three/LICENSE, and',
+              '  https://github.com/mrdoob/three.js/blob/dev/LICENSE']
+    return '\n'.join(lines) + '\n'
+
+
 def render():
-    blocks = [HEADER + _socketio_block()]
+    blocks = [HEADER + _socketio_block() + _three_block()]
     entries = sorted((entry(k) for k in closure()), key=lambda e: e[0].lower())
     for name, lic, url, files in entries:
         lines = [RULE, f'Package: {name}', f'License: {lic}']

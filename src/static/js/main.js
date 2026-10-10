@@ -44,6 +44,7 @@ import './app-dock-drag.js';
 import './app-dock-menus.js';
 import './app-history.js';
 import './app-clipboard.js';
+import './app-stage3d.js';
 import { registerGlobalClientLogging, sendClientLog } from './helpers.js';
 
 document.addEventListener('DOMContentLoaded', () => {

@@ -2371,3 +2371,37 @@ body.lrd-panel-dragging, body.lrd-panel-dragging * { cursor: grabbing !important
 .lrd-layout-buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
 .lrd-layout-list { display: flex; flex-direction: column; gap: 6px; max-height: 50vh; overflow-y: auto; font-size: 13px; color: #ccc; }
 .lrd-layout-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+
+/* ── 3D tab (app-stage3d.js) ─────────────────────────────────────────────
+   The viewport sits over the 2D canvas inside #canvas-wrapper while the tab
+   is open; the camera bar takes the place of the raster and zoom controls
+   in the same strip, so the canvas keeps its height. Colours come from the
+   theme tokens, the viewport background from --ps-canvas. */
+#canvas-container.s3d-on #canvas-controls > :not(#s3d-toolbar) { display: none !important; }
+#s3d-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+#s3d-toolbar[hidden] { display: none; }
+#s3d-toolbar .s3d-bar-gap { width: 10px; }
+#s3d-toolbar .s3d-bar-hint { margin-left: 8px; font-size: 11px; color: var(--ps-faint, #969696); }
+#s3d-view { position: absolute; inset: 0; z-index: 4; background: var(--ps-canvas, #1b1b1b); overflow: hidden; }
+#s3d-view[hidden] { display: none; }
+#s3d-view canvas { display: block; width: 100%; height: 100%; outline: none; touch-action: none; }
+#s3d-view.s3d-grab canvas { cursor: move; }
+#s3d-message { position: absolute; left: 50%; top: 40%; transform: translate(-50%, -50%); max-width: 420px;
+    padding: 12px 16px; border-radius: 4px; font-size: 13px; line-height: 1.5; text-align: center;
+    color: var(--ps-text, #f0f0f0); background: var(--ps-panel, #2e2e2e); border: 1px solid var(--ps-dark, #131313); }
+#s3d-message[hidden] { display: none; }
+.s3d-note { font-size: 11px; line-height: 1.4; color: var(--ps-faint, #969696); margin: 0 0 8px; }
+.s3d-name { font-size: 13px; font-weight: 600; color: var(--ps-text, #f0f0f0); margin: 0 0 6px; }
+.s3d-sub { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ps-faint, #969696);
+    margin: 12px 0 6px; padding-top: 6px; border-top: 1px solid var(--ps-dark, #131313); }
+.tab-panel[data-tab="3d"] .info-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.tab-panel[data-tab="3d"] .info-row > label { flex: 0 0 92px; margin: 0; }
+.tab-panel[data-tab="3d"] .info-row input.s3d-num { flex: 1 1 auto; min-width: 0; width: auto; }
+.s3d-unit { flex: 0 0 18px; font-size: 11px; color: var(--ps-dim, #c0c0c0); }
+.s3d-steps { display: flex; gap: 3px; margin: -2px 0 8px 0; }
+.s3d-steps .btn { flex: 1; min-width: 0; padding: 2px 4px; font-size: 11px; }
+.s3d-arc { font-size: 11px; color: var(--ps-dim, #c0c0c0); margin: -2px 0 8px 0; text-align: right; }
+.s3d-buttons { display: flex; gap: 4px; margin: 4px 0; }
+.s3d-buttons .btn { flex: 1; min-width: 0; padding: 4px 6px; font-size: 11px; }
+.s3d-toggle.active { background: linear-gradient(var(--ps-accent-hi, #ef3340), var(--ps-accent, #e22330)) !important;
+    color: var(--ps-on-accent, #fff) !important; border-color: var(--ps-accent-deep, #8f1218) !important; }

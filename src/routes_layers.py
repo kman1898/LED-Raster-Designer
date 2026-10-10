@@ -130,6 +130,12 @@ def add_layer():
                 needs_rebuild = True
     if needs_rebuild:
         layer['panels'] = _build_panels(layer)
+    # The 3D placement a duplicate / paste carries (app-clipboard.js nudges
+    # it with the copy), held to its shape and its joint limit.
+    if 'stage3d' in data and (layer.get('type') or 'screen') == 'screen':
+        placed = app.sanitize_stage3d(data.get('stage3d'))
+        if placed is not None:
+            layer['stage3d'] = placed
     # A screen always carries a breakout its voltage allows (2026-09-22):
     # the payload's choice stands when eligible, else the preference, else
     # the class default - see app.normalize_power_breakout. The voltage the
@@ -471,6 +477,18 @@ def update_layer(layer_id):
                 'screenNameOffsetXShowLook', 'screenNameOffsetYShowLook']:
         if key in data:
             layer[key] = data[key]
+
+    # The 3D view's placement of this screen (app-stage3d.js): taken off the
+    # plain allow-list because it is held to a shape - every joint bend
+    # clamped to +/-15 degrees, stray keys dropped. null (or anything that
+    # is not a block) removes it, and the screen goes back to the place its
+    # Show Look position gives it.
+    if 'stage3d' in data:
+        placed = app.sanitize_stage3d(data.get('stage3d'))
+        if placed is None:
+            layer.pop('stage3d', None)
+        else:
+            layer['stage3d'] = placed
 
     # The voltage or the breakout may have just changed: the screen keeps a
     # breakout the new voltage allows (2026-09-22). A PUT of null, '' or an

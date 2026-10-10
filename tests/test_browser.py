@@ -184,11 +184,11 @@ def test_canvas_has_content(page):
 
 
 def test_view_tabs_exist(page):
-    """All view tabs (Pixel, Cabinet, Data Flow, Power) exist."""
-    # [data-mode] keeps this to the five view tabs: the Preferences dialog
+    """All view tabs (Pixel Map, Cabinet ID, Show Look, Data, Power, 3D) exist."""
+    # [data-mode] keeps this to the six view tabs: the Preferences dialog
     # reuses the .view-tab class for its own tabs.
     tabs = page.locator('.view-tab[data-mode]')
-    assert tabs.count() == 5, f"Expected the five view tabs, found {tabs.count()}"
+    assert tabs.count() == 6, f"Expected the six view tabs, found {tabs.count()}"
 
 
 def test_switching_views_doesnt_crash(page):
@@ -196,11 +196,11 @@ def test_switching_views_doesnt_crash(page):
     errors = []
     page.on('pageerror', lambda err: errors.append(str(err)))
 
-    # Only the five view tabs: the Preferences dialog reuses the .view-tab
+    # Only the six view tabs: the Preferences dialog reuses the .view-tab
     # class for its own (hidden) tabs, and a hidden button cannot be clicked.
     tabs = page.locator('.view-tab[data-mode]')
     count = tabs.count()
-    assert count == 5, f'expected the five view tabs, found {count}'
+    assert count == 6, f'expected the six view tabs, found {count}'
     for i in range(count):
         tabs.nth(i).click()
         page.wait_for_timeout(200)
