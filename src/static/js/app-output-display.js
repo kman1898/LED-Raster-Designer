@@ -414,6 +414,9 @@ class _OutputDisplay {
 
     // canvas.js render() calls this on every main (non-export) render.
     _outputDisplayOnRender() {
+        // A redraw for the IDM Locator's highlight alone (app-idm-locator.js
+        // _idmRepaint): the outputs get it through _outputDisplayBlink.
+        if (this._idmQuietRender) return;
         if (this._outputDisplayBusy || this._outputDisplayTimer) return;
         if (!Array.isArray(this._outputDisplayWindows) || !this._outputDisplayWindows.length) return;
         this._outputDisplayTimer = setTimeout(() => {
@@ -496,7 +499,16 @@ class _OutputDisplay {
             entry.offscreen = document.createElement('canvas');
             entry.offCtx = entry.offscreen.getContext('2d', { alpha: false });
         }
-        const off = entry.offscreen;
+        // The IDM Locator's frame is drawn WITHOUT its live highlight, into
+        // a canvas of its own: _outputDisplayCompose lays the highlight over
+        // a copy of it, so the highlight's blink and moves never need a
+        // render (_outputDisplayBlink).
+        const idm = entry.view === 'idm';
+        if (idm && !entry.base) {
+            entry.base = document.createElement('canvas');
+            entry.baseCtx = entry.base.getContext('2d', { alpha: false });
+        }
+        const off = idm ? entry.base : entry.offscreen;
         const saved = {
             viewMode: r.viewMode, zoom: r.zoom, panX: r.panX, panY: r.panY,
             canvas: r.canvas, ctx: r.ctx, exportMode: r.exportMode,
@@ -510,7 +522,8 @@ class _OutputDisplay {
                 project.active_canvas_id = target.id;
             }
             r.canvas = off;
-            r.ctx = entry.offCtx;
+            r.ctx = idm ? entry.baseCtx : entry.offCtx;
+            r._idmNoHighlight = idm;
             r.exportMode = true;
             r.exportTransparentBg = false;
             r.renderStages = null;
@@ -520,11 +533,13 @@ class _OutputDisplay {
             if (off.width !== w) off.width = w;
             if (off.height !== h) off.height = h;
             const ws = target ? r._canvasWorkspace(target) : { wx: 0, wy: 0 };
+            entry.ws = ws;
             r.zoom = 1;
             r.panX = -ws.wx;
             r.panY = -ws.wy;
             r.render();
         } finally {
+            r._idmNoHighlight = false;
             canvases.forEach((c, i) => { c.visible = visibility[i]; });
             project.active_canvas_id = saved.active;
             r.canvas = saved.canvas;
@@ -537,6 +552,7 @@ class _OutputDisplay {
             r.panX = saved.panX;
             r.panY = saved.panY;
         }
+        if (idm) return this._outputDisplayCompose(entry, page);
         try {
             page.present(off, { title: `${this._outputDisplayLabel(entry)} - Output` });
         } catch (err) {
@@ -544,6 +560,55 @@ class _OutputDisplay {
             return false;
         }
         return true;
+    }
+
+    // An IDM Locator output's frame: its last render (entry.base) with the
+    // live highlight laid over it in the output's own raster frame, handed
+    // to the page.
+    _outputDisplayCompose(entry, page) {
+        const r = window.canvasRenderer;
+        const base = entry.base;
+        if (!r || !base || !base.width || !base.height) return false;
+        const off = entry.offscreen;
+        const ctx = entry.offCtx;
+        if (off.width !== base.width) off.width = base.width;
+        if (off.height !== base.height) off.height = base.height;
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.drawImage(base, 0, 0);
+        const ws = entry.ws || { wx: 0, wy: 0 };
+        // The highlight's place is worked out the way this view draws: the
+        // Pixel Map positions, whatever tab the designer shows right now.
+        const savedView = r.viewMode;
+        const hasCanvases = this.project && Array.isArray(this.project.canvases) && this.project.canvases.length;
+        try {
+            r.viewMode = 'idm';
+            ctx.save();
+            ctx.translate(-ws.wx, -ws.wy);
+            r.renderIdmHighlight(ctx, { exportMode: true, canvasId: hasCanvases ? entry.canvasId : undefined });
+            ctx.restore();
+        } finally {
+            r.viewMode = savedView;
+        }
+        try {
+            page.present(off, { title: `${this._outputDisplayLabel(entry)} - Output` });
+        } catch (err) {
+            sendClientLog('output_display_present_failed', { message: String(err && err.message || err) });
+            return false;
+        }
+        return true;
+    }
+
+    // The IDM Locator's highlight moved or blinked (app-idm-locator.js
+    // _idmRepaint): every IDM output with a frame gets the highlight laid
+    // over that frame again - a copy, never a render. An output without a
+    // frame yet gets one from the next refresh.
+    _outputDisplayBlink() {
+        const all = Array.isArray(this._outputDisplayWindows) ? this._outputDisplayWindows : [];
+        for (const e of all) {
+            if (e.view !== 'idm' || !e.base || e.lastSig === null || !e.win || e.win.closed) continue;
+            const page = this._outputDisplayPage(e);
+            if (page) this._outputDisplayCompose(e, page);
+        }
     }
 }
 

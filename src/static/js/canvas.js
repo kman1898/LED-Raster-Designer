@@ -2067,14 +2067,16 @@ class CanvasRenderer {
         if (!this.exportMode && !this._idmPass && window.app && typeof window.app._outputDisplayOnRender === 'function') {
             window.app._outputDisplayOnRender();
         }
-        // The IDM Locator tab (canvas-idm.js, app-idm-locator.js) is the
-        // Pixel Map - the same cabinets at the same raster positions, the
-        // picture Output to Display puts on the wall - with each cabinet's
-        // module grid and the marked modules drawn over it. The Pixel Map
-        // pass runs with _idmPass set; the per-layer loop below draws the
-        // modules inside each screen's own frame. An Output to Display of
+        // The IDM Locator tab (canvas-idm.js, app-idm-locator.js) stands
+        // the cabinets where the Pixel Map does - the same raster positions,
+        // the picture Output to Display puts on the wall - but draws every
+        // screen in the tab's one field colour with its border style and the
+        // marked modules, and the live highlight over everything. The Pixel
+        // Map pass runs with _idmPass set; the per-layer loop below draws
+        // the field inside each screen's own frame instead of the Pixel
+        // Map's cabinets, labels and test pattern. An Output to Display of
         // this view comes through here too (exportMode), and so carries the
-        // marks; nothing else ever renders this view.
+        // field and the marks; nothing else ever renders this view.
         if (this.viewMode === 'idm' && !this._idmPass) {
             this._idmPass = true;
             this.viewMode = 'pixel-map';
@@ -2324,6 +2326,12 @@ class CanvasRenderer {
                         this.ctx.save();
                         this.ctx.translate(dx, dy);
                     }
+                    // The IDM Locator puts the field alone on the wall: no
+                    // images, no text.
+                    if (this._idmPass && (layer.type || 'screen') !== 'screen') {
+                        if (needsShift) this.ctx.restore();
+                        return;
+                    }
                     if ((layer.type || 'screen') === 'image') {
                         this._svgGroup('Images', layer);
                         if (this._stageOn('Image')) this.renderImageLayer(layer);
@@ -2371,7 +2379,10 @@ class CanvasRenderer {
                         this._beginLayerRotation(layer);   // rotate in place (own save)
                     }
 
-                    layer.panels.forEach(panel => {
+                    // IDM Locator: the field, its borders and the marks in
+                    // place of the cabinets (canvas-idm.js).
+                    if (this._idmPass) this.renderIdmLayer(layer);
+                    else layer.panels.forEach(panel => {
                         // Cheap early skip for panels entirely outside the raster.
                         // Skip this optimization while rotating, a rotated panel
                         // may land inside the view even if its unrotated pos is out
@@ -2394,7 +2405,7 @@ class CanvasRenderer {
                     // members and the decision about which member draws it
                     // cannot be made from this layer alone.
                     this._svgGroup('Test pattern', layer);
-                    if (this._stageOn('Test pattern')) this.renderCircleWithX(layer);
+                    if (!this._idmPass && this._stageOn('Test pattern')) this.renderCircleWithX(layer);
 
                     // Render Cabinet ID numbers in world space (scales with zoom)
                     if (this.viewMode === 'cabinet-id' && this._stageOn('Cabinet IDs')) {
@@ -2444,14 +2455,10 @@ class CanvasRenderer {
                     // (Matt, 2026-09-22: "the screen 2 name on power and data
                     // tab is under the cables when grouped").
                     this._svgGroup('Screen name', layer);
-                    if (this._stageOn('Screen name')) {
+                    if (!this._idmPass && this._stageOn('Screen name')) {
                         if (this._memberLabelsDeferred(layer)) this._deferredMemberLabels.push(layer);
                         else this.renderLayerLabels(layer);
                     }
-
-                    // IDM Locator: the module grid and the marks, over the
-                    // screen's labels so a mark is never hidden under them.
-                    if (this._idmPass) this.renderIdmLayer(layer);
 
                     // v0.9.3: end the rotation before the corner readouts so the
                     // X,Y coordinates stay upright and unrotated.
@@ -2465,7 +2472,7 @@ class CanvasRenderer {
 
                     // Render offsets / corner X,Y readouts (pixel-map only), upright
                     this._svgGroup('Screen name', layer);
-                    if (this._stageOn('Screen name')) this.renderLayerOffsets(layer);
+                    if (!this._idmPass && this._stageOn('Screen name')) this.renderLayerOffsets(layer);
 
                     if (needsShift) this.ctx.restore();
                 }
@@ -2558,6 +2565,12 @@ class CanvasRenderer {
                     this._activeRenderCanvas = _prevCanvas;
                 }
             });
+
+            // IDM Locator: the live highlight, over every screen. The output
+            // window's frame is drawn without it (_idmNoHighlight) and has
+            // it laid on by app-output-display.js, so a blink costs that
+            // window one copy, not a render.
+            if (this._idmPass && !this._idmNoHighlight) this.renderIdmHighlight();
 
             // The custom-run readout in the canvas strip follows this frame:
             // whichever view is up, if no badge call fired (not custom mode,

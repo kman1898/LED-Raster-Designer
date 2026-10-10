@@ -641,6 +641,13 @@ Object.assign(CanvasRenderer.prototype, {
             return;
         }
 
+        // IDM Locator: the module under the mouse is the live highlight
+        // (app-idm-locator.js _idmHover). Not while the view is panned.
+        if (this.viewMode === 'idm' && !this.isDragging && window.app
+                && typeof window.app._idmHover === 'function') {
+            window.app._idmHover(worldX, worldY);
+        }
+
         if (this.isAltPainting) {
             const clickedPanel = this.getPanelAt(worldX, worldY);
             if (clickedPanel && clickedPanel.layerId === this.altPaintLayerId && !this.altPaintedPanelIds.has(clickedPanel.panel.id)) {
@@ -1629,6 +1636,16 @@ Object.assign(CanvasRenderer.prototype, {
             const type = String(el.type || '').toLowerCase();
             return type === 'range' || type === 'radio';
         })();
+
+        // IDM Locator: the arrows move the live highlight (Shift a cabinet),
+        // Space marks the highlighted module, Esc clears the highlight
+        // (app-idm-locator.js _idmKeyDown). Ahead of Space-to-pan, which
+        // still works with no highlight.
+        if (this.viewMode === 'idm' && !isTyping && window.app
+                && typeof window.app._idmKeyDown === 'function' && window.app._idmKeyDown(e)) {
+            e.preventDefault();
+            return;
+        }
 
         if (!isTyping && !arrowsOwned && window.app && window.app.handleCustomArrowKey(e)) {
             e.preventDefault();

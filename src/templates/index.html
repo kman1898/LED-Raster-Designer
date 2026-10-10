@@ -248,7 +248,7 @@
             <button class="view-tab" data-mode="data-flow" data-tooltip="Data flow view, signal routing and ports (uses Show Look layout)">Data</button>
             <button class="view-tab" data-mode="power" data-tooltip="Power view, electrical distribution (uses Show Look layout)">Power</button>
             <button class="view-tab" data-mode="3d" data-tooltip="3D view, the screens standing on the stage in three dimensions. Shows the screens Show Look shows, each with its Pixel Map on the front.">3D</button>
-            <button class="view-tab" data-mode="idm" data-tooltip="IDM Locator, mark the bad module on each cabinet. Drawn like the Pixel Map, with every cabinet's modules, so Output to Display can show the marks on the wall.">IDM Locator</button>
+            <button class="view-tab" data-mode="idm" data-tooltip="IDM Locator, one solid colour on every screen to find dead pixels and bad modules on the wall, a highlight on the module being pointed at, and the bad modules marked. Output to Display puts the colour, the highlight and the marks on the wall.">IDM Locator</button>
         </div>
 
         <div id="main-container">
@@ -1613,17 +1613,54 @@
                     </div>
                 </div>
 
-                <!-- IDM Locator: how many modules make up each cabinet of the
-                     selected screen(s), and every module marked bad
-                     (app-idm-locator.js). Stored on the layer as idm; the
-                     marks are drawn by canvas-idm.js. Fields are built once
-                     and only their values change, so a round trip never
-                     takes focus from a field. -->
+                <!-- IDM Locator (app-idm-locator.js): the field every screen is
+                     drawn in on the wall (project.idmField, the same for all
+                     screens), the live highlight and its pad (arrows, cabinet
+                     jump, Mark - what a tablet at the wall drives), how many
+                     modules make up each cabinet of the selected screen(s),
+                     and every module marked bad. The modules and marks are
+                     stored on the layer as idm and drawn by canvas-idm.js.
+                     Fields are built once and only their values change, so a
+                     round trip never takes focus from a field. -->
                 <div class="panel tab-panel" data-tab="idm" style="display: none;">
-                    <div class="panel-header" data-tooltip="IDM Locator, How many modules make up each cabinet, and every module marked bad. Click a module in the view to mark it; click it again to clear it.">
+                    <div class="panel-header" data-tooltip="IDM Locator, One solid colour on every screen to find dead pixels and bad modules, the module being pointed at, how many modules make up each cabinet, and every module marked bad. Click a module in the view to mark it; click it again to clear it.">
                         <h2>IDM Locator</h2>
                     </div>
                     <div class="panel-content">
+                        <div class="idm-sub idm-sub-first">Field</div>
+                        <div class="idm-swatches" role="group" aria-label="Field colour">
+                            <button type="button" class="idm-swatch" data-idm-field="#ffffff" style="--idm-sw: #ffffff" aria-label="White" data-tooltip="White, Every screen full white.">W</button>
+                            <button type="button" class="idm-swatch" data-idm-field="#ff0000" style="--idm-sw: #ff0000" aria-label="Red" data-tooltip="Red, Every screen full red.">R</button>
+                            <button type="button" class="idm-swatch" data-idm-field="#00ff00" style="--idm-sw: #00ff00" aria-label="Green" data-tooltip="Green, Every screen full green.">G</button>
+                            <button type="button" class="idm-swatch" data-idm-field="#0000ff" style="--idm-sw: #0000ff" aria-label="Blue" data-tooltip="Blue, Every screen full blue.">B</button>
+                            <button type="button" class="idm-swatch" data-idm-field="#000000" style="--idm-sw: #000000" aria-label="Black" data-tooltip="Black, Every screen black, to find pixels stuck on.">K</button>
+                            <span class="idm-swatch idm-swatch-custom" data-tooltip="Custom colour, Any colour for every screen.">
+                                <input type="color" id="idm-field-custom" value="#ffffff" aria-label="Custom field colour">
+                            </span>
+                        </div>
+                        <div class="idm-seg" role="group" aria-label="Borders">
+                            <button type="button" class="btn idm-seg-btn" data-idm-border="shade" data-tooltip="Shade, Modules alternate full colour and a little darker so every pixel stays lit; each cabinet edge is a thin darker line.">Shade</button>
+                            <button type="button" class="btn idm-seg-btn" data-idm-border="lines" data-tooltip="Lines, A thin line at every module edge, stronger at each cabinet edge.">Lines</button>
+                            <button type="button" class="btn idm-seg-btn" data-idm-border="ticks" data-tooltip="Ticks, Short corner marks at every module, bigger at each cabinet corner.">Ticks</button>
+                            <button type="button" class="btn idm-seg-btn" data-idm-border="none" data-tooltip="None, The colour alone.">None</button>
+                        </div>
+                        <div class="idm-sub">Highlight</div>
+                        <div id="idm-hl-readout" class="idm-hl-readout idm-hl-none">No module highlighted</div>
+                        <div id="idm-hl-where" class="idm-note">Point at a module, tap it, or use the arrows.</div>
+                        <div id="idm-pad" class="idm-pad">
+                            <div class="idm-pad-arrows">
+                                <button type="button" class="btn idm-pad-arrow idm-pad-up" data-idm-step="up" aria-label="Up" data-tooltip="Up, Move the highlight up one module (one cabinet with Cabinet jump).">&#9650;</button>
+                                <button type="button" class="btn idm-pad-arrow idm-pad-left" data-idm-step="left" aria-label="Left" data-tooltip="Left, Move the highlight left one module (one cabinet with Cabinet jump).">&#9664;</button>
+                                <button type="button" class="btn idm-pad-arrow idm-pad-right" data-idm-step="right" aria-label="Right" data-tooltip="Right, Move the highlight right one module (one cabinet with Cabinet jump).">&#9654;</button>
+                                <button type="button" class="btn idm-pad-arrow idm-pad-down" data-idm-step="down" aria-label="Down" data-tooltip="Down, Move the highlight down one module (one cabinet with Cabinet jump).">&#9660;</button>
+                            </div>
+                            <div class="idm-pad-side">
+                                <button type="button" id="idm-pad-cabinet" class="btn idm-toggle" aria-pressed="false" data-tooltip="Cabinet jump, The arrows move a whole cabinet at a time, like Shift with the arrow keys.">Cabinet jump</button>
+                                <button type="button" id="idm-pad-clear" class="btn" data-tooltip="Clear highlight, Take the highlight off the wall (Esc).">Clear highlight</button>
+                            </div>
+                            <button type="button" id="idm-pad-mark" class="btn idm-pad-mark" data-tooltip="Mark, Mark the highlighted module, or clear its mark (Space).">Mark</button>
+                        </div>
+                        <div class="idm-sub">Modules</div>
                         <div id="idm-none" class="idm-note">Select a screen to set its modules: click it in the view or in the Screens list.</div>
                         <div id="idm-fields" hidden>
                             <div id="idm-screen-name" class="idm-name"></div>
@@ -2101,6 +2138,7 @@
 
         <div id="status-bar">
             <span id="status-message">Ready</span>
+            <span id="idm-status-readout" hidden></span>
             <span id="cursor-position">X: 0, Y: 0</span>
         </div>
 

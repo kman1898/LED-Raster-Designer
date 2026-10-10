@@ -156,6 +156,8 @@ def save_project():
     # The IDM Locator's marks held to the screens as they stand (no mark on
     # a blanked cabinet or a module that is not there). Idempotent.
     app.normalize_idm(app.current_project)
+    # The IDM Locator's field colour and border style held to their shape.
+    app.normalize_idm_field(app.current_project)
     log_event('save_project', {'name': app.current_project.get('name')})
     return jsonify({'status': 'success'})
 
@@ -308,6 +310,9 @@ def restore_project():
     # now stand (after the geometry rebuild above). A file without the key
     # loads unchanged.
     app.normalize_idm(app.current_project)
+    # ... and the tab's field colour and border style (a file without the
+    # key loads without it and draws white with shaded borders).
+    app.normalize_idm_field(app.current_project)
     log_event('restore_project', {
         'name': app.current_project.get('name', '?'),
         'layers': len(app.current_project.get('layers', [])),
@@ -350,6 +355,30 @@ def save_stage3d_view():
         'stage3dUnits': proj.get('stage3dUnits'),
         'stage3dGrid': proj.get('stage3dGrid'),
     })
+
+
+@project_bp.route('/api/project/idm-field', methods=['PUT'])
+def put_idm_field():
+    """The IDM Locator's field: one solid colour for every screen and the
+    border style drawn into it (app.sanitize_idm_field). View state, not an
+    edit - no undo entry on the client and a pristine project stays
+    pristine - but saved with the show and told to every client on the LAN
+    through `idm_field_updated`, so a tablet at the wall changes what the
+    machine driving the wall puts out. The sender's own echo carries its
+    `origin` so it can be skipped."""
+    data = request.json or {}
+    if not isinstance(data, dict):
+        return jsonify({'error': 'expected an object'}), 400
+    field = app.sanitize_idm_field(data.get('field'))
+    if field is None:
+        return jsonify({'error': 'field must be an object'}), 400
+    app.current_project['idmField'] = field
+    log_event('idm_field', field)
+    socketio.emit('idm_field_updated', {
+        'field': field,
+        'origin': str(data.get('origin') or '')[:64],
+    })
+    return jsonify({'idmField': field})
 
 
 # ── Beaches ──────────────────────────────────────────────────────────────

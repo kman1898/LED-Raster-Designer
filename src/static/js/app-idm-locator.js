@@ -21,8 +21,27 @@
 // wall: idmCopyLayout, app-clipboard stripScreenFeeds, the server's
 // strip_copied_idm_marks); a preset keeps the layout and never the marks.
 // Nothing here exports, prints or reaches the 3D view.
+//
+// The FIELD: the tab draws every screen in one solid colour (the crew puts it
+// on the real wall to spot dead pixels and bad modules) with a border style
+// drawn into the raster - project.idmField = {color, border}, canvas-idm.js
+// draws it. View state, not an edit: it saves with the show and reaches every
+// client on the LAN (PUT /api/project/idm-field, `idm_field_updated`), but it
+// is never an undo step - every history entry is stamped with the field as
+// it changes, so an undo never puts an older one back.
+//
+// The LIVE HIGHLIGHT: the module the crew is pointing at - by mouse (hover),
+// by the arrow keys, or from a tablet at the wall (a tap, or the arrow pad in
+// the panel). It is never saved and never an undo step; it goes to every
+// client over Socket.IO (`idm_highlight`, throttled, the server only relays
+// it, the last mover wins), so the machine driving the wall shows a highlight
+// moved from a tablet. It blinks white / the field's inverse on the wall
+// (canvas-idm.js renderIdmHighlight); the blink refreshes the output window by
+// laying the highlight over its last frame (app-output-display.js), not by
+// rendering it again. It stays until Esc or Clear highlight, and goes when
+// its screen or module does.
 import { LEDRasterApp } from './app-core.js';
-import { sendClientLog } from './helpers.js';
+import { sendClientLog, isTypingTarget } from './helpers.js';
 
 const MAX_MODULES = 64;
 const DEFAULT_COLOR = '#ff1a1a';
@@ -30,6 +49,20 @@ const FLASH_MS = 1800;
 const BLINK_MS = 250;
 const STYLE_KEY = 'lrdIdmMarkStyle';
 const COLOR_KEY = 'lrdIdmMarkColor';
+// The field's border styles; white with shaded borders when unset.
+const FIELD_BORDERS = ['shade', 'lines', 'ticks', 'none'];
+const FIELD_DEFAULT = { color: '#ffffff', border: 'shade' };
+const FIELD_PUT_MS = 150;
+// The live highlight: half a blink (2.5 blinks a second) and the least time
+// between two sends to the other clients (25 a second).
+const BLINK_HALF_MS = 200;
+const SEND_MS = 40;
+// The tablet layout: the IDM Locator tab on a narrow window or a touch
+// screen (style.css carries the same query).
+const COMPACT_QUERY = '(max-width: 1100px), (pointer: coarse)';
+const ARROWS = {
+    ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1],
+};
 
 function idmCount(value) {
     if (typeof value === 'boolean' || value === null || value === undefined) return 1;
@@ -98,6 +131,16 @@ export function idmSanitize(value, layer) {
     return out;
 }
 
+// The field block held to its shape (the client's copy of
+// app.sanitize_idm_field): the defaults for anything unusable.
+export function idmFieldSanitize(value) {
+    const v = (value && typeof value === 'object' && !Array.isArray(value)) ? value : {};
+    return {
+        color: idmColor(v.color) || FIELD_DEFAULT.color,
+        border: FIELD_BORDERS.includes(v.border) ? v.border : FIELD_DEFAULT.border,
+    };
+}
+
 // What a copy of `layer` carries: its module layout, no marks. Undefined
 // when the screen never had a block (the copy then has none either).
 export function idmCopyLayout(layer) {
@@ -126,7 +169,15 @@ class _IdmLocator {
             this._idmS = {
                 active: false, wired: false, style, color,
                 stroke: null, flash: null, flashTimer: null,
-                fieldsKey: '', listKey: '',
+                fieldsKey: '', listKey: '', fieldUiKey: '', readoutKey: '',
+                // the field's PUT, held back while a colour is dragged
+                fieldTimer: null, fieldPending: null,
+                // the live highlight: {layerId, key} or null
+                hl: null, blinkOn: true, blinkStart: 0, blinkTimer: null,
+                sendTimer: null, lastSend: 0, cabinetJump: false,
+                // the last pointer's kind ('mouse', 'touch', 'pen') and when
+                lastPointer: '', lastPointerAt: 0,
+                origin: 'idm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
             };
         }
         return this._idmS;
@@ -157,7 +208,72 @@ class _IdmLocator {
             if (!row) return;
             this._idmFlashModule(Number(row.dataset.idmLayer), row.dataset.idmKey);
         });
+        // The field: the quick colours, the custom swatch (the app's colour
+        // picker opens on it), the border styles.
+        document.querySelectorAll('[data-idm-field]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                this._idmSetField({ color: btn.dataset.idmField });
+                this._idmBlurButton(btn);
+            });
+        });
+        on('idm-field-custom', 'input', (e) => this._idmSetField({ color: e.target.value }, { soon: true }));
+        on('idm-field-custom', 'change', (e) => this._idmSetField({ color: e.target.value }));
+        document.querySelectorAll('[data-idm-border]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                this._idmSetField({ border: btn.dataset.idmBorder });
+                this._idmBlurButton(btn);
+            });
+        });
+        // The highlight pad: arrows, the cabinet jump, Mark, Clear.
+        document.querySelectorAll('[data-idm-step]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                this._idmStep(btn.dataset.idmStep, this._idmState().cabinetJump);
+                this._idmBlurButton(btn);
+            });
+        });
+        on('idm-pad-cabinet', 'click', (e) => {
+            st.cabinetJump = !st.cabinetJump;
+            this._idmSyncPad();
+            this._idmBlurButton(e.currentTarget);
+        });
+        on('idm-pad-mark', 'click', (e) => {
+            this._idmMarkHighlight();
+            this._idmBlurButton(e.currentTarget);
+        });
+        on('idm-pad-clear', 'click', (e) => {
+            this._idmClearHighlight();
+            this._idmBlurButton(e.currentTarget);
+        });
+        // What kind of pointer pressed last: a tap on a touch screen moves
+        // the highlight, it never marks (_idmPointerDown).
+        document.addEventListener('pointerdown', (e) => {
+            st.lastPointer = e.pointerType || '';
+            st.lastPointerAt = Date.now();
+        }, true);
+        if (this.socket && typeof this.socket.on === 'function') {
+            this.socket.on('idm_field_updated', (data) => {
+                if (!data || data.origin === st.origin) return;
+                this._idmAdoptField(idmFieldSanitize(data.field));
+            });
+            this.socket.on('idm_highlight', (data) => {
+                if (!data || data.origin === st.origin) return;
+                const id = data.layerId;
+                this._idmSetHighlight(id === null || id === undefined ? null : Number(id),
+                    typeof data.key === 'string' ? data.key : null, { send: false });
+            });
+        }
+        if (typeof window.matchMedia === 'function') {
+            const mq = window.matchMedia(COMPACT_QUERY);
+            if (mq.addEventListener) mq.addEventListener('change', () => { if (st.active) this._idmRelayout(true); });
+        }
         this._idmSyncToolbar();
+        this._idmSyncPad();
+    }
+
+    // A button that took focus from a click lets it go, so Space and the
+    // arrows keep driving the highlight instead of pressing it again.
+    _idmBlurButton(btn) {
+        if (btn && document.activeElement === btn && typeof btn.blur === 'function') btn.blur();
     }
 
     // The view-tab click (app-wiring _wireViewTabs).
@@ -166,14 +282,40 @@ class _IdmLocator {
         st.active = !!on;
         const bar = document.getElementById('idm-toolbar');
         if (bar) bar.hidden = !st.active;
+        // The tablet layout (style.css) keys off this class.
+        const was = document.body.classList.contains('idm-tab');
+        document.body.classList.toggle('idm-tab', st.active);
+        if (was !== st.active) this._idmRelayout();
         if (!st.active) {
             st.stroke = null;
             if (window.canvasRenderer) window.canvasRenderer.isIdmPainting = false;
+            this._idmRefreshReadout();
             return;
         }
         st.fieldsKey = '';
         st.listKey = '';
+        st.fieldUiKey = '';
+        st.readoutKey = '';
         this._idmSyncToolbar();
+        this._idmSyncPad();
+    }
+
+    // The tablet layout hides the side panels it does not need, so the
+    // canvas is sized again once the page has laid out - only when that
+    // layout is (or was) in play, or `force` says the window crossed it.
+    _idmRelayout(force = false) {
+        const r = window.canvasRenderer;
+        if (!r || typeof r.setupCanvas !== 'function') return;
+        const compact = typeof window.matchMedia === 'function' && window.matchMedia(COMPACT_QUERY).matches;
+        if (!force && !compact) return;
+        const entering = compact && this._idmState().active;
+        requestAnimationFrame(() => {
+            try {
+                r.setupCanvas();
+                // On a tablet the wall fills the room the panels left.
+                if (entering && typeof r.fitToView === 'function') r.fitToView();
+            } catch (_) { /* no canvas yet */ }
+        });
     }
 
     // canvas.js render() calls this after every designer redraw of the tab:
@@ -181,6 +323,398 @@ class _IdmLocator {
     // panel only touches the DOM when what it shows has changed.
     _idmOnRender() {
         this._idmRefreshPanel();
+    }
+
+    // ── the field ─────────────────────────────────────────────────────────
+
+    _idmFieldNow() {
+        return idmFieldSanitize(this.project && this.project.idmField);
+    }
+
+    // A change of colour or border from this client: drawn at once, sent to
+    // the server (which tells every other client). `soon` holds the send
+    // back while a colour is being dragged in the picker.
+    _idmSetField(patch, { soon = false } = {}) {
+        const st = this._idmState();
+        if (!this.project) return;
+        const cur = this._idmFieldNow();
+        const next = {
+            color: idmColor(patch && patch.color) || cur.color,
+            border: FIELD_BORDERS.includes(patch && patch.border) ? patch.border : cur.border,
+        };
+        const stored = this.project.idmField;
+        const same = !!stored && stored.color === next.color && stored.border === next.border;
+        if (same && !st.fieldPending) return;
+        if (!same) this._idmAdoptField(next);
+        st.fieldPending = next;
+        clearTimeout(st.fieldTimer);
+        st.fieldTimer = null;
+        const send = () => {
+            st.fieldTimer = null;
+            const field = st.fieldPending;
+            st.fieldPending = null;
+            if (!field) return;
+            sendClientLog('idm_field', field);
+            fetch('/api/project/idm-field', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ field, origin: st.origin }),
+            }).catch(() => {});
+        };
+        if (soon) st.fieldTimer = setTimeout(send, FIELD_PUT_MS);
+        else send();
+    }
+
+    // The field onto this window's project - and onto every history entry,
+    // so no undo or redo ever brings an older field back (it is view state,
+    // not an edit) and the next snapshot does not count it as a change.
+    _idmAdoptField(field) {
+        if (!this.project) return;
+        const clean = idmFieldSanitize(field);
+        this.project.idmField = { ...clean };
+        (Array.isArray(this.history) ? this.history : []).forEach(entry => {
+            if (entry && entry.project && typeof entry.project === 'object') {
+                entry.project.idmField = { ...clean };
+            }
+        });
+        this._idmSyncField(true);
+        if (window.canvasRenderer) window.canvasRenderer.render();
+    }
+
+    // The panel's swatches and border buttons say what the project holds.
+    _idmSyncField(force = false) {
+        const st = this._idmState();
+        const f = this._idmFieldNow();
+        const key = `${f.color}|${f.border}`;
+        if (!force && key === st.fieldUiKey) return;
+        st.fieldUiKey = key;
+        let quick = false;
+        document.querySelectorAll('[data-idm-field]').forEach(btn => {
+            const on = btn.dataset.idmField === f.color;
+            quick = quick || on;
+            btn.classList.toggle('active', on);
+            btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+        });
+        const custom = document.getElementById('idm-field-custom');
+        if (custom) {
+            if (custom.value.toLowerCase() !== f.color) custom.value = f.color;
+            const wrap = custom.closest('.idm-swatch-custom');
+            if (wrap) wrap.classList.toggle('active', !quick);
+        }
+        document.querySelectorAll('[data-idm-border]').forEach(btn => {
+            const on = btn.dataset.idmBorder === f.border;
+            btn.classList.toggle('active', on);
+            btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+        });
+    }
+
+    // ── the live highlight ────────────────────────────────────────────────
+
+    // The highlighted module as the canvas draws it: {layer, panel, cell,
+    // key, on} (on: the white half of the blink), or null. A highlight on a
+    // screen or module that is gone answers null.
+    _idmHighlightTarget() {
+        const st = this._idmS;
+        const hl = st && st.hl;
+        const r = window.canvasRenderer;
+        if (!hl || !r || !this.project) return null;
+        const layer = (this.project.layers || []).find(l => l && l.id === hl.layerId);
+        if (!layer || (layer.type || 'screen') !== 'screen') return null;
+        const parts = String(hl.key).split(',').map(n => parseInt(n, 10));
+        if (parts.length !== 4 || parts.some(n => !Number.isFinite(n))) return null;
+        const panel = (layer.panels || []).find(p => p && (p.col || 0) === parts[0] && (p.row || 0) === parts[1]);
+        if (!panel) return null;
+        const counts = r.idmCounts(layer);
+        const cell = r.idmModuleCells(layer, panel, counts.x, counts.y, r._idmVisibleLookup(layer))
+            .find(c => c.mx === parts[2] && c.my === parts[3]);
+        if (!cell) return null;
+        return { layer, panel, cell, key: hl.key, on: st.blinkOn !== false };
+    }
+
+    // Move the highlight (null clears it). `send`: tell the other clients
+    // (false for a move that came from one of them).
+    _idmSetHighlight(layerId, key, { send = true } = {}) {
+        const st = this._idmState();
+        const next = (layerId === null || layerId === undefined || !key) ? null : { layerId, key };
+        const same = (!next && !st.hl)
+            || (next && st.hl && st.hl.layerId === next.layerId && st.hl.key === next.key);
+        if (same) return;
+        st.hl = next;
+        st.blinkOn = true;
+        st.blinkStart = Date.now();
+        if (st.hl && !st.blinkTimer) {
+            st.blinkTimer = setInterval(() => this._idmBlinkTick(), BLINK_HALF_MS);
+        } else if (!st.hl && st.blinkTimer) {
+            clearInterval(st.blinkTimer);
+            st.blinkTimer = null;
+        }
+        if (send) this._idmSendHighlight();
+        this._idmRefreshReadout();
+        this._idmRepaint();
+    }
+
+    _idmClearHighlight() {
+        this._idmSetHighlight(null, null);
+    }
+
+    // Throttled: at most one send per SEND_MS, the newest position last.
+    _idmSendHighlight() {
+        const st = this._idmState();
+        if (!this.socket || typeof this.socket.emit !== 'function') return;
+        if (st.sendTimer) return;
+        const flush = () => {
+            st.sendTimer = null;
+            st.lastSend = Date.now();
+            const hl = st.hl;
+            this.socket.emit('idm_highlight', {
+                layerId: hl ? hl.layerId : null, key: hl ? hl.key : null, origin: st.origin,
+            });
+        };
+        const wait = SEND_MS - (Date.now() - st.lastSend);
+        if (wait <= 0) flush();
+        else st.sendTimer = setTimeout(flush, wait);
+    }
+
+    // Half a blink: the highlight changes colour. A highlight whose screen
+    // or module has gone is dropped here (on every client alike).
+    _idmBlinkTick() {
+        const st = this._idmState();
+        if (!st.hl) return;
+        if (!this._idmHighlightTarget()) {
+            st.hl = null;
+            clearInterval(st.blinkTimer);
+            st.blinkTimer = null;
+            this._idmRefreshReadout();
+            this._idmRepaint();
+            return;
+        }
+        st.blinkOn = Math.floor((Date.now() - st.blinkStart) / BLINK_HALF_MS) % 2 === 0;
+        this._idmRepaint();
+    }
+
+    // The highlight changed and nothing else: the designer redraws (when it
+    // shows this tab) without asking the outputs to compare the whole
+    // project, and each IDM output lays the highlight over its last frame.
+    _idmRepaint() {
+        const r = window.canvasRenderer;
+        if (r && r.viewMode === 'idm' && document.visibilityState !== 'hidden') {
+            this._idmQuietRender = true;
+            try { r.render(); } finally { this._idmQuietRender = false; }
+        }
+        if (typeof this._outputDisplayBlink === 'function') this._outputDisplayBlink();
+    }
+
+    // The mouse over the view: the module under it is highlighted. Off every
+    // module the highlight stays where it was.
+    _idmHover(worldX, worldY) {
+        const st = this._idmState();
+        const r = window.canvasRenderer;
+        if (!st.active || !r || st.stroke) return;
+        const hit = r.idmHitAt(worldX, worldY);
+        if (!hit || !hit.cell) return;
+        this._idmSetHighlight(hit.layer.id, r.idmCellKey(hit.panel, hit.cell));
+    }
+
+    // A press that came from a finger (a touch screen's tap): it moves the
+    // highlight and never marks.
+    _idmTouchPress() {
+        const st = this._idmState();
+        return st.lastPointer === 'touch' && Date.now() - st.lastPointerAt < 1000;
+    }
+
+    // The arrow keys and the pad: one module in `dir` ('left', 'right', 'up',
+    // 'down' or an Arrow key name), or with `cabinet` one whole cabinet. The
+    // step is taken on the wall as drawn (a turned screen steps the way it
+    // looks), carries on across cabinet edges and onto the next screen in
+    // that row of the same canvas, and stops at the last module. With no
+    // highlight it starts on the first module of the selected screen.
+    _idmStep(dir, cabinet = false) {
+        const r = window.canvasRenderer;
+        if (!r || !this.project) return false;
+        const names = { left: 'ArrowLeft', right: 'ArrowRight', up: 'ArrowUp', down: 'ArrowDown' };
+        const vec = ARROWS[names[dir] || dir];
+        if (!vec) return false;
+        const t = this._idmHighlightTarget();
+        if (!t) return this._idmStartHighlight();
+        const canvasId = r._effectiveLayerCanvasId(t.layer);
+        const all = r.idmModuleRects(l => r._effectiveLayerCanvasId(l) === canvasId);
+        const cur = r.idmModuleWorldRect(t.layer, t.panel, t.cell);
+        const cx = cur.x + cur.w / 2, cy = cur.y + cur.h / 2;
+        const [dx, dy] = vec;
+        const eps = 0.5;
+        let pick = null;
+        if (!cabinet) {
+            let best = Infinity;
+            for (const m of all) {
+                if (m.layer === t.layer && m.key === t.key) continue;
+                let gap;
+                if (dx) {
+                    if (!(m.y - eps <= cy && cy < m.y + m.h - eps)) continue;
+                    gap = dx > 0 ? m.x - (cur.x + cur.w) : cur.x - (m.x + m.w);
+                } else {
+                    if (!(m.x - eps <= cx && cx < m.x + m.w - eps)) continue;
+                    gap = dy > 0 ? m.y - (cur.y + cur.h) : cur.y - (m.y + m.h);
+                }
+                if (gap < -eps) continue;
+                // the nearest; on a tie the current screen's own module
+                const score = gap + (m.layer === t.layer ? 0 : 0.25);
+                if (score < best) { best = score; pick = m; }
+            }
+        } else {
+            // A whole cabinet on: the point one cabinet along, as the
+            // cabinet stands on the wall (a quarter turn swaps its sides).
+            // A blanked cabinet is stepped over; past the last one, stop.
+            const swap = r._layerDrawFrame(t.layer).swap;
+            const cw = Math.round(Number(t.layer.cabinet_width) || 0);
+            const ch = Math.round(Number(t.layer.cabinet_height) || 0);
+            const ext = dx ? (swap ? ch : cw) : (swap ? cw : ch);
+            if (ext > 0 && all.length) {
+                const minX = Math.min(...all.map(m => m.x)), maxX = Math.max(...all.map(m => m.x + m.w));
+                const minY = Math.min(...all.map(m => m.y)), maxY = Math.max(...all.map(m => m.y + m.h));
+                for (let n = 1; n <= 512 && !pick; n++) {
+                    const px = cx + dx * ext * n, py = cy + dy * ext * n;
+                    if (px < minX || px > maxX || py < minY || py > maxY) break;
+                    const inside = all.filter(m => px >= m.x && px < m.x + m.w && py >= m.y && py < m.y + m.h);
+                    pick = inside.find(m => m.layer === t.layer) || inside[inside.length - 1] || null;
+                }
+            }
+        }
+        if (!pick) return false;
+        this._idmSetHighlight(pick.layer.id, pick.key);
+        return true;
+    }
+
+    // The first module (top-left as drawn) of the selected screen, or of
+    // the topmost-leftmost screen.
+    _idmStartHighlight() {
+        const r = window.canvasRenderer;
+        if (!r) return false;
+        const sel = this.currentLayer && (this.currentLayer.type || 'screen') === 'screen' ? this.currentLayer : null;
+        let mods = sel ? r.idmModuleRects(l => l === sel) : [];
+        if (!mods.length) mods = r.idmModuleRects();
+        if (!mods.length) return false;
+        const topLeft = (list) => list.reduce((a, m) =>
+            ((m.y < a.y - 0.5 || (Math.abs(m.y - a.y) <= 0.5 && m.x < a.x)) ? m : a));
+        const first = topLeft(mods);
+        const start = topLeft(mods.filter(m => m.layer === first.layer));
+        this._idmSetHighlight(start.layer.id, start.key);
+        return true;
+    }
+
+    // Space or the Mark button: the highlighted module marked or cleared,
+    // the same rules and the same single undo step a click makes.
+    _idmMarkHighlight() {
+        const t = this._idmHighlightTarget();
+        if (!t) {
+            this._toast('Move the highlight onto a module first.');
+            return false;
+        }
+        const layer = t.layer;
+        if (layer.locked) {
+            this._toast(`${layer.name || 'This screen'} is locked. Unlock it to mark its modules.`);
+            return true;
+        }
+        const st = this._idmState();
+        const before = JSON.stringify(layer.idm || null);
+        const block = this._idmEnsureBlock(layer);
+        st.stroke = { layerId: layer.id, mode: block.marks[t.key] ? 'clear' : 'mark', touched: new Set(), before };
+        this._idmApply(layer, t.key);
+        this._idmPointerUp();
+        if (window.canvasRenderer) window.canvasRenderer.render();
+        return true;
+    }
+
+    // canvas-input.js handleKeyDown, in this view: arrows move the
+    // highlight (Shift: a whole cabinet), Space marks the highlighted
+    // module, Esc clears the highlight. Never while a field is typed in or
+    // a dialog is open. True when the key was this view's.
+    _idmKeyDown(e) {
+        const st = this._idmState();
+        if (!st.active || e.metaKey || e.ctrlKey || e.altKey) return false;
+        if (isTypingTarget(document.activeElement)) return false;
+        const modalOpen = Array.from(document.querySelectorAll('.modal'))
+            .some(m => getComputedStyle(m).display !== 'none');
+        if (modalOpen) return false;
+        if (ARROWS[e.key]) {
+            this._idmStep(e.key, e.shiftKey);
+            return true;
+        }
+        if (e.code === 'Space') {
+            if (!st.hl) return false;
+            if (!e.repeat) this._idmMarkHighlight();
+            return true;
+        }
+        if (e.key === 'Escape') {
+            if (!st.hl) return false;
+            this._idmClearHighlight();
+            return true;
+        }
+        return false;
+    }
+
+    // Screen · Cabinet ID · Module N for one module - the locator list's own
+    // naming (_idmMarkGroups). Null when the module is not there.
+    _idmDescribe(layer, key) {
+        const r = window.canvasRenderer;
+        if (!r || !layer) return null;
+        const parts = String(key).split(',').map(n => parseInt(n, 10));
+        const panel = (layer.panels || []).find(p => p && (p.col || 0) === parts[0] && (p.row || 0) === parts[1]);
+        if (!panel) return null;
+        const counts = r.idmCounts(layer);
+        const cells = r.idmModuleCells(layer, panel, counts.x, counts.y, r._idmVisibleLookup(layer));
+        const index = cells.findIndex(c => c.mx === parts[2] && c.my === parts[3]);
+        if (index < 0) return null;
+        const xs = [...new Set(cells.map(c => c.mx))].sort((a, b) => a - b);
+        const ys = [...new Set(cells.map(c => c.my))].sort((a, b) => a - b);
+        const screen = layer.name || 'Screen';
+        const cabinet = r.cabinetIdLabeler(layer)(panel);
+        return {
+            screen, cabinet, module: index + 1,
+            row: ys.indexOf(parts[3]) + 1, col: xs.indexOf(parts[2]) + 1,
+            text: `${screen} · ${cabinet} · Module ${index + 1}`,
+        };
+    }
+
+    // The readout in the pad and in the status bar.
+    _idmRefreshReadout() {
+        const st = this._idmState();
+        const t = st.active ? this._idmHighlightTarget() : null;
+        const d = t ? this._idmDescribe(t.layer, t.key) : null;
+        const marked = !!(t && t.layer.idm && t.layer.idm.marks && t.layer.idm.marks[t.key]);
+        const key = JSON.stringify([st.active, d && d.text, d && d.row, d && d.col, marked]);
+        if (key === st.readoutKey) return;
+        st.readoutKey = key;
+        const out = document.getElementById('idm-hl-readout');
+        const where = document.getElementById('idm-hl-where');
+        const status = document.getElementById('idm-status-readout');
+        if (out) {
+            out.textContent = d ? d.text : 'No module highlighted';
+            out.classList.toggle('idm-hl-none', !d);
+        }
+        if (where) {
+            where.textContent = d
+                ? `Row ${d.row}, col ${d.col}${marked ? ' · marked' : ''}`
+                : 'Point at a module, tap it, or use the arrows.';
+        }
+        if (status) {
+            status.textContent = d ? d.text : '';
+            status.hidden = !d;
+        }
+        this._idmSyncPad();
+    }
+
+    _idmSyncPad() {
+        const st = this._idmState();
+        const cab = document.getElementById('idm-pad-cabinet');
+        if (cab) {
+            cab.classList.toggle('active', !!st.cabinetJump);
+            cab.setAttribute('aria-pressed', st.cabinetJump ? 'true' : 'false');
+        }
+        const has = !!st.hl;
+        ['idm-pad-mark', 'idm-pad-clear'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.disabled = !has;
+        });
     }
 
     _idmSetStyle(style) {
@@ -221,6 +755,12 @@ class _IdmLocator {
         if (!r || typeof r.idmHitAt !== 'function') return false;
         const hit = r.idmHitAt(worldX, worldY);
         if (!hit) return false;
+        // A finger on a touch screen (a tablet at the wall) moves the
+        // highlight; the pad's Mark button marks.
+        if (this._idmTouchPress()) {
+            if (hit.cell) this._idmSetHighlight(hit.layer.id, r.idmCellKey(hit.panel, hit.cell));
+            return true;
+        }
         const layer = hit.layer;
         if (!this.currentLayer || this.currentLayer.id !== layer.id) r._selectLayerFromCanvas(layer);
         if (layer.locked) {
@@ -434,6 +974,8 @@ class _IdmLocator {
         if (!st.active) return;
         this._idmRefreshFields();
         this._idmRenderList();
+        this._idmSyncField();
+        this._idmRefreshReadout();
     }
 
     // The fields back to what the screens hold, even the one with the

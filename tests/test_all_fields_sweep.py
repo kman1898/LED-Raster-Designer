@@ -206,6 +206,12 @@ SKIP = {
     's3d-joint-angle':
         'bends the joint picked in the 3D view and is disabled until a seam '
         'is clicked; driven end-to-end by tests/test_stage3d.py',
+    # The IDM Locator's field colour is the PROJECT's view state
+    # (project.idmField, its own route), the same for every screen and never
+    # an undo step - not layer state.
+    'idm-field-custom':
+        'writes project.idmField through PUT /api/project/idm-field, not the '
+        'layer; driven end-to-end by tests/test_idm_field_highlight.py',
 }
 
 ALL_FIELDS = _discover_fields()

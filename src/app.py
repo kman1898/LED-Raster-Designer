@@ -1032,6 +1032,67 @@ def strip_copied_idm_marks(layer):
                         'marks': {}}
 
 
+# The IDM Locator tab draws every screen in ONE solid field colour (the crew
+# puts it on the wall to find dead pixels and bad modules), with a border
+# style that says where the modules and cabinets meet. The project keeps it as
+#   idmField: {color: '#rrggbb', border: 'shade' | 'lines' | 'ticks' | 'none'}
+# View state, not an edit: written by its own route (routes_project.py), told
+# to every client on the LAN, never an undo step. A project without the key
+# draws white with shaded borders.
+IDM_FIELD_BORDERS = ('shade', 'lines', 'ticks', 'none')
+IDM_FIELD_DEFAULT = {'color': '#ffffff', 'border': 'shade'}
+
+
+def sanitize_idm_field(value):
+    """The field block held to its shape: colour '#rrggbb' (white when it is
+    not a colour), border one of IDM_FIELD_BORDERS (shade otherwise). None
+    when `value` is not a dict. Idempotent."""
+    if not isinstance(value, dict):
+        return None
+    border = value.get('border')
+    return {
+        'color': idm_color(value.get('color')) or IDM_FIELD_DEFAULT['color'],
+        'border': border if border in IDM_FIELD_BORDERS else IDM_FIELD_DEFAULT['border'],
+    }
+
+
+def normalize_idm_field(project):
+    """sanitize_idm_field on the project's block, in place (the load and save
+    funnels). A block that is not a dict is removed. True when it changed."""
+    if not isinstance(project, dict) or 'idmField' not in project:
+        return False
+    clean = sanitize_idm_field(project.get('idmField'))
+    if clean is None:
+        project.pop('idmField', None)
+        return True
+    if clean != project.get('idmField'):
+        project['idmField'] = clean
+        return True
+    return False
+
+
+def sanitize_idm_highlight(value):
+    """The module the IDM Locator's live highlight sits on, as one client
+    sends it to be passed on to the others: {layerId, key, origin}, key
+    "col,row,mx,my"; {layerId: None, key: None} clears it. None when the
+    payload is not usable (nothing is passed on). The highlight is never
+    stored: the server only relays it."""
+    if not isinstance(value, dict):
+        return None
+    origin = value.get('origin')
+    origin = origin[:64] if isinstance(origin, str) else ''
+    key = value.get('key')
+    layer_id = value.get('layerId')
+    if key is None and layer_id is None:
+        return {'layerId': None, 'key': None, 'origin': origin}
+    if isinstance(layer_id, bool) or not isinstance(layer_id, int):
+        return None
+    clean_key = _idm_key(key) if isinstance(key, str) else None
+    if clean_key is None:
+        return None
+    return {'layerId': layer_id, 'key': clean_key, 'origin': origin}
+
+
 def normalize_power_breakouts(project, at=None):
     """Run normalize_power_breakout over every layer of `project`. Returns the
     ids it wrote; logs them under `at` when given (a route naming itself), so
@@ -2197,6 +2258,18 @@ def handle_connect():
 @socketio.on('disconnect')
 def handle_disconnect():
     print('Client disconnected')
+
+
+@socketio.on('idm_highlight')
+def handle_idm_highlight(data):
+    """The IDM Locator's live highlight moved on one client (a mouse, the
+    arrow keys, a tablet at the wall): pass it on to every other client, so
+    the machine driving the wall shows it. Ephemeral - never stored, never
+    an undo step; the last mover wins (sanitize_idm_highlight)."""
+    clean = sanitize_idm_highlight(data)
+    if clean is None:
+        return
+    emit('idm_highlight', clean, broadcast=True, include_self=False)
 
 
 # ── Modularized route blueprints ──────────────────────────────────────────
