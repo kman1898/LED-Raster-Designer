@@ -24,6 +24,22 @@ Object.assign(CanvasRenderer.prototype, {
             this.render();
         }
 
+        // IDM Locator: a press on a module marks or clears it and starts a
+        // paint stroke (app-idm-locator.js _idmPointerDown); the first
+        // module decides paint or clear, the way Alt-drag blanking does.
+        // The view moves nothing: Shift and Alt presses do nothing here.
+        // Space / middle-button pan, Cmd/Ctrl toggle-select and a press
+        // off every screen (selection marquee) fall through as anywhere.
+        if (this.viewMode === 'idm' && e.button === 0 && !this.spacePressed) {
+            if (e.shiftKey || e.altKey) return;
+            if (!e.metaKey && !e.ctrlKey && window.app
+                    && typeof window.app._idmPointerDown === 'function'
+                    && window.app._idmPointerDown(worldX, worldY)) {
+                this.isIdmPainting = true;
+                return;
+            }
+        }
+
         // v0.8.7.7: plain-click directly on a screen-name label starts a
         // screen-name drag (no modifier needed). This is the universal
         // "grab the label" gesture across every tab, Pixel Map, Cabinet
@@ -618,6 +634,13 @@ Object.assign(CanvasRenderer.prototype, {
             return;
         }
 
+        if (this.isIdmPainting) {
+            if (window.app && typeof window.app._idmPointerMove === 'function') {
+                window.app._idmPointerMove(worldX, worldY);
+            }
+            return;
+        }
+
         if (this.isAltPainting) {
             const clickedPanel = this.getPanelAt(worldX, worldY);
             if (clickedPanel && clickedPanel.layerId === this.altPaintLayerId && !this.altPaintedPanelIds.has(clickedPanel.panel.id)) {
@@ -989,6 +1012,15 @@ Object.assign(CanvasRenderer.prototype, {
             this.render();
             if (typeof sendClientLog === 'function') {
                 sendClientLog('canvas_drag_end', { canvasId: id });
+            }
+            return;
+        }
+
+        // IDM Locator: the stroke ends as one layer edit, one undo step.
+        if (this.isIdmPainting) {
+            this.isIdmPainting = false;
+            if (window.app && typeof window.app._idmPointerUp === 'function') {
+                window.app._idmPointerUp();
             }
             return;
         }
@@ -1839,7 +1871,7 @@ Object.assign(CanvasRenderer.prototype, {
         }
         const armed = this.isDragging || this.isDraggingLayer
             || this.isDraggingScreenName || this.isDraggingGroupName
-            || this.isDraggingCanvas || this.isAltPainting
+            || this.isDraggingCanvas || this.isAltPainting || this.isIdmPainting
             || this.isSelectingPanels || this.isSelectingPixelMapPanels
             || this.isSelectingLayers
             || this.selectionRect || this.layerSelectionRect;

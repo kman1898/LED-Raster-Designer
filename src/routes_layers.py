@@ -185,6 +185,12 @@ def add_layer():
         if ps_dict:
             layer['panels'] = _build_panels(layer, ps_dict)
 
+    # The module layout a duplicate / paste / preset carries (marks only
+    # survive on the modules this screen really has - a copy sends none).
+    if 'idm' in data and (layer.get('type') or 'screen') == 'screen':
+        layer['idm'] = data.get('idm')
+        app.normalize_idm_layer(layer)
+
     app.current_project['layers'].append(layer)
     app.current_project['is_pristine'] = False
     socketio.emit('layer_added', layer)
@@ -565,6 +571,18 @@ def update_layer(layer_id):
                 panel['x'] = panel.get('x', 0) + dx
                 panel['y'] = panel.get('y', 0) + dy
 
+    # The IDM Locator's module layout and marks (app-idm-locator.js): taken
+    # as sent, then held to the screen as it now stands - after the panel
+    # rebuild above, so a mark on a column or row this PUT took away, or on
+    # a module a new module count no longer has, is dropped here. Runs on
+    # every PUT for that reason. null removes the block.
+    if 'idm' in data:
+        if data.get('idm') is None:
+            layer.pop('idm', None)
+        else:
+            layer['idm'] = data.get('idm')
+    app.normalize_idm_layer(layer)
+
     if edited:
         app.current_project['is_pristine'] = False
     socketio.emit('layer_updated', layer)
@@ -711,6 +729,8 @@ def move_layer_to_canvas(layer_id):
         # none of the source's feeds (2026-09-23; app.strip_copied_feeds).
         app.normalize_power_breakout(clone)
         app.strip_copied_feeds(clone)
+        # ... and no IDM marks: a copy is another physical wall.
+        app.strip_copied_idm_marks(clone)
         app.current_project['layers'].append(clone)
         log_event('layer_duplicate_to_canvas', {
             'src_layer_id': layer_id, 'new_layer_id': clone['id'],
@@ -801,6 +821,9 @@ def toggle_panel_hidden(layer_id, panel_id):
     # the next unrelated undo/redo/file load - the panel jumps half a cabinet
     # long after the edit that caused it.
     _rebuild_layer_geometry_from_panel_states(layer)
+    # A blanked cabinet has no modules to mark; a half cabinet keeps only
+    # the modules inside it (app.sanitize_idm).
+    app.normalize_idm_layer(layer)
     log_event('toggle_panel_hidden', {'layer_id': layer_id, 'panel_id': panel_id, 'hidden': hidden})
     # The rebuild regenerates the panels array, so `panel` is now stale. Send
     # the rebuilt layer instead, matching the half-tile routes below.
@@ -827,6 +850,9 @@ def set_panels_hidden(layer_id):
     # v0.10.8.1: same as the single toggle - hidden state feeds half-tile
     # anchoring, so re-derive the geometry before anyone sees the layer.
     _rebuild_layer_geometry_from_panel_states(layer)
+    # A blanked cabinet has no modules to mark; a half cabinet keeps only
+    # the modules inside it (app.sanitize_idm).
+    app.normalize_idm_layer(layer)
     log_event('bulk_set_panels_hidden', {'layer_id': layer_id, 'count': len(updated)})
     socketio.emit('layer_updated', layer)
     # Return the rebuilt layer so the client can merge it before snapshotting,
@@ -852,6 +878,9 @@ def set_panel_half_tile(layer_id, panel_id):
     panel['halfTile'] = value
 
     _rebuild_layer_geometry_from_panel_states(layer)
+    # A blanked cabinet has no modules to mark; a half cabinet keeps only
+    # the modules inside it (app.sanitize_idm).
+    app.normalize_idm_layer(layer)
     log_event('set_panel_half_tile', {'layer_id': layer_id, 'panel_id': panel_id, 'halfTile': value})
     socketio.emit('layer_updated', layer)
     return jsonify(layer)
@@ -882,6 +911,9 @@ def set_panels_half_tile(layer_id):
         updated += 1
 
     _rebuild_layer_geometry_from_panel_states(layer)
+    # A blanked cabinet has no modules to mark; a half cabinet keeps only
+    # the modules inside it (app.sanitize_idm).
+    app.normalize_idm_layer(layer)
     log_event('bulk_set_panels_half_tile', {'layer_id': layer_id, 'count': updated})
     socketio.emit('layer_updated', layer)
     # v0.10.8: return the rebuilt layer alongside the count. The rebuild

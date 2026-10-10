@@ -153,6 +153,9 @@ def save_project():
     # The 3D placement on every screen held to its shape (joint bends within
     # +/-15 degrees). Idempotent; see app.sanitize_stage3d.
     app.normalize_stage3d(app.current_project)
+    # The IDM Locator's marks held to the screens as they stand (no mark on
+    # a blanked cabinet or a module that is not there). Idempotent.
+    app.normalize_idm(app.current_project)
     log_event('save_project', {'name': app.current_project.get('name')})
     return jsonify({'status': 'success'})
 
@@ -301,6 +304,10 @@ def restore_project():
     # The 3D placement on every screen held to its shape: a hand-edited file
     # with a 40-degree joint lands at 15. A file without it loads unchanged.
     app.normalize_stage3d(app.current_project)
+    # The IDM Locator's module counts and marks held to the screens as they
+    # now stand (after the geometry rebuild above). A file without the key
+    # loads unchanged.
+    app.normalize_idm(app.current_project)
     log_event('restore_project', {
         'name': app.current_project.get('name', '?'),
         'layers': len(app.current_project.get('layers', [])),

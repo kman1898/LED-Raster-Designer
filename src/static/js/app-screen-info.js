@@ -1675,6 +1675,9 @@ class _ScreenInfo {
                 preservedKeys.forEach(key => {
                     if (live[key] !== undefined) updated[key] = live[key];
                 });
+                // The IDM Locator's marks: the browser's newest, held to the
+                // screen the server sent back (app-idm-locator.js).
+                if (typeof this._idmMergeEcho === 'function') this._idmMergeEcho(live, updated);
                 this.project.layers[index] = updated;
             });
         });

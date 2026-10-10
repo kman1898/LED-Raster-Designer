@@ -123,7 +123,7 @@ class _Wiring {
         if (document.activeElement === btn && typeof btn.blur === 'function') btn.blur();
     }
 
-    // The six view tabs: switch the renderer, swap the sidebar panels,
+    // The seven view tabs: switch the renderer, swap the sidebar panels,
     // and refresh whichever panel the new view owns.
     _wireViewTabs() {
         // View tabs - the top strip's only. The Preferences dialog's tab
@@ -153,6 +153,9 @@ class _Wiring {
                 // The 3D tab draws in its own viewport over the canvas
                 // (app-stage3d.js); every other tab puts the canvas back.
                 if (typeof this._s3dSetActive === 'function') this._s3dSetActive(mode === '3d');
+                // The IDM Locator's marking tools join the canvas strip
+                // while its tab is open (app-idm-locator.js).
+                if (typeof this._idmSetActive === 'function') this._idmSetActive(mode === 'idm');
                 window.canvasRenderer.setViewMode(mode);
                 // The Signal and Power panels each belong to one view, so they
                 // join or leave layout with the tab, not with the selection.

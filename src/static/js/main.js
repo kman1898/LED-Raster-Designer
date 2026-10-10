@@ -45,6 +45,7 @@ import './app-dock-menus.js';
 import './app-history.js';
 import './app-clipboard.js';
 import './app-stage3d.js';
+import './app-idm-locator.js';
 import './app-output-display.js';
 import './app-notes-checklist.js';
 import { registerGlobalClientLogging, sendClientLog } from './helpers.js';

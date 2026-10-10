@@ -248,6 +248,7 @@
             <button class="view-tab" data-mode="data-flow" data-tooltip="Data flow view, signal routing and ports (uses Show Look layout)">Data</button>
             <button class="view-tab" data-mode="power" data-tooltip="Power view, electrical distribution (uses Show Look layout)">Power</button>
             <button class="view-tab" data-mode="3d" data-tooltip="3D view, the screens standing on the stage in three dimensions. Shows the screens Show Look shows, each with its Pixel Map on the front.">3D</button>
+            <button class="view-tab" data-mode="idm" data-tooltip="IDM Locator, mark the bad module on each cabinet. Drawn like the Pixel Map, with every cabinet's modules, so Output to Display can show the marks on the wall.">IDM Locator</button>
         </div>
 
         <div id="main-container">
@@ -1612,6 +1613,35 @@
                     </div>
                 </div>
 
+                <!-- IDM Locator: how many modules make up each cabinet of the
+                     selected screen(s), and every module marked bad
+                     (app-idm-locator.js). Stored on the layer as idm; the
+                     marks are drawn by canvas-idm.js. Fields are built once
+                     and only their values change, so a round trip never
+                     takes focus from a field. -->
+                <div class="panel tab-panel" data-tab="idm" style="display: none;">
+                    <div class="panel-header" data-tooltip="IDM Locator, How many modules make up each cabinet, and every module marked bad. Click a module in the view to mark it; click it again to clear it.">
+                        <h2>IDM Locator</h2>
+                    </div>
+                    <div class="panel-content">
+                        <div id="idm-none" class="idm-note">Select a screen to set its modules: click it in the view or in the Screens list.</div>
+                        <div id="idm-fields" hidden>
+                            <div id="idm-screen-name" class="idm-name"></div>
+                            <div class="info-row" data-tooltip="Modules across, How many modules make up one cabinet from left to right. 1 makes the whole cabinet one module.">
+                                <label for="idm-modules-x">Modules across</label>
+                                <input type="text" id="idm-modules-x" class="idm-num" inputmode="numeric" autocomplete="off">
+                            </div>
+                            <div class="info-row" data-tooltip="Modules down, How many modules make up one cabinet from top to bottom. 1 makes the whole cabinet one module.">
+                                <label for="idm-modules-y">Modules down</label>
+                                <input type="text" id="idm-modules-y" class="idm-num" inputmode="numeric" autocomplete="off">
+                            </div>
+                            <div id="idm-module-size" class="idm-note"></div>
+                        </div>
+                        <div class="idm-sub">Marked modules <span id="idm-count" class="idm-count"></span></div>
+                        <div id="idm-list" class="idm-list"></div>
+                    </div>
+                </div>
+
                 <!-- Colors panel - only for Pixel Map -->
                 <div class="panel tab-panel screen-only" data-tab="pixel-map">
                     <div class="panel-header" data-tooltip="Colors, Set the two alternating checkerboard colors used to distinguish cabinets in the pixel map view.">
@@ -1942,6 +1972,19 @@
                         <span class="s3d-bar-gap"></span>
                         <button type="button" id="s3d-grid" class="s3d-toggle" data-tooltip="Floor grid, Show or hide the floor grid and the origin mark.">Grid</button>
                         <span class="s3d-bar-hint">Drag to orbit, right-drag to pan, wheel to zoom. Drag a selected screen to move it; Shift-drag raises or lowers it.</span>
+                    </span>
+                    <!-- The IDM Locator's marking tools: shown while that tab
+                         is open (app-idm-locator.js). The style and colour
+                         are the next mark's; each mark keeps its own. -->
+                    <span id="idm-toolbar" hidden>
+                        <span class="toolbar-label">Mark:</span>
+                        <button type="button" id="idm-style-color" class="idm-toggle" data-idm-style="color" data-tooltip="Colour, The next mark fills the module with the colour.">Colour</button>
+                        <button type="button" id="idm-style-x" class="idm-toggle" data-idm-style="x" data-tooltip="X, The next mark draws an X corner to corner across the module, in the colour.">X</button>
+                        <input type="color" id="idm-color" value="#ff1a1a" data-tooltip="Mark colour, The colour of the next mark.">
+                        <span class="idm-bar-gap"></span>
+                        <button type="button" id="idm-clear-screen" data-tooltip="Clear screen marks, Clear every mark on the selected screens.">Clear screen marks</button>
+                        <button type="button" id="idm-clear-all" data-tooltip="Clear all marks, Clear every mark on every screen.">Clear all marks</button>
+                        <span class="idm-bar-hint">Click a module to mark or clear it; drag to paint across modules.</span>
                     </span>
                     <label class="magnet-toggle" style="margin-left: 15px;" data-tooltip="Snap layers to grid when dragging (Ctrl/Cmd+Shift+')">
                         <input type="checkbox" id="magnetic-snap" checked>
@@ -3371,6 +3414,7 @@
     <script src="/static/js/canvas-power.js"></script>
     <script src="/static/js/canvas-labels.js"></script>
     <script src="/static/js/canvas-selection.js"></script>
+    <script src="/static/js/canvas-idm.js"></script>
     <script src="/static/js/color_picker.js"></script>
     <!-- The app is ES modules (main.js pulls in app-core + the app-* feature
          modules). Classic scripts above/below stay non-module: they define /

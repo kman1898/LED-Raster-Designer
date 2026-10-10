@@ -2064,8 +2064,30 @@ class CanvasRenderer {
         // the picture changed, so the open output windows get a look. It only
         // schedules; the output's own offscreen pass runs in exportMode and
         // never comes back through here.
-        if (!this.exportMode && window.app && typeof window.app._outputDisplayOnRender === 'function') {
+        if (!this.exportMode && !this._idmPass && window.app && typeof window.app._outputDisplayOnRender === 'function') {
             window.app._outputDisplayOnRender();
+        }
+        // The IDM Locator tab (canvas-idm.js, app-idm-locator.js) is the
+        // Pixel Map - the same cabinets at the same raster positions, the
+        // picture Output to Display puts on the wall - with each cabinet's
+        // module grid and the marked modules drawn over it. The Pixel Map
+        // pass runs with _idmPass set; the per-layer loop below draws the
+        // modules inside each screen's own frame. An Output to Display of
+        // this view comes through here too (exportMode), and so carries the
+        // marks; nothing else ever renders this view.
+        if (this.viewMode === 'idm' && !this._idmPass) {
+            this._idmPass = true;
+            this.viewMode = 'pixel-map';
+            try {
+                this.render();
+            } finally {
+                this.viewMode = 'idm';
+                this._idmPass = false;
+            }
+            if (!this.exportMode && window.app && typeof window.app._idmOnRender === 'function') {
+                window.app._idmOnRender();
+            }
+            return;
         }
         // The 3D tab has its own viewport over this canvas (app-stage3d.js):
         // nothing is drawn here, and the redraw - which every edit, selection
@@ -2427,6 +2449,10 @@ class CanvasRenderer {
                         else this.renderLayerLabels(layer);
                     }
 
+                    // IDM Locator: the module grid and the marks, over the
+                    // screen's labels so a mark is never hidden under them.
+                    if (this._idmPass) this.renderIdmLayer(layer);
+
                     // v0.9.3: end the rotation before the corner readouts so the
                     // X,Y coordinates stay upright and unrotated.
                     if (_rotating) {
@@ -2548,7 +2574,7 @@ class CanvasRenderer {
                 this.renderPowerActiveCircuitBadge();
             }
             if (!this.exportMode && !this._activeBadgeShown) this._syncCustomRunReadout(null);
-            if (!this.exportMode && this.viewMode === 'pixel-map') {
+            if (!this.exportMode && this.viewMode === 'pixel-map' && !this._idmPass) {
                 this.renderPixelMapSelectionOverlay();
                 this.renderPixelMapSelectionBadge();
             }

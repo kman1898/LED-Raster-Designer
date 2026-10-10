@@ -26,6 +26,9 @@ const OUTPUT_VIEWS = [
     ['show-look', 'Show Look'],
     ['data-flow', 'Data'],
     ['power', 'Power'],
+    // The Pixel Map with every cabinet's modules and the marked ones
+    // (app-idm-locator.js), so the crew can find a bad module on the wall.
+    ['idm', 'IDM Locator'],
 ];
 const OUTPUT_SCALES = { fit: 'Fit to display', '1to1': '1:1 pixel' };
 

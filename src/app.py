@@ -832,6 +832,206 @@ def sanitize_stage3d_camera(value):
     }
 
 
+# ── IDM Locator (app-idm-locator.js) ──────────────────────────────────────
+# A cabinet is built from modules; the crew marks the bad one and the mark
+# shows on the wall through Output to Display. Each screen keeps it as
+#   idm: {modulesX, modulesY, marks: {"col,row,mx,my": {style, color}}}
+# modulesX / modulesY  modules across and down in ONE cabinet, 1..64 each
+#                      (1 x 1, the default: the whole cabinet is one module)
+# marks                keyed by the cabinet's grid column and row and the
+#                      module's column and row inside the FULL cabinet;
+#                      style 'color' (a fill) or 'x' (corner to corner),
+#                      color '#rrggbb'
+# A module is cabinet px / modules, the remainder spread so no module is a
+# fractional pixel (edges at floor(k * px / n)). A half cabinet keeps the
+# modules that fall inside it, laid from the side that meets the wall. A
+# blanked cabinet has no modules. A layer without the key is 1 x 1 with no
+# marks, so older files load unchanged. The client's copy of these rules
+# (app-idm-locator.js / canvas-idm.js) gives the same answer, so a restore
+# never comes back "repaired".
+IDM_MAX_MODULES = 64
+IDM_DEFAULT_COLOR = '#ff1a1a'
+_IDM_HEX6 = re.compile(r'^#?([0-9a-fA-F]{6})$')
+_IDM_HEX3 = re.compile(r'^#?([0-9a-fA-F]{3})$')
+
+
+def _idm_count(value):
+    """Modules on one axis: an integer 1..IDM_MAX_MODULES (1 when unusable)."""
+    if isinstance(value, bool) or value is None:
+        return 1
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return 1
+    if math.isnan(f) or math.isinf(f):
+        return 1
+    return max(1, min(IDM_MAX_MODULES, int(f)))
+
+
+def idm_color(value):
+    """'#rrggbb' (lower case), or None when `value` is not a colour."""
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    m = _IDM_HEX6.match(text)
+    if m:
+        return '#' + m.group(1).lower()
+    m = _IDM_HEX3.match(text)
+    if m:
+        return '#' + ''.join(ch * 2 for ch in m.group(1)).lower()
+    return None
+
+
+def _idm_round(value):
+    """Math.round for the non-negative sizes this deals in (Python's round
+    is banker's rounding and would disagree with the browser at .5)."""
+    try:
+        return int(math.floor(float(value or 0) + 0.5))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _idm_edges(total, n):
+    return [(total * k) // n for k in range(n + 1)]
+
+
+def _idm_blank(panel):
+    return bool(panel.get('hidden')) or bool(panel.get('blank'))
+
+
+def idm_module_cells(layer, panel, modules_x, modules_y, visible_at=None):
+    """The modules of one cabinet as [(mx, my, x, y, w, h)], in the screen's
+    own (processor) pixels, clipped to the cabinet as drawn. Empty for a
+    blanked cabinet. `visible_at(row, col)` answers whether a neighbour is a
+    shown cabinet (half-cabinet anchoring, as _build_panels decides it)."""
+    if not isinstance(panel, dict) or _idm_blank(panel):
+        return []
+    full_w = _idm_round(layer.get('cabinet_width'))
+    full_h = _idm_round(layer.get('cabinet_height'))
+    if full_w <= 0 or full_h <= 0:
+        return []
+    px = float(panel.get('x', 0) or 0)
+    py = float(panel.get('y', 0) or 0)
+    pw = float(panel.get('width', 0) or 0)
+    ph = float(panel.get('height', 0) or 0)
+    if pw <= 0 or ph <= 0:
+        return []
+    row = panel.get('row', 0) or 0
+    col = panel.get('col', 0) or 0
+    seen = visible_at or (lambda r, c: False)
+    half = panel.get('halfTile')
+    ox, oy = px, py
+    # The full cabinet the half is cut from sits on the side that meets the
+    # wall: the cut is on the free edge.
+    if half == 'width' and pw < full_w and not seen(row, col - 1) and seen(row, col + 1):
+        ox = px + pw - full_w
+    if half == 'height' and ph < full_h and not seen(row - 1, col) and seen(row + 1, col):
+        oy = py + ph - full_h
+    ex = _idm_edges(full_w, modules_x)
+    ey = _idm_edges(full_h, modules_y)
+    cells = []
+    for my in range(modules_y):
+        y0 = max(py, oy + ey[my])
+        y1 = min(py + ph, oy + ey[my + 1])
+        if y1 - y0 <= 1e-6:
+            continue
+        for mx in range(modules_x):
+            x0 = max(px, ox + ex[mx])
+            x1 = min(px + pw, ox + ex[mx + 1])
+            if x1 - x0 <= 1e-6:
+                continue
+            cells.append((mx, my, x0, y0, x1 - x0, y1 - y0))
+    return cells
+
+
+def idm_module_keys(layer, modules_x, modules_y):
+    """Every markable module of `layer` as "col,row,mx,my"."""
+    panels = [p for p in (layer.get('panels') or []) if isinstance(p, dict)]
+    shown = {(p.get('row', 0), p.get('col', 0)) for p in panels if not p.get('hidden')}
+
+    def visible_at(r, c):
+        return (r, c) in shown
+
+    keys = set()
+    for p in panels:
+        for (mx, my, _x, _y, _w, _h) in idm_module_cells(layer, p, modules_x, modules_y, visible_at):
+            keys.add(f"{p.get('col', 0)},{p.get('row', 0)},{mx},{my}")
+    return keys
+
+
+def _idm_key(value):
+    parts = str(value).split(',')
+    if len(parts) != 4:
+        return None
+    out = []
+    for part in parts:
+        text = part.strip()
+        if not text.isdigit():
+            return None
+        out.append(int(text))
+    return ','.join(str(n) for n in out)
+
+
+def sanitize_idm(value, layer):
+    """The `idm` block held to its shape against `layer`'s cabinets: module
+    counts as integers 1..64, every mark on a module that exists (inside the
+    cabinet grid, inside the module grid, not on a blanked cabinet), style
+    'color' or 'x', colour '#rrggbb'. None when `value` is not a dict or the
+    layer is not a screen (the key is then removed). Idempotent."""
+    if not isinstance(value, dict) or not isinstance(layer, dict):
+        return None
+    if (layer.get('type') or 'screen') != 'screen':
+        return None
+    modules_x = _idm_count(value.get('modulesX'))
+    modules_y = _idm_count(value.get('modulesY'))
+    marks = {}
+    raw = value.get('marks')
+    if isinstance(raw, dict) and raw:
+        valid = idm_module_keys(layer, modules_x, modules_y)
+        for key, mark in raw.items():
+            k = _idm_key(key)
+            if k is None or k not in valid or not isinstance(mark, dict):
+                continue
+            marks[k] = {
+                'style': 'x' if mark.get('style') == 'x' else 'color',
+                'color': idm_color(mark.get('color')) or IDM_DEFAULT_COLOR,
+            }
+    return {'modulesX': modules_x, 'modulesY': modules_y, 'marks': marks}
+
+
+def normalize_idm_layer(layer):
+    """sanitize_idm on one layer, in place. True when it changed anything."""
+    if not isinstance(layer, dict) or 'idm' not in layer:
+        return False
+    clean = sanitize_idm(layer.get('idm'), layer)
+    if clean is None:
+        layer.pop('idm', None)
+        return True
+    if clean != layer.get('idm'):
+        layer['idm'] = clean
+        return True
+    return False
+
+
+def normalize_idm(project):
+    """normalize_idm_layer over every layer (the load and save funnels).
+    Returns the ids it changed."""
+    layers = project.get('layers') if isinstance(project, dict) else None
+    return [layer.get('id') for layer in (layers or []) if normalize_idm_layer(layer)]
+
+
+def strip_copied_idm_marks(layer):
+    """A copy of a screen is a different physical wall: it keeps the module
+    layout and starts with no marks. In place; non-screens are left alone."""
+    if not isinstance(layer, dict) or (layer.get('type') or 'screen') != 'screen':
+        return
+    idm = layer.get('idm')
+    if isinstance(idm, dict):
+        layer['idm'] = {'modulesX': _idm_count(idm.get('modulesX')),
+                        'modulesY': _idm_count(idm.get('modulesY')),
+                        'marks': {}}
+
+
 def normalize_power_breakouts(project, at=None):
     """Run normalize_power_breakout over every layer of `project`. Returns the
     ids it wrote; logs them under `at` when given (a route naming itself), so

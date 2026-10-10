@@ -209,6 +209,9 @@ def duplicate_canvas(canvas_id):
         # end-to-end pass: the copied screens named the original's distro,
         # so two screens claimed one multi). See app.strip_copied_feeds.
         app.strip_copied_feeds(clone)
+        # The module layout carries; the IDM marks do not - the copy is
+        # another physical wall (app.strip_copied_idm_marks).
+        app.strip_copied_idm_marks(clone)
         id_map[src_layer.get('id')] = clone['id']
         clones.append(clone)
         app.current_project['layers'].append(clone)

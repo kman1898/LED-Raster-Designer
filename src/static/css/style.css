@@ -2470,3 +2470,38 @@ body.lrd-panel-dragging, body.lrd-panel-dragging * { cursor: grabbing !important
 .s3d-buttons .btn { flex: 1; min-width: 0; padding: 4px 6px; font-size: 11px; }
 .s3d-toggle.active { background: linear-gradient(var(--ps-accent-hi, #ef3340), var(--ps-accent, #e22330)) !important;
     color: var(--ps-on-accent, #fff) !important; border-color: var(--ps-accent-deep, #8f1218) !important; }
+
+/* ── IDM Locator tab (app-idm-locator.js) ─────────────────────────────────
+   The marking tools sit in the canvas strip beside the raster and zoom
+   controls while the tab is open; the side panel holds the module layout
+   and the list of marked modules. Colours come from the theme tokens. */
+#idm-toolbar { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-left: 10px; }
+#idm-toolbar[hidden] { display: none; }
+#idm-toolbar .idm-bar-gap { width: 8px; }
+#idm-toolbar .idm-bar-hint { margin-left: 6px; font-size: 11px; color: var(--ps-faint, #969696); }
+#idm-toolbar input[type="color"] { width: 28px; height: 22px; padding: 0 2px; border: 1px solid var(--ps-dark, #131313); background: var(--ps-panel, #2e2e2e); cursor: pointer; }
+.idm-toggle.active { background: linear-gradient(var(--ps-accent-hi, #ef3340), var(--ps-accent, #e22330)) !important;
+    color: var(--ps-on-accent, #fff) !important; border-color: var(--ps-accent-deep, #8f1218) !important; }
+.idm-note { font-size: 11px; line-height: 1.4; color: var(--ps-faint, #969696); margin: 0 0 8px; }
+.idm-name { font-size: 13px; font-weight: 600; color: var(--ps-text, #f0f0f0); margin: 0 0 6px; }
+.idm-sub { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ps-faint, #969696);
+    margin: 12px 0 6px; padding-top: 6px; border-top: 1px solid var(--ps-dark, #131313); }
+.idm-count { text-transform: none; letter-spacing: 0; color: var(--ps-dim, #c0c0c0); margin-left: 4px; }
+.tab-panel[data-tab="idm"] .info-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.tab-panel[data-tab="idm"] .info-row > label { flex: 0 0 110px; margin: 0; }
+.tab-panel[data-tab="idm"] .info-row input.idm-num { flex: 1 1 auto; min-width: 0; width: auto; }
+.idm-list { display: flex; flex-direction: column; gap: 2px; max-height: 50vh; overflow-y: auto; }
+.idm-empty { font-size: 11px; color: var(--ps-faint, #969696); }
+.idm-group { font-size: 11px; font-weight: 600; color: var(--ps-dim, #c0c0c0); margin: 6px 0 2px; }
+.idm-row { display: flex; align-items: flex-start; gap: 6px; width: 100%; padding: 3px 6px; font-size: 11px; text-align: left;
+    color: var(--ps-text, #f0f0f0); background: transparent; border: 1px solid transparent; border-radius: 3px; cursor: pointer; }
+.idm-row:hover { background: var(--ps-tile, #3c3c3c); }
+.idm-row:focus-visible { outline: none; border-color: var(--ps-accent, #e22330); }
+.idm-row.active { border-color: var(--ps-accent, #e22330); }
+.idm-chip { flex: 0 0 12px; width: 12px; height: 12px; margin-top: 1px; border-radius: 2px; box-sizing: border-box; }
+.idm-chip.idm-chip-x { background: transparent !important; position: relative; border: 1px solid var(--ps-dark, #131313); }
+.idm-chip.idm-chip-x::before, .idm-chip.idm-chip-x::after { content: ''; position: absolute; left: -1px; top: 4px; width: 12px; height: 2px;
+    background: var(--idm-chip, #ff1a1a); transform: rotate(45deg); }
+.idm-chip.idm-chip-x::after { transform: rotate(-45deg); }
+.idm-row-text { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.idm-row-where { display: block; color: var(--ps-faint, #969696); }

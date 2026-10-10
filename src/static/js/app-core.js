@@ -1848,6 +1848,8 @@ export class LEDRasterApp {
         this._wireColorsAndSizes();
         this._wireToolbarRaster();
         this._wireExportAndPrefs();
+        // The IDM Locator tab's tools and panel (app-idm-locator.js).
+        this._idmWire();
 
         this.setupMenuBar();
         this.setupPreferences();
@@ -2151,6 +2153,14 @@ export class LEDRasterApp {
             out.powerCustomPaths = this.copyPathsForNewOwner(
                 layer.powerCustomPaths, layer.id, null);
         }
+        // The IDM Locator's module layout travels with a preset; its marks
+        // never do - they name modules on one physical wall.
+        if (out.idm !== undefined) {
+            const layout = typeof this._idmPresetLayout === 'function'
+                ? this._idmPresetLayout(layer) : undefined;
+            if (layout) out.idm = layout;
+            else delete out.idm;
+        }
         return out;
     }
 
@@ -2194,6 +2204,15 @@ export class LEDRasterApp {
                     next[letter] = this.normalizeHexColor(given[letter], current[letter]);
                 });
                 layer[k] = next;
+                return;
+            }
+            if (k === 'idm') {
+                // The module layout only (app-idm-locator.js): a preset
+                // never brings marks, and a screen keeps its own marks only
+                // while the layout stays the one it has.
+                if (typeof this._idmApplyPresetLayout === 'function') {
+                    this._idmApplyPresetLayout(layer, presetData[k]);
+                }
                 return;
             }
             if (Object.prototype.hasOwnProperty.call(colorKeys, k)) {
