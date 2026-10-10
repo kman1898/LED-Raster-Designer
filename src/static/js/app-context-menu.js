@@ -137,6 +137,12 @@ class _ContextMenu {
             menu.querySelectorAll('.screen-export-only').forEach(el => {
                 el.style.display = this._binderMenuLayer ? '' : 'none';
             });
+            // "Output to Display…" (app-output-display.js): on the canvas
+            // area only, starting on the canvas under the cursor.
+            this._outputDisplayMenuCanvasId = this._prepareOutputDisplayMenu(x, y);
+            menu.querySelectorAll('.output-display-only').forEach(el => {
+                el.style.display = this._outputDisplayMenuCanvasId === undefined ? 'none' : '';
+            });
             // v0.11.0: screen-group actions. Grouping needs 2+ screen
             // layers selected, so with fewer the item is simply not offered
             // (a group of one is not a group). Ungroup / Remove only mean

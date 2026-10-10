@@ -615,6 +615,71 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 #notes-panel.collapsed #notes-panel-body {
     display: none;
 }
+/* The checklist under the notes (app-notes-checklist.js): the body stacks
+   the textarea over it, and the list scrolls inside its own share. */
+#notes-panel-body { flex-direction: column; }
+#notes-panel-body > #project-notes { flex: 1 1 auto; min-height: 40px; height: auto; }
+#notes-checklist {
+    flex: 0 1 auto; max-height: 60%; min-height: 30px; display: flex; flex-direction: column;
+    border-top: 1px solid var(--ps-dark, #3a3a3a); background: var(--ps-panel-2, #1e1e1e);
+}
+.notes-checklist-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 6px;
+    padding: 4px 8px 4px 12px; flex-shrink: 0;
+}
+.notes-checklist-title { font-size: 11px; color: var(--ps-dim, #aaa); text-transform: uppercase; letter-spacing: 0.04em; }
+#notes-checklist-add { font-size: 11px !important; padding: 2px 8px !important; }
+#notes-checklist-list { overflow-y: auto; min-height: 0; padding: 0 6px 6px; }
+.notes-checklist-row {
+    display: flex; align-items: center; gap: 5px; padding: 2px 2px; border-radius: 3px;
+    border: 1px solid transparent;
+}
+.notes-checklist-row:hover { background: var(--ps-tile, #2a2a2a); }
+.notes-checklist-row.dragging { opacity: 0.5; }
+.notes-checklist-row.drop-before { box-shadow: inset 0 2px 0 0 var(--ps-accent, #4A90E2); }
+.notes-checklist-row.drop-after { box-shadow: inset 0 -2px 0 0 var(--ps-accent, #4A90E2); }
+.notes-checklist-handle { color: var(--ps-faint, #666); font-size: 11px; line-height: 1; cursor: grab; padding: 0 1px; user-select: none; }
+.notes-checklist-handle:active { cursor: grabbing; }
+.notes-checklist-done { flex-shrink: 0; margin: 0; }
+#notes-checklist .notes-checklist-text {
+    flex: 1; min-width: 0; font-size: 12px; padding: 2px 5px;
+    background: transparent !important; border-color: transparent !important; box-shadow: none !important;
+    color: var(--ps-text, #ddd) !important;
+}
+#notes-checklist .notes-checklist-text:focus {
+    background: var(--ps-inset, #141414) !important; border-color: var(--ps-accent, #4A90E2) !important;
+}
+#notes-checklist .notes-checklist-row.done .notes-checklist-text {
+    text-decoration: line-through; color: var(--ps-faint, #777) !important;
+}
+.notes-checklist-remove {
+    flex-shrink: 0; background: none; border: none; color: var(--ps-faint, #777); cursor: pointer;
+    font-size: 14px; line-height: 1; padding: 0 3px; visibility: hidden;
+}
+.notes-checklist-row:hover .notes-checklist-remove,
+.notes-checklist-row:focus-within .notes-checklist-remove { visibility: visible; }
+.notes-checklist-remove:hover { color: var(--ps-text, #fff); }
+
+/* Output to Display dialog (app-output-display.js builds it). */
+#output-display-modal .output-display-dialog {
+    max-width: 460px; margin: 70px auto; padding: 0 0 16px; border-radius: 4px;
+}
+#output-display-modal .output-display-dialog > h2 { margin: 0 0 14px; padding: 10px 16px; font-size: 15px; }
+#output-display-modal .od-row { display: flex; align-items: center; gap: 10px; margin: 0 16px 10px; }
+#output-display-modal .od-row[hidden] { display: none; }
+#output-display-modal .od-row > label,
+#output-display-modal .od-label { flex: 0 0 64px; color: var(--ps-dim, #ccc); font-size: 12px; }
+#output-display-modal .od-row > select { flex: 1; min-width: 0; padding: 5px 8px; font-size: 12px; }
+#output-display-modal .od-choices { display: flex; gap: 14px; flex-wrap: wrap; }
+#output-display-modal .od-choices label { display: inline-flex; align-items: center; gap: 5px; color: var(--ps-text, #ddd); font-size: 12px; cursor: pointer; }
+#output-display-modal .od-note { margin: 2px 16px 12px; min-height: 16px; color: var(--ps-faint, #999); font-size: 11px; line-height: 1.45; }
+#output-display-modal .od-open { margin: 0 16px 12px; border: 1px solid var(--ps-dark, #333); border-radius: 3px; background: var(--ps-panel-2, #222); }
+#output-display-modal .od-open[hidden] { display: none; }
+#output-display-modal .od-open-title { padding: 6px 10px; font-size: 11px; color: var(--ps-dim, #aaa); text-transform: uppercase; letter-spacing: 0.04em; }
+#output-display-modal .od-open-row { display: flex; align-items: center; gap: 8px; padding: 4px 10px; border-top: 1px solid var(--ps-dark, #333); }
+#output-display-modal .od-open-name { flex: 1; min-width: 0; font-size: 12px; color: var(--ps-text, #ddd); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#output-display-modal .od-open-close { padding: 2px 10px !important; font-size: 11px !important; }
+#output-display-modal .od-actions { display: flex; justify-content: flex-end; gap: 8px; margin: 4px 16px 0; }
 
 #help-tooltip-panel {
     background: #1e1e1e;

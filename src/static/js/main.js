@@ -45,6 +45,8 @@ import './app-dock-menus.js';
 import './app-history.js';
 import './app-clipboard.js';
 import './app-stage3d.js';
+import './app-output-display.js';
+import './app-notes-checklist.js';
 import { registerGlobalClientLogging, sendClientLog } from './helpers.js';
 
 document.addEventListener('DOMContentLoaded', () => {

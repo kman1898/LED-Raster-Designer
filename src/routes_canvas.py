@@ -4,7 +4,7 @@ canvas helpers stay in app and are imported here.
 """
 import json
 
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, make_response, render_template
 
 import app
 from app import _find_canvas, _mirror_active_canvas_to_root, _next_canvas_color, _next_canvas_id, _next_canvas_workspace_position, _next_duplicate_canvas_name, log_event, socketio
@@ -297,3 +297,24 @@ def set_active_canvas(canvas_id):
     log_event('canvas_set_active', {'id': canvas_id})
     socketio.emit('project_updated', app.current_project)
     return jsonify(app.current_project)
+
+
+# Output to Display (View menu): a bare page holding one canvas's raster for
+# a second monitor. The page draws nothing itself - the designer window that
+# opens it renders the canvas with its own renderer and hands it each frame
+# (static/js/app-output-display.js, static/js/output-display.js) - so the
+# route serves the shell and the page reads the query string
+# (?canvas=&view=&scale=). No-store like the main page, so a rebuilt app
+# never shows a stale shell.
+@canvas_bp.route('/output')
+def output_display():
+    log_event('output_display_page', {
+        'canvas': request.args.get('canvas', ''),
+        'view': request.args.get('view', ''),
+        'scale': request.args.get('scale', ''),
+    })
+    response = make_response(render_template('output.html'))
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    return response

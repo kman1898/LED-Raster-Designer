@@ -55,6 +55,8 @@ class _Wiring {
                 }
             });
         }
+        // The checklist under the notes (app-notes-checklist.js).
+        this._notesChecklistWire();
         if (notesToggle && notesPanel) {
             const NOTES_COLLAPSE_KEY = 'ledRasterPanelCollapsed_notes';
             const applyNotes = (collapsed) => {

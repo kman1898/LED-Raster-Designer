@@ -2060,6 +2060,13 @@ class CanvasRenderer {
     }
 
     render() {
+        // Output to Display (app-output-display.js): a main render may mean
+        // the picture changed, so the open output windows get a look. It only
+        // schedules; the output's own offscreen pass runs in exportMode and
+        // never comes back through here.
+        if (!this.exportMode && window.app && typeof window.app._outputDisplayOnRender === 'function') {
+            window.app._outputDisplayOnRender();
+        }
         // The 3D tab has its own viewport over this canvas (app-stage3d.js):
         // nothing is drawn here, and the redraw - which every edit, selection
         // change, undo and LAN update ends in - tells the stage to catch up.

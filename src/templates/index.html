@@ -58,6 +58,8 @@
             <div class="menu-option" data-action="actual-size" data-label="Zoom to Selection" data-shortcut-mac="Cmd+Shift+2" data-shortcut-win="Ctrl+Shift+2"></div>
             <div class="menu-option" data-action="toggle-snap" data-label="Toggle Snap" data-shortcut-mac="Cmd+Shift+'" data-shortcut-win="Ctrl+Shift+'"></div>
             <div class="menu-divider"></div>
+            <div class="menu-option" data-action="output-to-display" data-label="Output to Display…"></div>
+            <div class="menu-divider"></div>
             <!-- Named panel layouts, shared by every screen (layout-dock.js
                  fills this each time the menu opens), and Reset Layout. -->
             <div class="menu-option menu-has-submenu" data-action="layouts">
@@ -136,6 +138,10 @@
                  right-click lands on a screen on the canvas. -->
             <div class="menu-divider screen-export-only"></div>
             <div class="menu-option screen-export-only" data-action="export-screen-binder" data-label="Export this screen…"></div>
+            <!-- Output to Display (app-output-display.js): the canvas under
+                 the cursor, to another monitor. Canvas area only. -->
+            <div class="menu-divider output-display-only"></div>
+            <div class="menu-option output-display-only" data-action="output-canvas-to-display" data-label="Output to Display…"></div>
             <div class="menu-divider movable-view-only"></div>
             <div class="menu-option movable-view-only" data-action="center-x" data-label="Center on Canvas X"></div>
             <div class="menu-option movable-view-only" data-action="center-y" data-label="Center on Canvas Y"></div>
@@ -2026,6 +2032,15 @@
                 </div>
                 <div id="notes-panel-body">
                     <textarea id="project-notes" placeholder="Add project notes here..."></textarea>
+                    <!-- The show to-do checklist, saved with the project
+                         (project.notesChecklist; app-notes-checklist.js). -->
+                    <div id="notes-checklist">
+                        <div class="notes-checklist-head">
+                            <span class="notes-checklist-title">Checklist</span>
+                            <button type="button" id="notes-checklist-add" class="btn btn-secondary">+ Add item</button>
+                        </div>
+                        <div id="notes-checklist-list"></div>
+                    </div>
                 </div>
             </div>
 

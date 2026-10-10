@@ -447,3 +447,64 @@ def delete_beach(beach_id):
             cleared += 1
     log_event('beach_delete', {'id': beach_id, 'cleared': cleared})
     return _beach_response()
+
+
+# ── Notes checklist ──────────────────────────────────────────────────────
+#
+# The show to-do list under the free-text notes (app-notes-checklist.js):
+# project['notesChecklist'] = [{id, text, done}], in order. A project
+# without the key has an empty list; nothing migrates. The client writes the
+# whole list here after each edit, and every other client is told through
+# `notes_checklist_updated` (the sender's own echo carries its `origin` so
+# it can be skipped). Undo and file load ride PUT /api/project like every
+# other project field.
+
+NOTES_CHECKLIST_MAX_ITEMS = 500
+NOTES_CHECKLIST_MAX_TEXT = 500
+
+
+def _clean_notes_checklist(items):
+    """The list as stored, or None when the payload is not a list. Rows
+    that are not objects are dropped; text is a string cut to length; done
+    is a bool; a missing or repeated id gets a fresh one."""
+    if not isinstance(items, list):
+        return None
+    out, seen = [], set()
+    for n, raw in enumerate(items[:NOTES_CHECKLIST_MAX_ITEMS]):
+        if not isinstance(raw, dict):
+            continue
+        item_id = str(raw.get('id') or '')[:64]
+        if not item_id or item_id in seen:
+            item_id = f'ck{n}x{len(out)}'
+            while item_id in seen:
+                item_id += 'x'
+        seen.add(item_id)
+        text = raw.get('text')
+        out.append({
+            'id': item_id,
+            'text': (text if isinstance(text, str) else '')[:NOTES_CHECKLIST_MAX_TEXT],
+            'done': raw.get('done') is True,
+        })
+    return out
+
+
+@project_bp.route('/api/project/notes-checklist', methods=['PUT'])
+def put_notes_checklist():
+    data = request.json or {}
+    items = _clean_notes_checklist(data.get('items'))
+    if items is None:
+        return jsonify({'error': 'items must be a list'}), 400
+    # Only a real change ends a pristine project: undo, a file load or a new
+    # project re-send a list the server already holds (the client cannot tell
+    # those apart), and the broadcast still goes so every client follows.
+    if (app.current_project.get('notesChecklist') or []) != items:
+        app.current_project['is_pristine'] = False
+    # A project that never had a list keeps its shape for an empty one.
+    if items or 'notesChecklist' in app.current_project:
+        app.current_project['notesChecklist'] = items
+    log_event('notes_checklist', {'items': len(items), 'done': sum(1 for i in items if i['done'])})
+    socketio.emit('notes_checklist_updated', {
+        'items': items,
+        'origin': str(data.get('origin') or ''),
+    })
+    return jsonify({'items': items})
