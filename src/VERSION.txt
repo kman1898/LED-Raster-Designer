@@ -58,6 +58,8 @@ ALSO NEW
 - NEW: The Notes panel has a checklist under the notes: add items, tick
   them off, drag to reorder. It saves with the show and follows on every
   connected window.
+- NEW: Help > What's New in 1.5 walks through every new feature, one
+  step at a time, live on a demo show; your own show is put back after.
 - NEW: Help > License > Third-party notices lists three.js, which draws
   the 3D view.
 
