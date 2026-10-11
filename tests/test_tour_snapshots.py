@@ -238,7 +238,7 @@ def _indices(tour, n, every=1):
 
 
 ADVANCED_STEPS = 62
-WHATS_NEW_STEPS = 36
+WHATS_NEW_STEPS = 20
 QUICK_STEPS = 10
 
 

@@ -295,7 +295,10 @@ def test_modal_fits_theme_and_offers_walkthrough(page):
     first_title = page.evaluate(
         "() => document.querySelector('#qs-callout h3').textContent")
     # Matched apostrophe-free and case-free: the title's curly quote and
-    # its capitals are not the fact under test, the destination tour is.
-    assert "new in 1.0" in first_title.lower(), (
-        f'the splash handed off to the wrong tour: {first_title!r}')
+    # its capitals are not the fact under test, the destination tour is -
+    # the one for this release (every feature release brings its own).
+    mm = page.evaluate(
+        "() => (/\\bv(\\d+\\.\\d+)/.exec(document.title) || [])[1] || ''")
+    assert mm and f"new in {mm}" in first_title.lower(), (
+        f'the splash handed off to the wrong tour: {first_title!r} (app v{mm})')
     page.evaluate("window.QuickStart.end()")

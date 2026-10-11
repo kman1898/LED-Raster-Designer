@@ -627,7 +627,13 @@ def test_whats_new_launches_from_help_menu(e2e_server, pw_browser, browser_name,
             ), "Help menu has no What's New entry"
             pg.evaluate("window.app.handleMenuAction('whats-new-tour')")
             st = _wait_step(pg, 0)
-            assert 'new in 1.0' in st['title'].lower(), st
+            # The tour for this release (every feature release brings its own).
+            mm = pg.evaluate(
+                "() => (/\\bv(\\d+\\.\\d+)/.exec(document.title) || [])[1] || ''")
+            assert mm and f'new in {mm}' in st['title'].lower(), (mm, st)
+            label = pg.evaluate(
+                "document.querySelector('#menu-help [data-action=\\'whats-new-tour\\']').textContent")
+            assert f'new in {mm}' in label.lower(), f'the Help menu still says {label!r}'
             # The first Next: the callout leaves the middle of the window
             # for its spot in the right sidebar, in this engine too.
             pg.locator('#qs-next').click()
