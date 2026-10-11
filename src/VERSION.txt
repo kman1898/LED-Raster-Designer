@@ -14,7 +14,7 @@ SCREENS ON A STAGE, IN THREE DIMENSIONS
 The 3D tab, after Power, builds every Show Look screen from its real
 cabinets, with its Pixel Map on the front face and blanked cabinets
 left out. Each screen takes a position and a pitch, yaw and roll, typed
-in feet or metres or dragged in the view, and the 15 and 90 degree
+in feet or meters or dragged in the view, and the 15 and 90 degree
 buttons turn it in steps. Every joint between two columns or two rows
 of cabinets bends up to 15 degrees either way: set one figure for the
 whole screen, or click a joint and give it its own. A screen group
@@ -36,17 +36,17 @@ FINDING BAD MODULES ON THE WALL
 
 The IDM Locator tab lays each cabinet's modules over the wall: type a
 screen's modules across and down, 2 x 2, 4 x 4 or whatever the panel
-has. Click or drag to mark a module with a colour or an X; the list
+has. Click or drag to mark a module with a color or an X; the list
 beside the wall names each mark by screen, cabinet ID and module.
 
-The wall shows one solid field colour, white, red, green, blue, black
+The wall shows one solid field color, white, red, green, blue, black
 or your own, so a dead pixel stands out. Module edges show as an
 alternating shade, so every pixel stays lit, or as thin lines, corner
 ticks or nothing. Module ID labels each module in the Cabinet ID
 style, A1 B1 / A2 B2, starting again in each cabinet. Labels, lines and
-ticks are drawn in the field's own colour at a lower level, never
-black, so they can't pass for dead pixels; a Colours section sets
-each of them, the shade level and a row of mark colours.
+ticks are drawn in the field's own color at a lower level, never
+black, so they can't pass for dead pixels; a Colors section sets
+each of them, the shade level and a row of mark colors.
 
 Point at a module, step with the arrow keys (Shift jumps a cabinet) or
 tap it on a tablet, and the module blinks on the wall output; Space or
