@@ -14,6 +14,25 @@
  *   h - short heading, d - one or two plain sentences. No markup, no emoji.
  */
 window.WHATS_NEW_CONTENT = {
+    '1.5': {
+        title: 'Screens in 3D, a canvas on a second display, and the IDM Locator',
+        items: [
+            { h: 'Screens on a stage in 3D',
+              d: 'The 3D tab builds every Show Look screen from its cabinets with its Pixel Map on the front. Place and turn each screen, and bend any column or row joint up to 15 degrees.' },
+            { h: 'A canvas on a second display',
+              d: 'View > Output to Display opens a canvas in its own window, fit to the display or pixel for pixel, and follows every edit live.' },
+            { h: 'The IDM Locator',
+              d: 'Type a screen\'s modules across and down, then click or drag to mark a bad module with a colour or an X. The list names each mark by screen, cabinet ID and module.' },
+            { h: 'A solid field for finding dead pixels',
+              d: 'The IDM Locator fills the wall with white, red, green, blue, black or your own colour. Module edges, labels and ticks are drawn in the field\'s own colour, never black.' },
+            { h: 'Point at a module, see it on the wall',
+              d: 'Hover, use the arrow keys or tap on a tablet, and the module blinks on the wall output. Space or the Mark button marks it.' },
+            { h: 'Module IDs',
+              d: 'Label every module in the Cabinet ID style, A1 B1 / A2 B2, starting again in each cabinet.' },
+            { h: 'A checklist in the Notes',
+              d: 'Add items under the notes, tick them off and drag to reorder. The list saves with the show.' }
+        ]
+    },
     '1.4': {
         title: 'Fiber by the strand, a backup processor in one switch, and panels you can move',
         items: [

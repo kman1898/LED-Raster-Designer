@@ -1,6 +1,66 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
+v1.5.0 - October 10, 2026
+----------------------------
+
+Screens can now be placed, turned and curved on a stage in a 3D view, any
+canvas can go full screen on a second display, and the new IDM Locator
+tab marks the bad modules on a wall and points at them live, from the
+computer running the app or a tablet on the same network.
+
+SCREENS ON A STAGE, IN THREE DIMENSIONS
+
+The 3D tab, after Power, builds every Show Look screen from its real
+cabinets, with its Pixel Map on the front face and blanked cabinets
+left out. Each screen takes a position and a pitch, yaw and roll, typed
+in feet or metres or dragged in the view, and the 15 and 90 degree
+buttons turn it in steps. Every joint between two columns or two rows
+of cabinets bends up to 15 degrees either way: set one figure for the
+whole screen, or click a joint and give it its own. A screen group
+moves as one wall. The camera switches between perspective and
+orthographic, has Front, Back, Left, Right, Top and Iso views, and the
+grid can be hidden. Placement saves with the show and undoes like any
+other edit.
+
+A CANVAS ON A SECOND DISPLAY
+
+View > Output to Display opens one canvas in its own window, Pixel Map,
+Cabinet ID, Show Look, Data, Power or IDM Locator, scaled to fit the
+display or at one raster pixel to one display pixel. In Chrome and Edge
+the dialog picks the display. Click, F or a double-click goes full
+screen, Esc leaves it. The window follows every edit as you make it,
+and each canvas can have its own window on its own display.
+
+FINDING BAD MODULES ON THE WALL
+
+The IDM Locator tab lays each cabinet's modules over the wall: type a
+screen's modules across and down, 2 x 2, 4 x 4 or whatever the panel
+has. Click or drag to mark a module with a colour or an X; the list
+beside the wall names each mark by screen, cabinet ID and module.
+
+The wall shows one solid field colour, white, red, green, blue, black
+or your own, so a dead pixel stands out. Module edges show as an
+alternating shade, so every pixel stays lit, or as thin lines, corner
+ticks or nothing. Module ID labels each module in the Cabinet ID
+style, A1 B1 / A2 B2, starting again in each cabinet. Labels, lines and
+ticks are drawn in the field's own colour at a lower level, never
+black, so they can't pass for dead pixels; a Colours section sets
+each of them, the shade level and a row of mark colours.
+
+Point at a module, step with the arrow keys (Shift jumps a cabinet) or
+tap it on a tablet, and the module blinks on the wall output; Space or
+the Mark button marks it. The highlight follows from any computer or
+tablet connected to the app and is kept with the show.
+
+ALSO NEW
+
+- NEW: The Notes panel has a checklist under the notes: add items, tick
+  them off, drag to reorder. It saves with the show and follows on every
+  connected window.
+- NEW: Help > License > Third-party notices lists three.js, which draws
+  the 3D view.
+
 v1.4.1 - October 9, 2026
 ----------------------------
 
