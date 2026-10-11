@@ -626,7 +626,7 @@ class _IdmLocator {
         const st = this._idmState();
         const list = this._idmPresets();
         if (list.includes(st.color)) {
-            this._toast('That colour is already a preset.');
+            this._toast('That color is already a preset.');
             return false;
         }
         if (list.length >= PRESETS_MAX) {
@@ -668,15 +668,15 @@ class _IdmLocator {
             pick.className = 'idm-preset-pick' + (on ? ' active' : '');
             pick.dataset.idmPreset = c;
             pick.style.setProperty('--idm-sw', c);
-            pick.setAttribute('aria-label', `Mark colour ${c}`);
+            pick.setAttribute('aria-label', `Mark color ${c}`);
             pick.setAttribute('aria-pressed', on ? 'true' : 'false');
-            pick.dataset.tooltip = `Mark colour ${c}, Use this colour for the next mark. Right-click it, or press its x, to remove it from the show's presets.`;
+            pick.dataset.tooltip = `Mark color ${c}, Use this color for the next mark. Right-click it, or press its x, to remove it from the show's presets.`;
             const del = document.createElement('button');
             del.type = 'button';
             del.className = 'idm-preset-del';
             del.dataset.idmPresetDel = c;
             del.setAttribute('aria-label', `Remove preset ${c}`);
-            del.dataset.tooltip = `Remove preset, Take ${c} off the show's mark colour presets.`;
+            del.dataset.tooltip = `Remove preset, Take ${c} off the show's mark color presets.`;
             del.textContent = '\u00d7';
             wrap.appendChild(pick);
             wrap.appendChild(del);
