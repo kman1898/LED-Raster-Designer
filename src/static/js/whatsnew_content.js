@@ -14,7 +14,7 @@
  *   h - short heading, d - one or two plain sentences. No markup, no emoji.
  */
 window.WHATS_NEW_CONTENT = {
-    '1.5': {
+    '1.6': {
         title: 'Screens in 3D, a canvas on a second display, and the IDM Locator',
         items: [
             { h: 'Screens on a stage in 3D',

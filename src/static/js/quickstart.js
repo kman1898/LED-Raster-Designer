@@ -10,9 +10,9 @@
  *
  *   - Quick Start: short first-run tour, auto-shows once, skippable, with a
  *     "Don't show on startup" checkbox. Reopen from Help -> Quick Start Guide.
- *   - What's New in 1.5: every feature the release added, one step each
+ *   - What's New in 1.6: every feature the release added, one step each
  *     (the 3D tab, Output to Display, the IDM Locator, the Notes
- *     checklist). Help -> What's New in 1.5, and the splash's walkthrough
+ *     checklist). Help -> What's New in 1.6, and the splash's walkthrough
  *     button. Every feature release replaces this tour with its own.
  *   - Advanced Guide: the whole show, built step by step in front of you.
  *
@@ -2453,7 +2453,7 @@
             before: function () { switchView('pixel-map'); }
         },
         introWhatsNew: {
-            title: 'What&rsquo;s new in 1.5', center: true,
+            title: 'What&rsquo;s new in 1.6', center: true,
             body: 'The 3D tab, Output to Display, the IDM Locator and the Notes checklist, each shown live on a scratch show. Your own project is put back when you leave.',
             before: function () { switchView('pixel-map'); }
         },
@@ -3994,7 +3994,7 @@
         },
         helpMenu: {
             target: '[data-menu="help"]', place: 'bottom', title: 'Help',
-            body: 'Every guide lives under Help: Quick Start, What&rsquo;s New in 1.5, the Advanced Guide and the keyboard shortcuts.',
+            body: 'Every guide lives under Help: Quick Start, What&rsquo;s New in 1.6, the Advanced Guide and the keyboard shortcuts.',
             before: function () { closePrefs(); },
             act: function (t) {
                 return t.click('[data-menu="help"]').then(function () {
@@ -4012,7 +4012,7 @@
             body: 'Done puts your own project back. Reopen any guide from Help.',
             before: function () { hideMenus(); closeExport(); closePrefs(); }
         },
-        // ── What's New in 1.5 (Matt, 2026-10-10: every feature release
+        // ── What's New in 1.6 (Matt, 2026-10-10: every feature release
         // ships a short guide that shows ALL its new features). Each step
         // sets up the view and the selection it needs in before(), so a
         // Go to, a Back or a replay lands ready.
@@ -4382,7 +4382,7 @@
         },
         outroWhatsNew: {
             title: 'That&rsquo;s 1.5', center: true,
-            body: 'Done puts your own project back. Reopen this from Help &rsaquo; What&rsquo;s New in 1.5, or take the Advanced Guide for the whole app.',
+            body: 'Done puts your own project back. Reopen this from Help &rsaquo; What&rsquo;s New in 1.6, or take the Advanced Guide for the whole app.',
             before: function () { hideMenus(); closeExport(); closePrefs(); closeOutput(); }
         },
         outroQuick: {
@@ -4431,7 +4431,7 @@
         // new features (Matt, 2026-10-10); the old release's steps stay in
         // STEPS as long as another tour uses them.
         whatsNew: {
-            title: 'What’s New in 1.5',
+            title: 'What’s New in 1.6',
             seed: {
                 name: 'Demo Show',
                 wall: { columns: 10, rows: 5, cabinet_width: 200, cabinet_height: 200 },
