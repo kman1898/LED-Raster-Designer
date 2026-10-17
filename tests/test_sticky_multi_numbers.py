@@ -49,6 +49,8 @@ def page(e2e_server, pw_browser):
     errors = []
     pg.on('pageerror', lambda e: errors.append(str(e)))
     pg.goto(e2e_server, wait_until='domcontentloaded')
+    # the app's own first load lands before the test touches the project
+    pg.wait_for_function("() => !!(window.app && window.app._initialLoadComplete)")
     pg.wait_for_function(
         '() => window.app && Array.isArray(window.app.history) && window.app.history.length > 0',
         timeout=60000)

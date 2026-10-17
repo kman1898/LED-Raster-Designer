@@ -39,6 +39,8 @@ def page(e2e_server, pw_browser):
     ctx.add_init_script("try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
     pg = ctx.new_page()
     pg.goto(e2e_server, wait_until='domcontentloaded')
+    # the app's own first load lands before the test touches the project
+    pg.wait_for_function("() => !!(window.app && window.app._initialLoadComplete)")
     pg.wait_for_function('window.app && window.app.currentLayer && window.canvasRenderer')
     pg.locator('[data-mode="cabinet-id"]').click()
     pg.wait_for_function("window.canvasRenderer.viewMode === 'cabinet-id'")

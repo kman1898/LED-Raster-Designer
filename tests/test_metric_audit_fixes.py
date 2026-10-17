@@ -74,8 +74,10 @@ def page(e2e_server, pw_browser):
     errors = []
     pg.on('pageerror', lambda e: errors.append(str(e)))
     pg.goto(e2e_server, wait_until='domcontentloaded')
-    pg.wait_for_function("() => window.app && window.app.project && Array.isArray(window.app.project.layers)"
-                         " && window.canvasRenderer")
+    # The app's own first load must have landed: a reset that ran before it
+    # was overwritten when the boot fetch came back (CI, 2026-10-17).
+    pg.wait_for_function("() => window.app && window.app._initialLoadComplete === true"
+                         " && Array.isArray(window.app.project.layers) && window.canvasRenderer")
     yield pg, errors
     context.close()
 

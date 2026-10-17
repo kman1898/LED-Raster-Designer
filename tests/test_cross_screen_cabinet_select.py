@@ -55,6 +55,8 @@ def page(e2e_server, pw_browser):
     )
     pg = context.new_page()
     pg.goto(e2e_server, wait_until='domcontentloaded')
+    # the app's own first load lands before the test touches the project
+    pg.wait_for_function("() => !!(window.app && window.app._initialLoadComplete)")
     pg.wait_for_timeout(2000)
     # Every toast the app raises, in order, for the locked-screen errors.
     pg.evaluate("""() => {
