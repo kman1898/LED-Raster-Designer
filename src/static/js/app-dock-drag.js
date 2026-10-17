@@ -1431,6 +1431,14 @@ class _DockDrag {
         }
         const at = rec.circuits.indexOf(target.num);
         if (at < 0) return;
+        // Leaving its box - for another distro, another box on this one,
+        // or from no distro at all - the circuit leaves the old feed's
+        // lengths behind (owner, 2026-10-17): its cable, and the home run
+        // of the part that moves when that part carries the multi's
+        // identity. A re-seat on the same box keeps both.
+        const sameBox = !!rec.distroId && rec.distroId === payload.distroId
+            && Number(rec.number) === n;
+        const pullBefore = sameBox ? null : this._pullLiveRowKeys();
         const touched = new Set([layer]);
         let idx = rec.index;
         if (at > 0) {
@@ -1448,6 +1456,13 @@ class _DockDrag {
             if (!stamped) return;
             stamped.forEach(l => touched.add(l));
         }
+        if (!sameBox) this._forgetFeedLengths(layer, idx, [target.num]);
+        // The circuits after it were cut off as their own multi, unassigned
+        // by the split rule - off the old box, so off its feed: their
+        // cables go the same way.
+        if (rec.distroId && rec.circuits.length - at > 1) {
+            this._forgetFeedLengths(layer, null, rec.circuits.slice(at + 1));
+        }
         this._materializeSocaBox(payload.distroId, n, layer, idx)
             .forEach(l => touched.add(l));
         (layer.powerSocaDistro || (layer.powerSocaDistro = {}))[idx]
@@ -1456,6 +1471,7 @@ class _DockDrag {
         (layer.powerSocaPhasePos || (layer.powerSocaPhasePos = {}))[idx]
             = [payload.tail];
         this._circuitTailCache = null;
+        this._dropPullEditsGoneWith(pullBefore);
         this.updateLayers([...touched], true, 'Assign Circuit');
         this._restateNaming();
     }

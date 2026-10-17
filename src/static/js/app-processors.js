@@ -131,6 +131,14 @@ class _Processors {
     // edit. Reads pass no action; a refused edit changed nothing and gets
     // no entry, or Ctrl+Z would grow no-op steps.
     _processorRequest(url, method, body, action) {
+        // Removing a processor, a card (a slot cleared or re-carded) or a
+        // box takes the lengths typed on it (owner, 2026-10-17), and a
+        // pull-sheet edit on a row only those cables printed goes with
+        // them - the rows as they print now, read before the request.
+        const removes = !!action && (method === 'DELETE'
+            || (method === 'PUT' && /\/slots\/\d+$/.test(url)));
+        const pullBefore = removes && typeof this._pullLiveRowKeys === 'function'
+            ? this._pullLiveRowKeys() : null;
         return fetch(url, {
             method,
             headers: { 'Content-Type': 'application/json' },
@@ -149,6 +157,7 @@ class _Processors {
                     this.project.port_assignments = data.portAssignments;
                 }
                 this._applyProcessorState(data);
+                if (applied && pullBefore) this._dropPullEditsGoneWith(pullBefore);
                 if (applied && action) this.saveState(action);
                 // What the edit had to say - "Removed box Tessera XD B - 3
                 // ports of LEFT are unplaced again" - read where a refusal
@@ -1513,9 +1522,10 @@ class _Processors {
     // (2026-09-09) - and names its members:
     //     project.snakes = [{ id, name, ft, connector,
     //                         members: [{ kind, id, socket }…] }]
-    // A home run belongs to the socket, not the screen: unlike a
-    // power circuit's cable (per-screen programming, forgotten by a
-    // clear), a port cleared from its screen KEEPS its snake and cable.
+    // A snake's home run belongs to the socket, not the screen: a port
+    // cleared from its screen KEEPS its snake. Its own port cable runs to
+    // the screen, so the release forgets it (owner, 2026-10-17 - the
+    // server's /unpin, processor_catalog.forget_port_cables).
     // The server validates and normalises (processor_catalog's cable
     // stores and its show-snake section); this side only reads what comes
     // back resolved and writes through one request per gesture - a device

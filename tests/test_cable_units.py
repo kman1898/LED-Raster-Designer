@@ -350,7 +350,9 @@ def test_changing_the_unit_keeps_every_number_and_asks_first(page):
                  action: app.history[app.historyIndex].action,
                  served: srv.cableUnit, servedEdits: srv.pullSheetEdits };
     }""")
-    assert st['unit'] == 'm' and st['both'] == ['m', 'm'], st
+    # every unit select: the export dialog's two and the Data and Power
+    # sidebars' beside the jumper fields (2026-10-17)
+    assert st['unit'] == 'm' and st['both'] == ['m'] * 4, st
     assert st['cables']['1']['ft'] == 3 and st['cables']['2']['ft'] == 7.5, st
     assert st['jumps'] == [2, 1.5], st
     assert st['edits']['rows'][0]['key'] == 'Tru-1|3 m', st

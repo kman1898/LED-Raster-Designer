@@ -478,6 +478,11 @@ class _History {
 
         // Find index of current layer for post-delete selection
         const currentIndex = this.project.layers.findIndex(l => l.id === this.currentLayer.id);
+        // A pull-sheet edit on a row that goes with the screens goes too
+        // (owner, 2026-10-17) - the rows as they print before the first
+        // request, dropped once the last has landed and before the snapshot.
+        const pullBefore = typeof this._pullLiveRowKeys === 'function'
+            ? this._pullLiveRowKeys() : null;
         this.currentLayer = null;
         
         // Delete all selected layers sequentially
@@ -522,6 +527,7 @@ class _History {
                         if (this.currentLayer && typeof this.loadLayerToInputs === 'function') {
                             try { this.loadLayerToInputs(); } catch (_) {}
                         }
+                        if (pullBefore) this._dropPullEditsGoneWith(pullBefore);
                         // Post-mutation snapshot: this entry is the project
                         // WITHOUT the deleted screen, so redo re-applies the
                         // delete. See the note where deletionInProgress is

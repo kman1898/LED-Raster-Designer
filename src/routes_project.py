@@ -200,6 +200,16 @@ def restore_project():
     # Read the way save_project and PUT /api/layer/<id> read their markers.
     keep_pristine = (isinstance(data, dict)
                      and str(data.pop('keep_pristine', False)).lower() in ('1', 'true', 'yes'))
+    # `release_screens_ports`: Delete Group commits through this route (the
+    # whole project, members already gone), and a deleted screen's sockets
+    # forget their port cables exactly as a released port does (owner,
+    # 2026-10-17). The pins the body still names for those screens are read
+    # here, before the integrity pass below prunes them, and compared after
+    # it. A request marker, never stored: undo, redo and a file load never
+    # send it, so they restore exactly what they carry.
+    release_ports = (isinstance(data, dict)
+                     and str(data.pop('release_screens_ports', False)).lower() in ('1', 'true', 'yes'))
+    pins_before = port_assignment.pins_of(data) if release_ports else None
     app.current_project = data
     app.current_project['is_pristine'] = bool(keep_pristine and data.get('is_pristine') is True)
     # Backfill showOffsetX/Y on layers from older projects that pre-date the
@@ -327,6 +337,13 @@ def restore_project():
     # ... and its live highlight, kept as the file (or the undo snapshot,
     # which carries the one on screen) has it, on a module that is there.
     app.normalize_idm_highlight(app.current_project)
+    if release_ports:
+        released = port_assignment.forget_released_port_cables(
+            app.current_project, pins_before)
+        if released:
+            log_event('port_cables_forgotten', {
+                'at': 'delete_group',
+                'sockets': [f'{c}:{n}' for c, n in sorted(released)]})
     log_event('restore_project', {
         'name': app.current_project.get('name', '?'),
         'layers': len(app.current_project.get('layers', [])),

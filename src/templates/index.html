@@ -724,6 +724,7 @@
                             <div style="display: grid; grid-template-columns: max-content 44px max-content; gap: 4px 6px; align-items: center; font-size: 11px;">
                                 <span>Vertical</span><input type="text" inputmode="decimal" id="data-jump-v" placeholder="none" autocomplete="off" aria-label="Data jumper vertical length (ft)" data-cable-unit-aria="Data jumper vertical length ({unit})" style="width: 44px; text-align: right; box-sizing: border-box;"><span data-cable-unit>ft</span>
                                 <span>Horizontal</span><input type="text" inputmode="decimal" id="data-jump-h" placeholder="none" autocomplete="off" aria-label="Data jumper horizontal length (ft)" data-cable-unit-aria="Data jumper horizontal length ({unit})" style="width: 44px; text-align: right; box-sizing: border-box;"><span data-cable-unit>ft</span>
+                                <span>Unit</span><select id="data-jump-unit" class="cable-unit-select" aria-label="Cable length unit of this show" data-tooltip="Unit, The unit this show's cable lengths are typed and printed in: one setting for the whole show, the same as the Export dialog's Cable lengths. Changing it keeps every typed number: 25 ft becomes 25 m." style="grid-column: 2 / span 2; justify-self: start; width: 58px; padding: 3px 6px; font-size: 11px; box-sizing: border-box;"><option value="ft">ft</option><option value="m">m</option></select>
                             </div>
                         </div>
 
@@ -1209,6 +1210,7 @@
                             <div style="display: grid; grid-template-columns: max-content 44px max-content; gap: 4px 6px; align-items: center; font-size: 11px;">
                                 <span>Vertical</span><input type="text" inputmode="decimal" id="power-jump-v" placeholder="none" autocomplete="off" aria-label="Power jumper vertical length (ft)" data-cable-unit-aria="Power jumper vertical length ({unit})" style="width: 44px; text-align: right; box-sizing: border-box;"><span data-cable-unit>ft</span>
                                 <span>Horizontal</span><input type="text" inputmode="decimal" id="power-jump-h" placeholder="none" autocomplete="off" aria-label="Power jumper horizontal length (ft)" data-cable-unit-aria="Power jumper horizontal length ({unit})" style="width: 44px; text-align: right; box-sizing: border-box;"><span data-cable-unit>ft</span>
+                                <span>Unit</span><select id="power-jump-unit" class="cable-unit-select" aria-label="Cable length unit of this show" data-tooltip="Unit, The unit this show's cable lengths are typed and printed in: one setting for the whole show, the same as the Export dialog's Cable lengths. Changing it keeps every typed number: 25 ft becomes 25 m." style="grid-column: 2 / span 2; justify-self: start; width: 58px; padding: 3px 6px; font-size: 11px; box-sizing: border-box;"><option value="ft">ft</option><option value="m">m</option></select>
                             </div>
                         </div>
                         
@@ -3007,7 +3009,7 @@
                                     <option value="m">Meters</option>
                                 </select>
                             </div>
-                            <div class="pm-note">What a new show starts in; each show keeps its own (Export dialog). Below, a show uses the lengths in its unit.</div>
+                            <div class="pm-note">What a new show starts in. Each show keeps its own (the Jumpers unit in the Data and Power sidebars, or the Export dialog); a change here offers to switch the open show too. Below, a show uses the lengths in its unit.</div>
                         </div>
                         <div class="pm-row">
                             <label>Power jumper</label>

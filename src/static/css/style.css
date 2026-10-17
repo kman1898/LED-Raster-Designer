@@ -1865,7 +1865,7 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 /* The distro's LEGS line: per-leg amps + mini meters + imbalance, always
    on (it sits between the header and the foldable body). */
 .hw-dock-legs {
-    display: flex; align-items: center; gap: 5px;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 2px 5px;
     padding: 1px 2px 2px; font: 9px ui-monospace, Menlo, monospace;
     color: #b8b8b8; min-width: 0;
 }
@@ -1889,7 +1889,7 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
    (app-dock.js _hwPopoverToggle and friends own the behaviour). */
 #hw-gear-popover {
     position: fixed; z-index: 1000; display: none;
-    width: 300px; max-width: calc(100vw - 24px);
+    width: 300px; max-width: calc(100vw - 16px); box-sizing: border-box;
     overflow: hidden;
     background: #252525; border: 1px solid #3a3a3a; border-radius: 6px;
     padding: 0; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.55);
@@ -1907,8 +1907,43 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
     display: flex; flex-direction: column;
 }
 .hw-pop-body {
-    flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 10px;
+    flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden;
+    padding: 10px; min-width: 0;
     scrollbar-width: thin; scrollbar-color: #5a5a5a transparent;
+    /* The scrollbar's room is kept from the first layout, scrolling or
+       not. Safari with always-on scrollbars laid the fields out at the
+       full width and then drew the bar over their right edge once the
+       body began to scroll ("A per leç"); a reserved gutter leaves
+       nothing to re-lay. Overlay scrollbars reserve nothing. */
+    scrollbar-gutter: stable;
+}
+/* The title bar: the builder's heading, lifted out of the scrolling body
+   (app-dock.js _hwPopoverHead), so it never scrolls away. It is the
+   panel's handle - press and move to drag the panel - and carries the ×. */
+#hw-gear-popover .hw-pop-frame > .hw-pop-head {
+    flex: 0 0 auto; margin: 0 !important;
+    display: flex; align-items: center; gap: 6px;
+    cursor: move; user-select: none; -webkit-user-select: none;
+    touch-action: none;
+}
+.hw-pop-head .hw-pop-title {
+    flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere;
+}
+#hw-gear-popover .hw-pop-head button.hw-pop-close {
+    flex: 0 0 auto; margin: -4px -6px -4px 0; padding: 0 6px !important;
+    background: transparent !important; border: none !important;
+    box-shadow: none !important; transform: none !important;
+    font-size: 16px !important; font-weight: 400 !important;
+    line-height: 20px; cursor: pointer; border-radius: 3px !important;
+}
+#hw-gear-popover .hw-pop-head button.hw-pop-close:hover {
+    background: rgba(255, 255, 255, 0.08) !important;
+}
+#hw-gear-popover .hw-pop-head button.hw-pop-close:focus-visible {
+    outline: 1px solid #e22330; outline-offset: 0;
+}
+#hw-gear-popover.hw-pop-dragging, #hw-gear-popover.hw-pop-dragging * {
+    cursor: move !important; user-select: none; -webkit-user-select: none;
 }
 .hw-pop-scroll::after {
     content: ''; position: absolute; left: 0; right: 0; bottom: 0;
@@ -1924,7 +1959,15 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 #hw-gear-popover input, #hw-gear-popover select {
     background: #111; border: 1px solid #333; color: #fff;
     border-radius: 4px; padding: 3px 4px; font-size: 11px;
-    box-sizing: border-box;
+    box-sizing: border-box; max-width: 100%;
+}
+/* A select narrower than its choice wraps the words onto a second line
+   instead of cutting them off ("Follow the circuit voltage — Lir"): the
+   panel narrows with the window, and a long phasing name never fits a
+   300px row beside its caption anyway. */
+#hw-gear-popover select {
+    white-space: normal; overflow-wrap: anywhere; height: auto;
+    text-align: left;
 }
 .hw-pop-heading {
     font-weight: 600; font-size: 11px; color: #f0f0f0;
@@ -2249,16 +2292,17 @@ button.hw-dock-typechip:focus-visible { outline: 1px solid var(--ps-accent, #ef3
     background: #3a1414; border-color: #c23b3b; color: #ff9a9a;
 }
 /* the ⚙ popover's OUTPUTS checklist: every row is bounded by the popover
-   (names never wrap, the breakout text ellipsizes first) */
+   (names never wrap; the breakout text and the caption wrap under
+   themselves instead of running past the edge) */
 .hw-pop-outs {
     margin-top: 8px; border-top: 1px solid #333; padding-top: 8px; min-width: 0;
 }
 .hw-pop-outs-cap {
-    display: flex; align-items: baseline; gap: 8px; min-width: 0;
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 8px;
+    min-width: 0;
 }
 .hw-pop-outs-cap small {
-    color: #969696; font-size: 10px; white-space: nowrap;
-    overflow: hidden; text-overflow: ellipsis; min-width: 0;
+    color: #969696; font-size: 10px; min-width: 0;
 }
 .hw-pop-out {
     display: flex; align-items: center; gap: 8px; padding: 4px 4px;
@@ -2273,9 +2317,9 @@ button.hw-dock-typechip:focus-visible { outline: 1px solid var(--ps-accent, #ef3
 .hw-pop-out .hw-plug-g { color: #fff; width: 1.7em; height: 1.7em; }
 .hw-pop-out b { color: #f0f0f0; font-weight: 600; white-space: nowrap; }
 .hw-pop-out-sub {
-    display: inline-flex; align-items: center; gap: 4px;
-    color: #969696; margin-left: auto; white-space: nowrap;
-    overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto;
+    display: inline-flex; flex-wrap: wrap; align-items: center;
+    justify-content: flex-end; gap: 2px 4px; text-align: right;
+    color: #969696; margin-left: auto; min-width: 0; flex: 0 1 auto;
 }
 .hw-pop-out-sub .hw-plug-g { width: 1.5em; height: 1.5em; color: #ddd; }
 .hw-pop-out-off .hw-plug-g, .hw-pop-out-off b { opacity: .45; }
@@ -2330,9 +2374,21 @@ button.hw-dock-typechip:focus-visible { outline: 1px solid var(--ps-accent, #ef3
    member name + home-run length pairs on a full-width line of their own -
    still inside the header, so fold and drag keep their one scope. */
 .hw-dock-multi > .hw-dock-head-row { flex-wrap: wrap; row-gap: 2px; }
+/* Every dock header wraps rather than clips (2026-10-17, a 320px tray:
+   "Balan", and the gear pushed off the edge where nobody could reach
+   it). The figures hold their shape (above); what does not fit on the
+   first line moves down to a second one. */
+.hw-dock-head-row { flex-wrap: wrap; row-gap: 2px; min-width: 0; }
+/* The distro header's end: supply tag, Balance and gear as one group
+   (app-dock.js _dockBuildDistro) that wraps whole and sits right. */
+.hw-dock-head-acts {
+    display: inline-flex; align-items: center; gap: 6px;
+    flex: 0 0 auto; margin-left: auto; max-width: 100%;
+}
+.hw-dock-head-acts > .hw-dock-unit-info { margin-left: 0; }
 .hw-dock-names {
-    flex: 1 1 100%; display: flex; gap: 6px; align-items: baseline;
-    min-width: 0;
+    flex: 1 1 100%; display: flex; flex-wrap: wrap; gap: 2px 6px;
+    align-items: baseline; min-width: 0;
 }
 .hw-dock-names .hw-dock-name {
     flex: 1 1 90px; min-width: 64px; max-width: 260px;

@@ -50,7 +50,9 @@ MAX_BODY = 32 * 1024
 SYSTEMS = {'120/208', '120/240', '120', '230/400', '230'}
 CONNECTORS = {'soca', 'harting', 'l2130', 'true1', 'powercon20', 'powerconxx',
               'edison', 'l520', 'l620', 'stagepin', 'cee16', 'cee32', 'schuko'}
-INPUTS = {'cam200', 'cam400', 'l2130', 'cee63', 'powerlock400'}
+INPUTS = {'cam100', 'cam200', 'cam400', 'cam600', 'cam800', 'l2130',
+          'cee16r', 'cee32r', 'cee63', 'cee125r', 'cee16b', 'cee32b', 'cee63b', 'cee125b',
+          'powerlock400', 'powerlock630'}
 PHASINGS = {'rotating-ln', 'paired-ln', 'paired-ll', 'paired-ll-alt', 'rotating-ll',
             'whole-ln'}
 DIRECT_PHASINGS = {'paired'}

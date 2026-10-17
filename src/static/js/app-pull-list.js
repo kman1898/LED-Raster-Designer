@@ -1058,8 +1058,11 @@ class _PullList {
                     cable: typed && typed.face ? typed.cable : null,
                     boxSize: typed ? Number(typed.boxSize) || 6 : null,
                     // the typed home run as a length: null when none, or
-                    // not one in the show's unit (parseCableLength)
-                    homeRun: this.parseCableLength(s.length),
+                    // not one in the show's unit (parseCableLength) - and
+                    // null on a multi no distro feeds: the home run is the
+                    // feed's (owner, 2026-10-17), so a length an older file
+                    // left on an unfed multi prints nowhere
+                    homeRun: s.distroId ? this.parseCableLength(s.length) : null,
                     connector: d
                         ? this.pullPowerConnectorName(
                             this.cableConnectorName(this.boxTailConnector(d, s.number, layer)))
@@ -1068,7 +1071,7 @@ class _PullList {
                     shared: false,
                 };
                 boxes.set(key, box);
-            } else if (!box.homeRun && this.parseCableLength(s.length) !== null) {
+            } else if (!box.homeRun && s.distroId && this.parseCableLength(s.length) !== null) {
                 box.homeRun = this.parseCableLength(s.length);
             }
             const d = box.distroId ? distroById.get(box.distroId) || null : null;
@@ -1078,7 +1081,9 @@ class _PullList {
                 const bo = boxOn.get(key) || [];
                 for (const id of on) if (!bo.includes(id)) bo.push(id);
                 boxOn.set(key, bo);
-                const cable = this.powerCircuitCable(layer, leg.circuit);
+                // A cable prints only where the circuit is fed (the
+                // home run's rule above - printedCircuitCable).
+                const cable = this.printedCircuitCable(layer, leg.circuit);
                 box.circuits.push({
                     num: leg.circuit, label: leg.label, tail: leg.leg,
                     tiles: leg.tiles, amps: leg.amps,
@@ -1518,6 +1523,59 @@ class _PullList {
             }
         }
         return out;
+    }
+
+    // ---- an edit goes with the cable it was made on -----------------------
+    //
+    // A delete or a clear forgets the lengths it took the feed from (owner,
+    // 2026-10-17), and the pull-sheet row those lengths printed goes with
+    // them - so must the saved edit on that row. Left behind, it sat in
+    // the editor as STALE and came straight back onto the paper the day
+    // another cable of the same type and length landed on that position.
+    // A clear reads the rows before it moves anything (_pullLiveRowKeys)
+    // and hands them to _dropPullEditsGoneWith once its stores are
+    // written and BEFORE its snapshot, so one undo puts the edit back with
+    // the cable. Only rows the clear took away go: a row still printed
+    // (one 25' multi of two cleared) keeps its edit, and a free row is
+    // the user's own. null where the show has no edits - the walk is
+    // skipped altogether.
+    _pullLiveRowKeys() {
+        const stored = this.project && this.project.pullSheetEdits;
+        if (!stored || !stored.positions
+                || !Object.keys(stored.positions).length) return null;
+        try {
+            this._circuitTailCache = null;
+            const out = new Set();
+            for (const pos of this.buildPullList().positions || []) {
+                const pk = this.pullPositionKey(pos);
+                for (const r of pos.rows || []) out.add(`${pk}\n${this.pullRowKey(r)}`);
+            }
+            return out;
+        } catch (err) {
+            sendClientLog('pull_edit_rows_failed', { error: String(err) });
+            return null;
+        }
+    }
+
+    _dropPullEditsGoneWith(before) {
+        if (!before) return false;
+        const after = this._pullLiveRowKeys();
+        const store = this.project && this.project.pullSheetEdits;
+        if (!after || !store || !store.positions) return false;
+        let dropped = 0;
+        for (const [pk, pos] of Object.entries(store.positions)) {
+            if (!pos || !Array.isArray(pos.rows)) continue;
+            pos.rows = pos.rows.filter(e => {
+                const k = `${pk}\n${e && e.key}`;
+                if (before.has(k) && !after.has(k)) { dropped++; return false; }
+                return true;
+            });
+        }
+        if (!dropped) return false;
+        this._pullPruneEdits();
+        this._persistPullSheetEdits();
+        sendClientLog('pull_edits_dropped', { count: dropped });
+        return true;
     }
 
     // ---- the edits: one history entry each, then one project POST ----

@@ -155,6 +155,16 @@ class _CrossLayerPaths {
         }
     }
 
+    // A power run cleared is a circuit gone: its typed cable (the "25'
+    // True1" on the circuit, powerCircuitCables) goes with it, so a run
+    // drawn later under the same number starts blank (owner, 2026-10-17:
+    // the lengths go with the feed). The callers only reach here for a
+    // member they may write - a locked one is skipped before this.
+    _forgetRunCable(member, kind, num) {
+        if (kind !== 'power' || !member || !member.powerCircuitCables) return;
+        delete member.powerCircuitCables[num];
+    }
+
     // This layer's run `num`, and - whole - every peer's run `num` with a
     // step on this layer (2026-09-23, "a circuit is one circuit"; see the
     // section comment above). A run that touches a locked screen is kept
@@ -162,6 +172,7 @@ class _CrossLayerPaths {
     clearCustomRun(layer, kind, num) {
         if (!layer) return { touched: [], skipped: [] };
         const k = this._customRunKeys(kind);
+        const pullBefore = this._pullLiveRowKeys();
         const touched = [];
         const skipped = new Map();
         const own = layer[k.paths];
@@ -171,6 +182,7 @@ class _CrossLayerPaths {
                 locked.forEach(l => skipped.set(l.id, l));
             } else {
                 delete own[num];
+                this._forgetRunCable(layer, kind, num);
                 touched.push(layer);
             }
         }
@@ -184,8 +196,12 @@ class _CrossLayerPaths {
             if (locked.length) { locked.forEach(l => skipped.set(l.id, l)); return; }
             delete paths[num];
             this._dropRunOverride(peer, kind, num);
+            this._forgetRunCable(peer, kind, num);
             touched.push(peer);
         });
+        // An edit on a pull-sheet row the clear took away goes with it -
+        // before the caller's snapshot, so undo brings both back.
+        if (touched.length) this._dropPullEditsGoneWith(pullBefore);
         return { touched, skipped: [...skipped.values()] };
     }
 
@@ -196,6 +212,7 @@ class _CrossLayerPaths {
     clearAllCustomRuns(layer, kind) {
         if (!layer) return { touched: [], skipped: [] };
         const k = this._customRunKeys(kind);
+        const pullBefore = this._pullLiveRowKeys();
         const touched = [];
         const skipped = new Map();
         this.getPathScopeLayers(layer).forEach(member => {
@@ -220,8 +237,14 @@ class _CrossLayerPaths {
                 kept[n] = paths[n];
             });
             const keptNums = Object.keys(kept);
+            // A cleared circuit's cable goes with it (owner, 2026-10-17);
+            // a run kept for a locked screen keeps its cable.
+            const forget = () => drawnNums
+                .filter(n => !keptNums.includes(n))
+                .forEach(n => this._forgetRunCable(member, kind, n));
             if (keptNums.length > 0) {
                 if (keptNums.length === Object.keys(paths).length) return;
+                forget();
                 member[k.paths] = kept;
                 member[k.overrides] = overrides.filter(n => keptNums.includes(`${n}`));
                 const s = this._overrideEditing;
@@ -240,6 +263,7 @@ class _CrossLayerPaths {
                 || (Array.isArray(member[k.overrides]) && member[k.overrides].length > 0)
                 || (index !== undefined && index !== null && Number(index) !== 1);
             if (!held) return;
+            forget();
             member[k.paths] = {};
             member[k.index] = 1;
             member[k.overrides] = [];
@@ -249,6 +273,7 @@ class _CrossLayerPaths {
             }
             touched.push(member);
         });
+        if (touched.length) this._dropPullEditsGoneWith(pullBefore);
         return { touched, skipped: [...skipped.values()] };
     }
 

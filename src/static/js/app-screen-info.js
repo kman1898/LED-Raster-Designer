@@ -1162,6 +1162,13 @@ class _ScreenInfo {
         });
         
         console.log('DELETE LAYER - deleting id:', layerId, 'isDeletingSelected:', isDeletingSelected);
+
+        // A pull-sheet edit on a row that goes with the screen goes too, as
+        // a port release's does (owner, 2026-10-17) - the rows as they print
+        // now, read before the request; dropped before the snapshot, so
+        // undo brings the edits back with the screen.
+        const pullBefore = typeof this._pullLiveRowKeys === 'function'
+            ? this._pullLiveRowKeys() : null;
         
         fetch(`/api/layer/${layerId}`, {
             method: 'DELETE'
@@ -1201,6 +1208,8 @@ class _ScreenInfo {
                 this.currentLayer = null;
             }
             
+            if (pullBefore) this._dropPullEditsGoneWith(pullBefore);
+
             this.updateUI();
             
             // Save state after delete

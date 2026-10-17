@@ -436,7 +436,14 @@ Object.assign(CanvasRenderer.prototype, {
             if (layer.showPowerCableTags === true && circuitNum != null
                     && window.app
                     && typeof window.app.powerCircuitCable === 'function') {
-                const cable = window.app.powerCircuitCable(layer, circuitNum);
+                // An exported map is paperwork: a cable on a circuit no
+                // distro feeds (an older file's leftover) prints nowhere
+                // there - printedCircuitCable - while the working view
+                // still shows what is stored.
+                const cable = this.exportMode
+                        && typeof window.app.printedCircuitCable === 'function'
+                    ? window.app.printedCircuitCable(layer, circuitNum)
+                    : window.app.powerCircuitCable(layer, circuitNum);
                 if (cable) cableText = cable.text;
                 // A DIRECT output's own cable, distro to screen (1.5), when
                 // the circuit carries no cable of its own - only for a
@@ -889,7 +896,10 @@ Object.assign(CanvasRenderer.prototype, {
             const lone = this.exportMode && s.distroId && (s.legs || []).length === 1
                 && typeof app.directCircuitCable === 'function'
                 ? app.directCircuitCable(layer, s.legs[0].circuit) : null;
-            const homeRun = this.exportMode ? this._homeRunText(lone ? lone.ft : s.length) : '';
+            // A multi on no distro has no feed and so no home run to print
+            // (owner, 2026-10-17), whatever an older file left stored.
+            const homeRun = this.exportMode && s.distroId
+                ? this._homeRunText(lone ? lone.ft : s.length) : '';
             const label = (dashed ? pend.boxName : s.name)
                 + (homeRun ? ` · ${homeRun}` : '')
                 + ` · ${s.amps.toFixed(1)}A`;

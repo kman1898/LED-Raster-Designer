@@ -33,7 +33,9 @@ import port_assignment as assignment  # noqa: E402
 CARD = 'novastar-card-h-16xrj45-2xfiber'
 
 # The run from a distro to the screen: which box, which slot, which legs
-# and breaker position, what the multi is called, how long its home run is.
+# and breaker position, what the multi is called, how long its home run is
+# - and the cable typed on a circuit off the box (owner, 2026-10-17: the
+# lengths belong to the feed, so a copy carries none of them).
 FEEDS = {
     'powerSocaDistro': {'1': 'd1'},
     'powerSocaNumber': {'1': 3},
@@ -41,6 +43,7 @@ FEEDS = {
     'powerSocaPhaseOffset': {'1': 1},
     'powerSocaNames': {'1': 'SL1'},
     'powerSocaLengths': {'1': '100ft'},
+    'powerCircuitCables': {'1': {'ft': 10, 'connector': None}},
 }
 assert tuple(FEEDS) == app_module.COPIED_SCREEN_FEED_KEYS
 
@@ -235,7 +238,8 @@ DRESS_JS = """async ([feeds, carried, card]) => {
 }"""
 
 FEED_KEYS_JS = "['powerSocaDistro','powerSocaNumber','powerSocaPhasePos'," \
-               "'powerSocaPhaseOffset','powerSocaNames','powerSocaLengths']"
+               "'powerSocaPhaseOffset','powerSocaNames','powerSocaLengths'," \
+               "'powerCircuitCables']"
 
 # The copy as the browser holds it, and as the server holds it.
 PICK_JS = """

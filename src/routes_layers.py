@@ -8,6 +8,7 @@ import json
 from flask import Blueprint, request, jsonify
 
 import app
+import port_assignment
 from app import _assign_canvas_id, _build_panels, _find_canvas, _rebuild_layer_geometry_from_panel_states, _seed_data_with_canvas_defaults, create_image_layer, create_layer, create_text_layer, log_event, socketio
 
 layers_bp = Blueprint('layers', __name__)
@@ -595,6 +596,7 @@ def delete_layer(layer_id):
         if l['id'] == layer_id:
             deleted_name = l.get('name', '?')
             break
+    pins_before = port_assignment.pins_of(app.current_project)
     app.current_project['layers'] = [l for l in app.current_project['layers'] if l['id'] != layer_id]
     # v0.11.0: deleting a member is a group-integrity event - the group would
     # otherwise keep listing a layer that is gone, and a two-member group would
@@ -605,6 +607,16 @@ def delete_layer(layer_id):
     app._enforce_group_integrity(app.current_project)
     # The IDM Locator's stored highlight goes with its screen.
     app.normalize_idm_highlight(app.current_project)
+    # ...and the sockets those pins held forget their port cables, exactly
+    # as a released port does (owner, 2026-10-17): a socket another screen
+    # still claims keeps its cable, the snakes stay. The response carries
+    # the tree, so the client's snapshot - and its undo - holds both sides.
+    released = port_assignment.forget_released_port_cables(
+        app.current_project, pins_before)
+    if released:
+        log_event('port_cables_forgotten', {
+            'at': 'delete_layer', 'layerId': layer_id,
+            'sockets': [f'{c}:{n}' for c, n in sorted(released)]})
     app.current_project['is_pristine'] = False
     log_event('delete_layer', {'id': layer_id, 'name': deleted_name, 'remaining_layers': len(app.current_project['layers'])})
     socketio.emit('layer_deleted', {'id': layer_id})

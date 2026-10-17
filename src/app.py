@@ -693,11 +693,13 @@ def normalize_power_breakout(layer, prefs=None):
 # which legs and breaker position on that box (powerSocaPhasePos /
 # powerSocaPhaseOffset - the phase balance of that distro's load), what the
 # multi is called in the show (powerSocaNames) and how long its home run is
-# (powerSocaLengths). A copy is fed by a fresh drop, so it starts with none
-# of them. What describes the screen's OWN plan stays: the circuit
-# boundaries its multis split at (powerSocaSplits), the splitter groups
-# (powerSplitters), the keying stamp (powerSocaKeying) and the bracket
-# toggle - like the voltage, the breakout, the colours and the drawn runs.
+# (powerSocaLengths) - and the cable typed on each circuit (powerCircuitCables,
+# the "25' True1" off the box's tail: the feed's paperwork, owner 2026-10-17).
+# A copy is fed by a fresh drop, so it starts with none of them. What
+# describes the screen's OWN plan stays: the circuit boundaries its multis
+# split at (powerSocaSplits), the splitter groups (powerSplitters), the
+# keying stamp (powerSocaKeying) and the bracket toggle - like the voltage,
+# the breakout, the colours and the drawn runs.
 #
 # The data side has no twin on the layer: a screen's card ports are pins in
 # project['port_assignments'] keyed by layer id, and a copy has a new id
@@ -710,6 +712,7 @@ def normalize_power_breakout(layer, prefs=None):
 COPIED_SCREEN_FEED_KEYS = (
     'powerSocaDistro', 'powerSocaNumber', 'powerSocaPhasePos',
     'powerSocaPhaseOffset', 'powerSocaNames', 'powerSocaLengths',
+    'powerCircuitCables',
 )
 
 

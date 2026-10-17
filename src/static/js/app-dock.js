@@ -804,6 +804,9 @@ class _HardwareDock {
             this._hwPopoverClose();
             return;
         }
+        // A fresh open starts at its gear; a position the reader dragged
+        // it to (`pos`) lives on this record, so it lasts while the panel
+        // is open - through every refresh - and ends with it.
         this._hwPopover = { id, build };
         this._hwPopoverRender(anchor);
     }
@@ -823,15 +826,21 @@ class _HardwareDock {
         // A rebuild while open keeps the reader's place in a long body.
         const oldBody = pop.querySelector('.hw-pop-body');
         const keepScroll = oldBody ? oldBody.scrollTop : 0;
-        // Two parts: the fields scroll in a body; the destructive action
-        // sits in a footer pinned to the popover's bottom edge, visible no
-        // matter how long the body runs or how short the window is - a
-        // Remove that only exists below a scroll nobody knows about is a
-        // Remove that does not exist. The builders keep appending the
-        // button last as they always have; the shell lifts it out.
+        // Three parts: a title bar that holds still (the panel's handle -
+        // drag it to move the panel, × to close it), the fields scrolling
+        // in a body, and the destructive action in a footer pinned to the
+        // popover's bottom edge, visible no matter how long the body runs
+        // or how short the window is - a Remove that only exists below a
+        // scroll nobody knows about is a Remove that does not exist. The
+        // builders keep putting the heading first and the button last as
+        // they always have; the shell lifts them out.
         pop.innerHTML = '';
         const frame = document.createElement('div');
         frame.className = 'hw-pop-frame';
+        const heading = content.firstElementChild
+            && content.firstElementChild.classList.contains('hw-pop-heading')
+            ? content.firstElementChild : null;
+        if (heading) frame.appendChild(this._hwPopoverHead(heading));
         const scroller = document.createElement('div');
         scroller.className = 'hw-pop-scroll';
         content.classList.add('hw-pop-body');
@@ -853,41 +862,148 @@ class _HardwareDock {
         this._hwPopoverFade();
     }
 
+    // The builder's heading becomes the title bar: its text in a title
+    // that wraps rather than clips, a × that closes the panel the way the
+    // gear does (a real button, so Tab reaches it and Enter or Space
+    // presses it; Escape still closes from anywhere), and the bar itself
+    // the handle a press-and-move drags the panel by.
+    _hwPopoverHead(heading) {
+        heading.classList.add('hw-pop-head');
+        const title = document.createElement('span');
+        title.className = 'hw-pop-title';
+        while (heading.firstChild) title.appendChild(heading.firstChild);
+        heading.appendChild(title);
+        const close = document.createElement('button');
+        close.type = 'button';
+        close.className = 'modal-close hw-pop-close';
+        close.textContent = '×';
+        close.title = 'Close';
+        close.setAttribute('aria-label', 'Close');
+        close.addEventListener('click', () => {
+            const id = this._hwPopover && this._hwPopover.id;
+            this._hwPopoverClose();
+            // Keyboard users land back on the gear that opened the panel.
+            const gear = id && document.querySelector(
+                `[data-hwpop="${CSS.escape(id)}"]`);
+            if (gear && typeof gear.focus === 'function') gear.focus();
+        });
+        // Enter and Space press it here, before the canvas's document-wide
+        // Space (the pan key) can swallow the button's own activation.
+        close.addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter' && e.key !== ' ') return;
+            e.preventDefault();
+            e.stopPropagation();
+            close.click();
+        });
+        heading.appendChild(close);
+        heading.addEventListener('pointerdown',
+                                 (e) => this._hwPopoverDragArm(e, heading));
+        return heading;
+    }
+
+    // The title bar's drag: press, then move past 4px (the latitude every
+    // drag in the app gives a click) and the panel follows the pointer.
+    // Never from a control in the bar - the ×, or any field a builder puts
+    // there. The panel stays inside the window the whole way (_hwPopover-
+    // Place clamps the dragged spot like the anchored one), and the click
+    // that ends a drag is swallowed so nothing under the pointer reads it
+    // as a click-away or a press.
+    _hwPopoverDragArm(e, head) {
+        if (e.button !== 0 || !this._hwPopover) return;
+        if (e.target && e.target.closest && e.target.closest(
+            'button, input, select, textarea, a, [contenteditable="true"]')) return;
+        const pop = document.getElementById('hw-gear-popover');
+        if (!pop || !head.contains(e.target)) return;
+        const rec = this._hwPopover;
+        const startX = e.clientX, startY = e.clientY;
+        const r = pop.getBoundingClientRect();
+        let live = false;
+        const move = (ev) => {
+            if (this._hwPopover !== rec) { end(); return; }
+            if (!live) {
+                if (Math.abs(ev.clientX - startX) < 4
+                        && Math.abs(ev.clientY - startY) < 4) return;
+                live = true;
+                pop.classList.add('hw-pop-dragging');
+            }
+            ev.preventDefault();
+            rec.pos = { x: r.left + ev.clientX - startX,
+                        y: r.top + ev.clientY - startY };
+            this._hwPopoverPlace(null);
+            this._hwPopoverFade();
+        };
+        const swallow = (ev) => {
+            ev.stopPropagation();
+            ev.preventDefault();
+        };
+        const end = () => {
+            window.removeEventListener('pointermove', move, true);
+            window.removeEventListener('pointerup', end, true);
+            window.removeEventListener('pointercancel', end, true);
+            pop.classList.remove('hw-pop-dragging');
+            if (!live) return;
+            window.addEventListener('click', swallow, { capture: true, once: true });
+            setTimeout(() => window.removeEventListener('click', swallow, true), 0);
+        };
+        window.addEventListener('pointermove', move, true);
+        window.addEventListener('pointerup', end, true);
+        window.addEventListener('pointercancel', end, true);
+    }
+
     // Placement: measure at natural height, then open on whichever side of
     // the gear has the room - above when it fits there (the tray hugs the
     // window's bottom edge, so that is the usual answer), below when only
-    // below fits, else the roomier side with the body clamped to it. The
-    // clamp lands on the frame, so the footer keeps its full height and
-    // only the body gives way. Re-run on resize and dock drags: a popover
-    // placed for one window must not end up half off another.
+    // below fits, else the roomier side with the body clamped to it. A
+    // panel the reader has dragged (`pos`) goes where it was put instead,
+    // with the room below that spot as its height. Either way the clamp
+    // lands on the frame, so the title bar and the footer keep their full
+    // height and only the body gives way, and the panel is held inside the
+    // window with a margin: as wide as its natural width allows, narrower
+    // (the fields wrap, never clip) when the window is narrower than that.
+    // Re-run on resize and dock drags: a popover placed for one window
+    // must not end up half off another.
     _hwPopoverPlace(anchor) {
         const pop = document.getElementById('hw-gear-popover');
         const frame = pop && pop.querySelector('.hw-pop-frame');
-        if (!pop || !frame || !anchor) return;
+        const pos = this._hwPopover && this._hwPopover.pos;
+        if (!pop || !frame || (!anchor && !pos)) return;
         const margin = 8, gap = 6;
+        const vw = Math.min(window.innerWidth,
+            document.documentElement.clientWidth || window.innerWidth);
+        const vh = window.innerHeight;
         pop.style.visibility = 'hidden';
+        pop.style.maxWidth = `${Math.max(0, vw - 2 * margin)}px`;
         frame.style.maxHeight = '';
-        const r = anchor.getBoundingClientRect();
         const natural = pop.getBoundingClientRect().height;
-        const roomAbove = r.top - gap - margin;
-        const roomBelow = window.innerHeight - r.bottom - gap - margin;
-        let above;
-        if (natural <= roomAbove) above = true;
-        else if (natural <= roomBelow) above = false;
-        else above = roomAbove >= roomBelow;
-        // A gear jammed against an edge still gets a usable panel: the
-        // floor lets the popover overlap the gear rather than shrink to a
-        // sliver, and the viewport clamp below keeps it on screen.
-        const floor = Math.min(160, window.innerHeight - 2 * margin);
-        const room = Math.max(above ? roomAbove : roomBelow, floor);
         const chrome = pop.offsetHeight - frame.offsetHeight;  // borders
-        frame.style.maxHeight = `${Math.round(room - chrome)}px`;
+        // A panel against an edge still gets a usable height: the floor
+        // lets it overlap the gear rather than shrink to a sliver, and the
+        // viewport clamp below keeps it on screen.
+        const floor = Math.min(160, vh - 2 * margin);
+        let x, y, room, ar = null, above = false;
+        if (pos) {
+            y = Math.max(margin, Math.min(pos.y,
+                vh - margin - Math.min(natural, floor)));
+            room = vh - margin - y;
+            x = pos.x;
+        } else {
+            ar = anchor.getBoundingClientRect();
+            const roomAbove = ar.top - gap - margin;
+            const roomBelow = vh - ar.bottom - gap - margin;
+            if (natural <= roomAbove) above = true;
+            else if (natural <= roomBelow) above = false;
+            else above = roomAbove >= roomBelow;
+            room = Math.max(above ? roomAbove : roomBelow, floor);
+            x = ar.left;
+        }
+        frame.style.maxHeight = `${Math.max(0, Math.round(room - chrome))}px`;
         const pr = pop.getBoundingClientRect();
-        let x = Math.min(r.left, window.innerWidth - pr.width - margin);
-        x = Math.max(margin, x);
-        let y = above ? r.top - gap - pr.height : r.bottom + gap;
-        y = Math.min(y, window.innerHeight - pr.height - margin);
-        y = Math.max(margin, y);
+        if (ar) y = above ? ar.top - gap - pr.height : ar.bottom + gap;
+        x = Math.max(margin, Math.min(x, vw - pr.width - margin));
+        y = Math.max(margin, Math.min(y, vh - pr.height - margin));
+        // A dragged spot is kept as placed, so a window that grows again
+        // leaves the panel where the reader last saw it.
+        if (pos) { pos.x = x; pos.y = y; }
         pop.style.left = `${Math.round(x)}px`;
         pop.style.top = `${Math.round(y)}px`;
         pop.style.visibility = 'visible';
@@ -917,6 +1033,8 @@ class _HardwareDock {
             this._hwPopoverClose();
             return;
         }
+        // A panel the reader dragged keeps its spot (re-clamped to the new
+        // window); an undragged one follows its gear.
         this._hwPopoverPlace(anchor);
         this._hwPopoverFade();
     }
@@ -2333,12 +2451,16 @@ class _HardwareDock {
                 },
             },
         });
-        if (bal) {
-            // after the voltage tag, before the gear: the gear is the
-            // header's last child, so inserting before it lands Balance
-            // beside it (a gearless header appends, harmlessly)
-            head.insertBefore(bal, head.querySelector('.hw-dock-gear'));
-        }
+        // The voltage tag, Balance and the gear ride as ONE group at the
+        // header's end: in a narrow tray the header wraps and the group
+        // drops to a second line whole, right-aligned, so Balance is never
+        // cut short and the gear is never pushed out of reach.
+        const acts = document.createElement('span');
+        acts.className = 'hw-dock-head-acts';
+        const info = head.querySelector(':scope > .hw-dock-unit-info');
+        const gearBtn = head.querySelector(':scope > .hw-dock-gear');
+        [info, bal, gearBtn].forEach(el => { if (el) acts.appendChild(el); });
+        head.appendChild(acts);
         unit.appendChild(head);
         // The LEGS line rides between the header and the foldable body, so
         // a folded distro still reads its balance at a glance - the
@@ -3548,6 +3670,9 @@ class _HardwareDock {
         });
         this._showLockedError(lockedMet);
         if (!jobs.length) return;
+        // The pull-sheet rows as they print now, so an edit on a row this
+        // clear takes away goes with it (_dropPullEditsGoneWith).
+        const pullBefore = this._pullLiveRowKeys();
         jobs.forEach(j =>
             this._wipeSocaProgramming(j.layer, j.soca, j.targets));
         // The wipe deleted the cleared multis' entries under their OLD
@@ -3566,6 +3691,7 @@ class _HardwareDock {
         // The clear renumbers both buckets it touches, so every label
         // on the show can move - same cache drop the setters make.
         this._circuitTailCache = null;
+        this._dropPullEditsGoneWith(pullBefore);
         this.updateLayers([...new Set(jobs.map(j => j.layer))], true,
                           action);
         this._restateNaming();
@@ -3606,6 +3732,7 @@ class _HardwareDock {
             (c.runIds || [c.num]).forEach(id => runIds.push(id));
         });
         const rec = this._powerNaming(layer).socas.get(idx);
+        const pullBefore = this._pullLiveRowKeys();
         if (rec && rec.circuits.length > 1) {
             const r = this._socaReleaseCircuit(layer, idx, circuitNum);
             if (!r) return;
@@ -3617,6 +3744,7 @@ class _HardwareDock {
             }
             this._wipeSplitterManualFor(layer, runIds);
             this._circuitTailCache = null;
+            this._dropPullEditsGoneWith(pullBefore);
             this.updateLayers(r.touched, true, 'Clear Circuit');
             this._restateNaming();
             return;
@@ -3628,14 +3756,17 @@ class _HardwareDock {
         if (layer.powerLabelOverrides) {
             delete layer.powerLabelOverrides[circuitNum];
         }
-        // The cable is programming like the label (2026-09-06).
-        if (layer.powerCircuitCables) {
-            delete layer.powerCircuitCables[circuitNum];
-        }
+        // The cable is programming like the label (2026-09-06). Here the
+        // circuit IS the multi - a one-circuit holder, a direct output's
+        // included - so its home run goes with the feed too (owner,
+        // 2026-10-17): nothing is left on the box to own it, and a later
+        // feed on this index must start blank.
+        this._forgetFeedLengths(layer, idx, [circuitNum]);
         this._wipeSplitterManualFor(layer, runIds);
         this._resegmentSocaStores(
             layer, this._socaClearSplitPoints(layer, [idx]));
         this._circuitTailCache = null;
+        this._dropPullEditsGoneWith(pullBefore);
         this.updateLayers([layer], true, 'Clear Circuit');
         this._restateNaming();
     }

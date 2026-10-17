@@ -28,11 +28,13 @@ const IMAGE_SHADOW_KEYS = [
 // powerSocaPhaseOffset, the phase balance of THAT distro's load), what the
 // multi is called in the show (powerSocaNames - rung 2 of the name ladder,
 // above "distro name + number") and how long its home run is
-// (powerSocaLengths). A copy is fed by a fresh drop, so it starts with none
-// of them. The screen's OWN plan carries: the circuit boundaries its multis
-// split at (powerSocaSplits), the splitter groups (powerSplitters), the
-// keying stamp (powerSocaKeying - without it the copy's stores would be
-// rekeyed a second time) and the bracket toggle, the way the voltage, the
+// (powerSocaLengths) - and the cable typed on each circuit (powerCircuitCables,
+// the "25' True1" off the box's tail: the feed's paperwork, owner 2026-10-17).
+// A copy is fed by a fresh drop, so it starts with none of them. The
+// screen's OWN plan carries: the circuit boundaries its multis split at
+// (powerSocaSplits), the splitter groups (powerSplitters), the keying
+// stamp (powerSocaKeying - without it the copy's stores would be rekeyed
+// a second time) and the bracket toggle, the way the voltage, the
 // breakout, the colours and the drawn runs do.
 //
 // The data side has no twin on the layer: card ports are pins in
@@ -44,6 +46,7 @@ const IMAGE_SHADOW_KEYS = [
 export const SCREEN_FEED_KEYS = [
     'powerSocaDistro', 'powerSocaNumber', 'powerSocaPhasePos',
     'powerSocaPhaseOffset', 'powerSocaNames', 'powerSocaLengths',
+    'powerCircuitCables',
 ];
 
 export function stripScreenFeeds(layer) {
@@ -354,8 +357,9 @@ class _Clipboard {
             customPortOverrides: (layer.customPortOverrides || []).slice(),
             // Power tab: the voltage, the breakout that rides with it
             // (without it a 208 V powerCON screen's copy read True1), the
-            // circuits, their colours, labels, cables and hand-drawn runs.
-            // NOT the feeds - see SCREEN_FEED_KEYS at the top of this file.
+            // circuits, their colours, labels and hand-drawn runs. NOT the
+            // feeds, nor the circuit cables that belong to them - see
+            // SCREEN_FEED_KEYS at the top of this file.
             powerVoltage: layer.powerVoltage,
             powerVoltageCustom: layer.powerVoltageCustom,
             powerBreakoutType: layer.powerBreakoutType,
@@ -377,7 +381,6 @@ class _Clipboard {
             powerLabelTextColor: layer.powerLabelTextColor,
             powerLabelTemplate: layer.powerLabelTemplate,
             powerLabelOverrides: deep(layer.powerLabelOverrides),
-            powerCircuitCables: deep(layer.powerCircuitCables),
             // The screen's own jumper lengths (2026-09-25): its cabinets,
             // not a claim on any box, so the copy keeps them.
             dataJumpV: layer.dataJumpV,

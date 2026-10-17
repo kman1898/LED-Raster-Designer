@@ -909,6 +909,18 @@ class _Power {
                     .forEach(l => touched.add(l));
             }
         }
+        // A multi on no distro has no feed, so nothing typed under it is
+        // this drop's: a home run or circuit cable an older file left on
+        // an unfed multi in the span never rides into the new feed (owner,
+        // 2026-10-17 - a new feed on the same index starts blank). Read
+        // before the re-key, which would carry the stale entry across.
+        const unfed = segs.filter(s => s.end >= start && s.start <= end
+            && !assign[s.index]);
+        if (unfed.length) {
+            const circuitList = this.screenCircuits(layer);
+            unfed.forEach(s => this._forgetFeedLengths(layer, s.index,
+                circuitList.slice(s.start - 1, s.end).map(c => c.num)));
+        }
         const points = this._socaSplitPoints(layer, count)
             .filter(p => p < start - 1 || p > end);
         if (start > 1 && (start - 1) % size !== 0) points.push(start - 1);
@@ -1864,6 +1876,20 @@ class _Power {
             ft, connector: rec.connector || null, id, name,
             text: this.cableText(ft, name),
         };
+    }
+
+    // The circuit's cable as the PAPERWORK prints it - the pull sheet, the
+    // binder and an exported map: only where the circuit's multi is on a
+    // distro. A circuit cable belongs to its feed (owner, 2026-10-17), and
+    // every clear forgets it now, but an older file can still hold one on
+    // a circuit nothing feeds; it stays stored as the file had it (opening
+    // a show changes nothing) and prints nowhere.
+    printedCircuitCable(layer, circuitNum) {
+        const cable = this.powerCircuitCable(layer, circuitNum);
+        if (!cable) return null;
+        const box = this._circuitBox(layer, circuitNum);
+        return box.idx != null && (layer.powerSocaDistro || {})[box.idx]
+            ? cable : null;
     }
 
     // "10' True1" in a feet show, "3 m True1" in a meters one: the length
@@ -3126,6 +3152,36 @@ class _Power {
             });
         }
         this._wipeSplitterManualFor(layer, t.runIds);
+    }
+
+    // ---- typed lengths go with their feed --------------------------------
+    //
+    // "if i delete a distro or clear a multi etc it needs to delete the
+    // lengths for the cable and extensions. same goes for data tab" (owner,
+    // 2026-10-17). A multi's home run (powerSocaLengths, by stable index)
+    // and its circuits' cables (powerCircuitCables, by circuit number) are
+    // the feed's paperwork: a delete, a clear or an unfeed forgets them,
+    // so a later feed that takes the same index or circuit number starts
+    // blank instead of wearing the old run's length. The screen's own V/H
+    // jumpers are not the feed's and are never touched here. No history
+    // entry and no lock check - the callers hold both. Keys are deleted,
+    // the store objects left behind (see _wipeSocaProgramming).
+    _forgetFeedLengths(layer, socaIndex, circuits) {
+        if (!layer) return false;
+        let changed = false;
+        if (socaIndex != null && layer.powerSocaLengths
+                && layer.powerSocaLengths[Number(socaIndex)] !== undefined) {
+            delete layer.powerSocaLengths[Number(socaIndex)];
+            changed = true;
+        }
+        if (layer.powerCircuitCables) {
+            (circuits || []).forEach(num => {
+                if (layer.powerCircuitCables[num] === undefined) return;
+                delete layer.powerCircuitCables[num];
+                changed = true;
+            });
+        }
+        return changed;
     }
 
     // Drop the manual share (merge) groups and split pins covering the

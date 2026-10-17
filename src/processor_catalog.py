@@ -1016,10 +1016,12 @@ def sync_next_processor_seq(project):
 # → a port's own cable. Both stores live on the HARDWARE record - the
 # processor card for the ports it carries on its own face, the breakout
 # box (``cvt``) for the ports it delivers - because a home run belongs to
-# the socket, not to the screen plugged into it. That is the one place this
-# differs from power, where a circuit cable is per-screen programming and a
-# clear forgets it: a port released from a screen KEEPS its snake and cable,
-# since the loom is still hanging off that socket whatever the wall does.
+# the socket, not to the screen plugged into it: a port released from a
+# screen KEEPS its snake, since the loom is still hanging off that socket
+# whatever the wall does. Its own port cable is the run from the socket to
+# the screen, so the release forgets that one, the way a power clear
+# forgets a circuit's cable (owner, 2026-10-17: "same goes for data tab" -
+# forget_port_cables, from the port-assignment routes).
 #
 #   node['portCables'] = {str(socket): {ft?, connector?}}
 #
@@ -1292,6 +1294,45 @@ def prune_cable_store(node, port_numbers):
         node['portCables'] = cables
     else:
         node.pop('portCables', None)
+
+
+def forget_port_cables(processors, sockets):
+    """Drop the port cable on each released socket. In place.
+
+    "if i delete a distro or clear a multi etc it needs to delete the
+    lengths for the cable and extensions. same goes for data tab" (owner,
+    2026-10-17): a port's own cable runs from its socket to the screen on
+    it, so a socket let go of forgets it - the port cable is the screen
+    feed's, unlike the snake it may ride, which is the socket's loom and
+    stays. `sockets` is an iterable of (cardId, card-wide socket); each is
+    read off the device that DELIVERS it (the first box carrying it, else
+    the card - snake_device_index), which is where the sheet typed it.
+    A store left empty loses its key. Returns the number dropped.
+    """
+    wanted = {(str(c), int(n)) for c, n in sockets or ()}
+    if not wanted:
+        return 0
+    _devices, delivers = snake_device_index(processors or [])
+    raw = {}
+    for proc in processors or []:
+        for slot in (proc or {}).get('slots') or []:
+            card = (slot or {}).get('card')
+            if not card:
+                continue
+            raw[card.get('id')] = card
+            for cvt in card.get('cvts') or []:
+                raw[cvt.get('id')] = cvt
+    dropped = 0
+    for card_id, n in sorted(wanted):
+        node = raw.get(delivers.get((card_id, n)) or card_id)
+        cables = (node or {}).get('portCables')
+        if not isinstance(cables, dict) or str(n) not in cables:
+            continue
+        cables.pop(str(n))
+        dropped += 1
+        if not cables:
+            node.pop('portCables', None)
+    return dropped
 
 
 def _stored_connector(rec):

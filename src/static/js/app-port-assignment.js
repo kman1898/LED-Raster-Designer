@@ -245,6 +245,14 @@ class _PortAssignment {
         }
         const payload = Object.assign({ screens: this._assignmentScreens() },
                                       body || {});
+        // A release takes the port's cable with it (owner, 2026-10-17), and
+        // a pull-sheet edit on the row that cable printed goes too - the
+        // rows as they print now, read before the request. Every release
+        // of a chain reads its own (only the LAST names the history
+        // action - _dockReleasePins), so the one snapshot holds them all.
+        const pullBefore = (/\/unpin$/.test(url)
+                && typeof this._pullLiveRowKeys === 'function')
+            ? this._pullLiveRowKeys() : null;
         return fetch(url, {
             method,
             headers: { 'Content-Type': 'application/json' },
@@ -306,6 +314,17 @@ class _PortAssignment {
                     this._assignmentKeyRaw = this._assignmentKey();
                 }
                 this._applyAssignmentResolution();
+                // A released socket forgets its port cable on the server
+                // (owner, 2026-10-17), and the tree rides the reply when it
+                // did: folded in BEFORE the snapshot, so undo puts the
+                // cable back with the pin. A chain's earlier releases fold
+                // theirs in as they land, so the last one's snapshot holds
+                // every cable the chain let go of.
+                if (data.resolved
+                        && typeof this._applyProcessorState === 'function') {
+                    this._applyProcessorState(data);
+                }
+                if (pullBefore) this._dropPullEditsGoneWith(pullBefore);
                 if (action && typeof this.saveState === 'function') {
                     this.saveState(action);
                 }

@@ -882,7 +882,6 @@ DISTRO_FRAMES_JS = """() => {
             const gear = head.querySelector('.hw-dock-gear');
             const r = el.getBoundingClientRect();
             const g = gear.getBoundingClientRect();
-            const kids = [...head.children];
             return {
                 id: el.dataset.lrdDistro,
                 border: [cs.borderTopColor, cs.borderRightColor,
@@ -891,7 +890,10 @@ DISTRO_FRAMES_JS = """() => {
                 radius: parseFloat(cs.borderTopLeftRadius),
                 pad: parseFloat(cs.paddingLeft),
                 ground: cs.backgroundColor,
-                nameFirst: kids.indexOf(name) < kids.indexOf(info),
+                // the supply tag rides in the header's end group (with
+                // Balance and the gear), so order is read in the document
+                nameFirst: !!(name.compareDocumentPosition(info)
+                              & Node.DOCUMENT_POSITION_FOLLOWING),
                 nameSize: parseFloat(getComputedStyle(name).fontSize),
                 nameWeight: parseInt(getComputedStyle(name).fontWeight, 10),
                 infoSize: parseFloat(getComputedStyle(info).fontSize),
@@ -1019,16 +1021,22 @@ def test_the_tray_raises_no_resize_observer_loop_in_webkit(tray, e2e_server):
             for key in folds:
                 fold(key)
             # the tray exactly as tall as its folded content: the next
-            # unfold brings the scrollbar, the fold after takes it away
-            bar = pg.evaluate("""() => {
+            # unfold brings the scrollbar, the fold after takes it away.
+            # Read once the tray has settled: headers that wrap rather than
+            # clip (1.5) can leave the folded tray scrolling at its default
+            # height, and WebKit drops that scrollbar a layout later.
+            pg.evaluate("""() => {
                 const d = document.getElementById('hardware-dock');
                 const b = document.getElementById('hardware-dock-body');
                 d.style.height = (d.offsetHeight - b.clientHeight
                                   + b.scrollHeight + 2) + 'px';
                 window.app.settleLayout && window.app.settleLayout();
-                return b.offsetWidth - b.clientWidth;
             }""")
             pg.wait_for_timeout(400)
+            bar = pg.evaluate("""() => {
+                const b = document.getElementById('hardware-dock-body');
+                return b.offsetWidth - b.clientWidth;
+            }""")
             assert bar == 0, 'the folded tray must not scroll yet'
             for key in folds + folds:
                 fold(key)

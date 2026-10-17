@@ -302,10 +302,14 @@ input[type="radio"] { accent-color:var(--ps-accent) !important; }
 /* text fields / selects in modals get the recessed inset look, but NOT
    checkboxes/radios, which carry their own checked fill (see checkbox rules) */
 #preferences-modal input:not([type="checkbox"]):not([type="radio"]),
-#preferences-modal select,
 #export-modal input:not([type="checkbox"]):not([type="radio"]),
-#export-modal select, #export-modal textarea {
+#export-modal textarea {
   background:var(--ps-inset) !important; color:var(--ps-text) !important; }
+/* the selects take the color alone: the `background` shorthand above, with
+   its id selector, also reset the chevron's background-image (drawn below)
+   and every select in both dialogs read as a plain text box (2026-10-17) */
+#preferences-modal select, #export-modal select {
+  background-color:var(--ps-inset) !important; color:var(--ps-text) !important; }
 
 /* a derived value shown as a placeholder (a multi name that follows its
    distro, a dock chip's resolved label) is a hint, one step below typed
@@ -850,8 +854,11 @@ select, .info-select {
 #hw-gear-popover .hw-pop-out b { color:var(--ps-text) !important; }
 #hw-gear-popover .hw-pop-out-sub, #hw-gear-popover .hw-pop-outs-hint,
 #hw-gear-popover .hw-pop-outs-cap small { color:var(--ps-faint) !important; }
+/* background-COLOR, not the shorthand: an !important `background` here
+   out-ranked the select rule's chevron (background-image), so every
+   select in the panel read as a text box */
 #hw-gear-popover input, #hw-gear-popover select {
-  background:var(--ps-inset) !important; border:1px solid var(--ps-dark) !important;
+  background-color:var(--ps-inset) !important; border:1px solid var(--ps-dark) !important;
   color:var(--ps-text) !important;
   box-shadow:inset 0 1px 2px rgba(0,0,0,0.5) !important;
 }
@@ -928,7 +935,7 @@ select, .info-select {
    chevrons (the house draws every section chevron as a bare glyph). */
 #hardware-dock .btn,
 #hw-gear-popover .btn:not(.hw-pop-remove),
-#hw-gear-popover button:not(.hw-pop-remove):not(.hw-dock-gear),
+#hw-gear-popover button:not(.hw-pop-remove):not(.hw-dock-gear):not(.hw-pop-close),
 #balance-modal .btn {
   background:linear-gradient(#505050,#3a3a3a) !important;
   border:1px solid #161616 !important; border-radius:3px !important;
@@ -939,13 +946,13 @@ select, .info-select {
 }
 #hardware-dock .btn:hover,
 #hw-gear-popover .btn:not(.hw-pop-remove):hover,
-#hw-gear-popover button:not(.hw-pop-remove):not(.hw-dock-gear):hover,
+#hw-gear-popover button:not(.hw-pop-remove):not(.hw-dock-gear):not(.hw-pop-close):hover,
 #balance-modal .btn:hover {
   background:linear-gradient(#5a5a5a,#444) !important;
 }
 #hardware-dock .btn:active,
 #hw-gear-popover .btn:not(.hw-pop-remove):active,
-#hw-gear-popover button:not(.hw-pop-remove):not(.hw-dock-gear):active,
+#hw-gear-popover button:not(.hw-pop-remove):not(.hw-dock-gear):not(.hw-pop-close):active,
 #balance-modal .btn:active {
   transform:translateY(1px);
   background:linear-gradient(#2e2e2e,#383838) !important;

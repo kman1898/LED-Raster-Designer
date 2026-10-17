@@ -203,7 +203,23 @@ class _Distros {
         const fedLocked = (this.project.layers || []).filter(l => l && l.locked
             && Object.values(l.powerSocaDistro || {}).includes(id));
         if (this._lockedRefused(fedLocked)) return false;
+        // The multis it fed lose their typed lengths with it (owner,
+        // 2026-10-17): each one's home run - a direct output's included -
+        // and its circuits' cables. Read off the naming index before any
+        // assignment moves, which is what says which circuits a multi has.
+        const pullBefore = this._pullLiveRowKeys();
+        const forget = [];
+        for (const layer of this.project.layers || []) {
+            const map = layer.powerSocaDistro;
+            if (!map) continue;
+            for (const k of Object.keys(map)) {
+                if (map[k] !== id) continue;
+                forget.push({ layer, idx: Number(k),
+                              circuits: this._socaClearTargets(layer, k).circuits });
+            }
+        }
         list.splice(i, 1);
+        forget.forEach(f => this._forgetFeedLengths(f.layer, f.idx, f.circuits));
         // orphaned soca assignments fall back to unassigned
         const touched = [];
         for (const layer of this.project.layers || []) {
@@ -217,6 +233,8 @@ class _Distros {
         // The orphaned multis fall back into the unassigned bucket, which
         // renumbers it and everything after it.
         this._circuitTailCache = null;
+        // A pull-sheet edit on a row the removal took away goes with it.
+        this._dropPullEditsGoneWith(pullBefore);
         // ONE entry for the removal AND the orphaning it caused, taken after
         // both so a single Ctrl+Z brings the distro back with its multis
         // still assigned to it - not a distro with its feeds cut loose.
@@ -246,6 +264,15 @@ class _Distros {
         const stamped = (distroId && Number.isFinite(pin) && pin >= 1)
             ? this._materializeSocaBox(distroId, pin, layer, socaIndex)
             : [];
+        // A multi that leaves its distro - off it, or onto another - leaves
+        // the old feed's home run and circuit cables behind (owner,
+        // 2026-10-17); one that had no distro had no feed, so whatever an
+        // older file left under its index is not the new feed's either.
+        // Staying on the same distro keeps them.
+        if ((map[socaIndex] || null) !== (distroId || null)) {
+            this._forgetFeedLengths(layer, socaIndex,
+                this._socaClearTargets(layer, socaIndex).circuits);
+        }
         if (distroId) map[socaIndex] = distroId; else delete map[socaIndex];
         // Assignment renumbers both buckets it touches, so every label on the
         // show can move. Stale labels for a frame is a bug this has already

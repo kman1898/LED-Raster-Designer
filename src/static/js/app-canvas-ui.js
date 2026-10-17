@@ -786,6 +786,11 @@ class _CanvasUi {
         const onCanvas = ((this.project && this.project.layers) || [])
             .filter(l => l && l.canvas_id === canvasId);
         if (this._lockedRefused(onCanvas)) return Promise.resolve(null);
+        // A pull-sheet edit on a row that goes with the canvas's screens
+        // goes too (owner, 2026-10-17): read now, dropped before the
+        // snapshot so undo brings the edits back.
+        const pullBefore = onCanvas.length && typeof this._pullLiveRowKeys === 'function'
+            ? this._pullLiveRowKeys() : null;
         return fetch(`/api/canvas/${canvasId}`, { method: 'DELETE' })
             .then(r => r.json().then(body => ({ ok: r.ok, body })))
             .then(({ ok, body }) => {
@@ -794,6 +799,7 @@ class _CanvasUi {
                     return;
                 }
                 this._applyProjectUpdate(body);
+                if (pullBefore) this._dropPullEditsGoneWith(pullBefore);
                 if (typeof this.saveState === 'function') this.saveState('Delete Canvas');
             });
     }

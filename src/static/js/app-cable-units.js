@@ -7,6 +7,11 @@
 //     in the export dialog (Pull Sheet and Binder sections, one setting).
 //     A show with none stored - every file saved before the setting - is
 //     feet.
+//   * 2026-10-17: the open show's unit can also be switched from the Data
+//     and Power sidebars (an ft / m select beside the jumper fields), and
+//     a Preferences save that changes the unit offers it to the open show
+//     (offerPreferredCableUnitToShow). It is a project setting: a locked
+//     screen does not hold it.
 //   * EVERY length follows the show's unit: multi home runs, circuit
 //     cables, data home runs, extensions and snakes, the per-screen V / H
 //     jumpers, long jumpers, box fiber, processor-to-box cables, the box
@@ -243,13 +248,43 @@ class _CableUnits {
 
     // What the change asks when the show already holds lengths.
     cableUnitChangeQuestion(unit, count) {
+        const to = this.cableUnitAbbr(unit);
+        return `Change this show's cable lengths to ${this.cableUnitWord(to)}?\n\n`
+            + this._typedCableLengthsNote(to, count);
+    }
+
+    // What a switch to `unit` does to the lengths already typed.
+    _typedCableLengthsNote(unit, count) {
         const from = this.cableUnit();
         const to = this.cableUnitAbbr(unit);
         const lengths = count === 1 ? '1 cable length' : `${count} cable lengths`;
-        return `Change this show's cable lengths to ${this.cableUnitWord(to)}?\n\n`
-            + `The ${lengths} already typed keep their numbers: `
+        return `The ${lengths} already typed keep their numbers: `
             + `25 ${from} becomes 25 ${to}. Check them after. `
             + 'Long jumpers are measured again.';
+    }
+
+    // What a Preferences save asks when its new unit is not the open
+    // show's: one question, the typed lengths' note folded in.
+    cableUnitPreferenceQuestion(unit, count) {
+        const to = this.cableUnitAbbr(unit);
+        const ask = `Also switch the open show to ${this.cableUnitWord(to)}?`;
+        return count > 0 ? `${ask}\n\n${this._typedCableLengthsNote(to, count)}` : ask;
+    }
+
+    // Owner ruling, 2026-10-17: a Preferences save that changed the unit
+    // a new show starts in (`previous` was the stored one) offers the
+    // open show the same unit. Nothing is asked when the preference did
+    // not change or the show already reads it (a pristine startup show
+    // follows the Preferences on its own). Yes switches the show through
+    // the export dialog's own path, without asking again; No leaves it.
+    // Returns true when the show's unit changed.
+    offerPreferredCableUnitToShow(previous) {
+        if (!this.project) return false;
+        const to = this.preferredCableUnit();
+        if (to === this.normalizeCableUnit(previous) || to === this.cableUnit()) return false;
+        const count = this.typedCableLengthCount();
+        if (!window.confirm(this.cableUnitPreferenceQuestion(to, count))) return false;
+        return this.setCableUnit(to, false);
     }
 
     // Set the show's unit: one history entry, one project POST, every
@@ -395,25 +430,27 @@ class _CableUnits {
         document.querySelectorAll('[data-cable-unit-title]').forEach(el => {
             el.setAttribute('title', fill(el.getAttribute('data-cable-unit-title')));
         });
+        // Every unit select follows, focused or not: the sidebar's stays
+        // focused after a pick, and a Cmd+Z right after must still land it
+        // on the restored unit.
         document.querySelectorAll('select.cable-unit-select').forEach(sel => {
-            if (document.activeElement !== sel) sel.value = unit;
+            sel.value = unit;
         });
     }
 
-    // Wired once (from initPullSheetControls): the export dialog's two
-    // "Cable lengths" selects - the Pull Sheet section's and the Binder
-    // section's - commit the one show setting.
+    // Wired once (from initPullSheetControls): every "Cable lengths"
+    // select - the export dialog's two (the Pull Sheet section's and the
+    // Binder section's) and the Data and Power sidebars' ft / m beside
+    // the jumper fields (2026-10-17) - commits the one show setting.
     initCableUnitControls() {
         if (this._cableUnitControlsWired) return;
         this._cableUnitControlsWired = true;
         document.querySelectorAll('select.cable-unit-select').forEach(sel => {
             sel.addEventListener('change', () => {
+                // A change the user cancelled must not leave it showing
+                // the unit they backed out of: the sync puts it back.
                 this.setCableUnit(sel.value);
                 this.syncCableUnitControls();
-                // The sync skips a focused select, and this one has focus:
-                // a change the user cancelled must not leave it showing the
-                // unit they backed out of.
-                sel.value = this.cableUnit();
             });
         });
         this.syncCableUnitControls();

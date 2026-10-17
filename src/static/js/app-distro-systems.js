@@ -104,13 +104,31 @@ export const DISTRO_CONNECTORS = [
       regions: ['eu'], couple: 'ln', rating: { eu: 16 }, glyph: 'schuko', cable: 'Schuko' },
 ];
 
-// What feeds the distro. `ratingA` is the per-leg figure picking it sets.
+// What feeds the distro. `ratingA` is the per-leg figure picking it sets;
+// the Rating box stays typeable, because a cam connector does not set the
+// rating - the distro's main or feeder does (a 600 or 800 A distro takes
+// two sets of 400 A cams). `systems` are the services the input can feed:
+// the gear's Input list shows only those for the distro's system. CEE red
+// is 5-pin 3φ with a neutral, CEE blue is 1φ. Ids are stored on distros
+// and presets, so an id never changes.
+const US_SYSTEMS = ['120/208', '120/240', '120'];
 export const DISTRO_INPUTS = [
-    { id: 'cam200', name: 'Cam 200 A', ratingA: 200 },
-    { id: 'cam400', name: 'Cam 400 A', ratingA: 400 },
-    { id: 'l2130', name: 'L21-30', ratingA: 30 },
-    { id: 'cee63', name: 'CEE 63 A red', ratingA: 63 },
-    { id: 'powerlock400', name: 'Powerlock 400 A', ratingA: 400 },
+    { id: 'cam100', name: 'Cam 100 A', ratingA: 100, systems: US_SYSTEMS },
+    { id: 'cam200', name: 'Cam 200 A', ratingA: 200, systems: US_SYSTEMS },
+    { id: 'cam400', name: 'Cam 400 A', ratingA: 400, systems: US_SYSTEMS },
+    { id: 'cam600', name: 'Cam 600 A', ratingA: 600, systems: US_SYSTEMS },
+    { id: 'cam800', name: 'Cam 800 A', ratingA: 800, systems: US_SYSTEMS },
+    { id: 'l2130', name: 'L21-30', ratingA: 30, systems: ['120/208'] },
+    { id: 'cee16r', name: 'CEE 16 A red', ratingA: 16, systems: ['230/400'] },
+    { id: 'cee32r', name: 'CEE 32 A red', ratingA: 32, systems: ['230/400'] },
+    { id: 'cee63', name: 'CEE 63 A red', ratingA: 63, systems: ['230/400'] },
+    { id: 'cee125r', name: 'CEE 125 A red', ratingA: 125, systems: ['230/400'] },
+    { id: 'cee16b', name: 'CEE 16 A blue', ratingA: 16, systems: ['230'] },
+    { id: 'cee32b', name: 'CEE 32 A blue', ratingA: 32, systems: ['230'] },
+    { id: 'cee63b', name: 'CEE 63 A blue', ratingA: 63, systems: ['230'] },
+    { id: 'cee125b', name: 'CEE 125 A blue', ratingA: 125, systems: ['230'] },
+    { id: 'powerlock400', name: 'Powerlock 400 A', ratingA: 400, systems: ['230/400', '230'] },
+    { id: 'powerlock630', name: 'Powerlock 630 A', ratingA: 630, systems: ['230/400', '230'] },
 ];
 
 // The breaker a new row starts with, by region.
@@ -1220,7 +1238,13 @@ class _DistroSystems {
         none.value = '';
         none.textContent = '—';
         input.appendChild(none);
+        // Only the inputs that can feed this system - except the one the
+        // distro already has, which stays listed and selected even when it
+        // no longer fits (an old record, or the system changed after it
+        // was picked): nothing is dropped behind the reader's back. A
+        // distro with no system yet lists them all.
         DISTRO_INPUTS.forEach(i => {
+            if (sys && d.input !== i.id && !i.systems.includes(sys.id)) return;
             const opt = document.createElement('option');
             opt.value = i.id;
             opt.textContent = i.name;

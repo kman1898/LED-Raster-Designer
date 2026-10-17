@@ -5170,9 +5170,15 @@ class _Binder {
                 // A socket's own entry: its home run where it is loose
                 // ('cable'), its EXTENSION off the snake it rides where it
                 // is snaked ('ext', the snake's name in the last column).
+                // A port cable runs to the screen on its socket, so one on a
+                // socket nothing is on - a primary pin or the return it
+                // carries - belongs to no feed and prints nowhere (owner,
+                // 2026-10-17); an older file may still hold one.
+                const occ = this._assignment && this._assignment.occupancy;
                 for (const [socket, c] of Object.entries(o.rec.portCables || {})) {
                     const ft = this.parseCableLength(c && c.ft);
                     if (!Number.isFinite(ft) || ft <= 0) continue;
+                    if (occ && !this._portOccupants(card.id, socket).length) continue;
                     const connId = this.dataPortConnectorId({ rec: o.rec }, c.connector);
                     const snake = this.dataPortSnake(o, socket);
                     if (snake) {

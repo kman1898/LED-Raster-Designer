@@ -490,6 +490,10 @@ class _Preferences {
 
         if (saveBtn) {
             saveBtn.addEventListener('click', () => {
+                // The unit a new show starts in, before this save: a
+                // changed one is offered to the open show below.
+                const prevCableUnit = typeof this.preferredCableUnit === 'function'
+                    ? this.preferredCableUnit() : null;
                 const prefs = this.readPreferencesFromUI();
                 localStorage.setItem('appPreferences', JSON.stringify(prefs));
                 // Save to server so all clients share the same preferences
@@ -516,6 +520,12 @@ class _Preferences {
                 // on-canvas label, repaint so the new font shows immediately.
                 if (window.canvasRenderer) window.canvasRenderer.render();
                 modal.style.display = 'none';
+                // After the startup-show pass above, which already moved a
+                // pristine show to the new unit: only a show that still
+                // reads the other unit is asked (app-cable-units.js).
+                if (prevCableUnit && typeof this.offerPreferredCableUnitToShow === 'function') {
+                    this.offerPreferredCableUnitToShow(prevCableUnit);
+                }
             });
         }
         if (cancelBtn) {

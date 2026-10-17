@@ -75,7 +75,9 @@ on a screen or group turns it on.
 DISTROS BUILT FROM THEIR OUTPUTS
 
 A distro's gear picks its power system - 120/208V 3-phase, 120/240V
-split, 120V, 230/400V 3-phase or 230V - its input and its amps per leg,
+split, 120V, 230/400V 3-phase or 230V - its input (Cam 100 to 800 A,
+L21-30, CEE red or blue 16 to 125 A, Powerlock 400 or 630 A, only the
+ones that fit its system) and its amps per leg,
 then lists its outputs, a connector and a count per row. Multis break out
 at the screen as before; a direct output on the distro face is one
 circuit with its own cable to the screen, and can feed a 2fer or 3fer.
@@ -105,8 +107,9 @@ system.
 CABLE LENGTHS IN FEET OR METERS
 
 Preferences > Pull sheet & cables sets Feet or Meters for new shows, and
-the Export dialog's Pull Sheet and Binder sections set it for the show
-in front of you. Every cable length follows the show: multi home runs,
+offers to switch the open show too. The Unit dropdown under the jumper
+fields on the Data and Power tabs, or the Export dialog's Pull Sheet and
+Binder sections, set it for the show in front of you. Every cable length follows the show: multi home runs,
 circuit cables, data home runs and snakes, jumpers, fiber and copper to
 the boxes, the box cable sheets, the cable tags on the maps, the pull
 sheet and the binder. Meters print as "Data Jump 2 m". A show opened
@@ -174,6 +177,20 @@ because of it.
   "Upper is locked - unlock it to change it." The other selected screens
   still change, and selecting a locked screen or its cabinets never shows
   the error.
+- FIX: The distro, processor, card and box settings panels always fit
+  the window: fields wrap instead of being cut off, a panel can be dragged
+  by its title bar, and x closes it. In a narrow Hardware tray the card
+  headers wrap, so Balance and the gear stay in reach.
+- FIX: Dropdowns in Preferences, the Export dialog and the hardware
+  settings panels show their arrow again; they read as text boxes.
+- FIX: Deleting a distro, clearing a multi or a circuit, moving a screen
+  off its distro, releasing a data port, or removing a card, processor or
+  breakout box clears the cable lengths that went with it, so they no
+  longer come back on the next feed. Jumper lengths stay with the screen.
+- FIX: Deleting a screen, alone, in a selection, with its group or with
+  its canvas, clears the data cable lengths on the ports it used and the
+  pull sheet edits on its rows; a port or row another screen still uses
+  keeps its own. Undo brings them back.
 - FIX: Multi numbers on the Power tab no longer shift when a screen is
   added to a shared distro, removed or reordered. A removed screen leaves
   its gap for the next one, and only Reset offsets in the Balance dialog

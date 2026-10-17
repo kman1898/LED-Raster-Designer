@@ -698,7 +698,8 @@ TAG_PLACES_JS = """([pattern, labelSize, watts, circuits]) => {
     // back exactly as it was found before this returns
     const before = { pattern: l.powerFlowPattern, size: l.powerLabelSize, watts: l.panelWatts,
                      tags: l.showPowerCableTags,
-                     cables: JSON.parse(JSON.stringify(l.powerCircuitCables || null)) };
+                     cables: JSON.parse(JSON.stringify(l.powerCircuitCables || null)),
+                     distro: JSON.parse(JSON.stringify(l.powerSocaDistro || null)) };
     l.powerFlowPattern = pattern;
     l.powerLabelSize = labelSize;
     l.panelWatts = watts;
@@ -707,6 +708,13 @@ TAG_PLACES_JS = """([pattern, labelSize, watts, circuits]) => {
     for (let n = 1; n <= circuits; n++) l.powerCircuitCables[n] = { ft: 10, connector: null };
     l._powerCircuits = null;
     l._powerCircuitNumKeys = null;
+    app._circuitTailCache = null;
+    // An exported map prints a circuit's cable only where the circuit is
+    // fed (2026-10-17: the lengths are the feed's), so every multi of the
+    // probe sits on a distro for both passes.
+    const feed = (app.getDistros()[0] || { id: 'probe' }).id;
+    l.powerSocaDistro = Object.assign({}, l.powerSocaDistro || {});
+    app.getSocaPlan(l).forEach(s => { if (!l.powerSocaDistro[s.soca]) l.powerSocaDistro[s.soca] = feed; });
     app._circuitTailCache = null;
     const calls = [];
     const place = r.placeCableTag;
@@ -753,6 +761,8 @@ TAG_PLACES_JS = """([pattern, labelSize, watts, circuits]) => {
         else l.showPowerCableTags = before.tags;
         if (before.cables === null) delete l.powerCircuitCables;
         else l.powerCircuitCables = before.cables;
+        if (before.distro === null) delete l.powerSocaDistro;
+        else l.powerSocaDistro = before.distro;
         l._powerCircuits = null;
         l._powerCircuitNumKeys = null;
         app._circuitTailCache = null;

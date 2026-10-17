@@ -7,6 +7,7 @@ import json
 from flask import Blueprint, request, jsonify, make_response, render_template
 
 import app
+import port_assignment
 from app import _find_canvas, _mirror_active_canvas_to_root, _next_canvas_color, _next_canvas_id, _next_canvas_workspace_position, _next_duplicate_canvas_name, log_event, socketio
 
 canvas_bp = Blueprint('canvas', __name__)
@@ -129,6 +130,7 @@ def delete_canvas(canvas_id):
         elif show_id == canvas_id:
             l['show_canvas_id'] = None
     # Remove all layers still belonging to this canvas.
+    pins_before = port_assignment.pins_of(app.current_project)
     layers_before = len(app.current_project.get('layers', []))
     app.current_project['layers'] = [
         l for l in app.current_project.get('layers', [])
@@ -154,6 +156,14 @@ def delete_canvas(canvas_id):
     # (port_assignment.prune_orphan_pins) - they used to outlive the layer
     # in the response, the client's project and the saved file (2026-09-23).
     app._enforce_group_integrity(app.current_project)
+    # The sockets the deleted screens held forget their port cables, as a
+    # released port does (owner, 2026-10-17) - routes_layers.delete_layer.
+    released = port_assignment.forget_released_port_cables(
+        app.current_project, pins_before)
+    if released:
+        log_event('port_cables_forgotten', {
+            'at': 'canvas_delete', 'canvasId': canvas_id,
+            'sockets': [f'{c}:{n}' for c, n in sorted(released)]})
     # Reassign active_canvas_id to the next remaining canvas.
     if app.current_project.get('active_canvas_id') == canvas_id:
         app.current_project['active_canvas_id'] = app.current_project['canvases'][0]['id']

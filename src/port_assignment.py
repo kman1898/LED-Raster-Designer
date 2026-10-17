@@ -1394,6 +1394,62 @@ def clear_pin(state, layer_id, index=None):
     return state
 
 
+def taken_by_pins(processors, pins):
+    """{(cardId, socket)} every pin holds, plus each backup socket that
+    carries the return of a pinned main (the backupRoles link
+    _mirror_returns draws) - the sockets with a cable to a screen on them."""
+    primary = {(p['cardId'], p['port']) for p in _clean_pins(pins)}
+    taken = set(primary)
+    for card in cards_in(processors or []):
+        for number, role in (card.get('backupRoles') or {}).items():
+            try:
+                main = (str(role.get('cardId')), int(role.get('port')))
+            except (TypeError, ValueError, AttributeError):
+                continue
+            if main in primary:
+                taken.add((card['cardId'], int(number)))
+    return taken
+
+
+def released_sockets(processors, pins_before, pins_after):
+    """The sockets an edit let go of: taken before it, free after it. A
+    socket another claimant still holds is not released."""
+    return taken_by_pins(processors, pins_before) \
+        - taken_by_pins(processors, pins_after)
+
+
+def pins_of(project):
+    """A copy of the pins `project` holds now, [] when it holds none - the
+    "before" a screen delete reads ahead of its prune, for
+    forget_released_port_cables."""
+    state = (project or {}).get(STATE_KEY) if isinstance(project, dict) else None
+    pins = state.get('pins') if isinstance(state, dict) else None
+    return [dict(p) for p in pins or [] if isinstance(p, dict)]
+
+
+def forget_released_port_cables(project, pins_before):
+    """Drop the port cable on every socket the project's pins let go of
+    since `pins_before`. In place.
+
+    A screen deleted (alone, with a selection, with its group or with its
+    canvas) takes its pins with it (prune_orphan_pins), and the sockets
+    they held forget their port cables exactly as a released port does
+    (owner, 2026-10-17): a socket another screen still claims keeps its
+    cable, the return a released main carried goes with it
+    (released_sockets), and the snakes stay - they are the sockets' loom.
+    The delete routes call this AFTER their prune; the restore funnel only
+    on the group delete's request marker, so undo, redo and a file load
+    change nothing. Returns the released sockets whose cable went.
+    """
+    if not isinstance(project, dict):
+        return set()
+    processors = project.get('processors') or []
+    released = released_sockets(processors, pins_before, pins_of(project))
+    if not released or not catalog.forget_port_cables(processors, released):
+        return set()
+    return released
+
+
 def prune_orphan_pins(project):
     """Drop every pin whose layer is no longer in the project. In place.
 

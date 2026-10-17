@@ -29,10 +29,11 @@ auto-drawn ports get frozen into pins (port_assignment.retire_auto) - the
 project funnel could only stamp the hardware-less cases. Every route runs
 the freeze first, so a legacy project's first edit and first read agree.
 """
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, g, request, jsonify
 
 import app
 import port_assignment as assignment
+import processor_catalog as catalog
 from app import log_event, socketio
 
 port_assignment_bp = Blueprint('port_assignment', __name__)
@@ -75,6 +76,17 @@ def _working():
 
 
 def _store(state):
+    # A socket the edit lets go of - a released port, a pin moved to
+    # another socket, the return a released main carried - forgets the
+    # port cable typed on it (owner, 2026-10-17: the lengths go with the
+    # feed they belong to). Its snake stays: that is the socket's loom.
+    before = (app.current_project.get(assignment.STATE_KEY) or {}).get('pins')
+    released = assignment.released_sockets(_processors(), before,
+                                           state.get('pins'))
+    if released and catalog.forget_port_cables(_processors(), released):
+        g.port_cables_forgotten = True
+        log_event('port_cables_forgotten', {
+            'sockets': [f'{c}:{n}' for c, n in sorted(released)]})
     app.current_project[assignment.STATE_KEY] = state
     return state
 
@@ -123,6 +135,19 @@ def _saved(state, status=200, extra=None):
     app.current_project['is_pristine'] = False
     socketio.emit('project_updated', app.current_project)
     body = _payload(state)
+    if g.get('port_cables_forgotten'):
+        # The tree changed with the pins (a released socket's cable went),
+        # so it rides the reply the way the processor routes send it: the
+        # client folds it in before its snapshot, and undo holds both.
+        body.update({
+            'processors': _processors(),
+            'resolved': catalog.resolve_all(_processors()),
+            'next_processor_seq':
+                app.current_project.get('next_processor_seq'),
+            'dataCableConnectors': catalog.data_cable_connectors(),
+            'snakes': catalog.resolved_show_snakes(app.current_project),
+            'fiberCables': catalog.resolved_fiber_cables(app.current_project),
+        })
     if extra:
         body.update(extra)
     return jsonify(body), status
