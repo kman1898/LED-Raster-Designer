@@ -1031,11 +1031,11 @@ def build_canvas_section(project, canvas, canvas_index, layers, warnings):
     # Sender(1) Port(1) ConnectIndex(2 LE) - the tail of a 17-byte record, minus
     # the geometry it no longer has a cell for. It is how the top-left cabinet
     # survives the slide, and it decodes cleanly on every reference file:
-    # Griztronics section 0 carries 00 00 23 00 and is missing port 0 link 35,
+    # Reference D's section 0 carries 00 00 23 00 and is missing port 0 link 35,
     # its section 1 carries 00 05 06 00 and is missing port 5 link 6, and so on.
     # A top-left cell that holds no cabinet leaves the placeholder routing
     # (sender 255, port 1, link 1) - which is exactly the ff 01 01 00 that two
-    # of the EDC sections carry and that used to be read as a "format" flag.
+    # of reference A's sections carry and that used to be read as a "format" flag.
     displaced = grid.get((0, 0))
     if displaced is None or displaced['hidden']:
         marker = (0xFF, 0x01, 0x01, 0x00)

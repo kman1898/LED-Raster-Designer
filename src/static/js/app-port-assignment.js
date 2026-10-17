@@ -233,6 +233,16 @@ class _PortAssignment {
     // re-apply it. Reads pass no action, and a refused edit changed nothing
     // and earns no entry - Ctrl+Z must never grow no-op steps.
     _assignmentRequest(url, method, body, onRefused, action) {
+        // A port placed on, moved off or released from a LOCKED screen
+        // changes its data map: refused here, where every placement verb
+        // (the Place buttons, the dock drops, the pins and releases) ends
+        // up, and the error names the screen (the owner's ruling,
+        // 2026-10-16). The read-only resolve is not a change.
+        if (body && body.layerId != null && !/\/resolve$/.test(url)) {
+            const target = ((this.project && this.project.layers) || [])
+                .find(l => String(l.id) === String(body.layerId));
+            if (target && this._lockedRefused(target)) return Promise.resolve();
+        }
         const payload = Object.assign({ screens: this._assignmentScreens() },
                                       body || {});
         return fetch(url, {

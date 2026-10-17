@@ -4,6 +4,20 @@
 // reads as dangling). Also the owner lookups a conflicting click asks.
 import { LEDRasterApp } from './app-core.js';
 
+// The fields of a screen a lock does not hold (_holdLockedLayers): the lock
+// itself, visibility (the eye button is not a change to the screen), and the
+// leading-underscore render caches the canvas keeps on the layer.
+const LOCK_EXEMPT_FIELD = (k) => k === 'locked' || k === 'visible' || k.charAt(0) === '_';
+
+// The events of a control that is still moving: a keystroke in a field, a
+// slider or colour drag. An edit the funnel holds back from a locked screen
+// during one of these is reported, but the fields are not repainted until
+// the commit (change, blur, pointer up) - a repaint mid-edit rewrote the very
+// field being typed in.
+const LIVE_EDIT_EVENTS = new Set(['input', 'mousemove', 'pointermove', 'touchmove', 'drag']);
+// The moves of a pointer drag: its attempt ends on the button's release.
+const POINTER_MOVE_EVENTS = new Set(['mousemove', 'pointermove', 'touchmove', 'drag']);
+
 class _CrossLayerPaths {
 
     // ── Cross-member manual paths (v0.11.0, step 6) ──────────────────────
@@ -76,14 +90,14 @@ class _CrossLayerPaths {
     // cabinets: the owner is whichever screen was current when it was drawn.
     // Clear Circuit / Clear Port and Clear All used to reach only the current
     // layer's own runs, so a run a peer drew across this screen stayed put with
-    // nothing on this screen able to remove it (Matt, 2026-09-22, the Orlando
-    // file: SL's circuit 1 was 13 cabinets of SR - "S1-1 can't be cleared ...
-    // nor have a way to delete it").
+    // nothing on this screen able to remove it (Matt, 2026-09-22, on a
+    // two-member wall where SL's circuit 1 was 13 cabinets of SR - "S1-1
+    // can't be cleared ... nor have a way to delete it").
     //
     // clearCustomRun: the current layer's run `num` goes, and every peer's run
     // `num` that lands on this layer goes WHOLE - its steps on the peer and
     // on any third member included, with its override for `num` let go
-    // (Matt's ruling, 2026-09-23, the Quantico file: Screen3's 16 circuits
+    // (Matt's ruling, 2026-09-23, on a two-member wall: Screen3's 16 circuits
     // each ran 7 cabinets of Screen2 then 7 of its own, and Clear Circuit on
     // Screen2 left every one of them half-drawn - "a group is one screen and
     // a circuit is one circuit"). Until then a peer's run only LOST the steps
@@ -110,13 +124,15 @@ class _CrossLayerPaths {
     // still took an undo step and a PUT. With nothing touched the handlers
     // (app-wiring.js) skip the snapshot and the PUT altogether.
     //
-    // A locked member is protected (Matt's ruling, 2026-09-22): a peer's Clear
-    // never removes its cabinets, never wipes its runs, overrides or index.
-    // The CLICKED screen is cleared even when it is itself locked: everywhere
-    // else in the app a lock guards position only (drag, offset fields,
-    // Center, Move to Canvas), and every other property edit - including
-    // drawing a run onto a locked screen - goes through, so refusing Clear
-    // alone would be the one edit a lock stops.
+    // A LOCKED SCREEN STAYS UNCHANGED until it is unlocked (the owner's
+    // ruling, 2026-10-16: "If it's locked it stays locked and unchanged until
+    // unlocked. If you try to change it shows an error dialog and tells why
+    // it can't change."). This replaces the 2026-09-22 rule, under which the
+    // CLICKED screen was cleared even when locked. Now no Clear removes a run
+    // that a locked screen owns or that crosses a locked screen's cabinets
+    // (_runLockedLayers) - the clicked screen included - because either way a
+    // locked screen would change on the canvas. Such a run is kept whole and
+    // the locked screens are named in one error (_showLockedError).
     _customRunKeys(kind) {
         return kind === 'power'
             ? { paths: 'powerCustomPaths', index: 'powerCustomIndex',
@@ -141,17 +157,22 @@ class _CrossLayerPaths {
 
     // This layer's run `num`, and - whole - every peer's run `num` with a
     // step on this layer (2026-09-23, "a circuit is one circuit"; see the
-    // section comment above). A locked peer is skipped whole and reported;
-    // the clicked layer is cleared even when itself locked.
+    // section comment above). A run that touches a locked screen is kept
+    // whole and its locked screens are reported in `skipped`.
     clearCustomRun(layer, kind, num) {
         if (!layer) return { touched: [], skipped: [] };
         const k = this._customRunKeys(kind);
         const touched = [];
-        const skipped = [];
+        const skipped = new Map();
         const own = layer[k.paths];
         if (own && Object.prototype.hasOwnProperty.call(own, num)) {
-            delete own[num];
-            touched.push(layer);
+            const locked = this._runLockedLayers(layer, kind, num);
+            if (locked.length) {
+                locked.forEach(l => skipped.set(l.id, l));
+            } else {
+                delete own[num];
+                touched.push(layer);
+            }
         }
         this.getPathScopeLayers(layer).forEach(peer => {
             if (!peer || peer.id === layer.id) return;
@@ -159,28 +180,56 @@ class _CrossLayerPaths {
             if (!paths || !Array.isArray(paths[num]) || paths[num].length === 0) return;
             const lands = paths[num].some(e => this.getPathEntryLayerId(peer, e) === layer.id);
             if (!lands) return;
-            if (peer.locked) { skipped.push(peer); return; }
+            const locked = this._runLockedLayers(peer, kind, num);
+            if (locked.length) { locked.forEach(l => skipped.set(l.id, l)); return; }
             delete paths[num];
             this._dropRunOverride(peer, kind, num);
             touched.push(peer);
         });
-        return { touched, skipped };
+        return { touched, skipped: [...skipped.values()] };
     }
 
+    // Every member's runs go, and the wall is back to automatic - except a
+    // run that touches a locked screen (a locked member's own runs, or an
+    // unlocked member's run across a locked member's cabinets), which is kept
+    // whole with its override, and its locked screens are reported.
     clearAllCustomRuns(layer, kind) {
         if (!layer) return { touched: [], skipped: [] };
         const k = this._customRunKeys(kind);
         const touched = [];
-        const skipped = [];
+        const skipped = new Map();
         this.getPathScopeLayers(layer).forEach(member => {
             if (!member) return;
             const paths = member[k.paths] || {};
-            const drawn = Object.keys(paths).some(n => (paths[n] || []).length > 0)
-                || (typeof this.getOverrideNums === 'function'
-                    && this.getOverrideNums(member, kind).length > 0);
-            if (member.locked && member.id !== layer.id) {
+            const drawnNums = Object.keys(paths).filter(n => (paths[n] || []).length > 0);
+            const overrides = (typeof this.getOverrideNums === 'function')
+                ? this.getOverrideNums(member, kind) : [];
+            const drawn = drawnNums.length > 0 || overrides.length > 0;
+            if (member.locked) {
                 // Reported only when there was something to leave alone.
-                if (drawn) skipped.push(member);
+                if (drawn) skipped.set(member.id, member);
+                return;
+            }
+            // Runs kept because they cross a locked member's cabinets.
+            const kept = {};
+            drawnNums.forEach(n => {
+                const num = Number.isFinite(Number(n)) ? Number(n) : n;
+                const locked = this._runLockedLayers(member, kind, num);
+                if (!locked.length) return;
+                locked.forEach(l => skipped.set(l.id, l));
+                kept[n] = paths[n];
+            });
+            const keptNums = Object.keys(kept);
+            if (keptNums.length > 0) {
+                if (keptNums.length === Object.keys(paths).length) return;
+                member[k.paths] = kept;
+                member[k.overrides] = overrides.filter(n => keptNums.includes(`${n}`));
+                const s = this._overrideEditing;
+                if (s && s.kind === kind && s.layerId === member.id
+                        && !keptNums.includes(`${s.num}`)) {
+                    this._overrideEditing = null;
+                }
+                touched.push(member);
                 return;
             }
             // Anything Clear All would change: a run key (an emptied `[]`
@@ -200,19 +249,307 @@ class _CrossLayerPaths {
             }
             touched.push(member);
         });
-        return { touched, skipped };
+        return { touched, skipped: [...skipped.values()] };
     }
 
-    // One toast for the members a Clear left alone, e.g.
-    // "Left is locked — its circuits were left alone."
-    _toastLockedSkipped(skipped, kind) {
-        if (!skipped || skipped.length === 0 || typeof this._toast !== 'function') return;
-        const names = skipped.map(l => l.name || `Screen ${l.id}`);
-        const list = names.length === 1 ? names[0]
-            : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
+    // The locked screens one run touches: its owner when the owner is
+    // locked, and every locked screen one of its cabinets sits on. A run
+    // with any is frozen - clearing, refilling or overwriting it would
+    // change a locked screen on the canvas.
+    _runLockedLayers(owner, kind, num) {
+        if (!owner) return [];
+        const k = this._customRunKeys(kind);
+        const out = new Map();
+        if (owner.locked) out.set(owner.id, owner);
+        const path = (owner[k.paths] && owner[k.paths][num]) || [];
+        path.forEach(e => {
+            const target = this.resolvePathEntryLayer(owner, e);
+            if (target && target.locked) out.set(target.id, target);
+        });
+        return [...out.values()];
+    }
+
+    // The one error every custom-mode change gives when it meets a locked
+    // screen, naming each one: "Upper is locked - unlock it to change it."
+    // An error toast (the app's error style), up a little longer than the
+    // default so a list of names can be read.
+    _showLockedError(layers) {
+        if (!layers || layers.length === 0 || typeof this._toast !== 'function') return;
+        const seen = new Set();
+        const names = [];
+        layers.forEach(l => {
+            if (!l || seen.has(l.id)) return;
+            seen.add(l.id);
+            names.push(l.name || `Screen ${l.id}`);
+        });
+        if (names.length === 0) return;
         const one = names.length === 1;
-        const runs = kind === 'power' ? 'circuits' : 'ports';
-        this._toast(`${list} ${one ? 'is' : 'are'} locked — ${one ? 'its' : 'their'} ${runs} were left alone.`, false, 4000);
+        const list = one ? names[0]
+            : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
+        const msg = one
+            ? `${list} is locked - unlock it to change it.`
+            : `${list} are locked - unlock them to change them.`;
+        // One gesture, one error: a verb guarded at its entry and again in
+        // the setter it calls would otherwise say the same thing twice in
+        // the same turn. An action that runs on across awaits (a chain of
+        // server requests) opens a scope (_beginLockedAction) and says each
+        // error once for the whole action. A later action says it again.
+        if (this._lockedErrorThisTurn === msg) return;
+        const scopes = this._lockedActions;
+        if (scopes && scopes.size) {
+            for (const scope of scopes) if (scope.said.has(msg)) return;
+            scopes.forEach(scope => scope.said.add(msg));
+        }
+        this._lockedErrorThisTurn = msg;
+        Promise.resolve().then(() => { this._lockedErrorThisTurn = null; });
+        this._toast(msg, true, 5000);
+    }
+
+    // One action for the locked error, from here until the returned end()
+    // is called - however many awaits lie between: each error is said once
+    // within it. Call end() in a finally.
+    _beginLockedAction() {
+        if (!this._lockedActions) this._lockedActions = new Set();
+        const scope = { said: new Set() };
+        this._lockedActions.add(scope);
+        return () => { this._lockedActions.delete(scope); };
+    }
+
+    // Stepping the active port or circuit (Tab, [ / ], Prev / Next, the
+    // menu items, typing a number in the active box) is a change too, so a
+    // locked screen refuses it with the same error (the owner's ruling,
+    // 2026-10-16: "Block it too"). True when the step must not happen.
+    _lockedStepRefused(layer) {
+        if (!layer || !layer.locked) return false;
+        this._showLockedError([layer]);
+        return true;
+    }
+
+    // THE LOCK GUARDS EVERYTHING (the owner's ruling, 2026-10-16): a locked
+    // screen stays unchanged until it is unlocked - not only its position -
+    // and every change that meets one says so. The helpers below are the
+    // shared shape of that rule; the lock toggle itself, visibility and
+    // selection are not changes and never come through here.
+    //
+    // True when any of `layers` (one layer or a list) is locked; the locked
+    // ones are named in the one error. For a change that must happen whole
+    // or not at all.
+    _lockedRefused(layers) {
+        const list = (Array.isArray(layers) ? layers : [layers]).filter(Boolean);
+        const locked = list.filter(l => l.locked);
+        if (locked.length === 0) return false;
+        this._showLockedError(locked);
+        return true;
+    }
+
+    // The screens a change may touch: `layers` less the locked ones, which
+    // are named in the one error. The unlocked ones still take the change.
+    _writableLayers(layers) {
+        const list = (layers || []).filter(Boolean);
+        const locked = list.filter(l => l.locked);
+        if (locked.length === 0) return list;
+        this._showLockedError(locked);
+        return list.filter(l => !l.locked);
+    }
+
+    // A HOLD on the locked screens among `layers` for the edit funnels
+    // (applyToSelectedLayers, updateLayerFromInputs), which run one handler
+    // over the whole selection. Every field of each locked screen is
+    // recorded; release() puts back any field the handler changed and
+    // returns the screens it had to put back. So a locked screen comes out
+    // byte-identical, and it is reported only when the edit would really
+    // have changed it - setting a field to the value it already has is not
+    // a change and says nothing. `locked`, `visible` and the
+    // leading-underscore render caches are not the screen's content and are
+    // never held.
+    _holdLockedLayers(layers) {
+        const held = [];
+        (layers || []).forEach(layer => {
+            if (!layer || !layer.locked) return;
+            const fields = new Map();
+            Object.keys(layer).forEach(k => {
+                if (LOCK_EXEMPT_FIELD(k)) return;
+                fields.set(k, JSON.stringify(layer[k] === undefined ? null : layer[k]));
+            });
+            held.push({ layer, fields });
+        });
+        return {
+            release: () => {
+                const changed = [];
+                held.forEach(({ layer, fields }) => {
+                    let touched = false;
+                    Object.keys(layer).forEach(k => {
+                        if (LOCK_EXEMPT_FIELD(k) || fields.has(k)) return;
+                        // A field the handler added goes again; an empty
+                        // one (an ensure-style `{}` / `[]` / null) reads
+                        // the same as no field and is not reported.
+                        const added = JSON.stringify(layer[k] === undefined ? null : layer[k]);
+                        delete layer[k];
+                        if (added !== 'null' && added !== '{}' && added !== '[]') touched = true;
+                    });
+                    fields.forEach((json, k) => {
+                        const now = JSON.stringify(layer[k] === undefined ? null : layer[k]);
+                        if (now === json) return;
+                        layer[k] = JSON.parse(json);
+                        touched = true;
+                    });
+                    if (touched) changed.push(layer);
+                });
+                return changed;
+            },
+        };
+    }
+
+    // The screens a Delete may remove, out of `ids`: never a locked one, and
+    // never the last unlocked member of a group a locked screen would be
+    // left alone in - a group of one is dissolved, which would change the
+    // locked screen's group. Returns { ids, locked } with the locked screens
+    // that held something back, for the one error.
+    _deletableLayerIds(ids) {
+        const layers = (this.project && this.project.layers) || [];
+        const byId = new Map(layers.map(l => [l.id, l]));
+        const locked = new Map();
+        let keep = (ids || []).filter(id => {
+            const l = byId.get(id);
+            if (l && l.locked) { locked.set(l.id, l); return false; }
+            return true;
+        });
+        const going = new Set(keep);
+        const heldGroups = new Set();
+        keep.forEach(id => {
+            const l = byId.get(id);
+            if (!l || !l.group_id || heldGroups.has(l.group_id)) return;
+            const members = typeof this.groupMembersOf === 'function' ? this.groupMembersOf(l) : [];
+            const left = members.filter(m => !going.has(m.id));
+            const lockedLeft = left.filter(m => m.locked);
+            if (lockedLeft.length && left.length < 2) {
+                heldGroups.add(l.group_id);
+                lockedLeft.forEach(m => locked.set(m.id, m));
+            }
+        });
+        if (heldGroups.size) {
+            keep = keep.filter(id => {
+                const l = byId.get(id);
+                return !(l && l.group_id && heldGroups.has(l.group_id));
+            });
+        }
+        return { ids: keep, locked: [...locked.values()] };
+    }
+
+    // The error for an edit the funnel held back from locked screens, said
+    // ONCE PER ATTEMPT on a control: a colour drag or typing fires the
+    // handler on every input, and the commit (change / blur / release) runs
+    // it once more - one error for all of it, Tab or Enter included.
+    //
+    // The fields are repainted so a locked screen's own values snap back -
+    // but only on the commit, never mid-edit (a repaint on every keystroke
+    // rewrote the field being typed in to the selection's "mixed" value, and
+    // a slider snapped back under the pointer), and never into the focused
+    // field. The repaint waits for the commit's own event sequence to finish
+    // (a Tab's change, blur and focus), so it sees where focus landed.
+    //
+    // The attempt is read from the event being handled (window.event): an
+    // `input` or a pointer move is live; anything else - a change, a key, a
+    // release, or no event at all (a programmatic call) - is a commit.
+    _reportLockedEdit(layers) {
+        const list = (layers || []).filter(Boolean);
+        const ev = (typeof window !== 'undefined' && window.event) || null;
+        const live = !!(ev && LIVE_EDIT_EVENTS.has(ev.type));
+        if (list.length) {
+            const ids = [...new Set(list.map(l => l.id))].sort().join(',');
+            const target = ev && ev.target && ev.target.nodeType === 1 ? ev.target : null;
+            const now = Date.now();
+            const last = this._lastLockedEditReport;
+            // A native colour input fires `change` over and over while the
+            // macOS picker is dragged: each is a commit, but one drag is one
+            // attempt, so a change on the same colour input moments after
+            // the last says nothing more.
+            const colourStream = !!(last && target && target.type === 'color'
+                && last.el === target && now - last.at < 1500);
+            const sameAttempt = !!(last && last.ids === ids && (last.open || colourStream
+                || (ev && (last.ev === ev || last.closedBy === ev))));
+            if (!sameAttempt) this._showLockedError(list);
+            this._lastLockedEditReport = {
+                ids, ev, open: live, el: target, at: now,
+                pointer: !!(ev && POINTER_MOVE_EVENTS.has(ev.type)),
+            };
+            this._lockedRepaintPending = true;
+            if (live) {
+                this._watchLockedEditEnd();
+                return;
+            }
+        }
+        if (!live) this._lockedEditSettled();
+    }
+
+    // A commit reached the funnel (or an attempt ended without one): close
+    // the open attempt, so the next one says its error again, and repaint
+    // the fields if a held-back edit is waiting for it.
+    _lockedEditSettled() {
+        const last = this._lastLockedEditReport;
+        if (last) {
+            last.open = false;
+            // A second handler of the same commit event is the same attempt.
+            const ev = (typeof window !== 'undefined' && window.event) || null;
+            if (ev) last.closedBy = ev;
+        }
+        if (!this._lockedRepaintPending) return;
+        this._lockedRepaintPending = false;
+        if (this._lockedRepaintTimer) clearTimeout(this._lockedRepaintTimer);
+        this._lockedRepaintTimer = setTimeout(() => {
+            this._lockedRepaintTimer = null;
+            this._repaintLockedFields();
+        }, 0);
+    }
+
+    // True while a held-back edit's repaint is still to come (tests wait on
+    // it going false).
+    _lockedRepaintBusy() {
+        return !!(this._lockedRepaintPending || this._lockedRepaintTimer);
+    }
+
+    // Screen Info and the sidebar repainted from the screens as they are,
+    // except the field that has focus: it keeps what is in it, and the
+    // baseline updateLayerFromInputs compares against is told so, so the
+    // field does not read as edited later.
+    _repaintLockedFields() {
+        if (typeof this.loadLayerToInputs !== 'function') return;
+        const el = typeof document !== 'undefined' ? document.activeElement : null;
+        const keep = (el && el !== document.body && 'value' in el)
+            ? { el, value: el.value, checked: el.checked } : null;
+        if (keep) {
+            try { keep.start = el.selectionStart; keep.end = el.selectionEnd; } catch (_) {}
+        }
+        try { this.loadLayerToInputs(); } catch (_) {}
+        if (!keep) return;
+        if (el.value !== keep.value) el.value = keep.value;
+        if (el.checked !== keep.checked) el.checked = keep.checked;
+        if (keep.start != null) {
+            try { el.setSelectionRange(keep.start, keep.end); } catch (_) {}
+        }
+        if (el.id && this._screenInfoShown && typeof this._screenInfoState === 'function') {
+            this._screenInfoShown.set(el.id, this._screenInfoState(el));
+        }
+    }
+
+    // An attempt that never reaches a committing funnel call still ends:
+    // when its field loses focus, or when the pointer drag that drove it is
+    // released. Checked a task later, so a change event fired by the same
+    // blur is the commit it should be.
+    _watchLockedEditEnd() {
+        if (this._lockedEditWatch || typeof document === 'undefined') return;
+        this._lockedEditWatch = true;
+        const end = (ev) => {
+            const last = this._lastLockedEditReport;
+            if (!last || !last.open) return;
+            if (ev.type === 'focusout' ? last.el !== ev.target : !last.pointer) return;
+            setTimeout(() => {
+                if (this._lastLockedEditReport === last && last.open) this._lockedEditSettled();
+            }, 0);
+        };
+        document.addEventListener('focusout', end, true);
+        document.addEventListener('mouseup', end, true);
+        document.addEventListener('pointerup', end, true);
     }
 
     _persistWith(touched) {
@@ -312,15 +649,13 @@ class _CrossLayerPaths {
         return entry;
     }
 
-    // The address of ONE cabinet on the wall. Path ownership, path dedupe and
-    // (since v0.11.0's marquee) customSelection / powerCustomSelection are all
-    // keyed on this, because inside a group `${row},${col}` names two cabinets
-    // at once and every one of those jobs has to tell them apart.
-    //
-    // getPanelKey stays `${row},${col}` regardless: pixelMapSelection still
-    // uses it - one screen, nothing grouped about it - and its overlay parses
-    // the key back with `key.split(',').map(parseInt)`, which a layer id in
-    // front would turn into the WRONG panel silently, with no error anywhere.
+    // The address of ONE cabinet on the wall. Path ownership, path dedupe,
+    // (since v0.11.0's marquee) customSelection / powerCustomSelection and
+    // (since 1.5's cross-screen Pixel Map selection) pixelMapSelection are all
+    // keyed on this, because across two screens `${row},${col}` names two
+    // cabinets at once and every one of those jobs has to tell them apart.
+    // getPanelKey stays `${row},${col}` for any caller that wants one
+    // screen's own grid address.
     getScopedPanelKey(layerId, panel) {
         return `${layerId}:${panel.row},${panel.col}`;
     }

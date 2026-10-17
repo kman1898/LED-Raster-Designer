@@ -532,17 +532,17 @@ def test_duplicate_canvas_name_iterates_trailing_number(client_with_layer):
 
 
 def test_duplicate_canvas_name_appends_1_when_no_suffix(client_with_layer):
-    """Duplicating a custom-named canvas like "EDC" yields "EDC 1"."""
-    client_with_layer.put('/api/canvas/c1', json={'name': 'EDC'})
+    """Duplicating a custom-named canvas like "MAIN" yields "MAIN 1"."""
+    client_with_layer.put('/api/canvas/c1', json={'name': 'MAIN'})
     r = client_with_layer.post('/api/canvas/c1/duplicate')
     p = r.get_json()
     names = [c['name'] for c in p['canvases']]
-    assert names == ['EDC', 'EDC 1']
-    # And again → "EDC 2"
+    assert names == ['MAIN', 'MAIN 1']
+    # And again → "MAIN 2"
     r = client_with_layer.post('/api/canvas/c2/duplicate')
     p = r.get_json()
     names = [c['name'] for c in p['canvases']]
-    assert names == ['EDC', 'EDC 1', 'EDC 2']
+    assert names == ['MAIN', 'MAIN 1', 'MAIN 2']
 
 
 # -----------------------------------------------------------------------------

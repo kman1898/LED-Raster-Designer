@@ -33,6 +33,27 @@ window.WHATS_NEW_CONTENT = {
               d: 'Add items under the notes, tick them off and drag to reorder. The list saves with the show.' }
         ]
     },
+    '1.5': {
+        title: 'Distros built from their outputs, cable lengths in meters, and custom mode that stays on',
+        items: [
+            { h: 'Distros built from their outputs',
+              d: 'Pick a power system, an input and amps per leg, then list the outputs: Socapex, L21-30, or True1, powerCON, Edison and CEE outlets straight off the distro face. Start from a preset of a common US or EU distro, or save your own.' },
+            { h: 'Every circuit checked against its breaker',
+              d: 'US distros hold circuits to 80% of the breaker unless the breakers are 100% rated; EU distros to the breaker. The distro header and OVER warning read the busiest leg.' },
+            { h: 'Feet or meters',
+              d: 'Preferences > Pull sheet & cables sets the unit new shows start in, and the Export dialog sets it for the show in front of you. Every cable length, tag, pull sheet row and binder table follows the show.' },
+            { h: 'Metric long jumpers',
+              d: 'A long jumper in a meters show is measured along the panels plus 0.3 m and rounded up to 1, 2, 3, 5 or 10 m. Both stock lists can be edited in Preferences.' },
+            { h: 'Cabinets across screens',
+              d: 'Drag over several selected screens on the Pixel Map to select cabinets on all of them, then blank or half-tile them in one step. A group acts as one screen.' },
+            { h: 'Custom from a right-click',
+              d: 'Right-click a screen or a group for Custom runs on the Data tab, or Custom circuits on the Power tab.' },
+            { h: 'Custom mode stays on',
+              d: 'A pattern button never takes a screen out of custom mode. With a screen or group selected and no cabinets, it fills the whole screen or group as custom runs.' },
+            { h: 'Mixed cabinet sizes, read plainly',
+              d: 'A custom run over two cabinet sizes reads its load in pixels, and a circuit over cabinets drawing different watts reads in watts. A group with different cabinet sizes says why its runs stay per screen.' }
+        ]
+    },
     '1.4': {
         title: 'Fiber by the strand, a backup processor in one switch, and panels you can move',
         items: [

@@ -371,7 +371,7 @@ def build_multi_screen_scr(screens_list):
         # Format marker: depends on sc_idx and minimum port used.
         # SC1/SC2 (sc_idx 0-1) with standard ports 0-7 → Format A (FF 01 01 00)
         # SC3+ or port >= 8 → explicit [sc_idx, min_port_0based, 00, 00]
-        # Verified from native files (2026 EDC.scr).
+        # Verified from native files (SCR reference A).
         non_hidden_ports = [
             p.get('port_num', 1)
             for p in s.get('panels', [])
@@ -379,7 +379,7 @@ def build_multi_screen_scr(screens_list):
         ]
         min_port_0based = (min(non_hidden_ports) - 1) if non_hidden_ports else 0
         # Bytes 10-13 are per-section DATA, not a format flag: real files carry
-        # the sending card and first port there (EDC section 3 = 01 09, being
+        # the sending card and first port there (reference A section 3 = 01 09, being
         # card 1 on port 9). Hardcoding ff 01 01 00 under a rule inferred from
         # one file made NovaLCT drop a cabinet - it rendered as a blank cell -
         # while the byte diff looked like nothing. When the caller knows the
@@ -452,7 +452,7 @@ def build_multi_screen_scr(screens_list):
                         # cabinet. The previous cols*rows "anchor" chain and the
                         # origin-duplicate port were both invented; real files
                         # write sender 0 and chain 0. Active/port are NOT
-                        # uniform though - EDC and Murph use 1/0, Griztronics
+                        # uniform though - references A and B use 1/0, D
                         # uses 255/255 - so a caller that knows the real values
                         # (a round trip does) passes them through.
                         _t = s.get('terminator') or {}

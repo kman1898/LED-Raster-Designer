@@ -14,7 +14,8 @@ class _DockCableSheets {
     // a 10ft true 1 and circuit 2 needs 6ft and 3/4 need nothing and 5
     // needs 6ft and 6 needs a 10 ft. since we are going to have those pdf
     // docs we need to be able to have that info if i want to add it."
-    // (user, 2026-09-06). The fact is per circuit - a length in feet and a
+    // (user, 2026-09-06). The fact is per circuit - a length (in the show's
+    // unit, feet or meters - app-cable-units.js) and a
     // connector that follows the box unless changed - stored on the holder
     // screen (powerCircuitCables, app-power.js). This is where it gets
     // typed: the box flips into a sheet, one row per tail, and Tab walks
@@ -91,7 +92,12 @@ class _DockCableSheets {
         const commit = (layer, circuit, ft, connector) => {
             const changed = this.setCircuitCable(
                 layer, circuit, { ft, connector: connector || null });
-            if (!changed) return;
+            if (!changed) {
+                // A locked screen refused it (the setter named it): redraw
+                // so the row shows the cable it kept.
+                if (layer && layer.locked) this._rebuildAfterGesture(() => this.renderHardwareDock());
+                return;
+            }
             this.saveClientSideProperties();
             if (window.canvasRenderer) window.canvasRenderer.render();
             this._rebuildAfterGesture(() => this.renderHardwareDock());
@@ -142,9 +148,9 @@ class _DockCableSheets {
                 ft.value = stored && Number(stored.ft) > 0
                     ? String(stored.ft) : '';
                 ft.dataset.lrdField = `power-cable-ft-${layer.id}-${h.circuit}`;
-                ft.title = 'Length in feet. Blank = no cable.';
+                ft.title = `Length in ${this.cableUnitWord()}. Blank = no cable.`;
                 td3.appendChild(ft);
-                td3.appendChild(document.createTextNode(' ft'));
+                td3.appendChild(document.createTextNode(` ${this.cableUnitAbbr()}`));
                 tr.appendChild(td3);
 
                 const td4 = document.createElement('td');
@@ -257,13 +263,16 @@ class _DockCableSheets {
         };
         // The first fill is the Power cable preference (10' as shipped),
         // read here where the cables are made; the 6' beside it stays
-        // unless the preference is 6' itself.
+        // unless the preference is 6' itself. In a meters show the same
+        // two in meters: the preference (3 m as shipped) and 2 m (6' to
+        // the nearest meter).
         const prefFt = this.defaultPowerCableFt();
-        quick.appendChild(fill(`all ${prefFt}'`, prefFt,
-            `Every circuit on this ${typeName} gets a ${prefFt} ft cable. One undo step.`));
-        if (prefFt !== 6) {
-            quick.appendChild(fill("all 6'", 6,
-                `Every circuit on this ${typeName} gets a 6 ft cable. One undo step.`));
+        const second = this.cableUnit() === 'm' ? 2 : 6;
+        quick.appendChild(fill(`all ${this.cableLengthText(prefFt)}`, prefFt,
+            `Every circuit on this ${typeName} gets a ${this.cableLengthWords(prefFt)} cable. One undo step.`));
+        if (prefFt !== second) {
+            quick.appendChild(fill(`all ${this.cableLengthText(second)}`, second,
+                `Every circuit on this ${typeName} gets a ${this.cableLengthWords(second)} cable. One undo step.`));
         }
         quick.appendChild(fill('none', null,
             `Every circuit on this ${typeName} forgets its cable. One undo step.`));
@@ -279,7 +288,7 @@ class _DockCableSheets {
 
     // A typed length beside a row's fixed fills - the number box and the
     // button that fires it (Enter in the box does the same). The box
-    // takes what a row's own length field takes, whole or half feet, and
+    // takes what a row's own length field takes (in the show's unit), and
     // refuses what it refuses: blank, zero, a minus or text write nothing
     // and the box goes back to the last length it filled with (blank if
     // none) - `none` is the button for forgetting, so a refusal never
@@ -291,17 +300,17 @@ class _DockCableSheets {
         box.type = 'number';
         box.min = '0';
         box.step = 'any';
-        box.placeholder = 'ft';
+        box.placeholder = this.cableUnitAbbr();
         box.className = 'hw-dock-cable-ft';
         box.value = memo[key] ? String(memo[key]) : '';
         box.dataset.lrdField = key;
-        box.title = 'A length of your own, in feet. Enter, or the button '
+        box.title = `A length of your own, in ${this.cableUnitWord()}. Enter, or the button `
             + 'beside it, fills with it.';
         const go = () => {
             const ft = Number(box.value.trim());
             if (!(Number.isFinite(ft) && ft > 0)) {
                 box.value = memo[key] ? String(memo[key]) : '';
-                this._dockSay('Type a length in feet first.');
+                this._dockSay(`Type a length in ${this.cableUnitWord()} first.`);
                 return;
             }
             memo[key] = ft;
@@ -513,7 +522,7 @@ class _DockCableSheets {
             run.appendChild(ft);
             const unit = document.createElement('span');
             unit.className = 'hw-dock-cable-unit';
-            unit.textContent = 'ft';
+            unit.textContent = this.cableUnitAbbr();
             run.appendChild(unit);
             td.appendChild(run);
             return td;
@@ -640,7 +649,7 @@ class _DockCableSheets {
                 tr.appendChild(td2);
                 const ft = ftInput(`data-snake-ft-${owner.id}-${snake.id}`,
                                    snake.ft,
-                                   'The snake’s home run in feet. '
+                                   `The snake’s home run in ${this.cableUnitWord()}. `
                                    + 'Blank = no length.');
                 ft.addEventListener('change', () => {
                     this.setSnake(snake.id, { ft: ft.value.trim() },
@@ -685,10 +694,10 @@ class _DockCableSheets {
                                stored && stored.ft,
                                snake
                                    ? 'Extension from the snake to this '
-                                     + 'panel, in feet - the shorter cable '
+                                     + `panel, in ${this.cableUnitWord()} - the shorter cable `
                                      + 'a snake’s fan-out sometimes needs. '
                                      + 'Blank = none.'
-                                   : 'This port’s own home run in feet. '
+                                   : `This port’s own home run in ${this.cableUnitWord()}. `
                                      + 'Blank = no cable.');
             const commit = () => this.setPortCable(owner, n, {
                 ft: ft.value.trim(),
@@ -784,11 +793,11 @@ class _DockCableSheets {
         sp.style.flex = '1';
         quick.appendChild(sp);
         const fills = group('Quick fill:');
-        // The fill's length is the Loose port cable preference (100' as
-        // shipped) - read here, where the cables are made.
+        // The fill's length is the Loose port cable preference (100' /
+        // 30 m as shipped) - read here, where the cables are made.
         const fillFt = this.defaultLoosePortCableFt();
-        fills.appendChild(button(`all ${fillFt}'`, `data-cable-fill-${owner.id}-${fillFt}`,
-            `Every loose port here gets a ${fillFt} ft home run; snakes keep `
+        fills.appendChild(button(`all ${this.cableLengthText(fillFt)}`, `data-cable-fill-${owner.id}-${fillFt}`,
+            `Every loose port here gets a ${this.cableLengthWords(fillFt)} home run; snakes keep `
             + 'theirs. One undo step.',
             () => this.fillPortCables(owner, fillFt, ports).then(after)));
         fills.appendChild(button('none', `data-cable-fill-${owner.id}-none`,
@@ -970,8 +979,8 @@ class _DockCableSheets {
         return sec;
     }
 
-    // A copper link's length, in feet: blank is no length. Its kind rides
-    // the write untouched. One request, one entry.
+    // A copper link's length, in the show's unit: blank is no length. Its
+    // kind rides the write untouched. One request, one entry.
     _dockBuildCopperLength(box, l) {
         const wrap = document.createElement('span');
         wrap.className = 'hw-dock-fiber-field';
@@ -980,24 +989,24 @@ class _DockCableSheets {
         f.min = '0';
         f.step = 'any';
         f.className = 'hw-dock-cable-ft';
-        f.placeholder = 'ft';
+        f.placeholder = this.cableUnitAbbr();
         f.dataset.lrdField = `fiber-copper-ft-${box.id}-${l.key}`;
-        const ft = Number(l.copper.ft);
-        f.value = Number.isFinite(ft) && ft > 0 ? String(ft) : '';
-        const max = this.copperLinkMaxFt(l.copper.copper);
-        f.title = `The ${l.copper.copper} run's length in feet`
-            + (max ? ` - ${max} ft is its 10G maximum.` : '.');
+        const ft = this.parseCableLength(l.copper.ft);
+        f.value = ft !== null ? String(ft) : '';
+        const max = this.copperLinkMax(l.copper.copper);
+        f.title = `The ${l.copper.copper} run's length in ${this.cableUnitWord()}`
+            + (max ? ` - ${this.cableLengthWords(max)} is its 10G maximum.` : '.');
         f.addEventListener('change', () => {
             const raw = f.value.trim();
             const v = raw === '' ? null : Number(raw);
             if (v !== null && !(Number.isFinite(v) && v >= 0)) {
-                this._dockSay('Type a length in feet, or leave it blank.');
+                this._dockSay(`Type a length in ${this.cableUnitWord()}, or leave it blank.`);
                 return;
             }
             this.setFiberLink(box, l.key, { copper: l.copper.copper, ft: v }, 'Set Copper Length');
         });
         wrap.appendChild(f);
-        wrap.appendChild(document.createTextNode(' ft'));
+        wrap.appendChild(document.createTextNode(` ${this.cableUnitAbbr()}`));
         return wrap;
     }
 
@@ -1242,14 +1251,14 @@ class _DockCableSheets {
                 const raw = f.value.trim();
                 const v = raw === '' ? null : Number(raw);
                 if (v !== null && !(Number.isFinite(v) && v >= 0)) {
-                    this._dockSay('Type a length in feet, or leave it blank.');
+                    this._dockSay(`Type a length in ${this.cableUnitWord()}, or leave it blank.`);
                     return;
                 }
                 if (wz.kind === 'tac') step({ ft: v, step: 'connector' });
                 else { wz.ft = v; create(); }
             };
-            const f = field('number', `${base}-ft`, wz.ft, 'ft', go);
-            div.appendChild(document.createTextNode(' ft '));
+            const f = field('number', `${base}-ft`, wz.ft, this.cableUnitAbbr(), go);
+            div.appendChild(document.createTextNode(` ${this.cableUnitAbbr()} `));
             button(wz.kind === 'tac' ? 'Next' : 'Create', `${base}-ft-next`,
                 wz.kind === 'tac' ? 'On to the ends.' : `Make the ${word} on this link.`, go);
         } else {
@@ -1315,7 +1324,7 @@ class _DockCableSheets {
                 put({ strands: v }, 'Set Fiber Strand Count');
             });
         }
-        const ft = field('ft', input('number', `fiber-cable-ft-${cable.id}`,
+        const ft = field(this.cableUnitAbbr(), input('number', `fiber-cable-ft-${cable.id}`,
             Number(cable.ft) > 0 ? cable.ft : ''));
         ft.min = '0';
         ft.step = 'any';

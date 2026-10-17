@@ -592,7 +592,9 @@ def test_project_wide_power_totals_refuse_to_blend_mixed_voltages(page):
     assert by_v[110]['watts'] == 800 and by_v[208]['watts'] == 800
     assert abs(by_v[110]['amps1ph'] - 800 / 110) < 1e-9
     assert abs(by_v[208]['amps1ph'] - 800 / 208) < 1e-9
-    assert abs(by_v[110]['amps3ph'] - 800 / (110 * 1.73)) < 1e-9
+    # 1.5, bug fix 3 (2026-10-16): the 3φ figure divides by the service's
+    # line-to-line voltage - 110V circuits ride a 120/208 service.
+    assert abs(by_v[110]['amps3ph'] - 800 / (208 * 1.73)) < 1e-9
     assert abs(by_v[208]['amps3ph'] - 800 / (208 * 1.73)) < 1e-9
 
 
@@ -879,9 +881,11 @@ def test_blank_cabinets_are_a_hole_in_the_wall_everywhere_it_is_read(page):
     assert abs(got['sidebarWatts'] - got['groupWatts']) < 1e-9, (
         'sidebar/canvas report %g W, the group roll-up reports %g W for the '
         'same screen' % (got['sidebarWatts'], got['groupWatts']))
-    # I = P / V and I = P / (V x 1.73), on the same 600 W.
+    # I = P / V and I = P / (V_LL x 1.73), on the same 600 W - V_LL the
+    # SERVICE's line-to-line voltage (1.5, bug fix 3, 2026-10-16: "It must
+    # use the service's V_LL"): a 110V screen rides a 120/208 service.
     assert abs(got['sidebarAmps1'] - 600 / 110) < 1e-9, got
-    assert abs(got['sidebarAmps3'] - 600 / (110 * 1.73)) < 1e-9, got
+    assert abs(got['sidebarAmps3'] - 600 / (208 * 1.73)) < 1e-9, got
     assert abs(got['sidebarAmps1'] - got['groupAmps1']) < 1e-9, got
     assert abs(got['sidebarAmps3'] - got['groupAmps3']) < 1e-9, got
 

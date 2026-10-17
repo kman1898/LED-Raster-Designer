@@ -15,10 +15,9 @@ peer's row and column - silently wrong, not partly working.
 Two things had to change and both are pinned here:
 
 * SCOPED KEYS. The two custom Sets are keyed by
-  ``getScopedPanelKey(layerId, panel)``. ``pixelMapSelection`` deliberately is
-  NOT - it is a single-screen feature and its overlay still parses the key with
-  ``split(',')``. There is a test for that, because a scoped key parsed by the
-  old splitter yields ``parseInt("3:0") === 3``: the wrong panel, no error.
+  ``getScopedPanelKey(layerId, panel)``. ``pixelMapSelection`` took the same
+  key in 1.5 (cross-screen Pixel Map selection); it reaches the SELECTED
+  screens, so a peer that is not selected stays out of it.
 
 * A POSITION LATTICE, not row/col indices. A 1m member's row 1 and a 0.5m
   member's row 1 are different physical heights, so a serpentine ordered by
@@ -549,13 +548,10 @@ def test_a_uniform_group_orders_the_same_as_one_equivalent_screen(page):
     ], result['single']
 
 
-def test_pixel_map_bulk_select_is_unaffected_by_the_key_change(page):
-    """pixelMapSelection keeps the UNSCOPED key on purpose.
-
-    Its overlay parses the key back with `key.split(',').map(parseInt)`, and a
-    scoped key run through that splitter yields parseInt("2:0") === 2 - the
-    wrong panel, silently, with no error anywhere. It is also a single-screen
-    feature: even inside a group it must only ever see currentLayer.
+def test_pixel_map_bulk_select_reaches_only_the_selected_screens(page):
+    """pixelMapSelection is keyed `${layerId}:${row},${col}` since 1.5 and
+    reaches the selected screens. Only the owner is selected here, so even
+    inside a group the marquee keeps to currentLayer.
     """
     result = _grouped(page, """
         const app = window.app;
@@ -566,8 +562,7 @@ def test_pixel_map_bulk_select_is_unaffected_by_the_key_change(page):
         };
     """, view='pixel-map')
     assert result['keys'] == sorted(
-        ['%d,%d' % (r, c) for r in range(2) for c in range(3)]), result['keys']
-    assert all(':' not in k for k in result['keys']), result['keys']
+        ['1:%d,%d' % (r, c) for r in range(2) for c in range(3)]), result['keys']
     assert len(result['selected']) == 6, result['selected']
 
 

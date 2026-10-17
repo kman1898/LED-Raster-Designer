@@ -63,6 +63,134 @@ ALSO NEW
 - NEW: Help > License > Third-party notices lists three.js, which draws
   the 3D view.
 
+v1.5.0 - October 16, 2026
+----------------------------
+
+Distros are now built from their real outputs: Socapex, L21-30 and
+direct True1, powerCON, Edison and CEE outlets on the same face, on a US
+or EU power system, from a preset or from scratch. Cable lengths can be
+in meters. Custom mode stays on until you turn it off, and a right-click
+on a screen or group turns it on.
+
+DISTROS BUILT FROM THEIR OUTPUTS
+
+A distro's gear picks its power system - 120/208V 3-phase, 120/240V
+split, 120V, 230/400V 3-phase or 230V - its input and its amps per leg,
+then lists its outputs, a connector and a count per row. Multis break out
+at the screen as before; a direct output on the distro face is one
+circuit with its own cable to the screen, and can feed a 2fer or 3fer.
+Start from one of eleven presets of common US and EU distros, or save
+your own and delete it again when you are done with it. Preferences >
+Distros picks the system a new distro starts on. US distros read their legs X, Y and Z and EU distros L1, L2
+and L3; an EU distro can put a whole Socapex on one phase, and a UK
+distro's Socapex can be paired with the outlets it shares circuits with,
+so those circuits count once.
+
+Each circuit is checked against its breaker: on a US distro at 80% of
+the breaker unless the distro has 100% rated breakers, on an EU distro
+at the breaker. True1 is held to 16A on an EU distro, powerCON XX at 208V
+gets a warning that it is only US-listed to 127V, and stage pin is
+refused at 208V. A screen is refused by a distro that does not give its
+voltage, and says why: "WALL B runs at 230V - PD gives 120V or 208V. Set
+the screen to 208V." A multi left on an output that carries one circuit,
+after the outputs change, is flagged: "WALL A's 6 circuits are on PD4, a
+True1 - one circuit only. Move it to a multi output."
+
+A distro from an older show opens on the system it matches. A 120V
+3-phase distro opens as 120/208V with each 120V circuit on one leg, so
+its amps read lower than before, and correctly. An older distro that fits
+none of the five systems keeps its old figures and asks you to pick its
+system.
+
+CABLE LENGTHS IN FEET OR METERS
+
+Preferences > Pull sheet & cables sets Feet or Meters for new shows, and
+the Export dialog's Pull Sheet and Binder sections set it for the show
+in front of you. Every cable length follows the show: multi home runs,
+circuit cables, data home runs and snakes, jumpers, fiber and copper to
+the boxes, the box cable sheets, the cable tags on the maps, the pull
+sheet and the binder. Meters print as "Data Jump 2 m". A show opened
+from before this version reads in feet.
+
+Lengths you type keep their numbers when the unit changes, so 25 ft
+becomes 25 m, and the app asks before it changes a show that already has
+lengths typed. A new screen's jumpers follow Preferences in the show's
+unit until you type one. A length can be typed with its unit, "30m" or
+"100'"; a length in the other unit reads as no length rather than being
+taken for this one. A long jumper, the one length the app measures, is
+measured again: along the panels plus 0.3 m of slack, rounded up to 1, 2,
+3, 5 or 10 m, and past 10 m up to the next 5 m. Both stock lists, feet and meters, can be edited in
+Preferences, and Preferences keeps its own default lengths for each
+unit.
+
+CABINETS ACROSS SCREENS
+
+On the Pixel Map a drag over several selected screens, grouped or not,
+selects cabinets on every screen it touches, and Set Blank, Restore and
+the half-tile buttons change all of them as one undo step. A screen group
+acts as one screen: a click selects a cabinet on any of its screens and
+never narrows the selection to one of them. In custom mode on the Data
+and Power tabs the same drag selects across a group, whichever screen it
+starts on.
+
+CUSTOM RUNS ACROSS A GROUP
+
+Right-click a screen or a group on the Data tab for Custom runs: On or
+Off, or on the Power tab for Custom circuits. A group whose screens have
+different cabinet sizes says so under its Route as one screen switch,
+"Cabinet sizes differ - runs stay per screen. Use Custom to run across.",
+instead of only greying the switch out.
+
+When a custom run covers two cabinet sizes, its load reads in pixels,
+"442,368 / 659,722 px on port", and on the Power tab a circuit over
+cabinets drawing different watts reads in watts, "1,660 / 4,160 W on
+circuit". A run of one cabinet size counts its own cabinets. A pattern
+button pressed on some screens of a custom group redoes every run that
+touches them, and names any other screen in the group that loses wiring
+because of it.
+
+- FIX: A pattern button in custom mode with no cabinets selected no
+  longer takes the screen out of custom mode while the Custom box stays
+  ticked. With a screen or group selected it now fills the whole screen
+  or group as custom runs; with nothing selected it does nothing. Data
+  and Power.
+- FIX: Two quick clicks on the Custom box no longer leave it showing the
+  opposite of the screen's real state. Data and Power.
+- FIX: A distro's header amps, its OVER warning and the binder's Load
+  line now read the busiest leg, "87.1 A on leg X", not the average of
+  the three, so one overloaded leg can no longer hide behind the others.
+- FIX: A 230V 3-phase distro feeding 230V screens is a 230/400V system:
+  each circuit sits on one leg, line to neutral, where it was counted
+  across two legs.
+- FIX: A screen's 3-phase amps are worked from the distro's line-to-line
+  voltage, not the screen's own.
+- FIX: A custom data run is held to the same port capacity as an
+  automatic one: the NovaStar Low Latency reduction and the 5G narrow
+  port penalty now apply to custom runs too.
+- FIX: A locked screen stays exactly as it is until it is unlocked.
+  Screen Info and sidebar edits, Delete, moves, dock drops, Clear Circuit,
+  renaming, Change Cabinet, custom fills, pattern buttons, Clear, the
+  Custom box and stepping its active port leave it alone and say so:
+  "Upper is locked - unlock it to change it." The other selected screens
+  still change, and selecting a locked screen or its cabinets never shows
+  the error.
+- FIX: Multi numbers on the Power tab no longer shift when a screen is
+  added to a shared distro, removed or reordered. A removed screen leaves
+  its gap for the next one, and only Reset offsets in the Balance dialog
+  numbers them again.
+- FIX: Cabinet IDs stay on screen further into a zoom-out: they drop out
+  only below 3 pixels, where it was 5, and the log notes when a screen's
+  IDs are hidden or shown again.
+- FIX: A custom data run on a NovaStar Armor port is held to Armor's
+  rectangle rule, as the port badge already was, so a run can no longer
+  be filled past what the badge calls full.
+- FIX: A multi home run typed with its unit, "100'" or "100ft", prints on
+  the pull sheet, the binder and the map's cable tag; it printed blank.
+- FIX: Two windows saving named layouts at the same moment no longer lose
+  one of them.
+- FIX: Pixel counts, watts and amps print with commas on a computer set
+  to another language, as they do everywhere else in the app.
+
 v1.4.1 - October 9, 2026
 ----------------------------
 
@@ -246,7 +374,7 @@ FIXES
   pull sheet's power and data lines each follow their own tab. A group
   is always one section of the pull sheet, on the beach of its first
   screen that is on one, and its jumpers are listed by the screen they
-  sit on: "Data Jump 2' 115 USC SR" and "110 USC SL".
+  sit on: "Data Jump 2' 115 WALL SR" and "110 WALL SL".
 - FIX: A Screen Info edit changes only the field you edit, on every
   screen selected or in the group. Before, any edit also wrote every
   other field the panel showed, so changing a group's cabinet height
@@ -1186,7 +1314,7 @@ the short of it.
 
 - FIX (IMPORTANT): A unit is named once. A device with no name of its own
   had its model stood in for it and the sheet then printed the model again
-  beside it, so a header read "NovaPro UHD Jr USC A - NovaPro UHD Jr - 16
+  beside it, so a header read "NovaPro UHD Jr WALL A - NovaPro UHD Jr - 16
   ports" and every cell under it ran out of room. A fixed card that is its
   processor's face reads as one unit; a card in a slot still reads as its
   own. Where a port's two ends are the same run it is stated once, with

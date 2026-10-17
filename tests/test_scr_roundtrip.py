@@ -25,7 +25,7 @@ What is known, as of writing
 * Every section seen is: 14-byte header + N x 17-byte records + suffix.
   The suffix is 11 bytes on 2026-era files and 13 on 2025-era ones, giving
   section overheads of 25 and 27. Nothing else differs between them.
-* Some older files (2025 Rezz, 2025 Nocturnal) use a 16-BYTE record instead.
+* Some older files (two 2025 reference files) use a 16-BYTE record instead.
   Those are not supported; decode_scr rejects them rather than guessing.
 * One 2026 file re-encodes byte-for-byte identical. The rest differ only in
   the record's byte 12 and the file checksums - see RESIDUAL_FIELDS.

@@ -22,9 +22,10 @@ Four things are pinned here deliberately:
   frame and the peer's frame are 1400 px apart. A highlight drawn in the wrong
   member's transform cannot land on the right pixels by accident.
 
-* PIXEL MAP IS A DIFFERENT FEATURE. `pixelMapSelection` is bulk hide/blank
-  within ONE screen, it keeps the unscoped key and the old parser, and grouping
-  the screens must not change one fill it issues.
+* PIXEL MAP DRAWS PER SELECTED SCREEN. `pixelMapSelection` (bulk hide /
+  blank / half tile) took the same scoped key in 1.5 and reaches the selected
+  screens, not a path owner's group: grouping the screens must not change one
+  fill it issues, and an old unscoped key draws nothing rather than a guess.
 
 * THE REGRESSION GUARD. An ungrouped screen's overlay has to draw exactly what
   it drew before - asserted by rendering the same selection grouped and
@@ -408,15 +409,15 @@ def test_a_key_naming_an_unreachable_layer_highlights_nothing(page):
 # ── 3. Pixel Map is a different feature and is untouched ───────────────────
 
 def test_pixel_map_selection_is_unaffected_by_grouping(page):
-    """Same unscoped key, same single fill, grouped or not.
+    """Same key, same single fill, grouped or not.
 
-    pixelMapSelection is bulk hide / blank within ONE screen. It keeps the
-    unscoped `${row},${col}` key and the original parser, and the peer's R0C0
-    must not join the selection just because the screens are now a wall.
+    A pixelMapSelection key names ONE screen's cabinet (`${layerId}:r,c`), so
+    the peer's R0C0 does not join the selection just because the screens are
+    now a wall.
     """
     body = """
         window.app.currentLayer = A;
-        window.app.pixelMapSelection = new Set(['0,0']);
+        window.app.pixelMapSelection = new Set([A.id + ':0,0']);
         return cs.overlayFills('renderPixelMapSelectionOverlay');
     """
     grouped = _run(page, body, grouped=True, view='pixel-map')
@@ -428,18 +429,23 @@ def test_pixel_map_selection_is_unaffected_by_grouping(page):
     assert grouped[0]['color'] == 'rgba(74, 144, 226, 0.35)', grouped
 
 
-def test_pixel_map_ignores_a_scoped_key_rather_than_misreading_it(page):
-    """Nothing writes a scoped key into pixelMapSelection - and if anything
-    ever did, the honest outcome is no highlight, not a highlight on row 2."""
+def test_pixel_map_ignores_an_unscoped_key_rather_than_misreading_it(page):
+    """Since 1.5 every pixelMapSelection key names its screen. A bare
+    `${row},${col}` key (nothing writes one any more) must draw nothing - not
+    a guess at some screen's cabinet - and a scoped key draws exactly its own
+    cabinet: '2:0,0' is never misread as row 2."""
     fills = _run(page, """
         window.app.currentLayer = A;
-        window.app.pixelMapSelection = new Set(['2:0,0']);
+        window.app.pixelMapSelection = new Set(['0,0', '2:0']);
         return cs.overlayFills('renderPixelMapSelectionOverlay');
     """, view='pixel-map')
-    assert _boxes(fills) == [A20], (
-        'documenting the unscoped parser: it reads "2:0" as row 2. Nothing '
-        'produces such a key for this Set; if that ever changes, this overlay '
-        'has to be scoped too', fills)
+    assert _boxes(fills) == [], fills
+    fills = _run(page, """
+        window.app.currentLayer = A;
+        window.app.pixelMapSelection = new Set([A.id + ':2,0']);
+        return cs.overlayFills('renderPixelMapSelectionOverlay');
+    """, view='pixel-map')
+    assert _boxes(fills) == [A20], fills
 
 
 # ── 4. THE REGRESSION GUARD ───────────────────────────────────────────────

@@ -1063,7 +1063,7 @@ def test_multi_edits_round_trip_with_the_same_actions(power_page):
     assert page.evaluate(
         """(a) => (window.app.project.layers.find(
             l => l.id === a.layerId).powerSocaLengths || {})[a.socaIdx]""",
-        seeded) == '125ft'
+        seeded) == '125'   # typed with the show's unit: the number is kept
 
     # undo hands the length back, one step, same as the rows did
     page.evaluate("() => window.app.undo()")
@@ -1078,7 +1078,7 @@ def test_multi_edits_round_trip_with_the_same_actions(power_page):
     assert page.evaluate(
         """(a) => (window.app.project.layers.find(
             l => l.id === a.layerId).powerSocaLengths || {})[a.socaIdx]""",
-        seeded) == '125ft'
+        seeded) == '125'   # typed with the show's unit: the number is kept
 
 
 def test_an_occupied_circuit_chip_opens_and_a_free_tail_stays_a_handle(power_page):

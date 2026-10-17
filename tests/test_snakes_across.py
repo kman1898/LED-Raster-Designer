@@ -3,7 +3,7 @@
 "also when i pair things in snakes they need to be able to be able to be
 grouped together as well as done across cvt's" (user, 2026-09-09), and,
 asked what one snake may hold: "Any sockets, any device". His example, from
-the Kelly Clarkson show (IMAG A backed 1:1 by IMAG B): "i have ... ports 1-6
+live show A (IMAG A backed 1:1 by IMAG B): "i have ... ports 1-6
 on a screen so ports 1-4 primary is snaked and backup 1-4 are snaked. then i
 have 5 and 6 that i want to snake" - A-5, A-6, B-5 and B-6 as ONE 4 channel snake,
 across two breakout boxes on two cards.
@@ -49,7 +49,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 import processor_catalog as catalog  # noqa: E402
 from conftest import private_fixture, private_fixture_missing  # noqa: E402
 
-SCRATCH_FIXTURE = private_fixture('experts-only-fixture.json', 'LRD_PULL_SMOKE_JSON')
+SCRATCH_FIXTURE = private_fixture('live-show-b.json', 'LRD_PULL_SMOKE_JSON')
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -323,7 +323,7 @@ def test_the_migration_folds_per_device_snakes_into_the_show(client):
 @pytest.mark.skipif(bool(private_fixture_missing(SCRATCH_FIXTURE)),
                     reason=str(private_fixture_missing(SCRATCH_FIXTURE)))
 def test_the_smoke_fixture_migrates_to_the_show(client):
-    """The user's own show, FROZEN as experts-only-fixture.json (his save
+    """The user's own show, FROZEN as live-show-b.json (his save
     of 2026-09-15 22:55): four boxes each carrying a 4 channel snake. The
     save was written after the migration, so the show already carries
     them and no card or box keeps a per-device snake - the card-level

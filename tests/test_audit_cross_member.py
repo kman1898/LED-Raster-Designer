@@ -346,8 +346,9 @@ def _run(page, wall, body, view='data-flow', grouped=True, extra=''):
 # 1. WRONG-CABINET / key-format hunting
 # ═════════════════════════════════════════════════════════════════════════
 
-def test_no_scoped_key_ever_reaches_pixelmap_selection(page):
-    """A scoped key in pixelMapSelection would parse as parseInt("2:0") === 2."""
+def test_pixelmap_selection_keys_name_their_screen(page):
+    """Since 1.5 pixelMapSelection is keyed like customSelection,
+    `${layerId}:${row},${col}`, so two screens' R0C0 are two entries."""
     result = _run(page, MIXED, """
         const app = window.app;
         app.selectPanelsInRect(app.currentLayer, ax.rect(0, 0, 576, 256));
@@ -359,11 +360,12 @@ def test_no_scoped_key_ever_reaches_pixelmap_selection(page):
         };
     """)
     assert result['customScoped'] is True, result
-    assert all(':' not in k for k in result['pixel']), result
+    assert result['pixel'] and all(k.startswith('1:') for k in result['pixel']), result
 
 
-def test_pixelmap_marquee_never_crosses_members(page):
-    """The primary single-screen guard: pixel-map stays on currentLayer."""
+def test_pixelmap_marquee_keeps_to_the_selected_screens(page):
+    """Only A is selected, so the Pixel Map marquee stays on A even inside a
+    group: it reaches the selected screens, not the path scope."""
     result = _run(page, MIXED, """
         const app = window.app;
         app.selectPixelMapPanelsInRect(app.currentLayer, ax.rect(0, 0, 576, 256));
@@ -1121,8 +1123,8 @@ def test_selection_survives_a_switch_to_the_peer_and_fills_the_peers_port(page):
 
 
 def test_pixelmap_selection_survives_a_layer_switch(page):
-    """pixelMapSelection is unscoped by design. If it outlives a switch to a
-    peer, its keys silently re-address the peer's grid."""
+    """Switching to a peer narrows the selection to it; A's cabinets must not
+    follow (selectLayer clears the cabinet selection on a change of screen)."""
     result = _run(page, MIXED, """
         const app = window.app;
         app.selectPixelMapPanelsInRect(app.currentLayer, ax.rect(0, 0, 384, 256));
@@ -1592,7 +1594,9 @@ def test_route_switch_panel_row_checks_toggles_and_greys_out(page):
     assert out['second']['checked'] is False, out
     assert out['restored'] is True, out
     assert out['third']['enabled'] is False, out
-    assert 'never route as one' in out['third']['hint'], out
+    # Mixed cabinet sizes are said in plain words (owner, 2026-10-16).
+    assert out['third']['hint'] == (
+        'Cabinet sizes differ - runs stay per screen. Use Custom to run across.'), out
 
 
 def test_route_switch_row_exists_only_while_a_grouped_screen_is_shown(page):

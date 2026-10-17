@@ -1,6 +1,6 @@
 """Clear Circuit / Clear Port on a grouped wall removes the WHOLE run.
 
-Matt's ruling (2026-09-23), on the Quantico file: "a group is one screen and
+Matt's ruling (2026-09-23), on a two-member wall: "a group is one screen and
 a circuit is one circuit". There Screen3 owned 16 custom circuits, each 7
 cabinets of Screen2 then 7 of its own. Clear Circuit on Screen2 for circuit 1
 left Screen3's run 1 at 7 entries instead of none - clearCustomRun only
@@ -9,11 +9,12 @@ cable turned into a stub nobody drew.
 
 The rule now: the clicked screen's run `num` goes, and every peer's run `num`
 with a step on the clicked screen goes whole (its override for `num` let go
-with it). The 2026-09-22 lock rule is unchanged: a locked peer is skipped
-whole and named in one toast; nothing else happens when nothing else may
-happen (no history entry, no PUT).
+with it). A locked screen stays unchanged (the owner's ruling, 2026-10-16):
+a run it owns is skipped whole and the screen is named in one error;
+nothing else happens when nothing else may happen (no history entry, no
+PUT).
 
-This module builds exactly the Quantico shape - two 7x8 members, the SECOND
+This module builds exactly that shape - two 7x8 members, the SECOND
 owning runs 1 and 2 that each run 7 cabinets across the FIRST then 7 of its
 own - and clears from the FIRST, which owns nothing itself. Both sides
 (powerCustomPaths / customPortPaths) are parametrized.
@@ -100,7 +101,7 @@ window.__q = {
     }
     await new Promise(r => setTimeout(r, 300));
   },
-  // The Quantico run `num`: row (num - 1), 7 cabinets on `first` then 7 on
+  // The cross-member run `num`: row (num - 1), 7 cabinets on `first` then 7 on
   // the owner itself.
   run(num, firstId) {
     const row = num - 1;
@@ -138,7 +139,7 @@ _RUN_KEYS = {
 }
 
 
-def _quantico_pair(page, kind):
+def _cross_member_pair(page, kind):
     """Two grouped 7x8 screens in custom mode. The SECOND owns runs 1 and 2,
     each 7 cabinets across the FIRST then 7 of its own. The FIRST owns
     nothing and is current. Returns [first_id, second_id]."""
@@ -187,12 +188,12 @@ def _state(page, ids, kind):
 
 @pytest.mark.parametrize('kind', ['power', 'data'])
 def test_clear_run_from_the_member_that_owns_nothing_removes_the_owners_whole_run(page, kind):
-    """The Quantico shape. Clear Circuit / Clear Port for run 1 on the FIRST
+    """The two-member shape. Clear Circuit / Clear Port for run 1 on the FIRST
     screen removes the SECOND's run 1 whole - the 7 steps on the first AND the
     7 on the second - on the client and the server; run 2 keeps all 14; one
     history entry."""
     k = _RUN_KEYS[kind]
-    ids = _quantico_pair(page, kind)
+    ids = _cross_member_pair(page, kind)
     before = _state(page, ids, kind)
     assert len(before['b'].get('1', [])) == 14 and len(before['b'].get('2', [])) == 14, before
     assert before['a'] == {}, before
@@ -220,7 +221,7 @@ def test_clear_run_with_the_owner_locked_removes_nothing_and_says_so(page, kind)
     on the client and the server - the locked toast names it, and with
     nothing else to clear there is no history entry and no PUT."""
     k = _RUN_KEYS[kind]
-    ids = _quantico_pair(page, kind)
+    ids = _cross_member_pair(page, kind)
     page.evaluate("""([ids, index]) => {
       window.__q.layer(ids[1]).locked = true;
       window.__q.layer(ids[0])[index] = 2;
@@ -241,4 +242,4 @@ def test_clear_run_with_the_owner_locked_removes_nothing_and_says_so(page, kind)
     layer_puts = [u for u in puts if '/api/layer/' in u or u.endswith('/api/project')]
     assert layer_puts == [], puts
     owner = page.evaluate("(id) => window.__q.layer(id).name", ids[1])
-    assert toasts == ['%s is locked — its %s were left alone.' % (owner, k['runs'])], toasts
+    assert toasts == ['%s is locked - unlock it to change it.' % owner], toasts

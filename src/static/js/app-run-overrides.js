@@ -199,6 +199,12 @@ class _RunOverrides {
     // editing. ONE undo step for the whole transition.
     overrideRun(owner, kind, num) {
         if (!owner || !num) return;
+        // A locked screen stays unchanged (the owner's ruling, 2026-10-16):
+        // taking a run over writes its owner's overrides and path.
+        if (owner.locked) {
+            if (typeof this._showLockedError === 'function') this._showLockedError([owner]);
+            return;
+        }
         const hits = this._runSeedHits(owner, kind, num);
         const pathsKey = kind === 'power' ? 'powerCustomPaths' : 'customPortPaths';
         const ovrKey = kind === 'power' ? 'powerCustomOverrides' : 'customPortOverrides';
@@ -235,6 +241,15 @@ class _RunOverrides {
         }
         const idxKey = kind === 'power' ? 'powerCustomIndex' : 'customPortIndex';
         const idxChanged = (owner[idxKey] || 1) !== num;
+        // A locked screen stays unchanged (the owner's ruling, 2026-10-16):
+        // moving its active port or circuit is a change, so the screen is
+        // picked (selecting is not changing) and the error says why the run
+        // did not become the active one. Alt+click on the run that is
+        // already active changes nothing and says nothing.
+        if (owner.locked && (idxChanged || undoLabel)) {
+            this._showLockedError([owner]);
+            return;
+        }
         owner[idxKey] = num;
         const wholeCustom = kind === 'power'
             ? this.isCustomPower(owner) : this.isCustomFlow(owner);
@@ -280,6 +295,14 @@ class _RunOverrides {
     // next pass. One named undo step puts the drawing back.
     returnRunToAuto(owner, kind, num) {
         if (!owner || !this.isRunOverridden(owner, kind, num)) return;
+        // Locked screens stay unchanged: neither a locked owner's override
+        // nor one drawn across a locked screen's cabinets is let go.
+        const locked = (typeof this._runLockedLayers === 'function')
+            ? this._runLockedLayers(owner, kind, num) : [];
+        if (locked.length) {
+            this._showLockedError(locked);
+            return;
+        }
         const pathsKey = kind === 'power' ? 'powerCustomPaths' : 'customPortPaths';
         const ovrKey = kind === 'power' ? 'powerCustomOverrides' : 'customPortOverrides';
         owner[ovrKey] = this.getOverrideNums(owner, kind).filter(n => n !== num);

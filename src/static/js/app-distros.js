@@ -16,6 +16,12 @@ class _Distros {
     getDistros() {
         if (!this.project) return [];
         if (!this.project.distros) this.project.distros = [];
+        // Every record read is migrated to a SYSTEM once (1.5,
+        // app-distro-systems.js): idempotent, so a paste, an undo restore
+        // or a load all meet the same record. Nothing is pushed for it -
+        // an old show opens unchanged and saves the system the next time
+        // its distros are written.
+        for (const d of this.project.distros) this._ensureDistroSystem(d);
         return this.project.distros;
     }
 
@@ -34,16 +40,14 @@ class _Distros {
     }
 
     // What a new distro is, short of what the caller says: the Distros &
-    // multis preferences (rating, voltage, phase), read here at creation
-    // and nowhere else - a distro that exists keeps what it has.
+    // multis preferences (rating, system), read here at creation and
+    // nowhere else - a distro that exists keeps what it has.
     _distroPreferenceDefaults() {
         const prefs = (typeof this.getPreferences === 'function') ? this.getPreferences() : {};
         const rating = Number(prefs.distroRatingA);
-        const voltage = Number(prefs.distroVoltage);
         return {
             ratingA: Number.isFinite(rating) && rating > 0 ? rating : 400,
-            voltage: Number.isFinite(voltage) && voltage > 0 ? voltage : 208,
-            phase: Number(prefs.distroPhase) === 1 ? 1 : 3,
+            system: this.preferenceDistroSystem(prefs),
         };
     }
 
@@ -55,9 +59,21 @@ class _Distros {
             id: 'd' + n,
             name: opts.name || `DISTRO ${n}`,
             ratingA: Number(opts.ratingA) || dflt.ratingA,
-            voltage: Number(opts.voltage) || dflt.voltage,
-            phase: opts.phase == null ? dflt.phase : (Number(opts.phase) === 1 ? 1 : 3)
         };
+        // A new distro is a SYSTEM from the start: the one asked for, else
+        // the one a caller's voltage and phase migrate to (scripts, old
+        // callers; 120/208 where the pair names none), else the one
+        // Preferences pick.
+        const asked = opts.system && this.distroSystemById(opts.system);
+        const byPair = !asked && (opts.voltage != null || opts.phase != null)
+            ? (this._systemForVoltagePhase(Number(opts.voltage) || 208,
+                                           Number(opts.phase) === 1 ? 1 : 3).id || '120/208')
+            : null;
+        const sysId = asked ? asked.id : (byPair || dflt.system);
+        const sys = this.distroSystemById(sysId);
+        d.system = sys.id;
+        d.voltage = sys.voltage;
+        d.phase = sys.phase;
         list.push(d);
         // Adding a distro adds a bucket the numbering runs over, and its name
         // is what the multis landing on it will be called.
@@ -76,9 +92,53 @@ class _Distros {
         if (!d) return null;
         if (patch.name !== undefined) d.name = String(patch.name).trim() || d.name;
         if (patch.ratingA !== undefined) d.ratingA = Number(patch.ratingA) || d.ratingA;
-        if (patch.voltage !== undefined) d.voltage = Number(patch.voltage) || d.voltage;
-        if (patch.phase !== undefined) d.phase = Number(patch.phase) === 1 ? 1 : 3;
+        // The SYSTEM (1.5): the service as a whole - its voltage and phase
+        // follow it. The old voltage/phase keys still patch (scripts, old
+        // callers): the pair is re-read through the migration table, and a
+        // pair naming no system unambiguously leaves the distro on the old
+        // arithmetic, as an old file would be.
+        if (patch.system !== undefined) {
+            const sys = this.distroSystemById(patch.system);
+            if (sys) {
+                d.system = sys.id;
+                d.voltage = sys.voltage;
+                d.phase = sys.phase;
+            }
+        } else if (patch.voltage !== undefined || patch.phase !== undefined) {
+            if (patch.voltage !== undefined) d.voltage = Number(patch.voltage) || d.voltage;
+            if (patch.phase !== undefined) d.phase = Number(patch.phase) === 1 ? 1 : 3;
+            delete d.system;
+            this._ensureDistroSystem(d);
+        }
         if (patch.phasing !== undefined) d.phasing = patch.phasing || null;
+        // "Whole multi on one leg" is offered on EU distros only (ruling 4):
+        // a distro that leaves the EU systems drops it back to deriving.
+        if (d.phasing === 'whole-ln' && this.distroRegion(d) !== 'eu') d.phasing = null;
+        if (patch.input !== undefined) {
+            const inp = this.distroInputs().find(i => i.id === patch.input);
+            if (inp) d.input = inp.id; else delete d.input;
+        }
+        if (patch.breakers100 !== undefined) {
+            if (patch.breakers100) d.breakers100 = true; else delete d.breakers100;
+        }
+        if (patch.directPhasing !== undefined) {
+            if (patch.directPhasing === 'paired') d.directPhasing = 'paired';
+            else delete d.directPhasing;
+        }
+        // The OUTPUT ROWS (1.5): stored cleaned for the system; an empty
+        // list forgets the key, so the distro is the old demand-driven
+        // kind again.
+        if (patch.outputRows !== undefined) {
+            const sys = this.distroSystem(d);
+            const rows = sys ? this._normalizeOutputRows(patch.outputRows, sys) : [];
+            if (rows.length) d.outputRows = rows; else delete d.outputRows;
+        } else if (patch.system !== undefined && Array.isArray(d.outputRows)) {
+            // A new system re-cleans the rows it has: a connector the
+            // region does not offer goes, a coupling it cannot run is
+            // corrected.
+            const rows = this._normalizeOutputRows(d.outputRows, this.distroSystem(d));
+            if (rows.length) d.outputRows = rows; else delete d.outputRows;
+        }
         // Where the box physically sits - the dimmer beach, stage left
         // world. Prints on every power label that names this distro.
         if (patch.location !== undefined) d.location = String(patch.location).trim() || null;
@@ -137,6 +197,12 @@ class _Distros {
         const list = this.getDistros();
         const i = list.findIndex(x => x.id === id);
         if (i === -1) return false;
+        // Removing a distro unfeeds every multi on it, so a locked screen
+        // fed from it keeps the distro in place (the owner's ruling,
+        // 2026-10-16) - whole or not at all, and the error names it.
+        const fedLocked = (this.project.layers || []).filter(l => l && l.locked
+            && Object.values(l.powerSocaDistro || {}).includes(id));
+        if (this._lockedRefused(fedLocked)) return false;
         list.splice(i, 1);
         // orphaned soca assignments fall back to unassigned
         const touched = [];
@@ -168,6 +234,9 @@ class _Distros {
     // the whole drop is one undo entry. Returns the touched layers either way.
     setSocaDistro(layer, socaIndex, distroId, record = true) {
         if (!layer) return [];
+        // A locked screen stays unchanged (owner, 2026-10-16) - the setter
+        // refuses and names it, whichever control called it.
+        if (this._lockedRefused(layer)) return [];
         const map = layer.powerSocaDistro || (layer.powerSocaDistro = {});
         // A multi that carries its pin onto another distro can land on an
         // occupied box there - the same join as pinning, spelled as an
@@ -204,6 +273,9 @@ class _Distros {
     // fold this write into its own single history entry.
     setSocaNumber(layer, socaIndex, number, record = true) {
         if (!layer) return [];
+        // A locked screen stays unchanged (owner, 2026-10-16) - the setter
+        // refuses and names it, whichever control called it.
+        if (this._lockedRefused(layer)) return [];
         // Always leave an object behind, never delete the property: an
         // absent key is missing from the update payload and the server
         // keeps whatever it had, so "back to Auto" would silently not clear.
@@ -352,6 +424,9 @@ class _Distros {
     // shared box) fold this write into its own single history entry.
     setSocaName(layer, socaIndex, name, record = true) {
         if (!layer) return;
+        // A locked screen stays unchanged (owner, 2026-10-16) - the setter
+        // refuses and names it, whichever control called it.
+        if (this._lockedRefused(layer)) return;
         // Always leave an object behind, never delete the property: an absent
         // key is simply missing from the update payload and the server keeps
         // whatever it had, so "clear this" would silently not clear.

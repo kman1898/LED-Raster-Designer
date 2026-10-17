@@ -323,6 +323,8 @@ class _CanvasUi {
             if (this.powerCustomSelection) this.powerCustomSelection.clear();
             if (this.pixelMapSelection) this.pixelMapSelection.clear();
         }
+        // The selection changed under the cabinets: prune them with it.
+        this._screenSelectionChanged();
         return true;
     }
 
@@ -407,7 +409,66 @@ class _CanvasUi {
      * exactly where they were. Pass null to clear the override and let
      * Show Look fall back to mirroring canvas_id.
      */
+    // A locked screen stays on its canvas (the owner's ruling, 2026-10-16):
+    // every move verb below lets the unlocked ones go and names the locked
+    // ones. A DUPLICATE leaves the original where it is, so it is not a
+    // change to it and is never refused.
+    //
+    // A move to another PROCESSOR canvas (canvas_id) also takes a grouped
+    // screen out of its wall when the rest of the wall stays behind
+    // (_detach_from_cross_canvas_group on the server): the group shrinks, a
+    // group of one is dissolved, and the hand-drawn path steps that crossed
+    // between the members are cut. A wall with a locked member is changed by
+    // that, so a member of one does not leave it - the same rule Delete keeps
+    // (_deletableLayerIds) - and the locked member is named. A Show Look
+    // canvas move (opts.show) leaves the walls alone.
+    //
+    // Returns { ids, locked }: the screens that may go, and the locked
+    // screens that held something back (a locked screen already on the
+    // target canvas would not change, so it is not named).
+    _canvasMovePlan(layerIds, targetCanvasId, opts = {}) {
+        const show = !!opts.show;
+        const layers = (this.project && this.project.layers) || [];
+        const byId = new Map(layers.map(l => [l.id, l]));
+        const where = (l) => (show ? (l.show_canvas_id || l.canvas_id) : l.canvas_id);
+        const locked = new Map();
+        let ids = (layerIds || []).filter(id => {
+            const l = byId.get(id);
+            if (l && l.locked) {
+                if (targetCanvasId == null || where(l) !== targetCanvasId) locked.set(l.id, l);
+                return false;
+            }
+            return true;
+        });
+        if (!show && targetCanvasId != null) {
+            const held = new Set();
+            ids.forEach(id => {
+                const l = byId.get(id);
+                if (!l || !l.group_id || l.canvas_id === targetCanvasId) return;
+                const members = typeof this.groupMembersOf === 'function'
+                    ? this.groupMembersOf(l)
+                    : layers.filter(m => m && m.group_id === l.group_id);
+                const lockedStaying = (members || []).filter(m => m && m.id !== l.id
+                    && m.locked && m.canvas_id !== targetCanvasId);
+                if (lockedStaying.length === 0) return;
+                held.add(id);
+                lockedStaying.forEach(m => locked.set(m.id, m));
+            });
+            if (held.size) ids = ids.filter(id => !held.has(id));
+        }
+        return { ids, locked: [...locked.values()] };
+    }
+
+    // _canvasMovePlan's screens that may go, with the locked ones named in
+    // the one error.
+    _unlockedLayerIds(layerIds, targetCanvasId = null, opts = {}) {
+        const plan = this._canvasMovePlan(layerIds, targetCanvasId, opts);
+        this._showLockedError(plan.locked);
+        return plan.ids;
+    }
+
     moveLayerShowCanvas(layerId, targetCanvasId) {
+        if (this._unlockedLayerIds([layerId], targetCanvasId, { show: true }).length === 0) return Promise.resolve(null);
         return fetch(`/api/layer/${layerId}/show_canvas`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
@@ -430,6 +491,8 @@ class _CanvasUi {
      */
     async moveLayersShowCanvas(layerIds, targetCanvasId) {
         if (!Array.isArray(layerIds) || layerIds.length === 0) return;
+        layerIds = this._unlockedLayerIds(layerIds, targetCanvasId, { show: true });
+        if (layerIds.length === 0) return;
         let lastData = null;
         for (const id of layerIds) {
             const r = await fetch(`/api/layer/${id}/show_canvas`, {
@@ -454,6 +517,7 @@ class _CanvasUi {
 
     moveLayerCrossCanvas(layerId, targetCanvasId, mode) {
         const wantMove = (mode !== 'duplicate');
+        if (wantMove && this._unlockedLayerIds([layerId], targetCanvasId).length === 0) return Promise.resolve(null);
         return fetch(`/api/layer/${layerId}/canvas`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
@@ -493,6 +557,10 @@ class _CanvasUi {
     async moveLayersCrossCanvas(layerIds, targetCanvasId, mode) {
         const wantMove = (mode !== 'duplicate');
         if (!Array.isArray(layerIds) || layerIds.length === 0) return;
+        if (wantMove) {
+            layerIds = this._unlockedLayerIds(layerIds, targetCanvasId);
+            if (layerIds.length === 0) return;
+        }
         // The whole walls inside this batch, snapshotted BEFORE the first PUT
         // because the loop below is what destroys them. /api/layer/<id>/canvas
         // can only ever see ONE layer, so it has to assume the rest of the
@@ -542,6 +610,7 @@ class _CanvasUi {
                 this.selectedLayerIds = new Set(layerIds);
                 const primary = this.project.layers.find(l => l.id === layerIds[0]);
                 if (primary) this.currentLayer = primary;
+                this._screenSelectionChanged();
                 if (typeof this.renderLayers === 'function') this.renderLayers();
                 if (window.canvasRenderer && typeof window.canvasRenderer.render === 'function') {
                     window.canvasRenderer.render();
@@ -712,6 +781,11 @@ class _CanvasUi {
     }
 
     deleteCanvas(canvasId) {
+        // Deleting a canvas deletes the screens on it: a locked one keeps
+        // the canvas (the owner's ruling, 2026-10-16), and is named.
+        const onCanvas = ((this.project && this.project.layers) || [])
+            .filter(l => l && l.canvas_id === canvasId);
+        if (this._lockedRefused(onCanvas)) return Promise.resolve(null);
         return fetch(`/api/canvas/${canvasId}`, { method: 'DELETE' })
             .then(r => r.json().then(body => ({ ok: r.ok, body })))
             .then(({ ok, body }) => {
@@ -794,6 +868,12 @@ class _CanvasUi {
             this.currentLayer = next;
             if (!next) this.lastSelectedLayerId = null;
         }
+        // The canvas switch narrowed the selection: the cabinets follow. (A
+        // preserveSelection switch leaves it alone, and its caller is part
+        // way through a selection change that prunes when it is done.)
+        if (!opts.preserveSelection && typeof this._screenSelectionChanged === 'function') {
+            this._screenSelectionChanged();
+        }
         // Slice 6: toolbar raster reflects the active canvas's raster.
         // syncRasterFromProject reads straight from the active canvas now,
         // so no project-root mirror needed.
@@ -867,6 +947,9 @@ class _CanvasUi {
     }
 
     moveLayerToCanvas(layerId, canvasId, mode = 'move') {
+        if (mode !== 'duplicate' && this._unlockedLayerIds([layerId], canvasId).length === 0) {
+            return Promise.resolve(null);
+        }
         return fetch(`/api/layer/${layerId}/canvas`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
@@ -1295,7 +1378,12 @@ class _CanvasUi {
         const finishRename = () => {
             if (renameFinished) return;
             renameFinished = true;
-            const newName = input.value.trim() || currentName;
+            let newName = input.value.trim() || currentName;
+            // A locked screen keeps its name, and the error says why.
+            if (newName !== currentName && layer.locked) {
+                this._showLockedError([layer]);
+                newName = currentName;
+            }
             layer.name = newName;
 
             if (newName !== currentName) {

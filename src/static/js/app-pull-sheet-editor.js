@@ -124,16 +124,27 @@ class _PullSheetEditor {
                 this._pullSheetVocab = {
                     types: Array.isArray(v.types) ? v.types : [],
                     lengths: Array.isArray(v.lengths) ? v.lengths : [],
+                    meterLengths: Array.isArray(v.meter_lengths) ? v.meter_lengths : [],
                 };
                 this._pullSheetVocabLoading = null;
                 if (this.isPullSheetEditorOpen()) this._pullSheetFillDatalists(this._pullSheetLastList);
             });
     }
 
+    // In a meters show (app-cable-units.js) the template's lengths are
+    // feet ("6'", "25'"): they are left out, and the workbook's meters
+    // Length list ("1 m" ... "300 m", served with the GEAR LIST - one source,
+    // pull_sheet.METER_GEAR_LENGTHS) offered in their place, then EA, then
+    // whatever the show's own rows say. The export appends a length the
+    // GEAR LIST lacks, as it always has.
     pullSheetVocabulary(list) {
         const v = this._pullSheetVocab || { types: [], lengths: [] };
         const types = [...v.types];
-        const lengths = [...v.lengths];
+        const metric = typeof this.cableUnit === 'function' && this.cableUnit() === 'm';
+        const lengths = metric
+            ? [...new Set([...(v.meterLengths || []),
+                           ...v.lengths.filter(l => !/'$/.test(String(l)))])]
+            : [...v.lengths];
         for (const pos of (list && list.positions) || []) {
             for (const r of pos.rows || []) {
                 if (r.type && !types.includes(r.type)) types.push(r.type);

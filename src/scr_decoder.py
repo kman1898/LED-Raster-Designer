@@ -202,8 +202,8 @@ def _decode_section(data: bytes, offset: int, size: int, s_idx: int):
     # The old code treated a non-zero value there as a Format A marker. It is
     # not a marker - it is per-section data (sending card, first port), and
     # plenty of real sections carry zeros there. Files whose sections did not
-    # happen to match the guess had every record read 4 bytes off: a 2025
-    # Pitbull file decoded its Active byte as 112, which is a cabinet width.
+    # happen to match the guess had every record read 4 bytes off: one
+    # reference file decoded its Active byte as 112, which is a cabinet width.
     #
     # A section is a header plus a whole number of fixed-size records, so the
     # only overhead that can be right is one where (size - overhead) divides by
@@ -222,7 +222,7 @@ def _decode_section(data: bytes, offset: int, size: int, s_idx: int):
                      else FORMAT_B_OVERHEAD)
     else:
         # Neither fits: not a 17-byte-record section at all. Older files use a
-        # 16-byte cabinet record (seen in 2025 Rezz / Nocturnal) and are not
+        # 16-byte cabinet record (seen in two 2025 reference files) and are not
         # supported yet - say so rather than returning nonsense.
         return None
 

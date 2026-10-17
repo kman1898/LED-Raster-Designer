@@ -14,7 +14,7 @@ itself, and the only one neither of the other two suites can reach:
     ops say nothing (the map is one image op) and the registry says
     nothing (the binder's marks are not the map's).
 
-The fault this was written for: on every power sheet of the user's Kelly
+The fault this was written for: on every power sheet of the user's live show A
 export the binder's bold column number sat inside the map's multi band
 pill, so "S1-1 · 250 · 65.8A" read as "S1-4". The binder's ruler and the
 map's own leg ruler were both living in the same gutter above the wall.
@@ -37,8 +37,8 @@ sends the test red, because they are useful to look at.
 The real shows are frozen in the git-ignored tests/fixtures-local
 (conftest.private_fixture) and SKIPPED when absent - they are never
 committed, so CI skips them; each env var overrides its file:
-    LRD_KELLY_LIVE_JSON   kelly-live-fixture.json
-    LRD_PULL_SMOKE_JSON   experts-only-fixture.json
+    LRD_LIVE_SHOW_A_JSON  live-show-a-live.json
+    LRD_PULL_SMOKE_JSON   live-show-b.json
 
 Run locally (each session takes its own free port, so it runs beside
 any other):
@@ -66,7 +66,7 @@ pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 # The real shows are a bonus, never the whole test: they are client data,
 # kept in the git-ignored tests/fixtures-local (conftest.private_fixture),
 # and every case that needs one skips cleanly when it is not there.
-KELLY_LIVE = private_fixture('kelly-live-fixture.json', 'LRD_KELLY_LIVE_JSON')
+SHOW_A_LIVE = private_fixture('live-show-a-live.json', 'LRD_LIVE_SHOW_A_JSON')
 
 # How much of a mark's own footprint may sit on map ink before it is a
 # collision. A number printed inside a pill covers a quarter of itself or
@@ -298,15 +298,15 @@ def test_the_seeded_show_prints_nothing_on_its_own_maps(page, palette):
 
 
 @pytest.mark.parametrize('palette', ['colour', 'printer'])
-def test_kelly_live_prints_nothing_on_its_own_maps(page, palette):
-    """Kelly Clarkson as the user exported her - the show whose power
+def test_live_show_a_prints_nothing_on_its_own_maps(page, palette):
+    """Live show A as the user exported it - the show whose power
     sheets carried the binder's column number inside the map's band pill,
     turning "S1-1" into "S1-4"."""
-    if private_fixture_missing(KELLY_LIVE):
-        pytest.skip(private_fixture_missing(KELLY_LIVE))
+    if private_fixture_missing(SHOW_A_LIVE):
+        pytest.skip(private_fixture_missing(SHOW_A_LIVE))
     pg, _ids = page
     import json
-    pg.evaluate(LOAD_JS, json.load(open(KELLY_LIVE, encoding='utf-8')))
+    pg.evaluate(LOAD_JS, json.load(open(SHOW_A_LIVE, encoding='utf-8')))
     report = pg.evaluate(INK_JS, [_opts(palette)])
     assert report, 'the binder planned no pages at all'
     bad = _complaints(report)
@@ -360,15 +360,15 @@ def test_no_binder_rule_is_drawn_through_a_string(page, palette):
 
 
 @pytest.mark.parametrize('palette', ['colour', 'printer'])
-def test_kelly_live_has_no_rule_through_a_string(page, palette):
-    """Kelly Clarkson as the user exported her. Her power sheets are where
+def test_live_show_a_has_no_rule_through_a_string(page, palette):
+    """Live show A as the user exported it. Its power sheets are where
     the column ruler ran out of room: moved clear of the map's band pill it
     went straight into the head rule at the top of the sheet."""
-    if private_fixture_missing(KELLY_LIVE):
-        pytest.skip(private_fixture_missing(KELLY_LIVE))
+    if private_fixture_missing(SHOW_A_LIVE):
+        pytest.skip(private_fixture_missing(SHOW_A_LIVE))
     pg, _ids = page
     import json
-    pg.evaluate(LOAD_JS, json.load(open(KELLY_LIVE, encoding='utf-8')))
+    pg.evaluate(LOAD_JS, json.load(open(SHOW_A_LIVE, encoding='utf-8')))
     report = pg.evaluate(RULE_JS, [_opts(palette)])
     assert report, 'the binder planned no pages at all'
     bad = _struck(report)
@@ -383,7 +383,7 @@ def test_kelly_live_has_no_rule_through_a_string(page, palette):
 # loses it for LETTERING, which is the fault that shipped twice.
 @pytest.mark.parametrize('palette', ['colour', 'printer'])
 def test_no_wiring_run_is_drawn_over_the_maps_own_lettering(page, palette):
-    """Kelly Clarkson as the user exported her, and the seeded show:
+    """Live show A as the user exported it, and the seeded show:
     on every POWER WIRING and DATA WIRING sheet - each one side on a whole
     page, so the wall is drawn bigger than the half it used to have, which
     is exactly when things start to overprint - not one run is drawn over a
@@ -393,8 +393,8 @@ def test_no_wiring_run_is_drawn_over_the_maps_own_lettering(page, palette):
     import json
     pg, _ids = page
     shows = [(None, _wiring('WALL-A') + _wiring('WALL-B') + _wiring('CENTER'))]
-    if os.path.exists(KELLY_LIVE):
-        shows.append((KELLY_LIVE, _wiring('SR') + _wiring('SL') + _wiring('UPSTAGE')))
+    if os.path.exists(SHOW_A_LIVE):
+        shows.append((SHOW_A_LIVE, _wiring('SR') + _wiring('SL') + _wiring('UPSTAGE')))
     bad, per_sheet = [], {}
     for fixture, titles in shows:
         if fixture is None:

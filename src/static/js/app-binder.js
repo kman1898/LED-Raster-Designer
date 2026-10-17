@@ -1,6 +1,6 @@
 // app-binder: the binder packet - a DRAWING SET. The show's power and data
 // maps, the pull tables and the hardware, laid out on numbered SHEETS the
-// way a Vectorworks drawing set reads (2026-09-08, on the NCMF packet he
+// way a Vectorworks drawing set reads (2026-09-08, on a client packet he
 // held up: "this is a great example to base our binder off of"): every
 // sheet a landscape page of one size - Tabloid 17 x 11 by default ("17x11
 // i think is great . nice middle gound. but maybe have option for all
@@ -362,6 +362,7 @@ class _Binder {
     // hidden then (a set of sheets has no canvas list or view ticks), the
     // scope list rebuilt from the screens as they stand.
     syncBinderControls() {
+        if (typeof this.syncCableUnitControls === 'function') this.syncCableUnitControls();
         const fmt = document.getElementById('export-format');
         const on = !!fmt && fmt.value === 'binder';
         const show = (id, v) => {
@@ -535,7 +536,7 @@ class _Binder {
     }
 
     // The dialog's Groups row: one line per grouped wall whose Power or Data
-    // tab says Both on the Names switch, routed as one on that side - "USC
+    // tab says Both on the Names switch, routed as one on that side - "WALL
     // Data: [Group] [Screens]", both sides on the line where both ask. The
     // buttons show the saved answer, Group where there is none.
     _renderBinderGroupRows() {
@@ -1187,7 +1188,7 @@ class _Binder {
     // set made a sheet per member with something on it printed the carrier
     // alone, its map the carrier's wall alone, its tables the whole group's
     // (owner, 2026-10-01: "when i print a grouped screen it doesnt include
-    // USC SL in the binder. this is bad and needs fixing"). Such a group now
+    // WALL SL in the binder. this is bad and needs fixing"). Such a group now
     // prints by its tab's NAMES switch, each side on its own ("say power is
     // set to label by group name then power will be by group and if data is
     // set to screens then it will be 2 different"):
@@ -1198,7 +1199,7 @@ class _Binder {
     //   screens  a sheet per member, titled by the member, its map that
     //            member alone, its tables what lands on its cabinets - a port
     //            or circuit crossing members listed on each, saying where the
-    //            rest of it is ("also on USC SL")
+    //            rest of it is ("also on WALL SL")
     //   both     asked per group at export ("if set to both then ask per
     //            group"): the dialog's Groups row, saved in
     //            project.binder.groupSheets, read through readBinderOptions
@@ -1343,7 +1344,7 @@ class _Binder {
     }
 
     // Where the rest of a crossing item is, on a member's sheet: "also on
-    // USC SL" - the snake heading's "also" (snakeElsewhere) said of a
+    // WALL SL" - the snake heading's "also" (snakeElsewhere) said of a
     // screen; '' where it is all on this member.
     _bAlsoOn(s, ls) {
         if (s.kind !== 'member') return '';
@@ -1433,7 +1434,7 @@ class _Binder {
     }
 
     // The CABLES THIS SCREEN table: CABLE, LEN, QTY - a cable crossing into
-    // another member reading "Data Cable · also on USC SL", wrapped under
+    // another member reading "Data Cable · also on WALL SL", wrapped under
     // its type.
     _bCableTable(book, s, side) {
         const rows = this._bSubjectRows(book, s, side);
@@ -1466,10 +1467,12 @@ class _Binder {
         const watts = sum('watts');
         const active = sum('active');
         const sizes = [...new Set(members.map(m => `${m.cabinet_width}×${m.cabinet_height}`))];
+        // the service's line-to-line voltage (1.5, bug fix 3)
+        const lineV = members.length ? this.threePhaseLineVoltage(members[0]) : voltage;
         return {
             active, equivalent: sum('equivalent'), watts, voltage,
             amps1: voltage > 0 ? watts / voltage : 0,
-            amps3: voltage > 0 ? watts / (voltage * 1.73) : 0,
+            amps3: lineV > 0 ? watts / (lineV * 1.73) : 0,
             pixels: sum('pixels'),
             width: Number.isFinite(x1) ? x2 - x1 : 0, height: Number.isFinite(y1) ? y2 - y1 : 0,
             screenText: `${members.map(m => `${m.columns} × ${m.rows}`).join(' + ')} · ${this._bPlural(active, 'panel')}`
@@ -1692,7 +1695,7 @@ class _Binder {
         book.series[series] = (book.series[series] || 0) + 1;
         // the sheet title in caps, as the block and the contents print it
         const page = { index, number: `${series}.${book.series[series]}`, painting: false, ...spec,
-                       sheetTitle: String(spec.sheetTitle || spec.title || '').toUpperCase() };
+                       sheetTitle: this._bCaps(spec.sheetTitle || spec.title || '') };
         book.pages.push(page);
         book.page = page;
         const painting = !book.dry && book.realCtx && (book.only == null || book.only === index);
@@ -2096,11 +2099,29 @@ class _Binder {
         return `${weight || 400} ${size}px ${FONT}`;
     }
 
+    // Text in caps, as a heading prints it - every word but a cable
+    // length's unit in a meters show: "STRAND MAP · TAC A · 100 m", never
+    // "100 M" (a length reads the same on every paper, app-cable-units.js
+    // cableLengthText: the figure, a space, m). A feet show is plain
+    // caps - "100'" has nothing to lower.
+    _bCaps(text) {
+        const t = String(text == null ? '' : text);
+        if (typeof this.cableUnit !== 'function' || this.cableUnit() !== 'm') return t.toUpperCase();
+        const re = /(^|[^\w.])(\d+(?:\.\d+)? m)(?!\w)/g;
+        let out = '', last = 0, m;
+        while ((m = re.exec(t))) {
+            const at = m.index + m[1].length;
+            out += t.slice(last, at).toUpperCase() + m[2];
+            last = at + m[2].length;
+        }
+        return out + t.slice(last).toUpperCase();
+    }
+
     _bText(book, text, x, y, o) {
         const ctx = book.ctx;
         const opts = o || {};
         let t = String(text == null ? '' : text);
-        if (opts.upper) t = t.toUpperCase();
+        if (opts.upper) t = this._bCaps(t);
         let size = opts.size || SZ.cell;
         ctx.font = this._bFont(size, opts.weight);
         // A heading shrinks a little before it is cut: "PANELS" in a narrow
@@ -2141,7 +2162,7 @@ class _Binder {
     // the backup), each shrinking on its own, so a run is never cut to
     // "…". THE SEPARATOR STAYS ON THE FIRST LINE: two ends stacked with
     // the " / " dropped read as one thing said twice, which is what the
-    // Kelly binder's HOME RUN column did (2026-09-09). Logged as one text,
+    // live show A binder's HOME RUN column did (2026-09-09). Logged as one text,
     // the whole cell, so a reader of the sheet's texts still sees one
     // entry per cell.
     _bTextTwoLines(book, text, x, y, o) {
@@ -2317,7 +2338,7 @@ class _Binder {
             // a `headShrink` heading asks only for its room at the smallest
             // size a heading shrinks to before it is cut (_bText's 14)
             ctxM.font = this._bFont(c.headShrink ? 14 : SZ.th, 700);
-            let n = c.title ? ctxM.measureText(String(c.title).toUpperCase()).width + padX * 2 : 0;
+            let n = c.title ? ctxM.measureText(this._bCaps(c.title)).width + padX * 2 : 0;
             ctxM.font = this._bFont(SZ.cell, 400);
             for (const r of rows) {
                 if (r.band !== undefined) continue;
@@ -2906,7 +2927,7 @@ class _Binder {
         // The type used to be swept down from its largest, giving room back
         // to the map only where that filled more of the sheet's HEIGHT. A
         // short table therefore grew until it filled the height by itself
-        // and the wall never got its room back: on Experts Only, SR - MAIN
+        // and the wall never got its room back: on live show B, SR - MAIN
         // DATA (8 ports) printed its table at 1.7x beside a wall a third of
         // the sheet wide, while SR - MAIN POWER (22 circuits, a table that
         // cannot grow) printed the same wall at nearly twice the size - "power
@@ -3777,7 +3798,7 @@ class _Binder {
     // the title block's sheet title and the CONTENTS line alike, the plan
     // title "WALL-A - Power - Rear View". The wiring sheets keep their own
     // titles (app-binder-wiring.js); the overview stays OVERVIEW.
-    // A group printed as one names the GROUP ("USC · DATA · FRONT VIEW") and
+    // A group printed as one names the GROUP ("WALL · DATA · FRONT VIEW") and
     // a member printed by screens names the member; `target` is a screen or
     // a sheet subject (_bSubject).
     _bScreenPage(book, target, pos, view) {
@@ -3842,10 +3863,12 @@ class _Binder {
             : { width: 0, height: 0 };
         const watts = (parseFloat(layer.panelWatts) || 0) * equivalent;
         const voltage = parseFloat(layer.powerVoltage) || 0;
+        // the service's line-to-line voltage (1.5, bug fix 3)
+        const lineV = this.threePhaseLineVoltage(layer);
         return {
             active: active.length, equivalent, watts, voltage,
             amps1: voltage > 0 ? watts / voltage : 0,
-            amps3: voltage > 0 ? watts / (voltage * 1.73) : 0,
+            amps3: lineV > 0 ? watts / (lineV * 1.73) : 0,
             pixels: active.reduce((s, p) => s + this.getPanelPixelArea(p), 0),
             width: bounds.width, height: bounds.height,
             screenText: `${layer.columns} × ${layer.rows} · ${this._bPlural(active.length, 'panel')}`
@@ -3872,7 +3895,8 @@ class _Binder {
     _bSubjectLegsOn(layers, distroId, listed = null) {
         const distro = (typeof this.getDistros === 'function' ? this.getDistros() : [])
             .find(d => d && d.id === distroId);
-        if (!distro || Number(distro.phase) !== 3 || typeof this.boxFeedLegAmps !== 'function') return null;
+        if (!distro || this.distroLegNames(distro).length < 2
+                || typeof this.boxFeedLegAmps !== 'function') return null;
         const members = [];
         for (const layer of layers) {
             const assign = layer.powerSocaDistro || {};
@@ -3942,14 +3966,18 @@ class _Binder {
         const fed = distroIds.map(id => {
             const d = loads.find(x => x.id === id);
             if (!d) return null;
-            let line = `${d.name} · ${d.ratingA} A ${d.voltage} V ${d.phase === 3 ? '3φ' : '1φ'}`;
+            const rec = this.getDistros().find(x => x.id === id) || d;
+            let line = `${d.name} · ${this._bDistroRatingText(rec)}`;
             const legs = grouped ? this._bSubjectLegsOn(s.carriers, id, listed) : this._bScreenLegsOn(layer, id);
             if (legs) {
                 // a leg's letter and its figure stay on one line where
                 // the row wraps (no-break spaces; the KV rows wrap at
-                // plain spaces only)
-                line += ` · ${whose} on its legs X ${this._bNum(legs.X, 1)} Y ${this._bNum(legs.Y, 1)}`
-                    + ` Z ${this._bNum(legs.Z, 1)} A`;
+                // plain spaces only). The letters are the region's: X/Y/Z
+                // in North America, L1/L2/L3 on an EU distro (1.5).
+                line += ` · ${whose} on its legs `
+                    + this.distroLegNames(rec).map(k =>
+                        `${this.distroLegLabel(rec, k)} ${this._bNum(legs[k], 1)}`).join(' ')
+                    + ' A';
             }
             return line;
         }).filter(Boolean);
@@ -4082,7 +4110,7 @@ class _Binder {
     // The redundancy bar's reading for a processor: "Per card", "Per port",
     // "Backed up → MX20 B" (the unit its one card mirrors onto), "A to B"
     // (an SX40 running one loop), "Off" - then its backup processor, "·
-    // backed up by USC SR BU".
+    // backed up by WALL SR BU".
     _bRedundancyText(proc) {
         const level = (typeof this._procRedundancyLevel === 'function') ? this._procRedundancyLevel(proc) : 'off';
         let text = REDUNDANCY_WORDS[level] || level;
@@ -4190,7 +4218,7 @@ class _Binder {
     // `target` is a screen or a sheet subject (_bSubject): a group's sheet
     // lists every member's ports, a member's the ports landing on its
     // cabinets - a port crossing into another member says where the rest of
-    // it is ("also on USC SL"), under its label.
+    // it is ("also on WALL SL"), under its label.
     _bDataBlocks(book, target, scr) {
         const subject = this._bSubject(target);
         const layer = subject.layers[0];
@@ -4462,7 +4490,7 @@ class _Binder {
             const bucket = byVoltage.get(f.voltage) || { voltage: f.voltage, watts: 0, amps1: 0, amps3: 0 };
             bucket.watts += w;
             bucket.amps1 += w / f.voltage;
-            bucket.amps3 += w / (f.voltage * 1.73);
+            bucket.amps3 += w / (this.threePhaseLineVoltage(l) * 1.73);
             byVoltage.set(f.voltage, bucket);
         }
         const loadText = (b) => `${this._bNum(b.amps1, 1)} A 1φ · ${this._bNum(b.amps3, 1)} A 3φ · ${this._bNum(b.watts / 1000, 1)} kW`;
@@ -4677,7 +4705,7 @@ class _Binder {
                 if (box.distroId && !seenDistro.has(box.distroId)) {
                     seenDistro.add(box.distroId);
                     const d = (this.getDistros ? this.getDistros() : []).find(x => x.id === box.distroId);
-                    if (d) hw.push({ cells: ['', d.name, `distro · ${d.ratingA} A ${d.voltage} V ${d.phase === 3 ? '3φ' : '1φ'}`] });
+                    if (d) hw.push({ cells: ['', d.name, `distro · ${this._bDistroRatingText(d)}`] });
                 }
             }
             const asg = ((this._assignment && this._assignment.screens) || [])
@@ -4835,6 +4863,7 @@ class _Binder {
             const typed = this.distroBoxType(d, number, members).type;
             if (typed) byType.set(typed.name, (byType.get(typed.name) || 0) + 1);
             let homeRun = null, circuits = 0, amps = 0;
+            let lone = null;    // { layer, circuit } of the last circuit seen
             const names = [];
             for (const m of members) {
                 const layer = book.layers.get(String(m.layerId));
@@ -4846,9 +4875,20 @@ class _Binder {
                 else if (!names.includes(gp.name)) names.push(gp.name);
                 const s = this.getSocaPlan(layer).find(x => x.soca === m.soca);
                 if (!s) continue;
-                if (!homeRun && s.length) homeRun = s.length;
+                if (!homeRun) homeRun = this.parseCableLength(s.length);
                 circuits += (s.legs || []).length;
                 amps += (s.legs || []).reduce((a, l) => a + (Number(l.amps) || 0), 0);
+                if ((s.legs || []).length) lone = { layer, circuit: s.legs[0].circuit };
+            }
+            // A DIRECT output with one circuit on it has ONE cable, distro
+            // to screen - the circuit's own when typed, else the home run -
+            // read through the helper the map's tag and the pull sheet use,
+            // so this table never contradicts them. A crowded output (the
+            // flagged error state) keeps the output's home run.
+            const fbox = typeof this.faceBox === 'function' ? this.faceBox(d, number) : null;
+            if (fbox && fbox.kind === 'direct' && circuits === 1 && lone) {
+                const one = this.directCircuitCable(lone.layer, lone.circuit);
+                homeRun = one ? one.ft : null;
             }
             allCircuits += circuits;
             boxes.push({ cells: [`${d.name} ${number}`, typed ? typed.name : '—',
@@ -4876,13 +4916,21 @@ class _Binder {
             rows: boxes.length ? boxes : [{ cells: ['none', '', '', '', '', ''] }],
             shrink: true,
         }) });
-        const pairs = [['Rating', `${d.ratingA} A ${d.voltage} V ${d.phase === 3 ? '3φ' : '1φ'}`]];
+        const pairs = [['Rating', this._bDistroRatingText(d)]];
+        // The face (1.5): one line per output row, a paired row printed
+        // ONCE with both connectors named.
+        for (const line of this._bDistroFaceLines(d)) pairs.push(['Outputs', line]);
         if (load) {
-            pairs.push(['Load', `${this._bNum(load.amps, 1)} A · ${this._bNum(load.pct, 0)}% · ${this._bNum(load.watts / 1000, 1)} kW`
+            // The WORST LEG against the per-leg rating (1.5, bug fix 2) -
+            // the leg named where the distro has legs.
+            const leg = load.legs && load.worstLeg
+                ? ` on leg ${this.distroLegLabel(d, load.worstLeg)}` : '';
+            pairs.push(['Load', `${this._bNum(load.amps, 1)} A${leg} · ${this._bNum(load.pct, 0)}% · ${this._bNum(load.watts / 1000, 1)} kW`
                 + (load.over ? ' · OVER' : '')]);
             if (load.legs) {
-                pairs.push(['Legs', `X ${this._bNum(load.legs.X.amps, 1)} · Y ${this._bNum(load.legs.Y.amps, 1)}`
-                    + ` · Z ${this._bNum(load.legs.Z.amps, 1)} A`]);
+                const names = load.legs.names || ['X', 'Y', 'Z'];
+                pairs.push(['Legs', names.map(k =>
+                    `${this.distroLegLabel(d, k)} ${this._bNum(load.legs[k].amps, 1)}`).join(' · ') + ' A']);
                 pairs.push(['Imbalance', `${this._bNum(load.imbalancePct, 1)}%`]);
             }
         }
@@ -4891,6 +4939,46 @@ class _Binder {
         const hw = (book.list.hardware || []).find(h => h.kind === 'distro' && h.id === d.id);
         blocks.push({ lines: this._bPullLines(book, 'Pull list', (hw && hw.rows) || []) });
         return blocks;
+    }
+
+    // A distro's rating as the papers print it: an old-style distro (no
+    // face) exactly as it always read - "400 A 208 V 3φ"; a distro with a
+    // face (1.5) by its system, per leg, its input and its breakers -
+    // "200 A per leg · 120/208V 3φ · Cam 200 A".
+    _bDistroRatingText(d) {
+        if (!d) return '';
+        if (!this.distroFace(d)) {
+            return `${d.ratingA} A ${d.voltage} V ${Number(d.phase) === 3 ? '3φ' : '1φ'}`;
+        }
+        const input = this.distroInputs().find(i => i.id === d.input);
+        return [`${d.ratingA} A per leg`, this.distroSystemName(d),
+                input ? input.name : null,
+                d.breakers100 && this.distroRegion(d) === 'us' ? '100% rated breakers' : null]
+            .filter(Boolean).join(' · ');
+    }
+
+    // The face's rows, one line each: "4 × Socapex 208V · 24 circuits ·
+    // 20 A"; a paired row folds into its partner's line, both connectors
+    // named: "2 × Socapex 230V / 2 × Harting 16E 230V (paired) · 12
+    // circuits · 16 A".
+    _bDistroFaceLines(d) {
+        const face = this.distroFace(d);
+        if (!face) return [];
+        const out = [];
+        const name = (x) => {
+            const i = face.rowInfo.get(x.id);
+            return `${x.count} × ${this.faceBoxType(d, i.boxes[0]).name}`;
+        };
+        for (const r of face.rows) {
+            if (r.pairedWith) continue;
+            const info = face.rowInfo.get(r.id);
+            const partners = face.rows.filter(x => x.pairedWith === r.id);
+            const lead = [r, ...partners].map(name).join(' / ')
+                + (partners.length ? ' (paired)' : '');
+            const noun = info.conn.kind === 'direct' ? 'direct circuit' : 'circuit';
+            out.push(`${lead} · ${this._bPlural(info.circuits, noun)} · ${r.breakerA} A`);
+        }
+        return out;
     }
 
     _bPullLines(book, title, rows) {
@@ -4912,7 +5000,7 @@ class _Binder {
         if (!cards.length) return null;
         // The unit's own name heads its column: a processor nobody named
         // whose FIXED card is its own face goes by the card's name
-        // ("USC A"), not by its model twice over. A processor with slots
+        // ("WALL A"), not by its model twice over. A processor with slots
         // keeps its own name - a card in it is a part, not the unit.
         const unit = cards.length === 1 && cards[0].card.fixed
             && typeof this.dataUnitTitle === 'function'
@@ -4921,8 +5009,8 @@ class _Binder {
         return { kind: 'processor', name: procTitle, blocks: this._bProcessorBlocks(book, proc, cards, procTitle) };
     }
 
-    // A processor's BACKUP UNIT as its own column (owner, 2026-09-25): "USC
-    // SR BU · backup of USC SR Main", its cards - the main's again, slot
+    // A processor's BACKUP UNIT as its own column (owner, 2026-09-25): "WALL
+    // SR BU · backup of WALL SR Main", its cards - the main's again, slot
     // for slot, each backing up the main's - the switches it keeps of its
     // own (a HELIOS's RS12s, any box with no documented backup input),
     // and its redundancy, which is the main's. null without one.
@@ -4971,7 +5059,7 @@ class _Binder {
             return count ? count.taken : 0;
         };
         // A card by name: its own where it is in this processor, else the
-        // unit it belongs to (a 1:1 partner in ANOTHER processor - "USC B",
+        // unit it belongs to (a 1:1 partner in ANOTHER processor - "WALL B",
         // never the raw id the sheet used to print).
         const nameOf = (cardId) => {
             const hit = cards.find(c => c.card.id === cardId);
@@ -5083,7 +5171,7 @@ class _Binder {
                 // ('cable'), its EXTENSION off the snake it rides where it
                 // is snaked ('ext', the snake's name in the last column).
                 for (const [socket, c] of Object.entries(o.rec.portCables || {})) {
-                    const ft = Number(c && c.ft);
+                    const ft = this.parseCableLength(c && c.ft);
                     if (!Number.isFinite(ft) || ft <= 0) continue;
                     const connId = this.dataPortConnectorId({ rec: o.rec }, c.connector);
                     const snake = this.dataPortSnake(o, socket);
@@ -5140,7 +5228,7 @@ class _Binder {
         const out = [];
         for (const cable of this.getFiberCables()) {
             if (firsts.get(cable.id) !== proc.id) continue;
-            const ft = Number(cable.ft);
+            const ft = this.parseCableLength(cable.ft);
             const also = (procsOf.get(cable.id) || []).filter(t => t !== here);
             const title = [`Strand map · ${cable.name || this.fiberKindWord(cable.kind)}`,
                            this.fiberCableTypeText(cable),
@@ -5217,7 +5305,7 @@ class _Binder {
             linked++;
             const input = `${l.title} on ${this._bBoxTitle(l.box)}`;
             if (l.copper) {
-                const ft = Number(l.copper.ft);
+                const ft = this.parseCableLength(l.copper.ft);
                 const over = this.copperOverText(l.copper);
                 const run = [l.copper.copper, Number.isFinite(ft) && ft > 0 ? this.pullLengthText(ft) : '']
                     .filter(Boolean).join(' ') + (over ? ` (${over})` : '');

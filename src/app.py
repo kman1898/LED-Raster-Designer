@@ -1358,45 +1358,21 @@ def sync_next_layer_id():
             max_id = layer_id
     next_layer_id = max_id + 1
 
-# The jumper length a new screen starts with when the preferences never said
-# (app-jumpers.js JUMPER_SHIPPED_FT - the two literals are one figure).
-JUMPER_SHIPPED_FT = 6
+
+def cable_unit(project=None):
+    """The unit a show's cable lengths are typed and printed in (2026-10-16,
+    app-cable-units.js): 'm' when the show says so, else 'ft' - a show saved
+    before the setting has none and is feet."""
+    if project is None:
+        project = current_project
+    return 'm' if isinstance(project, dict) and project.get('cableUnit') == 'm' else 'ft'
 
 
-def _jumper_length_value(value):
-    """A jumper length as the layer stores it: positive feet, or None (no
-    cable) for a blank, zero, negative or non-numeric value."""
-    if value is None or isinstance(value, bool):
-        return None
-    try:
-        n = float(value)
-    except (TypeError, ValueError):
-        return None
-    if not math.isfinite(n) or n <= 0:
-        return None
-    return int(n) if n.is_integer() else n
-
-
-def jumper_seed(prefs=None):
-    """The four per-screen jumper lengths (2026-09-25) a NEW screen takes
-    from the preferences - the server's twin of app-jumpers.js
-    jumperDefaults: dataJumpLength / powerJumpLength are the VERTICAL links,
-    *JumpLengthH the horizontal ones, and a record with no horizontal key
-    reads its vertical figure (shipped: 6 and 6). A layer loaded from a file
-    is never given them here; the client reads the preferences for a screen
-    that lacks them."""
+def preferred_cable_unit(prefs=None):
+    """The unit a NEW show starts in: the Preferences setting, else feet."""
     if prefs is None:
         prefs = server_preferences
-    if not isinstance(prefs, dict):
-        prefs = {}
-    out = {}
-    for side in ('data', 'power'):
-        vkey, hkey = f'{side}JumpLength', f'{side}JumpLengthH'
-        v = _jumper_length_value(prefs[vkey]) if vkey in prefs else JUMPER_SHIPPED_FT
-        h = _jumper_length_value(prefs[hkey]) if hkey in prefs else v
-        out[f'{side}JumpV'] = v
-        out[f'{side}JumpH'] = h
-    return out
+    return 'm' if isinstance(prefs, dict) and prefs.get('cableUnit') == 'm' else 'ft'
 
 
 def create_layer(name, columns, rows, cabinet_width, cabinet_height, offset_x=0, offset_y=0):
@@ -1491,8 +1467,9 @@ def create_layer(name, columns, rows, cabinet_width, cabinet_height, offset_x=0,
         'powerLabelTemplate': 'S1-#',
         'powerLabelOverrides': {},
         'powerCircuitCables': {},
-        # Per-screen jumper lengths from the preferences (jumper_seed).
-        **jumper_seed(),
+        # No per-screen jumper lengths (dataJumpV ...): a screen nobody
+        # typed them on reads the Preferences in its show's unit
+        # (app-jumpers.js screenJumperLengths, 2026-10-16).
         'powerCustomPaths': {},
         'powerCustomIndex': 1,
         # Per-layer label settings
@@ -1742,8 +1719,8 @@ def _next_duplicate_canvas_name(src_name):
     sharing that base, and returns "<base> <max+1>". Examples:
 
         "Canvas 2" + ["Canvas 1", "Canvas 2"] → "Canvas 3"
-        "EDC"      + ["EDC"]                  → "EDC 1"
-        "EDC 1"    + ["EDC", "EDC 1"]         → "EDC 2"
+        "MAIN"     + ["MAIN"]                 → "MAIN 1"
+        "MAIN 1"   + ["MAIN", "MAIN 1"]       → "MAIN 2"
     """
     import re
     name = (src_name or 'Canvas').strip()
@@ -2449,6 +2426,7 @@ from routes_system import system_bp  # noqa: E402
 from routes_dialog import dialog_bp  # noqa: E402
 from routes_presets import presets_bp  # noqa: E402
 from routes_layouts import layouts_bp  # noqa: E402
+from routes_distro_presets import distro_presets_bp  # noqa: E402
 from routes_version import version_bp  # noqa: E402
 from routes_logs import logs_bp  # noqa: E402
 from routes_panel_catalog import panel_catalog_bp  # noqa: E402
@@ -2463,6 +2441,7 @@ app.register_blueprint(system_bp)
 app.register_blueprint(dialog_bp)
 app.register_blueprint(presets_bp)
 app.register_blueprint(layouts_bp)
+app.register_blueprint(distro_presets_bp)
 app.register_blueprint(version_bp)
 app.register_blueprint(logs_bp)
 app.register_blueprint(panel_catalog_bp)

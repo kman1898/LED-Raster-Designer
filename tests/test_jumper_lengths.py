@@ -16,8 +16,9 @@ is one of:
               3, 6, 10, 15, 25 ft, then the next 5 ft past 25.
 
 The short lengths are per screen (dataJumpV / dataJumpH / powerJumpV /
-powerJumpH, feet or null = no cable), seeded from Preferences for a new
-screen and read from Preferences for a file saved before them. The pull
+powerJumpH, feet or null = no cable), stored only when somebody types one:
+a screen without them - new, or from a file saved before them - reads
+Preferences in the show's unit. The pull
 list prints each length as its own row; the maps tag a long jump with its
 length when the screen's cable tags are on.
 
@@ -39,40 +40,31 @@ JS_DIR = os.path.join(HERE, '..', 'src', 'static', 'js')
 FIELDS = ('dataJumpV', 'dataJumpH', 'powerJumpV', 'powerJumpH')
 
 
-# ── the server: the fields ride the layer routes, a new screen is seeded ──
+# ── the server: the fields ride the layer routes, a new screen has none ──
 
-def test_a_new_screen_is_seeded_from_the_preferences(client):
-    """create_layer takes the four lengths from the server's preferences:
-    *JumpLength is the vertical link, *JumpLengthH the horizontal one, a
-    record with no horizontal key reads its vertical figure, a blank (None)
-    is no cable - and a record that says nothing is the shipped 6' / 6'."""
+def test_a_new_screen_holds_no_jumper_lengths(client):
+    """create_layer stores none of the four (2026-10-16, "follow the
+    unit"): the screen reads the preferences in its show's unit -
+    *JumpLength the vertical link, *JumpLengthH the horizontal one, a
+    record with no horizontal key its vertical figure - until somebody
+    types one. The shipped figure (6') is one literal in app-jumpers.js and
+    the preferences' defaults."""
     import app as app_module
     keep = app_module.server_preferences
     try:
-        _seeded_from_the_preferences(client, app_module)
+        app_module.server_preferences = {'dataJumpLength': 1, 'dataJumpLengthH': 2.5,
+                                         'powerJumpLength': None}
+        r = client.post('/api/layer/add', json={'name': 'T', 'columns': 2, 'rows': 2,
+                                                'cabinet_width': 100, 'cabinet_height': 100})
+        assert not [k for k in FIELDS if k in r.get_json()], r.get_json()
     finally:
         app_module.server_preferences = keep
-
-
-def _seeded_from_the_preferences(client, app_module):
-    app_module.server_preferences = {}
-    r = client.post('/api/layer/add', json={'name': 'S', 'columns': 2, 'rows': 2,
-                                            'cabinet_width': 100, 'cabinet_height': 100})
-    assert {k: r.get_json()[k] for k in FIELDS} == {
-        'dataJumpV': 6, 'dataJumpH': 6, 'powerJumpV': 6, 'powerJumpH': 6}
-    app_module.server_preferences = {'dataJumpLength': 1, 'dataJumpLengthH': 2.5,
-                                     'powerJumpLength': None}
-    r = client.post('/api/layer/add', json={'name': 'T', 'columns': 2, 'rows': 2,
-                                            'cabinet_width': 100, 'cabinet_height': 100})
-    assert {k: r.get_json()[k] for k in FIELDS} == {
-        'dataJumpV': 1, 'dataJumpH': 2.5, 'powerJumpV': None, 'powerJumpH': None}
-    # the one literal both sides fall back to
-    import app as app_mod
     js = open(os.path.join(JS_DIR, 'app-jumpers.js'), encoding='utf-8').read()
-    assert int(re.search(r'const JUMPER_SHIPPED_FT = (\d+);', js).group(1)) == app_mod.JUMPER_SHIPPED_FT
+    shipped = int(re.search(r'const JUMPER_SHIPPED_FT = (\d+);', js).group(1))
+    assert shipped == 6
     prefs_js = open(os.path.join(JS_DIR, 'app-preferences.js'), encoding='utf-8').read()
     for key in ('powerJumpLength', 'powerJumpLengthH', 'dataJumpLength', 'dataJumpLengthH'):
-        assert re.search(rf'\b{key}: {app_mod.JUMPER_SHIPPED_FT},', prefs_js), key
+        assert re.search(rf'\b{key}: {shipped},', prefs_js), key
 
 
 def test_the_fields_ride_put_and_add(client):
@@ -338,9 +330,9 @@ def test_a_run_over_a_group_seam_counts_short_jumpers(page):
     assert out['lengths'] == {'1': 5}, out
 
 
-# ── the NYL shape: a vertical-flow wall of 500 x 1000 mm cabinets ───────
+# ── the tall shape: a vertical-flow wall of 500 x 1000 mm cabinets ──────
 
-NYL_JS = """(name) => {
+TALL_JS = """(name) => {
     const app = window.app;
     app._circuitTailCache = null;
     const layer = app.project.layers.find(l => l.name === name);
@@ -368,11 +360,11 @@ def test_a_vertical_flow_wall_of_tall_cabinets_counts_one_foot_links(page):
     non-touching jump: the run steps over it, two cabinets down (2000 mm
     + 1 ft = 7.56 ft -> 10'), and nothing else changes."""
     pg, _ = page
-    _reset(pg, [_screen('NYL', 21, 6, 104, 208, panel_width_mm=500, panel_height_mm=1000,
+    _reset(pg, [_screen('TALL', 21, 6, 104, 208, panel_width_mm=500, panel_height_mm=1000,
                         flowPattern='tl-v', powerFlowPattern='tl-v', powerOrganized=True,
                         powerVoltage=208, powerAmperage=20, panelWatts=150,
                         dataJumpV=1, dataJumpH=1, powerJumpV=1, powerJumpH=1)])
-    out = pg.evaluate(NYL_JS, 'NYL')
+    out = pg.evaluate(TALL_JS, 'TALL')
     assert out['panels'] == 126
     for side in ('data', 'power'):
         n = out['panels'] - out['runs'][side]
@@ -386,13 +378,13 @@ def test_a_vertical_flow_wall_of_tall_cabinets_counts_one_foot_links(page):
     # hide row 2 of column 10: the run walks over it
     pg.evaluate("""async () => {
         """ + J + """
-        const layer = app.project.layers.find(l => l.name === 'NYL');
+        const layer = app.project.layers.find(l => l.name === 'TALL');
         const p = layer.panels.find(x => x.row === 2 && x.col === 10);
         const res = await j('POST', `/api/layer/${layer.id}/panels/set_hidden`,
                             {panels: [{id: p.id, hidden: true}]});
         app.applyServerLayer(res.layer);
     }""")
-    out = pg.evaluate(NYL_JS, 'NYL')
+    out = pg.evaluate(TALL_JS, 'TALL')
     assert out['panels'] == 125
     for side in ('data', 'power'):
         longs = [x for x in out['links'][side] if x['kind'] == 'long']
@@ -447,9 +439,10 @@ def test_blank_counts_no_cable_and_the_pull_sheet_sums_per_length(page):
 # ── the fields: presets, copies, older files, the sidebar ──────────────
 
 def test_a_preset_carries_the_four_and_applies_them(page):
-    """serializeLayerAsPreset writes the four lengths (null included; a
-    screen from an older file writes the preferences' figures it reads)
-    and applyPresetClientProps lays them on a new screen."""
+    """serializeLayerAsPreset writes the lengths the screen holds (null
+    included) and applyPresetClientProps lays them on a new screen; a new
+    screen, and a screen from an older file, hold none, so their presets
+    carry none and read the preferences (2026-10-16)."""
     pg, _ = page
     _reset(pg, [_screen('P', 2, 2, dataJumpV=1.5, dataJumpH=None, powerJumpV=2, powerJumpH=3),
                 _screen('Q', 2, 2)])
@@ -460,18 +453,23 @@ def test_a_preset_carries_the_four_and_applies_them(page):
         const preset = app.serializeLayerAsPreset(P);
         const pick = (o) => ({dataJumpV: o.dataJumpV, dataJumpH: o.dataJumpH,
                               powerJumpV: o.powerJumpV, powerJumpH: o.powerJumpH});
+        const held = (o) => ['dataJumpV', 'dataJumpH', 'powerJumpV', 'powerJumpH'].filter(k => k in o);
         const fresh = {id: 999, type: 'screen', columns: 2, rows: 2, panels: []};
         app.initializeLayerDefaults(fresh);
-        const seeded = pick(fresh);
+        const seeded = held(fresh);
+        const reads = app.screenJumperLengths(fresh);
         app.applyPresetClientProps(fresh, JSON.parse(JSON.stringify(preset)));
         // an older file's screen: no fields at all
         for (const k of ['dataJumpV', 'dataJumpH', 'powerJumpV', 'powerJumpH']) delete Q[k];
         return {preset: pick(preset), seeded, applied: pick(fresh),
-                old: pick(app.serializeLayerAsPreset(Q)), prefs: app.jumperDefaults()};
+                reads: {dataJumpV: reads.data.v, dataJumpH: reads.data.h,
+                        powerJumpV: reads.power.v, powerJumpH: reads.power.h},
+                old: held(app.serializeLayerAsPreset(Q)), prefs: app.jumperDefaults()};
     }""")
     want = {'dataJumpV': 1.5, 'dataJumpH': None, 'powerJumpV': 2, 'powerJumpH': 3}
     assert out['preset'] == want and out['applied'] == want, out
-    assert out['seeded'] == out['prefs'] == out['old'], out
+    assert out['seeded'] == [] and out['old'] == [], out
+    assert out['reads'] == out['prefs'], out
 
 
 def test_duplicate_and_paste_keep_the_screens_lengths(page):
@@ -501,8 +499,8 @@ def test_duplicate_and_paste_keep_the_screens_lengths(page):
 
 def test_an_older_file_reads_the_preferences_and_is_not_rewritten(page):
     """A screen saved before the fields existed opens reading the
-    preferences' figures (stamped in memory at load); the server's copy
-    stays without them until an edit writes the layer."""
+    preferences' figures - nothing stamped on it, in memory or on the
+    server, until somebody types a length."""
     pg, errors = page
     ids = _reset(pg, [_screen('OLD', 3, 1, 60, 60, flowPattern='tl-h')])
     pg.evaluate("""async () => {
@@ -519,7 +517,9 @@ def test_an_older_file_reads_the_preferences_and_is_not_rewritten(page):
         """ + J + """
         const l = app.project.layers.find(x => x.id === id);
         const served = (await j('GET', '/api/project')).layers.find(x => x.id === id);
-        return {client: [l.dataJumpV, l.dataJumpH, l.powerJumpV, l.powerJumpH],
+        const r = app.screenJumperLengths(l);
+        return {client: [r.data.v, r.data.h, r.power.v, r.power.h],
+                held: ['dataJumpV', 'dataJumpH', 'powerJumpV', 'powerJumpH'].filter(k => k in l),
                 prefs: app.jumperDefaults(),
                 served: ['dataJumpV', 'dataJumpH', 'powerJumpV', 'powerJumpH'].filter(k => k in served),
                 lengths: app.buildPullList().byScreen[String(id)].jumperLengths.data};
@@ -527,6 +527,7 @@ def test_an_older_file_reads_the_preferences_and_is_not_rewritten(page):
     p = out['prefs']
     assert out['client'] == [p['dataJumpV'], p['dataJumpH'], p['powerJumpV'], p['powerJumpH']], out
     assert out['served'] == [], 'the file was rewritten at load'
+    assert out['held'] == [], 'the preferences were stamped on the screen'
     assert out['lengths'] == {str(p['dataJumpH']): 2}, out
     assert errors == [], errors
 

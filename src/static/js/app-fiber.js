@@ -45,6 +45,10 @@ export const TAC_CONNECTORS = ['ST', 'LC duplex'];
 // and Cat5e 30 m are Brompton's, Cat6 100 ft the owner's. The server's
 // twin is processor_catalog.COPPER_LINK_KINDS; a test pins that they agree.
 export const COPPER_LINK_KINDS = [['Cat6A', 196], ['Cat6', 100], ['Cat5e', 98]];
+// The same maxima in a meters show (2026-10-16): Brompton's own 60 m and
+// 30 m, and the owner's 100 ft exactly (30.48 m) - the feet table above
+// holds the first two floored to the foot.
+export const COPPER_LINK_KINDS_M = [['Cat6A', 60], ['Cat6', 30.48], ['Cat5e', 30]];
 
 // One strand as the paper says it - the ONE JS implementation, pinned
 // against processor_catalog.fiber_strand_name by a test. Blue..Aqua for
@@ -125,8 +129,8 @@ class _Fiber {
         if (!cable) return '';
         const parts = [cable.name || this.fiberKindWord(cable.kind)];
         if (this.fiberCableIsStranded(cable)) parts.push(String(cable.strands));
-        const ft = Number(cable.ft);
-        if (Number.isFinite(ft) && ft > 0) parts.push(this.pullLengthText(ft));
+        const ft = this.parseCableLength(cable.ft);
+        if (ft !== null) parts.push(this.pullLengthText(ft));
         if (cable.kind === 'tac' && String(cable.connector || '').trim()) {
             parts.push(String(cable.connector).trim());
         }
@@ -147,14 +151,23 @@ class _Fiber {
         return hit ? hit[1] : null;
     }
 
+    // A kind's 10G maximum in the show's unit (a copper link's length is
+    // typed in it, like every cable's).
+    copperLinkMax(kind) {
+        if (this.cableUnit() !== 'm') return this.copperLinkMaxFt(kind);
+        const hit = COPPER_LINK_KINDS_M.find(([k]) => k === kind);
+        return hit ? hit[1] : null;
+    }
+
     // The plain warning a copper link past its kind's 10G length wears,
-    // on the row and in the binder: "Cat6 runs 100 ft max at 10G". ''
-    // within it, or with no length.
+    // on the row and in the binder: "Cat6 runs 100 ft max at 10G" ("Cat6
+    // runs 30.48 m max at 10G" in a meters show). '' within it, or with
+    // no length.
     copperOverText(copper) {
-        const max = copper ? this.copperLinkMaxFt(copper.copper) : null;
-        const ft = Number(copper && copper.ft);
+        const max = copper ? this.copperLinkMax(copper.copper) : null;
+        const ft = this.parseCableLength(copper && copper.ft);
         if (!max || !Number.isFinite(ft) || ft <= max) return '';
-        return `${copper.copper} runs ${max} ft max at 10G`;
+        return `${copper.copper} runs ${this.cableLengthWords(max)} max at 10G`;
     }
 
     // Every resolved box, in tray order: [{ box, proc, card }]. A card
@@ -282,7 +295,7 @@ class _Fiber {
         const typed = new Set();
         const say = (m) => [...m.values()].map(({ cable, copper, strands, titles }) => {
             if (copper) {
-                const ft = Number(copper.ft);
+                const ft = this.parseCableLength(copper.ft);
                 const over = this.copperOverText(copper);
                 return [titles[0], copper.copper,
                         Number.isFinite(ft) && ft > 0 ? this.pullLengthText(ft) : '']

@@ -188,7 +188,7 @@ def _beta_project(client):
     project['processors'] = []
     project.pop('fiberCables', None)
     _restore(client, project)
-    pid, xds = _sx40(client, 'USC SR')
+    pid, xds = _sx40(client, 'WALL SR')
     _ok(client.put(f'/api/processors/{pid}', json={'redundancy': True}))
     project = client.get('/api/project').get_json()
     project['fiberCables'] = [{'id': 'fib5', 'name': 'TAC A', 'kind': 'tac',
@@ -317,14 +317,14 @@ def test_an_sx40s_backup_processor_is_a_named_option_that_feeds_each_xds_x2(clie
     its name ('' reads "<main> BU"), every XD on the main gains X2, the
     in-unit loops and the data map are the main's as they were, and the
     name is the one thing typed."""
-    main, xds = _sx40(client, 'USC SR Main')
+    main, xds = _sx40(client, 'WALL SR Main')
     _ok(client.put(f'/api/processors/{main}', json={'redundancy': True}))
     before = [p['id'] for p in _state(client)['processors']]
     st = _ok(_backup(client, main, {}))
     assert [p['id'] for p in st['processors']] == before
     assert _raw_proc(client, main)['backupUnit'] == {'name': ''}
     rmain = _res_proc(client, main)
-    assert rmain['backupUnit']['name'] == 'USC SR Main BU'
+    assert rmain['backupUnit']['name'] == 'WALL SR Main BU'
     assert rmain['backupUnit']['boxes'] == []
     boxes = rmain['slots'][0]['card']['cvts']
     for box in boxes:
@@ -335,15 +335,15 @@ def test_an_sx40s_backup_processor_is_a_named_option_that_feeds_each_xds_x2(clie
     assert ports[1]['backedBy']['port'] == 11 and ports[1]['backedBy']['processorId'] == main
     assert [b['backupOf'] for b in boxes] == [None, xds[0], None, xds[2]]
     # named, and a blank name hands it back to the default
-    _ok(_backup(client, main, {'name': 'USC SR BU'}))
-    assert _res_proc(client, main)['backupUnit']['name'] == 'USC SR BU'
-    assert _res_proc(client, main)['backupUnit']['typedName'] == 'USC SR BU'
+    _ok(_backup(client, main, {'name': 'WALL SR BU'}))
+    assert _res_proc(client, main)['backupUnit']['name'] == 'WALL SR BU'
+    assert _res_proc(client, main)['backupUnit']['typedName'] == 'WALL SR BU'
     _ok(_backup(client, main, {'name': '  '}))
-    assert _res_proc(client, main)['backupUnit']['name'] == 'USC SR Main BU'
-    _ok(_backup(client, main, {'name': 'USC SR BU'}))
+    assert _res_proc(client, main)['backupUnit']['name'] == 'WALL SR Main BU'
+    _ok(_backup(client, main, {'name': 'WALL SR BU'}))
     # a switch-on that names nothing keeps the typed name
     _ok(_backup(client, main, True))
-    assert _raw_proc(client, main)['backupUnit'] == {'name': 'USC SR BU'}
+    assert _raw_proc(client, main)['backupUnit'] == {'name': 'WALL SR BU'}
     # X2 takes a fiber of its own - its own cable and strands
     tac = _new_tac(client, 12, link={'boxId': xds[0], 'key': 'p1'})
     tac_b = _new_tac(client, 12, link={'boxId': xds[0], 'key': 'b1'})
@@ -490,8 +490,8 @@ def test_a_legacy_pairing_that_would_lose_something_is_left_exactly_as_it_is(cli
         assert proc.pop('pairingsPerCard') is True
     assert after['processors'] == before['processors']
     # a hand-added, unpaired second SX40 is a unit of its own and stays
-    a, _ = _sx40(client, 'USC SR')
-    b, _ = _sx40(client, 'USC SR BU')
+    a, _ = _sx40(client, 'WALL SR')
+    b, _ = _sx40(client, 'WALL SR BU')
     _restore(client, _as_old_file(client))
     ids = [p['id'] for p in _state(client)['processors']]
     assert a in ids and b in ids
@@ -538,8 +538,8 @@ def test_an_xd_link_may_be_copper_and_nothing_else_takes_it(client):
 
 pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
-# USC SR Main: an SX40 with both loops and its backup processor on (named
-# USC SR BU); TAC A on XD A's X1 and TAC B on its X2; XD C's X1 on Cat6 at
+# WALL SR Main: an SX40 with both loops and its backup processor on (named
+# WALL SR BU); TAC A on XD A's X1 and TAC B on its X2; XD C's X1 on Cat6 at
 # 150 ft (past its 100). HX: a HELIOS Standard 8K with one RS12 and a
 # backup processor of its own. WALL, a Brompton wall, takes A's and C's
 # primaries.
@@ -555,10 +555,10 @@ SEED_JS = """async () => {
     const wall = await j('POST', '/api/layer/add', {name: 'WALL', columns: 12, rows: 30,
                                                      cabinet_width: 200, cabinet_height: 200});
     await j('PUT', `/api/layer/${wall.id}`, {processorType: 'brompton'});
-    let st = await j('POST', '/api/processors', {deviceId: 'brompton-sx40', name: 'USC SR Main'});
+    let st = await j('POST', '/api/processors', {deviceId: 'brompton-sx40', name: 'WALL SR Main'});
     const sx = st.processors[0];
     const xds = sx.slots[0].card.cvts.map(b => b.id);
-    await j('PUT', `/api/processors/${sx.id}`, {redundancy: true, backupUnit: {name: 'USC SR BU'}});
+    await j('PUT', `/api/processors/${sx.id}`, {redundancy: true, backupUnit: {name: 'WALL SR BU'}});
     await j('POST', '/api/fiber-cables', {kind: 'tac', strands: 12, ft: 500, connector: 'ST',
                                           link: {boxId: xds[0], key: 'p1'}});
     await j('POST', '/api/fiber-cables', {kind: 'tac', strands: 12, ft: 500, connector: 'ST',
@@ -686,7 +686,7 @@ def test_the_sx40_gear_has_the_two_loops_and_the_backup_processor_switch(page):
     """The ⚙: REDUNDANCY as two switches, "A to B" and "C to D" - either
     alone, both the old On - each click one request and one history entry;
     under them BACKUP PROCESSOR, On, with its name; and the main's header
-    carries "Backup: USC SR BU"."""
+    carries "Backup: WALL SR BU"."""
     pg, ids = page
     sx = ids['sx']
     assert pg.evaluate(OPEN_GEAR_JS, f'proc-{sx}')
@@ -698,15 +698,15 @@ def test_the_sx40_gear_has_the_two_loops_and_the_backup_processor_switch(page):
     bu = f'#hw-gear-popover [data-lrd-field="processor-backup-{sx}"]'
     assert pg.locator(bu + ' .hw-pop-seg-on').text_content() == 'On'
     name = pg.locator(f'[data-lrd-field="processor-backup-name-{sx}"]')
-    assert name.input_value() == 'USC SR BU'
-    assert name.get_attribute('placeholder') == 'USC SR Main BU'
+    assert name.input_value() == 'WALL SR BU'
+    assert name.get_attribute('placeholder') == 'WALL SR Main BU'
     _shot(pg, pg.locator('#hw-gear-popover'), 'sx40-gear-popover.png')
     pill = pg.evaluate("""(sx) => {
         const strip = document.querySelector(`[data-lrd-field="processor-name-${sx}"]`);
         const p = strip.closest('.hw-dock-proc-name').querySelector('.hw-dock-backuppill');
         return p ? [p.textContent, getComputedStyle(p).color] : null;
     }""", sx)
-    assert pill == ['Backup: USC SR BU', 'rgb(240, 212, 138)'], pill
+    assert pill == ['Backup: WALL SR BU', 'rgb(240, 212, 138)'], pill
     # The loops read on the card row in words, never "R seq"; the header
     # carries only the backup pill (owner, 2026-09-26).
     pills = """(sx) => {
@@ -721,7 +721,7 @@ def test_the_sx40_gear_has_the_two_loops_and_the_backup_processor_switch(page):
             card: own ? own.textContent : null,
         };
     }"""
-    assert pg.evaluate(pills, sx) == {'header': ['Backup: USC SR BU'],
+    assert pg.evaluate(pills, sx) == {'header': ['Backup: WALL SR BU'],
                                       'card': 'Loops A to B, C to D'}
     # A to B off: C to D alone
     index = pg.evaluate('() => window.app.historyIndex')
@@ -803,8 +803,8 @@ def test_the_binder_and_the_pull_sheet_name_the_ports_and_count_the_backup(page)
     """The box summary reads "X1 TAC A (TAC 12) 1-2 · X2 TAC B (TAC 12) 1-2"
     - every input by its port, a cable's kind the first time - and "X1 Cat6 150'
     (…)"; a strand map names the box and its port; the loop's far box is
-    marked "loop of"; the backup unit is its own column, "USC SR BU · backup
-    of USC SR Main"; and the pull sheet lists every processor by model -
+    marked "loop of"; the backup unit is its own column, "WALL SR BU · backup
+    of WALL SR Main"; and the pull sheet lists every processor by model -
     the main and, marked, its backup ("List mains and backups") - the
     HELIOS's backup its own RS12, and no second XD."""
     pg, ids = page
@@ -836,8 +836,8 @@ def test_the_binder_and_the_pull_sheet_name_the_ports_and_count_the_backup(page)
     assert out['c'] == "X1 Cat6 150' (Cat6 runs 100 ft max at 10G)", out
     assert out['boxes'] == ['Tessera XD A', 'Tessera XD B · loop of Tessera XD A',
                             'Tessera XD C', 'Tessera XD D · loop of Tessera XD C'], out
-    assert out['red'] == 'On · backed up by USC SR BU', out
-    assert out['bu'] == 'USC SR BU · backup of USC SR Main', out
+    assert out['red'] == 'On · backed up by WALL SR BU', out
+    assert out['bu'] == 'WALL SR BU · backup of WALL SR Main', out
     assert out['cols'] == ['strand', 'link'], out
     assert out['map'] == [['1 Blue', 'Tessera XD A · X1'], ['2 Orange', 'Tessera XD A · X1'],
                           ['3 Green', 'spare']], out
@@ -848,7 +848,7 @@ def test_the_binder_and_the_pull_sheet_name_the_ports_and_count_the_backup(page)
             .map(r => [r.type, r.length, r.qty, r.label, r.notes]);
     }""")
     # every processor, mains and backups, counted by model with its names
-    assert ['Tessera SX40', 'EA', 2, 'USC SR Main, USC SR BU (backup)', ''] in rows, rows
+    assert ['Tessera SX40', 'EA', 2, 'WALL SR Main, WALL SR BU (backup)', ''] in rows, rows
     assert ['HELIOS Standard 8K / 8K Extreme', 'EA', 2, 'HX, HX BU (backup)', ''] in rows, rows
     assert ['RS12 / MSM4214X', 'EA', 2, 'RS12 / MSM4214X, HX BU', ''] in rows, rows
     xd_on = sum(r[2] for r in rows if r[0] == 'Tessera XD')
@@ -861,11 +861,11 @@ def test_the_binder_and_the_pull_sheet_name_the_ports_and_count_the_backup(page)
     rows = pg.evaluate("""() => { window.app._circuitTailCache = null;
         return window.app.buildPullList().totals.map(r => [r.type, r.qty, r.label]); }""")
     assert sum(r[1] for r in rows if r[0] == 'Tessera XD') == xd_on, rows
-    assert [r for r in rows if r[0] == 'Tessera SX40'] == [['Tessera SX40', 1, 'USC SR Main']], rows
+    assert [r for r in rows if r[0] == 'Tessera SX40'] == [['Tessera SX40', 1, 'WALL SR Main']], rows
     pg.evaluate('() => window.app.undo()')
     pg.wait_for_timeout(900)
     assert pg.evaluate("(sx) => window.app.project.processors.find(p => p.id === sx).backupUnit",
-                       ids['sx']) == {'name': 'USC SR BU'}
+                       ids['sx']) == {'name': 'WALL SR BU'}
     assert ids['errors'] == []
 
 

@@ -446,4 +446,6 @@ def test_a_long_show_totals_key_never_runs_into_its_value(page):
     at208 = own[0]['watts'] + own[1]['watts']
     assert per['Load @ 208 V'] == _fmt(at208 / 208, at208 / (208 * 1.73), at208), per
     w110 = own[2]['watts']
-    assert per['Load @ 110 V'] == _fmt(w110 / 110, w110 / (110 * 1.73), w110), per
+    # 1.5, bug fix 3 (2026-10-16, "It must use the service's V_LL"): the
+    # 3φ figure of a 110V screen divides by its 120/208 service's 208V.
+    assert per['Load @ 110 V'] == _fmt(w110 / 110, w110 / (208 * 1.73), w110), per

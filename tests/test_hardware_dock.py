@@ -2585,7 +2585,7 @@ def test_the_canvas_run_menu_keeps_layer_items_beside_the_clear(dock_page):
 # against 100W panels puts a 5-tile tl-v column exactly on a circuit, so
 # `columns` IS the circuit count (the test_power_shared_socas.py builder's
 # arithmetic, on the real server). The distro is named C2 and the incumbent
-# pinned to No. 2 so the joined labels reproduce the 2026 NCMF file's
+# pinned to No. 2 so the joined labels reproduce live show C's
 # hand-typed strings character for character.
 
 MERGE_ITEM_JS = """() => {
@@ -2611,7 +2611,11 @@ SPLIT_SEED_JS = """async (which) => {
         const made = await r.json();
         await fetch('/api/layer/' + made.id, {method: 'PUT',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({powerVoltage: '100', powerAmperage: '5',
+            // 110V, not 100V: a 120/208 distro gives 120V or 208V and a 100V
+            // screen is refused (owner, 2026-10-16: 110, 115 and 120 are 120V;
+            // anything else that does not fit the system is refused). 110V x 5A
+            // still fits five 100W cabinets a circuit, so the plans are unchanged.
+            body: JSON.stringify({powerVoltage: '110', powerAmperage: '5',
                 panelWatts: '100', powerOrganized: true, powerMaximize: false,
                 powerFlowPattern: 'tl-v',
                 // Same platform stamp as the module seed: the only card in
@@ -2723,7 +2727,7 @@ def test_a_multi_section_wears_six_circuit_chips(dock_page):
 
 
 def test_a_drop_on_a_later_circuit_takes_the_first_circuits(dock_page):
-    """The 2026 NCMF center-beach shape (2+2), by DRAG alone: box C2 No. 2
+    """Live show C's center-beach shape (2+2), by DRAG alone: box C2 No. 2
     holds OFF SL's four circuits on tails 1-4; dropping its chip on CEN SL's
     SECOND circuit takes CEN's first two (the span is anchored at the
     cell's first circuit, 2026-09-05), cuts the multi after 2, the two
@@ -2781,7 +2785,7 @@ def test_a_drop_on_a_later_circuit_takes_the_first_circuits(dock_page):
 
 
 def test_the_six_two_shape_lands_whole_on_the_grid_boundary(dock_page):
-    """The NCMF 6+2: on an 8-circuit screen the 6-grid already puts the
+    """Live show C's 6+2: on an 8-circuit screen the 6-grid already puts the
     boundary after circuit 6, so a drop on circuit 8 reaches back to 7,
     never to 1 - the whole 2-circuit multi joins the dropped box's free
     tails with no split stored, through the two existing setters exactly

@@ -207,7 +207,10 @@ class _Naming {
     // over every screen, in layer-list order BOTTOM UP - which is project
     // layer order, the same order the Data tab hands out card ports
     // (_assignmentScreens: "project layer order, untouched"). Numbering per
-    // screen is what let two screens both own an S1.
+    // screen is what let two screens both own an S1. Layer order deals a
+    // number only once: after that the number is HELD, so no other screen
+    // joining, leaving or moving can shift it (ruling 2026-10-16 - see
+    // "multi numbers do not shift" below).
     //
     // THE NAME LADDER, top wins, mirroring manual -> box -> card -> processor
     // on the Data tab:
@@ -266,12 +269,14 @@ class _Naming {
         // is planned once per rebuild, not once per pass.
         const pins = new Map();         // distro id -> Set(pinned numbers)
         const circuitsBy = new Map();
+        const countBy = new Map();
         for (const l of screens) {
             const circuits = this._labelCircuits(l);
             circuitsBy.set(l, circuits);
             const assign = l.powerSocaDistro || {};
             const chosen = l.powerSocaNumber || {};
             const count = this._socaSegments(l, circuits.length).length;
+            countBy.set(l, count);
             for (let idx = 1; idx <= count; idx++) {
                 // A pin means nothing off a distro: the number is the slot on
                 // a physical box, and with no box named there is no slot.
@@ -283,10 +288,20 @@ class _Naming {
                 pins.set(d, set);
             }
         }
+        // Every HELD number per distro (ruling 2026-10-16, "they should not
+        // shift unless being balanced"): an auto multi that already has a
+        // number keeps it - see _multiHeldNumbers. Held numbers are taken
+        // the way pins are, so a newcomer deals into the lowest number
+        // nobody holds and a gap a leaver left is the first one filled.
+        const held = this._multiHeldNumbers(screens, pins, countBy);
+        const taken = new Map(pins);
+        for (const [d, set] of held.byDistro) {
+            taken.set(d, new Set([...(pins.get(d) || []), ...set]));
+        }
         const seq = new Map();          // distro id ('' = unassigned) -> issued
         for (const l of screens) {
             this._circuitTailCache.set(l,
-                this._namingFor(l, seq, pins, circuitsBy.get(l)));
+                this._namingFor(l, seq, taken, circuitsBy.get(l), held.of));
         }
         // Second pass, once every multi has its number: two multis pinned to
         // one (distro, number) are ONE physical box, and a box's tails can
@@ -326,7 +341,10 @@ class _Naming {
     // slots per distro. A pinned multi takes exactly the number picked;
     // its tails wait for _resolveSharedSocas, which knows whether the pin
     // shares its box.
-    _namingFor(layer, seq, pins, circuitsIn) {
+    // `heldOf` (layerId:socaIndex -> number) carries the numbers auto
+    // multis already hold; `pins` then holds those numbers too, so the
+    // dealing below never hands one out again.
+    _namingFor(layer, seq, pins, circuitsIn, heldOf) {
         const tpl = this._powerTemplateParts(layer);
         const socas = new Map();        // socaIndex -> {number, name, ...}
         const slots = new Map();        // circuit num -> {multi, tail, moved}
@@ -354,18 +372,39 @@ class _Naming {
             const pin = distroId ? parseInt(chosen[idx], 10) : NaN;
             const pinned = Number.isFinite(pin) && pin >= 1;
             let number;
+            const keep = (!pinned && distroId && heldOf)
+                ? heldOf.get(this._multiHoldKey(layer.id, idx)) : undefined;
             if (pinned) {
                 number = pin;
+            } else if (keep !== undefined) {
+                // Already numbered: it keeps its number, wherever the
+                // screens around it moved.
+                number = keep;
             } else if (distroId) {
-                // Next auto number ON THAT DISTRO, skipping every slot a
-                // pin claimed - a pin owns its number outright, wherever
-                // the pinned screen sits in layer order. With no pins this
-                // is the plain per-distro sequence it has always been.
-                const taken = (pins && pins.get(distroId)) || null;
-                let n = seq.get(distroId) || 0;
-                do { n += 1; } while (taken && taken.has(n));
-                seq.set(distroId, n);
-                number = n;
+                const d = distros.find(x => x.id === distroId);
+                const face = d && typeof this.distroFace === 'function'
+                    ? this.distroFace(d) : null;
+                if (face) {
+                    // A distro with a FACE (1.5) has real outputs: an auto
+                    // multi takes the first one nobody holds that it can
+                    // land on (_faceAutoNumber) - never a direct output,
+                    // never a 120V Socapex for a 208V screen.
+                    const key = `face:${distroId}`;
+                    const issued = seq.get(key) || new Set();
+                    seq.set(key, issued);
+                    number = this._faceAutoNumber(d, face, layer,
+                        pins && pins.get(distroId), issued);
+                } else {
+                    // Next auto number ON THAT DISTRO, skipping every slot a
+                    // pin claimed - a pin owns its number outright, wherever
+                    // the pinned screen sits in layer order. With no pins this
+                    // is the plain per-distro sequence it has always been.
+                    const taken = (pins && pins.get(distroId)) || null;
+                    let n = seq.get(distroId) || 0;
+                    do { n += 1; } while (taken && taken.has(n));
+                    seq.set(distroId, n);
+                    number = n;
+                }
             } else {
                 // No distro: the SCREEN'S OWN template numbers its multis,
                 // from the template's number, per screen - S1-# names this
@@ -470,8 +509,14 @@ class _Naming {
             // and every claim past that is overflow whichever member made
             // it. Members of one box virtually always agree; when they do
             // not, the smaller figure is the only honest capacity.
+            // A face box (1.5) is as big as its connector, whoever claims it.
+            const [boxDistro, boxNumber] = key.split(':');
+            const faceD = typeof this.faceBox === 'function'
+                ? this.getDistros().find(x => x.id === boxDistro) : null;
+            const fbox = faceD ? this.faceBox(faceD, boxNumber) : null;
             const cap = Math.min(...members
-                .map(m => this.socaBoxSize(m.layer)));
+                .map(m => this.socaBoxSize(m.layer)),
+                fbox ? fbox.size : Infinity);
             // Pass 1: every stored set takes exactly its tails. Doing this
             // before ANY dealing is what makes a stored set law: an
             // unstored member earlier in layer order can no longer sit
@@ -531,6 +576,301 @@ class _Naming {
         }
     }
 
+    // ---- multi numbers do not shift ----------------------------------------
+    //
+    // Owner's ruling, 2026-10-16: "They should not shift unless being
+    // balanced. If they are already numbered, then they will definitely not
+    // be shifting unless the numbers are cleared, phase balance or reset."
+    // A leaver leaves its gap ("Leave the gap"), and the next multi to land
+    // on the distro takes the lowest number free - S1, S2, S4 stay, the
+    // newcomer is S3.
+    //
+    // An AUTO multi's number used to be dealt fresh on every rebuild - per
+    // distro, in layer order - so a screen joining a shared distro, leaving
+    // it, or moving in the layer list renumbered multis on screens already
+    // cabled. Now a number, once dealt, is HELD. Two sources hold it:
+    //
+    //   the distro's store - `multiNumbers` on the distro record,
+    //     { '<layerId>:<socaIndex>': number }. Project-level, so a locked
+    //     screen is never written for it; undo, redo and save carry it with
+    //     the distros. Written only where the plain layer-order deal would
+    //     now give that multi a different number - an untouched show stores
+    //     nothing and opens exactly as it always printed.
+    //   the baseline - the numbers the show printed at its last committed
+    //     state (open, every history entry, undo/redo), in memory only. It
+    //     holds every number between a change and the history entry that
+    //     records it, so nothing in the middle of a gesture reads a shifted
+    //     number either.
+    //
+    // _commitMultiNumbers (run by every saveState) then writes into the
+    // store exactly the held numbers the plain deal would not reproduce,
+    // so the store alone prints what the baseline printed - after a reload,
+    // an undo, anywhere. One number per multi: per soca box, a whole multi
+    // of up to six circuits (three on an L21-30) is one number, its
+    // circuits the tails under it. A pin (powerSocaNumber) still wins: it
+    // is somebody choosing that box by hand. Only the Balance dialog's
+    // reset clears the held numbers (_releaseMultiNumbers).
+
+    _multiHoldKey(layerId, socaIndex) {
+        return `${layerId}:${socaIndex}`;
+    }
+
+    // Which auto multis keep which number on this rebuild: { byDistro:
+    // distro id -> Set(number), of: key -> number }. Store first, then the
+    // baseline (for the same distro only - a multi moved to another distro
+    // is new there). A number a pin claims, or one an earlier multi in
+    // layer order already holds, is not held: that multi deals afresh.
+    // `counts` (layer -> how many multis it has) keeps an assignment past
+    // the plan - a multi the drawing no longer makes - from holding a
+    // number nobody prints.
+    _multiHeldNumbers(screens, pins, counts) {
+        const byDistro = new Map();
+        const of = new Map();
+        const stores = new Map();
+        for (const d of ((this.project && this.project.distros) || [])) {
+            if (d && d.multiNumbers && typeof d.multiNumbers === 'object') {
+                stores.set(d.id, d.multiNumbers);
+            }
+        }
+        const base = this._multiHoldPure ? null : this._multiBaseline;
+        if (!stores.size && !(base && base.size)) return { byDistro, of };
+        for (const l of screens) {
+            const assign = l.powerSocaDistro || {};
+            const chosen = l.powerSocaNumber || {};
+            const count = counts.get(l) || 0;
+            for (let idx = 1; idx <= count; idx++) {
+                const d = assign[idx];
+                if (!d) continue;
+                const pin = parseInt(chosen[idx], 10);
+                if (Number.isFinite(pin) && pin >= 1) continue;
+                const key = this._multiHoldKey(l.id, idx);
+                let n = parseInt((stores.get(d) || {})[key], 10);
+                if (!(Number.isFinite(n) && n >= 1)) {
+                    const b = base && base.get(key);
+                    n = (b && b.distroId === d) ? b.number : NaN;
+                }
+                if (!(Number.isFinite(n) && n >= 1)) continue;
+                if (pins && pins.get(d) && pins.get(d).has(n)) continue;
+                const set = byDistro.get(d) || new Set();
+                if (set.has(n)) continue;
+                set.add(n);
+                byDistro.set(d, set);
+                of.set(key, n);
+            }
+        }
+        return { byDistro, of };
+    }
+
+    // Every multi on a distro as the naming index has it now:
+    // key -> { distroId, number, pinned }, in layer order.
+    _multiNumberMap() {
+        const out = new Map();
+        for (const l of ((this.project && this.project.layers) || [])) {
+            if ((l.type || 'screen') !== 'screen') continue;
+            for (const rec of this._powerNaming(l).socas.values()) {
+                if (!rec.distroId) continue;
+                out.set(this._multiHoldKey(l.id, rec.index), {
+                    distroId: rec.distroId, number: rec.number, pinned: !!rec.pinned,
+                });
+            }
+        }
+        return out;
+    }
+
+    // The baseline: the auto numbers the show prints in its current,
+    // committed state. Taken on open, after undo/redo and by every commit.
+    _resetMultiBaseline() {
+        this._multiBaseline = null;
+        this._circuitTailCache = null;
+        const map = new Map();
+        for (const [key, m] of this._multiNumberMap()) {
+            if (!m.pinned) map.set(key, { distroId: m.distroId, number: m.number });
+        }
+        this._multiBaseline = map;
+        this._circuitTailCache = null;
+    }
+
+    // Make the distros' stores say what the show prints now, before the
+    // history entry is taken. Each pass compares the numbers in force (store
+    // + baseline) with what the store alone would deal; every multi that
+    // differs gets its number written, and every entry the show no longer
+    // honours (its screen gone, its multi off that distro, pinned, or
+    // outvoted by a pin) is dropped. Repeated until the two agree - each
+    // pass writes at least one entry, so it ends; should it ever not have
+    // after a generous number of passes, every number in force is written,
+    // which the store alone then deals exactly. Pushes the distros when
+    // anything changed. Returns whether it did.
+    _commitMultiNumbers() {
+        if (!this.project) return false;
+        if (!this._multiBaseline) {
+            this._resetMultiBaseline();
+            return false;
+        }
+        const distros = this.project.distros || [];
+        const byId = new Map(distros.map(d => [d.id, d]));
+        let changed = !!this._multiHoldsDirty;
+        // Nothing on a distro and nothing stored: no number to hold, and no
+        // reason to name the show twice on every history entry.
+        const fed = ((this.project.layers) || []).some(l => l
+            && (l.type || 'screen') === 'screen'
+            && Object.values(l.powerSocaDistro || {}).some(Boolean));
+        if (!fed && !distros.some(d => d && d.multiNumbers)) {
+            this._multiBaseline = new Map();
+            this._multiHoldsDirty = false;
+            if (changed && typeof this._persistDistros === 'function') this._persistDistros();
+            return changed;
+        }
+        let now = null;
+        let settled = false;
+        const passes = 8 + distros.length + ((this.project.layers) || []).length;
+        for (let pass = 0; pass < passes; pass++) {
+            this._circuitTailCache = null;
+            now = this._multiNumberMap();
+            let plain;
+            this._multiHoldPure = true;
+            this._circuitTailCache = null;
+            try {
+                plain = this._multiNumberMap();
+            } finally {
+                this._multiHoldPure = false;
+                this._circuitTailCache = null;
+            }
+            let dirty = false;
+            for (const d of distros) {
+                const store = d && d.multiNumbers;
+                if (!store || typeof store !== 'object') continue;
+                for (const key of Object.keys(store)) {
+                    const m = now.get(key);
+                    if (!m || m.pinned || m.distroId !== d.id
+                            || m.number !== parseInt(store[key], 10)) {
+                        delete store[key];
+                        dirty = true;
+                    }
+                }
+                if (!Object.keys(store).length) delete d.multiNumbers;
+            }
+            for (const [key, m] of now) {
+                if (m.pinned) continue;
+                const p = plain.get(key);
+                if (p && p.number === m.number) continue;
+                const d = byId.get(m.distroId);
+                if (!d) continue;
+                (d.multiNumbers || (d.multiNumbers = {}))[key] = m.number;
+                dirty = true;
+            }
+            if (!dirty) { settled = true; break; }
+            changed = true;
+        }
+        if (!settled && now) {
+            for (const [key, m] of now) {
+                const d = !m.pinned && byId.get(m.distroId);
+                if (d) (d.multiNumbers || (d.multiNumbers = {}))[key] = m.number;
+            }
+        }
+        const base = new Map();
+        for (const [key, m] of (now || new Map())) {
+            if (!m.pinned) base.set(key, { distroId: m.distroId, number: m.number });
+        }
+        this._multiBaseline = base;
+        this._multiHoldsDirty = false;
+        this._circuitTailCache = null;
+        if (changed && typeof this._persistDistros === 'function') this._persistDistros();
+        return changed;
+    }
+
+    // A screen's multis changed index (a split, an un-split, a clear that
+    // re-segments): their held numbers follow them, in the store and the
+    // baseline both. `indexOf(oldIndex)` gives the new index, or null for a
+    // multi that is gone. First claimant wins, the per-multi stores' rule.
+    _rekeyMultiHolds(layer, indexOf) {
+        if (!layer || !this.project) return;
+        const prefix = `${layer.id}:`;
+        const remap = (keys, get, put) => {
+            const sorted = keys.filter(k => k.startsWith(prefix))
+                .sort((a, b) => parseInt(a.slice(prefix.length), 10)
+                    - parseInt(b.slice(prefix.length), 10));
+            const moved = [];
+            for (const k of sorted) {
+                const ni = indexOf(parseInt(k.slice(prefix.length), 10));
+                moved.push([ni == null ? null : `${prefix}${ni}`, get(k)]);
+            }
+            return moved;
+        };
+        for (const d of (this.project.distros || [])) {
+            const store = d && d.multiNumbers;
+            if (!store || typeof store !== 'object') continue;
+            const moved = remap(Object.keys(store), k => store[k]);
+            if (!moved.length) continue;
+            for (const k of Object.keys(store)) if (k.startsWith(prefix)) delete store[k];
+            for (const [nk, v] of moved) {
+                if (nk && store[nk] === undefined) store[nk] = v;
+            }
+            if (!Object.keys(store).length) delete d.multiNumbers;
+            this._multiHoldsDirty = true;
+        }
+        const base = this._multiBaseline;
+        if (base && base.size) {
+            const moved = remap([...base.keys()], k => base.get(k));
+            for (const k of [...base.keys()]) if (k.startsWith(prefix)) base.delete(k);
+            for (const [nk, v] of moved) {
+                if (nk && !base.has(nk)) base.set(nk, v);
+            }
+        }
+    }
+
+    // One multi keeps a number it was printing although its index moved
+    // in a way the re-key cannot follow (the remainder of a multi a drop
+    // cut through, app-power takeSocaOnto): held from here like any other,
+    // and written onto the distro by the commit that records the gesture.
+    _holdMultiNumber(layer, idx, distroId, number) {
+        if (!layer || !distroId || !this.project) return;
+        const n = parseInt(number, 10);
+        if (!(Number.isFinite(n) && n >= 1)) return;
+        const key = this._multiHoldKey(layer.id, idx);
+        for (const d of (this.project.distros || [])) {
+            if (d && d.multiNumbers && d.multiNumbers[key] !== undefined) {
+                delete d.multiNumbers[key];
+                if (!Object.keys(d.multiNumbers).length) delete d.multiNumbers;
+                this._multiHoldsDirty = true;
+            }
+        }
+        if (this._multiBaseline) this._multiBaseline.set(key, { distroId, number: n });
+        this._circuitTailCache = null;
+    }
+
+    // Clear the held numbers on one distro (every distro with none named):
+    // its auto multis deal again in layer order, the one way the ruling
+    // lets numbers move. A LOCKED screen's numbers stay as they print - its
+    // multis are written into the store first, so the deal goes around them.
+    // Returns whether the distro's store held anything to clear.
+    _releaseMultiNumbers(distroId) {
+        if (!this.project) return false;
+        const now = this._multiNumberMap();
+        const locked = new Set(((this.project.layers) || [])
+            .filter(l => l && l.locked).map(l => String(l.id)));
+        let any = false;
+        for (const d of (this.project.distros || [])) {
+            if (!d || (distroId && d.id !== distroId)) continue;
+            const keep = {};
+            for (const [key, m] of now) {
+                if (m.pinned || m.distroId !== d.id) continue;
+                if (locked.has(key.slice(0, key.lastIndexOf(':')))) keep[key] = m.number;
+            }
+            if (d.multiNumbers) any = true;
+            if (Object.keys(keep).length) d.multiNumbers = keep;
+            else delete d.multiNumbers;
+            this._multiHoldsDirty = true;
+        }
+        const base = this._multiBaseline;
+        if (base) {
+            for (const [key, m] of [...base]) {
+                if (!distroId || m.distroId === distroId) base.delete(key);
+            }
+        }
+        this._circuitTailCache = null;
+        return any;
+    }
+
     // THE ONE PLACE A CIRCUIT'S LABEL IS DECIDED. The canvas bubbles, the soca
     // panel, the splitter rows, the distro feeds list, the label editor and
     // every export come through here, so a rule added here reaches all of them
@@ -552,6 +892,18 @@ class _Naming {
         // S1-5, S1-6 - the occupied tails ascending in wall order, gaps where
         // a tail is skipped.
         if (slot && slot.name) {
+            // A DIRECT output (1.5) is one circuit on its own connector: its
+            // name is the circuit's name, with no tail to count - "SL5".
+            // A multi of several circuits left on one (the rows changed
+            // under it) keeps its tails, so its circuits never read as
+            // one; the strip says to move it.
+            const did = (layer.powerSocaDistro || {})[slot.multi];
+            const rec = nm.socas.get(slot.multi);
+            if (did && typeof this._isDirectBox === 'function'
+                    && !(rec && rec.circuits.length > 1)
+                    && this._isDirectBox(did, slot.number)) {
+                return `${slot.name}${tpl.suffix}`;
+            }
             return `${slot.name}${tpl.sep}${slot.tail}${tpl.suffix}`;
         }
         // A template with no multi number in it has no multi to name.
@@ -608,35 +960,49 @@ class _Naming {
         // will number it once it exists. On no distro that is the screen's
         // own template number for this multi index - per screen, so the
         // first box a screen opens is S1 whatever the rest of the show
-        // prints. On a distro it is the running sequence of that distro,
-        // walked in PROJECT LAYER ORDER up to and including this screen,
-        // next free number, every pin on the distro skipped - not "the
-        // show's last number plus one", which on a show whose FIRST screen
-        // is the one being drawn named its first box after every box the
-        // later screens already had. Its name comes off the same ladder the
-        // drawn multis climb.
+        // prints. On a distro it is the lowest number no multi on that
+        // distro holds - every number already dealt is held (ruling
+        // 2026-10-16), so a gap a leaver left is filled first - and never
+        // "the show's last number plus one". Its name comes off the same
+        // ladder the drawn multis climb.
         const distroId = (layer.powerSocaDistro || {})[idx] || null;
         let number = nm.tpl.start + idx - 1;
-        if (distroId) {
+        const predD = distroId ? this.getDistros().find(x => x.id === distroId) : null;
+        const predFace = predD && typeof this.distroFace === 'function'
+            ? this.distroFace(predD) : null;
+        if (predFace) {
+            // A face distro deals autos by _faceAutoNumber: every pin on it
+            // and every auto it has already dealt are taken.
+            const taken = new Set();
+            for (const l of ((this.project && this.project.layers) || [])) {
+                if ((l.type || 'screen') !== 'screen') continue;
+                const entry = (this._circuitTailCache && this._circuitTailCache.get(l))
+                    || (l === layer ? nm : null);
+                if (!entry) continue;
+                for (const r of entry.socas.values()) {
+                    if (r.distroId === distroId) taken.add(r.number);
+                }
+            }
+            number = this._faceAutoNumber(predD, predFace, layer, taken, null);
+        } else if (distroId) {
+            // Every multi already on the distro keeps its number (held or
+            // pinned, _multiHeldNumbers), so the box this circuit opens
+            // takes the lowest number none of them holds - the number the
+            // naming pass deals it the moment it exists.
             const screens = ((this.project && this.project.layers) || [])
                 .filter(l => (l.type || 'screen') === 'screen');
             const entryOf = (l) => (this._circuitTailCache && this._circuitTailCache.get(l))
                 || (l === layer ? nm : null);
-            const pinned = new Set();
-            let seq = 0;
+            const used = new Set();
             for (const l of screens.includes(layer) ? screens : [layer]) {
                 const entry = entryOf(l);
                 if (!entry) continue;
                 for (const r of entry.socas.values()) {
-                    if (r.distroId !== distroId) continue;
-                    if (r.pinned) pinned.add(r.number);
-                    else if (l === layer || screens.indexOf(l) < screens.indexOf(layer)) {
-                        seq = Math.max(seq, r.number);
-                    }
+                    if (r.distroId === distroId) used.add(r.number);
                 }
             }
-            number = seq;
-            do { number += 1; } while (pinned.has(number));
+            number = 0;
+            do { number += 1; } while (used.has(number));
         }
         const name = this._multiNameFor(layer, idx, number, distroId, nm.tpl);
         const pos = this.socaCircuitPositions(layer, idx, at);

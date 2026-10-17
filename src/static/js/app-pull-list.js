@@ -195,23 +195,92 @@ class _PullList {
     }
 
     _persistPullSheetSettings() {
-        const send = () => fetch('/api/project', {
+        return this._postPullSheetState(['pullSheet']);
+    }
+
+    // THE one queue for the pull sheet's project POSTs - its settings, its
+    // edits and the show's cable unit (app-cable-units.js), which relabels
+    // the edits. One POST in flight, at most one waiting; a call while one
+    // is in flight adds its keys to the waiting one, and every body is read
+    // off the project when it is SENT, so the latest state always lands
+    // last (two queues let a slow stale POST land after a newer one).
+    // Resolves once a POST carrying `keys` has landed.
+    _postPullSheetState(keys) {
+        const q = this._pullSheetPost || (this._pullSheetPost = { busy: false, keys: new Set(), waiters: [] });
+        keys.forEach(k => q.keys.add(k));
+        const landed = new Promise(resolve => q.waiters.push(resolve));
+        if (!q.busy) this._sendPullSheetState();
+        return landed;
+    }
+
+    _sendPullSheetState() {
+        const q = this._pullSheetPost;
+        if (!q.keys.size) {
+            q.busy = false;
+            const idle = q.idle || [];
+            q.idle = [];
+            idle.forEach(r => r());
+            return;
+        }
+        const p = this.project || {};
+        const value = {
+            cableUnit: () => this.cableUnit(),
+            // A deleted store must reach the server as an empty object:
+            // POST merges top-level keys and would otherwise keep the old
+            // edits.
+            pullSheetEdits: () => p.pullSheetEdits || { positions: {} },
+            pullSheet: () => p.pullSheet || {},
+        };
+        const body = {};
+        q.keys.forEach(k => { if (value[k]) body[k] = value[k](); });
+        const waiters = q.waiters;
+        q.keys = new Set();
+        q.waiters = [];
+        q.busy = true;
+        fetch('/api/project', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ pullSheet: this.project.pullSheet || {} }),
-        }).catch(() => {});
-        this._pullSheetPushQueue = (this._pullSheetPushQueue || Promise.resolve()).then(send);
-        return this._pullSheetPushQueue;
+            body: JSON.stringify(body),
+        }).catch(() => {}).then(() => {
+            waiters.forEach(w => w());
+            this._sendPullSheetState();
+        });
+    }
+
+    // null when the queue above is idle, else a promise that resolves once
+    // it is: nothing in flight, nothing waiting. What a whole-project
+    // write (undo / redo's restore PUT, New, a file open) waits on, so a
+    // POST of the old project's unit or edits cannot land after it and
+    // put them back (app-history.js _syncRestoredProject).
+    _pullSheetStateSettled() {
+        const q = this._pullSheetPost;
+        if (!q || (!q.busy && !q.keys.size)) return null;
+        return new Promise(resolve => (q.idle || (q.idle = [])).push(resolve));
     }
 
     // ---- vocabulary --------------------------------------------------------
 
-    // "100'" for feet, "EA" for each-items, "" for a length nobody typed.
+    // A length in the show's unit as the sheet prints it - "100'" in a
+    // feet show, "30 m" in a meters one (app-cable-units.js) - "EA" for
+    // each-items, "" for a length nobody typed.
     pullLengthText(ft) {
         if (ft === 'EA') return 'EA';
-        const n = Number(ft);
-        if (!Number.isFinite(n) || n <= 0) return '';
-        return `${Number.isInteger(n) ? n : +n.toFixed(1)}'`;
+        if (this._pullLengthProbe) {
+            const n = this.parseCableLength(ft);
+            if (n !== null) this._pullLengthProbe.push(n);
+        }
+        return this.cableLengthText(ft);
+    }
+
+    // Every number the engine prints as a length, as the number itself
+    // (7.62, never "7.6'"): what a unit change relabels the edits' keys by
+    // (app-cable-units.js), so an edit stays on its row whatever the print
+    // rounds to.
+    pullSheetLengthNumbers() {
+        const seen = [];
+        this._pullLengthProbe = seen;
+        try { this.buildPullList(); } finally { this._pullLengthProbe = null; }
+        return seen;
     }
 
     // What paper calls a breakout box (a CVT, a Tessera XD): its model and
@@ -303,7 +372,7 @@ class _PullList {
     // A box's fiber trunk as a line: "12 Tac Fiber 250'" (the type, or
     // "Fiber" when untyped, and the length), or '' with no length.
     pullBoxFiberText(box) {
-        const ft = Number(box && box.fiberFt);
+        const ft = this.parseCableLength(box && box.fiberFt);
         if (!Number.isFinite(ft) || ft <= 0) return '';
         return `${(box.fiberType || '').trim() || 'Fiber'} ${this.pullLengthText(ft)}`;
     }
@@ -314,8 +383,8 @@ class _PullList {
     // where it runs past its 10G length ("no length" where none is typed).
     // Rows merge by kind and length like every other cable.
     _pullCopperCells(l) {
-        const ft = Number(l.copper.ft);
-        const has = Number.isFinite(ft) && ft > 0;
+        const ft = this.parseCableLength(l.copper.ft);
+        const has = ft !== null;
         return [l.copper.copper, has ? this.pullLengthText(ft) : '', 1,
                 `${this.pullBoxTitle(l.box)} (${l.title})`,
                 this.copperOverText(l.copper) || (has ? '' : 'no length')];
@@ -649,6 +718,9 @@ class _PullList {
         // hold circuits of several screens) and a snake (its ports can feed
         // several screens).
         const boxesSeen = new Set();
+        // The DIRECT outputs among them (1.5): one circuit, one cable - not
+        // a hole a multi plugs into, so the distro's "N way" never counts them.
+        const directSeen = new Set();
         const snakesSeen = new Set();
         // A row said once for several runs (a snake, a box's fiber) is
         // tagged with every screen those runs land on, whichever screen's
@@ -709,7 +781,7 @@ class _PullList {
         for (const base of bases) {
             for (const layer of base.layers) {
                 const scr = this._pullScreenList(layer, {
-                    settings, distroById, boxesSeen, snakesSeen, fiberSeen, hw, saidOnce,
+                    settings, distroById, boxesSeen, directSeen, snakesSeen, fiberSeen, hw, saidOnce,
                     distroFirstLayer, boxFirstLayer, procFirstLayer,
                 });
                 byScreen[layer.id] = scr;
@@ -819,7 +891,7 @@ class _PullList {
                         const [type, length, qty, label, notes] = this._pullCopperCells(l);
                         r = { type, length, qty, label, notes, side: 'data' };
                     } else {
-                        const ft = Number(l.cable.ft);
+                        const ft = this.parseCableLength(l.cable.ft);
                         const has = Number.isFinite(ft) && ft > 0;
                         r = { type: this.fiberCableTypeText(l.cable), length: this.pullLengthText(ft),
                               qty: 1, label: l.cable.name || '', notes: has ? '' : 'no length', side: 'data' };
@@ -833,15 +905,23 @@ class _PullList {
             }
         }
         const boxesOn = new Map();            // String(distroId) -> boxes in use
+        const directOn = new Map();           // String(distroId) -> direct outputs in use
         for (const key of boxesSeen) {
             const distroId = key.split('|')[0];
-            boxesOn.set(distroId, (boxesOn.get(distroId) || 0) + 1);
+            const into = directSeen.has(key) ? directOn : boxesOn;
+            into.set(distroId, (into.get(distroId) || 0) + 1);
         }
         for (const d of distros) {
             const n = boxesOn.get(String(d.id)) || 0;
-            if (!n) continue;
-            const r = { type: this.pullDistroWayType(n), length: 'EA', qty: 1,
-                        label: d.name || '', notes: n > 8 ? `${n} multis` : '', side: 'power' };
+            const k = directOn.get(String(d.id)) || 0;
+            if (!n && !k) continue;
+            // A distro feeding direct outputs only has no multi holes to
+            // count: it is "Distro", its outputs said in Notes.
+            const r = n
+                ? { type: this.pullDistroWayType(n), length: 'EA', qty: 1,
+                    label: d.name || '', notes: n > 8 ? `${n} multis` : '', side: 'power' }
+                : { type: 'Distro', length: 'EA', qty: 1, label: d.name || '',
+                    notes: `${k} direct output${k === 1 ? '' : 's'}`, side: 'power' };
             if (!gearAt(r, this.pullLocationOf(d), distroFirstLayer.get(String(d.id)))) continue;
             hw('distro', d.id, d.name).rows.push({ ...r });
         }
@@ -886,6 +966,7 @@ class _PullList {
     // per-screen readings the packet prints.
     _pullScreenList(layer, ctx) {
         const { settings, distroById, boxesSeen, snakesSeen, fiberSeen, hw } = ctx;
+        const directSeen = ctx.directSeen || new Set();
         const distroFirstLayer = ctx.distroFirstLayer || new Map();
         const boxFirstLayer = ctx.boxFirstLayer || new Map();
         const procFirstLayer = ctx.procFirstLayer || new Map();
@@ -970,7 +1051,15 @@ class _PullList {
                     distroId: s.distroId || null, distro: d ? d.name : null,
                     type: typed ? typed.name : null,
                     typeId: typed ? typed.id : null,
-                    homeRun: s.length || null,
+                    // A face box (1.5) says what connector it is: a direct
+                    // output is one cable, a multi row its own kind.
+                    kind: typed && typed.face ? typed.kind : 'multi',
+                    connectorId: typed && typed.face ? typed.connectorId : null,
+                    cable: typed && typed.face ? typed.cable : null,
+                    boxSize: typed ? Number(typed.boxSize) || 6 : null,
+                    // the typed home run as a length: null when none, or
+                    // not one in the show's unit (parseCableLength)
+                    homeRun: this.parseCableLength(s.length),
                     connector: d
                         ? this.pullPowerConnectorName(
                             this.cableConnectorName(this.boxTailConnector(d, s.number, layer)))
@@ -979,8 +1068,8 @@ class _PullList {
                     shared: false,
                 };
                 boxes.set(key, box);
-            } else if (!box.homeRun && s.length) {
-                box.homeRun = s.length;
+            } else if (!box.homeRun && this.parseCableLength(s.length) !== null) {
+                box.homeRun = this.parseCableLength(s.length);
             }
             const d = box.distroId ? distroById.get(box.distroId) || null : null;
             for (const leg of s.legs) {
@@ -997,7 +1086,22 @@ class _PullList {
                     cableFt: cable ? cable.ft : null,
                     cableConnector: cable ? this.pullPowerConnectorName(cable.name) : null,
                 });
-                if (cable) {
+                // A DIRECT output is one circuit on one cable, distro to
+                // screen: a cable typed on the circuit IS that cable, and
+                // wins over the output's home run - what the map's cable
+                // tag prints (directCircuitCable). Printed once, by the
+                // direct output's row below. Only when the circuit is ALONE
+                // there: a multi left on a direct output (the flagged error
+                // state) lists every circuit's cable and the home run as
+                // their own rows - never one cable standing in for seven.
+                const crowd = box.kind === 'direct'
+                    ? this.directOutputCircuitCount(layer, leg.circuit) : 0;
+                if (crowd > 1) box.crowded = crowd;
+                const one = cable && crowd === 1 ? this.directCircuitCable(layer, leg.circuit) : null;
+                if (one) {
+                    box.homeRun = one.ft;
+                    if (one.name) box.cable = one.name;
+                } else if (cable) {
                     row(cable.name ? this.pullPowerConnectorName(cable.name) : 'Power Cable',
                         this.pullLengthText(cable.ft), 1, leg.label, '', locationOf(d));
                 }
@@ -1016,12 +1120,31 @@ class _PullList {
             }
             const boxLabel = `${distroName}${box.number}`;
             on = boxOn.get(box.key) || [layer.id];
-            const isL2130 = String(box.typeId || '').startsWith('l2130');
-            const homeType = isL2130 ? 'L21-30' : 'Multi';
+            if (box.kind === 'direct') {
+                // A DIRECT output (1.5): its one cable, distro to screen, in
+                // the show's unit, under the output's name - no breakout.
+                // The circuit's own cable when it has one (set above), else
+                // the output's home run. A crowded output (several
+                // circuits, the flagged error state) says so in Notes; its
+                // circuits' cables are their own rows above.
+                directSeen.add(seenKey);
+                const notes = [box.homeRun ? '' : 'no length',
+                               box.crowded ? `${box.crowded} circuits on a one-circuit output` : '']
+                    .filter(Boolean).join(' · ');
+                const r = row(this.pullPowerConnectorName(box.cable), this.pullLengthText(box.homeRun),
+                              1, boxLabel, notes, at);
+                hw('distro', box.distroId, distroName).rows.push({ ...r });
+                continue;
+            }
+            const isL2130 = String(box.typeId || '').startsWith('l2130')
+                || box.connectorId === 'l2130';
+            const isHarting = box.connectorId === 'harting';
+            const homeType = isL2130 ? 'L21-30' : (isHarting ? 'Harting 16E' : 'Multi');
             const r = row(homeType, this.pullLengthText(box.homeRun), 1, boxLabel,
                           box.homeRun ? '' : 'no length', at);
             const breakoutType = isL2130
-                ? `L21-30 ${box.connector} Breakout` : `${box.connector} Breakout`;
+                ? `L21-30 ${box.connector} Breakout`
+                : (isHarting ? `Harting ${box.connector} Breakout` : `${box.connector} Breakout`);
             const b = row(breakoutType, 'EA', 1, boxLabel, '', at);
             const hrec = hw('distro', box.distroId, distroName);
             hrec.rows.push({ ...r }, { ...b });
@@ -1112,7 +1235,7 @@ class _PullList {
                     if (fiberSeen.has(key)) { tagOnce(key); continue; }
                     fiberSeen.add(key);
                     const r = l.copper ? row(...this._pullCopperCells(l), at) : (() => {
-                        const ft = Number(l.cable.ft);
+                        const ft = this.parseCableLength(l.cable.ft);
                         const has = Number.isFinite(ft) && ft > 0;
                         return row(this.fiberCableTypeText(l.cable), this.pullLengthText(ft), 1,
                                    l.cable.name || '', has ? '' : 'no length', at);
@@ -1157,7 +1280,7 @@ class _PullList {
                                   connector: connId || null, owner: owner.kind,
                                   ownerId: owner.id, id: s.id });
                 const type = word ? `${word} Snake` : 'Snake';
-                const ft = Number(s.ft);
+                const ft = this.parseCableLength(s.ft);
                 const snakeRow = { type, length: this.pullLengthText(ft),
                                    qty: 1, label: s.name || '',
                                    notes: [typeof this.snakeSizeText === 'function'
@@ -1238,7 +1361,7 @@ class _PullList {
     }
 
     // A group member's jumper row (`split`) is keyed with its screen, so an
-    // edit to "Data Jump 2' USC SL" never lands on USC SR's.
+    // edit to "Data Jump 2' WALL SL" never lands on WALL SR's.
     pullRowKey(row) {
         return `${row && row.type != null ? row.type : ''}|${row && row.length != null ? row.length : ''}`
             + (row && row.split ? `|${row.split}` : '');
@@ -1406,17 +1529,9 @@ class _PullList {
         if (typeof this.renderPullSheetEditorTotals === 'function') this.renderPullSheetEditorTotals();
     }
 
+    // On the pull sheet's one queue (_postPullSheetState).
     _persistPullSheetEdits() {
-        // A deleted store must reach the server as an empty object: POST
-        // merges top-level keys and would otherwise keep the old edits.
-        const body = { pullSheetEdits: (this.project && this.project.pullSheetEdits) || { positions: {} } };
-        const send = () => fetch('/api/project', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
-        }).catch(() => {});
-        this._pullSheetPushQueue = (this._pullSheetPushQueue || Promise.resolve()).then(send);
-        return this._pullSheetPushQueue;
+        return this._postPullSheetState(['pullSheetEdits']);
     }
 
     // Override one field of an engine row. A value equal to the engine's
@@ -1631,6 +1746,9 @@ class _PullList {
         if (eng) {
             eng.addEventListener('change', () => { this.setEngineerName(eng.value); });
         }
+        // The show's cable unit - this section's select and the Binder
+        // section's (app-cable-units.js).
+        if (typeof this.initCableUnitControls === 'function') this.initCableUnitControls();
     }
 
     // Fields from state, and the section shown only for the pull-sheet
@@ -1642,6 +1760,7 @@ class _PullList {
         set('export-pull-sheet-power-jump-name', s.powerJumpName);
         set('export-pull-sheet-rev', s.rev);
         set('export-pull-sheet-engineer', this.getEngineerName());
+        if (typeof this.syncCableUnitControls === 'function') this.syncCableUnitControls();
         const formatEl = document.getElementById('export-format');
         const isSheet = !!formatEl && formatEl.value === 'pull-sheet';
         const show = (id, on) => {

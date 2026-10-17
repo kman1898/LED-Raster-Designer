@@ -100,6 +100,11 @@ class _ContextMenu {
         // dock - and stored here at open time.
         const cabinet = !inDock ? this._prepareChangeCabinetMenu() : null;
         this._changeCabinetMenuAction = cabinet;
+        // Custom mode on/off for the tab on screen: Data Flow (runs) or
+        // Power (circuits), on the screen under the cursor or the selected
+        // one; never on the dock or another tab.
+        const customMode = !inDock ? this._prepareCustomModeMenu(x, y) : null;
+        this._customModeMenuAction = customMode;
         if (inDock && !clear && !merge && !sharing.share
                 && !sharing.unshare && !outs && !snake) {
             this.hideContextMenu();
@@ -119,7 +124,7 @@ class _ContextMenu {
         if (!inDock) {
             // Show/hide pixel-map-only menu group based on view + selection.
             const inPixelMap = window.canvasRenderer && window.canvasRenderer.viewMode === 'pixel-map';
-            const haveSelection = this.pixelMapSelection && this.pixelMapSelection.size > 0;
+            const haveSelection = this.getPixelMapSelectedPanels().length > 0;
             const showPixelMapItems = inPixelMap && haveSelection;
             menu.querySelectorAll('.pixel-map-only').forEach(el => {
                 el.style.display = showPixelMapItems ? '' : 'none';
@@ -128,9 +133,11 @@ class _ContextMenu {
             // positioned: Pixel Map (processor offset) and Show Look (show
             // offset). Data and Power mirror the Show Look position, so
             // they're read-only there.
+            // Offered for a locked selection too: choosing it says why a
+            // locked screen does not move, rather than the item vanishing.
             const canCenter = window.canvasRenderer
                 && ['pixel-map', 'show-look'].includes(window.canvasRenderer.viewMode)
-                && this.getSelectedLayers().some(l => !l.locked);
+                && this.getSelectedLayers().length > 0;
             menu.querySelectorAll('.movable-view-only').forEach(el => {
                 el.style.display = canCenter ? '' : 'none';
             });
@@ -163,7 +170,7 @@ class _ContextMenu {
             // nothing in it.
             const canvases = (this.project && this.project.canvases) || [];
             const canMove = canvases.length > 1
-                && this.getSelectedLayers().some(l => !l.locked);
+                && this.getSelectedLayers().length > 0;
             menu.querySelectorAll('.move-canvas-only').forEach(el => {
                 el.style.display = canMove ? '' : 'none';
             });
@@ -173,6 +180,14 @@ class _ContextMenu {
             menu.querySelectorAll('.change-cabinet-only').forEach(el => {
                 el.style.display = cabinet ? '' : 'none';
             });
+            menu.querySelectorAll('.custom-mode-only').forEach(el => {
+                el.style.display = customMode ? '' : 'none';
+            });
+            const customItem = menu.querySelector('[data-action="custom-mode-toggle"]');
+            if (customItem && customMode) {
+                customItem.textContent = customMode.label;
+                customItem.title = customMode.title;
+            }
             if (typeof this._fillBeachSubmenu === 'function') {
                 this._fillBeachSubmenu(menu.querySelector('#beach-submenu'), beach);
             }
@@ -315,6 +330,91 @@ class _ContextMenu {
         return screens.length > 0 ? { layers: screens } : null;
     }
 
+    // "Custom runs: Off" / "Custom circuits: On" - the custom mode of the
+    // tab on screen, for the screen the right-click landed on (hit-tested,
+    // because the wiring views do not select on right-click), else the
+    // shown screen. A screen in a group answers for the group: the pattern
+    // is a shared field. Null on any other tab, or with no screen.
+    _prepareCustomModeMenu(x, y) {
+        const r = window.canvasRenderer;
+        const view = r && r.viewMode;
+        if (view !== 'data-flow' && view !== 'power') return null;
+        const isScreen = l => !!l && (l.type || 'screen') === 'screen';
+        let layer = null;
+        if (r.canvas && document.elementFromPoint(x, y) === r.canvas) {
+            const rect = r.canvas.getBoundingClientRect();
+            const worldY = ((y - rect.top) - r.panY) / r.zoom;
+            const worldX = r._unmirrorWorldX(((x - rect.left) - r.panX) / r.zoom, worldY);
+            let hit = r.getLayerAt(worldX, worldY);
+            if (!isScreen(hit) && typeof r.getPanelAt === 'function') {
+                const p = r.getPanelAt(worldX, worldY);
+                hit = p ? ((this.project && this.project.layers) || [])
+                    .find(l => l.id === p.layerId) || null : null;
+            }
+            if (isScreen(hit)) layer = hit;
+        }
+        if (!layer && isScreen(this.currentLayer)) layer = this.currentLayer;
+        if (!layer) return null;
+        const kind = view === 'power' ? 'power' : 'data';
+        const on = kind === 'power' ? this.isCustomPower(layer) : this.isCustomFlow(layer);
+        const noun = kind === 'power' ? 'circuits' : 'runs';
+        // The title names exactly what the item changes: the screen, or the
+        // group and every screen in it - the right-clicked screen and its
+        // group are all it acts on (runCustomModeMenu).
+        const group = typeof this.getGroupOfLayer === 'function' ? this.getGroupOfLayer(layer) : null;
+        const members = group && typeof this.groupMembersOf === 'function'
+            ? this.groupMembersOf(layer) : [];
+        const names = members.map(m => m.name || `Screen ${m.id}`);
+        const list = names.length <= 1 ? (names[0] || '')
+            : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
+        const who = group ? (list ? `${group.name} (${list})` : group.name) : layer.name;
+        return {
+            kind, layer, on,
+            label: `Custom ${noun}: ${on ? 'On' : 'Off'}`,
+            title: `Turn custom ${noun} ${on ? 'off' : 'on'} for ${who}`,
+        };
+    }
+
+    // The item's click goes through the SAME path as the Enable Custom Mode
+    // box: the box is set to the new state and its own change handler runs
+    // the idempotent toggle, so the box, the custom panels and the model
+    // cannot disagree, and it is one undo step.
+    //
+    // It acts on the right-clicked screen and its group ONLY - what the
+    // item's title names. The box acts on the whole selection, so when the
+    // selection is anything wider (or does not hold the screen at all) it is
+    // first narrowed to that screen and its group, the way a canvas click
+    // selects (1.5 audit: with a wider selection the item turned custom mode
+    // on or off for screens its title never named).
+    runCustomModeMenu() {
+        const armed = this._customModeMenuAction;
+        this._customModeMenuAction = null;
+        this.hideContextMenu();
+        if (!armed || !armed.layer) return;
+        const layer = ((this.project && this.project.layers) || [])
+            .find(l => l.id === armed.layer.id) || null;
+        if (!layer) return;
+        const ids = this.selectedLayerIds;
+        const wanted = new Set([layer.id].concat(typeof this.groupMembersOf === 'function'
+            ? this.groupMembersOf(layer).map(m => m.id) : []));
+        const narrow = !!ids && ids.has(layer.id) && [...ids].every(id => wanted.has(id));
+        if (!narrow) {
+            const r = window.canvasRenderer;
+            if (r && typeof r._selectLayerFromCanvas === 'function') r._selectLayerFromCanvas(layer);
+            else this.selectLayer(layer);
+        }
+        const box = document.getElementById(armed.kind === 'power'
+            ? 'power-custom-toggle' : 'custom-flow-toggle');
+        const on = armed.kind === 'power' ? this.isCustomPower(layer) : this.isCustomFlow(layer);
+        if (!box) {
+            if (armed.kind === 'power') this.toggleCustomPowerMode(!on);
+            else this.toggleCustomFlowMode(!on);
+            return;
+        }
+        box.checked = !on;
+        box.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+
     // The item's click. handleMenuAction (app-menubar.js) is the menu's
     // dispatcher, but it takes no case for this verb: the item carries its
     // own listener instead, bound once at setup (setupPresetModals calls
@@ -347,12 +447,15 @@ class _ContextMenu {
     centerLayersOnCanvas(axis = 'both') {
         const cr = window.canvasRenderer;
         if (!cr || !['pixel-map', 'show-look'].includes(cr.viewMode)) return;
-        const layers = (this.getSelectedLayers() || []).filter(l => l && !l.locked);
+        // A locked screen stays where it is (the owner's ruling,
+        // 2026-10-16) and is named - when centering would have moved it.
+        const layers = (this.getSelectedLayers() || []).filter(Boolean);
         if (layers.length === 0) return;
 
         const useShow = cr.viewMode === 'show-look';
         const canvases = (this.project && this.project.canvases) || [];
         const moved = [];
+        const lockedMet = [];
 
         layers.forEach(layer => {
             const canvasId = useShow ? (layer.show_canvas_id || layer.canvas_id) : layer.canvas_id;
@@ -375,6 +478,15 @@ class _ContextMenu {
             const centeredX = Math.round((rasterW - fpW) / 2 - fp.dx);
             const centeredY = Math.round((rasterH - fpH) / 2 - fp.dy);
 
+            if (layer.locked) {
+                const curX = Number(useShow ? (layer.showOffsetX ?? layer.offset_x) : layer.offset_x) || 0;
+                const curY = Number(useShow ? (layer.showOffsetY ?? layer.offset_y) : layer.offset_y) || 0;
+                const wouldMove = ((axis === 'x' || axis === 'both') && curX !== centeredX)
+                    || ((axis === 'y' || axis === 'both') && curY !== centeredY);
+                if (wouldMove) lockedMet.push(layer);
+                return;
+            }
+
             if (useShow) {
                 if (axis === 'x' || axis === 'both') layer.showOffsetX = centeredX;
                 if (axis === 'y' || axis === 'both') layer.showOffsetY = centeredY;
@@ -395,6 +507,7 @@ class _ContextMenu {
             moved.push(layer);
         });
 
+        this._showLockedError(lockedMet);
         if (moved.length === 0) return;
         const label = axis === 'x' ? 'Center on Canvas X'
             : axis === 'y' ? 'Center on Canvas Y' : 'Center on Canvas';

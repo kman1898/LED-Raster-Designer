@@ -94,8 +94,10 @@ class _Preferences {
             // screen starts with for its breakout and splitter packing
             // (app-core addLayer). Applied at creation only.
             distroRatingA: 400,
-            distroVoltage: 208,
-            distroPhase: 3,
+            // The system a new distro starts on (the distro gear's own
+            // list). Replaced the old voltage + phase pair, which still
+            // reads through preferenceDistroSystem.
+            distroSystem: '120/208',
             multiType: 'soca208',
             breakoutType: 'soca-true1',
             splittersEnabled: false,
@@ -127,16 +129,33 @@ class _Preferences {
             // link, *JumpLengthH the horizontal one - shipped 6 and 6, and
             // a saved record that never held a horizontal reads its own
             // vertical figure (getPreferences). null / blank: no cable.
+            // CABLE LENGTHS (2026-10-16, app-cable-units.js): the unit a
+            // NEW show starts in ('ft' or 'm'; each show keeps its own),
+            // and every length above kept per unit - the feet keys are
+            // the ones the app always had, each with a meters twin (M)
+            // that a meters show reads. The meters set ships as the feet
+            // figures to the nearest whole meter. The two stock ladders a
+            // long jumper rounds up to are lists, ascending.
             pullRev: '1.0',
+            cableUnit: 'ft',
             powerJumpName: 'Tru-1 Power Jump',
             powerJumpLength: 6,
             powerJumpLengthH: 6,
+            powerJumpLengthM: 2,
+            powerJumpLengthHM: 2,
             dataJumpName: 'Data Jump',
             dataJumpLength: 6,
             dataJumpLengthH: 6,
+            dataJumpLengthM: 2,
+            dataJumpLengthHM: 2,
             snakeHomeRunFt: null,
+            snakeHomeRunM: null,
             loosePortCableFt: 100,
-            powerCableFt: 10
+            loosePortCableM: 30,
+            powerCableFt: 10,
+            powerCableM: 3,
+            jumperStockFt: [3, 6, 10, 15, 25],
+            jumperStockM: [1, 2, 3, 5, 10]
         };
     }
 
@@ -201,9 +220,20 @@ class _Preferences {
         // A record saved before the horizontal jumper lengths existed
         // (2026-09-25) reads its vertical figure for them: the horizontal
         // default is "the same as vertical".
+        // The meters twins the same way (a record that holds a vertical
+        // meters figure and no horizontal one).
         for (const side of ['data', 'power']) {
-            const v = `${side}JumpLength`, h = `${side}JumpLengthH`;
-            if (saved && saved[h] === undefined && saved[v] !== undefined) out[h] = saved[v];
+            for (const m of ['', 'M']) {
+                const v = `${side}JumpLength${m}`, h = `${side}JumpLengthH${m}`;
+                if (saved && saved[h] === undefined && saved[v] !== undefined) out[h] = saved[v];
+            }
+        }
+        // A record from before the system picker (1.5) kept a voltage and
+        // a phase; it reads as the system they map to.
+        if (saved && saved.distroSystem === undefined
+                && (saved.distroVoltage !== undefined || saved.distroPhase !== undefined)
+                && typeof this.preferenceDistroSystem === 'function') {
+            out.distroSystem = this.preferenceDistroSystem(saved);
         }
         return out;
     }
@@ -285,6 +315,9 @@ class _Preferences {
         }
         if (typeof this.getPowerBreakoutTypes === 'function') {
             fill('pref-breakout-type', this.getPowerBreakoutTypes());
+        }
+        if (typeof this.distroSystems === 'function') {
+            fill('pref-distro-system', this.distroSystems());
         }
     }
 
@@ -675,8 +708,7 @@ class _Preferences {
         setVal('pref-canvas-gap', prefs.canvasGap);
         // Distros & multis
         setVal('pref-distro-rating', prefs.distroRatingA);
-        setVal('pref-distro-voltage', String(prefs.distroVoltage));
-        setVal('pref-distro-phase', Number(prefs.distroPhase) === 1 ? '1' : '3');
+        setVal('pref-distro-system', this.preferenceDistroSystem(prefs));
         setVal('pref-multi-type', prefs.multiType);
         setVal('pref-breakout-type', prefs.breakoutType);
         // The stored pair seeds the figure in force for the custom box and
@@ -711,15 +743,28 @@ class _Preferences {
         // Pull sheet & cables
         setVal('pref-pull-engineer', prefs.engineerName);
         setVal('pref-pull-rev', prefs.pullRev);
+        setVal('pref-cable-unit', prefs.cableUnit === 'm' ? 'm' : 'ft');
         setVal('pref-pull-power-jump-name', prefs.powerJumpName);
         setVal('pref-pull-power-jump-length', prefs.powerJumpLength);
         setVal('pref-pull-power-jump-length-h', prefs.powerJumpLengthH);
+        setVal('pref-pull-power-jump-length-m', prefs.powerJumpLengthM);
+        setVal('pref-pull-power-jump-length-h-m', prefs.powerJumpLengthHM);
         setVal('pref-pull-data-jump-name', prefs.dataJumpName);
         setVal('pref-pull-data-jump-length', prefs.dataJumpLength);
         setVal('pref-pull-data-jump-length-h', prefs.dataJumpLengthH);
+        setVal('pref-pull-data-jump-length-m', prefs.dataJumpLengthM);
+        setVal('pref-pull-data-jump-length-h-m', prefs.dataJumpLengthHM);
         setVal('pref-snake-home-run-length', prefs.snakeHomeRunFt);
+        setVal('pref-snake-home-run-length-m', prefs.snakeHomeRunM);
         setVal('pref-loose-port-cable-length', prefs.loosePortCableFt);
+        setVal('pref-loose-port-cable-length-m', prefs.loosePortCableM);
         setVal('pref-power-cable-length', prefs.powerCableFt);
+        setVal('pref-power-cable-length-m', prefs.powerCableM);
+        // The two stock ladders as "3, 6, 10, 15, 25"; a stored ladder
+        // that is not one shows the shipped list.
+        const ladder = (list, fallback) => this.jumperStockText(this.normalizeJumperStock(list) || fallback);
+        setVal('pref-jumper-stock-ft', ladder(prefs.jumperStockFt, defaults.jumperStockFt));
+        setVal('pref-jumper-stock-m', ladder(prefs.jumperStockM, defaults.jumperStockM));
     }
 
     readPreferencesFromUI() {
@@ -756,6 +801,14 @@ class _Preferences {
         const readBool = (id, fallback) => {
             const el = document.getElementById(id);
             return el ? !!el.checked : fallback;
+        };
+        // A stock ladder typed as "3, 6, 10, 15, 25": its lengths,
+        // ascending; text that is not a list keeps the stored ladder.
+        const readLadder = (id, storedList, fallback) => {
+            const keep = this.normalizeJumperStock(storedList) || fallback.slice();
+            const el = document.getElementById(id);
+            if (!el || !dialogOpen) return keep;
+            return this.parseJumperStockText(el.value) || keep;
         };
         // A colour picker: stored the way the layer stores it, as
         // upper-case #RRGGBB (a picker hands back lower case).
@@ -821,8 +874,8 @@ class _Preferences {
             font: readStr('pref-font', defaults.font),
             // Distros & multis
             distroRatingA: readNum('pref-distro-rating', defaults.distroRatingA),
-            distroVoltage: readNum('pref-distro-voltage', defaults.distroVoltage),
-            distroPhase: readNum('pref-distro-phase', defaults.distroPhase) === 1 ? 1 : 3,
+            distroSystem: this.distroSystemById(readStr('pref-distro-system', defaults.distroSystem))
+                ? readStr('pref-distro-system', defaults.distroSystem) : defaults.distroSystem,
             multiType: readStr('pref-multi-type', defaults.multiType),
             // Gated on the voltage read above, the way the select is: a
             // pair no screen could carry is never stored.
@@ -862,27 +915,40 @@ class _Preferences {
             pullRev: readStr('pref-pull-rev', defaults.pullRev),
             powerJumpName: readStr('pref-pull-power-jump-name', defaults.powerJumpName),
             dataJumpName: readStr('pref-pull-data-jump-name', defaults.dataJumpName),
-            // The four jumper lengths a new screen starts with: blank is
-            // null (no cable counted); with the dialog closed, the stored
-            // figure.
+            // The unit a new show starts in (each show keeps its own).
+            cableUnit: (dialogOpen ? readStr('pref-cable-unit', stored.cableUnit) : stored.cableUnit) === 'm' ? 'm' : 'ft',
+            // The four jumper lengths a new screen starts with, feet and
+            // meters: blank is null (no cable counted); with the dialog
+            // closed, the stored figure.
             ...(() => {
-                const pv = stored.powerJumpLength, ph = stored.powerJumpLengthH;
-                const dv = stored.dataJumpLength, dh = stored.dataJumpLengthH;
-                if (!dialogOpen) {
-                    return { powerJumpLength: pv, powerJumpLengthH: ph,
-                             dataJumpLength: dv, dataJumpLengthH: dh };
+                const keys = [
+                    ['powerJumpLength', 'pref-pull-power-jump-length'],
+                    ['powerJumpLengthH', 'pref-pull-power-jump-length-h'],
+                    ['dataJumpLength', 'pref-pull-data-jump-length'],
+                    ['dataJumpLengthH', 'pref-pull-data-jump-length-h'],
+                    ['powerJumpLengthM', 'pref-pull-power-jump-length-m'],
+                    ['powerJumpLengthHM', 'pref-pull-power-jump-length-h-m'],
+                    ['dataJumpLengthM', 'pref-pull-data-jump-length-m'],
+                    ['dataJumpLengthHM', 'pref-pull-data-jump-length-h-m'],
+                ];
+                const out = {};
+                for (const [key, id] of keys) {
+                    out[key] = dialogOpen ? readOptNum(id, stored[key]) : stored[key];
                 }
-                return {
-                    powerJumpLength: readOptNum('pref-pull-power-jump-length', pv),
-                    powerJumpLengthH: readOptNum('pref-pull-power-jump-length-h', ph),
-                    dataJumpLength: readOptNum('pref-pull-data-jump-length', dv),
-                    dataJumpLengthH: readOptNum('pref-pull-data-jump-length-h', dh),
-                };
+                return out;
             })(),
             snakeHomeRunFt: dialogOpen ? readOptNum('pref-snake-home-run-length', defaults.snakeHomeRunFt)
                 : (stored.snakeHomeRunFt != null ? stored.snakeHomeRunFt : defaults.snakeHomeRunFt),
+            snakeHomeRunM: dialogOpen ? readOptNum('pref-snake-home-run-length-m', defaults.snakeHomeRunM)
+                : (stored.snakeHomeRunM != null ? stored.snakeHomeRunM : defaults.snakeHomeRunM),
             loosePortCableFt: readNum('pref-loose-port-cable-length', defaults.loosePortCableFt),
+            loosePortCableM: readNum('pref-loose-port-cable-length-m', defaults.loosePortCableM),
             powerCableFt: readNum('pref-power-cable-length', defaults.powerCableFt),
+            powerCableM: readNum('pref-power-cable-length-m', defaults.powerCableM),
+            // The stock ladders: a list of lengths, ascending; a field that
+            // holds no list keeps the stored ladder (else the shipped one).
+            jumperStockFt: readLadder('pref-jumper-stock-ft', stored.jumperStockFt, defaults.jumperStockFt),
+            jumperStockM: readLadder('pref-jumper-stock-m', stored.jumperStockM, defaults.jumperStockM),
         };
     }
 

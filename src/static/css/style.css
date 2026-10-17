@@ -1044,6 +1044,9 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
     color: #c0c0c0 !important;
 }
 #preferences-modal .prefs-row.pm-choices { gap: 14px; flex-wrap: wrap; }
+/* a length's feet and meters figures side by side: the unit words keep
+   one width so the two sets line up row to row */
+#preferences-modal .prefs-row span.pm-unit { min-width: 14px; }
 #preferences-modal .prefs-flow-grid { grid-template-columns: repeat(8, 40px); gap: 4px; }
 #preferences-modal .pref-flow-pattern-btn { min-height: 38px; }
 #preferences-modal .pm-logo-none { color: #777; font-size: 12px; }
@@ -1602,7 +1605,7 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 }
 /* The processor's strip leads with its NAME (2026-09-25, option 2 "Framed
    unit"): the name field at heading size, the model after it in the
-   secondary colour - "USC SR Main  Tessera SX40", where it used to read a
+   secondary colour - "WALL SR Main  Tessera SX40", where it used to read a
    small grey "TESSERA SX40" and then the name. One line at the 440px
    track: the model and the pills give way (ellipsis) before the name
    does, and the name itself shrinks to a floor rather than push the gear
@@ -2278,6 +2281,31 @@ button.hw-dock-typechip:focus-visible { outline: 1px solid var(--ps-accent, #ef3
 .hw-pop-out-off .hw-plug-g, .hw-pop-out-off b { opacity: .45; }
 .hw-pop-outs-hint {
     color: #969696; font-size: 10px; margin: 4px 4px 0; line-height: 1.35;
+}
+/* 1.5 distro systems: the supply rows and the OUTPUT ROWS editor. A select
+   in a row shares the line instead of taking it whole; a row's connector
+   takes its first line and the rest of its fields wrap under it. */
+#hw-gear-popover .hw-pop-supply select.info-select {
+    width: auto; flex: 1 1 0; min-width: 0;
+}
+#hw-gear-popover .hw-pop-row {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 4px;
+    margin-top: 6px; min-width: 0;
+}
+#hw-gear-popover .hw-pop-row select.info-select {
+    width: auto; flex: 1 1 auto; min-width: 0;
+}
+#hw-gear-popover .hw-pop-row select.hw-pop-row-conn { flex: 1 1 100%; }
+#hw-gear-popover .hw-pop-row small { color: #969696; font-size: 10px; }
+#hw-gear-popover .hw-pop-row + .hw-pop-row:not(.hw-pop-row-actions) {
+    border-top: 1px solid #333; padding-top: 6px;
+}
+#hw-gear-popover .hw-pop-check {
+    display: flex; align-items: center; gap: 6px; cursor: pointer;
+}
+#hw-gear-popover .hw-pop-check input[type="checkbox"] {
+    accent-color: #e22330; margin: 0; flex: 0 0 auto;
+    width: 13px; height: 13px; -webkit-appearance: checkbox; appearance: auto;
 }
 /* A folded MAIN folds its nested backup with it - a redundant pair is one
    thing, and half a folded thing must not stay open beside it. The backup

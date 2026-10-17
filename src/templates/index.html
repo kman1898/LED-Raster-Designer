@@ -142,6 +142,13 @@
                  the cursor, to another monitor. Canvas area only. -->
             <div class="menu-divider output-display-only"></div>
             <div class="menu-option output-display-only" data-action="output-canvas-to-display" data-label="Output to Display…"></div>
+            <!-- Custom mode for the tab on screen (2026-10-16, "right click
+                 the screen/group to be able to enable custom mode"). Armed
+                 by _prepareCustomModeMenu (app-context-menu.js) on a screen
+                 in Data Flow or Power only. No data-label: the text carries
+                 the current state and is written at open time. -->
+            <div class="menu-divider custom-mode-only" style="display: none;"></div>
+            <div class="menu-option custom-mode-only" data-action="custom-mode-toggle" style="display: none;"></div>
             <div class="menu-divider movable-view-only"></div>
             <div class="menu-option movable-view-only" data-action="center-x" data-label="Center on Canvas X"></div>
             <div class="menu-option movable-view-only" data-action="center-y" data-label="Center on Canvas Y"></div>
@@ -708,15 +715,15 @@
                             <input type="checkbox" id="show-data-flow-port-load">
                             <label for="show-data-flow-port-load">Show Port Load %</label>
                         </div>
-                        <div class="info-row checkbox-row" data-tooltip="Show Cable Tags, Print each port's home run beside its label - the snake it rides (SNAKE A) or its own cable (50' CAT). Off by default; turn on for the per-screen docs.">
+                        <div class="info-row checkbox-row" data-tooltip="Show Cable Tags, Print each port's home run beside its label - the snake it rides (SNAKE A) or its own cable (50' CAT). Off by default; turn on for the per-screen docs." data-cable-unit-tip="Show Cable Tags, Print each port's home run beside its label - the snake it rides (SNAKE A) or its own cable ({len:50:15} CAT). Off by default; turn on for the per-screen docs.">
                             <input type="checkbox" id="show-data-cable-tags">
                             <label for="show-data-cable-tags">Show Cable Tags</label>
                         </div>
-                        <div class="info-row" data-tooltip="Jumpers, The cable between two touching cabinets of a run, in feet: Vertical to the cabinet above or below, Horizontal to the one beside. Blank counts no cable (panels that link themselves). A jump between cabinets that do not touch is measured center to center, plus 1 ft, up to the next stock length.">
+                        <div class="info-row" data-tooltip="Jumpers, The cable between two touching cabinets of a run, in feet: Vertical to the cabinet above or below, Horizontal to the one beside. Blank counts no cable (panels that link themselves). A jump between cabinets that do not touch is measured center to center, plus 1 ft, up to the next stock length." data-cable-unit-tip="Jumpers, The cable between two touching cabinets of a run, in {units}: Vertical to the cabinet above or below, Horizontal to the one beside. Blank counts no cable (panels that link themselves). A jump between cabinets that do not touch is measured center to center, plus {slack}, up to the next stock length.">
                             <label>Jumpers</label>
                             <div style="display: grid; grid-template-columns: max-content 44px max-content; gap: 4px 6px; align-items: center; font-size: 11px;">
-                                <span>Vertical</span><input type="text" inputmode="decimal" id="data-jump-v" placeholder="none" autocomplete="off" aria-label="Data jumper vertical length (ft)" style="width: 44px; text-align: right; box-sizing: border-box;"><span>ft</span>
-                                <span>Horizontal</span><input type="text" inputmode="decimal" id="data-jump-h" placeholder="none" autocomplete="off" aria-label="Data jumper horizontal length (ft)" style="width: 44px; text-align: right; box-sizing: border-box;"><span>ft</span>
+                                <span>Vertical</span><input type="text" inputmode="decimal" id="data-jump-v" placeholder="none" autocomplete="off" aria-label="Data jumper vertical length (ft)" data-cable-unit-aria="Data jumper vertical length ({unit})" style="width: 44px; text-align: right; box-sizing: border-box;"><span data-cable-unit>ft</span>
+                                <span>Horizontal</span><input type="text" inputmode="decimal" id="data-jump-h" placeholder="none" autocomplete="off" aria-label="Data jumper horizontal length (ft)" data-cable-unit-aria="Data jumper horizontal length ({unit})" style="width: 44px; text-align: right; box-sizing: border-box;"><span data-cable-unit>ft</span>
                             </div>
                         </div>
 
@@ -809,6 +816,10 @@
                                 <input type="checkbox" id="route-group-as-one" data-lrd-field="route-group-as-one" checked>
                                 <label for="route-group-as-one" id="route-group-as-one-label">Route group as one screen</label>
                             </div>
+                            <!-- Why the switch is greyed, said plainly when the
+                                 group's cabinet sizes differ (filled by
+                                 updateGroupRouteControl). -->
+                            <p id="route-group-as-one-note" style="display: none; font-size: 11px; color: #888; margin: 0 0 8px 0;"></p>
 
                             <!-- v0.11.0: per-layer Low Latency. What it costs
                                  depends on the processor family, so the note
@@ -1189,15 +1200,15 @@
                             <input type="checkbox" id="show-power-nfer-tags" checked>
                             <label for="show-power-nfer-tags">Show 2fer / 3fer Tags</label>
                         </div>
-                        <div class="info-row checkbox-row" data-tooltip="Show Cable Tags, Print each circuit's cable (10' True1) beside its label. Off by default; turn on for the per-screen docs.">
+                        <div class="info-row checkbox-row" data-tooltip="Show Cable Tags, Print each circuit's cable (10' True1) beside its label. Off by default; turn on for the per-screen docs." data-cable-unit-tip="Show Cable Tags, Print each circuit's cable ({len:10:3} True1) beside its label. Off by default; turn on for the per-screen docs.">
                             <input type="checkbox" id="show-power-cable-tags">
                             <label for="show-power-cable-tags">Show Cable Tags</label>
                         </div>
-                        <div class="info-row" data-tooltip="Jumpers, The cable between two touching cabinets of a run, in feet: Vertical to the cabinet above or below, Horizontal to the one beside. Blank counts no cable (panels that link themselves). A jump between cabinets that do not touch is measured center to center, plus 1 ft, up to the next stock length.">
+                        <div class="info-row" data-tooltip="Jumpers, The cable between two touching cabinets of a run, in feet: Vertical to the cabinet above or below, Horizontal to the one beside. Blank counts no cable (panels that link themselves). A jump between cabinets that do not touch is measured center to center, plus 1 ft, up to the next stock length." data-cable-unit-tip="Jumpers, The cable between two touching cabinets of a run, in {units}: Vertical to the cabinet above or below, Horizontal to the one beside. Blank counts no cable (panels that link themselves). A jump between cabinets that do not touch is measured center to center, plus {slack}, up to the next stock length.">
                             <label>Jumpers</label>
                             <div style="display: grid; grid-template-columns: max-content 44px max-content; gap: 4px 6px; align-items: center; font-size: 11px;">
-                                <span>Vertical</span><input type="text" inputmode="decimal" id="power-jump-v" placeholder="none" autocomplete="off" aria-label="Power jumper vertical length (ft)" style="width: 44px; text-align: right; box-sizing: border-box;"><span>ft</span>
-                                <span>Horizontal</span><input type="text" inputmode="decimal" id="power-jump-h" placeholder="none" autocomplete="off" aria-label="Power jumper horizontal length (ft)" style="width: 44px; text-align: right; box-sizing: border-box;"><span>ft</span>
+                                <span>Vertical</span><input type="text" inputmode="decimal" id="power-jump-v" placeholder="none" autocomplete="off" aria-label="Power jumper vertical length (ft)" data-cable-unit-aria="Power jumper vertical length ({unit})" style="width: 44px; text-align: right; box-sizing: border-box;"><span data-cable-unit>ft</span>
+                                <span>Horizontal</span><input type="text" inputmode="decimal" id="power-jump-h" placeholder="none" autocomplete="off" aria-label="Power jumper horizontal length (ft)" data-cable-unit-aria="Power jumper horizontal length ({unit})" style="width: 44px; text-align: right; box-sizing: border-box;"><span data-cable-unit>ft</span>
                             </div>
                         </div>
                         
@@ -2306,6 +2317,13 @@
                 <label style="display: block; margin-bottom: 8px; color: #ccc; font-size: 13px;">Pull Sheet:</label>
                 <div class="export-views" style="display: flex; flex-direction: column; gap: 8px;">
                     <div style="display: flex; gap: 8px; align-items: center; font-size: 12px; color: #aaa;">
+                        <span style="flex: none; width: 92px;">Cable lengths</span>
+                        <select id="export-pull-sheet-cable-unit" class="cable-unit-select" data-tooltip="The unit this show's cable lengths are typed and printed in. Saved with the project; new shows start in the Preferences' unit. Changing it keeps every typed number: 25 ft becomes 25 m." style="flex: 1; min-width: 60px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px;">
+                            <option value="ft">Feet</option>
+                            <option value="m">Meters</option>
+                        </select>
+                    </div>
+                    <div style="display: flex; gap: 8px; align-items: center; font-size: 12px; color: #aaa;">
                         <span style="flex: none; width: 92px;">Data jumper</span>
                         <input type="text" id="export-pull-sheet-data-jump-name" placeholder="Data Jump" data-tooltip="The data jumper's name on the pull sheet - one row per length. Each screen sets its own lengths in the Data sidebar's Jumpers row." style="flex: 1; min-width: 60px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px;">
                     </div>
@@ -2365,6 +2383,13 @@
                             <option value="layers-up">Screens panel, bottom to top</option>
                             <option value="data">Data: first port (processor, card, socket)</option>
                             <option value="power">Power: first circuit (distro, multi, circuit)</option>
+                        </select>
+                    </div>
+                    <div style="display: flex; gap: 8px; align-items: center; font-size: 12px; color: #aaa;">
+                        <span style="flex: none; width: 92px;">Cable lengths</span>
+                        <select id="export-binder-cable-unit" class="cable-unit-select" data-tooltip="The unit this show's cable lengths are typed and printed in. Saved with the project; new shows start in the Preferences' unit. Changing it keeps every typed number: 25 ft becomes 25 m." style="flex: 1; min-width: 60px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px;">
+                            <option value="ft">Feet</option>
+                            <option value="m">Meters</option>
                         </select>
                     </div>
                     <div style="display: flex; gap: 14px; align-items: center; font-size: 12px; color: #aaa;">
@@ -2852,20 +2877,7 @@
                             <div class="prefs-row">
                                 <input type="number" id="pref-distro-rating" placeholder="400" min="1">
                                 <span>A</span>
-                                <select id="pref-distro-voltage" class="pm-fit">
-                                    <option value="110">110V</option>
-                                    <option value="120">120V</option>
-                                    <option value="208">208V</option>
-                                    <option value="220">220V</option>
-                                    <option value="230">230V</option>
-                                    <option value="240">240V</option>
-                                    <option value="400">400V</option>
-                                    <option value="415">415V</option>
-                                </select>
-                                <select id="pref-distro-phase" class="pm-fit">
-                                    <option value="3">3φ</option>
-                                    <option value="1">1φ</option>
-                                </select>
+                                <select id="pref-distro-system" class="pm-fit" title="The power system a new distro starts on - the same list its gear offers."></select>
                             </div>
                         </div>
                         <div class="pm-row">
@@ -2988,6 +3000,16 @@
                             </div>
                         </div>
                         <div class="pm-row">
+                            <label>Cable lengths</label>
+                            <div class="prefs-row">
+                                <select id="pref-cable-unit" class="pm-fit">
+                                    <option value="ft">Feet</option>
+                                    <option value="m">Meters</option>
+                                </select>
+                            </div>
+                            <div class="pm-note">What a new show starts in; each show keeps its own (Export dialog). Below, a show uses the lengths in its unit.</div>
+                        </div>
+                        <div class="pm-row">
                             <label>Power jumper</label>
                             <div class="prefs-row">
                                 <input type="text" id="pref-pull-power-jump-name" placeholder="Tru-1 Power Jump" class="pm-wide">
@@ -2995,7 +3017,12 @@
                                 <input type="text" id="pref-pull-power-jump-length" placeholder="—" class="pm-short">
                                 <span>H</span>
                                 <input type="text" id="pref-pull-power-jump-length-h" placeholder="—" class="pm-short">
-                                <span>ft</span>
+                                <span class="pm-unit">ft</span>
+                                <span>V</span>
+                                <input type="text" id="pref-pull-power-jump-length-m" placeholder="—" class="pm-short">
+                                <span>H</span>
+                                <input type="text" id="pref-pull-power-jump-length-h-m" placeholder="—" class="pm-short">
+                                <span class="pm-unit">m</span>
                             </div>
                         </div>
                         <div class="pm-row">
@@ -3006,15 +3033,32 @@
                                 <input type="text" id="pref-pull-data-jump-length" placeholder="—" class="pm-short">
                                 <span>H</span>
                                 <input type="text" id="pref-pull-data-jump-length-h" placeholder="—" class="pm-short">
-                                <span>ft</span>
+                                <span class="pm-unit">ft</span>
+                                <span>V</span>
+                                <input type="text" id="pref-pull-data-jump-length-m" placeholder="—" class="pm-short">
+                                <span>H</span>
+                                <input type="text" id="pref-pull-data-jump-length-h-m" placeholder="—" class="pm-short">
+                                <span class="pm-unit">m</span>
                             </div>
                             <div class="pm-note">The lengths a new screen starts with: V to the cabinet above or below, H to the one beside. Blank: no cable counted.</div>
+                        </div>
+                        <div class="pm-row">
+                            <label>Long jumper stock</label>
+                            <div class="prefs-row">
+                                <input type="text" id="pref-jumper-stock-ft" placeholder="3, 6, 10, 15, 25" class="pm-wide">
+                                <span class="pm-unit">ft</span>
+                                <input type="text" id="pref-jumper-stock-m" placeholder="1, 2, 3, 5, 10" class="pm-wide">
+                                <span class="pm-unit">m</span>
+                            </div>
+                            <div class="pm-note">A jump between cabinets that do not touch: center to center plus 1 ft (0.3 m), up to the next of these; past the last, the next 5.</div>
                         </div>
                         <div class="pm-row">
                             <label>Snake home run</label>
                             <div class="prefs-row">
                                 <input type="text" id="pref-snake-home-run-length" placeholder="—" class="pm-short">
-                                <span>ft</span>
+                                <span class="pm-unit">ft</span>
+                                <input type="text" id="pref-snake-home-run-length-m" placeholder="—" class="pm-short">
+                                <span class="pm-unit">m</span>
                             </div>
                             <div class="pm-note">Blank: a new snake starts with no length.</div>
                         </div>
@@ -3022,14 +3066,18 @@
                             <label>Loose port cable</label>
                             <div class="prefs-row">
                                 <input type="text" id="pref-loose-port-cable-length" placeholder="100" class="pm-short">
-                                <span>ft</span>
+                                <span class="pm-unit">ft</span>
+                                <input type="text" id="pref-loose-port-cable-length-m" placeholder="30" class="pm-short">
+                                <span class="pm-unit">m</span>
                             </div>
                         </div>
                         <div class="pm-row">
                             <label>Power cable</label>
                             <div class="prefs-row">
                                 <input type="text" id="pref-power-cable-length" placeholder="10" class="pm-short">
-                                <span>ft</span>
+                                <span class="pm-unit">ft</span>
+                                <input type="text" id="pref-power-cable-length-m" placeholder="3" class="pm-short">
+                                <span class="pm-unit">m</span>
                             </div>
                         </div>
                     </div>

@@ -908,7 +908,8 @@ def test_pixel_map_marquee_is_unchanged_at_every_rotation(page, rotation, expect
     """ASSERTS CURRENT BEHAVIOUR (identical to v0.10.8.1).
 
     Pixel Map's marquee has un-rotated its box since v0.9.3 and v0.11.0 did not
-    touch it. These are the v0.10.8.1 answers, verbatim.
+    touch it. These are the v0.10.8.1 answers, verbatim. Since 1.5 the keys
+    name their screen (`${layerId}:${row},${col}`); the cabinets are the same.
     """
     got = page.evaluate("""(rot) => {
         const ar = window.__ar, app = window.app;
@@ -918,7 +919,8 @@ def test_pixel_map_marquee_is_unchanged_at_every_rotation(page, rotation, expect
             return [...app.pixelMapSelection].sort();
         });
     }""", rotation)
-    assert got == expected
+    assert all(k.startswith('1:') for k in got), got
+    assert sorted(k.split(':', 1)[1] for k in got) == expected
 
 
 def test_unrotated_custom_marquee_picks_the_same_cabinets_as_before(page):

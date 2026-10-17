@@ -16,6 +16,7 @@ import json
 
 from flask import Blueprint, request, jsonify, send_file
 
+import app
 import pull_sheet
 from app import log_event
 
@@ -27,13 +28,15 @@ def pull_sheet_gear_list():
     """The template's GEAR LIST vocabulary - the in-app editor's type and
     length pickers read it, so what the editor offers is what the workbook's
     dropdowns accept (a typed value outside it is warned about, never
-    blocked, and the export appends it to the GEAR LIST)."""
+    blocked, and the export appends it to the GEAR LIST). `meter_lengths`
+    is what a meters show's Length dropdown offers in place of the
+    template's feet (pull_sheet.METER_GEAR_LENGTHS)."""
     try:
         import openpyxl  # noqa: F401
     except ImportError:
-        return jsonify({'types': [], 'lengths': []})
+        return jsonify({'types': [], 'lengths': [], 'meter_lengths': pull_sheet.meter_gear_lengths()})
     try:
-        return jsonify(pull_sheet.gear_list())
+        return jsonify(dict(pull_sheet.gear_list(), meter_lengths=pull_sheet.meter_gear_lengths()))
     except FileNotFoundError:
         return jsonify({'error': 'The pull-sheet template is missing from this install'}), 500
 
@@ -55,6 +58,9 @@ def export_pull_sheet():
         'rev': data.get('rev'),
         'date': data.get('date') or '',
         'date_iso': data.get('date_iso') or '',
+        # the show's unit as the server holds it (app-cable-units.js posts
+        # every change)
+        'cable_unit': app.cable_unit(),
     }
     try:
         xlsx, warnings = pull_sheet.build_workbook(pull_list, meta)

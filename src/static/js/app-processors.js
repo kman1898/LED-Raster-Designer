@@ -1663,8 +1663,8 @@ class _Processors {
         return (((rec || {}).name) || '').trim();
     }
 
-    // THE UNIT A SOCKET SITS ON, NAMED ONCE (2026-09-09, off the Kelly
-    // Clarkson binder: "IMAG SR IMAG SR · NovaPro UHD Jr · 16 ports").
+    // THE UNIT A SOCKET SITS ON, NAMED ONCE (2026-09-09, off the live
+    // show A binder: "IMAG SR IMAG SR · NovaPro UHD Jr · 16 ports").
     // A processor with no slots - a NovaPro UHD Jr, a Tessera S8 - carries
     // ONE fixed card that IS its face, so the unit has one name, the
     // processor's, and the paperwork says it once. A real slot card is a
@@ -1786,7 +1786,7 @@ class _Processors {
     _dataPortCableOn(owner, socket) {
         const snake = this.dataPortSnake(owner, socket);
         const rec = (owner.rec.portCables || {})[String(socket)];
-        const ft = rec ? Number(rec.ft) : NaN;
+        const ft = rec ? this.parseCableLength(rec.ft) : null;
         const hasFt = !!rec && Number.isFinite(ft) && ft > 0;
         if (snake) {
             const ext = hasFt ? ft : null;
@@ -1815,7 +1815,7 @@ class _Processors {
         if (!cable) return '—';
         if (cable.kind !== 'snake') return cable.text || '—';
         const s = cable.snake || {};
-        const ft = Number(s.ft);
+        const ft = this.parseCableLength(s.ft);
         let text = (s.name || 'snake')
             + (Number.isFinite(ft) && ft > 0
                 ? ` ${this.cableText(ft, '')}` : ' · no length');
@@ -1872,7 +1872,7 @@ class _Processors {
         if (ways == null) ways = (snake.members || []).length;
         const name = snake.name || 'snake';
         let text = `${name} · ${this.snakeSizeText(name, ways)}`;
-        const ft = Number(snake.ft);
+        const ft = this.parseCableLength(snake.ft);
         if (withFt && Number.isFinite(ft) && ft > 0) {
             text += ` · ${this.cableText(ft, '')}`;
         }
@@ -1952,19 +1952,19 @@ class _Processors {
             });
     }
 
-    // The Pull sheet & cables preferences the data cables are made with:
-    // the home run a new snake takes (null = none), and the length the
-    // sheet's loose-port quick fill writes (100' as shipped).
+    // The Pull sheet & cables preferences the data cables are made with,
+    // in the show's unit (each kept per unit, app-cable-units.js): the
+    // home run a new snake takes (null = none), and the length the
+    // sheet's loose-port quick fill writes (100' / 30 m as shipped).
     defaultSnakeHomeRunFt() {
-        const prefs = (typeof this.getPreferences === 'function') ? this.getPreferences() : {};
-        const n = Number(prefs.snakeHomeRunFt);
-        return prefs.snakeHomeRunFt != null && Number.isFinite(n) && n > 0 ? n : null;
+        const v = this.cablePref('snakeHomeRun');
+        const n = Number(v);
+        return v != null && Number.isFinite(n) && n > 0 ? n : null;
     }
 
     defaultLoosePortCableFt() {
-        const prefs = (typeof this.getPreferences === 'function') ? this.getPreferences() : {};
-        const n = Number(prefs.loosePortCableFt);
-        return Number.isFinite(n) && n > 0 ? n : 100;
+        const n = Number(this.cablePref('loosePortCable'));
+        return Number.isFinite(n) && n > 0 ? n : (this.cableUnit() === 'm' ? 30 : 100);
     }
 
     // Ahead of a new snake: the members leave whatever snake held them,
@@ -2030,8 +2030,7 @@ class _Processors {
         const body = {};
         if ('name' in patch) body.name = (patch.name || '').trim();
         if ('ft' in patch) {
-            const ft = Number(patch.ft);
-            body.ft = Number.isFinite(ft) && ft > 0 ? ft : null;
+            body.ft = this.parseCableLength(patch.ft);
         }
         if ('connector' in patch) {
             body.connector = patch.connector
@@ -2062,7 +2061,7 @@ class _Processors {
         const stores = this._dataCableStores(owner);
         const key = String(parseInt(socket, 10));
         const before = JSON.stringify(stores.portCables[key] || null);
-        const ft = cable ? Number(cable.ft) : NaN;
+        const ft = cable ? this.parseCableLength(cable.ft) : null;
         const connector = cable && cable.connector
             && this.dataCableConnectorName(cable.connector)
             ? cable.connector : null;

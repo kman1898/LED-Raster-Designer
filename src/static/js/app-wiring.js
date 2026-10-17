@@ -9,6 +9,11 @@
 import { LEDRasterApp } from './app-core.js';
 import { evaluateMathExpression, sendClientLog, setupColorPickerWithHex } from './helpers.js';
 
+// How long after one custom-mode box change a REVERSED change with no
+// pointer or key press in between is read as the same click firing twice
+// (_customToggleEcho). v0.8.2 measured the WKWebView echo at about 370 ms.
+const CUSTOM_TOGGLE_ECHO_MS = 600;
+
 class _Wiring {
     // Project name field (and its illegal-character warning), the Project
     // Notes textarea and the Notes / Help panel collapse toggles.
@@ -121,6 +126,53 @@ class _Wiring {
     _dropPatternTileFocus(btn, e) {
         if (!btn || !e || !e.detail) return;
         if (document.activeElement === btn && typeof btn.blur === 'function') btn.blur();
+    }
+
+    // Counts every pointer and key press, in the capture phase so nothing
+    // can stop it first - the "input in between" _customToggleEcho asks
+    // about. Armed once, when the custom boxes are wired.
+    _armCustomToggleInput() {
+        if (this._customToggleInputWired || typeof document === 'undefined') return;
+        this._customToggleInputWired = true;
+        const bump = () => { this._customToggleInputSeq = (this._customToggleInputSeq || 0) + 1; };
+        ['pointerdown', 'mousedown', 'touchstart', 'keydown']
+            .forEach(type => document.addEventListener(type, bump, true));
+    }
+
+    // THE MAC DOUBLE-FIRE (v0.8.2, commit 4d8b156b): on macOS WKWebView one
+    // click on a custom-mode box could fire `change` twice, about 370 ms
+    // apart, and the second event carried the REVERSED state - so the click
+    // turned custom mode on and straight back off. v0.8.2 dropped every
+    // change for 600 ms after the first, which also dropped a genuine second
+    // click and left the box showing the opposite of the model; 1.5 removed
+    // that guard (2026-10-16) and with it the protection.
+    //
+    // Told apart now by what came BETWEEN the two: a real click or key press
+    // brings its own pointer or keyboard event, an echo brings none. So a
+    // change is ignored only when it reverses the last applied change of the
+    // same box, arrives inside the window, and no pointerdown, mousedown,
+    // touchstart or keydown has happened since. An ignored change re-syncs
+    // the box to the model (the caller does), so the box never shows a mode
+    // the screen is not in. Returns true when the change must be ignored.
+    //
+    // The decision rests on the input events, not on how fast a machine
+    // is: two real clicks are applied however close together they land,
+    // and an echo is ignored however slowly it arrives inside the window.
+    // `_customToggleClock` (a function returning ms) stands in for Date.now
+    // so a test can hold the clock still or step it past the window.
+    _customToggleEcho(kind, state) {
+        this._armCustomToggleInput();
+        const now = (typeof this._customToggleClock === 'function')
+            ? this._customToggleClock() : Date.now();
+        const seq = this._customToggleInputSeq || 0;
+        if (!this._customToggleLast) this._customToggleLast = {};
+        const last = this._customToggleLast[kind];
+        if (last && (now - last.at) < CUSTOM_TOGGLE_ECHO_MS
+                && !!state !== last.state && seq === last.seq) {
+            return true;
+        }
+        this._customToggleLast[kind] = { at: now, state: !!state, seq };
+        return false;
     }
 
     // The seven view tabs: switch the renderer, swap the sidebar panels,
@@ -239,6 +291,9 @@ class _Wiring {
         if (replaceImageBtn && addImageInput) {
             replaceImageBtn.addEventListener('click', () => {
                 if (!this.currentLayer || this.currentLayer.type !== 'image') return;
+                // A locked image keeps its picture: refused before the file
+                // picker opens.
+                if (this._lockedRefused(this.currentLayer)) return;
                 this.imageFileAction = 'replace';
                 addImageInput.click();
             });
@@ -330,7 +385,9 @@ class _Wiring {
                 if (layers.length === 0) return;
                 // v0.10.5: snapshot AFTER the reset (see applyDisplayOrder);
                 // taken before, Undo-then-Redo lost the reset.
-                layers.forEach(l => {
+                // Through the edit funnel: a locked screen keeps its Show
+                // Look place and is named.
+                this.applyToSelectedLayers(l => {
                     l.showOffsetX = l.offset_x;
                     l.showOffsetY = l.offset_y;
                     // v0.8.5: also clear the Show Look canvas override so
@@ -395,11 +452,16 @@ class _Wiring {
                 const allLayers = (this.project.layers || []).filter(
                     l => (l.type || 'screen') === 'screen'
                 );
+                // Every screen but a locked one, which keeps its Show Look
+                // place and is named when the reset would have moved it.
+                const resetHold = this._holdLockedLayers(allLayers);
                 allLayers.forEach(l => {
                     l.showOffsetX = l.offset_x;
                     l.showOffsetY = l.offset_y;
                     l.show_canvas_id = null;
                 });
+                const resetLocked = resetHold.release();
+                if (resetLocked.length) this._showLockedError(resetLocked);
                 if (allLayers.length > 0) this.updateLayers(allLayers, false);
                 if (Array.isArray(this.project.canvases)
                         && typeof this.updateCanvas === 'function') {
@@ -438,14 +500,33 @@ class _Wiring {
         const imageScaleInput = document.getElementById('image-scale');
         const imageScaleRange = document.getElementById('image-scale-range');
         if (imageScaleInput && imageScaleRange) {
-            const applyLiveScale = (value) => {
+            const applyLiveScale = (value, typed = false) => {
                 if (!this.currentLayer || (this.currentLayer.type || 'screen') !== 'image') return;
                 const pct = Math.max(10, Math.min(500, parseFloat(value) || 100));
+                // A locked image keeps its scale, named only when the value
+                // would change it; the field snaps back on the commit. A
+                // keystroke is not the value yet ("1" on the way to "100"):
+                // the typed field is judged on its commit, by the Screen
+                // Info funnel (updateLayerFromInputs) - the slider names it
+                // as it moves.
+                if (this.currentLayer.locked) {
+                    const cur = Number(this.currentLayer.imageScale) || 1;
+                    if (!typed && Math.abs(cur - pct / 100) > 1e-9) {
+                        this._reportLockedEdit([this.currentLayer]);
+                    }
+                    return;
+                }
                 this.currentLayer.imageScale = pct / 100;
                 window.canvasRenderer.render();
             };
             const commitScale = () => {
                 if (!this.currentLayer || (this.currentLayer.type || 'screen') !== 'image') return;
+                // A locked image wrote nothing: the commit only ends the
+                // attempt and lets the field snap back.
+                if (this.currentLayer.locked) {
+                    this._lockedEditSettled();
+                    return;
+                }
                 this.updateLayers([this.currentLayer]);
                 this.debouncedSaveState('Image Scale');
             };
@@ -453,7 +534,7 @@ class _Wiring {
                 const val = parseFloat(imageScaleInput.value);
                 if (!Number.isNaN(val)) {
                     imageScaleRange.value = String(Math.max(10, Math.min(500, val)));
-                    applyLiveScale(val);
+                    applyLiveScale(val, true);
                 }
             });
             imageScaleInput.addEventListener('change', () => {
@@ -486,7 +567,10 @@ class _Wiring {
                 if (imageOpacityValue) imageOpacityValue.textContent = `${pct}%`;
                 const targets = imageTargets();
                 if (targets.length === 0) return;
-                targets.forEach(l => { l.imageOpacity = pct; });
+                // The edit funnel holds a locked image as it is, and names it.
+                this.applyToSelectedLayers(l => {
+                    if ((l.type || 'screen') === 'image') l.imageOpacity = pct;
+                });
                 window.canvasRenderer.render();
             };
             imageOpacityRange.addEventListener('input', applyLiveOpacity);
@@ -506,7 +590,10 @@ class _Wiring {
             const targets = (this.getSelectedLayers ? this.getSelectedLayers() : [])
                 .filter(l => (l.type || 'screen') === 'image');
             if (targets.length === 0) return;
-            targets.forEach(mutate);
+            // The edit funnel holds a locked image as it is, and names it.
+            this.applyToSelectedLayers(l => {
+                if ((l.type || 'screen') === 'image') mutate(l);
+            });
             window.canvasRenderer.render();
             if (isFinal) {
                 this.updateLayers(targets);
@@ -990,35 +1077,41 @@ class _Wiring {
         document.querySelectorAll('.flow-pattern-btn:not(.power-flow-pattern-btn)').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 const pattern = btn.getAttribute('data-pattern');
-                // Editing predicate: with an overridden port open and a
-                // selection made, the tile applies the pattern to the
-                // selection exactly as it does in whole-screen custom -
-                // falling through here would silently change the SCREEN's
-                // flow pattern mid-edit.
-                if (this.currentLayer && this.isCustomFlowEditing(this.currentLayer) && this.customSelection.size > 0) {
-                    this.applyPatternToSelection(pattern);
+                // Custom mode, or an overridden port open with a selection
+                // made: the tile fills runs and never touches the screen's
+                // pattern (applyPatternTileInCustom says how). Falling
+                // through here used to set flowPattern on the selection and
+                // its group - the screen silently left custom mode while
+                // the box stayed ticked (2026-10-16).
+                if (this.applyPatternTileInCustom('data', pattern)) {
                     this._dropPatternTileFocus(btn, e);
                     return;
                 }
                 
-                // Remove active class from all buttons. v0.11.0: scope this to the
-                // Data grid - the Power tiles carry BOTH classes, so an unscoped
-                // selector cleared their highlight too (matching the listener
-                // registration above and the Power grid's own handler).
-                document.querySelectorAll('.flow-pattern-btn:not(.power-flow-pattern-btn)').forEach(b => b.classList.remove('active'));
-                // Add active to clicked button
-                btn.classList.add('active');
-                
-                if (this.currentLayer) {
-                    this.applyToSelectedLayers(layer => {
-                        layer.flowPattern = pattern;
-                    });
-                    this.saveClientSideProperties();
-                    this.updatePortCapacityDisplay();  // Update port calculation with new pattern
-                    this.updatePortLabelEditor();
-                    this.updateLayers(this.getSelectedLayers(), true, 'Change Data Flow Pattern');
-                    window.canvasRenderer.render();
+                // The automatic pattern write, on the selected screens and
+                // their groups less two kinds (_patternTileTargets): a screen
+                // in custom data mode, which a tile never takes out of custom
+                // mode (the owner's ruling, 2026-10-16), and a locked screen,
+                // which stays as it is and is named. With nothing to write -
+                // no layer selected at all, or every target skipped - nothing
+                // happens, and the highlight stays on the shown screen's own
+                // pattern.
+                const { change, locked } = this._patternTileTargets('data', pattern);
+                this._showLockedError(locked);
+                if (change.length === 0) return;
+                if (change.includes(this.currentLayer)) {
+                    // Scoped to the Data grid - the Power tiles carry BOTH
+                    // classes (v0.11.0).
+                    document.querySelectorAll('.flow-pattern-btn:not(.power-flow-pattern-btn)').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
                 }
+                change.forEach(layer => { layer.flowPattern = pattern; });
+                this.saveClientSideProperties();
+                this.updatePortCapacityDisplay();  // Update port calculation with new pattern
+                this.updatePortLabelEditor();
+                this.updateLayers(this._persistWith(change), true, 'Change Data Flow Pattern');
+                this.syncCustomModeControls();
+                window.canvasRenderer.render();
             });
         });
 
@@ -1026,24 +1119,25 @@ class _Wiring {
         document.querySelectorAll('.power-flow-pattern-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 const pattern = btn.getAttribute('data-pattern');
-                // Editing predicate - same reason as the data tiles above.
-                if (this.currentLayer && this.isCustomPowerEditing(this.currentLayer) && this.powerCustomSelection.size > 0) {
-                    this.applyPowerPatternToSelection(pattern);
+                // Same rule as the data tiles above.
+                if (this.applyPatternTileInCustom('power', pattern)) {
                     this._dropPatternTileFocus(btn, e);
                     return;
                 }
-                document.querySelectorAll('.power-flow-pattern-btn').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                if (this.currentLayer) {
-                    this.applyToSelectedLayers(layer => {
-                        layer.powerFlowPattern = pattern;
-                    });
-                    this.saveClientSideProperties();
-                    this.updatePowerCapacityDisplay();
-                    this.updateCustomPowerUI();
-                    this.updateLayers(this.getSelectedLayers(), true, 'Change Power Flow Pattern');
-                    window.canvasRenderer.render();
+                // Same targets and the same skips as the data tiles above.
+                const { change, locked } = this._patternTileTargets('power', pattern);
+                this._showLockedError(locked);
+                if (change.length === 0) return;
+                if (change.includes(this.currentLayer)) {
+                    document.querySelectorAll('.power-flow-pattern-btn').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
                 }
+                change.forEach(layer => { layer.powerFlowPattern = pattern; });
+                this.saveClientSideProperties();
+                this.updatePowerCapacityDisplay();
+                this.syncCustomModeControls();
+                this.updateLayers(this._persistWith(change), true, 'Change Power Flow Pattern');
+                window.canvasRenderer.render();
             });
         });
         
@@ -1119,7 +1213,9 @@ class _Wiring {
                 const bulkPrimary = portBulkPrimaryInput ? portBulkPrimaryInput.value.trim() : '';
                 const bulkReturn = portBulkReturnInput ? portBulkReturnInput.value.trim() : '';
 
-                targetLayers.forEach(layer => {
+                // Through the edit funnel: a locked screen is held as it
+                // is and named (applyToSelectedLayers).
+                this.applyToSelectedLayers(layer => {
                     if (!layer.portLabelOverridesPrimary) layer.portLabelOverridesPrimary = {};
                     if (!layer.portLabelOverridesReturn) layer.portLabelOverridesReturn = {};
                     orderedPorts.forEach((portNum, index) => {
@@ -1147,7 +1243,9 @@ class _Wiring {
                 const selectedPorts = getSelectedPortNumbers();
                 if (selectedPorts.length === 0) return;
 
-                targetLayers.forEach(layer => {
+                // Through the edit funnel: a locked screen is held as it
+                // is and named (applyToSelectedLayers).
+                this.applyToSelectedLayers(layer => {
                     selectedPorts.forEach(portNum => {
                         if (layer.portLabelOverridesPrimary) {
                             delete layer.portLabelOverridesPrimary[portNum];
@@ -1166,21 +1264,23 @@ class _Wiring {
         }
 
         if (customModeToggle) {
+            this._armCustomToggleInput();
             customModeToggle.addEventListener('change', () => {
-                if (!this.currentLayer) return;
-                // v0.8.2 Re-entrancy guard: when the change event re-fires
-                // mid-flight (browser quirk on some platforms, observed on
-                // mac WKWebView clicking the toggle once produced two change
-                // events 367ms apart), the second invocation immediately
-                // flips the state back so the user's single click ended up
-                // disabling Custom mode. Drop the second event entirely.
-                if (this._customFlowToggleInFlight) return;
-                this._customFlowToggleInFlight = true;
-                try {
-                    this.toggleCustomFlowMode(customModeToggle.checked);
-                } finally {
-                    setTimeout(() => { this._customFlowToggleInFlight = false; }, 600);
+                if (!this.currentLayer) {
+                    this.syncCustomModeControls();
+                    return;
                 }
+                // The model follows the box's ACTUAL state, and
+                // toggleCustomFlowMode is idempotent, so a repeated event
+                // with the same state is a no-op. A reversed echo of one
+                // click (mac WKWebView, v0.8.2) is ignored and the box put
+                // back to the model; a real second click is applied
+                // (_customToggleEcho).
+                if (this._customToggleEcho('data', customModeToggle.checked)) {
+                    this.syncCustomModeControls();
+                    return;
+                }
+                this.toggleCustomFlowMode(customModeToggle.checked);
             });
         }
         // Routed through stepCustomPort so there is ONE stepping rule shared
@@ -1196,14 +1296,18 @@ class _Wiring {
         if (customPrevPortBtn) {
             customPrevPortBtn.addEventListener('click', () => {
                 if (!this.currentLayer) return;
-                this.ensureCustomFlowState(this.currentLayer);
+                // No ensure* here: stepCustomPort makes the state itself,
+                // after its lock check - a locked screen took a `{}` write
+                // from this line before the check ran.
                 this.stepCustomPort(-1);
             });
         }
         if (customNextPortBtn) {
             customNextPortBtn.addEventListener('click', () => {
                 if (!this.currentLayer) return;
-                this.ensureCustomFlowState(this.currentLayer);
+                // No ensure* here: stepCustomPort makes the state itself,
+                // after its lock check - a locked screen took a `{}` write
+                // from this line before the check ran.
                 this.stepCustomPort(1);
             });
         }
@@ -1225,7 +1329,7 @@ class _Wiring {
                     this.saveClientSideProperties();
                     this.updateLayers(this._persistWith(touched));
                 }
-                this._toastLockedSkipped(skipped, 'data');
+                this._showLockedError(skipped);
                 this.updateCustomFlowUI();
                 this.updatePortLabelEditor();
                 window.canvasRenderer.render();
@@ -1247,7 +1351,7 @@ class _Wiring {
                     this.saveClientSideProperties();
                     this.updateLayers(this._persistWith(touched));
                 }
-                this._toastLockedSkipped(skipped, 'data');
+                this._showLockedError(skipped);
                 this.updateCustomFlowUI();
                 this.updatePortLabelEditor();
                 window.canvasRenderer.render();
@@ -1263,6 +1367,14 @@ class _Wiring {
         if (customActivePortInput) {
             customActivePortInput.addEventListener('change', () => {
                 if (!this.currentLayer) return;
+                // The number already active is no change, so no error.
+                const typedPort = parseInt(customActivePortInput.value, 10);
+                if (this.currentLayer.locked
+                        && typedPort === (this.currentLayer.customPortIndex || 1)) return;
+                if (this._lockedStepRefused(this.currentLayer)) {
+                    customActivePortInput.value = `${this.currentLayer.customPortIndex || 1}`;
+                    return;
+                }
                 this.ensureCustomFlowState(this.currentLayer);
                 const nextVal = parseInt(customActivePortInput.value, 10);
                 // With an overridden port open, the editable ports ARE the
@@ -1748,7 +1860,9 @@ class _Wiring {
                 const ordered = [...selectedCircuits].sort((a, b) => a - b);
                 const bulk = powerLabelBulkInput ? powerLabelBulkInput.value.trim() : '';
                 if (!bulk) return;
-                targetLayers.forEach(layer => {
+                // Through the edit funnel: a locked screen is held as it
+                // is and named (applyToSelectedLayers).
+                this.applyToSelectedLayers(layer => {
                     if (!layer.powerLabelOverrides) layer.powerLabelOverrides = {};
                     ordered.forEach((circuitNum, index) => {
                         const groupIndex = index + 1;
@@ -1768,7 +1882,9 @@ class _Wiring {
                 if (targetLayers.length === 0) return;
                 const selectedCircuits = getSelectedPowerCircuits();
                 if (selectedCircuits.length === 0) return;
-                targetLayers.forEach(layer => {
+                // Through the edit funnel: a locked screen is held as it
+                // is and named (applyToSelectedLayers).
+                this.applyToSelectedLayers(layer => {
                     selectedCircuits.forEach(circuitNum => {
                         if (layer.powerLabelOverrides) {
                             delete layer.powerLabelOverrides[circuitNum];
@@ -1783,19 +1899,19 @@ class _Wiring {
         }
 
         if (powerCustomToggle) {
+            this._armCustomToggleInput();
             powerCustomToggle.addEventListener('change', () => {
-                if (!this.currentLayer) return;
-                // v0.8.2: re-entrancy guard, single click was producing two
-                // change events 367ms apart, with the second flipping the
-                // state back to the opposite of what the user wanted. See
-                // matching guard in customModeToggle handler above.
-                if (this._customPowerToggleInFlight) return;
-                this._customPowerToggleInFlight = true;
-                try {
-                    this.toggleCustomPowerMode(powerCustomToggle.checked);
-                } finally {
-                    setTimeout(() => { this._customPowerToggleInFlight = false; }, 600);
+                if (!this.currentLayer) {
+                    this.syncCustomModeControls();
+                    return;
                 }
+                // Idempotent, and a reversed echo is ignored - see the data
+                // toggle above.
+                if (this._customToggleEcho('power', powerCustomToggle.checked)) {
+                    this.syncCustomModeControls();
+                    return;
+                }
+                this.toggleCustomPowerMode(powerCustomToggle.checked);
             });
         }
         // Routed through stepCustomPort - see the matching comment on the
@@ -1807,14 +1923,18 @@ class _Wiring {
         if (powerCustomPrev) {
             powerCustomPrev.addEventListener('click', () => {
                 if (!this.currentLayer) return;
-                this.ensureCustomPowerState(this.currentLayer);
+                // No ensure* here: stepCustomPort makes the state itself,
+                // after its lock check - a locked screen took a `{}` write
+                // from this line before the check ran.
                 this.stepCustomPort(-1);
             });
         }
         if (powerCustomNext) {
             powerCustomNext.addEventListener('click', () => {
                 if (!this.currentLayer) return;
-                this.ensureCustomPowerState(this.currentLayer);
+                // No ensure* here: stepCustomPort makes the state itself,
+                // after its lock check - a locked screen took a `{}` write
+                // from this line before the check ran.
                 this.stepCustomPort(1);
             });
         }
@@ -1833,7 +1953,7 @@ class _Wiring {
                     this.saveClientSideProperties();
                     this.updateLayers(this._persistWith(touched));
                 }
-                this._toastLockedSkipped(skipped, 'power');
+                this._showLockedError(skipped);
                 this.updateCustomPowerUI();
                 window.canvasRenderer.render();
             });
@@ -1851,7 +1971,7 @@ class _Wiring {
                     this.saveClientSideProperties();
                     this.updateLayers(this._persistWith(touched));
                 }
-                this._toastLockedSkipped(skipped, 'power');
+                this._showLockedError(skipped);
                 this.updateCustomPowerUI();
                 window.canvasRenderer.render();
             });
@@ -1866,6 +1986,14 @@ class _Wiring {
         if (powerCustomActive) {
             powerCustomActive.addEventListener('change', () => {
                 if (!this.currentLayer) return;
+                // The number already active is no change, so no error.
+                const typedCircuit = parseInt(powerCustomActive.value, 10);
+                if (this.currentLayer.locked
+                        && typedCircuit === (this.currentLayer.powerCustomIndex || 1)) return;
+                if (this._lockedStepRefused(this.currentLayer)) {
+                    powerCustomActive.value = `${this.currentLayer.powerCustomIndex || 1}`;
+                    return;
+                }
                 this.ensureCustomPowerState(this.currentLayer);
                 const nextVal = parseInt(powerCustomActive.value, 10);
                 // Pinned to the override list while one is open - see the

@@ -62,12 +62,26 @@ class _Selection {
         // work, then copy across only what actually changed (see
         // GROUP_SHARED_LAYER_FIELDS in app-screen-groups.js). Diffing is what
         // keeps an unrelated edit from silently repainting a peer.
+        //
+        // A LOCKED SCREEN STAYS UNCHANGED (the owner's ruling, 2026-10-16):
+        // `fn` runs over every selected screen as before, and the hold puts
+        // each locked one back exactly as it was, so the unlocked ones take
+        // the edit and the locked ones - and locked group peers the edit
+        // would have reached - are named in one error, with the fields
+        // repainted so the locked values snap back (_reportLockedEdit).
+        // Holding rather than skipping keeps the handlers untouched and
+        // reports a locked screen only when the edit would really change it.
+        const hold = this._holdLockedLayers ? this._holdLockedLayers(layers) : null;
         const snapshot = this._snapshotSharedFields
             ? this._snapshotSharedFields(layers) : null;
         layers.forEach(fn);
+        const refused = hold ? hold.release() : [];
         if (snapshot && this._propagateChangedSharedFields) {
-            this._propagateChangedSharedFields(layers, snapshot);
+            this._propagateChangedSharedFields(layers, snapshot, { lockedOut: refused });
         }
+        // Called with nothing refused too: a commit that reaches the funnel
+        // ends the attempt and lets a waiting snap-back repaint run.
+        if (this._reportLockedEdit) this._reportLockedEdit(refused);
     }
 
     setSelectedLayersByIds(ids, primaryId = null) {
@@ -84,9 +98,19 @@ class _Selection {
             this.lastSelectedLayerId = this.currentLayer.id;
             this.selectionAnchorLayerId = this.currentLayer.id;
         }
+        this._screenSelectionChanged();
         this.renderLayers();
         this.loadLayerToInputs();
         window.canvasRenderer.render();
+    }
+
+    // The screen selection just changed (and currentLayer agrees with it):
+    // the Pixel Map cabinet selection lets go of cabinets on screens that
+    // left it, and the bulk bar recounts. The render path only reads the
+    // selection (_pixelMapSelectionHits); this is where it is pruned.
+    _screenSelectionChanged() {
+        if (typeof this._prunePixelMapSelection === 'function') this._prunePixelMapSelection();
+        if (typeof this.updatePixelMapBulkActionUI === 'function') this.updatePixelMapBulkActionUI();
     }
 
     toggleLayerSelection(layer) {
@@ -115,6 +139,7 @@ class _Selection {
         // (e.g. shift-click SR in c1, then DJ in c2, then change panel size on
         // both at once).
         this._activateCanvasForLayer(this.currentLayer, { preserveSelection: true });
+        this._screenSelectionChanged();
         this.renderLayers();
         this.loadLayerToInputs();
         window.canvasRenderer.render();
@@ -140,6 +165,7 @@ class _Selection {
         // canvas boundaries doesn't get its other-canvas members culled
         // when the active canvas auto-switches.
         this._activateCanvasForLayer(layer, { preserveSelection: true });
+        this._screenSelectionChanged();
         this.renderLayers();
         this.loadLayerToInputs();
         window.canvasRenderer.render();
@@ -147,7 +173,7 @@ class _Selection {
 
     // Cmd/Ctrl+A (app-menubar's handleMenuShortcut). Selects everything in
     // the current view: on Pixel Map with a cabinet selection already open,
-    // every cabinet of that screen (selectAllPixelMapPanels); otherwise
+    // every cabinet of the selected screens (selectAllPixelMapPanels); otherwise
     // every visible layer on the ACTIVE canvas - the same set a marquee
     // over the whole canvas would build, so the Screens panel rows follow
     // through setSelectedLayersByIds. Layers on other canvases are left
@@ -165,7 +191,7 @@ class _Selection {
         const renderer = window.canvasRenderer;
         const viewMode = renderer ? renderer.viewMode : 'pixel-map';
         if (viewMode === 'pixel-map' && this.currentLayer
-                && this.pixelMapSelection && this.pixelMapSelection.size > 0
+                && this.getPixelMapSelectedPanels().length > 0
                 && typeof this.selectAllPixelMapPanels === 'function') {
             this.selectAllPixelMapPanels();
             return 'cabinets';

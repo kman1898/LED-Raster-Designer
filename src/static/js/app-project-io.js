@@ -52,6 +52,11 @@ class _ProjectIo {
     }
     
     async saveProjectToFile() {
+        // An edit still waiting on its debounced history entry lands first:
+        // that entry is where the multi numbers it held are written onto
+        // the distros (app-naming _commitMultiNumbers), and the file must
+        // carry them.
+        if (typeof this._flushPendingSaveState === 'function') this._flushPendingSaveState();
         // Ensure raster size in project reflects current toolbar/canvas values
         if (window.canvasRenderer && this.project) {
             this.project.raster_width = window.canvasRenderer.rasterWidth;
@@ -255,6 +260,10 @@ class _ProjectIo {
         this.selectionAnchorLayerId = null;
         localStorage.removeItem('ledRasterClientProps');
         this.resetHistory('Initial State');
+        // The project about to be adopted is another show: the multi numbers
+        // the outgoing one held (app-naming) must not reach it while it
+        // loads. Its own are taken by the resetHistory its load ends with.
+        this._multiBaseline = null;
     }
 
     applyMissingLayerDefaults(layer) {

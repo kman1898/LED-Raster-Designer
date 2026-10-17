@@ -2073,6 +2073,8 @@
         if (a._flushPendingSaveState) a._flushPendingSaveState();
         a.project = JSON.parse(JSON.stringify(saved));
         a.dedupeProjectLayers('tutorial_restore');
+        // The restored world's multi numbers are the ones in force again.
+        try { if (a._resetMultiBaseline) a._resetMultiBaseline(); } catch (e) {}
         var cur = a.currentLayer ? a.project.layers.find(function (l) { return l.id === a.currentLayer.id; }) : null;
         a.currentLayer = cur || a.project.layers[0] || null;
         a.selectedLayerIds = new Set(a.currentLayer ? [a.currentLayer.id] : []);
@@ -2150,6 +2152,10 @@
         SHEET_PREFIXES.forEach(function (p) { lsKeys(p).forEach(function (e) { lsPut(e.k, null); }); });
         return j('GET', '/api/project').then(function (proj) {
             proj.name = seed.name || 'Demo Show';
+            // The guides are written in feet - the lengths they type and
+            // the words they say - so the scratch show is a feet show
+            // whatever the person's own is (it goes back on exit).
+            proj.cableUnit = 'ft';
             proj.layers = []; proj.groups = []; proj.processors = []; proj.distros = [];
             proj.beaches = []; proj.snakes = [];
             delete proj.fiberCables;
@@ -2287,7 +2293,7 @@
         }).then(function () { S.running = false; });
     }
 
-    // ── 1.5: the 3D tab, Output to Display, the IDM Locator, the checklist ──
+    // ── 1.6: the 3D tab, Output to Display, the IDM Locator, the checklist ──
     // The person's own state these steps touch that is NOT on the project
     // (the project itself comes back whole on exit): the Notes panel's
     // fold, the IDM Locator's next-mark style and colour (kept per viewer
@@ -3310,14 +3316,13 @@
         },
         distroPhase: {
             target: function () { var d = distro(); return d ? '[data-hwpop="distro-' + d.id + '"]' : '#hardware-dock-body .hw-dock-gear'; },
-            place: 'top', title: 'Voltage and phase',
-            avoid: [function () { var d = distro(); return d ? '[data-lrd-field="distro-phase-' + d.id + '"]' : null; },
-                    function () { var d = distro(); return d ? '[data-lrd-field="distro-voltage-' + d.id + '"]' : null; }],
-            body: 'Voltage and phase sit beside the rating and the header wears them. Pick 1&phi; and the LEGS line and Balance leave; pick 3&phi; and they are back, with the phasing row under it.',
+            place: 'top', title: 'The distro\'s system',
+            avoid: [function () { var d = distro(); return d ? '[data-lrd-field="distro-system-' + d.id + '"]' : null; }],
+            body: 'System is the service - 120/208V, 120/240V, 120V, 230/400V or 230V - and the header wears it. Pick 120V 1&phi; and the LEGS line and Balance leave; back on 120/208V they return, with the phasing row under it.',
             before: function () { switchView('power'); closePopover(); },
             act: function (t) {
                 var d = distro();
-                var phase = '[data-lrd-field="distro-phase-' + d.id + '"]';
+                var system = '[data-lrd-field="distro-system-' + d.id + '"]';
                 t.mem.start = distroInfo(d);
                 return t.click('[data-hwpop="distro-' + d.id + '"]').then(function () {
                     return t.wait(popover);
@@ -3325,7 +3330,7 @@
                     if (!pop) throw new Error('the distro\'s gear popover did not open');
                     return t.spot(pop).then(function () { return t.pause(900); });
                 }).then(function () {
-                    return t.select(phase, '1');
+                    return t.select(system, '120');
                 }).then(function () {
                     return t.wait(function () { var q = distro(); return q && Number(q.phase) === 1 && /1φ/.test(distroInfo(q)); });
                 }).then(function () {
@@ -3338,7 +3343,7 @@
                     t.mem.midLegs = distroLegs(q);
                     // The popover was rebuilt with the change; the select is
                     // found again by its key.
-                    return t.select(phase, '3');
+                    return t.select(system, '120/208');
                 }).then(function () {
                     return t.wait(function () { var q = distro(); return q && Number(q.phase) === 3 && /3φ/.test(distroInfo(q)); });
                 }).then(function () { return t.pause(800); });
@@ -3348,7 +3353,7 @@
                 if (!d || Number(d.phase) !== 3 || !mem.mid || !/1φ/.test(mem.mid)) return null;
                 var now = distroInfo(d);
                 if (!/3φ/.test(now)) return null;
-                return 'At 1φ the header read ' + mem.mid + (mem.midLegs ? '' : ' with no LEGS line') + '; back on 3φ it reads ' + now
+                return 'At 120V 1φ the header read ' + mem.mid + (mem.midLegs ? '' : ' with no LEGS line') + '; back on 120/208V it reads ' + now
                     + (distroLegs(d) ? ' and the legs are metered again.' : '.');
             },
             after: function () { closePopover(); }
@@ -4381,7 +4386,7 @@
             }
         },
         outroWhatsNew: {
-            title: 'That&rsquo;s 1.5', center: true,
+            title: 'That&rsquo;s 1.6', center: true,
             body: 'Done puts your own project back. Reopen this from Help &rsaquo; What&rsquo;s New in 1.6, or take the Advanced Guide for the whole app.',
             before: function () { hideMenus(); closeExport(); closePrefs(); closeOutput(); }
         },

@@ -1,6 +1,6 @@
 """Phase balancing and the ONE power-label authority (v0.12.0).
 
-The user's report (Kelly Clarkson, screen SR), in two rounds:
+The user's report (live show A, screen SR), in two rounds:
 
 Round 1: after #power-distro-balance wrote powerSocaPhasePos {1: [6,2,5,1,3]},
 the canvas showed S1-1, S1-3, S1-5, S1-4, S1-5 - a duplicate S1-5 and no
@@ -68,6 +68,7 @@ any other):
     python -m pytest tests/test_power_phase_labels.py -v --browser chromium
 """
 
+import re
 import sys
 import os
 
@@ -869,11 +870,13 @@ def test_the_select_offers_only_the_coupling_the_voltage_permits(page):
     assert ln['values'][0] == '', f"the derive entry left the list: {ln}"
 
     # There is no third state to guess at: powerPhasingFor's ONE comparison
-    # is "circuit voltage equals the service voltage -> line-to-line,
-    # anything else -> line-to-neutral". A circuit voltage matching neither
-    # figure (220V circuits on a 208V service) still derives line-to-neutral
-    # through that same comparison, so the list follows it - the authority
-    # never answers "unknown".
+    # is "circuit voltage is the service's line-to-line figure ->
+    # line-to-line, anything else -> line-to-neutral". A circuit voltage
+    # matching neither figure (220V circuits on a 208V service - refused at
+    # the drop since 1.5; owner, 2026-10-16: "you cant have 220v on 208
+    # distro right?") still derives line-to-neutral through that same
+    # comparison, so the list follows it - the authority never answers
+    # "unknown".
     odd = page.evaluate(NAMING_JS, {'circuitV': 220})
     assert odd['groups'][1]['options'] == ln_names, (
         f"a circuit voltage matching neither figure follows the derivation's "
@@ -1160,20 +1163,34 @@ def test_deriving_and_the_schemes_are_visibly_different_kinds_of_entry(page):
 def test_the_resolved_volts_follow_the_distro_not_the_scheme(page):
     """A EU 400V service: line-to-neutral is 230V there, 120V on a 208V one.
     The figures are shown against the GROUP, derived from that distro's own
-    voltage - the scheme names stay identical on both services."""
-    na = page.evaluate(NAMING_JS, {'circuitV': 208})
+    system - the scheme names stay the same on both services, save that an
+    EU distro reads its legs L1/L2/L3 where a US one reads X/Y/Z (1.5
+    audit: the select said X Y Z on a 230/400 distro).
+
+    1.5 (owner, 2026-10-16): a 400V 3φ distro is 230/400, where "everything
+    single-phase is LN at 230" - so its list offers the line-to-neutral
+    orderings (and "whole multi on one leg", EU only), named exactly as on
+    a 208V service's line-to-neutral list."""
+    na = page.evaluate(NAMING_JS, {'circuitV': 120})
     eu = page.evaluate(NAMING_JS,
-                       {'circuitV': 400, 'distro': {'voltage': 400}})
-    assert na['groups'][1]['options'] == eu['groups'][1]['options'], (
+                       {'circuitV': 230, 'distro': {'voltage': 400}})
+    eu_letters = {'L1': 'X', 'L2': 'Y', 'L3': 'Z'}
+    as_us = [re.sub(r'L[123]', lambda m: eu_letters[m.group(0)], o)
+             for o in eu['groups'][1]['options'][:2]]
+    assert all('L1' in o and 'X' not in o.split('(')[1]
+               for o in eu['groups'][1]['options'][:2]), eu
+    assert as_us == na['groups'][1]['options'], (
         f"the scheme names changed with the service voltage: "
         f"{na['groups'][1]} vs {eu['groups'][1]}")
+    assert eu['groups'][1]['options'][2:] == [
+        'Line-to-neutral, whole multi on one leg (one multi per phase)'], eu
     assert '120 V line-to-neutral, 208 V line-to-line' in na['groups'][1]['label'], (
         f"the 208V service does not resolve to 120V line-to-neutral: {na}")
-    assert '231 V line-to-neutral, 400 V line-to-line' in eu['groups'][1]['label'], (
-        f"the 400V service does not resolve to its own line-to-neutral "
+    assert eu['groups'][1]['label'].endswith('230 V line-to-neutral'), (
+        f"the 230/400V service does not resolve to its own line-to-neutral "
         f"figure: {eu}")
     for name in eu['groups'][1]['options']:
-        assert '400' not in name and '231' not in name, (
+        assert '400' not in name and '230' not in name, (
             f"a service voltage leaked into a scheme name: {name}")
 
 

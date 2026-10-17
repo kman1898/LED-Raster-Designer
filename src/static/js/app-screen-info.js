@@ -418,7 +418,8 @@ class _ScreenInfo {
                 // Per member as well as combined, so a mixed-voltage group has
                 // something real to show instead of a blended figure.
                 amps1ph: voltage > 0 ? watts / voltage : 0,
-                amps3ph: voltage > 0 ? watts / (voltage * 1.73) : 0,
+                // the service's line-to-line voltage (1.5, bug fix 3)
+                amps3ph: voltage > 0 ? watts / (this.threePhaseLineVoltage(layer) * 1.73) : 0,
                 ports,
                 circuits,
                 powerError,
@@ -443,7 +444,10 @@ class _ScreenInfo {
             const voltage = voltages.length === 1 ? voltages[0] : 0;
             totals.voltage = voltages.length === 1 ? voltage : null;
             totals.amps1ph = voltage > 0 ? totals.watts / voltage : 0;
-            totals.amps3ph = voltage > 0 ? totals.watts / (voltage * 1.73) : 0;
+            const lineV = totals.members.length
+                ? this.threePhaseLineVoltage(this.project.layers.find(l => l.id === totals.members[0].id) || voltage)
+                : this.threePhaseLineVoltage(voltage);
+            totals.amps3ph = voltage > 0 ? totals.watts / (lineV * 1.73) : 0;
         }
         return totals;
     }
@@ -915,6 +919,7 @@ class _ScreenInfo {
         // Power / Cabinet ID would silently drop everything from the
         // non-active canvas.
         this._activateCanvasForLayer(this.currentLayer, { preserveSelection: true });
+        if (typeof this._screenSelectionChanged === 'function') this._screenSelectionChanged();
         this.renderLayers();
         this.loadLayerToInputs();
         this.loadTextLayerToInputs();
@@ -931,11 +936,12 @@ class _ScreenInfo {
         // v0.11.0 audit fix: a live cabinet selection must not survive a
         // change of screen.
         //
-        // Every one of the three Sets is addressed against the layer that was
-        // current when it was filled: customSelection / powerCustomSelection
+        // Every one of the three Sets is addressed against the selection that
+        // was live when it was filled: customSelection / powerCustomSelection
         // hold `${layerId}:${row},${col}` keys that only mean anything inside
-        // the OWNER's path scope, and pixelMapSelection holds bare
-        // `${row},${col}` keys that silently re-address the new screen's grid.
+        // the OWNER's path scope, and pixelMapSelection (scoped the same way
+        // since 1.5) names cabinets on the screens that were selected - and
+        // selectLayer narrows the selection to this one screen.
         // Left alone, a marquee drawn as member A stayed live after clicking
         // member B in the layers list and Apply Pattern then filled B's port 1
         // with A's 18 cabinets - with an identical highlight either side of the
@@ -1122,6 +1128,12 @@ class _ScreenInfo {
     }
 
     deleteLayer(layerId) {
+        // A locked screen stays until it is unlocked, and says so.
+        if (typeof this._deletableLayerIds === 'function') {
+            const { ids, locked } = this._deletableLayerIds([layerId]);
+            if (locked.length) this._showLockedError(locked);
+            if (ids.length === 0) return;
+        }
         if (this.project.layers.length === 1) {
             alert('Cannot delete the last layer');
             return;
@@ -1252,6 +1264,9 @@ class _ScreenInfo {
                 }
             }
         }
+        // A hidden screen leaves the Pixel Map cabinet scope; its cabinets
+        // leave the selection with it (and do not come back on Show).
+        if (typeof this._screenSelectionChanged === 'function') this._screenSelectionChanged();
         window.canvasRenderer.render();
         this.renderLayers();
         if (typeof this.updateUI === 'function') {
@@ -1300,6 +1315,7 @@ class _ScreenInfo {
                 const panelIndex = layer.panels.findIndex(p => p.id === panelId);
                 if (panelIndex >= 0) {
                     layer.panels[panelIndex] = panel;
+                    this._panelsReplaced(layer);
                     window.canvasRenderer.render();
                 }
             }
@@ -1874,6 +1890,14 @@ class _ScreenInfo {
         // user actually changed. The per-member fields this loop writes
         // (cabinet size, columns, rows, offsets, panel weight) are absent from
         // GROUP_SHARED_LAYER_FIELDS and therefore never travel to a peer.
+        // A LOCKED SCREEN STAYS UNCHANGED (the owner's ruling, 2026-10-16;
+        // it used to keep only its position). The hold records every locked
+        // screen in the selection before the writes below and puts it back
+        // after them, so the unlocked screens take the edit and a locked one
+        // is named only when the edit would really have changed it - the
+        // same hold applyToSelectedLayers uses.
+        const lockHold = this._holdLockedLayers ? this._holdLockedLayers(targetLayers) : null;
+        const lockedRefused = [];
         const groupSharedBefore = this._snapshotSharedFields
             ? this._snapshotSharedFields(targetLayers) : null;
 
@@ -1895,7 +1919,14 @@ class _ScreenInfo {
         if (groupMoves) {
             groupMoves.forEach(move => {
                 move.members.forEach(member => {
-                    if (member.locked) return;
+                    if (member.locked) {
+                        // A locked member stays where it is, and is named.
+                        if ((move.dx || move.dy || move.sdx || move.sdy)
+                                && !lockedRefused.includes(member)) {
+                            lockedRefused.push(member);
+                        }
+                        return;
+                    }
                     movedByGroup.add(member.id);
                     const linkedX = Number(member.showOffsetX ?? member.offset_x ?? 0) === Number(member.offset_x ?? 0);
                     const linkedY = Number(member.showOffsetY ?? member.offset_y ?? 0) === Number(member.offset_y ?? 0);
@@ -1918,6 +1949,8 @@ class _ScreenInfo {
                 // its position was set with its group above; the rest of the
                 // fields apply below as for any screen
             } else if (!layer.locked) {
+                // (a locked screen is put back by the hold anyway; skipping
+                // its offset here keeps the footprint math off it)
                 // Capture whether the show offset is currently linked to the
                 // processor offset (i.e. equal). If so, editing the pixel-map
                 // offset should also update showOffset so Show Look / Data /
@@ -1998,6 +2031,11 @@ class _ScreenInfo {
             if (showOffsetBLVal !== null) layer.showOffsetBL = showOffsetBLVal;
             if (showOffsetBRVal !== null) layer.showOffsetBR = showOffsetBRVal;
         });
+        if (lockHold) {
+            lockHold.release().forEach(l => {
+                if (!lockedRefused.includes(l)) lockedRefused.push(l);
+            });
+        }
         
         // Trigger immediate render so changes show up right away
         window.canvasRenderer.render();
@@ -2031,8 +2069,12 @@ class _ScreenInfo {
         // each group. updateLayers() picks the peers up from the pending set,
         // so they land in the same PUT and the same undo step.
         if (groupSharedBefore && this._propagateChangedSharedFields) {
-            this._propagateChangedSharedFields(targetLayers, groupSharedBefore);
+            this._propagateChangedSharedFields(targetLayers, groupSharedBefore,
+                { lockedOut: lockedRefused });
         }
+        // The locked screens named once, and Screen Info repainted so their
+        // own values snap back into the fields.
+        if (this._reportLockedEdit) this._reportLockedEdit(lockedRefused);
 
         this.updateLayers(targetLayers);
         // v0.10.5: every caller of this method is a 'change' handler, i.e. an

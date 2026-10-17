@@ -38,6 +38,11 @@ import { sendClientLog } from './helpers.js';
 import { stripScreenFeeds } from './app-clipboard.js';
 import { s3dCopyPlacement } from './app-stage3d.js';
 
+// What the greyed "Route <group> as one screen" switch says when the
+// members' cabinet sizes differ (updateGroupRouteControl).
+const ROUTE_SIZES_DIFFER_TEXT =
+    'Cabinet sizes differ - runs stay per screen. Use Custom to run across.';
+
 class _ScreenGroups {
 
     // The settings every member must agree on BEFORE it can be a group.
@@ -296,8 +301,13 @@ class _ScreenGroups {
     // Returns the peer layers that were written to, and remembers them so the
     // next updateLayers() carries them to the server in the SAME request and
     // the SAME undo step.
-    _propagateChangedSharedFields(layers, snapshot) {
+    //
+    // A LOCKED PEER stays unchanged (the owner's ruling, 2026-10-16): it is
+    // skipped and pushed onto `opts.lockedOut` for the caller's one error;
+    // without that list the error is said here.
+    _propagateChangedSharedFields(layers, snapshot, opts = {}) {
         if (!snapshot || snapshot.size === 0) return [];
+        const lockedPeers = new Map();
         const edited = new Set((layers || []).map(l => l && l.id));
         const touched = new Map();
         (layers || []).forEach(layer => {
@@ -312,6 +322,13 @@ class _ScreenGroups {
             if (changed.length === 0) return;
             this.getGroupMembers(group).forEach(peer => {
                 if (!peer || peer.id === layer.id || edited.has(peer.id)) return;
+                if (peer.locked) {
+                    const differs = changed.some(field => JSON.stringify(
+                        peer[field] === undefined ? null : peer[field])
+                        !== JSON.stringify(layer[field] === undefined ? null : layer[field]));
+                    if (differs) lockedPeers.set(peer.id, peer);
+                    return;
+                }
                 changed.forEach(field => {
                     // A peer handed a voltage takes it through
                     // setScreenVoltage, exactly as the edited screen did:
@@ -331,6 +348,13 @@ class _ScreenGroups {
                 touched.set(peer.id, peer);
             });
         });
+        if (lockedPeers.size) {
+            if (Array.isArray(opts.lockedOut)) {
+                lockedPeers.forEach(p => { if (!opts.lockedOut.includes(p)) opts.lockedOut.push(p); });
+            } else if (typeof this._reportLockedEdit === 'function') {
+                this._reportLockedEdit([...lockedPeers.values()]);
+            }
+        }
         if (touched.size === 0) return [];
         if (!this._pendingGroupPeerIds) this._pendingGroupPeerIds = new Set();
         touched.forEach((peer, id) => this._pendingGroupPeerIds.add(id));
@@ -503,6 +527,11 @@ class _ScreenGroups {
             } else {
                 this._adoptRepairedProject(repaired);
             }
+            // Every group verb rewrites the screen selection (hide, delete,
+            // duplicate, the cross-canvas regroup, the adopt above): the
+            // Pixel Map cabinet selection is pruned to match, so keys on a
+            // screen that left it cannot come back with it later.
+            if (typeof this._screenSelectionChanged === 'function') this._screenSelectionChanged();
             this.saveState(actionLabel);
             sendClientLog('screen_group_change', {
                 action: actionLabel,
@@ -530,6 +559,10 @@ class _ScreenGroups {
     async groupSelectedLayers() {
         const screens = this.getSelectedScreenLayers();
         if (screens.length < 2) return null;
+        // Grouping rewrites each member's group and its shared settings: a
+        // locked screen stays as it is, so the group is not made and the
+        // error names it (the owner's ruling, 2026-10-16).
+        if (this._lockedRefused(screens)) return null;
         const chosen = await this._resolveGroupSettings(screens, 'create');
         if (!chosen) return null;  // Cancel groups nothing and changes nothing
         this._applyGroupSettings(screens, chosen);
@@ -558,6 +591,9 @@ class _ScreenGroups {
         // The same check runs here as on create: a screen joining a group
         // still has to agree with the screens already in it.
         const all = this.getGroupMembers(group).concat(incoming);
+        // Joining can rewrite every member's shared settings: a locked
+        // screen on either side keeps the walls as they are.
+        if (this._lockedRefused(all)) return false;
         const chosen = await this._resolveGroupSettings(all, 'add');
         if (!chosen) return false;
         this._applyGroupSettings(all, chosen);
@@ -575,6 +611,10 @@ class _ScreenGroups {
     async ungroupSelectedLayers(groupId = null) {
         const ids = groupId ? [groupId] : this.getSelectedGroupIds();
         if (ids.length === 0) return false;
+        // A locked member keeps its wall: nothing is ungrouped, and the
+        // error names it.
+        if (this._lockedRefused((this.project.layers || [])
+            .filter(l => l && ids.includes(l.group_id)))) return false;
         (this.project.layers || []).forEach(layer => {
             if (layer && ids.includes(layer.group_id)) layer.group_id = null;
         });
@@ -596,6 +636,17 @@ class _ScreenGroups {
         const layers = this.getSelectedScreenLayers().filter(
             l => l.group_id && (!group || l.group_id === group.id));
         if (layers.length === 0) return false;
+        // A locked screen stays in its group; and a group this would leave
+        // with one member is dissolved, which would take a locked member
+        // out of it too - so either way nothing moves and the error names
+        // the locked screens.
+        const lockedHit = layers.filter(l => l.locked);
+        const going = new Set(layers.map(l => l.id));
+        new Set(layers.map(l => l.group_id)).forEach(gid => {
+            const left = (this.project.layers || []).filter(l => l && l.group_id === gid && !going.has(l.id));
+            if (left.length < 2) left.filter(l => l.locked).forEach(l => lockedHit.push(l));
+        });
+        if (this._lockedRefused(lockedHit)) return false;
         layers.forEach(layer => this._detachLayerFromGroups(
             layer, group ? group.id : null));
         // A group left with a single member is dissolved - by the server, on
@@ -656,6 +707,15 @@ class _ScreenGroups {
     async toggleGroupRouteDataAsOne(groupId) {
         const group = this.resolveGroup(groupId);
         if (!group) return false;
+        // The switch re-routes every member's data, so a locked member keeps
+        // the wall as it is (the owner's ruling, 2026-10-16) and is named;
+        // the box goes back to what the group holds.
+        if (this._lockedRefused(this.getGroupMembers(group))) {
+            if (typeof this.updateGroupRouteControl === 'function') {
+                try { this.updateGroupRouteControl(); } catch (_) {}
+            }
+            return false;
+        }
         group.routeDataAsOne = group.routeDataAsOne === false;
         await this._commitGroupChange('Toggle Group Data Routing');
         return true;
@@ -667,11 +727,38 @@ class _ScreenGroups {
     // resolution, different canvases, a hand-wired member) instead of
     // pretending there is a choice to make.
     _groupCanRouteDataAsOne(group) {
-        const g = this.resolveGroup(group);
-        if (!g || typeof this._autoCrossMembers !== 'function') return false;
-        const member = this.getGroupMembers(g).find(l => l
-            && (l.type || 'screen') === 'screen' && l.visible !== false);
+        const member = this._groupRouteGateMember(group);
         return !!(member && this._autoCrossMembers(member, 'data', true));
+    }
+
+    // The member the routing gate is asked about: the first visible screen
+    // member, as _autoCrossMembers is asked from it. One helper so the
+    // switch and the note under it read the same member.
+    _groupRouteGateMember(group) {
+        const g = this.resolveGroup(group);
+        if (!g || typeof this._autoCrossMembers !== 'function') return null;
+        return this.getGroupMembers(g).find(l => l
+            && (l.type || 'screen') === 'screen' && l.visible !== false) || null;
+    }
+
+    // Do the group's members differ in cabinet size (pixel resolution)? Read
+    // over the members the routing gate itself compares - the gate member's
+    // path scope (one show canvas, getPathScopeLayers), visible screens with
+    // cabinets, as _autoCrossMembers filters it - so the note says "sizes
+    // differ" only when that is the reason the gate refuses. The audit found
+    // this reading EVERY member, so a group split across two show canvases,
+    // where the gate never compares the far member, was told its sizes
+    // differ. Only mixed sizes stay apart (the owner's ruling, 2026-10-16);
+    // same-size groups keep the switch.
+    _groupCabinetSizesDiffer(group) {
+        const member = this._groupRouteGateMember(group);
+        if (!member || typeof this.getPathScopeLayers !== 'function') return false;
+        const sizes = new Set(this.getPathScopeLayers(member)
+            .filter(l => l && (l.type || 'screen') === 'screen'
+                && l.visible !== false
+                && Array.isArray(l.panels) && l.panels.length > 0)
+            .map(l => `${Number(l.cabinet_width) || 0}x${Number(l.cabinet_height) || 0}`));
+        return sizes.size > 1;
     }
 
     // The switch's face in the UI: the #route-group-as-one row in Data
@@ -690,12 +777,14 @@ class _ScreenGroups {
         const row = document.getElementById('route-group-as-one-row');
         const box = document.getElementById('route-group-as-one');
         const label = document.getElementById('route-group-as-one-label');
+        const note = document.getElementById('route-group-as-one-note');
         if (!row || !box || !label) return;
         const layer = this.currentLayer;
         const group = (layer && (layer.type || 'screen') === 'screen')
             ? this.getGroupOfLayer(layer) : null;
         if (!group) {
             row.style.display = 'none';
+            if (note) note.style.display = 'none';
             return;
         }
         row.style.display = '';
@@ -706,9 +795,19 @@ class _ScreenGroups {
         const canRoute = this._groupCanRouteDataAsOne(group);
         box.disabled = !canRoute;
         label.textContent = `Route ${group.name} as one screen`;
+        // Mixed cabinet sizes are the one reason that is said out loud, in
+        // a line under the switch and not only in the tooltip: it is
+        // permanent for the group, and the way across (Custom) is not
+        // obvious from a greyed box.
+        const sizesDiffer = !canRoute && this._groupCabinetSizesDiffer(group);
         row.title = canRoute
             ? 'Off: each screen cables on its own'
-            : 'These screens never route as one - the cabinets differ, or a member is hand-wired';
+            : (sizesDiffer ? ROUTE_SIZES_DIFFER_TEXT
+                : 'These screens never route as one - the cabinets differ, or a member is hand-wired');
+        if (note) {
+            note.textContent = sizesDiffer ? ROUTE_SIZES_DIFFER_TEXT : '';
+            note.style.display = sizesDiffer ? '' : 'none';
+        }
     }
 
     // One lock for the wall, same "any unlocked => lock them all" rule
@@ -732,6 +831,10 @@ class _ScreenGroups {
         if (!group) return false;
         const memberIds = new Set(this.getGroupMembers(group).map(l => l.id));
         if (memberIds.size === 0) return false;
+        // The wall goes whole or not at all: a locked member keeps it (the
+        // owner's ruling, 2026-10-16 - a locked screen stays until it is
+        // unlocked), and the error names the locked ones.
+        if (this._lockedRefused(this.getGroupMembers(group))) return false;
         const remaining = (this.project.layers || []).filter(l => !memberIds.has(l.id));
         if (remaining.length === 0) {
             // Same guard deleteLayer applies: a project keeps at least one layer.

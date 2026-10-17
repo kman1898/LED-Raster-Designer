@@ -139,8 +139,14 @@ jobs:
           python -m pytest tests/ -v --tb=short --cov=src --cov-report=term-missing --ignore=tests/test_browser.py
 
   browser-test:
-    name: Browser (chromium)
+    name: Browser (chromium ${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
+    # Four parallel jobs, each a quarter of the modules (tests/ci_shard.py):
+    # one job took ~42 min on the 4-core runner (2026-10-16).
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v6
 
@@ -198,8 +204,10 @@ jobs:
           # that share the server project guard themselves per module.
           # Four workers on the 4-core runner starved the browsers (a
           # marquee read back 0 of 2, an add landed 0 layers, 2026-09-24).
-          python -m pytest tests/ -q --tb=short --browser chromium -p no:cacheprovider -n 2 --dist loadfile
-        timeout-minutes: 120
+          # LRD_CI_SHARD keeps this job's quarter of the modules; a module
+          # is never split, and the four jobs together run every one.
+          LRD_CI_SHARD=${{ matrix.shard }}/4 python -m pytest tests/ -q --tb=short --browser chromium -p no:cacheprovider -n 2 --dist loadfile
+        timeout-minutes: 60
 
   build-check:
     name: Build Integrity

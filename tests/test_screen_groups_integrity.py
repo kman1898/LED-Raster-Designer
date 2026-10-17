@@ -494,10 +494,10 @@ def test_the_pruner_applies_the_servers_rule_not_the_renderers(page):
 # Clearing hand-drawn runs on a grouped screen (2026-09-22). A run a member
 # owns may sit on a peer's cabinets; Clear Circuit / Clear Port and Clear All
 # on the peer used to leave it there with no way to remove it from that screen
-# (the Orlando file: SL's circuit 1 was 13 cabinets of SR). Since 2026-09-23
-# the peer's run goes WHOLE, not just its steps on this screen ("a group is
-# one screen and a circuit is one circuit" - the Quantico file, where every
-# circuit was 7 cabinets of one member and 7 of the other, and Clear left
+# (a two-member wall where SL's circuit 1 was 13 cabinets of SR). Since
+# 2026-09-23 the peer's run goes WHOLE, not just its steps on this screen ("a
+# group is one screen and a circuit is one circuit" - a two-member wall where
+# every circuit was 7 cabinets of one member and 7 of the other, and Clear left
 # each one half-drawn). tests/test_clear_run_whole_circuit.py builds that
 # exact shape; here the fixture's run 1 mixes the two so the whole-run rule
 # is exercised by every Clear test below.
@@ -700,7 +700,7 @@ def test_clear_run_leaves_a_locked_peers_run_alone_and_says_so(page, kind):
                                  {'row': 0, 'col': 0}], out
     assert out['sb'].get('1') == out['b'].get('1'), out
     peer = page.evaluate("(id) => window.__gi.layer(id).name", ids[1])
-    assert toasts == ['%s is locked — its %s were left alone.' % (peer, k['runs'])], toasts
+    assert toasts == ['%s is locked - unlock it to change it.' % peer], toasts
 
 
 @pytest.mark.parametrize('kind', ['power', 'data'])
@@ -731,26 +731,34 @@ def test_clear_all_leaves_a_locked_member_alone_and_says_so(page, kind):
     assert out['sb']['paths'] == expected_b, out
     assert out['steps'] - n0 == 1, out
     peer = page.evaluate("(id) => window.__gi.layer(id).name", ids[1])
-    assert toasts == ['%s is locked — its %s were left alone.' % (peer, k['runs'])], toasts
+    assert toasts == ['%s is locked - unlock it to change it.' % peer], toasts
 
 
 @pytest.mark.parametrize('kind', ['power', 'data'])
-def test_clear_run_on_a_locked_current_screen_still_clears(page, kind):
-    """A lock guards position only, everywhere else in the app (drag, offset
-    fields, Center, Move to Canvas); every other edit on a locked screen goes
-    through, so Clear on the locked CURRENT screen does too, and reaches its
-    unlocked peer. No toast: nothing was left alone."""
+def test_clear_run_on_a_locked_current_screen_changes_nothing_and_says_why(page, kind):
+    """A locked screen stays unchanged until it is unlocked (the owner's
+    ruling, 2026-10-16, replacing the 2026-09-22 rule that a lock guarded
+    position only). Clear on the locked CURRENT screen keeps its own run,
+    and the unlocked peer's run across it too - clearing that would change
+    the locked screen on the canvas - and one error names the screen."""
     k = _RUN_KEYS[kind]
     ids = _grouped_pair_with_peer_run(page, kind, current_locked=True)
     _clear_toasts(page)
+    before = page.evaluate(r"""([ids, paths]) => JSON.stringify({
+      a: window.__gi.layer(ids[0])[paths], b: window.__gi.layer(ids[1])[paths] })""",
+                           [ids, k['paths']])
+    n0 = page.evaluate("() => window.app.history.length")
     page.evaluate("(id) => document.getElementById(id).click()", k['clear_one'])
     page.wait_for_timeout(1200)
     out = page.evaluate(r"""([ids, paths]) => ({
-      a: window.__gi.layer(ids[0])[paths], b: window.__gi.layer(ids[1])[paths],
-      locked: window.__gi.layer(ids[0]).locked })""", [ids, k['paths']])
+      runs: JSON.stringify({ a: window.__gi.layer(ids[0])[paths], b: window.__gi.layer(ids[1])[paths] }),
+      locked: window.__gi.layer(ids[0]).locked, steps: window.app.history.length })""",
+                        [ids, k['paths']])
     assert out['locked'] is True, out
-    assert '1' not in out['a'] and '1' not in out['b'], out
-    assert _toasts(page) == [], _toasts(page)
+    assert out['runs'] == before, (before, out)
+    assert out['steps'] == n0, out
+    name = page.evaluate("(id) => window.__gi.layer(id).name", ids[0])
+    assert _toasts(page) == ['%s is locked - unlock it to change it.' % name], _toasts(page)
 
 
 @pytest.mark.parametrize('kind', ['power', 'data'])
@@ -793,7 +801,7 @@ def test_clear_all_that_clears_nothing_takes_no_step_and_makes_no_put(page, kind
                sbPaths: sb[paths] };
     }""", [ids, k['paths'], k['index'], k['overrides']])
     peer = page.evaluate("(id) => window.__gi.layer(id).name", ids[1])
-    assert toasts == ['%s is locked — its %s were left alone.' % (peer, k['runs'])], toasts
+    assert toasts == ['%s is locked - unlock it to change it.' % peer], toasts
     assert out['steps'] == n0, 'Clear All that cleared nothing took %d undo steps' % (out['steps'] - n0)
     layer_puts = [u for u in out['puts'] if u.endswith('/api/layer/%d' % ids[0])]
     assert layer_puts == [], out['puts']

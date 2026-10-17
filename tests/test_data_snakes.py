@@ -1511,8 +1511,8 @@ def test_the_sheet_leaves_the_fold_alone(page, which):
 
 # ── the backup sheet reads like the primary ───────────────────────────────
 #
-# The user's own show, FROZEN as experts-only-fixture.json (his save of
-# 2026-09-07 23:43 - the file's mtime; the experts-only.json beside it
+# The user's own show, FROZEN as live-show-b.json (his save of
+# 2026-09-07 23:43 - the file's mtime; the working save beside it
 # drifts with every save, the fixture never moves): card "Card 1" backed
 # 1:1 by "Card 3"; box "SR A" on Card 1 carries snake SR A over sockets
 # 1-4 (SR - MAIN's four ports), box "SR B" on Card 3 carries snake SR B
@@ -1525,7 +1525,7 @@ def test_the_sheet_leaves_the_fold_alone(page, which):
 # extension area off screen ... it can look just like the primary"
 # (2026-09-07).
 
-SCRATCH_FIXTURE = private_fixture('experts-only-fixture.json', 'LRD_PULL_SMOKE_JSON')
+SCRATCH_FIXTURE = private_fixture('live-show-b.json', 'LRD_PULL_SMOKE_JSON')
 
 # One box's sheet as laid out: every row's SCREEN cell and title, and the
 # geometry the bug was - the table against the sheet, and the HOME RUN

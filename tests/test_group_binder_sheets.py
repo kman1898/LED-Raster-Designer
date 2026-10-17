@@ -1,8 +1,8 @@
 """A grouped wall in the binder, and the Names switch per tab.
 
-The owner's rulings of 2026-10-01, on a show whose group USC (USC SR + USC
+The owner's rulings of 2026-10-01, on a show whose group WALL (WALL SR + WALL
 SL) is routed as one screen: "when i print a grouped screen it doesnt
-include USC SL in the binder. this is bad and needs fixing". A wall routed
+include WALL SL in the binder. this is bad and needs fixing". A wall routed
 as one keeps every port and circuit on its first member, and the set made
 a sheet per member with something of its own - so the other member never
 printed.

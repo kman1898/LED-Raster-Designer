@@ -6,13 +6,13 @@ The export draws the view once through a RECORDING context (app-export-
 svg.js): a Context2D stand-in over the export canvas that paints as usual
 and writes each op down with the transform, clip chain, style and group in
 force. The record is what the SVG is written from, so the recorder's
-correctness IS the export's: `test_experts_only_*_replays_pixel_for_pixel`
-draws every view of the Experts Only show from its record onto a fresh
+correctness IS the export's: `test_live_show_b_*_replays_pixel_for_pixel`
+draws every view of live show B from its record onto a fresh
 canvas and compares it with the render the record was taken from.
 
-Run locally (the Experts Only checks need the user's save, frozen as
-tests/fixtures-local/experts-only-fixture.json - git-ignored client data,
-so CI skips them; LRD_EXPERTS_JSON points at another copy):
+Run locally (the live show B checks need the user's save, frozen as
+tests/fixtures-local/live-show-b.json - git-ignored client data,
+so CI skips them; LRD_LIVE_SHOW_B_JSON points at another copy):
     python3 -m pytest tests/test_export_svg.py -v --browser chromium
 """
 
@@ -38,16 +38,16 @@ SVG_NS = {'svg': 'http://www.w3.org/2000/svg'}
 VIEWS = ['pixel-map', 'cabinet-id', 'show-look', 'data-flow', 'power']
 VIEW_ELEMENT = {'cabinet-id': 'Cabinet IDs', 'data-flow': 'Data', 'power': 'Power'}
 
-EXPERTS_JSON = private_fixture('experts-only-fixture.json', 'LRD_EXPERTS_JSON')
-needs_experts = pytest.mark.skipif(
-    bool(private_fixture_missing(EXPERTS_JSON)),
-    reason=str(private_fixture_missing(EXPERTS_JSON)))
+LIVE_SHOW_B_JSON = private_fixture('live-show-b.json', 'LRD_LIVE_SHOW_B_JSON')
+needs_live_show_b = pytest.mark.skipif(
+    bool(private_fixture_missing(LIVE_SHOW_B_JSON)),
+    reason=str(private_fixture_missing(LIVE_SHOW_B_JSON)))
 
 
 @pytest.fixture(scope="module", autouse=True)
 def _guard(server_project_guard):
     """Leave the shared server project the way this module found it (the
-    Experts Only checks PUT the whole show)."""
+    live show B checks PUT the whole show)."""
 
 
 @pytest.fixture(scope="module")
@@ -255,12 +255,12 @@ def test_the_background_rect_follows_the_transparent_checkbox(page):
 # ── the recorder on the real show ───────────────────────────────────────
 
 @pytest.fixture(scope="module")
-def experts(page):
+def live_show_b(page):
     """The user's own save loaded into the page the way test_binder does."""
-    if private_fixture_missing(EXPERTS_JSON):
-        pytest.skip(private_fixture_missing(EXPERTS_JSON))
+    if private_fixture_missing(LIVE_SHOW_B_JSON):
+        pytest.skip(private_fixture_missing(LIVE_SHOW_B_JSON))
     pg, errors = page
-    with open(EXPERTS_JSON, encoding='utf-8') as fh:
+    with open(LIVE_SHOW_B_JSON, encoding='utf-8') as fh:
         project = json.load(fh)
     layers = pg.evaluate("""async (project) => {
         const app = window.app;
@@ -281,12 +281,12 @@ def experts(page):
     return pg, errors, layers
 
 
-@needs_experts
-def test_experts_only_every_view_replays_pixel_for_pixel(experts):
+@needs_live_show_b
+def test_live_show_b_every_view_replays_pixel_for_pixel(live_show_b):
     """Every view of the show, drawn back from its record, is the render it
     was recorded from - the tolerance is a handful of anti-aliased pixels
     - and nothing the views drew is beyond the recorder."""
-    pg, errors, layers = experts
+    pg, errors, layers = live_show_b
     results = pg.evaluate(REPLAY_JS, VIEWS)
     assert [r['view'] for r in results] == VIEWS
     for r in results:
@@ -303,9 +303,9 @@ def test_experts_only_every_view_replays_pixel_for_pixel(experts):
     assert errors == []
 
 
-@needs_experts
-def test_experts_only_svgs_carry_a_group_per_screen_and_per_element(experts):
-    pg, errors, layers = experts
+@needs_live_show_b
+def test_live_show_b_svgs_carry_a_group_per_screen_and_per_element(live_show_b):
+    pg, errors, layers = live_show_b
     files = _export(pg, VIEWS, transparent=True)
     assert len(files) == len(VIEWS)
     screens = [l for l in layers if l['type'] == 'screen' and l['visible']]

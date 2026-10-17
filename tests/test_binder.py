@@ -1,5 +1,5 @@
 """The binder: the show's power and data maps bound into one PDF - as a
-DRAWING SET (2026-09-08, on the NCMF packet the user held up: "this is a
+DRAWING SET (2026-09-08, on a client packet the user held up: "this is a
 great example to base our binder off of").
 
 Every sheet is a landscape page of one size - Tabloid 17 x 11 by default
@@ -82,7 +82,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 from conftest import private_fixture, private_fixture_missing  # noqa: E402
-SCRATCH_FIXTURE = private_fixture('experts-only-fixture.json', 'LRD_PULL_SMOKE_JSON')
+SCRATCH_FIXTURE = private_fixture('live-show-b.json', 'LRD_PULL_SMOKE_JSON')
 
 BOX_WORD = re.compile(r'\b(box|boxes)\b', re.I)
 # The band over a multi's circuits: "SR1 · Multi 208 · 125' · 6 circuits" -
@@ -1256,7 +1256,7 @@ def _map_of(out):
 
 
 def test_the_map_takes_the_room_the_tables_leave(page):
-    """THE WALL COMES FIRST (2026-09-20: on Experts Only the DATA sheet's
+    """THE WALL COMES FIRST (2026-09-20: on live show B the DATA sheet's
     short table grew to 1.7x and left the wall a third of the sheet, while
     the POWER sheet of the same wall drew it nearly twice the size - "power
     is the size a wall of this size should be"). In each layout the map
@@ -2792,8 +2792,8 @@ def test_a_screens_fed_by_legs_are_its_own(page):
 
 @pytest.mark.skipif(bool(private_fixture_missing(SCRATCH_FIXTURE)),
                     reason=str(private_fixture_missing(SCRATCH_FIXTURE)))
-def test_smoke_experts_only(page):
-    """The real show, FROZEN as experts-only-fixture.json - his save of
+def test_smoke_live_show_b(page):
+    """The real show, FROZEN as live-show-b.json - his save of
     2026-09-15 22:55, frozen 2026-09-24 (the file's mtime; the save beside
     it drifts with every save, the fixture never moves): SR - MAIN's 22
     custom circuits on four multis, SR - Return's six on multi 5 with
@@ -2897,7 +2897,7 @@ def test_smoke_experts_only(page):
         'SR - MAIN - Data - Front View (cont.)', 'SL - MAIN - Data - Front View (cont.)'], letter
     main = _render(pg, SHOW, 'SR - MAIN - Power - Front View')
     texts = main['texts']
-    _title_block(texts, 'SR - MAIN · POWER · FRONT VIEW', '2.1', show='2026 Experts Only')
+    _title_block(texts, 'SR - MAIN · POWER · FRONT VIEW', '2.1', show=project['name'])
     # one Tabloid sheet, painted at 2x
     assert main['width'] == W * SCALE and main['height'] == H * SCALE
     # the map: the wall 28 x 11 of 60 x 120 px, uniformly, in the width the
@@ -2995,7 +2995,7 @@ def test_smoke_experts_only(page):
     assert "SR5 · Multi 208 · 125' · 6 circuits" in ret
     dpage = _render(pg, SHOW, 'SR - MAIN - Data - Front View')
     assert not _on_map(dpage['mapTexts'], 'SR - MAIN')
-    _title_block(dpage['texts'], 'SR - MAIN · DATA · FRONT VIEW', '2.3', show='2026 Experts Only')
+    _title_block(dpage['texts'], 'SR - MAIN · DATA · FRONT VIEW', '2.3', show=project['name'])
     # the same wall over its four ports: the Ports table (two halves of
     # whole names) and the cables in one wide column, the facts in the
     # other, the row at 1.03, the wall the height left
@@ -3087,20 +3087,20 @@ def test_smoke_experts_only(page):
 
 
 # The user's own save - the same frozen show as SCRATCH_FIXTURE unless
-# LRD_EXPERTS_JSON names another copy.
-EXPERTS_JSON = private_fixture('experts-only-fixture.json', 'LRD_EXPERTS_JSON')
+# LRD_LIVE_SHOW_B_JSON names another copy.
+LIVE_SHOW_B_JSON = private_fixture('live-show-b.json', 'LRD_LIVE_SHOW_B_JSON')
 
 
-@pytest.mark.skipif(bool(private_fixture_missing(EXPERTS_JSON)),
-                    reason=str(private_fixture_missing(EXPERTS_JSON)))
-def test_experts_only_screens_carry_their_own_legs(page):
+@pytest.mark.skipif(bool(private_fixture_missing(LIVE_SHOW_B_JSON)),
+                    reason=str(private_fixture_missing(LIVE_SHOW_B_JSON)))
+def test_live_show_b_screens_carry_their_own_legs(page):
     """The show the user held up: SR feeds SR - MAIN (22 circuits) and SR -
     Return (6). Each one's Power sheet says SR's legs for THAT screen -
     the engine over its own multis - the Return's well under the MAIN's,
     neither the service's 301 / 311 / 311 A; the Distros sheet still
     prints SR's whole legs, the walk over both."""
     pg, ids = page
-    with open(EXPERTS_JSON, encoding='utf-8') as fh:
+    with open(LIVE_SHOW_B_JSON, encoding='utf-8') as fh:
         project = json.load(fh)
     layer_ids = pg.evaluate("""async (project) => {
         const app = window.app;

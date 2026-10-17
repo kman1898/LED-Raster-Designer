@@ -3,7 +3,7 @@
 A screen map reaches a binder sheet as ONE BITMAP. Its multi band pills,
 its own circuit ruler (L1, L2, L4...), its port / circuit label discs, its
 cable tags ("15' True1") and its 2fer pills are PIXELS INSIDE THAT IMAGE,
-not ops in the binder's display list - on the Kelly power sheet the PDF
+not ops in the binder's display list - on live show A's power sheet the PDF
 carries one /Image XObject and the string "L1" is not text in it, while
 the table strings are. So no audit of the binder's ops can see the map
 colliding with itself, and every one of these faults shipped:
@@ -13,7 +13,7 @@ colliding with itself, and every one of these faults shipped:
      "S1-1 · 250 · 65.8A" read "S1-4" on the user's export;
   2. the 2fer pills sat ON the wall's bottom edge rather than clear of it;
   3. two cable tags, each of them clear of every label DISC and neither
-     aware of the other, printed straight through one another (Kelly,
+     aware of the other, printed straight through one another (show A,
      SL · POWER: "5' True1" over "10' True1", 185 x 51 pixels of the map).
 
 canvas.js keeps a LABEL REGISTRY for exactly this: set
@@ -27,8 +27,8 @@ that registry off real screens and hold the map to it.
 The two real shows are frozen in the git-ignored tests/fixtures-local
 (conftest.private_fixture) and SKIPPED when absent - they are never
 committed, so CI skips them; each env var overrides its file:
-    LRD_KELLY_LIVE_JSON   kelly-live-fixture.json  (22x7 and 9x6 walls)
-    LRD_PULL_SMOKE_JSON   experts-only-fixture.json
+    LRD_LIVE_SHOW_A_JSON  live-show-a-live.json  (22x7 and 9x6 walls)
+    LRD_PULL_SMOKE_JSON   live-show-b.json
 
 Run locally (each session takes its own free port, so it runs beside
 any other):
@@ -49,9 +49,9 @@ from conftest import private_fixture, private_fixture_missing  # noqa: E402
 
 pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
-# Kelly Clarkson as the user exported her: the show that produced all
-# three faults. Frozen beside the Experts Only fixture.
-KELLY_LIVE = private_fixture('kelly-live-fixture.json', 'LRD_KELLY_LIVE_JSON')
+# Live show A as the user exported it: the show that produced all
+# three faults. Frozen beside the live show B fixture.
+SHOW_A_LIVE = private_fixture('live-show-a-live.json', 'LRD_LIVE_SHOW_A_JSON')
 
 # A HAIR, in the map bitmap's own pixels. The maps these tests read are
 # 3000-4300 pixels across, so a pixel of overlap is a rounding artefact of
@@ -299,10 +299,10 @@ def test_the_probe_costs_nothing_when_it_is_off(page):
     }""") is True
 
 
-@pytest.mark.skipif(bool(private_fixture_missing(KELLY_LIVE)),
-                    reason=str(private_fixture_missing(KELLY_LIVE)))
+@pytest.mark.skipif(bool(private_fixture_missing(SHOW_A_LIVE)),
+                    reason=str(private_fixture_missing(SHOW_A_LIVE)))
 @pytest.mark.parametrize('palette', ['printer', 'colour'])
-def test_kelly_live_writes_on_top_of_nothing(page, palette):
+def test_live_show_a_writes_on_top_of_nothing(page, palette):
     """The show the faults came from - UPSTAGE 22 x 7, SR and SL 9 x 6 -
     every screen's power and data map, in both palettes.
 
@@ -311,7 +311,7 @@ def test_kelly_live_writes_on_top_of_nothing(page, palette):
     the wall's bottom edge, and two cable tags on SL printed through each
     other."""
     pg, ids = page
-    maps = _sweep(pg, KELLY_LIVE, palette)
+    maps = _sweep(pg, SHOW_A_LIVE, palette)
     # the show really is the dense one, so the sweep means something
     biggest = max(maps.values(), key=lambda bs: len([b for b in bs if b['kind'] == 'disc']))
     assert len([b for b in biggest if b['kind'] == 'disc']) >= 11, biggest
@@ -324,7 +324,7 @@ def test_kelly_live_writes_on_top_of_nothing(page, palette):
 @pytest.mark.skipif(bool(private_fixture_missing(SCRATCH_FIXTURE)),
                     reason=str(private_fixture_missing(SCRATCH_FIXTURE)))
 @pytest.mark.parametrize('palette', ['printer', 'colour'])
-def test_experts_only_writes_on_top_of_nothing(page, palette):
+def test_live_show_b_writes_on_top_of_nothing(page, palette):
     """The other frozen show: 22 circuits on one wall, gangs that sit on a
     ROW SEAM rather than under the wall (so the edge rule must not fire on
     them), and the widest label discs of the two fixtures."""

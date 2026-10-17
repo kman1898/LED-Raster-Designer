@@ -433,9 +433,9 @@ class TestAnchorPanels:
         assert sender == 0   # SC0
         assert port == 0     # Port 1 (0-based)
         # chain is ZERO here, not cols*rows. The "safe non-colliding value"
-        # was invented; every real file checked (2026 EDC's four sections,
-        # Murph, Glow, Griztronics) stores sender=0, port=0, chain=0 at
-        # (cols-1, rows-1), and Murph only re-encodes byte-for-byte with 0.
+        # was invented; every real file checked (reference A's four sections,
+        # references B, C and D) stores sender=0, port=0, chain=0 at
+        # (cols-1, rows-1), and reference B only re-encodes byte-for-byte with 0.
         assert chain == 0
 
     def test_no_anchor_on_sc0(self):

@@ -18,7 +18,10 @@ Pinned behaviours:
   of "clear" do not apply to the toggle gesture).
 * Groups: the toggle unit is whatever a plain click would select - the WHOLE
   group when the clicked layer is a grouped member. Toggling a selected
-  group's member takes the whole group out.
+  group's member takes the whole group out - except on Pixel Map, where a
+  selected group is one screen and a click on any member is a cabinet click
+  (the owner's ruling, 2026-10-16: "when grouped they need to be treated as
+  1 screen of sorts").
 * Selection is view state: none of this records history (no saveState).
 
 Run locally:
@@ -251,6 +254,12 @@ def test_no_history_entry_from_toggle_clicks(page):
 # ── composition with screen groups ────────────────────────────────────────
 
 def test_ctrl_click_on_group_member_toggles_whole_group(page):
+    """Bringing a group IN is unchanged on Pixel Map: Cmd/Ctrl+click on an
+    unselected member adds the whole group. Taking one OUT from Pixel Map no
+    longer happens - the owner's ruling, 2026-10-16: "when grouped they need
+    to be treated as 1 screen of sorts". A selected member's click is a
+    cabinet click (see the next test), so the group-out half is pinned in
+    Cabinet ID view, where no cabinet gesture competes."""
     ids = reset_project(page)
     make_group(page, [ids[0], ids[1]])
     click_layer(page, 2)                      # plain click: screen 3 only
@@ -260,11 +269,45 @@ def test_ctrl_click_on_group_member_toggles_whole_group(page):
     assert got['selected'] == sorted(ids), got
     assert got['sidebar'] == sorted(ids), got
     # Toggling a selected group's member (the OTHER member, deliberately)
-    # removes the whole group, not just the clicked layer.
+    # removes the whole group, not just the clicked layer - in Cabinet ID.
+    set_view(page, 'cabinet-id')
     click_layer(page, 1, modifier=MODIFIER)
     got = selection_state(page)
     assert got['selected'] == [ids[2]], got
     assert got['sidebar'] == [ids[2]], got
+
+
+def test_pixelmap_clicks_on_a_selected_group_member_are_cabinet_clicks(page):
+    """The owner's ruling, 2026-10-16: "when grouped they need to be treated
+    as 1 screen of sorts". On Pixel Map a click on any member of a selected
+    group is a CABINET click, with or without a cabinet selection open: a
+    plain click never narrows the selection to one member, and Cmd/Ctrl+click
+    never takes a member out of it."""
+    ids = reset_project(page)
+    make_group(page, [ids[0], ids[1]])
+    click_layer(page, 1)                      # an unselected member: the group
+    assert selection_state(page)['selected'] == sorted([ids[0], ids[1]])
+    page.evaluate("() => window.app.clearPixelMapSelection()")
+    current = selection_state(page)['current']
+    other = ids[1] if current == ids[0] else ids[0]
+    other_index = ids.index(other)
+
+    click_layer(page, other_index)            # plain, no cabinets selected
+    got = selection_state(page)
+    assert got['selected'] == sorted([ids[0], ids[1]]), got
+    assert got['current'] == current, got
+    keys = page.evaluate("() => [...window.app.pixelMapSelection]")
+    assert len(keys) == 1 and keys[0].startswith(f'{other}:'), keys
+
+    page.evaluate("() => window.app.clearPixelMapSelection()")
+    click_layer(page, other_index, modifier=MODIFIER)   # Cmd, no cabinets
+    got = selection_state(page)
+    assert got['selected'] == sorted([ids[0], ids[1]]), got
+    keys = page.evaluate("() => [...window.app.pixelMapSelection]")
+    assert len(keys) == 1 and keys[0].startswith(f'{other}:'), keys
+    click_layer(page, other_index, modifier=MODIFIER)   # Cmd again: out
+    assert page.evaluate("() => window.app.pixelMapSelection.size") == 0
+    assert selection_state(page)['selected'] == sorted([ids[0], ids[1]])
 
 
 def test_plain_click_on_group_member_still_selects_whole_group(page):

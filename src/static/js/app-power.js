@@ -41,10 +41,22 @@ class _Power {
         btn.addEventListener('keyup', swallow);
     }
 
+    // A locked screen refuses a step that would MOVE its active number -
+    // and only that: Prev / Shift+Tab at port 1 (or Next at the end of an
+    // open override list) changes nothing, so it says nothing (the owner's
+    // ruling, 2026-10-16: the error belongs to a change).
     stepCustomPort(delta) {
         if (!this.currentLayer || !window.canvasRenderer) return;
         const view = window.canvasRenderer.viewMode;
+        const layer = this.currentLayer;
+        const moves = (kind) => {
+            const current = kind === 'power'
+                ? (layer.powerCustomIndex || 1) : (layer.customPortIndex || 1);
+            return this._steppedCustomIndex(layer, kind, delta) !== current;
+        };
         if (view === 'data-flow' && this.isCustomFlowEditing(this.currentLayer)) {
+            if (layer.locked && !moves('data')) return;
+            if (this._lockedStepRefused(this.currentLayer)) return;
             this.ensureCustomFlowState(this.currentLayer);
             this.currentLayer.customPortIndex =
                 this._steppedCustomIndex(this.currentLayer, 'data', delta);
@@ -61,6 +73,8 @@ class _Power {
             this.updatePortLabelEditor();
             window.canvasRenderer.render();
         } else if (view === 'power' && this.isCustomPowerEditing(this.currentLayer)) {
+            if (layer.locked && !moves('power')) return;
+            if (this._lockedStepRefused(this.currentLayer)) return;
             this.ensureCustomPowerState(this.currentLayer);
             this.currentLayer.powerCustomIndex =
                 this._steppedCustomIndex(this.currentLayer, 'power', delta);
@@ -150,7 +164,7 @@ class _Power {
             // .value-normal, so it cannot be mistaken for a fault; the warning
             // colour is the only inline override and the only colour here.
             if (portCapacity > 0) {
-                capacityEl.textContent = portCapacity.toLocaleString();
+                capacityEl.textContent = portCapacity.toLocaleString('en-US');
                 capacityEl.classList.add('value-normal');
                 capacityEl.style.color = '';
                 capacityEl.title = '';
@@ -184,7 +198,7 @@ class _Power {
                 panelsPerPortEl.classList.remove('value-normal');
                 panelsPerPortEl.style.color = '#ff0000';
             } else {
-                panelsPerPortEl.textContent = panelsPerPort.toLocaleString();
+                panelsPerPortEl.textContent = panelsPerPort.toLocaleString('en-US');
                 panelsPerPortEl.classList.add('value-normal');
                 panelsPerPortEl.style.color = '';
             }
@@ -279,7 +293,11 @@ class _Power {
         const equivalentPanels = activePanels.reduce((sum, p) => sum + this.getPanelLoadFactor(layer, p), 0);
         const totalWatts = panelWatts * equivalentPanels;
         const totalAmps1 = voltage > 0 ? totalWatts / voltage : 0;
-        const totalAmps3 = voltage > 0 ? totalWatts / (voltage * 1.73) : 0;
+        // The balanced 3φ figure divides by the SERVICE's line-to-line
+        // voltage (1.5, bug fix 3) - a 120V screen on 120/208 is
+        // W / (208 x 1.73), never W / (120 x 1.73).
+        const lineV = this.threePhaseLineVoltage(layer);
+        const totalAmps3 = lineV > 0 ? totalWatts / (lineV * 1.73) : 0;
         layer._powerTotalAmps1 = totalAmps1;
         layer._powerTotalAmps3 = totalAmps3;
 
@@ -289,8 +307,8 @@ class _Power {
         const amps1El = document.getElementById('power-total-amps-1ph');
         const amps3El = document.getElementById('power-total-amps-3ph');
 
-        if (wattsEl) wattsEl.textContent = wattsPerCircuit > 0 ? wattsPerCircuit.toLocaleString() : '0';
-        if (panelsEl) panelsEl.textContent = panelsPerCircuit > 0 ? panelsPerCircuit.toLocaleString() : '0';
+        if (wattsEl) wattsEl.textContent = wattsPerCircuit > 0 ? wattsPerCircuit.toLocaleString('en-US') : '0';
+        if (panelsEl) panelsEl.textContent = panelsPerCircuit > 0 ? panelsPerCircuit.toLocaleString('en-US') : '0';
         const powerAssignments = this.calculatePowerAssignments(layer);
         // count via the shared authority so a custom-routed screen reports the
         // circuits actually drawn, not what auto routing would have produced
@@ -304,7 +322,7 @@ class _Power {
         // circuit with its neighbour's number.
         layer._powerCircuitNumKeys = powerAssignments.nums || null;
 
-        if (circuitsEl) circuitsEl.textContent = circuitsRequired > 0 ? circuitsRequired.toLocaleString() : '0';
+        if (circuitsEl) circuitsEl.textContent = circuitsRequired > 0 ? circuitsRequired.toLocaleString('en-US') : '0';
         layer._powerCircuitsRequired = circuitsRequired;
         // The screen that carries a wall's circuits reads the WALL's load
         // beside the wall's circuit count - the figure its circuits draw,
@@ -545,6 +563,13 @@ class _Power {
     // name, distro, number, length and tails under its stepped index.
     // Removal drops slot `at`'s own entries with it.
     _spliceSocaStores(layer, at, delta) {
+        // The held multi numbers follow their multis the same way
+        // (app-naming _rekeyMultiHolds) - they live on the distros.
+        if (typeof this._rekeyMultiHolds === 'function') {
+            this._rekeyMultiHolds(layer, n => (delta > 0
+                ? (n >= at ? n + 1 : n)
+                : (n === at ? null : (n > at ? n - 1 : n))));
+        }
         for (const field of ['powerSocaDistro', 'powerSocaLengths',
                              'powerSocaPhasePos', 'powerSocaPhaseOffset',
                              'powerSocaNames', 'powerSocaNumber']) {
@@ -598,6 +623,9 @@ class _Power {
             const t = newSegs[ni - 1];
             map.set(s.index, { index: ni,
                                same: t.start === s.start && t.end === s.end });
+        }
+        if (typeof this._rekeyMultiHolds === 'function') {
+            this._rekeyMultiHolds(layer, n => (map.has(n) ? map.get(n).index : null));
         }
         for (const field of ['powerSocaDistro', 'powerSocaLengths',
                              'powerSocaPhasePos', 'powerSocaPhaseOffset',
@@ -776,9 +804,14 @@ class _Power {
         }
         const cellStart = Math.floor((o - 1) / size) * size + 1;
         const cellEnd = Math.min(count, cellStart + size - 1);
+        // A face box (1.5) is as big as its connector. A DIRECT output is one
+        // circuit: it takes the circuit it was dropped on, the way a circuit
+        // chip does, not the first of the cell.
+        const targetD = this.getDistros().find(x => x.id === distroId);
+        const faceBox = targetD ? this.faceBox(targetD, n) : null;
         // The anchor: the cell's first circuit, stepped past every circuit
         // before `o` that is on another box.
-        let start = cellStart;
+        let start = faceBox && faceBox.size === 1 ? o : cellStart;
         for (const s of segs) {
             if (s.end < cellStart || s.start > o) continue;
             if (onOther(s)) start = Math.max(start, s.end + 1);
@@ -788,7 +821,7 @@ class _Power {
         // The target box's fan is as big as the SMALLEST breakout claiming
         // it - a 3-tail L21-30 box has three tails whoever else lands on
         // it, and pretending to six would deal tails that do not exist.
-        let cap = size;
+        let cap = faceBox ? Math.min(size, faceBox.size) : size;
         for (const m of members) {
             const ml = ((this.project && this.project.layers) || [])
                 .find(l => l.id === m.layerId);
@@ -803,6 +836,17 @@ class _Power {
                 : m.legs;
         }
         const free = Math.max(0, cap - held);
+        // A paired connector (1.5): the same circuits on another connector.
+        // A circuit can be patched to either, never both - so a box whose
+        // circuits are in use through its pair takes nothing (a direct
+        // output asks about its one circuit, a multi about any of its).
+        if (faceBox && faceBox.paired !== undefined) {
+            const busy = this._facePairedHolders(targetD, n, faceBox.size === 1 ? 1 : null);
+            if (busy.length) {
+                return { ok: false, why: 'paired', free: 0, remaining, take: 0,
+                         nums: [], seg, ordinal: o, spanStart: start, busy };
+            }
+        }
         if (!free) {
             return { ok: false, why: 'full', free, remaining, take: 0,
                      nums: [], seg, ordinal: o, spanStart: start };
@@ -821,6 +865,9 @@ class _Power {
     // or { ok: false, why, free, tailLen } for the refusal, with nothing
     // moved.
     takeSocaOnto(layer, ordinal, distroId, number, action) {
+        // A locked screen stays unchanged (owner, 2026-10-16) - the setter
+        // refuses and names it, whichever control called it.
+        if (this._lockedRefused(layer)) return { ok: false, why: 'locked', free: 0, tailLen: 0, locked: true };
         const plan = this._socaTakePlan(layer, ordinal, distroId, number);
         if (!plan.ok) return { ok: false, why: plan.why, free: plan.free,
                                tailLen: plan.remaining };
@@ -851,7 +898,11 @@ class _Power {
                 ? shown.slice(end + 1 - cut.start) : null;
             carry = { distro: assign[cut.index],
                       number: Number.isFinite(pinNum) ? pinNum : null,
-                      name: (layer.powerSocaNames || {})[cut.index], pos };
+                      name: (layer.powerSocaNames || {})[cut.index], pos,
+                      // an auto multi's number stays with the remainder,
+                      // which stays on the box (multi numbers do not shift)
+                      shown: (rec && !rec.pinned && rec.distroId === assign[cut.index])
+                          ? rec.number : null };
             if (carry.number != null) {
                 this._materializeSocaBox(carry.distro, carry.number, layer,
                                          cut.index)
@@ -875,6 +926,10 @@ class _Power {
             if (carry.number != null) put('powerSocaNumber', carry.number);
             if (carry.name !== undefined) put('powerSocaNames', carry.name);
             if (carry.pos) put('powerSocaPhasePos', carry.pos);
+            if (carry.number == null && carry.shown != null
+                    && typeof this._holdMultiNumber === 'function') {
+                this._holdMultiNumber(layer, remIdx, carry.distro, carry.shown);
+            }
             this._circuitTailCache = null;
         }
         // Landing on an occupied box is the JOIN: the incumbents' rendered
@@ -921,6 +976,9 @@ class _Power {
     // that came from a split simply becomes a natural 6+2.
     unsplitSocaAfter(layer, socaIndex) {
         if (!layer) return false;
+        // A locked screen stays unchanged (owner, 2026-10-16) - the setter
+        // refuses and names it, whichever control called it.
+        if (this._lockedRefused(layer)) return false;
         const count = this.screenCircuits(layer).length;
         const seg = this._socaSegments(layer, count)
             .find(s => s.index === Number(socaIndex));
@@ -1119,7 +1177,9 @@ class _Power {
         out.peers = [...peers.values()];
         out.peerIds = out.peers.map(l => l.id);
         out.amps1 = voltage > 0 ? out.watts / voltage : 0;
-        out.amps3 = voltage > 0 ? out.watts / (voltage * 1.73) : 0;
+        // the service's line-to-line voltage (bug fix 3)
+        const lineV = this.threePhaseLineVoltage(layer);
+        out.amps3 = lineV > 0 ? out.watts / (lineV * 1.73) : 0;
         return out;
     }
 
@@ -1564,6 +1624,14 @@ class _Power {
     distroBoxType(d, number, members) {
         const types = this.getDistroOutputTypes();
         const n = parseInt(number, 10);
+        // Rung 0 (1.5): a box on a distro's FACE is what its output row
+        // says - the connector is bolted to the distro, nothing on it or
+        // stored about it changes that.
+        const fbox = d ? this.faceBox(d, n) : null;
+        if (fbox) {
+            return { type: this.faceBoxType(d, fbox), source: 'face', implied: null,
+                     clash: false, faceBox: fbox };
+        }
         const list = Array.isArray(members) ? members
             : (d ? (this._distroMultiNumbers(d.id).get(n) || []) : []);
         let implied = null;
@@ -1783,8 +1851,8 @@ class _Power {
     powerCircuitCable(layer, circuitNum) {
         const store = layer && layer.powerCircuitCables;
         const rec = store && store[circuitNum];
-        const ft = rec ? Number(rec.ft) : NaN;
-        if (!rec || !Number.isFinite(ft) || ft <= 0) return null;
+        const ft = rec ? this.parseCableLength(rec.ft) : null;
+        if (!rec || ft === null) return null;
         let id = rec.connector && this.cableConnectorName(rec.connector)
             ? rec.connector : null;
         if (!id) {
@@ -1798,10 +1866,13 @@ class _Power {
         };
     }
 
+    // "10' True1" in a feet show, "3 m True1" in a meters one: the length
+    // in the show's unit (app-cable-units.js), then the connector.
     cableText(ft, name) {
         const n = Number(ft);
-        const len = Number.isInteger(n) ? String(n) : String(+n.toFixed(1));
-        return `${len}'${name ? ` ${name}` : ''}`;
+        const len = this.cableUnit() === 'm'
+            ? `${this.cableFigure(n)} m` : `${this.cableFigure(n)}'`;
+        return `${len}${name ? ` ${name}` : ''}`;
     }
 
     // Write one circuit's cable. `cable` is { ft, connector } - a blank or
@@ -1810,29 +1881,34 @@ class _Power {
     // updateLayers over every layer it touched itself, so a fill is one
     // undo step the way a length commit is.
     // The length the box sheet's quick fill writes on every circuit: the
-    // Power cable preference (10' as shipped). Read where the cables are
-    // made; a cable already typed is never rewritten by it.
+    // Power cable preference in the show's unit (10' / 3 m as shipped).
+    // Read where the cables are made; a cable already typed is never
+    // rewritten by it.
     defaultPowerCableFt() {
-        const prefs = (typeof this.getPreferences === 'function') ? this.getPreferences() : {};
-        const n = Number(prefs.powerCableFt);
-        return Number.isFinite(n) && n > 0 ? n : 10;
+        const n = Number(this.cablePref('powerCable'));
+        return Number.isFinite(n) && n > 0 ? n : (this.cableUnit() === 'm' ? 3 : 10);
     }
 
     setCircuitCable(layer, circuitNum, cable, record = true) {
         if (!layer) return false;
+        const ft = cable ? Number(cable.ft) : NaN;
+        const next = (!Number.isFinite(ft) || ft <= 0) ? null : {
+            ft,
+            connector: cable.connector && this.cableConnectorName(cable.connector)
+                ? cable.connector : null,
+        };
+        const before = JSON.stringify((layer.powerCircuitCables || {})[circuitNum] || null);
+        const changed = JSON.stringify(next) !== before;
+        // A locked screen stays unchanged (owner, 2026-10-16) - the setter
+        // refuses and names it, whichever control called it - when the cable
+        // would really change; setting the one it has says nothing.
+        if (layer.locked) {
+            if (changed) this._showLockedError([layer]);
+            return false;
+        }
         const store = layer.powerCircuitCables
             || (layer.powerCircuitCables = {});
-        const ft = cable ? Number(cable.ft) : NaN;
-        const before = JSON.stringify(store[circuitNum] || null);
-        if (!Number.isFinite(ft) || ft <= 0) {
-            delete store[circuitNum];
-        } else {
-            const connector = cable.connector
-                && this.cableConnectorName(cable.connector)
-                ? cable.connector : null;
-            store[circuitNum] = { ft, connector };
-        }
-        const changed = JSON.stringify(store[circuitNum] || null) !== before;
+        if (next) store[circuitNum] = next; else delete store[circuitNum];
         if (record && changed) {
             this.updateLayers([layer], true, 'Set Circuit Cable');
         }
@@ -1903,6 +1979,38 @@ class _Power {
             + '<path d="M8.8 18.1 a6.8 6.8 0 0 1 -1.7 -1.5"/>'
             + '<path d="M5.5 11.5 a6.8 6.8 0 0 1 .8 -2.2"/>'
             + '</g></symbol>'
+            // 1.5's further faces (app-distro-systems.js): Harting 16E
+            // (rectangular insert, two rows of pins), twist-lock (L5-20 /
+            // L6-20: three curved slots), stage pin (three round pins in a
+            // row), CEE (round, ground at the top, two pins below) and
+            // Schuko (round, two pins, earth clips at the sides).
+            + '<symbol id="hw-g-harting" viewBox="0 0 24 24">'
+            + '<rect x="3" y="6" width="18" height="12" rx="2"/><g class="pin">'
+            + '<circle cx="7" cy="10" r=".9"/><circle cx="10.3" cy="10" r=".9"/>'
+            + '<circle cx="13.7" cy="10" r=".9"/><circle cx="17" cy="10" r=".9"/>'
+            + '<circle cx="7" cy="14" r=".9"/><circle cx="10.3" cy="14" r=".9"/>'
+            + '<circle cx="13.7" cy="14" r=".9"/><circle cx="17" cy="14" r=".9"/>'
+            + '</g></symbol>'
+            + '<symbol id="hw-g-twist" viewBox="0 0 24 24">'
+            + '<circle cx="12" cy="12" r="10.3"/>'
+            + '<g stroke-width="2.4" stroke-linecap="round" fill="none">'
+            + '<path d="M10.6 5.3 a6.8 6.8 0 0 1 2.8 0"/>'
+            + '<path d="M17.6 15.6 a6.8 6.8 0 0 1 -2 2"/>'
+            + '<path d="M8.4 17.6 a6.8 6.8 0 0 1 -2 -2"/>'
+            + '</g></symbol>'
+            + '<symbol id="hw-g-stagepin" viewBox="0 0 24 24">'
+            + '<rect x="2.5" y="7" width="19" height="10" rx="2"/><g class="pin">'
+            + '<circle cx="7" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.6"/>'
+            + '<circle cx="17" cy="12" r="1.3"/></g></symbol>'
+            + '<symbol id="hw-g-cee" viewBox="0 0 24 24">'
+            + '<circle cx="12" cy="12" r="10.3"/><g class="pin">'
+            + '<circle cx="12" cy="6.5" r="1.6"/><circle cx="7.5" cy="15" r="1.3"/>'
+            + '<circle cx="16.5" cy="15" r="1.3"/></g></symbol>'
+            + '<symbol id="hw-g-schuko" viewBox="0 0 24 24">'
+            + '<circle cx="12" cy="12" r="10.3"/><g class="pin">'
+            + '<circle cx="8.5" cy="12" r="1.4"/><circle cx="15.5" cy="12" r="1.4"/>'
+            + '<rect x="11" y="2.4" width="2" height="2.6" rx=".4"/>'
+            + '<rect x="11" y="19" width="2" height="2.6" rx=".4"/></g></symbol>'
             + '</defs></svg>';
         document.body.appendChild(host.firstChild);
     }
@@ -1919,8 +2027,16 @@ class _Power {
     }
 
     // Rollup per distro across every screen, plus an 'unassigned' bucket so
-    // no load is silently dropped. Three-phase distros also get per-leg
-    // (X/Y/Z) loads so you can see whether the service is loaded evenly.
+    // no load is silently dropped. A distro with legs (three-phase, or
+    // split-phase) also gets per-leg loads so you can see whether the
+    // service is loaded evenly.
+    //
+    // THE HEADER FIGURE IS THE WORST LEG (1.5, bug fix 2): `amps`, `pct`
+    // and `over` read the most loaded leg against the per-leg rating - the
+    // breaker that trips is a leg's, and a whole Socapex on one leg can
+    // trip it while the balanced W / (V x 1.73) still reads fine. The
+    // balanced figure stays on the record as `balancedAmps`. A distro with
+    // one hot reads W / V, as it always did.
     getDistroLoads() {
         const distros = this.getDistros();
         const mk = (d) => ({
@@ -1959,52 +2075,28 @@ class _Power {
                     b.socas.push(fresh);
                 }
                 b.watts += s.watts;
-                // spread this multi's circuits across the phase legs
+                // A single-hot distro reads its circuits' own amps (audit).
+                const own = b.distro ? this._singleHotAmps(b.distro, s.watts, circuitV) : null;
+                if (own != null) b.ownAmps = (b.ownAmps || 0) + own;
+                // spread this multi's circuits across the legs - per
+                // CIRCUIT, through the one authority (distroCircuitLegs): a
+                // face box answers from its row and the distro, anything
+                // else from the circuit's own voltage, so a 110V multi
+                // rides one leg per circuit while a 208V multi on the same
+                // service keeps its leg pairs - the mixed case sums
+                // correctly because both land in one phasor store.
                 const d = b.distro;
-                if (d && d.phase === 3) {
-                    // Per CIRCUIT, not per distro: coupling follows the
-                    // circuit's own voltage (_circuitSchemeFor), so a 110V
-                    // multi rides one leg per circuit while a 208V multi on
-                    // the same service keeps its leg pairs - the mixed case
-                    // sums correctly because both land in one phasor store.
-                    const scheme = this._circuitSchemeFor(d, circuitV);
-                    if (b.scheme && b.scheme.lineToLine !== scheme.lineToLine) {
-                        b.schemeMixed = true;
-                    }
-                    b.scheme = scheme;
-                    const vln = d.voltage / Math.sqrt(3);
-                    const boxSize = this.socaBoxSize(layer);
+                if (d && this.distroLegNames(d).length) {
                     const pos = this.socaCircuitPositions(layer, s.soca, s.legs.length);
                     for (let li = 0; li < s.legs.length; li++) {
-                        const leg = s.legs[li];
-                        const legs = this._circuitLegs(pos[li], scheme.id, 0, boxSize);
-                        if (legs.length === 1) {
-                            // Line-to-neutral: full current on ONE leg, in
-                            // phase with that leg's L-N voltage. Amps are
-                            // I = P / V_screen (the circuit's own voltage -
-                            // a 110V circuit draws its watts at 110, user
-                            // ruling); the service L-N figure only stands
-                            // in when the screen carries no voltage.
-                            b.legWatts[legs[0]] += leg.watts;
-                            this._addLegPhasor(b.legPhasor, legs[0],
-                                leg.watts / (circuitV > 0 ? circuitV : vln), 0);
-                        } else {
-                            // Line-to-line: the SAME current flows in both
-                            // legs (it is one series load) - it is NOT halved.
-                            // Referred to each leg's own L-N reference it sits
-                            // at +30 deg on the first leg of the cyclic pair
-                            // and -30 deg on the second.
-                            const [first, second] = this._cyclicPair(legs[0], legs[1]);
-                            const amps = leg.watts / d.voltage;
-                            this._addLegPhasor(b.legPhasor, first, amps, 30);
-                            this._addLegPhasor(b.legPhasor, second, amps, -30);
-                            // VA column keeps the panel-schedule convention:
-                            // half the VA booked against each leg
-                            b.legWatts[first] += leg.watts / 2;
-                            b.legWatts[second] += leg.watts / 2;
-                            const key = [first, second].join('');
-                            b.pairWatts[key] = (b.pairWatts[key] || 0) + leg.watts;
+                        const info = this.distroCircuitLegs(d, layer, s, li, pos);
+                        if (info.scheme) {
+                            if (b.scheme && b.scheme.lineToLine !== info.scheme.lineToLine) {
+                                b.schemeMixed = true;
+                            }
+                            b.scheme = info.scheme;
                         }
+                        this._bookCircuitOnLegs(b, d, info, s.legs[li].watts, circuitV);
                     }
                 }
             }
@@ -2012,12 +2104,15 @@ class _Power {
         const shape = (b) => {
             const d = b.distro;
             const v = d ? d.voltage : 0;
-            const amps = v > 0 ? (d.phase === 3 ? b.watts / (v * 1.73) : b.watts / v) : 0;
+            const names = d ? this.distroLegNames(d) : [];
+            const balancedAmps = b.ownAmps != null ? b.ownAmps
+                : (v > 0 ? (d.phase === 3 ? b.watts / (v * 1.73) : b.watts / v) : 0);
             const rating = d ? d.ratingA : 0;
             // Per-leg amps are line-to-NEUTRAL: on a 208V wye that is 120V,
             // which is what each leg actually sees.
             let legs = null, imbalancePct = 0;
-            if (d && d.phase === 3) {
+            let amps = balancedAmps;
+            if (d && names.length) {
                 // Per-leg current is the PHASOR magnitude, not watts/voltage:
                 // line-to-line loads sit +-30 deg off their legs' L-N
                 // reference, so scalar addition would misreport by 13-15%.
@@ -2031,14 +2126,18 @@ class _Power {
                 // NEMA-style: max deviation from the AVERAGE (not max-min
                 // spread, which reads roughly double and is not what a
                 // genset spec or an electrician means by "% imbalance").
-                const amps = [legs.X.amps, legs.Y.amps, legs.Z.amps];
-                const avg = (amps[0] + amps[1] + amps[2]) / 3;
+                const legAmps = names.map(k => legs[k].amps);
+                const avg = legAmps.reduce((t, x) => t + x, 0) / legAmps.length;
                 imbalancePct = avg > 0
-                    ? (Math.max(...amps.map(x => Math.abs(x - avg))) / avg) * 100 : 0;
-                legs.lineToNeutralV = v / Math.sqrt(3);
+                    ? (Math.max(...legAmps.map(x => Math.abs(x - avg))) / avg) * 100 : 0;
+                legs.names = names.slice();
+                legs.labels = names.map(k => this.distroLegLabel(d, k));
+                legs.lineToNeutralV = this.distroNeutralVolts(d);
                 legs.avgAmps = avg;
-                legs.spreadAmps = Math.max(...amps) - Math.min(...amps);
-                legs.over = rating > 0 && Math.max(...amps) > rating;
+                legs.spreadAmps = Math.max(...legAmps) - Math.min(...legAmps);
+                legs.worstAmps = Math.max(...legAmps);
+                legs.worst = names[legAmps.indexOf(legs.worstAmps)];
+                legs.over = rating > 0 && legs.worstAmps > rating;
                 legs.scheme = b.scheme ? b.scheme.name : null;
                 legs.schemeId = b.scheme ? b.scheme.id : null;
                 // True when this service carries BOTH couplings at once -
@@ -2047,13 +2146,16 @@ class _Power {
                 // so a surface printing the scheme can say "mixed" instead.
                 legs.schemeMixed = !!b.schemeMixed;
                 legs.pairWatts = b.pairWatts;
+                amps = legs.worstAmps;
             }
             return {
                 id: d ? d.id : null,
                 name: d ? d.name : 'Unassigned',
                 location: (d && d.location) || null,
                 ratingA: rating, voltage: v, phase: d ? d.phase : null,
-                watts: b.watts, amps,
+                system: d ? (d.system || null) : null,
+                watts: b.watts, amps, balancedAmps,
+                worstLeg: legs ? legs.worst : null,
                 pct: rating > 0 ? (amps / rating) * 100 : 0,
                 over: rating > 0 && amps > rating,
                 legs, imbalancePct,
@@ -2073,33 +2175,27 @@ class _Power {
     // 208V circuits sit +-30 deg off their legs, so a full box at circuit
     // current I loads each feed leg at I x sqrt(3), never 2 x I.
     boxFeedLegAmps(distro, members) {
-        const phasor = { X: { re: 0, im: 0 }, Y: { re: 0, im: 0 },
-                         Z: { re: 0, im: 0 } };
+        const store = {
+            legWatts: { X: 0, Y: 0, Z: 0 },
+            legPhasor: { X: { re: 0, im: 0 }, Y: { re: 0, im: 0 }, Z: { re: 0, im: 0 } },
+            pairWatts: {},
+        };
         if (!distro) return { X: 0, Y: 0, Z: 0 };
-        const vln = (Number(distro.voltage) || 0) / Math.sqrt(3);
+        const legacy = this._legacyBoxFeedLegAmps(distro, members);
+        if (legacy) return legacy;
         for (const m of (members || [])) {
             if (!m || !m.layer || !m.s) continue;
             const circuitV = parseFloat(m.layer.powerVoltage) || 0;
-            const scheme = this._circuitSchemeFor(distro, circuitV);
-            const boxSize = this.socaBoxSize(m.layer);
             const pos = this.socaCircuitPositions(
                 m.layer, m.s.soca, m.s.legs.length);
             for (let li = 0; li < m.s.legs.length; li++) {
-                const leg = m.s.legs[li];
-                const legs = this._circuitLegs(pos[li], scheme.id, 0, boxSize);
-                if (legs.length === 1) {
-                    this._addLegPhasor(phasor, legs[0],
-                        leg.watts / (circuitV > 0 ? circuitV : vln), 0);
-                } else {
-                    const [first, second] = this._cyclicPair(legs[0], legs[1]);
-                    const amps = leg.watts / (Number(distro.voltage) || 1);
-                    this._addLegPhasor(phasor, first, amps, 30);
-                    this._addLegPhasor(phasor, second, amps, -30);
-                }
+                const info = this.distroCircuitLegs(distro, m.layer, m.s, li, pos);
+                this._bookCircuitOnLegs(store, distro, info, m.s.legs[li].watts, circuitV);
             }
         }
         const mag = (p) => Math.sqrt(p.re * p.re + p.im * p.im);
-        return { X: mag(phasor.X), Y: mag(phasor.Y), Z: mag(phasor.Z) };
+        const ph = store.legPhasor;
+        return { X: mag(ph.X), Y: mag(ph.Y), Z: mag(ph.Z) };
     }
 
     // Keyed by the multi's stable index, like every other per-multi store, so
@@ -2108,9 +2204,22 @@ class _Power {
     // write-through, which issues one updateLayers over every member itself.
     setSocaLength(layer, socaIndex, length, record = true) {
         if (!layer) return;
-        const store = layer.powerSocaLengths || (layer.powerSocaLengths = {});
         const v = String(length || '').trim();
-        if (v) store[socaIndex] = v; else delete store[socaIndex];
+        // "100ft" keeps its number (relabelled by number on a unit
+        // change); text that is no length here stays as typed and prints
+        // as no length.
+        const n = this.parseCableLength(v);
+        const stored = v ? (n !== null ? String(n) : v) : '';
+        // A locked screen stays unchanged (owner, 2026-10-16) - the setter
+        // refuses and names it, whichever control called it - when the
+        // length would really change.
+        if (layer.locked) {
+            const cur = String((layer.powerSocaLengths || {})[socaIndex] || '').trim();
+            if (cur !== stored) this._showLockedError([layer]);
+            return;
+        }
+        const store = layer.powerSocaLengths || (layer.powerSocaLengths = {});
+        if (stored) store[socaIndex] = stored; else delete store[socaIndex];
         if (record) {
             this.updateLayers([layer], true, 'Set Multi Home Run');
         }
@@ -2135,8 +2244,12 @@ class _Power {
     // coupling the voltage no longer permits (picked first, voltage changed
     // after) is somebody's paperwork: it stays offered with the mismatch
     // said out loud, never silently dropped or swapped.
-    _distroPhasingOptions(ph) {
-        const offered = this.powerPhasingSchemes()
+    _distroPhasingOptions(ph, d = null) {
+        // An EU distro can also be wired whole multi on one leg (ruling 4,
+        // EU only) - a line-to-neutral ordering like the other two.
+        const extra = d && typeof this._distroExtraSchemes === 'function'
+            ? this._distroExtraSchemes(d) : [];
+        const offered = [...this.powerPhasingSchemes(), ...extra]
             .filter(sc => sc.lineToLine === ph.derived.lineToLine);
         if (ph.explicit && !offered.some(sc => sc.id === ph.scheme.id)) {
             offered.push({ ...ph.scheme,
@@ -2172,47 +2285,10 @@ class _Power {
             return c;
         };
 
-        const row1 = document.createElement('div');
-        row1.style.display = 'flex';
-        row1.style.flexWrap = 'wrap';
-        row1.style.gap = '6px';
-        row1.style.alignItems = 'center';
-        row1.appendChild(cap('Rating'));
-        const rate = document.createElement('input');
-        rate.type = 'number';
-        rate.min = '1';
-        rate.value = d.ratingA;
-        rate.style.width = '56px';
-        rate.dataset.lrdField = `distro-rating-${d.id}`;
-        rate.title = 'Service rating in amps.';
-        rate.addEventListener('change', () => patch({ ratingA: rate.value }));
-        row1.appendChild(rate);
-        row1.appendChild(cap('Voltage'));
-        const volt = document.createElement('select');
-        volt.className = 'info-select';
-        volt.dataset.lrdField = `distro-voltage-${d.id}`;
-        [110, 120, 208, 220, 230, 240, 400, 415].forEach(v => {
-            const opt = document.createElement('option');
-            opt.value = String(v);
-            opt.textContent = `${v}V`;
-            if (Number(d.voltage) === v) opt.selected = true;
-            volt.appendChild(opt);
-        });
-        volt.addEventListener('change', () => patch({ voltage: volt.value }));
-        row1.appendChild(volt);
-        const phase = document.createElement('select');
-        phase.className = 'info-select';
-        phase.dataset.lrdField = `distro-phase-${d.id}`;
-        [[1, '1φ'], [3, '3φ']].forEach(([v, text]) => {
-            const opt = document.createElement('option');
-            opt.value = String(v);
-            opt.textContent = text;
-            if (Number(d.phase) === v) opt.selected = true;
-            phase.appendChild(opt);
-        });
-        phase.addEventListener('change', () => patch({ phase: phase.value }));
-        row1.appendChild(phase);
-        wrap.appendChild(row1);
+        // SYSTEM · INPUT · RATING per leg · 100% breakers (1.5,
+        // app-distro-systems.js) - the old Voltage and 1φ/3φ selects
+        // became the one system pick.
+        this._buildDistroSupplySection(d, wrap, patch);
 
         if (Number(d.phase) === 3) {
             const ph = this.distroPhasingState(d);
@@ -2245,18 +2321,21 @@ class _Power {
             const followOpt = document.createElement('option');
             followOpt.value = '';
             followOpt.textContent =
-                `Follow the circuit voltage — ${ph.derived.name}`;
+                `Follow the circuit voltage — ${this.distroSchemeName(d, ph.derived)}`;
             if (!ph.explicit) followOpt.selected = true;
             derive.appendChild(followOpt);
             sel.appendChild(derive);
             const wired = document.createElement('optgroup');
+            const sysRec = this.distroSystem(d);
             wired.label = 'Read it off the distro · '
-                + `${Math.round(d.voltage / Math.sqrt(3))} V line-to-neutral, `
-                + `${Math.round(d.voltage)} V line-to-line`;
-            this._distroPhasingOptions(ph).forEach(sc => {
+                + (sysRec && sysRec.lnOnly
+                    ? `${sysRec.vln} V line-to-neutral`
+                    : `${sysRec ? sysRec.vln : Math.round(d.voltage / Math.sqrt(3))} V line-to-neutral, `
+                        + `${Math.round(sysRec ? sysRec.vll : d.voltage)} V line-to-line`);
+            this._distroPhasingOptions(ph, d).forEach(sc => {
                 const opt = document.createElement('option');
                 opt.value = sc.id;
-                opt.textContent = sc.name;
+                opt.textContent = this.distroSchemeName(d, sc);
                 if (ph.explicit && ph.scheme.id === sc.id) opt.selected = true;
                 wired.appendChild(opt);
             });
@@ -2271,6 +2350,8 @@ class _Power {
             row2.appendChild(help);
             wrap.appendChild(row2);
         }
+        // The order the direct outputs take the legs in (ruling 4).
+        this._buildDistroDirectPhasing(d, wrap, patch);
 
         const row3 = document.createElement('div');
         row3.style.display = 'flex';
@@ -2305,8 +2386,15 @@ class _Power {
         // inside the popover's own box (the resize suite pins it): names
         // never wrap, the breakout text ellipsizes before it can push
         // past the edge.
+        // OUTPUT ROWS (1.5): a distro with rows IS its face - the rows
+        // say what it hands a screen, so the old type checklist steps
+        // aside. A distro with none keeps the checklist (it offers every
+        // multi type, as it always has) and the rows section offers the
+        // first row and the presets under it.
+        const hasFace = !!this.distroFace(d);
         const outs = document.createElement('div');
         outs.className = 'hw-pop-outs';
+        if (hasFace) outs.style.display = 'none';
         const outsCap = document.createElement('div');
         outsCap.className = 'hw-pop-outs-cap';
         outsCap.appendChild(cap('Outputs'));
@@ -2352,6 +2440,7 @@ class _Power {
             + 'always has.';
         outs.appendChild(hint);
         wrap.appendChild(outs);
+        this._buildDistroOutputRows(d, wrap, patch);
 
         const remove = document.createElement('button');
         remove.className = 'btn hw-pop-remove';
@@ -2429,7 +2518,7 @@ class _Power {
         if (!err) return null;
         const voltage = parseFloat(layer.powerVoltage) || 0;
         const amperage = parseFloat(layer.powerAmperage) || 0;
-        const fmt = (w) => `${Math.round(w).toLocaleString()} W`;
+        const fmt = (w) => `${Math.round(w).toLocaleString('en-US')} W`;
         const circuit = `a circuit at ${voltage} V / ${amperage} A carries ${fmt(voltage * amperage)}`;
         if (err.unitType) {
             const across = err.unitType === 'row' ? 'column' : 'row';
@@ -2516,7 +2605,12 @@ class _Power {
             // so each is gated on its own (a 120V peer beside a 208V
             // current screen is not written L21-30). The ineligible ones
             // are skipped and named once; the rest are written.
-            const list = this._socaPanelTargets(layer);
+            // A locked screen keeps its breakout (the owner's ruling,
+            // 2026-10-16), named when this would have changed it.
+            const all = this._socaPanelTargets(layer);
+            this._showLockedError(all.filter(l => l.locked
+                && this.getPowerBreakout(l).id !== type.id));
+            const list = all.filter(l => !l.locked);
             const skipped = list.filter(l => !this._breakoutEligible(type, l.powerVoltage));
             const write = list.filter(l => !skipped.includes(l));
             if (skipped.length) {
@@ -2538,7 +2632,15 @@ class _Power {
         if (brk) brk.addEventListener('change', () => {
             const layer = this.currentLayer;
             if (!layer) return;
-            const list = this._socaPanelTargets(layer);
+            const all = this._socaPanelTargets(layer);
+            // A locked screen keeps its brackets setting, and is named.
+            this._showLockedError(all.filter(l => l.locked
+                && !!l.showSocaBrackets !== !!brk.checked));
+            const list = all.filter(l => !l.locked);
+            if (!list.length) {
+                brk.checked = !!layer.showSocaBrackets;
+                return;
+            }
             list.forEach(l => { l.showSocaBrackets = brk.checked; });
             this.updateLayers(list, true, 'Toggle Soca Brackets');
             if (window.canvasRenderer) window.canvasRenderer.render();
@@ -2549,7 +2651,19 @@ class _Power {
         const writeAll = (patch) => {
             const layer = this.currentLayer;
             if (!layer) return;
-            const list = this._socaPanelTargets(layer);
+            const all = this._socaPanelTargets(layer);
+            // A locked screen keeps its packing, named when the patch would
+            // have changed it; with nothing writable the knobs snap back.
+            this._showLockedError(all.filter(l => {
+                if (!l.locked) return false;
+                const cur = this.getPowerSplitters(l);
+                return Object.keys(patch).some(k => cur[k] !== patch[k]);
+            }));
+            const list = all.filter(l => !l.locked);
+            if (!list.length) {
+                this.refreshSplitterPanel();
+                return;
+            }
             list.forEach(l => {
                 const cur = this.getPowerSplitters(l);
                 l.powerSplitters = { ...cur, ...patch, manual: cur.manual };
@@ -2714,6 +2828,9 @@ class _Power {
     // and writes nothing - when the amps rule refuses the share.
     mergeSplitterCircuits(layer, circuitNums) {
         if (!layer || !Array.isArray(circuitNums) || circuitNums.length < 2) return false;
+        // A locked screen stays unchanged (owner, 2026-10-16) - the setter
+        // refuses and names it, whichever control called it.
+        if (this._lockedRefused(layer)) return false;
         const chosen = new Set(circuitNums);
         const runIds = [];
         this.screenCircuits(layer).forEach(c => {
@@ -2742,6 +2859,9 @@ class _Power {
     // nothing else: the caller owns the history entry and the refresh.
     splitSplitterCircuits(layer, circuitNums, action, opts) {
         if (!layer || !Array.isArray(circuitNums) || !circuitNums.length) return;
+        // A locked screen stays unchanged (owner, 2026-10-16) - the setter
+        // refuses and names it, whichever control called it.
+        if (this._lockedRefused(layer)) return;
         const chosen = new Set(circuitNums);
         const runIds = [];
         this.screenCircuits(layer).forEach(c => {
@@ -2844,6 +2964,9 @@ class _Power {
 
     batchShareCircuits(layer, circuitNums, n, action) {
         if (!layer || !Array.isArray(circuitNums)) return false;
+        // A locked screen stays unchanged (owner, 2026-10-16) - the setter
+        // refuses and names it, whichever control called it.
+        if (this._lockedRefused(layer)) return false;
         const { runIds, groups } = this.batchShareGroups(layer, circuitNums, n);
         if (runIds.length < 2) return false;
         if (this.shareRefusal(layer, groups)) return false;

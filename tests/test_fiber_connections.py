@@ -76,7 +76,7 @@ def test_a_card_names_every_output_its_face_prints(client):
 
 pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
-# USC SR: an SX40 (no loops) with its backup processor USC SR BU. XD D is
+# WALL SR: an SX40 (no loops) with its backup processor WALL SR BU. XD D is
 # removed, so trunk D is empty. TAC A (12, ST) takes XD A's X1 on 1-2 and
 # XD B's X1 on 3-4; an opticalCON DUO feeds XD C's X1. On the backup
 # inputs TAC B (12, ST) takes XD A's X2 on 1-2, XD B's X2 runs on Cat6 at
@@ -100,12 +100,12 @@ SEED_JS = """async () => {
     await j('PUT', `/api/layer/${wall.id}`, {processorType: 'brompton'});
     const last = (st) => st.processors[st.processors.length - 1];
     const cable = (st) => st.fiberCables[st.fiberCables.length - 1];
-    // USC SR
-    let st = await j('POST', '/api/processors', {deviceId: 'brompton-sx40', name: 'USC SR'});
+    // WALL SR
+    let st = await j('POST', '/api/processors', {deviceId: 'brompton-sx40', name: 'WALL SR'});
     const sx = last(st).id;
     const xds = last(st).slots[0].card.cvts.map(b => b.id);
     await j('DELETE', `/api/processors/${sx}/cvts/${xds[3]}`);
-    await j('PUT', `/api/processors/${sx}`, {backupUnit: {name: 'USC SR BU'}});
+    await j('PUT', `/api/processors/${sx}`, {backupUnit: {name: 'WALL SR BU'}});
     st = await j('POST', '/api/fiber-cables', {kind: 'tac', strands: 12, ft: 500, connector: 'ST',
                                                link: {boxId: xds[0], key: 'p1'}});
     const tacA = cable(st);
@@ -208,7 +208,7 @@ def _rows(pg, pid):
 
 
 def test_an_sx40_lists_its_backup_output_by_output(page):
-    """USC SR and its backup USC SR BU in one table, output by output: the
+    """WALL SR and its backup WALL SR BU in one table, output by output: the
     main's trunk, then the backup's same trunk onto the same XD's X2, each
     named by its processor. TAC A and TAC B - each kind said once - are
     flipped at the breakout; the backup's trunk B is copper, its trunk C has
@@ -219,13 +219,13 @@ def test_an_sx40_lists_its_backup_output_by_output(page):
     duo = ids['cables']['duo']['name']
     rows = _rows(pg, ids['sx'])
     assert [r['cells'] for r in rows] == [
-        ['USC SR · trunk A', 'TAC A (TAC 12 · ST)', '1 Blue · 2 Orange', 'X1 on Tessera XD A', '2 Orange · 1 Blue'],
-        ['USC SR BU · trunk A', 'TAC B (TAC 12 · ST)', '1 Blue · 2 Orange', 'X2 on Tessera XD A', '2 Orange · 1 Blue'],
-        ['USC SR · trunk B', 'TAC A', '3 Green · 4 Brown', 'X1 on Tessera XD B', '4 Brown · 3 Green'],
-        ['USC SR BU · trunk B', "Cat6 150' (Cat6 runs 100 ft max at 10G)", 'copper', 'X2 on Tessera XD B', 'copper'],
-        ['USC SR · trunk C', f'{duo} (opticalCON DUO)', '1 Blue · 2 Orange', 'X1 on Tessera XD C',
+        ['WALL SR · trunk A', 'TAC A (TAC 12 · ST)', '1 Blue · 2 Orange', 'X1 on Tessera XD A', '2 Orange · 1 Blue'],
+        ['WALL SR BU · trunk A', 'TAC B (TAC 12 · ST)', '1 Blue · 2 Orange', 'X2 on Tessera XD A', '2 Orange · 1 Blue'],
+        ['WALL SR · trunk B', 'TAC A', '3 Green · 4 Brown', 'X1 on Tessera XD B', '4 Brown · 3 Green'],
+        ['WALL SR BU · trunk B', "Cat6 150' (Cat6 runs 100 ft max at 10G)", 'copper', 'X2 on Tessera XD B', 'copper'],
+        ['WALL SR · trunk C', f'{duo} (opticalCON DUO)', '1 Blue · 2 Orange', 'X1 on Tessera XD C',
          '1 Blue · 2 Orange · crosses inside'],
-        ['USC SR BU · trunk C', 'no fiber picked', '', 'X2 on Tessera XD C', ''],
+        ['WALL SR BU · trunk C', 'no fiber picked', '', 'X2 on Tessera XD C', ''],
         ['trunk D', 'not used', '', '', ''],
     ], rows
     first = rows[0]['parts']
@@ -263,7 +263,7 @@ def test_the_table_is_on_the_mains_page_and_names_both(page):
         }
     }""", ids['sx'])
     main, bu = out['main'], out['bu']
-    conn = 'Fiber connections · USC SR and USC SR BU · Tessera SX40'
+    conn = 'Fiber connections · WALL SR and WALL SR BU · Tessera SX40'
     assert main.index(conn) == main.index('Breakout boxes') + 1, main
     assert main[main.index(conn) + 1].startswith('Strand map · '), main
     assert not [t for t in bu if t.startswith('Fiber connections')], bu
@@ -392,13 +392,13 @@ def test_the_painted_table_is_titled_headed_and_never_cut(page):
     size = {}
     for t in texts:
         size.setdefault(t['text'], t['size'])
-    titles = ('FIBER CONNECTIONS · USC SR AND USC SR BU · TESSERA SX40',
+    titles = ('FIBER CONNECTIONS · WALL SR AND WALL SR BU · TESSERA SX40',
               'FIBER CONNECTIONS · NOVA · H9', 'FIBER CONNECTIONS · SQ A AND SQ B · TESSERA SQ200')
     for title in titles:
         assert size.get(title) == 25, (title, sorted(t for t in size if 'FIBER' in t))
     heads = ('OUTPUT', 'CABLE', 'AT THE PROCESSOR', 'BREAKOUT', 'AT THE BREAKOUT')
     # a heading is at the table's 21 unless the table cannot hold it whole:
-    # here the outputs named by both processors ("USC SR BU · trunk A")
+    # here the outputs named by both processors ("WALL SR BU · trunk A")
     # take the room, and a heading shrinks only as far as it must - never
     # under the 14 it stops at, never cut (below)
     for head in heads:
@@ -436,7 +436,7 @@ def test_a_pair_rearranged_flips_both_ends(page):
     }"""
     try:
         assert pg.evaluate(set_js, [sx, xd_b, tac, [4, 3]]) == 200
-        row = [r['cells'] for r in _rows(pg, sx) if r['cells'][0] == 'USC SR · trunk B'][0]
+        row = [r['cells'] for r in _rows(pg, sx) if r['cells'][0] == 'WALL SR · trunk B'][0]
         assert [row[2], row[4]] == ['4 Brown · 3 Green', '3 Green · 4 Brown'], row
     finally:
         pg.evaluate(set_js, [sx, xd_b, tac, [3, 4]])

@@ -289,8 +289,11 @@ def test_members_on_different_voltages_are_flagged_not_averaged(page):
     assert t['watts'] == pytest.approx(800.0)
     # 400 W each: 400/110 = 3.6364 A, 400/208 = 1.9231 A.
     assert [m['amps1ph'] for m in t['members']] == pytest.approx([3.636364, 1.923077], abs=1e-5)
+    # The 3φ figure divides by the SERVICE's line-to-line voltage (1.5,
+    # bug fix 3, 2026-10-16: "It must use the service's V_LL"): a 110V
+    # screen rides a 120/208 service, so both members read V_LL 208.
     assert [m['amps3ph'] for m in t['members']] == pytest.approx(
-        [400 / (110 * 1.73), 400 / (208 * 1.73)], abs=1e-9)
+        [400 / (208 * 1.73), 400 / (208 * 1.73)], abs=1e-9)
 
 
 def test_matching_voltages_are_not_flagged(page):

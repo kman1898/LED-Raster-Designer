@@ -311,7 +311,7 @@ def test_power_fill_counts_half_tiles_by_watt_equivalent(page):
 
 # The wall that asked for whole lines (2026-09-22): 18 x 7 at 100 W on
 # 120 V / 20 A (2,400 W) - 24 cabinets a circuit, a row is 18.
-ORLANDO_JS = """() => {
+WHOLE_ROWS_JS = """() => {
     const l = window.__cap.layer();
     l.powerVoltage = 120; l.powerAmperage = 20; l.panelWatts = 100;
 }"""
@@ -324,7 +324,7 @@ def test_rows_at_24_a_circuit_are_one_row_per_circuit_not_24_and_a_bit(page):
     what the user asked for: "start at the beginning and then fill a max,
     not jump down a row unless it fits a whole other row"."""
     reset(page, columns=18, rows=7)
-    page.evaluate(ORLANDO_JS)
+    page.evaluate(WHOLE_ROWS_JS)
     out = page.evaluate("""() => {
         const app = window.app, cap = window.__cap;
         app.selectPowerPanelsInRect(cap.layer(), cap.rect(18, 7, 128));
@@ -349,7 +349,7 @@ def test_two_rows_go_on_one_circuit_when_both_fit_whole(page):
     circuit 2 restarts row 2 from the left. Row 6 stands alone on
     circuit 4."""
     reset(page, columns=18, rows=7)
-    page.evaluate(ORLANDO_JS)
+    page.evaluate(WHOLE_ROWS_JS)
     page.evaluate("() => { window.__cap.layer().powerAmperage = 33.4; }")
     out = page.evaluate("""() => {
         const app = window.app, cap = window.__cap;
@@ -374,7 +374,7 @@ def test_a_vertical_pattern_packs_whole_columns(page):
     down, up, down - and circuit 2 starts column 3 from the TOP again. Six
     circuits, none of them cutting a column."""
     reset(page, columns=18, rows=7)
-    page.evaluate(ORLANDO_JS)
+    page.evaluate(WHOLE_ROWS_JS)
     out = page.evaluate("""() => {
         const app = window.app, cap = window.__cap;
         app.selectPowerPanelsInRect(cap.layer(), cap.rect(18, 7, 128));
@@ -399,7 +399,7 @@ def test_a_row_longer_than_a_circuit_is_cut_and_its_remainder_stands_alone(page)
     circuit 3 starts row 1 from the left. Two circuits a row, both read
     from the start side."""
     reset(page, columns=18, rows=2)
-    page.evaluate(ORLANDO_JS)
+    page.evaluate(WHOLE_ROWS_JS)
     page.evaluate("() => { window.__cap.layer().powerAmperage = 10; }")
     out = page.evaluate("""() => {
         const app = window.app, cap = window.__cap;
@@ -510,7 +510,7 @@ def test_maximize_power_at_24_a_circuit_cuts_mid_row_and_carries_the_snake_on(pa
     circuits of exactly 24 and a sixth of the six left over. Exactly the
     shape the organized rule refuses (one row per circuit)."""
     reset(page, columns=18, rows=7)
-    page.evaluate(ORLANDO_JS)
+    page.evaluate(WHOLE_ROWS_JS)
     out = page.evaluate("""() => {
         const app = window.app, cap = window.__cap;
         const l = cap.layer();

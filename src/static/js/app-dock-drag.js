@@ -633,6 +633,7 @@ class _DockDrag {
     _plugDropPlan(payload, layer) {
         const gate = this._plugGate(payload, layer);
         if (!gate.ok) return gate;
+        if (gate.faceRow) return this._facePlugDropPlan(payload, layer, gate);
         const { d, type, glyph } = gate;
         const plan = this.getSocaPlan(layer);
         const s = plan.find(x => !x.distroId);
@@ -713,6 +714,38 @@ class _DockDrag {
     // { ok: false, glyph, message }.
     _plugGate(payload, layer) {
         const d = this.getDistros().find(x => x.id === payload.distroId);
+        // A distro with a FACE (1.5): the payload names one of its rows
+        // ('face:r2'), or - from the right-click menu, which asks by the
+        // screen's own multi type - the first multi row that feeds it.
+        const face = d ? this.distroFace(d) : null;
+        if (face) {
+            let faceRow = this._faceRowFor(d, payload.output);
+            if (!faceRow && layer) {
+                const fits = face.rows.map(r => face.rowInfo.get(r.id))
+                    .filter(info => info.conn.kind === 'multi' && !info.row.pairedWith);
+                faceRow = fits.find(info =>
+                    this.faceBoxEligible(d, info.boxes[0], layer).ok) || null;
+                if (!faceRow) {
+                    const why = fits.length
+                        ? this.faceBoxEligible(d, fits[0].boxes[0], layer).why
+                        : `${d.name || d.id} has no multi outputs — drag one of its `
+                            + 'outputs onto a circuit';
+                    return { ok: false, glyph: 'soca', message: why };
+                }
+            }
+            if (!faceRow) {
+                return { ok: false, glyph: 'soca', message: 'That output no longer exists.' };
+            }
+            const type = this.faceBoxType(d, faceRow.boxes[0]);
+            if (!layer || (layer.type || 'screen') !== 'screen') {
+                return { ok: false, glyph: type.glyph,
+                         message: `${(layer && layer.name) || 'That layer'} `
+                            + 'draws no power.' };
+            }
+            const el = this.faceBoxEligible(d, faceRow.boxes[0], layer);
+            if (!el.ok) return { ok: false, glyph: type.glyph, message: el.why };
+            return { ok: true, d, type, glyph: type.glyph, faceRow };
+        }
         const type = this.getDistroOutputTypes()
             .find(t => t.id === payload.output);
         const glyph = type ? type.glyph : 'soca';
@@ -724,6 +757,11 @@ class _DockDrag {
                      message: `${(layer && layer.name) || 'That layer'} `
                         + 'draws no power.' };
         }
+        // The distro's SYSTEM first (1.5, bug fix 4): a screen whose voltage
+        // is neither its line-to-neutral nor its line-to-line figure has no
+        // circuit on it to run from.
+        const sysMsg = this.distroVoltageRefusal(d, layer);
+        if (sysMsg) return { ok: false, glyph, message: sysMsg };
         const voltsMsg = this._voltageMismatchMessage(type, layer);
         if (voltsMsg) return { ok: false, glyph, message: voltsMsg };
         const bt = this.getPowerBreakout(layer);
@@ -734,6 +772,74 @@ class _DockDrag {
                         + 'breakout first' };
         }
         return { ok: true, d, type, glyph };
+    }
+
+    // A face row's chip dropped on a screen (1.5): the row's first output
+    // nobody holds - nor its pair (ruling 7) - takes the screen's next
+    // unassigned multi (a multi row) or its next unassigned circuit (a
+    // direct row, one circuit per output), PINNED to that output so the
+    // number is the connector that was dragged. Same return shape as the
+    // plug plan; `face` tells the release which way to land it.
+    _facePlugDropPlan(payload, layer, gate) {
+        const { d, type, glyph, faceRow } = gate;
+        const numbers = this._distroMultiNumbers(d.id);
+        const direct = faceRow.conn.kind === 'direct';
+        const box = faceRow.boxes.find(b => !(numbers.get(b.number) || []).length
+            && !this._facePairedHolders(d, b.number, direct ? 1 : null).length);
+        if (!box) {
+            return { ok: false, glyph,
+                     message: `Every ${type.name} on ${d.name || d.id} is in use.` };
+        }
+        const plan = this.getSocaPlan(layer);
+        const s = plan.find(x => !x.distroId);
+        if (!s) {
+            return { ok: false, glyph,
+                     message: plan.length
+                        ? `Every circuit on ${layer.name} already has a distro. Drag `
+                            + 'one back onto the tray to free it.'
+                        : `${layer.name} has no circuits to feed.` };
+        }
+        const nums = direct ? [s.legs[0].circuit] : s.legs.map(g => g.circuit);
+        const amps = direct ? (s.legs[0].amps || 0) : s.amps;
+        const boxName = `${d.name || d.id} ${box.number}`;
+        return {
+            ok: true, glyph, face: true, direct,
+            socaIndex: (!direct || s.legs.length === 1) ? s.soca : null,
+            nums, number: box.number, boxName, amps, badge: type.badge, warn: null,
+            text: `${boxName} → circuit${nums.length === 1 ? '' : 's'} `
+                + `${this._fmtTails(nums).replace(/-/g, '–')} · ${Math.round(amps)} A`,
+        };
+    }
+
+    // The release of a face plan: a multi lands whole and pinned; a direct
+    // output takes its one circuit through the take rule (a cut either
+    // side of it where it was part of a multi), pinned. One entry.
+    _faceDropPlug(payload, layer, plan) {
+        // A locked screen stays unchanged until unlocked, and says so
+        // (owner, 2026-10-16).
+        if (layer.locked) {
+            this._showLockedError([layer]);
+            return;
+        }
+        if (plan.direct) {
+            const ordinal = this.screenCircuits(layer)
+                .findIndex(c => c.num === plan.nums[0]) + 1;
+            const r = this.takeSocaOnto(layer, ordinal, payload.distroId,
+                                        plan.number, 'Assign Multi Distro');
+            if (!r.ok) {
+                this._dockSay(this._takeRefusalText(
+                    payload, r, this.getPowerCircuitLabel(layer, plan.nums[0]), layer));
+                return;
+            }
+        } else {
+            const touched = new Set();
+            this.setSocaDistro(layer, plan.socaIndex, payload.distroId, false)
+                .forEach(l => touched.add(l));
+            this.setSocaNumber(layer, plan.socaIndex, plan.number, false)
+                .forEach(l => touched.add(l));
+            this.updateLayers([...touched], true, 'Assign Multi Distro');
+        }
+        this._restateNaming();
     }
 
     // A typed spare box dropped on a specific circuit: the plug gate, then
@@ -777,6 +883,12 @@ class _DockDrag {
 
     // The take's refusals in one voice, for the pill and the strip alike.
     _takeRefusalText(payload, r, label, layer) {
+        if (r.why === 'paired' && r.busy && r.busy.length) {
+            // A paired connector whose circuits are already patched
+            // through its pair (1.5, ruling 7).
+            return `${payload.title} shares its circuits with ${r.busy[0].label} `
+                + '(paired) - a circuit can be patched to either connector, not both.';
+        }
         if (r.why === 'other-box') {
             // A circuit on another box is somebody's feed: the drop never
             // pulls it off. Clear it first. The holder is named - "SR1" -
@@ -862,11 +974,16 @@ class _DockDrag {
         const layer = (this.project.layers || [])
             .find(l => l.id === target.layerId);
         if (!layer) return;
+        // A locked screen stays unchanged until unlocked, and says so - for
+        // every kind of output (a face row, an old-distro soca), not only
+        // the face path (_faceDropPlug keeps its own guard).
+        if (this._lockedRefused(layer)) return;
         const plan = this._plugDropPlan(payload, layer);
         if (!plan.ok) {
             this._dockSay(plan.message);
             return;
         }
+        if (plan.face) return this._faceDropPlug(payload, layer, plan);
         // The box this makes wears the type it was dragged as - stamped
         // before the assignment's entry, so the gesture stays one step.
         if (plan.number != null) {
@@ -905,6 +1022,29 @@ class _DockDrag {
             && this.getDistroLoads()) || [];
         const entries = distros.map(d => {
             const name = d.name || d.id;
+            if (this.distroFace(d)) {
+                // A face distro offers what its rows feed this screen.
+                const gate = this._plugGate({ distroId: d.id, output: null }, layer);
+                const load = loads.find(l => l.id === d.id);
+                const fig = load && load.ratingA > 0
+                    ? ` ${load.amps.toFixed(0)}/${load.ratingA} A` : '';
+                if (!gate.ok) {
+                    return { label: `${name} — ${gate.message}`, disabled: true,
+                             title: gate.message };
+                }
+                const payload = { type: 'plug', distroId: d.id,
+                                  output: `face:${gate.faceRow.row.id}`,
+                                  title: `${name} · ${gate.type.name}` };
+                const plan = this._plugDropPlan(payload, layer);
+                return {
+                    label: `${name}${fig}`, disabled: !plan.ok,
+                    title: plan.ok ? `${plan.text}. One undoable step.` : plan.message,
+                    run: () => {
+                        sendClientLog('dock_output_pick', { payload, layerId: layer.id });
+                        this._dockDropPlug(payload, { kind: 'screen', layerId: layer.id });
+                    },
+                };
+            }
             if (!this.distroOffers(d, type.id)) {
                 return {
                     label: `${name} — does not offer ${type.name}`,
@@ -1050,6 +1190,10 @@ class _DockDrag {
 
     _dockDropPort(payload, target) {
         if (target.kind === 'run') {
+            // Placing a port on a locked screen changes its data map.
+            const runLayer = (this.project.layers || [])
+                .find(l => String(l.id) === String(target.layerId));
+            if (this._lockedRefused(runLayer)) return;
             // The same request, question and undo entry the panels' Place
             // buttons sent: this plugs in there.
             return this._placePort({
@@ -1064,12 +1208,20 @@ class _DockDrag {
             // A mirrored return is not a claim of its own: it follows the
             // main, so the release is refused HERE, pointed at the socket
             // where clearing actually lands.
-            const occupants = all.filter(o => !o.role);
-            if (!occupants.length) {
+            const claimants = all.filter(o => !o.role);
+            if (!claimants.length) {
                 const back = all.find(o => o.role === 'return');
                 if (back) this._dockSay(this._returnFollowsNote(payload, back));
                 return;
             }
+            // A locked screen keeps its port: its claim stays, the rest are
+            // released, and the locked screens are named.
+            const layerOf = (o) => (this.project.layers || [])
+                .find(l => String(l.id) === String(o.layerId));
+            const lockedClaims = claimants.map(layerOf).filter(l => l && l.locked);
+            this._showLockedError(lockedClaims);
+            const occupants = claimants.filter(o => { const l = layerOf(o); return !(l && l.locked); });
+            if (!occupants.length) return;
             // Every claim on a socket is a pin - nothing lands any other
             // way - so every claimant is released. One release per
             // claimant, one history entry for the gesture: the snapshot is
@@ -1122,6 +1274,7 @@ class _DockDrag {
             const layer = (this.project.layers || [])
                 .find(l => l.id === target.layerId);
             if (!layer) return;
+            if (this._lockedRefused(layer)) return;
             // ONE rule for the whole-multi drop and the mid-multi drop
             // (user, 2026-09-04: "drag multi 2 onto 6 ports it only lets
             // me do 1 ... it should allow me to do up to 6"; 2026-09-05:
@@ -1138,6 +1291,15 @@ class _DockDrag {
                 .findIndex(c => c.num === target.num) + 1;
             if (!rec || at < 0 || ordinal < 1) return;
             const label = this.getPowerCircuitLabel(layer, target.num);
+            // The screen's voltage against the box (1.5, bug fix 4): a face
+            // box by its row, any other by the distro's system - for an
+            // occupied box too, whose drop is a join and carries no type.
+            const refusal = this._dockPowerVoltageRefusal(
+                payload.distroId, payload.number, layer);
+            if (refusal) {
+                this._dockSay(refusal);
+                return;
+            }
             if (payload.output) {
                 // A typed spare box: the plug gate and the take, exactly
                 // as the preview resolved them (_boxDropPlan); a refusal
@@ -1211,12 +1373,36 @@ class _DockDrag {
         const layer = (this.project.layers || [])
             .find(l => l.id === target.layerId);
         if (!layer) return;
+        // A locked screen's circuits stay where they are - onto an
+        // old-distro box or a face direct output alike.
+        if (this._lockedRefused(layer)) return;
         const nm = this._powerNaming(layer);
         const slot = nm.slots.get(target.num);
         const rec = slot ? nm.socas.get(slot.multi) : null;
         if (!rec) return;
         const label = this.getPowerCircuitLabel(layer, target.num);
         const n = parseInt(payload.number, 10);
+        const refusal = this._dockPowerVoltageRefusal(payload.distroId, n, layer);
+        if (refusal) {
+            this._dockSay(refusal);
+            return;
+        }
+        const tailD = this.getDistros().find(x => x.id === payload.distroId);
+        const tailBox = tailD ? this.faceBox(tailD, n) : null;
+        if (tailBox) {
+            if (payload.tail > tailBox.size) {
+                this._dockSay(`${payload.title} has ${tailBox.size} circuit`
+                    + `${tailBox.size === 1 ? '' : 's'}.`);
+                return;
+            }
+            const busy = this._facePairedHolders(tailD, n, payload.tail);
+            if (busy.length) {
+                this._dockSay(`${payload.title} is the same circuit as `
+                    + `${busy[0].label} (paired) - a circuit can be patched to `
+                    + 'either connector, not both.');
+                return;
+            }
+        }
         if (rec.pinned && rec.distroId === payload.distroId
                 && rec.number === n && slot.tail === payload.tail) {
             // Already exactly there - a no-op said out loud, not a refusal.
@@ -1279,6 +1465,7 @@ class _DockDrag {
         const layer = (this.project.layers || [])
             .find(l => l.id === target.layerId);
         if (!layer) return;
+        if (this._lockedRefused(layer)) return;
         if ((layer.type || 'screen') !== 'screen') {
             this._dockSay(`${layer.name || 'That layer'} draws no power.`);
             return;
@@ -1327,8 +1514,9 @@ class _DockDrag {
         // drop stamps its one box: before the assignment's entry, so the
         // gesture stays one undo step. The numbers are read off the
         // naming index now that the assignments are in.
-        const landedType = this.outputTypeForBreakout(
-            this.getPowerBreakout(layer), layer.powerVoltage);
+        const landedType = this.distroFace(this.getDistros()
+            .find(x => x.id === payload.distroId)) ? null
+            : this.outputTypeForBreakout(this.getPowerBreakout(layer), layer.powerVoltage);
         if (landedType) {
             this._circuitTailCache = null;
             const naming = this._powerNaming(layer);
@@ -1349,6 +1537,20 @@ class _DockDrag {
         this._restateNaming();
     }
 
+    // Why a screen cannot land on box (distroId, number) at all, or null:
+    // a face box by its row (voltage, stage pin at 208V, the multi's
+    // breakout), any other by the distro's system (bug fix 4).
+    _dockPowerVoltageRefusal(distroId, number, layer) {
+        const d = this.getDistros().find(x => x.id === distroId);
+        if (!d || !layer) return null;
+        const box = this.faceBox(d, number);
+        if (box) {
+            const el = this.faceBoxEligible(d, box, layer);
+            return el.ok ? null : el.why;
+        }
+        return this.distroVoltageRefusal(d, layer);
+    }
+
     // Why a whole-distro drop would refuse ONE of the screen's multis, or
     // null when the distro feeds it: the plug gate (_plugGate - the
     // output exists, the screen draws power, the type feeds the screen's
@@ -1359,6 +1561,13 @@ class _DockDrag {
     _distroDropRefusal(payload, layer, s) {
         const d = this.getDistros().find(x => x.id === payload.distroId);
         if (!d) return 'That distro no longer exists.';
+        // A face distro (1.5) feeds a multi where one of its multi outputs
+        // takes it - the auto numbering deals them; refused, with the
+        // first reason, where none can.
+        if (this.distroFace(d)) {
+            const gate = this._plugGate({ distroId: d.id, output: null }, layer);
+            return gate.ok ? null : gate.message;
+        }
         const bt = this.getPowerBreakout(layer);
         const type = this.outputTypeForBreakout(bt, layer.powerVoltage);
         if (!type) {

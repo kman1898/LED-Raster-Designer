@@ -316,7 +316,8 @@ Object.assign(CanvasRenderer.prototype, {
                 const ft = inner ? inner.get(b.srcPanel || b) : null;
                 if (ft == null) continue;
                 pendingJumps.push({
-                    text: `${ft}'`,
+                    // in the show's unit: "10'" / "3 m"
+                    text: window.app.cableLengthText(ft),
                     x: (a.x + a.width / 2 + b.x + b.width / 2) / 2,
                     y: (a.y + a.height / 2 + b.y + b.height / 2) / 2,
                 });
@@ -437,6 +438,14 @@ Object.assign(CanvasRenderer.prototype, {
                     && typeof window.app.powerCircuitCable === 'function') {
                 const cable = window.app.powerCircuitCable(layer, circuitNum);
                 if (cable) cableText = cable.text;
+                // A DIRECT output's own cable, distro to screen (1.5), when
+                // the circuit carries no cable of its own - only for a
+                // circuit alone on it: a crowded output's home run is no
+                // one circuit's cable (directCircuitCable).
+                if (!cableText && typeof window.app.directCircuitCable === 'function') {
+                    const direct = window.app.directCircuitCable(layer, circuitNum);
+                    if (direct) cableText = direct.text;
+                }
             }
             const gang = circuitNum != null ? gangByRun.get(circuitNum) || null : null;
             if (cableText || gang) pendingTags.push({ text: cableText, disc, gang, step });
@@ -813,7 +822,19 @@ Object.assign(CanvasRenderer.prototype, {
         this.ctx.strokeStyle = orange;
         this.ctx.fillStyle = orange;
         this.ctx.font = `bold ${labelSize}px ${projectFontFamily()}`;
+        // A box on a distro's FACE (1.5) wears its own connector's badge
+        // ("SOCAPEX 208V", "TRUE1 208V") - the face says what it is, not
+        // the screen's breakout.
+        const app = window.app;
+        const faceBadge = (s) => {
+            if (!s.distroId || typeof app.faceBox !== 'function') return null;
+            const d = app.getDistros().find(x => x.id === s.distroId);
+            const box = d ? app.faceBox(d, s.number) : null;
+            return box ? app.faceBoxType(d, box).badge : null;
+        };
+        const sharedBadge = badgeText;
         for (const { s, r } of placed) {
+            const badgeText = faceBadge(s) || sharedBadge;
             const dashed = !!(pend && pend.socaIndex === s.soca);
             const y = top - baseGap - r * rowH;
             const tick = labelSize * 0.45;
@@ -863,8 +884,14 @@ Object.assign(CanvasRenderer.prototype, {
             }
             // Home-run lengths are paperwork: they print on exported maps
             // (like the Binder's power diagram) but stay off the working view.
+            // A circuit alone on a DIRECT output prints its one cable - the
+            // circuit's own when typed - as the tag and the pull sheet do.
+            const lone = this.exportMode && s.distroId && (s.legs || []).length === 1
+                && typeof app.directCircuitCable === 'function'
+                ? app.directCircuitCable(layer, s.legs[0].circuit) : null;
+            const homeRun = this.exportMode ? this._homeRunText(lone ? lone.ft : s.length) : '';
             const label = (dashed ? pend.boxName : s.name)
-                + (this.exportMode && s.length ? ` · ${s.length}` : '')
+                + (homeRun ? ` · ${homeRun}` : '')
                 + ` · ${s.amps.toFixed(1)}A`;
             const cx = (s.x1 + s.x2) / 2;
             const tw = this.ctx.measureText(label).width;
@@ -937,6 +964,17 @@ Object.assign(CanvasRenderer.prototype, {
             this.ctx.restore();
         }
         this.ctx.restore();
+    },
+
+    // A multi's typed home run as the exported map's bracket prints it,
+    // in the show's unit ("100'" / "30 m"): the pull sheet's own reading
+    // (app-cable-units.js parseCableLength - a number, or one with the
+    // show's unit), '' for no length.
+    _homeRunText(raw) {
+        if (window.app && typeof window.app.cableLengthText === 'function') {
+            return window.app.cableLengthText(raw);
+        }
+        return String(raw == null ? '' : raw).trim();
     },
 
     // The plug drag's pending box on this screen, off the dock's live drop
@@ -1219,7 +1257,7 @@ Object.assign(CanvasRenderer.prototype, {
     // PLACED wins. `taken` is those pills, in the order they were placed:
     // without it a tag hung right off one label and a tag hung left off
     // the next printed clean through each other, each of them clear of
-    // every DISC and neither of them aware of the other (Kelly, SL ·
+    // every DISC and neither of them aware of the other (show A, SL ·
     // POWER, 2026-09-09: "5' True1" and "10' True1" overprinted by 185 x
     // 51 pixels of the map).
     // When no side is clear the spacing gives way before the layout does:
@@ -1320,7 +1358,7 @@ Object.assign(CanvasRenderer.prototype, {
     // is held the lesser of that and the stand-off cableTagRect gave it
     // (`rc.gap`): a pill where cableTagRect hung it is clear, one the
     // screen's edge slid in toward its disc is not - a head on the top
-    // row of a short wall (Kelly's DJ Booth, data, 2026-09-25) had its tag
+    // row of a short wall (show A's DJ Booth, data, 2026-09-25) had its tag
     // pushed down to a third of its height off the disc, the rims reading
     // as one; it goes to the other side instead.
     _tagCover(bounds, discs, own, taken, withOwn) {

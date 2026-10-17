@@ -506,26 +506,26 @@ def test_the_row_shows_only_for_psd_and_remembers_its_choice(page):
 
 # ── the user's own show ───────────────────────────────────────────────────
 
-EXPERTS_JSON = private_fixture('experts-only-fixture.json', 'LRD_EXPERTS_JSON')
+LIVE_SHOW_B_JSON = private_fixture('live-show-b.json', 'LRD_LIVE_SHOW_B_JSON')
 # A Pixel Map PNG export (transparent background, canvas 1) of that show
 # captured BEFORE the stage filter went into the renderer - an older
 # build's output, so the current build cannot regenerate it; frozen beside
 # the save in the private fixtures folder, or wherever LRD_PSD_BEFORE_PNG
 # points.
-BEFORE_PNG = private_fixture('experts-only-pixel-map-before.png', 'LRD_PSD_BEFORE_PNG')
+BEFORE_PNG = private_fixture('live-show-b-pixel-map-before.png', 'LRD_PSD_BEFORE_PNG')
 
 
-@pytest.mark.skipif(bool(private_fixture_missing(EXPERTS_JSON, BEFORE_PNG)),
-                    reason=str(private_fixture_missing(EXPERTS_JSON, BEFORE_PNG)))
+@pytest.mark.skipif(bool(private_fixture_missing(LIVE_SHOW_B_JSON, BEFORE_PNG)),
+                    reason=str(private_fixture_missing(LIVE_SHOW_B_JSON, BEFORE_PNG)))
 # The frozen picture was captured on a Mac, and its resolution label is drawn
 # in Helvetica. Elsewhere the label falls back to Arial: on Windows every
 # pixel matched except that label's. An old build made the picture, so it
 # cannot be re-captured per platform.
 @pytest.mark.skipif(sys.platform != 'darwin',
                     reason='the before picture was captured on macOS; its text is in Helvetica')
-def test_the_experts_only_pixel_map_is_the_picture_it_was_before_the_filter(page):
+def test_the_live_show_b_pixel_map_is_the_picture_it_was_before_the_filter(page):
     pg, errors = page
-    with open(EXPERTS_JSON, encoding='utf-8') as fh:
+    with open(LIVE_SHOW_B_JSON, encoding='utf-8') as fh:
         project = json.load(fh)
     pg.evaluate("""async (project) => {
         const app = window.app;

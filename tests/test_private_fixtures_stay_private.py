@@ -43,8 +43,8 @@ def test_nothing_under_the_private_fixtures_folder_is_tracked():
         'client show data is tracked in the public repo - `git rm --cached` it: %s' % tracked)
 
 
-@pytest.mark.parametrize('name', ['experts-only-fixture.json', 'kelly.json',
-                                  'kelly-live-fixture.json', 'any-new-show.json'])
+@pytest.mark.parametrize('name', ['live-show-b.json', 'live-show-a.json',
+                                  'live-show-a-live.json', 'any-new-show.json'])
 def test_gitignore_keeps_the_folder_out(name):
     """check-ignore judges the path whether or not the file exists, so this
     holds in CI too, where the folder is empty."""

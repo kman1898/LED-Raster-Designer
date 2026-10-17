@@ -1,6 +1,6 @@
 """The binder's WIRING sheets (app-binder-wiring.js) - a screen's POWER
 WIRING sheet right behind its Power sheet, its DATA WIRING sheet right
-behind its Data sheet (2026-09-08, on the last page of the NACUBO packet:
+behind its Data sheet (2026-09-08, on the last page of a client's packet:
 "he gave an example his binder and we could do this for power and data
 drawing from a port to port … the last page is what i was talking about").
 
@@ -91,13 +91,13 @@ from conftest import private_fixture, private_fixture_missing  # noqa: E402
 HERE = os.path.dirname(os.path.abspath(__file__))
 pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
-# Kelly Clarkson, frozen beside the Experts Only fixture: the vertical-flow
+# Live show A, frozen beside the live show B fixture: the vertical-flow
 # screens (every circuit on the wall's top row) and the two screens whose
 # ports are on no card at all.
-KELLY_FIXTURE = private_fixture('kelly.json', 'LRD_KELLY_JSON')
-# Kelly as the USER EXPORTED HER - the show the fault was seen on (UPSTAGE
-# 22 x 7, SR and SL 9 x 6), frozen beside the Experts Only fixture.
-KELLY_LIVE = private_fixture('kelly-live-fixture.json', 'LRD_KELLY_LIVE_JSON')
+SHOW_A_FIXTURE = private_fixture('live-show-a.json', 'LRD_LIVE_SHOW_A_SAVE_JSON')
+# Live show A as the USER EXPORTED IT - the show the fault was seen on (UPSTAGE
+# 22 x 7, SR and SL 9 x 6), frozen beside the live show B fixture.
+SHOW_A_LIVE = private_fixture('live-show-a-live.json', 'LRD_LIVE_SHOW_A_JSON')
 
 # app-binder-wiring.js, in the prototype's units; a half scales them by K.
 PROTO_W = 1000
@@ -1068,8 +1068,8 @@ def test_the_wiring_tick_takes_both_sheets_and_they_follow_the_maps_choice(page)
 
 @pytest.mark.skipif(bool(private_fixture_missing(SCRATCH_FIXTURE)),
                     reason=str(private_fixture_missing(SCRATCH_FIXTURE)))
-def test_smoke_experts_only_sr_main(page):
-    """The frozen Experts Only show, SR - MAIN's four sheets on Tabloid:
+def test_smoke_live_show_b_sr_main(page):
+    """The frozen live show B, SR - MAIN's four sheets on Tabloid:
     2.1 POWER, 2.2 POWER WIRING (view 3), 2.3 DATA, 2.4 DATA WIRING
     (view 5) - SR's beach first - each wiring sheet one side on the whole
     drawing area.
@@ -1110,8 +1110,8 @@ def test_smoke_experts_only_sr_main(page):
         [['2.1', 'SR - MAIN - Power - Front View'], ['2.2', 'SR - MAIN - Power Wiring'],
          ['2.3', 'SR - MAIN - Data - Front View'], ['2.4', 'SR - MAIN - Data Wiring']]
     assert len(plan) == 20 and [p[3] for p in plan][:17] == list(range(1, 18)) and [p[3] for p in plan][17:] == [None] * 3
-    _title_block(pw['texts'], 'SR - MAIN · POWER WIRING', '2.2', show='2026 Experts Only')
-    _title_block(dw['texts'], 'SR - MAIN · DATA WIRING', '2.4', show='2026 Experts Only')
+    _title_block(pw['texts'], 'SR - MAIN · POWER WIRING', '2.2', show=project['name'])
+    _title_block(dw['texts'], 'SR - MAIN · DATA WIRING', '2.4', show=project['name'])
     assert pw['bubble']['number'] == 3 and pw['bubble']['name'] == 'SR - MAIN · POWER WIRING'
     assert dw['bubble']['number'] == 5 and dw['bubble']['name'] == 'SR - MAIN · DATA WIRING'
     pwr = _one_side(pw, 'power')
@@ -1262,10 +1262,10 @@ def test_smoke_experts_only_sr_main(page):
     assert ids['errors'] == []
 
 
-@pytest.mark.skipif(bool(private_fixture_missing(KELLY_FIXTURE)),
-                    reason=str(private_fixture_missing(KELLY_FIXTURE)))
+@pytest.mark.skipif(bool(private_fixture_missing(SHOW_A_FIXTURE)),
+                    reason=str(private_fixture_missing(SHOW_A_FIXTURE)))
 def test_a_row_of_circuits_leaves_by_the_top_and_an_unplaced_port_draws_no_run(page):
-    """Kelly Clarkson's SR, frozen: a VERTICAL FLOW - every circuit begins
+    """Live show A's SR, frozen: a VERTICAL FLOW - every circuit begins
     on the wall's TOP ROW, so the discs stand shoulder to shoulder along it
     with a cable tag between each pair. Only the two at the ends can leave
     by a side; the rest are blocked both ways by their neighbours and go up
@@ -1274,13 +1274,13 @@ def test_a_row_of_circuits_leaves_by_the_top_and_an_unplaced_port_draws_no_run(p
     their discs, no run at all, and its Data Wiring sheet prints "6 of 6 not
     placed on any card" once.
 
-    The save frozen as kelly.json on 2026-09-09 had SR's ports on no card;
-    the save frozen now (2026-09-24, the same file as kelly-live-fixture)
+    The save frozen as live-show-a.json on 2026-09-09 had SR's ports on no card;
+    the save frozen now (2026-09-24, the same file as live-show-a-live)
     has them on card IMAG SR. So the test takes SR's pins off before it
     loads the show - the wall, its circuits and every other screen as saved
     - which is the state the earlier save was in."""
     pg, ids = page
-    with open(KELLY_FIXTURE, encoding='utf-8') as fh:
+    with open(SHOW_A_FIXTURE, encoding='utf-8') as fh:
         project = json.load(fh)
     sr = next(l['id'] for l in project['layers'] if l['name'] == 'SR')
     pins = project['port_assignments']['pins']
@@ -1318,13 +1318,13 @@ def test_a_row_of_circuits_leaves_by_the_top_and_an_unplaced_port_draws_no_run(p
     line = [t for t in dout['texts'] if 'not placed on any card' in t]
     assert len(line) == 1 and line[0].startswith('6 of 6 not placed on any card'), dout['texts']
     assert not [t for t in out['texts'] if 'not placed on any card' in t], 'the line is the data sheet own'
-    _drop_pdf(pg, opts, 'SR - Power Wiring', 'kelly-sr-power-wiring.pdf')
-    _drop_pdf(pg, opts, 'SR - Data Wiring', 'kelly-sr-data-wiring.pdf')
+    _drop_pdf(pg, opts, 'SR - Power Wiring', 'live-show-a-sr-power-wiring.pdf')
+    _drop_pdf(pg, opts, 'SR - Data Wiring', 'live-show-a-sr-data-wiring.pdf')
     assert ids['errors'] == []
 
 
-@pytest.mark.skipif(bool(private_fixture_missing(KELLY_FIXTURE)),
-                    reason=str(private_fixture_missing(KELLY_FIXTURE)))
+@pytest.mark.skipif(bool(private_fixture_missing(SHOW_A_FIXTURE)),
+                    reason=str(private_fixture_missing(SHOW_A_FIXTURE)))
 @pytest.mark.parametrize('palette', ['colour', 'printer'])
 def test_the_dj_booth_sheet_the_user_pointed_at(page, palette):
     """Page 4 of the user's own rev 1.3 export. A 9 x 2 wall whose label
@@ -1338,7 +1338,7 @@ def test_the_dj_booth_sheet_the_user_pointed_at(page, palette):
     it, and back along a lane under its foot - four segments, and nothing of
     the wall crossed but the stub off its own disc."""
     pg, ids = page
-    with open(KELLY_FIXTURE, encoding='utf-8') as fh:
+    with open(SHOW_A_FIXTURE, encoding='utf-8') as fh:
         pg.evaluate(LOAD_JS, json.load(fh))
     opts = {**json.loads(_SHOW_JSON), 'palette': palette}
     halves = [h for title in _wiring('DJ Booth') for h in _probe(pg, opts, title)]
@@ -1385,11 +1385,11 @@ def _sweep_off_the_wall(pg, fixture, palette, titles):
     return seen
 
 
-@pytest.mark.skipif(bool(private_fixture_missing(KELLY_LIVE)),
-                    reason=str(private_fixture_missing(KELLY_LIVE)))
+@pytest.mark.skipif(bool(private_fixture_missing(SHOW_A_LIVE)),
+                    reason=str(private_fixture_missing(SHOW_A_LIVE)))
 @pytest.mark.parametrize('palette', ['colour', 'printer'])
-def test_kelly_live_runs_travel_outside_the_wall(page, palette):
-    """Kelly Clarkson as the user exported her - UPSTAGE 22 x 7, SR and SL
+def test_live_show_a_runs_travel_outside_the_wall(page, palette):
+    """Live show A as the user exported it - UPSTAGE 22 x 7, SR and SL
     9 x 6, both palettes.
 
     SR's signal half is where it was clearest: the card block spans the
@@ -1400,7 +1400,7 @@ def test_kelly_live_runs_travel_outside_the_wall(page, palette):
     to the nearest edge, and not one may be drawn over a disc, a cable tag,
     a gang pill, a band or a ruler label."""
     pg, ids = page
-    n = _sweep_off_the_wall(pg, KELLY_LIVE, palette,
+    n = _sweep_off_the_wall(pg, SHOW_A_LIVE, palette,
                             _wiring('SR') + _wiring('SL') + _wiring('UPSTAGE'))
     assert n >= 40, ('the sweep read almost no runs at all', n)
     assert ids['errors'] == []
@@ -1409,8 +1409,8 @@ def test_kelly_live_runs_travel_outside_the_wall(page, palette):
 @pytest.mark.skipif(bool(private_fixture_missing(SCRATCH_FIXTURE)),
                     reason=str(private_fixture_missing(SCRATCH_FIXTURE)))
 @pytest.mark.parametrize('palette', ['colour', 'printer'])
-def test_experts_only_runs_travel_outside_the_wall(page, palette):
-    """The frozen Experts Only show, SR - MAIN: 22 circuits on four multis
+def test_live_show_b_runs_travel_outside_the_wall(page, palette):
+    """The frozen live show B, SR - MAIN: 22 circuits on four multis
     and eight port ends on two cards, on a 28-column wall whose blocks
     stand right across the sheet - two of the four breakouts sit under the
     wall itself, so their runs are the ones that must go round it."""

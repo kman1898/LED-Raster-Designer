@@ -821,11 +821,12 @@ def test_brackets_wear_the_type_badge_on_screen_and_in_export(page):
     pg.wait_for_timeout(600)
     on_screen = pg.evaluate(BRACKET_TEXTS_JS, [ids['aId'], False])
     assert on_screen.count('MULTI 208') == 2, on_screen   # one per multi
-    assert any(t.startswith('PD1 · ') and '100ft' not in t
+    assert any(t.startswith('PD1 · ') and '100' not in t
                for t in on_screen), on_screen
     exported = pg.evaluate(BRACKET_TEXTS_JS, [ids['aId'], True])
     assert exported.count('MULTI 208') == 2, exported
-    assert any(t.startswith('PD1 · 100ft · ') for t in exported), exported
+    # typed "100ft" in a feet show is 100 ft, printed the papers' way
+    assert any(t.startswith("PD1 · 100' · ") for t in exported), exported
     assert 'L21-30' in pg.evaluate(BRACKET_TEXTS_JS, [ids['bId'], True])
     # Edison screen: MULTI 120 off the default breakout
     pg.evaluate("""(ids) => {
@@ -913,68 +914,46 @@ def test_a_distro_with_no_outputs_key_still_drags_whole(page):
 
 # ── the voltage class is a range ──────────────────────────────────────────
 
-def test_a_230v_screen_gates_as_the_208_class(page):
-    """220 / 230 / 240 are stock voltage options and behave exactly as 208
-    does for gating: a Multi 208 lands on a 230V True1 screen and the box
-    reads Multi 208 with no clash, a Multi 120 is refused naming the
-    screen's voltage, and the L21-30 - documented at 208V only - is
-    refused by voltage too, with the exact figure it feeds. The refusal
-    wording says "screens above 120V" / "screens up to 120V", never a
-    list of voltages the class does not stop at."""
+def test_a_220v_or_230v_screen_is_refused_by_a_120_208_distro(page):
+    """220 / 230 / 240 used to gate exactly as 208 does (the 208 class).
+
+    1.5, bug fix 4 (owner, 2026-10-16): "A 230 V screen on a 208 distro
+    passes _voltageClass and is booked LN at W/230, a voltage 208Y doesn't
+    have. Refuse a screen whose voltage is neither the distro system's V_LN
+    nor its V_LL" - and, asked about 220V: "you cant have 220v on 208
+    distro right?" A 120/208 distro gives 120V or 208V; a screen at
+    anything else is refused by the distro's system, before any output's
+    own gate, in plain words with the fix - whatever chip is dragged - and
+    nothing mutates. The class helper itself is unchanged."""
     pg, ids = page
-    pg.evaluate(RESET_JS, ids)
-    pg.evaluate("""(ids) => {
-        const app = window.app;
-        const b = app.project.layers.find(x => x.id === ids.bId);
-        b.powerVoltage = 230;
-        b.powerBreakoutType = 'soca-true1';
-        app.updateLayers([b]);
-        app._restateNaming();
-    }""", ids)
-    pg.wait_for_timeout(600)
     d = ids['distroId']
-    n = pg.evaluate(HIST_LEN_JS)
     tgt = panel_point(pg, ids['bId'], {})
-    # Multi 120 against 230V: refused for the voltage, class wording
-    sx, sy = chip_center(pg, f'plug-{d}-soca120')
-    mid = drag(pg, sx, sy, tgt['x'], tgt['y'],
-               mid_check=lambda p: p.evaluate(MID_JS, ids['bId']))
-    assert mid['lit'] == [] and mid['pill']['cls'] == 'hw-dock-pill-bad', mid
-    assert mid['pill']['text'] == \
-        'WALL B runs at 230V — a Multi 120 output feeds screens up to 120V', mid
-    assert pg.evaluate(POWER_STATE_JS, ids['bId'])['distro'] == {}
-    # L21-30 against 230V: refused for the voltage, the exact figure
-    sx, sy = chip_center(pg, f'plug-{d}-l2130')
-    mid = drag(pg, sx, sy, tgt['x'], tgt['y'],
-               mid_check=lambda p: p.evaluate(MID_JS, ids['bId']))
-    assert mid['lit'] == [] and mid['pill']['cls'] == 'hw-dock-pill-bad', mid
-    assert mid['pill']['text'] == \
-        'WALL B runs at 230V — an L21-30 output feeds 208V screens', mid
-    assert pg.evaluate(POWER_STATE_JS, ids['bId'])['distro'] == {}
-    assert pg.evaluate(HIST_LEN_JS) == n
-    # Multi 208 lands, and the box it makes reads Multi 208 without a clash
-    sx, sy = chip_center(pg, f'plug-{d}-soca208')
-    mid = drag(pg, sx, sy, tgt['x'], tgt['y'],
-               mid_check=lambda p: p.evaluate(MID_JS, ids['bId']))
-    assert mid['lit'] == [1, 2, 3] and mid['pill']['cls'] == '', mid
-    assert pg.evaluate(POWER_STATE_JS, ids['bId'])['distro'] == {'1': d}
-    box = pg.evaluate("""(ids) => {
-        const app = window.app;
-        const dd = app.getDistros().find(x => x.id === ids.distroId);
-        const n = [...app._distroMultiNumbers(dd.id).keys()][0];
-        const r = app.distroBoxType(dd, n);
-        delete dd.boxTypes;
-        const implied = app.distroBoxType(dd, n);
-        return { stored: [r.type.id, r.source, r.clash],
-                 implied: [implied.type.id, implied.source, implied.clash],
-                 cls: [app._voltageClass(230), app._voltageClass(240),
-                       app._voltageClass(208), app._voltageClass(120),
-                       app._voltageClass(110), app._voltageClass(''),
-                       app._voltageClass(null)] };
-    }""", ids)
-    assert box['stored'] == ['soca208', 'stored', False], box
-    assert box['implied'] == ['soca208', 'members', False], box
-    assert box['cls'] == [208, 208, 208, 120, 120, None, None], box
+    for volts in (220, 230):
+        pg.evaluate(RESET_JS, ids)
+        pg.evaluate("""([ids, v]) => {
+            const app = window.app;
+            const b = app.project.layers.find(x => x.id === ids.bId);
+            b.powerVoltage = v;
+            b.powerBreakoutType = 'soca-true1';
+            app.updateLayers([b]);
+            app._restateNaming();
+        }""", [ids, volts])
+        pg.wait_for_timeout(600)
+        n = pg.evaluate(HIST_LEN_JS)
+        for chip in ('soca208', 'soca120', 'l2130'):
+            sx, sy = chip_center(pg, f'plug-{d}-{chip}')
+            mid = drag(pg, sx, sy, tgt['x'], tgt['y'],
+                       mid_check=lambda p: p.evaluate(MID_JS, ids['bId']))
+            assert mid['lit'] == [] and mid['pill']['cls'] == 'hw-dock-pill-bad', (chip, mid)
+            assert mid['pill']['text'] == (
+                f'WALL B runs at {volts}V — PD gives 120V or 208V. Set the screen to 208V.'), mid
+            assert pg.evaluate(POWER_STATE_JS, ids['bId'])['distro'] == {}
+        assert pg.evaluate(HIST_LEN_JS) == n
+    cls = pg.evaluate("""() => { const app = window.app;
+        return [app._voltageClass(230), app._voltageClass(240), app._voltageClass(208),
+                app._voltageClass(120), app._voltageClass(110), app._voltageClass(''),
+                app._voltageClass(null)]; }""")
+    assert cls == [208, 208, 208, 120, 120, None, None], cls
     pg.evaluate(RESET_JS, ids)
 
 

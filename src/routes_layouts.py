@@ -12,6 +12,8 @@ reach a screen as something it cannot read.
 import json
 import os
 import re
+import tempfile
+import threading
 
 from flask import Blueprint, request, jsonify
 
@@ -30,6 +32,10 @@ BARS = {'menu', 'status', 'tabs'}
 EDGES = {'left', 'right', 'top', 'bottom'}
 FOLD_KEYS = {'left', 'right', 'dock'}
 SIZE_KEY = re.compile(r'^lrd_[a-z_]+$')
+
+# One save or delete at a time: each reads the file, changes it and writes
+# it back, and two at once lost one of the saves.
+_lock = threading.Lock()
 
 
 def _clean_name(name):
@@ -80,11 +86,20 @@ def _read():
 
 
 def _write(items):
-    os.makedirs(os.path.dirname(LAYOUTS_FILE), exist_ok=True)
-    tmp = LAYOUTS_FILE + '.tmp'
-    with open(tmp, 'w', encoding='utf-8') as f:
-        json.dump({'layouts': items}, f, ensure_ascii=False, indent=1)
-    os.replace(tmp, LAYOUTS_FILE)
+    folder = os.path.dirname(LAYOUTS_FILE)
+    os.makedirs(folder, exist_ok=True)
+    # A temp file of its own, so two writers never replace each other's.
+    fd, tmp = tempfile.mkstemp(dir=folder, prefix='.layouts-', suffix='.tmp')
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as f:
+            json.dump({'layouts': items}, f, ensure_ascii=False, indent=1)
+        os.replace(tmp, LAYOUTS_FILE)
+    except BaseException:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def _sorted(items):
@@ -107,11 +122,12 @@ def save_layout():
     if not _valid_layout(layout):
         log_event('layout_save_rejected', {'name': name})
         return jsonify({'error': 'that is not a layout this app can open'}), 400
-    items = [i for i in _read() if i['name'].lower() != name.lower()]
-    if len(items) >= MAX_LAYOUTS:
-        return jsonify({'error': f'{MAX_LAYOUTS} layouts are saved already - delete one first'}), 400
-    items.append({'name': name, 'layout': layout})
-    _write(items)
+    with _lock:
+        items = [i for i in _read() if i['name'].lower() != name.lower()]
+        if len(items) >= MAX_LAYOUTS:
+            return jsonify({'error': f'{MAX_LAYOUTS} layouts are saved already - delete one first'}), 400
+        items.append({'name': name, 'layout': layout})
+        _write(items)
     log_event('layout_saved', {'name': name})
     return jsonify({'layouts': _sorted(items)})
 
@@ -120,10 +136,11 @@ def save_layout():
 def delete_layout():
     data = request.get_json(silent=True) or {}
     name = _clean_name(data.get('name'))
-    items = _read()
-    kept = [i for i in items if not name or i['name'].lower() != name.lower()]
-    if len(kept) == len(items):
-        return jsonify({'error': 'no layout by that name'}), 404
-    _write(kept)
+    with _lock:
+        items = _read()
+        kept = [i for i in items if not name or i['name'].lower() != name.lower()]
+        if len(kept) == len(items):
+            return jsonify({'error': 'no layout by that name'}), 404
+        _write(kept)
     log_event('layout_deleted', {'name': name})
     return jsonify({'layouts': _sorted(kept)})

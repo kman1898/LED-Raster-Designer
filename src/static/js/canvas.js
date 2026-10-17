@@ -1518,6 +1518,7 @@ class CanvasRenderer {
                 app._activateCanvasForLayer(layer, { preserveSelection: true });
             }
         }
+        if (typeof app._screenSelectionChanged === 'function') app._screenSelectionChanged();
         if (typeof app.renderLayers === 'function') app.renderLayers();
         if (typeof app.loadLayerToInputs === 'function') app.loadLayerToInputs();
         this.render();
@@ -1587,10 +1588,13 @@ class CanvasRenderer {
     // already BE that peer), and a marquee started over the next screen of the
     // wall would fill the peer's port instead of the one the user has open.
     //
-    // Only the currentLayer promotion is suppressed - the canvas activation
-    // above it still runs, and everything outside custom mode is untouched, so
-    // clicking a peer to select it works exactly as before whenever the user is
-    // not mid-draw.
+    // The currentLayer promotion is suppressed, and so is the canvas
+    // activation above it (1.5): a peer is only reachable on the owner's own
+    // show canvas, so activating the peer's PROCESSOR canvas could only cull
+    // the selection - and the owner with it - when the peer is driven from
+    // another processor canvas. Everything outside custom mode is untouched,
+    // so clicking a peer to select it works exactly as before whenever the
+    // user is not mid-draw.
     _isCustomPathGesture(hitLayer) {
         const app = window.app;
         if (!app || !hitLayer) return false;
@@ -1603,6 +1607,28 @@ class CanvasRenderer {
         if (!drawing) return false;
         if (typeof app.canPathReachLayer !== 'function') return false;
         return !!app.canPathReachLayer(owner, hitLayer);
+    }
+
+    // Is a press on `hitLayer` a Pixel Map CABINET gesture on another selected
+    // screen, rather than a request to switch to that screen?
+    //
+    // The owner's ruling (2026-10-16): with several screens selected, a
+    // marquee, a click or a Cmd/Ctrl-click on Pixel Map selects cabinets on
+    // any of them. Promoting the pressed screen to currentLayer runs
+    // selectLayer, which narrows the selection to that one screen (and its
+    // group) and drops the cabinet selection - so the second screen of a
+    // selection could never be reached. Only a screen already in the Pixel
+    // Map scope (app getPixelMapScopeLayers) counts; pressing an unselected
+    // screen still selects it exactly as before. A plain CLICK on another
+    // selected screen with no cabinet selection open still picks that screen
+    // - decided at mouse-up (canvas-input.js), once a drag is ruled out.
+    _isPixelMapCabinetGesture(hitLayer) {
+        const app = window.app;
+        if (!app || !hitLayer || this.viewMode !== 'pixel-map') return false;
+        const current = app.currentLayer;
+        if (!current || current.id === hitLayer.id) return false;
+        if (typeof app.isPixelMapScopeLayer !== 'function') return false;
+        return !!app.isPixelMapScopeLayer(hitLayer);
     }
 
     // Does a press at this point belong to the custom path being drawn?
@@ -1869,10 +1895,8 @@ class CanvasRenderer {
     // row and column instead. (getPowerPanelKey itself stays `${row},${col}`,
     // one map per layer keyed by that layer's own grid; the SCOPED twin lives
     // beside it rather than replacing it, so every existing per-layer lookup is
-    // untouched. The two custom-selection overlays did move to scoped keys in
-    // v0.11.0 - see _resolveSelectionKey - but pixelMapSelection still parses
-    // `key.split(',').map(parseInt)`, where `parseInt("3:0")` is 3 and a scoped
-    // key would silently address the wrong panel with no error at all.)
+    // untouched. The two custom-selection overlays moved to scoped keys in
+    // v0.11.0 - see _resolveSelectionKey - and pixelMapSelection in 1.5.)
     _powerCircuitForPanel(layer, panel) {
         if (layer._powerPanelCircuitMap instanceof Map) {
             const n = layer._powerPanelCircuitMap.get(this.getPowerPanelKey(panel));

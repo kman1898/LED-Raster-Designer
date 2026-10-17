@@ -376,7 +376,7 @@ def test_manual_split_pin_defeats_auto_pack(page):
 
 # ── 6b. half-tile walls & the manual id-space seam ────────────────────────
 #
-# The reference show (2026 NCMF, "CEN SRRR TOWER"): a 6x11 tower whose
+# The reference show (live show C, "CEN SRRR TOWER"): a 6x11 tower whose
 # bottom four rows are half-height tiles, at watts that close the plain
 # filler's circuit 4 on {full row, half row} and circuit 5 on the last
 # three half rows. The screen also carried DORMANT custom circuits (12

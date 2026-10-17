@@ -188,7 +188,10 @@ class _MenuBar {
     // canvas) - canvases share a coordinate space, so a screen lands where it
     // already was rather than jumping to the corner.
     openMoveToCanvasMenu() {
-        const layers = this.getSelectedLayers().filter(l => !l.locked);
+        // Locked screens are offered with the rest; picking a canvas moves
+        // the unlocked ones and names the locked ones (a locked screen stays
+        // where it is - the owner's ruling, 2026-10-16).
+        const layers = this.getSelectedLayers().filter(Boolean);
         if (layers.length === 0) return;
         const canvases = (this.project && this.project.canvases) || [];
         // Where the selection already lives. With a mixed selection every
@@ -229,6 +232,14 @@ class _MenuBar {
                 e.stopPropagation();
                 const canvasId = btn.dataset.canvasId;
                 close();
+                // A locked screen stays, and so does a member of a wall
+                // that has a locked member (_canvasMovePlan): one error
+                // names them all.
+                const plan = this._canvasMovePlan(layers.map(l => l.id), canvasId);
+                this._showLockedError(plan.locked);
+                const goingIds = new Set(plan.ids);
+                const going = layers.filter(l => goingIds.has(l.id));
+                if (going.length === 0) return;
                 // ONE BATCH, not a layer at a time, because a group is one
                 // wall. /api/layer/<id>/canvas can only ever see ONE layer,
                 // so it has to assume the rest of the wall is staying where
@@ -246,8 +257,8 @@ class _MenuBar {
                 // a mixed selection they can be members of a wall the rest of
                 // the batch is bringing, and the batch has to see all of it
                 // to recognize a whole wall; the PUT is a no-op move for them.
-                await this.moveLayersCrossCanvas(layers.map(l => l.id), canvasId, 'move');
-                sendClientLog('move_to_canvas', { count: layers.length, canvasId });
+                await this.moveLayersCrossCanvas(going.map(l => l.id), canvasId, 'move');
+                sendClientLog('move_to_canvas', { count: going.length, canvasId });
             });
         });
     }
@@ -316,6 +327,9 @@ class _MenuBar {
                 break;
             case 'remove-from-group':
                 this.removeSelectedFromGroup();
+                break;
+            case 'custom-mode-toggle':
+                this.runCustomModeMenu();
                 break;
             case 'center-x':
                 this.centerLayersOnCanvas('x');

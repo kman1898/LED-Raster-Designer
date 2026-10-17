@@ -45,7 +45,7 @@ TABS = {
               # the breakout default sits under the default voltage it is
               # gated by (2026-09-22: "that should be set in preferences")
               'pref-breakout-type'],
-    'distros': ['pref-distro-rating', 'pref-distro-voltage', 'pref-distro-phase',
+    'distros': ['pref-distro-rating', 'pref-distro-system',
                 'pref-multi-type', 'pref-splitters-enabled'],
     'binder': ['pref-binder-sheet', 'pref-binder-screen-order', 'pref-binder-colour',
                'pref-binder-printer', 'pref-binder-side-power', 'pref-binder-side-data',
@@ -57,10 +57,18 @@ TABS = {
              'pref-pull-power-jump-length', 'pref-pull-power-jump-length-h',
              'pref-pull-data-jump-name', 'pref-pull-data-jump-length',
              'pref-pull-data-jump-length-h', 'pref-snake-home-run-length',
-             'pref-loose-port-cable-length', 'pref-power-cable-length'],
+             'pref-loose-port-cable-length', 'pref-power-cable-length',
+             # cable lengths in feet or meters (2026-10-16): the unit a new
+             # show starts in, each length's meters twin, the stock ladders
+             'pref-cable-unit', 'pref-pull-power-jump-length-m',
+             'pref-pull-power-jump-length-h-m', 'pref-pull-data-jump-length-m',
+             'pref-pull-data-jump-length-h-m', 'pref-snake-home-run-length-m',
+             'pref-loose-port-cable-length-m', 'pref-power-cable-length-m',
+             'pref-jumper-stock-ft', 'pref-jumper-stock-m'],
 }
 ALL_IDS = [i for ids in TABS.values() for i in ids]
-assert len(ALL_IDS) == 85
+# 1.5 audit: the distro voltage + phase pair became one system picker.
+assert len(ALL_IDS) == 94
 
 # Issue 28: the colour defaults a NEW screen starts with, id -> (the colour
 # the dialog is given, the preference key, the layer property it lands on).
@@ -200,8 +208,7 @@ DIALOG_JS = """() => {
 # are booleans / choices.
 NEW_FIELDS = [
     ('pref-distro-rating', '200', 'distroRatingA', 200),
-    ('pref-distro-voltage', '120', 'distroVoltage', 120),
-    ('pref-distro-phase', '1', 'distroPhase', 1),
+    ('pref-distro-system', '120', 'distroSystem', '120'),
     ('pref-multi-type', 'soca120', 'multiType', 'soca120'),
     ('pref-breakout-type', 'soca-edison', 'breakoutType', 'soca-edison'),
     ('pref-splitters-enabled', True, 'splittersEnabled', True),
@@ -230,6 +237,16 @@ NEW_FIELDS = [
     ('pref-snake-home-run-length', '175', 'snakeHomeRunFt', 175),
     ('pref-loose-port-cable-length', '75', 'loosePortCableFt', 75),
     ('pref-power-cable-length', '12', 'powerCableFt', 12),
+    ('pref-cable-unit', 'm', 'cableUnit', 'm'),
+    ('pref-pull-power-jump-length-m', '2.5', 'powerJumpLengthM', 2.5),
+    ('pref-pull-power-jump-length-h-m', '1', 'powerJumpLengthHM', 1),
+    ('pref-pull-data-jump-length-m', '0.5', 'dataJumpLengthM', 0.5),
+    ('pref-pull-data-jump-length-h-m', '3', 'dataJumpLengthHM', 3),
+    ('pref-snake-home-run-length-m', '50', 'snakeHomeRunM', 50),
+    ('pref-loose-port-cable-length-m', '25', 'loosePortCableM', 25),
+    ('pref-power-cable-length-m', '4', 'powerCableM', 4),
+    ('pref-jumper-stock-ft', '4, 8, 12', 'jumperStockFt', [4, 8, 12]),
+    ('pref-jumper-stock-m', '1, 2, 5', 'jumperStockM', [1, 2, 5]),
 ]
 
 
@@ -898,7 +915,7 @@ def test_reset_defaults_asks_first_and_lands_on_save(page):
     pg.wait_for_timeout(300)
     assert len(asked) == 2
     assert _read(pg, 'pref-distro-rating') == '400'
-    assert _read(pg, 'pref-distro-voltage') == '208' and _read(pg, 'pref-distro-phase') == '3'
+    assert _read(pg, 'pref-distro-system') == '120/208'
     _tab(pg, 'wall')
     assert _read(pg, 'pref-columns') == '8'
     _tab(pg, 'binder')

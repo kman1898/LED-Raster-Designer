@@ -55,6 +55,11 @@ def get_server_session():
 def new_project():
     app.next_layer_id = 1  # Reset counter for new project
     app.current_project = app._build_initial_project()
+    # A new show starts in the Preferences' cable unit (2026-10-16); its
+    # screens read the jumper lengths of that unit from the Preferences. A
+    # file saved before the setting has no key and reads as feet; only a
+    # NEW show is written one here.
+    app.current_project['cableUnit'] = app.preferred_cable_unit()
     # Add default layer to new projects
     app.initialize_default_layer()
     _stamp_app_version(app.current_project)

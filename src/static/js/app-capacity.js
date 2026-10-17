@@ -336,10 +336,10 @@ class _Capacity {
         }
         const verb = derate.deratedPorts === 1 ? 'port starts' : 'ports start';
         el.textContent = `Low Latency: ${derate.deratedPorts} of ${derate.totalPorts} `
-            + `${verb} below the top of the ${derate.canvasHeight.toLocaleString()} px `
+            + `${verb} below the top of the ${derate.canvasHeight.toLocaleString('en-US')} px `
             + `canvas, so capacity there drops to as little as `
-            + `${derate.worstCapacity.toLocaleString()} px, from `
-            + `${derate.portCapacity.toLocaleString()} px.`;
+            + `${derate.worstCapacity.toLocaleString('en-US')} px, from `
+            + `${derate.portCapacity.toLocaleString('en-US')} px.`;
         el.style.display = '';
     }
 

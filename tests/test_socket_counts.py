@@ -122,7 +122,7 @@ def test_halves_counts_the_back_half_returns_on_the_same_card(client):
 
 
 def test_the_sx40s_returns_count_on_the_box_they_land_on(client):
-    """The owner's USC SR: eleven primaries on a redundant SX40 sit on
+    """The owner's WALL SR: eleven primaries on a redundant SX40 sit on
     A 1-10 and C 1; their returns on B 1-10 and D 1. 22/40, box by box
     10 + 10 + 1 + 1, and nine mains still free."""
     state = add_processor(client, 'brompton-sx40')
@@ -309,7 +309,7 @@ def test_each_box_header_counts_its_own_sockets(count_page):
 
 def test_a_unit_full_of_pairs_reads_full(count_page):
     """Ten primaries and their ten returns on a two-box SX40: 20/20 and a
-    full fill line - the owner's USC SL, which read 10/20."""
+    full fill line - the owner's WALL SL, which read 10/20."""
     page, ids = count_page
     full = ids['units']['FULL']
     glance = page.evaluate(GLANCE_JS, f"card-{full['cardId']}")

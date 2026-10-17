@@ -12,6 +12,11 @@ class _History {
         this._projectEpoch = (this._projectEpoch || 0) + 1;
         this.history = [];
         this.historyIndex = -1;
+        // A new project's numbers are what it prints as opened: the commit
+        // in saveState below takes them as the baseline and writes nothing
+        // (app-naming _commitMultiNumbers).
+        this._multiBaseline = null;
+        this._multiHoldsDirty = false;
         this.saveState(initialAction);
         sendClientLog('history_reset', { action: initialAction });
     }
@@ -46,6 +51,17 @@ class _History {
         // this one, or history ends up out of order (and the pending timer
         // would later snapshot a state that already includes this action).
         this._flushPendingSaveState();
+
+        // Multi numbers do not shift (ruling 2026-10-16): whatever this
+        // action would have renumbered is held in the distros' stores
+        // before the entry is taken, so undo, redo and save carry it.
+        if (typeof this._commitMultiNumbers === 'function') {
+            try {
+                this._commitMultiNumbers();
+            } catch (e) {
+                sendClientLog('multi_numbers_commit_failed', { action, error: String(e && e.message || e) });
+            }
+        }
 
         const json = JSON.stringify(this.project, this._snapshotReplacer);
 
@@ -159,6 +175,8 @@ class _History {
             if (idmField !== undefined) this.project.idmField = JSON.parse(JSON.stringify(idmField));
             if (idmHighlight !== undefined) this.project.idmHighlight = JSON.parse(JSON.stringify(idmHighlight));
             this.dedupeProjectLayers('undo_restore');
+            // The restored entry's numbers are the ones in force now.
+            if (typeof this._resetMultiBaseline === 'function') this._resetMultiBaseline();
             sendClientLog('undo', {
                 action: state.action,
                 historyIndex: this.historyIndex,
@@ -213,6 +231,12 @@ class _History {
     // and redo never pass it: an undone edit is still an edit.
     _syncRestoredProject(entry, label, { keepPristine = false } = {}) {
         const inflight = [...(this._inflightLayerPuts || [])];
+        // And behind the pull sheet's POST queue (app-pull-list.js): a
+        // cable-unit or edits POST still in flight carries the state being
+        // undone, and landing after this PUT it would put it back.
+        const sheet = typeof this._pullSheetStateSettled === 'function'
+            ? this._pullSheetStateSettled() : null;
+        if (sheet) inflight.push(sheet);
         const restoresPristine = keepPristine === true
             && !!this.project && this.project.is_pristine === true;
         // While this restore is on its way to the server, layer_updated
@@ -339,6 +363,9 @@ class _History {
         if (this.selectionAnchorLayerId != null && !byId.has(this.selectionAnchorLayerId)) {
             this.selectionAnchorLayerId = this.currentLayer ? this.currentLayer.id : null;
         }
+        // The restored project may have dropped or hidden screens the
+        // cabinet selection named.
+        if (typeof this._screenSelectionChanged === 'function') this._screenSelectionChanged();
     }
 
     // Undo/redo's half of the power feature's refresh discipline. Every write
@@ -373,6 +400,7 @@ class _History {
             if (idmField !== undefined) this.project.idmField = JSON.parse(JSON.stringify(idmField));
             if (idmHighlight !== undefined) this.project.idmHighlight = JSON.parse(JSON.stringify(idmHighlight));
             this.dedupeProjectLayers('redo_restore');
+            if (typeof this._resetMultiBaseline === 'function') this._resetMultiBaseline();
             sendClientLog('redo', {
                 action: state.action,
                 historyIndex: this.historyIndex,
@@ -418,9 +446,17 @@ class _History {
         }
         
         // Collect all selected layer IDs to delete
-        const idsToDelete = this.selectedLayerIds && this.selectedLayerIds.size > 1
+        const requested = this.selectedLayerIds && this.selectedLayerIds.size > 1
             ? [...this.selectedLayerIds]
             : [this.currentLayer.id];
+        // A locked screen stays until it is unlocked (the owner's ruling,
+        // 2026-10-16): Delete removes the unlocked screens of the selection
+        // and names the locked ones; with nothing left to remove it is only
+        // the error.
+        const { ids: idsToDelete, locked } = typeof this._deletableLayerIds === 'function'
+            ? this._deletableLayerIds(requested) : { ids: requested, locked: [] };
+        if (locked.length) this._showLockedError(locked);
+        if (idsToDelete.length === 0) return;
         
         // Don't delete if it would remove ALL layers
         if (idsToDelete.length >= this.project.layers.length) {
@@ -466,6 +502,7 @@ class _History {
                             this.lastSelectedLayerId = null;
                             this.selectionAnchorLayerId = null;
                         }
+                        if (typeof this._screenSelectionChanged === 'function') this._screenSelectionChanged();
 
                         // v0.8.7.6: refresh the layer-property inputs from
                         // the newly-promoted currentLayer. Without this the

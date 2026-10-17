@@ -1,7 +1,7 @@
 """The binder's TABLES, read off two real shows: no cell cut off, no name
 printed twice, no cell stacked on itself, no half-empty sheet.
 
-Measured on the user's own export, "2026 Kelly Clarkson - binder rev 1.1.pdf"
+Measured on the user's own export of live show A, its binder rev 1.1 PDF
 (2026-09-09, "the data and power pages are hard to read or cut off"):
 
   * 69 cells ended in an ellipsis across ten sheets - a circuit name cut in
@@ -9,7 +9,7 @@ Measured on the user's own export, "2026 Kelly Clarkson - binder rev 1.1.pdf"
   * the unit a port lands on was named TWICE ("IMAG SR IMAG SR", the
     processor's name and its card's - a NovaPro UHD Jr's card IS the
     processor), and where nobody typed a name the MODEL stood in for it and
-    was then printed again as the model ("NovaPro UHD Jr USC A · NovaPro UHD
+    was then printed again as the model ("NovaPro UHD Jr WALL A · NovaPro UHD
     Jr · 16 ports"). That doubling is what pushed most of those 69 cells past
     their column;
   * the data sheet's HOME RUN cell, holding both ends, was drawn as two
@@ -26,8 +26,8 @@ ellipsis back.
 The fixtures are two frozen saves in the git-ignored tests/fixtures-local
 (conftest.private_fixture), SKIPPED when absent (they are the user's shows -
 they are never committed, so CI skips them); each env var overrides its file:
-    LRD_KELLY_LIVE_JSON   kelly-live-fixture.json
-    LRD_EXPERTS_JSON      experts-only-fixture.json
+    LRD_LIVE_SHOW_A_JSON  live-show-a-live.json
+    LRD_LIVE_SHOW_B_JSON  live-show-b.json
 
 Run locally (each session takes its own free port, so it runs beside
 any other):
@@ -49,13 +49,13 @@ from conftest import private_fixture, private_fixture_missing  # noqa: E402
 HERE = os.path.dirname(os.path.abspath(__file__))
 pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
-# The two shows. Kelly Clarkson is the export the user marked up: five
+# The two shows. Live show A is the export the user marked up: five
 # processors, two of them unnamed, six-port IMAG walls on snakes, a 22 x 7
-# upstage wall. Experts Only is the show test_binder.py already smokes.
-KELLY_FIXTURE = private_fixture('kelly-live-fixture.json', 'LRD_KELLY_LIVE_JSON')
-# The user's own save, "2026 Experts Only.json", where it is given.
-EXPERTS_FIXTURE = private_fixture('experts-only-fixture.json', 'LRD_EXPERTS_JSON')
-FIXTURES = {'kelly': KELLY_FIXTURE, 'experts only': EXPERTS_FIXTURE}
+# upstage wall. Live show B is the show test_binder.py already smokes.
+SHOW_A_FIXTURE = private_fixture('live-show-a-live.json', 'LRD_LIVE_SHOW_A_JSON')
+# The user's own save of live show B, where it is given.
+SHOW_B_FIXTURE = private_fixture('live-show-b.json', 'LRD_LIVE_SHOW_B_JSON')
+FIXTURES = {'show a': SHOW_A_FIXTURE, 'show b': SHOW_B_FIXTURE}
 
 # The whole set, both sides, every extra sheet on.
 OPTS = {'sheet': 'tabloid', 'palette': 'colour', 'sides': {'power': True, 'data': True},
@@ -190,8 +190,8 @@ def test_no_cell_on_any_sheet_is_cut_off(shows):
     ends in the ellipsis _bFit cuts with. A string that grows past its column
     has to be made honest or given the room - it may not be halved.
 
-    Before: Kelly 69 (Overview 1, SR · DATA 6, SL · DATA 6, UPSTAGE · DATA 14,
-    PULL 23, the two processor sheets 6 + 13), Experts Only 57.
+    Before: show A 69 (Overview 1, SR · DATA 6, SL · DATA 6, UPSTAGE · DATA 14,
+    PULL 23, the two processor sheets 6 + 13), show B 57.
     """
     bad = {}
     for name, page, op in _every_text(shows):
@@ -202,7 +202,7 @@ def test_no_cell_on_any_sheet_is_cut_off(shows):
 
 # ── 2. a name is said once ───────────────────────────────────────────────
 
-# "IMAG SR IMAG SR", "SR SR", "USC A USC A" - a run of words immediately
+# "IMAG SR IMAG SR", "SR SR", "WALL A WALL A" - a run of words immediately
 # repeating itself inside one cell.
 DOUBLED = re.compile(r'(?<![^\s·])(\S+(?: \S+){0,3}) \1(?![^\s·])')
 
@@ -220,7 +220,7 @@ def test_no_cell_says_a_name_twice(shows):
 
 def test_no_cell_prints_a_model_twice(shows):
     """A blank name must not become the MODEL only for the model to be printed
-    beside it: "NovaPro UHD Jr USC A · NovaPro UHD Jr · 16 ports" says one
+    beside it: "NovaPro UHD Jr WALL A · NovaPro UHD Jr · 16 ports" says one
     device's model twice and its name not at all."""
     bad = {}
     for nm, show in shows.items():
@@ -282,7 +282,7 @@ def test_a_snake_states_its_home_run_once_on_a_data_sheet(shows):
 
     "Why is the same data written multiple times under the snake under a
     specific port number" (2026-09-09). The UPSTAGE data sheet printed
-    "USC A 100' +10' / SNAKE A 100' +10'" on four rows in a row: A-1..A-4
+    "WALL A 100' +10' / SNAKE A 100' +10'" on four rows in a row: A-1..A-4
     all ride the one 4-way, and its return end all rides the one backup
     4-way, so the pair of runs was printed four times over. The ports on a
     snake belong under a GROUP HEADING that names it once - the way the
@@ -330,7 +330,7 @@ def test_every_map_sheet_fills_its_drawing_area(shows):
             ext = page['extent']
             assert ext, (nm, page['title'])
             assert ext['w'] <= DA['w'] + 1 and ext['h'] <= DA['h'] + 1, (nm, page['title'], ext)
-            # measured: every Experts Only sheet 1.0; Kelly's SR/SL · DATA
+            # measured: every show B sheet 1.0; show A's SR/SL · DATA
             # 0.954 - a 9 x 6 wall of tall panels beside a 1020-wide Ports
             # table, the tightest the fill can be pulled - against 0.676
             # before (the map in the top left, the bottom half empty).
@@ -466,15 +466,15 @@ def _all_rows(sections):
     return [r for s in sections for g in s['groups'] for r in g['rows']]
 
 
-def test_a_backup_box_is_the_backup_half_on_experts_only(shows):
+def test_a_backup_box_is_the_backup_half_on_live_show_b(shows):
     """The user's own show: one H9, per-card 1:1, Card 1's box SR A backed
     by Card 3's box SR B. SR - MAIN's Ports table is one section in two
     halves - SR A's band and snake over the primary half, SR B's over the
     backup half, each port's two ends side by side with each end's own
     extension. The same for SL A / SL B on SL - MAIN. No sheet prints PX."""
-    if 'experts only' not in shows:
-        pytest.skip(private_fixture_missing(EXPERTS_FIXTURE))
-    pages = {p['title']: p for p in shows['experts only']['pages']}
+    if 'show b' not in shows:
+        pytest.skip(private_fixture_missing(SHOW_B_FIXTURE))
+    pages = {p['title']: p for p in shows['show b']['pages']}
     sr = _ports_table(pages['SR - MAIN - Data - Front View'])
     _assert_backup_half(
         sr, 'SR A', 'SR B', "SR A · 4 channel snake · 150'", "SR B · 4 channel snake · 100'",
@@ -489,7 +489,7 @@ def test_a_backup_box_is_the_backup_half_on_experts_only(shows):
     assert ret[0]['backup'][0].split(' · ')[0] == 'CVT4K-S SR B', ret
     (a5,) = _all_rows(ret)
     assert (a5['PORT'], a5['B PORT'], a5['B OUTPUT']) == ('SR A-5', 'SR B-5', 'SR B · 5'), ret
-    for page in shows['experts only']['pages']:
+    for page in shows['show b']['pages']:
         if page['kind'] == 'data':
             assert 'PX' not in [o['t'] for o in page['texts']], page['title']
 

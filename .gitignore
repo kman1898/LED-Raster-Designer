@@ -28,6 +28,8 @@ logs/
 presets/
 # Named panel layouts, kept beside the presets when run from source
 /src/layouts/
+# Saved distro presets, kept beside the presets the same way
+/src/distro_presets/
 
 # Claude Code local config
 .claude/

@@ -14,7 +14,15 @@ class _LayersPanel {
             console.error('RENDER LAYERS ERROR: No project or no layers array!');
             return;
         }
-        
+
+        // The layer list is redrawn on every change of the screen selection,
+        // and the Pixel Map cabinet selection reaches exactly the selected
+        // screens (1.5), so its bulk bar count is refreshed with it: a screen
+        // taken out of the selection takes its cabinets out of the count.
+        if (typeof this.updatePixelMapBulkActionUI === 'function') {
+            this.updatePixelMapBulkActionUI();
+        }
+
         // Debug: Log all layer IDs to check for duplicates
         const layerIds = this.project.layers.map(l => l.id);
         const uniqueIds = [...new Set(layerIds)];
@@ -242,6 +250,13 @@ ${cabinetBtn}
                 nameInput.style.cursor = 'default';
                 nameInput.classList.remove('editing');
                 const newName = nameInput.value.trim() || layer.name;
+                // A locked screen keeps its name (the owner's ruling,
+                // 2026-10-16): the field goes back and the error says why.
+                if (newName !== layer.name && layer.locked) {
+                    nameInput.value = layer.name;
+                    this._showLockedError([layer]);
+                    return;
+                }
                 if (newName !== layer.name) {
                     layer.name = newName;
                     // _putLayer: a rename is a hand on the screen (the

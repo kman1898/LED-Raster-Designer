@@ -861,7 +861,7 @@ PSD_BACKGROUND_LAYER = 'Background'
 
 
 # How an element layer's channels are stored: ZIP (PSD compression 2,
-# zlib), a fifth of raw - the Experts Only power map is 25 MB against 133.
+# zlib), a fifth of raw - live show B's power map is 25 MB against 133.
 # Photoshop 2026 opened a zipped-layers file (Matt, 2026-09-22) once the
 # MERGED PREVIEW was raw: the first files had the preview zipped as well,
 # and Photoshop refused them whole ("not compatible with this version").

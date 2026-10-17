@@ -1,6 +1,6 @@
 """One physical soca serving two screens, declared by pinning a multi number.
 
-The reference show (2026 NCMF) does this entirely by hand today: ON SL STRIP
+The reference show (live show C) does this entirely by hand today: ON SL STRIP
 and CEN SL STRIP both carry a multi named C2-3 - one box across two screens -
 and the second screen's circuits are labelled onto tails 4-6 purely through
 typed powerLabelOverrides (C2-3-4, C2-3-5, C2-3-6). The costs of that
@@ -49,10 +49,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 pw = pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
 
-# The strings the user hand-typed into the NCMF file's powerLabelOverrides
+# The strings the user hand-typed into live show C's powerLabelOverrides
 # for CEN SL STRIP - the acceptance bar is deriving these character for
 # character, with nothing typed.
-NCMF_TYPED_OVERRIDES = ['C2-3-4', 'C2-3-5', 'C2-3-6']
+REFERENCE_TYPED_OVERRIDES = ['C2-3-4', 'C2-3-5', 'C2-3-6']
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -81,7 +81,7 @@ def page(e2e_server, pw_browser):
 
 # Same builder shape as test_power_phase_labels.py: 100V x 5A / 100W = a
 # 5-tile circuit, tl-v organized, 5 rows - so `columns` IS the circuit
-# count. ncmf() builds the reference pair: two 3-circuit screens pinned to
+# count. referencePair() builds the reference pair: two 3-circuit screens pinned to
 # multi 3 of a distro named C2 - the ON SL STRIP + CEN SL STRIP shape.
 HELPERS_JS = """
 window.__sh = {
@@ -92,7 +92,11 @@ window.__sh = {
             cabinet_width: 128, cabinet_height: 128,
             offset_x: 0, offset_y: 0,
             panel_weight: 20, weight_unit: 'kg',
-            panelWatts: 100, powerVoltage: 100, powerAmperage: 5,
+            // 110V, not 100V: a 120/208 distro gives 120V or 208V and a
+            // 100V screen is refused (owner, 2026-10-16: 110, 115 and 120
+            // are 120V; anything else that does not fit is refused). 110V x
+            // 5A still fits five 100W cabinets a circuit.
+            panelWatts: 100, powerVoltage: 110, powerAmperage: 5,
             processorType: 'brompton', bitDepth: 8, frameRate: 60,
             lowLatency: false,
             flowPattern: 'tl-h', portMappingMode: 'organized',
@@ -117,7 +121,7 @@ window.__sh = {
     distro(name) {
         return { id: 'd1', name: name || 'C2', ratingA: 400, voltage: 208, phase: 3 };
     },
-    ncmf() {
+    referencePair() {
         const A = this.screen({ id: 1, name: 'ON SL STRIP',
             powerSocaDistro: { 1: 'd1' }, powerSocaNumber: { 1: 3 } });
         const B = this.screen({ id: 2, name: 'CEN SL STRIP', offset_x: 1000,
@@ -173,17 +177,17 @@ window.__sh = {
 """
 
 
-# ── 1. the NCMF acceptance shape ──────────────────────────────────────────
+# ── 1. the reference acceptance shape ─────────────────────────────────────
 
-def test_ncmf_shared_box_labels_match_the_hand_typed_overrides(page):
+def test_reference_shared_box_labels_match_the_hand_typed_overrides(page):
     """ON SL STRIP + CEN SL STRIP, both pinned to multi 3 of distro C2:
     one box named C2-3, the first screen on tails 1-3, the second on the
     box's next free tails 4-6 - and the second screen's labels derive the
-    EXACT strings the user hand-typed into the NCMF file, character for
+    EXACT strings the user hand-typed into live show C, character for
     character, with nothing typed."""
     out = page.evaluate("""() => {
         const sh = window.__sh;
-        const { A, B, project } = sh.ncmf();
+        const { A, B, project } = sh.referencePair();
         return sh.withProject(project, () => ({
             a: sh.labelsOf(A), b: sh.labelsOf(B),
             planA: sh.planOf(A), planB: sh.planOf(B),
@@ -191,7 +195,7 @@ def test_ncmf_shared_box_labels_match_the_hand_typed_overrides(page):
         }));
     }""")
     assert out['a'] == ['C2-3-1', 'C2-3-2', 'C2-3-3']
-    assert out['b'] == NCMF_TYPED_OVERRIDES, \
+    assert out['b'] == REFERENCE_TYPED_OVERRIDES, \
         'the derived labels must equal the strings the user used to type'
     # one box: same name, same number, tails split 1-3 / 4-6
     assert out['planA'] == [{'soca': 1, 'number': 3, 'name': 'C2-3', 'legs': [1, 2, 3]}]
@@ -209,11 +213,13 @@ def test_rollup_counts_one_soca_with_combined_legs(page):
     still carry both screens' load."""
     out = page.evaluate("""() => {
         const sh = window.__sh;
-        const { project } = sh.ncmf();
+        const { project } = sh.referencePair();
         return sh.withProject(project, () => {
             window.app._circuitTailCache = null;
             const d1 = window.app.getDistroLoads().find(b => b.id === 'd1');
-            return { socas: d1.socas, watts: d1.watts, amps: d1.amps };
+            return { socas: d1.socas, watts: d1.watts, amps: d1.amps,
+                     balanced: d1.balancedAmps,
+                     worst: Math.max(d1.legs.X.amps, d1.legs.Y.amps, d1.legs.Z.amps) };
         });
     }""")
     assert len(out['socas']) == 1, 'one physical box = one feeds row'
@@ -224,7 +230,10 @@ def test_rollup_counts_one_soca_with_combined_legs(page):
     # 15 panels x 100 W per screen, both screens on the box
     assert row['watts'] == 3000
     assert out['watts'] == 3000
-    assert abs(out['amps'] - 3000 / (208 * 1.73)) < 0.01
+    # 1.5, bug fix 2 (owner, 2026-10-16): the header figure is the WORST
+    # LEG, not W / (V x 1.73) - the balanced figure stays on the record.
+    assert abs(out['balanced'] - 3000 / (208 * 1.73)) < 0.01
+    assert abs(out['amps'] - out['worst']) < 1e-9
 
 
 # ── 2. numbering: auto deals around pins ──────────────────────────────────
@@ -334,7 +343,7 @@ def test_dropping_the_pin_restores_standalone_numbering(page):
     longer shared."""
     out = page.evaluate("""() => {
         const sh = window.__sh;
-        const { A, B, project } = sh.ncmf();
+        const { A, B, project } = sh.referencePair();
         return sh.withProject(project, () => {
             delete B.powerSocaNumber[1];
             return { a: sh.labelsOf(A), b: sh.labelsOf(B),
@@ -386,7 +395,7 @@ def test_distro_rename_propagates_to_every_member(page):
     re-typing six overrides."""
     out = page.evaluate("""() => {
         const sh = window.__sh;
-        const { A, B, project } = sh.ncmf();
+        const { A, B, project } = sh.referencePair();
         return sh.withProject(project, () => {
             project.distros[0].name = 'K9';
             return { a: sh.labelsOf(A), b: sh.labelsOf(B) };
@@ -402,14 +411,14 @@ def test_hand_name_stays_per_member(page):
     The tails still split as one box either way."""
     out = page.evaluate("""() => {
         const sh = window.__sh;
-        const { A, B, project } = sh.ncmf();
+        const { A, B, project } = sh.referencePair();
         A.powerSocaNames = { 1: 'FOH RIG' };
         return sh.withProject(project, () => ({
             a: sh.labelsOf(A), b: sh.labelsOf(B),
         }));
     }""")
     assert out['a'] == ['FOH RIG-1', 'FOH RIG-2', 'FOH RIG-3']
-    assert out['b'] == NCMF_TYPED_OVERRIDES
+    assert out['b'] == REFERENCE_TYPED_OVERRIDES
 
 
 # ── 6. balance treats the box as one multi ────────────────────────────────
@@ -434,7 +443,7 @@ def test_balancer_targets_the_box_once_and_excludes_a_full_box(page):
                     layerName: t.layerName,
                 }));
             });
-        const { project } = sh.ncmf();
+        const { project } = sh.referencePair();
         const full = sh.withProject(project, () => {
             window.app._circuitTailCache = null;
             return window.app._balanceTargets().length;
@@ -526,7 +535,7 @@ def test_no_pins_keeps_todays_numbering_and_labels(page):
 SHOW_BOX_JS = """(cfg) => {
     const sh = window.__sh;
     const app = window.app;
-    const { A, B, project } = sh.ncmf();
+    const { A, B, project } = sh.referencePair();
     // a clash needs TWO stored sets on one tail - a lone stored set is law
     // and the unstored member simply deals around it
     if (cfg && cfg.clash) {
@@ -602,7 +611,8 @@ def test_dock_multi_reads_one_box_not_two_multis(page):
         'the one field reads as the shared derived name'
     assert not out['staticLabel'], \
         'an occupied box wears its members, not a static slot label'
-    assert out['detail'] == '6 circuits · 30.0 A', out
+    # 3000 W at 110 V (the screens moved off 100 V - see sh.screen)
+    assert out['detail'] == '6 circuits · 27.3 A', out
     assert out['glance'] == '6/6', out
     assert not out['clashClass']
     assert [c['box'] for c in out['chips']] == ['multi-d1-3'] * 6, (
@@ -1505,7 +1515,7 @@ def test_layer_order_breaks_ties_only_among_unstored_members(page):
     """Three members on one box: the stored set claims its tails first;
     the two unstored members deal the remaining free tails in layer order.
     (All-unstored boxes keep their layer-order deal byte for byte - the
-    NCMF acceptance test above pins that capture.)"""
+    reference acceptance test above pins that capture.)"""
     out = page.evaluate("""() => {
         const sh = window.__sh;
         const A = sh.screen({ id: 72, name: 'UnstoredA', columns: 1,

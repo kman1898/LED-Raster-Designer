@@ -319,7 +319,7 @@ def test_an_opticalcon_needs_no_box_to_be_made(client):
 
 pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
-# WAMU-shaped: an H5 with two H_4xfiber cards, SC1 and SC2, each with two
+# A real show's shape: an H5 with two H_4xfiber cards, SC1 and SC2, each with two
 # CVT4K-S on BiDi - P (A), P (B) on SC1, R (A), R (B) on SC2. QUAD 1 (500')
 # takes P (A)'s OPT 1 and OPT 2 on strands 1 and 2; QUAD 2 (1000') R (A)'s
 # the same. An SX40: QUAD 3 on XD A's X1 (1-2) and XD B's X1 (3-4). One
@@ -524,7 +524,7 @@ SEED_JS = """async () => {
     await j('POST', '/api/layer/add', {name: 'W1', columns: 4, rows: 4,
                                        cabinet_width: 200, cabinet_height: 200,
                                        processorType: 'novastar-armor'});
-    let st = await j('POST', '/api/processors', {deviceId: 'novastar-h5', name: 'WAMU'});
+    let st = await j('POST', '/api/processors', {deviceId: 'novastar-h5', name: 'FIBER H5'});
     const pid = st.processors[st.processors.length - 1].id;
     const boxes = [];
     for (const i of [0, 1]) {

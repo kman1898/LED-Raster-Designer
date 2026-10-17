@@ -13,9 +13,10 @@ Object.assign(CanvasRenderer.prototype, {
     // `${row},${col}` key cannot tell them apart. The old parser here was
     // `key.split(',').map(n => parseInt(n, 10))`, and run against a scoped key
     // that yields parseInt("3:0") === 3 - a real row number, a real panel, the
-    // WRONG cabinet, silently and with no error at all. So the scoped Sets are
-    // read here and pixelMapSelection - still unscoped, still a single-screen
-    // feature - keeps the old parser untouched.
+    // WRONG cabinet, silently and with no error at all. (pixelMapSelection
+    // took the scoped key too in 1.5; its overlay below resolves it through
+    // app._pixelMapSelectionHits rather than here, because its reach is the
+    // selected screens, not a path owner's group.)
     //
     // An unscoped key is still accepted and read as the owner's own cabinet:
     // that is what one that arrives from an older Set, or from a caller that
@@ -174,57 +175,67 @@ Object.assign(CanvasRenderer.prototype, {
         try { fn(); } finally { this.ctx.restore(); }
     },
 
-    // DELIBERATELY UNSCOPED, unlike the two custom-selection overlays above.
-    // pixelMapSelection is bulk hide / blank / half-tile WITHIN one screen -
-    // nothing about it is grouped, it never leaves currentLayer, and it keeps
-    // the plain `${row},${col}` getPanelKey. Do not "tidy" this into
-    // _renderScopedSelectionOverlay: the scoped resolver would still read these
-    // keys correctly, but pointing a second feature at the group machinery buys
-    // nothing and would make a single-screen action start caring about peers.
+    // The Pixel Map cabinet selection, which since 1.5 can span every
+    // selected screen (app-pixel-select.js, the Pixel Map section). Keys are
+    // `${layerId}:${row},${col}`; app._pixelMapSelectionHits resolves them to
+    // cabinets on the screens in scope. Each screen draws in its OWN frame -
+    // its canvas workspace translate and its rotation - exactly the frame the
+    // single-screen overlay used for the current screen, so a one-screen
+    // selection draws the same rects as before.
     renderPixelMapSelectionOverlay() {
-        if (!window.app || !window.app.currentLayer) return;
-        const selection = window.app.pixelMapSelection;
+        const app = window.app;
+        if (!app || !app.currentLayer) return;
+        const selection = app.pixelMapSelection;
         if (!selection || selection.size === 0) return;
-        const layer = window.app.currentLayer;
-        // v0.8 multi-canvas: panels are drawn at canvas-relative coords; the
-        // workspace position of the layer's parent canvas needs to be applied
-        // so the overlay lands ON the layer the user is editing instead of
-        // at workspace (0,0) where it visually overlapped Canvas 1's panels.
-        const wsOff = (typeof window.app._getLayerWorkspaceOffset === 'function')
-            ? window.app._getLayerWorkspaceOffset(layer) : { wx: 0, wy: 0 };
-        this.ctx.save();
-        if (wsOff.wx || wsOff.wy) this.ctx.translate(wsOff.wx, wsOff.wy);
-        // v0.9.3: rotate the highlight with the screen so it lands on the same
-        // panels the (rotated) render shows.
-        const _rot = this._beginLayerRotation(layer);
-        this.ctx.lineWidth = 2 / this.zoom;
-        selection.forEach(key => {
-            const [row, col] = key.split(',').map(n => parseInt(n, 10));
-            const panel = window.app.getPanelByRowCol(layer, row, col);
-            if (!panel) return;
-            // Hidden ("blank") panels render as just a faint dashed outline,
-            // so the normal 0.35-alpha selection tint barely shows against the
-            // dark background. Use a stronger fill on hidden panels so the
-            // user can clearly see which blank cells are part of the selection.
-            if (panel.hidden) {
-                this.ctx.fillStyle = 'rgba(74, 144, 226, 0.55)';
-            } else {
-                this.ctx.fillStyle = 'rgba(74, 144, 226, 0.35)';
-            }
-            this.ctx.strokeStyle = 'rgba(74, 144, 226, 1.0)';
-            this.ctx.fillRect(panel.x, panel.y, panel.width, panel.height);
-            this.ctx.strokeRect(panel.x, panel.y, panel.width, panel.height);
+        if (typeof app._pixelMapSelectionHits !== 'function') return;
+        const byLayer = new Map();
+        app._pixelMapSelectionHits().forEach(hit => {
+            if (!byLayer.has(hit.layer)) byLayer.set(hit.layer, []);
+            byLayer.get(hit.layer).push(hit.panel);
         });
-        if (_rot) this.ctx.restore();
-        this.ctx.restore();
+        byLayer.forEach((panels, layer) => {
+            // v0.8 multi-canvas: panels are drawn at canvas-relative coords;
+            // the workspace position of the layer's parent canvas needs to be
+            // applied so the overlay lands ON the layer instead of at
+            // workspace (0,0) where it visually overlapped Canvas 1's panels.
+            const wsOff = (typeof app._getLayerWorkspaceOffset === 'function')
+                ? app._getLayerWorkspaceOffset(layer) : { wx: 0, wy: 0 };
+            this.ctx.save();
+            if (wsOff.wx || wsOff.wy) this.ctx.translate(wsOff.wx, wsOff.wy);
+            // v0.9.3: rotate the highlight with the screen so it lands on the
+            // same panels the (rotated) render shows.
+            const _rot = this._beginLayerRotation(layer);
+            this.ctx.lineWidth = 2 / this.zoom;
+            panels.forEach(panel => {
+                // Hidden ("blank") panels render as just a faint dashed
+                // outline, so the normal 0.35-alpha selection tint barely
+                // shows against the dark background. Use a stronger fill on
+                // hidden panels so the user can clearly see which blank cells
+                // are part of the selection.
+                if (panel.hidden) {
+                    this.ctx.fillStyle = 'rgba(74, 144, 226, 0.55)';
+                } else {
+                    this.ctx.fillStyle = 'rgba(74, 144, 226, 0.35)';
+                }
+                this.ctx.strokeStyle = 'rgba(74, 144, 226, 1.0)';
+                this.ctx.fillRect(panel.x, panel.y, panel.width, panel.height);
+                this.ctx.strokeRect(panel.x, panel.y, panel.width, panel.height);
+            });
+            if (_rot) this.ctx.restore();
+            this.ctx.restore();
+        });
     },
 
     renderPixelMapSelectionBadge() {
         if (!window.app || !window.app.currentLayer) return;
         const selection = window.app.pixelMapSelection;
         if (!selection || selection.size === 0) return;
-        const count = selection.size;
-        const label = `${count.toLocaleString()} panel${count === 1 ? '' : 's'} selected`;
+        // Every selected cabinet on every screen (the resolved hits, so a key
+        // for a screen that left the selection is not counted).
+        const count = (typeof window.app._pixelMapSelectionHits === 'function')
+            ? window.app._pixelMapSelectionHits().length : selection.size;
+        if (count === 0) return;
+        const label = `${count.toLocaleString('en-US')} panel${count === 1 ? '' : 's'} selected`;
 
         // Draw in screen-space (above the world transform) so size doesn't depend on zoom.
         this.ctx.save();
@@ -401,8 +412,12 @@ Object.assign(CanvasRenderer.prototype, {
         const isFull = capped && !!fill.full;
         const usedText = capped && window.app && typeof window.app._formatRunUsed === 'function'
             ? window.app._formatRunUsed(fill.used) : `${committed}`;
+        // fill.text is "9/17", or the load pair - "622,592 / 659,722 px" for
+        // a port over two cabinet sizes, "1,230 / 4,160 W" for a circuit
+        // over two wattages (app-custom-runs.js customRunFill).
+        const capText = capped ? (fill.text || `${usedText}/${fill.count}`) : '';
         const committedText = capped
-            ? `${usedText}/${fill.count} on ${noun}${isFull ? ' · full' : ''}`
+            ? `${capText} on ${noun}${isFull ? ' · full' : ''}`
             : `${committed} on ${noun}`;
         this._lastActiveBadge = { label, pill: committedText, full: isFull, selected };
         this._activeBadgeShown = true;

@@ -381,7 +381,7 @@ def place(client, layer_id, index, card_id, port, sc):
 
 
 def test_an_unnamed_card_numbers_an_attached_port_by_its_own_socket(client):
-    """The user's evidence, rebuilt: "2026 Experts Only", an H9 with unnamed
+    """The user's evidence, rebuilt: live show B, an H9 with unnamed
     16-port cards, SL - MAIN on slot 1's sockets 6-9. The dock said 6 7 8 9
     and the DATA drawing printed P1 P2 P3 P4. Now the drawing prints what
     the dock says - and a second screen on the SECOND card counts that

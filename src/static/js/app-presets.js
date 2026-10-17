@@ -350,7 +350,7 @@ class _Presets {
             }
             if (countEl) {
                 const total = Object.values(this._panelCatalog).reduce((s, a) => s + a.length, 0);
-                countEl.textContent = `· ${total.toLocaleString()} panels · ${Object.keys(this._panelCatalog).length} mfrs`;
+                countEl.textContent = `· ${total.toLocaleString('en-US')} panels · ${Object.keys(this._panelCatalog).length} mfrs`;
             }
             this._renderPanelCatalogList();
             this._renderCatalogSourceTag();
@@ -403,7 +403,7 @@ class _Presets {
                 if (picker && picker.style.display !== 'none') this._loadPanelCatalog();
                 else this._renderCatalogSourceTag();
                 const count = payload.panelCount || 0;
-                this._toast(`Panel catalog updated, ${count.toLocaleString()} panels`);
+                this._toast(`Panel catalog updated, ${count.toLocaleString('en-US')} panels`);
                 return;
             }
             // No catalog in the answer: offer it on the badge as before.
@@ -457,7 +457,7 @@ class _Presets {
                 this._renderCatalogSourceTag();
                 if (!opts.silent) {
                     const count = payload.panelCount || 0;
-                    this._toast(`Catalog refreshed, ${count.toLocaleString()} panels`);
+                    this._toast(`Catalog refreshed, ${count.toLocaleString('en-US')} panels`);
                 }
             })
             .catch((err) => {
@@ -630,7 +630,7 @@ class _Presets {
         if (total > MAX) {
             const more = document.createElement('div');
             more.style.cssText = 'padding: 8px 10px; color: #888; font-size: 11px; text-align: center; background: #1d1d1d;';
-            more.textContent = `Showing first ${MAX} of ${total.toLocaleString()}. Refine search or pick a manufacturer.`;
+            more.textContent = `Showing first ${MAX} of ${total.toLocaleString('en-US')}. Refine search or pick a manufacturer.`;
             listEl.appendChild(more);
         }
         this._highlightPickerSelection();
@@ -699,6 +699,12 @@ class _Presets {
     openChangeCabinet(layers) {
         const screens = (layers || []).filter(l => l && (l.type || 'screen') === 'screen');
         if (screens.length === 0) return;
+        // Only locked screens: nothing could change, so the picker does not
+        // open and the error says why.
+        if (screens.every(l => l.locked)) {
+            this._showLockedError(screens);
+            return;
+        }
         const title = screens.length === 1
             ? `Change cabinet for ${screens[0].name}`
             : `Change cabinet for ${screens.length} screens`;
@@ -791,12 +797,21 @@ class _Presets {
     // them, so the Screen Info panel, the totals and the canvas all follow.
     changeCabinetForLayers(layerIds, data) {
         if (!this.project || !this.project.layers || !data) return;
-        const targets = (layerIds || [])
+        let targets = (layerIds || [])
             .map(id => this.project.layers.find(l => l.id === id))
             .filter(l => l && (l.type || 'screen') === 'screen');
         if (targets.length === 0) return;
         const fields = this._cabinetFieldsFrom(data);
         if (Object.keys(fields).length === 0) return;
+        // A locked screen keeps its cabinet (the owner's ruling,
+        // 2026-10-16): the unlocked ones change, and a locked one is named
+        // only when the pick would really change it - one that already has
+        // this cabinet changes nothing and says nothing.
+        const changes = (l) => Object.keys(fields)
+            .some(k => String(l[k] ?? '') !== String(fields[k]));
+        this._showLockedError(targets.filter(l => l.locked && changes(l)));
+        targets = targets.filter(l => !l.locked);
+        if (targets.length === 0) return;
         targets.forEach(layer => {
             Object.keys(fields).forEach(k => { layer[k] = fields[k]; });
             if (layer.sizeByDimensions) {
@@ -1575,10 +1590,14 @@ class _Presets {
             bucket.circuits += circuits;
             byVoltage.set(voltage, bucket);
         });
-        // I = P / V single phase, I = P / (V x 1.73) three phase.
+        // I = P / V single phase, I = P / (V_LL x 1.73) three phase - the
+        // SERVICE's line-to-line voltage (1.5, bug fix 3: 120V screens
+        // ride a 208V service, 230V screens a 400V one).
+        const lineV = (v) => (typeof this.threePhaseLineVoltage === 'function'
+            ? this.threePhaseLineVoltage(v) : v);
         byVoltage.forEach(b => {
             b.amps1ph = b.voltage > 0 ? b.watts / b.voltage : 0;
-            b.amps3ph = b.voltage > 0 ? b.watts / (b.voltage * 1.73) : 0;
+            b.amps3ph = b.voltage > 0 ? b.watts / (lineV(b.voltage) * 1.73) : 0;
         });
         const voltageMismatch = voltages.length > 1;
         // No layers counted keeps the old 110 V stand-in so a project with
@@ -1587,7 +1606,7 @@ class _Presets {
         const singlePhaseAmps = voltageMismatch
             ? null : (voltage > 0 ? totalWattsAll / voltage : 0);
         const threePhaseAmps = voltageMismatch
-            ? null : (voltage > 0 ? totalWattsAll / (voltage * 1.73) : 0);
+            ? null : (voltage > 0 ? totalWattsAll / (lineV(voltage) * 1.73) : 0);
         return {
             circuits: totalCircuits,
             totalWatts: totalWattsAll,
@@ -1632,6 +1651,7 @@ class _Presets {
             const img = new Image();
             img.onload = () => {
                 if (this.imageFileAction === 'replace' && this.currentLayer && this.currentLayer.type === 'image') {
+                    if (this._lockedRefused(this.currentLayer)) return;
                     this.currentLayer.imageData = dataUrl;
                     this.currentLayer.imageWidth = img.width;
                     this.currentLayer.imageHeight = img.height;
@@ -1722,9 +1742,10 @@ class _Presets {
         layer.powerLabelTemplate = 'S1-#';
         layer.powerLabelOverrides = {};
         layer.powerCircuitCables = {};
-        // The jumper lengths a new screen starts with (Preferences > Sheet
-        // & cables; a preset carrying its own overlays them after this).
-        this.applyJumperDefaults(layer, true);
+        // A new screen holds no jumper lengths: it reads Preferences >
+        // Sheet & cables in the show's unit until somebody types one (a
+        // preset carrying its own overlays them after this).
+        this.clearJumperLengths(layer);
         layer.powerSocaNames = {};
         // Born keyed by the multi's stable index, so the one-time rekey never
         // runs over a screen that was already built the new way.
