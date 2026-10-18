@@ -186,7 +186,8 @@ def test_export_modal_opens_and_closes(page):
 
 @pytest.mark.parametrize(
     ('action', 'expected_format'),
-    [('export-png', 'png'), ('export-psd', 'psd')],
+    [('export-png', 'png'), ('export-psd', 'psd'), ('export-svg', 'svg'),
+     ('export-pdf', 'pdf'), ('export-resolume-xml', 'resolume-xml')],
 )
 def test_file_menu_export_populates_canvas_picker(page, action, expected_format):
     """File-menu exports rebuild the same canvas picker as the toolbar."""

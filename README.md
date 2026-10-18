@@ -124,8 +124,8 @@ when you're done.
 
 ### Paperwork
 
-Everything under **File > Export** saves straight to a file, with no print
-dialogs.
+Click the red **Export** button, or pick an export from the **File** menu.
+Everything saves straight to a file, with no print dialogs.
 
 | Export | What you get |
 |--------|-------------|

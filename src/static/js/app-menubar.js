@@ -280,6 +280,15 @@ class _MenuBar {
             case 'export-psd':
                 this.openExportModal('psd');
                 break;
+            case 'export-svg':
+                this.openExportModal('svg');
+                break;
+            case 'export-pdf':
+                this.openExportModal('pdf');
+                break;
+            case 'export-resolume-xml':
+                this.openExportModal('resolume-xml');
+                break;
             case 'pull-sheet':
                 // The in-app editor over the pull list (app-pull-sheet-editor.js).
                 this.openPullSheetEditor();

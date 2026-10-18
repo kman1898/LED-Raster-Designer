@@ -63,6 +63,17 @@ ALSO NEW
 - NEW: Help > License > Third-party notices lists three.js, which draws
   the 3D view.
 
+v1.5.2 - October 18, 2026
+----------------------------
+
+Every export now has its own place in the File menu.
+
+FIXES
+
+- FIX: Export SVG, Export PDF and Export Resolume XML are in the File
+  menu with the other exports. Before, they were only in the format list
+  of the Export button's dialog, which made them easy to miss.
+
 v1.5.1 - October 18, 2026
 ----------------------------
 
