@@ -268,8 +268,15 @@ class _History {
                 done();
                 console.error(label + ' backend sync failed:', error);
             });
-        if (inflight.length === 0) return send();
-        return Promise.all(inflight).then(send, send);
+        // refreshProcessors waits on these and drops a read that was asked
+        // before one began.
+        this._restoreSeq = (this._restoreSeq || 0) + 1;
+        const landed = inflight.length === 0 ? send() : Promise.all(inflight).then(send, send);
+        const puts = this._restorePutsInFlight || (this._restorePutsInFlight = new Set());
+        puts.add(landed);
+        const drop = () => puts.delete(landed);
+        landed.then(drop, drop);
+        return landed;
     }
 
     // The PUT above is not a pure store: restore_project re-derives panel

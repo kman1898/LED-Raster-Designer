@@ -12,7 +12,7 @@
 //     (owner, 2026-10-08): a QUAD feeds two XD inputs or four BiDi links,
 //     a DUO one XD input or two BiDi links;
 //   * a link takes 2 strands, 1 on a box switched to BiDi;
-//   * a link on a Tessera XD may be COPPER instead - { copper: 'Cat6A',
+//   * a link on an XD may be COPPER instead - { copper: 'Cat6A',
 //     ft } - with no cable and no strands (owner: "anything that does
 //     10Gbps max length is allowed. Cat 6A and under");
 //   * a link is named by the box's own port (X1 / X2, OPT 1-4, else Link
@@ -42,12 +42,15 @@ export const FIBER_STRAND_SUGGESTIONS = [4, 6, 8, 12, 24, 48];
 export const TAC_CONNECTORS = ['ST', 'LC duplex'];
 
 // Copper on an XD link, each kind with its 10G maximum in feet: Cat6A 60 m
-// and Cat5e 30 m are Brompton's, Cat6 100 ft the owner's. The server's
-// twin is processor_catalog.COPPER_LINK_KINDS; a test pins that they agree.
-export const COPPER_LINK_KINDS = [['Cat6A', 196], ['Cat6', 100], ['Cat5e', 98]];
+// and Cat5e 30 m are Brompton's, Cat6 100 ft the owner's. The meter
+// figures are converted exactly (60 m = 196.85 ft, 30 m = 98.43 ft); they
+// used to be floored to the foot, so a 98.4 ft Cat5e run was warned. The
+// server's twin is processor_catalog.COPPER_LINK_KINDS, written the same
+// way; a test pins that they agree.
+const FT_PER_M = 1 / 0.3048;
+export const COPPER_LINK_KINDS = [['Cat6A', 60 * FT_PER_M], ['Cat6', 100], ['Cat5e', 30 * FT_PER_M]];
 // The same maxima in a meters show (2026-10-16): Brompton's own 60 m and
-// 30 m, and the owner's 100 ft exactly (30.48 m) - the feet table above
-// holds the first two floored to the foot.
+// 30 m, and the owner's 100 ft exactly (30.48 m).
 export const COPPER_LINK_KINDS_M = [['Cat6A', 60], ['Cat6', 30.48], ['Cat5e', 30]];
 
 // One strand as the paper says it - the ONE JS implementation, pinned
@@ -167,7 +170,16 @@ class _Fiber {
         const max = copper ? this.copperLinkMax(copper.copper) : null;
         const ft = this.parseCableLength(copper && copper.ft);
         if (!max || !Number.isFinite(ft) || ft <= max) return '';
-        return `${copper.copper} runs ${this.cableLengthWords(max)} max at 10G`;
+        return `${copper.copper} runs ${this.copperLinkMaxWords(max)} max at 10G`;
+    }
+
+    // A 10G maximum as words, never rounded UP past the real limit: feet
+    // print to the tenth and meters to the centimeter, floored, so the
+    // figure said is always a length that fits ("196.8 ft" for Cat6A's
+    // 196.85, "98.4 ft" for Cat5e's 98.43; "100 ft", "30.48 m").
+    copperLinkMaxWords(max) {
+        const step = this.cableUnitAbbr() === 'm' ? 100 : 10;
+        return this.cableLengthWords(Math.floor(max * step + 1e-9) / step);
     }
 
     // Every resolved box, in tray order: [{ box, proc, card }]. A card
@@ -279,6 +291,16 @@ class _Fiber {
     // port too, "X1 Cat6A 150'", with the plain warning where it runs past
     // its 10G length. '' where nothing is set.
     fiberLinkSummary(box) {
+        return this.fiberLinkInputs(box).map(i => i.text).join(' · ');
+    }
+
+    // The same links one input at a time, in the order the summary says
+    // them, for a sheet that lays each strand out on its own (the binder's
+    // data-sheet band and Breakout boxes table): a fiber input is
+    //   { text: 'X1 TAC A (TAC 8) 1-2', head: 'X1 TAC A (TAC 8)', cable, strands: [1, 2] }
+    // - `head` the summary's words before the strands, `strands` in
+    // order - and a copper one { text: "X1 Cat6A 150'" } alone.
+    fiberLinkInputs(box) {
         const sides = { p: new Map(), b: new Map() };
         for (const l of this.fiberBoxLinks(box)) {
             const side = l.backup ? sides.b : sides.p;
@@ -297,9 +319,9 @@ class _Fiber {
             if (copper) {
                 const ft = this.parseCableLength(copper.ft);
                 const over = this.copperOverText(copper);
-                return [titles[0], copper.copper,
-                        Number.isFinite(ft) && ft > 0 ? this.pullLengthText(ft) : '']
-                    .filter(Boolean).join(' ') + (over ? ` (${over})` : '');
+                return { text: [titles[0], copper.copper,
+                                Number.isFinite(ft) && ft > 0 ? this.pullLengthText(ft) : '']
+                    .filter(Boolean).join(' ') + (over ? ` (${over})` : '') };
             }
             let what = cable.name || this.fiberCableTypeText(cable);
             if (cable.name && !typed.has(cable.id)) {
@@ -309,9 +331,11 @@ class _Fiber {
                 what += ` (${kind})`;
             }
             typed.add(cable.id);
-            return `${this.fiberPortRunText(titles)} ${what} ${this.fiberStrandRangeText(strands)}`;
+            const head = `${this.fiberPortRunText(titles)} ${what}`;
+            const list = [...new Set(strands.map(Number))].filter(Number.isFinite).sort((a, b) => a - b);
+            return { text: `${head} ${this.fiberStrandRangeText(strands)}`, head, cable, strands: list };
         });
-        return [...say(sides.p), ...say(sides.b)].join(' · ');
+        return [...say(sides.p), ...say(sides.b)];
     }
 
     // A 1.3 box's typed fiber, kept as a NOTE: "12 Tac Fiber 250'", the type

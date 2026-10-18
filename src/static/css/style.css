@@ -1605,8 +1605,8 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 }
 /* The processor's strip leads with its NAME (2026-09-25, option 2 "Framed
    unit"): the name field at heading size, the model after it in the
-   secondary colour - "WALL SR Main  Tessera SX40", where it used to read a
-   small grey "TESSERA SX40" and then the name. One line at the 440px
+   secondary colour - "WALL SR Main  SX40", where it used to read a
+   small grey "SX40" and then the name. One line at the 440px
    track: the model and the pills give way (ellipsis) before the name
    does, and the name itself shrinks to a floor rather than push the gear
    out of the cell. */
@@ -1635,7 +1635,7 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 }
 .hw-dock-unit-info { font-size: 10px; color: #666; font-family: monospace; margin-left: auto; }
 /* One breakout box = one bounded section of its card: its own ground and
-   frame around the header ("Tessera XD A · ports 1-10") and its span of
+   frame around the header ("XD A · ports 1-10") and its span of
    chips, so where one box ends and the next begins is read at a glance -
    a lone left border was invisible between two ten-chip grids. The backup
    half of a pair keeps this frame and adds the pair rule's gold edge and
@@ -1862,6 +1862,26 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 .hw-dock-btn { padding: 1px 8px; font-size: 10px; flex: 0 0 auto; white-space: nowrap; }
 /* over-loaded figures keep the red the bars wear */
 .hw-dock-unit-use-over { color: #e05050; }
+/* an accepted overload reads amber - the strip's mild family */
+.hw-dock-unit-use-accepted { color: #dcb968; }
+/* The distro header's limit note ("· 80% of 100 A") and its flag (red
+   OVER, amber "OVER · accepted"): each holds its shape and the header
+   wraps between them (app-dock.js _dockDistroGlance). */
+.hw-dock-unit-lim {
+    font-size: 10px; font-family: monospace; color: #888;
+    white-space: nowrap; flex: 0 0 auto;
+}
+.hw-dock-unit-flag {
+    font-size: 9px; font-weight: 700; letter-spacing: 0.4px; line-height: 1.3;
+    padding: 0 4px; border-radius: 3px; white-space: nowrap; flex: 0 0 auto;
+    background: #3a1414; border: 1px solid #7a2727; color: #ff9a9a;
+}
+.hw-dock-unit-flag-ok { background: #2a220f; border-color: #6b5626; color: #dcb968; }
+.hw-dock-bar > i.hw-dock-bar-accepted,
+.hw-dock-headbar > i.hw-dock-bar-accepted,
+.hw-dock-legbar > i.hw-dock-bar-accepted {
+    background: linear-gradient(90deg, #8a6420, #d8a13c);
+}
 /* The distro's LEGS line: per-leg amps + mini meters + imbalance, always
    on (it sits between the header and the foldable body). */
 .hw-dock-legs {

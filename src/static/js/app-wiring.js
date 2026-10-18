@@ -658,21 +658,37 @@ class _Wiring {
         }
         const panelWeightUnitInput = document.getElementById('panel-weight-unit');
         if (panelWeightUnitInput) {
+            // A unit change converts EACH selected screen's OWN weight from
+            // its own unit. It used to convert the field (blank when the
+            // weights differ, so currentLayer's figure stood in) and write
+            // that one figure to every selected screen: 28.66 lb and
+            // 29.98 lb both came out 13 kg. A locked screen is left alone
+            // here; updateLayerFromInputs' lock hold keeps its unit and
+            // names it.
             panelWeightUnitInput.addEventListener('change', () => {
                 if (!this.currentLayer) return;
-                const oldUnit = this.currentLayer.weight_unit || 'kg';
                 const newUnit = panelWeightUnitInput.value || 'kg';
-                if (oldUnit !== newUnit) {
-                    const weightInput = document.getElementById('panel-weight-kg');
-                    const currentValue = parseFloat(weightInput?.value || this.currentLayer.panel_weight || 0) || 0;
+                const screens = this.getSelectedLayers()
+                    .filter(l => l && (l.type || 'screen') === 'screen');
+                screens.forEach(layer => {
+                    const oldUnit = layer.weight_unit || 'kg';
+                    if (layer.locked || oldUnit === newUnit) return;
+                    // || 20: the figure Screen Info and the labels show
+                    // for a screen with no weight stored
+                    const value = Number(layer.panel_weight) || 20;
                     const converted = (oldUnit === 'kg' && newUnit === 'lb')
-                        ? (currentValue * 2.20462)
+                        ? (value * 2.20462)
                         : (oldUnit === 'lb' && newUnit === 'kg')
-                            ? (currentValue / 2.20462)
-                            : currentValue;
-                    if (weightInput) {
-                        weightInput.value = converted.toFixed(2);
-                    }
+                            ? (value / 2.20462)
+                            : value;
+                    layer.panel_weight = Math.round(converted * 100) / 100;
+                });
+                // The field shows the selection's common weight, else
+                // blank - and a blank field writes nothing.
+                const weightInput = document.getElementById('panel-weight-kg');
+                if (weightInput && screens.length) {
+                    const weights = new Set(screens.map(l => Number(l.panel_weight) || 20));
+                    weightInput.value = weights.size === 1 ? String([...weights][0]) : '';
                 }
                 this.updateLayerFromInputs();
             });

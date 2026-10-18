@@ -29,7 +29,8 @@ Object.assign(CanvasRenderer.prototype, {
     getPortPixelLoad(layer, portPanels) {
         const app = window.app;
         if (!app || !layer || !Array.isArray(portPanels)) return 0;
-        const visible = portPanels.filter(p => p && !p.hidden);
+        // A legacy `blank` carries no pixels, exactly like hidden.
+        const visible = portPanels.filter(p => p && !p.hidden && !p.blank);
         if (visible.length === 0) return 0;
 
         const usesRectangle = typeof app.usesRectangleConstraint === 'function'
@@ -94,7 +95,7 @@ Object.assign(CanvasRenderer.prototype, {
         );
         if (!(base > 0)) return 0;
 
-        const visible = (portPanels || []).filter(p => p && !p.hidden);
+        const visible = (portPanels || []).filter(p => p && !p.hidden && !p.blank);
         // The app's own function does the arithmetic and owns the scope guard;
         // this only measures the port. A no-op on every processor but 5G.
         const withWidthPenalty = (capacity) => {

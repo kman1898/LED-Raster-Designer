@@ -503,7 +503,7 @@ class _PortAssignment {
                 + 'in the same order, and hold them there. Every port of '
                 + 'this screen comes with it, wherever it sits now.';
         } else if (offer.action === 'release') {
-            btn.title = 'Take these ports off their card. They stay '
+            btn.title = `Take these ports off their ${this.showUnitWord()}. They stay `
                 + 'unattached until you place them again.';
         }
         btn.addEventListener('click', () => this._takeOffer(offer));

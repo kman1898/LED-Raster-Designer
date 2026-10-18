@@ -93,6 +93,9 @@ class _RunOverrides {
             const paths = member[pathsKey] || {};
             nums.forEach(n => {
                 this.getResolvedPathPanels(member, paths[n] || []).forEach(hit => {
+                    // A legacy blank on a data override is no cabinet at
+                    // all: not claimed, not carried (see isPanelDataDark).
+                    if (kind !== 'power' && hit.panel.blank) return;
                     claimed.add(hit.panel);
                 });
             });
@@ -109,7 +112,8 @@ class _RunOverrides {
         const pathsKey = kind === 'power' ? 'powerCustomPaths' : 'customPortPaths';
         const paths = layer[pathsKey] || {};
         return this.getOverrideNums(layer, kind)
-            .map(num => ({ num, hits: this.getResolvedPathPanels(layer, paths[num] || []) }))
+            .map(num => ({ num, hits: this.getResolvedPathPanels(layer, paths[num] || [])
+                .filter(hit => kind === 'power' || !hit.panel.blank) }))
             .filter(o => o.hits.length > 0);
     }
 

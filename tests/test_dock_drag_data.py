@@ -591,7 +591,7 @@ def test_the_platform_refusal_is_the_servers_sentence_unchanged(dock_page):
     assert mid['lit'] == [], f'the wall lit under a card it cannot use: {mid}'
     assert mid['pill'] is None, mid
     err = page.evaluate("() => window.app._assignmentError")
-    assert err == ('BROMP is programmed Brompton Tessera; '
+    assert err == ('BROMP is programmed Brompton; '
                    'H9 slot 1 is NovaStar legacy gear.'), err
     assert page.evaluate(PINS_JS) == [], 'the refused drop pinned something'
     assert page.evaluate(SERVER_PINS_JS) == []

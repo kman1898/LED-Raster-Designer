@@ -556,7 +556,7 @@ def test_the_distro_picker_pulls_the_power_rows_to_its_beach(page):
     pos = {p['name']: p for p in out['positions']}
     assert [p['name'] for p in out['positions']] == ['SR', 'SL', 'SPARE']
     sl_rows = _rows(pos['SL']['rows'])
-    for row in [('12 way', 'EA', 1, 'SR', ''), ('Multi', "100'", 1, 'SR 2', ''), ('Multi', "125'", 1, 'SR 1', ''),
+    for row in [('Distro', 'EA', 1, 'SR', ''), ('Multi', "100'", 1, 'SR 2', ''), ('Multi', "125'", 1, 'SR 1', ''),
                 ('Tru-1 Breakout', 'EA', 2, 'SR 1-2', '')]:
         assert row in sl_rows, (row, sl_rows)
     # the walls' power jumpers beside CENTER's and LEFT's own, at SL - one
@@ -571,7 +571,7 @@ def test_the_distro_picker_pulls_the_power_rows_to_its_beach(page):
                      ('Tru-1 Power Jump', "3'", 12, 'CENTER', ''),
                      ('Tru-1 Power Jump', "6'", 10, 'WALL-B', ''),
                      ('Tru-1 Power Jump', "6'", 3, 'LEFT', '')], sl_rows
-    assert not [r for r in _rows(pos['SR']['rows']) if r[0] in ('12 way', 'Multi', 'Tru-1 Breakout')]
+    assert not [r for r in _rows(pos['SR']['rows']) if r[0] in ('Distro', 'Multi', 'Tru-1 Breakout')]
     assert ('Ether-con Snake', "100'", 1, 'SNAKE A', '2 channel') in _rows(pos['SR']['rows'])
     assert set(pos['SL']['layerIds']) >= {ids['a'], ids['b'], ids['c']}
     counts = lambda rows: sorted((t, l, q) for t, l, q, _, _ in _rows(rows))

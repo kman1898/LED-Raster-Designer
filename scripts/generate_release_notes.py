@@ -208,7 +208,7 @@ def render_item(item):
     for part in item["parts"]:
         if part["type"] == "p":
             if first:
-                lead = f'**{item["area"]}** — ' if item["area"] else ""
+                lead = f'**{item["area"]}:** ' if item["area"] else ""
                 out.append(wrap(lead + part["text"], indent="  ", first="- "))
                 first = False
             else:
@@ -235,9 +235,11 @@ SECTIONS = [
 
 INSTALL = """## Install
 
-**macOS** — download the `.dmg` and drag the app to Applications.
+**macOS:** download the `.dmg` and drag the app to Applications. The first time you open
+it, go to System Settings > Privacy & Security and click Open Anyway.
 
-**Windows** — download the `.zip`, extract it, then run `LED Raster Designer.exe`.
+**Windows:** download the `.zip`, extract it, then run `LED Raster Designer.exe`. If
+Windows shows "Windows protected your PC", click More info, then Run anyway.
 
 SHA-256 checksums for both files are attached as `checksums.txt`.
 """

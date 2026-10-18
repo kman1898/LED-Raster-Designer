@@ -63,150 +63,155 @@ ALSO NEW
 - NEW: Help > License > Third-party notices lists three.js, which draws
   the 3D view.
 
-v1.5.0 - October 16, 2026
+v1.5.1 - October 18, 2026
 ----------------------------
 
-Distros are now built from their real outputs: Socapex, L21-30 and
-direct True1, powerCON, Edison and CEE outlets on the same face, on a US
-or EU power system, from a preset or from scratch. Cable lengths can be
-in meters. Custom mode stays on until you turn it off, and a right-click
-on a screen or group turns it on.
+A small update with two fixes, both about the app keeping what you just
+did. If you're on 1.5.0, this one is worth grabbing.
+
+FIXES
+
+- FIX: Undoing a screen delete, or another change that removed cables,
+  could leave those cable lengths missing in the app even though they
+  were back. Saving right then wrote the show without them.
+- FIX: A change made in the first moment after the app opened could be
+  thrown away when the app finished connecting.
+
+v1.5.0 - October 18, 2026
+----------------------------
+
+Version 1.5 is all about power. You can now build a distro from the
+outputs it actually has, mixing Socapex, L21-30, True1, powerCON, Edison
+and CEE on one face, on US or EU power. Cable lengths can be in meters,
+custom mode stays on until you turn it off, and there's a long list of
+fixes to the binder and the power math.
 
 DISTROS BUILT FROM THEIR OUTPUTS
 
-A distro's gear picks its power system - 120/208V 3-phase, 120/240V
-split, 120V, 230/400V 3-phase or 230V - its input (Cam 100 to 800 A,
-L21-30, CEE red or blue 16 to 125 A, Powerlock 400 or 630 A, only the
-ones that fit its system) and its amps per leg,
-then lists its outputs, a connector and a count per row. Multis break out
-at the screen as before; a direct output on the distro face is one
-circuit with its own cable to the screen, and can feed a 2fer or 3fer.
-Start from one of eleven presets of common US and EU distros, or save
-your own and delete it again when you are done with it. Preferences >
-Distros picks the system a new distro starts on. US distros read their legs X, Y and Z and EU distros L1, L2
-and L3; an EU distro can put a whole Socapex on one phase, and a UK
-distro's Socapex can be paired with the outlets it shares circuits with,
-so those circuits count once.
+Pick the power system, the input and the amps per leg, then add the
+outputs row by row with a connector and a count. You can start from one
+of eleven presets for common US and EU distros, or build your own and
+save it for next time. Give it a type and it will be added to the pull
+sheet.
 
-Each circuit is checked against its breaker: on a US distro at 80% of
-the breaker unless the distro has 100% rated breakers, on an EU distro
-at the breaker. True1 is held to 16A on an EU distro, powerCON XX at 208V
-gets a warning that it is only US-listed to 127V, and stage pin is
-refused at 208V. A screen is refused by a distro that does not give its
-voltage, and says why: "WALL B runs at 230V - PD gives 120V or 208V. Set
-the screen to 208V." A multi left on an output that carries one circuit,
-after the outputs change, is flagged: "WALL A's 6 circuits are on PD4, a
-True1 - one circuit only. Move it to a multi output."
+Multis still break out at the screen like before. A direct output off
+the distro face is a single circuit with its own cable to the screen,
+and it can feed a 2fer or 3fer. EU distros label their legs L1, L2 and
+L3, and you can put a whole Socapex on one phase.
 
-A distro from an older show opens on the system it matches. A 120V
-3-phase distro opens as 120/208V with each 120V circuit on one leg, so
-its amps read lower than before, and correctly. An older distro that fits
-none of the five systems keeps its old figures and asks you to pick its
-system.
+EVERY CIRCUIT IS CHECKED
 
-CABLE LENGTHS IN FEET OR METERS
+Every circuit is checked against its breaker. On a US distro that means
+80% of the breaker, unless the breakers are 100% rated. The distro
+itself is held to 80% of its rating too, unless you turn on Main 100%
+rated. Go over and you'll see a red OVER. If you know the load is fine,
+hit Accept overload and it turns amber and gets noted in the binder.
 
-Preferences > Pull sheet & cables sets Feet or Meters for new shows, and
-offers to switch the open show too. The Unit dropdown under the jumper
-fields on the Data and Power tabs, or the Export dialog's Pull Sheet and
-Binder sections, set it for the show in front of you. Every cable length follows the show: multi home runs,
-circuit cables, data home runs and snakes, jumpers, fiber and copper to
-the boxes, the box cable sheets, the cable tags on the maps, the pull
-sheet and the binder. Meters print as "Data Jump 2 m". A show opened
-from before this version reads in feet.
+If a screen needs a voltage the distro can't give, the app won't put it
+on that distro and tells you why. The binder's Load line now shows the
+amps on every leg, the 3-phase total and the limit, so you don't have to
+work it out by hand.
 
-Lengths you type keep their numbers when the unit changes, so 25 ft
-becomes 25 m, and the app asks before it changes a show that already has
-lengths typed. A new screen's jumpers follow Preferences in the show's
-unit until you type one. A length can be typed with its unit, "30m" or
-"100'"; a length in the other unit reads as no length rather than being
-taken for this one. A long jumper, the one length the app measures, is
-measured again: along the panels plus 0.3 m of slack, rounded up to 1, 2,
-3, 5 or 10 m, and past 10 m up to the next 5 m. Both stock lists, feet and meters, can be edited in
-Preferences, and Preferences keeps its own default lengths for each
-unit.
+FEET OR METERS
+
+You can now work in meters. Set the default for new shows in
+Preferences > Pull sheet & cables, or switch the show you have open with
+the Unit dropdown under the jumper fields on the Data and Power tabs.
+Every cable length follows along: home runs, jumpers, fiber, cable tags,
+the pull sheet and the binder.
+
+Lengths you've already typed keep their numbers, so the app checks with
+you before switching a show that has some. Long jumpers, the only length
+the app measures for you, round up to 1, 2, 3, 5 or 10 m in a metric
+show, and you can edit both stock lists in Preferences.
 
 CABINETS ACROSS SCREENS
 
-On the Pixel Map a drag over several selected screens, grouped or not,
-selects cabinets on every screen it touches, and Set Blank, Restore and
-the half-tile buttons change all of them as one undo step. A screen group
-acts as one screen: a click selects a cabinet on any of its screens and
-never narrows the selection to one of them. In custom mode on the Data
-and Power tabs the same drag selects across a group, whichever screen it
-starts on.
+On the Pixel Map you can drag across several selected screens to pick
+cabinets on all of them at once, then blank them or make them half tiles
+in one go. Grouped screens now behave like one screen, so a click picks
+a cabinet on whichever screen you clicked.
 
-CUSTOM RUNS ACROSS A GROUP
+CUSTOM MODE STAYS ON
 
-Right-click a screen or a group on the Data tab for Custom runs: On or
-Off, or on the Power tab for Custom circuits. A group whose screens have
-different cabinet sizes says so under its Route as one screen switch,
-"Cabinet sizes differ - runs stay per screen. Use Custom to run across.",
-instead of only greying the switch out.
+Pressing a pattern button no longer kicks a screen out of custom mode.
+You can also right-click a screen or group to turn Custom runs or Custom
+circuits on and off. When a custom run covers two cabinet sizes its load
+reads in pixels, and a circuit across cabinets that draw different watts
+reads in watts.
 
-When a custom run covers two cabinet sizes, its load reads in pixels,
-"442,368 / 659,722 px on port", and on the Power tab a circuit over
-cabinets drawing different watts reads in watts, "1,660 / 4,160 W on
-circuit". A run of one cabinet size counts its own cabinets. A pattern
-button pressed on some screens of a custom group redoes every run that
-touches them, and names any other screen in the group that loses wiring
-because of it.
+A CLEANER BINDER
 
-- FIX: A pattern button in custom mode with no cabinets selected no
-  longer takes the screen out of custom mode while the Custom box stays
-  ticked. With a screen or group selected it now fills the whole screen
-  or group as custom runs; with nothing selected it does nothing. Data
-  and Power.
-- FIX: Two quick clicks on the Custom box no longer leave it showing the
-  opposite of the screen's real state. Data and Power.
-- FIX: A distro's header amps, its OVER warning and the binder's Load
-  line now read the busiest leg, "87.1 A on leg X", not the average of
-  the three, so one overloaded leg can no longer hide behind the others.
-- FIX: A 230V 3-phase distro feeding 230V screens is a 230/400V system:
-  each circuit sits on one leg, line to neutral, where it was counted
-  across two legs.
-- FIX: A screen's 3-phase amps are worked from the distro's line-to-line
-  voltage, not the screen's own.
-- FIX: A custom data run is held to the same port capacity as an
-  automatic one: the NovaStar Low Latency reduction and the 5G narrow
-  port penalty now apply to custom runs too.
-- FIX: A locked screen stays exactly as it is until it is unlocked.
-  Screen Info and sidebar edits, Delete, moves, dock drops, Clear Circuit,
-  renaming, Change Cabinet, custom fills, pattern buttons, Clear, the
-  Custom box and stepping its active port leave it alone and say so:
-  "Upper is locked - unlock it to change it." The other selected screens
-  still change, and selecting a locked screen or its cabinets never shows
-  the error.
+Every table is centered and sized to fit what's in it. Fiber strands are
+named by color everywhere they show up, and breakout boxes list their
+inputs the way the manufacturer labels them, like X1 and X2 on an XD or
+OPT1 on a CVT4K-S. Wiring sheets put the boxes on the side of the wall
+their cables come out of, and the title block now has a line for the
+Engineer.
+
+OPENING A 1.4 SHOW
+
+Some numbers will change when you open an older show, because they were
+wrong before.
+
+- FIX (IMPORTANT): The distro header and OVER warning now use the busiest
+  leg instead of averaging all three.
+- FIX (IMPORTANT): 230V 3-phase distros are now worked as 230/400V with
+  each circuit on one leg, so EU amps read lower.
+- FIX (IMPORTANT): 120V 3-phase distros open as 120/208V with each
+  circuit on one leg, so their amps read lower too.
+- FIX (IMPORTANT): A screen's 3-phase amps are now worked from the
+  distro's line to line voltage.
+- FIX (IMPORTANT): Blank cabinets no longer draw power or carry data.
+- FIX (IMPORTANT): Port capacity at frame rates between the published
+  ones now follows the processor's own formula. NovaStar 5G and HELIOS
+  use the next published rate up.
+- FIX (IMPORTANT): Custom data runs now have the same port limits as
+  automatic ones, including NovaStar Low Latency, the 5G narrow port
+  penalty and the Armor rectangle rule.
+- FIX (IMPORTANT): Half tiles use the weight of the matching half panel
+  from the library when there's an exact match.
+
+If an older distro doesn't fit any of the five power systems, it keeps
+its old numbers and asks you to pick one. Brompton gear no longer has
+"Tessera" in its names, and any pull sheet edits you made under the old
+names still carry over.
+
+FIXES
+
+- FIX: Clicking the Custom box twice quickly no longer leaves it showing
+  the wrong state.
+- FIX: Locked screens stay exactly as they are until you unlock them,
+  and the app tells you why when you try to change one.
 - FIX: The distro, processor, card and box settings panels always fit
-  the window: fields wrap instead of being cut off, a panel can be dragged
-  by its title bar, and x closes it. In a narrow Hardware tray the card
-  headers wrap, so Balance and the gear stay in reach.
-- FIX: Dropdowns in Preferences, the Export dialog and the hardware
-  settings panels show their arrow again; they read as text boxes.
-- FIX: Deleting a distro, clearing a multi or a circuit, moving a screen
-  off its distro, releasing a data port, or removing a card, processor or
-  breakout box clears the cable lengths that went with it, so they no
-  longer come back on the next feed. Jumper lengths stay with the screen.
-- FIX: Deleting a screen, alone, in a selection, with its group or with
-  its canvas, clears the data cable lengths on the ports it used and the
-  pull sheet edits on its rows; a port or row another screen still uses
-  keeps its own. Undo brings them back.
-- FIX: Multi numbers on the Power tab no longer shift when a screen is
-  added to a shared distro, removed or reordered. A removed screen leaves
-  its gap for the next one, and only Reset offsets in the Balance dialog
-  numbers them again.
-- FIX: Cabinet IDs stay on screen further into a zoom-out: they drop out
-  only below 3 pixels, where it was 5, and the log notes when a screen's
-  IDs are hidden or shown again.
-- FIX: A custom data run on a NovaStar Armor port is held to Armor's
-  rectangle rule, as the port badge already was, so a run can no longer
-  be filled past what the badge calls full.
-- FIX: A multi home run typed with its unit, "100'" or "100ft", prints on
-  the pull sheet, the binder and the map's cable tag; it printed blank.
-- FIX: Two windows saving named layouts at the same moment no longer lose
-  one of them.
-- FIX: Pixel counts, watts and amps print with commas on a computer set
-  to another language, as they do everywhere else in the app.
+  in the window. You can drag them by the title bar and close them with
+  the x.
+- FIX: Dropdowns have their arrow back and no longer look like text
+  boxes.
+- FIX: Deleting a distro, multi, circuit, port, card, box or screen now
+  clears the cable lengths that went with it. Jumper lengths stay with
+  the screen.
+- FIX: If changing a distro would leave a multi on an output that only
+  carries one circuit, the app stops and asks you to sort it out.
+- FIX: Multi numbers stay put when screens are added to, removed from or
+  reordered on a shared distro. Only Reset offsets renumbers them.
+- FIX: Balance finds the best arrangement, never makes the busiest leg
+  worse, and leaves locked screens and paired connectors alone.
+- FIX: Changing the Rev in the Export dialog adds it to Revisions right
+  away.
+- FIX: A blank Project Manager phone or email no longer leaves a gap in
+  the title block.
+- FIX: Processors without cards are called processors now, not cards.
+- FIX: Changing the weight unit on grouped or selected screens converts
+  each screen's own weight.
+- FIX: Size labels no longer show things like 10' 51" or 20' 12.0".
+- FIX: Cabinet IDs stay visible further when you zoom out.
+- FIX: A home run typed as "100'" or "100ft" now prints on the pull
+  sheet, the binder and the map.
+- FIX: Pull sheets spread out across the page, and LEN now reads LENGTH.
+- FIX: Saving a named layout from two windows at the same time no longer
+  loses one of them.
+- FIX: Numbers print with commas on computers set to other languages.
 
 v1.4.1 - October 9, 2026
 ----------------------------

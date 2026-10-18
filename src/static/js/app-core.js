@@ -662,6 +662,7 @@ export class LEDRasterApp {
     connectWebSocket() {
         this.socket = io();
         this.socket.on('connect', () => {
+            this._socketConnects = (this._socketConnects || 0) + 1;
             document.getElementById('status-message').textContent = 'Connected';
             sendClientLog('socket_connect');
         });
@@ -671,6 +672,20 @@ export class LEDRasterApp {
         });
         this.socket.on('project_data', (data) => {
             console.log('WEBSOCKET project_data received');
+            // The server sends this on every connect. The FIRST connect's copy
+            // usually lands a few ms after loadProject's own read has finished
+            // (measured: every time), so it is the project as it was before
+            // anything the page did since; adopting it threw those edits off
+            // the page (CI, 2026-10-18: a wall seeded right after load read
+            // 0 kg). loadProject already holds that state, so the first copy
+            // is dropped once the load is done. A reconnect's copy still
+            // applies: the server is the truth after a disconnect.
+            const firstConnect = (this._socketConnects || 0) <= 1 && !this._firstProjectDataSeen;
+            this._firstProjectDataSeen = true;
+            if (firstConnect && this._initialLoadComplete) {
+                sendClientLog('socket_project_data_skipped', { reason: 'first_connect_after_load' });
+                return;
+            }
             sendClientLog('socket_project_data', { layers: data.layers ? data.layers.length : 0 });
             
             // Preserve client-side properties when server sends project data
@@ -1002,9 +1017,16 @@ export class LEDRasterApp {
                 // Save initial state for undo/redo
                 this.resetHistory('Initial State');
 
-                // Mark initial load complete, subsequent socket project_data
-                // events are reconnects and should not re-apply preferences.
+                // Mark initial load complete. The first connect's project_data
+                // is dropped after this (see the socket handler); a later one
+                // is a reconnect and does not re-apply preferences.
                 this._initialLoadComplete = true;
+                // The page paints from the loaded project itself. This used
+                // to ride on the first connect's project_data, which landed a
+                // moment later and ran updateUI; that copy is now dropped, and
+                // without this the show's unit words, the project name and
+                // the rest of updateUI stayed as the page shipped.
+                this.updateUI();
 
                 // Default to Fit view on load. Retry while layout settles: on
                 // a slow first paint the canvas wrapper can still be 0-height
@@ -2272,7 +2294,7 @@ export class LEDRasterApp {
     //    SX40/S8 feature and needs an HDMI source. The "Low Latency Mode" on
     //    T1/M2 is a different feature and costs no capacity at all.
     //  - Megapixel: "HELIOS(R) LED Processing Platform - User Guide" v26.04.0
-    //    (2026-04-20). Tile LL + Processor LL do not change the Appendix K.14
+    //    (2026-04-20). Tile LL + Processor LL do not change the Appendix K.15
     //    port capacities; the real cost is halved daisy-chain length in
     //    stacked columns.
     //  - NovaStar: low latency constrains port GEOMETRY rather than the pixel
@@ -2453,7 +2475,9 @@ export class LEDRasterApp {
     // comes from a formula is ROUNDED DOWN (owner, 2026-09-26: "make sure
     // the table values are rounded down") - a pixel over the real limit is
     // a port that does not fit. 5G is NovaStar's published table verbatim,
-    // already below its formula.
+    // already below its formula. A rate between two rows is answered by
+    // lookupPortCapacity from portCapacityFormulas (below) where a formula
+    // exists, and never by interpolation.
     portCapacityTables = {
         // NovaStar Armor (MSD/MRV) legacy 1G receiving cards
         // 8-bit uses 24x; 10/12-bit use 48x (max 120 Hz)
@@ -2504,10 +2528,10 @@ export class LEDRasterApp {
         },
         // v0.11.0: Megapixel HELIOS switch-to-tile output port capacity.
         // Source: "HELIOS(R) LED Processing Platform - User Guide", v26.04.0 (2026-04-20),
-        // Appendix K.14 "HELIOS & Switch - Output Port Capacity (Pixels)", p.216.
+        // Appendix K.15 "HELIOS & Switch - Output Port Capacity (Pixels)", p.216.
         // Megapixel publishes no 8-bit figures for HELIOS, so only 10/12 exist here.
         // Prior values came from the rounded switch spec-sheet figure (425,000 px
-        // @ 12-bit/60Hz) and ran up to ~6% HIGH against K.14; do not reintroduce them.
+        // @ 12-bit/60Hz) and ran up to ~6% HIGH against K.15; do not reintroduce them.
         // 2.5G requires 2.5G-capable tiles; most tiles are 1G only.
         'megapixel-1g': {
             10: { 24:1237000, 25:1187000, 30:985000, 48:608000, 50:583000, 60:482000, 120:230000, 144:188000, 180:146000, 200:129000, 240:104000 },
@@ -2516,6 +2540,45 @@ export class LEDRasterApp {
         'megapixel-2.5g': {
             10: { 24:3094000, 25:2968000, 30:2464000, 48:1520000, 50:1457000, 60:1205000, 120:576000, 144:471000, 180:366000, 200:324000, 240:261000 },
             12: { 24:2578000, 25:2473000, 30:2053000, 48:1267000, 50:1214000, 60:1004000, 120:480000, 144:393000, 180:305000, 200:270000, 240:218000 }
+        }
+    };
+
+    // The formula behind the tables that ARE formula-derived, so a frame rate
+    // between two published rows gets its own exact figure instead of a
+    // straight line between its neighbours. Capacity runs as 1 / frame rate,
+    // so a straight line always sits ABOVE the curve: Armor 8-bit 72 Hz read
+    // 593,749 by interpolation where the formula gives 549,768 (+8%).
+    //
+    //   capacity = floor(budget / (perPixel x frame rate))
+    //
+    // - NovaStar Armor / COEX 1G: 95% of 1 Gbit, at 24 / 48 / 48 (Armor) or
+    //   24 / 32 / 48 (COEX 1G) per pixel for 8 / 10 / 12-bit.
+    // - Brompton: the published 24 Hz figure x 24, per bit depth. The retired
+    //   brompton-ull table is the same budget halved (perPixel 2), which is
+    //   what Ultra Low Latency's floor(capacity / 2) gives too.
+    //
+    // Every published row above is EXACTLY this formula, floored
+    // (tests/test_capacity_formulas.py holds each cell to it), so the table
+    // and the formula cannot drift apart. NovaStar 5G and Megapixel HELIOS
+    // are deliberately absent: their tables are the manufacturers' published
+    // figures, 5G already below its own formula and HELIOS on no 1 / frame
+    // rate curve at all. lookupPortCapacity never invents a figure for them.
+    portCapacityFormulas = {
+        'novastar-armor': {
+            budget:   { 8: 950000000, 10: 950000000, 12: 950000000 },
+            perPixel: { 8: 24, 10: 48, 12: 48 }
+        },
+        'novastar-coex-1g': {
+            budget:   { 8: 950000000, 10: 950000000, 12: 950000000 },
+            perPixel: { 8: 24, 10: 32, 12: 48 }
+        },
+        'brompton': {
+            budget:   { 8: 31500000, 10: 25200000, 12: 21000000 },
+            perPixel: { 8: 1, 10: 1, 12: 1 }
+        },
+        'brompton-ull': {
+            budget:   { 8: 31500000, 10: 25200000, 12: 21000000 },
+            perPixel: { 8: 2, 10: 2, 12: 2 }
         }
     };
 }

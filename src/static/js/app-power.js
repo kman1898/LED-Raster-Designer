@@ -206,7 +206,8 @@ class _Power {
         
         // Calculate total ports required from assignments
         const usesRectangle = this.usesRectangleConstraint(processorType);
-        const visiblePanels = this.currentLayer.panels ? this.currentLayer.panels.filter(p => !p.hidden).length : 0;
+        // Data side: a legacy `blank` is no cabinet, exactly like hidden.
+        const visiblePanels = this.currentLayer.panels ? this.currentLayer.panels.filter(p => !p.hidden && !p.blank).length : 0;
         const panelCountForStatus = usesRectangle && this.currentLayer.panels ? this.currentLayer.panels.length : visiblePanels;
         const assignments = this.calculatePortAssignments(this.currentLayer);
         // v0.11.0: calculatePortAssignments is the only thing that knows where
@@ -1148,6 +1149,8 @@ class _Power {
         const panelWatts = parseFloat(layer.panelWatts) || 0;
         const src = srcLayers || [];
         return (panels || []).reduce((s, p, pi) => {
+            // a blank cabinet (on a hand-drawn path) draws nothing
+            if (!p || p.blank) return s;
             const from = src[pi];
             const w = (from && from !== layer)
                 ? (parseFloat(from.panelWatts) || 0) : panelWatts;
@@ -2062,7 +2065,10 @@ class _Power {
     // breaker that trips is a leg's, and a whole Socapex on one leg can
     // trip it while the balanced W / (V x 1.73) still reads fine. The
     // balanced figure stays on the record as `balancedAmps`. A distro with
-    // one hot reads W / V, as it always did.
+    // one hot reads W / V, as it always did. Since 2026-10-18 `over` reads
+    // that leg against `limitA` - the main's continuous limit, 80% of the
+    // rating on a US system unless its main is 100% rated - while `pct`
+    // stays a share of the rating.
     getDistroLoads() {
         const distros = this.getDistros();
         const mk = (d) => ({
@@ -2134,6 +2140,13 @@ class _Power {
             const balancedAmps = b.ownAmps != null ? b.ownAmps
                 : (v > 0 ? (d.phase === 3 ? b.watts / (v * 1.73) : b.watts / v) : 0);
             const rating = d ? d.ratingA : 0;
+            // The LIMIT the busiest leg is held to (2026-10-18): 80% of
+            // the rating on a US system unless its main is 100% rated, the
+            // rating on an EU one (distroMainLimit). `pct` stays a share
+            // of the RATING - the real figure - and `over` reads the limit.
+            const rule = d ? this.distroMainLimit(d) : null;
+            const limit = rule && rating > 0 ? rule.limitA : 0;
+            const past = (a) => limit > 0 && a > limit + 1e-9;
             // Per-leg amps are line-to-NEUTRAL: on a 208V wye that is 120V,
             // which is what each leg actually sees.
             let legs = null, imbalancePct = 0;
@@ -2146,7 +2159,8 @@ class _Power {
                 const w = b.legWatts, ph = b.legPhasor;
                 const one = (k) => {
                     const a = mag(ph[k]);
-                    return { watts: w[k], amps: a, pct: rating > 0 ? (a / rating) * 100 : 0 };
+                    return { watts: w[k], amps: a, pct: rating > 0 ? (a / rating) * 100 : 0,
+                             over: past(a) };
                 };
                 legs = { X: one('X'), Y: one('Y'), Z: one('Z') };
                 // NEMA-style: max deviation from the AVERAGE (not max-min
@@ -2163,7 +2177,7 @@ class _Power {
                 legs.spreadAmps = Math.max(...legAmps) - Math.min(...legAmps);
                 legs.worstAmps = Math.max(...legAmps);
                 legs.worst = names[legAmps.indexOf(legs.worstAmps)];
-                legs.over = rating > 0 && legs.worstAmps > rating;
+                legs.over = past(legs.worstAmps);
                 legs.scheme = b.scheme ? b.scheme.name : null;
                 legs.schemeId = b.scheme ? b.scheme.id : null;
                 // True when this service carries BOTH couplings at once -
@@ -2183,7 +2197,14 @@ class _Power {
                 watts: b.watts, amps, balancedAmps,
                 worstLeg: legs ? legs.worst : null,
                 pct: rating > 0 ? (amps / rating) * 100 : 0,
-                over: rating > 0 && amps > rating,
+                limitA: limit, limitPct: rule ? rule.pct : 1,
+                main100: !!(rule && rule.main100),
+                over: past(amps),
+                // Accepted reads amber, never hides: `over` stays true and
+                // the figures stay what they are. Kept on the record while
+                // the distro carries it, over or not (it clears only when
+                // somebody unticks it).
+                overloadAccepted: !!(d && d.overloadAccepted),
                 legs, imbalancePct,
                 socas: b.socas
             };
@@ -3435,6 +3456,12 @@ class _Power {
         return (last && last !== 'custom') ? last : 'tl-h';
     }
 
+    // A unit's cabinets less the blank ones - a blank draws no power and
+    // rides no circuit ("they don't exist", 2026-10-18).
+    _livePanels(panels) {
+        return (panels || []).filter(p => p && !p.blank);
+    }
+
     calculatePowerAssignments(layer) {
         if (!layer || (layer.type || 'screen') === 'image' || !Array.isArray(layer.panels)) return { circuits: [], error: null };
 
@@ -3492,9 +3519,13 @@ class _Power {
             ? this._overrideClaims(layer, 'power') : new Set();
         const unclaimed = (panels) => (claimed.size === 0
             ? panels : panels.filter(p => !claimed.has(p)));
+        // A BLANK cabinet draws no power - "they don't exist" (owner,
+        // 2026-10-18) - so the walk leaves it out the way it leaves out a
+        // hidden one, and no circuit, distro load or label charges it: the
+        // same figure the sidebar, group and project totals already read.
         const visibleOrdered = unclaimed(plan
-            ? plan.ordered.filter(c => !c.panel.hidden).map(c => c.panel)
-            : this.getOrderedPanelsByPattern(layer, pattern, false));
+            ? plan.ordered.filter(c => !c.panel.hidden && !c.panel.blank).map(c => c.panel)
+            : this.getOrderedPanelsByPattern(layer, pattern, false).filter(p => !p.blank));
         if (visibleOrdered.length === 0) {
             return this._mergeOverrideCircuits(layer, { circuits: [], error: null });
         }
@@ -3552,8 +3583,8 @@ class _Power {
                         };
                     }
                     runs.push({
-                        panels: unclaimed(this.getOrganizedPanelsForUnits(
-                            layer, pattern, isHorizontalFirst, [idx], false, plan)),
+                        panels: unclaimed(this._livePanels(this.getOrganizedPanelsForUnits(
+                            layer, pattern, isHorizontalFirst, [idx], false, plan))),
                         load: unitLoad,
                     });
                 }
@@ -3587,7 +3618,7 @@ class _Power {
                 }
                 if (current.load > 0 && current.load + unitLoad > wattsPerCircuit) {
                     circuits.push(unclaimed(
-                        this.getOrganizedPanelsForUnits(layer, pattern, isHorizontalFirst, current.unitIndices || [], false, plan)
+                        this._livePanels(this.getOrganizedPanelsForUnits(layer, pattern, isHorizontalFirst, current.unitIndices || [], false, plan))
                     ));
                     current = { unitIndices: [], load: 0 };
                 }
@@ -3596,7 +3627,7 @@ class _Power {
             }
             if ((current.unitIndices || []).length > 0) {
                 circuits.push(unclaimed(
-                    this.getOrganizedPanelsForUnits(layer, pattern, isHorizontalFirst, current.unitIndices || [], false, plan)
+                    this._livePanels(this.getOrganizedPanelsForUnits(layer, pattern, isHorizontalFirst, current.unitIndices || [], false, plan))
                 ));
             }
         } else {

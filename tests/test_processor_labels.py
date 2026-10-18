@@ -1278,7 +1278,9 @@ def test_the_template_fields_are_keyed_and_named_for_history():
     source = js('app-processors.js')
     assert 'processor-card-return-template-${card.id}' in source
     assert 'processor-cvt-return-template-${cvt.id}' in source
-    assert "'Edit Card Return Label Template'" in source
+    # named for the unit - "Card" on a card-based processor, else
+    # "Processor" (unitWordTitle, 2026-10-17)
+    assert "`Edit ${Word} Return Label Template`" in source
     assert "'Edit Breakout Box Return Label Template'" in source
     # The placeholder states the rung below - the derived return, rendered
     # off the name the ports actually take, so it reads R1-# for a card
@@ -1295,7 +1297,7 @@ def test_the_template_fields_are_keyed_and_named_for_history():
     # that looks chosen - and each edit takes its own named history step.
     assert "'Label', card.portLabelTemplate, '{name}-#'" in source
     assert "'Label', cvt.portLabelTemplate, '{name}-#'" in source
-    assert "'Edit Card Label Template'" in source
+    assert "`Edit ${Word} Label Template`" in source
     assert "'Edit Breakout Box Label Template'" in source
 
 

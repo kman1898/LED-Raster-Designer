@@ -20,7 +20,7 @@ the summaries. Now:
   them a box's; with box B removed it has thirty, and 11-20 are nowhere.
 * REMOVING A BOX TAKES ITS SOCKETS AND ITS PINS. The pins that pointed
   into the box come off (port_assignment.prune_pins_off_sockets), the
-  reply carries a note naming them - "Removed box Tessera XD B - 3 ports
+  reply carries a note naming them - "Removed box XD B - 3 ports
   of LEFT are unplaced again" - and the pruned pin state, and the tray
   toasts the note. The other boxes hold their trunks (hold_box_trunks):
   C stays 21-30, it does not slide down onto B's trunk.
@@ -195,7 +195,7 @@ def test_removing_box_b_takes_its_ten_sockets_and_the_pins_on_them(client):
     proc, card, boxes = unit(state)
     pid, cid = proc['id'], card['id']
     box_b = boxes[1]
-    assert box_b['displayTitle'] == 'Tessera XD B'
+    assert box_b['displayTitle'] == 'XD B'
     sc = screens((left, 'LEFT', 3, 'brompton'), (center, 'CENTER', 2, 'brompton'))
     attach(client, left, cid, sc, first=11, last=20)
     res = attach(client, center, cid, sc, first=21, last=30)
@@ -206,7 +206,7 @@ def test_removing_box_b_takes_its_ten_sockets_and_the_pins_on_them(client):
     assert resp.status_code == 200, resp.get_data(as_text=True)
     body = resp.get_json()
     assert body['note'] == \
-        'Removed box Tessera XD B - 3 ports of LEFT are unplaced again'
+        'Removed box XD B - 3 ports of LEFT are unplaced again'
     assert sorted((p['layerId'], p['port'])
                   for p in body['portAssignments']['pins']) == \
         [(center, 21), (center, 22)]
@@ -220,7 +220,7 @@ def test_removing_box_b_takes_its_ten_sockets_and_the_pins_on_them(client):
     assert after['defined'] == 30 and after['trunksFree'] == 1
     assert [(b['displayTitle'], b['firstPort'], b['trunkIndex'])
             for b in after['cvts']] == \
-        [('Tessera XD A', 1, 0), ('Tessera XD C', 21, 2), ('Tessera XD D', 31, 3)], (
+        [('XD A', 1, 0), ('XD C', 21, 2), ('XD D', 31, 3)], (
             'a surviving box slid onto the removed trunk')
     res = resolve(client, sc)
     summ = summary(res, cid)
@@ -251,7 +251,7 @@ def test_removing_box_b_takes_its_ten_sockets_and_the_pins_on_them(client):
     _proc, card, boxes = unit(state)
     assert socket_numbers(card) == list(range(1, 41))
     assert [(b['displayTitle'], b['firstPort']) for b in boxes][-1] == \
-        ('Tessera XD B', 11)
+        ('XD B', 11)
 
 
 def test_a_box_delete_with_no_pins_on_it_says_nothing(client):
@@ -522,7 +522,7 @@ def test_the_tray_after_remove_box_shows_the_trunk_empty_and_toasts(sx_page):
     page.wait_for_timeout(1200)
 
     toasts = page.evaluate(TOASTS_JS)
-    assert 'Removed box Tessera XD B - 3 ports of WALL are unplaced again' \
+    assert 'Removed box XD B - 3 ports of WALL are unplaced again' \
         in toasts, toasts
     after = page.evaluate(TRAY_JS, card)
     assert after['loose'] == [], (

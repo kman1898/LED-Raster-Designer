@@ -107,13 +107,13 @@ class _DockMenus {
         if (!port || !port.cardId) {
             return {
                 label: `Clear port ${label}`, disabled: true,
-                title: `${label} is not attached to a sending card - there `
+                title: `${label} is not attached to ${this.showUnitWord() === 'card' ? 'a sending card' : `a ${this.showUnitWord()}`} - there `
                     + 'is nothing to clear.',
             };
         }
         return {
             label: `Clear port ${label}`,
-            title: 'Take this port off its card; it stays unattached until '
+            title: `Take this port off its ${this.unitWordForCard(port.cardId)}; it stays unattached until `
                 + 'you place it again. Names and templates are untouched, '
                 + 'and undo puts it back.',
             run: () => {
@@ -667,7 +667,7 @@ class _DockMenus {
                     // picks together.
                     return picks.length
                         ? release.then(() => this._dockClearPortPicks(
-                            found, picks, 'Clear Card'))
+                            found, picks, `Clear ${this.unitWordTitle(this.unitWordForCard(payload.cardId))}`))
                         : release;
                 },
             };

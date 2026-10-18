@@ -109,11 +109,21 @@ class _CableUnits {
     // A figure as text: whole numbers bare, else to one decimal in feet
     // and two in meters (0.3 m of slack, a typed 7.62 m) - never rounded
     // past what a person typed to the tenth or the centimeter.
+    // No length (null, undefined, blank) prints nothing: Number(null) is
+    // 0, and a missing length used to print "0". A positive length too
+    // small for those decimals takes as many more as it needs to show
+    // (0.04 ft -> "0.04"), so a real length never prints as 0.
     cableFigure(n, unit) {
+        if (n === null || n === undefined || typeof n === 'boolean'
+            || (typeof n === 'string' && !n.trim())) return '';
         const v = Number(n);
         if (!Number.isFinite(v)) return '';
         if (Number.isInteger(v)) return String(v);
-        return String(+v.toFixed(this.cableUnitAbbr(unit) === 'm' ? 2 : 1));
+        for (let d = this.cableUnitAbbr(unit) === 'm' ? 2 : 1; d <= 6; d++) {
+            const r = +v.toFixed(d);
+            if (r !== 0) return String(r);
+        }
+        return String(v);
     }
 
     // THE one reading of a typed length, everywhere a length is read: a
@@ -143,10 +153,11 @@ class _CableUnits {
         return u === 'm' ? `${this.cableFigure(v, u)} m` : `${this.cableFigure(v, u)}'`;
     }
 
-    // A length as a sentence says it: "10 ft" / "3 m".
+    // A length as a sentence says it: "10 ft" / "3 m"; "" for no length.
     cableLengthWords(n, unit) {
         const u = this.cableUnitAbbr(unit);
-        return `${this.cableFigure(n, u)} ${u}`;
+        const figure = this.cableFigure(n, u);
+        return figure ? `${figure} ${u}` : '';
     }
 
     // Millimeters in one unit of the show's (a measured distance divides

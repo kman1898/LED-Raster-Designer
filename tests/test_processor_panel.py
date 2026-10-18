@@ -1698,8 +1698,10 @@ def test_processor_edits_take_post_mutation_history_snapshots():
     assert "'Remove Processor'" in source, (
         "'Remove Processor' takes no history snapshot")
     dock = js_source('app-dock.js')
+    # a slot card's rename is named for what it is: "Rename Card" on a
+    # card-based processor, "Rename QD" on an SQ200's QD-S (unitWordTitle)
     for action in ("'Add Processor'", "'Rename Processor'",
-                   "'Rename Card'", "'Rename Processor Port'",
+                   "`Rename ${Word}`", "'Rename Processor Port'",
                    "'Rename Processor Port Return'"):
         assert action in dock, f'{action} takes no history snapshot'
 
@@ -1948,7 +1950,7 @@ def test_renaming_either_end_round_trips_through_undo(panel_page):
 
 # ── 9. The generic device is a breakout box ───────────────────────────────
 #
-# CVT is NovaStar's name for THEIR breakout box, the way Tessera XD is
+# CVT is NovaStar's name for THEIR breakout box, the way XD is
 # Brompton's. Actual devices keep their model names; every generic surface -
 # the add control, helper text, error messages - says breakout box, and the
 # shared trunk messages name no vendor's silkscreen ("OPT" is NovaStar's).
@@ -2221,7 +2223,7 @@ def test_brompton_boxes_pair_adjacent_and_the_pairing_is_enforced(client):
         assert ports[main + 10]['backsUp']['localPort'] == local, \
             ports[main + 10]
     assert [ports[n]['backedBy']['boxTitle'] for n in (1, 21)] == \
-        ['Tessera XD B', 'Tessera XD D']
+        ['XD B', 'XD D']
     assert not any(ports[n].get('backedBy') for n in range(11, 21)), (
         'a backing socket was given a backup of its own')
     # The four faces as drawn: every box is 1-10 on its own silkscreen.
@@ -2908,7 +2910,9 @@ def test_the_return_template_round_trips_through_undo(panel_page):
     assert stored() == ('BU-#', 'BU-1')
     action = panel_page.evaluate(
         "() => window.app.history[window.app.history.length - 1].action")
-    assert action == 'Edit Card Return Label Template'
+    # the panel's unit is one box, not a card-based processor: its
+    # history entry says processor (2026-10-17, CARD -> PROCESSOR)
+    assert action == 'Edit Processor Return Label Template'
 
     panel_page.evaluate("() => window.app.undo()")
     panel_page.wait_for_timeout(1000)
@@ -3985,7 +3989,8 @@ def test_the_gear_wires_the_modes_the_house_way():
         assert 'if (!shape || shape.forced) return null;' in body, (
             f'a fixed pairing grew a control in {builder}')
     for action in ("'Change Redundancy Mode'", "'Change Backup Unit'",
-                   "'Set Redundancy Per Port'", "'Set Redundancy Per Card'",
+                   "'Set Redundancy Per Port'",
+                   "`Set Redundancy Per ${this.unitWordTitle(this.unitWordFor(proc))}`",
                    "'Set Redundancy Backed Up'", "'Toggle Redundancy'",
                    "'Set Redundancy Loops'", "'Add Backup Processor'",
                    "'Remove Backup Processor'", "'Rename Backup Processor'"):
@@ -4972,7 +4977,7 @@ def test_a_box_only_hangs_off_its_own_vendors_trunks():
     assert not ok, 'a Brompton box went onto a NovaStar card'
     assert 'NovaStar' in why and 'Brompton' in why, why
     # And the rule the server already advised by stays advising by it.
-    assert 'Tessera XD' not in str(
+    assert 'XD' not in str(
         catalog._fills_the_card(catalog.get_device(
             'novastar-card-h-4xfiber'), 32))
 

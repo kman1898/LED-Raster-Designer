@@ -740,7 +740,7 @@
                                     <option value="novastar-armor">NovaStar (Legacy)</option>
                                     <option value="novastar-coex-1g">NovaStar COEX A10s/A8s (1G)</option>
                                     <option value="novastar-5g">NovaStar COEX CX40 (5G)</option>
-                                    <option value="brompton">Brompton Tessera</option>
+                                    <option value="brompton">Brompton</option>
                                     <option value="megapixel-1g">Megapixel HELIOS (1G)</option>
                                     <option value="megapixel-2.5g">Megapixel HELIOS (2.5G)</option>
                                 </select>
@@ -2447,7 +2447,7 @@
                         <span style="flex: none; width: 92px;">Engineer</span>
                         <input type="text" id="export-binder-engineer" placeholder="Name" data-tooltip="The Drafter the title block prints unless one is typed below, and the initials a logged revision wears. Remembered as a preference." style="flex: 1; min-width: 60px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px;">
                         <span style="flex: none;">Rev</span>
-                        <input type="text" id="export-binder-rev" placeholder="1.0" data-tooltip="Printed in every sheet's corner and in the file name." style="flex: none; width: 44px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px; text-align: right;">
+                        <input type="text" id="export-binder-rev" placeholder="1.0" data-tooltip="Printed in every sheet's corner and in the file name. A new Rev adds its row to the REVISIONS table as you commit it." style="flex: none; width: 44px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px; text-align: right;">
                     </div>
                 </div>
                 <!-- The title block's fields: project.binder (one undo entry
@@ -2491,7 +2491,7 @@
                     <div id="export-binder-logo-status" style="display: none; font-size: 11px; color: #e0a060; margin: -4px 0 0 100px;"></div>
                     <div style="display: flex; gap: 8px; align-items: center; font-size: 12px; color: #aaa;">
                         <span style="flex: none; width: 92px;">Revision note</span>
-                        <input type="text" id="export-binder-revision-note" placeholder="What changed in this rev" data-tooltip="Logged with this export: an export at a Rev no row carries yet adds a row to the REVISIONS table - the date, your initials, this note. The same Rev exported again logs nothing." style="flex: 1; min-width: 60px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px;">
+                        <input type="text" id="export-binder-revision-note" placeholder="What changed in this rev" data-tooltip="The note for the newest Rev: a new Rev adds a row to the REVISIONS table - the date, your initials, this note - and a note typed after it lands in that row. A Rev that already has a row logs nothing." style="flex: 1; min-width: 60px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px;">
                     </div>
                     <div style="display: flex; gap: 8px; align-items: flex-start; font-size: 12px; color: #aaa;">
                         <span style="flex: none; width: 92px; padding-top: 4px;">Revisions</span>
@@ -2715,7 +2715,7 @@
                                     <option value="novastar-armor">NovaStar (Legacy)</option>
                                     <option value="novastar-coex-1g">NovaStar COEX A10s/A8s (1G)</option>
                                     <option value="novastar-5g">NovaStar COEX CX40 (5G)</option>
-                                    <option value="brompton">Brompton Tessera</option>
+                                    <option value="brompton">Brompton</option>
                                     <option value="megapixel-1g">Megapixel HELIOS (1G)</option>
                                     <option value="megapixel-2.5g">Megapixel HELIOS (2.5G)</option>
                                 </select>

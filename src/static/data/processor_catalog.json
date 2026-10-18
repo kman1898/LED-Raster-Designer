@@ -555,8 +555,9 @@
       "family": "novastar",
       "trunksIn": 2,
       "trunkRate": "10G",
-      "linkPorts": {"primary": ["OPT 1", "OPT 2"], "backup": ["OPT 3", "OPT 4"]},
-      "linkPortsNote": "OPT 1 and OPT 2 take the main processor, OPT 3 and OPT 4 the backup processor.",
+      "linkPorts": {"primary": ["OPT1", "OPT2"], "backup": ["OPT3", "OPT4"]},
+      "linkPortsNote": "OPT1 and OPT2 take the main processor, OPT3 and OPT4 the backup processor. Spelled as NovaStar's specifications spell them, with no space: \"OPT1-OPT4 - 4x optical ports\", \"OPT3 is the backup of OPT1 and OPT4 is the backup of OPT2\".",
+      "linkPortsSource": "https://oss.novastar.tech/uploads/2024/10/CVT4K-S-Fiber-Converter-Specifications-V1.0.6.pdf",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 16}]},
       "capAtTrunk": true,
       "singleInput": {"ports": 8},
@@ -573,7 +574,8 @@
       "trunksIn": 1,
       "trunkRate": "10G",
       "linkPorts": {"primary": ["OPT 1"], "backup": ["OPT 2"]},
-      "linkPortsNote": "NovaStar: OPT 1 is the primary port and OPT 2 is the backup port.",
+      "linkPortsNote": "NovaStar: OPT 1 is the primary port and OPT 2 is the backup port. Spelled as the unit's panel prints it, with a space (\"OPT 1\" / \"OPT 2\" on the front indicators and the rear SFP cages, and the sheet's own \"The OPT 1 and OPT 2 come pre-installed\"); the sheet's indicator table runs them together as OPT1/OPT2.",
+      "linkPortsSource": "https://oss.novastar.tech/uploads/2025/10/CVT10-Fiber-Converter-Specifications-V1.3.5.pdf",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 10}]},
       "capAtTrunk": true,
       "note": "10 ports on a 10.3125 Gbps 64B/66B trunk, 8 on an 8B/10B one - the box fans out whatever the trunk carries, so its real count is capped by the card's ports per fiber."
@@ -589,7 +591,8 @@
       "trunksIn": 1,
       "trunkRate": "10G",
       "linkPorts": {"primary": ["OPT 1"], "backup": ["OPT 2"]},
-      "linkPortsNote": "NovaStar: OPT 1 is the primary port and OPT 2 is the backup port.",
+      "linkPortsNote": "NovaStar: \"OPT 1 is the primary port and OPT 2 is the backup port.\" Spelled as the rear panel and its table print it, with a space (\"OPT 1/OPT 2 - 10G optical ports\"); the indicator table runs them together as OPT1/OPT2.",
+      "linkPortsSource": "https://oss.novastar.tech/uploads/2024/10/CVT10-Pro-Fiber-Converter-Specifications-V1.1.0.pdf",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 10}]},
       "capAtTrunk": true,
       "note": "Same figures as the CVT10: 1 OPT in, 10 ports on a 10.3125 Gbps 64B/66B trunk and only the first 8 from a 10G 8B/10B source."
@@ -611,7 +614,7 @@
     {
       "id": "brompton-sx40",
       "vendor": "Brompton",
-      "name": "Tessera SX40",
+      "name": "SX40",
       "kind": "processor",
       "form": "all-in-one",
       "family": "brompton",
@@ -629,7 +632,7 @@
     {
       "id": "brompton-s8",
       "vendor": "Brompton",
-      "name": "Tessera S8",
+      "name": "S8",
       "kind": "processor",
       "form": "all-in-one",
       "family": "brompton",
@@ -641,7 +644,7 @@
     {
       "id": "brompton-s4",
       "vendor": "Brompton",
-      "name": "Tessera S4",
+      "name": "S4",
       "kind": "processor",
       "form": "all-in-one",
       "family": "brompton",
@@ -652,7 +655,7 @@
     {
       "id": "brompton-m2",
       "vendor": "Brompton",
-      "name": "Tessera M2",
+      "name": "M2",
       "kind": "processor",
       "form": "all-in-one",
       "family": "brompton",
@@ -663,7 +666,7 @@
     {
       "id": "brompton-t1",
       "vendor": "Brompton",
-      "name": "Tessera T1",
+      "name": "T1",
       "kind": "processor",
       "form": "all-in-one",
       "family": "brompton",
@@ -675,7 +678,7 @@
     {
       "id": "brompton-sq200",
       "vendor": "Brompton",
-      "name": "Tessera SQ200",
+      "name": "SQ200",
       "kind": "processor",
       "form": "chassis",
       "family": "brompton",
@@ -690,7 +693,7 @@
     {
       "id": "brompton-card-qd-s",
       "vendor": "Brompton",
-      "name": "Tessera QD-S",
+      "name": "QD-S",
       "kind": "card",
       "family": "brompton",
       "unitWord": "QD",
@@ -712,7 +715,7 @@
     {
       "id": "brompton-xd",
       "vendor": "Brompton",
-      "name": "Tessera XD",
+      "name": "XD",
       "kind": "cvt",
       "family": "brompton",
       "capAtTrunk": true,
@@ -726,7 +729,7 @@
     {
       "id": "brompton-xd-s",
       "vendor": "Brompton",
-      "name": "Tessera XD-S",
+      "name": "XD-S",
       "kind": "cvt",
       "family": "brompton",
       "capAtTrunk": true,
@@ -738,7 +741,7 @@
     {
       "id": "brompton-xd-t",
       "vendor": "Brompton",
-      "name": "Tessera XD-T",
+      "name": "XD-T",
       "kind": "cvt",
       "family": "brompton",
       "capAtTrunk": true,
@@ -750,7 +753,7 @@
     {
       "id": "brompton-qd-s",
       "vendor": "Brompton",
-      "name": "Tessera QD-S",
+      "name": "QD-S",
       "kind": "cvt",
       "family": "brompton",
       "legacy": true,

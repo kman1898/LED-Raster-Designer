@@ -1934,8 +1934,9 @@ def test_distro_sections_fold_and_the_header_keeps_the_glance(page):
         assert st['name'] is True, 'the inline name never hides'
         assert st['balance'] is True, 'Balance works on a folded distro'
         assert st['gear'] is True, 'the gear stays reachable'
-        assert '/400 A' in st['glanceText'], \
-            'the header glance reads amps against the rating'
+        # a 400 A US distro's main carries 80% continuously (2026-10-18)
+        assert '/320 A' in st['glanceText'], \
+            'the header glance reads amps against the main\'s limit'
     assert f['height'] < o['height'], \
         'folded, the unit is its header and legs line, not the whole body'
 
@@ -2220,8 +2221,9 @@ L2130_DOCK_JS = """(over) => {
     const app = window.app;
     // 5 x 800 W panels per circuit at 208 V: 19.2 A circuits. Two on one
     // box put their shared leg at 19.2 x sqrt(3) = 33.3 A - past the
-    // 30 A/leg feed. The single-circuit rig keeps 19.2 A on both its legs,
-    // under the rating.
+    // feed's 24 A (80% of its 30 A per leg on this US distro, 2026-10-18;
+    // past the 30 A too). The single-circuit rig keeps 19.2 A on both its
+    // legs, under the 24 A.
     const S = ph.col5(98, 'L21', over ? 2 : 1,
         { powerVoltage: 208, powerAmperage: 20, panelWatts: 800,
           powerBreakoutType: 'l2130-powercon',
@@ -2259,16 +2261,18 @@ L2130_DOCK_JS = """(over) => {
 
 def test_the_l2130_dock_box_holds_three_chips_and_rates_its_feed(page):
     """The dock section for an L21-30 box carries exactly three tail chips
-    - the box shape, not the soca's six - and a feed leg pushed past the
-    30 A rating reddens the box and lands a strip warning naming the feed.
-    A box inside the rating stays green and says nothing."""
+    - the box shape, not the soca's six - and a feed leg pushed past its
+    limit (24 A: 80% of the 30 A rating, the main's continuous rule)
+    reddens the box and lands a strip warning naming the feed. A box
+    inside the limit stays green and says nothing."""
     over = page.evaluate(L2130_DOCK_JS, True)
     assert over['chipCount'] == 3, over
-    assert over['worstFeed'] > 30, over
+    assert over['worstFeed'] > 24, over
     assert over['clash'] is True, 'an over-rated feed must redden the box'
     assert over['feedWarn'] is True, over
     ok = page.evaluate(L2130_DOCK_JS, False)
     assert ok['chipCount'] == 3, ok
+    assert ok['worstFeed'] < 24, ok
     assert ok['clash'] is False, ok
     assert ok['feedWarn'] is False, ok
 

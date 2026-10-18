@@ -9,7 +9,7 @@
 // breakout box, which is the thing a tech is standing in front of when they
 // read a port label off it. ("cvt" in ids and endpoints is the stored key,
 // kept stable; the generic DEVICE is a breakout box - CVT is one vendor's
-// name for theirs, the way Tessera XD is another's, so only actual model
+// name for theirs, the way XD is another's, so only actual model
 // names say it.)
 //
 // What this module owns is the STATE side - the catalog, the resolve
@@ -54,11 +54,25 @@ class _Processors {
         // than the server held: two quick redos left a box's length blank on
         // the page and 250 on the server (2026-09-24). Such a reply is
         // dropped and the tree is read again for the project now showing.
+        // The same goes for a read answered while an undo or redo's restore
+        // PUT is still on its way: the undo swaps the project and asks for
+        // the tree before the PUT is sent, so the server can answer with
+        // the tree being undone, and the restore's reply, matching its
+        // snapshot, adopted nothing over it (CI, 2026-10-18: five cables on
+        // the server, three on the page). Such a read waits for the restore
+        // to land and reads again.
+        const restoring = this._restorePutsInFlight;
+        if (restoring && restoring.size) {
+            return Promise.all([...restoring]).then(() => this.refreshProcessors());
+        }
         const asked = this.project;
+        const restoreSeq = this._restoreSeq || 0;
         return fetch('/api/processors')
             .then(r => r.json())
             .then(data => {
-                if (this.project !== asked) return this.refreshProcessors();
+                if (this.project !== asked || (this._restoreSeq || 0) !== restoreSeq) {
+                    return this.refreshProcessors();
+                }
                 return this._applyProcessorState(data);
             })
             .catch(err => sendClientLog('processor_refresh_failed',
@@ -159,7 +173,7 @@ class _Processors {
                 this._applyProcessorState(data);
                 if (applied && pullBefore) this._dropPullEditsGoneWith(pullBefore);
                 if (applied && action) this.saveState(action);
-                // What the edit had to say - "Removed box Tessera XD B - 3
+                // What the edit had to say - "Removed box XD B - 3
                 // ports of LEFT are unplaced again" - read where a refusal
                 // would read, but not in a refusal's color: the edit did
                 // exactly what it was told.
@@ -425,7 +439,7 @@ class _Processors {
             cards.style.fontSize = '11px';
             cards.style.fontFamily = 'monospace';
             cards.style.color = proc.cardsOver ? '#d05a52' : 'var(--ps-dim, #c0c0c0)';
-            cards.textContent = `${proc.cardsUsed} / ${proc.maxCards} cards`;
+            cards.textContent = `${proc.cardsUsed} / ${proc.maxCards} ${this.unitWordFor(proc)}s`;
             // Documented as max output cards, never as physical slots, and
             // the H9 Enhanced's limit moves with what is in it.
             cards.title = proc.note || '';
@@ -481,7 +495,7 @@ class _Processors {
             // (_processorAddRequest); emptying the slot opens nothing.
             picker.addEventListener('change', () => this._processorAddRequest(
                 `/api/processors/${proc.id}/slots/${slot.index}`, 'PUT',
-                { deviceId: picker.value || null }, 'Change Slot Card'));
+                { deviceId: picker.value || null }, `Change Slot ${this.unitWordTitle(this.unitWordFor(proc))}`));
             row.appendChild(num);
             row.appendChild(picker);
             wrap.appendChild(row);
@@ -489,7 +503,7 @@ class _Processors {
 
         wrap.appendChild(this._popRemoveButton(
             'Remove processor',
-            'Remove this processor. Its cards, boxes and every port on them '
+            `Remove this processor. Its ${this.unitWordFor(proc) === 'processor' ? '' : `${this.unitWordFor(proc)}s, `}boxes and every port on them `
             + 'go with it; undo puts it back.',
             () => this._processorRequest(
                 `/api/processors/${proc.id}`, 'DELETE', undefined,
@@ -627,7 +641,7 @@ class _Processors {
         this._processorRequest(
             url, 'PUT', { redundancy: true, cardsRedundancyMode: '1to1' },
             level === 'unit' ? 'Set Redundancy Backed Up'
-                             : 'Set Redundancy Per Card');
+                             : `Set Redundancy Per ${this.unitWordTitle(this.unitWordFor(proc))}`);
     }
 
     // An SX40's loops, each its own switch (owner, 2026-09-25: "lets put A
@@ -746,7 +760,7 @@ class _Processors {
         const chassis = proc.form === 'chassis';
         const shown = this._procRedundancyShown(proc);
         block.appendChild(this._buildRedundancyStrip(proc, chassis
-            ? [['off', 'Off'], ['card', 'Per card'], ['port', 'Per port']]
+            ? [['off', 'Off'], ['card', `Per ${this.unitWordFor(proc)}`], ['port', 'Per port']]
             : [['off', 'Off'], ['unit', 'Backed up'], ['port', 'Per port']],
             shown));
         if (shown === 'off') return block;
@@ -756,7 +770,7 @@ class _Processors {
             none.style.fontSize = '11px';
             none.style.color = 'var(--ps-dim, #c0c0c0)';
             none.style.marginTop = '6px';
-            none.textContent = 'No cards in the slots yet - put a card in '
+            none.textContent = `No ${this.unitWordFor(proc)}s in the slots yet - put a ${this.unitWordFor(proc)} in `
                 + 'a slot below and its row appears here.';
             block.appendChild(none);
             return block;
@@ -789,7 +803,7 @@ class _Processors {
                 control.style.fontSize = '11px';
                 control.style.color = 'var(--ps-dim, #c0c0c0)';
                 control.textContent = card.redundancyShape
-                    ? 'fixed by the device' : 'not supported on this card';
+                    ? 'fixed by the device' : `not supported on this ${this.unitWordFor(proc, card)}`;
             }
             block.appendChild(this._buildRedRow(legend, control));
         });
@@ -830,17 +844,18 @@ class _Processors {
         bar.setAttribute('role', 'radiogroup');
         bar.setAttribute('aria-label', 'Redundancy');
         bar.dataset.lrdField = `processor-redundancy-${proc.id}`;
+        const word = this.unitWordFor(proc);
         const tips = {
             off: 'Redundancy off for this processor.',
             on: 'Redundancy on. The device pairs its outputs itself.',
             unit: 'Backed up: another unit mirrors this one, port for '
-                + 'port - the second sending card. Pick it below.',
-            card: 'Per card: each card is mirrored 1:1 by a card you pick, '
+                + `port - ${word === 'card' ? 'the second sending card' : `a second ${word}`}. Pick it below.`,
+            card: `Per ${word}: each ${word} is mirrored 1:1 by a ${word} you pick, `
                 + 'one row per slot.',
             // One processor can hold copper cards and fiber cards at once,
             // so this line names no trunk: the CARD's chip does that, in
             // the word its own face prints (_portShapeSplitLabel).
-            port: 'Per port: ports pair inside each card - sequential, '
+            port: `Per port: ports pair inside ${word === 'processor' ? 'the processor' : `each ${word}`} - sequential, `
                 + 'split, or picked by hand on each chip.',
         };
         segments.forEach(([level, text]) => {
@@ -890,7 +905,7 @@ class _Processors {
         if (!shape || shape.forced) return null;
         const partner = document.createElement('select');
         partner.dataset.lrdField = `processor-card-backup-${card.id}`;
-        partner.title = 'The card that mirrors this one, port for port. '
+        partner.title = `The ${this.unitWordFor(proc, card)} that mirrors this one, port for port. `
             + 'Nothing is backed up until one is picked.';
         const blank = document.createElement('option');
         blank.value = '';
@@ -1061,10 +1076,12 @@ class _Processors {
     }
 
     // What a box's face calls one input - 'OPT' off its linkPorts' 'OPT 1'
-    // - else 'input'. The server's box_input_word, for catalog devices.
+    // or 'OPT1' (spaced as its maker spaces it) - else 'input' (an XD's
+    // 'X1' names a port, not a word to count by). The server's
+    // box_input_word, for catalog devices.
     _boxInputWord(d) {
-        const first = (((d && d.linkPorts) || {}).primary || [])[0];
-        const hit = /^(.*\S)\s+\d+$/.exec(String(first || ''));
+        const first = String((((d && d.linkPorts) || {}).primary || [])[0] || '');
+        const hit = /^(.*\S)\s+\d+$/.exec(first) || /^([A-Za-z]{2,})\d+$/.exec(first);
         return hit ? hit[1] : 'input';
     }
 
@@ -1077,6 +1094,9 @@ class _Processors {
 
     _buildCardGearContent(proc, card) {
         const wrap = document.createElement('div');
+        // "card" only on a card-based processor (unitWordFor)
+        const word = this.unitWordFor(proc, card);
+        const Word = this.unitWordTitle(word);
         // A one-box unit's card IS the unit, so its gear is headed by the
         // unit's one name; a slot card is headed by its own.
         wrap.appendChild(this._popHeading(this.cardIsUnitFace(proc, card)
@@ -1095,7 +1115,7 @@ class _Processors {
             `processor-card-template-${card.id}`,
             (val) => this._processorRequest(
                 `/api/processors/${proc.id}/cards/${card.id}`, 'PUT',
-                { portLabelTemplate: val }, 'Edit Card Label Template')));
+                { portLabelTemplate: val }, `Edit ${Word} Label Template`)));
         // The placeholder is the rung below this one on the return ladder:
         // left blank, every return end derives from its primary, so an empty
         // box still reads as what the backups are actually called - R1-# for
@@ -1113,7 +1133,7 @@ class _Processors {
             (val) => this._processorRequest(
                 `/api/processors/${proc.id}/cards/${card.id}`, 'PUT',
                 { returnLabelTemplate: val },
-                'Edit Card Return Label Template')));
+                `Edit ${Word} Return Label Template`)));
         names.querySelectorAll(':scope > div').forEach(cell => {
             cell.style.flex = '1 1 90px';   // a basis, so the line can wrap
         });
@@ -1147,7 +1167,7 @@ class _Processors {
             });
             select.addEventListener('change', () => this._processorRequest(
                 `/api/processors/${proc.id}/cards/${card.id}`, 'PUT',
-                { mode: select.value || null }, 'Change Card Mode'));
+                { mode: select.value || null }, `Change ${Word} Mode`));
             wrap.appendChild(select);
         }
 
@@ -1257,7 +1277,7 @@ class _Processors {
                 copy.style.color = '#c8a04a';
                 copy.style.marginTop = '2px';
                 copy.style.lineHeight = '1.4';
-                copy.textContent = 'The OPTs copy this card’s own ports. '
+                copy.textContent = `The OPTs copy this ${word}’s own ports. `
                     + 'A box on one is another place to plug into them, not '
                     + 'more ports.';
                 wrap.appendChild(copy);
@@ -1279,9 +1299,9 @@ class _Processors {
                 const s = card.shortfall;
                 short.textContent = `${s.delivered} of ${s.ceiling} ports - `
                     + (s.reachesWith.length
-                        ? `this card reaches ${s.ceiling} with `
+                        ? `this ${word} reaches ${s.ceiling} with `
                           + `${s.reachesWith.join(' or ')}.`
-                        : `these boxes cannot reach ${s.ceiling} on this card.`);
+                        : `these boxes cannot reach ${s.ceiling} on this ${word}.`);
                 wrap.appendChild(short);
             }
 
@@ -1310,12 +1330,12 @@ class _Processors {
             .find(s => s.card && s.card.id === card.id);
         if (slot && !card.fixed) {
             wrap.appendChild(this._popRemoveButton(
-                'Remove card',
-                'Empty this slot. The card, its boxes and every port on '
+                `Remove ${word}`,
+                `Empty this slot. The ${word}, its boxes and every port on `
                 + 'them go with it; undo puts it back.',
                 () => this._processorRequest(
                     `/api/processors/${proc.id}/slots/${slot.index}`, 'PUT',
-                    { deviceId: null }, 'Change Slot Card')));
+                    { deviceId: null }, `Change Slot ${Word}`)));
         }
         return wrap;
     }
@@ -1648,7 +1668,7 @@ class _Processors {
     }
 
     // WHETHER A CARD IS ITS PROCESSOR'S FACE. A one-box unit - a NovaPro
-    // UHD Jr, a Tessera S8, an MX40 Pro - carries ONE fixed card that IS
+    // UHD Jr, an S8, an MX40 Pro - carries ONE fixed card that IS
     // the unit; a chassis (the H series, the MX2000 / MX6000 - the catalog
     // says which, by `form`) holds slot cards that are parts inside it.
     // The server's card_is_unit_face, mirrored: the resolved processor's
@@ -1658,6 +1678,73 @@ class _Processors {
         const form = (proc || {}).form;
         if (form) return form !== 'chassis';
         return !!((card || {}).fixed);
+    }
+
+    // WHETHER A PROCESSOR'S UNITS ARE CALLED CARDS (owner, 2026-10-17:
+    // "CARD" becomes "PROCESSOR" for every processor that is not card
+    // based). Only the H series, the MX2000 and the MX6000 hold cards; an
+    // S8, an SX40, a HELIOS, an MX40 Pro are one unit with their own
+    // ports. The server's is_card_based, off the resolved processor's
+    // `cardBased`; a chassis read before that field existed says chassis.
+    procIsCardBased(proc) {
+        if (!proc) return false;
+        if (typeof proc.cardBased === 'boolean') return proc.cardBased;
+        return proc.form === 'chassis';
+    }
+
+    // WHAT A SHEET, TOOLTIP OR MESSAGE CALLS THE UNIT A PORT SITS ON:
+    // 'card' on a card-based processor, the catalog's own word for a card
+    // that is a unit of its own ("QD" - the QD-S on an SQ200's OUT), else
+    // 'processor'. One spelling for the dock, the binder and every
+    // message, so a card is never called a processor or the reverse.
+    unitWordFor(proc, card) {
+        if (this.procIsCardBased(proc)) return 'card';
+        const held = card || ((proc && proc.slots) || []).map(s => s && s.card).find(c => c && c.unitWord);
+        if (held && held.unitWord) return held.unitWord;
+        // an empty chassis: the word of the one kind of unit it takes
+        if (!card && proc && proc.form === 'chassis' && typeof this._processorDevice === 'function') {
+            const device = this._processorDevice(proc.deviceId);
+            const accepts = (device && device.accepts) || [];
+            const words = [...new Set(this._processorDevices('card')
+                .filter(d => accepts.includes(d.family)).map(d => d.unitWord || ''))];
+            if (words.length === 1 && words[0]) return words[0];
+        }
+        return 'processor';
+    }
+
+    // The same for text that names no one processor - a tooltip over the
+    // whole tray, a count over every screen: 'card' while every processor
+    // in the show is card based (and with none at all, as it always read),
+    // 'processor' where none is, 'card or processor' where both are.
+    showUnitWord(plural = false) {
+        const procs = (this._processorsResolved || []).filter(Boolean);
+        const carded = procs.filter(p => this.procIsCardBased(p)).length;
+        const word = !procs.length || carded === procs.length ? 'card'
+            : carded ? 'card or processor' : 'processor';
+        if (!plural) return word;
+        return word === 'card or processor' ? 'cards or processors' : `${word}s`;
+    }
+
+    // "card or box" said of the whole show: 'card or box' as it always
+    // read, 'processor or box' where no processor holds cards, 'card,
+    // processor or box' where some do and some do not.
+    showUnitOrBox(plural = false) {
+        const word = this.showUnitWord();
+        if (word === 'card or processor') return plural ? 'cards, processors or boxes' : 'card, processor or box';
+        return plural ? `${word}s or boxes` : `${word} or box`;
+    }
+
+    // The same word heading a history entry or a menu item: "Card",
+    // "Processor", "QD".
+    unitWordTitle(word) {
+        const w = String(word || 'card');
+        return w.charAt(0).toUpperCase() + w.slice(1);
+    }
+
+    // The word for the unit a card id sits on (unitWordFor), from the id.
+    unitWordForCard(cardId) {
+        const found = typeof this._dockFindCard === 'function' ? this._dockFindCard(cardId) : null;
+        return found ? this.unitWordFor(found.proc, found.card) : 'card';
     }
 
     // THE NAME SOMEBODY TYPED FOR A CARD, OR '' (ruling, 2026-09-24: "the
@@ -1675,7 +1762,7 @@ class _Processors {
 
     // THE UNIT A SOCKET SITS ON, NAMED ONCE (2026-09-09, off the live
     // show A binder: "IMAG SR IMAG SR · NovaPro UHD Jr · 16 ports").
-    // A processor with no slots - a NovaPro UHD Jr, a Tessera S8 - carries
+    // A processor with no slots - a NovaPro UHD Jr, an S8 - carries
     // ONE fixed card that IS its face, so the unit has one name, the
     // processor's, and the paperwork says it once. A real slot card is a
     // part inside a processor and reads as both, "H9 SR" - but never twice
@@ -2165,7 +2252,7 @@ class _Processors {
         }
         const shape = card.redundancyShape;
         if (!shape) {
-            fact.textContent = 'Redundancy: not supported on this card';
+            fact.textContent = `Redundancy: not supported on this ${this.unitWordFor(proc, card)}`;
             return fact;
         }
         // One name for the shape wherever it prints: the chip and this

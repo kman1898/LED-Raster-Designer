@@ -108,7 +108,8 @@ SHEETS_JS = """async ([project, opts]) => {
             snakes: plan[i].kind === 'data' ? snakesOn(plan[i]) : [],
             texts: r.record.ops.filter(o => o.op === 'text' && String(o.text).trim())
                     .map(o => ({ t: o.text, x: Math.round(o.x * 100) / 100,
-                                 y: Math.round(o.y * 100) / 100, size: o.size })),
+                                 y: Math.round(o.y * 100) / 100, size: o.size,
+                                 weight: o.weight, align: o.align })),
         });
     }
     const models = new Set();
@@ -365,7 +366,8 @@ def test_the_sheets_are_the_sheet_size(shows):
 # extension") - with each unit's band over its own half (the box, then its
 # fiber) and each half's snake heading its own rows; PANELS once, at the
 # end; no PX ("we dont need to be putting the amount of pixels each port
-# has").
+# has"). OUTPUT is left out where every row repeats its port's name
+# (2026-10-18, section 5b), so a half is PORT and HOME RUN alone there.
 
 PORT_KEYS = ('PORT', 'OUTPUT', 'HOME RUN')
 
@@ -374,22 +376,34 @@ def _ports_table(page):
     """The Ports table of a data sheet, read off its text ops: a list of
     sections {band: [lines], backup: [lines], groups: [{head: (primary,
     backup), rows}]}, a row being a dict keyed by the column headings, the
-    backup half's prefixed "B ". A band's lines sit at their half's PORT
-    column, a snake heading indented past it, and a row puts a cell under
-    its half's headings."""
+    backup half's prefixed "B ". Every column stands centred (2026-10-18),
+    each heading and its cells on one x; a band's lines read from their
+    half's left edge and a snake heading indented past it, both drawn
+    left-aligned. A table without OUTPUT reads the same, its rows without
+    the key."""
     texts = page['texts']
     port = next(o for o in texts if o['t'] == 'PORT')
     heads = sorted([o for o in texts if abs(o['y'] - port['y']) < 0.5
                     and o['t'] in PORT_KEYS + ('PANELS', 'PX')], key=lambda o: o['x'])
     names = [h['t'] for h in heads]
-    split = names.count('PORT') >= 2 and names.index('PANELS') > 3
-    want = list(PORT_KEYS) + (list(PORT_KEYS) if split else []) + ['PANELS']
+    per_half = [k for k in PORT_KEYS if k != 'OUTPUT' or 'OUTPUT' in names]
+    split = names.count('PORT') >= 2
+    want = per_half + (per_half if split else []) + ['PANELS']
     assert names[:len(want)] == want, names
     heads = heads[:len(want)]
     last = heads[-1]['x']
-    keys = list(PORT_KEYS) + (['B ' + k for k in PORT_KEYS] if split else []) + ['PANELS']
+    keys = per_half + (['B ' + k for k in per_half] if split else []) + ['PANELS']
     xs = {round(h['x'], 1): k for h, k in zip(heads, keys)}
-    bx = heads[3]['x'] if split else float('inf')
+    # the table's left edge is its title's; each centred heading then
+    # gives its column's width (twice its centre's distance from the
+    # column's left), so the backup half's left edge is exact
+    title = max((o for o in texts if o['t'] == 'PORTS' and o['y'] < port['y']), key=lambda o: o['y'])
+    edge, lefts = title['x'], []
+    for h in heads:
+        lefts.append(edge)
+        edge += 2 * (h['x'] - edge)
+    bx = lefts[len(per_half)] if split else float('inf')
+    s = port['size'] / 21                     # the sheet's fill
     # the next table's column starts where its own headings do, on the
     # same line as these
     right = min([o['x'] for o in texts if o['x'] > last + 1 and (
@@ -397,11 +411,9 @@ def _ports_table(page):
                 + [float('inf')])
     # a band reads ABOVE its headings (2026-09-26), so the table starts
     # at its title, and a headings line - repeated under every band - is
-    # skipped
-    title = max((o for o in texts if o['t'] == 'PORTS' and o['y'] < port['y']), key=lambda o: o['y'])
-    # (PANELS is right-aligned: its heading's x is the table's right edge)
+    # skipped; nothing of this table stands right of PANELS' centre
     right = min(right, last + 1)
-    ops = [o for o in texts if o['y'] > title['y'] + 1 and port['x'] - 1 <= o['x'] < right
+    ops = [o for o in texts if o['y'] > title['y'] + 1 and title['x'] - 1 <= o['x'] < right
            and o['t'] not in ('PRIMARY', 'BACKUP')]
     stop = next((o['y'] for o in sorted(texts, key=lambda o: o['y'])
                  if o['y'] > port['y'] and o['x'] < right
@@ -417,26 +429,35 @@ def _ports_table(page):
         if [o['t'] for o in line] == names[:len(want)]:
             prev = 'heads'
             continue
-        cells = {xs.get(round(o['x'], 1)): o['t'] for o in line}
-        if None in cells:
-            # a snake heading, in halves, indented past the band's edge
-            assert sections and set(cells) == {None}, (y, line)
-            half = lambda b: next((o['t'] for o in line if (o['x'] >= bx) == b), None)
-            sections[-1]['groups'].append({'head': (half(False), half(True)), 'rows': []})
-            prev = 'head'
-        elif 'OUTPUT' not in cells and 'B OUTPUT' not in cells:
+        # a band starts at its half's edge and its pad, a snake heading set
+        # in 22 past that; nothing else of the sheet stands there
+        inset = lambda o: (o['x'] - (bx if o['x'] >= bx else title['x'])) / s
+        left = [o for o in line if o['align'] == 'left' and min(abs(inset(o) - 12), abs(inset(o) - 34)) < 1.5]
+        line = [o for o in line if o['align'] != 'left' or o in left]
+        if not line:
+            continue
+        half = lambda b: next((o['t'] for o in left if (o['x'] >= bx) == b), None)
+        if left:
+            assert len(left) == len(line), ('a band line holds no cell', line)
+            if max(inset(o) for o in left) > 12 + 11:
+                assert sections, (y, line)
+                sections[-1]['groups'].append({'head': (half(False), half(True)), 'rows': []})
+                prev = 'head'
+                continue
             # a band line: a new band, or its second (fiber) line
             if prev != 'band':
                 sections.append({'band': [], 'backup': [], 'groups': [{'head': None, 'rows': []}]})
-            if 'PORT' in cells:
-                sections[-1]['band'].append(cells['PORT'])
-            if 'B PORT' in cells:
-                sections[-1]['backup'].append(cells['B PORT'])
+            if half(False) is not None:
+                sections[-1]['band'].append(half(False))
+            if half(True) is not None:
+                sections[-1]['backup'].append(half(True))
             prev = 'band'
-        else:
-            assert set(cells) >= set(PORT_KEYS) | {'PANELS'}, ('a row fills its primary half', line)
-            sections[-1]['groups'][-1]['rows'].append(cells)
-            prev = 'row'
+            continue
+        cells = {xs.get(round(o['x'], 1)): o['t'] for o in line}
+        assert None not in cells, ('every cell stands under its heading', line)
+        assert set(cells) >= set(per_half) | {'PANELS'}, ('a row fills its primary half', line)
+        sections[-1]['groups'][-1]['rows'].append(cells)
+        prev = 'row'
     for sec in sections:
         sec['groups'] = [g for g in sec['groups'] if g['head'] or g['rows']]
     return sections
@@ -445,7 +466,8 @@ def _ports_table(page):
 def _assert_backup_half(sections, a, b, a_head, b_head, a_runs, b_runs, panels):
     """SR A's band over the primary half and SR B's over the backup half of
     ONE section, each half's snake over its own rows, the ports side by
-    side, each end's own run."""
+    side, each end's own run - and no OUTPUT: every socket ("SR A · 1")
+    only repeats its port's name ("SR A-1")."""
     sec = next(s for s in sections if s['band'] and s['band'][0].startswith(f'CVT4K-S {a} · '))
     assert sec['backup'] and sec['backup'][0].startswith(f'CVT4K-S {b} · '), sec
     assert not [s for s in sections if s['band'] and s['band'][0].startswith(f'CVT4K-S {b} · ')], (
@@ -454,10 +476,9 @@ def _assert_backup_half(sections, a, b, a_head, b_head, a_runs, b_runs, panels):
     rows = sec['groups'][0]['rows']
     n = len(a_runs)
     assert [r['PORT'] for r in rows] == [f'{a}-{i}' for i in range(1, n + 1)], rows
-    assert [r['OUTPUT'] for r in rows] == [f'{a} · {i}' for i in range(1, n + 1)], rows
+    assert not [r for r in rows if 'OUTPUT' in r or 'B OUTPUT' in r], rows
     assert [r['HOME RUN'] for r in rows] == a_runs, rows
     assert [r['B PORT'] for r in rows] == [f'{b}-{i}' for i in range(1, n + 1)], rows
-    assert [r['B OUTPUT'] for r in rows] == [f'{b} · {i}' for i in range(1, n + 1)], rows
     assert [r['B HOME RUN'] for r in rows] == b_runs, rows
     assert [r['PANELS'] for r in rows] == panels, rows
 
@@ -488,7 +509,7 @@ def test_a_backup_box_is_the_backup_half_on_live_show_b(shows):
     assert [s['band'][0].split(' · ')[0] for s in ret] == ['CVT4K-S SR A'], ret
     assert ret[0]['backup'][0].split(' · ')[0] == 'CVT4K-S SR B', ret
     (a5,) = _all_rows(ret)
-    assert (a5['PORT'], a5['B PORT'], a5['B OUTPUT']) == ('SR A-5', 'SR B-5', 'SR B · 5'), ret
+    assert (a5['PORT'], a5['B PORT']) == ('SR A-5', 'SR B-5') and 'B OUTPUT' not in a5, ret
     for page in shows['show b']['pages']:
         if page['kind'] == 'data':
             assert 'PX' not in [o['t'] for o in page['texts']], page['title']
@@ -600,6 +621,230 @@ def test_a_same_unit_pairing_is_one_section(seeded):
     assert all('SOLO' in r.get('B OUTPUT', '') for r in rows), rows
     assert sum(int(r['PANELS']) for r in rows) == 10 * 5
 
+
+
+# ── 5b. OUTPUT only where it says something; columns their content's ──
+#
+# "my only issue with 2.3 is the non centered home runs, and the waste of
+# space in the same table so we can look at examples of cleaning that up
+# and sizing it dynamically" (owner, 2026-10-18, picking the merged
+# layout): every column of the Ports table is its content's width, HOME RUN
+# and PANELS stand centred under their headings, and OUTPUT is left out
+# where every row of the sheet, both halves, only repeats its port's name
+# ("SR A-1" landing on "SR A · 1"). A custom label, a sending card's name or
+# "—" where nothing is placed keeps OUTPUT - for every row - and a table
+# that runs on to a "(cont.)" sheet reads the same there, at the same
+# widths.
+
+# The seeded show, then: LOOSE, a wall placed nowhere; LONG, 32 ports on a
+# second H9 - boxes LG A (backed by LG B) and LG C (backed by LG D), sixteen
+# sockets each - so its Ports table outgrows a Letter sheet.
+VARIANTS_JS = """async () => {
+    const app = window.app;
+    const j = (method, url, body) => fetch(url, {method,
+        headers: {'Content-Type': 'application/json'},
+        body: body === undefined ? undefined : JSON.stringify(body)}).then(r => r.json());
+    await j('POST', '/api/layer/add', {name: 'LOOSE', columns: 4, rows: 2, cabinet_width: 100, cabinet_height: 100,
+            powerVoltage: 208, powerAmperage: 20, panelWatts: 100, flowPattern: 'tl-h',
+            processorType: 'novastar-armor', offset_x: 4000});
+    await j('POST', '/api/layer/add', {name: 'LONG', columns: 10, rows: 32, cabinet_width: 250, cabinet_height: 250,
+            powerVoltage: 208, powerAmperage: 20, panelWatts: 100, flowPattern: 'tl-h',
+            processorType: 'novastar-armor', offset_x: 6000});
+    let st = await j('POST', '/api/processors', {deviceId: 'novastar-h9'});
+    const proc = st.processors[st.processors.length - 1];
+    const pid = proc.id;
+    const card = 'novastar-card-h-16xrj45-2xfiber';
+    for (let s = 0; s < 4; s++) st = await j('PUT', `/api/processors/${pid}/slots/${s}`, {deviceId: card});
+    const cards = st.processors.find(p => p.id === pid).slots.slice(0, 4).map(s => s.card.id);
+    const names = ['LG A', 'LG B', 'LG C', 'LG D'];
+    for (let k = 0; k < 4; k++) {
+        st = await j('POST', `/api/processors/${pid}/cards/${cards[k]}/cvts`, {deviceId: 'novastar-cvt4k-s', pair: false});
+        const box = st.processors.find(p => p.id === pid).slots[k].card.cvts[0].id;
+        await j('PUT', `/api/processors/${pid}/cvts/${box}`, {name: names[k]});
+    }
+    await j('PUT', `/api/processors/${pid}`, {redundancy: true});
+    await j('PUT', `/api/processors/${pid}/cards/${cards[0]}`, {backupCardId: cards[1]});
+    await j('PUT', `/api/processors/${pid}/cards/${cards[2]}`, {backupCardId: cards[3]});
+    app.project = await j('GET', '/api/project');
+    app.dedupeProjectLayers('binder_tables_variants');
+    const long = app.project.layers.find(l => l.name === 'LONG');
+    app.selectLayer(long);
+    await app.refreshProcessors();
+    for (const c of [cards[0], cards[2]]) {
+        await app._assignmentRequest('/api/port-assignments/place-overflow', 'POST', {layerId: String(long.id), cardId: c});
+    }
+    await app.refreshProcessors();
+    await app.refreshPortAssignment();
+    return await j('GET', '/api/project');
+}"""
+
+# MAIN's first port named by hand: one row says more than its socket.
+NAME_PORT_JS = """async ([n, name]) => {
+    const app = window.app;
+    const proj = await fetch('/api/project').then(r => r.json());
+    const proc = proj.processors[0];
+    const c1 = proc.slots[0].card.id;
+    await fetch(`/api/processors/${proc.id}/cards/${c1}/ports/${n}`, {method: 'PUT',
+        headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name})});
+    await app.refreshProcessors();
+    await app.refreshPortAssignment();
+    return await fetch('/api/project').then(r => r.json());
+}"""
+
+# What the binder measures a cell and a heading with.
+MEASURE_JS = """(items) => {
+    const ctx = document.createElement('canvas').getContext('2d');
+    return items.map(([t, size, weight]) => { ctx.font = window.app._bFont(size, weight); return ctx.measureText(t).width; });
+}"""
+
+
+@pytest.fixture(scope="module")
+def variants(e2e_server, pw_browser):
+    """The seeded show with LOOSE and LONG beside it, every sheet rendered
+    on Tabloid and on Letter; then with MAIN's port 1 named "FEED 1"."""
+    context = pw_browser.new_context(viewport={'width': 1700, 'height': 950})
+    context.add_init_script(
+        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+    pg = context.new_page()
+    errors = []
+    pg.on('pageerror', lambda e: errors.append(str(e)))
+    pg.goto(e2e_server, wait_until='domcontentloaded')
+    pg.wait_for_timeout(2000)
+    pg.evaluate(SEED_BACKUP_JS)
+    project = pg.evaluate(VARIANTS_JS)
+    out = {'tabloid': pg.evaluate(SHEETS_JS, [project, OPTS])['pages'],
+           'letter': pg.evaluate(SHEETS_JS, [project, {**OPTS, 'sheet': 'letter'}])['pages']}
+    named = pg.evaluate(NAME_PORT_JS, [1, 'FEED 1'])
+    out['named'] = pg.evaluate(SHEETS_JS, [named, OPTS])['pages']
+    out['measure'] = lambda items: pg.evaluate(MEASURE_JS, items)
+    assert not errors, errors[:3]
+    yield out
+    context.close()
+
+
+def _sheet(pages, title):
+    return next(p for p in pages if p['title'] == title)
+
+
+def _heads_line(page):
+    """The Ports table's headings, left to right, on the first line of them."""
+    port = next(o for o in page['texts'] if o['t'] == 'PORT')
+    return sorted([o for o in page['texts'] if abs(o['y'] - port['y']) < 0.5
+                   and o['t'] in PORT_KEYS + ('PANELS',)], key=lambda o: o['x'])
+
+
+def test_output_is_left_out_where_every_row_repeats_its_port(seeded):
+    """MAIN: every socket - "SR A · 1" on the primary half, "SR B · 1" on the
+    backup half - only repeats its port's name, so neither half prints an
+    OUTPUT column and no socket is printed; each half is PORT and HOME RUN."""
+    page = seeded['MAIN - Data - Front View']
+    assert [o['t'] for o in _heads_line(page)] == ['PORT', 'HOME RUN', 'PORT', 'HOME RUN', 'PANELS']
+    texts = [o['t'] for o in page['texts']]
+    assert 'OUTPUT' not in texts
+    assert not [t for t in texts if re.fullmatch(r'SR [AB] · \d+', t)], texts
+    rows = _all_rows(_ports_table(page))
+    assert [(r['PORT'], r['B PORT']) for r in rows] == [(f'SR A-{n}', f'SR B-{n}') for n in (1, 2, 3, 4)], rows
+
+
+def test_output_stays_where_it_names_the_sending_card(seeded):
+    """SOLO's ports land on a card, not a box: OUTPUT names the processor and
+    the card ("H9 SOLO · 1"), which its port's name does not - so it stays."""
+    page = seeded['SOLO - Data - Front View']
+    rows = _all_rows(_ports_table(page))
+    assert rows and all(r['OUTPUT'] and r['OUTPUT'] != r['PORT'] for r in rows), rows
+    assert all(r.get('B OUTPUT') for r in rows), rows
+
+
+def test_output_stays_on_every_row_where_one_port_is_named_by_hand(variants):
+    """MAIN with port 1 named "FEED 1": that row's socket says something its
+    name does not, so the sheet keeps OUTPUT - on EVERY row, both halves,
+    the three that still repeat their names included."""
+    page = _sheet(variants['named'], 'MAIN - Data - Front View')
+    assert [o['t'] for o in _heads_line(page)] == ['PORT', 'OUTPUT', 'HOME RUN', 'PORT', 'OUTPUT',
+                                                   'HOME RUN', 'PANELS']
+    rows = _all_rows(_ports_table(page))
+    assert [r['PORT'] for r in rows] == ['FEED 1', 'SR A-2', 'SR A-3', 'SR A-4'], rows
+    assert [r['OUTPUT'] for r in rows] == [f'SR A · {n}' for n in (1, 2, 3, 4)], rows
+    assert [r['B OUTPUT'] for r in rows] == [f'SR B · {n}' for n in (1, 2, 3, 4)], rows
+
+
+def test_output_stays_where_nothing_is_placed(variants):
+    """LOOSE is on no processor: every OUTPUT is "—", which repeats nothing,
+    so the column stays - one half, no backup."""
+    page = _sheet(variants['tabloid'], 'LOOSE - Data - Front View')
+    assert [o['t'] for o in _heads_line(page)] == ['PORT', 'OUTPUT', 'HOME RUN', 'PANELS']
+    rows = _all_rows(_ports_table(page))
+    assert rows and all(r['OUTPUT'] == '—' for r in rows), rows
+
+
+def test_every_column_stands_centred_under_its_heading(seeded, variants):
+    """Every column is drawn centred (2026-10-18: "center every column in
+    every binder table"), each heading and every cell under it on one x -
+    never a short "25'" stranded at the left of a wide column; PORT and
+    OUTPUT, which read from the left before, stand centred too."""
+    want = 'center'
+    for page in (seeded['MAIN - Data - Front View'], _sheet(variants['tabloid'], 'LOOSE - Data - Front View')):
+        heads = _heads_line(page)
+        for h in heads:
+            assert h['align'] == want, (page['title'], h)
+            cells = [o for o in page['texts'] if abs(o['x'] - h['x']) < 0.5 and o['y'] > h['y'] + 1
+                     and o['size'] == page_cell_size(page)]
+            assert cells, (page['title'], h)
+            assert all(o['align'] == want for o in cells), (page['title'], h, cells)
+
+
+def page_cell_size(page):
+    """A Ports row's type size on this sheet (the cells' size, the sheet's
+    fill applied): the size its PORT cells are drawn at."""
+    port = next(o for o in page['texts'] if o['t'] == 'PORT')
+    return next(o['size'] for o in page['texts'] if abs(o['x'] - port['x']) < 0.5 and o['y'] > port['y'] + 1
+                and o['weight'] == 400)
+
+
+def test_each_column_is_its_contents_width(variants):
+    """LOOSE's one-half table: each column exactly as wide as its heading or
+    its widest cell and the pad either side - every heading on its
+    column's centre, so PORT's centre to OUTPUT's is half of each one's
+    need, and so on - so the table is far narrower than the old fixed
+    1020."""
+    page = _sheet(variants['tabloid'], 'LOOSE - Data - Front View')
+    heads = {o['t']: o for o in _heads_line(page)}
+    rows = _all_rows(_ports_table(page))
+    s = page_cell_size(page) / 24            # the sheet's fill
+    measure = variants['measure']
+    pad = 12 * 2
+
+    def need(title, key):
+        cells = [r[key] for r in rows]
+        w = measure([[title, 21, 700]] + [[c, 24, 400] for c in cells])
+        return max(w) + pad
+
+    port, out, home, panels = (need('PORT', 'PORT'), need('OUTPUT', 'OUTPUT'),
+                               need('HOME RUN', 'HOME RUN'), need('PANELS', 'PANELS'))
+    near = lambda a, b: abs(a - b) <= 1.5 * s
+    assert near(heads['OUTPUT']['x'] - heads['PORT']['x'], (port / 2 + out / 2) * s), (heads, port, s)
+    assert near(heads['HOME RUN']['x'] - heads['OUTPUT']['x'], (out / 2 + home / 2) * s), (heads, out, home)
+    assert near(heads['PANELS']['x'] - heads['HOME RUN']['x'], (home / 2 + panels / 2) * s), (heads, home, panels)
+    assert port + out + home + panels < 700, (port, out, home, panels)
+
+
+def test_a_long_table_reads_the_same_on_its_cont_sheet(variants):
+    """LONG on Letter: its 32-port table runs on to "(cont.)" - and there it
+    keeps the choice made for the whole table (no OUTPUT: every socket
+    repeats its port's name) and its widths: the column it asked for comes
+    with it, where the run-on used to be squeezed into the tables' column."""
+    pages = [p for p in variants['letter'] if p['title'].startswith('LONG - Data - Front View')]
+    with_ports = [p for p in pages if any(o['t'] == 'PORT' for o in p['texts'])]
+    assert len(with_ports) >= 2 and with_ports[1]['title'].endswith('(cont.)'), [p['title'] for p in pages]
+    lines = [_heads_line(p) for p in with_ports]
+    for heads in lines:
+        assert [o['t'] for o in heads] == ['PORT', 'HOME RUN', 'PORT', 'HOME RUN', 'PANELS'], heads
+    # the same column widths on both sheets (each at its own fill)
+    offsets = [[round((o['x'] - heads[0]['x']) / (heads[0]['size'] / 21), 1) for o in heads] for heads in lines]
+    assert all(abs(a - b) <= 1 for o in offsets[1:] for a, b in zip(offsets[0], o)), offsets
+    labels = [o['t'] for p in with_ports for o in p['texts'] if re.fullmatch(r'LG [AC]-\d+', o['t'])]
+    assert len(labels) == 32, labels
+    assert not [o for p in with_ports for o in p['texts'] if re.fullmatch(r'LG [A-D] · \d+', o['t'])]
 
 
 # ── 6. the tables wrap around a wall that leaves the sheet half empty ────

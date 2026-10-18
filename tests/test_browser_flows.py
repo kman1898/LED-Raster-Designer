@@ -3146,8 +3146,10 @@ def test_port_load_uses_the_low_latency_derated_capacity(page):
     derated = [p for p in res['ports'] if p['minY'] > 0]
     assert derated, 'expected at least one port starting below the top'
     for p in res['ports']:
-        expected_capacity = int(
-            min(1.0, max(0.0, 1 - (p['minY'] / height))) * base)
+        # floor((H - Y) x base / H) in integers - the float (1 - Y/H) x base
+        # lost a pixel on some rows (295,119 for an exact 295,120 here).
+        expected_capacity = max(0, (height - p['minY'])) * base // height \
+            if p['minY'] < height else 0
         assert p['stats']['capacity'] == expected_capacity, (
             f"port {p['port']} at Y={p['minY']} scored against "
             f"{p['stats']['capacity']}, not its derated {expected_capacity}")

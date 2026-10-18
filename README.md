@@ -1,19 +1,31 @@
 # LED Raster Designer v1.6.0
 
-A professional LED video wall layout designer for live events, concerts, and installations.
+LED Raster Designer is a free app for planning LED video walls for live
+events, concerts, broadcast and installs. You lay out the cabinets, wire
+the data and power, and it gives you the paperwork: pixel maps, wiring
+drawings, a pull sheet and a full binder a crew can build from.
 
-Design LED cabinet layouts, plan the real-world stage layout, configure data flow paths, plan power distribution, and export production documentation.
+It runs on Mac and Windows, opens in your web browser, and works without
+an internet connection.
+
+**Who it's for:** LED techs, video engineers, crew chiefs and anyone who
+has to get a wall from a design to a truck pack to a working screen.
 
 ---
 
-## Getting Started
+## Download and install
 
 ### Mac
 1. **[Download the latest Mac release](../../releases/latest)** (a `.dmg` file)
 2. Open the `.dmg` and **drag LED Raster Designer onto the Applications folder** shown in the window
 3. Open **LED Raster Designer** from your Applications folder (or Launchpad)
-4. When macOS asks, **allow it to access devices on your Local Network**, this is required so other devices (and your own browser) can reach the app
-5. Your browser opens automatically, start designing
+   - **The first time**, macOS will say it can't check the app and won't open it.
+     Click **Done**, then open **System Settings > Privacy & Security**, scroll
+     down to **Security**, and click **Open Anyway** next to LED Raster Designer.
+     Click **Open Anyway** again when asked and enter your Mac password. You only
+     have to do this once.
+4. When macOS asks, **allow it to access devices on your Local Network**. Your browser talks to the app over the network, so this is needed even on one computer
+5. Your browser opens on the app, and you can start
 6. Look for the 💡 in your menu bar to reopen the browser or quit
 
 > **Why Applications matters:** macOS only shows the Local Network permission prompt for apps installed in `/Applications`. If you run it from the Downloads folder or directly from the disk image, the prompt never appears and the app can't be reached over your network. Always install it to Applications first.
@@ -24,17 +36,38 @@ Design LED cabinet layouts, plan the real-world stage layout, configure data flo
 1. **[Download the latest Windows release](../../releases/latest)**
 2. Unzip the file
 3. Double-click **LED Raster Designer.exe**
-4. Your browser opens automatically, start designing
+   - **The first time**, Windows may show "Windows protected your PC". Click
+     **More info**, then **Run anyway**. You only have to do this once.
+4. Your browser opens on the app, and you can start
 5. Look for the lightbulb in your system tray (bottom-right) to reopen the browser or quit
 
-### Network Access
-Other devices on your local network can use the app by going to `http://[your-ip]:8050` in their browser (the exact address is shown when the app starts).
+### Using it from another computer
+
+Anyone on the same network can use the app by opening `http://[your-ip]:8050`
+in their browser. The exact address shows when the app starts.
 
 ---
 
-## Features
+## Your first wall
 
-LED Raster Designer takes a show from the wall to the rack to the paper: lay out the cabinets, wire every port and circuit to the hardware that feeds it, check the maths, and print a drawing set a shop can build from.
+1. Click **Add Screen** and pick your cabinet from the catalog. Set how many
+   cabinets wide and high the wall is.
+2. The **Pixel Map** tab shows the layout your processor expects. Use
+   **Show Look** to arrange the screens the way they sit on stage.
+3. On the **Data** tab, click **Add Processor**, then drag its ports onto the
+   wall. Pick a flow pattern or draw the runs by hand.
+4. On the **Power** tab, click **+ Add distro** and drag its multis onto the
+   wall. The amps on every leg add up as you go.
+5. Open **File > Export Binder** for the drawing set, or **Export Pull Sheet**
+   for the cable list.
+
+Not sure where to start? **Help > Quick Start Guide** walks through all of
+this on a demo show, one step at a time, and puts your own project back
+when you're done.
+
+---
+
+## What it does
 
 ### Five views
 
@@ -46,37 +79,53 @@ LED Raster Designer takes a show from the wall to the rack to the paper: lay out
 | **Data** | Ports snaked across the wall in any of eight flow patterns or drawn by hand, wired to the processor, card and breakout box that carry them. |
 | **Power** | Circuits across the wall the same way, wired to the distro and the multi that feed them, with the amps on every leg. |
 
-### Screens and canvases
+### Screens
 
-- A project holds any number of **canvases**, each with its own raster, workspace position and screens. Drag a canvas by its dashed outline; magnetic snap aligns it with its neighbours.
-- Add screens from a catalog of **2,500 cabinets from 180 manufacturers**, or from your own presets. Heart a cabinet to keep it in the left column. The catalog refreshes from GitHub without a reinstall, and the app opens a pre-filled issue when a figure needs correcting.
-- **Groups**: select several screens and Group Screens. A wall built from more than one cabinet size behaves as one screen: one name, one set of totals, cabinet numbers that run straight through, and ports and circuits that cross the seam.
-- **Beaches**: a position the show keeps (SR, SL, upstage, whatever you call them). Screens, distros and breakout boxes each pick theirs; the pull sheet and the binder follow that order.
-- Image and logo layers with scale, opacity and a drop shadow; text labels with per-tab visibility and fonts.
-- Multi-select across canvases (Shift-click a range, Cmd/Ctrl-click to toggle, drag on empty canvas) and edit the selection at once.
+- A catalog of over 2,600 cabinets from 180 manufacturers, plus your own
+  presets. The catalog updates itself from GitHub, and if a figure is wrong
+  the app opens a pre-filled issue so it can be fixed.
+- Put screens on as many **canvases** as you need, each with its own raster.
+- **Group** screens built from different cabinet sizes and they act as one
+  wall: one name, one set of totals, and runs that cross the seam.
+- Blank cabinets and half tiles for walls that aren't rectangles.
+- **Beaches** for the positions your show uses (SR, SL, upstage). The pull
+  sheet and the binder follow their order.
+- Image, logo and text layers, and multi-select to edit many screens at once.
 
-### The hardware tray
+### Data
 
-Processors, cards, breakout boxes and ports on the Data tab; distros, multis and circuits on the Power tab. All of it lives in a tray along the bottom of the window.
+- 62 processors from NovaStar, Brompton and Megapixel, with every figure
+  taken from the maker's own specs.
+- Drag ports, cards, breakout boxes or a whole processor onto a screen.
+  Nothing is wired until you put it there, and a red flag on the tray counts
+  what's still unattached.
+- Redundancy is set in one place: whole processor, per card or per port. A
+  backup processor is a single switch.
+- Fiber to breakout boxes by the strand: TAC, MTP and opticalCON, with
+  strands named by color.
 
-- **Wire by dragging.** Drag a port, a card, a box or a whole processor onto a screen and it lands in order from the first unassigned port; drag a circuit chip, a multi or a distro the same way. Nothing lands by itself: a port is on a socket because you put it there, and Clear always takes it off.
-- **The attachment flag** on the tray header counts what is still unattached, red until everything is wired, and flies you to the screen when you click it.
-- An attached port prints the socket it sits on, so the drawing reads 6, 7, 8, 9 exactly as the tray does.
-- **Processors** from a catalog of 61 devices across NovaStar, Brompton and Megapixel, each figure from the device's own specification and nothing guessed. A screen only lands on gear its platform can drive.
-- **Redundancy is one bar** behind the processor's gear: Off, Whole unit, Per card, Per port. Brompton pairs fixed the way the unit does; NovaStar's second sending card is the Backed up pick. A gold pill on every tray header reads the shape in force.
-- **Every cable on paper.** The ≡ on a multi or a card flips its chips into a cable sheet with a length and connector per circuit or port. Hold Alt and sweep port chips to snake them under one home run; a snaked port carries its own extension. Show Cable Tags prints them on the wall and in the export.
+### Power
 
-### Power that adds up
+- Build a distro from the outputs it really has: Socapex, L21-30, True1,
+  powerCON, Edison and CEE, on US or EU power. Start from a preset or build
+  your own.
+- Every circuit is checked against its breaker, and US distros follow the
+  80% rule. Balance spreads the multis across the legs for you.
+- Drag a multi onto the wall and the circuits it will feed light up with
+  the amps they add before you let go. Share circuits through a 2fer or 3fer.
 
-- **Distros** with a rating, a voltage and a phase. Load rolls up from circuit to multi to distro; three-phase legs are phasor sums, and a folded distro still shows its load bars. Balance, per distro, spreads the multis across the legs without changing the order the wall reads in.
-- Every number on a distro is a plug you drag: **Multi 208, Multi 120, L21-30**. While you drag, the circuits the drop will feed light up with the amps they add.
-- A 110 V screen takes Edison only, and each of its circuits rides one leg of the same three-phase distro. The L21-30 is three 208 V circuits off a 30 A per leg feed, checked by the same maths.
-- **Shared circuits** through a 2fer or 3fer: hold Alt, sweep the runs, right-click. A share never passes the circuit's amps in automatic mode; in custom mode, where you own the runs, it is allowed and flagged OVER.
-- Custom drawing on either tab stops at capacity, and a flow pattern applied to a selected block deals it out at capacity.
+### Cables
 
-### Papers
+- Cable lengths in feet or meters, per show.
+- A cable sheet for every multi and card, with a length and connector per
+  circuit or port. Snake data ports under one home run.
+- Jumper lengths for every screen, with long jumpers measured and rounded up
+  to stock lengths.
 
-Everything under File > Export or the Export dialog saves straight to a file: no print dialogs, no windows to close.
+### Paperwork
+
+Everything under **File > Export** saves straight to a file, with no print
+dialogs.
 
 | Export | What you get |
 |--------|-------------|
@@ -86,17 +135,15 @@ Everything under File > Export or the Export dialog saves straight to a file: no
 | **Pull Sheet** | A filled copy of the shop's pull-sheet workbook: one block per beach, multis with their home runs, True1 by length, 2fers and 3fers, breakouts, snakes, extensions, barrels and jumpers. File > Pull Sheet edits the list in the app first. |
 | **Binder** | One PDF as numbered sheets: overview, a Power and a Data sheet per screen with the wall, its circuits, ports, cables and facts, pull sheets, hardware. Tabloid by default, or Letter, ARCH C, ARCH D, A4, A3. Every sheet carries a border and a title block with your logo and a revision log. Tick Wiring and each map gets a wiring sheet behind it, every run drawn port to socket. Real text in the PDF, so it is sharp and searchable. Right-click a screen for Export this screen. |
 
-### Guides
-
-Help > Quick Start Guide, What's New in 1.0 and Advanced Guide do not describe the app; they run it. Every step performs one real action in front of you on a scratch Demo Show, at a person's pace, and a line under the step says what just happened. Enter is Next, a Go to box jumps to any step, and your own project comes back the moment you leave.
-
 ### Preferences
 
-Seven tabs (Wall, Look, Data, Power, Distros and multis, Binder, Pull sheet and cables) with a default for nearly everything you create, an interface accent color, and a Reset Defaults button. A default applies only to what you make next; a show's own value always wins.
+Set a default for nearly everything you create: wall, look, data, power,
+distros, the binder and the pull sheet. A default only applies to what you
+make next, so it never changes a show you already have.
 
 ### Keyboard shortcuts
 
-Help > Keyboard Shortcuts lists every gesture the app has, grouped by where it works, with Cmd or Ctrl for your platform. The ones you will use first:
+**Help > Keyboard Shortcuts** lists them all. The ones you'll use first:
 
 | Shortcut | What it does |
 |----------|-------------|
@@ -113,106 +160,43 @@ Help > Keyboard Shortcuts lists every gesture the app has, grouped by where it w
 
 ### Projects
 
-- Save and open `.json` projects; Recent Files in the File menu. A project from any earlier version opens and is brought up to date on load.
-- Cancelling a save or export saves nothing, on every platform.
-- The app checks for a new release and offers it from Help.
+- Shows save as `.json` files you can keep anywhere. **File > Recent Files**
+  gets you back to them.
+- A show from any earlier version opens and is brought up to date.
+- The app checks for new releases and offers them from **Help**.
 
 ---
 
-## For Developers, Building from Source
+## Questions
 
-If you want to build the app yourself instead of downloading the release:
+**Does it need the internet?** No. It runs on your computer. When you're
+online it checks for updates and refreshes the cabinet catalog.
 
-### Prerequisites
-- **Python 3.10+**, Download from [python.org](https://www.python.org/downloads/)
-- **Windows users:** During Python install, CHECK the box **"Add Python to PATH"**
+**Is it really free?** Yes, including for paid shows. See [License](#license).
 
-### Mac
-1. Clone or download this repo
-2. Open **Terminal** and run:
-   ```
-   cd "/path/to/LED Raster Designer"
-   make mac
-   ```
-3. The app appears in the folder, double-click **LED Raster Designer.app**
+**Where are the logs?** **Help > Show Logs**. On a Mac they're also in
+`~/Library/Logs/LED Raster Designer/`.
 
-### Windows
-1. Clone or download this repo
-2. Double-click **Build Windows.bat**
-3. The app appears in the folder, double-click **LED Raster Designer App\LED Raster Designer.exe**
-
-### Cleaning Build Files
-- **Mac:** `make clean`
-- **Windows:** `Build Windows.bat clean` (from Command Prompt)
-
-Source code is in the `src/` folder.
-
-### Where things live
-
-Front end (`src/static/js/`):
-
-| File | Owns |
-|---|---|
-| `app-core.js` | the App class: state, socket, initial UI setup |
-| `app-wiring.js` | every DOM listener, one `_wire*` method per area |
-| `app-client-props.js`, `app-preferences.js` | per-layer client settings in localStorage; preference defaults, storage, the tabbed modal |
-| `app-screen-info.js`, `app-capacity.js` | the Screen Info panel, totals, layer updates; port capacity rules (bit depth, frame rate, low latency) |
-| `app-selection.js`, `app-pixel-select.js`, `app-colors.js` | the multi-select set and bulk edits; cabinet selection and Pixel Map bulk edits; gradient and palette editors |
-| `app-layers-panel.js`, `app-context-menu.js` | the Screens panel rows; the canvas right-click menu |
-| `app-screen-groups.js`, `app-beaches.js`, `app-presets.js` | screen groups and group-wide actions; beach list and picker; screen presets and the cabinet catalog picker |
-| `app-canvas-ui.js`, `app-project-io.js` | canvas tabs (add, rename, delete, reorder); save and open project files, reset, normalize |
-| `app-history.js`, `app-clipboard.js` | undo/redo and snapshots; duplicate, copy and paste layers |
-| `app-export-io.js`, `app-export-svg.js`, `app-menubar.js`, `app-logs-recent.js` | export dialog, preview, writing files; the SVG export's drawing recorder and writer; menu bar, shortcuts, About; log viewer and recent files |
-| `app-processors.js`, `app-port-routing.js`, `app-port-assignment.js` | the processor tree and gear popovers; walking cabinets into per-port runs; port-numbering issues and their fixes |
-| `app-custom-runs.js`, `app-run-overrides.js`, `app-cross-layer-paths.js` | hand-drawn runs (capacity, stepping, pattern fill); a port or circuit taken over by hand; paths across group members |
-| `app-power.js`, `app-distros.js`, `app-phase-balance.js`, `app-naming.js` | circuits, soca splits, outputs, breakouts, cables; the distro model; three-phase balancing; port, circuit and multi labels |
-| `app-dock.js`, `app-dock-cable-sheets.js`, `app-dock-sweep.js`, `app-dock-drag.js`, `app-dock-menus.js` | the hardware tray: rendering, cable sheets, snake brackets and the Alt sweep, the drag engine, right-click menus |
-| `app-binder.js`, `app-binder-wiring.js` | the binder drawing set, sheets and title blocks; the Power Wiring and Data Wiring sheets |
-| `app-pull-list.js`, `app-pull-sheet-editor.js`, `app-jumpers.js` | the cable pull list every paper reads; per-row edits over it; the jumper between two cabinets of a run (vertical, horizontal, long) and each screen's jumper lengths |
-| `app-fiber.js` | fiber cables on breakout boxes: TAC, MTP and opticalCON, the strands each link takes, strand names and backup binding |
-| `canvas.js` | the renderer class (classic script): viewport, view modes, base drawing |
-| `canvas-input.js`, `canvas-images.js`, `canvas-data.js`, `canvas-power.js`, `canvas-labels.js`, `canvas-selection.js`, `canvas-math.js` | renderer mixins: gestures and hit-testing; image and text layers; the Data view; the Power view; labels and cabinet IDs; selection overlays; port load math |
-| `helpers.js`, `main.js` | shared utilities and client logging; the entry point that imports every module |
-| `color_picker.js`, `theme.js`, `quickstart.js`, `updater.js`, `whatsnew.js`, `whatsnew_content.js` | the color popover; accent color; the guides; update banner; the What's New splash and its text |
-
-Back end (`src/`):
-
-| File | Owns |
-|---|---|
-| `app.py` | Flask app and sockets, logging, the project/layer/group/beach model and live state, `/` and `/static` |
-| `routes_export.py`, `resolume_geometry.py` | every `/api/export/*` route and its render helpers; contours, islands and the Resolume XML (pure functions) |
-| `routes_project.py`, `routes_canvas.py`, `routes_layers.py` | get, new, save, restore project and beaches; canvases; layers and per-panel state |
-| `routes_processors.py`, `routes_port_assignment.py`, `routes_panel_catalog.py`, `routes_presets.py` | the processor tree; which socket each screen port uses; the cabinet catalog; preset files |
-| `routes_preferences.py`, `routes_logs.py`, `routes_system.py`, `routes_version.py`, `routes_dialog.py`, `routes_pull_sheet.py` | preferences; logs; system fonts; version and update check; native save dialogs (loopback only); the pull sheet workbook |
-| `processor_catalog.py`, `port_assignment.py`, `pull_sheet.py` | the processor catalog and its rules; pins, clashes, overflow and offers; writing the pull list into the workbook |
-| `scr_decoder.py`, `scr_encoder.py`, `scr_project.py` | sending-card configuration files |
-| `launcher_mac.py`, `launcher_pc.py`, `launcher_settings.py`, `launcher_window.py`, `updater.py` | the launchers; the release check |
-
-Two rules keep this layout honest:
-
-- **The mixin idiom.** A feature module is a private class whose own methods are copied onto `LEDRasterApp.prototype`; `app-core.js` holds the class itself. A new `app-*.js` file must be imported in `main.js` or it never loads (`app-binder.js` must precede `app-binder-wiring.js`). `canvas.js` is a classic script (`window.CanvasRenderer`); each `canvas-*.js` mixes onto `CanvasRenderer.prototype` with `Object.assign` and is a `<script>` tag in `index.html` after `canvas.js` and before `main.js`. Python route files are Flask blueprints registered at the bottom of `app.py`; they read live state as `app.current_project` via `import app`, never through `from app import`.
-- **The guides' Go to restores shipped snapshots.** `src/static/data/tour_snapshots.json` holds every step's entry state for the three guides, generated by `python3 scripts/build_tour_snapshots.py`. Re-run it after changing a guide's steps or bumping the version; `tests/test_tour_snapshots.py` fails until you do.
-- **One home per method.** `tests/test_js_modules.py` fails when a method name is defined in more than one module (prototype mixing is silent: the later file wins), when an `app-*.js` is not imported by `main.js`, or when a script tag in `index.html` points at a missing file. Move a method; don't copy it.
+**Found a bug or want a feature?** Open an [issue](../../issues). For a bug,
+attach the log from **Help > Show Logs > Copy**. For a feature, tell us how
+you'd use it.
 
 ---
 
-## Reporting Bugs and Requesting Features
+## Building from source
 
-Open an issue at [github.com/kman1898/LED-Raster-Designer/issues](../../issues). For feature suggestions please include the use case, and for bug reports please attach the relevant log (Help → Show Logs… → Copy).
+Most people should [download a release](../../releases/latest). To build the
+app yourself you'll need **Python 3.10 or newer** from
+[python.org](https://www.python.org/downloads/). On Windows, tick **Add Python
+to PATH** during the install.
 
----
+- **Mac:** open Terminal in the project folder and run `make mac`, then open
+  **LED Raster Designer.app**. `make clean` removes the build files.
+- **Windows:** double-click **Build Windows.bat**, then open
+  **LED Raster Designer App\LED Raster Designer.exe**. Run
+  `Build Windows.bat clean` from Command Prompt to remove the build files.
 
-## Versioning & Releases
-
-Versions follow `vMAJOR.MINOR.PATCH` (e.g. `v1.0.0`). PATCH is a fix or small
-change; MINOR is new features; MAJOR is a change to what the app is. The version string is kept in sync across `README.md`, `src/VERSION.txt`,
-`src/templates/index.html`, and `src/led_raster_designer.spec`.
-
-Every **public** release is git-tagged `vX.Y.Z` and gets release notes drawn from
-the matching `src/VERSION.txt` entry, never the auto-generated PR list alone, so
-the GitHub Releases page reads consistently. Internal test builds are produced via
-the workflow's manual dispatch and are **not** tagged, so the public release
-history has no gaps.
+The source is in `src/`.
 
 ---
 
@@ -228,4 +212,4 @@ LED Raster Designer is free to use for any lawful purpose, including paid shows 
 
 ## Contact
 
-Questions and feedback are welcome as issues at [github.com/kman1898/LED-Raster-Designer/issues](../../issues).
+Questions and feedback are welcome as [issues](../../issues).

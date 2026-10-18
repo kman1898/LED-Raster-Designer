@@ -2741,7 +2741,7 @@
             target: function () { var c = card(); return c ? '[data-hwdock="port-' + c.id + '-' + sparePinSocket() + '"]' : '#hardware-dock-body .hw-dock-tile'; },
             place: 'top', title: 'Pin a port by hand',
             avoid: [function () { var w = wall(); return w ? T.cabinetPoint(w, { port: unpinnedScreenPort() }) : null; }],
-            body: 'Drag a spare port chip onto the run that lost its port and that screen port is pinned to this socket, wherever it is on the card.',
+            body: 'Drag a spare port chip onto the run that lost its port and that screen port is pinned to this socket, wherever it is on the processor.',
             before: function () { switchView('data-flow'); },
             act: function (t) {
                 var c = card();
@@ -2794,9 +2794,9 @@
         },
         clearCard: {
             target: function () { var c = card(); return c ? '[data-hwdock="card-' + c.id + '"]' : '[data-hwdock^="card-"]'; },
-            place: 'top', title: 'Clear the whole card',
+            place: 'top', title: 'Clear the whole processor',
             avoid: [function () { var c = card(); return c ? '[data-hwdock="card-' + c.id + '"]' : null; }],
-            body: 'Right-click the card&rsquo;s header and pick Clear: every port on it comes off in one undoable step, and the flag counts what is unattached.',
+            body: 'Right-click the header over the processor&rsquo;s ports and pick Clear: every port on it comes off in one undoable step, and the flag counts what is unattached.',
             before: function () { switchView('data-flow'); },
             act: function (t) {
                 var c = card();
@@ -2862,7 +2862,7 @@
         },
         cableSheet: {
             target: '#hardware-dock-body .hw-dock-cablebtn-data', place: 'top', title: 'The cable sheet',
-            body: 'The &#8801; on a card flips its chips into a cable sheet: tick, port, screen and home run, one row per port.',
+            body: 'The &#8801; over the processor&rsquo;s ports flips its chips into a cable sheet: tick, port, screen and home run, one row per port.',
             before: function () { switchView('data-flow'); },
             act: function (t) {
                 return t.click('#hardware-dock-body .hw-dock-cablebtn-data').then(function () {
@@ -2877,7 +2877,7 @@
             sheetStep: true,
             target: function () { var o = owner(), s = snake(); return o && s ? '[data-lrd-field="data-snake-ft-' + o.id + '-' + s.id + '"]' : '[data-lrd-field^="data-snake-ft-"]'; },
             place: 'top', title: 'The snake&rsquo;s home run',
-            body: 'Type the snake&rsquo;s home run in feet on its row. Tab walks down the column to the next length.',
+            body: 'Type the snake&rsquo;s home run on its row, in the show&rsquo;s cable unit. Tab walks down the column to the next length.',
             before: function () { switchView('data-flow'); openSheet(); },
             act: function (t) {
                 var o = owner(), s = snake();
@@ -3061,7 +3061,7 @@
             place: 'top', title: 'Add a breakout box',
             avoid: [function () { var c = card(); return c ? '[data-lrd-field="processor-cvt-add-' + c.id + '"]' : null; },
                     function () { var c = card(); var p = c && $('[data-lrd-field="processor-cvt-add-' + c.id + '"]'); return p ? p.nextElementSibling : null; }],
-            body: 'Behind the card&rsquo;s &#9881; the picker lists only the boxes that fit its trunks. Pick a CVT10 and press +: the box appears in the tray with its ten sockets, numbered as its face reads.',
+            body: 'Behind the &#9881; over the processor&rsquo;s ports the picker lists only the boxes that fit its trunks. Pick a CVT10 and press +: the box appears in the tray with its ten sockets, numbered as its face reads.',
             before: function () { switchView('data-flow'); closePopover(); },
             act: function (t) {
                 var c = card();
@@ -3069,11 +3069,11 @@
                 return t.click('[data-hwpop="card-' + c.id + '"]').then(function () {
                     return t.wait(popover);
                 }).then(function (pop) {
-                    if (!pop) throw new Error('the card\'s gear popover did not open');
+                    if (!pop) throw new Error('the processor\'s gear popover did not open');
                     return t.spot(pop).then(function () { return t.pause(900); });
                 }).then(function () {
                     var sel = $(picker);
-                    if (!sel) throw new Error('no box picker on this card');
+                    if (!sel) throw new Error('no box picker on this processor');
                     t.mem.offered = Array.prototype.slice.call(sel.options).filter(function (o) { return o.value; }).length;
                     return t.select(sel, 'novastar-cvt10');
                 }).then(function () {
@@ -3122,7 +3122,7 @@
             before: function () { switchView('data-flow'); closePopover(); closeSheet(); },
             act: function (t) {
                 var b = box();
-                if (!b) throw new Error('no breakout box on the card');
+                if (!b) throw new Error('no breakout box on the processor');
                 var base = 'fiber-new-' + b.id + '-p1';
                 var go = function (key) {
                     return function () { return t.wait(function () { return $('[data-lrd-field="' + key + '"]'); }); };
@@ -3289,7 +3289,7 @@
             target: function () { var d = distro(); return d ? '[data-hwpop="distro-' + d.id + '"]' : '#hardware-dock-body .hw-dock-gear'; },
             place: 'top', title: 'Set the distro&rsquo;s rating',
             avoid: [function () { var d = distro(); return d ? '[data-lrd-field="distro-rating-' + d.id + '"]' : null; }],
-            body: 'Behind the distro&rsquo;s &#9881;, Rating is the service in amps. Type 200 and the header&rsquo;s load bar reads against 200 A from now on.',
+            body: 'Behind the distro&rsquo;s &#9881;, Rating is the service in amps. Type 200 and the header&rsquo;s load bar reads against 200 A from now on &mdash; 160 A on a US distro, whose main carries 80% of its rating continuously unless it is 100% rated.',
             before: function () { switchView('power'); closePopover(); },
             act: function (t) {
                 var d = distro();
@@ -3302,14 +3302,14 @@
                 }).then(function () {
                     return t.type('[data-lrd-field="distro-rating-' + d.id + '"]', '200');
                 }).then(function () {
-                    return t.wait(function () { var q = distro(); return q && Number(q.ratingA) === 200 && /\/200 A$/.test(distroUse(q)); });
+                    return t.wait(function () { var q = distro(); return q && Number(q.ratingA) === 200 && /\/(?:200|160) A$/.test(distroUse(q)); });
                 }).then(function () { return t.pause(1000); });
             },
             check: function (mem) {
                 var d = distro();
                 if (!d || Number(d.ratingA) !== 200) return null;
                 var use = distroUse(d);
-                if (!/\/200 A$/.test(use)) return null;
+                if (!/\/(?:200|160) A$/.test(use)) return null;
                 return (d.name || 'The distro') + ' is rated 200 A: the header read ' + mem.before + ', now ' + use + '.';
             },
             after: function () { closePopover(); }
@@ -4401,7 +4401,7 @@
     // whole unit, since the clear left nothing to build on.
     STEPS.dropProcessorAgain = Object.assign({}, STEPS.dropProcessor, {
         title: 'Put it all back',
-        body: 'Drag the processor onto the wall again and every port lands from the first free socket. A cleared card is one drag from whole.',
+        body: 'Drag the processor onto the wall again and every port lands from the first free socket. A cleared processor is one drag from whole.',
         check: function (mem) {
             var ps = wallPins();
             if (ps.length <= mem.before || ps.length !== portsNeeded()) return null;

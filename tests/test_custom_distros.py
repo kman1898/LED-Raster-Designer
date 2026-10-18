@@ -589,7 +589,7 @@ def test_the_gear_builds_rows_and_presets(seeded):
     assert len(out['presets']) == 11
     assert out['legacy'], 'a distro with no rows keeps the old type checklist'
     assert out['rows'] == [{'id': 'r1', 'connector': 'soca', 'count': 1, 'coupling': 'll',
-                            'breakerA': 20, 'pairedWith': None}], out
+                            'breakerA': 20, 'connectorA': None, 'pairedWith': None}], out
 
 
 # ── presets (ruling 8) ────────────────────────────────────────────────────

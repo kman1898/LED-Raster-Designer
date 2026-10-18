@@ -631,7 +631,7 @@ class _DockCableSheets {
                     also.className = 'hw-dock-cable-snake-away';
                     also.textContent = ` + ${away.map(a => a.text).join('; ')}`;
                     also.title = 'This snake also holds these sockets, on '
-                        + 'another card or box. Its name and home run are '
+                        + `another ${this.showUnitOrBox()}. Its name and home run are `
                         + 'the same row there.';
                     td1.appendChild(also);
                 }
@@ -745,7 +745,7 @@ class _DockCableSheets {
         // are the gesture, and the button they are pressed on is only
         // where the hand happened to be.
         ticked.appendChild(button('Snake', `data-cable-snake-${owner.id}`,
-            'Form one snake of every ticked port - on this card or box or '
+            `Form one snake of every ticked port - on this ${this.unitWordForCard(owner.cardId)} or box or `
             + 'any other. One name, one home run. One undo step.',
             () => {
                 const members = this._allTickedMembers();
@@ -759,13 +759,13 @@ class _DockCableSheets {
                 this.snakePorts(members).then(() => {
                     if (away) {
                         this._dockSay(`Snaked ${members.length} ports, `
-                            + `${away} of them on another card or box.`);
+                            + `${away} of them on another ${this.showUnitOrBox()}.`);
                     }
                     after();
                 });
             }));
         ticked.appendChild(button('Unsnake', `data-cable-loosen-${owner.id}`,
-            'Take every ticked port out of its snake - on this card or box '
+            `Take every ticked port out of its snake - on this ${this.unitWordForCard(owner.cardId)} or box `
             + 'or any other. One undo step.',
             () => {
                 const members = this._allTickedMembers().filter(m => {
@@ -785,7 +785,7 @@ class _DockCableSheets {
         // 2026-09-24): each ticked row gets what its own field would
         // take - a loose port its home run, a snaked one its extension.
         this._cableQuickAny(ticked, `data-cable-ticked-fill-${owner.id}`, 'Fill',
-            'Every ticked port on this card or box gets the typed length - '
+            `Every ticked port on this ${this.unitWordForCard(owner.cardId)} or box gets the typed length - `
             + 'a loose port as its home run, a snaked port as its extension. '
             + 'One undo step.',
             (ft) => this.fillTickedPortCables(owner, ft, ports).then(after));
@@ -995,7 +995,7 @@ class _DockCableSheets {
         f.value = ft !== null ? String(ft) : '';
         const max = this.copperLinkMax(l.copper.copper);
         f.title = `The ${l.copper.copper} run's length in ${this.cableUnitWord()}`
-            + (max ? ` - ${this.cableLengthWords(max)} is its 10G maximum.` : '.');
+            + (max ? ` - ${this.copperLinkMaxWords(max)} is its 10G maximum.` : '.');
         f.addEventListener('change', () => {
             const raw = f.value.trim();
             const v = raw === '' ? null : Number(raw);

@@ -1101,7 +1101,7 @@ def test_an_sq200_takes_a_placement_only_on_a_boxs_socket(client):
     assert resp.status_code == 200, resp.get_data(as_text=True)
     main = by_name(resp.get_json()['resolution'], 'Main')
     assert (main['ports'][0]['cardId'], main['ports'][0]['port']) == (card, 6)
-    assert main['ports'][0]['cardName'] == 'Tessera SQ200 QD 1'
+    assert main['ports'][0]['cardName'] == 'SQ200 QD 1'
 
 
 def test_assigning_from_the_socket_lands_where_pinning_from_the_screen_does(
@@ -1967,7 +1967,7 @@ def test_the_sx40_pair_claims_the_backing_boxes_whole(client):
     # with nothing named upstream the refusal has to say so in the numbers
     # on the metal: the main it returns is box A's port 1, never "port 1"
     # bare - every box has a port 1 now - and never the card-wide 11.
-    assert 'port 1 on Tessera XD A' in body['error'], body['error']
+    assert 'port 1 on XD A' in body['error'], body['error']
 
 
 def test_the_halves_mode_claims_the_back_half_by_role(client):
@@ -2237,7 +2237,7 @@ def test_a_wall_with_no_matching_gear_stays_unplaced(mixed_lines):
                            json={'layerId': 'Wall', 'cardId': card,
                                  'screens': sc})
         assert resp.status_code == 409, resp.get_data(as_text=True)
-        assert 'is programmed Brompton Tessera' in resp.get_json()['error']
+        assert 'is programmed Brompton' in resp.get_json()['error']
     res = presolve(client, sc)
     assert spots(res, 'Wall') == [(None, None)] * 3
     assert issue(res, 'overflow')['layerId'] == 'Wall'

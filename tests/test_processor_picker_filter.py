@@ -254,7 +254,7 @@ def wait_picker(page, want_ids):
 
 
 def test_all_brompton_screens_list_only_brompton_units(picker_page):
-    """Every screen on Brompton Tessera: the picker holds the Brompton
+    """Every screen on Brompton: the picker holds the Brompton
     processors and nothing of NovaStar's or Megapixel's."""
     seed(picker_page, ['brompton', 'brompton'])
     got = picker(picker_page)

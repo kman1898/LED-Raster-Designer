@@ -13,6 +13,33 @@ class _ScreenInfo {
         return Math.min(1, areaRatio * 1.3);
     }
 
+    // ONE cabinet's weight in kg (owner, 2026-10-18). A full cabinet is
+    // the screen's own figure; a HALF TILE is the panel library's weight
+    // for the model's matching half-size variant where the library has
+    // one that matches perfectly (catalogHalfWeightKg: same manufacturer
+    // and series, exactly half on the halved axis, the same pitch), else
+    // 0.65 of the full cabinet's - the load factor (getPanelLoadFactor),
+    // as it always was. Power keeps the load factor either way.
+    getPanelWeightKg(layer, panel) {
+        const w = Number(layer && layer.panel_weight) || 20;
+        const fullKg = ((layer && layer.weight_unit) || 'kg') === 'lb' ? w / 2.20462 : w;
+        const factor = this.getPanelLoadFactor(layer, panel);
+        const axis = panel && panel.halfTile;
+        if (factor > 0 && factor < 1 && (axis === 'height' || axis === 'width')
+                && typeof this.catalogHalfWeightKg === 'function') {
+            const half = this.catalogHalfWeightKg(layer, axis);
+            if (half > 0) return half;
+        }
+        return factor * fullKg;
+    }
+
+    // A screen's cabinets' weight in kg: every one that hangs (not blank,
+    // not hidden), each its own weight (getPanelWeightKg).
+    getLayerWeightKg(layer, panels = null) {
+        const list = panels || ((layer && layer.panels) || []).filter(p => p && !p.blank && !p.hidden);
+        return list.reduce((s, p) => s + this.getPanelWeightKg(layer, p), 0);
+    }
+
     // ── Screen groups (v0.11.0): combined totals across a group's members ──
     //
     // A group is one screen built from more than one layer, because the
@@ -370,11 +397,9 @@ class _ScreenInfo {
             const panelWatts = parseFloat(layer.panelWatts) || 0;
             if (!(panelWatts > 0)) totals.wattsUnset.push(layer.id);
             const watts = panelWatts * equivalentPanels;
-            const panelWeightValue = layer.panel_weight || 20;
-            const panelWeightKg = (layer.weight_unit || 'kg') === 'lb'
-                ? (panelWeightValue / 2.20462)
-                : panelWeightValue;
-            const weightKg = equivalentPanels * panelWeightKg;
+            // each cabinet its own weight - a half tile the library's half
+            // where it has one (getPanelWeightKg)
+            const weightKg = this.getLayerWeightKg(layer, activePanels);
             const voltage = parseFloat(layer.powerVoltage) || 0;
             if (!voltages.includes(voltage)) voltages.push(voltage);
 

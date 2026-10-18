@@ -147,7 +147,7 @@ def test_the_h_series_and_the_mx2000_and_mx6000_are_the_chassis():
     the owner's 2026-09-28 ruling: its outputs are OUT 1 and OUT 2, "one
     QD-S per OUT port ... so a max of 2 per SQ200", and each QD-S (its own
     1U unit, "QD 1" / "QD 2") is the card in that slot."""
-    sq200 = 'Tessera SQ200'
+    sq200 = 'SQ200'
     marked = {d['id']: d.get('name', '') for d in processors()
               if catalog.is_chassis(d)}
     assert marked, 'the catalog marks no chassis at all'

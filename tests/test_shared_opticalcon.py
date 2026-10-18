@@ -658,7 +658,7 @@ def test_the_select_offers_another_boxs_opticalcon_while_it_has_free_strands(pag
     pg, ids = page
     pid, pb, rb = ids['pid'], ids['pb'], ids['rb']
     rows = _rows(pg, pb)
-    assert [r['role'] for r in rows] == ['OPT 1', 'OPT 2'], rows
+    assert [r['role'] for r in rows] == ['OPT1', 'OPT2'], rows
     for r in rows:
         assert "QUAD 1 · 500'" in r['options'] and "QUAD 2 · 1000'" in r['options'], r
         assert "QUAD 3 · 300'" not in r['options'], r          # full: XD A and XD B hold all four
@@ -699,31 +699,31 @@ def test_the_binder_prints_each_links_strands_on_a_shared_quad(page):
     }""", ids), lambda o: len(o['h5']) == 8 and o['h5'][6][1] == 'QUAD 2')
     t = out['t']
     assert out['h5'] == [
-        ['SC1 · OPT 1', 'QUAD 1 (opticalCON QUAD)', '1 Blue', f"OPT 1 on {t['pa']}", '1 Blue · crosses inside'],
-        ['SC1 · OPT 2', 'QUAD 1', '2 Orange', f"OPT 2 on {t['pa']}", '2 Orange · crosses inside'],
-        ['SC1 · OPT 3', 'QUAD 1', '3 Green', f"OPT 1 on {t['pb']}", '3 Green · crosses inside'],
-        ['SC1 · OPT 4', 'QUAD 1', '4 Brown', f"OPT 2 on {t['pb']}", '4 Brown · crosses inside'],
-        ['SC2 · OPT 1', 'QUAD 2 (opticalCON QUAD)', '1 Blue', f"OPT 1 on {t['ra']}", '1 Blue · crosses inside'],
-        ['SC2 · OPT 2', 'QUAD 2', '2 Orange', f"OPT 2 on {t['ra']}", '2 Orange · crosses inside'],
-        ['SC2 · OPT 3', 'QUAD 2', '3 Green', f"OPT 1 on {t['rb']}", '3 Green · crosses inside'],
-        ['SC2 · OPT 4', 'no fiber picked', '', f"OPT 2 on {t['rb']}", ''],
+        ['SC1 · OPT 1', 'QUAD 1 (opticalCON QUAD)', '1 Blue', f"OPT1 on {t['pa']}", '1 Blue · crosses inside'],
+        ['SC1 · OPT 2', 'QUAD 1', '2 Orange', f"OPT2 on {t['pa']}", '2 Orange · crosses inside'],
+        ['SC1 · OPT 3', 'QUAD 1', '3 Green', f"OPT1 on {t['pb']}", '3 Green · crosses inside'],
+        ['SC1 · OPT 4', 'QUAD 1', '4 Brown', f"OPT2 on {t['pb']}", '4 Brown · crosses inside'],
+        ['SC2 · OPT 1', 'QUAD 2 (opticalCON QUAD)', '1 Blue', f"OPT1 on {t['ra']}", '1 Blue · crosses inside'],
+        ['SC2 · OPT 2', 'QUAD 2', '2 Orange', f"OPT2 on {t['ra']}", '2 Orange · crosses inside'],
+        ['SC2 · OPT 3', 'QUAD 2', '3 Green', f"OPT1 on {t['rb']}", '3 Green · crosses inside'],
+        ['SC2 · OPT 4', 'no fiber picked', '', f"OPT2 on {t['rb']}", ''],
     ], out['h5']
     assert out['sx'][:3] == [
-        ['trunk A', 'QUAD 3 (opticalCON QUAD)', '1 Blue · 2 Orange', 'X1 on Tessera XD A',
+        ['trunk A', 'QUAD 3 (opticalCON QUAD)', '1 Blue · 2 Orange', 'X1 on XD A',
          '1 Blue · 2 Orange · crosses inside'],
-        ['trunk B', 'QUAD 3', '3 Green · 4 Brown', 'X1 on Tessera XD B', '3 Green · 4 Brown · crosses inside'],
-        ['trunk C', 'no fiber picked', '', 'X1 on Tessera XD C', ''],
+        ['trunk B', 'QUAD 3', '3 Green · 4 Brown', 'X1 on XD B', '3 Green · 4 Brown · crosses inside'],
+        ['trunk C', 'no fiber picked', '', 'X1 on XD C', ''],
     ], out['sx']
     maps = {m['title']: m['rows'] for m in out['maps']}
     assert maps["Strand map · QUAD 1 · opticalCON QUAD · 500'"] == [
-        ['1 Blue', f"{t['pa']} · OPT 1"], ['2 Orange', f"{t['pa']} · OPT 2"],
-        ['3 Green', f"{t['pb']} · OPT 1"], ['4 Brown', f"{t['pb']} · OPT 2"]], maps
+        ['1 Blue', f"{t['pa']} · OPT1", '1-8'], ['2 Orange', f"{t['pa']} · OPT2", '9-16'],
+        ['3 Green', f"{t['pb']} · OPT1", '1-8'], ['4 Brown', f"{t['pb']} · OPT2", '9-16']], maps
     assert maps["Strand map · QUAD 2 · opticalCON QUAD · 1000'"] == [
-        ['1 Blue', f"{t['ra']} · OPT 1"], ['2 Orange', f"{t['ra']} · OPT 2"],
-        ['3 Green', f"{t['rb']} · OPT 1"], ['4 Brown', 'spare']], maps
+        ['1 Blue', f"{t['ra']} · OPT1", '1-8'], ['2 Orange', f"{t['ra']} · OPT2", '9-16'],
+        ['3 Green', f"{t['rb']} · OPT1", '1-8'], ['4 Brown', 'spare', '']], maps
     assert [m['rows'] for m in out['sxMaps']] == [[
-        ['1 Blue', 'Tessera XD A · X1'], ['2 Orange', 'Tessera XD A · X1'],
-        ['3 Green', 'Tessera XD B · X1'], ['4 Brown', 'Tessera XD B · X1']]], out['sxMaps']
+        ['1 Blue', 'XD A · X1', '1-10'], ['2 Orange', 'XD A · X1', '1-10'],
+        ['3 Green', 'XD B · X1', '1-10'], ['4 Brown', 'XD B · X1', '1-10']]], out['sxMaps']
     assert ids['errors'] == []
 
 

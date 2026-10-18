@@ -539,7 +539,7 @@ class _DockDrag {
         }
         if (unit.type === 'box' && unit.beyondTrunks) {
             return { ok: false, nums: [],
-                     message: `${unit.title} has no trunk on its card - its `
+                     message: `${unit.title} has no trunk on its ${this.unitWordForCard(unit.cardId)} - its `
                         + 'ports are not delivered, so nothing can land on '
                         + 'them.' };
         }
@@ -668,18 +668,14 @@ class _DockDrag {
             name = rec ? rec.name : null;
             const load = (this.getDistroLoads() || [])
                 .find(l => l.id === d.id);
-            if (load && load.ratingA > 0) {
-                if (load.legs) {
-                    const worst = Math.max(load.legs.X.amps, load.legs.Y.amps,
-                                           load.legs.Z.amps);
-                    if (worst > load.ratingA) {
-                        warn = `${d.name || d.id} legs to `
-                            + `${worst.toFixed(0)} A of ${load.ratingA} A`;
-                    }
-                } else if (load.amps > load.ratingA) {
-                    warn = `${d.name || d.id} to ${load.amps.toFixed(0)} A `
-                        + `of ${load.ratingA} A`;
-                }
+            // Read against the main's continuous limit (2026-10-18: 80%
+            // of the rating on a US system unless its main is 100% rated)
+            // - the same `over` the header and the strip wear.
+            if (load && load.ratingA > 0 && load.over) {
+                const lim = `${+load.limitA.toFixed(1)} A`;
+                warn = load.legs
+                    ? `${d.name || d.id} legs to ${load.amps.toFixed(0)} A of ${lim}`
+                    : `${d.name || d.id} to ${load.amps.toFixed(0)} A of ${lim}`;
             }
         } finally {
             if (had) map[s.soca] = prev; else delete map[s.soca];
@@ -1027,7 +1023,7 @@ class _DockDrag {
                 const gate = this._plugGate({ distroId: d.id, output: null }, layer);
                 const load = loads.find(l => l.id === d.id);
                 const fig = load && load.ratingA > 0
-                    ? ` ${load.amps.toFixed(0)}/${load.ratingA} A` : '';
+                    ? ` ${load.amps.toFixed(0)}/${+load.limitA.toFixed(1)} A` : '';
                 if (!gate.ok) {
                     return { label: `${name} — ${gate.message}`, disabled: true,
                              title: gate.message };
@@ -1055,7 +1051,7 @@ class _DockDrag {
             }
             const load = loads.find(l => l.id === d.id);
             const fig = load && load.ratingA > 0
-                ? ` ${load.amps.toFixed(0)}/${load.ratingA} A` : '';
+                ? ` ${load.amps.toFixed(0)}/${+load.limitA.toFixed(1)} A` : '';
             const payload = { type: 'plug', distroId: d.id, output: type.id,
                               title: `${name} · ${type.name}` };
             const plan = this._plugDropPlan(payload, layer);

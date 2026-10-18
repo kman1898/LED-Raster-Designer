@@ -616,6 +616,9 @@ select, .info-select {
 .hw-dock-unit-name { color:var(--ps-text) !important; font-weight:600; }
 .hw-dock-unit-info { color:var(--ps-faint) !important; }
 .hw-dock-unit-use { color:var(--ps-dim) !important; }
+.hw-dock-unit-use.hw-dock-unit-use-over { color:#e05050 !important; }
+.hw-dock-unit-use.hw-dock-unit-use-accepted { color:#dcb968 !important; }
+.hw-dock-unit-lim { color:var(--ps-faint) !important; }
 .hw-dock-grip { color:#5f5f5f !important; }
 /* the glance meters get the chunky-slider track treatment */
 .hw-dock-headbar, .hw-dock-legbar, .hw-dock-bar {
@@ -1149,3 +1152,8 @@ select, .info-select {
 .pull-stale-text { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .pull-sheet-footer { display:flex; gap:10px; align-items:center; padding:10px 14px; border-top:1px solid var(--ps-dark);
   background:linear-gradient(#303030,#2a2a2a); border-radius:0 0 4px 4px; }
+
+/* ---- the crowded-output dialog (app-distro-systems.js _askCrowding):
+   the over-capacity line red, the lock note amber ---- */
+#crowd-modal .crowd-cap { color:#e05050 !important; }
+#crowd-modal .crowd-locked { color:#dcb968 !important; }

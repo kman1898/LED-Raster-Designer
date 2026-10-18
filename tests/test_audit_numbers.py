@@ -468,10 +468,11 @@ def test_frame_rate_above_a_processors_table_has_no_capacity(page):
     because processor, bit depth and frame rate are chosen independently from
     the members' distinct values with no check that the combination exists.
 
-    Nothing is extrapolated to replace it: the manufacturer's published table
-    is authoritative and no figure in this app is derived from a formula. An
-    out-of-table frame rate therefore has NO capacity - 0, which the UI already
-    renders as "N/A" pixels/port, ERROR panels/port and ERROR ports required.
+    Nothing is extrapolated to replace it - not even on the tables that are
+    formula-derived, whose formula only fills the gaps BETWEEN published rows.
+    An out-of-table frame rate therefore has NO capacity - 0, which the UI
+    already renders as "N/A" pixels/port, ERROR panels/port and ERROR ports
+    required.
 
     BELOW the table is a different case and still clamps, to the lowest
     published row: capacity runs as 1/frame rate, so that is less capacity than

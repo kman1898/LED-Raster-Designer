@@ -4,7 +4,7 @@ Signal panel. Thin controllers over processor_catalog, which owns every rule
 about port counts and labels. ("CVT" in identifiers and routes is the stored
 key and the API surface, kept stable so saved projects keep opening; the
 GENERIC device is a breakout box - CVT is one vendor's name for theirs, the
-same way Tessera XD is another's.)
+same way XD is another's.)
 
 The tree is project state, so it lives on current_project['processors'] and
 rides the existing whole-project POST / PUT with no allow-list to fall through.
@@ -132,7 +132,8 @@ def _take_cable_store(node, data, card_id, cvt_id=None):
         return None
     ports = _port_numbers(card_id, cvt_id)
     why = catalog.check_cable_store(data, ports,
-                                    'box' if cvt_id else 'card')
+                                    'box' if cvt_id else 'card',
+                                    unit=app.cable_unit())
     if why:
         return why
     if 'snakes' in data:
@@ -830,10 +831,18 @@ def add_cvt(processor_id, card_id):
     return _state(201)
 
 
+def _unit_words():
+    """'feet' or 'meters': the open show's cable unit, as a refusal says
+    what a length is typed in. A length is stored as the number typed, in
+    the show's unit, whatever its key is called (`ft`, `fiberFt`)."""
+    return catalog.cable_unit_words(app.cable_unit())
+
+
 def _take_fiber(cvt, data):
     """Validate and store a breakout box's fiber fields from a PUT body:
-    `fiberType` (a string; blank clears) and `fiberFt` (a finite number of
-    feet, 0 or more; null / blank clears). Returns the refusal, or None."""
+    `fiberType` (a string; blank clears) and `fiberFt` (a finite number in
+    the show's cable unit, 0 or more; null / blank clears). Returns the
+    refusal, or None."""
     if 'fiberType' in data:
         value = data.get('fiberType')
         if value is not None and not isinstance(value, str):
@@ -849,13 +858,13 @@ def _take_fiber(cvt, data):
             cvt.pop('fiberFt', None)
         else:
             if isinstance(value, bool):
-                return 'Fiber length must be a number of feet, 0 or more'
+                return f'Fiber length must be a number of {_unit_words()}, 0 or more'
             try:
                 ft = float(value)
             except (TypeError, ValueError):
-                return 'Fiber length must be a number of feet, 0 or more'
+                return f'Fiber length must be a number of {_unit_words()}, 0 or more'
             if not math.isfinite(ft) or ft < 0:
-                return 'Fiber length must be a number of feet, 0 or more'
+                return f'Fiber length must be a number of {_unit_words()}, 0 or more'
             if ft == 0:
                 cvt.pop('fiberFt', None)
             else:
@@ -908,10 +917,10 @@ def update_cvt(processor_id, cvt_id):
         return jsonify({'error': why}), 400
     # The box's fiber trunk (2026-09-07: "we need to add fiber types when
     # cvt's or similar are used"): what the fiber is (free text, the GEAR
-    # LIST's words offered) and how long its home run is, in feet. Both are
-    # facts about THIS box, so they live on its record and ride resolve_card
-    # out to the dock, the pull list and the binder. A length must be a
-    # number of feet, 0 or more; blank / null clears either field.
+    # LIST's words offered) and how long its home run is, in the show's
+    # cable unit. Both are facts about THIS box, so they live on its record
+    # and ride resolve_card out to the dock, the pull list and the binder. A
+    # length must be a number, 0 or more; blank / null clears either field.
     why = _take_fiber(cvt, data)
     if why:
         return jsonify({'error': why}), 400
@@ -1036,7 +1045,7 @@ def delete_cvt(processor_id, cvt_id):
 
 
 def _box_removed_note(box_title, dropped):
-    """'Removed box Tessera XD B - 3 ports of LEFT are unplaced again':
+    """'Removed box XD B - 3 ports of LEFT are unplaced again':
     one clause per screen, in the order their pins came off, each screen
     called by the name on its layer."""
     names = {str(l.get('id')): (l.get('name') or f'Screen {l.get("id")}')
@@ -1081,7 +1090,7 @@ def _check_snake_cable(data):
         try:
             ft = float(data['ft'])
         except (TypeError, ValueError):
-            return 'ft must be a number of feet.'
+            return f'ft must be a number of {_unit_words()}.'
         if ft != ft or ft < 0 or ft in (float('inf'), float('-inf')):
             return 'ft must be a non-negative number.'
     conn = data.get('connector')
@@ -1265,7 +1274,7 @@ def add_fiber_cable():
     ({boxId, key, strands?}), put that link on it in the same request (the
     Fiber section's "New TAC…" is one gesture, one undo step)."""
     data = request.json or {}
-    why = catalog.check_fiber_cable(data)
+    why = catalog.check_fiber_cable(data, unit=app.cable_unit())
     if why:
         return jsonify({'error': why}), 400
     link = data.get('link')
@@ -1309,7 +1318,7 @@ def update_fiber_cable(cable_id):
     boxes = _fiber_boxes()
     used = max([s for (cid, s) in catalog.fiber_strands_taken(boxes)
                 if cid == cable_id] or [0])
-    why = catalog.check_fiber_cable(data, cable, used)
+    why = catalog.check_fiber_cable(data, cable, used, unit=app.cable_unit())
     if why:
         return jsonify({'error': why}), 400
     catalog.store_fiber_cable(app.current_project, data, _next_seq, cable)
@@ -1385,7 +1394,7 @@ def set_fiber_link(processor_id, cvt_id, key):
 
 def _set_copper_link(entry, key, data):
     """A link on copper instead of fiber: {copper: 'Cat6A', ft?}. Only on a
-    box whose catalog entry takes copper on its links (the Tessera XD's
+    box whose catalog entry takes copper on its links (the XD's
     etherCON beside each opticalCON DUO); the kind is one of the 10G
     kinds (COPPER_LINK_KINDS). A length past the kind's maximum is NOT
     refused - the row and the binder say so - because the run is the
@@ -1400,7 +1409,7 @@ def _set_copper_link(entry, key, data):
     if not res.get('copperLinks'):
         return jsonify({'error': (
             f'{res.get("deviceName") or title} takes fiber only on its links '
-            f'- copper is offered on a Tessera XD.')}), 400
+            f'- copper is offered on an XD.')}), 400
     kind = data.get('copper')
     if catalog.copper_link_max_ft(kind) is None:
         kinds = ', '.join(k for k, _ft in catalog.COPPER_LINK_KINDS)
@@ -1409,14 +1418,14 @@ def _set_copper_link(entry, key, data):
     ft = data.get('ft')
     if ft not in (None, ''):
         if isinstance(ft, bool):
-            return jsonify({'error': 'ft must be a number of feet.'}), 400
+            return jsonify({'error': f'ft must be a number of {_unit_words()}.'}), 400
         try:
             value = float(ft)
         except (TypeError, ValueError):
-            return jsonify({'error': 'ft must be a number of feet.'}), 400
+            return jsonify({'error': f'ft must be a number of {_unit_words()}.'}), 400
         if not math.isfinite(value) or value < 0:
-            return jsonify({'error': 'ft must be a number of feet, 0 or '
-                                     'more.'}), 400
+            return jsonify({'error': f'ft must be a number of {_unit_words()}, '
+                                     '0 or more.'}), 400
         stored = catalog._cable_ft(value)
         if stored is not None:
             link['ft'] = stored

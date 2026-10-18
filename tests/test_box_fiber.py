@@ -2,7 +2,7 @@
 
 "we need to add fiber types when cvt's or similar are used. and if cvt's
 are used then we will list those instead of sending card" (user,
-2026-09-07). A breakout box (a CVT4K-S, a CVT10, a Tessera XD - any `cvt`)
+2026-09-07). A breakout box (a CVT4K-S, a CVT10, an XD - any `cvt`)
 now carries two facts about the fiber that feeds it:
 
   - `fiberType` - free text, the pull sheet's GEAR LIST fiber words offered

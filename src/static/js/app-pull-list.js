@@ -110,17 +110,16 @@
 //     neither do the cards, but CVT and distros yes. and list them per
 //     beach location and if there is 2 cvts at one beach list them once
 //     and add Qty 2"): one row per breakout box - the catalog model as the
-//     type ("CVT4K-S", "Tessera XD"), its name or letter as the label - at
+//     type ("CVT4K-S", "XD"), its name or letter as the label - at
 //     the box's location, else the position of the first screen whose
 //     ports it delivers (a box delivering nothing, with no location, is
 //     not listed); two boxes at one location merge to qty 2, label "A, B".
-//     One row per distro with a box in use - "the distro should not be
-//     named. it should say how many holes it uses. so 2 multi on a distro
-//     is a 12 way, 3-4 is a 24 way, 5-6 is a 36 way and 7-8 is a 48 way":
-//     the type is `<N> way` from the boxes in use, the label the distro's
-//     name, at the distro's location, else the position of the first
-//     screen it feeds. The table ends at 8: past it the type stays "48
-//     way" and Notes say "<n> multis" - nothing larger is assumed.
+//     One row per distro with a box in use: the type is the distro's
+//     TYPE as typed behind its gear (2026-10-18, "200A 24ch rack";
+//     a preset fills it with its name), "Distro" where it has none - the
+//     old "<N> way" from the boxes in use is gone. The label is the
+//     distro's name, at the distro's location, else the position of the
+//     first screen it feeds.
 //
 // Lengths print as `100'`, each-items as `EA`; quantities are integers;
 // Label is the short names covered ("SR 1-4", "SNAKE A", "SR1-1, SR1-6");
@@ -143,6 +142,16 @@ const PULL_SHEET_DEFAULTS = {
 // The sheet's spelling of each power connector. True1 is the only one the
 // GEAR LIST spells differently from the app.
 const POWER_CONNECTOR_SHEET_NAMES = { True1: 'Tru-1' };
+
+// Brompton models as the pull sheet printed them until 2026-10-17 -
+// "Tessera XD", "Tessera SX40" - and as older files key their edits. The
+// catalog dropped the word (owner, 2026-10-17: "tessera is not needed"),
+// and a pull-sheet edit is keyed on the type the row printed, so an edit
+// saved on one of these names answers to the row under its name now
+// (pullEditKey).
+const PULL_LEGACY_TYPE_PREFIX = 'Tessera ';
+const PULL_LEGACY_PREFIXED_TYPES = new Set(['SX40', 'S8', 'S4', 'M2', 'T1', 'SQ200',
+    'QD-S', 'XD', 'XD-S', 'XD-T']);
 
 class _PullList {
 
@@ -283,7 +292,7 @@ class _PullList {
         return seen;
     }
 
-    // What paper calls a breakout box (a CVT, a Tessera XD): its model and
+    // What paper calls a breakout box (a CVT, an XD): its model and
     // the name somebody typed - "CVT4K-S SR" - the way a card is "H9 SR";
     // unnamed, the resolved title the dock wears ("CVT4K-S A").
     pullBoxTitle(box) {
@@ -311,16 +320,11 @@ class _PullList {
         return title || device;
     }
 
-    // The distro on its own gear row, by how many holes it uses: "2 multi
-    // on a distro is a 12 way, 3-4 is a 24 way, 5-6 is a 36 way and 7-8 is
-    // a 48 way" (2026-09-07). The table ends at 8; past it the type stays
-    // "48 way" and the caller puts the count in Notes.
-    pullDistroWayType(boxes) {
-        const n = Number(boxes) || 0;
-        if (n <= 2) return '12 way';
-        if (n <= 4) return '24 way';
-        if (n <= 6) return '36 way';
-        return '48 way';
+    // The distro on its own gear row, by its TYPE (2026-10-18): what the
+    // user typed behind its gear, or a preset's name, else "Distro".
+    pullDistroType(d) {
+        const t = String((d && d.typeName) || '').trim();
+        return t || 'Distro';
     }
 
     // Every location the project knows - the beach names, in beach order.
@@ -378,7 +382,7 @@ class _PullList {
     }
 
     // A copper link on a box (an XD's X1 on Cat6A) as a pull row's cells:
-    // the kind, its length, one, "Tessera XD A (X1)" - the port in brackets
+    // the kind, its length, one, "XD A (X1)" - the port in brackets
     // so the name folding never reads it as a run - and the plain warning
     // where it runs past its 10G length ("no length" where none is typed).
     // Rows merge by kind and length like every other cable.
@@ -915,13 +919,12 @@ class _PullList {
             const n = boxesOn.get(String(d.id)) || 0;
             const k = directOn.get(String(d.id)) || 0;
             if (!n && !k) continue;
-            // A distro feeding direct outputs only has no multi holes to
-            // count: it is "Distro", its outputs said in Notes.
-            const r = n
-                ? { type: this.pullDistroWayType(n), length: 'EA', qty: 1,
-                    label: d.name || '', notes: n > 8 ? `${n} multis` : '', side: 'power' }
-                : { type: 'Distro', length: 'EA', qty: 1, label: d.name || '',
-                    notes: `${k} direct output${k === 1 ? '' : 's'}`, side: 'power' };
+            // Named by its Type; a distro feeding direct outputs only says
+            // its outputs in Notes, as it always has.
+            const r = { type: this.pullDistroType(d), length: 'EA', qty: 1,
+                        label: d.name || '',
+                        notes: n ? '' : `${k} direct output${k === 1 ? '' : 's'}`,
+                        side: 'power' };
             if (!gearAt(r, this.pullLocationOf(d), distroFirstLayer.get(String(d.id)))) continue;
             hw('distro', d.id, d.name).rows.push({ ...r });
         }
@@ -1372,14 +1375,39 @@ class _PullList {
             + (row && row.split ? `|${row.split}` : '');
     }
 
+    // A stored edit's key as the row it answers to is keyed today: a key
+    // whose type is a Brompton model under its old name ("Tessera
+    // XD|EA") reads as that model's row now ("XD|EA"). Every other key is
+    // itself. Nothing is rewritten on open - the stored key takes the new
+    // spelling the next time somebody edits that row.
+    pullEditKey(key) {
+        const text = String(key == null ? '' : key);
+        if (!text.startsWith(PULL_LEGACY_TYPE_PREFIX)) return text;
+        const cut = text.indexOf('|');
+        const type = cut < 0 ? text : text.slice(0, cut);
+        const model = type.slice(PULL_LEGACY_TYPE_PREFIX.length);
+        if (!PULL_LEGACY_PREFIXED_TYPES.has(model)) return text;
+        return model + (cut < 0 ? '' : text.slice(cut));
+    }
+
     // The stored edits, never the store itself (readers must not mutate).
+    // Each row edit carries its key as pullEditKey reads it; where an old
+    // key and its new spelling both hold an edit, the new one is the edit.
     getPullSheetEdits() {
         const stored = (this.project && this.project.pullSheetEdits) || {};
         const positions = {};
         for (const [k, v] of Object.entries(stored.positions || {})) {
             if (!v || typeof v !== 'object') continue;
+            const held = Array.isArray(v.rows) ? v.rows : [];
+            const rows = [];
+            for (const r of held) {
+                const key = r && r.key != null ? this.pullEditKey(r.key) : null;
+                if (key === null || key === r.key) { rows.push({ ...r }); continue; }
+                if (held.some(x => x && x.key === key)) continue;
+                rows.push({ ...r, key });
+            }
             positions[k] = {
-                rows: Array.isArray(v.rows) ? v.rows.map(r => ({ ...r })) : [],
+                rows,
                 added: Array.isArray(v.added) ? v.added.map(r => ({ ...r })) : [],
             };
         }
@@ -1566,7 +1594,7 @@ class _PullList {
         for (const [pk, pos] of Object.entries(store.positions)) {
             if (!pos || !Array.isArray(pos.rows)) continue;
             pos.rows = pos.rows.filter(e => {
-                const k = `${pk}\n${e && e.key}`;
+                const k = `${pk}\n${this.pullEditKey(e && e.key)}`;
                 if (before.has(k) && !after.has(k)) { dropped++; return false; }
                 return true;
             });
@@ -1592,6 +1620,15 @@ class _PullList {
         return this._postPullSheetState(['pullSheetEdits']);
     }
 
+    // The live edit on row KEY in one position's store: the one stored
+    // under KEY itself, else one under an older spelling of it
+    // (pullEditKey). A writer that takes it stores KEY on it.
+    _pullFindRowEdit(pos, key) {
+        const rows = (pos && pos.rows) || [];
+        return rows.find(x => x && x.key === key)
+            || rows.find(x => x && this.pullEditKey(x.key) === key) || null;
+    }
+
     // Override one field of an engine row. A value equal to the engine's
     // own clears the override for that field. `engineRow` (optional) is
     // the row as the engine says it, for that comparison. Returns true
@@ -1599,9 +1636,11 @@ class _PullList {
     setPullSheetRowEdit(positionKey, key, patch, engineRow, action = 'Edit Pull Sheet Row') {
         if (!this.project || !positionKey || !key || !patch) return false;
         const pos = this._pullPositionEdits(positionKey, true);
-        let e = pos.rows.find(x => x.key === key);
-        const before = JSON.stringify(e || null);
+        let e = this._pullFindRowEdit(pos, key);
+        const storedKey = e ? e.key : key;
+        const before = JSON.stringify(e ? { ...e, key } : null);
         if (!e) { e = { key }; pos.rows.push(e); }
+        e.key = key;
         for (const field of ['qty', 'label', 'notes']) {
             if (!(field in patch)) continue;
             let v = patch[field];
@@ -1620,8 +1659,11 @@ class _PullList {
         }
         this._pullPruneEdits();
         const after = this._pullPositionEdits(positionKey, false);
-        const now = after ? after.rows.find(x => x.key === key) : null;
-        if (JSON.stringify(now || null) === before) return false;
+        const now = after ? this._pullFindRowEdit(after, key) : null;
+        if (JSON.stringify(now || null) === before) {
+            if (now) now.key = storedKey;   // nothing changed: nor does the key
+            return false;
+        }
         this._commitPullSheetEdit(action);
         return true;
     }
@@ -1630,9 +1672,10 @@ class _PullList {
     removePullSheetRow(positionKey, key) {
         if (!this.project || !positionKey || !key) return false;
         const pos = this._pullPositionEdits(positionKey, true);
-        let e = pos.rows.find(x => x.key === key);
+        let e = this._pullFindRowEdit(pos, key);
         if (e && e.removed) return false;
         if (!e) { e = { key }; pos.rows.push(e); }
+        e.key = key;
         e.removed = true;
         this._commitPullSheetEdit('Remove Pull Sheet Row');
         return true;
@@ -1640,8 +1683,9 @@ class _PullList {
 
     restorePullSheetRow(positionKey, key) {
         const pos = this._pullPositionEdits(positionKey, false);
-        const e = pos && pos.rows.find(x => x.key === key);
+        const e = pos && this._pullFindRowEdit(pos, key);
         if (!e || !e.removed) return false;
+        e.key = key;
         delete e.removed;
         this._commitPullSheetEdit('Restore Pull Sheet Row');
         return true;
@@ -1652,7 +1696,7 @@ class _PullList {
         const pos = this._pullPositionEdits(positionKey, false);
         if (!pos) return false;
         const n = pos.rows.length;
-        pos.rows = pos.rows.filter(x => x.key !== key);
+        pos.rows = pos.rows.filter(x => !x || this.pullEditKey(x.key) !== key);
         if (pos.rows.length === n) return false;
         this._commitPullSheetEdit('Reset Pull Sheet Row');
         return true;

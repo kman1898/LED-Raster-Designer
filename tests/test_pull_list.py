@@ -375,13 +375,13 @@ def test_positions_are_the_groups_and_the_rows_read_in_the_sheets_vocabulary(pag
     # row 3 (3 beside) - 9 horizontal and 1 vertical per wall: WALL-A
     # 9 x 1' + 1 x 2', WALL-B 10 x 6'. Each length is its own row.
     # The distro itself is on the sheet (2026-09-07): two boxes in use on
-    # SR is a "12 way", pulled where SR sits - no location typed, so with
+    # SR is a "Distro" (no Type typed), pulled where SR sits - no location typed, so with
     # the first screen it feeds.
     assert sr == [
-        ('12 way', 'EA', 1, 'SR', ''),
         ('Data Jump', "1'", 9, 'WALL-A', ''),
         ('Data Jump', "2'", 2, 'WALL-A', ''),
         ('Data Jump', "6'", 11, 'WALL-B', ''),
+        ('Distro', 'EA', 1, 'SR', ''),
         ('Ether-con Snake', "100'", 1, 'SNAKE A', '2 channel'),
         ('H9', 'EA', 1, '', ''),
         ('Multi', "100'", 1, 'SR 2', ''),
@@ -416,7 +416,7 @@ def test_positions_are_the_groups_and_the_rows_read_in_the_sheets_vocabulary(pag
     assert totals[('Tru-1', "10'")] == 2 and totals[('Tru-1', "6'")] == 1
     assert totals[('Multi', "125'")] == 1 and totals[('Multi', "100'")] == 1
     assert totals[('Tru-1 Breakout', 'EA')] == 2 and totals[('Edison 2fer', 'EA')] == 1
-    assert totals[('12 way', 'EA')] == 1
+    assert totals[('Distro', 'EA')] == 1
     assert totals[('H9', 'EA')] == 1
     assert len(out['totals']) == 18
     # EA sorts after every length; types are A-Z
@@ -456,7 +456,7 @@ def test_the_per_screen_readings_the_packet_will_print(page):
     # hardware: the distro's boxes, the processor's cable
     kinds = {(h['kind'], h['name']): _rows(h['rows']) for h in out['hardware']}
     assert kinds[('distro', 'SR')] == [
-        ('12 way', 'EA', 1, 'SR', ''),
+        ('Distro', 'EA', 1, 'SR', ''),
         ('Multi', "100'", 1, 'SR 2', ''), ('Multi', "125'", 1, 'SR 1', ''),
         ('Tru-1 Breakout', 'EA', 2, 'SR 1-2', '')]
     proc_rows = next(v for (k, n), v in kinds.items() if k == 'processor')
@@ -993,13 +993,13 @@ def test_export_saves_the_workbook_through_the_picker_path(page):
     ws = wb['Pull Sheet']
     assert ws['B2'].value == 'Test Show' and ws['B3'].value == 'Test Engineer'
     assert [ws.cell(5, c).value for c in pull_sheet.BLOCK_COLS[:3]] == ['SR Beach', 'CENTER', 'POSITION 3']
-    # the distro's own row heads the block (2026-09-07), the renamed jumper
-    # next - one row per length
-    assert [ws.cell(7, c).value for c in range(1, 6)] == ['12 way', 'EA', 1, 'SR', None]
-    assert [[ws.cell(r, c).value for c in range(1, 6)] for r in (8, 9, 10)] == [
+    # the renamed jumper heads the block - one row per length - and the
+    # distro's own row, named by its Type ("Distro" with none), sorts after
+    assert [[ws.cell(r, c).value for c in range(1, 6)] for r in (7, 8, 9)] == [
         ['Absen Long Data Jump', "1'", 9, 'WALL-A', None],
         ['Absen Long Data Jump', "2'", 2, 'WALL-A', None],
         ['Absen Long Data Jump', "6'", 11, 'WALL-B', None]]
+    assert [ws.cell(10, c).value for c in range(1, 6)] == ['Distro', 'EA', 1, 'SR', None]
     assert ws['E2'].value is not None and ws['E3'].value == '1.0'
     gear_types = [wb['GEAR LIST'].cell(r, 1).value for r in range(4, 100) if wb['GEAR LIST'].cell(r, 1).value]
     assert 'Edison 2fer' in gear_types and 'Tru-1 Jumper' in gear_types
@@ -1075,7 +1075,7 @@ def test_smoke_live_show_b(page):
     # port's label with its snake in Notes, rows of one length merging
     # (labels and notes in the order the ports are walked), and a barrel
     # each; a snake is said once with its home run, the 100' before the
-    # 150'. The 36 way and the CVTs are the position's, not the screen's.
+    # 150'. The distro's row and the CVTs are the position's, not the screen's.
     assert scr['SR - MAIN'] == [
         ('Data Jump', "6'", 304, 'SR - MAIN', ''),
         ('Ether-con', "10'", 3, 'SR A-1, SR B-1, SR B-3', 'ext · SR A; ext · SR B'),
@@ -1132,12 +1132,12 @@ def test_smoke_live_show_b(page):
     ]
     # A position is its screens' rows merged by (type, length), labels in
     # screen order, plus what the position alone carries: five boxes in use
-    # on SR (1-4 on the MAIN, 5 on the Return) make it a "36 way", listed
+    # on SR (1-4 on the MAIN, 5 on the Return), its gear row a "Distro", listed
     # once; both CVTs by the names their ⚙ carry.
     assert by['SR'] == [
-        ('36 way', 'EA', 1, 'SR', ''),
         ('CVT4K-S', 'EA', 2, 'SR A, SR B', ''),
         ('Data Jump', "6'", 369, 'SR - MAIN, SR - Return', ''),
+        ('Distro', 'EA', 1, 'SR', ''),
         ('Ether-con', "10'", 3, 'SR A-1, SR B-1, SR B-3', 'ext · SR A; ext · SR B'),
         ('Ether-con', "25'", 2, 'SR A-3, SR A-4', 'ext · SR A'),
         ('Ether-con', "50'", 1, 'SR B-5', ''),
@@ -1157,9 +1157,9 @@ def test_smoke_live_show_b(page):
         ('Tru-1 Power Jump', "6'", 341, 'SR - MAIN, SR - Return', ''),
     ]
     assert by['SL'] == [
-        ('36 way', 'EA', 1, 'SL', ''),
         ('CVT4K-S', 'EA', 2, 'SL A, SL B', ''),
         ('Data Jump', "6'", 369, 'SL - MAIN, SL - Return', ''),
+        ('Distro', 'EA', 1, 'SL', ''),
         ('Ether-con', "10'", 3, 'SL A-1, SL B-1, SL B-3', 'ext · SL A; ext · SL B'),
         ('Ether-con', "25'", 2, 'SL A-3, SL A-4', 'ext · SL A'),
         ('Ether-con', "50'", 1, 'SL B-5', ''),
@@ -1180,9 +1180,9 @@ def test_smoke_live_show_b(page):
     # and notes unioned in position order; long label runs fold to their
     # ends and a count, past eight pieces
     assert _rows(out['totals']) == [
-        ('36 way', 'EA', 2, 'SR, SL', ''),
         ('CVT4K-S', 'EA', 4, 'SR A, SR B, SL A, SL B', ''),
         ('Data Jump', "6'", 738, 'SR - MAIN, SR - Return, SL - MAIN, SL - Return', ''),
+        ('Distro', 'EA', 2, 'SR, SL', ''),
         ('Ether-con', "10'", 6, 'SR A-1, SR B-1, SR B-3, SL A-1, SL B-1, SL B-3', 'ext · SR A; ext · SR B; ext · SL A; ext · SL B'),
         ('Ether-con', "25'", 4, 'SR A-3, SR A-4, SL A-3, SL A-4', 'ext · SR A; ext · SL A'),
         ('Ether-con', "50'", 2, 'SR B-5, SL B-5', ''),

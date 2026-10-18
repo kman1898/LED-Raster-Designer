@@ -183,7 +183,10 @@ class _CustomRuns {
         const full = cap.known && (rect
             ? !this._customRunCanGrow(owner, kind, hits)
             : (load + sized.unit > cap.limit + eps));
-        const fill = Object.assign({}, sized, { load, used, full });
+        // `over`: the run's load past its limit, said apart from full
+        // (the readout's "over by …").
+        const over = cap.known && load > cap.limit + eps;
+        const fill = Object.assign({}, sized, { load, used, full, over });
         fill.text = fill.mixed
             ? this._formatRunLoadPair(kind, load, cap.limit)
             : `${this._formatRunUsed(used)}/${sized.count}`;
@@ -365,6 +368,19 @@ class _CustomRuns {
                     ? 'set voltage, amperage and watts per panel)'
                     : 'no published port capacity for this processor)');
             el.style.color = '';
+            return;
+        }
+        // A run OVER its limit (owner, 2026-10-18) - an Armor rectangle
+        // past its port, a show opened after its figures changed - says by
+        // how much, in red, with the load against the limit: "over by
+        // 26,232 px (576,000 / 549,768 px)" where "· full" would stand.
+        // At or under the limit it reads as it always has.
+        if (fill.over) {
+            const unit = kind === 'power' ? 'W' : 'px';
+            const by = `over by ${(Math.round(fill.load) - Math.round(fill.limit)).toLocaleString('en-US')} ${unit} `
+                + `(${this._formatRunLoadPair(kind, fill.load, fill.limit)})`;
+            el.textContent = fill.mixed ? `${head}: ${by}` : `${head}: ${fill.text} panels · ${by}`;
+            el.style.color = '#ff6b6b';
             return;
         }
         el.textContent = fill.mixed

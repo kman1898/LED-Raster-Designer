@@ -476,7 +476,8 @@ def test_a_new_distro_takes_the_preference(page):
     head = pg.evaluate("""(id) => {
         const u = document.querySelector(`.hw-dock-distro[data-lrd-distro="${id}"]`);
         return u ? u.textContent : null; }""", made['id'])
-    assert head and '120V·1φ' in head and '/200 A' in head, head
+    # the 200 A rating, read at the US main's 80% continuous limit
+    assert head and '120V·1φ' in head and '/160 A' in head and '80% of 200 A' in head, head
     pg.evaluate("(id) => window.app.removeDistro(id)", made['id'])
     pg.wait_for_timeout(300)
 

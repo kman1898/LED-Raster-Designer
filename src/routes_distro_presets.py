@@ -2,8 +2,8 @@
 Saved distro presets (persisted to disk, shared across all clients).
 
 A distro preset is what a distro's face is - its system, input, rating per
-leg, breaker setting, phasing and output rows - saved under a name so the
-next show can start from it (owner ruling, 2026-10-16: "users can SAVE their
+leg, breaker and main settings, phasing, output rows and Type - saved under a
+name so the next show can start from it (owner ruling, 2026-10-16: "users can SAVE their
 own distros as presets"). Kept the way named layouts are: one JSON file
 beside the presets folder, so they survive a restart and a new version. The
 browser cleans a preset again before it applies one (app-distro-systems.js
@@ -59,9 +59,9 @@ DIRECT_PHASINGS = {'paired'}
 COUPLINGS = {'ln', 'll'}
 # What _distroPresetBody (app-distro-systems.js) sends; anything else on a
 # new save is dropped.
-DISTRO_KEYS = {'system', 'input', 'ratingA', 'breakers100', 'phasing',
-               'directPhasing', 'rows'}
-ROW_KEYS = {'id', 'connector', 'count', 'coupling', 'breakerA', 'pairedWith'}
+DISTRO_KEYS = {'typeName', 'system', 'input', 'ratingA', 'breakers100', 'main100',
+               'phasing', 'directPhasing', 'rows'}
+ROW_KEYS = {'id', 'connector', 'count', 'coupling', 'breakerA', 'connectorA', 'pairedWith'}
 
 _lock = threading.Lock()
 
@@ -100,6 +100,10 @@ def _valid_row(r):
         return False
     if 'breakerA' in r and not (_number(r['breakerA']) and 0 < r['breakerA'] < 1000):
         return False
+    # the row's connector rating override; null (or absent) is the default
+    if r.get('connectorA') is not None and not (_number(r['connectorA'])
+                                                and 0 < r['connectorA'] < 1000):
+        return False
     if r.get('pairedWith') is not None and not _short_str(r['pairedWith']):
         return False
     return True
@@ -125,8 +129,15 @@ def _valid_distro(body):
         return False
     if body.get('directPhasing') not in (None, '') and body['directPhasing'] not in DIRECT_PHASINGS:
         return False
-    if 'breakers100' in body and not isinstance(body['breakers100'], bool):
+    # The distro's Type (what the pull sheet names it): text or nothing.
+    t = body.get('typeName')
+    if t is not None and not (isinstance(t, str) and len(t) <= MAX_NAME):
         return False
+    # The two 100% switches: the circuits' breakers, and the main (its
+    # continuous limit, 2026-10-18). Either may be absent (off).
+    for key in ('breakers100', 'main100'):
+        if key in body and not isinstance(body[key], bool):
+            return False
     return True
 
 

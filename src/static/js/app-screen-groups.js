@@ -84,6 +84,12 @@ class _ScreenGroups {
     //   panel_weight / panelWatts   per-CABINET figures. A 1m JP5 and a 0.5m
     //                     standard cabinet do not weigh or draw the same, and
     //                     getGroupTotals sums each member's own figure
+    //   weight_unit       half of panel_weight: the unit says what the
+    //                     number means. Shared, a kg picked on one member
+    //                     relabelled every peer's lb figure as kg (45.19 lb
+    //                     read 45.19 kg, and the wall's total jumped by
+    //                     half again). Each member keeps its own unit;
+    //                     getGroupTotals converts each one before it sums
     //   offset_x / offset_y / showOffsetX / showOffsetY / rotation   position.
     //                     The members sit at different places BY DESIGN; the
     //                     canvas already drags them as one
@@ -140,7 +146,6 @@ class _ScreenGroups {
             'screenNameSizeDataFlow', 'screenNameSizePower',
             'show_numbers', 'number_size',
             'cabinetIdColor', 'cabinetIdPosition', 'cabinetIdStyle',
-            'weight_unit',
             // The beach: a group is ONE pull-sheet position (2026-10-01:
             // "the group screens should be in the same section"), so a
             // beach picked on a member is the wall's
@@ -1524,7 +1529,7 @@ class _ScreenGroups {
         const weight = unit === 'lb' ? totals.weightLb : totals.weightKg;
         const n = (value) => Math.round(Number(value) || 0).toLocaleString('en-US');
         const counted = Number(totals.memberCount) || 0;
-        const line = `${counted} screens · ${n(totals.cabinets)} cab `
+        const line = `${n(counted)} ${counted === 1 ? 'screen' : 'screens'} · ${n(totals.cabinets)} cab `
             + `· ${n(weight)} ${unit}`;
         // Say so rather than quietly counting fewer: a member sitting on
         // another canvas is still in the group, and its absence from these

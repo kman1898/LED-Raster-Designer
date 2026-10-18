@@ -1131,7 +1131,7 @@ class _HardwareDock {
                 title: oneBox
                     ? 'Name this processor. Its ports read the name - name '
                         + 'it SR and they read SR-1, SR-2.'
-                    : 'Name this processor. A card\'s ports take the '
+                    : `Name this processor. A ${this.unitWordFor(proc)}'s ports take the `
                         + 'nearest name above them.',
                 onCommit: (val) => this._processorRequest(
                     `/api/processors/${proc.id}`, 'PUT', { name: val },
@@ -1250,6 +1250,10 @@ class _HardwareDock {
         // (the processor strip holds the unit's one name slot), so its
         // header carries no name field and its drag wears the unit's name.
         const unitFace = this.cardIsUnitFace(proc, card);
+        // What this unit is called - "card" only on a card-based processor
+        // (unitWordFor): an SX40's or an S8's is the processor itself.
+        const word = this.unitWordFor(proc, card);
+        const Word = this.unitWordTitle(word);
         // A card that is a unit of its own leads with its title - "QD 1"
         // for the QD-S on OUT 1 (owner, 2026-09-28) - the name its boxes
         // wear ("QD 1 A").
@@ -1265,9 +1269,12 @@ class _HardwareDock {
             `card-${card.id}`,
             model + cardTag,
             '',
-            'Drag the whole card onto a screen: its unplaced ports fill in '
-            + 'order up to the port under your cursor. Cards keep their slot '
-            + 'order - drag the processor’s line to reorder.',
+            this.procIsCardBased(proc)
+                ? 'Drag the whole card onto a screen: its unplaced ports fill in '
+                    + 'order up to the port under your cursor. Cards keep their slot '
+                    + 'order - drag the processor’s line to reorder.'
+                : `Drag the whole ${word} onto a screen: its unplaced ports fill in `
+                    + 'order up to the port under your cursor.',
             // The header's glance: how full the card is, the retired
             // panel's per-card usage foot worn as n/N and a fill line - so
             // a card folded away because it is done reads as done (a
@@ -1315,7 +1322,7 @@ class _HardwareDock {
         const cardOwner = { kind: 'card', id: card.id, procId: proc.id,
                             cardId: card.id, rec: card };
         // The folded card's second glance: the boxes hanging off it, by
-        // model - "4 × Tessera XD" (owner, 2026-09-26: "the tray when
+        // model - "4 × XD" (owner, 2026-09-26: "the tray when
         // minimized it shows how many boxes are connected too"). Open, the
         // strips below already show them, so the CSS draws it folded only.
         const boxCount = this._dockBoxCountText(cvts);
@@ -1343,15 +1350,15 @@ class _HardwareDock {
                 value: card.name,
                 placeholder: proc.name || 'unnamed',
                 key: `processor-card-name-${card.id}`,
-                title: 'Name this card. Its ports read the name - name it '
+                title: `Name this ${word}. Its ports read the name - name it `
                     + 'SR and they read SR-1, SR-2.',
                 onCommit: (val) => this._processorRequest(
                     `/api/processors/${proc.id}/cards/${card.id}`, 'PUT',
-                    { name: val }, 'Rename Card'),
+                    { name: val }, `Rename ${Word}`),
             },
             gear: {
                 id: `card-${card.id}`,
-                title: 'Configure this card - templates, mode, breakout '
+                title: `Configure this ${word} - templates, mode, breakout `
                     + 'boxes, remove. Redundancy is set behind the '
                     + 'processor\'s \u2699.',
                 build: () => {
@@ -1431,7 +1438,7 @@ class _HardwareDock {
         btn.type = 'button';
         btn.className = 'hw-dock-addbox';
         btn.textContent = '+ Box';
-        btn.title = 'Add a breakout box to this card.';
+        btn.title = `Add a breakout box to this ${this.unitWordFor(proc, card)}.`;
         btn.dataset.lrdField = `dock-addbox-${card.id}`;
         btn.dataset.hwpop = `addbox-${card.id}`;
         btn.addEventListener('click', (e) => {
@@ -1495,9 +1502,10 @@ class _HardwareDock {
         free.className = 'hw-dock-addslot-free';
         free.textContent = this._dockTrunksFreeText(card);
         slot.appendChild(free);
+        const word = this.unitWordFor(proc, card);
         slot.title = fits.length === 1
-            ? `Add a ${fits[0].name} to this card.`
-            : 'Add a breakout box to this card.';
+            ? `Add a ${fits[0].name} to this ${word}.`
+            : `Add a breakout box to this ${word}.`;
         slot.addEventListener('click', (e) => {
             e.stopPropagation();
             if (fits.length === 1) {
@@ -1596,7 +1604,7 @@ class _HardwareDock {
         }
     }
 
-    // "4 × Tessera XD", or "2 × CVT10 · 1 × CVT4K-S" on a mixed card, in
+    // "4 × XD", or "2 × CVT10 · 1 × CVT4K-S" on a mixed card, in
     // the order the card lists them; '' with no boxes.
     _dockBoxCountText(cvts) {
         const byModel = new Map();
@@ -1611,8 +1619,7 @@ class _HardwareDock {
     // What a box is called where it is named in running text - its hand
     // name, else its resolved title (trunk letter included) - and the
     // same with the model taken off the front, for a header that already
-    // prints the model: "Tessera XD  A ↔ B", never "Tessera XD  Tessera
-    // XD A ↔ Tessera XD B".
+    // prints the model: "XD  A ↔ B", never "XD  XD A ↔ XD B".
     _dockBoxLabel(cvt, bare) {
         if (cvt.name) return cvt.name;
         const title = cvt.displayTitle || cvt.deviceName || 'box';
@@ -1651,9 +1658,9 @@ class _HardwareDock {
         // loop's far box says what it is on its row ("· loop end"), and
         // only a copy box still wears a tag.
         const tag = cvt.duplicateOf ? ' (copy)' : '';
-        // Four boxes all reading "Tessera XD" are four sections nobody
+        // Four boxes all reading "XD" are four sections nobody
         // can tell apart, so an unnamed box on a trunked card wears its
-        // trunk letter - "Tessera XD A" - the letters the pairing rule
+        // trunk letter - "XD A" - the letters the pairing rule
         // itself is written in ("A backs up to B"). A hand-named box is
         // already told apart by its name. The name comes RESOLVED
         // (displayTitle) since every box numbers its own sockets from 1
@@ -1686,7 +1693,7 @@ class _HardwareDock {
                     text: `${boxCount.taken}/${boxCount.of}` }
                 : null);
         // The box's name edits inline; unnamed, the placeholder speaks
-        // the RESOLVED title (trunk letter included), so "Tessera XD A"
+        // the RESOLVED title (trunk letter included), so "XD A"
         // still reads on the header the server's refusals name.
         const boxOwner = { kind: 'cvt', id: cvt.id, procId: proc.id,
                            cardId: card.id, rec: cvt };
@@ -1699,7 +1706,7 @@ class _HardwareDock {
                 placeholder: cvt.displayTitle || 'unnamed',
                 key: `processor-cvt-name-${cvt.id}`,
                 title: 'Name this box. Its sockets read the name the '
-                    + 'way a card\'s ports read the card\'s.',
+                    + `way a ${this.unitWordFor(proc, card)}'s ports read the ${this.unitWordFor(proc, card)}'s.`,
                 onCommit: (val) => this._processorRequest(
                     `/api/processors/${proc.id}/cvts/${cvt.id}`, 'PUT',
                     { name: val }, 'Rename Breakout Box'),
@@ -1741,7 +1748,7 @@ class _HardwareDock {
     }
 
     // A loop pair as ONE strip (owner, 2026-09-25, "option 2"). The header
-    // names both boxes - "Tessera XD  ISR A ↔ ISR B" - with a small gold
+    // names both boxes - "XD  ISR A ↔ ISR B" - with a small gold
     // "loop" tag in the redundancy pill's family and the pair's count, so
     // folded it still says both are there (the far box used to vanish
     // under the near one's fold). Open, two labelled rows of chips: the
@@ -1840,7 +1847,7 @@ class _HardwareDock {
 
     // The trunk letter lives on the resolved box now (displayTitle, from
     // resolve_card): the server's refusals name boxes too, and two spellings
-    // of "Tessera XD A" would drift. Nothing here letters anything.
+    // of "XD A" would drift. Nothing here letters anything.
 
     // `boxTitle` names the breakout box a grid belongs to, where it belongs
     // to one - the disambiguator now that every box numbers its own sockets
@@ -2004,7 +2011,7 @@ class _HardwareDock {
                             || port.backsUp.port} on ${port.backsUp.boxTitle
                             || port.backsUp.cardTitle}`}`
                     : ' - free'))
-            + (port.beyondCeiling ? ' - beyond this card’s ceiling' : '')
+            + (port.beyondCeiling ? ` - beyond this ${this.unitWordFor(proc, card)}’s ceiling` : '')
             + '. Click to edit'
             + (port.backsUp
                 ? '. A backup port is that port\'s return end - nothing '
@@ -2131,8 +2138,8 @@ class _HardwareDock {
             port.labelSource === 'manual',
             {
                 named: 'Named by hand. Clear the box to go back to the '
-                    + 'card’s template.',
-                unnamed: 'Name this port. It beats the card’s template for '
+                    + `${this.unitWordFor(proc, card)}’s template.`,
+                unnamed: `Name this port. It beats the ${this.unitWordFor(proc, card)}’s template for `
                     + 'this port only.',
             },
             (val) => rename({ name: val }, 'Rename Processor Port')));
@@ -2387,20 +2394,44 @@ class _HardwareDock {
             this.distroSupplyText(d),
             'Drag onto a screen to assign its ports; drag along the tray to '
             + 'reorder.',
-            load && load.ratingA > 0
-                ? { frac: load.amps / load.ratingA, over: !!load.over,
-                    text: `${load.amps.toFixed(1)}/${load.ratingA} A` }
-                : null);
+            load && load.ratingA > 0 ? this._dockDistroGlance(d, load) : null);
         // An over-loaded service is a strip question, not just a red bar.
-        // The figure is the WORST LEG against the per-leg rating (1.5, bug
-        // fix 2), and the strip names the leg.
+        // The figure is the WORST LEG against the main's continuous limit
+        // (1.5, bug fix 2; the limit 2026-10-18 - 80% of the rating on a
+        // US system unless its main is 100% rated), and the strip names
+        // the leg. An accepted overload reads amber and says so, with the
+        // same figures.
         if (load && load.over) {
             const leg = load.legs && load.worstLeg
                 ? ` worst leg ${this.distroLegLabel(d, load.worstLeg)}` : '';
-            this._dockPowerWarnings.push({
-                text: `${d.name || d.id} —${leg} ${load.amps.toFixed(1)} A / `
-                    + `${load.ratingA} A (${Math.round(load.pct)}%) — OVER`,
-            });
+            const rule = this.distroMainLimit(d);
+            const note = this.distroMainLimitNote(rule);
+            const fig = `${d.name || d.id} —${leg} ${load.amps.toFixed(1)} A / `
+                + `${+load.limitA.toFixed(1)} A`
+                + (note ? ` (${note}, continuous)` : ` (${Math.round(load.pct)}%)`);
+            if (load.overloadAccepted) {
+                this._dockPowerWarnings.push({
+                    mild: true, text: `${fig} — over, accepted`,
+                });
+            } else {
+                this._dockPowerWarnings.push({
+                    text: `${fig} — OVER`,
+                    offer: {
+                        label: 'Accept overload',
+                        title: `Accept ${d.name || d.id}'s overload: the error turns `
+                            + 'amber and reads accepted, the figures stay. Untick it '
+                            + 'behind the distro\'s ⚙. One undoable step.'
+                            + (rule.us && !rule.main100
+                                ? ' If the main is 100% rated, tick Main 100% rated '
+                                    + 'behind the ⚙ instead.' : ''),
+                        run: () => {
+                            this.updateDistro(d.id, { overloadAccepted: true },
+                                              'Accept Overload');
+                            this.renderHardwareDock();
+                        },
+                    },
+                });
+            }
         }
         // The system's own checks (1.5): voltages it does not have, the
         // breaker and connector limits, powerCON XX at 208V, a paired
@@ -2611,6 +2642,43 @@ class _HardwareDock {
         return tile;
     }
 
+    // The distro header's glance (_dockBuildHandle): the busiest leg over
+    // the main's continuous limit - "87.1/80 A" - then where the limit
+    // came from when it is not the rating ("80% of 100 A"), then the flag
+    // when the leg is past it: red OVER, or amber "OVER · accepted". The
+    // three are spans of their own so a narrow tray wraps between them,
+    // never inside a figure. The bar fills against the rating (the real
+    // figure) and wears the flag's colour.
+    _dockDistroGlance(d, load) {
+        const rule = this.distroMainLimit(d);
+        const limit = load.limitA > 0 ? load.limitA : load.ratingA;
+        const note = this.distroMainLimitNote(rule);
+        const extra = [];
+        if (note) extra.push({ cls: 'hw-dock-unit-lim', text: `· ${note}` });
+        if (load.over) {
+            extra.push(load.overloadAccepted
+                ? { cls: 'hw-dock-unit-flag hw-dock-unit-flag-ok', text: 'OVER · accepted',
+                    title: 'Overload accepted - untick it behind the ⚙.' }
+                : { cls: 'hw-dock-unit-flag', text: 'OVER',
+                    title: 'The busiest leg is past the limit.' });
+        }
+        return {
+            frac: load.amps / load.ratingA,
+            over: !!load.over && !load.overloadAccepted,
+            accepted: !!load.over && !!load.overloadAccepted,
+            useClass: load.over
+                ? (load.overloadAccepted ? 'hw-dock-unit-use-accepted' : 'hw-dock-unit-use-over')
+                : '',
+            text: `${load.amps.toFixed(1)}/${+limit.toFixed(1)} A`,
+            title: `Busiest leg ${load.amps.toFixed(1)} A of a ${+limit.toFixed(1)} A limit`
+                + (note ? ` - ${note}: a show load is continuous, and a standard main `
+                    + 'carries 80% of its rating continuously. Tick Main 100% rated '
+                    + 'behind the ⚙ if it is.'
+                    : (rule.main100 ? ' - the main is 100% rated.' : ' - the rating.')),
+            extra,
+        };
+    }
+
     // The slim LEGS line under a 3-phase distro's header: per-leg amps with
     // a mini meter each and the NEMA-style imbalance figure - the roll-up's
     // own numbers (getDistroLoads), never re-summed. Null where there is
@@ -2639,7 +2707,11 @@ class _HardwareDock {
             const bar = document.createElement('span');
             bar.className = 'hw-dock-legbar';
             const meat = document.createElement('i');
-            if (load.legs[k].pct > 100) meat.className = 'hw-dock-bar-over';
+            // a leg past the main's limit wears the header's flag colour
+            if (load.legs[k].over) {
+                meat.className = load.overloadAccepted
+                    ? 'hw-dock-bar-accepted' : 'hw-dock-bar-over';
+            }
             meat.style.width =
                 `${Math.min(100, Math.round(load.legs[k].pct))}%`;
             bar.appendChild(meat);
@@ -2802,7 +2874,7 @@ class _HardwareDock {
         if (overflow) {
             this._dockPowerWarnings.push({
                 text: `${boxName} — more circuits than the `
-                    + `${boxSize === 3 ? 'three' : 'six'} a ${boxType.name} holds.`,
+                    + `${boxSize === 1 ? 'one' : boxSize === 3 ? 'three' : 'six'} a ${boxType.name} holds.`,
             });
         }
         // A stored type that contradicts what is on the box - the screen's
@@ -2827,19 +2899,28 @@ class _HardwareDock {
         }
         // An L21-30 box's feed is rated per leg (30 A), and the box's
         // circuits load the feed legs as phasors - the same maths the
-        // distro's own LEGS line runs, scoped to this one feed. Over is a
-        // strip question and reddens the box like any other clash.
+        // distro's own LEGS line runs, scoped to this one feed. The leg is
+        // held to the main's continuous rule (2026-10-18): 80% of 30 A -
+        // 24 A - on a US system unless the distro's main is 100% rated
+        // (distroFeedLimit), and the strip says the limit the way the
+        // main's does: "29.98 A / 24 A (80% of 30 A)". Over is a strip
+        // question and reddens the box like any other clash.
         let feedOver = false;
+        const feedRule = feedLegA > 0 && typeof this.distroFeedLimit === 'function'
+            ? this.distroFeedLimit(d, feedLegA)
+            : { ratingA: feedLegA, pct: 1, limitA: feedLegA, us: false, main100: false };
+        const feedNote = typeof this.distroMainLimitNote === 'function' ? this.distroMainLimitNote(feedRule) : '';
+        const feedLimitText = `${+feedRule.limitA.toFixed(2)} A`
+            + (feedNote ? ` (${feedNote})` : (feedRule.main100 ? ' (100% rated main)' : ''));
         if (feedLegA > 0 && memberRecs.length
                 && typeof this.boxFeedLegAmps === 'function') {
             const fl = this.boxFeedLegAmps(d, memberRecs.filter(r => r.s));
             const worst = Math.max(fl.X, fl.Y, fl.Z);
-            if (worst > feedLegA) {
+            if (worst > feedRule.limitA) {
                 feedOver = true;
                 sec.classList.add('hw-dock-multi-clash');
                 this._dockPowerWarnings.push({
-                    text: `${boxName} — feed leg at ${worst.toFixed(1)} A `
-                        + `of ${feedLegA} A — OVER`,
+                    text: `${boxName} — feed leg at ${worst.toFixed(2)} A / ${feedLimitText} — OVER`,
                 });
             }
         }
@@ -2861,9 +2942,9 @@ class _HardwareDock {
                         : 'no circuits free')
                 : 'free')
             + (feedLegA > 0
-                ? `. L21-30 feed, ${feedLegA} A per leg` : '')
+                ? `. L21-30 feed, ${feedLimitText} per leg` : '')
             + (overflow ? `. OVERFLOW - more circuits than the `
-                + `${boxSize === 3 ? 'three' : 'six'} a ${boxType.name} holds` : '')
+                + `${boxSize === 1 ? 'one' : boxSize === 3 ? 'three' : 'six'} a ${boxType.name} holds` : '')
             + (typeInfo.faceBox && typeInfo.faceBox.paired
                 ? `. Paired with ${this._faceRowSummary(d, typeInfo.faceBox.primaryRowId)} - `
                     + 'the same circuits; patch a circuit to one connector or the other' : '')
@@ -3367,14 +3448,26 @@ class _HardwareDock {
         if (glance) {
             if (glance.text) {
                 const use = document.createElement('span');
-                use.className = 'hw-dock-unit-use';
+                use.className = 'hw-dock-unit-use'
+                    + (glance.useClass ? ` ${glance.useClass}` : '');
                 use.textContent = glance.text;
+                if (glance.title) use.title = glance.title;
                 head.appendChild(use);
             }
+            // Optional spans after the figure (the distro's limit note and
+            // flag), each its own so the header wraps between them.
+            (glance.extra || []).forEach(x => {
+                const el = document.createElement('span');
+                el.className = x.cls;
+                el.textContent = x.text;
+                if (x.title || glance.title) el.title = x.title || glance.title;
+                head.appendChild(el);
+            });
             const bar = document.createElement('span');
             bar.className = 'hw-dock-headbar';
             const meat = document.createElement('i');
             if (glance.over) meat.className = 'hw-dock-bar-over';
+            else if (glance.accepted) meat.className = 'hw-dock-bar-accepted';
             meat.style.width =
                 `${Math.min(Math.max(glance.frac || 0, 0), 1) * 100}%`;
             bar.appendChild(meat);

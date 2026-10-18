@@ -342,7 +342,7 @@ class _DockSweep {
         const snakeEntries = (owner, snake) => {
             const name = snake.name || 'snake';
             const across = this.snakeSpansOwners(snake)
-                ? ' It crosses cards or boxes; one edit reaches all of it.'
+                ? ` It crosses ${this.showUnitOrBox(true)}; one edit reaches all of it.`
                 : '';
             entries.push({
                 label: `Rename ${name}`,
@@ -406,7 +406,7 @@ class _DockSweep {
                     label: `Snake these ${n}`,
                     shortcut: 'Alt+Enter',
                     title: `Form one snake of the ${n} lit ports`
-                        + (across ? ', across the cards and boxes they sit '
+                        + (across ? `, across the ${this.showUnitOrBox(true).replace(' or ', ' and ')} they sit `
                             + 'on' : '')
                         + ' - one name, one home run. Alt+Enter does the '
                         + 'same. One undo step.',

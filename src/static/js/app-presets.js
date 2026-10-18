@@ -312,6 +312,140 @@ class _Presets {
                 this._panelCatalogFlat.push(Object.assign({ _mfr: mfr, _searchKey: (mfr + ' ' + (p.name || '')).toLowerCase() }, p));
             });
         });
+        // A half tile's weight reads the catalog (catalogHalfWeightKg): a
+        // new catalog answers afresh, and a wall already drawn with half
+        // tiles is redrawn with the weights it now gives.
+        this._halfWeightCache = new Map();
+        const layers = (this.project && this.project.layers) || [];
+        if (layers.some(l => (l.panels || []).some(q => q && q.halfTile && q.halfTile !== 'none'))) {
+            if (window.canvasRenderer && typeof window.canvasRenderer.render === 'function') window.canvasRenderer.render();
+            if (typeof this.renderLayers === 'function' && this._halfWeightAsked) this.renderLayers();
+        }
+    }
+
+    // The catalog's data alone - no picker list drawn - for what reads it
+    // outside the picker (a half tile's weight). Cached refresh first, then
+    // the bundled file, the order _loadPanelCatalog takes. Resolves to the
+    // catalog, or null where it cannot be had.
+    _ensurePanelCatalogData() {
+        if (this._panelCatalog) return Promise.resolve(this._panelCatalog);
+        if (this._panelCatalogLoading) return this._panelCatalogLoading;
+        const cached = this._getCachedCatalog();
+        if (cached) {
+            this._ingestCatalog(cached);
+            return Promise.resolve(this._panelCatalog);
+        }
+        if (typeof fetch !== 'function') return Promise.resolve(null);
+        this._panelCatalogLoading = fetch('/static/data/panel_catalog.json').then(r => r.json()).then(data => {
+            if (!this._panelCatalog) this._ingestCatalog(data);
+            return this._panelCatalog;
+        }).catch(() => null).finally(() => { this._panelCatalogLoading = null; });
+        return this._panelCatalogLoading;
+    }
+
+    // ── A half tile's weight from the panel library (owner, 2026-10-18) ──
+    //
+    // The library names its models; it has no series field. A model's
+    // HALF-SIZE VARIANT is read off its name the way the library writes
+    // them - "CB5 MKII Full Tile" / "CB5 MKII Half Tile", "NT2.9 (Full
+    // Tile)" / "NT2.9 (Half Tile)", "PL3.9 Pro V2 (500x1000)" / "(500x500)",
+    // "Atlas 1.6 (Full)" / "(Half)". A half MATCHES PERFECTLY only where:
+    //   - it is the same manufacturer's, of the same series: the two names
+    //     equal once each one's size word ("Full"/"Half", with "Tile",
+    //     "Panel" or "Size") or its own "WxH" is taken out - a full model
+    //     named with no size word at all ("CB5 MKII") is its whole name;
+    //   - its size is exactly half the full model's on the halved axis
+    //     and equal on the other, in millimetres and in pixels;
+    //   - its pixel pitch is the same;
+    //   - it has a weight.
+    // Anything less - a near size, another series, two halves that weigh
+    // differently - is no match, and the half tile keeps its 0.65.
+    _catalogSizeToken(p, want) {
+        const name = String((p && p.name) || '');
+        const num = (v) => (v === null || v === undefined || v === '' ? NaN : Number(v));
+        const spans = [];
+        const words = /\(?\b(full|half)\s*-?\s*(tile|panel|size)?\b\)?/gi;
+        let m;
+        while ((m = words.exec(name))) {
+            if (m[1].toLowerCase() !== want) return null;
+            spans.push([m.index, m.index + m[0].length]);
+        }
+        const dims = /\(?\b(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)\s*(?:mm)?\)?/gi;
+        while ((m = dims.exec(name))) {
+            if (num(m[1]) === num(p.width_mm) && num(m[2]) === num(p.height_mm)) spans.push([m.index, m.index + m[0].length]);
+        }
+        const tidy = (t) => t.replace(/\s+/g, ' ').trim().toLowerCase();
+        if (!spans.length && want === 'full') return tidy(name);
+        if (spans.length !== 1) return null;
+        const [a, b] = spans[0];
+        return tidy(name.slice(0, a) + ' ' + name.slice(b));
+    }
+
+    // The library's perfect half of full model F of manufacturer `mfr`,
+    // halved along `axis` ('height' | 'width'): its weight in kg, or null.
+    _catalogHalfOf(mfr, F, axis) {
+        const series = this._catalogSizeToken(F, 'full');
+        if (series === null) return null;
+        const num = (v) => (v === null || v === undefined || v === '' ? NaN : Number(v));
+        const dims = (p) => ['width_mm', 'height_mm', 'pixels_w', 'pixels_h', 'pitch_mm'].map(k => num(p[k]));
+        const [fw, fh, fpw, fph, fp] = dims(F);
+        if (![fw, fh, fpw, fph, fp].every(v => v > 0)) return null;
+        const weights = new Set();
+        for (const H of (this._panelCatalog && this._panelCatalog[mfr]) || []) {
+            if (H === F) continue;
+            const [hw, hh, hpw, hph, hp] = dims(H);
+            if (![hw, hh, hpw, hph, hp].every(v => v > 0) || hp !== fp) continue;
+            const halved = axis === 'width'
+                ? (hh === fh && hph === fph && hw * 2 === fw && hpw * 2 === fpw)
+                : (hw === fw && hpw === fpw && hh * 2 === fh && hph * 2 === fph);
+            if (!halved || !(num(H.weight_kg) > 0)) continue;
+            if (this._catalogSizeToken(H, 'half') !== series) continue;
+            weights.add(num(H.weight_kg));
+        }
+        return weights.size === 1 ? [...weights][0] : null;
+    }
+
+    // A screen's half tile's weight in kg from the library, or null (the
+    // caller's 0.65 of the full cabinet). The screen does not store which
+    // model it was made from, so its model is FOUND: every library model
+    // whose size (mm and pixels) and weight are this screen's own cabinet's
+    // - the figures a library pick writes onto it - and every one of them
+    // must have a perfect half (_catalogHalfOf) of one weight; a cabinet
+    // typed by hand, or one two models share with different halves, keeps
+    // the 0.65. `axis` is the halved one ('height' | 'width'). Null while
+    // the library is still loading - the walls redraw when it lands.
+    catalogHalfWeightKg(layer, axis) {
+        if (!layer || (axis !== 'height' && axis !== 'width')) return null;
+        this._halfWeightAsked = true;
+        if (!this._panelCatalog) {
+            if (typeof this._ensurePanelCatalogData === 'function') this._ensurePanelCatalogData();
+            return null;
+        }
+        const w = Number(layer.panel_weight) || 20;
+        const kg = (layer.weight_unit || 'kg') === 'lb' ? w / 2.20462 : w;
+        const key = [layer.panel_width_mm, layer.panel_height_mm, layer.cabinet_width, layer.cabinet_height,
+                     kg.toFixed(4), axis].join('|');
+        if (!this._halfWeightCache) this._halfWeightCache = new Map();
+        if (this._halfWeightCache.has(key)) return this._halfWeightCache.get(key);
+        const num = (v) => (v === null || v === undefined || v === '' ? NaN : Number(v));
+        const same = (a, b) => num(a) > 0 && num(a) === num(b);
+        let answer = null;
+        let found = 0;
+        const halves = new Set();
+        for (const mfr of Object.keys(this._panelCatalog)) {
+            for (const F of this._panelCatalog[mfr] || []) {
+                if (!same(F.width_mm, layer.panel_width_mm) || !same(F.height_mm, layer.panel_height_mm)
+                        || !same(F.pixels_w, layer.cabinet_width) || !same(F.pixels_h, layer.cabinet_height)) continue;
+                // the weight a library pick writes: kg as listed, or lb to
+                // the hundredth (_panelToPresetData) - within that rounding
+                if (!(num(F.weight_kg) > 0) || Math.abs(num(F.weight_kg) - kg) > 0.006) continue;
+                found++;
+                halves.add(this._catalogHalfOf(mfr, F, axis));
+            }
+        }
+        if (found && halves.size === 1 && !halves.has(null)) answer = [...halves][0];
+        this._halfWeightCache.set(key, answer);
+        return answer;
     }
 
     _loadPanelCatalog() {

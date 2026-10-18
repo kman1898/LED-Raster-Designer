@@ -772,8 +772,6 @@ Object.assign(CanvasRenderer.prototype, {
         const heightMM = (cfg.panel_height_mm || 500) * (layerHeight / (cfg.cabinet_height || 1));
         const widthM = widthMM / 1000;
         const heightM = heightMM / 1000;
-        const widthFt = widthM * 3.28084;
-        const heightFt = heightM * 3.28084;
         
         const ownActivePanels = layer.panels.filter(p => !p.blank && !p.hidden);
         const activePanels = groupTotals ? groupTotals.cabinets : ownActivePanels.length;
@@ -789,9 +787,16 @@ Object.assign(CanvasRenderer.prototype, {
         const panelWeightKg = panelWeightUnit === 'lb' ? (panelWeightValue / 2.20462) : panelWeightValue;
         // The roll-up already weighs each member against its OWN cabinet, so a
         // group's weight can never be one member's per-cabinet figure applied
-        // to everybody's cabinets.
-        const totalWeightKg = groupTotals ? groupTotals.weightKg : equivalentPanels * panelWeightKg;
+        // to everybody's cabinets. Each cabinet weighs its own: a half tile
+        // the panel library's half where it has one (getPanelWeightKg).
+        const totalWeightKg = groupTotals ? groupTotals.weightKg
+            : (window.app && typeof window.app.getLayerWeightKg === 'function'
+                ? window.app.getLayerWeightKg(layer, ownActivePanels)
+                : equivalentPanels * panelWeightKg);
         const totalWeightLb = groupTotals ? groupTotals.weightLb : totalWeightKg * 2.20462;
+        // One decimal, with en-US thousands separators ("156,788.9 kg").
+        const weightText = (v) => (Number(v) || 0).toLocaleString('en-US',
+            { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 
         // Build labels - Screen Name is separate with white background
         // Per-tab showLabelName: each view mode has its own property, falling back to global → true
@@ -839,51 +844,40 @@ Object.assign(CanvasRenderer.prototype, {
             if (cfg.showLabelSizeFt) {
                 const useFractional = cfg.useFractionalInches || false;
                 
+                // Both modes round the WHOLE length to the precision they
+                // print, then split it into feet and inches - so a fraction
+                // that rounds up to a whole inch carries into the inches,
+                // and 12 inches carry into the feet. Splitting first and
+                // rounding the remainder printed 3,200 mm as 10' 51" (10'
+                // 5" and a fraction rounded to "1") and 6,400 mm as
+                // 20' 12.0". Inches come straight from the millimeters.
                 if (useFractional) {
-                    // FRACTIONAL MODE: e.g., 2' 2 7/8"
-                    const widthFtTotal = Math.floor(widthFt);
-                    const widthInchesDecimal = (widthFt - widthFtTotal) * 12;
-                    const widthInWhole = Math.floor(widthInchesDecimal);
-                    const widthInRemainder = widthInchesDecimal - widthInWhole;
-                    
-                    const heightFtTotal = Math.floor(heightFt);
-                    const heightInchesDecimal = (heightFt - heightFtTotal) * 12;
-                    const heightInWhole = Math.floor(heightInchesDecimal);
-                    const heightInRemainder = heightInchesDecimal - heightInWhole;
-                    
-                    // Convert decimal to fraction (1/16ths precision)
-                    const toFraction = (decimal) => {
-                        if (decimal < 0.03125) return ''; // Less than 1/16
-                        const sixteenths = Math.round(decimal * 16);
-                        // Simplify common fractions
-                        if (sixteenths === 16) return '1'; // Whole inch
-                        if (sixteenths === 8) return ' 1/2';
-                        if (sixteenths === 4) return ' 1/4';
-                        if (sixteenths === 12) return ' 3/4';
-                        if (sixteenths === 2) return ' 1/8';
-                        if (sixteenths === 6) return ' 3/8';
-                        if (sixteenths === 10) return ' 5/8';
-                        if (sixteenths === 14) return ' 7/8';
-                        return ` ${sixteenths}/16`;
+                    // FRACTIONAL MODE, to the 1/16": e.g., 2' 2 7/8"
+                    const FRACTIONS = { 2: ' 1/8', 4: ' 1/4', 6: ' 3/8', 8: ' 1/2',
+                                        10: ' 5/8', 12: ' 3/4', 14: ' 7/8' };
+                    const feetInches = (mm) => {
+                        const sixteenths = Math.round(mm / 25.4 * 16);
+                        const feet = Math.floor(sixteenths / 192);
+                        const rest = sixteenths - feet * 192;
+                        const inches = Math.floor(rest / 16);
+                        const frac = rest - inches * 16;
+                        const fracText = frac === 0 ? '' : (FRACTIONS[frac] || ` ${frac}/16`);
+                        return `${feet}' ${inches}${fracText}"`;
                     };
-                    
-                    const widthFrac = toFraction(widthInRemainder);
-                    const heightFrac = toFraction(heightInRemainder);
-                    
-                    centerLines.push(`W ${widthFtTotal}' ${widthInWhole}${widthFrac}" X H ${heightFtTotal}' ${heightInWhole}${heightFrac}"`);
+                    centerLines.push(`W ${feetInches(widthMM)} X H ${feetInches(heightMM)}`);
                 } else {
-                    // DECIMAL MODE: e.g., 2' 2.5"
-                    const widthFtTotal = Math.floor(widthFt);
-                    const widthInchesDecimal = (widthFt - widthFtTotal) * 12;
-                    
-                    const heightFtTotal = Math.floor(heightFt);
-                    const heightInchesDecimal = (heightFt - heightFtTotal) * 12;
-                    
-                    centerLines.push(`W ${widthFtTotal}' ${widthInchesDecimal.toFixed(1)}" X H ${heightFtTotal}' ${heightInchesDecimal.toFixed(1)}"`);
+                    // DECIMAL MODE, to the 0.1": e.g., 2' 2.5"
+                    const feetInches = (mm) => {
+                        const tenths = Math.round(mm / 25.4 * 10);
+                        const feet = Math.floor(tenths / 120);
+                        const inches = (tenths - feet * 120) / 10;
+                        return `${feet}' ${inches.toFixed(1)}"`;
+                    };
+                    centerLines.push(`W ${feetInches(widthMM)} X H ${feetInches(heightMM)}`);
                 }
             }
             if (cfg.showLabelWeight) {
-                centerLines.push(`Weight ${totalWeightKg.toFixed(1)} kg / ${totalWeightLb.toFixed(1)} lb`);
+                centerLines.push(`Weight ${weightText(totalWeightKg)} kg / ${weightText(totalWeightLb)} lb`);
             }
         } else if (this.viewMode === 'data-flow') {
             if (cfg.showDataFlowPortInfo && groupTotals) {
@@ -929,9 +923,11 @@ Object.assign(CanvasRenderer.prototype, {
                 }
                 const voltage = parseFloat(layer.powerVoltage) || 0;
                 const panelWatts = parseFloat(layer.panelWatts) || 0;
+                // blank cabinets draw no power, like hidden ones (the
+                // totals' and the circuit packer's rule)
                 const equivalentPanels = Array.isArray(layer.panels)
                     ? layer.panels
-                        .filter(p => !p.hidden)
+                        .filter(p => !p.hidden && !p.blank)
                         .reduce((sum, p) => {
                             if (typeof window.app.getPanelLoadFactor === 'function') {
                                 return sum + window.app.getPanelLoadFactor(layer, p);
@@ -1004,7 +1000,7 @@ Object.assign(CanvasRenderer.prototype, {
             infoParts.push(`${activePanels} Cabinets Total`);
             infoParts.push(`Resolution: ${layerWidth} X ${layerHeight}`);
             infoParts.push(`Aspect Ratio: ${aspectRatioStr}`);
-            infoParts.push(`Weight: ${totalWeightKg.toFixed(1)} kg / ${totalWeightLb.toFixed(1)} lb`);
+            infoParts.push(`Weight: ${weightText(totalWeightKg)} kg / ${weightText(totalWeightLb)} lb`);
         }
         
         // Use absolute pixel sizes - no scaling with zoom

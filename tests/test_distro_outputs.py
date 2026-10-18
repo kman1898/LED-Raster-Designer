@@ -668,7 +668,8 @@ def test_the_pill_warns_amber_past_the_rating_and_still_lands(page):
     assert mid['pill']['cls'] == 'hw-dock-pill-warn', mid
     assert mid['pill']['text'].startswith('PD1 → circuits 1–6 · 46 A — '
                                           'PD legs to '), mid
-    assert ' A of 5 A' in mid['pill']['text'], mid
+    # read against the main's continuous limit: 80% of 5 A on a US distro
+    assert ' A of 4 A' in mid['pill']['text'], mid
     assert pg.evaluate(POWER_STATE_JS, ids['aId'])['distro'] == {'1': d}
     assert 'PD1 landed on WALL A' in pg.evaluate(STATUS_JS)
     pg.evaluate(RESET_JS, ids)
@@ -724,7 +725,9 @@ def test_the_submenu_lists_offering_distros_with_loads(page):
         assert m['menuShown'] and m['shown'], m
         assert m['label'] == 'Add Multi 208 from…', m
         assert [(e['label'], e['disabled']) for e in m['entries']] == [
-            ('PD 0/400 A', False),
+            # the figure is against the main's continuous limit - 80%
+            # of a 400 A US distro's rating (2026-10-18)
+            ('PD 0/320 A', False),
             ('SR — does not offer Multi 208', True)], m
         assert 'Tick Multi 208 under SR' in m['entries'][1]['title'], m
         # hover opens the submenu; the pick is the drop
@@ -743,7 +746,7 @@ def test_the_submenu_lists_offering_distros_with_loads(page):
         pg.mouse.click(tgt['x'], tgt['y'], button='right')
         pg.wait_for_timeout(400)
         m = pg.evaluate(MENU_JS)
-        assert m['entries'][0]['label'] == 'PD 27/400 A', m
+        assert m['entries'][0]['label'] == 'PD 27/320 A', m
         pg.locator('#context-menu [data-action="hw-outputs"]').hover()
         pg.wait_for_timeout(200)
         n = pg.evaluate(HIST_LEN_JS)
@@ -766,7 +769,7 @@ def test_the_submenu_lists_offering_distros_with_loads(page):
         m = pg.evaluate(MENU_JS)
         assert m['label'] == 'Add L21-30 from…', m
         assert [(e['label'], e['disabled']) for e in m['entries']] == [
-            ('PD 27/400 A', False), ('SR 0/400 A', False)], m
+            ('PD 27/320 A', False), ('SR 0/320 A', False)], m
         close_menu(pg)
         # the same item from the tray: a circuit chip names its screen
         key = pg.evaluate("""(d) => {

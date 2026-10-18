@@ -90,7 +90,30 @@ class _Distros {
     updateDistro(id, patch = {}, action = 'Edit Distro') {
         const d = this.getDistros().find(x => x.id === id);
         if (!d) return null;
+        // A change to the face - its rows, its system, a preset laid on it,
+        // a row removed - never leaves a multi on a one-circuit output
+        // (owner, 2026-10-18): it asks first, take the multi off and apply,
+        // or cancel, and nothing changes until it is answered. Returns
+        // null while it asks. A show already crowded is not asked about.
+        if (!this._crowdApplying && typeof this._crowdingMadeBy === 'function') {
+            const made = this._crowdingMadeBy(d, patch);
+            if (made.length) {
+                this._askCrowding(d, made, () => {
+                    this._crowdApplying = true;
+                    try { this.updateDistro(id, patch, action); }
+                    finally { this._crowdApplying = false; }
+                }).then(() => { this._restateNaming && this._restateNaming(); });
+                return null;
+            }
+        }
         if (patch.name !== undefined) d.name = String(patch.name).trim() || d.name;
+        // The distro's TYPE (2026-10-18): what the gear is, as the pull
+        // sheet names it ("200A 24 circuits"). Blank forgets the key - a
+        // distro with none prints "Distro", the way an old show does.
+        if (patch.typeName !== undefined) {
+            const t = String(patch.typeName == null ? '' : patch.typeName).trim();
+            if (t) d.typeName = t.slice(0, 60); else delete d.typeName;
+        }
         if (patch.ratingA !== undefined) d.ratingA = Number(patch.ratingA) || d.ratingA;
         // The SYSTEM (1.5): the service as a whole - its voltage and phase
         // follow it. The old voltage/phase keys still patch (scripts, old
@@ -120,6 +143,20 @@ class _Distros {
         }
         if (patch.breakers100 !== undefined) {
             if (patch.breakers100) d.breakers100 = true; else delete d.breakers100;
+        }
+        // The main's own 100% rating (2026-10-18), separate from the
+        // circuits' breakers: on lifts the US continuous limit from 80% of
+        // the rating to the rating (distroMainLimit). Off forgets the key,
+        // the way an old show never had it.
+        if (patch.main100 !== undefined) {
+            if (patch.main100) d.main100 = true; else delete d.main100;
+        }
+        // Accept overload: a call made about this show's load, kept until
+        // somebody unticks it - it never clears itself when the load moves,
+        // and it never changes a figure, only how the error reads.
+        if (patch.overloadAccepted !== undefined) {
+            if (patch.overloadAccepted) d.overloadAccepted = true;
+            else delete d.overloadAccepted;
         }
         if (patch.directPhasing !== undefined) {
             if (patch.directPhasing === 'paired') d.directPhasing = 'paired';
@@ -255,6 +292,12 @@ class _Distros {
         // A locked screen stays unchanged (owner, 2026-10-16) - the setter
         // refuses and names it, whichever control called it.
         if (this._lockedRefused(layer)) return [];
+        // A multi carrying its pin onto another distro never lands on a
+        // one-circuit output with more than it carries (2026-10-18).
+        const carried = (layer.powerSocaNumber || {})[socaIndex];
+        const crowd = distroId && typeof this._crowdRefusal === 'function'
+            ? this._crowdRefusal(layer, socaIndex, distroId, carried) : null;
+        if (crowd) { this._sayCrowdRefusal(crowd); return []; }
         const map = layer.powerSocaDistro || (layer.powerSocaDistro = {});
         // A multi that carries its pin onto another distro can land on an
         // occupied box there - the same join as pinning, spelled as an
@@ -303,6 +346,12 @@ class _Distros {
         // A locked screen stays unchanged (owner, 2026-10-16) - the setter
         // refuses and names it, whichever control called it.
         if (this._lockedRefused(layer)) return [];
+        // A pin onto a DIRECT output never puts more circuits on it than
+        // it carries (2026-10-18): refused, saying why.
+        const crowd = typeof this._crowdRefusal === 'function'
+            ? this._crowdRefusal(layer, socaIndex, (layer.powerSocaDistro || {})[socaIndex], number)
+            : null;
+        if (crowd) { this._sayCrowdRefusal(crowd); return []; }
         // Always leave an object behind, never delete the property: an
         // absent key is missing from the update payload and the server
         // keeps whatever it had, so "back to Auto" would silently not clear.

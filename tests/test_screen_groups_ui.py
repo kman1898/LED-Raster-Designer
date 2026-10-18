@@ -401,7 +401,7 @@ def test_mismatch_dialog_lists_only_the_differing_fields(page):
     assert dom['fields'] == ['processorType', 'bitDepth'], dom
     assert dom['labels'] == ['Processor', 'Bit Depth'], dom
     assert dom['options']['processorType'] == [
-        'Brompton Tessera', 'NovaStar COEX CX40 (5G)'], dom
+        'Brompton', 'NovaStar COEX CX40 (5G)'], dom
     assert dom['options']['bitDepth'] == ['10-bit', '12-bit'], dom
     # frameRate matched, so it is confirmation text, not a chooser. Low Latency
     # joined GROUP_SHARED_SETTINGS in the v0.11.0 audit (it is a processor-wide
@@ -1272,7 +1272,7 @@ def test_the_mismatch_dialog_reads_every_member_not_just_the_first_two(page):
     }""")
     assert dom['fields'] == ['processorType'], dom
     assert dom['options'] == [
-        'Brompton Tessera', 'NovaStar COEX CX40 (5G)', 'Megapixel HELIOS (1G)'], dom
+        'Brompton', 'NovaStar COEX CX40 (5G)', 'Megapixel HELIOS (1G)'], dom
     assert '3 screens' in dom['sublabel'], dom
 
     page.evaluate("""() => {

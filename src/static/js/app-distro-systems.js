@@ -26,9 +26,12 @@
 //     (NEC 210.20(A), continuous) unless the distro says its breakers are
 //     100% rated; UK/EU circuits stay at or under the breaker. Each row
 //     carries its breaker, 20 A US / 16 A EU by default. Connectors carry
-//     their rating by region (True1 20 A US / 16 A EU, powerCON 20A 20 A,
-//     powerCON XX 16 A EU and US-listed only to 127V, CEE as named,
-//     Schuko 16 A). Stage pin at 208V is refused (ANSI E1.24).
+//     their rating by region (True1 20 A US / 16 A EU, powerCON 20A
+//     20 A US / 16 A EU - classic powerCON on an EU distro like True1,
+//     2026-10-18 - powerCON XX 16 A EU and US-listed only to 127V, CEE as
+//     named, Schuko 16 A), and a row can override its connector's rating
+//     (`connectorA`; blank is the default). Stage pin at 208V is refused
+//     (ANSI E1.24).
 //   * Paired rows: a row marked "paired with" another is the same circuits
 //     on a second set of connectors (a UK distro's Socapex sharing the
 //     True1 outputs' RCBOs). The circuits count once; a circuit can be
@@ -83,7 +86,7 @@ export const DISTRO_CONNECTORS = [
       regions: ['us', 'eu'], couple: 'either', rating: { us: 20, eu: 16 }, glyph: 'true1',
       cable: 'True1' },
     { id: 'powercon20', name: 'powerCON 20A', short: 'powerCON 20A', kind: 'direct', circuits: 1,
-      regions: ['us', 'eu'], couple: 'either', rating: { us: 20, eu: 20 }, glyph: 'powercon',
+      regions: ['us', 'eu'], couple: 'either', rating: { us: 20, eu: 16 }, glyph: 'powercon',
       cable: 'powerCON' },
     { id: 'powerconxx', name: 'powerCON XX', short: 'powerCON XX', kind: 'direct', circuits: 1,
       regions: ['us', 'eu'], couple: 'either', rating: { us: 20, eu: 16 }, usMaxV: 127,
@@ -112,6 +115,9 @@ export const DISTRO_CONNECTORS = [
 // is 5-pin 3φ with a neutral, CEE blue is 1φ. Ids are stored on distros
 // and presets, so an id never changes.
 const US_SYSTEMS = ['120/208', '120/240', '120'];
+// The US nominal voltages an old record with no system can carry: one of
+// them puts the record on the US continuous rule (distroMainLimit).
+const US_NOMINAL_VOLTS = [110, 115, 120, 208, 240, 277, 480];
 export const DISTRO_INPUTS = [
     { id: 'cam100', name: 'Cam 100 A', ratingA: 100, systems: US_SYSTEMS },
     { id: 'cam200', name: 'Cam 200 A', ratingA: 200, systems: US_SYSTEMS },
@@ -278,6 +284,49 @@ class _DistroSystems {
         return sys ? sys.region : null;
     }
 
+    // THE MAIN'S CONTINUOUS LIMIT (owner, 2026-10-18): a show load is
+    // continuous, so on a US system (120/208, 120/240, 120) the busiest
+    // leg stays at or under 80% of the rating per leg - NEC continuous
+    // load on a standard overcurrent device - unless the distro says its
+    // main is 100% rated (`main100`, separate from `breakers100`, which
+    // governs the circuit breakers only). An EU system stays at the
+    // rating (load at or under the breaker). An old record with no
+    // system takes the US rule when its voltage is a US nominal, else the
+    // rating. Absent `main100` is off: an old show reads 80% and nothing
+    // is written for it.
+    //   { ratingA, pct (0.8 or 1), limitA, us, main100 }
+    distroMainLimit(d) {
+        const ratingA = Number(d && d.ratingA) || 0;
+        let us = false;
+        if (d) {
+            const sys = this.distroSystem(d);
+            us = sys ? sys.region === 'us'
+                : US_NOMINAL_VOLTS.some(v => Math.abs((Number(d.voltage) || 0) - v) < 0.5);
+        }
+        const main100 = us && !!(d && d.main100);
+        const pct = us && !main100 ? 0.8 : 1;
+        return { ratingA, pct, limitA: ratingA * pct, us, main100 };
+    }
+
+    // AN L21-30 BOX'S FEED LIMIT (owner, 2026-10-18): the feed is rated
+    // per leg (30 A) and its load is as continuous as the main's, so it
+    // takes the main's rule - 80% of the rating per leg on a US system
+    // unless the distro's main is 100% rated (`main100`), the rating
+    // itself elsewhere. The same shape as distroMainLimit, so
+    // distroMainLimitNote says where it came from ("80% of 30 A").
+    distroFeedLimit(d, feedLegA) {
+        const main = this.distroMainLimit(d);
+        const ratingA = Number(feedLegA) || 0;
+        return { ratingA, pct: main.pct, limitA: ratingA * main.pct, us: main.us, main100: main.main100 };
+    }
+
+    // "80% of 100 A" - how a header and a strip say the limit came from
+    // the rating; empty where the limit IS the rating.
+    distroMainLimitNote(rule) {
+        if (!rule || rule.pct >= 1) return '';
+        return `${Math.round(rule.pct * 100)}% of ${+rule.ratingA.toFixed(1)} A`;
+    }
+
     // The legs a distro has, as the stores key them: X/Y/Z on three-phase,
     // X/Y on split-phase, none on a single hot. An old unmigrated record
     // keeps its old rule (three legs on 3φ, none on 1φ).
@@ -419,13 +468,25 @@ class _DistroSystems {
         return Number.isFinite(r) ? r : null;
     }
 
+    // The rating one face box's connector is checked at: its row's own
+    // override (`connectorA`, the row's small "A" field) when one is set,
+    // else the connector's default where this distro is - null where
+    // neither gives one.
+    faceConnectorRatingA(d, box) {
+        if (!box) return null;
+        const own = Number(box.row && box.row.connectorA);
+        if (Number.isFinite(own) && own > 0) return own;
+        return this.connectorRatingA(box.conn, this.distroRegion(d));
+    }
+
     // ---- output rows -------------------------------------------------------
 
     // The rows as stored, cleaned for the system: unknown or unoffered
     // connectors dropped, counts 1..99, a coupling the connector offers
     // (the first it offers when the stored one is not), a positive breaker
-    // (the region's default otherwise), and a pairing only onto a real,
-    // unpaired row of the same circuits and coupling.
+    // (the region's default otherwise), a positive connector rating
+    // override or none (null - the connector's default), and a pairing
+    // only onto a real, unpaired row of the same circuits and coupling.
     _normalizeOutputRows(rows, sys) {
         if (!Array.isArray(rows) || !sys) return [];
         const out = [];
@@ -453,7 +514,9 @@ class _DistroSystems {
                 ? r.coupling : offered[0].coupling;
             const b = Number(r.breakerA);
             const breakerA = Number.isFinite(b) && b > 0 ? b : DEFAULT_BREAKER[sys.region];
-            out.push({ id, connector: conn.id, count, coupling, breakerA,
+            const ca = r.connectorA == null || r.connectorA === '' ? NaN : Number(r.connectorA);
+            const connectorA = Number.isFinite(ca) && ca > 0 && ca < 1000 ? ca : null;
+            out.push({ id, connector: conn.id, count, coupling, breakerA, connectorA,
                        pairedWith: typeof r.pairedWith === 'string' ? r.pairedWith : null });
         }
         // Pairing: onto a row that is itself unpaired, carries the same
@@ -1084,15 +1147,248 @@ class _DistroSystems {
                         : `${label} draws ${amps.toFixed(1)} A on a ${box.breakerA} A breaker — OVER`);
                 }
                 for (const c of list) {
-                    const rating = this.connectorRatingA(c.box.conn, sys.region);
+                    const rating = this.faceConnectorRatingA(d, c.box);
                     if (rating != null && amps > rating + 1e-9 && c.box.kind === 'direct') {
                         say(`conn:${key}:${c.box.number}`, `${label} draws ${amps.toFixed(1)} A — `
                             + `a ${c.box.conn.short} is rated ${rating} A here`);
                     }
                 }
             }
+            // A multi left on a one-circuit output (a show already in that
+            // state) says the output's whole load against what it can
+            // carry - its breaker and its connector's rating, the row's
+            // override included (2026-10-18, "it should show over capacity").
+            for (const cr of this._faceCrowding(d)) {
+                const text = this._crowdCapacityText(d, cr);
+                if (text) say(`cap:${cr.number}`, text);
+            }
         }
         return out;
+    }
+
+    // ---- crowded outputs (owner, 2026-10-18) -------------------------------
+    //
+    // "you cannot put a 6 circuit multi on tru 1 ... if you change then throw
+    // an error and ask for a fix. dont let it go unchanged." A DIRECT output
+    // carries one circuit; a multi pinned to it with more is never made by
+    // an edit: the row edit, preset or removal that would make it asks
+    // first (take the multi off, or cancel), and a pin or a carried pin
+    // onto one is refused. A show already in that state keeps its flag and
+    // opens unchanged - and says the output's load against its capacity.
+
+    // The direct outputs on `d`'s face (d may be a prospective copy) whose
+    // PINNED multis carry more circuits than the output has:
+    // [{ number, box, circuits, amps, members: [{ layer, soca, legs, amps,
+    // name }] }]. Autos never land on a direct output, so pins are all of it.
+    _faceCrowding(d) {
+        const face = d ? this.distroFace(d) : null;
+        if (!face) return [];
+        const by = new Map();
+        for (const layer of (this.project && this.project.layers) || []) {
+            if ((layer.type || 'screen') !== 'screen') continue;
+            const assign = layer.powerSocaDistro || {};
+            const pins = layer.powerSocaNumber || {};
+            for (const s of this.getSocaPlan(layer)) {
+                if (assign[s.soca] !== d.id) continue;
+                const n = parseInt(pins[s.soca], 10);
+                if (!Number.isFinite(n) || n < 1) continue;
+                const box = face.byNumber.get(n);
+                if (!box || box.kind !== 'direct') continue;
+                const amps = (s.legs || []).reduce((t, g) => t + (Number(g.amps) || 0), 0);
+                const rec = by.get(n) || { number: n, box, circuits: 0, amps: 0, members: [] };
+                rec.circuits += s.legs.length;
+                rec.amps += amps;
+                rec.members.push({ layer, soca: s.soca, legs: s.legs.length, amps, name: s.name });
+                by.set(n, rec);
+            }
+        }
+        // `where` is the output as the labels name it ("PD4" - the name the
+        // multis on it wear), else the distro and number.
+        return [...by.values()].filter(r => r.circuits > r.box.size)
+            .map(r => ({ ...r, where: (r.members[0] && r.members[0].name)
+                || `${d.name || d.id} ${r.number}` }))
+            .sort((a, b) => a.number - b.number);
+    }
+
+    // What one crowded output can carry: the smaller of its breaker and
+    // its connector's rating (the row's override when set) - null where
+    // neither gives a figure.
+    _crowdCapacityA(d, box) {
+        const figs = [Number(box.breakerA), this.faceConnectorRatingA(d, box)]
+            .filter(x => Number.isFinite(x) && x > 0);
+        return figs.length ? Math.min(...figs) : null;
+    }
+
+    // "PD4 True1 at 92.3 A of 20 A — over capacity", or null under it.
+    _crowdCapacityText(d, cr) {
+        const cap = this._crowdCapacityA(d, cr.box);
+        if (cap == null || !(cr.amps > cap + 1e-9)) return null;
+        return `${cr.where} ${cr.box.conn.short} at `
+            + `${cr.amps.toFixed(1)} A of ${+cap.toFixed(1)} A — over capacity`;
+    }
+
+    // The distro a patch would make, for asking - never stored: its system
+    // and its rows as the patch leaves them.
+    _distroAfterPatch(d, patch) {
+        const t = JSON.parse(JSON.stringify(d));
+        if (patch.system !== undefined) {
+            const sys = this.distroSystemById(patch.system);
+            if (sys) { t.system = sys.id; t.voltage = sys.voltage; t.phase = sys.phase; }
+        }
+        if (patch.outputRows !== undefined) {
+            if (Array.isArray(patch.outputRows) && patch.outputRows.length) {
+                t.outputRows = patch.outputRows.map(r => ({ ...r }));
+            } else {
+                delete t.outputRows;
+            }
+        }
+        return t;
+    }
+
+    // The crowding a patch would MAKE: entries of the patched face holding
+    // a multi that is not already crowded there today.
+    _crowdingMadeBy(d, patch) {
+        if (!d || (patch.outputRows === undefined && patch.system === undefined)) return [];
+        const key = (m, n) => `${m.layer.id}:${m.soca}@${n}`;
+        const before = new Set();
+        this._faceCrowding(d).forEach(cr => cr.members.forEach(m => before.add(key(m, cr.number))));
+        return this._faceCrowding(this._distroAfterPatch(d, patch))
+            .filter(cr => cr.members.some(m => !before.has(key(m, cr.number))));
+    }
+
+    // "WALL A's 6-circuit multi" / "WALL A's and WALL B's multis".
+    _crowdWho(members) {
+        const names = [...new Set(members.map(m => m.layer.name))];
+        if (members.length === 1) {
+            return `${names[0]}'s ${members[0].legs}-circuit multi`;
+        }
+        const list = names.length === 1 ? `${names[0]}'s`
+            : names.slice(0, -1).map(n => `${n}'s`).join(', ') + ` and ${names[names.length - 1]}'s`;
+        return `${list} multis`;
+    }
+
+    _circuitsWord(n) {
+        return ({ 1: 'one circuit', 3: 'three circuits', 6: 'six circuits' })[n] || `${n} circuits`;
+    }
+
+    // The ask: which multis sit where, what the output would become, and
+    // the two ways out - take them off and apply, or cancel. A locked
+    // screen's multi cannot come off: then Cancel alone, the lock named.
+    // `apply` runs the change; resolves true when it was applied.
+    _askCrowding(d, made, apply) {
+        const ID = 'crowd-modal';
+        document.getElementById(ID)?.remove();
+        const esc = (x) => String(x).replace(/[&<>"]/g, c => (
+            { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+        const name = d.name || d.id;
+        const members = made.flatMap(cr => cr.members.map(m => ({ ...m, cr })));
+        const locked = [...new Set(members.filter(m => m.layer.locked).map(m => m.layer))];
+        const lines = made.map(cr => {
+            const where = cr.where;
+            const cap = this._crowdCapacityText(d, cr);
+            return `<p style="margin:0 0 8px;">${esc(this._crowdWho(cr.members))} `
+                + `${cr.members.length === 1 ? 'is' : 'are'} on ${esc(where)}. ${esc(where)} would become `
+                + `a ${esc(cr.box.conn.short)}, which carries ${this._circuitsWord(cr.box.size)}.</p>`
+                + (cap ? `<p class="crowd-cap" style="margin:0 0 8px; color:#e05050;">${esc(cap)}</p>` : '');
+        }).join('');
+        const where = [...new Set(made.map(cr => cr.where))].join(', ');
+        const who = this._crowdWho(members);
+        const lockNote = locked.length
+            ? `<p class="crowd-locked" style="margin:8px 0 0; color:#dcb968;">${esc(locked.map(l => l.name).join(', '))} `
+                + `${locked.length === 1 ? 'is' : 'are'} locked, so ${locked.length === 1 ? 'its multi' : 'their multis'} `
+                + 'cannot come off. Unlock to take it off, or cancel the change.</p>'
+            : '';
+        const el = document.createElement('div');
+        el.id = ID;
+        el.className = 'modal';
+        el.style.display = 'block';
+        el.innerHTML = `
+<div class="modal-content" style="background:#252525; border-radius:8px; padding:0; width:520px; max-width:94vw; margin:100px auto; border:1px solid #6a2c2c; overflow:hidden;">
+  <div style="padding:14px 20px; border-bottom:1px solid #3a3a3a;">
+    <h2 style="margin:0; font-size:15px; letter-spacing:0.5px; color:#ff9a9a;">A MULTI WOULD SIT ON A ONE-CIRCUIT OUTPUT</h2>
+  </div>
+  <div style="padding:16px 20px; font-size:12px; line-height:1.55; color:#d8d8d8;">${lines}${lockNote}</div>
+  <div style="display:flex; flex-wrap:wrap; gap:8px; justify-content:flex-end; padding:0 20px 16px;">
+    <button class="btn btn-secondary crowd-cancel">Cancel the change</button>
+    ${locked.length ? '' : `<button class="btn crowd-take">Take ${esc(who)} off ${esc(where)} and apply the change</button>`}
+  </div>
+</div>`;
+        document.body.appendChild(el);
+        sendClientLog('distro_crowding_asked', { distroId: d.id, outputs: made.map(cr => cr.number),
+                                                 locked: locked.map(l => l.id) });
+        return new Promise(resolve => {
+            const close = (applied) => {
+                el.remove();
+                document.removeEventListener('keydown', onKey, true);
+                resolve(applied);
+            };
+            const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(false); } };
+            document.addEventListener('keydown', onKey, true);
+            el.querySelector('.crowd-cancel').addEventListener('click', () => {
+                sendClientLog('distro_crowding_cancelled', { distroId: d.id });
+                close(false);
+            });
+            const take = el.querySelector('.crowd-take');
+            if (take) take.addEventListener('click', () => {
+                this._takeCrowdedOff(members);
+                apply();
+                sendClientLog('distro_crowding_taken_off', { distroId: d.id,
+                    multis: members.map(m => ({ layerId: m.layer.id, soca: m.soca, number: m.cr.number })) });
+                close(true);
+            });
+        });
+    }
+
+    // Take each multi off the output it is pinned to: the pin goes (it is
+    // an auto on its distro again, dealt to a free multi output) and the
+    // feed's typed lengths go with it - the home run and its circuits'
+    // cables were that output's (the feed-lengths rule). No history entry:
+    // the change that follows takes the one entry for both.
+    _takeCrowdedOff(members) {
+        const touched = new Set();
+        for (const m of members) {
+            const circuits = this._socaClearTargets(m.layer, m.soca).circuits;
+            this._forgetFeedLengths(m.layer, m.soca, circuits);
+            const pins = m.layer.powerSocaNumber || (m.layer.powerSocaNumber = {});
+            delete pins[m.soca];
+            touched.add(m.layer);
+        }
+        this._circuitTailCache = null;
+        if (touched.size) this.updateLayers([...touched], false);
+    }
+
+    // Why multi `socaIndex` of `layer` cannot be pinned to (distroId,
+    // number), or null: a direct output carries one circuit.
+    _crowdRefusal(layer, socaIndex, distroId, number) {
+        const d = distroId ? this.getDistros().find(x => x.id === distroId) : null;
+        const n = parseInt(number, 10);
+        const box = d && Number.isFinite(n) ? this.faceBox(d, n) : null;
+        if (!box || box.kind !== 'direct') return null;
+        const s = this.getSocaPlan(layer).find(x => x.soca === Number(socaIndex));
+        if (!s) return null;
+        let others = 0;
+        for (const l of (this.project && this.project.layers) || []) {
+            if ((l.type || 'screen') !== 'screen') continue;
+            const assign = l.powerSocaDistro || {};
+            const pins = l.powerSocaNumber || {};
+            for (const o of this.getSocaPlan(l)) {
+                if (l === layer && o.soca === s.soca) continue;
+                if (assign[o.soca] === d.id && parseInt(pins[o.soca], 10) === n) others += o.legs.length;
+            }
+        }
+        if (s.legs.length + others <= box.size) return null;
+        const where = `${d.name || d.id} ${n}`;
+        return s.legs.length > box.size
+            ? `${layer.name}'s ${s.legs.length}-circuit multi cannot go on ${where} — `
+                + `a ${box.conn.short} carries ${this._circuitsWord(box.size)}. Use a multi output.`
+            : `${where} already carries its ${this._circuitsWord(box.size)} — `
+                + `a ${box.conn.short} takes no more.`;
+    }
+
+    _sayCrowdRefusal(text) {
+        if (typeof this._toast === 'function') this._toast(text, true);
+        if (typeof this._dockSay === 'function') this._dockSay(text);
+        sendClientLog('distro_crowding_refused', { text });
     }
 
     // ---- presets ---------------------------------------------------------
@@ -1114,25 +1410,35 @@ class _DistroSystems {
             .catch(() => (this._customDistroPresets = this._customDistroPresets || []));
     }
 
-    // The part of a distro a preset carries.
+    // The part of a distro a preset carries: the gear, never the show -
+    // `main100` is the main's rating, `overloadAccepted` is a call made
+    // about one show's load and stays with the show.
     _distroPresetBody(d) {
         return {
+            typeName: d.typeName || null,
             system: d.system, input: d.input || null, ratingA: d.ratingA,
-            breakers100: !!d.breakers100, phasing: d.phasing || null,
+            breakers100: !!d.breakers100, main100: !!d.main100,
+            phasing: d.phasing || null,
             directPhasing: d.directPhasing || null,
             rows: this.distroRows(d).map(r => ({ ...r })),
         };
     }
 
-    // Lay a preset on a distro: system, input, rating, phasing and rows in
-    // ONE 'Apply Distro Preset' entry. The multis on it keep their numbers
+    // Lay a preset on a distro: system, input, rating, breakers, main,
+    // phasing and rows in ONE 'Apply Distro Preset' entry. A preset saved
+    // before `main100` existed carries none, which is off. The distro's
+    // Type becomes the Type the preset carries, else the preset's own name
+    // (2026-10-18) - still editable after. The multis on it keep their numbers
     // and are checked against the new face like any other.
     applyDistroPreset(distroId, preset) {
         if (!preset) return null;
         const body = preset.distro || preset;
+        const typeName = String(body.typeName || preset.name || '').trim();
         return this.updateDistro(distroId, {
+            typeName: typeName || null,
             system: body.system, input: body.input || null,
             ratingA: body.ratingA, breakers100: !!body.breakers100,
+            main100: !!body.main100,
             phasing: body.phasing || null, directPhasing: body.directPhasing || null,
             outputRows: (body.rows || []).map(r => ({ ...r })),
         }, 'Apply Distro Preset');
@@ -1198,9 +1504,29 @@ class _DistroSystems {
     _buildDistroSupplySection(d, wrap, patch) {
         const cap = (t) => this._distroGearCap(t);
         const sys = this.distroSystem(d);
+        // TYPE: what the gear is, as the pull sheet and the binder's pull
+        // lists name it (2026-10-18). A preset fills it with its name.
+        const r0 = this._distroGearRow();
+        r0.classList.add('hw-pop-supply');
+        r0.style.marginTop = '0';
+        r0.appendChild(cap('Type'));
+        const type = document.createElement('input');
+        type.type = 'text';
+        type.className = 'hw-pop-type';
+        type.value = d.typeName || '';
+        type.placeholder = 'Distro';
+        type.maxLength = 60;
+        type.style.flex = '1 1 0';
+        type.style.minWidth = '0';
+        type.dataset.lrdField = `distro-type-${d.id}`;
+        type.title = 'What this distro is, the way the pull sheet lists it - '
+            + 'e.g. "200A 24 circuits". Blank prints "Distro". Starting from a '
+            + 'preset fills it with the preset\'s name.';
+        type.addEventListener('change', () => patch({ typeName: type.value }));
+        r0.appendChild(type);
+        wrap.appendChild(r0);
         const r1 = this._distroGearRow();
         r1.classList.add('hw-pop-supply');
-        r1.style.marginTop = '0';
         r1.appendChild(cap('System'));
         const sel = document.createElement('select');
         sel.className = 'info-select';
@@ -1273,21 +1599,57 @@ class _DistroSystems {
         r2.appendChild(per);
         wrap.appendChild(r2);
 
-        if (sys && sys.region === 'us') {
-            const r3 = this._distroGearRow();
+        // The two 100% switches sit side by side on US distros: the
+        // circuits' breakers, and the distro's main (2026-10-18, a
+        // separate switch). An old record with no system on a US voltage
+        // takes the US main rule, so it is offered its main switch too.
+        const rule = this.distroMainLimit(d);
+        const check = (field, on, text, title, key) => {
             const lab = document.createElement('label');
             lab.className = 'hw-pop-check';
             const cb = document.createElement('input');
             cb.type = 'checkbox';
-            cb.checked = !!d.breakers100;
-            cb.dataset.lrdField = `distro-breakers100-${d.id}`;
-            cb.addEventListener('change', () => patch({ breakers100: cb.checked }));
+            cb.checked = !!on;
+            cb.dataset.lrdField = `distro-${field}-${d.id}`;
+            cb.addEventListener('change', () => patch({ [key]: cb.checked }));
             lab.appendChild(cb);
-            lab.appendChild(document.createTextNode('100% rated breakers'));
-            lab.title = 'Off: every circuit is checked at 80% of its breaker '
-                + '(NEC 210.20(A), continuous load). On: at the full breaker.';
-            r3.appendChild(lab);
+            lab.appendChild(document.createTextNode(text));
+            lab.title = title;
+            return lab;
+        };
+        if ((sys && sys.region === 'us') || (!sys && rule.us)) {
+            const r3 = this._distroGearRow();
+            if (sys) {
+                r3.appendChild(check('breakers100', d.breakers100, '100% rated breakers',
+                    'Off: every circuit is checked at 80% of its breaker '
+                    + '(NEC 210.20(A), continuous load). On: at the full breaker.',
+                    'breakers100'));
+            }
+            r3.appendChild(check('main100', d.main100, 'Main 100% rated',
+                'Off: the busiest leg is held to 80% of the rating per leg. '
+                + 'A show load is continuous, and a standard main breaker '
+                + 'carries 80% of its rating continuously (NEC). On: the main '
+                + 'is 100% rated and carries the full rating. The circuits\' '
+                + 'breakers have their own switch.', 'main100'));
             wrap.appendChild(r3);
+        }
+        // Accept overload: offered while the busiest leg is past the
+        // limit, and kept on show while ticked - an acceptance stays until
+        // somebody unticks it, whatever the load does after.
+        const load = typeof this.getDistroLoads === 'function'
+            ? this.getDistroLoads().find(x => x.id === d.id) : null;
+        if ((load && load.over) || d.overloadAccepted) {
+            const r4 = this._distroGearRow();
+            const why = load && load.over
+                ? `busiest leg ${load.amps.toFixed(1)} A of ${+load.limitA.toFixed(1)} A`
+                    + (rule.pct < 1 ? ` (${this.distroMainLimitNote(rule)})` : '')
+                : 'under the limit now';
+            r4.appendChild(check('overload-accepted', d.overloadAccepted,
+                `Accept overload — ${why}`,
+                'Accept this distro\'s overload: its error turns amber and reads '
+                + 'accepted. The figures stay as they are, and the acceptance '
+                + 'stays until you untick it.', 'overloadAccepted'));
+            wrap.appendChild(r4);
         }
     }
 
@@ -1423,6 +1785,38 @@ class _DistroSystems {
             a.textContent = 'A';
             a.style.color = 'var(--ps-faint, #969696)';
             line.appendChild(a);
+            // The connector's own rating on a direct row (2026-10-18): its
+            // default for the region as the placeholder, a typed figure
+            // overriding it, blank back to the default. The connector check
+            // reads it (faceConnectorRatingA).
+            const rconn = this.distroConnector(r.connector);
+            if (rconn && rconn.kind === 'direct') {
+                const dflt = this.connectorRatingA(rconn, sys.region);
+                const rl = document.createElement('small');
+                rl.textContent = 'rated';
+                rl.style.color = 'var(--ps-faint, #969696)';
+                line.appendChild(rl);
+                const ca = document.createElement('input');
+                ca.type = 'number';
+                ca.min = '1';
+                ca.value = r.connectorA != null ? r.connectorA : '';
+                ca.placeholder = dflt != null ? String(dflt) : '';
+                ca.style.width = '44px';
+                ca.dataset.lrdField = `distro-row-connector-a-${d.id}-${r.id}`;
+                ca.title = `The rating of each ${rconn.short} on this row, in amps. `
+                    + (dflt != null ? `Blank is the default, ${dflt} A here. ` : 'Blank is no rating. ')
+                    + 'Type a figure to override it.';
+                ca.addEventListener('change', () => {
+                    const next = rows.map(x => ({ ...x }));
+                    next[i].connectorA = ca.value === '' ? null : ca.value;
+                    commit(next);
+                });
+                line.appendChild(ca);
+                const a2 = document.createElement('small');
+                a2.textContent = 'A';
+                a2.style.color = 'var(--ps-faint, #969696)';
+                line.appendChild(a2);
+            }
             // Paired with: rows of the same circuits and coupling, unpaired.
             const partners = rows.filter(x => x.id !== r.id && !x.pairedWith
                 && total(x) === total(r) && x.coupling === r.coupling

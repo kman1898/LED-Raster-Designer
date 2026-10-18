@@ -88,31 +88,31 @@ def test_the_canvas_fit_table(device_id, width, height, ull, fits):
 
 def test_the_refusal_sentences_per_model():
     assert catalog.canvas_fit(catalog.get_device(SX), 4352, 2160,
-                              title='Tessera SX40 S1') == (
-        "Tessera SX40 S1 can't take this: its screens would span 4352 × "
+                              title='SX40 S1') == (
+        "SX40 S1 can't take this: its screens would span 4352 × "
         "2160 px. " + SX_LIMIT)
     assert catalog.canvas_fit(catalog.get_device(SX), 4094, 2100, True,
-                              title='Tessera SX40') == (
-        "Tessera SX40 can't take this: its screens would span 4094 × 2100 "
+                              title='SX40') == (
+        "SX40 can't take this: its screens would span 4094 × 2100 "
         "px. With low latency on, an SX40's canvas is up to 4094 wide and "
         "2047 tall within 9,000,000 px.")
     assert catalog.canvas_fit(catalog.get_device('brompton-m2'), 2000, 1100,
-                              title='Tessera M2') == (
-        "Tessera M2 can't take this: its screens would span 2000 × 1100 px. "
+                              title='M2') == (
+        "M2 can't take this: its screens would span 2000 × 1100 px. "
         "An M2's canvas is 1920 × 1080, 1080 × 1920, 1600 × 1200, 2880 × 720 "
         "or 720 × 2880.")
     assert catalog.canvas_fit(catalog.get_device('brompton-t1'), 2000, 1100,
-                              title='Tessera T1').endswith(
+                              title='T1').endswith(
         "A T1's canvas is 1920 × 1080, 1080 × 1920, 1600 × 1200, 2880 × 720 "
         "or 720 × 2880.")
     assert catalog.canvas_fit(catalog.get_device('brompton-sq200'), 70000, 10,
-                              title='Tessera SQ200') == (
-        "Tessera SQ200 can't take this: its screens would span 70000 × 10 "
+                              title='SQ200') == (
+        "SQ200 can't take this: its screens would span 70000 × 10 "
         "px. An SQ200's canvas is up to 65,535 px wide or tall.")
     # a show already past it is said in the present
     assert catalog.canvas_fit(catalog.get_device(SX), 4352, 2160,
-                              title='Tessera SX40', present=True).startswith(
-        "Tessera SX40 can't take this: its screens span 4352 × 2160 px.")
+                              title='SX40', present=True).startswith(
+        "SX40 can't take this: its screens span 4352 × 2160 px.")
     # a device with no published canvas is never refused
     assert catalog.canvas_fit(catalog.get_device('novastar-h9'), 99999, 99999) \
         is None
@@ -204,9 +204,9 @@ def test_the_owners_three_screens_each_on_its_own_sx40_fit(client):
     spans = _resolution(client, screens)['canvas']
     assert sorted((s['title'], s['width'], s['height'], s['fits'])
                   for s in spans.values()) == [
-        ('Tessera SX40 S1', 3840, 1536, True),
-        ('Tessera SX40 S2', 3840, 1536, True),
-        ('Tessera SX40 S3', 3840, 1536, True)]
+        ('SX40 S1', 3840, 1536, True),
+        ('SX40 S2', 3840, 1536, True),
+        ('SX40 S3', 3840, 1536, True)]
 
 
 def test_one_sx40_on_screen_1_and_screen_2_is_refused(client):
@@ -217,7 +217,7 @@ def test_one_sx40_on_screen_1_and_screen_2_is_refused(client):
     _pid, card = _sx40(client, 'S1')
     _ok(_fill(client, 'S1', card, screens))
     why = _refused(_fill(client, 'S2', card, screens))
-    assert why == ("Tessera SX40 S1 can't take this: its screens would span "
+    assert why == ("SX40 S1 can't take this: its screens would span "
                    "6048 × 1536 px. " + SX_LIMIT)
     assert len(_pins(client)) == 12
     why = _refused(client.post('/api/port-assignments/place', json={
@@ -238,7 +238,7 @@ def test_a_move_block_past_the_canvas_is_refused(client):
     _ok(_fill(client, 'A', card, screens))
     why = _refused(client.post('/api/port-assignments/move-block', json={
         'layerId': 'B', 'cardId': card, 'screens': screens}))
-    assert why.startswith("Tessera SX40 can't take this: its screens would "
+    assert why.startswith("SX40 can't take this: its screens would "
                           "span 4920 × 1536 px.")
     assert len(_pins(client)) == 10
 
@@ -258,7 +258,7 @@ def test_a_resize_or_move_of_a_mapped_screen_is_refused(client):
         json={'before': now, 'screens': after})
     moved = [now[0], _screen('B', 2400, ports=10, width=1920)]
     why = _refused(check(moved))
-    assert why == ("Tessera SX40 S1 can't take this: its screens would span "
+    assert why == ("SX40 S1 can't take this: its screens would span "
                    "4320 × 1536 px. " + SX_LIMIT)
     wider = [now[0], _screen('B', 2000, ports=10, width=2304)]
     assert '4304 × 1536 px' in _refused(check(wider))
@@ -305,7 +305,7 @@ def test_a_show_already_past_the_canvas_is_flagged_and_left_alone(client):
     res = _resolution(client, screens)
     flag = res['canvas']['procS']
     assert (flag['width'], flag['height'], flag['fits']) == (4400, 1536, False)
-    assert flag['message'] == ("Tessera SX40 OLD can't take this: its "
+    assert flag['message'] == ("SX40 OLD can't take this: its "
                                "screens span 4400 × 1536 px. " + SX_LIMIT)
     assert _pins(client) == before, 'a read changed an over-limit show'
     # releasing a port leaves it no worse
@@ -349,7 +349,7 @@ def test_an_sq200_is_held_to_65535(client):
                _screen('B', 60000, ports=2, width=6000, height=100)]
     _ok(_fill(client, 'A', card, screens))
     assert _refused(_fill(client, 'B', card, screens)) == (
-        "Tessera SQ200 SQ can't take this: its screens would span 66000 × "
+        "SQ200 SQ can't take this: its screens would span 66000 × "
         "100 px. An SQ200's canvas is up to 65,535 px wide or tall.")
 
 
@@ -484,7 +484,7 @@ def test_a_cabinet_size_edit_past_the_canvas_is_refused_in_screen_info(page):
     assert out['index'] == before['index'], out
     assert pg.evaluate("(id) => window.app.project.layers.find(l => l.id === id).cabinet_height",
                        ids['a']) == 384
-    assert out['status'] == ("Tessera SX40 S1 can't take this: its screens "
+    assert out['status'] == ("SX40 S1 can't take this: its screens "
                              "would span 3920 × 2400 px. " + SX_LIMIT), out
     assert pg.evaluate("() => document.getElementById('cabinet-height').value") == '384'
     pg.wait_for_timeout(400)
@@ -610,7 +610,7 @@ def test_a_mapping_past_the_canvas_is_refused_in_the_tray(page):
                 status: document.getElementById('status-message').textContent};
     }""", ids['card'])
     assert out['after'] == out['pins'], out
-    assert out['status'].startswith("Tessera SX40 S1 can't take this: its "
+    assert out['status'].startswith("SX40 S1 can't take this: its "
                                     "screens would span 4384 × 1536 px."), out
     assert ids['errors'] == []
 
@@ -638,7 +638,7 @@ def test_an_over_limit_show_is_flagged_in_the_tray_and_the_binder(page):
     }""", ids['b'])
     span = settled(pg, lambda: pg.evaluate(SPAN_JS, ids['sx']),
                    lambda s: s and not s['fits'])
-    message = ("Tessera SX40 S1 can't take this: its screens span 4520 × "
+    message = ("SX40 S1 can't take this: its screens span 4520 × "
                "1536 px. " + SX_LIMIT)
     assert span and span['message'] == message, span
     flag = pg.locator(f'[data-lrd-field="processor-canvas-{ids["sx"]}"]')
@@ -735,10 +735,10 @@ def test_the_owners_grouped_wall_fits_one_sx40_a_screen(page):
     out = pg.evaluate(OWNER_JS)
     assert out['group'] == 1, out
     assert out['placed'] == 60, out
-    assert sorted(out['spans']) == [['Tessera SX40 S1', 3840, 1536, True],
-                                    ['Tessera SX40 S2', 3840, 1536, True],
-                                    ['Tessera SX40 S3', 3840, 1536, True]], out
+    assert sorted(out['spans']) == [['SX40 S1', 3840, 1536, True],
+                                    ['SX40 S2', 3840, 1536, True],
+                                    ['SX40 S3', 3840, 1536, True]], out
     assert out['after'] == out['released'] < out['placed'], out
-    assert out['status'].startswith("Tessera SX40 S1 can't take this: its "
+    assert out['status'].startswith("SX40 S1 can't take this: its "
                                     "screens would span 6048 × 1536 px."), out
     assert ids['errors'] == []

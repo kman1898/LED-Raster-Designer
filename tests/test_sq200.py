@@ -10,7 +10,7 @@ answers:
   ("up to 12 [XDs per QD-S] but with a max 10G capacity"). Behind a QD-S
   the XD-S and XD-T deliver all 12 of their ports; behind an SX40 only 10.
 * A box on "output A of QD 1" is "QD 1 A" - its title the way an SX40's XD
-  is "Tessera XD A". A name typed on the box still wins.
+  is "XD A". A name typed on the box still wins.
 * EACH BOX IS CAPPED AT ITS 10G LINK: "The 5.25M pixels is right. the 12 is
   in case you dont max out each port on the unit then you have more
   bandwidth to be used on ports 11 and 12." 10 x the Brompton per-port
@@ -150,18 +150,18 @@ def test_two_qd_s_at_most_and_nothing_else_on_an_out_port(client):
     assert len(cards) == 2
     why = _refused(client.put(f'/api/processors/{pid}/slots/2',
                               json={'deviceId': QD}))
-    assert why == ('Tessera SQ200 has 2 outputs, OUT 1 and OUT 2, and each '
-                   'takes one Tessera QD-S - there is no place for another.')
+    assert why == ('SQ200 has 2 outputs, OUT 1 and OUT 2, and each '
+                   'takes one QD-S - there is no place for another.')
     assert len([s for s in _res_proc(client, pid)['slots'] if s['card']]) == 2
     why = _refused(client.put(f'/api/processors/{pid}/slots/0',
                               json={'deviceId': 'novastar-card-h-4xfiber'}))
-    assert 'does not go in Tessera SQ200' in why
+    assert 'does not go in SQ200' in why
     st = _ok(client.post('/api/processors', json={'deviceId': 'novastar-h9'}),
              201)
     h9 = st['processors'][-1]['id']
     why = _refused(client.put(f'/api/processors/{h9}/slots/0',
                               json={'deviceId': QD}))
-    assert why == 'Tessera QD-S does not go in H9.'
+    assert why == 'QD-S does not go in H9.'
 
 
 def test_boxes_are_named_by_qd_s_and_letter_and_a_typed_name_wins(client):
@@ -390,8 +390,8 @@ def test_a_file_with_a_qd_s_as_a_box_still_loads(client):
     state = _state(client)
     boxes = state['resolved'][-1]['slots'][0]['card']['cvts']
     legacy = next(b for b in boxes if b['id'] == 'cvt900')
-    assert legacy['deviceName'] == 'Tessera QD-S'
-    assert legacy['displayTitle'] == 'Tessera QD-S B'
+    assert legacy['deviceName'] == 'QD-S'
+    assert legacy['displayTitle'] == 'QD-S B'
     assert st['processors'][-1]['id'] == state['processors'][-1]['id']
 
 
@@ -507,7 +507,7 @@ def test_the_tray_adds_a_qd_s_and_an_xd_s_and_names_it_qd_1_a(page):
         == f'addbox-{card}'
     items = pg.evaluate("""() => [...document.querySelectorAll(
         '.hw-dock-addbox-menu .hw-dock-addbox-item')].map(b => b.textContent)""")
-    assert items == ['Tessera XD-S', 'Tessera XD', 'Tessera XD-T'], items
+    assert items == ['XD-S', 'XD', 'XD-T'], items
     pg.locator(f'[data-lrd-field="dock-addbox-{card}-brompton-xd-s"]').click()
     pg.wait_for_timeout(900)
     names = """(card) => {
@@ -527,7 +527,7 @@ def test_the_tray_adds_a_qd_s_and_an_xd_s_and_names_it_qd_1_a(page):
         const row = document.querySelector(`[data-hwdock="card-${card}"]`);
         return row ? row.textContent : '';
     }""", card)
-    assert 'QD 1 · Tessera QD-S' in head, head
+    assert 'QD 1 · QD-S' in head, head
     if SHOTS:
         # The tray is only as tall as the user dragged it; the render for
         # the owner opens it far enough to show the whole unit.
@@ -658,10 +658,10 @@ def test_the_gear_names_the_outputs_and_the_qd_s_sheet_lists_in_1_and_in_2(
             .find(h => h.kind === 'processor' && h.id === sq);
         return hw ? hw.rows.map(r => [r.type, r.label]) : null;
     }""", sq)
-    assert ['Tessera QD-S', 'QD 1'] in rows, rows
-    assert ['Tessera SQ200', 'SQ A, SQ A BU (backup)'] in rows, rows
-    assert ['Tessera XD-S', 'QD 1 A, QD 1 B'] in rows, rows
-    assert sum(1 for r in rows if r[0] == 'Tessera QD-S') == 1, rows
+    assert ['QD-S', 'QD 1'] in rows, rows
+    assert ['SQ200', 'SQ A, SQ A BU (backup)'] in rows, rows
+    assert ['XD-S', 'QD 1 A, QD 1 B'] in rows, rows
+    assert sum(1 for r in rows if r[0] == 'QD-S') == 1, rows
     # The binder prints the rig, naming the boxes by QD-S and letter.
     texts = pg.evaluate("""() => {
         const app = window.app;

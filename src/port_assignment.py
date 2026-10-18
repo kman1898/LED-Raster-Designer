@@ -100,7 +100,7 @@ PLATFORM_LABELS = {
     'novastar-armor': 'NovaStar (Legacy)',
     'novastar-coex-1g': 'NovaStar COEX A10s/A8s (1G)',
     'novastar-5g': 'NovaStar COEX CX40 (5G)',
-    'brompton': 'Brompton Tessera',
+    'brompton': 'Brompton',
     'megapixel-1g': 'Megapixel HELIOS (1G)',
     'megapixel-2.5g': 'Megapixel HELIOS (2.5G)',
 }
@@ -115,7 +115,7 @@ PLATFORM_FAMILIES = {
                        'novastar-h'},
     'novastar-coex-1g': {'novastar-mx'},
     'novastar-5g': {'novastar-cx'},
-    # ASSUMPTION (pending user confirmation): every Tessera is one family,
+    # ASSUMPTION (pending user confirmation): every Brompton unit is one family,
     # so any Brompton device drives a screen set to Brompton.
     'brompton': {'brompton'},
     # ASSUMPTION (pending user confirmation): both Megapixel settings accept
@@ -260,6 +260,12 @@ def cards_in(processors):
                 # A card that is a unit of its own ("QD 1", a QD-S on OUT
                 # 1): messages call it that rather than "slot 1".
                 'unitTitle': card.get('unitTitle') or '',
+                # What a message calls it: 'card' on the H series, the
+                # MX2000 and the MX6000 only, else 'processor' ('QD' for a
+                # QD-S) - catalog.unit_word.
+                'unitWord': catalog.unit_word(
+                    catalog.get_device(proc.get('deviceId')),
+                    catalog.get_device(card.get('deviceId'))),
                 'deviceName': card['deviceName'],
                 'deviceId': card['deviceId'],
                 # Which processing platforms this card's ports may carry
@@ -362,6 +368,23 @@ def cards_in(processors):
                              if c.get('linkCapPorts') and c.get('linkCapTable')},
             })
     return out
+
+
+def _unit_word(card):
+    """'card', 'processor' or 'QD' - what a message calls this unit
+    (catalog.unit_word, carried on the summary)."""
+    return (card or {}).get('unitWord') or 'card'
+
+
+def _show_unit_word(cards):
+    """The same word for a message about no one unit: 'card' while every
+    unit is a card (and with none, as it always read), 'processor' where
+    none is, 'card or processor' where both are - the dock's
+    showUnitWord."""
+    words = {'card' if _unit_word(c) == 'card' else 'processor' for c in cards or []}
+    if words == {'processor'}:
+        return 'processor'
+    return 'card or processor' if len(words) > 1 else 'card'
 
 
 def _card_title(card):
@@ -642,7 +665,7 @@ def resolve(processors, screens, state=None, _legacy_auto=False):
                 'layerId': pin['layerId'],
                 'cardId': pin['cardId'],
                 'port': pin['port'],
-                'message': 'A port is pinned to a card that is no longer in '
+                'message': f'A port is pinned to a {_show_unit_word(cards)} that is no longer in '
                            'this project. Release the pin, then place the '
                            'port where it should go.',
                 'offers': [{'action': 'release', 'layerId': pin['layerId'],
@@ -1142,7 +1165,7 @@ def _capacity_issues(cards, screens):
                     + (f'It reaches {short["ceiling"]} with '
                        f'{" or ".join(reach)}.' if reach else
                        'No box in the catalog reaches its full count on this '
-                       'card.')),
+                       f'{_unit_word(card)}.')),
                 'offers': [],
             })
         # A box missing between boxes on a box-fed card: an error, not a
@@ -1166,7 +1189,7 @@ def _capacity_issues(cards, screens):
             'cardId': card['cardId'],
             'message': (
                 f'{_card_title(card)} has no settled port count, so a whole-'
-                f'card fill cannot use it. Ports can still be placed on it '
+                f'{_unit_word(card)} fill cannot use it. Ports can still be placed on it '
                 f'one at a time.'),
             'reason': card['capacityReason'],
             'offers': [],
@@ -1287,7 +1310,7 @@ def link_cap_refusal(processors, screens_before, state_before,
 # already over is left alone and flagged (resolve's `canvas`).
 
 def _proc_title(proc, device):
-    """"Tessera SX40 S1": the model, then the name typed on the unit."""
+    """"SX40 S1": the model, then the name typed on the unit."""
     model = (device or {}).get('name') or proc.get('deviceId') or 'Processor'
     name = (proc.get('name') or '').strip()
     return f'{model} {name}' if name and name != model else model
@@ -1547,7 +1570,7 @@ def pin_to_card(processors, screens, state, layer_id, index, card_id,
     by_id = {c['cardId']: c for c in cards_in(processors)}
     card = by_id.get(str(card_id))
     if card is None:
-        return None, 'That card is not in this project.'
+        return None, f'That {_show_unit_word(by_id.values())} is not in this project.'
     # Wrong-line gear is refused outright, with both sides named. No confirm
     # path, unlike an occupied port: sharing a socket is a real rig, driving
     # a Brompton wall off a NovaStar card is not.
@@ -1639,7 +1662,7 @@ def place_port(processors, screens, state, layer_id, index, card_id, port,
     by_id = {c['cardId']: c for c in cards_in(processors)}
     card = by_id.get(str(card_id))
     if card is None:
-        return None, 'That card is not in this project.', None
+        return None, f'That {_show_unit_word(by_id.values())} is not in this project.', None
     scr = next((s for s in _clean_screens(screens)
                 if s['layerId'] == layer_id), None)
     if scr is None:
@@ -1764,7 +1787,7 @@ def move_block(processors, screens, state, layer_id, card_id=None,
     by_id = {c['cardId']: c for c in cards}
 
     if card_id and card_id not in by_id:
-        return None, 'That card is not in this project.'
+        return None, f'That {_show_unit_word(by_id.values())} is not in this project.'
     # A named destination on the wrong side of the platform wall is refused
     # before any fit is looked for - a free run on gear the screen cannot
     # drive is not an answer.
@@ -1803,7 +1826,7 @@ def move_block(processors, screens, state, layer_id, card_id=None,
                   if platform_allows(by_id[cid], scr['platform'])]
         if not search:
             label = PLATFORM_LABELS.get(scr['platform'], scr['platform'])
-            return None, (f'{scr["name"]} is programmed {label}, and no card '
+            return None, (f'{scr["name"]} is programmed {label}, and no {_show_unit_word(cards)} '
                           f'in this project matches it.')
 
     # A window narrows the scan to the box's span of card ports; outside it
@@ -1827,9 +1850,10 @@ def move_block(processors, screens, state, layer_id, card_id=None,
 
     if lo is not None or hi is not None:
         return None, (f'No run of {size} consecutive free ports between ports '
-                      f'{lo or 1}-{hi or "end"} on that card. Free up a run, '
+                      f'{lo or 1}-{hi or "end"} on that '
+                      f'{_unit_word(by_id.get(card_id)) if card_id else _show_unit_word(cards)}. Free up a run, '
                       f'or place the ports by hand.')
-    return None, (f'No card has {size} consecutive free ports. Free up a run, '
+    return None, (f'No {_show_unit_word(cards)} has {size} consecutive free ports. Free up a run, '
                   f'or place the ports by hand.')
 
 
@@ -1868,7 +1892,7 @@ def place_overflow(processors, screens, state, layer_id, card_id,
     by_id = {c['cardId']: c for c in cards_in(processors)}
     card = by_id.get(str(card_id))
     if card is None:
-        return None, 'That card is not in this project.'
+        return None, f'That {_show_unit_word(by_id.values())} is not in this project.'
 
     resolution, taken = _foreign_claims(processors, screens, state, layer_id)
     current = next((s for s in resolution['screens']

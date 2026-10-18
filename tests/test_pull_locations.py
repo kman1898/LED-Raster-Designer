@@ -197,7 +197,7 @@ def test_a_distro_at_its_own_beach_pulls_the_power_rows_there(page):
     assert dimmer['location'] == 'Dimmer Beach'
     assert dimmer['memberIds'] == [] and dimmer['layerIds'] == [ids['a'], ids['b']]
     assert _rows(dimmer['rows']) == [
-        ('12 way', 'EA', 1, 'SR', ''),
+        ('Distro', 'EA', 1, 'SR', ''),
         ('Multi', "100'", 1, 'SR 2', ''),
         ('Multi', "125'", 1, 'SR 1', ''),
         ('Tru-1', "6'", 1, 'SR2-1', ''),
@@ -225,7 +225,7 @@ def test_a_distro_at_its_own_beach_pulls_the_power_rows_there(page):
     assert _rows(a['rows']) == _rows(before['byScreen'][str(ids['a'])]['rows'])
     # the distro's hardware list carries its gear row
     hw = {(h['kind'], h['name']): _rows(h['rows']) for h in out['hardware']}
-    assert hw[('distro', 'SR')][0] == ('12 way', 'EA', 1, 'SR', '')
+    assert hw[('distro', 'SR')][0] == ('Distro', 'EA', 1, 'SR', '')
     assert ids['errors'] == []
 
 
@@ -304,7 +304,7 @@ def test_the_workbook_and_the_binder_take_a_device_location(page):
     assert titles[:3] == ['SR Beach', 'CENTER', 'Dimmer Beach'], titles
     col = pull_sheet.BLOCK_COLS[2]
     rows = [tuple(ws.cell(r, col + i).value for i in range(4)) for r in range(7, 20)]
-    assert ('12 way', 'EA', 1, 'SR') in rows, rows
+    assert ('Distro', 'EA', 1, 'SR') in rows, rows
     assert ('Multi', "125'", 1, 'SR 1') in rows, rows
     # the positions side by side on one pull sheet, in position order, the
     # device location last
@@ -428,7 +428,7 @@ def test_a_box_at_its_beach_pulls_its_ports_rows_and_two_boxes_list_once(page):
     ]
     assert all(r['side'] == 'data' for r in sl['rows'])
     assert _rows(pos['SR Beach']['rows']) == [
-        ('12 way', 'EA', 1, 'SR', ''),
+        ('Distro', 'EA', 1, 'SR', ''),
         ('Multi', "100'", 1, 'SR 2', ''),
         ('Multi', "125'", 1, 'SR 1', ''),
         ('Tru-1', "6'", 1, 'SR2-1', ''),
@@ -624,10 +624,10 @@ def _clear_boxes_and_beaches(pg, ids):
     }""", ids)
 
 
-def test_a_distro_is_named_by_its_holes_one_to_nine_boxes(page):
-    """1-2 boxes "12 way", 3-4 "24 way", 5-6 "36 way", 7-8 "48 way"; a
-    ninth keeps "48 way" and says "9 multis" in Notes - the user's table
-    ends at 8 and nothing larger is assumed. A 54-wide single-row screen
+def test_a_distro_is_named_by_its_type_never_its_holes(page):
+    """The distro's gear row is its TYPE (2026-10-18) - "Distro" while it
+    has none, whatever its holes; never "<N> way" and no multi count in
+    Notes. Typed, it prints the Type. A 54-wide single-row screen
     packed by column, one 2000 W cabinet per 10 A circuit, gives nine
     socas to put on a fresh distro (DIM - a name ending in a digit would
     fold in the label) one at a time."""
@@ -635,8 +635,7 @@ def test_a_distro_is_named_by_its_holes_one_to_nine_boxes(page):
     # the fixture's show, whatever the test before left (its boxes, its beaches)
     slate = _clear_boxes_and_beaches(pg, ids)
     assert slate['names'] == ['SR Beach', 'CENTER'], slate
-    assert pg.evaluate("() => [1,2,3,4,5,6,7,8,9].map(n => window.app.pullDistroWayType(n))") == [
-        '12 way', '12 way', '24 way', '24 way', '36 way', '36 way', '48 way', '48 way', '48 way']
+    assert pg.evaluate("() => typeof window.app.pullDistroWayType") == 'undefined'
     out = pg.evaluate("""async () => {
         const app = window.app;
         const j = (method, url, body) => fetch(url, {method,
@@ -660,22 +659,23 @@ def test_a_distro_is_named_by_its_holes_one_to_nine_boxes(page):
             app._circuitTailCache = null;
             const list = app.buildPullList();
             const pos = list.positions.find(p => p.name === 'TALL');
-            const row = pos.rows.find(r => /way$/.test(r.type));
+            const row = pos.rows.find(r => r.label === 'DIM' && r.length === 'EA');
             steps.push([k, row.type, row.qty, row.label, row.notes]);
         }
+        app.updateDistro(d2.id, { typeName: '  200A 24 circuits ' });
+        const typed = app.buildPullList().positions.find(p => p.name === 'TALL')
+            .rows.find(r => r.label === 'DIM' && r.length === 'EA');
+        steps.push([10, typed.type, typed.qty, typed.label, typed.notes]);
+        const anyWay = JSON.stringify(app.buildPullList()).match(/\\d+ way/g);
         t.visible = false;
         app._circuitTailCache = null;
         const gone = app.buildPullList().positions.map(p => p.name);
         app.renderLayers();
-        return { socas, steps, gone };
+        return { socas, steps, gone, anyWay };
     }""")
     assert out['socas'] == 9, out
-    assert out['steps'] == [
-        [1, '12 way', 1, 'DIM', ''], [2, '12 way', 1, 'DIM', ''],
-        [3, '24 way', 1, 'DIM', ''], [4, '24 way', 1, 'DIM', ''],
-        [5, '36 way', 1, 'DIM', ''], [6, '36 way', 1, 'DIM', ''],
-        [7, '48 way', 1, 'DIM', ''], [8, '48 way', 1, 'DIM', ''],
-        [9, '48 way', 1, 'DIM', '9 multis'],
-    ]
+    assert out['steps'] == [[k, 'Distro', 1, 'DIM', ''] for k in range(1, 10)] + [
+        [10, '200A 24 circuits', 1, 'DIM', '']], out['steps']
+    assert out['anyWay'] is None, out['anyWay']
     assert out['gone'] == ['SR Beach', 'CENTER']
     assert ids['errors'] == []

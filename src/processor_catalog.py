@@ -81,6 +81,31 @@ def unit_is_chassis(proc):
     return is_chassis(get_device((proc or {}).get('deviceId')))
 
 
+def is_card_based(device):
+    """Whether what a device holds is CALLED a card on every sheet, label
+    and message - the H series, the MX2000 and the MX6000 (ruling,
+    2026-09-24: "the H series and MX6000 and 2000 are the only card based
+    processors"). Every other processor is one unit with its own ports
+    and is called a processor (2026-10-17). A chassis is card based unless
+    every card it takes is a unit of its own (catalog `separateUnit`): the
+    SQ200's OUT slots each hold a QD-S, its own 1U unit, never a card."""
+    if not is_chassis(device):
+        return False
+    accepts = (device or {}).get('accepts') or []
+    held = [d for d in devices('card') if d.get('family') in accepts]
+    return not held or not all(d.get('separateUnit') for d in held)
+
+
+def unit_word(proc_device, card_device=None):
+    """What a message calls the unit a port sits on: 'card' on a card-based
+    processor, the catalog's word for a card that is a unit of its own
+    ('QD'), else 'processor'. The dock's unitWordFor, mirrored."""
+    if is_card_based(proc_device):
+        return 'card'
+    word = ((card_device or {}).get('unitWord') or '').strip()
+    return word or 'processor'
+
+
 def is_box_fed(device):
     """Whether a catalog device has NO fixture ports of its own - every port
     it will ever drive comes out of a breakout box on one of its trunks.
@@ -321,7 +346,7 @@ def canvas_limit_text(spec, ull=False):
 
 def canvas_fit(device, width, height, ull=False, title=None, present=False):
     """None where a span of width x height px fits the device's canvas, else
-    the sentence that refuses it: "Tessera SX40 S1 can't take this: its
+    the sentence that refuses it: "SX40 S1 can't take this: its
     screens would span 4352 × 2160 px. An SX40's canvas is ...". `present`
     words it for a show already past the canvas ("its screens span").
     `ull` is the processor's Ultra Low Latency (any screen it drives)."""
@@ -609,10 +634,13 @@ def box_inputs_allowed(cvt_device):
 
 def box_input_word(cvt_device):
     """What a box's own face calls one input - 'OPT' off a CVT4K-S's
-    'OPT 1' (its linkPorts) - else plain 'input' (an XD's 'X1' names a
-    port, not a word to count by)."""
+    'OPT1' or a CVT10's 'OPT 1' (its linkPorts, spaced as each maker's
+    sheet spaces them) - else plain 'input' (an XD's 'X1' names a port,
+    not a word to count by)."""
     names = ((cvt_device or {}).get('linkPorts') or {}).get('primary') or []
     hit = re.match(r'^(.*\S)\s+\d+$', str(names[0])) if names else None
+    if not hit and names:
+        hit = re.match(r'^([A-Za-z]{2,})\d+$', str(names[0]))
     return hit.group(1) if hit else 'input'
 
 
@@ -1128,7 +1156,7 @@ def _cable_ft(value):
     return int(ft) if ft == int(ft) else ft
 
 
-def check_cable_store(data, port_numbers, what='card'):
+def check_cable_store(data, port_numbers, what='card', unit='ft'):
     """Why a PUT's ``snakes`` / ``portCables`` cannot be stored, or None.
 
     Every refusal names its reason: a socket the card or box does not have,
@@ -1147,7 +1175,7 @@ def check_cable_store(data, port_numbers, what='card'):
             try:
                 ft = float(rec['ft'])
             except (TypeError, ValueError):
-                return f'{where}: ft must be a number of feet.'
+                return f'{where}: ft must be a number of {cable_unit_words(unit)}.'
             if ft != ft or ft < 0 or ft in (float('inf'), float('-inf')):
                 return f'{where}: ft must be a non-negative number.'
         conn = rec.get('connector')
@@ -1795,9 +1823,9 @@ def fiber_link_keys(trunks, bound):
 
 def fiber_link_title(key, cvt_device=None):
     """A link by the box's own port name (2026-09-25: "call novastar Opt
-    1,2,3,4"): 'p1' -> 'X1' and 'b1' -> 'X2' on a Tessera XD, 'OPT 1' /
-    'OPT 2' on a CVT10, 'OPT 1'-'OPT 4' on a CVT4K-S - the catalog's
-    linkPorts. A box that documents none keeps a neutral 'Link 1', 'Link
+    1,2,3,4"): 'p1' -> 'X1' and 'b1' -> 'X2' on an XD, 'OPT 1' /
+    'OPT 2' on a CVT10, 'OPT1'-'OPT4' on a CVT4K-S - the catalog's
+    linkPorts, spelled as each maker's documents spell them. A box that documents none keeps a neutral 'Link 1', 'Link
     2' for its primaries (and 'Backup 1' for a backup link it could only
     carry on a stale file)."""
     key = str(key or '')
@@ -1813,13 +1841,30 @@ def fiber_link_title(key, cvt_device=None):
     return f'{"Backup" if backup else "Link"} {n}'
 
 
+def link_ports_documented(cvt_device):
+    """Whether a box's inputs carry the maker's own names - the catalog's
+    linkPorts, each model's checked against its maker's documents - so
+    fiber_link_title reads them rather than a neutral 'Link 1'."""
+    return bool(((cvt_device or {}).get('linkPorts') or {}).get('primary'))
+
+
 # Copper on a box link (2026-09-25, owner: "anything that does 10Gbps max
 # length is allowed. Cat 6A and under"): offered only on a box whose
-# catalog entry says copperLinks - the Tessera XD, whose X1 and X2 each
+# catalog entry says copperLinks - the XD, whose X1 and X2 each
 # carry an etherCON beside the opticalCON DUO (the XD-S and XD-T are fiber
 # only by their datasheets). Each kind with its 10G maximum in feet:
 # Cat6A 60 m and Cat5e 30 m are Brompton's, Cat6 100 ft is the owner's.
-COPPER_LINK_KINDS = (('Cat6A', 196), ('Cat6', 100), ('Cat5e', 98))
+# The meter figures are converted exactly (60 m = 196.85 ft, 30 m =
+# 98.43 ft), the same expression app-fiber.js uses - floored to the foot,
+# a 98.4 ft Cat5e run read as over its limit.
+_FT_PER_M = 1 / 0.3048
+COPPER_LINK_KINDS = (('Cat6A', 60 * _FT_PER_M), ('Cat6', 100), ('Cat5e', 30 * _FT_PER_M))
+
+
+def cable_unit_words(unit):
+    """'meters' for a meters show, else 'feet' - what a refusal says a
+    length is typed in (the show's cable unit, app.cable_unit)."""
+    return 'meters' if unit == 'm' else 'feet'
 
 
 def copper_link_max_ft(kind):
@@ -2004,7 +2049,7 @@ def fiber_box_title(entry):
 
 def box_backup_ports(cvt_device):
     """The backup inputs a box's catalog entry documents - ['X2'] on a
-    Tessera XD, ['OPT 2'] on a CVT10, ['OPT 3', 'OPT 4'] on a CVT4K-S - or
+    XD, ['OPT 2'] on a CVT10, ['OPT3', 'OPT4'] on a CVT4K-S - or
     [] where none is documented (the CVT8-5G, every Megapixel box): the
     backup processor feeds such a box's own twin instead. A link-host card
     reads the same field - ['IN 2'] on a QD-S."""
@@ -2289,7 +2334,7 @@ def settle_fiber(project, used_before=None):
     return changed
 
 
-def check_fiber_cable(rec, cable=None, used_strands=0):
+def check_fiber_cable(rec, cable=None, used_strands=0, unit='ft'):
     """Why this body cannot make (cable None) or edit `cable`, or None.
 
     `used_strands` is the highest strand a link holds on the cable, which
@@ -2317,14 +2362,15 @@ def check_fiber_cable(rec, cable=None, used_strands=0):
                 return (f'Strand {used_strands} is in use - the count cannot '
                         f'go below it. Move that link first.')
     if 'ft' in rec and rec['ft'] not in (None, ''):
+        words = cable_unit_words(unit)
         if isinstance(rec['ft'], bool):
-            return 'ft must be a number of feet.'
+            return f'ft must be a number of {words}.'
         try:
             ft = float(rec['ft'])
         except (TypeError, ValueError):
-            return 'ft must be a number of feet.'
+            return f'ft must be a number of {words}.'
         if not math.isfinite(ft) or ft < 0:
-            return 'ft must be a number of feet, 0 or more.'
+            return f'ft must be a number of {words}, 0 or more.'
     if 'connector' in rec and rec['connector'] not in (None, ''):
         if kind != 'tac':
             return 'Only a TAC names a connector.'
@@ -3268,6 +3314,10 @@ def resolve_card(card, proc):
             # Link 1..) - every key the box could carry, backups included.
             'linkTitles': {k: fiber_link_title(k, cvt_device)
                            for k in fiber_link_keys(takes, True)},
+            # Whether those names are the maker's own (the catalog's
+            # linkPorts) rather than the neutral 'Link 1' - the binder's
+            # Breakout boxes table lists a box's inputs only where they are.
+            'linkPortsDocumented': link_ports_documented(cvt_device),
             # Whether a link may be copper instead of fiber (the XD).
             'copperLinks': bool(cvt_device.get('copperLinks')),
             'bidi': bool(cvt.get('bidi')),
@@ -3320,7 +3370,7 @@ def resolve_card(card, proc):
     # WHAT A MESSAGE CALLS EACH BOX, stated once for every reader. Since the
     # 2026-08-27 ruling every box numbers its own sockets from 1, so a bare
     # number only means something beside its box's name - and four boxes all
-    # reading "Tessera XD" are four sections nobody can tell apart. An
+    # reading "XD" are four sections nobody can tell apart. An
     # unnamed box on a trunked card therefore wears its trunk letter ("A",
     # or "A-B" for one eating two trunks) - the letters the pairing rule
     # itself is written in ("A backs up to B") - while a hand-named box is
@@ -3330,7 +3380,7 @@ def resolve_card(card, proc):
     # A card that is a unit of its own names its boxes by ITS title and the
     # output letter instead of the box's model: the XD-S on output A of the
     # QD-S on OUT 1 is "QD 1 A" (owner, 2026-09-28) - the way an SX40's XD
-    # is "Tessera XD A". A name typed on the box still wins.
+    # is "XD A". A name typed on the box still wins.
     unit = card_unit_title(card, proc)
     for box in cvts:
         letter = ''
@@ -3721,6 +3771,9 @@ def resolve_card(card, proc):
     # (fiber_box_index).
     out['unitTitle'] = unit
     out['separateUnit'] = bool(device.get('separateUnit'))
+    # What such a unit is called where a card would be ("QD"), '' on a
+    # card (unit_word).
+    out['unitWord'] = (device.get('unitWord') or '').strip()
     out['defaultCvt'] = device.get('defaultCvt') or None
     if is_link_host(device):
         out.update({
@@ -3732,6 +3785,7 @@ def resolve_card(card, proc):
             'fiberLinkKeys': fiber_link_keys(1, False),
             'linkTitles': {k: fiber_link_title(k, device)
                            for k in fiber_link_keys(1, True)},
+            'linkPortsDocumented': link_ports_documented(device),
             'copperLinks': False,
             'bidi': bool(card.get('bidi')),
             'bidiAllowed': fiber_bidi_allowed(device),
@@ -3789,6 +3843,9 @@ def resolve_processor(proc):
         'deviceName': device.get('name', proc.get('deviceId')),
         'vendor': device.get('vendor', ''),
         'form': device.get('form', ''),
+        # Whether its units are called cards (is_card_based): the H series,
+        # the MX2000 and the MX6000 only.
+        'cardBased': is_card_based(device),
         'name': proc.get('name', ''),
         'mode': proc.get('mode'),
         'redundancy': bool(proc.get('redundancy')),

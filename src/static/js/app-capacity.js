@@ -5,6 +5,16 @@
 // that reflects them.
 import { LEDRasterApp } from './app-core.js';
 
+// floor(a / b) for non-negative safe integers, exactly. The float quotient
+// is corrected by one either way, so a quotient that lands a hair under a
+// whole number cannot lose a pixel to rounding.
+function floorDiv(a, b) {
+    let q = Math.floor(a / b);
+    if (q * b > a) q -= 1;
+    else if ((q + 1) * b <= a) q += 1;
+    return q;
+}
+
 class _Capacity {
     // Get supported bit depths for a processor
     getSupportedBitDepths(processorType) {
@@ -94,11 +104,26 @@ class _Capacity {
     // frame rate like everything else.
     // Y = 0 (a top-aligned port, which is what a correctly built layout gives)
     // returns `total` untouched. An unknown canvas height derates NOTHING.
+    //
+    // Computed as floor((H - Y) x total / H), in integers. The obvious
+    // floor((1 - Y/H) x total) loses a pixel whenever 1 - Y/H is not exact in
+    // floating point: H 720, Y 576 on 1,649,305 is exactly 329,861, and the
+    // float form gave 329,860.
     lowLatencyPortCapacity(total, minY, canvasHeight) {
         if (!(total > 0)) return 0;
         if (!(canvasHeight > 0)) return total;
-        const factor = Math.min(1, Math.max(0, 1 - ((Number(minY) || 0) / canvasHeight)));
-        return Math.floor(factor * total);
+        const y = Number(minY) || 0;
+        if (y <= 0) return total;
+        if (y >= canvasHeight) return 0;
+        const rest = canvasHeight - y;
+        if (Number.isInteger(total) && Number.isInteger(rest)
+                && Number.isInteger(canvasHeight)
+                && Number.isSafeInteger(rest * total)) {
+            return floorDiv(rest * total, canvasHeight);
+        }
+        // A fractional position (not something the app builds) keeps the
+        // same order of operations, multiply before divide.
+        return Math.floor((rest * total) / canvasHeight);
     }
 
     // v0.11.0: NovaStar 5G's minimum Ethernet-port load width, in pixels, or 0
@@ -144,7 +169,8 @@ class _Capacity {
         return Math.max(0, capacity - ((minWidth - w) * h));
     }
 
-    // Calculate port capacity using lookup tables with interpolation
+    // Calculate port capacity: the published table, or the formula behind it
+    // for a rate between two rows (see lookupPortCapacity).
     // v0.11.0: `lowLatency` layers the processor's Low Latency behaviour on
     // top of the raw lookup. Split in two so pass 2, which needs per-port
     // geometry, has a seam that does not disturb the table lookup.
@@ -153,7 +179,34 @@ class _Capacity {
         return this.applyLowLatencyCapacity(capacity, processorType, lowLatency);
     }
 
+    // The exact formula figure for a processor whose table is formula-derived
+    // (portCapacityFormulas), at a WHOLE frame rate, or null when the
+    // processor has no formula. Integer arithmetic throughout, floored.
+    formulaPortCapacity(processorType, bitDepth, wholeRate) {
+        const formula = this.portCapacityFormulas
+            && this.portCapacityFormulas[processorType];
+        if (!formula) return null;
+        const budget = formula.budget && formula.budget[bitDepth];
+        const perPixel = formula.perPixel && formula.perPixel[bitDepth];
+        if (!(budget > 0) || !(perPixel > 0) || !(wholeRate > 0)) return null;
+        return floorDiv(budget, perPixel * wholeRate);
+    }
+
     // Raw manufacturer-table lookup, before any Low Latency behaviour.
+    //
+    // A rate with a published row reads that row. A rate BETWEEN two rows is
+    // never interpolated: capacity runs as 1 / frame rate, so a straight line
+    // between two rows always sits above the curve and overstates capacity
+    // (Armor 8-bit 72 Hz read 593,749 that way against a true 549,768). It
+    // is answered one of two ways instead:
+    //   - formula-derived tables (portCapacityFormulas: Armor, COEX 1G,
+    //     Brompton and its retired ULL half) - the exact floored formula at
+    //     the rate rounded UP to a whole Hz. Rounding up is the conservative
+    //     side, and it is what puts 23.976 / 29.97 / 59.94 on the published
+    //     24 / 30 / 60 rows exactly as before.
+    //   - published-only tables (NovaStar 5G, Megapixel HELIOS) - the nearest
+    //     published row AT OR ABOVE the rate. A faster rate is less capacity,
+    //     so that row understates the truth: more ports, never fewer.
     lookupPortCapacity(bitDepth, frameRate, processorType) {
         processorType = processorType || 'novastar-armor';
         const table = this.portCapacityTables[processorType];
@@ -172,25 +225,10 @@ class _Capacity {
         
         const fpsTable = table[useBitDepth];
         if (!fpsTable) return 0;
-        
-        // Exact match
-        const exactFps = Math.round(frameRate);
-        if (fpsTable[exactFps]) return fpsTable[exactFps];
-        
-        // Interpolate between two closest frame rates
+
+        const rate = Number(frameRate);
         const fpsList = Object.keys(fpsTable).map(Number).sort((a, b) => a - b);
-        
-        // Find surrounding entries
-        let lower = fpsList[0];
-        let upper = fpsList[fpsList.length - 1];
-        
-        for (let i = 0; i < fpsList.length - 1; i++) {
-            if (fpsList[i] <= frameRate && fpsList[i + 1] >= frameRate) {
-                lower = fpsList[i];
-                upper = fpsList[i + 1];
-                break;
-            }
-        }
+        if (!(rate > 0) || fpsList.length === 0) return 0;
         
         // Below the table: clamp UP to the lowest published row. Capacity runs
         // as 1/frame rate, so the lowest published row is LESS capacity than a
@@ -198,7 +236,8 @@ class _Capacity {
         // ports than needed and never fewer. It is also the only way 23.976 Hz
         // (offered in the frame rate list, below every table's 24 Hz first
         // row) has an answer at all, and the tables round it to 24 anyway.
-        if (frameRate <= fpsList[0]) return fpsTable[fpsList[0]];
+        // Nothing is extrapolated below the table, formula or not.
+        if (rate <= fpsList[0]) return fpsTable[fpsList[0]];
         // ABOVE the table: no capacity. DANGEROUS as it stood - this clamped
         // to the LAST row, so novastar-armor (no row past 120 Hz) answered a
         // 240 Hz question with its 120 Hz figure: double the real capacity and
@@ -206,22 +245,30 @@ class _Capacity {
         // exactly that state, because processor, bit depth and frame rate are
         // picked independently of one another.
         //
-        // Nothing is extrapolated to replace it. The manufacturer's published
-        // table is authoritative and no figure in this app is derived from a
-        // formula, so a frame rate the manufacturer does not publish for this
-        // processor has no answer - and 0 is the value the UI already treats
-        // as "no capacity": Pixels/Port renders "N/A", Panels/Port renders
-        // ERROR, Ports Required renders ERROR, and calculatePortAssignments
-        // returns no assignment rather than a plausible map. Loud and empty
-        // beats quiet and wrong. Use getSupportedFrameRates to see what a
-        // processor actually publishes.
-        if (frameRate > fpsList[fpsList.length - 1]) return 0;
-        
-        // Linear interpolation
-        const lowerCap = fpsTable[lower];
-        const upperCap = fpsTable[upper];
-        const ratio = (frameRate - lower) / (upper - lower);
-        return Math.floor(lowerCap + (upperCap - lowerCap) * ratio);
+        // Nothing is extrapolated to replace it, not even where a formula
+        // exists: the last row is the fastest rate the manufacturer documents
+        // the product at, and a formula only fills the gaps BETWEEN its rows.
+        // So a frame rate past the end of the table has no answer - and 0 is
+        // the value the UI already treats as "no capacity": Pixels/Port
+        // renders "N/A", Panels/Port renders ERROR, Ports Required renders
+        // ERROR, and calculatePortAssignments returns no assignment rather
+        // than a plausible map. Loud and empty beats quiet and wrong. Use
+        // getSupportedFrameRates to see what a processor actually publishes.
+        if (rate > fpsList[fpsList.length - 1]) return 0;
+
+        // Formula-derived: the published row when there is one (every row is
+        // the formula exactly), else the formula itself, at the rate rounded
+        // up to a whole Hz.
+        const wholeRate = Math.ceil(rate);
+        if (this.portCapacityFormulas && this.portCapacityFormulas[processorType]) {
+            if (fpsTable[wholeRate]) return fpsTable[wholeRate];
+            const derived = this.formulaPortCapacity(processorType, useBitDepth, wholeRate);
+            return derived === null ? 0 : derived;
+        }
+
+        // Published-only: the nearest published row at or above the rate.
+        const atOrAbove = fpsList.find(fps => fps >= rate);
+        return atOrAbove === undefined ? 0 : fpsTable[atOrAbove];
     }
     
     // Check if processor uses rectangle-based port assignment (NovaStar Armor only)

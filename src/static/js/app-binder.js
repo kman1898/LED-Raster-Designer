@@ -7,7 +7,8 @@
 // sizes") - with a thin border, a TITLE BLOCK column down its right edge
 // ("mimic whats in their drawing": the logo when one is set, REVISIONS -
 // the log the exports write - the show / venue / dates, Designer, Project
-// Manager, Drafter, the SHEET TITLE, the Sheet Number, the drawing date)
+// Manager, Drafter, Engineer, the SHEET TITLE, the Sheet Number, the
+// drawing date)
 // and the drawing area to its left holding a numbered VIEW - the map with
 // its bubble ("1  OVERVIEW") - and the sheet's tables.
 //
@@ -29,7 +30,8 @@
 //        its ports land on, circuit to breakout, port to socket, one side
 //        on a whole page) - a screen with only one side has only that
 //        side's two sheets
-//   3.n  the PULL sheets - positions side by side, a column each
+//   3.n  the PULL sheets - positions side by side, each position's
+//        sections flowing across the sheet in columns
 //   4.n  hardware - the distros side by side, then the processors with
 //        the show's pull list beside them where it fits
 // A sheet whose tables do not fit continues on the next number of its
@@ -73,15 +75,18 @@
 // whose tables fit at 1 in neither layout is "tons of info": it stays at
 // 1, the map over the tables, and continues on the next sheet. Column
 // sheets (pull, hardware) spread their tables across the width and scale
-// as a whole (_bFillScale). The title block never scales.
+// as a whole (_bFillScale; the pull sheets choose their columns to that
+// end, _bPullSheets). The title block never scales.
 //
 // Every figure is read from buildPullSheet (app-pull-list.js) and the same
 // authorities the canvas reads; nothing is recomputed here. The title
 // block's fields live in project.binder (venue, dates, designer, project
 // manager, drafter, revisions - the export dialog edits them, one undo
 // entry per field; a revision is LOGGED ON EXPORT, 2026-09-08: an export
-// at a rev no row carries yet adds a row) and in two preferences (the
-// sheet size, the logo).
+// at a rev no row carries yet adds a row - and, 2026-10-17, as soon as a
+// new Rev is committed in the dialog) and in preferences (the sheet
+// size, the logo, and the engineer's name, which prints as Engineer and
+// stands in for a blank Drafter).
 import { LEDRasterApp } from './app-core.js';
 import { sendClientLog } from './helpers.js';
 
@@ -146,9 +151,17 @@ const BLOCK_GAP = 22;
 // The tables' column: 3.5 in wide, a gap between columns; a view's bubble
 // takes this much under its map.
 const COL_W = 700;
-// A table cell's swatch (a fiber strand's color) and the gap after it.
-const SWATCH_W = 26;
-const DATA_COL_W = 1020;              // the Ports table's five columns of whole names
+// A fiber strand's swatch (its color, a square this big) and the room it
+// takes in front of the strand's name, the gap after it included - sized
+// to read across a room (2026-10-17: "bigger, bolder color").
+const SWATCH = 24;
+// AN INPUT AND ITS STRANDS AS ONE GROUP (owner, 2026-10-17): the input's
+// label centred beside its strands, a thin outline round the lot, GROUP_GAP
+// between one input's outline and the next.
+const GROUP_GAP = 10;
+const GROUP_PAD = 6;
+const SWATCH_W = 32;
+const DATA_COL_W = 1020;              // the widest the Ports table grows, its columns sized to their content
 const COL_GAP = 30;
 const BUBBLE_H = 96;
 // The map keeps at least this share of the drawing area whatever the
@@ -173,10 +186,15 @@ const FILL_CAP = 2.4;
 // of the sheet (_bMapLayout's side layout); a short one takes nothing.
 const FILL_KEEP = 0.9;
 // A column sheet's subject head - the position's, the distro's name over
-// its tables - and the pull sheets' narrower column (four positions
-// across a Tabloid: cable · len · qty · label are short columns).
+// its tables - and the pull sheets' columns: at least PULL_COL_W (cable ·
+// len · qty · label are short columns), as wide as a table needs to print
+// whole up to PULL_COL_MAX (_bPullBlock).
 const GROUP_H = 60;
 const PULL_COL_W = 660;
+const PULL_COL_MAX = 1100;
+// A pull sheet whose lists all print on one line wins over a larger print
+// that wraps them, down to this share of that print's size.
+const PULL_WHOLE_KEEP = 0.85;
 
 // Cable types print in the GEAR LIST's own vocabulary - the same words the
 // workbook export writes - so the binder's Cables table and the pull sheet
@@ -291,14 +309,18 @@ class _Binder {
         }
         const eng = document.getElementById('export-binder-engineer');
         if (eng) eng.addEventListener('change', () => { this.setEngineerName(eng.value); this.syncBinderControls(); });
+        // The Rev commits on change (blur or Enter), never per keystroke:
+        // typing "1.1" logs 1.1, not "1." on the way (commitBinderRev).
         const rev = document.getElementById('export-binder-rev');
         if (rev) {
             rev.addEventListener('change', () => {
-                this.setPullSheetSetting('rev', rev.value, 'Set Pull Sheet Revision');
+                this.commitBinderRev(rev.value);
                 this.syncBinderControls();
                 if (typeof this.updateExportPreview === 'function') this.updateExportPreview();
             });
         }
+        const revNote = document.getElementById('export-binder-revision-note');
+        if (revNote) revNote.addEventListener('change', () => { this.noteBinderRevision(revNote.value); });
         // The logo: a preference read from a PNG / JPEG file.
         const logo = document.getElementById('export-binder-logo');
         if (logo) {
@@ -466,7 +488,7 @@ class _Binder {
         if (!rows.length) {
             const empty = document.createElement('div');
             empty.className = 'binder-rev-empty';
-            empty.textContent = 'Nothing logged yet. An export at a new Rev adds a row.';
+            empty.textContent = 'Nothing logged yet. A new Rev adds a row.';
             box.appendChild(empty);
             return;
         }
@@ -739,19 +761,92 @@ class _Binder {
 
     // ---- the revision log ---------------------------------------------------
 
+    // A row of the log: No., the rev it is for, today's date as M/D/YY,
+    // the engineer's initials, the note.
+    _binderRevisionRow(rev, note, no) {
+        return { no, rev, date: this._binderToday(), by: this.binderInitials(this.getEngineerName()),
+                 description: String(note == null ? '' : note).trim() };
+    }
+
+    // A NEW REV LOGS ITS ROW AS IT IS COMMITTED (2026-10-17: "when i
+    // change the revision then in the revisions section a new part needs
+    // to show in revisions"): the Rev field's change - blur or Enter, never
+    // a keystroke - sets the rev and, where no row carries it yet, adds its
+    // row (_binderRevisionRow, the Revision note as its description) in the
+    // SAME undo entry, so one undo takes back the rev and its row together.
+    // A rev that already has a row adds nothing; each rev is logged once.
+    //
+    // The note box then belongs to that row: committing the note writes it
+    // into the row's description while the row is the newest and its rev
+    // is still the Rev (noteBinderRevision). A note typed BEFORE the Rev is
+    // committed is the new row's description; a note still mirroring the
+    // previous rev's row is not carried onto the next one - the box clears
+    // and the new row starts blank. Returns true when the rev changed.
+    commitBinderRev(value) {
+        if (!this.project) return false;
+        const v = String(value == null ? '' : value).trim() || this.getPullSheetDefaults().rev;
+        if (this.getPullSheetSettings().rev === v) return false;
+        const list = this.getBinderInfo().revisions;
+        const noteEl = document.getElementById('export-binder-revision-note');
+        let note = noteEl ? String(noteEl.value || '').trim() : '';
+        const open = this._binderOpenRevision();
+        if (open && note && note === open.row.description) {
+            note = '';
+            if (noteEl) noteEl.value = '';
+        }
+        if (!this.project.pullSheet) this.project.pullSheet = {};
+        this.project.pullSheet.rev = v;
+        let row = null;
+        if (!list.some(x => x.rev === v)) {
+            row = this._binderRevisionRow(v, note, list.length + 1);
+            if (!this.project.binder || typeof this.project.binder !== 'object') this.project.binder = {};
+            this.project.binder.revisions = [...list, row];
+        }
+        this.saveState(row ? 'Log Revision' : 'Set Pull Sheet Revision');
+        this._persistPullSheetSettings();
+        if (row) {
+            this._persistBinderInfo();
+            this._binderRevOpen = { rev: v, project: this.project };
+            this._renderBinderRevisionRows();
+            sendClientLog('binder_revision_logged', { rev: v, no: row.no, by: row.by, on: 'rev' });
+        }
+        return true;
+    }
+
+    // The row the note box writes into: the one a Rev commit logged, while
+    // it is the log's newest row, its rev is still the Rev, and the project
+    // is the one it was logged in. Null otherwise.
+    _binderOpenRevision() {
+        const open = this._binderRevOpen;
+        if (!open || open.project !== this.project) return null;
+        const list = this.getBinderInfo().revisions;
+        const index = list.length - 1;
+        const row = list[index];
+        if (!row || row.rev !== open.rev || this.getPullSheetSettings().rev !== open.rev) return null;
+        return { row, index };
+    }
+
+    // The Revision note committed: into the open row's description (one
+    // undo entry, as an edit in the list is). Otherwise it waits in the
+    // box for the next new rev, or the export. Returns true when a row
+    // changed.
+    noteBinderRevision(note) {
+        const open = this._binderOpenRevision();
+        return open ? this.editBinderRevision(open.index, 'description', note) : false;
+    }
+
     // Logged on export ("Logged on export", 2026-09-08): the rev the
     // dialog names, when no row carries it yet, becomes a row - today's
     // date as M/D/YY, the engineer's initials, the Revision note - with
     // one undo entry, persisted like every other field. The same rev
-    // exported again logs nothing. Returns the row it added, or null.
+    // exported again logs nothing (a rev committed in the dialog already
+    // has its row, commitBinderRev). Returns the row it added, or null.
     logBinderRevision(rev, note) {
         if (!this.project) return null;
         const r = String(rev == null ? '' : rev).trim();
         const list = this.getBinderInfo().revisions;
         if (list.some(x => x.rev === r)) return null;
-        const row = { no: list.length + 1, rev: r, date: this._binderToday(),
-                      by: this.binderInitials(this.getEngineerName()),
-                      description: String(note == null ? '' : note).trim() };
+        const row = this._binderRevisionRow(r, note, list.length + 1);
         this.setBinderField('revisions', [...list, row], 'Log Revision');
         this._renderBinderRevisionRows();
         sendClientLog('binder_revision_logged', { rev: r, no: row.no, by: row.by });
@@ -1433,7 +1528,7 @@ class _Binder {
         return out;
     }
 
-    // The CABLES THIS SCREEN table: CABLE, LEN, QTY - a cable crossing into
+    // The CABLES THIS SCREEN table: CABLE, LENGTH, QTY - a cable crossing into
     // another member reading "Data Cable · also on WALL SL", wrapped under
     // its type.
     _bCableTable(book, s, side) {
@@ -1441,11 +1536,12 @@ class _Binder {
         const crossing = rows.some(r => r.also);
         return this._bTableLines(book, {
             title: 'Cables this screen',
-            cols: [{ title: 'cable', w: 1.7, ...(crossing ? { list: 2 } : {}) }, { title: 'len', w: 0.7 },
-                   { title: 'qty', w: 0.6, align: 'right' }],
+            cols: [{ title: 'cable', w: 1.7, ...(crossing ? { list: 2 } : { lend: true }) },
+                   { title: 'length', w: 0.7, borrow: 'len' },
+                   { title: 'qty', w: 0.6, align: 'right', lend: true }],
             rows: rows.length
                 ? rows.map(r => ({ cells: [r.also ? `${this._bType(r.type)} · ${r.also}` : this._bType(r.type),
-                                           r.length || '—', String(r.qty)] }))
+                                           r.length || '—', this._bQty(r.qty)] }))
                 : [{ cells: ['no cables typed', '', ''] }],
         });
     }
@@ -1790,7 +1886,28 @@ class _Binder {
         const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
         const logo = m.logo && m.logo.width > 0 && m.logo.height > 0 ? m.logo : null;
         const hLogo = logo ? clamp(Math.round(tb.h * 0.16), 220, 360) : 0;
-        const hShow = 170, hPeople = 330, hTitle = 90, hNumber = 150;
+        // The people, top to bottom: each a label with its lines under it -
+        // a name's one line always (blank prints the label alone), the
+        // project manager's phone and email only where typed (a blank one
+        // left a gap above Drafter, 2026-10-17), the Engineer only where
+        // one is set (getEngineerName). Label to first line 30, line to
+        // line 28, last line to the next label 48; the section ends 54
+        // under its last line - Designer, a manager with phone and email,
+        // and Drafter come to the 330 the section always was.
+        const people = [
+            ['Designer:', [b.designer]],
+            ['Project Manager:', [b.projectManager.name,
+                                  ...[b.projectManager.phone, b.projectManager.email].filter(Boolean)]],
+            ['Drafter:', [b.drafter]],
+            ...(m.engineer ? [['Engineer:', [m.engineer]]] : []),
+        ];
+        const peopleAt = [];
+        let py = 34;
+        for (const [label, values] of people) {
+            peopleAt.push({ label, y: py, values: values.map((v, k) => ({ text: v, y: py + 30 + k * 28 })) });
+            py += 30 + (values.length - 1) * 28 + 48;
+        }
+        const hShow = 170, hPeople = py - 48 + 54, hTitle = 90, hNumber = 150;
         const hRev = Math.max(120, tb.h - (hLogo + hShow + hPeople + hTitle + hNumber));
         const rule = (y) => { ctx.fillStyle = INK; ctx.fillRect(tb.x, y - 1, tb.w, 3); };
         // the column's own left edge
@@ -1810,9 +1927,15 @@ class _Binder {
 
         // 2. REVISIONS: No · Date · By · Description, the log in order
         this._bText(book, 'Revisions:', x + pad, y + 32, { size: SZ.tbLabel, weight: 700 });
+        // Every column stands on its middle, its heading and its rows
+        // (owner, 2026-10-18: "center every column in every binder table").
         const cols = [[0, 'No.'], [0.13, 'Date'], [0.38, 'By'], [0.56, 'Description']];
         const cx = (f) => x + pad + f * inner;
-        cols.forEach(([f, t]) => this._bText(book, t, cx(f) + 4, y + 62, { size: SZ.tbSmall, weight: 400 }));
+        const ends = [...cols.slice(1).map(([f]) => f), 1];
+        const mid = (j) => (cx(cols[j][0]) + cx(ends[j])) / 2;
+        const room = (j) => (ends[j] - cols[j][0]) * inner - 8;
+        cols.forEach(([, t], j) => this._bText(book, t, mid(j), y + 62,
+                                               { size: SZ.tbSmall, weight: 400, align: 'center', maxWidth: room(j) }));
         ctx.fillStyle = RULE;
         ctx.fillRect(x + pad, y + 68, inner, 2);
         ctx.strokeStyle = RULE;
@@ -1833,10 +1956,11 @@ class _Binder {
         for (const r of b.revisions) {
             const lines = this._bWrap(book, r.description, SZ.tbSmall, 400, descW, 3);
             if (ry + (lines.length - 1) * 22 > y + hRev - 4) break;
-            this._bText(book, String(r.no || printed + 1), cx(0) + 4, ry, { size: SZ.tbSmall, maxWidth: 0.13 * inner - 8 });
-            this._bText(book, r.date, cx(0.13) + 4, ry, { size: SZ.tbSmall, maxWidth: 0.25 * inner - 8 });
-            this._bText(book, r.by, cx(0.38) + 4, ry, { size: SZ.tbSmall, maxWidth: 0.18 * inner - 8 });
-            lines.forEach((t, k) => this._bText(book, t, cx(0.56) + 4, ry + k * 22, { size: SZ.tbSmall, log: false }));
+            this._bText(book, String(r.no || printed + 1), mid(0), ry, { size: SZ.tbSmall, align: 'center', maxWidth: room(0) });
+            this._bText(book, r.date, mid(1), ry, { size: SZ.tbSmall, align: 'center', maxWidth: room(1) });
+            this._bText(book, r.by, mid(2), ry, { size: SZ.tbSmall, align: 'center', maxWidth: room(2) });
+            lines.forEach((t, k) => this._bText(book, t, mid(3), ry + k * 22,
+                                                { size: SZ.tbSmall, align: 'center', log: false }));
             if (book.log && page.painting) {
                 book.log.texts.push(r.description);
                 if (book.log.textInfo) book.log.textInfo.push({ text: r.description, size: SZ.tbSmall, weight: 400 });
@@ -1857,14 +1981,12 @@ class _Binder {
         y += hShow; rule(y);
 
         // 4. the people
-        this._bText(book, 'Designer:', x + pad, y + 34, { size: SZ.tbLabel, weight: 700 });
-        this._bText(book, b.designer, x + pad + 40, y + 64, { size: SZ.tbCell, maxWidth: inner - 40 });
-        this._bText(book, 'Project Manager:', x + pad, y + 112, { size: SZ.tbLabel, weight: 700 });
-        this._bText(book, b.projectManager.name, x + pad + 40, y + 142, { size: SZ.tbCell, maxWidth: inner - 40 });
-        this._bText(book, b.projectManager.phone, x + pad + 40, y + 170, { size: SZ.tbCell, maxWidth: inner - 40 });
-        this._bText(book, b.projectManager.email, x + pad + 40, y + 198, { size: SZ.tbCell, maxWidth: inner - 40 });
-        this._bText(book, 'Drafter:', x + pad, y + 246, { size: SZ.tbLabel, weight: 700 });
-        this._bText(book, b.drafter, x + pad + 40, y + 276, { size: SZ.tbCell, maxWidth: inner - 40 });
+        for (const who of peopleAt) {
+            this._bText(book, who.label, x + pad, y + who.y, { size: SZ.tbLabel, weight: 700 });
+            for (const v of who.values) {
+                this._bText(book, v.text, x + pad + 40, y + v.y, { size: SZ.tbCell, maxWidth: inner - 40 });
+            }
+        }
         sections.people = { y, h: hPeople };
         y += hPeople; rule(y);
 
@@ -2126,9 +2248,12 @@ class _Binder {
         ctx.font = this._bFont(size, opts.weight);
         // A heading shrinks a little before it is cut: "PANELS" in a narrow
         // column is still "PANELS".
+        // (`minSize`: a heading that must never be cut - LENGTH in a crowded
+        // table - may go smaller than that)
         if (opts.shrink && opts.maxWidth) {
-            while (size > 14 && ctx.measureText(t).width > opts.maxWidth) {
-                size -= 1;
+            const floor = opts.minSize || 14;
+            while (size > floor && ctx.measureText(t).width > opts.maxWidth) {
+                size -= opts.minSize ? 0.5 : 1;
                 ctx.font = this._bFont(size, opts.weight);
             }
         }
@@ -2142,6 +2267,26 @@ class _Binder {
             if (book.log.textInfo) book.log.textInfo.push({ text: t, size, weight: opts.weight || 400 });
         }
         return t;
+    }
+
+    // The width `text` takes drawn by _bText with these options - shrunk
+    // and cut as it would be - so a piece drawn beside it (a strand's
+    // swatch) can stand with it on a column's middle.
+    _bTextWidth(book, text, o) {
+        const ctx = book.measureCtx || book.ctx;
+        const opts = o || {};
+        let t = String(text == null ? '' : text);
+        if (opts.upper) t = this._bCaps(t);
+        let size = opts.size || SZ.cell;
+        ctx.font = this._bFont(size, opts.weight);
+        if (opts.shrink && opts.maxWidth) {
+            while (size > 14 && ctx.measureText(t).width > opts.maxWidth) {
+                size -= 1;
+                ctx.font = this._bFont(size, opts.weight);
+            }
+        }
+        if (opts.maxWidth) t = this._bFit(ctx, t, opts.maxWidth);
+        return ctx.measureText(t).width;
     }
 
     // Does `text` fit `maxWidth` at `size`, shrinking as _bText would?
@@ -2234,10 +2379,21 @@ class _Binder {
         return BINDER_TYPE_WORDS[t] || t;
     }
 
+    // en-US with thousands separators at any number of decimals
+    // ("1,724.4"); toFixed alone printed "1724.4".
     _bNum(n, digits) {
         const v = Number(n);
         if (!Number.isFinite(v)) return '—';
-        return digits === 0 ? Math.round(v).toLocaleString('en-US') : v.toFixed(digits);
+        const d = Number.isInteger(digits) && digits > 0 ? digits : 0;
+        return (d === 0 ? Math.round(v) : v).toLocaleString('en-US',
+            { minimumFractionDigits: d, maximumFractionDigits: d });
+    }
+
+    // A pull quantity: a count with thousands separators ("1,517"),
+    // anything else as it came.
+    _bQty(q) {
+        const v = Number(q);
+        return q !== null && q !== '' && Number.isFinite(v) ? this._bNum(v, 0) : String(q);
     }
 
     _bPlural(n, word) {
@@ -2254,6 +2410,12 @@ class _Binder {
     // warning) wraps between any two words instead.
     _bCellPieces(text, words) {
         const s = String(text == null ? '' : text);
+        // 'on': "X1 on XD S1 A" breaks only after its " on " - a box's
+        // name is never split, and the column asks for the name whole
+        if (words === 'on') {
+            const m = /^(.*? on )(.+)$/.exec(s);
+            return m ? [m[1], m[2]] : [s];
+        }
         // never break before a " · " - its dot stays with the word it follows
         if (words) return s.split(/(?<= )(?!· )/).filter(Boolean);
         const out = [];
@@ -2310,15 +2472,43 @@ class _Binder {
     // SCREEN sat half empty beside it (2026-09-09). Nothing is ever taken
     // below what its own content needs, so a table that already fits is
     // laid out exactly as it was. A list column asks only for its heading:
-    // its list wraps and says how many more.
-    _bColWidths(book, cols, rows, width, padX) {
+    // its list wraps and says how many more - unless the table asks for
+    // its lists `whole` and the width holds every one of them on one line
+    // (the pull sheet's columns, sized to their content), when a list
+    // column asks for its widest list. A `small` table (the pull sheet's
+    // Screens, four positions to a Tabloid) that cannot hold its headings
+    // and cells at full size asks for them at the smallest size they
+    // shrink to (_bText's 14), so they shrink rather than cut ("CIRCU…").
+    //
+    // A column that BORROWS (`borrow`: the cable tables' LENGTH, its old
+    // heading "len" the value) is laid out as it was under its old heading,
+    // so every other column keeps the width - and the wrapping - it had;
+    // then it takes the room its whole heading needs from the spare of
+    // the columns that LEND (`lend`: CABLE and QTY, whose text never wraps
+    // or changes with their width), and past what they can spare, from
+    // any column's room beyond its own content - never below it, so no
+    // other cell changes. Where a crowded table has no room left anywhere
+    // the heading shrinks to fit (`minSize`, _bText) - smaller,
+    // never cut (owner, 2026-10-18: "LEN" → "LENGTH", widened as needed so
+    // it is not truncated).
+    _bColWidths(book, cols, rows, width, padX, o = {}) {
+        if (cols.some(c => c.borrow)) return this._bBorrowWidths(book, cols, rows, width, padX, o);
         const fr = cols.reduce((s, c) => s + (c.w || 1), 0) || 1;
         const px = cols.map(c => (c.w || 1) / fr * width);
+        const sum = (a) => a.reduce((x, y) => x + y, 0);
+        const full = cols.map(c => ({ ...c, headShrink: false }));
         let need = this._bColNeeds(book, cols, rows, padX);
         // headings shrink only where the table cannot hold them whole
         if (cols.some(c => c.headShrink)) {
-            const whole = this._bColNeeds(book, cols.map(c => ({ ...c, headShrink: false })), rows, padX);
-            if (whole.reduce((a, b) => a + b, 0) <= width) need = whole;
+            const whole = this._bColNeeds(book, full, rows, padX);
+            if (sum(whole) <= width) need = whole;
+        }
+        if (o.whole) {
+            const lists = this._bColNeeds(book, full, rows, padX, true);
+            if (sum(lists) <= width) need = lists;
+        }
+        if (o.small && sum(need) > width) {
+            need = this._bColNeeds(book, cols.map(c => ({ ...c, headShrink: true })), rows, padX, false, true);
         }
         const want = px.map((p, i) => Math.max(0, need[i] - p));
         const give = px.map((p, i) => Math.max(0, p - need[i]));
@@ -2329,9 +2519,58 @@ class _Binder {
         return px.map((p, i) => p + move * (want[i] / wantAll) - move * (give[i] / giveAll));
     }
 
+    // The columns as they were before a borrowing column's heading grew
+    // (_bColWidths): its old heading in its place.
+    _bUnborrowed(cols) {
+        return cols.map(c => {
+            if (!c.borrow) return c;
+            const { borrow, ...rest } = c;
+            return { ...rest, title: borrow };
+        });
+    }
+
+    _bBorrowWidths(book, cols, rows, width, padX, o) {
+        const was = this._bUnborrowed(cols);
+        const W = this._bColWidths(book, was, rows, width, padX, o);
+        // each column's content as the layout measured it: a `whole`
+        // table's lists on one line where the width holds them all
+        const sum = (a) => a.reduce((x, y) => x + y, 0);
+        let needWas = this._bColNeeds(book, was, rows, padX);
+        if (o.whole) {
+            const lists = this._bColNeeds(book, was, rows, padX, true);
+            if (sum(lists) <= width) needWas = lists;
+        }
+        const ctxM = book.measureCtx;
+        cols.forEach((c, i) => {
+            if (!c.borrow) return;
+            const head = (size) => {
+                ctxM.font = this._bFont(size, 700);
+                return ctxM.measureText(this._bCaps(c.title || '')).width + padX * 2;
+            };
+            const take = (want, from) => {
+                const spare = from.map(j => Math.max(0, W[j] - needWas[j]));
+                const all = spare.reduce((a, b) => a + b, 0);
+                const got = Math.min(want, all);
+                if (got <= 0) return 0;
+                from.forEach((j, k) => { W[j] -= got * spare[k] / all; });
+                W[i] += got;
+                return got;
+            };
+            // the lenders first, then any column's room beyond its content
+            for (const from of [cols.map((d, j) => (d.lend ? j : -1)).filter(j => j >= 0),
+                                cols.map((d, j) => j).filter(j => j !== i)]) {
+                const want = Math.max(needWas[i], head(SZ.th)) - W[i];
+                if (want > 0.5) take(want, from);
+            }
+        });
+        return W;
+    }
+
     // What each column needs so nothing in it is cut: its heading, its
-    // widest cell - or, in a column that wraps, its widest piece.
-    _bColNeeds(book, cols, rows, padX) {
+    // widest cell - or, in a column that wraps, its widest piece (its
+    // widest whole list where `whole`); a cell that is not a list at the
+    // smallest size it shrinks to where `small`.
+    _bColNeeds(book, cols, rows, padX, whole = false, small = false) {
         const ctxM = book.measureCtx;
         return cols.map((c, i) => {
             if (c.tick) return 24 + padX * 2;
@@ -2348,6 +2587,13 @@ class _Binder {
                 // list: the list wraps, but a member that will not fit a line
                 // has nowhere to go and would be cut ("28× 2fer" in the
                 // Screens table's SHARED column).
+                const groups = c.inputs && r.inputs && r.inputs[i];
+                if (groups && groups.length) {
+                    // an input column asks for its widest group whole:
+                    // the column's label width, then the widest strand
+                    n = Math.max(n, this._bInputsNeed(book, rows, i) + padX * 2);
+                    continue;
+                }
                 const parts = c.parts && r.parts && r.parts[i];
                 if (parts && parts.length) {
                     // a strand list asks for its widest strand, swatch and all
@@ -2355,13 +2601,17 @@ class _Binder {
                         n = Math.max(n, ctxM.measureText(p.text).width + padX * 2
                             + (p.swatch ? SWATCH_W : 0));
                     }
+                } else if (c.list && whole) {
+                    n = Math.max(n, ctxM.measureText(String(cell).trim()).width + padX * 2);
                 } else if (c.list) {
                     for (const piece of this._bCellPieces(cell, c.words)) {
                         n = Math.max(n, ctxM.measureText(piece.trim()).width + padX * 2);
                     }
                 } else {
+                    if (small) ctxM.font = this._bFont(14, 400);
                     n = Math.max(n, ctxM.measureText(String(cell)).width + padX * 2
                         + (c.swatch && r.swatch ? SWATCH_W : 0));
+                    if (small) ctxM.font = this._bFont(SZ.cell, 400);
                 }
             }
             return n;
@@ -2391,27 +2641,65 @@ class _Binder {
     // `headShrink` column's heading shrinks before the column asks its
     // neighbours for room (_bColNeeds).
     // `titleShrink` lets a long title shrink a little rather than be cut.
+    // `whole` (the pull sheet's tables) gives a list column the room for
+    // its widest list on one line wherever the width holds them all, and a
+    // `shrink` table's headings and cells the room to shrink rather than
+    // cut where it cannot hold them at full size (_bColWidths).
     // `width` is the column the block is measured in (COL_W unless the
     // sheet's columns are another size) - a row that has to wrap knows its
     // height there, and a wider column at paint time simply wraps looser.
+    // EVERY column stands its heading and its cells on its middle (owner,
+    // 2026-10-18: "center every column in every binder table") - a wrapped
+    // list each line, a strand list each line with its swatch, an input
+    // column its outlined groups, the tick its box; a column's `align` is
+    // no longer read. A band over a run of rows still reads from the
+    // table's left edge: it heads the table, it is not a column.
+    //
+    // `fit` (the data sheet's Ports table): every column its CONTENT'S
+    // width - its heading or its widest cell, and a band at least its
+    // band's (_bFitColWidths) - and the table as wide as that, never
+    // stretched across the column it sits in: at fixed shares OUTPUT ran
+    // far wider than "S1 A · 1" and HOME RUN's "25'" sat stranded at the
+    // left of a wide column (owner, 2026-10-18: "the non centered home
+    // runs, and the waste of space in the same table … sizing it
+    // dynamically"). Past `width` the columns share it by their needs.
+    // The lines carry `naturalW`, the width the table takes.
     _bTableLines(book, spec) {
         const cols = spec.cols || [];
         const padX = 12;
-        const mW = spec.width || COL_W;
-        const W = this._bColWidths(book, cols, spec.rows || [], mW, padX);
+        let mW = spec.width || COL_W;
+        let W;
+        if (spec.fit) {
+            const need = this._bFitColWidths(book, spec, padX);
+            const total = need.reduce((a, b) => a + b, 0);
+            W = total <= mW ? need
+                : this._bColWidths(book, cols.map((c, i) => ({ ...c, w: need[i] })), spec.rows || [], mW, padX);
+            mW = Math.min(total, mW);
+        } else {
+            W = this._bColWidths(book, cols, spec.rows || [], mW, padX,
+                                 { whole: !!spec.whole, small: !!spec.whole && !!spec.shrink });
+        }
+        // a fitted table is drawn at its own width in a wider column
+        const tableW = (w) => (spec.fit ? Math.min(w, mW) : w);
         const layout = (w) => {
             const k = w / mW;
             let x = 0;
             return cols.map((c, i) => {
                 const cw = W[i] * k;
-                const out = { x, w: cw, align: c.align || 'left', tick: !!c.tick };
+                // every column stands on its middle, its heading and its
+                // cells (owner, 2026-10-18: "center every column in every
+                // binder table")
+                const out = { x, w: cw, align: 'center', tick: !!c.tick };
                 x += cw;
                 return out;
             });
         };
+        // where a column's text stands: its middle
+        const anchor = (c, x) => x + c.x + c.w / 2;
         const lines = [];
         if (spec.title) {
-            lines.push({ h: H4_H, head: true, draw: (ctx, x, y, w) => {
+            lines.push({ h: H4_H, head: true, draw: (ctx, x, y, cw) => {
+                const w = tableW(cw);
                 this._bText(book, spec.title, x, y + 30,
                             { size: SZ.h4, weight: 700, upper: true, maxWidth: w,
                               shrink: !!spec.titleShrink });
@@ -2422,7 +2710,8 @@ class _Binder {
         // `note`: one line of the table's own text under its title ("Also
         // on BK RACK"), repeated with the head where the block continues.
         if (spec.note) {
-            lines.push({ h: ROW_H, head: true, draw: (ctx, x, y, w) => {
+            lines.push({ h: ROW_H, head: true, draw: (ctx, x, y, cw) => {
+                const w = tableW(cw);
                 this._bText(book, spec.note, x, y + 27,
                             { size: SZ.cell, weight: 400, maxWidth: w });
             } });
@@ -2437,27 +2726,30 @@ class _Binder {
             });
         };
         if (groups.length) {
-            lines.push({ h: TH_H, head: true, draw: (ctx, x, y, w) => {
+            lines.push({ h: TH_H, head: true, draw: (ctx, x, y, cw) => {
+                const w = tableW(cw);
                 const L = layout(w);
                 for (const g of groups) {
                     const sp = spanOf(L, g);
-                    this._bText(book, g.title, x + sp.x + padX, y + 28,
-                                { size: SZ.th, weight: 700, upper: true,
+                    this._bText(book, g.title, x + sp.x + sp.w / 2, y + 28,
+                                { size: SZ.th, weight: 700, upper: true, align: 'center',
                                   maxWidth: sp.w - padX * 2, shrink: true });
                     ctx.fillStyle = RULE;
                     ctx.fillRect(x + sp.x + (g.from ? 6 : 0), y + TH_H - 4, sp.w - (g.from ? 6 : 0), 2);
                 }
             } });
         }
-        const th = { h: TH_H, head: true, draw: (ctx, x, y, w) => {
+        const th = { h: TH_H, head: true, draw: (ctx, x, y, cw) => {
+            const w = tableW(cw);
             const L = layout(w);
             rules(ctx, L, x, y, TH_H);
             cols.forEach((c, i) => {
                 if (c.tick) return;
-                const ax = L[i].align === 'right' ? x + L[i].x + L[i].w - padX : x + L[i].x + padX;
+                const ax = anchor(L[i], x);
                 this._bText(book, c.title || '', ax, y + 28,
                             { size: SZ.th, weight: 700, upper: true, align: L[i].align,
-                              maxWidth: L[i].w - padX * 2, shrink: true });
+                              maxWidth: L[i].w - padX * 2, shrink: true,
+                              ...(c.borrow ? { minSize: 8 } : {}) });
             });
             ctx.fillStyle = RULE;
             ctx.fillRect(x, y + TH_H - 4, w, 4);
@@ -2474,14 +2766,18 @@ class _Binder {
         const underBand = { ...th, head: false, band: true };
         if (!lead || !(spec.rows || []).length || !topBand(spec.rows[0])) lines.push(th);
         for (const r of spec.rows || []) {
-            if (r.halves) {
+            if (r.halves || r.lines) {
                 // A sub-band in halves (each half's snake) keeps the
-                // sub-band's look: set in, no fill, a thin rule.
+                // sub-band's look: set in, no fill, a thin rule. A band of
+                // `lines` is one stack across the whole width (a unit and
+                // its fiber strand by strand, on a sheet with no halves).
                 const sub = !!r.sub;
                 const ind = sub ? 22 : 0;
-                const n = r.halves.reduce((m, h) => Math.max(m, h.length), 1);
-                const h = BAND_H + (n - 1) * LIST_H;
-                lines.push({ h, band: true, draw: (ctx, x, y, w) => {
+                // a group stands on its lines and its gap (_bStackLayout)
+                const tall = (list) => { const L = this._bStackLayout(list); return (L.lines - 1) * LIST_H + L.extra; };
+                const h = BAND_H + (r.lines ? tall(r.lines) : r.halves.reduce((m, half) => Math.max(m, tall(half)), 0));
+                lines.push({ h, band: true, draw: (ctx, x, y, cw) => {
+                    const w = tableW(cw);
                     const L = layout(w);
                     if (book.meta.palette === 'printer') {
                         ctx.fillStyle = INK;
@@ -2491,13 +2787,12 @@ class _Binder {
                         ctx.fillRect(x, y, w, h - 4);
                     }
                     rules(ctx, L, x, y, h);
-                    r.halves.forEach((half, j) => {
+                    if (r.lines) this._bBandStack(book, r.lines, x + ind + padX, y + 31, w - ind - padX * 2);
+                    (r.halves || []).forEach((half, j) => {
                         const g = groups[j];
                         if (!g) return;
                         const sp = spanOf(L, g);
-                        half.forEach((t, k) => this._bText(book, t, x + sp.x + ind + padX, y + 31 + k * LIST_H,
-                            { size: SZ.cell, weight: k ? 400 : 700, shrink: true,
-                              maxWidth: sp.w - ind - padX * 2 }));
+                        this._bBandStack(book, half, x + sp.x + ind + padX, y + 31, sp.w - ind - padX * 2);
                     });
                     ctx.fillStyle = RULE;
                     ctx.fillRect(x + ind, y + h - 4, w - ind, sub ? 2 : 4);
@@ -2513,7 +2808,8 @@ class _Binder {
                 // unit and which is the loom hanging off it.
                 const sub = !!r.sub;
                 const ind = sub ? 22 : 0;
-                lines.push({ h: BAND_H, band: true, draw: (ctx, x, y, w) => {
+                lines.push({ h: BAND_H, band: true, draw: (ctx, x, y, cw) => {
+                    const w = tableW(cw);
                     if (book.meta.palette === 'printer') {
                         ctx.fillStyle = INK;
                         ctx.fillRect(x + ind, y + 2, w - ind, sub ? 2 : 3);
@@ -2543,25 +2839,43 @@ class _Binder {
                     ? this._bCellLines(book, r.cells[i], SZ.cell, weight,
                                        W[i] - padX * 2, c.list === true ? LIST_LINES : c.list, c.words)
                     : null));
-            const rowLines = wrapped.reduce((m, ls) => Math.max(m, ls ? ls.length : 1), 1);
-            const h = ROW_H + (rowLines - 1) * LIST_H;
-            lines.push({ h, draw: (ctx, x, y, w) => {
+            // AN INPUT COLUMN (the Breakout boxes table's FIBER): each input
+            // a group - its label centred beside its strands, outlined -
+            // and the row as tall as its groups; every other cell of that
+            // row sits centred on them rather than hanging at the top.
+            const inputsAt = cols.findIndex((c, i) => c.inputs && r.inputs && r.inputs[i] && r.inputs[i].length);
+            const rowLines = wrapped.reduce((m, ls, i) => (i === inputsAt ? m : Math.max(m, ls ? ls.length : 1)), 1);
+            const inLay = inputsAt >= 0 ? this._bInputsLayout(r.inputs[inputsAt]) : null;
+            const h = inLay ? Math.max(ROW_H + (rowLines - 1) * LIST_H, inLay.height)
+                : ROW_H + (rowLines - 1) * LIST_H;
+            const cellLines = (i) => (partsOf(i) ? this._bPartLines(book, partsOf(i), weight, W[i] - padX * 2).length
+                : wrapped[i] ? wrapped[i].length : 1);
+            lines.push({ h, draw: (ctx, x, y0, cw) => {
+                const w = tableW(cw);
                 const L = layout(w);
-                rules(ctx, L, x, y, h);
-                if (r.bold) { ctx.fillStyle = RULE; ctx.fillRect(x, y, w, 3); }
+                rules(ctx, L, x, y0, h);
+                if (r.bold) { ctx.fillStyle = RULE; ctx.fillRect(x, y0, w, 3); }
                 (r.cells || []).forEach((cell, i) => {
                     if (!L[i]) return;
+                    if (i === inputsAt) {
+                        const head = this._bInputsHead(book, spec.rows, i);
+                        this._bInputsCell(book, ctx, r.inputs[inputsAt], inLay, x + L[i].x + padX, y0,
+                                          L[i].w - padX * 2, head, weight,
+                                          this._bInputsWide(book, spec.rows, i, head));
+                        return;
+                    }
+                    const y = inLay ? y0 + Math.max(0, (h - ROW_H - (cellLines(i) - 1) * LIST_H) / 2) : y0;
                     if (L[i].tick) {
                         ctx.strokeStyle = INK;
                         ctx.lineWidth = 2;
-                        ctx.strokeRect(x + L[i].x + padX, y + 7, 24, 24);
+                        ctx.strokeRect(x + L[i].x + (L[i].w - 24) / 2, y + 7, 24, 24);
                         return;
                     }
-                    const ax = L[i].align === 'right' ? x + L[i].x + L[i].w - padX : x + L[i].x + padX;
+                    const ax = anchor(L[i], x);
                     const maxWidth = L[i].w - padX * 2;
                     if (partsOf(i)) {
                         this._bPartsCell(book, ctx, this._bPartLines(book, partsOf(i), weight, maxWidth),
-                                         ax, y, maxWidth, weight);
+                                         x + L[i].x + padX, y, maxWidth, weight, true);
                         return;
                     }
                     if (wrapped[i]) {
@@ -2588,10 +2902,19 @@ class _Binder {
                     // cell saying two things ("A / B" - HOME RUN with a
                     // backup end) goes to two lines rather than being cut.
                     if (cols[i].swatch && r.swatch) {
-                        this._bSwatch(ctx, r.swatch, ax, y + 10);
-                        const o = { size: SZ.cell, weight, align: L[i].align,
+                        // the strand's cell tinted its own colour and its
+                        // name bold; the name stays, so a black-and-white
+                        // print still says which strand it is
+                        ctx.fillStyle = this._bTint(r.swatch.base, 0.24);
+                        ctx.fillRect(x + L[i].x + 3, y + 3, L[i].w - 6, h - 7);
+                        // the swatch and its name stand together on the
+                        // column's middle, the name never past the cell
+                        const o = { size: SZ.cell, weight: 700, align: 'left',
                                     maxWidth: maxWidth - SWATCH_W, shrink: !!spec.shrink };
-                        this._bText(book, cell, ax + SWATCH_W, y + 27, o);
+                        const tw = Math.min(o.maxWidth, this._bTextWidth(book, cell, o));
+                        const sx = ax - (SWATCH_W + tw) / 2;
+                        this._bSwatch(ctx, r.swatch, sx, y + 27);
+                        this._bText(book, cell, sx + SWATCH_W, y + 27, o);
                         return;
                     }
                     const o = { size: SZ.cell, weight, align: L[i].align,
@@ -2599,47 +2922,290 @@ class _Binder {
                     if (spec.shrink) this._bTextTwoLines(book, cell, ax, y + 27, o);
                     else this._bText(book, cell, ax, y + 27, o);
                 });
-                if (!r.bold) { ctx.fillStyle = FAINT; ctx.fillRect(x, y + h - 2, w, 2); }
+                if (!r.bold) { ctx.fillStyle = FAINT; ctx.fillRect(x, y0 + h - 2, w, 2); }
             } });
         }
         // where the table runs on into another column, its heads again -
         // the headings included, which a band-led table otherwise prints
         // only under its bands
         if (lead) lines.contHeads = [...lines.filter(l => l.head && l !== th), th];
+        if (spec.fit) lines.naturalW = mW;
         return lines;
     }
 
-    // A fiber strand's swatch, 18 px square at (x, y): its color, the
-    // tracer as a corner, ringed in ink so White reads on white paper.
-    _bSwatch(ctx, sw, x, y) {
-        const S = 18;
+    // A fitted table's columns (`fit`, _bTableLines): each its content's
+    // width (_bColNeeds), then a group of columns - PRIMARY, BACKUP - at
+    // least as wide as the band standing over it (the unit's line, its
+    // fiber groups, a snake's heading), a table without groups at least
+    // as wide as its widest band; a band's extra spread evenly over the
+    // columns under it, so a band is never shrunk to fit its columns.
+    _bFitColWidths(book, spec, padX) {
+        const cols = spec.cols || [];
+        const groups = spec.groups || [];
+        const need = this._bColNeeds(book, cols, spec.rows || [], padX).map(n => Math.ceil(n));
+        const ctxM = book.measureCtx;
+        // a band's stack as _bBandStack draws it: its first line bold, an
+        // input group its label column and widest strand in its outline
+        const stackW = (list) => {
+            let w = 0;
+            (list || []).forEach((t, k) => {
+                if (t && typeof t === 'object') return;
+                ctxM.font = this._bFont(SZ.cell, k ? 400 : 700);
+                w = Math.max(w, ctxM.measureText(String(t == null ? '' : t)).width);
+            });
+            const gs = (list || []).filter(t => t && typeof t === 'object' && t.group).map(t => t.group);
+            if (gs.length) {
+                const head = this._bGroupsHead(ctxM, gs, SZ.cell);
+                w = Math.max(w, this._bGroupsWide(ctxM, gs, SZ.cell, head) + GROUP_PAD * 2);
+            }
+            return w;
+        };
+        const widen = (from, to, want) => {
+            const have = need.slice(from, to + 1).reduce((a, b) => a + b, 0);
+            if (want <= have) return;
+            const add = (want - have) / (to - from + 1);
+            for (let i = from; i <= to; i++) need[i] = Math.ceil(need[i] + add);
+        };
+        for (const r of spec.rows || []) {
+            const ind = r.sub ? 22 : 0;
+            if (r.halves) {
+                r.halves.forEach((half, j) => {
+                    if (groups[j]) widen(groups[j].from, groups[j].to, stackW(half) + ind + padX * 2);
+                });
+            } else if (r.lines) {
+                widen(0, cols.length - 1, stackW(r.lines) + ind + padX * 2);
+            } else if (r.band) {
+                widen(0, cols.length - 1, stackW([r.band]) + ind + padX * 2);
+            }
+        }
+        return need;
+    }
+
+    // A fiber strand's swatch, SWATCH square, at x and centred on the text
+    // standing on `baseline`: its color, the tracer past 12 as a stripe
+    // across its middle, ringed in ink so White reads on white paper. The
+    // tracer is a rect, not a filled path - the recorder writes rects and
+    // lines only, and the corner triangle it used to be never reached the
+    // PDF.
+    _bSwatch(ctx, sw, x, baseline) {
+        const S = SWATCH;
+        const y = baseline - 8 - S / 2;
         ctx.fillStyle = sw.base || '#777777';
         ctx.fillRect(x, y, S, S);
         if (sw.tracer) {
             ctx.fillStyle = sw.tracer;
-            ctx.beginPath();
-            ctx.moveTo(x + S, y + S * 0.35);
-            ctx.lineTo(x + S, y + S);
-            ctx.lineTo(x + S * 0.35, y + S);
-            ctx.closePath();
-            ctx.fill();
+            ctx.fillRect(x, y + S * 0.36, S, S * 0.28);
         }
         ctx.strokeStyle = INK;
         ctx.lineWidth = 1.5;
         ctx.strokeRect(x, y, S, S);
     }
 
+    // A colour mixed toward the paper: `k` of the colour, the rest white.
+    _bTint(hex, k) {
+        const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || ''));
+        if (!m) return '#eeeeee';
+        const n = parseInt(m[1], 16);
+        const ch = (v) => Math.round(255 - (255 - v) * k).toString(16).padStart(2, '0');
+        return `#${ch((n >> 16) & 255)}${ch((n >> 8) & 255)}${ch(n & 255)}`;
+    }
+
+    // A band's lines stacked from `baseline`, LIST_H apart: a text line as
+    // it always read (the first bold, each shrinking alone before it is
+    // cut), and an input group ({ group } - _bBoxBandLines) on as many lines
+    // as it needs, a GROUP_GAP ahead of it: its strands a line each, its
+    // label - the input over its cable - centred beside them, the lot in a
+    // thin outline (_bDrawGroup). Every group's strands stand in one column
+    // and the groups shrink together where the widest will not fit.
+    _bBandStack(book, lines, x, baseline, maxWidth) {
+        const ctx = book.ctx;
+        const groups = lines.filter(t => t && typeof t === 'object' && t.group).map(t => t.group);
+        let size = SZ.cell, head = 0;
+        if (groups.length) {
+            const measure = (sz) => {
+                head = this._bGroupsHead(ctx, groups, sz);
+                return this._bGroupsWide(ctx, groups, sz, head) + GROUP_PAD * 2;
+            };
+            while (size > 14 && measure(size) > maxWidth) size -= 1;
+            measure(size);
+        }
+        const lay = this._bStackLayout(lines);
+        lines.forEach((t, k) => {
+            const y = baseline + lay.y[k];
+            if (!t || typeof t !== 'object') {
+                this._bText(book, t, x, y, { size: SZ.cell, weight: k ? 400 : 700, shrink: true, maxWidth });
+                return;
+            }
+            this._bDrawGroup(book, ctx, t.group, x + GROUP_PAD, y, head, maxWidth - GROUP_PAD * 2, size, 400);
+        });
+    }
+
+    // Where each entry of a band's stack stands from its first baseline: a
+    // text line one LIST_H, a group its lines (_bGroupLines) and a
+    // GROUP_GAP ahead of it, so one input's outline never touches the next
+    // (nor the box's line above it). `lines` is the stack's height in
+    // lines and `extra` what the gaps add to it.
+    _bStackLayout(entries) {
+        const y = [];
+        let at = 0, n = 0;
+        (entries || []).forEach((t) => {
+            const g = t && typeof t === 'object' && t.group;
+            if (g) at += GROUP_GAP;
+            y.push(at + n * LIST_H);
+            n += g ? this._bGroupLines(g) : 1;
+        });
+        return { y, lines: Math.max(1, n), extra: at };
+    }
+
+    // The label column a set of groups needs: its widest input or cable
+    // word, and the gap before the strands.
+    _bGroupsHead(ctx, groups, size) {
+        ctx.font = this._bFont(size, 400);
+        const gap = ctx.measureText('  ').width;
+        let w = 0;
+        for (const g of groups) {
+            if (!(g.strands && g.strands.length)) continue;
+            for (const t of [g.head, g.sub]) if (t) w = Math.max(w, ctx.measureText(t).width + gap);
+        }
+        return w;
+    }
+
+    // The widest group: the label column, then its widest strand - a group
+    // of words its words.
+    _bGroupsWide(ctx, groups, size, head) {
+        ctx.font = this._bFont(size, 400);
+        const sw = SWATCH_W * size / SZ.cell;
+        let w = 0;
+        for (const g of groups) {
+            if (!(g.strands && g.strands.length)) { w = Math.max(w, ctx.measureText(String(g.text || '')).width); continue; }
+            for (const st of g.strands) w = Math.max(w, head + (st.swatch ? sw : 0) + ctx.measureText(st.text).width);
+        }
+        return w;
+    }
+
+    // ONE INPUT GROUP drawn, its first line's baseline at `top`: the
+    // strands a line each in the column `head` leaves, each its swatch and
+    // its name; the input over its cable centred down those lines; the
+    // thin outline round the lot. A group of words alone ({ text }) is its
+    // words on one line, outlined the same. Returns the texts it drew.
+    // `log` false where the caller logs the cell as one text (a table's).
+    // `boxW`: the outline that wide rather than the group's own (a centred
+    // input column draws every group's outline alike, _bInputsCell).
+    _bDrawGroup(book, ctx, g, x, top, head, maxWidth, size, weight, log = true, boxW = 0) {
+        const drawn = [];
+        const lines = this._bGroupLines(g);
+        const bottom = top + (lines - 1) * LIST_H;
+        if (!(g.strands && g.strands.length)) {
+            drawn.push(this._bText(book, g.text || '', x, top, { size, weight, maxWidth, shrink: true, log }));
+            ctx.font = this._bFont(size, weight);
+            this._bGroupOutline(ctx, x, top, bottom,
+                                boxW || Math.min(maxWidth, ctx.measureText(String(g.text || '')).width), size);
+            return drawn;
+        }
+        const label = [g.head, g.sub].filter(Boolean);
+        const mid = (top + bottom) / 2;
+        label.forEach((t, k) => {
+            const y = mid + (k - (label.length - 1) / 2) * LIST_H;
+            drawn.push(this._bText(book, t, x, y, { size, weight, maxWidth: Math.max(1, head), shrink: true, log }));
+        });
+        const sw = SWATCH_W * size / SZ.cell;
+        let wide = 0;
+        g.strands.forEach((st, k) => {
+            const y = top + k * LIST_H;
+            let sx = x + head;
+            if (st.swatch) { this._bSwatch(ctx, st.swatch, sx, y); sx += sw; }
+            drawn.push(this._bText(book, st.text, sx, y,
+                { size, weight, maxWidth: Math.max(1, x + maxWidth - sx), shrink: true, log }));
+            ctx.font = this._bFont(size, weight);
+            wide = Math.max(wide, (st.swatch ? sw : 0) + ctx.measureText(st.text).width);
+        });
+        this._bGroupOutline(ctx, x, top, bottom, boxW || Math.min(maxWidth, head + wide), size);
+        return drawn;
+    }
+
+    // The widest group in an input column (_bGroupsWide over every row's
+    // groups), its label column `head` included - the width a centred
+    // column draws every outline at.
+    _bInputsWide(book, rows, i, head) {
+        return this._bGroupsWide(book.measureCtx, (rows || []).flatMap(r => (r.inputs || {})[i] || []), SZ.cell, head);
+    }
+
+    // AN INPUT COLUMN'S CELL (the Breakout boxes table's FIBER): its groups
+    // (_bBoxInputGroups) from the row's top, each on its lines, a
+    // GROUP_GAP between groups; the row's height to hold them.
+    _bInputsLayout(groups) {
+        const first = 31;
+        let k = 0;
+        const at = groups.map((g, gi) => {
+            const n = this._bGroupLines(g);
+            const from = first + k * LIST_H + gi * GROUP_GAP;
+            k += n;
+            return { from, to: from + (n - 1) * LIST_H };
+        });
+        const last = at.length ? at[at.length - 1].to : first;
+        return { at, height: last + 8 + 6 };
+    }
+
+    // The widest label in an input column, so every row's strands stand
+    // in one column under one another.
+    _bInputsHead(book, rows, i) {
+        return this._bGroupsHead(book.measureCtx, (rows || []).flatMap(r => (r.inputs || {})[i] || []), SZ.cell);
+    }
+
+    // What an input column needs: the label column, its widest strand, and
+    // the outline's pad either side.
+    _bInputsNeed(book, rows, i) {
+        const groups = (rows || []).flatMap(r => (r.inputs || {})[i] || []);
+        const head = this._bGroupsHead(book.measureCtx, groups, SZ.cell);
+        return this._bGroupsWide(book.measureCtx, groups, SZ.cell, head) + GROUP_PAD * 2;
+    }
+
+    // An input column's cell drawn at (ax, y), logged as ONE text, the
+    // whole cell, the way a list cell is. `wide` (a centred column): every
+    // group's outline that wide - the column's widest group - and the lot
+    // standing on the cell's middle, so the outlines line up one under
+    // another and their labels and strands with them.
+    _bInputsCell(book, ctx, groups, lay, ax, y, maxWidth, head, weight, wide = 0) {
+        const drawn = [];
+        const inner = maxWidth - GROUP_PAD * 2;
+        const boxW = wide > 0 ? Math.min(inner, wide) : 0;
+        const off = boxW ? Math.max(0, (inner - boxW) / 2) : 0;
+        groups.forEach((g, gi) => {
+            drawn.push(...this._bDrawGroup(book, ctx, g, ax + GROUP_PAD + off, y + lay.at[gi].from, head,
+                                           inner - off, SZ.cell, weight, false, boxW));
+        });
+        if (book.log && book.page && book.page.painting) {
+            const t = drawn.join(' ');
+            book.log.texts.push(t);
+            if (book.log.textInfo) book.log.textInfo.push({ text: t, size: SZ.cell, weight });
+        }
+    }
+
+    // The thin outline round one input and its strands: from above the
+    // first line's swatch to below the last line's text, `w` wide from x.
+    _bGroupOutline(ctx, x, firstBaseline, lastBaseline, w, size = SZ.cell) {
+        const S = SWATCH * size / SZ.cell;
+        ctx.strokeStyle = MUTED;
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(x - GROUP_PAD, firstBaseline - S + 1 - GROUP_PAD / 2,
+                       w + GROUP_PAD * 2, lastBaseline - firstBaseline + S + GROUP_PAD + 4);
+    }
+
     // A `parts` cell's pieces as drawn: each strand's text with the " ·"
-    // that says another follows (kept at the end of a line that wraps, the
-    // way a list cell keeps its separator), and its swatch.
+    // that says another follows on the same line (kept at the end of a line
+    // that wraps, the way a list cell keeps its separator) - none before a
+    // `brk` part, which starts a line of its own, so a strand-to-a-line
+    // list reads "1 Blue" over "2 Orange" (2026-10-17) - and its swatch.
     _bPartPieces(parts) {
-        return parts.map((p, j) => ({ text: String(p.text) + (j < parts.length - 1 ? ' ·' : ''),
-                                      swatch: p.swatch || null }));
+        return parts.map((p, j) => ({
+            text: String(p.text) + (j < parts.length - 1 && !(parts[j + 1] || {}).brk ? ' ·' : ''),
+            swatch: p.swatch || null, brk: !!p.brk }));
     }
 
     // A `parts` cell onto lines no wider than maxWidth: as many strands per
-    // line as fit, a strand never split. Every strand is kept - a strand
-    // list is a link's two (an MTP's two and "crosses inside").
+    // line as fit, a strand never split, a `brk` part on a new line. Every
+    // strand is kept - a strand list is a link's two (an MTP's two and
+    // "crosses inside").
     _bPartLines(book, parts, weight, maxWidth) {
         const ctxM = book.measureCtx;
         ctxM.font = this._bFont(SZ.cell, weight);
@@ -2649,7 +3215,7 @@ class _Binder {
         let curW = 0;
         for (const p of this._bPartPieces(parts)) {
             const w = (p.swatch ? SWATCH_W : 0) + ctxM.measureText(p.text).width;
-            if (cur.length && curW + gap + w > maxWidth) {
+            if (cur.length && (p.brk || curW + gap + w > maxWidth)) {
                 lines.push(cur);
                 cur = [p];
                 curW = w;
@@ -2663,18 +3229,27 @@ class _Binder {
     }
 
     // A `parts` cell drawn: line by line, each strand its swatch then its
-    // name. Logged as ONE text, the whole cell, as a list cell is.
-    _bPartsCell(book, ctx, lines, ax, y, maxWidth, weight) {
+    // name, from the cell's left edge `ax` - or, `center`, each line on
+    // the cell's middle. Logged as ONE text, the whole cell, as a list
+    // cell is.
+    _bPartsCell(book, ctx, lines, ax, y, maxWidth, weight, center = false) {
         const drawn = [];
         lines.forEach((line, k) => {
             let cx = ax;
+            if (center) {
+                ctx.font = this._bFont(SZ.cell, weight);
+                const gap = ctx.measureText(' ').width;
+                const lw = line.reduce((s, p, j) => s + (j ? gap : 0) + (p.swatch ? SWATCH_W : 0)
+                    + ctx.measureText(p.text).width, 0);
+                cx = ax + Math.max(0, (maxWidth - lw) / 2);
+            }
             line.forEach((p, j) => {
                 if (j) {
                     ctx.font = this._bFont(SZ.cell, weight);
                     cx += ctx.measureText(' ').width;
                 }
                 if (p.swatch) {
-                    this._bSwatch(ctx, p.swatch, cx, y + 10 + k * LIST_H);
+                    this._bSwatch(ctx, p.swatch, cx, y + 27 + k * LIST_H);
                     cx += SWATCH_W;
                 }
                 const t = this._bText(book, p.text, cx, y + 27 + k * LIST_H,
@@ -2769,7 +3344,8 @@ class _Binder {
         };
         const rest = [];
         const queue = blocks.filter(b => b && (b.lines || []).length)
-            .map(b => ({ lines: b.lines.slice(), contHeads: b.contHeads || b.lines.contHeads || null }));
+            .map(b => ({ lines: b.lines.slice(), contHeads: b.contHeads || b.lines.contHeads || null,
+                         minW: (b && b.minW) || 0 }));
         while (queue.length) {
             const block = queue[0];
             // the lines a continuation starts with: a table's own list
@@ -2826,7 +3402,9 @@ class _Binder {
                 queue.shift();
             }
         }
-        for (const b of queue) rest.push({ lines: b.lines, contHeads: b.contHeads });
+        // a block running on keeps the column it asked for (minW): a Ports
+        // table on its "(cont.)" sheet was squeezed into COL_W
+        for (const b of queue) rest.push({ lines: b.lines, contHeads: b.contHeads, ...(b.minW ? { minW: b.minW } : {}) });
         return { cols, rest };
     }
 
@@ -3167,13 +3745,12 @@ class _Binder {
         });
     }
 
-    // Subjects side by side on one sheet, a COLUMN each - a position's
-    // POWER CABLES / DATA CABLES / HARDWARE / SCREENS stacked under its
-    // name the way the workbook's blocks are; a distro's, a processor's
-    // tables under theirs - as many as fit the drawing area's width at
-    // base size, the next sheet taking the rest ("for pulls and stuff we
-    // can combine those screens on the PDF", 2026-09-08; the screens
-    // themselves stay one per sheet). A subject taller than a column takes
+    // Subjects side by side on one sheet, a COLUMN each - a distro's, a
+    // processor's tables under its name (the pull sheets lay their
+    // positions out their own way, _bPullSheets) - as many as fit the
+    // drawing area's width at base size, the next sheet taking the rest
+    // ("for pulls and stuff we can combine those screens on the PDF",
+    // 2026-09-08; the screens themselves stay one per sheet). A subject taller than a column takes
     // the columns it needs; taller than the sheet, it continues on the
     // next "(cont.)", its heads repeated, and leads that sheet, which
     // stays at 1. Otherwise the fill scale applies to the sheet as a
@@ -4049,16 +4626,17 @@ class _Binder {
         const socket = bb.localPort != null ? bb.localPort : bb.port;
         const socketText = `${where} · ${socket}`;
         const shortSocket = home && home.box ? `${this._bBoxShort(home.box)} · ${socket}` : socketText;
-        let key, bandParts;
+        let key, bandParts, bandLines = null;
         if (home && home.box) {
             key = `box:${home.box.id}`; bandParts = this._bBoxBandParts(home.box);
+            bandLines = this._bBoxBandLines(home.box);
         } else if (home) {
             key = `card:${home.card.id}`; bandParts = [this._bCardBandText(home)];
         } else {
             key = `card:${bb.cardId}`; bandParts = [bb.cardTitle || this._bCardShort(bb.cardId)];
         }
         return { label, socketText, shortSocket, name: label || socketText, key,
-                 bandText: bandParts.join(' · '), bandParts };
+                 bandText: bandParts.join(' · '), bandParts, bandLines: bandLines || bandParts };
     }
 
     // What a sheet calls a breakout box: "CVT4K-S SR" - the model and the
@@ -4107,13 +4685,133 @@ class _Binder {
         return String(box.fiberType || '').trim() ? 'no fiber length' : 'no fiber';
     }
 
+    // One strand as the binder prints it - STRAND MAP, FIBER CONNECTIONS,
+    // a data sheet's band, the Breakout boxes table: its name
+    // (fiberStrandName - a colour, a number, a sub-unit, a typed name) and
+    // its swatch, unless the cable reads in numbers: "If it is numbers only
+    // then don't use colors as they won't have colors in real life" (owner,
+    // 2026-10-17) - no swatch, and no tint in the strand map, anywhere.
+    _bStrandPiece(n, cable) {
+        return { text: this.fiberStrandName(n, cable),
+                 swatch: cable && cable.labels === 'numbers' ? null : this.fiberStrandSwatch(n, cable) };
+    }
+
+    // A box's fiber, one input at a time (fiberLinkInputs), or null where
+    // no input is on a fiber cable - a box with no fiber, or copper only,
+    // reads as it always did.
+    _bBoxFiberInputs(box) {
+        const inputs = box && typeof this.fiberLinkInputs === 'function' ? this.fiberLinkInputs(box) : [];
+        return inputs.some(i => i.cable) ? inputs : null;
+    }
+
+    // A BOX'S INPUTS AS GROUPS (owner, 2026-10-17: "group each strand pair
+    // with its input" - the input's label centred beside its strands, a thin
+    // outline round them, each input its own): one per link in the box's
+    // order (primaries, then the backup inputs), { head: 'X1', sub: 'TAC A
+    // (TAC 8)', strands: [{ text, swatch }] } - the cable's kind in brackets
+    // the first time this box names it, the strands in strand order (as
+    // the box's one-line summary has them), named and swatched as the strand map has them
+    // (_bStrandPiece). A copper link, or a cable with no strands picked, is
+    // a group of its words alone, { text }; a link with neither is left
+    // out. Null where no input is on a fiber cable - a box with no fiber,
+    // or copper only, reads as it always did.
+    _bBoxInputGroups(box, all = false) {
+        const links = box && typeof this.fiberBoxLinks === 'function' ? this.fiberBoxLinks(box) : [];
+        const named = !!(box && box.linkPortsDocumented);
+        const linked = links.some(l => l.cable || l.copper);
+        if (!links.some(l => l.cable) && !(all && named)) return null;
+        // an input's name only where its maker prints one - never a
+        // made-up "Link 1"
+        const title = (l) => (named ? l.title : '');
+        const typed = new Set();
+        const out = [];
+        for (const l of links) {
+            if (l.copper) {
+                const ft = this.parseCableLength(l.copper.ft);
+                const over = this.copperOverText(l.copper);
+                out.push({ text: [title(l), l.copper.copper, Number.isFinite(ft) && ft > 0 ? this.pullLengthText(ft) : '']
+                    .filter(Boolean).join(' ') + (over ? ` (${over})` : '') });
+                continue;
+            }
+            if (!l.cable) {
+                if (all && named) out.push({ text: `${l.title} no fiber` });
+                continue;
+            }
+            const cable = l.cable;
+            let what = cable.name || this.fiberCableTypeText(cable);
+            if (cable.name && !typed.has(cable.id)) {
+                what += ` (${this.fiberCableIsStranded(cable)
+                    ? `${this.fiberKindWord(cable.kind)} ${cable.strands}` : this.fiberKindWord(cable.kind)})`;
+            }
+            typed.add(cable.id);
+            // in strand order, as the box's one-line summary lists them
+            const set = [...new Set(((l.link && l.link.strands) || []).map(Number))]
+                .filter(Number.isFinite).sort((x, y) => x - y);
+            if (!set.length) { out.push({ text: [title(l), what].filter(Boolean).join(' ') }); continue; }
+            out.push({ head: title(l), sub: what, strands: set.map(n => this._bStrandPiece(n, cable)) });
+        }
+        // a box with no link at all keeps its 1.3 typed note, after its inputs
+        // ("no fiber length" where only a type was typed, as it always read)
+        if (all && !linked) {
+            const note = (typeof this.pullBoxFiberText === 'function' ? this.pullBoxFiberText(box) : '')
+                || (String((box && box.fiberType) || '').trim() ? 'no fiber length' : '');
+            if (note) out.push({ text: note });
+        }
+        return out.length ? out : null;
+    }
+
+    // How many lines a group stands on: its strands, and never fewer than
+    // its label's (the input over its cable).
+    _bGroupLines(g) {
+        if (!(g.strands && g.strands.length)) return 1;
+        return Math.max(g.strands.length, g.sub ? 2 : 1);
+    }
+
+    // THE BAND OVER A BOX'S PORTS (the data sheet): the box on the first
+    // line, then each input as a group (_bBoxInputGroups) - { group } -
+    // the input and its cable centred beside its strands, outlined, the way
+    // the Breakout boxes table's FIBER reads (_bBandStack draws it). Null
+    // where the box has no fiber: its band is _bBoxBandParts, word for word.
+    _bBoxBandLines(box) {
+        const groups = this._bBoxInputGroups(box);
+        if (!groups) return null;
+        return [this._bBoxBandParts(box)[0], ...groups.map(g => (g.strands ? { group: g } : g.text))];
+    }
+
+    // The same for the Breakout boxes table's FIBER cell, as `parts`: each
+    // input's words on a line, then its strands a line each - stacked the
+    // way Fiber connections stacks them. Null where the box has no fiber
+    // (the cell reads its words).
+    _bBoxFiberParts(box) {
+        const inputs = this._bBoxFiberInputs(box);
+        if (!inputs) return null;
+        const out = [];
+        inputs.forEach((inp, i) => {
+            if (!inp.cable || !inp.strands.length) { out.push({ text: inp.text, brk: i > 0 }); return; }
+            out.push({ text: inp.head, brk: i > 0 });
+            inp.strands.forEach(n => out.push({ ...this._bStrandPiece(n, inp.cable), brk: true }));
+        });
+        return out;
+    }
+
+    // The Breakout boxes table's FIBER as input groups: one for EVERY
+    // input the box takes (owner, 2026-10-17: the inputs never disappear),
+    // so an input with nothing on it is a group of its name and "no fiber"
+    // - and a box with no link anywhere keeps its 1.3 typed note, if any,
+    // as one more group after them. Null where the box's maker names no
+    // input and nothing is on a cable: the cell reads its words, as before.
+    _bBoxFiberGroups(box) {
+        return this._bBoxInputGroups(box, true);
+    }
+
     // The redundancy bar's reading for a processor: "Per card", "Per port",
     // "Backed up → MX20 B" (the unit its one card mirrors onto), "A to B"
     // (an SX40 running one loop), "Off" - then its backup processor, "·
     // backed up by WALL SR BU".
     _bRedundancyText(proc) {
         const level = (typeof this._procRedundancyLevel === 'function') ? this._procRedundancyLevel(proc) : 'off';
-        let text = REDUNDANCY_WORDS[level] || level;
+        // "Per card" only where the units are cards (unitWordFor)
+        let text = level === 'card' ? `Per ${this.unitWordFor(proc)}` : (REDUNDANCY_WORDS[level] || level);
         const procs = this._processorsResolved || [];
         if (level === 'fixed') {
             const marks = proc.redundancyPairMarks || [];
@@ -4211,6 +4909,8 @@ class _Binder {
         const typed = (typeof this.cardTypedName === 'function')
             ? this.cardTypedName(found.proc, found.card) : found.card.name;
         if (typed) return typed;
+        // a one-box unit has no slot to name: its model ("SX40")
+        if (this.cardIsUnitFace(found.proc, found.card)) return this.dataUnitTitle(found.proc, found.card).title;
         const slot = (found.proc.slots || []).find(s => s.card && s.card.id === found.card.id);
         return slot ? `slot ${(slot.index || 0) + 1}` : found.card.deviceName;
     }
@@ -4243,10 +4943,12 @@ class _Binder {
         // - and each unit's band stands over its own half, the unit on one
         // line and its fiber on the next. PANELS is said once, at the end.
         // A sheet with no backup end prints the one half.
-        const bands = new Map();      // key -> { parts, groups: Map, partners: Map }
-        const band = (key, parts) => {
+        // A box with fiber also carries its band strand by strand (`lines`,
+        // _bBoxBandLines), drawn in place of its words.
+        const bands = new Map();      // key -> { parts, lines, groups: Map, partners: Map }
+        const band = (key, parts, lines = null) => {
             let b = bands.get(key);
-            if (!b) { b = { parts, groups: new Map(), partners: new Map() }; bands.set(key, b); }
+            if (!b) { b = { parts, lines, groups: new Map(), partners: new Map() }; bands.set(key, b); }
             return b;
         };
         // A group keeps the cables its heading is read from, and the
@@ -4296,7 +4998,7 @@ class _Binder {
             let key, out, b;
             if (home.box) {
                 key = `box:${home.box.id}`;
-                b = band(key, this._bBoxBandParts(home.box));
+                b = band(key, this._bBoxBandParts(home.box), this._bBoxBandLines(home.box));
                 out = `${this._bBoxShort(home.box)} · ${socket}`;
             } else {
                 key = `card:${home.card.id}`;
@@ -4316,7 +5018,7 @@ class _Binder {
                 // to it.
                 if (end.key !== key && !partnered.has(end.key)) {
                     partnered.add(end.key);
-                    b.partners.set(end.key, end.bandParts);
+                    b.partners.set(end.key, end.bandLines);
                 }
             }
             group(b, `${snakeId(cable)}|${snakeId(backupCable)}`, cable, backupCable).ports.push({
@@ -4329,7 +5031,9 @@ class _Binder {
         for (const b of bands.values()) {
             if (split) {
                 const back = [...b.partners.values()];
-                rows.push({ band: '', halves: [b.parts, back.length ? back.flat() : []] });
+                rows.push({ band: '', halves: [b.lines || b.parts, back.length ? back.flat() : []] });
+            } else if (b.lines) {
+                rows.push({ band: '', lines: b.lines });
             } else {
                 rows.push({ band: b.parts.join(' · ') });
             }
@@ -4355,37 +5059,44 @@ class _Binder {
                 }
             }
         }
-        // PORT takes the width its longest label needs, whole - "SR A-1"
-        // was cut to "SR A…" at a fixed share (2026-09-07) - measured
-        // against the tables' column, and never under its old share; the
-        // other columns divide the rest.
-        const colW = DATA_COL_W;
-        const ctxM = book.measureCtx;
-        ctxM.font = this._bFont(SZ.cell, 400);
         // (a crossing port's "· also on …" wraps under the label, so the
         // label alone is what PORT is sized to)
         const crossing = runs.some(r => r.also);
-        const bare = (t) => String(t || '').split(' · also on ')[0];
-        const labels = rows.filter(r => r.cells).flatMap(r => (split ? [bare(r.cells[0]), r.cells[3]] : [bare(r.cells[0])]));
-        const labelW = labels.reduce((m, t) => Math.max(m, ctxM.measureText(String(t || '')).width), 0);
-        const needW = Math.ceil(labelW) + 12 * 2 + 4;
-        const half = [{ w: 1.7 }, { w: 1.0 }];      // OUTPUT, HOME RUN
-        const otherW = (split ? 2 : 1) * (1.7 + 1.0) + 0.7;
-        const ports = split ? 2 : 1;
-        const portW = Math.max(0.7, needW * ports < colW
-            ? needW * otherW / (colW - needW * ports) : 0.7);
-        const halfCols = (rule) => [{ title: 'port', w: portW, rule, ...(crossing && !rule ? { list: 2 } : {}) },
-                                    { title: 'output', w: half[0].w }, { title: 'home run', w: half[1].w }];
-        blocks.push({ minW: DATA_COL_W, lines: this._bTableLines(book, {
+        // OUTPUT ONLY WHERE IT SAYS SOMETHING (owner, 2026-10-18): where
+        // every row of the sheet, both halves, names its output as its
+        // port is named - "S1 A-1" landing on "S1 A · 1" - the column
+        // repeats PORT and is left out. One output that says more (a
+        // custom label, a sending card, "—" where nothing is placed) keeps
+        // it, for every row. Read once, over the whole table, so a table
+        // running on to its "(cont.)" sheet reads the same there.
+        const named = (label, out) => {
+            const key = (t) => String(t || '').split(' · also on ')[0]
+                .replace(/\s*[·-]\s*/g, '-').trim();
+            return !!out && out !== '—' && key(label) === key(out);
+        };
+        const cellRows = rows.filter(r => r.cells);
+        const repeats = cellRows.length > 0 && cellRows.every(({ cells: c }) => named(c[0], c[1])
+            && (!split || (c[3] === '' && c[4] === '') || named(c[3], c[4])));
+        const outAt = split ? [1, 4] : [1];
+        const halfCols = (rule) => [{ title: 'port', rule, ...(crossing && !rule ? { list: 2 } : {}) },
+                                    ...(repeats ? [] : [{ title: 'output' }]),
+                                    { title: 'home run', align: 'center' }];
+        const n = repeats ? 2 : 3;      // columns a half
+        const ports = this._bTableLines(book, {
             title: 'Ports',
             width: DATA_COL_W,
-            groups: split ? [{ title: 'primary', from: 0, to: 2 }, { title: 'backup', from: 3, to: 5 }] : [],
+            fit: true,
+            groups: split ? [{ title: 'primary', from: 0, to: n - 1 }, { title: 'backup', from: n, to: 2 * n - 1 }] : [],
             bandsLead: true,
             cols: [...halfCols(false), ...(split ? halfCols(true) : []),
-                   { title: 'panels', w: 0.7, align: 'right', rule: split }],
-            rows,
+                   { title: 'panels', align: 'center', rule: split }],
+            rows: repeats ? rows.map(r => (r.cells ? { ...r, cells: r.cells.filter((c, i) => !outAt.includes(i)) } : r))
+                : rows,
             shrink: true,
-        }) });
+        });
+        // the sheet's columns widen to the table, never past DATA_COL_W
+        const portsW = Math.ceil(ports.naturalW);
+        blocks.push(portsW > COL_W ? { minW: portsW, lines: ports } : { lines: ports });
         blocks.push({ lines: this._bCableTable(book, subject, 'data') });
         // A group's FACTS are the group's (every member's pixels and panels);
         // a member's its own.
@@ -4661,37 +5372,231 @@ class _Binder {
 
     // ---- the pull sheets (3.n) ----------------------------------------------
 
-    // The positions side by side, a column each headed with its name, as
-    // many as fit a sheet; the sheet named by the positions it carries -
-    // "PULL · SR - MAIN, SR - Return, …".
+    // The positions side by side, each headed with its name, as many as fit
+    // a sheet; the sheet named by the positions it carries - "PULL · SR -
+    // MAIN, SR - Return, …". A position's sections - POWER CABLES, DATA
+    // CABLES, HARDWARE, SCREENS - FLOW ACROSS THE SHEET in columns rather
+    // than down one narrow column at its left edge (2026-10-18: "we dont
+    // have to have all the text vertical in a column like it is. it can
+    // space out to the right"): each column as wide as its sections need
+    // whole - a label list, a hardware row's details on one line, the
+    // Screens table's headings in full - and the sections, kept whole and
+    // in order, split into the columns that let the sheet print largest
+    // (_bPullSpread). Which positions share a sheet is decided first, each
+    // at its narrowest - PULL_COL_W, so a sheet carries the positions it
+    // always has (four to a Tabloid) - and the room left over then goes to
+    // spreading them. A position taller than a sheet in every arrangement
+    // runs down columns of PULL_COL_W and continues on the next sheet,
+    // "(cont.)", which stays at 1.
     _bPullSheets(book, positions) {
         const groups = positions.map(({ pos, members }) =>
             ({ kind: 'pull', name: pos.name, blocks: this._bPullBlocks(book, pos, members) }));
         const label = (gs) => gs.map(g => g.name + (g.cont ? ' (cont.)' : '')).join(', ');
-        this._bColumnSheets(book, {
-            colW: PULL_COL_W,
-            page: (gs) => ({ kind: 'pull', title: `Pull - ${label(gs)}`, sheetTitle: `PULL · ${label(gs)}`,
-                             subject: label(gs) }),
-        }, groups);
+        const page = (gs) => ({ kind: 'pull', title: `Pull - ${label(gs)}`, sheetTitle: `PULL · ${label(gs)}`,
+                                subject: label(gs) });
+        const da = book.geo.da;
+        const colH = da.h - GROUP_H;
+        const queue = groups.map(g => ({ ...g, cont: false,
+                                         blocks: (g.blocks || []).filter(b => b && (b.lines || []).length) }))
+            .filter(g => g.blocks.length);
+        while (queue.length) {
+            const placed = [];          // { group, options }
+            let used = 0, continues = false;
+            while (queue.length) {
+                const g = queue[0];
+                const gap = placed.length ? COL_GAP : 0;
+                const options = this._bPullArrangements(g.blocks, colH, da.w - used - gap, da.w);
+                if (options.length) {
+                    placed.push({ group: g, options });
+                    used += gap + Math.min(...options.map(o => o.w));
+                    queue.shift();
+                    continue;
+                }
+                if (placed.length) break;           // it starts the next sheet
+                const cut = this._bPullCut(g.blocks, colH, da.w);
+                placed.push({ group: g, options: [cut.option] });
+                queue.shift();
+                if (cut.rest.length) {
+                    queue.unshift({ ...g, blocks: cut.rest, cont: true });
+                    continues = true;
+                    break;
+                }
+                used = cut.option.w;
+            }
+            if (!placed.length) break;
+            const lay = continues ? null : this._bPullSpread(book, placed);
+            const picks = lay ? lay.picks
+                : placed.map(p => p.options.reduce((a, o) => (o.w < a.w ? o : a)));
+            const extent = lay ? lay.extent
+                : { w: picks.reduce((s, o) => s + o.w, 0) + (picks.length - 1) * COL_GAP,
+                    h: GROUP_H + Math.max(...picks.map(o => o.h)) };
+            const scale = lay ? lay.scale : 1;
+            const heads = placed.map(p => p.group.name + (p.group.cont ? ' (cont.)' : ''));
+            const cols = picks.reduce((n, o) => n + o.cols.length, 0);
+            this._bPage(book, { ...page(placed.map(p => p.group)), layout: 'tables', cols, scale, extent,
+                                names: heads }, (pg, scaled) => scaled(() => {
+                let x = da.x;
+                picks.forEach((o, j) => {
+                    this._bGroupHead(book, heads[j], x, da.y, o.w);
+                    let cx = x;
+                    for (const col of o.cols) {
+                        for (const it of col.items) it.line.draw(book.ctx, cx, da.y + GROUP_H + it.y, col.w);
+                        cx += col.w + COL_GAP;
+                    }
+                    x += o.w + COL_GAP;
+                });
+            }));
+        }
+    }
+
+    // A pull table as a block that can be laid out at any width: its lines
+    // at the pull sheet's base column (`lines`), `make(w)` for its lines in
+    // a column w wide, and the widths the sheet chooses between besides
+    // PULL_COL_W (four positions to a Tabloid, as the sheet has always
+    // held: the Screens table's headings set smaller there rather than
+    // cut) - `wMin`, the narrowest that cuts and shrinks nothing (every
+    // heading in full), and `wNat`, its natural width, every list on one
+    // line too - each kept between PULL_COL_W and PULL_COL_MAX (a longer
+    // list wraps as it did).
+    _bPullBlock(book, spec) {
+        const padX = 12;
+        const s = { ...spec, whole: true };
+        const cache = new Map();
+        const make = (w) => {
+            if (!cache.has(w)) cache.set(w, this._bTableLines(book, { ...s, width: w }));
+            return cache.get(w);
+        };
+        const sum = (a) => a.reduce((x, y) => x + y, 0);
+        const clamp = (v) => Math.min(PULL_COL_MAX, Math.max(PULL_COL_W, Math.ceil(v)));
+        // every heading in full - LENGTH's too (_bColWidths)
+        const full = s.cols.map(c => ({ ...c, headShrink: false }));
+        const wMin = clamp(sum(this._bColNeeds(book, full, s.rows, padX)));
+        const wNat = Math.max(wMin, clamp(sum(this._bColNeeds(book, full, s.rows, padX, true))));
+        return { lines: make(PULL_COL_W), make, wTight: PULL_COL_W, wMin, wNat };
+    }
+
+    // Every way a position's blocks, whole and in order, go into columns
+    // side by side no taller than colH and no wider in all than availW:
+    // each split of the run into consecutive columns, each column at its
+    // blocks' natural width (`tier` 2), at their narrowest with every
+    // heading in full (1) and at PULL_COL_W (0). A block that cannot
+    // be re-laid (a continuation's remainder) keeps the width it was laid
+    // out at.
+    //   [{ w, h, tier, cols: [{ w, h, items: [{ line, y }] }] }]
+    _bPullArrangements(blocks, colH, availW, maxW) {
+        const n = blocks.length;
+        if (!n) return [];
+        const widthOf = (b, key) => (b.make ? b[key] : (b.fixedW || PULL_COL_W));
+        const linesAt = (b, w) => (b.make ? b.make(w) : b.lines);
+        const out = [];
+        const seen = new Set();
+        const splits = n <= 10 ? 1 << (n - 1) : 1;
+        for (let m = 0; m < splits; m++) {
+            const runs = [];
+            let cur = [];
+            blocks.forEach((b, i) => {
+                cur.push(b);
+                if (i < n - 1 && ((m >> i) & 1)) { runs.push(cur); cur = []; }
+            });
+            runs.push(cur);
+            for (const [tier, key] of [[2, 'wNat'], [1, 'wMin'], [0, 'wTight']]) {
+                const widths = runs.map(run => Math.min(maxW, Math.max(...run.map(b => widthOf(b, key)))));
+                const w = widths.reduce((s, x) => s + x, 0) + (runs.length - 1) * COL_GAP;
+                const id = `${m}:${widths.join(',')}`;
+                if (w > availW || seen.has(id)) continue;
+                seen.add(id);
+                const cols = runs.map((run, c) => {
+                    const col = { w: widths[c], h: 0, items: [] };
+                    let y = 0;
+                    run.forEach((b, k) => {
+                        if (k) y += BLOCK_GAP;
+                        for (const line of linesAt(b, widths[c])) { col.items.push({ line, y }); y += line.h; }
+                    });
+                    col.h = y;
+                    return col;
+                });
+                if (cols.some(c => c.h > colH)) continue;
+                out.push({ w, h: Math.max(...cols.map(c => c.h)), cols, tier });
+            }
+        }
+        return out;
+    }
+
+    // A position no arrangement holds: its blocks down columns of
+    // PULL_COL_W, split where a column ends, as many columns as the sheet
+    // has; what is left comes back as `rest` for the next sheet, laid out
+    // at that width.
+    _bPullCut(blocks, colH, availW) {
+        const colW = Math.min(availW, Math.max(...blocks.map(b => (b.make ? b.wTight : (b.fixedW || PULL_COL_W)))));
+        const across = Math.max(1, Math.floor((availW + COL_GAP) / (colW + COL_GAP)));
+        const pack = this._bPack(blocks.map(b => (b.make ? { lines: b.make(colW) } : b)), colH, across);
+        const cols = pack.cols.map(c => ({ w: colW, h: c.h, items: c.items }));
+        return { option: { w: cols.length * colW + (cols.length - 1) * COL_GAP,
+                           h: Math.max(0, ...cols.map(c => c.h)), cols },
+                 rest: pack.rest.map(r => ({ ...r, fixedW: colW })) };
+    }
+
+    // The sheet's arrangement: for each height the columns might reach, every
+    // position at its narrowest arrangement that stays under it; of those,
+    // the one that prints largest (_bFillScale), and among any within 2 %
+    // of that, the one that spreads widest across the sheet. Arrangements
+    // whose columns are all at their natural width - no label list or
+    // hardware detail wrapped - win wherever they print at least
+    // PULL_WHOLE_KEEP of the largest any arrangement could; else ones with
+    // every heading in full wherever the sheet holds them; else the
+    // narrow columns.
+    //   { picks: [arrangement per position], scale, extent }
+    _bPullSpread(book, placed) {
+        const da = book.geo.da;
+        const choose = (tier) => {
+            const opts = placed.map(p => p.options.filter(o => o.tier >= tier));
+            if (opts.some(os => !os.length)) return null;
+            const heights = [...new Set(opts.flat().map(o => o.h))].sort((a, b) => a - b);
+            const cands = [];
+            for (const top of heights) {
+                const picks = [];
+                for (const os of opts) {
+                    let o = null;
+                    for (const x of os) {
+                        if (x.h <= top && (!o || x.w < o.w || (x.w === o.w && x.h < o.h))) o = x;
+                    }
+                    if (!o) break;
+                    picks.push(o);
+                }
+                if (picks.length !== placed.length) continue;
+                const w = picks.reduce((s, o) => s + o.w, 0) + (picks.length - 1) * COL_GAP;
+                if (w > da.w) continue;
+                const extent = { w, h: GROUP_H + Math.max(...picks.map(o => o.h)) };
+                cands.push({ picks, extent, scale: this._bFillScale(book, extent) });
+            }
+            if (!cands.length) return null;
+            const best = Math.max(...cands.map(c => c.scale));
+            const span = (c) => c.extent.w * c.scale;
+            return cands.filter(c => c.scale >= best / 1.02)
+                .reduce((a, c) => (span(c) > span(a) + 0.5
+                    || (Math.abs(span(c) - span(a)) <= 0.5 && c.scale > a.scale) ? c : a));
+        };
+        const any = choose(0);
+        const whole = choose(2);
+        if (whole && any && whole.scale >= any.scale * PULL_WHOLE_KEEP) return whole;
+        return choose(1) || any;
     }
 
     _bPullBlocks(book, pos, members) {
         const list = book.list;
         const tick = { title: '', w: 0.28, tick: true };
-        const cableCols = [tick, { title: 'cable', w: 1.5 }, { title: 'len', w: 0.6 },
-                           { title: 'qty', w: 0.5, align: 'right' },
+        const cableCols = [tick, { title: 'cable', w: 1.5, lend: true }, { title: 'length', w: 0.6, borrow: 'len' },
+                           { title: 'qty', w: 0.5, align: 'right', lend: true },
                            { title: 'label', w: 1.4, list: true }];
         const cableRows = (side) => (pos.rows || []).filter(r => (r.side || 'power') === side)
-            .map(r => ({ cells: ['', this._bType(r.type), r.length || '—', String(r.qty), r.label || ''] }));
+            .map(r => ({ cells: ['', this._bType(r.type), r.length || '—', this._bQty(r.qty), r.label || ''] }));
         const blocks = [];
         const power = cableRows('power');
-        blocks.push({ lines: this._bTableLines(book, { title: 'Power cables', cols: cableCols,
-            width: PULL_COL_W,
-            rows: power.length ? power : [{ cells: ['', 'none', '', '', ''] }] }) });
+        blocks.push(this._bPullBlock(book, { title: 'Power cables', cols: cableCols,
+            rows: power.length ? power : [{ cells: ['', 'none', '', '', ''] }] }));
         const data = cableRows('data');
-        blocks.push({ lines: this._bTableLines(book, { title: 'Data cables', cols: cableCols,
-            width: PULL_COL_W,
-            rows: data.length ? data : [{ cells: ['', 'none', '', '', ''] }] }) });
+        blocks.push(this._bPullBlock(book, { title: 'Data cables', cols: cableCols,
+            rows: data.length ? data : [{ cells: ['', 'none', '', '', ''] }] }));
         // Hardware: the socas, the distros, the cards these screens hang on.
         const hw = [];
         const seenBox = new Set(), seenDistro = new Set(), seenCard = new Set();
@@ -4718,12 +5623,11 @@ class _Binder {
                                             home.named ? home.card.deviceName : ''] });
             }
         }
-        blocks.push({ lines: this._bTableLines(book, {
+        blocks.push(this._bPullBlock(book, {
             title: 'Hardware',
-            width: PULL_COL_W,
             cols: [tick, { title: 'item', w: 1.2 }, { title: 'detail', w: 2, list: true }],
             rows: hw.length ? hw : [{ cells: ['', 'none', ''] }],
-        }) });
+        }));
         // Screens with their gang counts - named as the set prints them,
         // each SIDE by its own tab (owner, 2026-10-01: "Depends on if it is
         // power or data and on if grouped or screen group"). A group routed
@@ -4801,18 +5705,20 @@ class _Binder {
                                        circuits, ports, gangs] });
             }
         }
-        blocks.push({ lines: this._bTableLines(book, {
+        blocks.push(this._bPullBlock(book, {
             title: 'Screens',
-            width: PULL_COL_W,
             cols: [tick, { title: 'screen', w: 1.3 }, { title: 'size', w: 0.7 },
                    { title: 'panels', w: 0.6, align: 'right' }, { title: 'circuits', w: 0.6, align: 'right' },
                    { title: 'ports', w: 0.5, align: 'right' }, { title: 'shared', w: 0.9 }],
             rows: screens,
-            // Seven columns in the pull sheet's narrow column: the headings
-            // take the room their neighbours spare (_bColWidths) and the
-            // cells shrink a little rather than cut ("28× 2fer").
+            // Seven columns: the sheet gives the table the width its
+            // headings and cells need whole (_bPullBlock - "CIRCU…" in the
+            // old narrow column, 2026-10-18); in a column narrower than
+            // that the headings take the room their neighbours spare
+            // (_bColWidths) and the cells shrink a little rather than cut
+            // ("28× 2fer").
             shrink: true,
-        }) });
+        }));
         return blocks;
     }
 
@@ -4921,17 +5827,17 @@ class _Binder {
         // ONCE with both connectors named.
         for (const line of this._bDistroFaceLines(d)) pairs.push(['Outputs', line]);
         if (load) {
-            // The WORST LEG against the per-leg rating (1.5, bug fix 2) -
-            // the leg named where the distro has legs.
-            const leg = load.legs && load.worstLeg
-                ? ` on leg ${this.distroLegLabel(d, load.worstLeg)}` : '';
-            pairs.push(['Load', `${this._bNum(load.amps, 1)} A${leg} · ${this._bNum(load.pct, 0)}% · ${this._bNum(load.watts / 1000, 1)} kW`
-                + (load.over ? ' · OVER' : '')]);
-            if (load.legs) {
-                const names = load.legs.names || ['X', 'Y', 'Z'];
-                pairs.push(['Legs', names.map(k =>
-                    `${this.distroLegLabel(d, k)} ${this._bNum(load.legs[k].amps, 1)}`).join(' · ') + ' A']);
-                pairs.push(['Imbalance', `${this._bNum(load.imbalancePct, 1)}%`]);
+            pairs.push(['Load', this._bDistroLoadText(d, load)]);
+            if (load.legs) pairs.push(['Imbalance', `${this._bNum(load.imbalancePct, 1)}%`]);
+        }
+        // A multi left on a one-circuit output (a show already in that
+        // state, 2026-10-18): the output's load against what it carries.
+        if (typeof this._faceCrowding === 'function') {
+            for (const cr of this._faceCrowding(d)) {
+                const cap = this._crowdCapacityText(d, cr);
+                pairs.push([cap ? 'Over capacity' : 'Crowded',
+                    `${cap || `${cr.where} ${cr.box.conn.short} carries ${cr.circuits} circuits`}`
+                    + ' · a multi on a one-circuit output, move it to a multi output']);
             }
         }
         pairs.push(['Circuits', boxes.length ? `${allCircuits} on ${counts}` : 'none']);
@@ -4939,6 +5845,47 @@ class _Binder {
         const hw = (book.list.hardware || []).find(h => h.kind === 'distro' && h.id === d.id);
         blocks.push({ lines: this._bPullLines(book, 'Pull list', (hw && hw.rows) || []) });
         return blocks;
+    }
+
+    // THE SERVICE'S LOAD ON ONE LINE (owner, 2026-10-18): every leg's amps,
+    // then on a three-phase service the total three-phase amps, the power,
+    // the limit it is read against and whether it is past it -
+    //   "X 87.1 · Y 81.4 · Z 81.4 A · 3φ 83.4 A · 30.0 kW · limit 80 A
+    //    (80% of 100 A) · OVER on X"
+    // The legs are the roll-up's own phasor figures (getDistroLoads), named
+    // as the distro names them (L1/L2/L3 on an EU system); 120/240 split
+    // phase prints its two legs and no three-phase figure, a single hot its
+    // one figure. The three-phase total is P / (V x 1.73) at the system's
+    // line-to-line voltage - 208 on 120/208, 400 on 230/400 - the formula
+    // rule. The limit is 80% of the rating on a US system unless its main
+    // is 100% rated, said where it is not simply the rating; OVER names
+    // the leg (or legs) past it, and an accepted overload is noted beside
+    // the OVER it does not hide. No percentage: the limit already says how
+    // the busiest leg stands, and the rating has its own line.
+    _bDistroLoadText(d, load) {
+        const parts = [];
+        const names = load.legs ? (load.legs.names || ['X', 'Y', 'Z']) : [];
+        if (names.length) {
+            parts.push(names.map(k => `${this.distroLegLabel(d, k)} ${this._bNum(load.legs[k].amps, 1)}`)
+                .join(' · ') + ' A');
+        } else {
+            parts.push(`${this._bNum(load.amps, 1)} A`);
+        }
+        if (names.length === 3) {
+            const sys = typeof this.distroSystem === 'function' ? this.distroSystem(d) : null;
+            const vll = (sys && sys.vll) || Number(d.voltage) || 0;
+            if (vll > 0) parts.push(`3φ ${this._bNum(load.watts / (vll * 1.73), 1)} A`);
+        }
+        parts.push(`${this._bNum(load.watts / 1000, 1)} kW`);
+        const rule = this.distroMainLimit(d);
+        if (rule.pct < 1) parts.push(`limit ${+load.limitA.toFixed(1)} A (${this.distroMainLimitNote(rule)})`);
+        else if (rule.main100) parts.push('100% rated main');
+        if (load.over) {
+            const past = names.filter(k => load.legs[k].over).map(k => this.distroLegLabel(d, k));
+            parts.push(past.length ? `OVER on ${past.join(', ')}` : 'OVER');
+            if (load.overloadAccepted) parts.push('overload accepted');
+        }
+        return parts.join(' · ');
     }
 
     // A distro's rating as the papers print it: an old-style distro (no
@@ -4985,10 +5932,10 @@ class _Binder {
         const tick = { title: '', w: 0.28, tick: true };
         return this._bTableLines(book, {
             title,
-            cols: [tick, { title: 'cable', w: 1.5 }, { title: 'len', w: 0.6 },
-                   { title: 'qty', w: 0.5, align: 'right' },
+            cols: [tick, { title: 'cable', w: 1.5, lend: true }, { title: 'length', w: 0.6, borrow: 'len' },
+                   { title: 'qty', w: 0.5, align: 'right', lend: true },
                    { title: 'label', w: 1.4, list: true }],
-            rows: rows.length ? rows.map(r => ({ cells: ['', this._bType(r.type), r.length || '—', String(r.qty), r.label || ''] }))
+            rows: rows.length ? rows.map(r => ({ cells: ['', this._bType(r.type), r.length || '—', this._bQty(r.qty), r.label || ''] }))
                 : [{ cells: ['', 'none', '', '', ''] }],
         });
     }
@@ -5019,14 +5966,22 @@ class _Binder {
         if (!unit) return null;
         const cards = (proc.slots || []).filter(s => s && s.card);
         const blocks = [];
+        // a box-fed card counts its boxes' sockets (_bCardPortCount)
+        const count = (card) => (card.ceilingKnown || card.boxFed ? String(this._bCardPortCount(card)) : '?');
+        // CARDS on a card-based processor, as it always read; a one-box
+        // unit's is PROCESSOR - no slot - and an SQ200's OUTPUTS, each
+        // by the name its face prints (_bUnitsTable's reading)
+        const carded = this.procIsCardBased(proc);
+        const oneBox = !carded && cards.every(s => this.cardIsUnitFace(proc, s.card));
+        const lead = carded ? [{ title: 'slot', w: 0.5, align: 'right' }]
+            : oneBox ? [] : [{ title: 'output', w: 0.6 }];
+        const leadCell = (s) => (carded ? [String((s.index || 0) + 1)]
+            : oneBox ? [] : [s.name || String((s.index || 0) + 1)]);
         blocks.push({ lines: this._bTableLines(book, {
-            title: 'Cards',
-            cols: [{ title: 'slot', w: 0.5, align: 'right' }, { title: 'device', w: 1.6 },
+            title: carded ? 'Cards' : oneBox ? 'Processor' : 'Outputs',
+            cols: [...lead, { title: 'device', w: 1.6 },
                    { title: 'ports', w: 0.6, align: 'right' }, { title: 'backs up', w: 1.3 }],
-            // a box-fed card counts its boxes' sockets (_bCardPortCount)
-            rows: cards.map(s => ({ cells: [String((s.index || 0) + 1), s.card.deviceName,
-                                            s.card.ceilingKnown || s.card.boxFed
-                                                ? String(this._bCardPortCount(s.card)) : '?',
+            rows: cards.map(s => ({ cells: [...leadCell(s), s.card.deviceName, count(s.card),
                                             this.cardTypedName(proc, s.card) || mainTitle] })),
         }) });
         if ((unit.boxes || []).length) {
@@ -5050,6 +6005,57 @@ class _Binder {
         return { kind: 'processor', name: `${unit.name} · backup of ${mainTitle}`, blocks };
     }
 
+    // THE PROCESSOR PAGE'S FIRST TABLE (owner, 2026-10-17: "CARD" becomes
+    // "PROCESSOR" for every processor that is not card based). A card-based
+    // processor (the H series, the MX2000, the MX6000 - procIsCardBased)
+    // keeps CARDS exactly as it was: SLOT, CARD, DEVICE, PORTS, BACKUP. A
+    // one-box unit (an SX40, an S8, a HELIOS, an MX40 Pro) has no slot and
+    // no card: PROCESSOR, its DEVICE, PORTS and BACKUP on one row. A unit
+    // whose named outputs each hold a unit of its own (an SQ200: OUT 1 and
+    // OUT 2, a QD-S on each) reads OUTPUTS - OUTPUT as its face prints it,
+    // the unit by the catalog's word ("QD 1"), DEVICE, PORTS, BACKUP.
+    _bUnitsTable(proc, cards, backupOf, taken) {
+        if (this.procIsCardBased(proc)) {
+            return {
+                title: 'Cards',
+                cols: [{ title: 'slot', w: 0.5, align: 'right' }, { title: 'card', w: 1 }, { title: 'device', w: 1.6 },
+                       { title: 'ports', w: 0.8, align: 'right' }, { title: 'backup', w: 1 }],
+                rows: cards.map(({ slot, card }) => ({ cells: [String((slot || 0) + 1), this.cardTypedName(proc, card) || '—',
+                                                              card.deviceName, taken(card), backupOf(card)] })),
+            };
+        }
+        if (cards.every(({ card }) => this.cardIsUnitFace(proc, card))) {
+            return {
+                title: 'Processor',
+                cols: [{ title: 'device', w: 1.6 }, { title: 'ports', w: 0.8, align: 'right' },
+                       { title: 'backup', w: 1 }],
+                rows: cards.map(({ card }) => ({ cells: [card.deviceName || proc.deviceName, taken(card), backupOf(card)] })),
+            };
+        }
+        const slotName = (i) => {
+            const s = (proc.slots || []).find(x => x && x.index === i);
+            return (s && s.name) || String((i || 0) + 1);
+        };
+        return {
+            title: 'Outputs',
+            cols: [{ title: 'output', w: 0.6 }, { title: this.unitWordFor(proc, cards[0].card), w: 0.9 },
+                   { title: 'device', w: 1.1 }, { title: 'ports', w: 0.8, align: 'right' }, { title: 'backup', w: 1 }],
+            rows: cards.map(({ slot, card }) => ({ cells: [slotName(slot),
+                                                          this.cardTypedName(proc, card) || card.unitTitle || '—',
+                                                          card.deviceName, taken(card), backupOf(card)] })),
+        };
+    }
+
+    // The Breakout boxes table's CARD / PROCESSOR cell: on a card-based
+    // processor the card by name, as it always read; on a one-box unit the
+    // processor's name - its model where nobody named it - never "slot 1";
+    // on an SQ200 the QD-S it hangs on, "QD 1".
+    _bBoxUnitCell(proc, card, nameOf) {
+        if (this.procIsCardBased(proc)) return this.cardTypedName(proc, card) || nameOf(card.id);
+        if (this.cardIsUnitFace(proc, card)) return this.dataUnitTitle(proc, card).title;
+        return this.cardTypedName(proc, card) || card.unitTitle || nameOf(card.id);
+    }
+
     _bProcessorBlocks(book, proc, cards, procTitle) {
         // Sockets taken on the card - primaries AND the returns landing on
         // it - the same count the tray's card header reads (socketsTaken,
@@ -5067,20 +6073,14 @@ class _Binder {
             if (!cardId) return '—';
             return this.dataUnitTitleForCard(cardId).title || cardId;
         };
-        const rows = cards.map(({ slot, card }) => {
+        const backupOf = (card) => {
             const shape = card.redundancyShape && card.redundancyShape.mode;
-            const backup = card.backupCardId ? nameOf(card.backupCardId)
+            return card.backupCardId ? nameOf(card.backupCardId)
                 : (shape && shape !== 'off' ? shape : '—');
-            return { cells: [String((slot || 0) + 1), this.cardTypedName(proc, card) || '—', card.deviceName,
-                             `${used(card.id)} / ${this._bCardPortCount(card) != null ? this._bCardPortCount(card) : '?'}`, backup] };
-        });
+        };
+        const taken = (card) => `${used(card.id)} / ${this._bCardPortCount(card) != null ? this._bCardPortCount(card) : '?'}`;
         const blocks = [];
-        blocks.push({ lines: this._bTableLines(book, {
-            title: 'Cards',
-            cols: [{ title: 'slot', w: 0.5, align: 'right' }, { title: 'card', w: 1 }, { title: 'device', w: 1.6 },
-                   { title: 'ports', w: 0.8, align: 'right' }, { title: 'backup', w: 1 }],
-            rows,
-        }) });
+        blocks.push({ lines: this._bTableLines(book, this._bUnitsTable(proc, cards, backupOf, taken)) });
         // The breakout boxes hanging off the cards, each with the trunk it
         // takes, the sockets it delivers and its fiber trunk (2026-09-07).
         // A LOOP's two boxes (an SX40's XD A and B) sit together, the far
@@ -5101,19 +6101,34 @@ class _Binder {
             for (const box of ordered) {
                 const near = fars.has(box.id) ? list.find(n => n.id === box.backupOf) : null;
                 const title = this._bBoxTitle(box) + (near ? ` · loop of ${this._bBoxTitle(near)}` : '');
-                boxRows.push({ cells: [title, this.cardTypedName(proc, card) || nameOf(card.id), box.trunkTitle || '—',
-                                       String(box.portCount || (box.ports || []).length),
-                                       this._bBoxFiberText(box)] });
+                const fiber = this._bBoxFiberParts(box);
+                const groups = this._bBoxFiberGroups(box);
+                boxRows.push({ cells: [title, this._bBoxUnitCell(proc, card, nameOf), box.trunkTitle || '—',
+                                       this._bBoxFiberText(box)],
+                               ...(fiber ? { parts: { 3: fiber } } : {}),
+                               ...(groups ? { inputs: { 3: groups } } : {}) });
             }
         }
         if (boxRows.length) {
+            // NO PORTS COLUMN (owner, 2026-10-17: "in this example we've
+            // put X1 twice and I don't know that's needed"): the FIBER
+            // groups name every input the box takes, and the box's count
+            // is on its data sheet's band. The CARD / PROCESSOR column is
+            // wide enough that its heading prints at the others' size.
+            const unitWord = this.unitWordFor(proc, cards[0].card);
             blocks.push({ lines: this._bTableLines(book, {
                 title: 'Breakout boxes',
                 // FIBER wraps at its " · " - a box with a backup link reads
                 // "TAC A 9-10" over "X2 TAC B 1-2" - rather than being
                 // shrunk or cut; a loop's far box wraps "loop of" the same way.
-                cols: [{ title: 'breakout box', w: 1.3, list: 2 }, { title: 'card', w: 0.7 }, { title: 'trunk', w: 0.7 },
-                       { title: 'ports', w: 0.65, align: 'right' }, { title: 'fiber', w: 1.4, list: 2 }],
+                // A box on fiber cables lists each input and its strands a
+                // line each, swatched (_bBoxFiberParts), and FIBER takes the
+                // larger share a strand's swatch and name need.
+                cols: [{ title: 'breakout box', w: 1.3, list: 2 },
+                       { title: unitWord, w: unitWord === 'processor' ? 0.95 : 0.7 },
+                       { title: 'trunk', w: 0.7 },
+                       { title: 'fiber', w: boxRows.some(r => r.inputs || (r.parts && r.parts[3])) ? 2.4 : 1.7,
+                         list: 2, parts: true, inputs: true }],
                 rows: boxRows,
                 shrink: true,
             }) });
@@ -5216,7 +6231,7 @@ class _Binder {
         const firsts = new Map();      // cableId -> processor id of its first link
         const procsOf = new Map();     // cableId -> [processor titles]
         const uses = new Map();        // cableId -> Map(strand -> { box, key })
-        for (const { box, proc: p } of this._fiberAllBoxes()) {
+        for (const { box, proc: p, card } of this._fiberAllBoxes()) {
             for (const key of box.fiberLinkKeys || []) {
                 const link = (box.fiberLinks || {})[key];
                 if (!link || !link.cable || !this.getFiberCable(link.cable)) continue;
@@ -5226,7 +6241,7 @@ class _Binder {
                 if (!names.includes(title)) names.push(title);
                 procsOf.set(link.cable, names);
                 const m = uses.get(link.cable) || new Map();
-                (link.strands || []).forEach(s => { if (!m.has(s)) m.set(s, { box, key }); });
+                (link.strands || []).forEach(s => { if (!m.has(s)) m.set(s, { box, key, card }); });
                 uses.set(link.cable, m);
             }
         }
@@ -5244,16 +6259,56 @@ class _Binder {
             const rows = [];
             for (let n = 1; n <= (cable.strands || 0); n++) {
                 const who = m.get(n);
-                rows.push({ swatch: this.fiberStrandSwatch(n, cable),
-                            cells: [this.fiberStrandName(n, cable),
+                const piece = this._bStrandPiece(n, cable);
+                rows.push({ swatch: piece.swatch,
+                            cells: [piece.text,
                                     who ? `${this._bBoxTitle(who.box)} · ${this.fiberLinkTitle(who.key, who.box)}`
-                                        : 'spare'] });
+                                        : 'spare',
+                                    who ? this._bLinkPortsText(who.box, who.card, who.key) : ''] });
             }
             out.push({ title, note: also.length ? `Also on ${also.join(', ')}` : '',
-                       cols: [{ title: 'strand', w: 1.1, swatch: true }, { title: 'link', w: 2 }],
+                       cols: [{ title: 'strand', w: 1.1, swatch: true }, { title: 'link', w: 2 },
+                              { title: 'box ports', w: 0.8 }],
                        rows, shrink: true });
         }
         return out;
+    }
+
+    // A link's strands in the order they plug in AT THE BOX: a TAC's duplex
+    // pair flips between its ends (the box's own Fiber section reads Orange
+    // · Blue); an MTP or an opticalCON crosses inside the cable, so its box
+    // end reads the stored order; anything else as stored. The numbers,
+    // deduplicated; FIBER CONNECTIONS' AT THE BREAKOUT and the wiring
+    // sheet's box both read it.
+    _bStrandsAtBox(link, cable) {
+        const set = [...new Set(((link && link.strands) || []).map(Number))].filter(Number.isFinite);
+        return cable && cable.kind === 'tac' ? set.reverse() : set;
+    }
+
+    // THE BOX'S OWN OUTPUT PORTS A LINK CARRIES (owner, 2026-10-17: the
+    // strand map says which data ports each strand feeds), as the box's
+    // face numbers them: every one of them on a box taking one trunk (an
+    // XD on its X1 - and on its X2, the backup of the same trunk - the
+    // loop's far box on trunk B the same, a CVT4K-S switched to one OPT);
+    // on a box taking two, each input its own trunk's share at the card's
+    // ports per trunk, as the resolver lays them (a CVT4K-S on an
+    // H_16xRJ45+2xfiber: OPT1 1-8, OPT2 9-16). '' for a card's own link (a
+    // QD-S's IN 1 carries its outputs, not data ports) or where the card
+    // states no ports per trunk to split by.
+    _bLinkPortsText(box, card, key) {
+        if (!box || box.linkHost || !box.portCount) return '';
+        const n = box.portCount;
+        const k = Number(String(key || '').slice(1)) || 1;
+        const takes = box.trunksIn || 1;
+        let lo = 1, hi = n;
+        if (takes > 1) {
+            const per = card && card.portsPerTrunk;
+            if (!per) return '';
+            lo = (k - 1) * per + 1;
+            hi = Math.min(n, k * per);
+            if (lo > hi) return '';
+        }
+        return lo === hi ? String(lo) : `${lo}-${hi}`;
     }
 
     // FIBER CONNECTIONS (2026-10-06): the rack built from the binder, one row
@@ -5261,7 +6316,7 @@ class _Binder {
     // prints, card.trunkTitles; an SQ200's slot, "OUT 1", for the QD-S IN
     // link it feeds), CABLE (its kind in brackets the first time this table
     // names it), the strands AT THE PROCESSOR, then the BREAKOUT it plugs
-    // into - its input on its box, "X1 on Tessera XD A" (Matt, 2026-10-06:
+    // into - its input on its box, "X1 on XD A" (Matt, 2026-10-06:
     // "that needs to read X1 on whatever XD"; "call it breakout") - and the
     // strands AT THE BREAKOUT, each end's strands beside the thing they plug
     // into. A link's strands are stored in the order they plug in at the
@@ -5304,8 +6359,10 @@ class _Binder {
         // the stored order: the order at the processor
         const strands = (link) => [...new Set(((link && link.strands) || []).map(Number))]
             .filter(Number.isFinite);
-        const swatched = (list, cable) => list.map(n => ({ text: this.fiberStrandName(n, cable),
-                                                           swatch: this.fiberStrandSwatch(n, cable) }));
+        // a strand to a line, whatever fits (2026-10-17: every row reads
+        // the same, never two strands side by side), swatched as
+        // _bStrandPiece has it
+        const swatched = (list, cable) => list.map((n, j) => ({ ...this._bStrandPiece(n, cable), brk: j > 0 }));
         const joined = (parts) => parts.map(p => p.text).join(' · ');
         const linkRow = (output, l) => {
             linked++;
@@ -5327,9 +6384,8 @@ class _Binder {
             const crosses = cable.kind === 'mtp' || cable.kind === 'opticalcon-duo'
                 || cable.kind === 'opticalcon-quad';
             const atInput = crosses
-                ? swatched(set, cable).concat([{ text: 'crosses inside' }])
-                : cable.kind === 'tac' ? swatched(set.slice().reverse(), cable)
-                    : swatched(set, cable);
+                ? swatched(set, cable).concat([{ text: 'crosses inside', brk: true }])
+                : swatched(this._bStrandsAtBox(l.link, cable), cable);
             return { cells: [output, name, joined(atProcessor), input, joined(atInput)],
                      parts: { 2: atProcessor, 4: atInput } };
         };
@@ -5410,7 +6466,7 @@ class _Binder {
             cols: [{ title: 'output', w: 0.55, list: 2, headShrink: true },
                    { title: 'cable', w: 1.1, list: 4, words: true, headShrink: true },
                    { title: 'at the processor', w: 1.45, list: 3, parts: true, headShrink: true },
-                   { title: 'breakout', w: 1.15, list: 3, words: true, headShrink: true },
+                   { title: 'breakout', w: 1.15, list: 3, words: 'on', headShrink: true },
                    { title: 'at the breakout', w: 1.2, list: 3, parts: true, headShrink: true }],
             rows,
         };

@@ -50,7 +50,9 @@ file in NovaLCT.
 import argparse
 import collections
 import json
+import math
 import os
+import re
 import sys
 import urllib.request
 
@@ -107,9 +109,10 @@ def _int(value, default=0):
 # ── capacity tables (app-core.js portCapacityTables) ─────────────────────
 #
 # The same figures as app-core.js, every one ROUNDED DOWN (owner,
-# 2026-09-26: "make sure the table values are rounded down") - a
-# processor/frame-rate pair the manufacturer does not publish has no answer,
-# and 0 is how both sides say so.
+# 2026-09-26: "make sure the table values are rounded down"). A frame rate
+# past a processor's last published row has no answer, and 0 is how both
+# sides say so; a rate between two rows is answered by lookup_port_capacity
+# below, never by interpolation.
 
 PORT_CAPACITY_TABLES = {
     'novastar-armor': {
@@ -179,8 +182,56 @@ LOW_LATENCY_PROFILES = {
 }
 
 
+# app-core.js portCapacityFormulas: the formula behind every table above that
+# IS formula-derived, for a frame rate between two published rows -
+#     capacity = floor(budget / (per_pixel x frame rate))
+# NovaStar Armor / COEX 1G are 95% of 1 Gbit at 24/48/48 and 24/32/48 per
+# pixel; Brompton is its published 24 Hz figure x 24, and the retired
+# brompton-ull is the same budget halved. Every published row is exactly this
+# formula, floored. 5G and HELIOS are published-only and have no entry.
+PORT_CAPACITY_FORMULAS = {
+    'novastar-armor': {
+        'budget': {8: 950000000, 10: 950000000, 12: 950000000},
+        'per_pixel': {8: 24, 10: 48, 12: 48},
+    },
+    'novastar-coex-1g': {
+        'budget': {8: 950000000, 10: 950000000, 12: 950000000},
+        'per_pixel': {8: 24, 10: 32, 12: 48},
+    },
+    'brompton': {
+        'budget': {8: 31500000, 10: 25200000, 12: 21000000},
+        'per_pixel': {8: 1, 10: 1, 12: 1},
+    },
+    'brompton-ull': {
+        'budget': {8: 31500000, 10: 25200000, 12: 21000000},
+        'per_pixel': {8: 2, 10: 2, 12: 2},
+    },
+}
+
+
+def formula_port_capacity(processor_type, bit_depth, whole_rate):
+    """The exact floored formula figure at a WHOLE frame rate, or None when
+    the processor's table is not formula-derived."""
+    formula = PORT_CAPACITY_FORMULAS.get(processor_type)
+    if not formula:
+        return None
+    budget = formula['budget'].get(bit_depth)
+    per_pixel = formula['per_pixel'].get(bit_depth)
+    if not budget or not per_pixel or not whole_rate > 0:
+        return None
+    return budget // (per_pixel * int(whole_rate))
+
+
 def lookup_port_capacity(bit_depth, frame_rate, processor_type):
-    """Raw manufacturer-table lookup, before any Low Latency behaviour."""
+    """Raw manufacturer-table lookup, before any Low Latency behaviour.
+
+    A rate between two published rows is never interpolated - capacity runs
+    as 1/frame rate, so a straight line overstates it. Formula-derived tables
+    give the exact floored formula at the rate rounded UP to a whole Hz;
+    published-only tables (5G, HELIOS) give the nearest row AT OR ABOVE the
+    rate. Below the table clamps to the lowest row; above it there is no
+    answer (0). Same rules as app-capacity.js lookupPortCapacity.
+    """
     processor_type = processor_type or 'novastar-armor'
     table = PORT_CAPACITY_TABLES.get(processor_type)
     if not table:
@@ -201,32 +252,32 @@ def lookup_port_capacity(bit_depth, frame_rate, processor_type):
     if not fps_table:
         return 0
 
-    exact_fps = _int(round(_num(frame_rate)))
-    if fps_table.get(exact_fps):
-        return fps_table[exact_fps]
-
-    fps_list = sorted(fps_table)
     rate = _num(frame_rate)
-
-    lower = fps_list[0]
-    upper = fps_list[-1]
-    for i in range(len(fps_list) - 1):
-        if fps_list[i] <= rate <= fps_list[i + 1]:
-            lower = fps_list[i]
-            upper = fps_list[i + 1]
-            break
+    fps_list = sorted(fps_table)
+    if not rate > 0 or not fps_list:
+        return 0
 
     # Below the table: clamp UP to the lowest published row - the conservative
     # direction, more ports than needed and never fewer.
     if rate <= fps_list[0]:
         return fps_table[fps_list[0]]
-    # Above the table: no capacity. Clamping to the last row answered a 240 Hz
-    # question with a 120 Hz figure - double the real capacity, half the ports.
+    # Above the table: no capacity, formula or not. Clamping to the last row
+    # answered a 240 Hz question with a 120 Hz figure - double the real
+    # capacity, half the ports.
     if rate > fps_list[-1]:
         return 0
 
-    ratio = (rate - lower) / (upper - lower)
-    return int(fps_table[lower] + (fps_table[upper] - fps_table[lower]) * ratio)
+    whole_rate = int(math.ceil(rate))
+    if processor_type in PORT_CAPACITY_FORMULAS:
+        if fps_table.get(whole_rate):
+            return fps_table[whole_rate]
+        derived = formula_port_capacity(processor_type, use_bit_depth, whole_rate)
+        return 0 if derived is None else derived
+
+    for fps in fps_list:
+        if fps >= rate:
+            return fps_table[fps]
+    return 0
 
 
 def get_low_latency_profile(processor_type):
@@ -269,13 +320,24 @@ def get_low_latency_geometry(layer):
 def low_latency_port_capacity(total, min_y, canvas_height):
     """Capacity of one Low Latency port whose topmost cabinet sits at min_y.
     Y = 0 - a top-aligned port - costs nothing. An unknown height derates
-    nothing rather than guessing an H."""
+    nothing rather than guessing an H.
+
+    floor((H - Y) x total / H) in integers: the float (1 - Y/H) x total lost a
+    pixel (H 720, Y 576 on 1,649,305 gave 329,860 for an exact 329,861)."""
     if not total > 0:
         return 0
     if not canvas_height > 0:
         return total
-    factor = min(1.0, max(0.0, 1 - (_num(min_y) / canvas_height)))
-    return int(factor * total)
+    y = _num(min_y)
+    if y <= 0:
+        return total
+    if y >= canvas_height:
+        return 0
+    rest = canvas_height - y
+    if float(total).is_integer() and float(rest).is_integer() \
+            and float(canvas_height).is_integer():
+        return (int(rest) * int(total)) // int(canvas_height)
+    return int(math.floor((rest * total) / canvas_height))
 
 
 def novastar_min_load_width(processor_type):
@@ -356,7 +418,7 @@ def get_ordered_panels_by_pattern(layer, pattern='tl-h', include_hidden=False):
 
     def take(r, c):
         panel = panel_map.get((r, c))
-        if panel is not None and (include_hidden or not panel.get('hidden')):
+        if panel is not None and (include_hidden or not _is_placeholder(panel)):
             ordered.append(panel)
 
     if direction == 'v':
@@ -418,7 +480,7 @@ def get_organized_panels_for_units(layer, pattern, is_horizontal_first,
                 panel = panel_map.get((unit_idx, col))
                 if panel is None:
                     continue
-                if include_hidden or not panel.get('hidden'):
+                if include_hidden or not _is_placeholder(panel):
                     ordered.append(panel)
         else:
             top_to_bottom = (unit_pos % 2 == 0) if starts_top else (unit_pos % 2 != 0)
@@ -427,7 +489,7 @@ def get_organized_panels_for_units(layer, pattern, is_horizontal_first,
                 panel = panel_map.get((row, unit_idx))
                 if panel is None:
                     continue
-                if include_hidden or not panel.get('hidden'):
+                if include_hidden or not _is_placeholder(panel):
                     ordered.append(panel)
     return ordered
 
@@ -501,9 +563,35 @@ def calculate_port_assignments(layer, canvas_height=0, warnings=None):
                 % (layer.get('id'), layer.get('name'), processor_type, bit_depth, frame_rate))
         return []
 
-    ordered_for_capacity = get_ordered_panels_by_pattern(layer, pattern, rect_constraint)
+    # Per-run overrides (app-run-overrides.js): a cabinet on one of this
+    # layer's hand-drawn override cables is already fed, so the automatic
+    # walk lays over everything else, the overridden numbers are skipped when
+    # the walk's ports are numbered, and the override cables are folded in on
+    # their own numbers. Empty for every layer without overrides, which keeps
+    # the walk below exactly what it always was. Only this layer's own cables
+    # are read - an override drawn onto a group peer is the crossing gap
+    # crossing_groups() already names.
+    reserved = override_port_numbers(layer)
+    override_runs = _override_runs(layer) if reserved else []
+    claimed = {id(item['panel']) for _, items in override_runs for item in items}
+
+    def unclaimed(panels):
+        return [p for p in panels if id(p) not in claimed] if claimed else panels
+
+    def with_overrides(assignments):
+        if not reserved:
+            return assignments
+        for _, items in override_runs:
+            assignments.extend(items)
+        # Ascending port order, stable, so cabinets within a port keep their
+        # feed order - the shape the app's own merge produces.
+        assignments.sort(key=lambda a: a['port'])
+        return assignments
+
+    ordered_for_capacity = unclaimed(
+        get_ordered_panels_by_pattern(layer, pattern, rect_constraint))
     if not ordered_for_capacity:
-        return []
+        return with_overrides([])
 
     ports = []
     capacity_error = [None]
@@ -541,10 +629,10 @@ def calculate_port_assignments(layer, canvas_height=0, warnings=None):
             # left. The other way round would scale the penalty by (1 - Y/H).
             return capacity_for_rect(capacity_at_y(min_y), bounds)
 
-        ll_panels = [p for p in get_ordered_panels_by_pattern(layer, pattern, False)
+        ll_panels = [p for p in unclaimed(get_ordered_panels_by_pattern(layer, pattern, False))
                      if panel_pixel_area(p) > 0]
         if not ll_panels:
-            return []
+            return with_overrides([])
 
         current = None
         for panel in ll_panels:
@@ -609,7 +697,7 @@ def calculate_port_assignments(layer, canvas_height=0, warnings=None):
             rect = _empty_rect()
             for idx in unit_idx_list:
                 for p in unit_panels(idx):
-                    if not p.get('hidden'):
+                    if not _is_placeholder(p):
                         rect = _union_rect(rect, p)
             return _rect_area(rect)
 
@@ -619,7 +707,7 @@ def calculate_port_assignments(layer, canvas_height=0, warnings=None):
             bounds = _empty_rect()
             for idx in unit_idx_list:
                 for p in unit_panels(idx):
-                    if not p.get('hidden'):
+                    if not _is_placeholder(p):
                         bounds = _union_rect(bounds, p)
             return capacity_for_rect(port_capacity, bounds)
 
@@ -628,7 +716,7 @@ def calculate_port_assignments(layer, canvas_height=0, warnings=None):
             all_in_unit = unit_panels(unit_idx)
             if not all_in_unit:
                 continue
-            visible = [p for p in all_in_unit if not p.get('hidden')]
+            visible = [p for p in all_in_unit if not _is_placeholder(p)]
             if not visible:
                 continue
 
@@ -676,7 +764,7 @@ def calculate_port_assignments(layer, canvas_height=0, warnings=None):
             # Hidden cabinets sit physically inside the reserved rectangle, so
             # they are skipped outright rather than allowed to grow it: one
             # falling inside the visible rect is already paid for.
-            if panel.get('hidden'):
+            if _is_placeholder(panel):
                 continue
             if panel_pixel_area(panel) <= 0:
                 continue
@@ -716,11 +804,15 @@ def calculate_port_assignments(layer, canvas_height=0, warnings=None):
                 ports.append(current)
                 current = {'panels': [], 'load': 0}
                 current_bounds = _empty_rect() if min_load_width > 0 else None
-            if (min_load_width > 0 and current['load'] == 0
+            # A cabinet that does not fit on an empty port is a hard error on
+            # every pixel-sum processor, not only 5G (whose narrow-port
+            # penalty is what capacity_for_rect adds) - the same ERROR the
+            # Organized, Low Latency and Armor branches raise.
+            if (current['load'] == 0
                     and panel_load > capacity_for_rect(port_capacity, _panel_rect(panel))):
                 raise_capacity_error('panel', 1)
                 break
-            if not panel.get('hidden'):
+            if not _is_placeholder(panel):
                 current['panels'].append(panel)
             if current_bounds is not None:
                 current_bounds = _union_rect(current_bounds, panel)
@@ -743,35 +835,85 @@ def calculate_port_assignments(layer, canvas_height=0, warnings=None):
         return []
 
     assignments = []
-    for idx, port in enumerate(ports):
+    next_port = [1]
+
+    def take_port_num():
+        # The walk's ports take 1, 2, 3... skipping every overridden number.
+        while next_port[0] in reserved:
+            next_port[0] += 1
+        num = next_port[0]
+        next_port[0] += 1
+        return num
+
+    for port in ports:
         if is_organized and not ll_geometry:
-            port_panels = get_organized_panels_for_units(
-                layer, pattern, is_horizontal_first, port.get('unitIndices') or [], False)
+            port_panels = unclaimed(get_organized_panels_for_units(
+                layer, pattern, is_horizontal_first, port.get('unitIndices') or [], False))
         else:
             port_panels = port.get('panels') or []
+        port_num = take_port_num()
         pixel_index = 0
         for panel_idx, panel in enumerate(port_panels):
-            assignments.append({'panel': panel, 'port': idx + 1,
+            assignments.append({'panel': panel, 'port': port_num,
                                 'is_port_start': panel_idx == 0,
                                 'pixel_index': pixel_index})
             pixel_index += panel_pixel_area(panel)
-    return assignments
+    return with_overrides(assignments)
+
+
+def _drawn_port_number(key):
+    """The port number a customPortPaths key names, or None when it names
+    none (not a whole number, or below 1)."""
+    try:
+        n = int(key)
+    except (TypeError, ValueError):
+        return None
+    return n if n >= 1 else None
+
+
+def _drawn_path_assignments(layer, num, path, pixel_step):
+    """One drawn cable as assignment items on port NUM, in drawn order.
+
+    A step naming a group PEER (layerId) is left out rather than landed on
+    this layer's cabinet at the same row and column, which is a different
+    cabinet - see the known gap in custom_port_assignments."""
+    panel_map = {}
+    for panel in layer.get('panels') or []:
+        panel_map[(_int(panel.get('row')), _int(panel.get('col')))] = panel
+    own_id = layer.get('id')
+    out = []
+    pixel_index = 0
+    for idx, step in enumerate(path or []):
+        if not isinstance(step, dict):
+            continue
+        step_layer = step.get('layerId')
+        if step_layer is not None and step_layer != own_id:
+            continue
+        panel = panel_map.get((_int(step.get('row')), _int(step.get('col'))))
+        if panel is None or _is_placeholder(panel):
+            continue
+        out.append({'panel': panel, 'port': num,
+                    'is_port_start': idx == 0,
+                    'pixel_index': pixel_index})
+        pixel_index += pixel_step
+    return out
 
 
 def custom_port_assignments(layer, warnings=None):
     """Cabinets to ports from the user's DRAWN cables.
 
     customPortPaths is {"<port>": [{col, row}, ...]} - the order the cable was
-    drawn IS the chain order, so nothing is re-sorted here. Ports are walked in
-    ascending numeric order so port 10 lands after port 9 rather than after
-    port 1, which a plain string sort would do.
+    drawn IS the chain order, so nothing is re-sorted here. Each cable keeps
+    the port number it was DRAWN as: ports drawn as 1 and 4 export as 1 and 4,
+    the same highest-drawn numbering the app reports for a custom screen. They
+    used to be renumbered by position, so that pair exported as 1 and 2.
 
     KNOWN GAP, not fixed here: a step may carry `layerId` naming a group PEER
-    (v0.11.0 cross-member cables). The panel map below is built from this
-    layer's own panels and the step's layerId is ignored, so a crossing step
-    lands on the OWNER's cabinet at that row and column - a different cabinet,
-    or none. Cross-member routing in the .scr is one job, and it is not this
-    one; see crossing_groups() for the automatic half of the same gap.
+    (v0.11.0 cross-member cables). The panel map is built from this layer's
+    own panels and the step's layerId is ignored, so a crossing step lands on
+    the OWNER's cabinet at that row and column - a different cabinet, or none.
+    Cross-member routing in the .scr is one job, and it is not this one; see
+    crossing_groups() for the automatic half of the same gap.
     """
     paths = layer.get('customPortPaths') or {}
     if not isinstance(paths, dict) or not paths:
@@ -781,28 +923,33 @@ def custom_port_assignments(layer, warnings=None):
     for panel in layer.get('panels') or []:
         panel_map[(_int(panel.get('row')), _int(panel.get('col')))] = panel
 
-    def port_key(k):
-        try:
-            return (0, int(k))
-        except (TypeError, ValueError):
-            # A non-numeric key cannot be ordered against the numbers; it goes
-            # last and says so rather than being dropped.
-            if warnings is not None:
-                warnings.warn('custom-port-key-%s-%s' % (layer.get('id'), k),
-                              'layer %s ("%s"): custom cable port key %r is not a '
-                              'number; it was ordered last.'
-                              % (layer.get('id'), layer.get('name'), k))
-            return (1, 0)
+    numbered = sorted((n, k) for n, k in ((_drawn_port_number(k), k) for k in paths)
+                      if n is not None)
+    unnumbered = [k for k in paths if _drawn_port_number(k) is None]
+    # A key that names no port cannot keep a number it does not have. It goes
+    # after the highest drawn port, in file order, and says so rather than
+    # being dropped.
+    next_free = (numbered[-1][0] if numbered else 0) + 1
+    ordered = list(numbered)
+    for key in unnumbered:
+        if warnings is not None:
+            warnings.warn('custom-port-key-%s-%s' % (layer.get('id'), key),
+                          'layer %s ("%s"): custom cable port key %r is not a '
+                          'port number; it was written as port %d, after the '
+                          'highest drawn port.'
+                          % (layer.get('id'), layer.get('name'), key, next_free))
+        ordered.append((next_free, key))
+        next_free += 1
 
     assignments = []
     pixel_step = full_panel_pixels(layer)
-    for port_no, key in enumerate(sorted(paths, key=port_key), start=1):
+    for port_no, key in ordered:
         path = paths[key] or []
         pixel_index = 0
         placed = 0
         for idx, step in enumerate(path):
             panel = panel_map.get((_int(step.get('row')), _int(step.get('col'))))
-            if panel is None or panel.get('hidden'):
+            if panel is None or _is_placeholder(panel):
                 continue
             assignments.append({'panel': panel, 'port': port_no,
                                 'is_port_start': idx == 0,
@@ -815,6 +962,43 @@ def custom_port_assignments(layer, warnings=None):
                           'cabinet; that port is empty in the .scr.'
                           % (layer.get('id'), layer.get('name'), key))
     return assignments
+
+
+def override_port_numbers(layer):
+    """app-run-overrides.js getOverrideNums: the port numbers a person took
+    over on an automatic screen - whole numbers >= 1, deduped, ascending.
+    A screen in whole-screen custom has none (its paths are all drawn)."""
+    if layer.get('flowPattern') == 'custom':
+        return []
+    raw = layer.get('customPortOverrides')
+    if not isinstance(raw, list):
+        return []
+    out = []
+    for value in raw:
+        # parseInt(v, 10): the leading whole number, so 3, "3" and 3.0 are 3.
+        m = re.match(r'\s*([+-]?\d+)', str(value))
+        if not m:
+            continue
+        n = int(m.group(1))
+        if n >= 1 and n not in out:
+            out.append(n)
+    return sorted(out)
+
+
+def _override_runs(layer):
+    """This layer's own overridden runs: [(num, [assignment items])], empty
+    cables dropped (an empty override still reserves its number)."""
+    paths = layer.get('customPortPaths') or {}
+    if not isinstance(paths, dict):
+        paths = {}
+    pixel_step = full_panel_pixels(layer)
+    runs = []
+    for num in override_port_numbers(layer):
+        path = paths.get(str(num)) or paths.get(num) or []
+        items = _drawn_path_assignments(layer, num, path, pixel_step)
+        if items:
+            runs.append((num, items))
+    return runs
 
 
 def assignments_for_layer(layer, canvas_height=0, warnings=None):
@@ -833,9 +1017,11 @@ def assignments_for_layer(layer, canvas_height=0, warnings=None):
 # ── project -> sections ──────────────────────────────────────────────────
 
 def _is_placeholder(panel):
-    """A cabinet that carries no data. Hidden and blank are both drawn as a
-    gap in the wall, and the .scr writes both as NovaStar's placeholder
-    (sender 0xFF, port 1, chain 1) rather than routing a port to nothing."""
+    """A cabinet that carries no data. Hidden and the legacy blank flag are
+    both a gap in the wall (owner: a blank does not exist): every walk above
+    leaves them out the same way, and the .scr writes both as NovaStar's
+    placeholder (sender 0xFF, port 1, chain 1) rather than routing a port to
+    nothing."""
     return bool(panel.get('hidden')) or bool(panel.get('blank'))
 
 
@@ -885,9 +1071,9 @@ def build_canvas_section(project, canvas, canvas_index, layers, warnings):
         for a in assignments:
             panel = a['panel']
             if _is_placeholder(panel):
-                # The JS traversal only knows about `hidden`, so a cabinet
-                # marked blank can still come back with a port. It carries no
-                # data, so the port slot is given back rather than written.
+                # The walks drop a legacy blank exactly like hidden now, so
+                # this only catches a path that still names one. It carries
+                # no data, so the port slot is given back rather than written.
                 if panel.get('blank') and not panel.get('hidden'):
                     warnings.warn(
                         'blank-routed-%s' % layer.get('id'),

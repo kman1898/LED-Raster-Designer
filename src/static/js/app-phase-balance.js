@@ -5,6 +5,24 @@
 // and the distro panel both read.
 import { LEDRasterApp } from './app-core.js';
 
+// The exhaustive search's ceiling, in arrangements - the product of every
+// partly-filled multi's tail subsets on one distro. A multi has at most
+// C(6,3) = 20 subsets and the largest real distro measured 540
+// arrangements, so this is far past anything a show builds; past it the
+// search falls back to a bounded descent and the dialog says its answer
+// is the best FOUND, not the best there is.
+const BALANCE_EXHAUSTIVE_CAP = 50000;
+// Two scores within these are a tie: imbalance in points, busiest leg in
+// amps. Ties keep the arrangement found first, and the current one is
+// always tried first.
+const BALANCE_TIE_PCT = 1e-7;
+const BALANCE_TIE_A = 1e-6;
+// What a result must beat to be offered at all: a hundredth of a point of
+// imbalance, or (at equal imbalance) a thousandth of an amp off the
+// busiest leg. Anything smaller is rounding, not a better arrangement.
+const BALANCE_GAIN_PCT = 0.01;
+const BALANCE_GAIN_A = 0.001;
+
 class _PhaseBalance {
 
     // Every PARTLY-FILLED multi that lands on a 3-phase distro, with the
@@ -19,11 +37,17 @@ class _PhaseBalance {
     // problems solved at once - and it moved multis on distros the user was
     // not looking at. No argument keeps the show-wide walk for the callers
     // that genuinely want every distro (clearPhaseBalance's preview, tests).
+    //
+    // Each target carries `fromFlat` - the tail every circuit sits on NOW,
+    // in walk order - and `circuits`, the plan records the leg maths books
+    // them from. A target on a LOCKED screen (any member of a shared box)
+    // is flagged `locked`: the search holds it exactly where it is.
     _balanceTargets(distroId) {
         const out = [];
         const distros = this.getDistros();
         const seenBoxes = new Set();
-        for (const layer of (this.project.layers || [])) {
+        const layers = this.project.layers || [];
+        for (const layer of layers) {
             if ((layer.type || 'screen') !== 'screen') continue;
             const assign = layer.powerSocaDistro || {};
             const circuitV = parseFloat(layer.powerVoltage) || 0;
@@ -50,10 +74,12 @@ class _PhaseBalance {
                     if (share.clash || share.overflow) continue;
                     const total = share.members.reduce((t, m) => t + m.legs, 0);
                     const members = share.members.map(m => {
-                        const ml = (this.project.layers || [])
-                            .find(l => l.id === m.layerId);
-                        return ml ? { layer: ml, soca: m.soca, legs: m.legs,
-                                      tails: m.tails.slice() } : null;
+                        const ml = layers.find(l => l.id === m.layerId);
+                        const ms = ml && this.getSocaPlan(ml).find(x => x.soca === m.soca);
+                        return ml && ms && ms.legs.length === m.legs
+                            ? { layer: ml, soca: m.soca, legs: m.legs,
+                                tails: m.tails.slice(), s: ms }
+                            : null;
                     }).filter(Boolean);
                     if (members.length !== share.members.length) continue;
                     // Full is full against the BOX's fan - the smallest
@@ -63,25 +89,21 @@ class _PhaseBalance {
                         .map(m => this.socaBoxSize(m.layer)),
                         faceBox ? faceBox.size : Infinity);
                     if (total >= boxSize) continue;
-                    // per-circuit amps and labels, member order - index k of
-                    // from/to below is the k-th circuit of this walk
-                    const legsDetail = members.flatMap(m =>
-                        (this.getSocaPlan(m.layer)
-                            .find(x => x.soca === m.soca) || { legs: [] }).legs);
-                    members.forEach(m => {
-                        const saved = (m.layer.powerSocaPhasePos || {})[m.soca];
-                        m.hadStore = Array.isArray(saved);
-                        m.savedStore = m.hadStore ? saved.slice() : null;
-                    });
+                    // per circuit, member order - index k of from/to is the
+                    // k-th circuit of this walk
+                    const circuits = members.flatMap(m => m.s.legs
+                        .map((leg, li) => ({ layer: m.layer, s: m.s, li, leg })));
                     out.push({
                         layer, soca: s.soca, name: s.name, distroId: d.id,
                         legs: total, members, boxSize,
+                        locked: members.some(m => !!m.layer.locked),
                         layerName: members.map(m => m.layer.name).join(' + '),
                         positions: members.flatMap(m => m.tails)
                             .sort((a, b) => a - b),
                         fromFlat: members.flatMap(m => m.tails),
-                        amps: legsDetail.map(l => l.amps),
-                        labels: legsDetail.map(l => l.label),
+                        circuits,
+                        amps: circuits.map(c => c.leg.amps),
+                        labels: circuits.map(c => c.leg.label),
                         scheme: this._circuitSchemeFor(d, circuitV).id
                     });
                     continue;
@@ -89,16 +111,19 @@ class _PhaseBalance {
                 const ownSize = Math.min(this.socaBoxSize(layer),
                                          faceBox ? faceBox.size : Infinity);
                 if (s.legs.length >= ownSize) continue;
+                const positions = this.socaCircuitPositions(layer, s.soca, s.legs.length);
                 out.push({
                     layer, soca: s.soca, name: s.name, distroId: d.id,
                     legs: s.legs.length,
                     boxSize: ownSize,
-                    positions: this.socaCircuitPositions(layer, s.soca, s.legs.length),
+                    locked: !!layer.locked,
+                    positions,
+                    fromFlat: positions.slice(),
+                    circuits: s.legs.map((leg, li) => ({ layer, s, li, leg })),
                     amps: s.legs.map(l => l.amps),
-                    // The circuits' CURRENT labels through the one authority,
-                    // captured before the search mutates the store - the
-                    // balance dialog names each moved circuit by the bubble
-                    // on the canvas, never by a re-derived ordinal.
+                    // The circuits' CURRENT labels through the one authority -
+                    // the balance dialog names each moved circuit by the
+                    // bubble on the canvas, never by a re-derived ordinal.
                     labels: s.legs.map(l => l.label),
                     scheme: this._circuitSchemeFor(d, circuitV).id
                 });
@@ -113,22 +138,29 @@ class _PhaseBalance {
     // plan errors out, so the multis do not EXIST - and the dialog computed
     // to a no-op without saying why. Every reason a multi is passed over is
     // collected here so the no-targets dialog can state them instead:
-    //   full     6-circuit multis (and full shared boxes) - nothing to choose
+    //   full     multis (and shared boxes) with every circuit of their
+    //            connector taken - nothing to choose
+    //   crowded  multis with more circuits than their connector holds - a
+    //            several-circuit multi left on a one-circuit direct output
     //   clashed  shared boxes left alone until their tail clash/overflow is
     //            resolved
     //   phantom  screens whose powerSocaDistro names this distro for a multi
     //            the current circuit plan does not produce - an empty plan
     //            (power error, peer-served member) or one that shrank
+    // Sizes are the CONNECTOR's (the face box's), never the screen's six.
     _balanceBlockers(distroId) {
-        const out = { full: [], clashed: [], phantom: [] };
+        const out = { full: [], crowded: [], clashed: [], phantom: [] };
         if (!distroId) return out;
+        const d = this.getDistros().find(x => x.id === distroId) || null;
+        const layers = this.project.layers || [];
         const seenBoxes = new Set();
-        for (const layer of (this.project.layers || [])) {
+        for (const layer of layers) {
             if ((layer.type || 'screen') !== 'screen') continue;
             const assign = layer.powerSocaDistro || {};
             const plan = this.getSocaPlan(layer);
             for (const s of plan) {
                 if (assign[s.soca] !== distroId) continue;
+                const fbox = d ? this.faceBox(d, s.number) : null;
                 const share = this.getSocaShare(layer, s.soca);
                 if (share) {
                     if (seenBoxes.has(share.key)) continue;
@@ -137,16 +169,25 @@ class _PhaseBalance {
                     // screen should not name the screen twice
                     const names = [...new Set(share.members
                         .map(m => m.layerName))].join(' + ');
+                    const size = Math.min(...share.members.map(m => {
+                        const ml = layers.find(l => l.id === m.layerId);
+                        return ml ? this.socaBoxSize(ml) : Infinity;
+                    }), this.socaBoxSize(layer), fbox ? fbox.size : Infinity);
                     if (share.clash || share.overflow) {
                         out.clashed.push({ name: s.name, layers: names,
-                            overflow: !!share.overflow });
-                    } else if (share.members.reduce((t, m) => t + m.legs, 0)
-                            >= this.socaBoxSize(layer)) {
+                            overflow: !!share.overflow, size });
+                    } else if (share.members.reduce((t, m) => t + m.legs, 0) >= size) {
                         out.full.push({ name: s.name, layers: names });
                     }
                     continue;
                 }
-                if (s.legs.length >= this.socaBoxSize(layer)) {
+                const size = Math.min(this.socaBoxSize(layer),
+                                      fbox ? fbox.size : Infinity);
+                if (s.legs.length > size) {
+                    out.crowded.push({ name: s.name, layers: layer.name,
+                        legs: s.legs.length, size,
+                        conn: fbox ? fbox.conn.short : '' });
+                } else if (s.legs.length >= size) {
                     out.full.push({ name: s.name, layers: layer.name });
                 }
             }
@@ -170,122 +211,406 @@ class _PhaseBalance {
         return out;
     }
 
-    // Deal a shared box's chosen tail SET across its members: ascending
-    // tails to members in member order, each member's slice ascending - the
-    // box-wide statement of the wall-order rule.
-    _dealBoxTails(members, tailSet) {
-        const sorted = tailSet.slice().sort((a, b) => a - b);
-        let off = 0;
-        for (const m of members) {
-            const store = m.layer.powerSocaPhasePos
-                || (m.layer.powerSocaPhasePos = {});
-            store[m.soca] = sorted.slice(off, off + m.legs);
-            off += m.legs;
-        }
-    }
-
-    // Worst imbalance, which is what we minimise - across every 3-phase
-    // distro show-wide, or over the one distro a scoped balance is working.
+    // Worst imbalance across every 3-phase distro show-wide, or over the
+    // one distro a scoped balance is working.
     _worstImbalance(distroId) {
         return this.getDistroLoads()
             .filter(b => b.id && b.legs && (!distroId || b.id === distroId))
             .reduce((m, b) => Math.max(m, b.imbalancePct), 0);
     }
 
-    // Search WHICH tails of the fan each partly-filled multi uses.
-    //
-    // Wall-order rule: circuits always map to the chosen tails ascending in
-    // wall order, so the search space is tail SUBSETS (C(6,L) per multi -
-    // at most 20), never permutations. They still multiply across multis, so
-    // this is greedy local search: repeatedly try every single-tail change
-    // (swap one used tail for a free one, re-sort), keep improvements, stop
-    // when nothing helps. Deterministic. Where circuit loads are equal this
-    // finds exactly what the old permutation search found - the phase math
-    // only sees the subset; where they differ, wall order deliberately wins
-    // over the last few percent of imbalance.
-    //
-    // Nothing is persisted; the project is restored before returning.
-    //
-    // `distroId` scopes both the targets and the figure being minimised to
-    // one distro - the per-distro Balance button's path. Unscoped remains
-    // the show-wide search it always was.
-    suggestPhaseBalance(distroId) {
-        const targets = this._balanceTargets(distroId);
-        const before = this._worstImbalance(distroId);
-        if (!targets.length) return { before, after: before, targets: [], moves: [], searched: 0 };
+    // The real figures of one distro as it stands: imbalance and the
+    // busiest leg, read off getDistroLoads itself. Null for a distro with
+    // no legs.
+    _balanceRealFigures(distroId) {
+        this._circuitTailCache = null;
+        const L = this.getDistroLoads().find(b => b.id === distroId);
+        if (!L || !L.legs) return null;
+        return { imb: L.imbalancePct, busiest: L.legs.worstAmps };
+    }
 
-        // For a shared box `positions` is the combined tail SET (ascending)
-        // and `fromFlat` the member-order walk of the same tails - the
-        // search moves the set, the moves report per circuit.
-        const original = targets.map(t => (t.fromFlat || t.positions).slice());
-        const current = targets.map(t => t.positions.slice());
-        const write = () => targets.forEach((t, i) => {
-            if (t.members) { this._dealBoxTails(t.members, current[i]); return; }
-            const store = t.layer.powerSocaPhasePos || (t.layer.powerSocaPhasePos = {});
-            store[t.soca] = current[i].slice();
+    // The leg phasor ONE circuit adds when it sits on `tail`, as
+    // [Xre, Xim, Yre, Yim, Zre, Zim] - booked through the same authority
+    // getDistroLoads books with (distroCircuitLegs, _bookCircuitOnLegs), so
+    // the search scores exactly what the dock will print.
+    _balanceCircuitPhasor(d, c, tail) {
+        const store = {
+            legWatts: { X: 0, Y: 0, Z: 0 },
+            legPhasor: { X: { re: 0, im: 0 }, Y: { re: 0, im: 0 }, Z: { re: 0, im: 0 } },
+            pairWatts: {},
+        };
+        const info = this.distroCircuitLegs(d, c.layer, c.s, 0, [tail]);
+        this._bookCircuitOnLegs(store, d, info, Number(c.leg.watts) || 0,
+                                parseFloat(c.layer.powerVoltage) || 0);
+        const p = store.legPhasor;
+        return [p.X.re, p.X.im, p.Y.re, p.Y.im, p.Z.re, p.Z.im];
+    }
+
+    // Imbalance (NEMA-style, as getDistroLoads states it) and the busiest
+    // leg of a summed phasor vector over the distro's legs.
+    _balanceFigures(v, names) {
+        const at = { X: 0, Y: 2, Z: 4 };
+        const amps = names.map(k => Math.hypot(v[at[k]], v[at[k] + 1]));
+        const avg = amps.reduce((t, x) => t + x, 0) / amps.length;
+        return {
+            imb: avg > 0 ? (Math.max(...amps.map(x => Math.abs(x - avg))) / avg) * 100 : 0,
+            busiest: Math.max(...amps),
+        };
+    }
+
+    // The objective, lexicographic: lower imbalance first, then the lighter
+    // busiest leg. (A result whose busiest leg is heavier than before is
+    // never a candidate at all - see _balanceSolve.)
+    _balanceBetter(a, b) {
+        if (a.imb < b.imb - BALANCE_TIE_PCT) return true;
+        return Math.abs(a.imb - b.imb) <= BALANCE_TIE_PCT
+            && a.busiest < b.busiest - BALANCE_TIE_A;
+    }
+
+    // Whether a REAL result is worth offering over the REAL current
+    // figures: the busiest leg no heavier, and either the imbalance
+    // clearly lower or - at the same imbalance - the busiest leg clearly
+    // lighter.
+    _balanceGains(after, before) {
+        if (!after || !before) return false;
+        if (after.busiest > before.busiest + BALANCE_TIE_A) return false;
+        if (after.imb < before.imb - BALANCE_GAIN_PCT) return true;
+        return after.imb <= before.imb + BALANCE_TIE_PCT
+            && after.busiest < before.busiest - BALANCE_GAIN_A;
+    }
+
+    // Every k-subset of tails 1..n, ascending, in lexicographic order.
+    _balanceSubsets(n, k) {
+        const out = [];
+        const cur = [];
+        const walk = (start) => {
+            if (cur.length === k) { out.push(cur.slice()); return; }
+            for (let t = start; t <= n - (k - cur.length) + 1; t++) {
+                cur.push(t);
+                walk(t + 1);
+                cur.pop();
+            }
+        };
+        if (k >= 0 && k <= n) walk(1);
+        return out;
+    }
+
+    // Solve one distro. Wall-order rule: circuits always map to the chosen
+    // tails ascending in wall order, so a multi's options are its tail
+    // SUBSETS (C(6,L) - at most 20) plus where it sits now; a shared box's
+    // options are the subsets dealt across its members, plus where it sits
+    // now (which need not be a deal - a stored member can sit below an
+    // earlier one). Every combination is scored when the product is within
+    // BALANCE_EXHAUSTIVE_CAP; past it a bounded descent (best single-multi
+    // change, repeated) runs instead and the result says so.
+    //
+    // Held fixed, booked where they sit: every circuit that is not a
+    // searched target - full multis, locked screens' multis (a shared box
+    // with a locked member whole), clashed boxes.
+    // Never offered: a tail whose circuit something else on the distro
+    // already holds - a paired connector's twin is one circuit, and two
+    // loads on it is a double patch. Two searched multis on paired
+    // connectors are kept apart the same way.
+    // Never accepted: a result whose busiest leg is heavier than now.
+    //
+    // Nothing is written; the score is the summed phasors.
+    _balanceSolve(distroId) {
+        const d = this.getDistros().find(x => x.id === distroId) || null;
+        const names = d ? this.distroLegNames(d) : [];
+        const all = this._balanceTargets(distroId);
+        const free = all.filter(t => !t.locked);
+        const res = {
+            distroId, targets: free, locked: all.filter(t => t.locked),
+            options: [], choice: free.map(() => 0),
+            before: this._balanceRealFigures(distroId), model: null,
+            searched: 0, total: 0, exhaustive: true, blockedByBusiest: false,
+        };
+        if (!d || names.length < 2 || !res.before || !free.length) return res;
+
+        const face = this.distroFace(d);
+        const keyOf = (s, tail) => {
+            const box = face ? this.faceBox(d, s.number) : null;
+            return box ? this._facePhysical(face, box, tail).key : `${s.number}:${tail}`;
+        };
+        const searchedMulti = new Set();
+        free.forEach(t => t.circuits.forEach(c => searchedMulti.add(`${c.layer.id}:${c.s.soca}`)));
+        // Everything on the distro that is not searched, where it sits now;
+        // and how many circuits each physical circuit carries now.
+        const base = [0, 0, 0, 0, 0, 0];
+        const fixed = new Map();
+        const now = new Map();
+        const bump = (m, k) => m.set(k, (m.get(k) || 0) + 1);
+        for (const layer of this.project.layers || []) {
+            if ((layer.type || 'screen') !== 'screen') continue;
+            const assign = layer.powerSocaDistro || {};
+            for (const s of this.getSocaPlan(layer)) {
+                if (assign[s.soca] !== d.id) continue;
+                const pos = this.socaCircuitPositions(layer, s.soca, s.legs.length);
+                const searched = searchedMulti.has(`${layer.id}:${s.soca}`);
+                s.legs.forEach((leg, li) => {
+                    const tail = pos[li] || li + 1;
+                    const key = keyOf(s, tail);
+                    bump(now, key);
+                    if (searched) return;
+                    bump(fixed, key);
+                    const v = this._balanceCircuitPhasor(d, { layer, s, leg }, tail);
+                    for (let i = 0; i < 6; i++) base[i] += v[i];
+                });
+            }
+        }
+        // A physical circuit may carry what it carries now (a double patch
+        // already on the drawing is the distro check's to say), never more.
+        const limit = (k) => Math.max(1, now.get(k) || 0);
+
+        const options = free.map(t => {
+            const opts = [{ keep: true, tails: t.fromFlat.slice() }];
+            const seen = new Set([opts[0].tails.join(',')]);
+            for (const set of this._balanceSubsets(t.boxSize, t.legs)) {
+                if (seen.has(set.join(','))) continue;
+                seen.add(set.join(','));
+                opts.push({ keep: false, tails: set });
+            }
+            for (const o of opts) {
+                o.keys = t.circuits.map((c, k) => keyOf(c.s, o.tails[k]));
+                o.vec = [0, 0, 0, 0, 0, 0];
+                t.circuits.forEach((c, k) => {
+                    const v = this._balanceCircuitPhasor(d, c, o.tails[k]);
+                    for (let i = 0; i < 6; i++) o.vec[i] += v[i];
+                });
+            }
+            return opts.filter(o => o.keep
+                || o.keys.every(k => (fixed.get(k) || 0) + 1 <= limit(k)));
         });
-        let searched = 0;
-        const score = () => { write(); searched += 1; return this._worstImbalance(distroId); };
+        res.options = options;
+        res.total = options.reduce((p, o) => p * o.length, 1);
 
-        let best = score();
-        for (let pass = 0; pass < 40; pass++) {
-            let moved = false;
-            for (let t = 0; t < targets.length; t++) {
-                const L = current[t].length;
-                for (let i = 0; i < L; i++) {
-                    // trade the tail at slot i for one nothing is using;
-                    // re-sort so the array stays ascending wall order.
-                    // The fan is the target's OWN box - six tails on a
-                    // soca, three on an L21-30.
-                    for (let p = 1; p <= (targets[t].boxSize || 6); p++) {
-                        if (current[t].includes(p)) continue;
-                        const was = current[t].slice();
-                        current[t][i] = p;
-                        current[t].sort((x, y) => x - y);
-                        const sc = score();
-                        if (sc < best - 0.01) { best = sc; moved = true; }
-                        else current[t] = was;
+        const used = new Map(fixed);
+        const fits = (o) => o.keys.every(k => (used.get(k) || 0) + 1 <= limit(k));
+        const take = (o, sign) => o.keys.forEach(k => used.set(k, (used.get(k) || 0) + sign));
+        const plus = (a, b) => a.map((x, i) => x + b[i]);
+
+        const current = this._balanceFigures(
+            options.reduce((v, o) => plus(v, o[0].vec), base), names);
+        res.model = current;
+        let best = current;
+        let bestChoice = free.map(() => 0);
+        const consider = (f, choice) => {
+            res.searched += 1;
+            if (f.busiest > current.busiest + BALANCE_TIE_A) {
+                if (f.imb < current.imb - BALANCE_GAIN_PCT) res.blockedByBusiest = true;
+                return false;
+            }
+            if (!this._balanceBetter(f, best)) return false;
+            best = f;
+            bestChoice = choice.slice();
+            return true;
+        };
+
+        if (res.total <= BALANCE_EXHAUSTIVE_CAP) {
+            const cur = free.map(() => 0);
+            const walk = (t, vec) => {
+                if (t === options.length) {
+                    consider(this._balanceFigures(vec, names), cur);
+                    return;
+                }
+                for (let i = 0; i < options[t].length; i++) {
+                    const o = options[t][i];
+                    if (!fits(o)) continue;
+                    take(o, 1);
+                    cur[t] = i;
+                    walk(t + 1, plus(vec, o.vec));
+                    take(o, -1);
+                }
+                cur[t] = 0;
+            };
+            walk(0, base);
+        } else {
+            res.exhaustive = false;
+            const valid = (choice) => {
+                used.clear();
+                fixed.forEach((n, k) => used.set(k, n));
+                for (let t = 0; t < options.length; t++) {
+                    const o = options[t][choice[t]];
+                    if (!fits(o)) return false;
+                    take(o, 1);
+                }
+                return true;
+            };
+            const vecOf = (choice) => choice.reduce((v, i, t) => plus(v, options[t][i].vec), base);
+            let choice = free.map(() => 0);
+            for (let pass = 0; pass < 100; pass++) {
+                let moved = false;
+                for (let t = 0; t < options.length; t++) {
+                    for (let i = 0; i < options[t].length; i++) {
+                        if (i === choice[t]) continue;
+                        const next = choice.slice();
+                        next[t] = i;
+                        if (!valid(next)) continue;
+                        if (consider(this._balanceFigures(vecOf(next), names), next)) {
+                            choice = next;
+                            moved = true;
+                        }
                     }
                 }
+                if (!moved) break;
             }
-            if (!moved) break;
         }
-        const winner = current.map(a => a.slice());
+        res.choice = bestChoice;
+        return res;
+    }
 
-        // put the project back exactly as it was; the label tail-slot cache
-        // may have been built against a candidate arrangement mid-search
-        // (getSocaPlan labels every leg), so drop it with the candidates
-        targets.forEach((t, i) => {
-            if (t.members) {
-                // members whose default was DEALT (no store) go back to
-                // having no store - writing the dealt tails would freeze an
-                // arrangement nobody chose
-                t.members.forEach(m => {
-                    const store = m.layer.powerSocaPhasePos
-                        || (m.layer.powerSocaPhasePos = {});
-                    if (m.hadStore) store[m.soca] = m.savedStore.slice();
-                    else delete store[m.soca];
-                });
-                return;
-            }
-            const store = t.layer.powerSocaPhasePos || (t.layer.powerSocaPhasePos = {});
-            if (original[i].every((p, k) => p === k + 1)) delete store[t.soca];
-            else store[t.soca] = original[i].slice();
-        });
-        this._circuitTailCache = null;
-
-        return {
-            before, after: best, searched,
-            targets: targets.map(t => `${t.name} (${t.layerName || t.layer.name}, ${t.legs} circuits)`),
-            moves: targets.map((t, i) => ({
+    // The moves one solve proposes: every target whose chosen option is not
+    // where it sits now. `from`/`to` are per circuit, walk order.
+    _balanceMovesOf(res) {
+        return res.targets.map((t, i) => {
+            const o = res.options[i] && res.options[i][res.choice[i]];
+            if (!o || o.keep) return null;
+            return {
                 layerId: t.layer.id, layerName: t.layerName || t.layer.name,
-                soca: t.soca,
+                soca: t.soca, distroId: t.distroId,
                 name: t.name, legs: t.legs,
                 members: t.members ? t.members.map(m => ({
                     layerId: m.layer.id, soca: m.soca, legs: m.legs })) : null,
-                from: original[i], to: winner[i],
-                amps: t.amps, labels: t.labels
-            })).filter(m => m.from.some((p, k) => p !== m.to[k]))
+                from: t.fromFlat.slice(), to: o.tails.slice(),
+                amps: t.amps, labels: t.labels,
+            };
+        }).filter(m => m && m.from.some((p, k) => p !== m.to[k]));
+    }
+
+    // Write one move onto the layers it names; returns the layers written.
+    // A shared box re-deals its whole set - ascending tails to members in
+    // member order, each member's slice on its own layer. A lone multi
+    // stores its sorted set, or drops the store when the set is the natural
+    // 1..L - and either way drops a legacy block offset under it, which
+    // would otherwise come back the moment the store is gone.
+    _balanceWriteMove(m) {
+        const layers = this.project.layers || [];
+        const out = [];
+        if (m.members && m.members.length) {
+            const sorted = m.to.slice().sort((a, b) => a - b);
+            let off = 0;
+            for (const mem of m.members) {
+                const layer = layers.find(l => l.id === mem.layerId);
+                if (!layer) { off += mem.legs; continue; }
+                const store = layer.powerSocaPhasePos
+                    || (layer.powerSocaPhasePos = {});
+                store[mem.soca] = sorted.slice(off, off + mem.legs);
+                off += mem.legs;
+                out.push(layer);
+            }
+            return out;
+        }
+        const layer = layers.find(l => l.id === m.layerId);
+        if (!layer) return out;
+        const sorted = m.to.slice().sort((a, b) => a - b);
+        const store = layer.powerSocaPhasePos || (layer.powerSocaPhasePos = {});
+        if (sorted.every((p, k) => p === k + 1)) delete store[m.soca];
+        else store[m.soca] = sorted;
+        const offs = layer.powerSocaPhaseOffset;
+        if (offs && Object.prototype.hasOwnProperty.call(offs, m.soca)) delete offs[m.soca];
+        out.push(layer);
+        return out;
+    }
+
+    // Write `moves`, read the real loads of every distro, put every layer
+    // back exactly as it was. Returns distro id -> real figures after.
+    _balanceDryRun(moves) {
+        const layers = this.project.layers || [];
+        const ids = new Set();
+        for (const m of moves) {
+            if (m.members && m.members.length) m.members.forEach(x => ids.add(x.layerId));
+            else ids.add(m.layerId);
+        }
+        const fields = ['powerSocaPhasePos', 'powerSocaPhaseOffset'];
+        const saved = layers.filter(l => ids.has(l.id)).map(layer => ({
+            layer,
+            f: fields.map(k => {
+                const had = Object.prototype.hasOwnProperty.call(layer, k);
+                const ref = layer[k];
+                return { k, had, ref,
+                         json: ref && typeof ref === 'object' ? JSON.stringify(ref) : null };
+            }),
+        }));
+        const out = new Map();
+        try {
+            moves.forEach(m => this._balanceWriteMove(m));
+            this._circuitTailCache = null;
+            for (const L of this.getDistroLoads()) {
+                if (L.id && L.legs) out.set(L.id, { imb: L.imbalancePct, busiest: L.legs.worstAmps });
+            }
+        } finally {
+            for (const { layer, f } of saved) {
+                for (const { k, had, ref, json } of f) {
+                    if (!had) { delete layer[k]; continue; }
+                    layer[k] = ref;
+                    if (json !== null) {
+                        Object.keys(ref).forEach(x => delete ref[x]);
+                        Object.assign(ref, JSON.parse(json));
+                    }
+                }
+            }
+            this._circuitTailCache = null;
+        }
+        return out;
+    }
+
+    // What Balance offers. Per distro (`distroId`), or every distro when
+    // none is named - legs never interact across services, so the show-wide
+    // call is each distro solved on its own.
+    //
+    // The figures are REAL: `before` is getDistroLoads on the drawing as it
+    // stands, `after` is getDistroLoads on the proposal, written for a dry
+    // run and put back. A distro's moves are offered only when that real
+    // result strictly beats the real current one under the lexicographic
+    // objective (imbalance, then the busiest leg) with the busiest leg no
+    // heavier - so Apply is never worse than leaving it.
+    //
+    // Nothing is persisted.
+    suggestPhaseBalance(distroId) {
+        const ids = distroId ? [distroId]
+            : [...new Set(this._balanceTargets().map(t => t.distroId))];
+        const solved = ids.map(id => this._balanceSolve(id));
+        const proposed = solved.map(r => this._balanceMovesOf(r));
+        const flat = proposed.flat();
+        const afterReal = flat.length ? this._balanceDryRun(flat) : new Map();
+        const kept = new Set();
+        solved.forEach((r, i) => {
+            if (proposed[i].length
+                    && this._balanceGains(afterReal.get(r.distroId), r.before)) {
+                kept.add(r.distroId);
+            }
+        });
+        const moves = proposed.filter((p, i) => kept.has(solved[i].distroId)).flat();
+
+        // The headline figures. Scoped: that distro's. Show-wide: the worst
+        // distro, before and after, the busiest leg likewise.
+        this._circuitTailCache = null;
+        const loads = this.getDistroLoads()
+            .filter(b => b.id && b.legs && (!distroId || b.id === distroId));
+        const beforeOf = (b) => ({ imb: b.imbalancePct, busiest: b.legs.worstAmps });
+        const afterOf = (b) => (kept.has(b.id) && afterReal.get(b.id)) || beforeOf(b);
+        const worst = (f) => loads.reduce((m, b) => ({
+            imb: Math.max(m.imb, f(b).imb), busiest: Math.max(m.busiest, f(b).busiest),
+        }), { imb: 0, busiest: 0 });
+        const before = worst(beforeOf);
+        const after = worst(afterOf);
+        const targets = solved.flatMap(r => r.targets);
+        return {
+            before: before.imb, after: after.imb,
+            beforeBusiest: before.busiest, afterBusiest: after.busiest,
+            searched: solved.reduce((t, r) => t + r.searched, 0),
+            total: solved.reduce((t, r) => t + r.total, 0),
+            exhaustive: solved.every(r => r.exhaustive),
+            blockedByBusiest: solved.some(r => r.blockedByBusiest && !kept.has(r.distroId)),
+            targets: targets.map(t => `${t.name} (${t.layerName || t.layer.name}, ${t.legs} circuits)`),
+            // Partly-filled multis held where they are because a screen
+            // they sit on is locked - the dialog names them.
+            locked: solved.flatMap(r => r.locked).map(t => ({
+                name: t.name, layerName: t.layerName || t.layer.name,
+                layers: [...new Set((t.members ? t.members.map(m => m.layer) : [t.layer])
+                    .filter(l => l.locked).map(l => l.name))],
+            })),
+            moves,
         };
     }
 
@@ -293,7 +618,9 @@ class _PhaseBalance {
         const touched = new Set();
         // A locked screen keeps its breakers (the owner's ruling,
         // 2026-10-16): a move that would write one is left out - a shared
-        // box's move whole - and the locked screens are named once.
+        // box's move whole - and the locked screens are named once. The
+        // search already holds locked screens fixed, so this only meets a
+        // move from somewhere else.
         const byId = (id) => (this.project.layers || []).find(l => l.id === id);
         const lockedMet = new Map();
         for (const m of moves || []) {
@@ -304,30 +631,7 @@ class _PhaseBalance {
                 locked.forEach(l => lockedMet.set(l.id, l));
                 continue;
             }
-            // A shared box's move re-deals the whole set: ascending tails to
-            // members in member order, each member's slice stored on its own
-            // layer - the same deal write() ran during the search.
-            if (m.members && m.members.length) {
-                const sorted = m.to.slice().sort((a, b) => a - b);
-                let off = 0;
-                for (const mem of m.members) {
-                    const layer = (this.project.layers || [])
-                        .find(l => l.id === mem.layerId);
-                    if (!layer) { off += mem.legs; continue; }
-                    const store = layer.powerSocaPhasePos
-                        || (layer.powerSocaPhasePos = {});
-                    store[mem.soca] = sorted.slice(off, off + mem.legs);
-                    off += mem.legs;
-                    touched.add(layer);
-                }
-                continue;
-            }
-            const layer = (this.project.layers || []).find(l => l.id === m.layerId);
-            if (!layer) continue;
-            const store = layer.powerSocaPhasePos || (layer.powerSocaPhasePos = {});
-            if (m.to.every((p, k) => p === k + 1)) delete store[m.soca];
-            else store[m.soca] = m.to.slice();
-            touched.add(layer);
+            this._balanceWriteMove(m).forEach(l => touched.add(l));
         }
         this._showLockedError([...lockedMet.values()]);
         this._circuitTailCache = null;
@@ -342,9 +646,9 @@ class _PhaseBalance {
     // Scoped to one distro when `distroId` is given - the per-distro
     // Balance button's dialog reports that distro's before/after and moves
     // only its multis. With nothing movable it STATES why (full multis,
-    // clashed boxes, assignments the plan no longer produces) rather than
-    // computing silently to a no-op: the reference show read that silence
-    // as "balancing won't calculate".
+    // clashed boxes, assignments the plan no longer produces, locked
+    // screens) rather than computing silently to a no-op: the reference
+    // show read that silence as "balancing won't calculate".
     showBalanceDialog(distroId) {
         const r = this.suggestPhaseBalance(distroId);
         const ID = 'balance-modal';
@@ -353,6 +657,12 @@ class _PhaseBalance {
         const gain = r.before - r.after;
         const distro = distroId
             ? this.getDistros().find(d => d.id === distroId) : null;
+        const plural = (n, one, many) => (n === 1 ? one : many);
+        const lockedLines = (r.locked || []).map(l =>
+            `${esc(l.name)} (${esc(l.layerName)}) stays where it is — ${esc(l.layers.join(', '))} ${plural(l.layers.length, 'is', 'are')} locked.`);
+        const lockedHtml = lockedLines.length
+            ? lockedLines.map(l => `<div style="color:#a6b0bb; margin:6px 0 0; padding-left:10px;">· ${l}</div>`).join('')
+            : '';
         let noTargets = `<p style="margin:0; color:#a6b0bb;">Every multi on a three-phase distro is full, so the legs are already
                as even as the pattern allows. Imbalance comes from partly-filled
                multis — there are none here.</p>`;
@@ -361,28 +671,41 @@ class _PhaseBalance {
             const lines = [];
             if (b.full.length) lines.push(
                 `${b.full.map(f => esc(f.name)).join(', ')} ${b.full.length === 1 ? 'is' : 'are'} full — with every circuit taken the legs are already as even as they get, there is nothing to choose.`);
+            b.crowded.forEach(c => lines.push(
+                `${esc(c.name)} (${esc(c.layers)}) has ${c.legs} circuits on ${c.conn ? `${/^(?:[aeiou]|L\d)/i.test(c.conn) ? 'an' : 'a'} ${esc(c.conn)}, which carries ` : 'a connector that carries '}${c.size === 1 ? 'one circuit' : `${c.size} circuits`} — move it to a multi output.`));
             b.clashed.forEach(c => lines.push(
                 `${esc(c.name)} (${esc(c.layers)}) is shared ${c.overflow
-                    ? 'with more circuits than the six it holds'
+                    ? `with more circuits than the ${Number.isFinite(c.size) ? c.size : 'tails'} it holds`
                     : 'with a circuit claimed twice'} — resolve the clash first.`));
             b.phantom.forEach(p => lines.push(
                 `${esc(p.layers)} assigns ${p.count === 1 ? 'a multi' : p.count + ' multis'} to this distro but ${esc(p.reason)}`));
+            lines.push(...lockedLines);
             noTargets = `<p style="margin:0 0 6px; color:#a6b0bb;">Nothing on this distro can move${lines.length ? ':' : ' — no partly-filled multi lands on it.'}</p>`
                 + lines.map(l => `<div style="color:#a6b0bb; margin:0 0 4px; padding-left:10px;">· ${l}</div>`).join('');
+        } else if (lockedLines.length) {
+            noTargets += lockedHtml;
         }
+        const n = r.targets.length;
+        const multis = `${n} partly-filled multi${n === 1 ? '' : 's'}`;
+        const checked = r.exhaustive
+            ? `Checked all ${r.searched} arrangement${plural(r.searched, '', 's')} of ${multis}`
+            : `Checked ${r.searched} of ${r.total} arrangements of ${multis} — too many to try them all, so this is the best found, not necessarily the best there is`;
+        const amps = (a) => `${a.toFixed(1)} A`;
         const body = !r.targets.length
             ? noTargets
             : !r.moves.length
-            ? `<p style="margin:0; color:#a6b0bb;">Checked ${r.searched} arrangement${r.searched === 1 ? '' : 's'} of
-               ${r.targets.length} partly-filled multi${r.targets.length === 1 ? '' : 's'} and could not beat the current
-               ${r.before.toFixed(1)}% imbalance. Landing them elsewhere will not help;
-               filling the short multis or moving circuits between them would.</p>`
-            : `<div style="display:flex; align-items:baseline; gap:10px; margin-bottom:14px;">
+            ? `<p style="margin:0; color:#a6b0bb;">${checked}. ${r.exhaustive ? 'None beats' : 'None found beats'} the current
+               ${r.before.toFixed(1)}% imbalance${r.blockedByBusiest
+                   ? ' without loading the busiest leg harder than its ' + amps(r.beforeBusiest) + ' today'
+                   : ''}. Landing them elsewhere will not help;
+               filling the short multis or moving circuits between them would.</p>${lockedHtml}`
+            : `<div style="display:flex; align-items:baseline; gap:10px; margin-bottom:4px;">
                  <span style="font-size:22px; color:#e05050;">${r.before.toFixed(1)}%</span>
                  <span style="color:#7d8894;">→</span>
                  <span style="font-size:22px; color:#5fa85f;">${r.after.toFixed(1)}%</span>
                  <span style="color:#8fa0b2; font-size:11px;">worst-leg imbalance · ${gain.toFixed(1)} points better</span>
                </div>
+               <div class="balance-busiest" style="color:#8fa0b2; font-size:11px; margin-bottom:14px;">Busiest leg ${amps(r.beforeBusiest)} → ${amps(r.afterBusiest)}</div>
                <div style="font-size:11px; color:#8a949f; margin-bottom:6px;">Re-plug these circuits along the same
                fan — no rewiring, no re-patching:</div>
                ${r.moves.map(m => `
@@ -397,11 +720,12 @@ class _PhaseBalance {
                      </tr>`).join('')}
                    </table>
                  </div>`).join('')}
+               ${lockedHtml}
                <div style="margin-top:12px; font-size:11px; color:#7d8894;">Balancing picks WHICH sockets of the fan a partly-filled
                multi uses — skipping one lands the remainder on different
                legs. Circuits keep wall order across the chosen sockets,
                so the labels still read in order across the wall.
-               Evaluated ${r.searched} arrangements.</div>`;
+               ${checked}.</div>`;
 
         const el = document.createElement('div');
         el.id = ID;
@@ -895,10 +1219,23 @@ class _PhaseBalance {
     // only the multis assigned to one distro when `distroId` is given (the
     // scoped balance dialog's reset) - and renumber those multis in screen
     // order, the only thing that moves a multi number once it has one.
+    //
+    // A locked screen stays exactly as it prints. Its own stores are held
+    // (_holdLockedLayers), its numbers are held (_releaseMultiNumbers), and
+    // on a SHARED box its tails are held too: dropping the other members'
+    // stores would re-deal the box around it and move its labels, so those
+    // members are dealt, in member order, into the lowest tails the locked
+    // members do not hold. Every locked screen the reset would otherwise
+    // have changed is named.
     clearPhaseBalance(distroId) {
         const screens = (this.project.layers || []).filter(l => (l.type || 'screen') === 'screen');
-        // A locked screen keeps its breaker positions, named when the reset
-        // would have moved one.
+        const lockedBoxes = this._lockedSharedBoxes(screens, distroId);
+        // Every screen's stores as they were, for a multi the reset has to
+        // leave where it is (_resetAroundPairedRows).
+        const preReset = new Map(screens.map(l => [l.id, {
+            pos: JSON.stringify(l.powerSocaPhasePos || {}),
+            off: JSON.stringify(l.powerSocaPhaseOffset || {}),
+        }]));
         const hold = this._holdLockedLayers(screens);
         if (!distroId) {
             screens.forEach(l => { l.powerSocaPhaseOffset = {}; l.powerSocaPhasePos = {}; });
@@ -913,7 +1250,7 @@ class _PhaseBalance {
                 }
             });
         }
-        this._showLockedError(hold.release());
+        const lockedHit = new Map(hold.release().map(l => [l.id, l]));
         // The reset is also the one gesture that lets the multi numbers move
         // (ruling 2026-10-16): the held numbers on this distro are cleared
         // and its multis deal again in screen order, gaps closed. A locked
@@ -922,8 +1259,193 @@ class _PhaseBalance {
             this._releaseMultiNumbers(distroId || null);
         }
         this._circuitTailCache = null;
-        if (screens.length) this.updateLayers(screens, true, 'Reset Phase Offsets');
+        this._holdLockedBoxTails(lockedBoxes).forEach(l => lockedHit.set(l.id, l));
+        this._showLockedError([...lockedHit.values()]);
+        this._circuitTailCache = null;
+        this._showPairedResetError(this._resetAroundPairedRows(screens, distroId, preReset));
+        this._circuitTailCache = null;
+        // Locked screens are not written: nothing on them changed.
+        const writable = screens.filter(l => !l.locked);
+        if (writable.length) this.updateLayers(writable, true, 'Reset Phase Offsets');
         return screens.length;
+    }
+
+    // After a reset re-dealt the multis: on a distro whose face pairs two
+    // rows (a Harting carrying the same circuits as a Socapex), no circuit
+    // may end up patched through both connectors - Balance never offers
+    // that, and neither may Reset. Walked in screen order with the locked
+    // screens' circuits held first: a multi whose natural tails land on a
+    // circuit something before it already holds is dealt, wall order, into
+    // the lowest tails of its connector whose circuits are free (a shared
+    // box as one unit, its members in member order). One that cannot fit
+    // is left where it was before the reset and returned, to be named.
+    _resetAroundPairedRows(screens, distroId, preReset) {
+        const named = [];
+        for (const d of this.getDistros()) {
+            if (distroId && d.id !== distroId) continue;
+            const face = typeof this.distroFace === 'function' ? this.distroFace(d) : null;
+            if (!face || !face.boxes.some(b => b.paired)) continue;
+            const keyOf = (s, tail) => {
+                const box = this.faceBox(d, s.number);
+                return box ? this._facePhysical(face, box, tail).key : `${s.number}:${tail}`;
+            };
+            // the units on this distro, screen order: a lone multi, or a
+            // shared box once at its first member
+            const units = [];
+            const seen = new Set();
+            for (const layer of screens) {
+                const assign = layer.powerSocaDistro || {};
+                for (const s of this.getSocaPlan(layer)) {
+                    if (assign[s.soca] !== d.id) continue;
+                    const share = this.getSocaShare(layer, s.soca);
+                    if (!share) {
+                        units.push({ members: [{ layer, soca: s.soca, legs: s.legs.length }],
+                                     number: s.number, s, shared: false,
+                                     locked: !!layer.locked });
+                        continue;
+                    }
+                    if (seen.has(share.key)) continue;
+                    seen.add(share.key);
+                    const members = share.members.map(m => ({
+                        layer: screens.find(l => l.id === m.layerId), soca: m.soca, legs: m.legs,
+                    }));
+                    if (members.some(m => !m.layer)) continue;
+                    units.push({ members, number: s.number, s, shared: true,
+                                 locked: members.some(m => !!m.layer.locked) });
+                }
+            }
+            const tailsOf = (u) => {
+                this._circuitTailCache = null;
+                return u.members.flatMap(m => this.socaCircuitPositions(m.layer, m.soca, m.legs));
+            };
+            const used = new Set();
+            const take = (u, tails) => tails.forEach(t => used.add(keyOf(u.s, t)));
+            units.filter(u => u.locked).forEach(u => take(u, tailsOf(u)));
+            for (const u of units) {
+                if (u.locked) continue;
+                const now = tailsOf(u);
+                if (now.every(t => !used.has(keyOf(u.s, t)))) { take(u, now); continue; }
+                const fbox = this.faceBox(d, u.number);
+                const size = Math.min(...u.members.map(m => this.socaBoxSize(m.layer)),
+                                      fbox ? fbox.size : Infinity);
+                const legs = u.members.reduce((t, m) => t + m.legs, 0);
+                const free = [];
+                for (let t = 1; t <= size; t++) if (!used.has(keyOf(u.s, t))) free.push(t);
+                if (free.length >= legs) {
+                    let off = 0;
+                    for (const m of u.members) {
+                        const store = m.layer.powerSocaPhasePos || (m.layer.powerSocaPhasePos = {});
+                        store[m.soca] = free.slice(off, off + m.legs);
+                        off += m.legs;
+                        const offs = m.layer.powerSocaPhaseOffset;
+                        if (offs) delete offs[m.soca];
+                    }
+                    take(u, free.slice(0, legs));
+                    continue;
+                }
+                // No room: back where it was before the reset.
+                for (const m of u.members) {
+                    const was = preReset.get(m.layer.id);
+                    if (!was) continue;
+                    for (const [k, json] of [['powerSocaPhasePos', was.pos], ['powerSocaPhaseOffset', was.off]]) {
+                        const old = JSON.parse(json);
+                        const store = m.layer[k] || (m.layer[k] = {});
+                        if (Object.prototype.hasOwnProperty.call(old, m.soca)) store[m.soca] = old[m.soca];
+                        else delete store[m.soca];
+                    }
+                    named.push(m.layer);
+                }
+                take(u, tailsOf(u));
+            }
+        }
+        this._circuitTailCache = null;
+        return named;
+    }
+
+    // Name the screens a reset left where they were because their natural
+    // tails would have patched a circuit through two paired connectors.
+    _showPairedResetError(layers) {
+        const names = [...new Set((layers || []).filter(Boolean)
+            .map(l => l.name || `Screen ${l.id}`))];
+        if (!names.length || typeof this._toast !== 'function') return;
+        const list = names.length === 1 ? names[0]
+            : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
+        this._toast(`${list} ${names.length === 1 ? 'stays' : 'stay'} where `
+            + `${names.length === 1 ? 'it was' : 'they were'} - the reset would have patched a circuit `
+            + 'through two paired connectors.', true, 5000);
+    }
+
+    // The shared boxes (on `distroId`, or any distro) with a locked member,
+    // as they print now: [{ members: [{ layer, soca, legs, tails, locked,
+    // store }] }] in member order. `store` is the member's stored tails as
+    // they were, to put back if the box cannot be held.
+    _lockedSharedBoxes(screens, distroId) {
+        const out = [];
+        const seen = new Set();
+        for (const layer of screens) {
+            const assign = layer.powerSocaDistro || {};
+            for (const idx of Object.keys(assign)) {
+                if (!assign[idx] || (distroId && assign[idx] !== distroId)) continue;
+                const share = this.getSocaShare(layer, idx);
+                if (!share || seen.has(share.key)) continue;
+                seen.add(share.key);
+                const members = share.members.map(m => {
+                    const ml = screens.find(l => l.id === m.layerId);
+                    if (!ml) return null;
+                    const saved = (ml.powerSocaPhasePos || {})[m.soca];
+                    return { layer: ml, soca: m.soca, legs: m.legs,
+                             tails: m.tails.slice(), locked: !!ml.locked,
+                             store: Array.isArray(saved) ? saved.slice() : null };
+                });
+                if (members.some(m => !m)) continue;
+                if (members.some(m => m.locked)) out.push({ members });
+            }
+        }
+        return out;
+    }
+
+    // After a reset dropped the stores: where a locked member's tails moved,
+    // deal the box's unlocked members into the lowest tails the locked
+    // members held, so the locked tails come back exactly. Returns the
+    // locked screens that needed it. Should even that not bring them back,
+    // the unlocked members get their pre-reset stores again - the box is
+    // left alone - and the locked screens are still named.
+    _holdLockedBoxTails(boxes) {
+        const hit = [];
+        const tailsNow = (m) => {
+            const rec = this._powerNaming(m.layer).socas.get(Number(m.soca));
+            return rec && Array.isArray(rec.positions) ? rec.positions : [];
+        };
+        const same = (a, b) => a.length === b.length && a.every((p, i) => p === b[i]);
+        for (const box of boxes) {
+            const locked = box.members.filter(m => m.locked);
+            this._circuitTailCache = null;
+            if (locked.every(m => same(tailsNow(m), m.tails))) continue;
+            const held = new Set(locked.flatMap(m => m.tails));
+            let t = 1;
+            for (const m of box.members) {
+                if (m.locked) continue;
+                const pos = [];
+                while (pos.length < m.legs) {
+                    if (!held.has(t)) pos.push(t);
+                    t += 1;
+                }
+                const store = m.layer.powerSocaPhasePos || (m.layer.powerSocaPhasePos = {});
+                store[m.soca] = pos;
+            }
+            this._circuitTailCache = null;
+            if (!locked.every(m => same(tailsNow(m), m.tails))) {
+                for (const m of box.members) {
+                    if (m.locked) continue;
+                    const store = m.layer.powerSocaPhasePos || (m.layer.powerSocaPhasePos = {});
+                    if (m.store) store[m.soca] = m.store.slice();
+                    else delete store[m.soca];
+                }
+                this._circuitTailCache = null;
+            }
+            locked.forEach(m => hit.push(m.layer));
+        }
+        return hit;
     }
 }
 

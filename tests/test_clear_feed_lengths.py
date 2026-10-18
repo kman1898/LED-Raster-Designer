@@ -1171,3 +1171,61 @@ def test_every_delete_path_drops_the_gone_rows_edits_and_undo_restores_them(page
     srv = _wait_server(pg, lambda p: _srv_edits(p) == full and _srv_layer('W', p) is not None)
     assert _srv_edits(srv) == full
     assert _client_edits(pg) == full
+
+
+
+# The order CI caught once (2026-10-18). A processor read set off before the
+# undo comes back after it, so the page drops it and reads again - but the
+# undo's restore PUT has not landed yet, and the server answers that second
+# read with the tree being undone. The PUT is held in the page until the
+# second read has been answered; every answer is the real server's.
+LATE_RESTORE_JS = """async () => {
+    const app = window.app, orig = window.fetch;
+    let letRead, letPut, readHeld = false, reads = 0;
+    const read = new Promise(r => { letRead = r; });
+    const put = new Promise(r => { letPut = r; });
+    window.fetch = (url, opts) => {
+        const method = (opts && opts.method) || 'GET';
+        if (url === '/api/processors' && method === 'GET') {
+            reads++;
+            if (!readHeld) { readHeld = true; return read.then(() => orig(url, opts)); }
+        }
+        if (url === '/api/project' && method === 'PUT') {
+            return put.then(() => orig(url, opts));
+        }
+        return orig(url, opts);
+    };
+    try {
+        app.refreshProcessors();
+        app.undo();
+        letRead();
+        await new Promise(r => setTimeout(r, 300));
+        letPut();
+        await new Promise(r => setTimeout(r, 300));
+        await app._layerSavesSettled();
+    } finally {
+        window.fetch = orig;
+    }
+    return reads;
+}"""
+
+
+def test_an_undo_whose_restore_lands_late_still_brings_the_cables_back(page):
+    """The restore PUT an undo sends can land after the processor read the
+    same undo sets off. That read describes the server before the restore;
+    the page took it and never read again, so the server held all five
+    cables and the page three."""
+    pg = page
+    ids = _shared(pg)
+    card = ids['cardId']
+    pg.evaluate("(id) => window.app.deleteLayer(id)", ids['W'])
+    _top_action(pg, 'Delete Layer')
+    _wait_server(pg, lambda p: _srv_layer('W', p) is None and 1 not in _cables(card, p))
+    assert pg.evaluate(LATE_RESTORE_JS) >= 2, 'the dropped read should be read again'
+    srv = _wait_server(pg, lambda p: _cables(card, p) == SHARED_ALL)
+    assert _cables(card, srv) == SHARED_ALL
+    pg.wait_for_function("(cid) => { for (const p of window.app.project.processors || [])"
+                         " for (const s of p.slots || []) if (s.card && s.card.id === cid)"
+                         " return Object.keys(s.card.portCables || {}).length === 5;"
+                         " return false; }", arg=card, timeout=5000)
+    assert _client_cables(pg, card) == SHARED_ALL

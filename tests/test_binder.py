@@ -1278,7 +1278,9 @@ def test_the_map_takes_the_room_the_tables_leave(page):
     their inch sizes while the tables scale."""
     pg, ids = page
     ww, wh = 4 * 200, 3 * 200
-    for title, cols, col_w in (('WALL-A - Power - Front View', 3, COL_W), ('WALL-A - Data - Front View', 2, DATA_COL_W)):
+    # (WALL-A's one-half Ports table is only as wide as its content -
+    # under COL_W - so its data sheet packs the tables' own three columns)
+    for title, cols, col_w in (('WALL-A - Power - Front View', 3, COL_W), ('WALL-A - Data - Front View', 3, COL_W)):
         out = _render(pg, SHOW, title)
         p = out['page']
         s = p['scale']
@@ -1530,6 +1532,79 @@ def test_a_sheet_whose_tables_do_not_fit_continues_on_the_next_number(page):
     c = ov.index('CONTENTS')
     listed = [(ov[c + 3 + 2 * n], ov[c + 4 + 2 * n]) for n in range(len(plan))]
     assert listed == [(p[1], p[3]) for p in plan], listed
+
+
+PULL_SPREAD_JS = """([opts, n]) => {
+    const app = window.app;
+    const real = app.buildPullSheet;
+    // the show's positions cut to `n` - one, the sheet a small show prints
+    // (3.1 with a single beach) - or copied up to it, four sharing a sheet
+    app.buildPullSheet = function () {
+        const list = real.call(this);
+        const ps = list.positions.slice();
+        for (let c = 2; ps.length < n; c++) {
+            ps.push(...list.positions.map(p => ({ ...p, name: `${p.name} ${c}`, key: `${p.key}-${c}` })));
+        }
+        return { ...list, positions: ps.slice(0, n) };
+    };
+    try {
+        const plan = app.planBinder(opts);
+        const idx = plan.findIndex(p => p.kind === 'pull');
+        const r = app.renderBinderPage(opts, idx);
+        const tbX = r.titleBlock && typeof r.titleBlock.x === 'number' ? r.titleBlock.x : Infinity;
+        return { title: plan[idx].title, cols: plan[idx].cols, names: plan[idx].names,
+                 scale: plan[idx].scale, extent: plan[idx].extent,
+                 ops: r.record.ops.filter(o => o.op === 'text' && String(o.text).trim() && o.x < tbX)
+                     .map(o => ({ t: o.text, x: o.x, size: o.size, weight: o.weight })) };
+    } finally {
+        app.buildPullSheet = real;
+    }
+}"""
+
+PULL_SECTIONS = ('POWER CABLES', 'DATA CABLES', 'HARDWARE', 'SCREENS')
+PULL_HEADINGS = ('CABLE', 'LENGTH', 'QTY', 'LABEL', 'ITEM', 'DETAIL',
+                 'SCREEN', 'SIZE', 'PANELS', 'CIRCUITS', 'PORTS', 'SHARED')
+
+
+@pytest.mark.parametrize('n', [1, 2, 4], ids=['one position', 'two positions', 'four positions'])
+def test_the_pull_sheet_spreads_across_the_page_and_cuts_no_heading(page, n):
+    """The pull sheet's sections flow ACROSS the drawing area in columns
+    rather than down one narrow column at its left edge (2026-10-18: "we
+    dont have to have all the text vertical in a column like it is. it can
+    space out to the right"): a sheet with three or more sections uses more
+    than half the drawing width, and no heading is cut - the Screens
+    table's CIRCUITS and PORTS read "CIRCU…" and "POR…" in the old narrow
+    column, PANELS in small type. Where the sheet has the room (one
+    position, two) every section title and column heading prints at its
+    full size; four positions still share a Tabloid, each in its narrow
+    column, the Screens headings set smaller there but whole."""
+    pg, ids = page
+    out = pg.evaluate("(a) => (%s)(a)" % PULL_SPREAD_JS, [json.loads(_SHOW_JSON), n])
+    texts = [o['t'] for o in out['ops']]
+    sections = [s for s in PULL_SECTIONS if s in texts]
+    assert len(sections) >= 3, texts
+    assert len(out['names']) == n, out['names']
+    if n == 1:
+        assert out['title'] == 'Pull - SR Beach' and out['cols'] >= 2, (out['title'], out['cols'])
+    if n == 4:
+        assert out['cols'] == 4, out['cols']
+    # the drawing's extent at its scale, and the text itself, reach past
+    # the middle of the drawing area
+    used = out['extent']['w'] * out['scale']
+    assert used > DA['w'] / 2 and used <= DA['w'] + 1, (out['extent'], out['scale'])
+    assert max(o['x'] for o in out['ops']) > DA['x'] + DA['w'] / 2, out['ops']
+    # nothing on the sheet is cut, and every heading is whole and full size
+    assert not [t for t in texts if t.endswith('…')], [t for t in texts if t.endswith('…')]
+    sc = out['scale'] or 1
+    for h in PULL_HEADINGS:
+        sizes = [o['size'] for o in out['ops'] if o['t'] == h and o['weight'] == 700]
+        assert len(sizes) >= n, (h, texts)
+        if n < 4:
+            assert all(abs(s - 21 * sc) < 0.05 for s in sizes), (h, sizes, sc)
+    for h in sections:
+        sizes = [o['size'] for o in out['ops'] if o['t'] == h and o['weight'] == 700]
+        assert sizes and all(abs(s - 25 * sc) < 0.05 for s in sizes), (h, sizes, sc)
+    assert ids['errors'] == []
 
 
 def test_the_overview_maps_the_show_and_lists_the_contents(page):
@@ -1837,7 +1912,8 @@ def test_the_title_block_prints_the_projects_fields_and_they_ride_the_project(pa
     one undo entry per field - and every sheet's title block prints them:
     the VENUE in caps under the show, the dates, the designer, the
     project manager's name / phone / email, the drafter (blank, the
-    engineer). Blank fields print their labels and nothing else. There is
+    engineer) and the engineer. Blank fields print their labels and
+    nothing else. There is
     no NOTES box and no notes field ("remove the notes section"). The
     block rides the project through the routes and undo."""
     pg, ids = page
@@ -1896,7 +1972,11 @@ def test_the_title_block_prints_the_projects_fields_and_they_ride_the_project(pa
         assert list(tb['sections']) == ['revisions', 'show', 'people', 'title', 'number'], list(tb['sections'])
         assert tb['sections']['revisions']['y'] == PAD and tb['sections']['revisions']['rows'] == 0
         secs = tb['sections']
-        assert secs['revisions']['h'] == H - PAD * 2 - (170 + 330 + 90 + 150), secs['revisions']
+        # the engineer set, an Engineer line under Drafter: the people's
+        # section 78 taller than the 330 it was (2026-10-17)
+        assert texts[texts.index('Engineer:') + 1] == 'Morgan Keller'
+        assert secs['people']['h'] == 330 + 78, secs['people']
+        assert secs['revisions']['h'] == H - PAD * 2 - (170 + 408 + 90 + 150), secs['revisions']
         assert secs['show']['y'] == PAD + secs['revisions']['h'] and secs['number']['y'] + 150 == H - PAD, secs
         # a typed drafter takes over
         pg.evaluate("() => window.app.setBinderField('drafter', 'Sam Okafor', 'Set Binder Drafter')")
@@ -1937,8 +2017,10 @@ def test_a_revision_is_logged_on_export_and_the_log_edits_in_the_dialog(page):
     """"Logged on export": exporting at a Rev no row carries yet adds a
     row - today's date as M/D/YY, the engineer's initials, the Revision
     note - with one undo entry ('Log Revision'), persisted with the
-    project, the note cleared; the same rev exported again logs nothing;
-    a new rev logs a second row. The rows print in the REVISIONS table in
+    project, the note cleared; the same rev exported again logs nothing.
+    A new rev committed in the dialog logs its row there and then, the
+    note committed after it landing in that row, and its export logs
+    nothing more (tests/test_binder_fiber_and_title.py has the rest). The rows print in the REVISIONS table in
     order, No. their position; the dialog's list edits a row in place and
     × removes one, the rows after it renumbering."""
     pg, ids = page
@@ -1983,11 +2065,16 @@ def test_a_revision_is_logged_on_export_and_the_log_edits_in_the_dialog(page):
             await app.exportBinder('Two Positions');
             const same = { revs: revs(), note: note.value, actions: app.history.slice(h1 + 1).map(h => h.action) };
             note.value = '';
-            // rev 1.1: a second row
+            // rev 1.1: committing it logs its row at once (2026-10-17), the
+            // note committed after it lands in that row, and the export
+            // logs nothing more
             set('export-binder-rev', '1.1');
-            note.value = 'Patch & circuit';
+            const logged = revs();
+            set('export-binder-revision-note', 'Patch & circuit');
+            const h2 = app.historyIndex;
             await app.exportBinder('Two Positions');
-            const second = { revs: revs(), rows: rows(), note: note.value };
+            const second = { revs: revs(), rows: rows(), note: note.value, logged,
+                             actions: app.history.slice(h2 + 1).map(h => h.action) };
             return { empty, first, same, second };
         } finally {
             window.fetch = realFetch;
@@ -2004,9 +2091,10 @@ def test_a_revision_is_logged_on_export_and_the_log_edits_in_the_dialog(page):
         assert out['first']['note'] == ''
         assert out['first']['actions'] == ['Log Revision'], out['first']['actions']
         assert out['same']['revs'] == [row1] and out['same']['note'] == 'should not log' and out['same']['actions'] == []
+        assert out['second']['logged'] == [row1, {**row2, 'description': ''}], out['second']
         assert out['second']['revs'] == [row1, row2], out['second']
         assert out['second']['rows'] == [['1', today, 'MK', 'Overview issued'], ['2', today, 'MK', 'Patch & circuit']]
-        assert out['second']['note'] == ''
+        assert out['second']['note'] == 'Patch & circuit' and out['second']['actions'] == [], out['second']
         # the sheets print the log: No. · Date · By · Description, in order
         r = _render(pg, SHOW, 'WALL-B - Data - Front View')
         texts = r['texts']
@@ -2399,13 +2487,21 @@ def test_a_box_delivering_the_port_is_listed_instead_of_the_card(page):
         }""", [ids, box_id])
         texts = _render(pg, SHOW, 'WALL-A - Data - Front View')['texts']
         assert "CVT4K-S SR · OPT 1-2 · 16 ports · 12 Tac Fiber 250'" in texts, texts
-        # under the band that names the box whole, a row names it short
-        assert 'SR · 1' in texts
+        # under the band that names the box whole, a row would name it
+        # short - "SR · 1" - which only repeats its port, "SR-1": OUTPUT is
+        # left out (2026-10-18), the port's run beside it
+        assert 'SR · 1' not in texts and 'OUTPUT' not in texts
+        i = texts.index('SR-1')
+        assert texts[i - 3:i + 2] == ['PORT', 'HOME RUN', 'PANELS', 'SR-1', '—'], texts[i - 4:i + 3]
         # the processor sheet: the box under its card, with its fiber
         proc = _render(pg, SHOW, PROC)['texts']
         b = proc.index('BREAKOUT BOXES')
-        assert proc[b + 1:b + 6] == ['BREAKOUT BOX', 'CARD', 'TRUNK', 'PORTS', 'FIBER']
-        assert proc[b + 6:b + 11] == ['CVT4K-S SR', 'SR', 'OPT 1-2', '16', "12 Tac Fiber 250'"], proc[b:b + 12]
+        # no PORTS column (2026-10-17): FIBER names every input the box
+        # takes, as NovaStar spells them on the CVT4K-S - each with nothing
+        # on it, then the box's 1.3 typed note
+        assert proc[b + 1:b + 5] == ['BREAKOUT BOX', 'CARD', 'TRUNK', 'FIBER']
+        assert proc[b + 5:b + 9] == ['CVT4K-S SR', 'SR', 'OPT 1-2',
+                                     "OPT1 no fiber OPT2 no fiber 12 Tac Fiber 250'"], proc[b:b + 12]
         assert ['12 Tac Fiber', "250'", '1', 'CVT4K-S SR'] == proc[proc.index('PULL LIST') + 5:proc.index('PULL LIST') + 9]
         # no sheet says box, save the breakout box's own table
         for t in texts + proc:
@@ -2421,7 +2517,7 @@ def test_a_box_delivering_the_port_is_listed_instead_of_the_card(page):
         assert 'CVT4K-S SR · OPT 1-2 · 16 ports · no fiber length' in texts, texts
         assert '12 Tac Fiber' not in texts
         proc = _render(pg, SHOW, PROC)['texts']
-        assert proc[proc.index('BREAKOUT BOXES') + 10] == 'no fiber length'
+        assert proc[proc.index('BREAKOUT BOXES') + 8] == 'OPT1 no fiber OPT2 no fiber no fiber length'
         # the backup end lands on a box the same way: the second card's own
         # CVT4K-S (named BK) carries WALL-A's return, so the return label is
         # that box's own ("BK-1" - the mapped port's label, the tray's rule)
@@ -2448,10 +2544,12 @@ def test_a_box_delivering_the_port_is_listed_instead_of_the_card(page):
             j = texts.index('CVT4K-S SR · OPT 1-2 · 16 ports')
             assert texts[j:j + 4] == ['CVT4K-S SR · OPT 1-2 · 16 ports', 'no fiber length',
                                       'CVT4K-S BK · OPT 1-2 · 16 ports', 'no fiber'], texts[j:j + 6]
-            assert texts[j + 4:j + 11] == ['PORT', 'OUTPUT', 'HOME RUN', 'PORT', 'OUTPUT', 'HOME RUN',
-                                           'PANELS'], texts[j:j + 12]
+            # every socket - "SR · 1", "BK · 1" - repeats its port's name,
+            # so neither half prints OUTPUT (2026-10-18)
+            assert texts[j + 4:j + 9] == ['PORT', 'HOME RUN', 'PORT', 'HOME RUN', 'PANELS'], texts[j:j + 12]
             i = texts.index('SR-1')
-            assert i > j and texts[i:i + 5] == ['SR-1', 'SR · 1', '—', 'BK-1', 'BK · 1'], texts[i:i + 8]
+            assert i > j and texts[i:i + 4] == ['SR-1', '—', 'BK-1', '—'], texts[i:i + 8]
+            assert 'SR · 1' not in texts and 'BK · 1' not in texts
             assert not [t for t in texts if t.endswith('…')]
         finally:
             pg.evaluate("""async ([ids, b]) => {
@@ -2768,7 +2866,8 @@ def test_a_screens_fed_by_legs_are_its_own(page):
     over its own multis, to the tenth - and the two differ (250 W panels
     against 200 W); neither is the service's whole legs. The hardware
     sheet's LEGS row is still the whole service: the engine's walk over
-    both screens, which is what getDistroLoads reports. CENTER, on no
+    both screens, which is what getDistroLoads reports - at the head of
+    its one Load line. CENTER, on no
     distro, still says so."""
     pg, ids = page
     legs = pg.evaluate(LEGS_JS, [ids['distroId'], [ids['a'], ids['b']]])
@@ -2784,7 +2883,8 @@ def test_a_screens_fed_by_legs_are_its_own(page):
     whole = _rounded(legs['whole'])
     assert whole not in (a_want, b_want), (whole, a_want, b_want)
     assert whole == _rounded(legs['all']), legs
-    hw = _kv_values(_render(pg, SHOW, DISTRO), 'Legs')
+    # the service's legs lead its one Load line (2026-10-18)
+    hw = _kv_values(_render(pg, SHOW, DISTRO), 'Load')
     assert len(hw) == 1 and _legs_of(hw[0], SERVICE_LEGS) == whole, (hw, whole)
     assert _kv_values(_render(pg, SHOW, 'CENTER - Power - Front View'), 'Fed by') == ['no distro']
     assert ids['errors'] == []
@@ -3019,9 +3119,13 @@ def test_smoke_live_show_b(page):
     assert data[i:i + 4] == [band_a, 'no fiber', band_b, 'no fiber'], data[i:i + 6]
     assert ['SR A-1', 'SR A-2', 'SR A-3', 'SR A-4'] == [t for t in data if re.fullmatch(r'SR A-\d', t)]
     assert ['SR B-1', 'SR B-2', 'SR B-3', 'SR B-4'] == [t for t in data if re.fullmatch(r'SR B-\d', t)]
+    # each row a port, its run, its return port, its run, its panels -
+    # no OUTPUT: "SR A · 1" and "SR B · 1" only repeat the ports' names
+    # (2026-10-18)
+    assert 'OUTPUT' not in data and not [t for t in data if re.fullmatch(r'SR [AB] · \d', t)], data
     for n in (1, 2, 3, 4):
         k = data.index(f'SR A-{n}')
-        assert data[k + 1] == f'SR A · {n}' and data[k + 3:k + 5] == [f'SR B-{n}', f'SR B · {n}'], data[k:k + 7]
+        assert data[k + 2] == f'SR B-{n}', data[k:k + 5]
     assert not [t for t in data if t.startswith('slot ') or t.startswith('backs up') or t == 'PX']
     # Each snake's home run is stated ONCE, as a heading over its own half
     # of the rows, and each end carries only the extension it adds
@@ -3032,8 +3136,8 @@ def test_smoke_live_show_b(page):
     heading_b = "SR B · 4 channel snake · 100'"
     assert data.count(heading_a) == 1 and data.count(heading_b) == 1, [t for t in data if 'channel' in t]
     assert data.index(heading_a) + 1 == data.index(heading_b) < data.index('SR A-1'), data
-    assert [data[data.index(f'SR A-{n}') + 2] for n in (1, 2, 3, 4)] == ["+10'", '—', "+25'", "+25'"], data
-    assert [data[data.index(f'SR A-{n}') + 5] for n in (1, 2, 3, 4)] == ["+10'", '—', "+10'", "+75'"], data
+    assert [data[data.index(f'SR A-{n}') + 1] for n in (1, 2, 3, 4)] == ["+10'", '—', "+25'", "+25'"], data
+    assert [data[data.index(f'SR A-{n}') + 3] for n in (1, 2, 3, 4)] == ["+10'", '—', "+10'", "+75'"], data
     cables = data[data.index('CABLES THIS SCREEN'):data.index('FACTS')]
     k = cables.index('Ether-con Barrel')
     assert cables[k:k + 3] == ['Ether-con Barrel', 'EA', '6'], cables
@@ -3127,7 +3231,7 @@ def test_live_show_b_screens_carry_their_own_legs(page):
         fed = _kv_values(_render(pg, SHOW, title), 'Fed by')
         assert len(fed) == 1 and fed[0].startswith('SR · 400 A 208 V 3φ · this screen on its legs X'), (title, fed)
         assert _legs_of(fed[0], FED_BY_LEGS) == want, (title, fed, want)
-    hw = _kv_values(_render(pg, SHOW, 'Distros - SR, SL'), 'Legs')      # SR's block first (names: SR, SL)
+    hw = _kv_values(_render(pg, SHOW, 'Distros - SR, SL'), 'Load')      # SR's block first (names: SR, SL)
     assert len(hw) == 2 and _legs_of(hw[0], SERVICE_LEGS) == whole == _rounded(legs['all']), (hw, whole)
     assert ids['errors'] == []
 

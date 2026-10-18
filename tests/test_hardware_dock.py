@@ -3212,7 +3212,7 @@ def test_the_dock_sections_ports_by_box_with_lettered_headers(dock_page):
     inline name INPUT whose placeholder speaks the resolved lettered
     title, lettered by its trunk where nothing else tells four identical
     boxes apart - and its port span. A loop's two boxes share ONE strip
-    (option 2, 2026-09-25): its header names both - "Tessera XD  A ↔ B",
+    (option 2, 2026-09-25): its header names both - "XD  A ↔ B",
     the trunk letters while nobody has named them - and each box is a row
     of it, the far one marked "· loop end"; "(backup)" is the backup
     processor's word now and no box wears it. A boxless card keeps its
@@ -3283,19 +3283,19 @@ def test_the_dock_sections_ports_by_box_with_lettered_headers(dock_page):
     try:
         assert all(out['boxes']), out
         # The static text is the MODEL (plus the pair tag); the lettered
-        # identity - "Tessera XD A" - is the inline name input's
+        # identity - "XD A" - is the inline name input's
         # placeholder, the resolved displayTitle the server's refusals
         # also speak.
         names = [(b['name'], b['pair'], b['tag'], b['inline'], b['detail'],
                   b['far'], b['end']) for b in out['boxes']]
         assert names == [
-            ('Tessera XD', 'A ↔ B', 'loop', 'Tessera XD A', 'ports 1-10',
+            ('XD', 'A ↔ B', 'loop', 'XD A', 'ports 1-10',
              False, None),
-            ('Tessera XD', 'A ↔ B', 'loop', 'Tessera XD B', 'ports 1-10',
+            ('XD', 'A ↔ B', 'loop', 'XD B', 'ports 1-10',
              True, '· loop end'),
-            ('Tessera XD', 'C ↔ D', 'loop', 'Tessera XD C', 'ports 1-10',
+            ('XD', 'C ↔ D', 'loop', 'XD C', 'ports 1-10',
              False, None),
-            ('Tessera XD', 'C ↔ D', 'loop', 'Tessera XD D', 'ports 1-10',
+            ('XD', 'C ↔ D', 'loop', 'XD D', 'ports 1-10',
              True, '· loop end'),
         ], f'the sections must be lettered, paired and locally numbered: ' \
            f'{names}'
@@ -3680,7 +3680,7 @@ def test_a_reveal_into_a_folded_section_opens_it(dock_page):
 def test_a_loop_pair_folds_as_one_strip_that_names_both_boxes(dock_page):
     """A loop pair is ONE strip (option 2, 2026-09-25). Folding it hides
     both rows of chips at once - and the folded header still names BOTH
-    boxes, "Tessera XD  ISR A ↔ ISR B" with its gold "loop" tag and the
+    boxes, "XD  ISR A ↔ ISR B" with its gold "loop" tag and the
     pair's count, so the far box never looks missing (it used to vanish
     under the near box's fold). A reveal aimed at a chip of the far box
     opens the strip around it. Each row keeps its own box: its drag
@@ -3761,7 +3761,7 @@ def test_a_loop_pair_folds_as_one_strip_that_names_both_boxes(dock_page):
         assert st['collapsed'], st
         assert not st['aShown'] and not st['bShown'], (
             f'folding the strip must fold both boxes: {st}')
-        assert st['headText'] == 'Tessera XD  ISR A ↔ ISR B', st
+        assert st['headText'] == 'XD  ISR A ↔ ISR B', st
         assert st['tag'] == 'loop', st
         assert st['use'] and '/' in st['use'], st
         assert '(backup)' not in st['headText'], st
@@ -4445,7 +4445,9 @@ def test_clear_card_forgets_backup_picks_and_keeps_port_names(dock_page):
         f'the backup pick survived the card clear: {card}')
     assert card['names'].get('4') == 'HOUSE L', (
         f'typed port names must stay through the clear: {card}')
-    assert page.evaluate(HIST_JS, 1) == ['Clear Card']
+    # the seed's unit is one box, not a card-based processor: the entry
+    # says processor (2026-10-17, CARD -> PROCESSOR)
+    assert page.evaluate(HIST_JS, 1) == ['Clear Processor']
     assert page.evaluate(HIST_LEN_JS) == before + 1, (
         'the card clear is not ONE history entry')
 

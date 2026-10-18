@@ -8,13 +8,25 @@ import { LEDRasterApp } from './app-core.js';
 import { sendClientLog } from './helpers.js';
 
 class _PortRouting {
+    // Does this cabinet carry NO data? Hidden, or the legacy `blank` flag -
+    // a file from before the UI moved blanking onto `hidden` can hold
+    // blank: true with hidden: false. The owner's ruling: a blank does not
+    // exist. It carries no pixels and takes no port, exactly like hidden;
+    // the walk used to count one as load (90 such blanks turned a 3-port
+    // screen into 6). Data side only - the shared traversal helpers keep
+    // reading `hidden`, and calculatePortAssignments applies this on top.
+    isPanelDataDark(panel) {
+        return !!panel && (!!panel.hidden || !!panel.blank);
+    }
+
     // The frame rates a processor actually PUBLISHES a per-port figure for.
     //
     // Intersection across bit depths, not union: a rate present at 8-bit but
-    // missing at 12-bit would still have to be interpolated the moment the
-    // user changed bit depth, which is the thing this exists to prevent.
-    // Rounded, because lookupPortCapacity matches on Math.round - 23.976 reads
-    // the published 24 Hz row, 29.97 the 30, 59.94 the 60. Those three are
+    // missing at 12-bit would have no published figure the moment the user
+    // changed bit depth, which is the thing this exists to prevent.
+    // Rounded, because a published row answers every rate that rounds UP to
+    // it in lookupPortCapacity - 23.976 reads the published 24 Hz row, 29.97
+    // the 30, 59.94 the 60. Those three are
     // safe to offer: each is slightly SLOWER than the row it borrows, and
     // capacity rises as frame rate falls, so the published figure understates
     // them. Understating means more ports, never fewer.
@@ -38,7 +50,9 @@ class _PortRouting {
     // runs as 1/fps the straight line always sits ABOVE the curve: +11% at
     // 100 Hz, +8% at 72. Overstated capacity under-counts ports, which is the
     // direction that leaves a crew short on site. Brompton was never affected -
-    // its table already covers every rate offered.
+    // its table already covers every rate offered. (lookupPortCapacity no
+    // longer interpolates at all: a rate a file still carries between two
+    // rows gets the exact formula, or the published row above it.)
     //
     // A rate with no published figure is now simply not offerable.
     updateFrameRateOptions() {
@@ -206,11 +220,16 @@ class _PortRouting {
         const claimed = (typeof this._overrideClaims === 'function')
             ? this._overrideClaims(layer, 'data') : new Set();
         const orderedByPattern = includeHidden => {
-            const ordered = plan
+            const walked = plan
                 ? plan.ordered
-                    .filter(c => includeHidden || !c.panel.hidden)
+                    .filter(c => includeHidden || !this.isPanelDataDark(c.panel))
                     .map(c => c.panel)
                 : this.getOrderedPanelsByPattern(layer, pattern, includeHidden);
+            // getOrderedPanelsByPattern drops `hidden` only; a legacy blank
+            // goes the same way here (and, like hidden, stays in the walk on
+            // a rectangle processor, where the branch skips it).
+            const ordered = includeHidden
+                ? walked : walked.filter(p => !this.isPanelDataDark(p));
             return claimed.size === 0 ? ordered : ordered.filter(p => !claimed.has(p));
         };
 
@@ -431,7 +450,7 @@ class _PortRouting {
                 let minY = Infinity, maxY = -Infinity;
                 let hasVisible = false;
                 unitIdxList.forEach(idx => {
-                    const visible = orderedForCapacity.filter(p => (isHorizontalFirst ? rowOfPanel(p) === idx : colOfPanel(p) === idx) && !p.hidden);
+                    const visible = orderedForCapacity.filter(p => (isHorizontalFirst ? rowOfPanel(p) === idx : colOfPanel(p) === idx) && !this.isPanelDataDark(p));
                     visible.forEach(p => {
                         hasVisible = true;
                         const x1 = Number(p.x) || 0;
@@ -457,7 +476,7 @@ class _PortRouting {
                 let bounds = emptyRect();
                 unitIdxList.forEach(idx => {
                     orderedForCapacity
-                        .filter(p => (isHorizontalFirst ? rowOfPanel(p) === idx : colOfPanel(p) === idx) && !p.hidden)
+                        .filter(p => (isHorizontalFirst ? rowOfPanel(p) === idx : colOfPanel(p) === idx) && !this.isPanelDataDark(p))
                         .forEach(p => { bounds = unionRect(bounds, p); });
                 });
                 return capacityForRect(portCapacity, bounds);
@@ -469,7 +488,7 @@ class _PortRouting {
                 const unitPanelsAll = orderedForCapacity.filter(p => (isHorizontalFirst ? rowOfPanel(p) === unitIdx : colOfPanel(p) === unitIdx));
                 if (unitPanelsAll.length === 0) return;
                 // Skip rows/columns with no visible panels
-                const visibleInUnit = unitPanelsAll.filter(p => !p.hidden);
+                const visibleInUnit = unitPanelsAll.filter(p => !this.isPanelDataDark(p));
                 if (visibleInUnit.length === 0) return;
 
                 // Check if this single unit exceeds port capacity. For
@@ -477,7 +496,7 @@ class _PortRouting {
                 // visible panels in the unit (so half-tiles count as half).
                 const singleUnitLoad = usesRectangle
                     ? (() => {
-                        const visible = unitPanelsAll.filter(p => !p.hidden);
+                        const visible = unitPanelsAll.filter(p => !this.isPanelDataDark(p));
                         if (visible.length === 0) return 0;
                         let mnX = Infinity, mxX = -Infinity, mnY = Infinity, mxY = -Infinity;
                         visible.forEach(p => {
@@ -552,7 +571,7 @@ class _PortRouting {
 
             orderedForCapacity.forEach(panel => {
                 if (layer._capacityError) return;
-                if (panel.hidden) return;
+                if (this.isPanelDataDark(panel)) return;
                 const panelLoad = this.getPanelPixelArea(panel);
                 if (panelLoad <= 0) return;
 
@@ -617,12 +636,16 @@ class _PortRouting {
                     current = { panels: [], load: 0 };
                     currentBounds = minLoadWidth > 0 ? emptyRect() : null;
                 }
-                // A cabinet the penalty leaves no room for even on an empty
-                // port cannot be split any further, so raise the same hard
-                // error the other branches do rather than emit an over-filled
-                // map. Scoped to the 5G penalty: without it a lone oversized
-                // cabinet behaved this way before and still does.
-                if (minLoadWidth > 0 && current.load === 0
+                // A cabinet that does not fit on an empty port cannot be
+                // split any further, so raise the same hard error the
+                // Organized, Low Latency and Armor branches do rather than
+                // emit an over-filled map. This used to run on 5G alone (for
+                // its narrow-port penalty), so on COEX 1G, Brompton and
+                // HELIOS a cabinet bigger than a port went onto a port of its
+                // own and read as an ordinary count: Brompton 12-bit 240 Hz
+                // (87,500 px) with 256 x 512 cabinets showed 8 ports at 150%.
+                // capacityForRect is plain portCapacity off 5G.
+                if (current.load === 0
                         && panelLoad > capacityForRect(portCapacity, panelRect(panel))) {
                     layer._capacityError = {
                         isHorizontalFirst,
@@ -636,7 +659,7 @@ class _PortRouting {
                     };
                     return;
                 }
-                if (!panel.hidden) current.panels.push(panel);
+                if (!this.isPanelDataDark(panel)) current.panels.push(panel);
                 if (currentBounds) currentBounds = unionRect(currentBounds, panel);
                 current.load += panelLoad;
             });
@@ -667,6 +690,7 @@ class _PortRouting {
             const portPanels = ((isOrganized && !llGeometry)
                 ? this.getOrganizedPanelsForUnits(layer, pattern, isHorizontalFirst, port.unitIndices || [], false, plan)
                 : (port.panels || []))
+                .filter(p => !this.isPanelDataDark(p))
                 .filter(p => claimed.size === 0 || !claimed.has(p));
             const portNum = takePortNum();
             let pixelIndex = 0;

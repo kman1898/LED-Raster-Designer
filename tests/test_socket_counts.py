@@ -267,8 +267,11 @@ BINDER_ROWS_JS = """(procId) => {
         delete app._bKvLines;
         delete app._bPullLines;
     }
-    const table = seen.find(s => s.title === 'Cards');
-    return table ? table.rows.map(r => r.cells[3]) : null;
+    // an SX40 is one unit: its table is PROCESSOR (DEVICE, PORTS, BACKUP)
+    // since 2026-10-17, and PORTS is the second column there
+    const table = seen.find(s => s.title === 'Processor');
+    const at = table ? table.cols.findIndex(c => c.title === 'ports') : -1;
+    return table ? table.rows.map(r => r.cells[at]) : null;
 }"""
 
 

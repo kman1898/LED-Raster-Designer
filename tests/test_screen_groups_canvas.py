@@ -339,7 +339,7 @@ def test_the_group_label_shows_combined_figures_not_one_members(page):
     """Cabinets and weight are the WALL's, from the step-2 roll-up.
 
     Cabinets: 20 x 9 = 180  +  40 x 2 = 80              -> 260
-    Weight:   180 x 20 kg = 3600  +  80 x 6 kg = 480    -> 4080.0 kg
+    Weight:   180 x 20 kg = 3600  +  80 x 6 kg = 480    -> 4,080.0 kg
     Size:     2560 x 1152 stacked on 2560 x 128         -> 2560 x 1280
     """
     texts = _grouped_wall(page, "return gc.drawn();")
@@ -347,8 +347,8 @@ def test_the_group_label_shows_combined_figures_not_one_members(page):
     assert len(info) == 1, f'expected one info bar, got {info}'
     line = info[0]
     assert '260 Cabinets Total' in line, line
-    assert '4080.0 kg' in line, line
-    assert '3600.0 kg' not in line, 'the group quoted one member\'s weight'
+    assert '4,080.0 kg' in line, line
+    assert '3,600.0 kg' not in line, 'the group quoted one member\'s weight'
     assert '180 Cabinets' not in line
     assert 'Resolution: 2560 X 1280' in line, line
     # A group has no single Columns X Rows - that is why it is two layers.
