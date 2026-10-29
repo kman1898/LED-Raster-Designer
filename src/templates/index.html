@@ -258,6 +258,7 @@
             <button class="view-tab" data-mode="show-look" data-tooltip="Show Look, rearrange screens to the real-world stage layout. Drives the layout shown in Data and Power views.">Show Look</button>
             <button class="view-tab" data-mode="data-flow" data-tooltip="Data flow view, signal routing and ports (uses Show Look layout)">Data</button>
             <button class="view-tab" data-mode="power" data-tooltip="Power view, electrical distribution (uses Show Look layout)">Power</button>
+            <button class="view-tab" data-mode="rigging" data-tooltip="Header/Footer view, header and footer bars on each screen (uses Show Look layout)">Header/Footer</button>
         </div>
 
         <div id="main-container">
@@ -1545,6 +1546,96 @@
                     </div>
                 </div>
 
+                <!-- Header/Footer tab (data-tab="rigging"): the settings panel
+                     (the screen name, as on the other tabs) and the bars panel.
+                     No collapse arrows: both sit open in the page. -->
+                <div class="panel tab-panel screen-only" data-tab="rigging" style="display: none;">
+                    <div class="panel-header no-fold" data-tooltip="Header/Footer Settings, the screen name on this tab.">
+                        <h2>Header/Footer Settings</h2>
+                    </div>
+                    <div class="panel-content">
+                        <div class="info-row checkbox-row" data-tooltip="Screen Name, Show or hide the screen layer name on the canvas in the Header/Footer view.">
+                            <input type="checkbox" id="show-label-name-rigging" checked>
+                            <label for="show-label-name-rigging">Screen Name</label>
+                        </div>
+
+                        <div class="info-row" data-tooltip="Names, How grouped screens are named on this tab. Screens draws each layer's own name, Group draws one name across the whole group, Both draws the group name plus each layer's own.">
+                            <label>Names</label>
+                            <div style="display: flex; gap: 4px;">
+                                <button type="button" class="btn btn-secondary name-display-btn" data-name-view="rigging" data-name-display="screens" style="flex: 1; padding: 4px 6px; font-size: 11px;">Screens</button>
+                                <button type="button" class="btn btn-secondary name-display-btn" data-name-view="rigging" data-name-display="group" style="flex: 1; padding: 4px 6px; font-size: 11px;">Group</button>
+                                <button type="button" class="btn btn-secondary name-display-btn" data-name-view="rigging" data-name-display="both" style="flex: 1; padding: 4px 6px; font-size: 11px;">Both</button>
+                            </div>
+                        </div>
+
+                        <div class="info-row" data-tooltip="Screen Name Size, Font size in pixels for the screen name label in the Header/Footer view.">
+                            <label>Screen Name Size</label>
+                            <input type="number" id="screen-name-size-rigging" value="30" min="8" max="200" autocomplete="off" style="width: 60px;">
+                        </div>
+                        <p style="font-size: 11px; color: #888; margin: 4px 0 12px 0;">Click & drag the screen name to reposition</p>
+                    </div>
+                </div>
+
+                <!-- The bars. A Header | Footer choice (which row the panel
+                     works on), the Size row, Auto, the colors and the totals.
+                     app-rigging.js drives it. -->
+                <div class="panel tab-panel screen-only" data-tab="rigging" style="display: none;">
+                    <div class="panel-header no-fold" data-tooltip="Header and footer bars on the selected screens. Pick Header or Footer, light the sizes you have, then press Auto.">
+                        <h2>Header/Footer Bars</h2>
+                    </div>
+                    <div class="panel-content">
+                        <div id="rigging-mode-picker" style="display: flex; gap: 4px; margin-bottom: 10px;">
+                            <button type="button" class="btn btn-secondary rigging-mode-btn active" data-mode="header" style="flex: 1; padding: 4px 6px; font-size: 11px;" data-tooltip="Header, the bars above the wall">Header</button>
+                            <button type="button" class="btn btn-secondary rigging-mode-btn" data-mode="footer" style="flex: 1; padding: 4px 6px; font-size: 11px;" data-tooltip="Footer, the bars below the wall">Footer</button>
+                        </div>
+                        <div style="color:#aaa; font-size: 12px; margin-bottom: 6px;">Size</div>
+                        <div id="rigging-size-picker" style="margin-bottom: 10px;">
+                            <div style="display: flex; gap: 4px;">
+                                <button type="button" class="btn btn-secondary rigging-size-btn" data-size="1" style="flex: 1; padding: 4px 6px; font-size: 11px;">1</button>
+                                <button type="button" class="btn btn-secondary rigging-size-btn" data-size="2" style="flex: 1; padding: 4px 6px; font-size: 11px;">2</button>
+                                <button type="button" id="rigging-size-more" class="btn btn-secondary rigging-size-btn" style="flex: 1; padding: 4px 6px; font-size: 11px;" data-tooltip="More sizes, 3 to 6 panels wide" aria-expanded="false">+</button>
+                            </div>
+                            <div id="rigging-size-extra" style="display: none; gap: 4px; margin-top: 4px;">
+                                <button type="button" class="btn btn-secondary rigging-size-btn" data-size="3" style="flex: 1; padding: 4px 6px; font-size: 11px;">3</button>
+                                <button type="button" class="btn btn-secondary rigging-size-btn" data-size="4" style="flex: 1; padding: 4px 6px; font-size: 11px;">4</button>
+                                <button type="button" class="btn btn-secondary rigging-size-btn" data-size="5" style="flex: 1; padding: 4px 6px; font-size: 11px;">5</button>
+                                <button type="button" class="btn btn-secondary rigging-size-btn" data-size="6" style="flex: 1; padding: 4px 6px; font-size: 11px;">6</button>
+                            </div>
+                        </div>
+                        <button type="button" id="rigging-select-all-btn" class="btn btn-secondary" style="width: 100%; margin-bottom: 4px;" data-tooltip="Select every screen in the show, on every canvas, so Auto and Clear act on all of them at once">Select All Screens</button>
+                        <div style="display: flex; gap: 4px;">
+                            <button type="button" id="rigging-auto-btn" class="btn btn-primary" style="flex: 1;" disabled data-tooltip="Fit the fewest bars of the lit sizes across each selected screen, as a header or a footer depending on the choice above">Auto</button>
+                            <button type="button" id="rigging-clear-btn" class="btn btn-secondary" style="flex: 1;" disabled data-tooltip="Remove the header or footer bars (the choice above) from the selected screens">Clear</button>
+                        </div>
+                        <div class="info-row" style="margin-top: 10px;" data-tooltip="Bar Color, the fill color of the header and footer bars on the selected screens.">
+                            <label>Bar Color</label>
+                            <div style="display: flex; gap: 5px; align-items: center;">
+                                <input type="color" id="rigging-color" value="#000000">
+                                <input type="text" id="rigging-color-hex" value="#000000" maxlength="7" style="width: 70px; font-family: monospace;">
+                            </div>
+                        </div>
+                        <div class="info-row" style="margin-top: 6px;" data-tooltip="Text Color, the color of the bar sizes written on the bars. Printed binder pages are always a white bar with black text.">
+                            <label>Text Color</label>
+                            <div style="display: flex; gap: 5px; align-items: center;">
+                                <input type="color" id="rigging-text-color" value="#FFFFFF">
+                                <input type="text" id="rigging-text-color-hex" value="#FFFFFF" maxlength="7" style="width: 70px; font-family: monospace;">
+                            </div>
+                        </div>
+                        <div id="rigging-status" style="color:#aaa; font-size: 12px; margin-top: 8px; white-space: pre-line;"></div>
+                        <!-- Every screen in the show, not just the selected ones.
+                             Filled by refreshRiggingTotals (app-rigging.js). -->
+                        <div style="margin-top: 14px; padding: 8px; background: #111; border: 1px solid #4a4a4a; border-radius: 4px; font-size: 12px; color: #ccc;"
+                             data-tooltip="Total Header Bars and Total Footer Bars, every bar on every screen in the show, and how many of each size.">
+                            <div style="font-weight: 600; color: #fff; margin-bottom: 4px;">Total Header Bars</div>
+                            <div>Header bars: <span id="rigging-total-count">0</span></div>
+                            <div id="rigging-total-breakdown" style="color: #aaa; white-space: pre-line;"></div>
+                            <div style="font-weight: 600; color: #fff; margin: 8px 0 4px;">Total Footer Bars</div>
+                            <div>Footer bars: <span id="rigging-footer-total-count">0</span></div>
+                            <div id="rigging-footer-total-breakdown" style="color: #aaa; white-space: pre-line;"></div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Colors panel - only for Pixel Map -->
                 <div class="panel tab-panel screen-only" data-tab="pixel-map">
                     <div class="panel-header" data-tooltip="Colors, Set the two alternating checkerboard colors used to distinguish cabinets in the pixel map view.">
@@ -2037,6 +2128,13 @@
                         </label>
                         <input type="text" id="export-suffix-power" placeholder="Power Map">
                     </div>
+                    <div class="export-view-row">
+                        <label class="export-view-label">
+                            <input type="checkbox" id="export-rigging">
+                            Header/Footer
+                        </label>
+                        <input type="text" id="export-suffix-rigging" placeholder="Header/Footer">
+                    </div>
                 </div>
                 <div style="margin-top: 6px; font-size: 11px; color: #777;">Suffixes are saved as defaults for next time.</div>
             </div>
@@ -2196,6 +2294,7 @@
                         <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; flex: none; white-space: nowrap; line-height: 20px;" data-tooltip="A pull sheet per position with tick boxes (3.x), and the show-wide pull list at the back."><input type="checkbox" id="export-binder-pull" checked> Pull sheets</label>
                         <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; flex: none; white-space: nowrap; line-height: 20px;" data-tooltip="One sheet per distro and per processor at the back (4.x)."><input type="checkbox" id="export-binder-hardware" checked> Hardware</label>
                         <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; flex: none; white-space: nowrap; line-height: 20px;" data-tooltip="A wiring sheet behind each map (2.x): Power Wiring right after a screen's Power sheet, every circuit wired to its breakout; Data Wiring right after its Data sheet, every port wired to its socket. Each follows its own map - Maps on Power gives no Data Wiring sheet, and the other way round."><input type="checkbox" id="export-binder-wiring" checked> Wiring</label>
+                        <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; flex: none; white-space: nowrap; line-height: 20px;" data-tooltip="A Header/Footer sheet for each screen that has header or footer bars (2.x): the wall with its bars drawn above and below it, and a table of the bars it needs. Screens with none print no Header/Footer sheet."><input type="checkbox" id="export-binder-rigging" checked> Header/Footer</label>
                         </div>
                     </div>
                     <!-- The border, the title block column and the rev line, or
@@ -2708,6 +2807,7 @@
                                 <label class="pm-check"><input type="checkbox" id="pref-binder-pull"> Pull sheets</label>
                                 <label class="pm-check"><input type="checkbox" id="pref-binder-hardware"> Hardware</label>
                                 <label class="pm-check"><input type="checkbox" id="pref-binder-wiring"> Wiring</label>
+                                <label class="pm-check"><input type="checkbox" id="pref-binder-rigging"> Header/Footer</label>
                             </div>
                         </div>
                         <div class="pm-row">
@@ -3393,6 +3493,8 @@
     <script src="/static/js/canvas-images.js"></script>
     <script src="/static/js/canvas-data.js"></script>
     <script src="/static/js/canvas-power.js"></script>
+    <script src="/static/js/rigging-math.js"></script>
+    <script src="/static/js/canvas-rigging.js"></script>
     <script src="/static/js/canvas-labels.js"></script>
     <script src="/static/js/canvas-selection.js"></script>
     <script src="/static/js/color_picker.js"></script>

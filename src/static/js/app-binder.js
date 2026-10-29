@@ -239,7 +239,7 @@ const PERSPECTIVE_KEYS = ['data_flow_perspective', 'power_perspective'];
 const SCREEN_ORDERS = ['alpha', 'layers', 'layers-up', 'data', 'power'];
 // The logo is stored no larger than this on its long side.
 const LOGO_MAX_PX = 1200;
-const SERIES = { overview: 1, power: 2, data: 2, wiring: 2, pull: 3,
+const SERIES = { overview: 1, power: 2, data: 2, wiring: 2, rigging: 2, pull: 3,
                  service: 4, distro: 4, processor: 4, totals: 4 };
 
 class _Binder {
@@ -417,6 +417,7 @@ class _Binder {
             tick('export-binder-pull', prefs.binderPull !== false);
             tick('export-binder-hardware', prefs.binderHardware !== false);
             tick('export-binder-wiring', prefs.binderWiring !== false);
+            tick('export-binder-rigging', prefs.binderRigging !== false);
         }
         const scope = document.getElementById('export-binder-scope');
         if (scope) {
@@ -548,6 +549,9 @@ class _Binder {
             // its own map through the Maps choice - is a SCREEN sheet's: on
             // whatever the scope
             wiring: on('export-binder-wiring', true),
+            // the Header/Footer sheets - a screen's header and footer bars, one sheet per
+            // screen that has any - on whatever the scope
+            rigging: on('export-binder-rigging', true),
             // the border, the title block column and the rev line: on
             // unless the box says otherwise (a preference, so the dialog
             // opens the way it was left)
@@ -1229,6 +1233,12 @@ class _Binder {
         const order = sheets.map(e => e.layer);
         const posOf = new Map(sheets.map(e => [e.layer, e.pos]));
         const printed = new Set();
+        // The Header/Footer sheet: one per SCREEN with header or footer bars, after that
+        // screen's own sheets (a group's members each get theirs, after the
+        // group's sheets - the bars belong to a screen, not to a group).
+        const rig = (screen, pos) => {
+            if (opts.rigging !== false && this._bHasRigging(screen)) this._bRiggingPage(book, screen, pos);
+        };
         for (const { layer, pos } of sheets) {
             const gp = this._bGroupPlanOf(book, layer);
             if (gp) {
@@ -1237,12 +1247,18 @@ class _Binder {
                 for (const [subject, side] of this._bGroupUnits(book, gp, order, scopeLayer)) {
                     emit(subject, (subject.anchor && posOf.get(subject.anchor)) || pos, side);
                 }
+                const at = (m) => { const i = order.indexOf(m); return i < 0 ? order.length : i; };
+                for (const m of gp.members.slice().sort((a, b) => at(a) - at(b))) {
+                    if (!scopeLayer || m === scopeLayer) rig(m, posOf.get(m) || pos);
+                }
                 continue;
             }
             const scr = list.byScreen[layer.id];
-            if (!scr) continue;
-            if (opts.sides.power && this._bHasPower(layer, scr)) emit(layer, pos, 'power');
-            if (opts.sides.data && this._bHasData(layer, scr)) emit(layer, pos, 'data');
+            if (scr) {
+                if (opts.sides.power && this._bHasPower(layer, scr)) emit(layer, pos, 'power');
+                if (opts.sides.data && this._bHasData(layer, scr)) emit(layer, pos, 'data');
+            }
+            rig(layer, pos);
         }
         if (opts.pull) this._bPullSheets(book, positions);
         const hardware = [];
@@ -3531,7 +3547,8 @@ class _Binder {
         const da = book.geo.da;
         const colW = Math.max(COL_W, ...blocks.map(b => (b && b.minW) || 0));
         const across = Math.max(1, Math.floor((da.w + COL_GAP) / (colW + COL_GAP)));
-        const gutW = MAP_GUTTER.left + MAP_GUTTER.right, gutH = MAP_GUTTER.top + MAP_GUTTER.bottom;
+        const GUT = spec.gutter || MAP_GUTTER;
+        const gutW = GUT.left + GUT.right, gutH = GUT.top + GUT.bottom;
         const tallest = (pack) => pack.cols.reduce((m, c) => Math.max(m, c.h), 0);
         const clamp = (v) => Math.max(1, Math.min(FILL_CAP, Math.floor(v * 1000) / 1000));
         const minW = Math.round(da.w * MAP_MIN_FRAC), minH = Math.round(da.h * MAP_MIN_FRAC);
@@ -3992,6 +4009,7 @@ class _Binder {
             printer: r.printerMode, viewMode: r.viewMode, zoom: r.zoom, panX: r.panX, panY: r.panY,
             hideNames: r.hideScreenNames,
             ignoreRaster: r.ignoreRasterBounds,
+            rigRoom: r.riggingTopRoom, rigRoomBelow: r.riggingBottomRoom,
             active: this.project ? this.project.active_canvas_id : null,
             canvasVis: canvases.map(c => [c, c.visible]),
             layerVis: (this.project.layers || []).map(l => [l, l.visible]),
@@ -4110,6 +4128,10 @@ class _Binder {
                 // across the canvas than the raster reaches (2026-09-11).
                 r.ignoreRasterBounds = true;
                 r.printerMode = book.meta.palette === 'printer';
+                // The Rigging sheet's header bars take the strip above the
+                // wall: the gutter's height, in canvas units at this zoom.
+                r.riggingTopRoom = view === 'rigging' ? Math.max(0, G.top - 8) / zoom : null;
+                r.riggingBottomRoom = view === 'rigging' ? Math.max(0, G.bottom - 8) / zoom : null;
                 // The renderer draws at S times the sheet zoom (its world
                 // transform is zoom and pan alone, so a scaled context
                 // would not survive it); the wall's local origin lands at
@@ -4189,6 +4211,8 @@ class _Binder {
             r.hideScreenNames = saved.hideNames;
             r.ignoreRasterBounds = saved.ignoreRaster;
             r.printerMode = saved.printer;
+            r.riggingTopRoom = saved.rigRoom;
+            r.riggingBottomRoom = saved.rigRoomBelow;
             r.viewMode = saved.viewMode;
             r.zoom = saved.zoom;
             r.panX = saved.panX;
@@ -4460,6 +4484,64 @@ class _Binder {
                 return geo.area;
             },
         }, blocks);
+    }
+
+    // ---- the header/footer sheets -------------------------------------------
+
+    _bHasRigging(layer) {
+        return !!layer && (layer.type || 'screen') === 'screen'
+            && ((Array.isArray(layer.riggingBars) && layer.riggingBars.length > 0)
+                || (Array.isArray(layer.riggingFooterBars) && layer.riggingFooterBars.length > 0));
+    }
+
+    // The map's gutters for a header/footer sheet: the default's room above
+    // the wall for the header bars, and - only on a screen that has footer
+    // bars - room below it for them too.
+    _bRiggingGutter(layer) {
+        const footer = Array.isArray(layer.riggingFooterBars) && layer.riggingFooterBars.length > 0;
+        return footer ? { ...MAP_GUTTER, bottom: MAP_GUTTER.top } : MAP_GUTTER;
+    }
+
+    // The Header/Footer sheet for ONE screen (a group's members each have
+    // their own): the wall as it stands with its header bars drawn above it
+    // and its footer bars below, and a table of the bars each row takes. No
+    // column or row rulers - the header bars take the strip above the wall
+    // the rulers use on the Power and Data sheets, and each bar says its own
+    // panel count.
+    _bRiggingPage(book, layer, pos) {
+        const view = this._bViewName(book);
+        const title = `${layer.name} - Header/Footer - ${view}`;
+        const sheetTitle = `${layer.name} · HEADER/FOOTER · ${view.toUpperCase()}`;
+        const gutter = this._bRiggingGutter(layer);
+        this._bMapSheets(book, {
+            kind: 'rigging', title, sheetTitle, viewName: sheetTitle,
+            layerId: layer.id, subject: layer.name, position: pos.name,
+            gutter,
+            measure: (area) => this._bMap(book, layer, 'rigging', area, gutter),
+            draw: (area) => {
+                const geo = this._bMap(book, layer, 'rigging', area, gutter);
+                return geo ? geo.area : null;
+            },
+        }, this._bRiggingBlocks(book, layer));
+    }
+
+    _bRiggingBlocks(book, layer) {
+        const rows = [['Header', layer.riggingBars], ['Footer', layer.riggingFooterBars]]
+            .map(([word, bars]) => [word, Array.isArray(bars) ? bars : []]).filter(([, bars]) => bars.length);
+        const blocks = rows.map(([word, bars]) => {
+            const { total, bySize } = RiggingMath.tally([bars]);
+            const kind = word === 'Footer' ? 'footer' : 'header';
+            const lines = Object.keys(bySize).map(Number).sort((a, b) => b - a)
+                .map(size => ({ cells: [RiggingMath.barName(size, kind), String(size), this._bQty(bySize[size])] }));
+            lines.push({ cells: ['Total', '', this._bQty(total)], bold: true });
+            return { lines: this._bTableLines(book, {
+                title: `${word} bars`,
+                cols: [{ title: `${word.toLowerCase()} bar`, w: 1.7 }, { title: 'panels', w: 0.8, align: 'right' },
+                       { title: 'qty', w: 0.6, align: 'right' }],
+                rows: lines,
+            }) };
+        });
+        return blocks;
     }
 
     // The band over a multi's circuits: "SR1 · Multi 208 · 125' · 6
@@ -5663,6 +5745,14 @@ class _Binder {
         const data = cableRows('data');
         blocks.push(this._bPullBlock(book, { title: 'Data cables', cols: cableCols,
             rows: data.length ? data : [{ cells: ['', 'none', '', '', ''] }] }));
+        // Header and footer bars (Header/Footer tab): their own tables, and only where this
+        // position has any - a show with no rigging prints exactly what it did.
+        const rigging = (pos.rows || []).filter(r => r.side === 'rigging');
+        for (const [title, word] of [['Header bars', 'Header'], ['Footer bars', 'Footer']]) {
+            const rows = rigging.filter(r => String(r.type || '').startsWith(word))
+                .map(r => ({ cells: ['', this._bType(r.type), r.length || '\u2014', this._bQty(r.qty), r.label || ''] }));
+            if (rows.length) blocks.push(this._bPullBlock(book, { title, cols: cableCols, rows }));
+        }
         // Hardware: the socas, the distros, the cards these screens hang on.
         const hw = [];
         const seenBox = new Set(), seenDistro = new Set(), seenCard = new Set();

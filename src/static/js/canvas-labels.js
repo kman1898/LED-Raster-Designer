@@ -798,6 +798,9 @@ Object.assign(CanvasRenderer.prototype, {
         } else if (this.viewMode === 'power') {
             showLabelName = cfg.showLabelNamePower !== undefined ? cfg.showLabelNamePower
                 : (cfg.showLabelName !== undefined ? cfg.showLabelName : true);
+        } else if (this.viewMode === 'rigging') {
+            showLabelName = cfg.showLabelNameRigging !== undefined ? cfg.showLabelNameRigging
+                : (cfg.showLabelName !== undefined ? cfg.showLabelName : true);
         } else {
             showLabelName = cfg.showLabelName !== undefined ? cfg.showLabelName : true;
         }
@@ -1030,6 +1033,13 @@ Object.assign(CanvasRenderer.prototype, {
             screenNameSize = cfg.screenNameSizePower || 14;
             screenNameOffsetX = nameCfg.screenNameOffsetXPower || 0;
             screenNameOffsetY = nameCfg.screenNameOffsetYPower || 0;
+            fontSize = screenNameSize;
+        } else if (this.viewMode === 'rigging') {
+            // Header/Footer: its own name size and dragged position, the
+            // way Power has.
+            screenNameSize = cfg.screenNameSizeRigging || 30;
+            screenNameOffsetX = nameCfg.screenNameOffsetXRigging || 0;
+            screenNameOffsetY = nameCfg.screenNameOffsetYRigging || 0;
             fontSize = screenNameSize;
         } else if (this.viewMode === 'show-look') {
             // v0.8.7.7.3: Show Look gets its own grabbable screen-name offset
@@ -1283,6 +1293,7 @@ Object.assign(CanvasRenderer.prototype, {
                 else if (this.viewMode === 'cabinet-id') _heal('screenNameOffsetXCabinet', 'screenNameOffsetYCabinet');
                 else if (this.viewMode === 'data-flow') _heal('screenNameOffsetXDataFlow', 'screenNameOffsetYDataFlow');
                 else if (this.viewMode === 'power') _heal('screenNameOffsetXPower', 'screenNameOffsetYPower');
+                else if (this.viewMode === 'rigging') _heal('screenNameOffsetXRigging', 'screenNameOffsetYRigging');
                 else if (this.viewMode === 'show-look') _heal('screenNameOffsetXShowLook', 'screenNameOffsetYShowLook');
             }
         }

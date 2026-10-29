@@ -195,6 +195,18 @@
         var t = $('[data-mode="' + m + '"]');
         if (t) t.click();
     }
+    // The client point (and panels-to-pixels scale) of the wall's n-th
+    // header bar, read from the renderer's hit list - the same place the
+    // mouse is tested against - or null when none is drawn.
+    function barPoint(n) {
+        var r = R();
+        var w = wall();
+        if (!r || !w || !r._riggingHits) return null;
+        var hit = r._riggingHits.find(function (h) { return h.layerId === w.id && h.index === n; });
+        if (!hit) return null;
+        var box = r.canvas.getBoundingClientRect();
+        return { x: box.left + (hit.x0 + hit.x1) / 2, y: box.top + (hit.y0 + hit.y1) / 2, unitPx: hit.unitPx };
+    }
     function portsNeeded() {
         var w = wall();
         if (!w || !A().calculatePortAssignments) return 0;
@@ -4031,6 +4043,112 @@
             },
             after: function () { var m = $('#balance-modal'); if (m) m.remove(); }
         },
+        // Rigging (app-rigging.js): the header bars above each wall. Five
+        // steps - the tab, the sizes, Auto, dragging a bar, the totals -
+        // and the binder's Rigging tick (riggingSheet) with the exports.
+        riggingTab: {
+            target: '.view-tab[data-mode="rigging"]', place: 'bottom', title: 'The Header/Footer tab',
+            body: 'Header/Footer sits right of Power. Its panel on the left builds the header bars (above the wall) and footer bars (below it) for each screen.',
+            before: function () { switchView('power'); },
+            act: function (t) {
+                return t.click('.view-tab[data-mode="rigging"]').then(function () { return t.pause(PACE.rest); });
+            },
+            check: function () {
+                return mode() === 'rigging' ? 'Header/Footer: the wall stands in its Show Look place, with no bars yet.' : null;
+            }
+        },
+        riggingSizes: {
+            target: '#rigging-size-picker', place: 'right', title: 'Pick the bar sizes',
+            body: 'Pick Header or Footer, then light the bar sizes you have; single and double show first, and the + opens 3 to 6. Say the truck holds only doubles and 5s: switch the single off, open the + and light the 5.',
+            before: function () {
+                switchView('rigging');
+                var w = wall();
+                if (w) A().setSelectedLayersByIds([w.id], w.id);
+            },
+            act: function (t) {
+                var picks = ['1', '#rigging-size-more', '5'];
+                return picks.reduce(function (chain, size) {
+                    return chain.then(function () {
+                        var sel = size.charAt(0) === '#' ? size : '#rigging-size-picker [data-size="' + size + '"]';
+                        return t.click(sel).then(function () { return t.pause(250); });
+                    });
+                }, Promise.resolve());
+            },
+            check: function () {
+                var w = wall();
+                var s = w && w.riggingSizes;
+                return s && s.join(',') === '2,5' ? 'Lit: the double and the 5. Auto will use only these.' : null;
+            }
+        },
+        riggingAuto: {
+            target: '#rigging-auto-btn', place: 'right', title: 'Auto',
+            body: 'Auto fits the fewest bars of the lit sizes across the screen, mirrored when it can be, with no extra singles. Select All Screens above it lines up every screen so one Auto does the lot.',
+            before: function () { switchView('rigging'); },
+            act: function (t) {
+                return t.click('#rigging-auto-btn').then(function () {
+                    return t.wait(function () { var w = wall(); return w && w.riggingBars && w.riggingBars.length; });
+                }).then(function () { return t.pause(PACE.rest); });
+            },
+            check: function () {
+                var w = wall();
+                var bars = (w && w.riggingBars) || [];
+                var sum = bars.reduce(function (a, b) { return a + b; }, 0);
+                return bars.length && sum === w.columns
+                    ? 'DEMO WALL: ' + bars.join(' + ') + ' across ' + w.columns + ' panels, the same bars either side of the middle.' : null;
+            }
+        },
+        riggingDrag: {
+            target: '#main-canvas', place: 'top', title: 'Drag a header bar',
+            avoid: [function () { return barPoint(0); }, function () { return barPoint(1); }],
+            body: 'Press on a header bar and drag it left or right; it swaps with its neighbour once its edge crosses the neighbour&rsquo;s middle. The wall stays covered, and undo steps it back.',
+            before: function () { switchView('rigging'); },
+            act: function (t) {
+                var from = barPoint(0);
+                var w = wall();
+                if (!from || !w || !w.riggingBars || w.riggingBars.length < 2) throw new Error('no header bars to drag');
+                t.mem.before = w.riggingBars.join(',');
+                var to = { x: from.x + from.unitPx * 3, y: from.y };
+                return t.hover(from).then(function () {
+                    press(true);
+                    t.canvasDown(from);
+                    return t.pause(PACE.dragPress);
+                }).then(function () {
+                    t.canvasMove({ x: from.x + 6, y: from.y });
+                    return t.canvasGlide(to);
+                }).then(function () {
+                    t.canvasMove(to);
+                    return t.pause(PACE.hover);
+                }).then(function () {
+                    t.canvasUp(to);
+                    press(false);
+                    return t.wait(function () { var q = wall(); return q && q.riggingBars.join(',') !== t.mem.before; });
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the header bar did not move');
+                    return t.pause(PACE.dragRest);
+                });
+            },
+            check: function (mem) {
+                var w = wall();
+                var now = w && w.riggingBars ? w.riggingBars.join(',') : '';
+                return mem.before && now && now !== mem.before
+                    ? 'The bars read ' + now.split(',').join(' + ') + ' now; they were ' + mem.before.split(',').join(' + ') + '.' : null;
+            }
+        },
+        riggingTotals: {
+            target: '#rigging-total-count', place: 'right', title: 'Total header bars',
+            body: 'The box at the foot of the panel counts every header bar in the show by size: single, double, triple, then 4 and up. The same counts go to the pull sheet.',
+            before: function () { switchView('rigging'); },
+            act: function (t) {
+                var box = $('#rigging-total-count');
+                return t.spot((box && box.closest('[data-tooltip]')) || box).then(function () { return t.pause(PACE.opened); });
+            },
+            check: function () {
+                var n = $('#rigging-total-count');
+                var list = $('#rigging-total-breakdown');
+                return n && Number(n.textContent) > 0
+                    ? n.textContent + ' header bars in the show: ' + String((list && list.textContent) || '').replace(/\n/g, ', ') + '.' : null;
+            }
+        },
         // Services (1.5.3, app-services.js): the house power several
         // distros are fed from. One step adds the Service card, the next
         // drags the distro's header bar onto it.
@@ -4472,6 +4590,25 @@
             },
             after: closeExportUnless
         },
+        riggingSheet: {
+            exportStep: true,
+            target: '#export-binder-rigging', place: 'left', title: 'The header/footer sheets',
+            body: 'The Header/Footer tick adds a sheet for each screen with header or footer bars: the wall with its bars, and a table of what to pull. The PNG, SVG, PSD and PDF exports have a Header/Footer view too.',
+            before: openExport,
+            act: function (t) {
+                var box = $('#export-binder-rigging');
+                t.mem.start = box.checked;
+                return (box.checked ? t.click(box).then(function () { return t.pause(500); }) : Promise.resolve()).then(function () {
+                    t.mem.mid = $('#export-binder-rigging').checked;
+                    return t.click('#export-binder-rigging');
+                }).then(function () { return t.pause(200); });
+            },
+            check: function (mem) {
+                var box = $('#export-binder-rigging');
+                return box && box.checked && !mem.mid ? 'Header/Footer is on: a sheet for DEMO WALL, with its header bars drawn above it.' : null;
+            },
+            after: closeExportUnless
+        },
         titleBlock: {
             exportStep: true,
             target: '#export-binder-title-block', place: 'left', title: 'Border and title block',
@@ -4630,8 +4767,9 @@
                     'multiCableSheet', 'powerJumpers', 'cableUnit', 'cableStock', 'cableStockPieces', 'powerCableTags',
                     'powerColumns', 'splitters', 'takeOver', 'customPower', 'customDraw', 'sweepShare', 'balance',
                     'addService', 'serviceRating', 'serviceDistro',
+                    'riggingTab', 'riggingSizes', 'riggingAuto', 'riggingDrag', 'riggingTotals',
                     'addBeach', 'screenBeach', 'addScreen', 'beachByMenu', 'crossScreens', 'groupScreens',
-                    'exportBinder', 'screenOrder', 'wiringTick', 'titleBlock', 'fileExports', 'preferences',
+                    'exportBinder', 'screenOrder', 'wiringTick', 'riggingSheet', 'titleBlock', 'fileExports', 'preferences',
                     'helpMenu', 'outroAdvanced']
         }
     };

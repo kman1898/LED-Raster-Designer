@@ -25,6 +25,45 @@ Object.assign(CanvasRenderer.prototype, {
         this._lockedDragPending = null;
         this._lockedDragSaid = null;
 
+        // Rigging view: a plain left press on a header bar picks it up; the
+        // move re-orders the screen's bars and the release saves them.
+        if (this.viewMode === 'rigging' && e.button === 0 && !this.spacePressed
+                && !e.altKey && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
+            // An edge between two bars is checked first: dragging it widens
+            // the bar it belongs to and shortens its neighbour.
+            const edge = this.riggingEdgeAt(mouseX, mouseY);
+            const bar = edge ? null : this.riggingBarAt(mouseX, mouseY);
+            const app = window.app;
+            const hit = edge || bar;
+            const layer = hit && app && app.project
+                ? app.project.layers.find(l => l.id === hit.layerId) : null;
+            if (layer) {
+                if (layer.locked) {
+                    if (typeof app._showLockedError === 'function') app._showLockedError([layer]);
+                    return;
+                }
+                if (!(app.selectedLayerIds && app.selectedLayerIds.has(layer.id))) {
+                    app.setSelectedLayersByIds([layer.id], layer.id);
+                }
+                // Header and footer bars are separate rows on the screen; the
+                // press says which one it is in.
+                const row = hit.row === 'footer' ? 'footer' : 'header';
+                const field = row === 'footer' ? 'riggingFooterBars' : 'riggingBars';
+                this._riggingDrag = edge ? {
+                    kind: 'edge', row, field, layerId: layer.id, boundary: edge.boundary, startX: mouseX,
+                    unitPx: edge.unitPx, dir: edge.dir,
+                    original: layer[field].slice(),
+                } : {
+                    kind: 'move', row, field, layerId: layer.id, index: bar.index, startX: mouseX,
+                    unitPx: bar.unitPx, dir: bar.dir,
+                    original: layer[field].slice(),
+                };
+                this.canvas.style.cursor = edge ? 'ew-resize' : 'grabbing';
+                this.render();
+                return;
+            }
+        }
+
         // A plain left press anywhere drops the sweep selection - the same
         // click-away every selection obeys. A RIGHT press keeps it: the
         // selection exists exactly so the right-click can deal it.
@@ -671,6 +710,27 @@ Object.assign(CanvasRenderer.prototype, {
         const worldY = (mouseY - this.panY) / this.zoom;
         const worldX = this._unmirrorWorldX((mouseX - this.panX) / this.zoom, worldY);
 
+        // A header bar in hand (see handleMouseDown): the screen's bars
+        // re-order live as it crosses its neighbours.
+        if (this._riggingDrag) {
+            const d = this._riggingDrag;
+            const layer = window.app && window.app.project
+                ? window.app.project.layers.find(l => l.id === d.layerId) : null;
+            if (layer && d.unitPx > 0) {
+                const panels = d.dir * (mouseX - d.startX) / d.unitPx;
+                if (d.kind === 'edge') {
+                    // the edge follows the mouse a whole panel at a time
+                    layer[d.field] = RiggingMath.resizeBoundary(d.original, d.boundary, panels);
+                } else {
+                    const moved = RiggingMath.moveBarWithSlot(d.original, d.index, panels);
+                    layer[d.field] = moved.bars;
+                    d.current = moved.slot;      // the bar in hand is drawn lit, wherever it landed
+                }
+                this.render();
+            }
+            return;
+        }
+
         // A press on a locked screen that has now moved past the click
         // threshold is a drag the lock refuses: say so, once.
         if (this._lockedDragPending && this._pressPastClick(e)) {
@@ -1035,13 +1095,35 @@ Object.assign(CanvasRenderer.prototype, {
             if (!e.shiftKey && !e.altKey && !this.isSelectingPanels && !this.isSelectingLayers
                 && this._canvasEdgeAtPoint(worldX, worldY)) {
                 this.canvas.style.cursor = 'move';
+            } else if (this.viewMode === 'rigging' && this.riggingEdgeAt(mouseX, mouseY)) {
+                this.canvas.style.cursor = 'ew-resize';     // an edge between header bars
+            } else if (this.viewMode === 'rigging' && this.riggingBarAt(mouseX, mouseY)) {
+                this.canvas.style.cursor = 'grab';          // a header bar
             } else {
                 this.canvas.style.cursor = 'default';
             }
         }
     },
-    
+
     handleMouseUp(e) {
+        // A header bar let go (see handleMouseDown): save the new order. The
+        // bars were re-ordered live on the layer; saving records the result
+        // as one undo step, like every other edit.
+        if (this._riggingDrag) {
+            const d = this._riggingDrag;
+            this._riggingDrag = null;
+            this.canvas.style.cursor = '';
+            const app = window.app;
+            const layer = app && app.project ? app.project.layers.find(l => l.id === d.layerId) : null;
+            if (layer) {
+                if (layer[d.field].join(',') !== d.original.join(',')) {
+                    app.updateLayers([layer], true, (d.kind === 'edge' ? 'Resize ' : 'Move ') + (d.row === 'footer' ? 'Footer Bar' : 'Header Bar'));
+                    if (typeof app.refreshRiggingPanel === 'function') app.refreshRiggingPanel();
+                }
+            }
+            this.render();
+            return;
+        }
         // A locked-screen press that never became a drag changed nothing
         // and says nothing.
         this._lockedDragPending = null;

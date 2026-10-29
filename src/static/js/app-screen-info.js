@@ -2217,6 +2217,7 @@ class _ScreenInfo {
     }
 
     loadLayerToInputs() {
+        if (typeof this.refreshRiggingPanel === 'function') this.refreshRiggingPanel();
         const layers = this.getSelectedLayers();
         if (layers.length === 0) return;
         const primary = this.currentLayer || layers[0];
@@ -2512,6 +2513,9 @@ class _ScreenInfo {
         if (document.getElementById('show-label-name-power')) {
             setCheckbox('show-label-name-power', getCommon(l => _tabLabel(l, 'showLabelNamePower')));
         }
+        if (document.getElementById('show-label-name-rigging')) {
+            setCheckbox('show-label-name-rigging', getCommon(l => _tabLabel(l, 'showLabelNameRigging')));
+        }
         
         // Load Data Flow settings - with hex fields
         const dataFlowColor = primary.dataFlowColor || '#FFFFFF';
@@ -2778,6 +2782,9 @@ class _ScreenInfo {
         }
         if (document.getElementById('screen-name-size-power')) {
             document.getElementById('screen-name-size-power').value = primary.screenNameSizePower || 30;
+        }
+        if (document.getElementById('screen-name-size-rigging')) {
+            document.getElementById('screen-name-size-rigging').value = primary.screenNameSizeRigging || 30;
         }
         
         const normalizeColorObject = (value, fallbackHex) => {

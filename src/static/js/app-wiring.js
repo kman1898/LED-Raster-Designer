@@ -185,6 +185,8 @@ class _Wiring {
         viewTabs().forEach(tab => {
             tab.addEventListener('click', () => {
                 const mode = tab.getAttribute('data-mode');
+                // Header/Footer opens on Header: the footer row is a choice made each time.
+                if (mode === 'rigging') this._riggingMode = 'header';
                 // The patch bay opens over the workspace from Data Settings;
                 // switching to any view closes it and shows that view.
                 if (this.closePatchBay) this.closePatchBay();
@@ -907,7 +909,8 @@ class _Wiring {
         const tabLabelMap = {
             'show-label-name-cabinet': 'showLabelNameCabinet',
             'show-label-name-data': 'showLabelNameDataFlow',
-            'show-label-name-power': 'showLabelNamePower'
+            'show-label-name-power': 'showLabelNamePower',
+            'show-label-name-rigging': 'showLabelNameRigging'
         };
         Object.entries(tabLabelMap).forEach(([id, prop]) => {
             const checkbox = document.getElementById(id);
@@ -2203,6 +2206,18 @@ class _Wiring {
             });
         }
         
+        // Screen Name Size - Header/Footer tab
+        const screenNameSizeRiggingInput = document.getElementById('screen-name-size-rigging');
+        if (screenNameSizeRiggingInput) {
+            screenNameSizeRiggingInput.addEventListener('change', () => {
+                this.applyToSelectedLayers(layer => {
+                    layer.screenNameSizeRigging = parseInt(screenNameSizeRiggingInput.value) || 30;
+                });
+                this.updateLayers(this.getSelectedLayers(), true, 'Change Screen Name Size');
+                window.canvasRenderer.render();
+            });
+        }
+
         // Screen Name Size - Power tab
         const screenNameSizePowerInput = document.getElementById('screen-name-size-power');
         if (screenNameSizePowerInput) {
@@ -2364,8 +2379,8 @@ class _Wiring {
         });
         
         // Update preview when options change
-        ['export-name', 'export-format', 'export-pixel-map', 'export-cabinet-id', 'export-show-look', 'export-data-flow', 'export-power',
-         'export-suffix-pixel-map', 'export-suffix-cabinet-id', 'export-suffix-show-look', 'export-suffix-data-flow', 'export-suffix-power'].forEach(id => {
+        ['export-name', 'export-format', 'export-pixel-map', 'export-cabinet-id', 'export-show-look', 'export-data-flow', 'export-power', 'export-rigging',
+         'export-suffix-pixel-map', 'export-suffix-cabinet-id', 'export-suffix-show-look', 'export-suffix-data-flow', 'export-suffix-power', 'export-suffix-rigging'].forEach(id => {
             const el = document.getElementById(id);
             if (el) {
                 el.addEventListener('change', () => {
@@ -2481,6 +2496,7 @@ class _Wiring {
             if (document.getElementById('export-show-look') && document.getElementById('export-show-look').checked) views.push('show-look');
             if (document.getElementById('export-data-flow').checked) views.push('data-flow');
             if (document.getElementById('export-power').checked) views.push('power');
+            if (document.getElementById('export-rigging') && document.getElementById('export-rigging').checked) views.push('rigging');
 
             if (views.length === 0) {
                 alert('Please select at least one view to export.');

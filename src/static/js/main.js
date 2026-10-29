@@ -16,6 +16,7 @@ import './app-preferences.js';
 import './app-menubar.js';
 import './app-logs-recent.js';
 import './app-power.js';
+import './app-rigging.js';
 import './app-context-menu.js';
 import './app-distros.js';
 import './app-distro-systems.js';

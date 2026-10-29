@@ -19,6 +19,7 @@ class _ExportIo {
         if (document.getElementById('export-show-look') && document.getElementById('export-show-look').checked) views.push('show-look');
         if (document.getElementById('export-data-flow').checked) views.push('data-flow');
         if (document.getElementById('export-power').checked) views.push('power');
+        if (document.getElementById('export-rigging') && document.getElementById('export-rigging').checked) views.push('rigging');
 
         const preview = document.getElementById('export-preview');
 
@@ -147,7 +148,8 @@ class _ExportIo {
             'cabinet-id': 'Cabinet Map',
             'show-look': 'Show Look',
             'data-flow': 'Data Map',
-            'power': 'Power Map'
+            'power': 'Power Map',
+            'rigging': 'Header/Footer'
         };
     }
 
@@ -157,7 +159,8 @@ class _ExportIo {
             'cabinet-id': 'Cabinet Map',
             'show-look': 'Show Look',
             'data-flow': 'Data Map',
-            'power': 'Power Map'
+            'power': 'Power Map',
+            'rigging': 'Header/Footer'
         };
     }
 
@@ -180,6 +183,7 @@ class _ExportIo {
         apply('export-suffix-show-look', 'show-look');
         apply('export-suffix-data-flow', 'data-flow');
         apply('export-suffix-power', 'power');
+        apply('export-suffix-rigging', 'rigging');
     }
 
     saveExportSuffixesFromUI() {
@@ -221,7 +225,8 @@ class _ExportIo {
             'cabinet-id': read('export-suffix-cabinet-id', 'cabinet-id'),
             'show-look': read('export-suffix-show-look', 'show-look'),
             'data-flow': read('export-suffix-data-flow', 'data-flow'),
-            'power': read('export-suffix-power', 'power')
+            'power': read('export-suffix-power', 'power'),
+            'rigging': read('export-suffix-rigging', 'rigging')
         };
     }
 
@@ -587,7 +592,7 @@ class _ExportIo {
                     // the export pan must match or the captured PNG comes
                     // out shifted and missing layers that live at
                     // negative-relative show positions.
-                    const isShowExport = (view === 'show-look' || view === 'data-flow' || view === 'power');
+                    const isShowExport = (view === 'show-look' || view === 'data-flow' || view === 'power' || view === 'rigging');
                     let wsx = 0, wsy = 0;
                     if (targetCanvas) {
                         if (isShowExport) {
@@ -1175,7 +1180,7 @@ class _ExportIo {
             // false, so PSD layer metadata always grouped by Pixel Map
             // canvas_id even for Show Look / Data / Power exports.
             const isShowView = view.view === 'show-look'
-                || view.view === 'data-flow' || view.view === 'power';
+                || view.view === 'data-flow' || view.view === 'power' || view.view === 'rigging';
             const psdLayers = this.project.layers.filter(l => {
                 if (!view.canvasId) return true;
                 // Show Look / Data / Power exports use the layer's

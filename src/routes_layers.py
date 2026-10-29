@@ -55,6 +55,13 @@ def add_layer():
         'showPowerNferTags', 'showPowerCableTags', 'showDataCableTags',
         'powerColorCodedView',
         'powerCircuitColors',
+        # Header/Footer tab: the bar sizes highlighted for the screen, and the
+        # header and footer bars Auto fit across it (ints, panels wide, left
+        # to right), the screen's bar colors, and the tab's own screen-name
+        # settings (shown, size, dragged position).
+        'riggingSizes', 'riggingBars', 'riggingFooterBars', 'riggingColor', 'riggingTextColor',
+        'showLabelNameRigging', 'screenNameSizeRigging',
+        'screenNameOffsetXRigging', 'screenNameOffsetYRigging',
         'showLabelName', 'showLabelNameCabinet', 'showLabelNameDataFlow', 'showLabelNamePower',
         'showLabelSizePx', 'showLabelSizeM', 'showLabelSizeFt', 'showLabelWeight',
         'showLabelInfo', 'labelsColor', 'labelsFontSize', 'useFractionalInches',
@@ -323,7 +330,9 @@ def update_layer(layer_id):
                 'showOffsetTL', 'showOffsetTR', 'showOffsetBL', 'showOffsetBR',
                 'powerVoltage', 'powerVoltageCustom', 'powerAmperage', 'powerAmperageCustom', 'panelWatts',
                 'powerMaximize', 'powerOrganized', 'powerCustomPath', 'powerFlowPattern', 'powerLineWidth',
-                'powerLineColor', 'powerArrowColor', 'powerRandomColors', 'powerColorCodedView', 'powerCircuitColors', 'powerLabelSize', 'powerLabelBgColor', 'powerLabelTextColor',
+                'powerLineColor', 'powerArrowColor', 'powerRandomColors', 'powerColorCodedView', 'powerCircuitColors', 'riggingSizes', 'riggingBars', 'riggingFooterBars', 'riggingColor', 'riggingTextColor',
+                'showLabelNameRigging', 'screenNameSizeRigging',
+                'screenNameOffsetXRigging', 'screenNameOffsetYRigging', 'powerLabelSize', 'powerLabelBgColor', 'powerLabelTextColor',
                 'powerLabelTemplate', 'powerLabelOverrides', 'powerCustomPaths', 'powerCustomIndex',
                 # Per-circuit cables ({circuit: {ft, connector}}) - the
                 # length and plug on each circuit for the paperwork

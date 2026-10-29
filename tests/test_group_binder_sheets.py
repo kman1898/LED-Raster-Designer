@@ -365,7 +365,7 @@ def test_names_switch_is_per_tab(page):
         try {
             delete app.project.groupNameDisplayByView;
             app.project.groupNameDisplay = 'both';
-            const VIEWS = ['pixel-map', 'cabinet-id', 'data-flow', 'power', 'show-look'];
+            const VIEWS = ['pixel-map', 'cabinet-id', 'data-flow', 'power', 'show-look', 'rigging'];
             const migrated = VIEWS.map(v => app.groupNameDisplayFor(v));
             const steps = app.historyIndex;
             document.querySelector('.name-display-btn[data-name-view="power"][data-name-display="screens"]').click();
@@ -384,15 +384,15 @@ def test_names_switch_is_per_tab(page):
             app.refreshNameDisplayButtons();
         }
     }""")
-    assert out['migrated'] == ['both'] * 5, out
-    assert out['after'] == ['both', 'both', 'both', 'screens', 'both'], out
+    assert out['migrated'] == ['both'] * 6, out
+    assert out['after'] == ['both', 'both', 'both', 'screens', 'both', 'both'], out
     assert out['stored'] == {'pixel-map': 'both', 'cabinet-id': 'both', 'data-flow': 'both',
-                             'power': 'screens', 'show-look': 'both'}, out
+                             'power': 'screens', 'show-look': 'both', 'rigging': 'both'}, out
     assert out['entry'] == {'steps': 1, 'action': 'Change Name Display'}, out
     assert out['active'] == ['cabinet-id:both', 'data-flow:both', 'pixel-map:both',
-                             'power:screens', 'show-look:both'], out
+                             'power:screens', 'rigging:both', 'show-look:both'], out
     assert out['modes'] == {'pixel-map': 'both', 'cabinet-id': 'both', 'data-flow': 'both',
-                            'power': 'screens', 'show-look': 'both'}, out
+                            'power': 'screens', 'show-look': 'both', 'rigging': 'both'}, out
     assert not errors, errors
 
 

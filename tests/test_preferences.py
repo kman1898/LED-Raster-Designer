@@ -50,7 +50,8 @@ TABS = {
     'binder': ['pref-binder-sheet', 'pref-binder-screen-order', 'pref-binder-colour',
                'pref-binder-printer', 'pref-binder-side-power', 'pref-binder-side-data',
                'pref-binder-side-both', 'pref-binder-cover', 'pref-binder-pull',
-               'pref-binder-hardware', 'pref-binder-wiring', 'pref-binder-title-block',
+               'pref-binder-hardware', 'pref-binder-wiring', 'pref-binder-rigging',
+               'pref-binder-title-block',
                'pref-binder-designer', 'pref-binder-pm-name', 'pref-binder-pm-phone',
                'pref-binder-pm-email', 'pref-binder-drafter', 'pref-binder-logo'],
     'pull': ['pref-pull-engineer', 'pref-pull-rev', 'pref-pull-power-jump-name',
@@ -75,7 +76,8 @@ TABS = {
 }
 ALL_IDS = [i for ids in TABS.values() for i in ids]
 # 1.5 audit: the distro voltage + phase pair became one system picker.
-assert len(ALL_IDS) == 108
+# Header/Footer tab: the binder gained its Header/Footer tick.
+assert len(ALL_IDS) == 109
 
 # Issue 28: the colour defaults a NEW screen starts with, id -> (the colour
 # the dialog is given, the preference key, the layer property it lands on).
@@ -227,6 +229,7 @@ NEW_FIELDS = [
     ('pref-binder-pull', True, 'binderPull', True),
     ('pref-binder-hardware', False, 'binderHardware', False),
     ('pref-binder-wiring', True, 'binderWiring', True),
+    ('pref-binder-rigging', False, 'binderRigging', False),
     ('pref-binder-title-block', False, 'binderTitleBlock', False),
     ('pref-binder-designer', 'Dee Signer', 'binderDesigner', 'Dee Signer'),
     ('pref-binder-pm-name', 'Pam Manager', 'binderPmName', 'Pam Manager'),

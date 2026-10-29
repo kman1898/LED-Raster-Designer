@@ -856,6 +856,11 @@ class _PullList {
                 for (const r of scr.rows) {
                     land((r._at && locationKey(r._at)) || base.key, r, layer.id);
                 }
+                // The screen's header bars (Rigging tab): gear, EA, in the
+                // screen's own position, one row per header bar size.
+                if (typeof this.riggingPullRows === 'function') {
+                    for (const r of this.riggingPullRows(layer)) land(base.key, r, layer.id);
+                }
             }
         }
 

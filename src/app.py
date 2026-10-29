@@ -1624,7 +1624,7 @@ def _hashable_id_set(values):
 
 # The tabs the NAMES switch (Screens / Group / Both) keeps a value for - the
 # canvas's view modes. app-core.js NAME_DISPLAY_VIEWS is the client's copy.
-NAME_DISPLAY_VIEWS = ('pixel-map', 'cabinet-id', 'data-flow', 'power', 'show-look')
+NAME_DISPLAY_VIEWS = ('pixel-map', 'cabinet-id', 'data-flow', 'power', 'show-look', 'rigging')
 NAME_DISPLAY_VALUES = ('screens', 'group', 'both')
 
 

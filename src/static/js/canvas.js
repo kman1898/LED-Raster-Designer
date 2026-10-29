@@ -248,7 +248,7 @@ class CanvasRenderer {
      * real-world stage layout per the Show Look feature spec.
      */
     isShowLookView(mode = this.viewMode) {
-        return mode === 'show-look' || mode === 'data-flow' || mode === 'power';
+        return mode === 'show-look' || mode === 'data-flow' || mode === 'power' || mode === 'rigging';
     }
 
     /**
@@ -1265,6 +1265,7 @@ class CanvasRenderer {
             case 'cabinet-id': return { x: 'screenNameOffsetXCabinet', y: 'screenNameOffsetYCabinet' };
             case 'data-flow': return { x: 'screenNameOffsetXDataFlow', y: 'screenNameOffsetYDataFlow' };
             case 'power': return { x: 'screenNameOffsetXPower', y: 'screenNameOffsetYPower' };
+            case 'rigging': return { x: 'screenNameOffsetXRigging', y: 'screenNameOffsetYRigging' };
             case 'show-look': return { x: 'screenNameOffsetXShowLook', y: 'screenNameOffsetYShowLook' };
             default: return { x: 'screenNameOffsetXPixelMap', y: 'screenNameOffsetYPixelMap' };
         }
@@ -1346,6 +1347,9 @@ class CanvasRenderer {
         } else if (this.viewMode === 'power') {
             shown = cfg.showLabelNamePower !== undefined ? cfg.showLabelNamePower
                 : (cfg.showLabelName !== undefined ? cfg.showLabelName : true);
+        } else if (this.viewMode === 'rigging') {
+            shown = cfg.showLabelNameRigging !== undefined ? cfg.showLabelNameRigging
+                : (cfg.showLabelName !== undefined ? cfg.showLabelName : true);
         } else {
             shown = cfg.showLabelName !== undefined ? cfg.showLabelName : true;
         }
@@ -1360,6 +1364,7 @@ class CanvasRenderer {
         if (this.viewMode === 'cabinet-id') nameSize = cfg.screenNameSizeCabinet || 14;
         else if (this.viewMode === 'data-flow') nameSize = cfg.screenNameSizeDataFlow || 14;
         else if (this.viewMode === 'power') nameSize = cfg.screenNameSizePower || 14;
+        else if (this.viewMode === 'rigging') nameSize = cfg.screenNameSizeRigging || 30;
         // 2026-09-23: the same wrap the draw applies (_wrapLabelLine) -
         // the name's plate is as wide as its widest line and as tall as all
         // of them, measured against the wall's inner width.
@@ -2617,6 +2622,18 @@ class CanvasRenderer {
                 });
             }
 
+            // The Rigging view's header bars sit above each wall.
+            if (this.viewMode === 'rigging') {
+                this._riggingHits = [];     // refilled by renderRiggingBars: what the mouse can grab
+                this._riggingEdges = [];    // ... and the edges between bars
+                window.app.project.layers.forEach(layer => {
+                    if (layer.visible) {
+                        this._svgGroup('Rigging', layer);
+                        _withLayerWs(layer, () => this.renderRiggingBars(layer));
+                    }
+                });
+            }
+
             // Draw bounding boxes around selected layers (skip during export)
             // These render OUTSIDE the per-layer ctx.translate, so use the
             // active-view bounds.
@@ -3237,8 +3254,12 @@ class CanvasRenderer {
             case 'power':
                 this.renderPower(panel, layer);
                 break;
+            case 'rigging':
+                // The wall as it stands on stage; the bars draw on top later.
+                this.renderPixelMap(panel, layer);
+                break;
         }
-        
+
         this.ctx.restore();
     }
     
