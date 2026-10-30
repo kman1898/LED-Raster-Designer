@@ -480,14 +480,20 @@ def _mac_bring_window_front():
         def raise_window():
             try:
                 AppKit.NSApp.activateIgnoringOtherApps_(True)
-                for w in AppKit.NSApp.windows():
-                    if w.isVisible():
-                        w.setLevel_(AppKit.NSFloatingWindowLevel)
-                        w.orderFrontRegardless()
+                # Only touch ordinary windows. NSApp.windows() also holds the
+                # menu-bar status item's own window, which lives above the
+                # menu bar; dropping it to Floating/Normal hid the icon behind
+                # the menu bar, leaving a blank, unclickable gap.
+                raised = [w for w in AppKit.NSApp.windows()
+                          if w.isVisible()
+                          and w.level() == AppKit.NSNormalWindowLevel]
+                for w in raised:
+                    w.setLevel_(AppKit.NSFloatingWindowLevel)
+                    w.orderFrontRegardless()
 
                 def settle():
                     try:
-                        for w in AppKit.NSApp.windows():
+                        for w in raised:
                             w.setLevel_(AppKit.NSNormalWindowLevel)
                     except Exception:
                         pass
