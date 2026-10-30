@@ -333,6 +333,9 @@ FIXES
 - FIX: The panel library shows a panel's average power beside its max,
   like 340W max · 120W avg, where the spec sheet gives one. Power is still
   planned on the max.
+- FIX: On a Mac, opening the launcher no longer hides the app's menu-bar
+  icon behind the menu bar, so it stays visible and clickable. Thanks to
+  kcikcreative33 for this fix.
 
 v1.5.3 - October 21, 2026
 ----------------------------
