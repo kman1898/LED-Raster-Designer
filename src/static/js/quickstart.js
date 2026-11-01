@@ -3985,7 +3985,7 @@
             since: '1.5.4',
             target: '#pref-cable-stock-per-kind', place: 'bottom', title: 'A list for each kind of cable',
             avoid: ['#pref-cable-stock-per-kind', '#pref-cable-stock-multi-ft', '#pref-cable-stock-feeder-ft', '#preferences-save'],
-            body: 'Tick A list for each kind of cable and each kind gets its own lengths. Here the multis keep 25, 50 and 100, and the feeders come in 50 and 100.',
+            body: 'Tick A list for each kind of cable and each kind gets its own lengths. Here the multis keep 25, 50 and 100, and the feeds come in 50 and 100.',
             before: function () {
                 switchView('power');
                 var a = A();
@@ -4022,7 +4022,7 @@
                 var a = A();
                 if (a.cableStockList('feeder', 'ft').join(',') !== '50,100'
                         || a.cableStockList('multi', 'ft').join(',') !== '25,50,100') return null;
-                return 'Multis come in 25, 50 and 100 ft, feeders in 50 and 100 ft: a 150 ft feeder is written ' + a.cableStockText(150, 'feeder') + '.';
+                return 'Multis come in 25, 50 and 100 ft, feeds in 50 and 100 ft: a 150 ft feed is written ' + a.cableStockText(150, 'feeder') + '.';
             },
             after: function () { closePrefs(); }
         },
@@ -4406,10 +4406,10 @@
         feederLength: {
             since: '1.5.4',
             target: function () { var d = distro(); return d ? '[data-hwpop="distro-' + d.id + '"]' : '#hardware-dock-body .hw-dock-gear'; },
-            place: 'top', title: 'The distro&rsquo;s feeder',
+            place: 'top', title: 'The distro&rsquo;s feed',
             avoid: [function () { var d = distro(); return d ? '[data-lrd-field="distro-feeder-ft-' + d.id + '"]' : null; },
                     function () { var d = distro(); return d ? '[data-lrd-field="distro-feeder-from-' + d.id + '"]' : null; }],
-            body: 'Open the distro&rsquo;s &#9881; and type its Feeder length. Beside it you pick where it&rsquo;s fed from: the service, or thru another distro.',
+            body: 'Open the distro&rsquo;s &#9881; and type its Feed length. Beside it you pick where it&rsquo;s fed from: the service, or thru another distro.',
             before: function () { switchView('power'); closePopover(); },
             act: function (t) {
                 var d = distro();
@@ -4424,7 +4424,7 @@
                 }).then(function () {
                     return t.wait(function () { var q = distro(); return q && q.feeder && Number(q.feeder.ft) === 150; });
                 }).then(function (ok) {
-                    if (!ok) throw new Error('the feeder did not take 150');
+                    if (!ok) throw new Error('the feed did not take 150');
                     return t.wait(function () { return $('[data-lrd-field="distro-feeder-from-' + d.id + '"]'); });
                 }).then(function (sel) {
                     if (!sel) throw new Error('the fed-from choice did not come up');
@@ -4439,7 +4439,7 @@
                 var f = a.distroFeeder(d);
                 var from = f.from ? 'thru ' + (f.from.name || f.from.id)
                     : 'from ' + (f.service ? f.service.name || 'the service' : 'the service');
-                return (d.name || 'The distro') + '\'s feeder: ' + a.feederText(d) + ', fed ' + from
+                return (d.name || 'The distro') + '\'s feed: ' + a.feederText(d) + ', fed ' + from
                     + '. The pull sheet lists it where the distro sits.';
             },
             after: function () { closePopover(); }

@@ -19,7 +19,7 @@
  */
 window.WHATS_NEW_CONTENT = {
     '1.5.4': {
-        title: 'Every cable named by its connector, a panel input for Edison and L6-20 screens, and a feeder for every distro',
+        title: 'Every cable named by its connector, a panel input for Edison and L6-20 screens, and a feed for every distro',
         items: [
             { h: 'TRUE1 or powerCON, Cat6 or etherCON',
               d: 'The pull sheet and the binder say exactly which cable to pull. Power reads TRUE1 or powerCON from each screen\'s breakout, and data reads Cat6 or etherCON from each box\'s own outputs.' },
@@ -27,12 +27,12 @@ window.WHATS_NEW_CONTENT = {
               d: 'An Edison or L6-20 breakout now asks which connector your panels take, TRUE1 or powerCON, and the jumpers and splitters follow it. Each circuit gets one cable from its Edison or L6-20 plug to that panel input, with the 2fers at the panels.' },
             { h: 'US circuits filled to 80%',
               d: 'A circuit on a US distro, or on a screen with no distro at 208 V or below, is now filled to 80% of its breaker unless the distro\'s breakers are 100% rated, so a US screen may need more circuits than before. You still type the breaker size in the Amperage box, and the amps you can use now show beside it.' },
-            { h: 'A feeder for every distro',
-              d: 'Open a distro\'s gear, type its feeder length and pick whether it\'s fed from the service or thru another distro. A 400 A cam input lists a 400 A cam set with 5-wire, and the feeder is on the pull sheet even before you type a length.' },
+            { h: 'A feed for every distro',
+              d: 'Open a distro\'s gear, type its feed length and pick whether it\'s fed from the service or thru another distro. A 400 A cam input lists a 400 A cam set with 5-wire, and the feed is on the pull sheet even before you type a length.' },
             { h: 'The panel saved on each screen',
               d: 'A panel you pick from the library is saved on the screen, and Screen Info\'s Panel field shows its name or takes one you type. The pull sheet counts your panels by that name, a row for each type on each screen, with half tiles on rows of their own.' },
             { h: 'A stock list for each kind of cable',
-              d: 'In Preferences > Cable stock, tick A list for each kind of cable to give multis, data, power, L21-30 and Harting home runs, direct-output cables and feeders their own lengths. Shows and presets from before keep the lists they had.' },
+              d: 'In Preferences > Cable stock, tick A list for each kind of cable to give multis, data, power, L21-30 and Harting home runs, direct-output cables and feeds their own lengths. Shows and presets from before keep the lists they had.' },
             { h: 'Mixed redundancy and mirror screens',
               d: 'On a chassis like an H series, the redundancy bar has a Mixed choice, so card 1 can be backed up 1:1 by card 2 while card 3 pairs its own ports. And an H_4xfiber in Copy mode, or an MX40 Pro box set to Mirror, feeds a second screen: pick the screen it copies under Mirror a screen in Screen Info, and its runs come off the copy OPTs.' },
             { h: 'Check paperwork you\'ve already ordered from',

@@ -19,7 +19,7 @@
     processor sheet's Snakes & home runs lists it.
   * A distro fed thru another: its screens' FACTS read the service it
     counts on, the Distro row saying "thru" that distro.
-  * "Feeder: 50'" (said once); no dash on Data Wiring's note; a KV row
+  * "Feed: 50'" (said once); no dash on Data Wiring's note; a KV row
     never starts a line with " · ".
 
 Run locally:
@@ -253,15 +253,24 @@ def test_the_circuits_table_on_a_direct_output_prints_its_one_cable(page):
 
 
 def test_feeder_said_once_and_kv_separators_end_their_line(page):
-    """A distro with a feeder and no input type: "Feeder: 50'", never
-    "Feeder: Feeder 50'". A KV value's " · " stays at the end of the line
+    """A distro with a feed and no input type: "Feed: 50'", never
+    "Feed: Feed 50'". A KV value's " · " stays at the end of the line
     it follows and a leg's letter stays with its figure."""
     pg, errors = page
     setup(pg, distros=[dict(DIST, feeder={'ft': 50})], walls={
         'a': {'powerSocaDistro': {'1': 'd1'}, 'powerSocaNumber': {'1': 1}}})
     b = pg.evaluate(BINDER_JS, {})
     block = next(dict(k['pairs']) for k in b['kv'] if k['title'] == 'Distro')
-    assert block.get('Feeder') == "50'", block
+    assert block.get('Feed') == "50'" and 'Feeder' not in block, block
+    # the old word ("feeder" until 2026-11-01) is still said once
+    for old, want in (("Feeder 50'", "50'"), ("L21-30 feeder 50'", "L21-30 50'")):
+        pg.evaluate("(t) => { window.app.feederText = () => t; }", old)
+        try:
+            b = pg.evaluate(BINDER_JS, {})
+        finally:
+            pg.evaluate("() => { delete window.app.feederText; }")
+        block = next(dict(k['pairs']) for k in b['kv'] if k['title'] == 'Distro')
+        assert block.get('Feed') == want, (old, block)
     words = ev(pg, "return app._bKvWords('SL · 400 A · X 87.1 · Y 81.4 · Z 20.7 A');")
     assert words == ['SL ·', '400 A ·', 'X 87.1 ·', 'Y 81.4 ·', 'Z 20.7 A'], words
     assert not [w for w in words if w.startswith('·')], words

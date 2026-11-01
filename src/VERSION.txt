@@ -336,6 +336,9 @@ FIXES
 - FIX: On a Mac, opening the launcher no longer hides the app's menu-bar
   icon behind the menu bar, so it stays visible and clickable. Thanks to
   kcikcreative33 for this fix.
+- FIX: The cable that powers a distro is now called its feed, a word that
+  reads right outside the US too: L21-30 feed 50', Feeds in Preferences >
+  Cable stock. Pull sheet edits made on a feeder row carry over.
 
 v1.5.3 - October 21, 2026
 ----------------------------
