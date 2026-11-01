@@ -453,7 +453,7 @@ def test_positions_are_the_groups_and_the_rows_read_in_the_sheets_vocabulary(pag
     # The distro itself is on the sheet (2026-09-07): two boxes in use on
     # SR is a "Distro" (no Type typed), pulled where SR sits - no location typed, so with
     # the first screen it feeds. Its feeder beside it (2026-10-21): no
-    # input picked, so "Feeder", and no length typed. The walls' panels
+    # input picked, so "Feed", and no length typed. The walls' panels
     # (2026-10-22): one row for the type both members hang - 500 x 500 mm
     # cabinets the panel library cannot name, so their size, in mm in a
     # feet show too - the screens in the label; it sorts first (a number).
@@ -464,7 +464,7 @@ def test_positions_are_the_groups_and_the_rows_read_in_the_sheets_vocabulary(pag
         ('Data Jump', "2'", 2, 'WALL-A', ''),
         ('Data Jump', "6'", 11, 'WALL-B', ''),
         ('Distro', 'EA', 1, 'SR', ''),
-        ('Feeder', '', 1, 'SR', 'no length'),
+        ('Feed', '', 1, 'SR', 'no length'),
         ('H9', 'EA', 1, '', ''),
         ('Multi', "100'", 1, 'SR2', ''),
         ('Multi', "125'", 1, 'SR1', ''),
@@ -507,7 +507,7 @@ def test_positions_are_the_groups_and_the_rows_read_in_the_sheets_vocabulary(pag
     assert totals[('Multi', "125'")] == 1 and totals[('Multi', "100'")] == 1
     assert totals[('TRUE1 Breakout', 'EA')] == 2 and totals[('TRUE1 2fer', 'EA')] == 1
     assert totals[('Edison → TRUE1 cable', 'EA')] == 2
-    assert totals[('Distro', 'EA')] == 1 and totals[('Feeder', '')] == 1
+    assert totals[('Distro', 'EA')] == 1 and totals[('Feed', '')] == 1
     assert totals[('H9', 'EA')] == 1
     assert totals[('500 × 500 mm panel', 'EA')] == 39
     assert len(out['totals']) == 21
@@ -549,7 +549,7 @@ def test_the_per_screen_readings_the_packet_will_print(page):
     kinds = {(h['kind'], h['name']): _rows(h['rows']) for h in out['hardware']}
     assert kinds[('distro', 'SR')] == [
         ('Distro', 'EA', 1, 'SR', ''),
-        ('Feeder', '', 1, 'SR', 'no length'),
+        ('Feed', '', 1, 'SR', 'no length'),
         ('Multi', "100'", 1, 'SR2', ''), ('Multi', "125'", 1, 'SR1', ''),
         ('TRUE1 Breakout', 'EA', 2, 'SR 1-2', '')]
     proc_rows = next(v for (k, n), v in kinds.items() if k == 'processor')
@@ -1286,7 +1286,7 @@ def test_smoke_live_show_b(page):
         ('etherCON Extension', "75'", 1, 'SR B-4', 'ext · SR B'),
         ('etherCON Snake', "100'", 1, 'SR B-1 … B-4', 'SR B · 4 channel'),
         ('etherCON Snake', "150'", 1, 'SR A-1 … A-4', 'SR A · 4 channel'),
-        ('Feeder', '', 1, 'SR', 'no length'),
+        ('Feed', '', 1, 'SR', 'no length'),
         ('H9', 'EA', 1, '', ''),
         ('Multi', "100'", 2, 'SR2, SR4', ''),
         ('Multi', "125'", 3, 'SR1, SR3, SR5', ''),
@@ -1310,7 +1310,7 @@ def test_smoke_live_show_b(page):
         ('etherCON Extension', "100'", 1, 'SL B-4', 'ext · SL B'),
         ('etherCON Snake', "100'", 1, 'SL A-1 … A-4', 'SL A · 4 channel'),
         ('etherCON Snake', "150'", 1, 'SL B-1 … B-4', 'SL B · 4 channel'),
-        ('Feeder', '', 1, 'SL', 'no length'),
+        ('Feed', '', 1, 'SL', 'no length'),
         ('Multi', "100'", 2, 'SL2, SL4', ''),
         ('Multi', "125'", 3, 'SL1, SL3, SL5', ''),
         ('TRUE1', "6'", 9, 'SL1-2 … SL5-3 (9)', ''),
@@ -1339,7 +1339,7 @@ def test_smoke_live_show_b(page):
         ('etherCON Snake', "100'", 1, 'SL A-1 … A-4', 'SL A · 4 channel'),
         ('etherCON Snake', "150'", 1, 'SR A-1 … A-4', 'SR A · 4 channel'),
         ('etherCON Snake', "150'", 1, 'SL B-1 … B-4', 'SL B · 4 channel'),
-        ('Feeder', '', 2, 'SR, SL', 'no length'),
+        ('Feed', '', 2, 'SR, SL', 'no length'),
         ('H9', 'EA', 1, '', ''),
         ('Multi', "100'", 4, 'SR2, SR4, SL2, SL4', ''),
         ('Multi', "125'", 6, 'SR1, SR3, SR5, SL1, SL3, SL5', ''),

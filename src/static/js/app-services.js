@@ -364,8 +364,8 @@ class _Services {
     //     chain from that distro).
     //   * The row follows the distro's INPUT: a cam input is ONE row per
     //     set, "400 A cam set", its length, qty 1, "5-wire" in Notes; any
-    //     other input is "<input> feeder" ("L21-30 feeder", "Powerlock
-    //     400 A feeder"); a distro with no input picked is "Feeder". It is
+    //     other input is "<input> feed" ("L21-30 feed", "Powerlock
+    //     400 A feed"); a distro with no input picked is "Feed". It is
     //     pulled where the distro sits, under the distro's name, and is on
     //     the distro's own pull list in the binder.
     //   * Its length is written from the show's cable stock ('feeder',
@@ -398,8 +398,8 @@ class _Services {
     feederTypeOf(d) {
         const input = this.distroFeeder(d).input;
         if (input && /^cam\d+$/.test(input.id)) return { type: `${input.name} cam set`, notes: '5-wire', cam: true };
-        if (input) return { type: `${input.name} feeder`, notes: '', cam: false };
-        return { type: 'Feeder', notes: '', cam: false };
+        if (input) return { type: `${input.name} feed`, notes: '', cam: false };
+        return { type: 'Feed', notes: '', cam: false };
     }
 
     // The feeder's pull-sheet row (buildPullList lands it where the
@@ -455,7 +455,7 @@ class _Services {
     }
 
     // Set the feeder: `patch` { ft?, from? } - a blank length forgets it,
-    // `from` null (or 'service') is the service. One 'Set Distro Feeder'
+    // `from` null (or 'service') is the service. One 'Set Distro Feed'
     // entry when something changed; a feeder emptied of both forgets the
     // key, so an untouched distro saves as it always did. Returns whether
     // it changed.
@@ -470,7 +470,7 @@ class _Services {
         const before = JSON.stringify(d.feeder || null);
         const next = { ...(d.feeder && typeof d.feeder === 'object' ? d.feeder : {}) };
         if (patch.ft !== undefined) {
-            const read = this.readTypedLength(patch.ft, 'feeder');
+            const read = this.readTypedLength(patch.ft, 'feed');
             if (!read.ok) return false;
             if (read.n === null) delete next.ft; else next.ft = read.n;
         }
@@ -490,7 +490,7 @@ class _Services {
         }
         if (Object.keys(next).length) d.feeder = next; else delete d.feeder;
         if (JSON.stringify(d.feeder || null) === before) return false;
-        this.saveState('Set Distro Feeder');
+        this.saveState('Set Distro Feed');
         this._persistDistros();
         return true;
     }
@@ -517,7 +517,7 @@ class _Services {
     _buildDistroFeederRow(d, wrap) {
         const r = this._distroGearRow();
         r.classList.add('hw-pop-supply', 'hw-pop-feeder');
-        r.appendChild(this._distroGearCap('Feeder'));
+        r.appendChild(this._distroGearCap('Feed'));
         const t = this.feederTypeOf(d);
         const len = document.createElement('input');
         len.type = 'text';
@@ -526,7 +526,8 @@ class _Services {
         len.value = d.feeder && d.feeder.ft != null ? String(d.feeder.ft) : '';
         len.placeholder = this.cableUnit() === 'm' ? '30' : '100';
         len.style.width = '56px';
-        len.title = `The length of this distro's ${t.type}, in ${this.cableUnitWord()}. `
+        // mid-sentence the bare "Feed" reads lower case; "L21-30 feed" as is
+        len.title = `The length of this distro's ${t.type === 'Feed' ? 'feed' : t.type}, in ${this.cableUnitWord()}. `
             + 'It goes on the pull sheet where the distro sits; blank lists it with no length.'
             + this.cableStockHint(d.feeder && d.feeder.ft, 'feeder');
         len.addEventListener('change', () => {
@@ -547,8 +548,8 @@ class _Services {
         sel.dataset.lrdField = `distro-feeder-from-${d.id}`;
         sel.style.flex = '1 1 0';
         sel.style.minWidth = '0';
-        sel.title = 'Where the feeder comes from: the service (each distro on a service runs its '
-            + 'own feeder from it), or another distro of the same system it is fed thru from. '
+        sel.title = 'Where the feed comes from: the service (each distro on a service runs its '
+            + 'own feed from it), or another distro of the same system it is fed thru from. '
             + 'Its load then counts on that distro\'s service.';
         const f = this.distroFeeder(d);
         const svc = document.createElement('option');
@@ -942,7 +943,7 @@ class _Services {
             name.textContent = `${this.distroLabel(d)} · ${+(Number(d.ratingA) || 0).toFixed(1)} A`
                 + (thru ? ` · thru ${this.distroLabel(thru)}` : '');
             name.title = `${this.distroLabel(d)} is fed thru ${thru ? this.distroLabel(thru) : 'a distro on it'}: `
-                + 'its load counts on this service. Its feeder, behind its ⚙, changes that.';
+                + 'its load counts on this service. Its feed, behind its ⚙, changes that.';
             r.appendChild(name);
             list.appendChild(r);
         });

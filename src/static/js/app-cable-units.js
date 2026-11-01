@@ -264,7 +264,7 @@ class _CableUnits {
     // show is stored as 98.4 and said; text that is no length in either
     // unit is refused, said, and the length that was there stays. `noun`
     // names what the length is of, as the refusal says it ("Type the
-    // feeder's length ..."). Returns { ok, n }: `ok` false for a refusal,
+    // feed's length ..."). Returns { ok, n }: `ok` false for a refusal,
     // `n` the length to store in the show's unit (null for none).
     readTypedLength(value, noun = 'cable') {
         const read = this.parseTypedCableLength(value);

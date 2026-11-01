@@ -7424,15 +7424,16 @@ class _Binder {
         const feeder = typeof this.distroFeeder === 'function' ? this.distroFeeder(d) : null;
         if (feeder && feeder.stored) {
             const from = this.feederSourceText(d);
-            // a feeder with no input type is "Feeder 50'": its row says
-            // Feeder once - "Feeder: 50'", "Feeder: L21-30 50'" (owner,
-            // 2026-10-22)
+            // a feed with no input type is "Feed 50'": its row says
+            // Feed once - "Feed: 50'", "Feed: L21-30 50'" (owner,
+            // 2026-10-22; "feeder" became "feed" 2026-11-01, the old word
+            // still stripped)
             let text = this.feederText(d);
             if (!from) {
-                text = String(text).replace(/^Feeder(?:,\s*|\s+)(?=\S)/, '')
-                    .replace(/^(\S.*?) feeder(?=,? |$)/, '$1');
+                text = String(text).replace(/^Feed(?:er)?(?:,\s*|\s+)(?=\S)/, '')
+                    .replace(/^(\S.*?) feed(?:er)?(?=,? |$)/, '$1');
             }
-            pairs.push([from ? 'Fed from' : 'Feeder', [from, text].filter(Boolean).join(' · ')]);
+            pairs.push([from ? 'Fed from' : 'Feed', [from, text].filter(Boolean).join(' · ')]);
         } else if (svc) pairs.push(['Fed from', this.serviceLabel(svc)]);
         // The face (1.5): one line per output row, a paired row printed
         // ONCE with both connectors named.

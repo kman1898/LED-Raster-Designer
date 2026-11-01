@@ -55,7 +55,7 @@ def test_the_notes_say_what_154_does():
             'through a 2fer or 3fer or removing one, 2fer it or 3fer it, typing a power '
             'setting on a screen grouped with it, or hiding or showing a screen.') in flat
     # lengths convert in every field but a jumper's
-    assert 'converts wherever you type a home run, cable, feeder, snake or fiber length' in flat
+    assert 'converts wherever you type a home run, cable, feed, snake or fiber length' in flat
     assert 'converts wherever you type a cable length' not in flat
     # the readout always names the breaker, at 100% too
     assert '20 A breaker · 20 A usable where the breakers are 100% rated' in flat
@@ -76,7 +76,7 @@ def test_count_changes_are_listed_under_opening_an_older_show():
     older = top[top.index('OPENING AN OLDER SHOW'):top.index('\nFIXES\n')]
     flat = _flat(older)
     for line in ('- CHANGE (IMPORTANT): The pull sheet has a row for each panel type on each screen and a '
-                 'feeder row for each distro',
+                 'feed row for each distro',
                  '- CHANGE (IMPORTANT): Hidden screens keep their multi numbers and outputs reserved',
                  '- CHANGE (IMPORTANT): The Overview\'s totals in the binder leave out hidden screens.',
                  '- CHANGE (IMPORTANT): A distro with nothing on it, or only hidden screens, is left '

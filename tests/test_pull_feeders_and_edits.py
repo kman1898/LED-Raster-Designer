@@ -16,7 +16,7 @@ cable stock list per kind (owner rulings, 2026-10-21).
   * Each distro has a FEEDER behind its gear: a length (blank prints "no
     length") and where it is fed from - the service, or another distro
     (cam thru). The row follows the distro's input: "400 A cam set" with
-    "5-wire" in Notes, "L21-30 feeder", or "Feeder" with no input. It is
+    "5-wire" in Notes, "L21-30 feed", or "Feed" with no input. It is
     saved with the show and survives the server.
   * The cable stock keeps a list for L21-30 home runs, Harting home runs,
     direct-output cables and feeders beside multis, data and power; a show
@@ -304,17 +304,17 @@ def test_edits_reach_the_screens_and_the_hardware(seeded):
 
 
 def test_a_distro_s_feeder_on_the_pull_sheet(seeded):
-    """No input, no length: "Feeder", "no length", under the distro where it
+    """No input, no length: "Feed", "no length", under the distro where it
     sits and on its own pull list. A 400 A cam input with 150 typed: ONE
     "400 A cam set" row, 150', "5-wire". On a feeder stock of 50 / 100 it
-    is pulled as a 100' and a 50'. An L21-30 input: "L21-30 feeder"."""
+    is pulled as a 100' and a 50'. An L21-30 input: "L21-30 feed"."""
     pg, ids, errors = seeded
     did = ids['distroId']
     base = pg.evaluate(LIST_JS)
     sr = _rows(base['positions'][0]['rows'])
-    assert ('Feeder', '', 1, 'SR', 'no length') in sr, sr
+    assert ('Feed', '', 1, 'SR', 'no length') in sr, sr
     hw = _rows(next(h for h in base['hardware'] if h['kind'] == 'distro')['rows'])
-    assert ('Feeder', '', 1, 'SR', 'no length') in hw, hw
+    assert ('Feed', '', 1, 'SR', 'no length') in hw, hw
 
     out = pg.evaluate("""(id) => {
         const app = window.app;
@@ -339,12 +339,54 @@ def test_a_distro_s_feeder_on_the_pull_sheet(seeded):
                  totals: pieces.totals, l2130: l2130.positions[0].rows };
     }""", did)
     assert out['changed'] is True and out['again'] is False and out['steps'] == 1, out
-    assert out['step'] == 'Set Distro Feeder' and out['stored'] == {'ft': 150}, out
+    assert out['step'] == 'Set Distro Feed' and out['stored'] == {'ft': 150}, out
     assert ('400 A cam set', "150'", 1, 'SR', '5-wire') in _rows(out['one']), _rows(out['one'])
-    assert not [r for r in _rows(out['one']) if r[0] == 'Feeder'], 'the old blank row stayed'
+    assert not [r for r in _rows(out['one']) if r[0] == 'Feed'], 'the old blank row stayed'
     cams = sorted((r[1], r[2]) for r in _rows(out['pieces']) if r[0] == '400 A cam set')
     assert cams == [("100'", 1), ("50'", 1)], _rows(out['pieces'])
-    assert ('L21-30 feeder', "150'", 1, 'SR', '') in _rows(out['l2130']), _rows(out['l2130'])
+    assert ('L21-30 feed', "150'", 1, 'SR', '') in _rows(out['l2130']), _rows(out['l2130'])
+    assert errors == [], errors
+
+
+def test_the_preferences_say_feeds_never_feeders(client):
+    """The cable that powers a distro is its FEED (owner, 2026-11-01): the
+    Preferences > Cable stock row reads "Feeds" and its fields' tooltips
+    say "Feed lengths"; the list's id and key stay 'feeder'."""
+    html = client.get('/').get_data(as_text=True)
+    row = html[html.index('data-cable-stock-list="feeder"'):]
+    row = row[:row.index('</div>', row.index('pref-cable-stock-feeder-m'))]
+    assert '<label>Feeds</label>' in row, row
+    assert 'Feed lengths in feet' in row and 'Feed lengths in meters' in row, row
+    assert 'Feeder' not in row and ' feeder ' not in row, row
+    assert 'direct-output cables and feeds."' in html
+
+
+def test_the_feed_row_its_gear_and_old_feeder_edits(seeded):
+    """The pull row and the distro gear say "Feed"; a pull-sheet edit kept
+    on an old "Feeder" / "L21-30 feeder" row answers to the feed row; a
+    free row's "feed" is power unless a data word says otherwise, and
+    "feedback" is not a feed."""
+    pg, ids, errors = seeded
+    out = pg.evaluate("""(id) => {
+        const app = window.app;
+        const d = app.getDistros().find(x => x.id === id);
+        const row = app.pullFeederRow(d);
+        const wrap = document.createElement('div');
+        app._buildDistroFeederRow(d, wrap);
+        const titles = [...wrap.querySelectorAll('[title]')].map(e => e.title).join(' ');
+        return {
+            type: row.type,
+            cap: wrap.textContent,
+            titles,
+            keys: ["Feeder|50'", "L21-30 feeder|EA", "Feedback|EA", "Feed|50'"].map(k => app.pullEditKey(k)),
+            sides: ['Feed', 'L21-30 feed', 'SDI feed', 'Feeder'].map(t => app.pullGuessSide(t)),
+        };
+    }""", ids['distroId'])
+    assert out['type'] == 'Feed', out
+    assert 'Feed' in out['cap'] and 'Feeder' not in out['cap'], out
+    assert 'feeder' not in out['titles'].lower() and 'Where the feed comes from' in out['titles'], out
+    assert out['keys'] == ["Feed|50'", "L21-30 feed|EA", "Feedback|EA", "Feed|50'"], out
+    assert out['sides'] == ['power', 'power', 'data', 'power'], out
     assert errors == [], errors
 
 
@@ -421,7 +463,7 @@ def test_the_gear_sets_the_feeder(seeded):
     pg.wait_for_timeout(300)
     st = pg.evaluate("(id) => [window.app.getDistros().find(x => x.id === id).feeder, "
                      "window.app.history.length, window.app.history[window.app.historyIndex].action]", did)
-    assert st[0] == {'ft': 80} and st[1] == n0 + 1 and st[2] == 'Set Distro Feeder', st
+    assert st[0] == {'ft': 80} and st[1] == n0 + 1 and st[2] == 'Set Distro Feed', st
     pg.evaluate("() => window.app.undo()")
     pg.wait_for_timeout(500)
     assert pg.evaluate("(id) => window.app.getDistros().find(x => x.id === id).feeder || null", did) is None

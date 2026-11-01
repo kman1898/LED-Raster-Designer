@@ -14,7 +14,7 @@ distros of one name, and a free row's side (owner rulings, 2026-10-22).
     boxes and circuits derive from that label: boxes SR-1-1, circuits
     SR-1-1-1. A unique name is unchanged; a distro whose screens are all
     hidden is not counted, and the binder's maps never change a label.
-  * The Feeder "fed from" title uses no spaced hyphen as a dash.
+  * The Feed "fed from" title uses no spaced hyphen as a dash.
   * A free row's side: RJ45, LC, coax, BNC and a network switch are data,
     and a catalog model's short name ("UHD JR") counts.
 
