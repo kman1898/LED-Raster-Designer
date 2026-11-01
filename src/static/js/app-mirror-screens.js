@@ -51,7 +51,7 @@ import { sendClientLog } from './helpers.js';
 // its mirror. The processing settings ride with the walk because they decide
 // how many cabinets a port carries.
 export const MIRROR_DATA_FIELDS = [
-    'flowPattern', 'lastFlowPattern', 'portMappingMode',
+    'flowPattern', 'lastFlowPattern', 'portMappingMode', 'portNumberOrder',
     'customPortPaths', 'customPortIndex', 'customPortOverrides',
     'processorType', 'bitDepth', 'frameRate', 'lowLatency',
 ];
@@ -60,7 +60,8 @@ export const MIRROR_DATA_FIELDS = [
 // are dimmed and any attempt on them is refused with the mirror's error.
 const MIRROR_LOCKED_CONTROLS = [
     '#processor-type', '#bit-depth', '#frame-rate', '#mapping-organized',
-    '#mapping-max-capacity', '#low-latency', '.flow-pattern-btn',
+    '#mapping-max-capacity', '#port-number-across', '#port-number-down',
+    '#low-latency', '.flow-pattern-btn',
     '#custom-flow-toggle', '#custom-active-port-input', '#custom-prev-port',
     '#custom-next-port', '#custom-clear-port', '#custom-clear-all',
     '#custom-clear-selection',

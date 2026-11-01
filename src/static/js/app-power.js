@@ -203,7 +203,7 @@ class _Power {
         const rectNote = usesRectangle
             ? ' NovaStar Armor reserves a pixel rectangle enclosing every cabinet in the port, so a port holds fewer pixels than the raw limit.'
             : '';
-        mappingOrgBtn.title = 'Ports fill complete rows or columns only.' + rectNote;
+        mappingOrgBtn.title = 'Ports fill complete rows or columns. A row or column too long for one port is cut into ports of whole cabinets.' + rectNote;
         mappingMaxBtn.title = 'Ports fill to max pixel capacity, and may split mid-row/column.' + rectNote;
 
         // v0.11.0: the theme styles .mapping-mode-btn / .mapping-mode-btn.active

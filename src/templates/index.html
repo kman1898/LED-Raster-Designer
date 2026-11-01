@@ -793,7 +793,7 @@
                                          .mapping-mode-btn.active in theme.css); no inline background/color. -->
                                     <button type="button" id="mapping-organized" class="mapping-mode-btn active"
                                         style="flex: 1; padding: 5px 8px; font-size: 11px; border: 1px solid #555; border-radius: 4px; cursor: pointer; transition: all 0.15s;"
-                                        title="Ports fill complete rows or columns only: clean rectangular port regions">
+                                        title="Ports fill complete rows or columns: clean rectangular port regions. A row or column too long for one port is cut into ports of whole cabinets">
                                         Organized
                                     </button>
                                     <button type="button" id="mapping-max-capacity" class="mapping-mode-btn"
@@ -896,11 +896,15 @@
                             <p id="low-latency-derate-note" style="display: none; font-size: 11px; color: #ff9955; margin: 6px 0 0 0;"></p>
                         </div>
                         
-                        <div class="info-row" style="margin-top: 15px;" data-tooltip="Flow Pattern, Choose the serpentine direction data cables follow through the cabinets.">
+                        <div class="info-row" style="margin-top: 15px;" data-tooltip="Flow Pattern, Choose the path data cables follow through the cabinets. Top row: snakes, every row or column runs back the other way. Bottom row: Z patterns, every row or column starts again from the same side.">
                             <label style="font-weight: 600; margin-bottom: 12px; display: block;">Flow Pattern</label>
-                            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px;">
-                                <!-- Row 1: Top start patterns -->
-                                <!-- 1. Top-left start, horizontal-first serpentine (Z-shape) -->
+                            <div style="display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 3px;" class="flow-pattern-grid-16">
+                                <!-- Two rows of 8 (the owner, 2026-11-01): each row is the four
+                                     horizontal-first corners TL, TR, BL, BR, then the four
+                                     vertical-first ones. Top row: the snakes, where every row or
+                                     column runs back the other way. Bottom row: their Z twins
+                                     (code + "-z"), where every row or column starts again from
+                                     the same side. helpers.js FLOW_AUTO_PATTERNS is this order. -->
                                 <button type="button" class="flow-pattern-btn active" data-pattern="tl-h" title="Top-left, horizontal first">
                                     <svg width="32" height="32" viewBox="0 0 32 32">
                                         <circle cx="4" cy="4" r="3" fill="#00cc00"/>
@@ -908,17 +912,6 @@
                                         <polygon points="28,28 22,24 22,32" fill="#cc0000"/>
                                     </svg>
                                 </button>
-                                
-                                <!-- 2. Top-left start, vertical-first serpentine -->
-                                <button type="button" class="flow-pattern-btn" data-pattern="tl-v" title="Top-left, vertical first">
-                                    <svg width="32" height="32" viewBox="0 0 32 32">
-                                        <circle cx="4" cy="4" r="3" fill="#00cc00"/>
-                                        <path d="M 4 4 L 4 28 L 16 28 L 16 4 L 28 4 L 28 22" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-                                        <polygon points="28,28 24,22 32,22" fill="#cc0000"/>
-                                    </svg>
-                                </button>
-                                
-                                <!-- 3. Top-right start, horizontal-first serpentine (reversed Z) -->
                                 <button type="button" class="flow-pattern-btn" data-pattern="tr-h" title="Top-right, horizontal first">
                                     <svg width="32" height="32" viewBox="0 0 32 32">
                                         <circle cx="28" cy="4" r="3" fill="#00cc00"/>
@@ -926,18 +919,6 @@
                                         <polygon points="4,28 10,24 10,32" fill="#cc0000"/>
                                     </svg>
                                 </button>
-                                
-                                <!-- 4. Top-right start, vertical-first serpentine -->
-                                <button type="button" class="flow-pattern-btn" data-pattern="tr-v" title="Top-right, vertical first">
-                                    <svg width="32" height="32" viewBox="0 0 32 32">
-                                        <circle cx="28" cy="4" r="3" fill="#00cc00"/>
-                                        <path d="M 28 4 L 28 28 L 16 28 L 16 4 L 4 4 L 4 22" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-                                        <polygon points="4,28 0,22 8,22" fill="#cc0000"/>
-                                    </svg>
-                                </button>
-                                
-                                <!-- Row 2: Bottom start patterns -->
-                                <!-- 5. Bottom-left start, horizontal-first serpentine -->
                                 <button type="button" class="flow-pattern-btn" data-pattern="bl-h" title="Bottom-left, horizontal first">
                                     <svg width="32" height="32" viewBox="0 0 32 32">
                                         <circle cx="4" cy="28" r="3" fill="#00cc00"/>
@@ -945,17 +926,6 @@
                                         <polygon points="28,4 22,0 22,8" fill="#cc0000"/>
                                     </svg>
                                 </button>
-                                
-                                <!-- 6. Bottom-left start, vertical-first serpentine -->
-                                <button type="button" class="flow-pattern-btn" data-pattern="bl-v" title="Bottom-left, vertical first">
-                                    <svg width="32" height="32" viewBox="0 0 32 32">
-                                        <circle cx="4" cy="28" r="3" fill="#00cc00"/>
-                                        <path d="M 4 28 L 4 4 L 16 4 L 16 28 L 28 28 L 28 10" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-                                        <polygon points="28,4 24,10 32,10" fill="#cc0000"/>
-                                    </svg>
-                                </button>
-                                
-                                <!-- 7. Bottom-right start, horizontal-first serpentine -->
                                 <button type="button" class="flow-pattern-btn" data-pattern="br-h" title="Bottom-right, horizontal first">
                                     <svg width="32" height="32" viewBox="0 0 32 32">
                                         <circle cx="28" cy="28" r="3" fill="#00cc00"/>
@@ -963,12 +933,87 @@
                                         <polygon points="4,4 10,0 10,8" fill="#cc0000"/>
                                     </svg>
                                 </button>
-                                
-                                <!-- 8. Bottom-right start, vertical-first serpentine -->
+                                <button type="button" class="flow-pattern-btn" data-pattern="tl-v" title="Top-left, vertical first">
+                                    <svg width="32" height="32" viewBox="0 0 32 32">
+                                        <circle cx="4" cy="4" r="3" fill="#00cc00"/>
+                                        <path d="M 4 4 L 4 28 L 16 28 L 16 4 L 28 4 L 28 22" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <polygon points="28,28 24,22 32,22" fill="#cc0000"/>
+                                    </svg>
+                                </button>
+                                <button type="button" class="flow-pattern-btn" data-pattern="tr-v" title="Top-right, vertical first">
+                                    <svg width="32" height="32" viewBox="0 0 32 32">
+                                        <circle cx="28" cy="4" r="3" fill="#00cc00"/>
+                                        <path d="M 28 4 L 28 28 L 16 28 L 16 4 L 4 4 L 4 22" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <polygon points="4,28 0,22 8,22" fill="#cc0000"/>
+                                    </svg>
+                                </button>
+                                <button type="button" class="flow-pattern-btn" data-pattern="bl-v" title="Bottom-left, vertical first">
+                                    <svg width="32" height="32" viewBox="0 0 32 32">
+                                        <circle cx="4" cy="28" r="3" fill="#00cc00"/>
+                                        <path d="M 4 28 L 4 4 L 16 4 L 16 28 L 28 28 L 28 10" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <polygon points="28,4 24,10 32,10" fill="#cc0000"/>
+                                    </svg>
+                                </button>
                                 <button type="button" class="flow-pattern-btn" data-pattern="br-v" title="Bottom-right, vertical first">
                                     <svg width="32" height="32" viewBox="0 0 32 32">
                                         <circle cx="28" cy="28" r="3" fill="#00cc00"/>
                                         <path d="M 28 28 L 28 4 L 16 4 L 16 28 L 4 28 L 4 10" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <polygon points="4,4 0,10 8,10" fill="#cc0000"/>
+                                    </svg>
+                                </button>
+                                <button type="button" class="flow-pattern-btn" data-pattern="tl-h-z" title="Top-left, horizontal first, every row starts at the left">
+                                    <svg width="32" height="32" viewBox="0 0 32 32">
+                                        <circle cx="4" cy="4" r="3" fill="#00cc00"/>
+                                        <path d="M 4 4 L 28 4 L 4 16 L 28 16 L 4 28 L 22 28" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <polygon points="28,28 22,24 22,32" fill="#cc0000"/>
+                                    </svg>
+                                </button>
+                                <button type="button" class="flow-pattern-btn" data-pattern="tr-h-z" title="Top-right, horizontal first, every row starts at the right">
+                                    <svg width="32" height="32" viewBox="0 0 32 32">
+                                        <circle cx="28" cy="4" r="3" fill="#00cc00"/>
+                                        <path d="M 28 4 L 4 4 L 28 16 L 4 16 L 28 28 L 10 28" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <polygon points="4,28 10,24 10,32" fill="#cc0000"/>
+                                    </svg>
+                                </button>
+                                <button type="button" class="flow-pattern-btn" data-pattern="bl-h-z" title="Bottom-left, horizontal first, every row starts at the left">
+                                    <svg width="32" height="32" viewBox="0 0 32 32">
+                                        <circle cx="4" cy="28" r="3" fill="#00cc00"/>
+                                        <path d="M 4 28 L 28 28 L 4 16 L 28 16 L 4 4 L 22 4" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <polygon points="28,4 22,0 22,8" fill="#cc0000"/>
+                                    </svg>
+                                </button>
+                                <button type="button" class="flow-pattern-btn" data-pattern="br-h-z" title="Bottom-right, horizontal first, every row starts at the right">
+                                    <svg width="32" height="32" viewBox="0 0 32 32">
+                                        <circle cx="28" cy="28" r="3" fill="#00cc00"/>
+                                        <path d="M 28 28 L 4 28 L 28 16 L 4 16 L 28 4 L 10 4" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <polygon points="4,4 10,0 10,8" fill="#cc0000"/>
+                                    </svg>
+                                </button>
+                                <button type="button" class="flow-pattern-btn" data-pattern="tl-v-z" title="Top-left, vertical first, every column starts at the top">
+                                    <svg width="32" height="32" viewBox="0 0 32 32">
+                                        <circle cx="4" cy="4" r="3" fill="#00cc00"/>
+                                        <path d="M 4 4 L 4 28 L 16 4 L 16 28 L 28 4 L 28 22" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <polygon points="28,28 24,22 32,22" fill="#cc0000"/>
+                                    </svg>
+                                </button>
+                                <button type="button" class="flow-pattern-btn" data-pattern="tr-v-z" title="Top-right, vertical first, every column starts at the top">
+                                    <svg width="32" height="32" viewBox="0 0 32 32">
+                                        <circle cx="28" cy="4" r="3" fill="#00cc00"/>
+                                        <path d="M 28 4 L 28 28 L 16 4 L 16 28 L 4 4 L 4 22" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <polygon points="4,28 0,22 8,22" fill="#cc0000"/>
+                                    </svg>
+                                </button>
+                                <button type="button" class="flow-pattern-btn" data-pattern="bl-v-z" title="Bottom-left, vertical first, every column starts at the bottom">
+                                    <svg width="32" height="32" viewBox="0 0 32 32">
+                                        <circle cx="4" cy="28" r="3" fill="#00cc00"/>
+                                        <path d="M 4 28 L 4 4 L 16 28 L 16 4 L 28 28 L 28 10" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <polygon points="28,4 24,10 32,10" fill="#cc0000"/>
+                                    </svg>
+                                </button>
+                                <button type="button" class="flow-pattern-btn" data-pattern="br-v-z" title="Bottom-right, vertical first, every column starts at the bottom">
+                                    <svg width="32" height="32" viewBox="0 0 32 32">
+                                        <circle cx="28" cy="28" r="3" fill="#00cc00"/>
+                                        <path d="M 28 28 L 28 4 L 16 28 L 16 4 L 4 28 L 4 10" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
                                         <polygon points="4,4 0,10 8,10" fill="#cc0000"/>
                                     </svg>
                                 </button>

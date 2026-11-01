@@ -374,6 +374,16 @@ def panel_pixel_area(panel):
 
 # ── traversal (app-screen-info.js) ───────────────────────────────────────
 
+# The Z twins of the eight snakes (helpers.js FLOW_Z_PATTERNS): every row
+# or column starts again from the start side instead of running back.
+FLOW_Z_PATTERNS = ('tl-h-z', 'tr-h-z', 'bl-h-z', 'br-h-z',
+                   'tl-v-z', 'tr-v-z', 'bl-v-z', 'br-v-z')
+
+
+def is_z_flow_pattern(pattern):
+    return str(pattern or '') in FLOW_Z_PATTERNS
+
+
 def get_ordered_panels_by_pattern(layer, pattern='tl-h', include_hidden=False):
     """The cabinets of a layer in its flow order.
 
@@ -415,6 +425,7 @@ def get_ordered_panels_by_pattern(layer, pattern='tl-h', include_hidden=False):
         col_dir = -1
 
     ordered = []
+    bounce = 0 if is_z_flow_pattern(pattern) else 1
 
     def take(r, c):
         panel = panel_map.get((r, c))
@@ -424,7 +435,7 @@ def get_ordered_panels_by_pattern(layer, pattern='tl-h', include_hidden=False):
     if direction == 'v':
         c = start_col
         while 0 <= c < cols:
-            reverse = abs(c - start_col) % 2 == 1
+            reverse = (abs(c - start_col) * bounce) % 2 == 1
             if reverse:
                 r = start_row + (rows - 1) * row_dir
                 while 0 <= r < rows:
@@ -439,7 +450,7 @@ def get_ordered_panels_by_pattern(layer, pattern='tl-h', include_hidden=False):
     else:
         r = start_row
         while 0 <= r < rows:
-            reverse = abs(r - start_row) % 2 == 1
+            reverse = (abs(r - start_row) * bounce) % 2 == 1
             if reverse:
                 c = start_col + (cols - 1) * col_dir
                 while 0 <= c < cols:
@@ -472,7 +483,10 @@ def get_organized_panels_for_units(layer, pattern, is_horizontal_first,
     cols = _int(layer.get('columns'))
     rows = _int(layer.get('rows'))
     ordered = []
-    for unit_pos, unit_idx in enumerate(ordered_unit_indices):
+    # A Z pattern runs every line of the port from the start side.
+    bounce = 0 if is_z_flow_pattern(pattern) else 1
+    for at, unit_idx in enumerate(ordered_unit_indices):
+        unit_pos = at * bounce
         if is_horizontal_first:
             left_to_right = (unit_pos % 2 == 0) if starts_left else (unit_pos % 2 != 0)
             col_range = range(cols) if left_to_right else range(cols - 1, -1, -1)
@@ -528,10 +542,14 @@ def _empty_rect():
 def port_numbers_stack(layer, is_horizontal_first):
     """True when Organized's runs cut from long lines are numbered stack by
     stack: Down on a horizontal-first pattern, Across on a vertical one.
-    A missing portNumberOrder is Across, the numbering before the switch."""
+    A screen never switched (no portNumberOrder) numbers along its lines,
+    the numbering before the switch: Across when horizontal first, Down
+    when vertical first."""
     if (layer.get('portMappingMode') or 'organized') != 'organized':
         return False
-    order = 'down' if layer.get('portNumberOrder') == 'down' else 'across'
+    order = layer.get('portNumberOrder')
+    if order not in ('across', 'down'):
+        order = 'across' if is_horizontal_first else 'down'
     return order == 'down' if is_horizontal_first else order == 'across'
 
 

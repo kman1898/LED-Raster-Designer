@@ -5,7 +5,7 @@
 // rows a figure is published for. Moved verbatim out of app-export-io.js and
 // attached to the prototype via the carrier class.
 import { LEDRasterApp } from './app-core.js';
-import { sendClientLog } from './helpers.js';
+import { sendClientLog, isVerticalFlowPattern } from './helpers.js';
 
 class _PortRouting {
     // Does this cabinet carry NO data? Hidden, or the legacy `blank` flag -
@@ -496,10 +496,14 @@ class _PortRouting {
             // v1.5.4: cut ONE line that no port can carry whole into ports
             // along its length. The line is read from the pattern's start
             // side (tl-h left to right, tr-h right to left, tl-v top down),
-            // the way every Organized port starts and the way the custom
-            // Apply Pattern fill cuts a long line (_chunkPicksByCapacity):
-            // each of these ports is a new cable, and the owner's ruling is
-            // that a new cable comes from the side the pattern starts on.
+            // the way every Organized port starts (getOrganizedPanelsForUnits
+            // runs a port's first line from the start side, snake or Z) and
+            // the way the custom Apply Pattern fill cuts a long line
+            // (_chunkPicksByCapacity): each of these ports is a new cable,
+            // and a new cable comes from the side the pattern starts on (the
+            // owner, 2026-09-04: "the cables typically come from the same
+            // side"). The cuts therefore line up down the wall, which is what
+            // lets the Port numbers switch number them as stacks.
             // Every capacity rule is the walk's own: the Armor / 1G reserved
             // rectangle of the visible cabinets, the 5G narrow-port penalty
             // read for that rectangle, a half tile at its own size, and
@@ -812,15 +816,35 @@ class _PortRouting {
     //           first, and when the stack ends the next one starts back at
     //           the first row.
     // For a vertical-first pattern the lines are columns and the same two
-    // words keep their meaning on the wall: Across numbers along the top
-    // band of runs first, Down numbers down each column first. Either way
-    // the pattern's start corner decides where the first line and the first
-    // run are, so a bottom-start pattern stacks up from the bottom and a
-    // right-start one steps its stacks right to left. Missing means Across,
-    // which is the numbering every show had before the switch existed.
+    // words keep their meaning on the wall: Down numbers down each column
+    // first, Across numbers along the top band of runs first and then goes
+    // back to the start side for the next band (the owner: "Yes, both
+    // ways"). Either way the pattern's start corner decides where the first
+    // line and the first run are, so a bottom-start pattern stacks up from
+    // the bottom and a right-start one steps its stacks right to left.
+    //
+    // A screen that has never been switched (no portNumberOrder, every show
+    // from before the switch) numbers along its lines, the way the walk
+    // always has: that reads Across on a horizontal-first pattern and Down
+    // on a vertical-first one. `isHorizontalFirst` says which; left out, the
+    // screen's own pattern decides (a custom screen reads as horizontal).
     // Nothing moves with Max Capacity, Low Latency or a wall whose lines fit.
-    portNumberOrderOf(layer) {
-        return (layer && layer.portNumberOrder === 'down') ? 'down' : 'across';
+    portNumberOrderOf(layer, isHorizontalFirst = null) {
+        const saved = layer && layer.portNumberOrder;
+        if (saved === 'down' || saved === 'across') return saved;
+        const horizontal = isHorizontalFirst === null
+            ? !isVerticalFlowPattern(this._portNumberPattern(layer))
+            : !!isHorizontalFirst;
+        return horizontal ? 'across' : 'down';
+    }
+
+    // The automatic pattern the Port numbers switch is read against: the
+    // screen's own, or on a custom screen the one it remembers.
+    _portNumberPattern(layer) {
+        const own = (layer && layer.flowPattern) || 'tl-h';
+        if (own !== 'custom') return own;
+        const last = layer && layer.lastFlowPattern;
+        return (last && last !== 'custom') ? last : 'tl-h';
     }
 
     // True when the runs cut from long lines are to be renumbered stack by
@@ -828,7 +852,7 @@ class _PortRouting {
     // them: Down on a horizontal-first pattern, Across on a vertical one.
     portNumbersStack(layer, isHorizontalFirst) {
         if (!layer || ((layer.portMappingMode || 'organized') !== 'organized')) return false;
-        const order = this.portNumberOrderOf(layer);
+        const order = this.portNumberOrderOf(layer, isHorizontalFirst);
         return isHorizontalFirst ? order === 'down' : order === 'across';
     }
 

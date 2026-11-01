@@ -325,7 +325,7 @@ def _readouts(page, opts, count, per):
                 const shown = h.readout(app);
                 // The same wall on each automatic pattern, for the minimum.
                 const perPattern = {};
-                ['tl-h', 'tl-v', 'tr-h', 'tr-v', 'bl-h', 'bl-v', 'br-h', 'br-v'].forEach(p => {
+                ['tl-h', 'tr-h', 'bl-h', 'br-h', 'tl-v', 'tr-v', 'bl-v', 'br-v'].flatMap(p => [p, p + '-z']).forEach(p => {
                     const a = h.screen(Object.assign({}, opts,
                         { portMappingMode: mode, flowPattern: p }));
                     app.calculatePortAssignments(a);
@@ -357,7 +357,55 @@ def test_owner_wall_with_twenty_ports_drawn_reads_the_minimum(page):
         assert r['drawn'] == 20 and r['portsRequiredField'] == 20, (mode, r)
         assert r['stillCustom'] == 'custom'
     assert got['organized']['minimum'] == 60
-    assert got['max-capacity']['minimum'] <= got['organized']['minimum']
+    assert got['max-capacity']['minimum'] == 58
+
+
+def test_the_owner_shape_per_pattern_figures(page):
+    """What every automatic walk gives on the 90 x 5 Armor wall of full
+    192 x 384 cabinets, recorded as found. 8 cabinets a port (9 would
+    reserve 663,552 px), so 450 / 8 rounds up to 57 at best. Organized cuts
+    each row 8 x 11 + 2; vertical-first is a whole column of 5 a port.
+    Max Capacity on a snake lets a row's last 2 carry on round the turn,
+    which the Z cannot, so the snake packs tighter."""
+    got = page.evaluate("""() => {
+        const h = window.__cpm, out = {};
+        ['organized', 'max-capacity'].forEach(mode => {
+            ['tl-h', 'tl-h-z', 'tl-v', 'tl-v-z'].forEach(p => {
+                const s = h.screen({ flowPattern: p, portMappingMode: mode });
+                h.withProject([s], app => app.calculatePortAssignments(s));
+                out[mode + ' ' + p] = s._capacityError ? 'ERROR' : s._autoPortsRequired;
+            });
+        });
+        return out;
+    }""")
+    assert got == {
+        'organized tl-h': 60, 'organized tl-h-z': 60,
+        'organized tl-v': 90, 'organized tl-v-z': 90,
+        'max-capacity tl-h': 58, 'max-capacity tl-h-z': 60,
+        'max-capacity tl-v': 90, 'max-capacity tl-v-z': 90,
+    }, got
+
+
+def test_a_half_height_last_row_cuts_at_its_own_size(page):
+    """The same wall with its last row half tiles (192 x 192), the shape of
+    the owner's show: 17 half tiles fit a port, so that row is 17 x 5 + 5,
+    6 ports, and the wall is 4 x 12 + 6 = 54 in Organized. Max Capacity
+    reads 52 on the snake."""
+    got = page.evaluate("""() => {
+        const h = window.__cpm, out = {};
+        ['organized', 'max-capacity'].forEach(mode => {
+            const s = h.screen({ portMappingMode: mode });
+            s.panels.filter(p => p.row === 4).forEach(p => { p.height = 192; p.halfTile = 'height'; });
+            out[mode] = h.withProject([s], app => {
+                const m = h.portMap(app, s);
+                return { auto: m.auto, err: m.error,
+                         last: m.ports.filter(p => p.cells[0][0] === 4).map(p => p.cells.length) };
+            });
+        });
+        return out;
+    }""")
+    assert got['organized'] == {'auto': 54, 'err': None, 'last': [17, 17, 17, 17, 17, 5]}
+    assert got['max-capacity']['auto'] == 52 and got['max-capacity']['err'] is None
 
 
 def test_a_fully_drawn_custom_wall_reads_the_minimum_too(page):
@@ -402,7 +450,7 @@ def test_an_automatic_screen_reads_its_own_walk(page):
 
 
 def test_the_minimum_leaves_the_screens_own_walk_alone(page):
-    """Working the minimum out walks the screen eight times; afterwards its
+    """Working the minimum out walks the screen sixteen times (eight snakes, eight Z); afterwards its
     own bookkeeping is what its own walk wrote, and its pattern is still
     custom."""
     got = page.evaluate("""() => {
@@ -518,6 +566,31 @@ def test_vertical_first_across_numbers_along_the_top_band(page):
     br = _cells(_port_map(page, dict(tall, flowPattern='br-v', portNumberOrder='across'))['ports'])
     assert br[0] == col(4, range(89, 81, -1))
     assert br[1] == col(3, range(89, 81, -1))
+
+
+def test_a_vertical_screen_never_switched_numbers_down_its_columns(page):
+    """No portNumberOrder on a vertical-first screen is the walk's own
+    order, down each column, and the switch reads Down: an older show keeps
+    the numbers it had, and the label says what the map does."""
+    tall = {'columns': 5, 'rows': 90, 'cabinet_width': 384, 'cabinet_height': 192,
+            'flowPattern': 'tl-v'}
+    missing = _cells(_port_map(page, tall)['ports'])
+    down = _cells(_port_map(page, dict(tall, portNumberOrder='down'))['ports'])
+    assert missing == down
+    got = page.evaluate("""(tall) => {
+        const h = window.__cpm;
+        const s = h.screen(tall);
+        return h.withProject([s], app => {
+            app.updatePortCapacityDisplay();
+            return {
+                order: app.portNumberOrderOf(s),
+                shown: document.getElementById('port-number-order-row').style.display !== 'none',
+                down: document.getElementById('port-number-down').classList.contains('active'),
+                field: s.portNumberOrder === undefined,
+            };
+        });
+    }""", tall)
+    assert got == {'order': 'down', 'shown': True, 'down': True, 'field': True}
 
 
 def test_the_switch_does_nothing_where_nothing_splits(page):

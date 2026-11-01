@@ -61,12 +61,21 @@ Object.assign(CanvasRenderer.prototype, {
         this.ctx.fillRect(bounds.x, bounds.y, layerWidth, layerHeight);
         
         // Measure text to size box appropriately
+        // A data walk only stops now when ONE panel is bigger than a port:
+        // Organized cuts a row or column too long for one port into ports of
+        // whole cabinets, and Max Capacity always could. Any other unit type
+        // keeps its old wording.
+        const onePanel = err.unitType === 'panel';
         this.ctx.font = `bold 48px ${projectFontFamily()}`;
-        const titleText = `CANNOT FIT COMPLETE ${err.unitType.toUpperCase()}`;
+        const titleText = onePanel
+            ? 'ONE PANEL IS BIGGER THAN A PORT'
+            : `CANNOT FIT COMPLETE ${String(err.unitType || '').toUpperCase()}`;
         const titleWidth = this.ctx.measureText(titleText).width;
-        
+
         this.ctx.font = `28px ${projectFontFamily()}`;
-        const detailText = `Need ${err.unitCount} panels, port only fits ${err.panelsPerPort}`;
+        const detailText = onePanel
+            ? 'Lower the bit depth or frame rate, or pick a processor with bigger ports'
+            : `Need ${err.unitCount} panels, port only fits ${err.panelsPerPort}`;
         const detailWidth = this.ctx.measureText(detailText).width;
         
         this.ctx.font = `24px ${projectFontFamily()}`;

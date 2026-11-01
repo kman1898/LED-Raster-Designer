@@ -1,12 +1,13 @@
 // app-screen-info: feature methods for LEDRasterApp (verbatim from the old
 // monolithic app.js), attached to the prototype via the carrier class.
 import { LEDRasterApp } from './app-core.js';
-import { evaluateMathExpression, sendClientLog, refreshAllColorSwatches } from './helpers.js';
+import { evaluateMathExpression, sendClientLog, refreshAllColorSwatches,
+    FLOW_AUTO_PATTERNS, isZFlowPattern } from './helpers.js';
 
-// The automatic flow patterns a screen can be walked in (the eight tiles
-// under Data Flow), in the order the tiles sit. getAutoPortsMinimum tries
-// each one.
-const AUTO_FLOW_PATTERNS = ['tl-h', 'tl-v', 'tr-h', 'tr-v', 'bl-h', 'bl-v', 'br-h', 'br-v'];
+// The automatic flow patterns a screen can be walked in (the sixteen tiles
+// under Data Flow: eight snakes and their eight Z twins), in the order the
+// tiles sit. getAutoPortsMinimum tries each one.
+const AUTO_FLOW_PATTERNS = FLOW_AUTO_PATTERNS;
 
 class _ScreenInfo {
     // A cabinet's share of the screen's per-cabinet WATTS: 1 for a full
@@ -832,10 +833,15 @@ class _ScreenInfo {
     // position lattice: same serpentine, ranked slots instead of panel indices.
     // Null - every ungrouped screen - reads the panels' own row/col and this is
     // expression for expression what it always was.
+    //
+    // A Z pattern (tl-h-z ...) never turns back: every row (or column) of the
+    // port runs from the pattern's start side, so `bounce` is 0 for it and
+    // the parity tests below read the first line's direction every time.
     getOrganizedPanelsForUnits(layer, pattern, isHorizontalFirst, orderedUnitIndices, includeHidden = false, plan = null) {
         if (!layer || !Array.isArray(layer.panels) || !Array.isArray(orderedUnitIndices)) return [];
         const startsTop = pattern.startsWith('t');
         const startsLeft = pattern.includes('l-');
+        const bounce = isZFlowPattern(pattern) ? 0 : 1;
         const source = plan ? plan.ordered.map(c => c.panel) : layer.panels;
         const rowOfPanel = plan ? (p => plan.rowOf.get(p)) : (p => p.row);
         const colOfPanel = plan ? (p => plan.colOf.get(p)) : (p => p.col);
@@ -847,7 +853,8 @@ class _ScreenInfo {
         });
 
         const ordered = [];
-        orderedUnitIndices.forEach((unitIdx, unitPos) => {
+        orderedUnitIndices.forEach((unitIdx, at) => {
+            const unitPos = at * bounce;
             if (isHorizontalFirst) {
                 const leftToRight = startsLeft ? (unitPos % 2 === 0) : (unitPos % 2 !== 0);
                 if (leftToRight) {
@@ -923,11 +930,13 @@ class _ScreenInfo {
         }
 
         const isVerticalFirst = direction === 'v';
+        // A Z pattern starts every line from the start side (no reverse).
+        const bounce = isZFlowPattern(pattern) ? 0 : 1;
         const ordered = [];
 
         if (isVerticalFirst) {
             for (let c = startCol; c >= 0 && c < cols; c += colDir) {
-                const colOffset = Math.abs(c - startCol);
+                const colOffset = Math.abs(c - startCol) * bounce;
                 const reverse = colOffset % 2 === 1;
                 if (reverse) {
                     for (let r = startRow + (rows - 1) * rowDir; r >= 0 && r < rows; r -= rowDir) {
@@ -943,7 +952,7 @@ class _ScreenInfo {
             }
         } else {
             for (let r = startRow; r >= 0 && r < rows; r += rowDir) {
-                const rowOffset = Math.abs(r - startRow);
+                const rowOffset = Math.abs(r - startRow) * bounce;
                 const reverse = rowOffset % 2 === 1;
                 if (reverse) {
                     for (let c = startCol + (cols - 1) * colDir; c >= 0 && c < cols; c -= colDir) {
