@@ -249,9 +249,12 @@ class _PortAssignment {
             const target = ((this.project && this.project.layers) || [])
                 .find(l => String(l.id) === String(body.layerId));
             if (target && this._lockedRefused(target)) return Promise.resolve();
-            // A mirror's ports follow its source's and are never placed or
-            // released on their own (the server refuses it too).
-            if (target && typeof this._mirrorRefused === 'function'
+            // A mirror's ports follow its source's and are never placed on
+            // their own (the server refuses it too). A RELEASE on a mirror
+            // is "unplug the copy" (owner, 2026-11-01): the server lets the
+            // mirror go and names it in `mirrorsCleared`.
+            if (target && !/\/unpin$/.test(url)
+                    && typeof this._mirrorRefused === 'function'
                     && this._mirrorRefused(target)) return Promise.resolve();
         }
         const payload = Object.assign({ screens: this._assignmentScreens() },
@@ -296,6 +299,14 @@ class _PortAssignment {
                 // colouring the two alike trains people past both.
                 this._assignmentError = null;
                 this._assignmentNote = (data.moved && data.moved.note) || null;
+                // The mirror screens this edit unplugged - the copy itself
+                // released, or its source taken off the card in Copy mode
+                // that fed it (app-mirror-screens.js): their setting goes
+                // from this copy of the layers too, before the snapshot.
+                if (Array.isArray(data.mirrorsCleared)
+                        && typeof this._dropClearedMirrors === 'function') {
+                    this._dropClearedMirrors(data.mirrorsCleared);
+                }
                 if (data.resolution) this._assignment = data.resolution;
                 // Undo audit: the server holds the read-must-not-create-the-
                 // key line (_working/_store in routes_port_assignment.py),

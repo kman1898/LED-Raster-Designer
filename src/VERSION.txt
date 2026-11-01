@@ -110,17 +110,22 @@ MIRROR SCREENS AND COPY MODE
 
 An H_4xfiber card now has NovaStar's three modes: Independent, Copy and
 Backup. In Copy, OPT 3 copies OPT 1 and OPT 4 copies OPT 2, and those
-copies feed a second screen. Select that screen and, in Screen Info's Data
-settings, pick the screen it copies under Mirror a screen. Its port map
-follows the first screen cabinet for cabinet and can't be drawn on its
-own, and its runs come off the boxes on the copy OPTs. Both screens must
-be the same size and use the same panel, or the app tells you what's
-different. The enhanced H_4xfiber does the same with OPT 5 to 8, and on
-an MX40 Pro in 20-port mode a box going on OPT 3 or 4 asks whether it's a
-Mirror or a Backup. The tray, the pull sheet and the binder list the
-mirror's runs on its own boxes, and a second card backing up the first
-1:1 backs up the mirror too. A card saved in the old Copy / Backup mode
-opens as Backup, the way it ran.
+copies feed a second screen. Drag the card onto the first screen as
+usual, then drag the same card onto the second screen, and the second
+screen becomes its copy. Its port map follows the first screen cabinet
+for cabinet and can't be drawn on its own, and its runs come off the
+boxes on the copy OPTs. Both screens must have the same columns and rows,
+the same pixels per cabinet and their blank, hidden and half cabinets in
+the same places, or the app tells you what's different. The panels can
+be different models as long as their pixels match. Unplug the card from
+the first screen and the copy unplugs too; unplug it from the copy alone
+and only the copy goes. The enhanced H_4xfiber does the same with OPT 5
+to 8, and on an MX40 Pro in 20-port mode a box going on OPT 3 or 4 asks
+whether it's a Mirror or a Backup. With a Mirror box there, drag the
+processor onto a second screen the same way. The tray, the pull sheet and
+the binder list the mirror's runs on its own boxes, and a second card
+backing up the first 1:1 backs up the mirror too. A card saved in the old
+Copy / Backup mode opens as Backup, the way it ran.
 
 OPENING AN OLDER SHOW
 

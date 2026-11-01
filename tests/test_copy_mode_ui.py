@@ -1,12 +1,18 @@
 """Mirror screens, copy boxes and the per-port card-or-box choice in the
-browser (owner's rulings, 2026-10-30).
+browser (owner's rulings, 2026-10-30 and 2026-11-01).
 
-"You pick the screen to copy; the copy screen's port map follows the first
-automatically and can't be drawn separately. A mismatch in size or panel is
-refused." - Screen Info's "Mirror a screen" row sets it; the mirror's data
-controls refuse out loud; its runs land on the copy box (H_4xfiber Copy mode:
-"OPT 3 copies the output on OPT 1", H15 Video Wall Splicer Specifications
-V1.15.0 p.36) and print on the pull sheet and in the tray like any run.
+"The copy screen's port map follows the first automatically and can't be
+drawn separately." Since 2026-11-01 a mirror is made by DRAGGING, not by a
+Screen Info pick: "Mirroring is driven by the card's existing Copy setting
+plus dragging." A card in Copy mode dropped on a first screen feeds it; the
+same card dropped on a second, matching screen makes it the first one's copy
+(app-mirror-screens.js _copyDropPlan). A mismatch is refused with the reason;
+the mirror's data controls refuse out loud; its runs land on the copy box
+(H_4xfiber Copy mode: "OPT 3 copies the output on OPT 1", H15 Video Wall
+Splicer Specifications V1.15.0 p.36) and print on the pull sheet and in the
+tray like any run. Unplugging the source unplugs the copy; unplugging the
+copy alone just removes the copy. A card in Independent mode drops as it
+always did.
 
 An MX40 Pro box going on OPT 3 in 20-port mode asks Mirror or Backup (User
 Manual V1.5.0 p.9: "OPT 3 is the copy channel of OPT 1"; owner: "Either, you
@@ -40,10 +46,11 @@ SEED_JS = """async () => {
         headers: {'Content-Type': 'application/json'},
         body: body === undefined ? undefined : JSON.stringify(body)})
         .then(r => r.json());
-    const add = (name, columns) => j('POST', '/api/layer/add', {name,
+    const add = (name, columns, x, y) => j('POST', '/api/layer/add', {name,
         columns, rows: 3, cabinet_width: 256, cabinet_height: 256,
-        offset_x: name === 'SL' ? 0 : (name === 'SR' ? 1100 : 2200)});
-    await add('SL', 4); await add('SR', 4); await add('WIDE', 5);
+        offset_x: x, offset_y: y || 0});
+    await add('SL', 4, 0); await add('SR', 4, 1100); await add('WIDE', 5, 2200);
+    await add('IA', 2, 0, 900); await add('IB', 2, 600, 900);
     let st = await j('POST', '/api/processors', {deviceId: 'novastar-h9'});
     const pid = st.processors[0].id;
     st = await j('PUT', `/api/processors/${pid}/slots/0`,
@@ -54,43 +61,57 @@ SEED_JS = """async () => {
         await j('POST', `/api/processors/${pid}/cards/${cid}/cvts`,
                 {deviceId: 'novastar-cvt10', pair: false});
     }
+    // a second H_4xfiber left in Independent: its second drag never mirrors
+    st = await j('PUT', `/api/processors/${pid}/slots/1`,
+                 {deviceId: 'novastar-card-h-4xfiber'});
+    const ind = st.processors[0].slots[1].card.id;
+    for (let i = 0; i < 2; i++) {
+        await j('POST', `/api/processors/${pid}/cards/${ind}/cvts`,
+                {deviceId: 'novastar-cvt10', pair: false});
+    }
     const app = window.app;
     app.project = await (await fetch('/api/project')).json();
     await app.refreshProcessors();
     app.renderLayers();
     const byName = (n) => app.project.layers.find(l => l.name === n);
-    const sl = byName('SL'), sr = byName('SR'), wide = byName('WIDE');
     await app.refreshPortAssignment();
-    for (let i = 0; i < 2; i++) {
-        await app._assignmentRequest('/api/port-assignments/place', 'POST',
-            {layerId: String(sl.id), index: i, cardId: cid, port: i + 1},
-            null, 'Place Port');
-    }
     app.resetHistory('Mirror Seed');
-    return {pid, cid, sl: sl.id, sr: sr.id, wide: wide.id};
+    return {pid, cid, ind, sl: byName('SL').id, sr: byName('SR').id,
+            wide: byName('WIDE').id, ia: byName('IA').id, ib: byName('IB').id};
 }"""
 
-SHOW_JS = """async (id) => {
+# The tray's whole-card drop on a screen, through the same two calls the
+# drag makes: the preview (_dockDataScreenTarget, what lights and what the
+# pill says) and the release (_dockPerformDrop) - preview == result.
+DROP_JS = """async ([cardId, layerId, type]) => {
+    const app = window.app;
+    const payload = type === 'processor'
+        ? {type: 'processor', processorId: cardId}
+        : {type: 'card', cardId, title: 'the card'};
+    const target = app._dockDataScreenTarget({payload}, layerId, null);
+    const status = document.getElementById('status-message');
+    if (status) status.textContent = '';
+    await app._dockPerformDrop(payload, target);
+    await new Promise(r => setTimeout(r, 300));
+    await app.refreshPortAssignment();
+    const layer = app.project.layers.find(l => l.id === layerId);
+    const scr = app._assignment.screens
+        .find(s => s.layerId === String(layerId));
+    return {pill: target.pill || null, lit: (target.nums || []).length,
+            said: status ? status.textContent : '',
+            mirrorOf: layer.dataMirrorOf === undefined ? null
+                : layer.dataMirrorOf,
+            required: scr ? scr.required : 0,
+            ports: scr ? scr.ports.map(p => [p.cardId, p.port, p.source])
+                : null};
+}"""
+
+SELECT_JS = """async (id) => {
     const app = window.app;
     const layer = app.project.layers.find(l => l.id === id);
     app.selectLayer(layer);
     app.updatePortCapacityDisplay();
     await new Promise(r => setTimeout(r, 50));
-    const sel = document.getElementById('mirror-screen');
-    const note = document.getElementById('mirror-screen-note');
-    return {options: [...sel.options].map(o => o.textContent),
-            value: sel.value, disabled: sel.disabled,
-            note: note.style.display === 'none' ? '' : note.textContent,
-            rowShown: document.getElementById('mirror-screen-row')
-                .style.display !== 'none'};
-}"""
-
-PICK_JS = """async (value) => {
-    const sel = document.getElementById('mirror-screen');
-    sel.value = String(value);
-    sel.dispatchEvent(new Event('change', {bubbles: true}));
-    await new Promise(r => setTimeout(r, 700));
-    await window.app.refreshPortAssignment();
     return true;
 }"""
 
@@ -128,53 +149,77 @@ def page(e2e_server, pw_browser):
     context.close()
 
 
-def test_the_mirror_row_sets_the_mirror_and_its_runs_land_on_the_copy_box(page):
+def drop(pg, card_id, layer_id, kind='card'):
+    return pg.evaluate(DROP_JS, [card_id, layer_id, kind])
+
+
+def test_screen_info_has_no_mirror_pick(page):
     pg, ids, errors = page
-    shown = pg.evaluate(SHOW_JS, ids['sr'])
-    assert shown['rowShown'] and shown['value'] == ''
-    assert shown['options'] == ['None', 'SL', 'WIDE']
-    pg.evaluate(PICK_JS, ids['sl'])
-    shown = pg.evaluate(SHOW_JS, ids['sr'])
-    assert shown['value'] == str(ids['sl'])
-    assert shown['note'].startswith('Port map follows SL.'), shown
-    out = pg.evaluate("""(ids) => {
-        const app = window.app;
-        const sr = app.project.layers.find(l => l.id === ids.sr);
-        const sl = app.project.layers.find(l => l.id === ids.sl);
-        const scr = app._assignment.screens
-            .find(s => s.layerId === String(ids.sr));
-        return {mirrorOf: sr.dataMirrorOf, flow: [sr.flowPattern, sl.flowPattern],
-                ports: scr ? scr.ports.map(p => [p.port, p.source]) : null,
-                occ: app._portOccupants(ids.cid, 17).map(o => o.name),
-                slNote: null};
-    }""", ids)
-    assert out['mirrorOf'] == ids['sl']
-    assert out['flow'][0] == out['flow'][1]
-    assert out['ports'][:2] == [[17, 'mirror'], [18, 'mirror']], out
-    assert out['occ'] == ['SR']
-    # the source names its mirror
-    assert pg.evaluate(SHOW_JS, ids['sl'])['note'] == 'Mirrored by SR.'
+    pg.evaluate(SELECT_JS, ids['sr'])
+    assert pg.locator('#mirror-screen-row').count() == 0
+    assert pg.locator('#mirror-screen').count() == 0
+    assert pg.locator('#mirror-screen-note').count() == 0
     assert errors == []
 
 
-def test_a_mismatched_screen_is_refused_and_the_pick_snaps_back(page):
+def test_the_first_drop_feeds_the_first_screen(page):
+    pg, ids, errors = page
+    out = drop(pg, ids['cid'], ids['sl'])
+    assert out['mirrorOf'] is None
+    assert out['pill']['ok'] and 'Copy of' not in out['pill']['text']
+    assert [p[1] for p in out['ports']] == list(range(1, out['required'] + 1))
+    assert {p[2] for p in out['ports']} == {'pin'}
+    assert errors == []
+
+
+def test_a_mismatched_second_screen_is_refused_with_the_reason(page):
     pg, ids, errors = page
     pg.evaluate(TOASTS_JS)
-    pg.evaluate(SHOW_JS, ids['wide'])
-    pg.evaluate(PICK_JS, ids['sl'])
+    out = drop(pg, ids['cid'], ids['wide'])
+    assert out['pill'] == {'ok': True, 'text': 'Copy of SL'}
     toasts = pg.evaluate(TOASTS_JS)
-    assert any(t['err'] and t['msg'].startswith(
-        'WIDE is 5 x 3 cabinets and SL is 4 x 3') for t in toasts), toasts
-    shown = pg.evaluate(SHOW_JS, ids['wide'])
-    assert shown['value'] == ''
-    assert pg.evaluate("""(id) => window.app.project.layers
-        .find(l => l.id === id).dataMirrorOf""", ids['wide']) is None
+    assert any(t['err'] and t['msg'] == (
+        'WIDE is 5 x 3 cabinets and SL is 4 x 3 - a mirror screen must '
+        'match the screen it copies.') for t in toasts), toasts
+    assert out['mirrorOf'] is None
+    # refused means nothing changed: WIDE took no ports of its own either
+    assert all(p[0] is None for p in out['ports']), out['ports']
+    assert errors == []
+
+
+def test_the_second_drop_makes_the_copy_on_the_copy_outputs(page):
+    pg, ids, errors = page
+    out = drop(pg, ids['cid'], ids['sr'])
+    # the preview says whose copy it is and lights the whole screen
+    assert out['pill'] == {'ok': True, 'text': 'Copy of SL'}
+    assert out['lit'] == out['required']
+    assert out['mirrorOf'] == ids['sl']
+    # H_4xfiber Copy: OPT 3 (sockets 17-24) copies OPT 1 (1-8)
+    assert out['ports'][:2] == [[ids['cid'], 17, 'mirror'],
+                                [ids['cid'], 18, 'mirror']], out
+    assert all(p[2] == 'mirror' for p in out['ports'])
+    more = pg.evaluate("""(ids) => {
+        const app = window.app;
+        const sr = app.project.layers.find(l => l.id === ids.sr);
+        const sl = app.project.layers.find(l => l.id === ids.sl);
+        const pins = app.project.port_assignments.pins
+            .filter(p => p.layerId === String(ids.sr));
+        return {flow: [sr.flowPattern, sl.flowPattern], pins: pins.length,
+                occ: app._portOccupants(ids.cid, 17).map(o => o.name)};
+    }""", ids)
+    assert more['flow'][0] == more['flow'][1]
+    assert more['pins'] == 0, 'the copy draws no path of its own'
+    assert more['occ'] == ['SR']
+    # dropping it there again changes nothing and says so
+    again = drop(pg, ids['cid'], ids['sr'])
+    assert again['said'] == 'SR already mirrors SL.'
+    assert again['mirrorOf'] == ids['sl']
     assert errors == []
 
 
 def test_the_mirrors_data_map_is_read_only_and_says_why(page):
     pg, ids, errors = page
-    pg.evaluate(SHOW_JS, ids['sr'])
+    pg.evaluate(SELECT_JS, ids['sr'])
     pg.evaluate(TOASTS_JS)
     before = pg.evaluate("""(id) => window.app.project.layers
         .find(l => l.id === id).flowPattern""", ids['sr'])
@@ -183,9 +228,10 @@ def test_the_mirrors_data_map_is_read_only_and_says_why(page):
     btn.click(force=True)
     pg.wait_for_timeout(200)
     toasts = pg.evaluate(TOASTS_JS)
-    assert any(t['err'] and t['msg'].startswith(
-        "SR mirrors SL - its data port map follows SL's") for t in toasts), \
-        toasts
+    assert any(t['err'] and t['msg'] == (
+        "SR mirrors SL - its data port map follows SL's and cannot be "
+        "changed on its own. Change it on SL, or unplug the card from SR "
+        "to stop mirroring.") for t in toasts), toasts
     after = pg.evaluate("""(id) => window.app.project.layers
         .find(l => l.id === id).flowPattern""", ids['sr'])
     assert after == before
@@ -196,7 +242,8 @@ def test_the_mirrors_data_map_is_read_only_and_says_why(page):
         {layerId: String(ids.sr), index: 0, cardId: ids.cid, port: 5},
         null, 'Place Port')""", ids)
     toasts = pg.evaluate(TOASTS_JS)
-    assert any(t['err'] and 'SR mirrors SL' in t['msg'] for t in toasts)
+    assert any(t['err'] and 'SR mirrors SL' in t['msg']
+               and 'unplug the card from SR' in t['msg'] for t in toasts)
     assert errors == []
 
 
@@ -324,4 +371,115 @@ def test_an_mx40_pro_port_plugs_in_at_the_unit_or_the_box(page):
     assert out['plug'] == 'card' and out['box'] is None
     assert out['owner'] == 'card'
     assert 'OPT 1: ports 1-10 (1 at the RJ45)' in out['rows'], out
+    assert errors == []
+
+
+STATE_JS = """(ids) => {
+    const app = window.app;
+    const sr = app.project.layers.find(l => l.id === ids.sr);
+    const scr = (s) => app._assignment.screens
+        .find(x => x.layerId === String(s));
+    return {mirrorOf: sr.dataMirrorOf === undefined ? null : sr.dataMirrorOf,
+            sr: scr(ids.sr).ports.map(p => [p.port, p.source]),
+            sl: scr(ids.sl).ports.map(p => p.port)};
+}"""
+
+
+def test_unplugging_only_the_copy_just_removes_the_copy(page):
+    pg, ids, errors = page
+    # the copy's own run, cleared from its menu: a release of SR's port
+    pg.evaluate("""(ids) => window.app._assignmentRequest(
+        '/api/port-assignments/unpin', 'POST',
+        {layerId: String(ids.sr), index: 0}, null, 'Release Port')""", ids)
+    pg.wait_for_timeout(200)
+    st = pg.evaluate(STATE_JS, ids)
+    assert st['mirrorOf'] is None
+    assert all(p == [None, None] for p in st['sr']), st
+    assert None not in st['sl'], 'the source keeps every port'
+    # undo puts the copy back, as one step
+    pg.evaluate("() => window.app.undo()")
+    pg.wait_for_timeout(600)
+    pg.evaluate("() => window.app.refreshPortAssignment()")
+    pg.wait_for_timeout(200)
+    assert pg.evaluate(STATE_JS, ids)['mirrorOf'] == ids['sl']
+    assert errors == []
+
+
+def test_unplugging_the_source_unplugs_the_copy(page):
+    pg, ids, errors = page
+    if pg.evaluate(STATE_JS, ids)['mirrorOf'] is None:
+        drop(pg, ids['cid'], ids['sr'])
+    assert pg.evaluate(STATE_JS, ids)['mirrorOf'] == ids['sl']
+    # Clear the card from the tray's menu: every screen port on it comes off
+    pg.evaluate("""async (ids) => {
+        const app = window.app;
+        const pins = [];
+        app._assignment.screens.forEach(s => s.ports.forEach(p => {
+            if (p.cardId === ids.cid && s.layerId === String(ids.sl)) {
+                pins.push({layerId: s.layerId, index: p.index});
+            }
+        }));
+        await app._dockReleasePins(pins, 'Release Ports');
+    }""", ids)
+    pg.wait_for_timeout(300)
+    st = pg.evaluate(STATE_JS, ids)
+    assert st['mirrorOf'] is None
+    assert all(p is None for p in st['sl'])
+    assert all(p == [None, None] for p in st['sr'])
+    saved = pg.evaluate("""async (id) => (await (await fetch('/api/project'))
+        .json()).layers.find(l => l.id === id).dataMirrorOf""", ids['sr'])
+    assert saved is None
+    assert errors == []
+
+
+def test_an_independent_cards_second_drop_does_not_mirror(page):
+    pg, ids, errors = page
+    first = drop(pg, ids['ind'], ids['ia'])
+    assert first['mirrorOf'] is None and first['ports'][0][2] == 'pin'
+    out = drop(pg, ids['ind'], ids['ib'])
+    assert 'Copy of' not in (out['pill'] or {}).get('text', '')
+    assert out['mirrorOf'] is None
+    assert out['ports'] and all(p[0] == ids['ind'] and p[2] == 'pin'
+                                for p in out['ports']), out
+    taken = {p[1] for p in first['ports']}
+    assert not taken & {p[1] for p in out['ports']}
+    assert errors == []
+
+
+def test_an_mx40_pro_with_a_mirror_box_mirrors_by_dragging_the_processor(page):
+    """The MX40 Pro is one unit (no cards to drag), so its processor line is
+    the drag; its 20-port mode feeds a mirror where a box on OPT 3 is set to
+    Mirror (User Manual V1.5.0 p.9, owner: "Either, you pick")."""
+    pg, ids, errors = page
+    mx = pg.evaluate(MX40_JS, '20-port')
+    pg.evaluate("""async (mx) => {
+        // the first box brings its OPT 3 pair, set to Mirror
+        await fetch(`/api/processors/${mx.pid}/cards/${mx.cid}/cvts`, {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({deviceId: 'novastar-cvt10',
+                                  copyRole: 'mirror'})});
+        const add = (name, x) => fetch('/api/layer/add', {method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({name, columns: 2, rows: 2,
+                cabinet_width: 256, cabinet_height: 256, offset_x: x,
+                offset_y: 1800})}).then(r => r.json());
+        const app = window.app;
+        for (const [n, x] of [['MA', 0], ['MB', 700]]) {
+            const layer = await add(n, x);
+            app.initializeLayerDefaults(layer);
+            layer.processorType = 'novastar-coex-1g';
+            app.upsertProjectLayer(layer);
+            app.updateLayers([layer]);
+        }
+        await app.refreshProcessors();
+        app.renderLayers();
+        await app.refreshPortAssignment();
+    }""", mx)
+    ma = pg.evaluate("() => window.app.project.layers.find(l => l.name === 'MA').id")
+    mb = pg.evaluate("() => window.app.project.layers.find(l => l.name === 'MB').id")
+    first = drop(pg, mx['pid'], ma, 'processor')
+    assert first['mirrorOf'] is None and first['ports'][0][1] == 1
+    out = drop(pg, mx['pid'], mb, 'processor')
+    assert out['mirrorOf'] == ma
+    assert out['ports'][0] == [mx['cid'], 21, 'mirror'], out
     assert errors == []

@@ -1282,12 +1282,19 @@ class _HardwareDock {
             `card-${card.id}`,
             model + cardTag,
             '',
-            this.procIsCardBased(proc)
+            (this.procIsCardBased(proc)
                 ? 'Drag the whole card onto a screen: its unplaced ports fill in '
                     + 'order up to the port under your cursor. Cards keep their slot '
                     + 'order. Drag the processor’s line to reorder.'
                 : `Drag the whole ${word} onto a screen: its unplaced ports fill in `
-                    + 'order up to the port under your cursor.',
+                    + 'order up to the port under your cursor.')
+                // In a copy mode, the second drag makes a mirror screen
+                // (owner, 2026-11-01 - app-mirror-screens.js).
+                + (card.copyTrunks === 'mirror' || card.copyTrunks === 'per-box'
+                    ? ' Then drag it onto a matching second screen to make '
+                        + 'that screen a copy of the first, fed from the copy '
+                        + 'outputs.'
+                    : ''),
             // The header's glance: how full the card is, the retired
             // panel's per-card usage foot worn as n/N and a fill line - so
             // a card folded away because it is done reads as done (a
