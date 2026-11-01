@@ -342,6 +342,25 @@ FIXES
 - FIX: On a Mac, opening the launcher no longer hides the app's menu-bar
   icon behind the menu bar, so it stays visible and clickable. Thanks to
   kcikcreative33 for this fix.
+- NEW: Eight Z flow patterns join the eight snakes on the Data tab: every
+  row or column starts again from the same side, the way a cable goes back
+  to the start before each new row. The snakes are the top row of the
+  picker and the Z patterns the row under it, both in the order top left,
+  top right, bottom left, bottom right, horizontal first and then
+  vertical first.
+- FIX: Ports required on a custom data path now says the fewest ports the
+  screen needs in its Organized or Max Capacity setting, under ideal
+  circumstances, not how many ports have been drawn so far.
+- FIX: Organized no longer stops with a capacity error when a row is
+  longer than one port carries. It fills the port with as many whole
+  cabinets as fit and starts the next port in the same row, and a column
+  that is too tall works the same way. The error now shows only when one
+  panel alone is bigger than a port.
+- FIX: A Port numbers switch beside Organized and Max Capacity numbers
+  the ports of a row that is cut into more than one port: Across goes
+  along each row first, Down goes down the stacks and starts the next
+  stack back at the first row. It shows only on a screen where Organized
+  cuts a row or column, and older shows keep the numbers they had.
 
 v1.5.3 - October 21, 2026
 ----------------------------

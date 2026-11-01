@@ -328,6 +328,7 @@ class _Clipboard {
             frameRate: layer.frameRate,
             lowLatency: layer.lowLatency,
             portMappingMode: layer.portMappingMode,
+            portNumberOrder: layer.portNumberOrder,
             // Data tab: pattern, lines, labels and the six colours.
             flowPattern: layer.flowPattern,
             arrowLineWidth: layer.arrowLineWidth,

@@ -3,6 +3,7 @@
 // key, stepping across member boundaries, and the pattern fill that lays
 // a selection out as numbered runs cut at capacity.
 import { LEDRasterApp } from './app-core.js';
+import { isZFlowPattern, isVerticalFlowPattern } from './helpers.js';
 
 // Float sums of derated watts land a hair over an exact multiple; a circuit
 // that is precisely full is full, not over. See customRunCapacity.
@@ -1098,7 +1099,8 @@ class _CustomRuns {
         const sharing = isPower && this._customFillShares(owner);
         const cut = sharing
             ? this._chunkPicksIntoShares(owner, startNum, lines, frozen)
-            : this._chunkPicksByCapacity(owner, kind, startNum, lines, frozen);
+            : this._chunkPicksByCapacity(owner, kind, startNum, lines, frozen,
+                { vertical: isVerticalFlowPattern(pattern), zigzag: isZFlowPattern(pattern) });
         if (cut.skipped && cut.skipped.length) steppedOver(cut.skipped);
         if (cut.error) {
             toast(`Cannot apply: ${cut.error}`, true);
@@ -1204,7 +1206,7 @@ class _CustomRuns {
         const have = new Set(persist.map(l => l && l.id));
         this.updateLayers(persist.concat([...touched.values()].filter(l => !have.has(l.id))));
         if (sharing && cut.runs > 1) {
-            const lineNoun = String(pattern).endsWith('-v') ? 'column' : 'row';
+            const lineNoun = isVerticalFlowPattern(pattern) ? 'column' : 'row';
             const circuits = cut.sizes.length;
             toast(`Filled ${cut.runs} ${lineNoun} runs from the selection onto `
                 + `${circuits} circuit${circuits === 1 ? '' : 's'} `
@@ -1227,7 +1229,7 @@ class _CustomRuns {
                 : (sizing.mixed
                     ? `up to ${Math.round(cap.limit).toLocaleString('en-US')} ${isPower ? 'W' : 'px'} each`
                     : `up to ${sizing.count} panels each at ${cap.at}`);
-            const lineNoun = String(pattern).endsWith('-v') ? 'column' : 'row';
+            const lineNoun = isVerticalFlowPattern(pattern) ? 'column' : 'row';
             // The toast names the rule it used - the screen's mode decides
             // it (see _chunkPicksByCapacity).
             const rule = this._customRunPacksFull(owner, kind)
@@ -1530,7 +1532,13 @@ class _CustomRuns {
     //
     // `error` instead when a single cabinet is over the cap on its own or
     // the override list runs out - nothing is written in either case.
-    _chunkPicksByCapacity(owner, kind, startNum, lines, skip = null) {
+    //
+    // THE PORT NUMBERS SWITCH (data, Organized; portNumbersStack): the runs
+    // a long line is cut into keep their cabinets and only change number,
+    // the same way the automatic walk numbers them. `opts.vertical` says the
+    // lines are columns. The numbers handed out are the same set, in the
+    // same skip-aware sequence; only which run gets which one moves.
+    _chunkPicksByCapacity(owner, kind, startNum, lines, skip = null, opts = null) {
         const cap = this.customRunCapacity(owner, kind);
         const eps = CUSTOM_RUN_EPS;
         const noun = kind === 'power' ? 'circuit' : 'port';
@@ -1589,11 +1597,14 @@ class _CustomRuns {
             }
             return null;
         };
+        // A Z pattern (opts.zigzag) reads every line from the start side:
+        // no line is ever reversed, in a run or in the packed walk.
+        const bounce = (opts && opts.zigzag) ? 0 : 1;
         if (this._customRunPacksFull(owner, kind)) {
-            // One continuous snake, cut at the cap wherever it falls.
+            // One continuous snake (or Z), cut at the cap wherever it falls.
             const snake = [];
             lines.forEach((line, i) => {
-                snake.push(...(i % 2 === 1 ? line.slice().reverse() : line));
+                snake.push(...((i * bounce) % 2 === 1 ? line.slice().reverse() : line));
             });
             for (const pick of snake) {
                 const big = tooBig(pick);
@@ -1608,7 +1619,15 @@ class _CustomRuns {
             chunks.push(cur);
             return { chunks, skipped };
         }
+        let linePos = -1;
+        // Data: the last run cut from a long line is SEALED - no later line
+        // joins it, because an Organized port never carries on onto the next
+        // row (the owner, 2026-11-01), the same rule as the automatic walk's
+        // cut (calculatePortAssignments splitUnit). Power keeps its rule: a
+        // whole line that fits may still join the remainder.
+        let sealed = false;
         for (const line of lines) {
+            linePos += 1;
             // An empty line (hidden cabinets, a group's gap) still counts
             // toward the snake's alternation - the rule this has always had.
             if (line.length === 0) {
@@ -1623,11 +1642,12 @@ class _CustomRuns {
                 // A whole line: onto the run in hand if it fits, else it
                 // opens the next run from the start side.
                 const next = cur.picks.concat(line);
-                if (cur.picks.length > 0 && loadFor(next) > limitFor(next) + eps) {
+                if (cur.picks.length > 0 && (sealed || loadFor(next) > limitFor(next) + eps)) {
                     const why = closeRun();
                     if (why) return { error: why, skipped };
                 }
-                lay(lineInRun % 2 === 1 ? line.slice().reverse() : line);
+                sealed = false;
+                lay((lineInRun * bounce) % 2 === 1 ? line.slice().reverse() : line);
                 lineInRun += 1;
                 continue;
             }
@@ -1639,7 +1659,10 @@ class _CustomRuns {
                 if (why) return { error: why, skipped };
             }
             let cells = line;
+            let segNo = 0;
             while (cells.length > 0) {
+                cur.split = { line: linePos, seg: segNo };
+                segNo += 1;
                 let took = 0;
                 for (const pick of cells) {
                     const next = cur.picks.concat([pick]);
@@ -1656,8 +1679,15 @@ class _CustomRuns {
             // The remainder is the first line on its run, read in the
             // pattern's direction; a line that follows it snakes back.
             lineInRun = 1;
+            sealed = kind !== 'power';
         }
         chunks.push(cur);
+        if (kind !== 'power' && this.portNumbersStack(owner, !(opts && opts.vertical))) {
+            const nums = chunks.map(c => c.num);
+            const stacked = this._stackSplitRuns(chunks, c => c.split || null);
+            stacked.forEach((c, i) => { c.num = nums[i]; });
+            return { chunks: stacked, skipped };
+        }
         return { chunks, skipped };
     }
 
@@ -1716,10 +1746,14 @@ class _CustomRuns {
     // own direction, every second line back. A line that is empty (hidden
     // cabinets, or a group's gap) still counts, so it does not reverse the
     // line after it - the rule this has always had.
+    //
+    // A Z pattern (tl-h-z ...) never runs back: every line is read from the
+    // start side, the way a cable goes back to the left edge before each row.
     getPatternOrderForGrid(pattern, grid) {
         const ordered = [];
+        const bounce = isZFlowPattern(pattern) ? 0 : 1;
         this._patternLines(pattern, grid).forEach((line, i) => {
-            ordered.push(...(i % 2 === 1 ? line.slice().reverse() : line));
+            ordered.push(...((i * bounce) % 2 === 1 ? line.slice().reverse() : line));
         });
         return ordered;
     }

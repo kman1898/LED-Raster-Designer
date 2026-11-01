@@ -1118,12 +1118,15 @@ def test_legacy_max_capacity_now_maps_walls_it_used_to_refuse(page, dims):
 
 
 @pytest.mark.parametrize("dims", [(60, 2), (100, 1), (45, 6)])
-def test_legacy_organized_still_refuses_a_row_wider_than_one_port(page, dims):
-    """ASSERTS CURRENT BEHAVIOUR (identical to v0.10.8.1).
+def test_legacy_organized_splits_a_row_wider_than_one_port(page, dims):
+    """ASSERTS CURRENT BEHAVIOUR - a deliberate change in v1.5.4.
 
-    The asymmetry is deliberate: Organized keeps whole rows on one port, so a
-    60-cabinet row it cannot fit is still a capacity error. Only Max Capacity
-    gained the ability to split it.
+    Until v1.5.4 Organized kept whole rows on one port, so a 60-cabinet row
+    it could not fit was a capacity error and no map at all. The owner's
+    ruling (2026-11-01): fill the port with as many whole cabinets as fit
+    and start the next port in the same row. 40 fit a port here, so a row
+    of 60 is 40 + 20, of 100 is 40 + 40 + 20, of 45 is 40 + 5, and no port
+    carries on onto the next row.
     """
     cols, rows = dims
     got = page.evaluate("""(d) => {
@@ -1132,12 +1135,23 @@ def test_legacy_organized_still_refuses_a_row_wider_than_one_port(page, dims):
                               processorType: 'novastar-armor', portMappingMode: 'organized' });
         return ar.withProject([s], 'data-flow', () => {
             const a = app.calculatePortAssignments(s) || [];
+            const byPort = {};
+            a.forEach(x => {
+                (byPort[x.port] = byPort[x.port] || []).push(x.panel.row);
+            });
             return { n: a.length, auto: s._autoPortsRequired,
+                     sizes: Object.keys(byPort).map(Number).sort((p, q) => p - q)
+                         .map(p => byPort[p].length),
+                     rowsPerPort: Object.values(byPort).map(rs => new Set(rs).size),
                      err: s._capacityError ? s._capacityError.unitType : null };
         });
     }""", [cols, rows])
-    assert got['err'] == 'row', f"Organized no longer reports the row error: {got}"
-    assert got['n'] == 0 and got['auto'] == 0
+    per_row = [40] * (cols // 40) + ([cols % 40] if cols % 40 else [])
+    assert got['err'] is None, f"Organized still refuses the long row: {got}"
+    assert got['n'] == cols * rows
+    assert got['sizes'] == per_row * rows
+    assert got['auto'] == len(per_row) * rows
+    assert set(got['rowsPerPort']) == {1}
 
 
 def test_a_screen_with_no_fill_colours_no_longer_blanks_the_canvas(page):
