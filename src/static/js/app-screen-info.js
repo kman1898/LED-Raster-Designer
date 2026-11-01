@@ -704,14 +704,26 @@ class _ScreenInfo {
             layer, kind === 'power' ? 'powerCustomPaths' : 'customPortPaths');
     }
 
+    // A Z flow pattern ('tl-h-z', 'br-v-z', ...): the twin of the snake with
+    // the same corner and first direction, where every row (horizontal
+    // first) or column (vertical first) starts again from the SAME side as
+    // the first instead of running back. The owner's ruling, 2026-11-01.
+    // Every other code - the eight snakes, 'custom', an unknown code from an
+    // older show - is not one, and walks exactly as it always has.
+    isZFlowPattern(pattern) {
+        return /^(tl|tr|bl|br)-[hv]-z$/.test(String(pattern || ''));
+    }
+
     // `plan` (from getAutoRoutePlan) swaps the layer's own grid for the wall's
     // position lattice: same serpentine, ranked slots instead of panel indices.
     // Null - every ungrouped screen - reads the panels' own row/col and this is
-    // expression for expression what it always was.
+    // expression for expression what it always was. A Z pattern
+    // (isZFlowPattern) reads every unit from the start side.
     getOrganizedPanelsForUnits(layer, pattern, isHorizontalFirst, orderedUnitIndices, includeHidden = false, plan = null) {
         if (!layer || !Array.isArray(layer.panels) || !Array.isArray(orderedUnitIndices)) return [];
         const startsTop = pattern.startsWith('t');
         const startsLeft = pattern.includes('l-');
+        const z = this.isZFlowPattern(pattern);
         const source = plan ? plan.ordered.map(c => c.panel) : layer.panels;
         const rowOfPanel = plan ? (p => plan.rowOf.get(p)) : (p => p.row);
         const colOfPanel = plan ? (p => plan.colOf.get(p)) : (p => p.col);
@@ -725,7 +737,8 @@ class _ScreenInfo {
         const ordered = [];
         orderedUnitIndices.forEach((unitIdx, unitPos) => {
             if (isHorizontalFirst) {
-                const leftToRight = startsLeft ? (unitPos % 2 === 0) : (unitPos % 2 !== 0);
+                const back = !z && unitPos % 2 !== 0;
+                const leftToRight = startsLeft ? !back : back;
                 if (leftToRight) {
                     for (let col = 0; col < gridCols; col++) {
                         const panel = panelMap.get(`${unitIdx},${col}`);
@@ -740,7 +753,8 @@ class _ScreenInfo {
                     }
                 }
             } else {
-                const topToBottom = startsTop ? (unitPos % 2 === 0) : (unitPos % 2 !== 0);
+                const back = !z && unitPos % 2 !== 0;
+                const topToBottom = startsTop ? !back : back;
                 if (topToBottom) {
                     for (let row = 0; row < gridRows; row++) {
                         const panel = panelMap.get(`${row},${unitIdx}`);
@@ -799,12 +813,15 @@ class _ScreenInfo {
         }
 
         const isVerticalFirst = direction === 'v';
+        // A Z pattern never runs a line back: every one starts at the side
+        // the first did (isZFlowPattern).
+        const z = this.isZFlowPattern(pattern);
         const ordered = [];
 
         if (isVerticalFirst) {
             for (let c = startCol; c >= 0 && c < cols; c += colDir) {
                 const colOffset = Math.abs(c - startCol);
-                const reverse = colOffset % 2 === 1;
+                const reverse = !z && colOffset % 2 === 1;
                 if (reverse) {
                     for (let r = startRow + (rows - 1) * rowDir; r >= 0 && r < rows; r -= rowDir) {
                         const panel = panelMap.get(`${r},${c}`);
@@ -820,7 +837,7 @@ class _ScreenInfo {
         } else {
             for (let r = startRow; r >= 0 && r < rows; r += rowDir) {
                 const rowOffset = Math.abs(r - startRow);
-                const reverse = rowOffset % 2 === 1;
+                const reverse = !z && rowOffset % 2 === 1;
                 if (reverse) {
                     for (let c = startCol + (cols - 1) * colDir; c >= 0 && c < cols; c -= colDir) {
                         const panel = panelMap.get(`${r},${c}`);

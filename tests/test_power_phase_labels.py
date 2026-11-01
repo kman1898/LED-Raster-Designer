@@ -2764,10 +2764,11 @@ def test_a_fresh_show_names_every_circuit_under_the_cursor(page):
         })""", seed['ids'])
         assert [s[1] for s in starts] == ['S1-1'] * 4, (
             f"every S1-# screen with no distro starts at S1-1: {starts}")
-        # The 28-wide MAINs have no automatic plan at all on tl-h (a full
-        # 28 x 305 W row does not fit one 4160 W circuit), so only the two
-        # Returns hold a multi to name - and each is S1, not S1 and S2.
-        assert [s[2] for s in starts] == [None, 'S1', None, 'S1'], starts
+        # A full 28 x 305 W row does not fit one circuit, and since
+        # 2026-11-01 Organized cuts it into circuits along the row instead
+        # of leaving the 28-wide MAINs with no plan, so every screen holds a
+        # multi to name - and each is its own S1, not S1 and S2.
+        assert [s[2] for s in starts] == ['S1', 'S1', 'S1', 'S1'], starts
         page.check('#power-custom-toggle')
         page.wait_for_timeout(300)
         nothing = page.evaluate(FRESH_FRAME_JS, sr_main)

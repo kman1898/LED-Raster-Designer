@@ -4201,7 +4201,7 @@ class _Power {
         const byRow = cut('row');
         const vertical = byCol.length < byRow.length
             || (byCol.length === byRow.length
-                && String(this.autoPowerPattern(layer)).endsWith('-v'));
+                && String(this.autoPowerPattern(layer)).includes('-v'));
         // Every leg is fed from the same end as the first, the way the
         // automatic wall feeds each column run at its head: a run that
         // snaked down one column and up the next becomes legs that all run
@@ -5083,19 +5083,26 @@ class _Power {
         return (last && last !== 'custom') ? last : 'tl-h';
     }
 
-    // The screen's Circuit numbers switch (powerNumberOrder), 'across' or
-    // 'down': which way the numbers run when Organized cuts a row (or a
-    // column) into several circuits. Across numbers along each row before
-    // the next; Down numbers each row's first circuit down the rows, then
-    // goes back to the top for each row's second. Unset, the numbers
-    // follow the pattern's own walk - across for a horizontal-first
-    // pattern, down for a vertical-first one - which is the numbering
-    // every screen had before the switch, so a show without the field
-    // reads exactly as it did.
-    powerNumberOrder(layer, pattern = this.autoPowerPattern(layer)) {
-        const v = layer && layer.powerNumberOrder;
-        if (v === 'across' || v === 'down') return v;
-        return String(pattern || 'tl-h').includes('-v') ? 'down' : 'across';
+    // The screen's Circuit numbers switch (powerNumberOrder), the owner's
+    // ruling of 2026-11-01, worded and read the way the data side's Port
+    // numbers switch is (portNumberOrderOf). It decides only how the
+    // circuits Organized cuts from a row (or a column) too big for one
+    // circuit are NUMBERED; the circuits themselves never move:
+    //   Across  along each row first: circuit 1 is row 1's first run,
+    //           circuit 2 its next, and row 2 starts after the last;
+    //   Down    down the stacks: circuit 1 is row 1's first run, circuit 2
+    //           row 2's first, and when the stack ends the next one starts
+    //           back at the first row.
+    // For a vertical-first pattern the lines are columns and the two words
+    // keep their meaning on the wall: Across numbers along the top band of
+    // runs first, Down numbers down each column first. The pattern's start
+    // corner decides where the first line and the first run are, so a
+    // bottom-start pattern stacks up from the bottom and a right-start one
+    // steps its stacks right to left. Missing (every show before the
+    // switch) is Across; a screen whose lines all fit has nothing to
+    // renumber either way, so no older show moves.
+    powerNumberOrder(layer) {
+        return (layer && layer.powerNumberOrder === 'down') ? 'down' : 'across';
     }
 
     // Does the Circuit numbers switch do anything on this screen? Only on
@@ -5107,14 +5114,14 @@ class _Power {
         const plan = (typeof this.getAutoRoutePlan === 'function')
             ? this.getAutoRoutePlan(layer, 'power') : null;
         const walker = (plan && !plan.isOwner && plan.owner) ? plan.owner : layer;
-        if (walker.powerMaximize || walker.powerOrganized === false) return false;
+        if (walker.powerMaximize || !walker.powerOrganized) return false;
         if (this.usesCustomCircuits(walker)) return false;
         return !!this.calculatePowerAssignments(walker).cut;
     }
 
     // The Circuit numbers row under Organized: shown only where it does
     // something (powerNumberOrderApplies), its lit button the screen's
-    // order as it reads now (powerNumberOrder - unset follows the pattern).
+    // order as it reads now (powerNumberOrder - unset reads Across).
     syncPowerNumberOrder(layer = this.currentLayer) {
         const row = document.getElementById('power-number-order-row');
         if (!row) return;
@@ -5260,18 +5267,40 @@ class _Power {
                 units.push(unit);
             }
             const anyCut = units.some(u => u.pieces);
-            // Where each circuit sits: [unit, piece] - its unit's place in
-            // the walk and its piece along that unit (0 for a whole unit).
-            // Numbered along the walk ([unit, piece]) unless the screen's
-            // Circuit numbers switch says the other way (powerNumberOrder),
-            // which numbers piece by piece: every unit's first piece, then
-            // back to the start for every unit's second. Only a cut screen
-            // has anything to reorder.
-            const followWalk = this.powerNumberOrder(layer, pattern) === (isHorizontalFirst ? 'across' : 'down');
-            const numberOrder = (ats) => ats.map((at, i) => i).sort((a, b) => {
-                const [ua, pa] = ats[a], [ub, pb] = ats[b];
-                return followWalk ? (ua - ub || pa - pb) : (pa - pb || ua - ub);
-            });
+            // STACKS. Read across the lines instead of along them: inside
+            // every unbroken stretch of cut units, each unit's first piece,
+            // then each unit's second, and so on (the data side's
+            // _stackSplitRuns, the same rule); anything that is not a piece
+            // of a cut unit ends the stretch and keeps its place. `items`
+            // come in walk order and each carries `at` = [unit, piece] and
+            // `piece` (true for a piece of a cut unit). Returns the indices.
+            const stackOrder = (items) => {
+                const out = [];
+                let block = [];
+                const flushBlock = () => {
+                    block.sort((a, b) => (items[a].at[1] - items[b].at[1])
+                        || (items[a].at[0] - items[b].at[0]) || (a - b));
+                    out.push(...block);
+                    block = [];
+                };
+                items.forEach((item, i) => {
+                    if (item.piece) { block.push(i); return; }
+                    flushBlock();
+                    out.push(i);
+                });
+                flushBlock();
+                return out;
+            };
+            // THE NUMBERS (the Circuit numbers switch, powerNumberOrder):
+            // along the walk, or down the stacks - Down on a
+            // horizontal-first pattern, Across on a vertical-first one,
+            // where the lines are columns. `items` in walk order; returns
+            // the indices in circuit-number order. Only the numbers move.
+            const numberByStacks = isHorizontalFirst
+                ? this.powerNumberOrder(layer) === 'down'
+                : this.powerNumberOrder(layer) === 'across';
+            const numberOrder = (items) => (numberByStacks
+                ? stackOrder(items) : items.map((_, i) => i));
 
             // Splitter packing: one RUN per unit (row/column) - each branch
             // is its own short daisy fed at its head, the physical truth of
@@ -5281,27 +5310,25 @@ class _Power {
             // pre-splitter code.
             //
             // A cut unit's pieces are runs like any other (the owner's
-            // ruling, 2026-11-01: the short leftover can share). On a cut
-            // screen the runs are read stack by stack - every unit's first
-            // piece, then every unit's second - so the leftovers at the far
-            // end sit next to each other and share the way neighbouring
-            // runs always have. That reading is the packing's own and never
-            // moves with the Circuit numbers switch: renumbering never
-            // changes which cabinets share a circuit. An uncut screen reads
-            // one run per unit in walk order, exactly as before.
+            // ruling, 2026-11-01: the short leftover is a circuit like any
+            // other and shares). The runs of a cut stretch are read by
+            // stacks (stackOrder), so the leftovers at the far end sit next
+            // to each other and share the way neighbouring runs always
+            // have. That reading is the packing's own and never moves with
+            // the Circuit numbers switch: renumbering never changes which
+            // cabinets share a circuit. An uncut screen reads one run per
+            // unit in walk order, exactly as before.
             const splitters = this.getPowerSplitters(layer);
             if (splitters.enabled) {
-                const runs = [];
-                const depth = anyCut ? Math.max(...units.map(u => (u.pieces ? u.pieces.length : 1))) : 1;
-                for (let j = 0; j < depth; j++) {
-                    units.forEach((u, k) => {
-                        if (u.pieces) {
-                            if (j < u.pieces.length) runs.push({ ...u.pieces[j], at: [k, j] });
-                        } else if (j === 0) {
-                            runs.push({ panels: walkOf([u.idx]), load: u.load, at: [k, 0] });
-                        }
-                    });
-                }
+                const walkRuns = [];
+                units.forEach((u, k) => {
+                    if (u.pieces) {
+                        u.pieces.forEach((p, j) => walkRuns.push({ ...p, at: [k, j], piece: true }));
+                    } else {
+                        walkRuns.push({ panels: walkOf([u.idx]), load: u.load, at: [k, 0], piece: false });
+                    }
+                });
+                const runs = anyCut ? stackOrder(walkRuns).map(i => walkRuns[i]) : walkRuns;
                 const manual = this.appliedSplitterGroups(
                     layer, runs.map((_, i) => i + 1));
                 // An older show's automatic shares, kept as it was saved
@@ -5319,7 +5346,12 @@ class _Power {
                 const result = { circuits: packed.circuits, runs: packed.runs,
                     runIds: packed.runIds, error: null };
                 if (anyCut) {
-                    const order = numberOrder(packed.runIds.map(ids => runs[ids[0] - 1].at));
+                    // Each circuit sits where its first run does; put them
+                    // in walk order, then number them.
+                    const heads = packed.runIds.map(ids => runs[ids[0] - 1]);
+                    const walk = heads.map((_, i) => i).sort((a, b) =>
+                        (heads[a].at[0] - heads[b].at[0]) || (heads[a].at[1] - heads[b].at[1]) || (a - b));
+                    const order = numberOrder(walk.map(i => heads[i])).map(n => walk[n]);
                     result.circuits = order.map(i => packed.circuits[i]);
                     result.runs = order.map(i => packed.runs[i]);
                     result.runIds = order.map(i => packed.runIds[i]);
@@ -5332,12 +5364,12 @@ class _Power {
             // always; a cut unit closes the circuit in hand, and each of its
             // pieces is a circuit of its own (a piece joining the next unit
             // would wrap onto the next row).
-            const ats = [];
+            const items = [];
             let current = { unitIndices: [], load: 0, at: null };
             const flush = () => {
                 if (current.unitIndices.length > 0) {
                     circuits.push(walkOf(current.unitIndices));
-                    ats.push(current.at);
+                    items.push({ at: current.at, piece: false });
                 }
                 current = { unitIndices: [], load: 0, at: null };
             };
@@ -5346,7 +5378,7 @@ class _Power {
                     flush();
                     u.pieces.forEach((piece, j) => {
                         circuits.push(piece.panels);
-                        ats.push([k, j]);
+                        items.push({ at: [k, j], piece: true });
                     });
                     return;
                 }
@@ -5358,7 +5390,7 @@ class _Power {
             flush();
             if (anyCut) {
                 const walked = circuits.splice(0, circuits.length);
-                numberOrder(ats).forEach(i => circuits.push(walked[i]));
+                numberOrder(items).forEach(i => circuits.push(walked[i]));
                 return this._mergeOverrideCircuits(layer, withOwners({ circuits, error: null, cut: true }));
             }
         } else {

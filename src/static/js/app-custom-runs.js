@@ -12,9 +12,9 @@ class _CustomRuns {
 
     // ── Capacity while drawing by hand ────────────────────────────────────
     //
-    // The wall this was built for: 28 cabinets wide on 110 V / 15 A, so
-    // automatic power refuses ("a full row is N W and a circuit carries
-    // M W"). The way round it is custom mode - select a 14 x 6 block, press
+    // The wall this was built for: 28 cabinets wide on 110 V / 15 A, which
+    // automatic power once refused ("a full row is N W and a circuit carries
+    // M W"; since 2026-11-01 Organized cuts the row). Custom mode - select a 14 x 6 block, press
     // serpentine, get circuits 1..6 at 14 apiece - which only works if the
     // pattern fill CUTS at capacity instead of pouring the whole selection
     // into the one active circuit, and if a click past the cap is refused
@@ -1098,7 +1098,7 @@ class _CustomRuns {
         const sharing = isPower && this._customFillShares(owner);
         const cut = sharing
             ? this._chunkPicksIntoShares(owner, startNum, lines, frozen)
-            : this._chunkPicksByCapacity(owner, kind, startNum, lines, frozen);
+            : this._chunkPicksByCapacity(owner, kind, startNum, lines, frozen, pattern);
         if (cut.skipped && cut.skipped.length) steppedOver(cut.skipped);
         if (cut.error) {
             toast(`Cannot apply: ${cut.error}`, true);
@@ -1204,7 +1204,7 @@ class _CustomRuns {
         const have = new Set(persist.map(l => l && l.id));
         this.updateLayers(persist.concat([...touched.values()].filter(l => !have.has(l.id))));
         if (sharing && cut.runs > 1) {
-            const lineNoun = String(pattern).endsWith('-v') ? 'column' : 'row';
+            const lineNoun = String(pattern).includes('-v') ? 'column' : 'row';
             const circuits = cut.sizes.length;
             toast(`Filled ${cut.runs} ${lineNoun} runs from the selection onto `
                 + `${circuits} circuit${circuits === 1 ? '' : 's'} `
@@ -1227,7 +1227,7 @@ class _CustomRuns {
                 : (sizing.mixed
                     ? `up to ${Math.round(cap.limit).toLocaleString('en-US')} ${isPower ? 'W' : 'px'} each`
                     : `up to ${sizing.count} panels each at ${cap.at}`);
-            const lineNoun = String(pattern).endsWith('-v') ? 'column' : 'row';
+            const lineNoun = String(pattern).includes('-v') ? 'column' : 'row';
             // The toast names the rule it used - the screen's mode decides
             // it (see _chunkPicksByCapacity).
             const rule = this._customRunPacksFull(owner, kind)
@@ -1530,7 +1530,11 @@ class _CustomRuns {
     //
     // `error` instead when a single cabinet is over the cap on its own or
     // the override list runs out - nothing is written in either case.
-    _chunkPicksByCapacity(owner, kind, startNum, lines, skip = null) {
+    _chunkPicksByCapacity(owner, kind, startNum, lines, skip = null, pattern = null) {
+        // A Z pattern (isZFlowPattern) reads every line from the start
+        // side; a snake runs every second line back.
+        const z = this.isZFlowPattern(pattern);
+        const back = (i) => !z && i % 2 === 1;
         const cap = this.customRunCapacity(owner, kind);
         const eps = CUSTOM_RUN_EPS;
         const noun = kind === 'power' ? 'circuit' : 'port';
@@ -1593,7 +1597,7 @@ class _CustomRuns {
             // One continuous snake, cut at the cap wherever it falls.
             const snake = [];
             lines.forEach((line, i) => {
-                snake.push(...(i % 2 === 1 ? line.slice().reverse() : line));
+                snake.push(...(back(i) ? line.slice().reverse() : line));
             });
             for (const pick of snake) {
                 const big = tooBig(pick);
@@ -1627,7 +1631,7 @@ class _CustomRuns {
                     const why = closeRun();
                     if (why) return { error: why, skipped };
                 }
-                lay(lineInRun % 2 === 1 ? line.slice().reverse() : line);
+                lay(back(lineInRun) ? line.slice().reverse() : line);
                 lineInRun += 1;
                 continue;
             }
@@ -1716,10 +1720,12 @@ class _CustomRuns {
     // own direction, every second line back. A line that is empty (hidden
     // cabinets, or a group's gap) still counts, so it does not reverse the
     // line after it - the rule this has always had.
+    // A Z pattern (isZFlowPattern) never runs a line back.
     getPatternOrderForGrid(pattern, grid) {
         const ordered = [];
+        const z = this.isZFlowPattern(pattern);
         this._patternLines(pattern, grid).forEach((line, i) => {
-            ordered.push(...(i % 2 === 1 ? line.slice().reverse() : line));
+            ordered.push(...(!z && i % 2 === 1 ? line.slice().reverse() : line));
         });
         return ordered;
     }

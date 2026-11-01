@@ -215,6 +215,22 @@ pull sheet again and compare it with anything you've already ordered.
 
 FIXES
 
+- NEW: Eight Z flow patterns for power join the eight snakes: every row
+  or column starts again from the same side. They're the bottom row of
+  Flow Pattern in Power Settings and in Preferences.
+- FIX: Organized power no longer refuses a row too long for one circuit.
+  Each circuit takes as many whole panels as fit along the row, the next
+  one starts where it stopped in the same row, and the last takes the
+  rest, so a row of 90 panels that fit 22 to a circuit is four circuits
+  of 22 and one of 2. A column too tall for one circuit is cut the same
+  way, and the short circuits at the end share through 2fers and 3fers
+  like any others. Only a single panel that draws more than a circuit
+  carries still can't fit.
+- FIX: When Organized cuts a row or column into circuits, Circuit
+  numbers in Power Settings sets their order: Across numbers them along
+  each row first, Down numbers them down the stacks and starts each new
+  stack back at the first row. The circuits stay the same, only their
+  numbers change.
 - FIX: A direct output's cable names both ends, like CEE 16A → TRUE1, or
   just TRUE1 when the outlet already is one.
 - FIX: Distro boxes are listed by their own names everywhere (SR1,
