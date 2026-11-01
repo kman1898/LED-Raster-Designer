@@ -366,6 +366,7 @@ class _Clipboard {
             panelWatts: layer.panelWatts,
             powerMaximize: !!layer.powerMaximize,
             powerOrganized: !!layer.powerOrganized,
+            powerNumberOrder: layer.powerNumberOrder,
             powerCustomPath: !!layer.powerCustomPath,
             powerFlowPattern: layer.powerFlowPattern,
             powerLineWidth: layer.powerLineWidth,

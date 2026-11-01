@@ -1328,8 +1328,9 @@ class _Binder {
     }
 
     // A SCREEN THAT CANNOT FIT A CIRCUIT (owner, 2026-10-22: "Both"): one
-    // panel, or a whole row or column its pattern keeps together, draws
-    // more than one circuit carries at the packing percentage, so it has
+    // panel draws more than one circuit carries at the packing percentage
+    // (since 1.5.4 a row or column too big for one circuit is cut into
+    // several, never refused), so it has
     // no circuits. Its power sheet still prints, this sentence in place
     // of its circuits, and the export says which screens and why - never
     // dropped without a word. "Cannot fit a circuit: 200 W panels, 120 V
@@ -1352,11 +1353,12 @@ class _Binder {
         if (!err) return null;
         const cap = this.circuitCapacity(layer);
         const fmt = (w) => `${Math.round(Number(w) || 0).toLocaleString('en-US')} W`;
-        const what = err.unitType ? `a full ${err.unitType} is ${fmt(err.unitLoad)}`
-            : `${fmt(parseFloat(layer.panelWatts))} panels`;
+        // One panel over a circuit is the only power error: Organized cuts
+        // a row or column too big for one circuit into several (1.5.4).
+        const what = `${fmt(parseFloat(layer.panelWatts))} panels`;
         const usable = `${+cap.amps.toFixed(2)} A usable${cap.pct < 1 ? ` at ${Math.round(cap.pct * 100)}%` : ''}`;
         return { note: `Cannot fit a circuit: ${what}, ${cap.voltage} V / ${+cap.breakerA.toFixed(2)} A breaker, ${usable}`,
-                 panel: !err.unitType };
+                 panel: true };
     }
 
     // A SHEET SUBJECT'S cannot-fit note (_bSubject): a screen's own; on a

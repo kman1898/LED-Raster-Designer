@@ -1443,9 +1443,28 @@
                                 <input type="checkbox" id="power-maximize">
                                 <label for="power-maximize">Maximize Power Use</label>
                             </div>
-                            <div class="info-row checkbox-row" data-tooltip="Organized, Assign circuits in clean rows or columns instead of splitting mid-row.">
+                            <div class="info-row checkbox-row" data-tooltip="Organized, Assign circuits in clean rows or columns. A row too big for one circuit is split into several circuits along the row, never onto the next row.">
                                 <input type="checkbox" id="power-organized" checked>
                                 <label for="power-organized">Organized</label>
+                            </div>
+                            <!-- Circuit numbers (powerNumberOrder): shown only where
+                                 Organized splits a row (or a column) into several
+                                 circuits - the one case the numbers have a choice
+                                 (syncPowerNumberOrder). Highlight from .active only. -->
+                            <div class="info-row" id="power-number-order-row" style="display: none; margin-bottom: 8px;" data-tooltip="Circuit numbers, Across numbers each row's circuits before the next row; Down numbers each row's first circuit down the rows, then goes back to the top for the next.">
+                                <label>Circuit numbers</label>
+                                <div style="display: flex; gap: 4px; width: 100%;">
+                                    <button type="button" id="power-number-across" class="mapping-mode-btn" data-order="across"
+                                        style="flex: 1; padding: 5px 8px; font-size: 11px; border: 1px solid #555; border-radius: 4px; cursor: pointer; transition: all 0.15s;"
+                                        title="Number along each row first, then the next row">
+                                        Across
+                                    </button>
+                                    <button type="button" id="power-number-down" class="mapping-mode-btn" data-order="down"
+                                        style="flex: 1; padding: 5px 8px; font-size: 11px; border: 1px solid #555; border-radius: 4px; cursor: pointer; transition: all 0.15s;"
+                                        title="Number down the rows first, then back to the top for the next circuits along">
+                                        Down
+                                    </button>
+                                </div>
                             </div>
                             <div style="margin-top: 12px;">
                                 <label style="font-weight: 600; margin-bottom: 8px; display: block;">Custom Power Path</label>

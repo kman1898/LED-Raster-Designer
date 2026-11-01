@@ -1701,6 +1701,22 @@ class _Wiring {
             });
         }
 
+        // Circuit numbers: Across | Down (powerNumberOrder). Only the
+        // numbers move; which cabinets share a circuit never does.
+        document.querySelectorAll('#power-number-order-row [data-order]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const order = btn.getAttribute('data-order');
+                this.applyToSelectedLayers(layer => {
+                    layer.powerNumberOrder = order;
+                });
+                this._circuitTailCache = null;
+                this.saveClientSideProperties();
+                this.updatePowerCapacityDisplay();
+                this.updateLayers(this.getSelectedLayers(), true, 'Change Circuit Numbers');
+                window.canvasRenderer.render();
+            });
+        });
+
         if (powerRandomColorsCheckbox) {
             powerRandomColorsCheckbox.addEventListener('change', () => {
                 this.applyToSelectedLayers(layer => {

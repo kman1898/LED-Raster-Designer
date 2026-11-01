@@ -1593,6 +1593,7 @@ class _ScreenInfo {
                     panelWatts: this.currentLayer.panelWatts,
                     powerMaximize: this.currentLayer.powerMaximize,
                     powerOrganized: this.currentLayer.powerOrganized,
+                    powerNumberOrder: this.currentLayer.powerNumberOrder,
                     powerCustomPath: this.currentLayer.powerCustomPath,
                     powerFlowPattern: this.currentLayer.powerFlowPattern,
                     powerLineWidth: this.currentLayer.powerLineWidth,
@@ -1762,7 +1763,7 @@ class _ScreenInfo {
                 'bitDepth', 'frameRate', 'portMappingMode',
                 'powerVoltage', 'powerVoltageCustom', 'powerAmperage',
                 'powerAmperageCustom', 'panelWatts', 'powerMaximize',
-                'powerOrganized', 'powerCustomPath',
+                'powerOrganized', 'powerNumberOrder', 'powerCustomPath',
                 'powerFlowPattern', 'powerLineWidth',
                 'powerLineColor', 'powerArrowColor',
                 'powerRandomColors', 'powerColorCodedView',
@@ -2780,6 +2781,7 @@ class _ScreenInfo {
         if (powerCustomToggle) {
             powerCustomToggle.checked = primary.powerFlowPattern === 'custom';
         }
+        this.syncPowerNumberOrder(primary);
         if (powerRandomColorsCheckbox) {
             powerRandomColorsCheckbox.checked = !!primary.powerRandomColors;
         }
