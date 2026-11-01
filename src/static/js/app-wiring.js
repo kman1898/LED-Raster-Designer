@@ -1080,6 +1080,28 @@ class _Wiring {
         if (mappingMaxCapBtn) {
             mappingMaxCapBtn.addEventListener('click', () => setMappingMode('max-capacity'));
         }
+
+        // Port numbers (Across / Down): how Organized numbers the ports it
+        // cuts from a row or column too long for one port. Only the numbers
+        // move; every port keeps its cabinets.
+        const setPortNumberOrder = (order) => {
+            this.applyToSelectedLayers(layer => {
+                layer.portNumberOrder = order;
+            });
+            this.saveClientSideProperties();
+            this.updatePortCapacityDisplay();
+            this.updatePortLabelEditor();
+            this.updateLayers(this.getSelectedLayers(), true, 'Change Port Numbers');
+            window.canvasRenderer.render();
+        };
+        const portNumberAcrossBtn = document.getElementById('port-number-across');
+        const portNumberDownBtn = document.getElementById('port-number-down');
+        if (portNumberAcrossBtn) {
+            portNumberAcrossBtn.addEventListener('click', () => setPortNumberOrder('across'));
+        }
+        if (portNumberDownBtn) {
+            portNumberDownBtn.addEventListener('click', () => setPortNumberOrder('down'));
+        }
         
         // Flow Pattern buttons
         document.querySelectorAll('.flow-pattern-btn:not(.power-flow-pattern-btn)').forEach(btn => {

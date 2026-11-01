@@ -483,6 +483,33 @@ def test_mixed_size_wall_pattern_is_in_physical_order(page, pattern):
     assert order == MIXED_EXPECTED[pattern], (pattern, order)
 
 
+# The Z twins (the owner, 2026-11-01): every row or column starts again from
+# the start side, so no line runs back. Hand-derived from the same wall.
+MIXED_EXPECTED_Z = {
+    'tl-h-z': ['1:0,0', '1:0,1', '1:0,2', '2:0,0', '2:0,1', '2:0,2',
+               '2:1,0', '2:1,1', '2:1,2',
+               '1:1,0', '1:1,1', '1:1,2', '2:2,0', '2:2,1', '2:2,2',
+               '2:3,0', '2:3,1', '2:3,2'],
+    'br-v-z': ['2:3,2', '2:2,2', '2:1,2', '2:0,2',
+               '2:3,1', '2:2,1', '2:1,1', '2:0,1',
+               '2:3,0', '2:2,0', '2:1,0', '2:0,0',
+               '1:1,2', '1:0,2',
+               '1:1,1', '1:0,1',
+               '1:1,0', '1:0,0'],
+}
+
+
+@pytest.mark.parametrize('pattern', sorted(MIXED_EXPECTED_Z))
+def test_mixed_size_wall_z_pattern_is_in_physical_order(page, pattern):
+    order = _run(page, MIXED, """
+        const app = window.app;
+        app.selectPanelsInRect(app.currentLayer, ax.rect(0, 0, 576, 256));
+        app.applyPatternToSelection('%s');
+        return ax.pathKeys(a, 1);
+    """ % pattern)
+    assert order == MIXED_EXPECTED_Z[pattern], (pattern, order)
+
+
 def test_member_above_the_owner_is_wired_first(page):
     """B sits ABOVE A. A top-left serpentine has to start on B, not on A."""
     order = _run(page, ABOVE, """

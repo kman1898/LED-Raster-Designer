@@ -118,7 +118,7 @@ def test_wording_outside_the_guards():
     assert "'Toggle Data Tags'" in wiring and 'Toggle Data Cable Tags' not in wiring
     html = _read(INDEX_HTML)
     assert 'LED Raster Designer License: see Help > License.</div>' in html
-    for text in ('Ports fill complete rows or columns only: clean rectangular port regions',
+    for text in ('Ports fill complete rows or columns: clean rectangular port regions. A row or column too long for one port is cut into ports of whole cabinets',
                  'Ports fill to maximum pixel capacity, and may split mid-row/column',
                  'Black and white: gray cabinets,',
                  'The power system a new distro starts on: the same list its gear offers.',

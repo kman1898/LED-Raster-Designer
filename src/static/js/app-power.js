@@ -203,7 +203,7 @@ class _Power {
         const rectNote = usesRectangle
             ? ' NovaStar Armor reserves a pixel rectangle enclosing every cabinet in the port, so a port holds fewer pixels than the raw limit.'
             : '';
-        mappingOrgBtn.title = 'Ports fill complete rows or columns only.' + rectNote;
+        mappingOrgBtn.title = 'Ports fill complete rows or columns. A row or column too long for one port is cut into ports of whole cabinets.' + rectNote;
         mappingMaxBtn.title = 'Ports fill to max pixel capacity, and may split mid-row/column.' + rectNote;
 
         // v0.11.0: the theme styles .mapping-mode-btn / .mapping-mode-btn.active
@@ -219,6 +219,10 @@ class _Power {
         // function, behind the early returns below (no current layer / image
         // layer), so the buttons could latch into a stale state.
         this.updatePortMappingButtons();
+        // The Port numbers row beside it (app-screen-info.js), same reason.
+        if (typeof this.updatePortNumberOrderControl === 'function') {
+            this.updatePortNumberOrderControl();
+        }
         // v0.11.0: same reasoning - the Low Latency control and its note must
         // not latch on a stale processor when the early returns below fire.
         this.updateLowLatencyUI();
@@ -316,6 +320,14 @@ class _Power {
         // derate note, and re-walking it would be pure waste.
         const portsRequired = this.getLayerPortsRequired(this.currentLayer, assignments);
         this.currentLayer._portsRequired = portsRequired;
+        // v1.5.4: the READOUT is the fewest ports the screen needs in its
+        // Organized / Max Capacity setting (the owner's ruling, 2026-11-01),
+        // which on a custom data path is not the number of ports drawn so
+        // far. _portsRequired above stays the drawn count: Apply Style and
+        // the port labels work over the ports that exist. On an automatic
+        // screen the two are the same figure and the same capacity error.
+        const minimum = this.getLayerPortsMinimumDetail(this.currentLayer, assignments);
+        const portsShown = minimum.ports;
         // debug toggle removed
         const portsRequiredEl = document.getElementById('ports-required');
         if (portsRequiredEl) {
@@ -335,8 +347,8 @@ class _Power {
             // wall beside it is correctly routed.
             const servedByPeer = typeof this.isServedByPeerRouting === 'function'
                 && this.isServedByPeerRouting(this.currentLayer, 'data');
-            if ((this.currentLayer._capacityError || noCapacity
-                    || (portsRequired === 0 && panelsPerPort > 0
+            if ((minimum.error || noCapacity
+                    || (portsShown === 0 && panelsPerPort > 0
                         && panelCountForStatus > 0 && !servedByPeer))) {
                 portsRequiredEl.textContent = 'ERROR';
                 portsRequiredEl.style.color = '#ff0000';
@@ -344,10 +356,10 @@ class _Power {
                 portsRequiredEl.textContent = '0';
                 portsRequiredEl.style.color = 'var(--ps-dim, #c0c0c0)';
             } else {
-                portsRequiredEl.textContent = portsRequired;
-                if (portsRequired <= 4) {
+                portsRequiredEl.textContent = portsShown;
+                if (portsShown <= 4) {
                     portsRequiredEl.style.color = '#00cc00';
-                } else if (portsRequired <= 8) {
+                } else if (portsShown <= 8) {
                     portsRequiredEl.style.color = '#ffcc00';
                 } else {
                     portsRequiredEl.style.color = '#ff6600';

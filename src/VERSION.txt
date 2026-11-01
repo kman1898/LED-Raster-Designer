@@ -215,22 +215,6 @@ pull sheet again and compare it with anything you've already ordered.
 
 FIXES
 
-- NEW: Eight Z flow patterns for power join the eight snakes: every row
-  or column starts again from the same side. They're the bottom row of
-  Flow Pattern in Power Settings and in Preferences.
-- FIX: Organized power no longer refuses a row too long for one circuit.
-  Each circuit takes as many whole panels as fit along the row, the next
-  one starts where it stopped in the same row, and the last takes the
-  rest, so a row of 90 panels that fit 22 to a circuit is four circuits
-  of 22 and one of 2. A column too tall for one circuit is cut the same
-  way, and the short circuits at the end share through 2fers and 3fers
-  like any others. Only a single panel that draws more than a circuit
-  carries still can't fit.
-- FIX: When Organized cuts a row or column into circuits, Circuit
-  numbers in Power Settings sets their order: Across numbers them along
-  each row first, Down numbers them down the stacks and starts each new
-  stack back at the first row. The circuits stay the same, only their
-  numbers change.
 - FIX: A direct output's cable names both ends, like CEE 16A → TRUE1, or
   just TRUE1 when the outlet already is one.
 - FIX: Distro boxes are listed by their own names everywhere (SR1,
@@ -358,6 +342,42 @@ FIXES
 - FIX: On a Mac, opening the launcher no longer hides the app's menu-bar
   icon behind the menu bar, so it stays visible and clickable. Thanks to
   kcikcreative33 for this fix.
+- NEW: Eight Z flow patterns join the eight snakes on the Data tab: every
+  row or column starts again from the same side, the way a cable goes back
+  to the start before each new row. The snakes are the top row of the
+  picker and the Z patterns the row under it, both in the order top left,
+  top right, bottom left, bottom right, horizontal first and then
+  vertical first.
+- FIX: Ports required on a custom data path now says the fewest ports the
+  screen needs in its Organized or Max Capacity setting, under ideal
+  circumstances, not how many ports have been drawn so far.
+- FIX: Organized no longer stops with a capacity error when a row is
+  longer than one port carries. It fills the port with as many whole
+  cabinets as fit and starts the next port in the same row, and a column
+  that is too tall works the same way. The error now shows only when one
+  panel alone is bigger than a port.
+- FIX: A Port numbers switch beside Organized and Max Capacity numbers
+  the ports of a row that is cut into more than one port: Across goes
+  along each row first, Down goes down the stacks and starts the next
+  stack back at the first row. It shows only on a screen where Organized
+  cuts a row or column, and older shows keep the numbers they had.
+- NEW: Eight Z flow patterns join the eight snakes for power too: every
+  row or column starts again from the same side. They're the row under
+  the snakes in Flow Pattern in Power Settings and in Preferences, in the
+  same order as on the Data tab.
+- FIX: Organized power no longer refuses a row too long for one circuit.
+  Each circuit takes as many whole panels as fit along the row, the next
+  one starts where it stopped in the same row, and the last takes the
+  rest, so a row of 90 panels that fit 22 to a circuit is four circuits
+  of 22 and one of 2. A column too tall for one circuit is cut the same
+  way, and the short circuits at the end share through 2fers and 3fers
+  like any others. Only a single panel that draws more than a circuit
+  carries still can't fit.
+- FIX: A Circuit numbers switch beside Organized numbers the circuits of
+  a row that is cut into more than one circuit: Across goes along each
+  row first, Down goes down the stacks and starts the next stack back at
+  the first row. The circuits stay the same, only their numbers change,
+  and it shows only on a screen where Organized cuts a row or column.
 
 v1.5.3 - October 21, 2026
 ----------------------------

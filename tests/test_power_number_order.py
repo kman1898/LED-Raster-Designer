@@ -484,11 +484,16 @@ def test_z_circuits_of_two_rows_restart_at_the_start_side(page):
 
 
 def test_unknown_pattern_codes_fall_back_as_before(page):
-    out = page.evaluate("""() => {
-        const a = window.app;
-        return ['tl-h-x', 'xx-h-z', 'tl-q-z', '', null, 'custom'].map(p => a.isZFlowPattern(p));
+    """An odd code from an older show is no Z (helpers.js isZFlowPattern):
+    its power walk is the snake it always was."""
+    out = page.evaluate("""async () => {
+        const { isZFlowPattern } = await import('/static/js/helpers.js');
+        return ['tl-h-x', 'xx-h-z', 'tl-q-z', '', null, 'custom'].map(p => isZFlowPattern(p));
     }""")
     assert out == [False] * 6
+    snake = cells(page, "window.__pn.screen({ powerFlowPattern: 'tl-h' })")['circuits']
+    for odd in ('tl-h-x', 'tl-h-zz'):
+        assert cells(page, "window.__pn.screen({ powerFlowPattern: '%s' })" % odd)['circuits'] == snake
 
 
 def test_drawn_power_path_follows_the_z_order(page):

@@ -861,6 +861,20 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
     gap: 6px;
 }
 
+/* The Data Flow picker, two rows of 8 (snakes over their Z twins): a
+   tile shrinks its icon to the column rather than push the panel wider. */
+.flow-pattern-grid-16 .flow-pattern-btn {
+    min-width: 0;
+    padding: 2px;
+}
+.flow-pattern-grid-16 .flow-pattern-btn svg {
+    display: block;
+    width: 100%;
+    max-width: 32px;
+    height: auto;
+    margin: 0 auto;
+}
+
 .pref-flow-pattern-btn {
     background: #1a1a1a;
     border: 1px solid #3a3a3a;

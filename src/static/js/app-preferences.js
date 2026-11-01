@@ -4,7 +4,7 @@
 // system-font enumeration. Moved verbatim out of app-export-io.js and
 // attached to the prototype via the carrier class.
 import { LEDRasterApp } from './app-core.js';
-import { sendClientLog } from './helpers.js';
+import { sendClientLog, FLOW_AUTO_PATTERNS } from './helpers.js';
 
 // The single power jumper name shipped before the per-connector names: a
 // record still holding it never customised it, so nothing carries over.
@@ -277,32 +277,28 @@ class _Preferences {
             'br-h': '<svg width="32" height="32" viewBox="0 0 32 32"><circle cx="28" cy="28" r="3" fill="#00cc00"/><path d="M 28 28 L 4 28 L 4 16 L 28 16 L 28 4 L 10 4" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><polygon points="4,4 10,0 10,8" fill="#cc0000"/></svg>',
             'br-v': '<svg width="32" height="32" viewBox="0 0 32 32"><circle cx="28" cy="28" r="3" fill="#00cc00"/><path d="M 28 28 L 28 4 L 16 4 L 16 28 L 4 28 L 4 10" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><polygon points="4,4 0,10 8,10" fill="#cc0000"/></svg>'
         };
-        return svgs[pattern] || this._zFlowPatternSvg(pattern) || svgs['tl-h'];
+        // The Z twins (tl-h-z ...): the snake's icon with its turns drawn as
+        // diagonal returns to the start side, as on the Data Flow picker.
+        const zPaths = {
+            'tl-h-z': 'M 4 4 L 28 4 L 4 16 L 28 16 L 4 28 L 22 28',
+            'tr-h-z': 'M 28 4 L 4 4 L 28 16 L 4 16 L 28 28 L 10 28',
+            'bl-h-z': 'M 4 28 L 28 28 L 4 16 L 28 16 L 4 4 L 22 4',
+            'br-h-z': 'M 28 28 L 4 28 L 28 16 L 4 16 L 28 4 L 10 4',
+            'tl-v-z': 'M 4 4 L 4 28 L 16 4 L 16 28 L 28 4 L 28 22',
+            'tr-v-z': 'M 28 4 L 28 28 L 16 4 L 16 28 L 4 4 L 4 22',
+            'bl-v-z': 'M 4 28 L 4 4 L 16 28 L 16 4 L 28 28 L 28 10',
+            'br-v-z': 'M 28 28 L 28 4 L 16 28 L 16 4 L 4 28 L 4 10'
+        };
+        if (zPaths[pattern]) {
+            const snake = svgs[pattern.slice(0, -2)];
+            return snake.replace(/ d="[^"]*"/, ` d="${zPaths[pattern]}"`);
+        }
+        return svgs[pattern] || svgs['tl-h'];
     }
 
-    // A Z pattern's icon (isZFlowPattern): its snake's start and arrow,
-    // every return a diagonal back to the start side - the Power Settings
-    // picker's own drawing. Null for any other code.
-    _zFlowPatternSvg(pattern) {
-        const z = {
-            'tl-h-z': ['4', '4', 'M 4 4 L 28 4 L 4 16 L 28 16 L 4 28 L 22 28', '28,28 22,24 22,32'],
-            'tr-h-z': ['28', '4', 'M 28 4 L 4 4 L 28 16 L 4 16 L 28 28 L 10 28', '4,28 10,24 10,32'],
-            'bl-h-z': ['4', '28', 'M 4 28 L 28 28 L 4 16 L 28 16 L 4 4 L 22 4', '28,4 22,0 22,8'],
-            'br-h-z': ['28', '28', 'M 28 28 L 4 28 L 28 16 L 4 16 L 28 4 L 10 4', '4,4 10,0 10,8'],
-            'tl-v-z': ['4', '4', 'M 4 4 L 4 28 L 16 4 L 16 28 L 28 4 L 28 22', '28,28 24,22 32,22'],
-            'tr-v-z': ['28', '4', 'M 28 4 L 28 28 L 16 4 L 16 28 L 4 4 L 4 22', '4,28 0,22 8,22'],
-            'bl-v-z': ['4', '28', 'M 4 28 L 4 4 L 16 28 L 16 4 L 28 28 L 28 10', '28,4 24,10 32,10'],
-            'br-v-z': ['28', '28', 'M 28 28 L 28 4 L 16 28 L 16 4 L 4 28 L 4 10', '4,4 0,10 8,10'],
-        }[pattern];
-        if (!z) return null;
-        const [cx, cy, d, arrow] = z;
-        return `<svg width="32" height="32" viewBox="0 0 32 32"><circle cx="${cx}" cy="${cy}" r="3" fill="#00cc00"/>`
-            + `<path d="${d}" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`
-            + `<polygon points="${arrow}" fill="#cc0000"/></svg>`;
-    }
-
-    // `patterns` defaults to the eight snakes; the power grid passes the
-    // sixteen of the Power Settings picker (snakes, then their Z twins).
+    // `patterns`: the tiles to offer, in order. The Data pattern offers the
+    // sixteen of the Data Flow picker (snakes, then their Z twins), and so
+    // does Power, the Power Settings picker's sixteen (2026-11-01).
     renderPreferencePatternButtons(containerId, buttonClass, patterns = null) {
         const container = document.getElementById(containerId);
         if (!container) return;
@@ -471,12 +467,10 @@ class _Preferences {
     }
 
     setupPreferences() {
-        this.renderPreferencePatternButtons('pref-data-flow-pattern-grid', 'pref-data-flow-pattern-btn');
-        // Power: the sixteen of the Power Settings picker, in its order -
-        // the snakes, then their Z twins (the owner, 2026-11-01).
-        const powerPatterns = ['tl-h', 'tr-h', 'bl-h', 'br-h', 'tl-v', 'tr-v', 'bl-v', 'br-v'];
+        this.renderPreferencePatternButtons('pref-data-flow-pattern-grid', 'pref-data-flow-pattern-btn',
+            FLOW_AUTO_PATTERNS);
         this.renderPreferencePatternButtons('pref-power-flow-pattern-grid', 'pref-power-flow-pattern-btn',
-            powerPatterns.concat(powerPatterns.map(p => `${p}-z`)));
+            FLOW_AUTO_PATTERNS);
         this._fillPreferenceCatalogs();
         const saveBtn = document.getElementById('preferences-save');
         const cancelBtn = document.getElementById('preferences-cancel');

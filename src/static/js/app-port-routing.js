@@ -5,7 +5,7 @@
 // rows a figure is published for. Moved verbatim out of app-export-io.js and
 // attached to the prototype via the carrier class.
 import { LEDRasterApp } from './app-core.js';
-import { sendClientLog } from './helpers.js';
+import { sendClientLog, isVerticalFlowPattern } from './helpers.js';
 
 class _PortRouting {
     // Does this cabinet carry NO data? Hidden, or the legacy `blank` flag -
@@ -130,15 +130,26 @@ class _PortRouting {
     }
     
     // Calculate port assignments for panels
-    calculatePortAssignments(layer) {
+    //
+    // `opts` is for the "fewest ports" question (getLayerPortsMinimum) and
+    // the Port numbers control: `pattern` walks the screen in that automatic
+    // pattern instead of its own, `solo` walks THIS screen's cabinets alone,
+    // with no group crossing and no per-run overrides, so the answer is what
+    // the screen needs on its own under ideal circumstances, and `stats`
+    // (an object) gets `split: true` when Organized cut a line. Every
+    // ordinary caller passes nothing and gets exactly the walk it always had.
+    calculatePortAssignments(layer, opts = null) {
         if (!layer || !Array.isArray(layer.panels)) return [];
+        const solo = !!(opts && opts.solo);
+        const finish = (assignments, plan) => (solo
+            ? assignments : this._appendOverridePortItems(layer, assignments, plan));
 
         // v0.12: a screen group of matching panels routes as ONE BIGGER SCREEN,
         // so the walk below runs once over every member's cabinets instead of
         // once per member. `plan` is null for every ungrouped screen and every
         // group that may not cross, and then every line after this is the line
         // it always was. See getAutoRoutePlan (app-screen-info.js) for the rule.
-        const plan = (typeof this.getAutoRoutePlan === 'function')
+        const plan = (!solo && typeof this.getAutoRoutePlan === 'function')
             ? this.getAutoRoutePlan(layer, 'data') : null;
         if (plan && !plan.isOwner) {
             // The wall's ports belong to the group's first member and are
@@ -151,7 +162,7 @@ class _PortRouting {
             layer._capacityError = null;
             layer._lowLatencyDerate = null;
             layer._autoPortsRequired = 0;
-            return this._appendOverridePortItems(layer, [], plan);
+            return finish([], plan);
         }
 
         const bitDepth = layer.bitDepth || 8;
@@ -160,7 +171,7 @@ class _PortRouting {
         const mappingMode = layer.portMappingMode || 'organized';
         const portCapacity = this.calculatePortCapacity(
             bitDepth, frameRate, processorType, !!layer.lowLatency);
-        const pattern = layer.flowPattern || 'tl-h';
+        const pattern = (opts && opts.pattern) || layer.flowPattern || 'tl-h';
         const usesRectangle = this.usesRectangleConstraint(processorType);
         // v0.11.0: honour the layer's Port Mapping mode on EVERY processor.
         // Rectangle-constraint processors (NovaStar Armor) used to be forced
@@ -217,7 +228,7 @@ class _PortRouting {
         // walk's ports are numbered (see the assignment loop at the bottom).
         // The claim set is empty for every project without overrides, and
         // every list below is then byte-identical to what it always was.
-        const claimed = (typeof this._overrideClaims === 'function')
+        const claimed = (!solo && typeof this._overrideClaims === 'function')
             ? this._overrideClaims(layer, 'data') : new Set();
         const orderedByPattern = includeHidden => {
             const walked = plan
@@ -235,7 +246,7 @@ class _PortRouting {
 
         const orderedForCapacity = orderedByPattern(usesRectangle);
         if (orderedForCapacity.length === 0) {
-            return this._appendOverridePortItems(layer, [], plan);
+            return finish([], plan);
         }
 
         const ports = [];
@@ -351,7 +362,7 @@ class _PortRouting {
             const llPanels = orderedByPattern(false)
                 .filter(p => this.getPanelPixelArea(p) > 0);
             if (llPanels.length === 0) {
-                return this._appendOverridePortItems(layer, [], plan);
+                return finish([], plan);
             }
 
             let current = null;
@@ -482,9 +493,59 @@ class _PortRouting {
                 return capacityForRect(portCapacity, bounds);
             };
 
+            // v1.5.4: cut ONE line that no port can carry whole into ports
+            // along its length. The line is read from the pattern's start
+            // side (tl-h left to right, tr-h right to left, tl-v top down),
+            // the way every Organized port starts (getOrganizedPanelsForUnits
+            // runs a port's first line from the start side, snake or Z) and
+            // the way the custom Apply Pattern fill cuts a long line
+            // (_chunkPicksByCapacity): each of these ports is a new cable,
+            // and a new cable comes from the side the pattern starts on (the
+            // owner, 2026-09-04: "the cables typically come from the same
+            // side"). The cuts therefore line up down the wall, which is what
+            // lets the Port numbers switch number them as stacks.
+            // Every capacity rule is the walk's own: the Armor / 1G reserved
+            // rectangle of the visible cabinets, the 5G narrow-port penalty
+            // read for that rectangle, a half tile at its own size, and
+            // hidden or blank cabinets skipped. Null when one cabinet alone
+            // is over a port, which stays a capacity error.
+            const splitUnit = (unitIdx, linePos) => {
+                const along = isHorizontalFirst ? colOfPanel : rowOfPanel;
+                const forward = isHorizontalFirst ? startsLeft : startsTop;
+                const cells = orderedForCapacity
+                    .filter(p => (isHorizontalFirst ? rowOfPanel(p) === unitIdx : colOfPanel(p) === unitIdx)
+                        && !this.isPanelDataDark(p) && this.getPanelPixelArea(p) > 0)
+                    .sort((a, b) => (forward ? along(a) - along(b) : along(b) - along(a)));
+                const segments = [];
+                let seg = null;
+                for (const panel of cells) {
+                    const area = this.getPanelPixelArea(panel);
+                    if (seg) {
+                        const candRect = unionRect(seg.rect, panel);
+                        const candLoad = usesRectangle ? rectArea(candRect) : seg.load + area;
+                        if (candLoad <= capacityForRect(portCapacity, candRect)) {
+                            seg.panels.push(panel);
+                            seg.rect = candRect;
+                            seg.load = candLoad;
+                            continue;
+                        }
+                        segments.push(seg);
+                        seg = null;
+                    }
+                    const soloRect = panelRect(panel);
+                    const soloLoad = usesRectangle ? rectArea(soloRect) : area;
+                    if (soloLoad > capacityForRect(portCapacity, soloRect)) return null;
+                    seg = { panels: [panel], rect: soloRect, load: soloLoad, unitIndices: [unitIdx],
+                            split: { line: linePos, seg: segments.length } };
+                }
+                if (seg) segments.push(seg);
+                return segments;
+            };
+
             let current = { unitIndices: [], load: 0 };
 
-            unitIndices.forEach(unitIdx => {
+            unitIndices.forEach((unitIdx, linePos) => {
+                if (layer._capacityError) return;
                 const unitPanelsAll = orderedForCapacity.filter(p => (isHorizontalFirst ? rowOfPanel(p) === unitIdx : colOfPanel(p) === unitIdx));
                 if (unitPanelsAll.length === 0) return;
                 // Skip rows/columns with no visible panels
@@ -512,17 +573,38 @@ class _PortRouting {
                 // v0.11.0: judged against the capacity THIS unit has - on 5G a
                 // single narrow column is penalised in its own right, so the
                 // unpenalised table figure would let an over-filled unit past.
+                //
+                // v1.5.4: a row (or column) too long for one port is SPLIT,
+                // not refused. The owner's ruling, 2026-11-01, on a 90-wide
+                // Armor wall that carries 8 cabinets a port: "i should be able
+                // to do 8 panels and then start a new port". The port in hand
+                // closes first, then the line is cut along its length into
+                // ports of as many whole cabinets as fit, and the last takes
+                // the remainder. None of those ports carries on onto the next
+                // line. Rows that fit are untouched, so every wall that mapped
+                // before maps exactly as it did.
                 if (singleUnitLoad > capacityForUnits([unitIdx])) {
-                    layer._capacityError = {
-                        isHorizontalFirst,
-                        cols: gridCols,
-                        rows: gridRows,
-                        panelsPerPort: Math.floor(portCapacity / fullPanelPixels),
-                        portCapacity,
-                        panelPixels: fullPanelPixels,
-                        unitType: isHorizontalFirst ? 'row' : 'column',
-                        unitCount: isHorizontalFirst ? gridCols : gridRows
-                    };
+                    if (current.unitIndices.length > 0) {
+                        current.load = calcBoundingRectLoad(current.unitIndices);
+                        ports.push(current);
+                    }
+                    current = { unitIndices: [], load: 0 };
+                    const segments = splitUnit(unitIdx, linePos);
+                    if (!segments) {
+                        // One cabinet bigger than a port: no cut can help.
+                        layer._capacityError = {
+                            isHorizontalFirst,
+                            cols: gridCols,
+                            rows: gridRows,
+                            panelsPerPort: Math.floor(portCapacity / fullPanelPixels),
+                            portCapacity,
+                            panelPixels: fullPanelPixels,
+                            unitType: 'panel',
+                            unitCount: 1
+                        };
+                        return;
+                    }
+                    segments.forEach(s => ports.push(s));
                     return;
                 }
 
@@ -548,6 +630,15 @@ class _PortRouting {
 
             if (layer._capacityError) return [];
             if (current.load > 0 || current.unitIndices.length > 0) ports.push(current);
+            // `opts.stats.split` tells the Port numbers control whether it
+            // has anything to number (updatePortNumberOrderControl).
+            if (opts && opts.stats) opts.stats.split = ports.some(p => !!p.split);
+            // The Port numbers switch (portNumberOrder): the ports cut from
+            // long lines keep their cabinets and only change NUMBER.
+            if (this.portNumbersStack(layer, isHorizontalFirst)) {
+                const stacked = this._stackSplitRuns(ports, p => p.split || null);
+                ports.splice(0, ports.length, ...stacked);
+            }
         } else if (usesRectangle) {
             // v0.11.0: Max Capacity for rectangle-constraint processors
             // (NovaStar Armor). The port's load is the pixel RECTANGLE the
@@ -673,7 +764,7 @@ class _PortRouting {
         // 1, 2, 3... skipping every overridden number, so a port whose
         // cabinets the walk never touched keeps the number it always had and
         // nothing reshuffles beyond the cabinets the user actually took.
-        const reserved = (typeof this.getOverrideNums === 'function'
+        const reserved = (!solo && typeof this.getOverrideNums === 'function'
             && !this.isCustomFlow(layer))
             ? this.getOverrideNums(layer, 'data') : [];
         let nextPortNum = 1;
@@ -686,8 +777,9 @@ class _PortRouting {
             // the Low Latency branch carries its own ordered panel list.
             // The Organized list is re-derived from the grid here, so the
             // override claims are dropped from it the same way the capacity
-            // walk dropped them above.
-            const portPanels = ((isOrganized && !llGeometry)
+            // walk dropped them above. A port cut from a line too long for
+            // one port (splitUnit) carries its own ordered panels instead.
+            const portPanels = ((isOrganized && !llGeometry && !port.panels)
                 ? this.getOrganizedPanelsForUnits(layer, pattern, isHorizontalFirst, port.unitIndices || [], false, plan)
                 : (port.panels || []))
                 .filter(p => !this.isPanelDataDark(p))
@@ -712,7 +804,84 @@ class _PortRouting {
                 pixelIndex += this.getPanelPixelArea(panel);
             });
         });
-        return this._appendOverridePortItems(layer, assignments, plan);
+        return finish(assignments, plan);
+    }
+
+    // The Port numbers switch (the owner's ruling, 2026-11-01). Organized
+    // cuts a row too long for one port into runs of whole cabinets along it,
+    // and the switch decides only how those runs are NUMBERED:
+    //   Across  along each row first: port 1 is row 1's first run, port 2
+    //           its next, and the next row starts after the last of them;
+    //   Down    down the stacks: port 1 is row 1's first run, port 2 row 2's
+    //           first, and when the stack ends the next one starts back at
+    //           the first row.
+    // For a vertical-first pattern the lines are columns and the same two
+    // words keep their meaning on the wall: Down numbers down each column
+    // first, Across numbers along the top band of runs first and then goes
+    // back to the start side for the next band (the owner: "Yes, both
+    // ways"). Either way the pattern's start corner decides where the first
+    // line and the first run are, so a bottom-start pattern stacks up from
+    // the bottom and a right-start one steps its stacks right to left.
+    //
+    // A screen that has never been switched (no portNumberOrder, every show
+    // from before the switch) numbers along its lines, the way the walk
+    // always has: that reads Across on a horizontal-first pattern and Down
+    // on a vertical-first one. `isHorizontalFirst` says which; left out, the
+    // screen's own pattern decides (a custom screen reads as horizontal).
+    // Nothing moves with Max Capacity, Low Latency or a wall whose lines fit.
+    portNumberOrderOf(layer, isHorizontalFirst = null) {
+        const saved = layer && layer.portNumberOrder;
+        if (saved === 'down' || saved === 'across') return saved;
+        const horizontal = isHorizontalFirst === null
+            ? !isVerticalFlowPattern(this._portNumberPattern(layer))
+            : !!isHorizontalFirst;
+        return horizontal ? 'across' : 'down';
+    }
+
+    // The automatic pattern the Port numbers switch is read against: the
+    // screen's own, or on a custom screen the one it remembers.
+    _portNumberPattern(layer) {
+        const own = (layer && layer.flowPattern) || 'tl-h';
+        if (own !== 'custom') return own;
+        const last = layer && layer.lastFlowPattern;
+        return (last && last !== 'custom') ? last : 'tl-h';
+    }
+
+    // True when the runs cut from long lines are to be renumbered stack by
+    // stack, i.e. when the switch points ACROSS the lines rather than along
+    // them: Down on a horizontal-first pattern, Across on a vertical one.
+    portNumbersStack(layer, isHorizontalFirst) {
+        if (!layer || ((layer.portMappingMode || 'organized') !== 'organized')) return false;
+        const order = this.portNumberOrderOf(layer, isHorizontalFirst);
+        return isHorizontalFirst ? order === 'down' : order === 'across';
+    }
+
+    // Reorder `runs` (in flow order) so that, inside every unbroken stretch
+    // of runs cut from consecutive long lines, the first run of each line
+    // comes first, then the second run of each, and so on. `infoOf(run)`
+    // gives { line, seg } for a cut run and null for any other; a run that is
+    // not cut ends the stretch, so whole-line ports keep their places.
+    // Stable, and a pure permutation: every run comes back exactly once.
+    _stackSplitRuns(runs, infoOf) {
+        const out = [];
+        let block = [];
+        const flush = () => {
+            block.sort((a, b) => (a.info.seg - b.info.seg) || (a.info.line - b.info.line)
+                || (a.at - b.at));
+            block.forEach(x => out.push(x.run));
+            block = [];
+        };
+        runs.forEach((run, at) => {
+            const info = infoOf(run);
+            if (info) {
+                block.push({ run, info, at });
+                return;
+            }
+            flush();
+            out.push(run);
+        });
+        flush();
+        return out;
     }
 
     // Fold this layer's overridden ports into an automatic assignment, in the

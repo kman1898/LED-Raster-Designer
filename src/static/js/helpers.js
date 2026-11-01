@@ -351,7 +351,30 @@ function installEnterEndsEdit(doc) {
     });
 }
 
-export { evaluateMathExpression, isMacOS, sendClientLog, registerGlobalClientLogging, setupColorPickerWithHex, normalizeHex, refreshAllColorSwatches, isTypingTarget, installEnterEndsEdit };
+// The data flow patterns (the owner's rulings, 2026-11-01). A code is
+// `<corner>-<h|v>` for a SNAKE, where every row (horizontal first) or
+// column (vertical first) runs back the opposite way, and the same code
+// with `-z` on the end for its Z twin, where every row or column starts
+// again from the same side as the first, the way a cable goes back to the
+// left edge before each new row. Corner and first direction are the
+// snake's. The picker shows the snakes on top and the Z twins under them,
+// both rows in this order. Any other code (an old show's) walks as it
+// always did: it is not a Z, so it snakes.
+const FLOW_SNAKE_PATTERNS = ['tl-h', 'tr-h', 'bl-h', 'br-h', 'tl-v', 'tr-v', 'bl-v', 'br-v'];
+const FLOW_Z_PATTERNS = FLOW_SNAKE_PATTERNS.map(p => `${p}-z`);
+const FLOW_AUTO_PATTERNS = FLOW_SNAKE_PATTERNS.concat(FLOW_Z_PATTERNS);
+
+function isZFlowPattern(pattern) {
+    return FLOW_Z_PATTERNS.includes(String(pattern || ''));
+}
+
+// Vertical first: the code's second part is `v` (tl-v, tl-v-z).
+function isVerticalFlowPattern(pattern) {
+    return String(pattern || '').split('-')[1] === 'v';
+}
+
+export { evaluateMathExpression, isMacOS, sendClientLog, registerGlobalClientLogging, setupColorPickerWithHex, normalizeHex, refreshAllColorSwatches, isTypingTarget, installEnterEndsEdit,
+    FLOW_SNAKE_PATTERNS, FLOW_Z_PATTERNS, FLOW_AUTO_PATTERNS, isZFlowPattern, isVerticalFlowPattern };
 
 // Classic (non-module) scripts call these by name at runtime
 // (canvas.js -> sendClientLog, color_picker.js -> normalizeHex,
