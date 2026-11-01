@@ -2749,6 +2749,60 @@
                 return w && w.flowPattern === 'tl-v' ? 'Ports now run top-left, vertical first.' : null;
             }
         },
+        // Port numbers (layer.portNumberOrder): shown only where Organized
+        // cuts a row into more than one port, so the step adds a screen
+        // whose rows are 8 cabinets of 512 x 256 on NovaStar Legacy, 5 to a
+        // port: each row is a port of 5 and a port of 3.
+        portNumbers: {
+            since: '1.5.4',
+            target: '#port-number-order-row', place: 'right', title: 'Port numbers',
+            avoid: ['#port-number-down'],
+            body: 'A row too long for one port is cut into ports of whole cabinets. Port numbers sets their order: Across goes along each row, Down goes down the stacks and starts each new stack back at the top.',
+            before: function () { closePrefs(); hideMenus(); closePopover(); switchView('data-flow'); },
+            act: function (t) {
+                var a = A(), w = wall();
+                var bottom = screens().reduce(function (m, l) {
+                    return Math.max(m, (Number(l.offset_y) || 0) + (Number(l.rows) || 0) * (Number(l.cabinet_height) || 0));
+                }, 0);
+                var find = function () {
+                    return (a.project.layers || []).find(function (x) { return x.id === t.mem.layer; }) || null;
+                };
+                return j('POST', '/api/layer/add', {
+                    name: 'LONG ROWS', columns: 8, rows: 2,
+                    cabinet_width: 512, cabinet_height: 256,
+                    offset_x: (w && Number(w.offset_x)) || 0, offset_y: bottom + 200
+                }).then(function (layer) {
+                    a.initializeLayerDefaults(layer);
+                    layer.processorType = 'novastar-armor';
+                    layer.flowPattern = 'tl-h';
+                    layer.portMappingMode = 'organized';
+                    a.upsertProjectLayer(layer);
+                    a.updateLayers([layer]);
+                    t.mem.layer = layer.id;
+                    var l = find();
+                    a.selectLayer(l);
+                    frameLayers([l]);
+                    a.saveState('Add Layer');
+                    a.updatePortCapacityDisplay();
+                    return t.wait(function () {
+                        var row = $('#port-number-order-row');
+                        return row && row.style.display !== 'none' ? row : null;
+                    });
+                }).then(function (row) {
+                    if (!row) throw new Error('Port numbers is not shown for LONG ROWS');
+                    return t.click('#port-number-down');
+                }).then(function () {
+                    return t.wait(function () { var l = find(); return l && l.portNumberOrder === 'down'; });
+                });
+            },
+            check: function (mem) {
+                var a = A();
+                var l = (a.project.layers || []).find(function (x) { return x.id === mem.layer; });
+                if (!l || l.portNumberOrder !== 'down') return null;
+                var start = (a.calculatePortAssignments(l) || []).find(function (x) { return x.port === 2 && x.isPortStart; });
+                return start ? 'Port 2 now starts row ' + (start.panel.row + 1) + ' of LONG ROWS, under port 1.' : null;
+            }
+        },
         addProcessor: {
             target: '#hw-dock-data-controls', place: 'top', title: 'Add a processor',
             avoid: ['#processor-add-device', '#processor-add-btn'],
@@ -5051,7 +5105,7 @@
                     'addService', 'serviceRating', 'serviceDistro', 'feederLength',
                     'addBeach', 'screenBeach', 'addScreen', 'beachByMenu', 'crossScreens', 'groupScreens',
                     'exportBinder', 'screenOrder', 'wiringTick', 'titleBlock', 'fileExports', 'preferences',
-                    'mirrorScreen', 'helpMenu', 'outroAdvanced']
+                    'mirrorScreen', 'portNumbers', 'helpMenu', 'outroAdvanced']
         }
     };
 

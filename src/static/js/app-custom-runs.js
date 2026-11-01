@@ -1098,7 +1098,8 @@ class _CustomRuns {
         const sharing = isPower && this._customFillShares(owner);
         const cut = sharing
             ? this._chunkPicksIntoShares(owner, startNum, lines, frozen)
-            : this._chunkPicksByCapacity(owner, kind, startNum, lines, frozen);
+            : this._chunkPicksByCapacity(owner, kind, startNum, lines, frozen,
+                { vertical: String(pattern).endsWith('-v') });
         if (cut.skipped && cut.skipped.length) steppedOver(cut.skipped);
         if (cut.error) {
             toast(`Cannot apply: ${cut.error}`, true);
@@ -1530,7 +1531,13 @@ class _CustomRuns {
     //
     // `error` instead when a single cabinet is over the cap on its own or
     // the override list runs out - nothing is written in either case.
-    _chunkPicksByCapacity(owner, kind, startNum, lines, skip = null) {
+    //
+    // THE PORT NUMBERS SWITCH (data, Organized; portNumbersStack): the runs
+    // a long line is cut into keep their cabinets and only change number,
+    // the same way the automatic walk numbers them. `opts.vertical` says the
+    // lines are columns. The numbers handed out are the same set, in the
+    // same skip-aware sequence; only which run gets which one moves.
+    _chunkPicksByCapacity(owner, kind, startNum, lines, skip = null, opts = null) {
         const cap = this.customRunCapacity(owner, kind);
         const eps = CUSTOM_RUN_EPS;
         const noun = kind === 'power' ? 'circuit' : 'port';
@@ -1608,7 +1615,9 @@ class _CustomRuns {
             chunks.push(cur);
             return { chunks, skipped };
         }
+        let linePos = -1;
         for (const line of lines) {
+            linePos += 1;
             // An empty line (hidden cabinets, a group's gap) still counts
             // toward the snake's alternation - the rule this has always had.
             if (line.length === 0) {
@@ -1639,7 +1648,10 @@ class _CustomRuns {
                 if (why) return { error: why, skipped };
             }
             let cells = line;
+            let segNo = 0;
             while (cells.length > 0) {
+                cur.split = { line: linePos, seg: segNo };
+                segNo += 1;
                 let took = 0;
                 for (const pick of cells) {
                     const next = cur.picks.concat([pick]);
@@ -1658,6 +1670,12 @@ class _CustomRuns {
             lineInRun = 1;
         }
         chunks.push(cur);
+        if (kind !== 'power' && this.portNumbersStack(owner, !(opts && opts.vertical))) {
+            const nums = chunks.map(c => c.num);
+            const stacked = this._stackSplitRuns(chunks, c => c.split || null);
+            stacked.forEach((c, i) => { c.num = nums[i]; });
+            return { chunks: stacked, skipped };
+        }
         return { chunks, skipped };
     }
 

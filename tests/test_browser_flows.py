@@ -655,9 +655,13 @@ def test_armor_max_capacity_is_selectable(page):
     mx = port_map(page, rows=2, columns=20,
                   processorType='novastar-armor', mode='max-capacity')
     # A 20-wide row reserves 4000x200 = 800,000 px against a 659,722 px port,
-    # so Organized cannot fit a whole row and reports a capacity error.
-    assert org['error'], "expected Organized to fail on an over-wide row"
-    assert org['ports'] == []
+    # so Organized cannot fit a whole row. Since v1.5.4 it cuts the row into
+    # ports of whole cabinets (16 fit: 3200x200 = 640,000 px) and the last
+    # takes the remainder; no port carries on onto the next row.
+    assert not org['error'], f"Organized errored on an over-wide row: {org['errorInfo']}"
+    assert [p['panels'] for p in org['ports']] == [16, 4, 16, 4]
+    assert [p['rectArea'] for p in org['ports']] == [640000, 160000, 640000, 160000]
+    assert_rect_fits(org, 'armor 2x20 organized')
     # Max Capacity splits mid-row and succeeds.
     assert not mx['error'], f"max-capacity unexpectedly errored: {mx['errorInfo']}"
     assert len(mx['ports']) == 3, [p['panels'] for p in mx['ports']]

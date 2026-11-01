@@ -819,6 +819,27 @@
                                 </div>
                             </div>
 
+                            <!-- Port numbers (layer.portNumberOrder): how the
+                                 ports Organized cuts from a row (or column)
+                                 too long for one port are numbered. Shown
+                                 only while that happens on this screen
+                                 (updatePortNumberOrderControl). -->
+                            <div class="info-row" id="port-number-order-row" style="margin-bottom: 8px; display: none;" data-tooltip="Port numbers, Across numbers the ports along each row first; Down numbers them down the stacks, then starts the next stack back at the first row.">
+                                <label>Port numbers</label>
+                                <div style="display: flex; gap: 4px; width: 100%;">
+                                    <button type="button" id="port-number-across" class="mapping-mode-btn active"
+                                        style="flex: 1; padding: 5px 8px; font-size: 11px; border: 1px solid #555; border-radius: 4px; cursor: pointer; transition: all 0.15s;"
+                                        title="Number the ports along each row first, then the next row">
+                                        Across
+                                    </button>
+                                    <button type="button" id="port-number-down" class="mapping-mode-btn"
+                                        style="flex: 1; padding: 5px 8px; font-size: 11px; border: 1px solid #555; border-radius: 4px; cursor: pointer; transition: all 0.15s;"
+                                        title="Number the ports down the stacks, then start the next stack back at the first row">
+                                        Down
+                                    </button>
+                                </div>
+                            </div>
+
                             <!-- The group's "Route <name> as one screen"
                                  switch (group.routeDataAsOne). It sits under
                                  Port Mapping because the two answer the same

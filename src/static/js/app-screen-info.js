@@ -3,6 +3,11 @@
 import { LEDRasterApp } from './app-core.js';
 import { evaluateMathExpression, sendClientLog, refreshAllColorSwatches } from './helpers.js';
 
+// The automatic flow patterns a screen can be walked in (the eight tiles
+// under Data Flow), in the order the tiles sit. getAutoPortsMinimum tries
+// each one.
+const AUTO_FLOW_PATTERNS = ['tl-h', 'tl-v', 'tr-h', 'tr-v', 'bl-h', 'bl-v', 'br-h', 'br-v'];
+
 class _ScreenInfo {
     // A cabinet's share of the screen's per-cabinet WATTS: 1 for a full
     // cabinet; a half tile draws half (owner, 2026-10-20: "we can change it
@@ -204,6 +209,10 @@ class _ScreenInfo {
     // numbers at the user. `assignments` lets a caller that has already run
     // calculatePortAssignments (for the Low Latency derate note) pass it in
     // rather than paying for the walk twice.
+    //
+    // v1.5.4: on a custom data path this is the ports DRAWN (what the cards,
+    // the port labels and the canvas count). Screen Info's "Ports required"
+    // reads getLayerPortsMinimum below instead: the fewest the screen needs.
     getLayerPortsRequired(layer, assignments = null) {
         if (!layer || (layer.type || 'screen') !== 'screen') return 0;
         const a = assignments || this.calculatePortAssignments(layer) || [];
@@ -257,6 +266,121 @@ class _ScreenInfo {
         // each need 1.5 ports round up to 2 + 2 = 4 apart and pack into 3
         // together. Losing that per-member rounding waste is the point.
         return auto;
+    }
+
+    // The FEWEST ports this screen's cabinets need under its current Port
+    // Mapping setting (Organized or Max Capacity), under ideal circumstances:
+    // the lowest count any automatic flow pattern gets, each walked by
+    // calculatePortAssignments with every rule it holds (the Armor / 1G
+    // rectangle, Low Latency, bit depth and frame rate, half tiles, blank and
+    // hidden cabinets, the 5G / Brompton / HELIOS capacity figures). The
+    // screen is walked on its own (`solo`): no group crossing and no per-run
+    // overrides. A pattern that cannot map the screen at all (a capacity
+    // error) is left out; `error` is set only when none of them can.
+    //
+    // The walk writes its bookkeeping onto the layer (_autoPortsRequired,
+    // _capacityError, _lowLatencyDerate), so those are put back afterwards:
+    // the screen's own walk is the one every other reader means.
+    getAutoPortsMinimum(layer) {
+        const out = { ports: 0, error: null, pattern: null };
+        if (!layer || (layer.type || 'screen') !== 'screen') return out;
+        const kept = {
+            _autoPortsRequired: layer._autoPortsRequired,
+            _capacityError: layer._capacityError,
+            _lowLatencyDerate: layer._lowLatencyDerate,
+        };
+        let firstError = null;
+        try {
+            AUTO_FLOW_PATTERNS.forEach(pattern => {
+                this.calculatePortAssignments(layer, { pattern, solo: true });
+                if (layer._capacityError) {
+                    if (!firstError) firstError = layer._capacityError;
+                    return;
+                }
+                const n = Number(layer._autoPortsRequired) || 0;
+                if (n > 0 && (out.ports === 0 || n < out.ports)) {
+                    out.ports = n;
+                    out.pattern = pattern;
+                }
+            });
+        } finally {
+            Object.assign(layer, kept);
+        }
+        if (out.ports === 0) out.error = firstError;
+        return out;
+    }
+
+    // What Screen Info's "Ports required" reads (the owner's ruling,
+    // 2026-11-01: "ports required should be in the current setting as in
+    // organized or max this is the minimum amount of ports needed under
+    // ideal circumstances"). For a screen on a custom data path that is
+    // getAutoPortsMinimum, whatever has been drawn so far; the drawn ports
+    // themselves stay getLayerPortsRequired, which is what the processor
+    // cards, the port labels and the canvas count. A custom member every one
+    // of whose cabinets is on a peer's drawn port still reads 0, as it does
+    // there. An automatic screen reads its own walk, unchanged.
+    //
+    // Returns { ports, error }: `error` is the capacity error the readout
+    // shows as ERROR (the screen's own walk's, or for a custom screen the
+    // one no automatic pattern could get past).
+    getLayerPortsMinimumDetail(layer, assignments = null) {
+        if (!layer || (layer.type || 'screen') !== 'screen') return { ports: 0, error: null };
+        if (!this.isCustomFlow(layer)) {
+            const ports = this.getLayerPortsRequired(layer, assignments);
+            return { ports, error: layer._capacityError || null };
+        }
+        if (this._layerFullyServedByPeerPath(layer, 'customPortPaths')) {
+            return { ports: 0, error: null };
+        }
+        const best = this.getAutoPortsMinimum(layer);
+        return { ports: best.ports, error: best.error };
+    }
+
+    getLayerPortsMinimum(layer, assignments = null) {
+        return this.getLayerPortsMinimumDetail(layer, assignments).ports;
+    }
+
+    // Does the Port numbers switch change anything on this screen? Only in
+    // Organized, outside Low Latency (which walks cabinet by cabinet in both
+    // modes), and only where a row or column is cut into more than one port.
+    // An automatic screen is asked in its own pattern; a custom one in a
+    // horizontal and a vertical pattern, because Apply Pattern can be either.
+    // The walk's bookkeeping is put back afterwards (see getAutoPortsMinimum).
+    portNumberOrderMatters(layer) {
+        if (!layer || (layer.type || 'screen') !== 'screen') return false;
+        if ((layer.portMappingMode || 'organized') !== 'organized') return false;
+        if (this.getLowLatencyGeometry(layer)) return false;
+        const patterns = this.isCustomFlow(layer)
+            ? ['tl-h', 'tl-v'] : [layer.flowPattern || 'tl-h'];
+        const kept = {
+            _autoPortsRequired: layer._autoPortsRequired,
+            _capacityError: layer._capacityError,
+            _lowLatencyDerate: layer._lowLatencyDerate,
+        };
+        try {
+            return patterns.some(pattern => {
+                const stats = {};
+                this.calculatePortAssignments(layer, { pattern, solo: true, stats });
+                return !!stats.split;
+            });
+        } finally {
+            Object.assign(layer, kept);
+        }
+    }
+
+    // The Port numbers row under Port Mapping: shown only where it matters,
+    // its highlight from the shown screen's portNumberOrder.
+    updatePortNumberOrderControl() {
+        const row = document.getElementById('port-number-order-row');
+        if (!row) return;
+        const layer = this.currentLayer;
+        const show = !!layer && this.portNumberOrderMatters(layer);
+        row.style.display = show ? '' : 'none';
+        const order = this.portNumberOrderOf(layer);
+        const across = document.getElementById('port-number-across');
+        const down = document.getElementById('port-number-down');
+        if (across) across.classList.toggle('active', order === 'across');
+        if (down) down.classList.toggle('active', order === 'down');
     }
 
     // Circuits required for ONE member. Mirrors getLayerPortsRequired exactly:
@@ -1586,6 +1710,7 @@ class _ScreenInfo {
                     bitDepth: this.currentLayer.bitDepth,
                     frameRate: this.currentLayer.frameRate,
                     portMappingMode: this.currentLayer.portMappingMode,
+                    portNumberOrder: this.currentLayer.portNumberOrder,
                     powerVoltage: this.currentLayer.powerVoltage,
                     powerVoltageCustom: this.currentLayer.powerVoltageCustom,
                     powerAmperage: this.currentLayer.powerAmperage,
@@ -1759,7 +1884,7 @@ class _ScreenInfo {
                 'portLabelOverridesReturn', 'customPortPaths',
                 'customPortIndex', 'customPortOverrides',
                 'processorType', 'lowLatency',
-                'bitDepth', 'frameRate', 'portMappingMode',
+                'bitDepth', 'frameRate', 'portMappingMode', 'portNumberOrder',
                 'powerVoltage', 'powerVoltageCustom', 'powerAmperage',
                 'powerAmperageCustom', 'panelWatts', 'powerMaximize',
                 'powerOrganized', 'powerCustomPath',

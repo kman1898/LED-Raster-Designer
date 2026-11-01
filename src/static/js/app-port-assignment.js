@@ -822,7 +822,7 @@ class _PortAssignment {
     _canvasGeomKeys() {
         return ['columns', 'rows', 'cabinet_width', 'cabinet_height',
                 'offset_x', 'offset_y', 'showOffsetX', 'showOffsetY',
-                'rotation', 'flowPattern', 'portMappingMode',
+                'rotation', 'flowPattern', 'portMappingMode', 'portNumberOrder',
                 'customPortPaths', 'customPortOverrides', 'sizeByDimensions',
                 'targetWidth', 'targetHeight', 'targetUnit', 'panels'];
     }
@@ -834,6 +834,7 @@ class _PortAssignment {
             layer.columns, layer.rows, layer.cabinet_width, layer.cabinet_height,
             layer.offset_x, layer.offset_y, Number(layer.rotation) || 0,
             layer.flowPattern || null, layer.portMappingMode || null,
+            layer.portNumberOrder || null,
             layer.customPortPaths || null, layer.customPortOverrides || null,
             (layer.panels || []).map(p => [p.row, p.col, !!p.hidden, !!p.blank,
                                            p.halfTile || 'none']),

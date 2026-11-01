@@ -336,6 +336,14 @@ FIXES
 - FIX: On a Mac, opening the launcher no longer hides the app's menu-bar
   icon behind the menu bar, so it stays visible and clickable. Thanks to
   kcikcreative33 for this fix.
+- FIX: Ports required on a custom data path now says the fewest ports the
+  screen needs in its Organized or Max Capacity setting, not how many
+  ports have been drawn so far.
+- FIX: Organized no longer stops with a capacity error when a row is
+  longer than one port carries. It fills the port with whole cabinets and
+  starts the next port in the same row, and a column works the same way.
+  A Port numbers switch beside it numbers those ports across each row or
+  down the stacks.
 
 v1.5.3 - October 21, 2026
 ----------------------------
