@@ -1,6 +1,6 @@
 """The owner's round 7 answers on the v1.5.4 notes.
 
-  * The FEEDERS example prints the service the way the binder does, with
+  * The FEEDS example prints the service the way the binder does, with
     its size and system: "Fed from: HOUSE · 600 A · 120/208V 3φ · ...".
   * A crowded Power sheet's short bracket tags and key are a FIX.
   * The tray and distro-check warning for an output carrying more circuits
@@ -44,7 +44,7 @@ def _section(start, end):
 
 
 def test_the_feeder_example_names_the_service_with_its_size():
-    feeders = _section('\nFEEDERS\n', '\nTHE PANEL ON EACH SCREEN\n')
+    feeders = _section('\nFEEDS\n', '\nTHE PANEL ON EACH SCREEN\n')
     assert "like Fed from: HOUSE · 600 A · 120/208V 3φ · 200 A cam set 100'+50'." in feeders
     # the binder joins the service label and the feeder with " · ", and the
     # service label is "name · size · system"
