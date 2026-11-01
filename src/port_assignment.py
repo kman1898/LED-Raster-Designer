@@ -1007,10 +1007,13 @@ def _mirror_returns(cards, occupancy):
 
 # ── Mirror screens ────────────────────────────────────────────────────────
 #
-# MIRROR A SCREEN (owner, 2026-10-30): "You pick the screen to copy; the
-# copy screen's port map follows the first automatically and can't be drawn
-# separately. A mismatch in size or panel is refused." NovaStar's Copy mode
-# is what feeds it: "OPT 3 copies the output on OPT 1, while OPT 4 copies
+# MIRROR A SCREEN (owner, 2026-10-30): "the copy screen's port map follows
+# the first automatically and can't be drawn separately." How a mirror is
+# made changed on 2026-11-01 (owner): not a pick in Screen Info but the
+# card's own Copy setting plus a drag - the card dropped on a first screen
+# feeds it, the same card dropped on a second, matching screen makes that
+# screen the first one's copy (the dock's _copyDropPlan, then the layer
+# PUT through mirror_set_refusal). NovaStar's Copy mode is what feeds it: "OPT 3 copies the output on OPT 1, while OPT 4 copies
 # the output on OPT 2" (H_4xfiber, H15 Specifications V1.15.0 p.36), the
 # enhanced card's OPT 5-8 copy OPT 1-4 (p.37), and an MX40 Pro in 20-port
 # mode has OPT 3/4 as "the copy channel" of OPT 1/2 (User Manual V1.5.0
@@ -1082,6 +1085,14 @@ def _mirror_missing(card, port):
             f'copying that port')
 
 
+def _stop_mirroring_offer(layer_id):
+    """The issue button that lets a mirror go: a release of the mirror
+    screen, which the unpin route reads as "unplug the copy" (it clears the
+    screen's dataMirrorOf - routes_port_assignment.unpin_port)."""
+    return {'action': 'release', 'layerId': layer_id,
+            'label': 'Stop mirroring'}
+
+
 def _mirror_pass(screens, mirrors, by_id, placed, mirror_claims):
     """Land every mirror screen's ports on the copies of its source's
     sockets, in `placed` (source 'mirror') and `mirror_claims`, and say
@@ -1099,7 +1110,7 @@ def _mirror_pass(screens, mirrors, by_id, placed, mirror_claims):
                 'sourceLayerId': scr.get('mirrorOf'),
                 'message': (f'{scr["mirrorMismatch"]} {scr["name"]} is not '
                             f'mirroring until they match again.'),
-                'offers': [],
+                'offers': [_stop_mirroring_offer(layer_id)],
             })
             continue
         if not src:
@@ -1109,9 +1120,11 @@ def _mirror_pass(screens, mirrors, by_id, placed, mirror_claims):
                     'layerId': layer_id,
                     'message': (f'{scr["name"]} mirrors a screen that is '
                                 f'not in this project, or that mirrors '
-                                f'another screen itself - choose the '
-                                f'screen to copy again in Screen Info.'),
-                    'offers': [],
+                                f'another screen itself. Stop mirroring, '
+                                f'then drag a card in Copy mode onto the '
+                                f'screen to copy and then onto '
+                                f'{scr["name"]}.'),
+                    'offers': [_stop_mirroring_offer(layer_id)],
                 })
             continue
         missing = {}
@@ -1175,11 +1188,13 @@ def _cabinet_marks(layer):
 
 def mirror_mismatch(source, mirror):
     """Why `mirror` (a layer) cannot copy `source` cabinet for cabinet, or
-    None. Owner, 2026-10-30: "A mismatch in size or panel is refused." Size
-    is columns x rows; the panel is its pixel size and, where both screens
-    carry one, its physical size; and the cabinets that walk differently
-    (blank, hidden, half tiles) must sit in the same places, or the copied
-    port map would land on cabinets that are not there."""
+    None. Owner, 2026-11-01, the match rule: the same columns x rows, the
+    same pixels per cabinet (cabinet_width x cabinet_height px), and the
+    ports in exactly the same order - which means the cabinets that walk
+    differently (blank, hidden, half tiles) sit in the same places, or the
+    copied port map would land on cabinets that are not there. The panel's
+    physical size is NOT part of it: "they could be differing panel types
+    but be the same pixel density per panel." """
     a = source or {}
     b = mirror or {}
     a_name = a.get('name') or f'Screen {a.get("id")}'
@@ -1196,17 +1211,13 @@ def mirror_mismatch(source, mirror):
                 f'{_num(b.get("cabinet_height"))} px and {a_name}\'s are '
                 f'{_num(a.get("cabinet_width"))} x '
                 f'{_num(a.get("cabinet_height"))} px - {tail}')
-    a_mm = (_num(a.get('panel_width_mm')), _num(a.get('panel_height_mm')))
-    b_mm = (_num(b.get('panel_width_mm')), _num(b.get('panel_height_mm')))
-    if None not in a_mm and None not in b_mm and a_mm != b_mm:
-        return (f'{b_name}\'s panels are {b_mm[0]} x {b_mm[1]} mm and '
-                f'{a_name}\'s are {a_mm[0]} x {a_mm[1]} mm - {tail}')
     halves = ('halfFirstColumn', 'halfLastColumn', 'halfFirstRow',
               'halfLastRow')
     if any(bool(a.get(k)) != bool(b.get(k)) for k in halves) \
             or _cabinet_marks(a) != _cabinet_marks(b):
         return (f'{b_name} and {a_name} have different blank, hidden or '
-                f'half cabinets - {tail}')
+                f'half cabinets, so their ports would not run in the same '
+                f'order - {tail}')
     # A run drawn across onto another screen's cabinets is not a map the
     # mirror can copy cabinet for cabinet.
     for entries in ((a.get('customPortPaths') or {}).values()
@@ -1223,7 +1234,7 @@ def mirror_mismatch(source, mirror):
 def mirror_set_refusal(project, layer, source_id):
     """Why `layer` may not be set to mirror the layer `source_id`, or None.
     Refused, never warned: not a screen, itself, a mirror of a mirror, a
-    screen already copied by another, a size or panel mismatch
+    screen already copied by another, a size, pixel or port-order mismatch
     (mirror_mismatch), or a screen whose data routes as one with its group
     (its port map is the group's, not its own)."""
     layers = [l for l in (project or {}).get('layers') or []
@@ -1268,11 +1279,15 @@ def mirror_set_refusal(project, layer, source_id):
     return None
 
 
-def mirror_refusal(screens, layer_id):
-    """Why a placement or release of `layer_id`'s ports is refused because
-    the screen is a mirror, or None. A mirror's ports follow its source's
-    and are never placed or released on their own - "can't be drawn
-    separately" - so every such edit says where the change is made."""
+def mirror_refusal(screens, layer_id, processors=None, state=None):
+    """Why a placement of `layer_id`'s ports is refused because the screen
+    is a mirror, or None. A mirror's ports follow its source's and are
+    never placed on their own - "can't be drawn separately" - so every such
+    edit says where the change is made, and how the copy is undone: unplug
+    the card (or processor) from the copy screen (owner, 2026-11-01). A
+    RELEASE of a mirror's ports is not refused: it is that unplug
+    (routes_port_assignment.unpin_port). With `processors` and `state` the
+    word is the unit's own that feeds the source; without, 'card'."""
     cleaned = _clean_screens(screens)
     mirrors = mirror_sources(cleaned)
     src = mirrors.get(str(layer_id))
@@ -1280,9 +1295,62 @@ def mirror_refusal(screens, layer_id):
         return None
     names = {s['layerId']: s['name'] for s in cleaned}
     name, source = names.get(str(layer_id)), names.get(src, src)
+    word = mirror_unit_word(processors, state, src)
     return (f'{name} mirrors {source} - its ports follow {source}\'s and '
             f'cannot be placed on their own. Place {source}\'s ports, or '
-            f'stop mirroring in Screen Info.')
+            f'unplug the {word} from {name} to stop mirroring.')
+
+
+def mirror_unit_word(processors, state, source_id):
+    """'card' or 'processor': what feeds `source_id` (the unit its first
+    pin sits on), for a message telling someone what to unplug. 'card'
+    where nothing is known - the word every such message read before."""
+    if not processors or not isinstance(state, dict):
+        return 'card'
+    pins = [p for p in _clean_pins(state.get('pins'))
+            if p['layerId'] == str(source_id)]
+    if not pins:
+        return 'card'
+    card = next((c for c in cards_in(processors)
+                 if c['cardId'] == pins[0]['cardId']), None)
+    return 'card' if _unit_word(card) == 'card' else 'processor'
+
+
+def copy_card_ids(processors):
+    """The cards whose current mode has copies a mirror screen can ride
+    (copy_trunks 'mirror' - the H_4xfiber and its enhanced card in Copy -
+    or 'per-box' - the MX40 Pro in 20-port mode). Read off the catalog's
+    modes and nothing else, so no other product gains a mirror."""
+    return {c['cardId'] for c in cards_in(processors or [])
+            if c.get('copyTrunks') in ('mirror', 'per-box')}
+
+
+def mirrors_unplugged(project, processors, before_pins, after_pins):
+    """The mirror screens (layers) an edit to the pins unplugs along with
+    their source. Owner, 2026-11-01: "If the card is unplugged from the
+    FIRST (source) screen, the copy screen unplugs too." A mirror goes when
+    its source HAD a port on a card in a copy mode before the edit and has
+    none on such a card after it - the source came off the card that fed
+    the copy. Only that transition: an edit that never touched the source,
+    and a show opened with a mirror whose source is not plugged in yet,
+    clear nothing. A LOCKED mirror stays as it is (the locked-screen rule);
+    with its source unplugged it simply has nothing to follow."""
+    layers = [l for l in (project or {}).get('layers') or []
+              if isinstance(l, dict)
+              and l.get('dataMirrorOf') not in (None, '')]
+    if not layers:
+        return []
+    copy_cards = copy_card_ids(processors)
+    if not copy_cards:
+        return []
+
+    def on_copy(pins, src):
+        return any(p['layerId'] == str(src) and p['cardId'] in copy_cards
+                   for p in _clean_pins(pins))
+
+    return [l for l in layers if not l.get('locked')
+            and on_copy(before_pins, l['dataMirrorOf'])
+            and not on_copy(after_pins, l['dataMirrorOf'])]
 
 
 # ── Cards that cannot load one screen together ────────────────────────────

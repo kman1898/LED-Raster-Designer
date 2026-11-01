@@ -319,9 +319,11 @@ def update_layer(layer_id):
     # MIRROR A SCREEN (owner, 2026-10-30): dataMirrorOf names the screen
     # this one copies - its data port map follows that screen's and lands on
     # the copy OPTs of the card feeding it (port_assignment's mirror pass).
+    # Since 2026-11-01 (owner) the dock sets it when a card in Copy mode is
+    # dragged onto a second screen (app-mirror-screens.js _copyDropPlan).
     # It names another object, so it is validated, not taken on trust, and a
-    # refused one refuses the whole PUT before anything is written: a size
-    # or panel mismatch, a copy of a copy, itself
+    # refused one refuses the whole PUT before anything is written: a size,
+    # pixel or port-order mismatch, a copy of a copy, itself
     # (port_assignment.mirror_set_refusal). A PUT carrying the value the
     # layer already has changes nothing and is never refused. Setting it
     # lets go of the screen's own pins - from here on its ports follow the

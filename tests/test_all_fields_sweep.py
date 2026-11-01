@@ -208,13 +208,6 @@ SKIP = {
     'power-jump-unit':
         'writes project.cableUnit, not the layer; driven end-to-end by '
         'tests/test_show_unit_switch.py',
-    # Mirror a screen (2026-10-30): its own validated PUT (dataMirrorOf),
-    # which needs a second screen of the same size and panel - the sweep
-    # project has one screen, so the select offers only None.
-    'mirror-screen':
-        'writes layer.dataMirrorOf through its own validated PUT and needs '
-        'a matching second screen; driven end-to-end by '
-        'tests/test_copy_mode_ui.py',
 }
 
 ALL_FIELDS = _discover_fields()
