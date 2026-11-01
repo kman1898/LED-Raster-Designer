@@ -736,21 +736,6 @@
 
                         <p style="font-size: 11px; color: #888; margin: 4px 0 12px 0;">Click & drag the screen name to reposition</p>
 
-                        <!-- Mirror a screen (2026-10-30): this screen's data
-                             port map follows the picked screen's, cabinet for
-                             cabinet, and its runs land on the copy outputs of
-                             the card feeding that screen (NovaStar Copy mode;
-                             an MX40 Pro box set to Mirror). Filled and noted
-                             by updateMirrorScreenControl
-                             (app-mirror-screens.js). -->
-                        <div class="info-row" id="mirror-screen-row" style="margin-bottom: 4px;" data-tooltip="Mirror a screen, Pick the screen this one copies. Its data port map follows that screen's cabinet for cabinet and cannot be drawn on its own; its runs come off the copy outputs of the card feeding that screen. Both screens must be the same size and panel.">
-                            <label for="mirror-screen">Mirror a screen</label>
-                            <select id="mirror-screen" class="info-select" data-lrd-field="mirror-screen" style="width: 100%;">
-                                <option value="">None</option>
-                            </select>
-                        </div>
-                        <p id="mirror-screen-note" style="display: none; font-size: 11px; color: #888; margin: 0 0 8px 0;"></p>
-
                         <!-- Port Capacity Settings -->
                         <div style="margin-top: 15px; padding: 12px; background: #1a1a1a; border-radius: 6px; border: 1px solid #333;">
                             <label style="font-weight: 600; margin-bottom: 10px; display: block; color: #4A90E2;">Port Capacity</label>
@@ -2913,7 +2898,7 @@
                         <div class="pm-row">
                             <label>This show</label>
                             <div class="prefs-row">
-                                <label class="pm-check" data-tooltip="Off: one list for every cable. On: a list for each kind: multis, data, power, L21-30 and Harting home runs, direct-output cables and feeders."><input type="checkbox" id="pref-cable-stock-per-kind"> A list for each kind of cable</label>
+                                <label class="pm-check" data-tooltip="Off: one list for every cable. On: a list for each kind: multis, data, power, L21-30 and Harting home runs, direct-output cables and feeds."><input type="checkbox" id="pref-cable-stock-per-kind"> A list for each kind of cable</label>
                             </div>
                             <div class="pm-note" title="A run the stock can't make exactly is written as the pieces with the least extra length, on the map tags, the pull sheet and the binder. Fiber and jumpers aren't counted here.">The lengths this show has on hand. With 25, 50 and 100, a 125 run reads 100'+25'. Blank: lengths are written as typed.</div>
                         </div>
@@ -2981,11 +2966,11 @@
                             </div>
                         </div>
                         <div class="pm-row" data-cable-stock-list="feeder">
-                            <label>Feeders</label>
+                            <label>Feeds</label>
                             <div class="prefs-row">
-                                <input type="text" id="pref-cable-stock-feeder-ft" placeholder="none" class="pm-wide" data-tooltip="Feeder lengths in feet: the cam set or feeder cable that powers a distro.">
+                                <input type="text" id="pref-cable-stock-feeder-ft" placeholder="none" class="pm-wide" data-tooltip="Feed lengths in feet: the cam set or feed cable that powers a distro.">
                                 <span class="pm-unit">ft</span>
-                                <input type="text" id="pref-cable-stock-feeder-m" placeholder="none" class="pm-wide" data-tooltip="Feeder lengths in meters: the cam set or feeder cable that powers a distro.">
+                                <input type="text" id="pref-cable-stock-feeder-m" placeholder="none" class="pm-wide" data-tooltip="Feed lengths in meters: the cam set or feed cable that powers a distro.">
                                 <span class="pm-unit">m</span>
                             </div>
                         </div>

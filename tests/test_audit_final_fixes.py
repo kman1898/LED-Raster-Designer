@@ -114,7 +114,7 @@ SETUP_JS = """(o) => {
 
 # The pull sheet's rows, jumpers / breakouts / distros and their feeders left out.
 ROWS_JS = """() => window.app.buildPullList().positions.flatMap(p => p.rows)
-    .filter(r => r.side !== 'panel' && !/Jump|Breakout|Distro|Feeder/.test(r.type))
+    .filter(r => r.side !== 'panel' && !/Jump|Breakout|Distro|Feed/.test(r.type))
     .map(r => [r.type, r.length, r.qty, r.label, r.notes])"""
 
 

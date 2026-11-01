@@ -291,7 +291,7 @@ def test_a_pass_through_or_fed_distro_is_listed_with_nothing_plugged_in(page):
     assert named == ['FOH', 'MON', 'SL'], out['rows']
     hw = dict(out['hw'])
     assert set(hw) == {'d1', 'd2', 'd3'}, hw
-    assert ['Distro', 'EA', 'FOH', ''] in hw['d2'] and ['Feeder', '', 'FOH', 'no length'] in hw['d2'], hw['d2']
+    assert ['Distro', 'EA', 'FOH', ''] in hw['d2'] and ['Feed', '', 'FOH', 'no length'] in hw['d2'], hw['d2']
     assert ['400 A cam set', '', 'MON', '5-wire · no length'] in hw['d3'], hw['d3']
     # the pass-through's row lands where a screen is: WALL A's position
     assert {r[0] for r in out['rows'] if r[4] in ('FOH', 'MON')} == {'WALL A'}, out['rows']

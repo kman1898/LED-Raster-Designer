@@ -7,7 +7,7 @@
     screens line says they keep their multi numbers and outputs.
   * A distro with only hidden screens is left off the binder too, and a
     service with no distro that prints gets no Service sheet.
-  * The FEEDERS example is the binder's "Fed from: ..." line.
+  * The FEEDS example is the binder's "Fed from: ..." line.
   * What's New keeps 8 items and has none of the old wording.
 
 Run locally:
@@ -62,11 +62,15 @@ def test_the_refusal_lists_only_what_the_app_refuses():
 
 def test_the_feeder_example_is_the_fed_from_line():
     top = _top_entry()
-    feeders = _flat(top[top.index('\nFEEDERS\n'):top.index('\nTHE PANEL ON EACH SCREEN\n')])
+    feeders = _flat(top[top.index('\nFEEDS\n'):top.index('\nTHE PANEL ON EACH SCREEN\n')])
     # round 7: the service prints with its size, as the binder prints it
     assert "like Fed from: HOUSE · 600 A · 120/208V 3φ · 200 A cam set 100'+50'." in feeders
-    assert "It only reads Feeder: when there's no service or distro to name." in feeders
-    assert "Feeder: 50'" not in feeders
+    assert "It only reads Feed: when there's no service or distro to name." in feeders
+    assert "Feed: 50'" not in feeders
+    # "feed", never "feeder" (2026-11-01): the old word only where old
+    # pull sheet edits are said to carry over
+    assert top.lower().count('feeder') == 1, top
+    assert 'saved on a row that said feeder carry over to the feed.' in feeders
 
 
 def test_opening_an_older_show_lists_the_round_6_changes():
@@ -133,4 +137,4 @@ def test_whats_new_has_none_of_the_old_wording():
     entry = src[src.index("'1.5.4': {"):src.index("'1.5.3': {")]
     assert len(re.findall(r'\{\s*h:', entry)) == 8
     assert 'pasting' not in entry and 'paste' not in entry.lower()
-    assert "Feeder: 50'" not in entry
+    assert "Feed: 50'" not in entry and 'feeder' not in entry.lower()

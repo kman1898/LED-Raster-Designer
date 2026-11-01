@@ -199,7 +199,7 @@ def test_a_distro_at_its_own_beach_pulls_the_power_rows_there(page):
     assert dimmer['memberIds'] == [] and dimmer['layerIds'] == [ids['a'], ids['b']]
     assert _rows(dimmer['rows']) == [
         ('Distro', 'EA', 1, 'SR', ''),
-        ('Feeder', '', 1, 'SR', 'no length'),
+        ('Feed', '', 1, 'SR', 'no length'),
         ('Multi', "100'", 1, 'SR2', ''),
         ('Multi', "125'", 1, 'SR1', ''),
         ('TRUE1', "6'", 1, 'SR2-1', ''),
@@ -436,7 +436,7 @@ def test_a_box_at_its_beach_pulls_its_ports_rows_and_two_boxes_list_once(page):
     assert _rows(pos['SR Beach']['rows']) == [
         ('500 × 500 mm panel', 'EA', 24, 'WALL-A, WALL-B', ''),
         ('Distro', 'EA', 1, 'SR', ''),
-        ('Feeder', '', 1, 'SR', 'no length'),
+        ('Feed', '', 1, 'SR', 'no length'),
         ('Multi', "100'", 1, 'SR2', ''),
         ('Multi', "125'", 1, 'SR1', ''),
         ('TRUE1', "6'", 1, 'SR2-1', ''),

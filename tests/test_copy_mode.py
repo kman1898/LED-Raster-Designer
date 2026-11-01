@@ -26,9 +26,14 @@ other product gains it by resemblance:
   V1.15.0 p.2), and the enhanced card "cannot be used together with the
   H_4xfiber sending card, H_20xRJ45 sending card or H_16xRJ45+2xfiber sending
   card to load the same screen" (p.37-38) - refused, never warned.
-* Mirror a screen: "You pick the screen to copy; the copy screen's port map
-  follows the first automatically and can't be drawn separately. A mismatch
-  in size or panel is refused."
+* Mirror a screen: "the copy screen's port map follows the first
+  automatically and can't be drawn separately." Since 2026-11-01 (owner) it
+  is made by dragging a card in Copy mode onto a second screen (the browser
+  half is tests/test_copy_mode_ui.py; here the layer PUT the drop sends). The
+  screens match on columns x rows, pixels per cabinet and port order (blank,
+  hidden and half cabinets in the same places) - not on the panel's mm. A
+  source unplugged from the copy-mode card takes its copy with it; a release
+  of the copy alone just removes the copy.
 """
 import copy
 import os
@@ -441,21 +446,106 @@ def test_the_mirror_follows_the_source_when_it_moves(client):
     assert sr['ports'][0]['port'] == 28
 
 
-def test_a_mirror_screen_cannot_be_placed_or_released_on_its_own(client):
+def test_a_mirror_screen_cannot_be_placed_on_its_own(client):
     pid, cid, a, b, screens = mirror_rig(client)
     set_mirror(client, b, a)
     for route, body in (
             ('place', {'index': 0, 'cardId': cid, 'port': 5}),
             ('pin', {'index': 0, 'cardId': cid}),
-            ('unpin', {}),
             ('move-block', {'cardId': cid}),
             ('place-overflow', {'cardId': cid})):
         resp = client.post(f'/api/port-assignments/{route}',
                            json=dict(body, screens=screens, layerId=str(b)))
         assert resp.status_code == 409, (route, resp.get_data(as_text=True))
+        # the way back is the new one: unplug the card from the copy
         assert resp.get_json()['error'] == (
             "SR mirrors SL - its ports follow SL's and cannot be placed on "
-            "their own. Place SL's ports, or stop mirroring in Screen Info.")
+            "their own. Place SL's ports, or unplug the card from SR to stop "
+            "mirroring.")
+
+
+def _layer(client, layer_id):
+    return next(l for l in client.get('/api/project').get_json()['layers']
+                if l['id'] == layer_id)
+
+
+def _source_pins(client, layer_id):
+    return [p for p in client.get('/api/project').get_json()
+            ['port_assignments']['pins'] if p['layerId'] == str(layer_id)]
+
+
+def test_unplugging_only_the_copy_just_removes_the_copy(client):
+    """Owner, 2026-11-01: "Unplugging only the copy screen just removes the
+    copy." A release of the mirror's port (its run's Clear port, its socket
+    chip dragged to the tray) stops the mirror; the source keeps its ports."""
+    pid, cid, a, b, screens = mirror_rig(client)
+    set_mirror(client, b, a)
+    sent = [dict(s, mirrorOf=str(a)) if s['layerId'] == str(b) else s
+            for s in screens]
+    body = _ok(client.post('/api/port-assignments/unpin', json={
+        'screens': sent, 'layerId': str(b), 'index': 0}))
+    assert body['mirrorsCleared'] == [b]
+    assert 'dataMirrorOf' not in _layer(client, b)
+    sr = scr_of(body['resolution'], b)
+    assert sr['mirrorOf'] is None and sr['unplaced'] == [0, 1, 2]
+    assert len(_source_pins(client, a)) == 3
+
+
+def test_unplugging_the_source_unplugs_the_copy(client):
+    """Owner, 2026-11-01: "If the card is unplugged from the FIRST (source)
+    screen, the copy screen unplugs too." Releasing part of the source
+    keeps the copy; releasing its last port on the copy-mode card ends it."""
+    pid, cid, a, b, screens = mirror_rig(client)
+    set_mirror(client, b, a)
+    body = _ok(client.post('/api/port-assignments/unpin', json={
+        'screens': screens, 'layerId': str(a), 'index': 0}))
+    assert 'mirrorsCleared' not in body
+    assert _layer(client, b)['dataMirrorOf'] == a
+    assert [p['port'] for p in scr_of(body['resolution'], b)['ports']] \
+        == [None, 18, 19]
+    body = _ok(client.post('/api/port-assignments/unpin', json={
+        'screens': screens, 'layerId': str(a)}))
+    assert body['mirrorsCleared'] == [b]
+    assert 'dataMirrorOf' not in _layer(client, b)
+    assert scr_of(body['resolution'], b)['mirrorOf'] is None
+
+
+def test_a_locked_copy_stays_when_its_source_is_unplugged(client):
+    pid, cid, a, b, screens = mirror_rig(client)
+    set_mirror(client, b, a)
+    _ok(client.put(f'/api/layer/{b}', json={'locked': True}), 200)
+    body = _ok(client.post('/api/port-assignments/unpin', json={
+        'screens': screens, 'layerId': str(a)}))
+    assert 'mirrorsCleared' not in body
+    assert _layer(client, b)['dataMirrorOf'] == a
+
+
+def test_moving_the_source_between_copy_cards_keeps_the_copy(client):
+    pid, cid, a, b, screens = mirror_rig(client)
+    other = slot_card(client, pid, 1, H4, 'copy')
+    add_boxes(client, pid, other, 4)
+    set_mirror(client, b, a)
+    for i in range(3):
+        body = _ok(pin(client, screens, a, i, other, i + 1))
+    assert 'mirrorsCleared' not in body
+    assert _layer(client, b)['dataMirrorOf'] == a
+    sr = scr_of(resolve(client, screens), b)
+    assert [(p['cardId'], p['port']) for p in sr['ports']] \
+        == [(other, 17), (other, 18), (other, 19)]
+
+
+def test_an_old_saved_show_with_a_mirror_opens_mirrored(client):
+    """A show saved by 1.5.4 beta.2/3 (the Screen Info pick) carries
+    dataMirrorOf on the layer: it loads, and the copy still lands."""
+    pid, cid, a, b, screens = mirror_rig(client)
+    set_mirror(client, b, a)
+    saved = client.get('/api/project').get_json()
+    _ok(client.post('/api/project/new', json={}), (200, 201))
+    _ok(client.put('/api/project', json=saved), 200)
+    assert _layer(client, b)['dataMirrorOf'] == a
+    sr = scr_of(resolve(client, screens), b)
+    assert sr['mirrorOf'] == str(a)
+    assert [p['port'] for p in sr['ports']] == [17, 18, 19]
 
 
 def test_setting_a_mirror_lets_go_of_its_own_pins(client):
@@ -535,10 +625,15 @@ def test_mx40_pro_backup_box_tells_the_mirror_to_set_it_to_mirror(client):
 
 @pytest.mark.parametrize('change,needle', [
     ({'columns': 5}, 'SR is 5 x 3 cabinets and SL is 4 x 3'),
+    ({'rows': 4}, 'SR is 4 x 4 cabinets and SL is 4 x 3'),
     ({'cabinet_width': 176}, "SR's cabinets are 176 x 128 px and SL's are "
                              "128 x 128 px"),
+    ({'halfLastColumn': True}, 'SR and SL have different blank, hidden or '
+                               'half cabinets, so their ports would not run '
+                               'in the same order'),
 ])
-def test_a_size_or_panel_mismatch_is_refused(client, change, needle):
+def test_a_size_pixel_or_port_order_mismatch_is_refused(client, change,
+                                                        needle):
     a = screen(client, 'SL')
     b = screen(client, 'SR')
     _ok(client.put(f'/api/layer/{b}', json=change), 200)
@@ -546,6 +641,37 @@ def test_a_size_or_panel_mismatch_is_refused(client, change, needle):
     assert body['error'].startswith(needle), body['error']
     assert body['error'].endswith(
         'a mirror screen must match the screen it copies.')
+    assert 'dataMirrorOf' not in _layer(client, b)
+
+
+def test_a_blank_cabinet_in_another_place_is_refused():
+    """Ports in the exact same order: a blank cabinet the source does not
+    have in that place walks the mirror's ports differently."""
+    def layer(name, blanks):
+        return {'id': name, 'name': name, 'columns': 2, 'rows': 2,
+                'cabinet_width': 128, 'cabinet_height': 128,
+                'panels': [{'row': r, 'col': c, 'blank': (r, c) in blanks}
+                           for r in range(2) for c in range(2)]}
+    assert assignment.mirror_mismatch(layer('A', {(0, 1)}),
+                                      layer('B', {(0, 1)})) is None
+    why = assignment.mirror_mismatch(layer('A', {(0, 1)}),
+                                     layer('B', {(1, 1)}))
+    assert why.startswith('B and A have different blank, hidden or half '
+                          'cabinets'), why
+
+
+def test_differing_panel_mm_with_the_same_pixels_is_accepted(client):
+    """Owner, 2026-11-01: "they could be differing panel types but be the
+    same pixel density per panel" - the physical size is not checked."""
+    pid, cid, a, b, screens = mirror_rig(client)
+    _ok(client.put(f'/api/layer/{a}', json={'panel_width_mm': 500,
+                                            'panel_height_mm': 500}), 200)
+    _ok(client.put(f'/api/layer/{b}', json={'panel_width_mm': 600,
+                                            'panel_height_mm': 337.5}), 200)
+    set_mirror(client, b, a)
+    sr = scr_of(resolve(client, screens), b)
+    assert sr['mirrorOf'] == str(a)
+    assert [p['port'] for p in sr['ports']] == [17, 18, 19]
 
 
 def test_mirror_chains_self_and_a_second_mirror_are_refused(client):

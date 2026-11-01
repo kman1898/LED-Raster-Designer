@@ -205,6 +205,12 @@ const PULL_LEGACY_TRUE1_WORD = /(^|[\s(/])(?:Tru-1|TRU-1)(?=[\s)/]|$)/g;
 // and an edit keyed on the old row answers to the new one (pullEditKey).
 const PULL_LEGACY_ADAPTER = /^((?:Edison|L6-20) → (?:TRUE1|powerCON)) tail(?=\||$)/;
 
+// A distro's feed printed as "Feeder" / "L21-30 feeder" in the 1.5.4
+// betas; it is "Feed" / "L21-30 feed" now (2026-11-01, a word that reads
+// right outside the US too), and an edit keyed on the old row answers to
+// the new one (pullEditKey).
+const PULL_LEGACY_FEEDER = /^(Feed|.+ feed)er(?=\||$)/;
+
 // Brompton models as the pull sheet printed them until 2026-10-17 -
 // "Tessera XD", "Tessera SX40" - and as older files key their edits. The
 // catalog dropped the word (owner, 2026-10-17: "tessera is not needed"),
@@ -238,6 +244,11 @@ const PULL_POWER_WORDS = new RegExp('\\b(?:socapex|soca|camlok|camlock|cam|ediso
 const PULL_DATA_WORDS = new RegExp('\\b(?:ether\\w*|cat(?:5e?|6a?|7|8)?|fiber|fibre|\\w*sdi|hdmi|data'
     + '|snakes?|barrels?|tac\\s?\\d*|mtp\\s?\\d*|opticalcon\\w*|sfp\\+?|opt|cvt\\w*|xd(?:-\\w+)?'
     + '|\\w*rj-?45|lc|coax\\w*|bnc|switch(?:es)?|patch(?:es)?)\\b', 'i');
+// A distro's FEED ("L21-30 feed", "Feed": the word that replaced "feeder"
+// on 2026-11-01, which stays a power word above for older rows) is power
+// too, but read after the data words: an "SDI feed" is still data.
+// Whole word only, so "feedback" is not a feed.
+const PULL_FEED_WORD = /\bfeeds?\b/i;
 // (an RJ45 count glued to it is still RJ45: "Card H 20xRJ45"; a patch
 // panel patches data - 2026-10-22)
 // ...and, failing both, these make it a panel - only where nothing else
@@ -2098,12 +2109,19 @@ class _PullList {
     // "Tru-1" row as its TRUE1 row ("Tru-1 Breakout|EA" is
     // "TRUE1 Breakout|EA"; the old shipped jumper name "Tru-1 Power Jump"
     // is the TRUE1 jumper's shipped one), and the Edison adapter's old
-    // "Edison → TRUE1 tail|EA" as "Edison → TRUE1 cable|EA". Every other key is
-    // itself. Nothing is rewritten on open - the stored key takes the new
-    // spelling the next time somebody edits that row.
+    // "Edison → TRUE1 tail|EA" as "Edison → TRUE1 cable|EA", and a distro's
+    // old "Feeder|50'" / "L21-30 feeder|50'" as its "Feed|50'" / "L21-30
+    // feed|50'" (unless that type is a distro Type somebody typed). Every
+    // other key is itself. Nothing is rewritten on open - the stored key
+    // takes the new spelling the next time somebody edits that row.
     pullEditKey(key) {
         const text = String(key == null ? '' : key);
         if (PULL_LEGACY_ADAPTER.test(text)) return text.replace(PULL_LEGACY_ADAPTER, '$1 cable');
+        if (PULL_LEGACY_FEEDER.test(text)) {
+            const cut = text.indexOf('|');
+            const type = cut < 0 ? text : text.slice(0, cut);
+            if (!this._pullUserTypeNames().has(type.toLowerCase())) return text.replace(PULL_LEGACY_FEEDER, '$1');
+        }
         // A key whose type is the USER'S TEXT - a distro's Type, a jumper
         // name somebody typed, a panel name from Screen Info - is never
         // rewritten (2026-10-22): its row prints that text as typed, so
@@ -2507,6 +2525,7 @@ class _PullList {
         if (lower && this._pullPanelTypeNames().has(lower)) return 'panel';
         if (PULL_POWER_WORDS.test(text)) return 'power';
         if (PULL_DATA_WORDS.test(text)) return 'data';
+        if (PULL_FEED_WORD.test(text)) return 'power';
         if (PULL_PANEL_WORDS.test(text) && !PULL_NOT_PANEL_WORDS.test(text)) return 'panel';
         // an old row's "Tessera SX40" is the SX40 (2026-10-23): the device
         // check reads the model with the retired prefix off as well
