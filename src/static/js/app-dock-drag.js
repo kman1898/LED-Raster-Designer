@@ -533,6 +533,17 @@ class _DockDrag {
         const target = { kind: 'screen', layerId };
         const unit = this._dockDropUnit(drag.payload);
         if (!unit) return target;
+        // The SECOND screen of a card in Copy mode becomes the first one's
+        // copy (owner, 2026-11-01 - app-mirror-screens.js _copyDropPlan):
+        // the whole screen lights, and the pill says whose copy it is.
+        const copy = typeof this._copyDropPlan === 'function'
+            ? this._copyDropPlan(unit, layerId) : null;
+        if (copy) {
+            target.nums = copy.ok ? copy.nums.slice() : [];
+            target.pill = copy.ok ? { ok: true, text: copy.text }
+                : { ok: false, message: copy.message };
+            return target;
+        }
         const plan = this._dockDataTakePlan(unit, layerId, num);
         target.nums = plan.nums.slice();
         if (num != null) target.upTo = num;
@@ -1301,6 +1312,18 @@ class _DockDrag {
         if (!scr) {
             this._dockSay('That screen needs no ports.');
             return;
+        }
+        // A card in Copy mode dropped on a SECOND screen makes it the copy
+        // of the first (owner, 2026-11-01): it draws no path of its own -
+        // the preview's own plan (_copyDropPlan), so what lit is what lands.
+        const copy = typeof this._copyDropPlan === 'function'
+            ? this._copyDropPlan(payload, scr.layerId) : null;
+        if (copy) {
+            if (!copy.ok) {
+                this._dockSay(copy.message);
+                return;
+            }
+            return this._dockDropMirror(target, copy);
         }
         const upTo = target.upTo != null ? target.upTo : null;
         const plan = this._dockDataTakePlan(payload, scr.layerId, upTo);

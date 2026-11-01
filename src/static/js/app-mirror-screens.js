@@ -3,18 +3,33 @@
 //
 // ── Mirror a screen (owner, 2026-10-30) ──────────────────────────────────
 //
-// "You pick the screen to copy; the copy screen's port map follows the first
-// automatically and can't be drawn separately. A mismatch in size or panel is
-// refused." NovaStar's Copy mode is what feeds it: on an H_4xfiber "OPT 3
-// copies the output on OPT 1, while OPT 4 copies the output on OPT 2" (H15
-// Video Wall Splicer Specifications V1.15.0 p.36), on the enhanced card OPT
-// 5-8 copy OPT 1-4 (p.37), and on an MX40 Pro in 20-port mode OPT 3/4 are
-// "the copy channel" of OPT 1/2 (User Manual V1.5.0 p.9), where each box
+// "The copy screen's port map follows the first automatically and can't be
+// drawn separately." NovaStar's Copy mode is what feeds it: on an H_4xfiber
+// "OPT 3 copies the output on OPT 1, while OPT 4 copies the output on OPT 2"
+// (H15 Video Wall Splicer Specifications V1.15.0 p.36), on the enhanced card
+// OPT 5-8 copy OPT 1-4 (p.37), and on an MX40 Pro in 20-port mode OPT 3/4
+// are "the copy channel" of OPT 1/2 (User Manual V1.5.0 p.9), where each box
 // there is set Mirror or Backup.
 //
-// The setting is the layer's `dataMirrorOf` (the screen it copies), set from
-// Screen Info's Data Settings and validated by the layer PUT
-// (port_assignment.mirror_set_refusal). Two things follow from it here:
+// ── Made by dragging (owner, 2026-11-01) ─────────────────────────────────
+//
+// "Mirroring is driven by the card's existing Copy setting plus dragging,
+// NOT by a Screen Info picker." With a card in Copy mode (or an MX40 Pro in
+// 20-port mode with a box set to Mirror) the card dropped on a first screen
+// feeds it as any drop does; the SAME card dropped on a second screen makes
+// that screen the first one's copy (_copyDropPlan, read by the dock's
+// _dockDropCardOrBox and its preview). The copy draws no path of its own -
+// its path is the source's. The screens must match (columns x rows, pixels
+// per cabinet, ports in the same order), or the drop is refused with the
+// server's reason (port_assignment.mirror_set_refusal). Unplugging the card
+// from the source unplugs the copy too, and unplugging the copy alone just
+// removes the copy - both on the server (routes_port_assignment: _store's
+// mirrors_unplugged, and the unpin route on a mirror), which names the
+// mirrors it let go of in `mirrorsCleared` (_dropClearedMirrors).
+//
+// The setting is still the layer's `dataMirrorOf` (the screen it copies),
+// validated by the layer PUT, so a show saved with one opens mirrored. Two
+// things follow from it here:
 //
 //   * THE MAP IS THE SOURCE'S. Every field that decides which cabinet rides
 //     which port (MIRROR_DATA_FIELDS) is copied from the source onto the
@@ -67,25 +82,6 @@ class _MirrorScreens {
         return src;
     }
 
-    // The screens set to mirror `layer`.
-    mirrorsOf(layer) {
-        if (!layer) return [];
-        return ((this.project && this.project.layers) || [])
-            .filter(l => l !== layer && l.dataMirrorOf !== undefined
-                && l.dataMirrorOf !== null
-                && String(l.dataMirrorOf) === String(layer.id));
-    }
-
-    // The resolution's word on one mirror - why it is not landing (a
-    // resize since it was set, nowhere to plug in) - as message lines.
-    _mirrorIssueLines(layer) {
-        const issues = (this._assignment && this._assignment.issues) || [];
-        return issues
-            .filter(i => i && String(i.layerId) === String(layer.id)
-                && /^mirror-/.test(i.kind || ''))
-            .map(i => i.message);
-    }
-
     // Copy the source's data map onto every mirror (MIRROR_DATA_FIELDS),
     // and PUT the mirrors that changed. Called from saveState, so the
     // snapshot, the save and the canvas all carry the copied map. Returns
@@ -117,14 +113,33 @@ class _MirrorScreens {
         return wrote;
     }
 
-    // The error a change to a mirror's data map says, naming the source.
+    // The error a change to a mirror's data map says, naming the source and
+    // the way back (owner, 2026-11-01): unplug the card from the copy.
     _mirrorErrorText(layer) {
         const src = this.mirrorSourceOf(layer);
         const name = layer.name || `Screen ${layer.id}`;
         const from = src ? (src.name || `Screen ${src.id}`) : 'another screen';
         return `${name} mirrors ${from} - its data port map follows ${from}'s `
             + 'and cannot be changed on its own. Change it on '
-            + `${from}, or stop mirroring in Screen Info.`;
+            + `${from}, or unplug the ${this._mirrorUnitWord(layer)} from `
+            + `${name} to stop mirroring.`;
+    }
+
+    // 'card' or 'processor': what feeds a mirror (the unit its first
+    // landed port is on, else its source's), for "unplug the card".
+    _mirrorUnitWord(layer) {
+        const screens = (this._assignment && this._assignment.screens) || [];
+        const src = this.mirrorSourceOf(layer);
+        const ids = [layer, src].filter(Boolean).map(l => String(l.id));
+        let cardId = null;
+        ids.some(id => {
+            const scr = screens.find(s => s.layerId === id);
+            const port = scr && (scr.ports || []).find(p => p.cardId);
+            if (port) cardId = port.cardId;
+            return !!cardId;
+        });
+        if (!cardId || typeof this.unitWordForCard !== 'function') return 'card';
+        return this.unitWordForCard(cardId) === 'card' ? 'card' : 'processor';
     }
 
     // True (and the error said) when any of `layers` mirrors a screen: for
@@ -140,73 +155,15 @@ class _MirrorScreens {
         return true;
     }
 
-    // Screen Info's "Mirror a screen" row, refreshed with the rest of the
-    // data settings (updatePortCapacityDisplay): the pick, the note naming
-    // the source (or the mirrors of this screen), and the dimmed map
-    // controls while the shown screen is a mirror.
-    updateMirrorScreenControl() {
-        this._wireMirrorScreenControl();
-        const row = document.getElementById('mirror-screen-row');
-        const select = document.getElementById('mirror-screen');
-        const note = document.getElementById('mirror-screen-note');
-        if (!row || !select) return;
+    // The dimmed map controls while the shown screen is a mirror, refreshed
+    // with the rest of the data settings (updatePortCapacityDisplay). The
+    // Screen Info pick that used to sit here is gone (owner, 2026-11-01):
+    // a mirror is made by dragging a card in Copy mode (_copyDropPlan).
+    updateMirrorDataLock() {
+        this._wireMirrorDataGuard();
         const layer = this.currentLayer;
         const isScreen = !!layer && (layer.type || 'screen') === 'screen';
-        row.style.display = isScreen ? '' : 'none';
-        if (note) note.style.display = 'none';
-        const src = isScreen ? this.mirrorSourceOf(layer) : null;
-        this._dimMirrorControls(!!src);
-        if (!isScreen) return;
-        const layers = ((this.project && this.project.layers) || [])
-            .filter(l => l !== layer && (l.type || 'screen') === 'screen'
-                && !this.mirrorSourceOf(l));
-        select.innerHTML = '';
-        const none = document.createElement('option');
-        none.value = '';
-        none.textContent = 'None';
-        select.appendChild(none);
-        layers.forEach(l => {
-            const opt = document.createElement('option');
-            opt.value = String(l.id);
-            opt.textContent = l.name || `Screen ${l.id}`;
-            select.appendChild(opt);
-        });
-        const stored = layer.dataMirrorOf;
-        const value = stored === undefined || stored === null ? '' : String(stored);
-        if (value && !layers.some(l => String(l.id) === value)) {
-            // a source that is gone (or became a mirror) still shows what
-            // is stored, so the note below has something to name
-            const gone = document.createElement('option');
-            gone.value = value;
-            gone.textContent = `Screen ${value} (not in the project)`;
-            select.appendChild(gone);
-        }
-        select.value = value;
-        const mirrors = this.mirrorsOf(layer);
-        let lines = [];
-        let warn = false;
-        if (src) {
-            const from = src.name || `Screen ${src.id}`;
-            lines.push(`Port map follows ${from}. Its runs come off the copy `
-                + `outputs of the card feeding ${from}.`);
-            const issues = this._mirrorIssueLines(layer);
-            if (issues.length) { lines = lines.concat(issues); warn = true; }
-        } else if (value) {
-            lines.push('The screen this one mirrors is not in the project. '
-                + 'Choose the screen to copy again.');
-            warn = true;
-        } else if (mirrors.length) {
-            const names = mirrors.map(m => m.name || `Screen ${m.id}`);
-            lines.push(`Mirrored by ${names.join(', ')}.`);
-        }
-        // Mirroring a screen that is itself a source is not offered: a
-        // copy of a copy is refused.
-        select.disabled = !!mirrors.length && !value;
-        if (note && lines.length) {
-            note.textContent = lines.join(' ');
-            note.style.color = warn ? '#d05a52' : '#888';
-            note.style.display = '';
-        }
+        this._dimMirrorControls(isScreen && !!this.mirrorSourceOf(layer));
     }
 
     _dimMirrorControls(on) {
@@ -225,16 +182,9 @@ class _MirrorScreens {
         });
     }
 
-    _wireMirrorScreenControl() {
-        if (this._mirrorControlWired) return;
-        const select = document.getElementById('mirror-screen');
-        if (!select) return;
-        this._mirrorControlWired = true;
-        select.addEventListener('change', () => {
-            const layer = this.currentLayer;
-            if (!layer) return;
-            this.setLayerMirror(layer, select.value || null);
-        });
+    _wireMirrorDataGuard() {
+        if (this._mirrorGuardWired) return;
+        this._mirrorGuardWired = true;
         // Every attempt on a mirror's data-map controls is refused out
         // loud, before the control's own handler runs.
         const guard = (e) => {
@@ -252,15 +202,121 @@ class _MirrorScreens {
             document.addEventListener(type, guard, true));
     }
 
+    // ── the drag that makes a mirror (owner, 2026-11-01) ─────────────────
+
+    // Whether a card's current mode feeds a mirror screen: Copy on the
+    // H_4xfiber and its enhanced card (copyTrunks 'mirror'), or the MX40
+    // Pro's 20-port mode with at least one copy box set to Mirror
+    // ('per-box'; with every copy box on Backup, the copies are backups and
+    // the card drops as it always did). Read off the resolved card, which
+    // reads the catalog's mode - no other product is in Copy.
+    _cardFeedsMirror(cardId) {
+        const found = typeof this._dockFindCard === 'function'
+            ? this._dockFindCard(cardId) : null;
+        const card = found && found.card;
+        if (!card) return false;
+        if (card.copyTrunks === 'mirror') return true;
+        return card.copyTrunks === 'per-box'
+            && (card.copyTrunkList || []).some(t => t && t.role === 'mirror');
+    }
+
+    // THE ONE DECISION the dock's preview and its release both read for a
+    // whole-card drop on a screen (preview == result): is this the SECOND
+    // screen of a card in Copy mode? Null where it is not - a box, a card
+    // not in Copy, a card with no screen on it yet, a drop on a screen the
+    // card already feeds - and the drop goes on as any card drop. Otherwise
+    //   { ok: true, sourceId, sourceName, nums, text } - the screen becomes
+    //       the copy of `sourceId`, the first screen on the card;
+    //   { ok: false, message } - said, and nothing changes.
+    // The first screen is the one on the card's lowest socket that has no
+    // copy yet (a screen has one mirror, on the copy outputs); where every
+    // screen on the card already has one, the first of them, so the
+    // server's "already mirrors" refusal is what is said. Whether the two
+    // screens match is the server's (mirror_set_refusal), said in its own
+    // words when the drop is released.
+    _copyDropPlan(unit, layerId) {
+        if (!unit || unit.type !== 'card' || !unit.cardId) return null;
+        if (!this._cardFeedsMirror(unit.cardId)) return null;
+        const screens = (this._assignment && this._assignment.screens) || [];
+        const target = screens.find(s => s.layerId === String(layerId));
+        if (!target) return null;
+        const own = (s) => (s.ports || []).filter(p => p.cardId
+            && p.source !== 'mirror');
+        if (own(target).some(p => p.cardId === unit.cardId)) return null;
+        const firstSocket = (s) => Math.min(...own(s)
+            .filter(p => p.cardId === unit.cardId).map(p => Number(p.port)));
+        const sources = screens
+            .filter(s => s.layerId !== target.layerId && !s.mirrorOf
+                && own(s).some(p => p.cardId === unit.cardId))
+            .sort((a, b) => firstSocket(a) - firstSocket(b));
+        if (!sources.length) return null;
+        const name = target.name;
+        const layer = ((this.project && this.project.layers) || [])
+            .find(l => String(l.id) === target.layerId);
+        const already = sources.find(s => layer
+            && String(layer.dataMirrorOf) === s.layerId);
+        if (already) {
+            return { ok: false,
+                     message: `${name} already mirrors ${already.name}.` };
+        }
+        if (own(target).length) {
+            const word = typeof this.showUnitWord === 'function'
+                ? this.showUnitWord() : 'card';
+            return { ok: false,
+                     message: `${name} already has ports on a ${word}. Clear `
+                        + 'them first, then drag the card onto it again to '
+                        + 'make it a copy.' };
+        }
+        const source = sources.find(s => !screens.some(m =>
+            m.mirrorOf === s.layerId)) || sources[0];
+        const nums = [];
+        for (let n = 1; n <= (target.required || 0); n++) nums.push(n);
+        return { ok: true, sourceId: source.layerId, sourceName: source.name,
+                 nums, text: `Copy of ${source.name}` };
+    }
+
+    // The release of a copy plan: the screen is set to mirror the source
+    // through the validated layer PUT (setLayerMirror), so a mismatch, a
+    // copy of a copy, a second copy of one screen or a screen routed with
+    // its group is refused in the server's words, out loud.
+    _dockDropMirror(target, plan) {
+        const layer = ((this.project && this.project.layers) || [])
+            .find(l => String(l.id) === String(target.layerId));
+        if (!layer) return Promise.resolve(false);
+        sendClientLog('mirror_screen_drop', { layerId: layer.id,
+                                              mirrorOf: plan.sourceId });
+        return this.setLayerMirror(layer, plan.sourceId);
+    }
+
+    // The mirrors the server let go of with an edit to the pins (the copy
+    // unplugged, or its source unplugged from the card that fed it -
+    // routes_port_assignment's `mirrorsCleared`): off this copy of the
+    // layers too, before the history snapshot takes them.
+    _dropClearedMirrors(ids) {
+        const gone = new Set((ids || []).map(String));
+        if (!gone.size) return [];
+        const layers = ((this.project && this.project.layers) || [])
+            .filter(l => gone.has(String(l.id)));
+        layers.forEach(l => { delete l.dataMirrorOf; });
+        if (layers.length) {
+            sendClientLog('mirror_screens_unplugged',
+                          { layerIds: layers.map(l => l.id) });
+            if (typeof this.updateMirrorDataLock === 'function') {
+                this.updateMirrorDataLock();
+            }
+        }
+        return layers;
+    }
+
     // Set (sourceId) or clear (null) the screen `layer` mirrors. The server
     // validates and answers 409 with the reason where it refuses; nothing
-    // changes then. On success the mirror lets go of its own pins (the
-    // server drops them too), takes the source's map, and one history step
-    // records it.
+    // changes then, and the reason is said as an error. On success the
+    // mirror lets go of its own pins (the server drops them too), takes the
+    // source's map, and one history step records it. Resolves true once the
+    // new assignment is in.
     setLayerMirror(layer, sourceId) {
         if (!layer) return Promise.resolve(false);
         if (this._lockedRefused && this._lockedRefused(layer)) {
-            this.updateMirrorScreenControl();
             return Promise.resolve(false);
         }
         const want = sourceId === null || sourceId === undefined || sourceId === ''
@@ -275,11 +331,14 @@ class _MirrorScreens {
             .then(r => r.json().then(data => ({ ok: r.ok, data })))
             .then(({ ok, data }) => {
                 if (!ok) {
+                    const why = (data && data.error)
+                        || 'That screen cannot be mirrored.';
                     if (typeof this._toast === 'function') {
-                        this._toast((data && data.error)
-                            || 'That screen cannot be mirrored.', true, 6000);
+                        this._toast(why, true, 6000);
                     }
-                    this.updateMirrorScreenControl();
+                    sendClientLog('mirror_screen_refused',
+                                  { layerId: layer.id, mirrorOf: typed,
+                                    error: why });
                     return false;
                 }
                 if (typed === null) delete layer.dataMirrorOf;
@@ -293,14 +352,15 @@ class _MirrorScreens {
                 sendClientLog('mirror_screen_set',
                               { layerId: layer.id, mirrorOf: typed });
                 this.saveState(typed === null ? 'Stop Mirroring' : 'Mirror Screen');
-                if (typeof this.refreshPortAssignment === 'function') {
-                    this.refreshPortAssignment();
-                }
                 if (typeof this.updatePortCapacityDisplay === 'function') {
                     this.updatePortCapacityDisplay();
                 }
-                if (window.canvasRenderer) window.canvasRenderer.render();
-                return true;
+                const refreshed = typeof this.refreshPortAssignment === 'function'
+                    ? this.refreshPortAssignment() : null;
+                return Promise.resolve(refreshed).then(() => {
+                    if (window.canvasRenderer) window.canvasRenderer.render();
+                    return true;
+                });
             })
             .catch(err => {
                 sendClientLog('mirror_screen_set_failed',
@@ -387,8 +447,9 @@ class _MirrorScreens {
         bar.setAttribute('role', 'radiogroup');
         bar.setAttribute('aria-label', 'Copy');
         bar.dataset.lrdField = `processor-cvt-copyrole-${cvt.id}`;
-        [['mirror', 'Mirror', 'Feeds a mirror screen: set a screen to mirror '
-            + 'the one on the output this box copies.'],
+        [['mirror', 'Mirror', 'Feeds a mirror screen: with the first screen '
+            + 'on the processor, drag the processor onto a matching second '
+            + 'screen to make it the copy.'],
          ['backup', 'Backup', 'Backs up the output this box copies.']]
             .forEach(([role, text, tip]) => {
                 const lit = (cvt.copyRole || 'backup') === role;

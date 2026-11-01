@@ -228,10 +228,10 @@ class _Power {
         if (typeof this.updateGroupRouteControl === 'function') {
             this.updateGroupRouteControl();
         }
-        // ...and the "Mirror a screen" row (app-mirror-screens.js), which
-        // also dims the map controls while the shown screen is a mirror.
-        if (typeof this.updateMirrorScreenControl === 'function') {
-            this.updateMirrorScreenControl();
+        // ...and the mirror's read-only data map (app-mirror-screens.js):
+        // the map controls dim while the shown screen is a mirror.
+        if (typeof this.updateMirrorDataLock === 'function') {
+            this.updateMirrorDataLock();
         }
 
         if (!this.currentLayer) {

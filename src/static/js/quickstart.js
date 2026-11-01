@@ -4885,18 +4885,29 @@
             },
             after: function () { closePrefs(); }
         },
-        // Mirror a screen (owner, 2026-10-30: "You pick the screen to copy;
-        // the copy screen's port map follows the first automatically and
-        // can't be drawn separately"). NovaStar's H_4xfiber in Copy mode:
-        // "OPT 3 copies the output on OPT 1, while OPT 4 copies the output
-        // on OPT 2". The guide's own MX40 Pro stays as the steps before left
-        // it, so an H9 with an H_4xfiber in Copy and four CVT10s, and two
-        // matched IMAG screens with IMAG L on the card, are put in for you;
-        // the pick under Mirror a screen is made for real.
+        // Mirror a screen by dragging (owner, 2026-11-01: "Mirroring is
+        // driven by the card's existing Copy setting plus dragging, NOT by a
+        // Screen Info picker"). NovaStar's H_4xfiber in Copy mode: "OPT 3
+        // copies the output on OPT 1, while OPT 4 copies the output on OPT
+        // 2". The guide's own MX40 Pro stays as the steps before left it, so
+        // an H9 with an H_4xfiber in Copy and four CVT10s, and two matched
+        // IMAG screens with IMAG L already on the card, are put in for you;
+        // the card's drag onto IMAG R is made for real.
         mirrorScreen: {
             since: '1.5.4',
-            target: '#mirror-screen-row', place: 'left', title: 'Mirror a screen',
-            body: 'An H_4xfiber in Copy mode sends OPT 1 and 2 out again on OPT 3 and 4. Pick IMAG L under Mirror a screen: IMAG R takes its port map, and its runs come off the copy boxes.',
+            target: function () {
+                var a = A();
+                var hit = null;
+                (a._processorsResolved || []).some(function (p) {
+                    return (p.slots || []).some(function (s) {
+                        if (s && s.card && s.card.copyTrunks === 'mirror') { hit = s.card; return true; }
+                        return false;
+                    });
+                });
+                return hit ? '[data-hwdock="card-' + hit.id + '"]' : '[data-hwdock^="card-"]';
+            },
+            place: 'top', title: 'Mirror a screen',
+            body: 'An H_4xfiber in Copy mode sends OPT 1 and 2 out again on OPT 3 and 4, and IMAG L is already on it. Drag the card onto IMAG R and IMAG R becomes its copy, with its runs off the copy boxes.',
             before: function () { closePrefs(); hideMenus(); closePopover(); switchView('data-flow'); },
             act: function (t) {
                 var a = A(), w = wall(), pid = null, cid = null, left = null, right = null;
@@ -4940,15 +4951,14 @@
                     return a._assignmentRequest('/api/port-assignments/place-overflow', 'POST',
                         { layerId: String(left.id), cardId: cid }, null, 'Place Ports');
                 }).then(function () {
-                    var r = a.project.layers.find(function (l) { return l.id === t.mem.right; });
-                    a.selectLayer(r);
-                    frameLayers([a.project.layers.find(function (l) { return l.id === t.mem.left; }), r]);
+                    frameLayers([a.project.layers.find(function (l) { return l.id === t.mem.left; }),
+                                 a.project.layers.find(function (l) { return l.id === t.mem.right; })]);
                     a.saveState('Add Layer');
-                    a.updatePortCapacityDisplay();
-                    return t.wait(function () { return $('#mirror-screen option[value="' + t.mem.left + '"]'); });
-                }).then(function (opt) {
-                    if (!opt) throw new Error('IMAG L is not offered under Mirror a screen');
-                    return t.select('#mirror-screen', String(t.mem.left));
+                    return t.wait(function () { return $('[data-hwdock="card-' + cid + '"]'); });
+                }).then(function (handle) {
+                    if (!handle) throw new Error('the H_4xfiber is not in the tray');
+                    var r = a.project.layers.find(function (l) { return l.id === t.mem.right; });
+                    return t.drag('[data-hwdock="card-' + cid + '"]', t.cabinetPoint(r, { index: lastCabinet(r) }));
                 }).then(function () {
                     return t.wait(function () {
                         var scr = ((a._assignment && a._assignment.screens) || []).find(function (s) { return s.layerId === String(t.mem.right); });

@@ -87,8 +87,27 @@ def _store(state):
         g.port_cables_forgotten = True
         log_event('port_cables_forgotten', {
             'sockets': [f'{c}:{n}' for c, n in sorted(released)]})
+    # A source unplugged from the card in Copy mode that fed its copy takes
+    # the copy with it (owner, 2026-11-01): the mirror screen stops
+    # mirroring (port_assignment.mirrors_unplugged).
+    for layer in assignment.mirrors_unplugged(app.current_project,
+                                              _processors(), before,
+                                              state.get('pins')):
+        _clear_mirror(layer, 'source_unplugged')
     app.current_project[assignment.STATE_KEY] = state
     return state
+
+
+def _clear_mirror(layer, why):
+    """Let one mirror screen go: its dataMirrorOf comes off the layer, and
+    the reply names it (`mirrorsCleared`) so the client drops it from its
+    own copy of the layer before the history snapshot."""
+    src = layer.pop('dataMirrorOf', None)
+    cleared = g.get('mirrors_cleared') or []
+    cleared.append(layer.get('id'))
+    g.mirrors_cleared = cleared
+    log_event('mirror_screen_unplugged', {'id': layer.get('id'),
+                                          'mirrorOf': src, 'why': why})
 
 
 def _processors():
@@ -107,13 +126,18 @@ def _screens():
               if isinstance(l, dict)}
     stored = {k: l.get('dataMirrorOf') for k, l in layers.items()
               if l.get('dataMirrorOf') not in (None, '')}
+    # A mirror this very request let go of (_clear_mirror) is no mirror,
+    # whatever the payload - sent before the request - still says.
+    cleared = {str(i) for i in (g.get('mirrors_cleared') or [])}
     out = []
     for scr in screens:
         if not isinstance(scr, dict):
             out.append(scr)
             continue
         key = str(scr.get('layerId', scr.get('id')))
-        if 'mirrorOf' not in scr and key in stored:
+        if key in cleared:
+            scr = {k: v for k, v in scr.items() if k != 'mirrorOf'}
+        elif 'mirrorOf' not in scr and key in stored:
             scr = dict(scr, mirrorOf=stored[key])
         src = scr.get('mirrorOf')
         # A mirror whose two screens no longer match (one resized after
@@ -127,9 +151,10 @@ def _screens():
 
 
 def _mirror_refused(layer_id):
-    """The 409 for placing or releasing a mirror screen's ports on their
-    own (port_assignment.mirror_refusal), else None."""
-    why = assignment.mirror_refusal(_screens(), layer_id)
+    """The 409 for placing a mirror screen's ports on their own
+    (port_assignment.mirror_refusal), else None."""
+    why = assignment.mirror_refusal(_screens(), layer_id, _processors(),
+                                    _state())
     if why:
         return jsonify({'error': why, 'mirror': True}), 409
     return None
@@ -191,6 +216,10 @@ def _saved(state, status=200, extra=None):
             'snakes': catalog.resolved_show_snakes(app.current_project),
             'fiberCables': catalog.resolved_fiber_cables(app.current_project),
         })
+    if g.get('mirrors_cleared'):
+        # The mirror screens this edit unplugged (_clear_mirror): the
+        # client drops their dataMirrorOf before its snapshot.
+        body['mirrorsCleared'] = list(g.mirrors_cleared)
     if extra:
         body.update(extra)
     return jsonify(body), status
@@ -354,14 +383,27 @@ def place_port():
 def unpin_port():
     """Release one pinned port, or a whole screen's worth when no index is
     given. The port comes off its card and stays unattached until somebody
-    places it again."""
+    places it again.
+
+    On a MIRROR screen a release is "unplug the copy" (owner, 2026-11-01:
+    "Unplugging only the copy screen just removes the copy"): the screen
+    stops mirroring - its dataMirrorOf comes off - and its source keeps
+    every port. A mirror holds no pins, so nothing else changes."""
     data = request.json or {}
     layer_id = data.get('layerId')
     if layer_id is None:
         return jsonify({'error': 'layerId is required'}), 400
-    refused = _mirror_refused(layer_id)
-    if refused:
-        return refused
+    layer = next((l for l in app.current_project.get('layers') or []
+                  if isinstance(l, dict) and str(l.get('id')) == str(layer_id)),
+                 None)
+    sent = next((s for s in (request.json or {}).get('screens') or []
+                 if isinstance(s, dict)
+                 and str(s.get('layerId', s.get('id'))) == str(layer_id)), None)
+    if layer is not None and (layer.get('dataMirrorOf') not in (None, '')
+                              or (sent and sent.get('mirrorOf')
+                                  not in (None, ''))):
+        _clear_mirror(layer, 'copy_unplugged')
+        return _saved(_state())
     _retire()
     if not (app.current_project.get(assignment.STATE_KEY) or {}).get('pins'):
         return jsonify(_payload())  # nothing pinned; releasing changes nothing
