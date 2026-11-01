@@ -24,6 +24,7 @@ any other):
 """
 
 import os
+import re
 import sys
 
 import pytest
@@ -52,7 +53,8 @@ def test_the_rule_is_one_bubble_listener_installed_at_start():
     helpers = _src('src', 'static', 'js', 'helpers.js')
     core = _src('src', 'static', 'js', 'app-core.js')
     assert 'function installEnterEndsEdit(doc)' in helpers
-    assert 'installEnterEndsEdit };' in helpers, 'the helper is exported'
+    # In the module's export list, wherever it sits in that list.
+    assert re.search(r'export \{[^}]*\binstallEnterEndsEdit\b', helpers), 'the helper is exported'
     # Bubble phase: the listener takes no third (capture) argument, so a
     # field's own Enter handler runs first and can opt out.
     body = helpers[helpers.index('function installEnterEndsEdit(doc)'):]
