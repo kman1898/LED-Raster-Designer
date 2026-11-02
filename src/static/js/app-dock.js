@@ -1756,8 +1756,10 @@ class _HardwareDock {
         // The box's sheet sits outside its fold too (same rule). A loop
         // row has no fold of its own: its sheet stands where its chips
         // would, inside the strip, beside the ≡ that opened it.
+        // `row.sheetOut`: the folded strip draws this sheet under its own
+        // header instead (_dockBuildLoopPair), so it shows while folded.
         const boxSheetUp = this._dataCableSheetOpen(boxOwner);
-        if (boxSheetUp) {
+        if (boxSheetUp && !(row && row.sheetOut)) {
             box.classList.add('hw-dock-sheet-up');
             box.appendChild(this._dockBuildDataCableSheet(
                 boxOwner, cvt.ports || []));
@@ -1820,12 +1822,63 @@ class _HardwareDock {
             '.hw-dock-unit-use, .hw-dock-headbar, .hw-dock-unit-info');
         head.insertBefore(names, before || null);
         head.insertBefore(tag, before || null);
+        // Folded, the rows' ≡ and ⚙ are out of reach, so the header
+        // carries them (owner, 2026-11-02): ONE pair, the near box's, since
+        // a loop is one thing ("if backups then just the primary since
+        // they are grouped"). CSS shows them only while folded, so an open
+        // strip never doubles them.
+        const nearOwner = { kind: 'cvt', id: near.id, procId: proc.id,
+                            cardId: card.id, rec: near };
+        head.appendChild(this._dockFoldedBoxControls(nearOwner));
         strip.appendChild(head);
+        // The near box's sheet, asked for while folded, stands under the
+        // strip's header (outside the fold), the way a lone box's sheet
+        // does; open, it stands in its row as before. A flip of the fold
+        // redraws so the sheet moves with it.
+        const foldKey = `ledRasterPanelCollapsed_hwdock-box-${near.id}`;
+        let folded = false;
+        try { folded = localStorage.getItem(foldKey) === '1'; } catch (_) { /* no storage */ }
+        const sheetOut = folded && this._dataCableSheetOpen(nearOwner);
+        if (sheetOut) {
+            strip.appendChild(this._dockBuildDataCableSheet(
+                nearOwner, near.ports || []));
+        }
+        if (this._dataCableSheetOpen(nearOwner)) {
+            new MutationObserver((_, obs) => {
+                if (strip.classList.contains('lrd-sec-collapsed') === folded) return;
+                obs.disconnect();
+                if (strip.isConnected) this.renderHardwareDock();
+            }).observe(strip, { attributes: true, attributeFilter: ['class'] });
+        }
         const body = this._dockSectionBody(strip, head,
                                            `hwdock-box-${near.id}`);
-        body.appendChild(this._dockBuildBox(proc, card, near, { far: false }));
+        body.appendChild(this._dockBuildBox(proc, card, near,
+                                            { far: false, sheetOut }));
         body.appendChild(this._dockBuildBox(proc, card, far, { far: true }));
         return strip;
+    }
+
+    // A folded strip's header controls: the box's own ≡ and ⚙, the same
+    // handlers as on its row, under ids of their own so the popover and
+    // the focus restore never find the row's hidden twins.
+    _dockFoldedBoxControls(owner) {
+        const wrap = document.createElement('span');
+        wrap.className = 'hw-dock-foldctl';
+        const sheet = this._dockBuildDataCableSheetButton(owner);
+        sheet.dataset.lrdField = `data-cable-sheet-fold-${owner.id}`;
+        this._dockHeadAugment(wrap, {
+            controls: [sheet],
+            gear: {
+                id: `boxfold-${owner.id}`,
+                title: 'Configure this box: templates, facts, remove.',
+                build: () => {
+                    const found = this._dockFindCvt(owner.id);
+                    return found ? this._buildBoxGearContent(
+                        found.proc, found.card, found.cvt) : null;
+                },
+            },
+        });
+        return wrap;
     }
 
     // Turn a dock unit into one of the app's foldable sections: the header

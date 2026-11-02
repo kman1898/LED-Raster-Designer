@@ -447,6 +447,10 @@ FIXES
   takes off only the circuits it fed. Before, the multi or circuit next
   to them could grow onto the freed circuits and take new circuits on
   its own box, so a feed you never touched moved to another breakout.
+- FIX: A minimized pair of breakout boxes in a redundancy loop, like an
+  XD A and B on an SX40, shows the cable sheet and gear buttons on its
+  header. They open the primary box's sheet and settings. Before, you
+  had to open the pair to reach them.
 
 v1.5.3 - October 21, 2026
 ----------------------------
