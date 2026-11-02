@@ -48,7 +48,7 @@ def _bullets(section):
 
 
 def test_the_date():
-    assert _top_entry().startswith('v1.5.4 - October 23, 2026\n')
+    assert _top_entry().startswith('v1.6.0 - November 1, 2026\n')
 
 
 def test_the_refusal_lists_only_what_the_app_refuses():
@@ -134,7 +134,7 @@ def test_the_notes_read_plainly():
 
 def test_whats_new_has_none_of_the_old_wording():
     src = _read(JS, 'whatsnew_content.js')
-    entry = src[src.index("'1.5.4': {"):src.index("'1.5.3': {")]
+    entry = src[src.index("'1.6': {"):src.index("'1.5.3': {")]
     assert len(re.findall(r'\{\s*h:', entry)) == 8
     assert 'pasting' not in entry and 'paste' not in entry.lower()
     assert "Feed: 50'" not in entry and 'feeder' not in entry.lower()

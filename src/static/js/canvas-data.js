@@ -118,7 +118,7 @@ Object.assign(CanvasRenderer.prototype, {
     // layer's own data-flow label size so it tracks the slider like the P/R
     // markers do.
     //
-    // 1.5.4: measured here when the port is drawn, PLACED once every label
+    // 1.6.0: measured here when the port is drawn, PLACED once every label
     // of the screen is down (renderDataFlowArrows' drawCableTags pass,
     // placePortLoadBadge) and painted by drawPortLoadBadge. It used to be
     // painted on the spot, under its marker, before the cable tags were
@@ -401,7 +401,7 @@ Object.assign(CanvasRenderer.prototype, {
                 paint(h.text, placed[i].tag, undefined);
             });
             pendingTags.length = 0;
-            // The load badges last (1.5.4): every tag keeps the side
+            // The load badges last (1.6.0): every tag keeps the side
             // placeTagHeads gave it and each badge takes a spot clear of all of them
             // (placePortLoadBadge) - the % under its marker, or over it
             // where the marker's own tag hangs under.

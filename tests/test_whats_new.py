@@ -27,6 +27,7 @@ Run the browser half ALONE (the harness pins one port):
     python -m pytest tests/test_whats_new.py -v --browser chromium
 """
 
+import contextlib
 import os
 import re
 import sys
@@ -128,13 +129,15 @@ def test_content_reads_like_release_notes():
 def test_the_running_patch_has_its_own_entry():
     """VERSION.txt's top version, when it is a patch that added guide
     steps (a step with its `since`), carries an entry of its own; the
-    window would otherwise describe 1.5.0 or list bare step titles."""
-    m = re.search(r'^v(\d+\.\d+\.\d+)\s*-', _read(VERSION_TXT), re.M)
+    window would otherwise describe 1.5.0 or list bare step titles. A
+    feature release (X.Y.0) is led by its MAJOR.MINOR entry instead
+    (test_top_version_has_a_whatsnew_entry)."""
+    m = re.search(r'^v(\d+\.\d+\.(\d+))\s*-', _read(VERSION_TXT), re.M)
     assert m
     running = m.group(1)
     with open(os.path.join(SRC, 'static', 'js', 'quickstart.js'), encoding='utf-8') as f:
         added_steps = ("since: '%s'" % running) in f.read()
-    if added_steps:
+    if added_steps and int(m.group(2)) > 0:
         assert running in _content_entries(), (
             "VERSION.txt ships v%s, a patch that added guide steps, but "
             "whatsnew_content.js has no '%s' entry" % (running, running))
@@ -250,27 +253,54 @@ def _pad(t):
     return t + (0,) * (4 - len(t))
 
 
+# 1.5.4 only ever shipped as betas (the release became 1.6.0), so 1.5.3 is
+# the one real patch entry. The patch logic that needs a second one (a
+# skipped patch, the entries that follow) runs on this stand-in, put in the
+# page as a 1.5.4 entry and taken out again.
+FAKE_PATCH = {'title': 'A stand-in patch entry', 'items': [
+    {'h': 'Stand-in one', 'd': 'The first stand-in item.'},
+    {'h': 'Stand-in two', 'd': 'The second stand-in item.'},
+    {'h': 'Stand-in three', 'd': 'The third stand-in item.'},
+    {'h': 'Stand-in four', 'd': 'The fourth stand-in item.'}]}
+
+
+@contextlib.contextmanager
+def _patch_entry(page, key='1.5.4'):
+    page.evaluate("""([k, e]) => { window.__wnHeld = [k in window.WHATS_NEW_CONTENT,
+        window.WHATS_NEW_CONTENT[k]]; window.WHATS_NEW_CONTENT[k] = e; }""", [key, FAKE_PATCH])
+    try:
+        yield
+    finally:
+        page.evaluate("""(k) => { const [had, v] = window.__wnHeld;
+            if (had) window.WHATS_NEW_CONTENT[k] = v; else delete window.WHATS_NEW_CONTENT[k]; }""", key)
+
+
 # ── the steps the walkthrough runs ───────────────────────────────────────
 
 def test_new_steps_filter_by_since(page):
     """newSteps(after, upTo) is every Advanced step whose `since` is newer
     than `after` and not newer than `upTo`, in guide order, checked
     against the step table for several windows, and by name for the 1.5.3
-    steps."""
+    and 1.6.0 steps."""
     table = _since_table(page)
     assert any(s for _, s in table), 'no Advanced step carries since'
     for after, up_to in (('1.4.9', '1.5.0'), ('1.5.0', '1.5.2'), ('1.5.2', '1.5.3'),
                          ('1.5', '1.5.3'), ('1.0', '1.5.3'), ('1.5.3', '1.5.3'),
-                         ('1.5.3', '1.5.4'), ('1.5.2', '1.5.4'), ('1.5.4', '1.5.4')):
+                         ('1.5.3', '1.6.0'), ('1.5.2', '1.6.0'), ('1.5.4', '1.6.0'),
+                         ('1.5.99999', '1.6.0'), ('1.6.0', '1.6.0'), ('1.5', '1.6')):
         want = [k for k, s in table if s
                 and _pad(_v(after)) < _pad(_v(s)) <= _pad(_v(up_to))]
         assert _new_steps(page, after, up_to) == want, (after, up_to)
     assert _new_steps(page, '1.5.2', '1.5.3') == [
         'cableStock', 'cableStockPieces', 'takeOver', 'customPower', 'customDraw', 'sweepShare',
         'addService', 'serviceRating', 'serviceDistro']
-    assert _new_steps(page, '1.5.3', '1.5.4') == [
+    assert _new_steps(page, '1.5.3', '1.6.0') == [
         'panelName', 'mixedRedundancy', 'panelInput', 'jumperNames', 'pullPanels',
         'cableStockPerKind', 'feederLength', 'mirrorScreen']
+    # 1.5.4 never shipped in full: no step is marked with it, and the
+    # steps its betas brought are 1.6.0's.
+    assert _new_steps(page, '1.5.3', '1.5.4') == []
+    assert _new_steps(page, '1.5.4', '1.6.0') == _new_steps(page, '1.5.3', '1.6.0')
     # A step is never newer than the running version.
     assert not set(_new_steps(page, '1.5.2', '1.5.2'))
     assert _new_steps(page, 'junk', '1.5.3') == []
@@ -285,28 +315,46 @@ def test_decide_patch_update_with_new_steps_offers_them(page):
     assert d['window'] == {'key': '1.5.3', 'also': [], 'after': '1.5.2', 'upTo': '1.5.3',
                            'steps': _new_steps(page, '1.5.2', '1.5.3'), 'stamp': '1.5.3'}, d
     assert d['window']['steps'], d
-    d = _decide(page, '1.5.4', '1.5.3')
-    assert d['window'] == {'key': '1.5.4', 'also': [], 'after': '1.5.3', 'upTo': '1.5.4',
-                           'steps': _new_steps(page, '1.5.3', '1.5.4'), 'stamp': '1.5.4'}, d
+    # A patch with an entry of its own and no steps still shows it.
+    with _patch_entry(page):
+        d = _decide(page, '1.5.4', '1.5.3')
+        assert d['window'] == {'key': '1.5.4', 'also': [], 'after': '1.5.3', 'upTo': '1.5.4',
+                               'steps': [], 'stamp': '1.5.4'}, d
 
 
 def test_decide_a_skipped_patch_shows_every_patch_entry_since(page):
-    """1.5.2 -> 1.5.4: 1.5.4's own entry, then 1.5.3's, newest first, and
-    Show me has the steps of both."""
-    d = _decide(page, '1.5.4', '1.5.2')
-    assert d['show'] and d['window']['key'] == '1.5.4' and d['window']['also'] == ['1.5.3'], d
-    assert d['window']['steps'] == _new_steps(page, '1.5.2', '1.5.4'), d
-    assert {'cableStock', 'panelInput'} <= set(d['window']['steps']), d
-    # Only patches of the running MAJOR.MINOR newer than the stamp.
-    assert _decide(page, '1.5.4', '1.5.3')['window']['also'] == [], d
-    # Without its own entry the steps lead, the older entry still follows.
-    page.evaluate("window.__wn154 = window.WHATS_NEW_CONTENT['1.5.4'];"
-                  " delete window.WHATS_NEW_CONTENT['1.5.4']")
-    try:
+    """1.5.2 -> 1.5.4 (a stand-in patch entry): 1.5.4's own entry, then
+    1.5.3's, newest first, and Show me has the steps of both."""
+    with _patch_entry(page):
         d = _decide(page, '1.5.4', '1.5.2')
-        assert d['window']['key'] is None and d['window']['also'] == ['1.5.3'], d
-    finally:
-        page.evaluate("window.WHATS_NEW_CONTENT['1.5.4'] = window.__wn154")
+        assert d['show'] and d['window']['key'] == '1.5.4' and d['window']['also'] == ['1.5.3'], d
+        assert d['window']['steps'] == _new_steps(page, '1.5.2', '1.5.4'), d
+        assert {'cableStock', 'takeOver'} <= set(d['window']['steps']), d
+        # Only patches of the running MAJOR.MINOR newer than the stamp.
+        assert _decide(page, '1.5.4', '1.5.3')['window']['also'] == [], d
+    # Without its own entry the steps lead, the older entry still follows.
+    d = _decide(page, '1.5.4', '1.5.2')
+    assert d['window']['key'] is None and d['window']['also'] == ['1.5.3'], d
+
+
+def test_decide_1_5_3_to_1_6_0_shows_the_1_6_entry_and_its_steps(page):
+    """1.5.3 -> 1.6.0, the feature release: the '1.6' entry leads, no patch
+    entry follows (1.5.3's is older than the stamp, and 1.6 has none yet),
+    and Show me has exactly the steps marked 1.6.0."""
+    d = _decide(page, '1.6.0', '1.5.3')
+    steps = _new_steps(page, '1.5.3', '1.6.0')
+    assert d == {'show': True, 'stamp': None, 'window': {
+        'key': '1.6', 'also': [], 'after': '1.5.3', 'upTo': '1.6.0',
+        'steps': steps, 'stamp': '1.6.0'}}, d
+    assert steps and all(page.evaluate(
+        "(k) => window.QuickStart.steps()[k].since", k) == '1.6.0' for k in steps), steps
+    # The steps marked 1.5.x are not news to a 1.5.3 user.
+    assert not {'cableStock', 'takeOver', 'fileExports'} & set(steps), steps
+    # From further back the 1.6 entry still leads, with every step since.
+    d = _decide(page, '1.6.0', '1.5.2')
+    assert d['window']['key'] == '1.6' and d['window']['also'] == [], d
+    assert d['window']['steps'] == _new_steps(page, '1.5.2', '1.6.0'), d
+    assert {'cableStock', 'mirrorScreen'} <= set(d['window']['steps']), d
 
 
 def test_decide_skipped_versions_get_every_step_since(page):
@@ -322,6 +370,7 @@ def test_decide_skipped_versions_get_every_step_since(page):
 def test_decide_patch_without_new_steps_is_silent(page):
     assert _decide(page, '1.5.5', '1.5.4') == {'show': False, 'stamp': '1.5.5', 'window': None}
     assert _decide(page, '1.0.2', '1.0.1') == {'show': False, 'stamp': '1.0.2', 'window': None}
+    assert _decide(page, '1.6.1', '1.6.0') == {'show': False, 'stamp': '1.6.1', 'window': None}
 
 
 def test_decide_minor_change_shows_the_entry_and_its_steps(page):
@@ -334,10 +383,17 @@ def test_decide_minor_change_shows_the_entry_and_its_steps(page):
     d = _decide(page, '1.5.3', '1.4.2')
     assert d['show'] and d['window']['key'] == '1.5' and d['window']['also'] == ['1.5.3'], d
     assert d['window']['steps'] == _new_steps(page, '1.4.2', '1.5.3'), d
-    # Straight to 1.5.4: the 1.5 highlights, then 1.5.4's and 1.5.3's.
-    d = _decide(page, '1.5.4', '1.4.2')
-    assert d['window']['key'] == '1.5' and d['window']['also'] == ['1.5.4', '1.5.3'], d
-    assert d['window']['steps'] == _new_steps(page, '1.4.2', '1.5.4'), d
+    # Straight to a 1.5.4 (a stand-in patch entry): the 1.5 highlights,
+    # then 1.5.4's and 1.5.3's.
+    with _patch_entry(page):
+        d = _decide(page, '1.5.4', '1.4.2')
+        assert d['window']['key'] == '1.5' and d['window']['also'] == ['1.5.4', '1.5.3'], d
+        assert d['window']['steps'] == _new_steps(page, '1.4.2', '1.5.4'), d
+    # Straight to 1.6.0: the 1.6 highlights lead; no 1.6 patch entry
+    # follows, and Show me has every step since 1.4.2.
+    d = _decide(page, '1.6.0', '1.4.2')
+    assert d['show'] and d['window']['key'] == '1.6' and d['window']['also'] == [], d
+    assert d['window']['steps'] == _new_steps(page, '1.4.2', '1.6.0'), d
     # A feature version with an entry and no steps still shows (no Show me).
     d = _decide(page, '1.4.0', '1.3.2')
     assert d['show'] and d['window']['key'] == '1.4' and d['window']['steps'] == [], d
@@ -378,22 +434,31 @@ def test_decide_full_release_after_its_betas_shows_once(page):
 
 
 def test_decide_a_beta_straight_to_a_later_version_shows_its_own_version_too(page):
-    """1.5.3-beta.11 -> 1.5.4: the beta never ran the full 1.5.3, so the
-    window shows 1.5.4's entry, then 1.5.3's, and the steps of both. A
-    bare stamp no full release could write (a 1.5.3 beta's, before the
-    mark) reads the same; a bare 1.5.2 stamp is a full release's and only
-    steps back to itself."""
+    """1.5.3-beta.11 -> 1.5.4 (a stand-in patch entry): the beta never ran
+    the full 1.5.3, so the window shows 1.5.4's entry, then 1.5.3's, and
+    the steps of both. A bare stamp no full release could write (a 1.5.3
+    beta's, before the mark) reads the same; a bare 1.5.2 stamp is a full
+    release's and only steps back to itself. The real case: a 1.5.4 beta
+    (1.5.4 never shipped in full) straight to 1.6.0 gets the 1.6 entry and
+    every 1.6.0 step, and so does a 1.6.0 beta reaching 1.6.0."""
     want = _new_steps(page, '1.5.2', '1.5.4')
-    for stamped in ('1.5.3-beta.11', '1.5.3-legacy'):
-        d = _decide(page, '1.5.4', stamped)
-        assert d['show'] and d['window']['key'] == '1.5.4', (stamped, d)
-        assert d['window']['also'] == ['1.5.3'] and d['window']['steps'] == want, (stamped, d)
-        assert d['window']['after'] is None and d['window']['stamp'] == '1.5.4', (stamped, d)
-    d = _decide(page, '1.5.4', '1.5.2-legacy')
-    assert d['window']['steps'] == want and d['window']['after'] == '1.5.2', d
-    d = _decide(page, '1.5.4', '1.5.4-beta.3')
-    assert d['window']['key'] == '1.5.4' and d['window']['also'] == [], d
-    assert d['window']['steps'] == _new_steps(page, '1.5.3', '1.5.4'), d
+    with _patch_entry(page):
+        for stamped in ('1.5.3-beta.11', '1.5.3-legacy'):
+            d = _decide(page, '1.5.4', stamped)
+            assert d['show'] and d['window']['key'] == '1.5.4', (stamped, d)
+            assert d['window']['also'] == ['1.5.3'] and d['window']['steps'] == want, (stamped, d)
+            assert d['window']['after'] is None and d['window']['stamp'] == '1.5.4', (stamped, d)
+        d = _decide(page, '1.5.4', '1.5.2-legacy')
+        assert d['window']['steps'] == want and d['window']['after'] == '1.5.2', d
+        d = _decide(page, '1.5.4', '1.5.4-beta.3')
+        assert d['window']['key'] == '1.5.4' and d['window']['also'] == [], d
+        assert d['window']['steps'] == _new_steps(page, '1.5.3', '1.5.4'), d
+    steps = _new_steps(page, '1.5.3', '1.6.0')
+    for stamped in ('1.5.4-beta.2', '1.5.4-beta.3', '1.6.0-beta.1'):
+        d = _decide(page, '1.6.0', stamped)
+        assert d == {'show': True, 'stamp': None, 'window': {
+            'key': '1.6', 'also': [], 'after': None, 'upTo': '1.6.0',
+            'steps': steps, 'stamp': '1.6.0'}}, (stamped, d)
 
 
 def test_autorun_shows_the_full_release_to_a_bare_beta_stamp(page):
@@ -568,45 +633,100 @@ def test_autorun_patch_update_without_new_steps_is_not_offered(page):
 
 
 def test_update_over_a_skipped_patch_shows_both_patch_entries(page):
-    """1.5.2 -> 1.5.4: "What's new in v1.5.4" with 1.5.4's entry, then
-    "And in v1.5.3" with 1.5.3's, and Show me for every step since 1.5.2."""
+    """1.5.2 -> 1.5.4 (a stand-in patch entry): "What's new in v1.5.4"
+    with 1.5.4's entry, then "And in v1.5.3" with 1.5.3's, and Show me for
+    every step since 1.5.2."""
     _serve_version(page, '1.5.4')
     try:
-        page.evaluate("localStorage.setItem(window.WhatsNew.LS_KEY, '1.5.2')")
-        page.evaluate("window.WhatsNew.autoRun(true)")
-        _wait_modal(page)
-        text = _panel_text(page)
-        heads = page.evaluate(
-            "[...document.querySelectorAll('#whatsnew-modal h2')].map(h => h.textContent)")
-        assert heads == [_entry(page, '1.5.4')['title'], _entry(page, '1.5.3')['title']], heads
-        assert 'What’s new in v1.5.4' in text and 'And in v1.5.3' in text, text
-        for item in _entry(page, '1.5.4')['items'] + _entry(page, '1.5.3')['items']:
-            assert item['h'] in text and item['d'] in text, (item, text)
-        n = len(_new_steps(page, '1.5.2', '1.5.4'))
-        assert page.evaluate("document.getElementById('whatsnew-show-me').title") == \
-            'Play the %d new steps of the Advanced Guide' % n
-        page.click('#whatsnew-close')
-        assert page.evaluate("localStorage.getItem(window.WhatsNew.LS_KEY)") == '1.5.4'
+        with _patch_entry(page):
+            page.evaluate("localStorage.setItem(window.WhatsNew.LS_KEY, '1.5.2')")
+            page.evaluate("window.WhatsNew.autoRun(true)")
+            _wait_modal(page)
+            text = _panel_text(page)
+            heads = page.evaluate(
+                "[...document.querySelectorAll('#whatsnew-modal h2')].map(h => h.textContent)")
+            assert heads == [FAKE_PATCH['title'], _entry(page, '1.5.3')['title']], heads
+            assert 'What’s new in v1.5.4' in text and 'And in v1.5.3' in text, text
+            for item in FAKE_PATCH['items'] + _entry(page, '1.5.3')['items']:
+                assert item['h'] in text and item['d'] in text, (item, text)
+            n = len(_new_steps(page, '1.5.2', '1.5.4'))
+            assert page.evaluate("document.getElementById('whatsnew-show-me').title") == \
+                'Play the %d new steps of the Advanced Guide' % n
+            page.click('#whatsnew-close')
+            assert page.evaluate("localStorage.getItem(window.WhatsNew.LS_KEY)") == '1.5.4'
     finally:
         page.unroute('**/api/version')
 
 
 def test_help_on_a_patch_shows_its_entry_then_the_earlier_patches(page):
-    """Help > What's New on 1.5.4, nothing owed: 1.5.4's entry, then
-    1.5.3's, and Show me runs the steps those two versions added."""
+    """Help > What's New on 1.5.4 (a stand-in patch entry), nothing owed:
+    1.5.4's entry, then 1.5.3's, and Show me runs the steps those two
+    versions added."""
     _serve_version(page, '1.5.4')
     try:
-        page.evaluate("""() => { localStorage.setItem(window.WhatsNew.LS_KEY, '1.5.4');
+        with _patch_entry(page):
+            page.evaluate("""() => { localStorage.setItem(window.WhatsNew.LS_KEY, '1.5.4');
+                localStorage.setItem(window.WhatsNew.MARK_KEY, '1'); }""")
+            page.evaluate("window.WhatsNew.open()")
+            _wait_modal(page)
+            heads = page.evaluate(
+                "[...document.querySelectorAll('#whatsnew-modal h2')].map(h => h.textContent)")
+            assert heads == [FAKE_PATCH['title'], _entry(page, '1.5.3')['title']], heads
+            text = _panel_text(page)
+            assert 'What’s new in v1.5.4' in text and 'And in v1.5.3' in text, text
+            n = len(_new_steps(page, '1.5.2', '1.5.4'))
+            assert page.evaluate("document.getElementById('whatsnew-show-me').title") == \
+                'Play the %d new steps of the Advanced Guide' % n
+            page.click('#whatsnew-close')
+    finally:
+        page.unroute('**/api/version')
+
+
+def test_autorun_1_5_3_to_1_6_0_shows_the_1_6_entry(page):
+    """1.5.3 -> 1.6.0: "What's new in v1.6" with the '1.6' entry alone,
+    Show me for the 1.6.0 steps, and Close stamps 1.6.0."""
+    _serve_version(page, '1.6.0')
+    try:
+        page.evaluate("""() => { localStorage.setItem(window.WhatsNew.LS_KEY, '1.5.3');
+            localStorage.setItem(window.WhatsNew.MARK_KEY, '1'); }""")
+        page.evaluate("window.WhatsNew.autoRun(true)")
+        _wait_modal(page)
+        text = _panel_text(page)
+        entry = _entry(page, '1.6')
+        heads = page.evaluate(
+            "[...document.querySelectorAll('#whatsnew-modal h2')].map(h => h.textContent)")
+        assert heads == [entry['title']], heads
+        assert 'What’s new in v1.6' in text and 'And in' not in text, text
+        for item in entry['items']:
+            assert item['h'] in text and item['d'] in text, (item, text)
+        n = len(_new_steps(page, '1.5.3', '1.6.0'))
+        assert n and page.evaluate("document.getElementById('whatsnew-show-me').title") == \
+            'Play the %d new steps of the Advanced Guide' % n
+        page.click('#whatsnew-close')
+        assert page.evaluate("localStorage.getItem(window.WhatsNew.LS_KEY)") == '1.6.0'
+        page.evaluate("window.WhatsNew.autoRun(true)")
+        page.wait_for_timeout(400)
+        assert not _modal_visible(page)
+    finally:
+        page.unroute('**/api/version')
+
+
+def test_help_on_1_6_0_shows_the_1_6_entry_and_its_steps(page):
+    """Help > What's New on 1.6.0, nothing owed: the '1.6' entry, and Show
+    me runs every step 1.6 brought (no 1.5.x step)."""
+    _serve_version(page, '1.6.0')
+    try:
+        page.evaluate("""() => { localStorage.setItem(window.WhatsNew.LS_KEY, '1.6.0');
             localStorage.setItem(window.WhatsNew.MARK_KEY, '1'); }""")
         page.evaluate("window.WhatsNew.open()")
         _wait_modal(page)
         heads = page.evaluate(
             "[...document.querySelectorAll('#whatsnew-modal h2')].map(h => h.textContent)")
-        assert heads == [_entry(page, '1.5.4')['title'], _entry(page, '1.5.3')['title']], heads
+        assert heads == [_entry(page, '1.6')['title']], heads
         text = _panel_text(page)
-        assert 'What’s new in v1.5.4' in text and 'And in v1.5.3' in text, text
-        n = len(_new_steps(page, '1.5.2', '1.5.4'))
-        assert page.evaluate("document.getElementById('whatsnew-show-me').title") == \
+        assert 'What’s new in v1.6' in text and 'And in' not in text, text
+        n = len(_new_steps(page, '1.5.3', '1.6.0'))
+        assert n and page.evaluate("document.getElementById('whatsnew-show-me').title") == \
             'Play the %d new steps of the Advanced Guide' % n
         page.click('#whatsnew-close')
     finally:
