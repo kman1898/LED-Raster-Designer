@@ -476,6 +476,9 @@ FIXES
   they zig-zagged over and under the ports. They now sit in one row. The
   binder names the connector once, under each screen's name on its data
   page, like Port cables: etherCON.
+- FIX: On the binder's wiring pages, a run going straight from a port to
+  the socket in line with it is no longer drawn over that port's cable
+  tag. It steps past the tag and reaches its socket outside the screen.
 - FIX: The binder's pull lists head their first column GEAR, not CABLE,
   since they list every piece of gear: cables, distros, boxes and cards.
   The pull sheet spreadsheet and the in-app pull sheet say Gear too, in

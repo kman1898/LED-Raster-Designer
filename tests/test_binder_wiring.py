@@ -1818,3 +1818,85 @@ def test_a_bottom_edge_data_sheet_keeps_its_unit_under_the_wall(page):
     _check_runs(h, out)
     _check_blocks(h)
     assert ids['errors'] == []
+
+
+# ---- a straight run never goes through its own disc's tag ----------------
+#
+# Once the data map's tags read the length alone (owner, 2026-11-02:
+# "just list 25'"), a "50'" tag stood under a bottom-row disc whose socket
+# was right below it. The way out _bwExit weighed stepped round the tag, a
+# hair to one side of the disc's middle, but the run then dropped straight
+# at the SOCKET'S x and was drawn through the tag. With "50' etherCON" the
+# tag was wider than the column, no way down was clear, and the run went
+# round by the side, so the fault never showed. The wall below has its card
+# over it, so its run goes up past the tag rather than down: the same fault.
+
+STRAIGHT_TAG_SEED_JS = """async () => {
+    const app = window.app;
+    const j = (method, url, body) => fetch(url, {method,
+        headers: {'Content-Type': 'application/json'},
+        body: body === undefined ? undefined : JSON.stringify(body)}).then(r => r.json());
+    const proj = await j('GET', '/api/project');
+    proj.layers = []; proj.groups = []; proj.processors = []; proj.distros = [];
+    delete proj.port_assignments; delete proj.pullSheet; delete proj.binder;
+    await j('PUT', '/api/project', proj);
+    await j('POST', '/api/layer/add', {name: 'DROP', columns: 9, rows: 3,
+        cabinet_width: 104, cabinet_height: 208});
+    const added = (await j('GET', '/api/project')).layers[0];
+    await j('PUT', `/api/layer/${added.id}`, {flowPattern: 'tl-h', processorType: 'novastar-armor',
+        showDataCableTags: true, dataFlowLabelSize: 30});
+    let st = await j('POST', '/api/processors', {deviceId: 'novastar-h9'});
+    const pid = st.processors[0].id;
+    st = await j('PUT', `/api/processors/${pid}/slots/0`, {deviceId: 'novastar-card-h-16xrj45-2xfiber'});
+    const cardId = st.processors[0].slots[0].card.id;
+    const pc = {};
+    for (let n = 1; n <= 16; n++) pc[String(n)] = {ft: 50, connector: 'ethercon'};
+    const put = await j('PUT', `/api/processors/${pid}/cards/${cardId}`, {portCables: pc});
+    app.project = await j('GET', '/api/project');
+    app.dedupeProjectLayers('wiring_straight_tag_seed');
+    const l = app.project.layers[0];
+    app.selectLayer(l);
+    await app.refreshProcessors();
+    await app._assignmentRequest('/api/port-assignments/place-overflow', 'POST', {layerId: String(l.id), cardId});
+    await app.refreshProcessors();
+    await app.refreshPortAssignment();
+    app.renderLayers();
+    window.canvasRenderer.render();
+    return { error: put.error || null };
+}"""
+
+
+@pytest.mark.parametrize('palette', ['colour', 'printer'])
+def test_a_run_in_line_with_its_socket_is_not_drawn_through_its_disc_tag(page, palette):
+    """DROP, 9 x 3 cabinets of 104 x 208, data flowing from the top left
+    across the rows, every port on a 50' etherCON with its tag shown: one
+    port, its card socket in line with its disc, and its "50'" tag on the
+    line between the two. The run leaves the disc beside the tag and goes
+    by the lane outside the wall to its socket; no run on the sheet is
+    drawn over a tag, a disc or anything else the map wrote."""
+    pg, ids = page
+    seeded = pg.evaluate(STRAIGHT_TAG_SEED_JS)
+    assert seeded['error'] is None, seeded
+    pg.wait_for_timeout(300)
+    opts = {**json.loads(_SHOW_JSON), 'palette': palette}
+    (h,) = _probe(pg, opts, 'DROP - Data Wiring')
+    s = h['scale']
+    lab = _labels(h)
+    tags = [k for k in lab if k['kind'] == 'tag']
+    assert tags and {k['text'] for k in tags} == {"50'"}, [k['text'] for k in tags]
+    assert len(h['runs']) == 1, h['runs']
+    (r,) = h['runs']
+    d = next(x for x in h['discs'] if x['text'] == r['from'])
+    sk = _socket(next(b for b in h['blocks'] if b['title'] == r['device']), r['socket'])
+    # the case itself: the socket in line with the disc, and a tag on the
+    # line a straight run would take from the disc's edge to the socket
+    assert abs(sk['x'] - d['x']) < STRAIGHT * s, ('the socket stands in line with the disc', sk, d)
+    edge = d['y'] - d['r'] if sk['y'] < d['y'] else d['y'] + d['r']
+    drop = _seg_box((sk['x'], edge), (sk['x'], sk['y']), CASE_PAD * s)
+    assert [k for k in tags if _box_over(drop, k, 0.5)], (
+        'a tag on the straight line from the disc to its socket', d, sk, drop, tags, r['points'])
+    assert _covers_lettering(h) == [], _covers_lettering(h)
+    assert _through_the_wall(h) == [], _through_the_wall(h)
+    _check_runs(h)
+    _check_blocks(h)
+    assert ids['errors'] == []
