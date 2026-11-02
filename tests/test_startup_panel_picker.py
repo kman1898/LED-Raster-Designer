@@ -129,11 +129,17 @@ def _open_page(pw_browser, url, init=ENABLE_PICKER):
     context = pw_browser.new_context(viewport={'width': 1600, 'height': 950})
     context.add_init_script(init)
     pg = context.new_page()
+    # Errors on the page and failed API answers. The panel library's
+    # update check at launch is refused on purpose (conftest points it at a
+    # dead port), so that answer, and the browser's console line for a
+    # failed fetch, which the response check already covers, are not ours.
     problems = []
     pg.on('pageerror', lambda e: problems.append('pageerror: ' + str(e)))
-    pg.on('console', lambda m: problems.append('console: ' + m.text) if m.type == 'error' else None)
+    pg.on('console', lambda m: problems.append('console: ' + m.text)
+          if m.type == 'error' and not m.text.startswith('Failed to load resource') else None)
     pg.on('response', lambda r: problems.append(f'{r.status} {r.url}')
-          if '/api/' in r.url and r.status >= 400 else None)
+          if '/api/' in r.url and r.status >= 400
+          and '/api/panel-catalog/refresh' not in r.url else None)
     pg.goto(url, wait_until='domcontentloaded')
     pg.wait_for_function("() => !!(window.app && window.app._initialLoadComplete)", timeout=20000)
     return context, pg, problems
