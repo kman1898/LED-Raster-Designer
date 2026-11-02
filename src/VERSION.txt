@@ -221,8 +221,8 @@ the app tells you why.
 
 FIBER EXTENSIONS
 
-A TAC or MTP doesn't always plug straight into the box. An MTP needs a
-fan-out to reach an XD's X1, for example. On a breakout box's sheet,
+A TAC or MTP doesn't always plug straight into the box. An MTP can't
+run direct to an XD's X1, for example. On a breakout box's sheet,
 each link on a TAC or MTP now has + Extension. Pick a fan-out or a
 duplex patch, the connector at each end and its length. A new one on a
 TAC starts as a fan-out to LC duplex, and on an MTP as a duplex patch.
