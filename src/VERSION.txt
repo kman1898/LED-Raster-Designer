@@ -15,6 +15,11 @@ up its own way, and a card in Copy mode feeds a mirror screen: drag it
 onto one screen, then onto a matching second screen, and the second
 becomes its copy.
 
+Data and power both get eight Z flow patterns, where every row starts
+again from the same side. Organized now cuts a row that's too long for
+one port or circuit instead of stopping with an error, and Ports
+required tells you the fewest ports a screen needs.
+
 US circuits now fill to 80% of the breaker, and several other fixes
 change counts on the pull sheet, so check any show you've already ordered
 cable from. They're all listed under Opening an older show.
@@ -53,8 +58,7 @@ cam set with 5-wire in Notes, and an L21-30 input lists an L21-30
 feed. The feed is always on the pull sheet, with no length until you
 type one, and the binder says what each distro is fed from, like
 Fed from: HOUSE · 600 A · 120/208V 3φ · 200 A cam set 100'+50'. It only
-reads Feed: when there's no service or distro to name. Pull sheet edits
-saved on a row that said feeder carry over to the feed.
+reads Feed: when there's no service or distro to name.
 
 A distro you feed thru is listed even with nothing plugged into it, and
 the load of a distro fed thru another counts on the service. The binder's
@@ -132,6 +136,51 @@ processor onto a second screen the same way. The tray, the pull sheet and
 the binder list the mirror's runs on its own boxes, and a second card
 backing up the first 1:1 backs up the mirror too. A card saved in the old
 Copy / Backup mode opens as Backup, the way it ran.
+
+Z FLOW PATTERNS
+
+Eight Z flow patterns join the eight snakes, for data and for power. On a
+snake each row or column runs back the other way. On a Z pattern every
+row or column starts again from the same side, the way a cable goes back
+to the start before each new row.
+
+The snakes are the top row of the picker and the Z patterns the row under
+it, both in the order top left, top right, bottom left, bottom right,
+horizontal first and then vertical first. Flow Pattern is laid out that
+way on the Data tab, in Power Settings and in Preferences.
+
+ORGANIZED CUTS LONG ROWS
+
+Organized used to stop with a capacity error when a row was longer than
+one port carries. Now it fills the port with as many whole cabinets as
+fit and starts the next port in the same row, and a column that's too
+tall works the same way. The error shows only when one panel alone is
+bigger than a port.
+
+Organized power works the same way. Each circuit takes as many whole
+panels as fit along the row, the next one starts where it stopped in the
+same row, and the last takes the rest, so a row of 90 panels that fit 22
+to a circuit is four circuits of 22 and one of 2. A column too tall for
+one circuit is cut the same way, and the short circuits at the end share
+through 2fers and 3fers like any others. Only a single panel that draws
+more than a circuit carries still can't fit.
+
+Where Organized cuts a row or column, a Port numbers switch beside it on
+the Data tab, and a Circuit numbers switch in Power Settings, set the
+order of the new ports and circuits. Across goes along each row first.
+Down goes down the stacks and starts the next stack back at the first
+row. The ports and circuits stay the same, only their numbers change.
+Until you pick one, each switch follows the flow pattern: Across when
+it's horizontal first, Down when it's vertical first. Older shows keep
+the numbers they had.
+
+PORTS REQUIRED IS THE MINIMUM
+
+On a custom data path, Ports required now says the fewest ports the
+screen needs in its Organized or Max Capacity setting, under ideal
+circumstances, not how many ports you've drawn so far. It's the number
+to plan cards and boxes around before you start drawing. The ports you
+draw are still the ones the cards, the port labels and the map count.
 
 OPENING AN OLDER SHOW
 
@@ -234,8 +283,8 @@ FIXES
 - FIX: A single name is never split, so SR 13x5 stays SR 13x5, and a run
   of names folds into one, like SR-1 … SR-6.
 - FIX: Rows you typed on the pull sheet yourself in an older version are
-  updated to today's spellings, like TRUE1, etherCON and Edison → TRUE1
-  cable, in their notes as well as their type.
+  updated to today's spellings, like TRUE1 and etherCON, in their notes as
+  well as their type.
 - FIX: Snakes are labeled by their ports, with the snake's name and size
   in Notes (SNAKE A · 4 channel), and an extension by its port. Two snakes
   are never merged into one row.
@@ -348,44 +397,6 @@ FIXES
 - FIX: On a Mac, opening the launcher no longer hides the app's menu-bar
   icon behind the menu bar, so it stays visible and clickable. Thanks to
   kcikcreative33 for this fix.
-- NEW: Eight Z flow patterns join the eight snakes on the Data tab: every
-  row or column starts again from the same side, the way a cable goes back
-  to the start before each new row. The snakes are the top row of the
-  picker and the Z patterns the row under it, both in the order top left,
-  top right, bottom left, bottom right, horizontal first and then
-  vertical first.
-- FIX: Ports required on a custom data path now says the fewest ports the
-  screen needs in its Organized or Max Capacity setting, under ideal
-  circumstances, not how many ports have been drawn so far.
-- FIX: Organized no longer stops with a capacity error when a row is
-  longer than one port carries. It fills the port with as many whole
-  cabinets as fit and starts the next port in the same row, and a column
-  that is too tall works the same way. The error now shows only when one
-  panel alone is bigger than a port.
-- FIX: A Port numbers switch beside Organized and Max Capacity numbers
-  the ports of a row that is cut into more than one port: Across goes
-  along each row first, Down goes down the stacks and starts the next
-  stack back at the first row. It shows only on a screen where Organized
-  cuts a row or column, and older shows keep the numbers they had.
-- NEW: Eight Z flow patterns join the eight snakes for power too: every
-  row or column starts again from the same side. They're the row under
-  the snakes in Flow Pattern in Power Settings and in Preferences, in the
-  same order as on the Data tab.
-- FIX: Organized power no longer refuses a row too long for one circuit.
-  Each circuit takes as many whole panels as fit along the row, the next
-  one starts where it stopped in the same row, and the last takes the
-  rest, so a row of 90 panels that fit 22 to a circuit is four circuits
-  of 22 and one of 2. A column too tall for one circuit is cut the same
-  way, and the short circuits at the end share through 2fers and 3fers
-  like any others. Only a single panel that draws more than a circuit
-  carries still can't fit.
-- FIX: A Circuit numbers switch beside Organized numbers the circuits of
-  a row that is cut into more than one circuit: Across goes along each
-  row first, Down goes down the stacks and starts the next stack back at
-  the first row. The circuits stay the same, only their numbers change,
-  and it shows only on a screen where Organized cuts a row or column.
-  Until you pick one it follows the flow pattern: Across when it's
-  horizontal first, Down when it's vertical first.
 - FIX: Starting a new show or opening one right after an Undo waits for
   the Undo to finish saving, so the undone show can no longer land on top
   of the one you just opened.
