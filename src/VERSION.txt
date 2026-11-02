@@ -486,6 +486,12 @@ FIXES
   1-2, even when the boxes went on before Backup was picked. Before, that
   box showed in the Data tray as a copy with 16 free ports. Switching the
   card to Independent or Copy undoes the pairing.
+- FIX: The binder's Overview page draws your screens much bigger. Its
+  tables now share one short band across the top, with a long Contents
+  list split into two or more columns, and the drawing fills the whole
+  width under them. A Contents title that fits on one line no longer
+  leaves an empty line under it, and every sheet is listed: on a long
+  binder the last few used to be left off.
 
 v1.5.3 - October 21, 2026
 ----------------------------

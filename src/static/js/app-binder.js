@@ -6600,13 +6600,21 @@ class _Binder {
 
     // ---- the overview (1.1) -------------------------------------------------
 
-    // The show map as view 1 across the drawing area's width, the
-    // POSITIONS, SHOW TOTALS and CONTENTS tables in the top-left over it
-    // the way their inventory tables sit. The tables take at most half the
-    // height (what does not fit is cut - the overview never continues,
-    // the contents naming every sheet must stay on it).
+    // The show map as view 1 under a BAND of tables across the top -
+    // POSITIONS, SHOW TOTALS and CONTENTS, the contents in as many
+    // columns as draw the map largest (_bOverviewBand) - the map across
+    // the whole width under the band, its bubble just under it. Nothing in
+    // the band is cut: the overview never continues, and the contents
+    // names every sheet of the set.
     _bOverviewPage(book) {
         const list = book.list;
+        // The tables' columns, worked out first: every table is measured in
+        // the column it is painted in. Measured in COL_W and painted in the
+        // wider column, a CONTENTS title that fits on one line was given a
+        // second line's height it never used (3.1 and 4.4 on a real show).
+        const da = book.geo.da;
+        const across = Math.max(1, Math.floor((da.w + COL_GAP) / (COL_W + COL_GAP)));
+        const wide = (da.w - (across - 1) * COL_GAP) / across;
         const rows = list.positions.map(pos => {
             // A position's own screens with their counts; a device-only
             // position (a beach a distro or box sits on, no screen of its
@@ -6628,7 +6636,7 @@ class _Binder {
             title: 'Positions',
             cols: [{ title: 'position', w: 1 }, { title: 'screens', w: 1.6 },
                    { title: 'circuits', w: 0.6, align: 'right' }, { title: 'ports', w: 0.5, align: 'right' }],
-            rows,
+            rows, width: wide,
         }) });
         // The show's totals. The Load reads the way a screen sheet's own
         // does - amps 1φ · amps 3φ · kW, each screen's amps the ones
@@ -6716,35 +6724,149 @@ class _Binder {
         // The contents: every sheet of the set, from the plan the dry pass
         // made (a dry pass has none yet and lists nothing).
         const contents = (book.plan || []).map(p => ({ cells: [p.number, p.sheetTitle] }));
-        blocks.push({ lines: this._bTableLines(book, {
-            title: 'Contents',
-            cols: [{ title: 'sheet', w: 0.4 }, { title: 'title', w: 1.6 }],
-            rows: contents.length ? contents : [{ cells: ['', ''] }],
-        }) });
-        const da = book.geo.da;
-        const across = Math.max(1, Math.floor((da.w + COL_GAP) / (COL_W + COL_GAP)));
-        const wide = (da.w - (across - 1) * COL_GAP) / across;
-        // The tables take half the height - up to 65% where the contents
-        // is long - and, where the sheet has a column for each, sit side
-        // by side the way their inventory tables do; on a narrower sheet
-        // they pack as they fit.
-        const contentsH = blocks[2].lines.reduce((s, l) => s + l.h, 0);
-        const colH = Math.min(Math.max(Math.floor(da.h * 0.5), contentsH), Math.floor(da.h * 0.65));
-        const pack = across >= blocks.length
-            ? { cols: blocks.map(b => this._bPack([b], colH, 1).cols[0]).filter(Boolean), rest: [] }
-            : this._bPack(blocks, colH, across);
-        const tablesH = pack.cols.reduce((m, c) => Math.max(m, c.h), 0);
+        const band = this._bOverviewBand(book, blocks[0].lines, blocks[1].lines,
+                                         contents.length ? contents : [{ cells: ['', ''] }], across, wide);
+        const pack = { cols: band.cols, rest: [] };
         const L = { kind: 'overview', cols: across, colW: wide, top: da.y, pack,
                     colX: (i) => da.x + i * (wide + COL_GAP) };
-        const mapArea = { x: da.x, y: da.y + tablesH + (tablesH ? COL_GAP : 0), w: da.w,
-                          h: da.h - tablesH - (tablesH ? COL_GAP : 0) - BUBBLE_H };
+        const mapArea = band.area;
         const view = ++book.views;
         this._bPage(book, { kind: 'overview', title: 'Overview', sheetTitle: 'OVERVIEW', viewName: 'OVERVIEW',
                             subject: book.meta.show, view, layout: 'overview', cols: across }, () => {
             this._bDrawLayout(book, L);
             const used = this._bShowMap(book, mapArea) || mapArea;
-            this._bViewBubble(book, view, 'OVERVIEW', mapArea.x + 20, used.y + used.h + 8);
+            // the view's bubble just under the drawing, at its left
+            this._bViewBubble(book, view, 'OVERVIEW', Math.max(mapArea.x, used.x) + 20, used.y + used.h + 8);
+            // what the tests read: each table column's box, the band's
+            // height and how the contents split
+            if (book.log && book.log.map) {
+                book.log.map.band = { h: band.h, contentsCols: band.contentsCols, layout: band.layout };
+                book.log.map.tables = pack.cols.map((c, i) => ({ x: L.colX(i), y: da.y, w: wide, h: c.h }));
+            }
         });
+    }
+
+    // TABLES ACROSS THE TOP, THE DRAWING UNDER THEM (owner, 2026-11-02, on
+    // page 1 of a real binder: "we have a ton of wasted space on page 1",
+    // "always prefer a bigger drawing", then "Tables across the top" and
+    // "can also split the page content into two columns"). The map used to
+    // stand under a CONTENTS of 30-odd rows, small at the sheet's foot,
+    // with the room under POSITIONS and SHOW TOTALS empty. Now the tables
+    // share one band across the top and the map takes the whole width
+    // under it. The band is tried in the sheet's columns every way that
+    // holds it whole:
+    //   - POSITIONS and SHOW TOTALS side by side, or one over the other,
+    //     and the CONTENTS beside them in k columns of balanced height,
+    //     its rows in order ("CONTENTS 1", "CONTENTS 2", ...);
+    //   - all three run in order down the columns as short as they will
+    //     go, the CONTENTS starting under SHOW TOTALS (a narrow sheet with
+    //     two columns, where the first way leaves the CONTENTS one long
+    //     column).
+    // The way that draws the map largest wins. Where several draw it the
+    // same - a map stopped by the sheet's width - the one with the fewest
+    // contents columns does, the tables side by side before one over the
+    // other. Every table is measured in the column it is painted in:
+    // measured in the narrower COL_W, a contents title that prints on one
+    // line took a second line's height.
+    // Returns { cols, h, area, contentsCols, layout }: the band's columns
+    // as _bDrawLayout takes them, its height, the map's room under it, how
+    // many columns the contents took and which way won.
+    _bOverviewBand(book, positions, totals, contents, across, wide) {
+        const da = book.geo.da;
+        const sum = (lines) => lines.reduce((s, l) => s + l.h, 0);
+        const contentsTable = (title, rows) => this._bTableLines(book, {
+            title, cols: [{ title: 'sheet', w: 0.4 }, { title: 'title', w: 1.6 }], rows, width: wide,
+        });
+        // the contents' rows' heights, as one table measures them: its
+        // head lines (title, headings), then one line per row
+        const whole = contentsTable('Contents', contents);
+        const headH = sum(whole.filter(l => l.head));
+        const rowH = whole.filter(l => !l.head).map(l => l.h);
+        const posH = sum(positions), totH = sum(totals);
+        // the smallest height under which `fill(cap)` takes no more than
+        // `n` columns, and what it fills
+        const shortest = (fill, n, lo, hi) => {
+            while (lo < hi) {
+                const mid = Math.floor((lo + hi) / 2);
+                if (fill(mid).length <= n) hi = mid; else lo = mid + 1;
+            }
+            return fill(lo);
+        };
+        // the contents' rows in order, a new part each time the next row
+        // would take its column past `cap`
+        const rowsIn = (cap) => {
+            const parts = [];
+            let h = 0;
+            rowH.forEach((r, i) => {
+                if (!parts.length || h + r > cap) { parts.push([]); h = headH; }
+                parts[parts.length - 1].push(i);
+                h += r;
+            });
+            return parts;
+        };
+        const tallestRow = Math.max(...rowH);
+        const allRows = rowH.reduce((s, r) => s + r, 0);
+        // Every candidate: a list of columns, each a list of items - 'P',
+        // 'T' or a contents part (its rows' indexes).
+        const tries = [];
+        for (let k = 1; k <= Math.max(1, Math.min(contents.length, across)); k++) {
+            const parts = shortest(rowsIn, k, headH + tallestRow, headH + allRows);
+            if (parts.length !== k) continue;
+            if (2 + k <= across) tries.push({ layout: 'side', cols: [['P'], ['T'], ...parts.map(p => [p])] });
+            if (1 + k <= across) tries.push({ layout: 'stacked', cols: [['P', 'T'], ...parts.map(p => [p])] });
+        }
+        // all three in order down the columns, each column as short as
+        // the band allows
+        const runIn = (cap) => {
+            const cols = [];
+            let cur = null, part = null;
+            const open = () => { cur = { items: [], h: 0 }; cols.push(cur); part = null; };
+            const start = () => (cur.items.length ? cur.h + BLOCK_GAP : 0);
+            open();
+            for (const [key, h] of [['P', posH], ['T', totH]]) {
+                if (cur.items.length && start() + h > cap) open();
+                cur.h = start() + h;
+                cur.items.push(key);
+            }
+            rowH.forEach((r, i) => {
+                if (part && cur.h + r <= cap) { part.push(i); cur.h += r; return; }
+                if (cur.items.length && start() + headH + r > cap) open();
+                cur.h = start() + headH + r;
+                part = [i];
+                cur.items.push(part);
+            });
+            return cols.map(c => c.items);
+        };
+        tries.push({ layout: 'run', cols: shortest(runIn, across, Math.max(posH, totH, headH + tallestRow),
+                                                   posH + totH + headH + allRows + 2 * BLOCK_GAP) });
+        // a column of blocks, one under the next
+        const column = (blocks) => {
+            const items = [];
+            let y = 0;
+            blocks.forEach((lines, i) => {
+                if (i) y += BLOCK_GAP;
+                for (const line of lines) { items.push({ line, y }); y += line.h; }
+            });
+            return { h: y, items };
+        };
+        const ext = this._bShowMapExtent();
+        let best = null;
+        for (const t of tries) {
+            if (!t.cols.length || t.cols.length > across) continue;
+            const parts = t.cols.flat().filter(it => Array.isArray(it));
+            const tables = new Map(parts.map((p, i) => [p, contentsTable(
+                parts.length > 1 ? `Contents ${i + 1}` : 'Contents', p.map(r => contents[r]))]));
+            const cols = t.cols.map(items => column(items.map(it => (it === 'P' ? positions
+                : it === 'T' ? totals : tables.get(it)))));
+            const h = cols.reduce((m, c) => Math.max(m, c.h), 0);
+            const y = da.y + h + COL_GAP;
+            const area = { x: da.x, y, w: da.w, h: Math.max(0, da.y + da.h - BUBBLE_H - y) };
+            const zoom = area.h > 0 ? Math.min(area.w / ext.w, area.h / ext.h, MAP_ZOOM_CAP) : 0;
+            if (!best || zoom > best.zoom * (1 + 1e-9)) {
+                best = { cols, h, area, zoom, contentsCols: parts.length, layout: t.layout };
+            }
+        }
+        return best;
     }
 
     // The show at a glance: the Show Look, cropped to the SCREENS' bounds
@@ -6771,50 +6893,74 @@ class _Binder {
         return this._bWithPerspective('front', () => this._bPaintShowMap(book, area));
     }
 
+    // The show map's world size, its air included - what _bOverviewMapArea
+    // fits into each room - from the front, as the map is drawn.
+    _bShowMapExtent() {
+        const r = window.canvasRenderer;
+        const viewMode = r.viewMode;
+        try {
+            r.viewMode = 'show-look';
+            const b = this._bWithPerspective('front', () => this._bShowMapBounds());
+            return { w: b.x2 - b.x1, h: b.y2 - b.y1 };
+        } finally {
+            r.viewMode = viewMode;
+        }
+    }
+
+    // The screens' bounds in the show's world (every screen on a visible
+    // canvas; the visible canvases where no screen shows), with a little
+    // air around them, and each screen's own world rect.
+    _bShowMapBounds() {
+        const r = window.canvasRenderer;
+        const canvases = (this.project && Array.isArray(this.project.canvases)) ? this.project.canvases : [];
+        const shown = canvases.filter(c => c && c.visible !== false);
+        let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+        const screens = (this.project.layers || []).filter(l => (l.type || 'screen') === 'screen' && l.visible !== false);
+        const worldRects = [];      // each screen's bounds in the show's world
+        for (const layer of screens) {
+            const cid = (layer.show_canvas_id || layer.canvas_id) || null;
+            const canvas = canvases.find(c => c && c.id === cid) || null;
+            if (canvases.length && (!canvas || canvas.visible === false)) continue;
+            const ws = r._canvasWorkspace(canvas);
+            const b = r.getLayerBounds(layer);
+            const { dx, dy } = r.getLayerRenderOffset(layer);
+            const wr = { id: layer.id, name: layer.name, x: ws.wx + b.x + dx, y: ws.wy + b.y + dy, w: b.width, h: b.height };
+            worldRects.push(wr);
+            x1 = Math.min(x1, wr.x); y1 = Math.min(y1, wr.y);
+            x2 = Math.max(x2, wr.x + wr.w); y2 = Math.max(y2, wr.y + wr.h);
+        }
+        if (!Number.isFinite(x1)) {
+            if (shown.length) {
+                for (const c of shown) {
+                    const ws = r._canvasWorkspace(c);
+                    x1 = Math.min(x1, ws.wx); y1 = Math.min(y1, ws.wy);
+                    x2 = Math.max(x2, ws.wx + (c.show_raster_width || c.raster_width || 0));
+                    y2 = Math.max(y2, ws.wy + (c.show_raster_height || c.raster_height || 0));
+                }
+            } else {
+                x1 = 0; y1 = 0; x2 = r.rasterWidth || 1920; y2 = r.rasterHeight || 1080;
+            }
+        }
+        // a little air around the screens
+        const air = Math.max(8, 0.02 * Math.max(x2 - x1, y2 - y1));
+        x1 -= air; y1 -= air; x2 += air; y2 += air;
+        return { x1, y1, x2, y2, worldRects };
+    }
+
     _bPaintShowMap(book, area) {
         const r = window.canvasRenderer;
         const S = book.scale || 2;
-        const canvases = (this.project && Array.isArray(this.project.canvases)) ? this.project.canvases : [];
-        const shown = canvases.filter(c => c && c.visible !== false);
         const saved = { canvas: r.canvas, ctx: r.ctx, exportMode: r.exportMode, transparent: r.exportTransparentBg,
                         printer: r.printerMode, viewMode: r.viewMode, zoom: r.zoom, panX: r.panX, panY: r.panY };
         let used = null;
         try {
             r.viewMode = 'show-look';
-            let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
-            const screens = (this.project.layers || []).filter(l => (l.type || 'screen') === 'screen' && l.visible !== false);
-            const worldRects = [];      // each screen's bounds in the show's world
-            for (const layer of screens) {
-                const cid = (layer.show_canvas_id || layer.canvas_id) || null;
-                const canvas = canvases.find(c => c && c.id === cid) || null;
-                if (canvases.length && (!canvas || canvas.visible === false)) continue;
-                const ws = r._canvasWorkspace(canvas);
-                const b = r.getLayerBounds(layer);
-                const { dx, dy } = r.getLayerRenderOffset(layer);
-                const wr = { id: layer.id, name: layer.name, x: ws.wx + b.x + dx, y: ws.wy + b.y + dy, w: b.width, h: b.height };
-                worldRects.push(wr);
-                x1 = Math.min(x1, wr.x); y1 = Math.min(y1, wr.y);
-                x2 = Math.max(x2, wr.x + wr.w); y2 = Math.max(y2, wr.y + wr.h);
-            }
-            if (!Number.isFinite(x1)) {
-                if (shown.length) {
-                    for (const c of shown) {
-                        const ws = r._canvasWorkspace(c);
-                        x1 = Math.min(x1, ws.wx); y1 = Math.min(y1, ws.wy);
-                        x2 = Math.max(x2, ws.wx + (c.show_raster_width || c.raster_width || 0));
-                        y2 = Math.max(y2, ws.wy + (c.show_raster_height || c.raster_height || 0));
-                    }
-                } else {
-                    x1 = 0; y1 = 0; x2 = r.rasterWidth || 1920; y2 = r.rasterHeight || 1080;
-                }
-            }
-            // a little air around the screens
-            const air = Math.max(8, 0.02 * Math.max(x2 - x1, y2 - y1));
-            x1 -= air; y1 -= air; x2 += air; y2 += air;
+            const { x1, y1, x2, y2, worldRects } = this._bShowMapBounds();
             const w = Math.max(1, x2 - x1), h = Math.max(1, y2 - y1);
             const zoom = Math.min(area.w / w, area.h / h, MAP_ZOOM_CAP);
             const drawW = Math.max(1, Math.round(w * zoom)), drawH = Math.max(1, Math.round(h * zoom));
-            const dx = area.x + (area.w - drawW) / 2, dy = area.y;
+            // centered in its room, both ways
+            const dx = area.x + (area.w - drawW) / 2, dy = area.y + Math.max(0, (area.h - drawH) / 2);
             // the world -> page mapping the crop uses, applied to each screen
             const round = (v) => Math.round(v * 100) / 100;
             const screenRects = worldRects.map(wr => ({
