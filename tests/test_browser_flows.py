@@ -2646,7 +2646,9 @@ def test_slider_accent_fill_is_painted(page):
     """theme.js writes the slider fill inline; theme.css must not eat it.
     A filled track and a bare track have to compute differently."""
     res = page.evaluate(SNAP_JS + """() => {
-        const rs = [...document.querySelectorAll('input[type=range]:not(.lrd-cw-range)')];
+        // the Quick Palettes Hue slider paints its own hue ramp and opts
+        // out of the accent fill (data-ps-slider="own")
+        const rs = [...document.querySelectorAll('input[type=range]:not(.lrd-cw-range):not([data-ps-slider="own"])')];
         const r = rs.find(x => x.offsetParent !== null) || rs[0];
         if (!r) return null;
         const keep = r.getAttribute('style');

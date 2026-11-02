@@ -2825,6 +2825,7 @@ class _ScreenInfo {
         // v0.8.7.8: sync the gradient editor to the (now current) layer.
         if (typeof this.loadGradientEditor === 'function') this.loadGradientEditor();
         if (typeof this.loadPaletteEditor === 'function') this.loadPaletteEditor();
+        if (typeof this.loadQuickPalettes === 'function') this.loadQuickPalettes();
         this._captureScreenInfoBaseline();
     }
 

@@ -918,6 +918,9 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 }
 #preferences-modal .pm-tabstrip .view-tab,
 #license-modal .pm-tabstrip .view-tab { font-size: 12px; }
+/* nine tabs since the Palettes tab: a little less side padding keeps the
+   strip on one line in the 780px dialog */
+#preferences-modal .pm-tabstrip .view-tab { padding-left: 13px !important; padding-right: 13px !important; white-space: nowrap; }
 /* one body height - the tallest tab's (Look, since issue 28 gave it the
    colour defaults; Binder before) - so the dialog never resizes as the
    tabs change */
@@ -2561,3 +2564,65 @@ body.lrd-panel-dragging, body.lrd-panel-dragging * { cursor: grabbing !important
 .lrd-layout-buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
 .lrd-layout-list { display: flex; flex-direction: column; gap: 6px; max-height: 50vh; overflow-y: auto; font-size: 13px; color: #ccc; }
 .lrd-layout-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+
+/* ---- Quick Palettes (Pixel Map tab, app-quick-palettes.js) ---- */
+#quick-palettes-panel .panel-content { display: grid; gap: 8px; }
+.qp-styles {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; padding: 2px;
+    background: var(--ps-inset, #1c1c1c); border: 1px solid var(--ps-dark, #131313); border-radius: 4px;
+}
+.qp-style {
+    background: transparent; border: 0; border-radius: 3px; padding: 4px 0;
+    color: var(--ps-dim, #c0c0c0); font: inherit; font-size: 11px; cursor: pointer;
+}
+.qp-style:hover { color: var(--ps-text, #f0f0f0); }
+.qp-style[aria-pressed="true"] {
+    background: var(--ps-control, #404040); color: var(--ps-text, #f0f0f0);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
+}
+.qp-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.qp-swatch {
+    position: relative; aspect-ratio: 1; padding: 0; overflow: hidden; cursor: pointer;
+    border: 1px solid var(--ps-dark, #131313); border-radius: 4px;
+    display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr);
+}
+.qp-swatch > i { display: block; }
+.qp-swatch:hover { box-shadow: 0 0 0 1px rgba(255,255,255,0.35); }
+.qp-swatch[aria-pressed="true"] { outline: 2px solid #fff; outline-offset: 1px; }
+.qp-swatch:focus-visible { outline: 2px solid var(--ps-accent, #e22330); outline-offset: 1px; }
+.qp-hue { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; }
+/* The track is painted inline (renderQuickPalettes): the screen's Color 1
+   carried round the wheel, so the slider shows where each position lands. */
+#quick-palette-hue {
+    flex: 1; min-width: 0; height: 14px; border-radius: 4px; -webkit-appearance: none; appearance: none;
+    border: 1px solid var(--ps-dark, #131313); box-shadow: none;
+    background: linear-gradient(90deg, #3f7f8a, #4a5aa0, #7a4a90, #8a4a5a, #806030, #5c6a2c, #3f7f8a);
+}
+#quick-palette-hue::-webkit-slider-runnable-track { height: 14px; background: transparent; }
+#quick-palette-hue::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none; width: 10px; height: 18px; margin-top: -3px; border-radius: 2px;
+    background: linear-gradient(#f0f0f0, #cdcdcd); border: 1px solid #2a2a2a; box-shadow: 0 1px 2px rgba(0,0,0,0.5); cursor: ew-resize;
+}
+.qp-hue-value {
+    min-width: 44px; padding: 2px 4px; font: inherit; font-size: 11px; font-variant-numeric: tabular-nums;
+    background: var(--ps-inset, #1c1c1c); color: var(--ps-text, #f0f0f0);
+    border: 1px solid var(--ps-dark, #131313); border-radius: 3px; cursor: pointer;
+}
+.qp-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.qp-note { color: var(--ps-faint, #969696); font-size: 11px; min-width: 0; }
+#quick-palette-shuffle { padding: 3px 10px; font-size: 11px; }
+#quick-palettes-panel.qp-custom .qp-styles,
+#quick-palettes-panel.qp-custom #quick-palette-shuffle { display: none; }
+
+/* the Preferences Palettes tab's eight pairs */
+#preferences-modal .pm-qp-grid {
+    grid-column: 2; display: grid; grid-template-columns: repeat(2, max-content); gap: 10px 32px;
+}
+#preferences-modal .pm-qp-pair { display: inline-flex; align-items: center; gap: 6px; }
+#preferences-modal .pm-qp-num { color: #888; font-size: 12px; width: 12px; text-align: right; }
+#preferences-modal .pm-qp-preview {
+    width: 34px; height: 34px; border-radius: 4px; border: 1px solid #3a3a3a; margin-left: 4px;
+    background-size: 33.34% 33.34%;
+}
+#preferences-modal .pm-qp-row > label:first-child { align-self: start; padding-top: 8px; }
+#preferences-modal .pm-qp-grid.pm-qp-auto { opacity: 0.55; }

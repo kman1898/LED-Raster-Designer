@@ -823,6 +823,8 @@ export class LEDRasterApp {
         this.socket.on('preferences_updated', (prefs) => {
             console.log('WEBSOCKET preferences_updated received');
             this._serverPreferences = prefs;
+            // the Quick Palettes may now come from the user's own eight
+            if (typeof this.renderQuickPalettes === 'function') this.renderQuickPalettes();
         });
     }
 

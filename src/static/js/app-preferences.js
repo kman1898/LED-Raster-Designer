@@ -5,6 +5,7 @@
 // attached to the prototype via the carrier class.
 import { LEDRasterApp } from './app-core.js';
 import { sendClientLog } from './helpers.js';
+import { normalizeQuickPalettes, shippedQuickPalettes } from './quick-palettes.js';
 
 // The six circuit colours that ship, A to F: the Power tab's "Circuit
 // colors" default, and what any position of a stored set falls back to.
@@ -30,6 +31,11 @@ class _Preferences {
             color1: '#404680',
             color2: '#959CB8',
             borderColor: '#FFFFFF',
+            // The Pixel Map tab's Quick Palettes (app-quick-palettes.js):
+            // 'auto' builds the eight round each screen's own colour;
+            // 'custom' shows the user's own eight [Color 1, Color 2] pairs.
+            quickPaletteSource: 'auto',
+            quickPaletteColors: shippedQuickPalettes(),
             // ---- Colours a NEW screen starts with (initializeLayerDefaults,
             // and addLayer for the two the server sets: the info labels and
             // the cabinet ID text). A screen that exists keeps its own; the
@@ -169,6 +175,29 @@ class _Preferences {
         return ['a', 'b', 'c', 'd', 'e', 'f'].map(l => `pref-power-circuit-color-${l}`);
     }
 
+    // The sixteen Quick Palette picker ids, as eight [Color 1, Color 2] pairs.
+    _quickPalettePrefIds() {
+        return [1, 2, 3, 4, 5, 6, 7, 8].map(n => [`pref-quick-palette-${n}a`, `pref-quick-palette-${n}b`]);
+    }
+
+    // The eight pairs are dimmed while the source is 'auto' (they are only
+    // shown then), and changing one switches the source to the user's own.
+    _syncQuickPalettePrefsUI() {
+        const src = document.getElementById('pref-quick-palette-source');
+        const grid = document.getElementById('pref-quick-palette-grid');
+        if (grid) grid.classList.toggle('pm-qp-auto', !src || src.value !== 'custom');
+        // each pair's little checkerboard, the way the swatch will look
+        this._quickPalettePrefIds().forEach(([a, b]) => {
+            const ea = document.getElementById(a), eb = document.getElementById(b);
+            const prev = ea && ea.parentElement && ea.parentElement.querySelector('.pm-qp-preview');
+            if (!prev || !eb) return;
+            prev.style.backgroundColor = ea.value;
+            prev.style.backgroundImage = `linear-gradient(45deg, ${eb.value} 25%, transparent 25%, transparent 75%, ${eb.value} 75%), linear-gradient(45deg, ${eb.value} 25%, transparent 25%, transparent 75%, ${eb.value} 75%)`;
+            prev.style.backgroundPosition = '0 0, 5.67px 5.67px';
+            prev.style.backgroundSize = '11.33px 11.33px';
+        });
+    }
+
     // The three tile colours (color1, color2, borderColor) as a checked
     // #RRGGBB, upper case. What counts as a colour: 6 hex digits or 3
     // (each doubled: '#FFF' and 'fff' are '#FFFFFF'; hexToRgb read the
@@ -280,10 +309,10 @@ class _Preferences {
         });
     }
 
-    // The eight tabs, in strip order. The strip remembers the last tab
+    // The nine tabs, in strip order. The strip remembers the last tab
     // opened within the session (not across reloads).
     _prefsTabKeys() {
-        return ['wall', 'look', 'data', 'power', 'distros', 'binder', 'pull', 'stock'];
+        return ['wall', 'look', 'palettes', 'data', 'power', 'distros', 'binder', 'pull', 'stock'];
     }
 
     showPreferencesTab(key) {
@@ -486,6 +515,19 @@ class _Preferences {
             }
         };
 
+        // Quick palettes: the source dims or lights the eight pairs, and a
+        // pair changed by hand means the user wants their own eight.
+        const qpSource = document.getElementById('pref-quick-palette-source');
+        if (qpSource) qpSource.addEventListener('change', () => this._syncQuickPalettePrefsUI());
+        this._quickPalettePrefIds().flat().forEach(id => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.addEventListener('input', () => {
+                if (qpSource && qpSource.value !== 'custom') qpSource.value = 'custom';
+                this._syncQuickPalettePrefsUI();
+            });
+        });
+
         // The strip: one section up at a time.
         if (modal) {
             modal.querySelectorAll('.pm-tabstrip .view-tab').forEach(t => {
@@ -510,6 +552,8 @@ class _Preferences {
                 });
                 // the binder logo changed: the decoded copy is stale
                 this._binderLogoImage = null;
+                // the Quick Palettes may now come from the user's own eight
+                if (typeof this.renderQuickPalettes === 'function') this.renderQuickPalettes();
                 sendClientLog('preferences_saved', {
                     projectName: this.project ? this.project.name : null,
                     layers: this.project && this.project.layers ? this.project.layers.length : 0,
@@ -690,6 +734,13 @@ class _Preferences {
         setColor('pref-power-label-text-color', 'powerLabelTextColor');
         const circuitColors = this.getPreferenceCircuitColorList(prefs);
         this._circuitColorPrefIds().forEach((id, i) => setVal(id, circuitColors[i]));
+        setVal('pref-quick-palette-source', prefs.quickPaletteSource === 'custom' ? 'custom' : 'auto');
+        const quickPalettes = normalizeQuickPalettes(prefs.quickPaletteColors);
+        this._quickPalettePrefIds().forEach(([a, b], i) => {
+            setVal(a, quickPalettes[i][0].toLowerCase());
+            setVal(b, quickPalettes[i][1].toLowerCase());
+        });
+        this._syncQuickPalettePrefsUI();
         this._refreshFontPrefsUI(prefs.font || 'Arial');
         const prefDataPatternButtons = document.querySelectorAll('.pref-data-flow-pattern-btn');
         prefDataPatternButtons.forEach(btn => {
@@ -885,6 +936,11 @@ class _Preferences {
             powerLabelBgColor: readColor('pref-power-label-bg-color', defaults.powerLabelBgColor),
             powerLabelTextColor: readColor('pref-power-label-text-color', defaults.powerLabelTextColor),
             powerCircuitColors: this._circuitColorPrefIds().map((id, i) => readColor(id, defaults.powerCircuitColors[i])),
+            quickPaletteSource: readStr('pref-quick-palette-source', defaults.quickPaletteSource) === 'custom' ? 'custom' : 'auto',
+            quickPaletteColors: this._quickPalettePrefIds().map(([a, b], i) => [
+                readColor(a, defaults.quickPaletteColors[i][0]),
+                readColor(b, defaults.quickPaletteColors[i][1]),
+            ]),
             flowPattern: prefDataPatternActive ? (prefDataPatternActive.getAttribute('data-pattern') || defaults.flowPattern) : defaults.flowPattern,
             powerFlowPattern: prefPowerPatternActive ? (prefPowerPatternActive.getAttribute('data-pattern') || defaults.powerFlowPattern) : defaults.powerFlowPattern,
             dataLineWidth: readNum('pref-data-line-width', defaults.dataLineWidth),

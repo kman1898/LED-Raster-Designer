@@ -1699,6 +1699,34 @@
                     </div>
                 </div>
 
+                <!-- Quick Palettes - only for Pixel Map (app-quick-palettes.js).
+                     Eight one-click Color 1 / Color 2 pairs for the selected
+                     screens, and a Hue slider to fine-tune them. -->
+                <div class="panel tab-panel screen-only" data-tab="pixel-map" id="quick-palettes-panel">
+                    <div class="panel-header" data-tooltip="Quick Palettes, Eight two-colour checkerboard pairs. Click one to colour the selected screens; Hue fine-tunes them.">
+                        <h2>Quick Palettes</h2>
+                    </div>
+                    <div class="panel-content">
+                        <div class="qp-styles" id="quick-palette-styles" role="group" aria-label="Palette style" data-tooltip="Style, Tonal matches the shipped colours, Bold carries more colour, Split pairs two neighbouring hues.">
+                            <button type="button" class="qp-style" id="quick-palette-style-tonal" data-style="tonal" aria-pressed="true">Tonal</button>
+                            <button type="button" class="qp-style" id="quick-palette-style-bold" data-style="bold" aria-pressed="false">Bold</button>
+                            <button type="button" class="qp-style" id="quick-palette-style-split" data-style="split" aria-pressed="false">Split</button>
+                        </div>
+                        <div class="qp-grid" id="quick-palette-swatches" role="group" aria-label="Quick palettes"></div>
+                        <div class="info-row qp-hue-row" data-tooltip="Hue, Turn the palettes and the selected screens round the colour wheel. Arrow keys move one degree.">
+                            <label for="quick-palette-hue">Hue</label>
+                            <div class="qp-hue">
+                                <input type="range" id="quick-palette-hue" data-ps-slider="own" min="-180" max="180" step="1" value="0" aria-label="Hue shift in degrees">
+                                <button type="button" class="qp-hue-value" id="quick-palette-hue-reset" title="Reset the hue to 0°">0°</button>
+                            </div>
+                        </div>
+                        <div class="qp-foot">
+                            <span class="qp-note" id="quick-palette-note"></span>
+                            <button type="button" class="btn" id="quick-palette-shuffle" title="Build a new set of eight from a random hue">Shuffle</button>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Text Layer Settings (shared across all tabs) -->
                 <div id="text-layer-panel" class="panel text-only" style="display: none;">
                     <div class="panel-header" data-tooltip="Text Label, Configure text content, font, colors, and per-tab visibility for this text label.">
@@ -2341,6 +2369,7 @@
             <div class="pm-tabstrip" role="tablist">
                 <button type="button" class="view-tab active" data-key="wall">Wall</button>
                 <button type="button" class="view-tab" data-key="look">Look</button>
+                <button type="button" class="view-tab" data-key="palettes">Palettes</button>
                 <button type="button" class="view-tab" data-key="data">Data</button>
                 <button type="button" class="view-tab" data-key="power">Power</button>
                 <button type="button" class="view-tab" data-key="distros">Distros &amp; multis</button>
@@ -2467,6 +2496,34 @@
                              after the first .prefs-grid it finds in this modal;
                              this empty one puts it at the foot of the Look tab. -->
                         <div class="prefs-grid pm-appearance-anchor"></div>
+                    </div>
+                </section>
+                <section class="pm-section" id="pm-sec-palettes" data-key="palettes">
+                    <div class="prefs-group">
+                        <div class="pm-row">
+                            <label>Quick palettes</label>
+                            <div class="prefs-row">
+                                <select id="pref-quick-palette-source" aria-label="Where the Pixel Map quick palettes come from">
+                                    <option value="auto">Built from each screen's colour</option>
+                                    <option value="custom">My eight palettes</option>
+                                </select>
+                            </div>
+                            <div class="pm-note">The eight Color 1 / Color 2 pairs on the Pixel Map tab. Built: round the selected screen's colour, with Tonal, Bold and Split styles and Shuffle. Mine: the eight below.</div>
+                        </div>
+                        <div class="pm-row pm-qp-row">
+                            <label>My palettes</label>
+                            <div class="pm-qp-grid" id="pref-quick-palette-grid">
+                                <span class="pm-qp-pair"><span class="pm-qp-num">1</span><input type="color" id="pref-quick-palette-1a" aria-label="Quick palette 1, color 1"><input type="color" id="pref-quick-palette-1b" aria-label="Quick palette 1, color 2"><span class="pm-qp-preview" aria-hidden="true"></span></span>
+                                <span class="pm-qp-pair"><span class="pm-qp-num">2</span><input type="color" id="pref-quick-palette-2a" aria-label="Quick palette 2, color 1"><input type="color" id="pref-quick-palette-2b" aria-label="Quick palette 2, color 2"><span class="pm-qp-preview" aria-hidden="true"></span></span>
+                                <span class="pm-qp-pair"><span class="pm-qp-num">3</span><input type="color" id="pref-quick-palette-3a" aria-label="Quick palette 3, color 1"><input type="color" id="pref-quick-palette-3b" aria-label="Quick palette 3, color 2"><span class="pm-qp-preview" aria-hidden="true"></span></span>
+                                <span class="pm-qp-pair"><span class="pm-qp-num">4</span><input type="color" id="pref-quick-palette-4a" aria-label="Quick palette 4, color 1"><input type="color" id="pref-quick-palette-4b" aria-label="Quick palette 4, color 2"><span class="pm-qp-preview" aria-hidden="true"></span></span>
+                                <span class="pm-qp-pair"><span class="pm-qp-num">5</span><input type="color" id="pref-quick-palette-5a" aria-label="Quick palette 5, color 1"><input type="color" id="pref-quick-palette-5b" aria-label="Quick palette 5, color 2"><span class="pm-qp-preview" aria-hidden="true"></span></span>
+                                <span class="pm-qp-pair"><span class="pm-qp-num">6</span><input type="color" id="pref-quick-palette-6a" aria-label="Quick palette 6, color 1"><input type="color" id="pref-quick-palette-6b" aria-label="Quick palette 6, color 2"><span class="pm-qp-preview" aria-hidden="true"></span></span>
+                                <span class="pm-qp-pair"><span class="pm-qp-num">7</span><input type="color" id="pref-quick-palette-7a" aria-label="Quick palette 7, color 1"><input type="color" id="pref-quick-palette-7b" aria-label="Quick palette 7, color 2"><span class="pm-qp-preview" aria-hidden="true"></span></span>
+                                <span class="pm-qp-pair"><span class="pm-qp-num">8</span><input type="color" id="pref-quick-palette-8a" aria-label="Quick palette 8, color 1"><input type="color" id="pref-quick-palette-8b" aria-label="Quick palette 8, color 2"><span class="pm-qp-preview" aria-hidden="true"></span></span>
+                            </div>
+                            <div class="pm-note">Change a colour to switch to your own eight. Reset Defaults puts back the shipped set.</div>
+                        </div>
                     </div>
                 </section>
                 <section class="pm-section" id="pm-sec-data" data-key="data">
