@@ -3745,6 +3745,38 @@ def resolve_card(card, proc):
                          and c['trunkIndex'] == box['copiesTrunk']), None)
             box['mirrorOf'] = mate['id'] if mate else None
 
+    # A MODE THAT MAKES ITS COPY OPTS BACKUPS BINDS THEIR BOXES. NovaStar
+    # documents the H_4xfiber's Backup mode as "OPT 3 serves as the backup
+    # of OPT 1, while OPT 4 serves as the backup of OPT 2" (copyTrunks
+    # 'backup'), and the 2026-09-25 ruling binds a same-processor NovaStar
+    # backup to its primary AUTOMATICALLY. So the box on a copy OPT backs
+    # up the box on the OPT it copies, whichever came first - the boxes or
+    # the mode (a card starts in Independent, where a box comes alone, so
+    # boxes put on before Backup carried no link and drew as a "(copy)"
+    # box of free sockets). Only where the primary box takes exactly the
+    # same OPTs: a CVT4K-S on OPT 3-4 copies two CVT10s, not one box.
+    # Derived every resolve and stored nowhere, like the fixed pairing
+    # below. On a card whose catalog documents copy OPTs, a box that is
+    # NOT on a backup copy OPT in the current mode backs nothing up - an
+    # Independent card's OPT 3-4 box carries ports 17-32 of its own, a
+    # Copy card's feeds a mirror - so a link stored when the pair was made
+    # in Backup waits on the record and reads nowhere until Backup is back.
+    if any(copy_trunks(device, m.get('id'))
+           for m in (device.get('ports') or {}).get('modes') or []):
+        for box in cvts:
+            if box['copyRole'] != 'backup':
+                box['backupOf'] = None
+    if copy_kind == 'backup':
+        for box in cvts:
+            if box['copyRole'] != 'backup' or box['backupOf']:
+                continue
+            mate = next((c for c in cvts
+                         if not c['beyondTrunks'] and not c['copyRole']
+                         and c['trunkIndex'] == box['copiesTrunk']
+                         and c['trunksIn'] == box['trunksIn']), None)
+            if mate is not None:
+                box['backupOf'] = mate['id']
+
     # The fixed pairing pairs WHOLE BOXES: the box on the second trunk of an
     # adjacent pair is the first one's backup - B carries A's returns, D
     # carries C's - by construction, not by anyone's pick. Said on the
