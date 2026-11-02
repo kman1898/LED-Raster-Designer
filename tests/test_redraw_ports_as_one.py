@@ -518,3 +518,17 @@ def test_a_locked_screen_is_refused_with_the_locked_error(page):
     assert e and 'is locked' in e[-1], e
     assert ports(page, lid) == base_ports
     assert after['historyAction'] == 'Merge Test Baseline'
+
+
+def test_merge_pins_moves_only_that_screens_pins():
+    """port_assignment.merge_pins on its own: the removed ports' pins go,
+    later pins of that screen close up on the sockets they had, and
+    another screen's pins are untouched."""
+    import port_assignment as pa
+    pin = lambda layer, index, port: {'layerId': layer, 'index': index,
+                                      'cardId': 'c1', 'port': port}
+    state = {'pins': [pin('1', 0, 1), pin('1', 2, 3), pin('1', 3, 4),
+                      pin('1', 5, 6), pin('2', 3, 9)]}
+    pa.merge_pins(state, 1, [2, 3])
+    assert [(p['layerId'], p['index'], p['port']) for p in state['pins']] == [
+        ('1', 0, 1), ('1', 3, 6), ('2', 3, 9)]
