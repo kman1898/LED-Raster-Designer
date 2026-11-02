@@ -5566,6 +5566,63 @@
                     + n + ' ports instead of ' + mem.before + '.';
             }
         },
+        // Alt+drag picks ports in Data the way it picks circuits in Power
+        // (1.6.0, canvas-input.js's armed Alt+press, app-merge-runs.js
+        // sweepPortPicks; the owner, 2026-11-02: "Data should match
+        // Power"). On LEFTOVERS after the redraw, ports 1-4 are its rows
+        // and port 5 its last column, so a drag down the first column
+        // crosses ports 1-3 and the right-click names them. Picking is all
+        // the step does: the menu closes and the picks drop at its end.
+        sweepPorts: {
+            since: '1.6.0',
+            target: '#main-canvas', place: 'top', title: 'Pick ports with Alt',
+            body: 'Hold Alt and drag across runs to pick every port the drag crosses, the way Alt picks circuits in Power. Right-click to redraw them as one. Alt+click alone still redraws one port.',
+            before: function () { closePrefs(); hideMenus(); closePopover(); switchView('data-flow'); },
+            act: function (t) {
+                var a = A();
+                var l = (a.project.layers || []).find(function (x) { return x.name === 'LEFTOVERS'; });
+                if (!l) throw new Error('LEFTOVERS is missing');
+                t.mem.layer = l.id;
+                a.selectLayer(l);
+                frameLayers([l]);
+                a.clearPortPicks();
+                var at = function (row, col) {
+                    var i = l.panels.findIndex(function (p) { return p.row === row && p.col === col; });
+                    return t.cabinetPoint(l, { index: i });
+                };
+                var from = at(0, 0), to = at(2, 0);
+                return t.hover(from, { badge: 'Alt' }).then(function () {
+                    press(true);
+                    t.canvasDown(from, { altKey: true });
+                    return t.pause(PACE.dragPress);
+                }).then(function () {
+                    t.canvasMove({ x: from.x + 6, y: from.y + 6 }, { altKey: true });
+                    return t.canvasGlide(to, { altKey: true }, PACE.sweep);
+                }).then(function () {
+                    t.canvasMove(to, { altKey: true });
+                    return t.pause(PACE.hover);
+                }).then(function () {
+                    t.canvasUp(to, { altKey: true });
+                    press(false);
+                    badge('');
+                    t.mem.picks = a.portPicksFor(l);
+                    return t.pause(PACE.sweepRest);
+                }).then(function () {
+                    return t.rightClick(at(1, 0));
+                }).then(function () {
+                    var item = $('[data-action="ovr-merge"]');
+                    t.mem.label = (item && item.style.display !== 'none') ? item.textContent : '';
+                    return t.pause(PACE.rest);
+                }).then(function () {
+                    a.hideContextMenu();
+                    a.clearPortPicks();
+                });
+            },
+            check: function (mem) {
+                if ((mem.picks || []).join() !== '1,2,3' || mem.label !== 'Redraw ports 1-3 as one') return null;
+                return 'One Alt+drag down LEFTOVERS picked ports 1-3; the menu offered ' + mem.label + '.';
+            }
+        },
         helpMenu: {
             target: '[data-menu="help"]', place: 'bottom', title: 'Help',
             body: 'Every guide lives under Help: Quick Start, What&rsquo;s New, the Advanced Guide and the keyboard shortcuts.',
@@ -5647,7 +5704,7 @@
                     'addBeach', 'screenBeach', 'addScreen', 'beachByMenu', 'crossScreens', 'groupScreens',
                     'exportBinder', 'screenOrder', 'wiringTick', 'titleBlock', 'fileExports', 'preferences',
                     'mirrorScreen', 'portPlug', 'portNumbers', 'portsMinimum', 'powerZPattern', 'circuitNumbers',
-                    'redrawAsOne', 'helpMenu', 'outroAdvanced']
+                    'redrawAsOne', 'sweepPorts', 'helpMenu', 'outroAdvanced']
         }
     };
 

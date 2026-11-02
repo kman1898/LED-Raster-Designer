@@ -527,6 +527,8 @@ class _LogsRecent {
         }
         try {
             this.resetApplicationState();
+            // Held until the server has the show (loadProjectFromFile).
+            this._projectOpening = true;
             this.project = file.data;
             if (this.project.layers) {
                 this.project.layers.forEach(layer => {
@@ -583,6 +585,11 @@ class _LogsRecent {
                     // kept so the object that feeds resetHistory() below is
                     // always normalized.
                     this.normalizeArmorPortMapping(this.project);
+                    // The same repair loadProjectFromFile runs: ports drawn
+                    // on cabinets a shrink took off the wall.
+                    if (typeof this.trimPortsOffWall === 'function') {
+                        this.trimPortsOffWall({ load: true });
+                    }
                     this.updateUI();
                     if (this.project.layers && this.project.layers.length > 0) {
                         this.selectLayer(this.project.layers[0]);
@@ -616,6 +623,7 @@ class _LogsRecent {
                     }
                 })
                 .catch(() => {
+                    this._projectOpening = false;
                     this.resetHistory('Initial State');
                     document.getElementById('status-message').textContent = 'Project loaded (server sync failed)';
                     setTimeout(() => {
@@ -625,6 +633,7 @@ class _LogsRecent {
             // Update timestamp so it moves to top of recent list
             this.addToRecentFiles(file.data);
         } catch (error) {
+            this._projectOpening = false;
             alert('Error loading recent file: ' + error.message);
         }
     }

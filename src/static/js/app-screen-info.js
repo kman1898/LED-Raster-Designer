@@ -1830,6 +1830,15 @@ class _ScreenInfo {
             if (pruned.length) layers = layers.concat(pruned);
         }
 
+        // A wall that shrank: its drawn data ports drop the cabinets that
+        // fell off, a port left with none goes and the ports after it close
+        // up (app-merge-runs.js trimPortsOffWall). A screen whose paths that
+        // touches rides along in this PUT and this undo step.
+        if (typeof this.trimPortsOffWall === 'function') {
+            const trimmed = this.trimPortsOffWall().filter(l => !layers.includes(l));
+            if (trimmed.length) layers = layers.concat(trimmed);
+        }
+
         if (saveHistory) {
             this.saveState(historyAction);
         }

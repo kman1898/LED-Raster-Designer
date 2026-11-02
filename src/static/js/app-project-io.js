@@ -123,6 +123,11 @@ class _ProjectIo {
                         sendClientLog('load_project_file_start', { name: projectData.name || 'Unnamed', layers: projectData.layers ? projectData.layers.length : 0 });
                         // Clean-slate reset so stale sidebar values can't leak into new project
                         this.resetApplicationState();
+                        // Until the server holds the opened show, a layer
+                        // save must not trim it (app-merge-runs.js
+                        // trimPortsOffWall): the repair runs once, on the
+                        // server's copy, where the cards can follow.
+                        this._projectOpening = true;
                         this.project = projectData;
                         if (this.project.layers) {
                             this.project.layers.forEach(layer => {
@@ -209,6 +214,15 @@ class _ProjectIo {
                                 // fixed them; kept so the object that feeds
                                 // resetHistory() below is always normalized.
                                 this.normalizeArmorPortMapping(this.project);
+                                // A show saved with ports drawn on cabinets
+                                // a shrink took off the wall is repaired as
+                                // it opens: the steps go, a port left with
+                                // none goes, and the ports after it close up
+                                // (app-merge-runs.js trimPortsOffWall). On
+                                // the server's copy, so the cards follow.
+                                if (typeof this.trimPortsOffWall === 'function') {
+                                    this.trimPortsOffWall({ load: true });
+                                }
                                 // Sync the canvas's pixel/show raster backing fields from the
                                 // loaded project so Show Look picks up the file's values
                                 // (and falls back to the pixel raster when show wasn't saved).
@@ -253,6 +267,7 @@ class _ProjectIo {
                                 }
                             })
                             .catch((err) => {
+                                this._projectOpening = false;
                                 sendClientLog('load_project_file_error', { message: err.message });
                                 this.resetHistory('Initial State');
                                 document.getElementById('status-message').textContent = 'Project loaded (server sync failed)';
@@ -261,6 +276,7 @@ class _ProjectIo {
                                 }, 2000);
                             });
                     } catch (error) {
+                        this._projectOpening = false;
                         sendClientLog('load_project_file_error', { message: error.message });
                         alert('Error loading project file: ' + error.message);
                     }

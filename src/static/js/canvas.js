@@ -2032,6 +2032,35 @@ class CanvasRenderer {
         if (!same) this.render();
     }
 
+    // Data's sweep (the owner, 2026-11-02: "Data should match Power"): the
+    // armed Alt+press, past the threshold, picks every port it crosses into
+    // the picks Shift makes (app-merge-runs.js sweepPortPicks), ready for
+    // "Redraw ports N-M as one". Crossed means under any point of the
+    // cursor's way since the last move, read every few screen pixels, so a
+    // fast drag skips no port. A port of another screen is passed over:
+    // like the Power sweep, it never jumps walls.
+    _portSweepExtend(worldX, worldY) {
+        const p = this._sweepPending;
+        const app = window.app;
+        if (!p || !p.anchor || !app || typeof app.runAtPoint !== 'function'
+                || typeof app.sweepPortPicks !== 'function') return;
+        const x0 = Number.isFinite(p.lastX) ? p.lastX : worldX;
+        const y0 = Number.isFinite(p.lastY) ? p.lastY : worldY;
+        const step = 4 / (this.zoom || 1);
+        const n = Math.min(400, Math.max(1,
+            Math.ceil(Math.hypot(worldX - x0, worldY - y0) / step)));
+        const nums = [];
+        for (let i = 0; i <= n; i++) {
+            const t = i / n;
+            const run = app.runAtPoint(x0 + (worldX - x0) * t, y0 + (worldY - y0) * t);
+            if (run && run.kind === 'data' && run.layer.id === p.anchor.ownerId
+                    && !nums.includes(run.num)) nums.push(run.num);
+        }
+        p.lastX = worldX;
+        p.lastY = worldY;
+        app.sweepPortPicks(p.anchor, nums);
+    }
+
     // The counter pill riding the cursor mid-sweep: "3 circuits · 24.5 A".
     // Plain facts only - the OVER story belongs to the menu's deal and the
     // committed brackets, where a GROUP has a load to answer for.

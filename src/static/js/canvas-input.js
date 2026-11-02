@@ -587,30 +587,27 @@ Object.assign(CanvasRenderer.prototype, {
             // click it always was. Selection is session view state - never
             // a history entry (leading-underscore key, so snapshots skip it
             // by the _snapshotReplacer convention).
-            if (this.viewMode === 'power') {
+            // DATA arms the same two (the owner, 2026-11-02: "Data should
+            // match Power"): past the threshold the sweep PICKS every port
+            // it crosses, into the picks Shift makes, for "Redraw ports N-M
+            // as one" (app-merge-runs.js sweepPortPicks); released inside
+            // it, the press is the Alt+click that takes one port over for
+            // hand-redrawing (or reopens one already taken). The highlight
+            // the held Alt paints (see handleMouseMove) is the affordance.
+            if (this.viewMode === 'power' || this.viewMode === 'data-flow') {
+                const kind = this.viewMode === 'power' ? 'power' : 'data';
                 e.preventDefault();
                 this._altPressReleasesField();
                 const run = window.app
                     && typeof window.app.runAtPoint === 'function'
                     ? window.app.runAtPoint(worldX, worldY) : null;
                 this._sweepPending = {
-                    sx: e.clientX, sy: e.clientY, worldX, worldY,
+                    kind, sx: e.clientX, sy: e.clientY, worldX, worldY,
+                    lastX: worldX, lastY: worldY,
                     active: false,
-                    anchor: (run && run.kind === 'power')
+                    anchor: (run && run.kind === kind)
                         ? { ownerId: run.layer.id, num: run.num } : null,
                 };
-                return;
-            }
-            // Data: Alt+click takes the run under the cursor over for
-            // hand-redrawing (or reopens one already taken). The highlight
-            // the held Alt paints (see handleMouseMove) is the affordance;
-            // the click is the commitment.
-            if (this.viewMode === 'data-flow') {
-                if (window.app && typeof window.app.handleOverrideClick === 'function') {
-                    e.preventDefault();
-                    this._altPressReleasesField();
-                    window.app.handleOverrideClick(worldX, worldY);
-                }
                 return;
             }
             // Alt+click/drag toggles "blank" (hidden) on the panel.
@@ -773,9 +770,10 @@ Object.assign(CanvasRenderer.prototype, {
             return;
         }
 
-        // An armed Alt+press in Power: inside the 4px threshold it is still
-        // a click-to-be; past it, the press becomes the SWEEP and collects
-        // the contiguous run range between the anchor and the cursor.
+        // An armed Alt+press in Power or Data: inside the 4px threshold it
+        // is still a click-to-be; past it, the press becomes the SWEEP. In
+        // Power it collects the contiguous run range between the anchor and
+        // the cursor; in Data it picks every port it crosses.
         if (this._sweepPending) {
             const p = this._sweepPending;
             if (!p.active) {
@@ -791,7 +789,8 @@ Object.assign(CanvasRenderer.prototype, {
                     window.app.updateOverrideHover(false, 0, 0);
                 }
             }
-            this._sweepExtend(worldX, worldY, e.clientX, e.clientY);
+            if (p.kind === 'data') this._portSweepExtend(worldX, worldY);
+            else this._sweepExtend(worldX, worldY, e.clientX, e.clientY);
             return;
         }
 
@@ -1135,7 +1134,8 @@ Object.assign(CanvasRenderer.prototype, {
         // The armed Alt+press resolves here: a release inside the 4px
         // threshold is the takeover click deferred at mousedown; a release
         // after sweeping keeps the selection lit for the right-click menu
-        // (the pill leaves with the cursor's gesture, the selection stays).
+        // (the pill leaves with the cursor's gesture, the selection stays;
+        // in Data the swept ports stay picked).
         if (this._sweepPending) {
             const p = this._sweepPending;
             this._sweepPending = null;
@@ -1940,6 +1940,9 @@ Object.assign(CanvasRenderer.prototype, {
         }
         if (e.code === 'Escape' && !isTyping && !menuOpen && window.app && window.app._portPicks) {
             e.preventDefault();
+            // a Data sweep still under way goes with them, or its next
+            // move would pick them all over again
+            if (this._sweepPending && this._sweepPending.kind === 'data') this._sweepPending = null;
             window.app.clearPortPicks();
             return;
         }
