@@ -6,7 +6,7 @@ v1.6.0 - November 1, 2026
 
 The pull sheet and the binder now say exactly which cable to pull: TRUE1
 or powerCON for power, Cat6 or etherCON for data, and every distro gets a
-row for its feed. Edison and L6-20 screens pick the connector their
+row for its Power in cable. Edison and L6-20 screens pick the connector their
 panels take, each kind of cable can have its own stock list, and the
 panel you pick is saved on the screen and counted on the pull sheet.
 
@@ -50,21 +50,22 @@ tray's chips. The catalog now says which one each processor and breakout
 box has, from the maker's spec sheet, and a box always uses its own
 connector, never its card's.
 
-FEEDS
+POWER IN
 
-Every distro has a Feed behind its gear: a length, and whether it's fed
-from the service or thru another distro. A 400 A cam input lists a 400 A
-cam set with 5-wire in Notes, and an L21-30 input lists an L21-30
-feed. The feed is always on the pull sheet, with no length until you
-type one, and the binder says what each distro is fed from, like
-Fed from: HOUSE · 600 A · 120/208V 3φ · 200 A cam set 100'+50'. It only
-reads Feed: when there's no service or distro to name.
+Every distro has a Power in behind its gear: a length, and whether it's
+powered from the service or thru another distro. A 400 A cam input lists
+a 400 A cam set with 5-wire in Notes, and an L21-30 input lists an
+L21-30 power in. The power in is always on the pull sheet, with no
+length until you type one, and the binder says what each distro is
+powered from, like Powered from: HOUSE · 600 A · 120/208V 3φ · 200 A cam
+set 100'+50'. It only reads Power in: when there's no service or distro
+to name.
 
-A distro you feed thru is listed even with nothing plugged into it, and
-the load of a distro fed thru another counts on the service. The binder's
+A distro you power thru is listed even with nothing plugged into it, and
+the load of a distro powered thru another counts on the service. The binder's
 FACTS for a screen on that distro show the service it's really on. Thru
 only links distros on the same power system, so you can't move a distro
-to another system while it's fed thru, or feeds, another distro, and the
+to another system while it's powered thru, or powers, another distro, and the
 app tells you which distro that is.
 
 THE PANEL ON EACH SCREEN
@@ -121,7 +122,7 @@ A STOCK LIST FOR EACH KIND OF CABLE
 
 Tick A list for each kind of cable in Preferences > Cable stock and you
 get lists for L21-30 and Harting home runs, direct-output cables and
-feeds, as well as multis, data and power. Older shows and presets read
+power in cables, as well as multis, data and power. Older shows and presets read
 the new lists from the ones those cables used before.
 
 MIXED REDUNDANCY ON ONE PROCESSOR
@@ -298,7 +299,7 @@ pull sheet again and compare it with anything you've already ordered.
   a note on the pull sheet, like 8 circuits on a six-circuit output, and
   a Crowded line on the distro sheet.
 - CHANGE (IMPORTANT): The pull sheet has a row for each panel type on
-  each screen and a feed row for each distro, so an older show's pull
+  each screen and a Power in row for each distro, so an older show's pull
   sheet gets these new rows.
 - CHANGE (IMPORTANT): Hidden screens keep their multi numbers and outputs
   reserved, so no other screen takes them, but they're left out of distro
@@ -359,7 +360,7 @@ FIXES
   names and cable types wrap onto another line instead of folding into
   +N more.
 - FIX: A length typed in the other unit, like 30m in a feet show,
-  converts wherever you type a home run, cable, feed, snake or fiber
+  converts wherever you type a home run, cable, power in, snake or fiber
   length.
 - FIX: A favorite panel in Add Screen and Change cabinet uses the
   library's figures as they are now, not as they were when you saved it,
@@ -464,7 +465,7 @@ FIXES
 - FIX: Unplugging a multi, a single circuit or a whole distro in Power
   takes off only the circuits it fed. Before, the multi or circuit next
   to them could grow onto the freed circuits and take new circuits on
-  its own box, so a feed you never touched moved to another breakout.
+  its own box, so a circuit you never touched moved to another breakout.
 - FIX: A minimized pair of breakout boxes in a redundancy loop, like an
   XD A and B on an SX40, shows the cable sheet and gear buttons on its
   header. They open the primary box's sheet and settings. Before, you

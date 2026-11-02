@@ -491,7 +491,7 @@ class _Services {
         }
         if (Object.keys(next).length) d.feeder = next; else delete d.feeder;
         if (JSON.stringify(d.feeder || null) === before) return false;
-        this.saveState('Set Distro Feed');
+        this.saveState('Set Distro Power In');
         this._persistDistros();
         return true;
     }

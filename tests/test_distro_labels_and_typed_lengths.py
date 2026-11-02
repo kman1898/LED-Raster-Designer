@@ -90,9 +90,9 @@ def test_a_system_change_on_either_end_of_a_thru_link_is_refused(page):
     assert out['fedFrom'] == 'd1', out
     assert len(pg.evaluate(HIST_JS)) == n, 'a refusal took a history entry'
     said = toasts(pg)
-    assert ('SR is fed thru SL, which is 120/208V 3φ. Feed SR from its service before '
+    assert ('SR is powered thru SL, which is 120/208V 3φ. Power SR from its service before '
             'changing its system.') in said, said
-    assert ("SR is fed thru SL and is 120/208V 3φ. Feed SR from its service before "
+    assert ("SR is powered thru SL and is 120/208V 3φ. Power SR from its service before "
             "changing SL's system.") in said, said
     # unlinked: it changes, one entry
     assert pg.evaluate("() => !!window.app.updateDistro('d3', { system: '120/240' })") is True
@@ -361,7 +361,7 @@ def test_the_fed_from_title_uses_no_spaced_hyphen(page):
         return wrap.querySelector('select').title;
     }""")
     assert ' - ' not in title, title
-    assert "fed thru from. Its load then counts on that distro's service." in title, title
+    assert "it is powered thru. Its load then counts on that distro's service." in title, title
     assert not errors, errors
 
 

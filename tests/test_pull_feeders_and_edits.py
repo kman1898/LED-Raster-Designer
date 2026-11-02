@@ -312,9 +312,9 @@ def test_a_distro_s_feeder_on_the_pull_sheet(seeded):
     did = ids['distroId']
     base = pg.evaluate(LIST_JS)
     sr = _rows(base['positions'][0]['rows'])
-    assert ('Feed', '', 1, 'SR', 'no length') in sr, sr
+    assert ('Power in', '', 1, 'SR', 'no length') in sr, sr
     hw = _rows(next(h for h in base['hardware'] if h['kind'] == 'distro')['rows'])
-    assert ('Feed', '', 1, 'SR', 'no length') in hw, hw
+    assert ('Power in', '', 1, 'SR', 'no length') in hw, hw
 
     out = pg.evaluate("""(id) => {
         const app = window.app;
@@ -339,12 +339,12 @@ def test_a_distro_s_feeder_on_the_pull_sheet(seeded):
                  totals: pieces.totals, l2130: l2130.positions[0].rows };
     }""", did)
     assert out['changed'] is True and out['again'] is False and out['steps'] == 1, out
-    assert out['step'] == 'Set Distro Feed' and out['stored'] == {'ft': 150}, out
+    assert out['step'] == 'Set Distro Power In' and out['stored'] == {'ft': 150}, out
     assert ('400 A cam set', "150'", 1, 'SR', '5-wire') in _rows(out['one']), _rows(out['one'])
-    assert not [r for r in _rows(out['one']) if r[0] == 'Feed'], 'the old blank row stayed'
+    assert not [r for r in _rows(out['one']) if r[0] == 'Power in'], 'the old blank row stayed'
     cams = sorted((r[1], r[2]) for r in _rows(out['pieces']) if r[0] == '400 A cam set')
     assert cams == [("100'", 1), ("50'", 1)], _rows(out['pieces'])
-    assert ('L21-30 feed', "150'", 1, 'SR', '') in _rows(out['l2130']), _rows(out['l2130'])
+    assert ('L21-30 power in', "150'", 1, 'SR', '') in _rows(out['l2130']), _rows(out['l2130'])
     assert errors == [], errors
 
 
@@ -356,7 +356,7 @@ def test_the_preferences_say_feeds_never_feeders(client):
     row = html[html.index('data-cable-stock-list="feeder"'):]
     row = row[:row.index('</div>', row.index('pref-cable-stock-feeder-m'))]
     assert '<label>Feeds</label>' in row, row
-    assert 'Feed lengths in feet' in row and 'Feed lengths in meters' in row, row
+    assert 'Power in cable lengths in feet' in row and 'Power in cable lengths in meters' in row, row
     assert 'Feeder' not in row and ' feeder ' not in row, row
     assert 'direct-output cables and feeds."' in html
 
@@ -463,7 +463,7 @@ def test_the_gear_sets_the_feeder(seeded):
     pg.wait_for_timeout(300)
     st = pg.evaluate("(id) => [window.app.getDistros().find(x => x.id === id).feeder, "
                      "window.app.history.length, window.app.history[window.app.historyIndex].action]", did)
-    assert st[0] == {'ft': 80} and st[1] == n0 + 1 and st[2] == 'Set Distro Feed', st
+    assert st[0] == {'ft': 80} and st[1] == n0 + 1 and st[2] == 'Set Distro Power In', st
     pg.evaluate("() => window.app.undo()")
     pg.wait_for_timeout(500)
     assert pg.evaluate("(id) => window.app.getDistros().find(x => x.id === id).feeder || null", did) is None
