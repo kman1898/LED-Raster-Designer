@@ -160,7 +160,7 @@ when you're done.
   to stock lengths.
 - Tell a show the cable lengths you stock and a long run reads as the pieces
   you'll pull, like 100'+25'.
-- Every distro gets a feeder, with its length and what it's fed from.
+- Every distro gets a power in cable, with its length and where it's powered from.
 
 ### Paperwork
 

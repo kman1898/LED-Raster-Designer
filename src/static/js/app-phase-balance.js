@@ -834,7 +834,7 @@ class _PhaseBalance {
   </div>
   <div style="padding:16px 20px; overflow-y:auto; font-size:12px; color:#c3ccd6; line-height:1.6;">
 
-    <p style="margin:0 0 14px;"><strong style="color:#e8eef5;">A distro fed from camlock is three-phase. Every circuit
+    <p style="margin:0 0 14px;"><strong style="color:#e8eef5;">A distro powered from camlock is three-phase. Every circuit
     coming off the breakout is single-phase</strong>, whether it sits on one
     hot and a neutral, or across two hots with no neutral. Three-phase never
     reaches a panel. The legs only decide <em>which</em> hots each circuit

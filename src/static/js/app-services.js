@@ -184,7 +184,7 @@ class _Services {
             // system under them would feed distros it cannot.
             const on = this.serviceDistros(s.id);
             if (on.length) {
-                this._sayServiceRefusal(`${s.name || s.id} feeds ${on.map(d => this.distroLabel(d)).join(', ')}. `
+                this._sayServiceRefusal(`${s.name || s.id} powers ${on.map(d => this.distroLabel(d)).join(', ')}. `
                     + 'Take them off before changing its system.');
                 return null;
             }
@@ -237,15 +237,15 @@ class _Services {
         const up = this._feedUpstreamService(d);
         if (up && up.id !== s.id) {
             const src = this._feederSource(d);
-            return `${dn} is fed thru ${src ? this.distroLabel(src) : 'another distro'}, which is on `
-                + `${up.name || up.id}. A distro fed thru another counts on that distro's service: `
-                + `feed it from ${sn} directly, or leave it off a service.`;
+            return `${dn} is powered thru ${src ? this.distroLabel(src) : 'another distro'}, which is on `
+                + `${up.name || up.id}. A distro powered thru another counts on that distro's service: `
+                + `power it from ${sn} directly, or leave it off a service.`;
         }
         for (const x of this._feedDownstream(d)) {
             const xs = this.distroService(x);
             if (xs && xs.id !== s.id) {
-                return `${this.distroLabel(x)} is fed thru ${dn} and is on ${xs.name || xs.id}. `
-                    + `Take ${this.distroLabel(x)} off ${xs.name || xs.id}, or feed it from its service, `
+                return `${this.distroLabel(x)} is powered thru ${dn} and is on ${xs.name || xs.id}. `
+                    + `Take ${this.distroLabel(x)} off ${xs.name || xs.id}, or power it from its service, `
                     + `before putting ${dn} on ${sn}.`;
             }
         }
@@ -321,8 +321,8 @@ class _Services {
         const src = this._feederSource(d);
         if (src && this._distroSystemId(src) !== next) {
             const sn = this.distroLabel(src);
-            this._sayServiceRefusal(`${dn} is fed thru ${sn}, which is ${this._systemWords(src)}. `
-                + `Feed ${dn} from its service before changing its system.`);
+            this._sayServiceRefusal(`${dn} is powered thru ${sn}, which is ${this._systemWords(src)}. `
+                + `Power ${dn} from its service before changing its system.`);
             return true;
         }
         const all = typeof this.getDistros === 'function' ? this.getDistros() : [];
@@ -330,9 +330,9 @@ class _Services {
             && this._distroSystemId(x) !== next);
         if (fed.length) {
             const names = fed.map(x => this.distroLabel(x)).join(', ');
-            this._sayServiceRefusal(`${names} ${fed.length > 1 ? 'are' : 'is'} fed thru ${dn} and `
+            this._sayServiceRefusal(`${names} ${fed.length > 1 ? 'are' : 'is'} powered thru ${dn} and `
                 + `${fed.length > 1 ? 'are' : 'is'} ${this._systemWords(fed[0])}. `
-                + `Feed ${names} from ${fed.length > 1 ? 'their' : 'its'} service before changing `
+                + `Power ${names} from ${fed.length > 1 ? 'their' : 'its'} service before changing `
                 + `${dn}'s system.`);
             return true;
         }
@@ -364,8 +364,9 @@ class _Services {
     //     chain from that distro).
     //   * The row follows the distro's INPUT: a cam input is ONE row per
     //     set, "400 A cam set", its length, qty 1, "5-wire" in Notes; any
-    //     other input is "<input> feed" ("L21-30 feed", "Powerlock
-    //     400 A feed"); a distro with no input picked is "Feed". It is
+    //     other input is "<input> power in" ("L21-30 power in", "Powerlock
+    //     400 A power in"); a distro with no input picked is "Power in"
+    //     (2026-11-02: the word after "feeder" and "feed"). It is
     //     pulled where the distro sits, under the distro's name, and is on
     //     the distro's own pull list in the binder.
     //   * Its length is written from the show's cable stock ('feeder',
@@ -398,8 +399,8 @@ class _Services {
     feederTypeOf(d) {
         const input = this.distroFeeder(d).input;
         if (input && /^cam\d+$/.test(input.id)) return { type: `${input.name} cam set`, notes: '5-wire', cam: true };
-        if (input) return { type: `${input.name} feed`, notes: '', cam: false };
-        return { type: 'Feed', notes: '', cam: false };
+        if (input) return { type: `${input.name} power in`, notes: '', cam: false };
+        return { type: 'Power in', notes: '', cam: false };
     }
 
     // The feeder's pull-sheet row (buildPullList lands it where the
@@ -470,7 +471,7 @@ class _Services {
         const before = JSON.stringify(d.feeder || null);
         const next = { ...(d.feeder && typeof d.feeder === 'object' ? d.feeder : {}) };
         if (patch.ft !== undefined) {
-            const read = this.readTypedLength(patch.ft, 'feed');
+            const read = this.readTypedLength(patch.ft, 'power in cable');
             if (!read.ok) return false;
             if (read.n === null) delete next.ft; else next.ft = read.n;
         }
@@ -504,9 +505,9 @@ class _Services {
         for (const x of [d, ...this._feedDownstream(d)]) {
             const xs = this.distroService(x);
             if (xs && xs.id !== up.id) {
-                const via = x === d ? '' : ` (fed thru ${this.distroLabel(d)})`;
+                const via = x === d ? '' : ` (powered thru ${this.distroLabel(d)})`;
                 return `${this.distroLabel(x)}${via} is on ${xs.name || xs.id} and ${this.distroLabel(src)} `
-                    + `draws from ${up.name || up.id}. A distro fed thru another counts on that `
+                    + `draws from ${up.name || up.id}. A distro powered thru another counts on that `
                     + `distro's service: take ${this.distroLabel(x)} off ${xs.name || xs.id} first.`;
             }
         }
@@ -517,7 +518,7 @@ class _Services {
     _buildDistroFeederRow(d, wrap) {
         const r = this._distroGearRow();
         r.classList.add('hw-pop-supply', 'hw-pop-feeder');
-        r.appendChild(this._distroGearCap('Feed'));
+        r.appendChild(this._distroGearCap('Power in'));
         const t = this.feederTypeOf(d);
         const len = document.createElement('input');
         len.type = 'text';
@@ -526,8 +527,9 @@ class _Services {
         len.value = d.feeder && d.feeder.ft != null ? String(d.feeder.ft) : '';
         len.placeholder = this.cableUnit() === 'm' ? '30' : '100';
         len.style.width = '56px';
-        // mid-sentence the bare "Feed" reads lower case; "L21-30 feed" as is
-        len.title = `The length of this distro's ${t.type === 'Feed' ? 'feed' : t.type}, in ${this.cableUnitWord()}. `
+        // mid-sentence the bare "Power in" reads lower case; "L21-30 power
+        // in" as is
+        len.title = `The length of this distro's ${t.type === 'Power in' ? 'power in' : t.type}, in ${this.cableUnitWord()}. `
             + 'It goes on the pull sheet where the distro sits; blank lists it with no length.'
             + this.cableStockHint(d.feeder && d.feeder.ft, 'feeder');
         len.addEventListener('change', () => {
@@ -548,14 +550,14 @@ class _Services {
         sel.dataset.lrdField = `distro-feeder-from-${d.id}`;
         sel.style.flex = '1 1 0';
         sel.style.minWidth = '0';
-        sel.title = 'Where the feed comes from: the service (each distro on a service runs its '
-            + 'own feed from it), or another distro of the same system it is fed thru from. '
+        sel.title = 'Where the power in comes from: the service (each distro on a service runs its '
+            + 'own power in from it), or another distro of the same system it is powered thru. '
             + 'Its load then counts on that distro\'s service.';
         const f = this.distroFeeder(d);
         const svc = document.createElement('option');
         svc.value = '';
         // no service to name: it says so rather than "from the service"
-        svc.textContent = f.service ? `from ${f.service.name || f.service.id}` : 'Fed from: none';
+        svc.textContent = f.service ? `from ${f.service.name || f.service.id}` : 'Powered from: none';
         if (!f.from) svc.selected = true;
         sel.appendChild(svc);
         this.feederSources(d).forEach(x => {
@@ -695,7 +697,7 @@ class _Services {
         card.className = 'hw-dock-service';
         card.dataset.lrdService = s.id;
         card.dataset.hwdock = `service-${s.id}`;
-        card.title = `${s.name || s.id}: the house power these distros are fed from. Drag a `
+        card.title = `${s.name || s.id}: the house power these distros draw from. Drag a `
             + 'distro\'s header bar here to put it on this service. The ⚙ sets its rating '
             + 'and system and takes distros off.';
         const head = document.createElement('div');
@@ -790,7 +792,7 @@ class _Services {
         row.className = 'hw-dock-svc-feeds';
         const cap = document.createElement('span');
         cap.className = 'hw-dock-legs-cap';
-        cap.textContent = 'FEEDS';
+        cap.textContent = 'POWERS';
         row.appendChild(cap);
         const rows = load ? load.distros : [];
         if (!rows.length) {
@@ -808,7 +810,7 @@ class _Services {
                 + (thru ? ` thru ${this.distroLabel(thru)}` : '');
             if (thru) {
                 chip.dataset.lrdSvcThru = thru.id;
-                chip.title = `${this.distroLabel(d)} is fed thru ${this.distroLabel(thru)}: its load counts `
+                chip.title = `${this.distroLabel(d)} is powered thru ${this.distroLabel(thru)}: its load counts `
                     + 'on this service, not on that distro\'s legs.';
             }
             row.appendChild(chip);
@@ -942,8 +944,8 @@ class _Services {
             name.dataset.lrdSvcThru = d.id;
             name.textContent = `${this.distroLabel(d)} · ${+(Number(d.ratingA) || 0).toFixed(1)} A`
                 + (thru ? ` · thru ${this.distroLabel(thru)}` : '');
-            name.title = `${this.distroLabel(d)} is fed thru ${thru ? this.distroLabel(thru) : 'a distro on it'}: `
-                + 'its load counts on this service. Its feed, behind its ⚙, changes that.';
+            name.title = `${this.distroLabel(d)} is powered thru ${thru ? this.distroLabel(thru) : 'a distro on it'}: `
+                + 'its load counts on this service. Its power in, behind its ⚙, changes that.';
             r.appendChild(name);
             list.appendChild(r);
         });
@@ -977,7 +979,7 @@ class _Services {
         const sel = document.createElement('select');
         sel.className = 'info-select';
         sel.dataset.lrdField = `distro-service-${d.id}`;
-        sel.title = 'The service this distro is fed from. Only a service of the distro\'s own '
+        sel.title = 'The service this distro is powered from. Only a service of the distro\'s own '
             + 'system takes it.';
         const cur = this.distroService(d);
         const none = document.createElement('option');

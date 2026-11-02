@@ -7426,17 +7426,17 @@ class _Binder {
         const feeder = typeof this.distroFeeder === 'function' ? this.distroFeeder(d) : null;
         if (feeder && feeder.stored) {
             const from = this.feederSourceText(d);
-            // a feed with no input type is "Feed 50'": its row says
-            // Feed once - "Feed: 50'", "Feed: L21-30 50'" (owner,
-            // 2026-10-22; "feeder" became "feed" 2026-11-01, the old word
-            // still stripped)
+            // a power in with no input type is "Power in 50'": its row
+            // says Power in once - "Power in: 50'", "Power in: L21-30 50'"
+            // (owner, 2026-10-22; "feeder" became "feed" 2026-11-01 and
+            // "Power in" 2026-11-02, with "Fed from" now "Powered from")
             let text = this.feederText(d);
             if (!from) {
-                text = String(text).replace(/^Feed(?:er)?(?:,\s*|\s+)(?=\S)/, '')
-                    .replace(/^(\S.*?) feed(?:er)?(?=,? |$)/, '$1');
+                text = String(text).replace(/^Power in(?:,\s*|\s+)(?=\S)/, '')
+                    .replace(/^(\S.*?) power in(?=,? |$)/, '$1');
             }
-            pairs.push([from ? 'Fed from' : 'Feed', [from, text].filter(Boolean).join(' · ')]);
-        } else if (svc) pairs.push(['Fed from', this.serviceLabel(svc)]);
+            pairs.push([from ? 'Powered from' : 'Power in', [from, text].filter(Boolean).join(' · ')]);
+        } else if (svc) pairs.push(['Powered from', this.serviceLabel(svc)]);
         // The face (1.5): one line per output row, a paired row printed
         // ONCE with both connectors named.
         for (const line of this._bDistroFaceLines(d)) pairs.push(['Outputs', line]);
