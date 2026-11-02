@@ -6,6 +6,7 @@ import './app-wiring.js';
 import './app-client-props.js';
 import './app-presets.js';
 import './app-colors.js';
+import './app-quick-palettes.js';
 import './app-selection.js';
 import './app-screen-info.js';
 import './app-capacity.js';

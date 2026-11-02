@@ -29,6 +29,10 @@ TABS = {
              'pref-cabinet-id-color', 'pref-font',
              'pref-cabinet-font-size', 'pref-label-font-size', 'pref-data-label-size',
              'pref-power-label-size'],
+    # the Pixel Map tab's Quick Palettes: where they come from and the
+    # user's own eight Color 1 / Color 2 pairs
+    'palettes': ['pref-quick-palette-source']
+                + [f'pref-quick-palette-{n}{c}' for n in range(1, 9) for c in 'ab'],
     'data': ['pref-processor-type', 'pref-low-latency', 'pref-bit-depth', 'pref-frame-rate',
              'pref-data-flow-pattern-grid', 'pref-data-line-width',
              'pref-data-line-color', 'pref-data-arrow-color',
@@ -76,7 +80,8 @@ TABS = {
 }
 ALL_IDS = [i for ids in TABS.values() for i in ids]
 # 1.5 audit: the distro voltage + phase pair became one system picker.
-assert len(ALL_IDS) == 104
+# Quick palettes: the source and sixteen pickers (104 + 17).
+assert len(ALL_IDS) == 121
 
 # Issue 28: the colour defaults a NEW screen starts with, id -> (the colour
 # the dialog is given, the preference key, the layer property it lands on).
@@ -343,7 +348,7 @@ def test_every_field_is_there_once_and_one_tab_shows_at_a_time(page):
     assert dup == [], f'duplicate ids: {dup}'
     strip = pg.evaluate("""() => [...document.querySelectorAll(
         '#preferences-modal .pm-tabstrip .view-tab')].map(t => [t.dataset.key, t.textContent.trim()])""")
-    assert strip == [['wall', 'Wall'], ['look', 'Look'], ['data', 'Data'], ['power', 'Power'],
+    assert strip == [['wall', 'Wall'], ['look', 'Look'], ['palettes', 'Palettes'], ['data', 'Data'], ['power', 'Power'],
                      ['distros', 'Distros & multis'], ['binder', 'Binder'],
                      ['pull', 'Pull sheet & cables'], ['stock', 'Cable stock']], strip
     for key, fields in TABS.items():

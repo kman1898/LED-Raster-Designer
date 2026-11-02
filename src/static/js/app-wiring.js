@@ -2341,6 +2341,8 @@ class _Wiring {
         this.setupGradientEditor();
         // v0.8.7.8: multi-color cabinet palette editor.
         this.setupPaletteEditor();
+        // Quick Palettes: eight one-click pairs and the Hue slider.
+        if (typeof this.setupQuickPalettes === 'function') this.setupQuickPalettes();
         
     }
 
