@@ -184,6 +184,9 @@ def test_free_row_edge_cases_in_the_app_match_the_workbook(page):
 
 
 # ── 2. the can't-fit warning for a group ─────────────────────────────────
+# Since 1.6.0 Organized power cuts a row too long for one circuit into
+# several, so only a cabinet bigger than a circuit can't fit: these walls'
+# 2000 W cabinets are over a 120 V / 10 A circuit on their own.
 
 OPTS_JS = ("Object.assign(app.readBinderOptions(), { scope: { kind: 'show' }, "
            "sides: { power: true, data: false } })")
@@ -194,8 +197,8 @@ OPTS_JS = ("Object.assign(app.readBinderOptions(), { scope: { kind: 'show' }, "
 def test_the_cannot_fit_warning_calls_a_group_this_wall(page, mode, sheets):
     pg, errors = page
     _reset(pg)
-    setup(pg, distros=[DIST], walls={'a': {'powerVoltage': 120, 'powerAmperage': 10},
-                                     'b': {'powerVoltage': 120, 'powerAmperage': 10}})
+    setup(pg, distros=[DIST], walls={'a': {'powerVoltage': 120, 'powerAmperage': 10, 'panelWatts': 2000},
+                                     'b': {'powerVoltage': 120, 'powerAmperage': 10, 'panelWatts': 2000}})
     ev(pg, """A.group_id = 'g1'; B.group_id = 'g1';
         app.project.groups = [{ id: 'g1', name: 'MAIN WALL', layer_ids: [A.id, B.id] }];
         app.project.groupNameDisplayByView = { power: arg };
@@ -216,8 +219,8 @@ def test_the_cannot_fit_warning_calls_a_group_this_wall(page, mode, sheets):
 def test_the_cannot_fit_warning_for_screens_is_unchanged(page):
     pg, errors = page
     _reset(pg)
-    setup(pg, distros=[DIST], walls={'a': {'powerVoltage': 120, 'powerAmperage': 10},
-                                     'b': {'powerVoltage': 120, 'powerAmperage': 10}})
+    setup(pg, distros=[DIST], walls={'a': {'powerVoltage': 120, 'powerAmperage': 10, 'panelWatts': 2000},
+                                     'b': {'powerVoltage': 120, 'powerAmperage': 10, 'panelWatts': 2000}})
     try:
         warn = ev(pg, f"return app.binderCannotFitWarning({OPTS_JS});")
         assert warn.startswith("These screens can't fit their circuits, so their power sheets say so: "), warn
