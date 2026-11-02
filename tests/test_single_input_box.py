@@ -402,6 +402,10 @@ def test_the_box_fits_offer_a_cvt4k_s_on_the_one_trunk_left(page):
     item = pg.locator(f'[data-lrd-field="dock-addbox-{ids["card"]}-novastar-cvt4k-s:1"]')
     assert item.text_content() == 'CVT4K-S (1 OPT)'
     item.click()
+    # The last OPT is a copy OPT the box there picks Mirror or Backup on
+    # (owner, 2026-11-02), so the add asks first.
+    pg.locator('#copy-role-modal').wait_for(state='visible')
+    pg.locator('#copy-role-backup').click()
     pg.wait_for_timeout(900)
     card = pg.evaluate(CARD_JS, ids['card'])
     last = card['cvts'][-1]

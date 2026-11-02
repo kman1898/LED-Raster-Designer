@@ -22,8 +22,9 @@ came in, and stored nowhere:
 
 Each box is still a box of its own on the paperwork (2026-09-25: NovaStar
 in-unit port backup "feeds its OWN CVT at the far end"); only the way it
-is presented and bound changes. The MX40 Pro's 20-port mode, where each box
-picks Mirror or Backup, is untouched here.
+is presented and bound changes. The enhanced card, the MX40 Pro's 20-port
+mode and the NovaPro UHDs, where each box picks Mirror or Backup, are
+covered in test_hot_backup_binding.py.
 """
 import copy
 import os
