@@ -71,7 +71,7 @@ def test_the_workbook_template_text_has_no_spaced_hyphen_dash():
     assert dashed == [], dashed
     assert wb['TOTALS']['A1'].value == 'TOTALS · SHOP PULL'
     readme = [c.value for row in wb[pull_sheet.README].iter_rows() for c in row if isinstance(c.value, str)]
-    assert 'LED CABLE PULL SHEET: how it works' in readme, readme
+    assert 'LED GEAR PULL SHEET: how it works' in readme, readme
     assert any(t.endswith('Or use the one-click button (see APPS SCRIPT).') for t in readme), readme
     assert any(t.endswith('automatically, no button needed there.') for t in readme), readme
     # a meters show reads the same

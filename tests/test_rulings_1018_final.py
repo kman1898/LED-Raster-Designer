@@ -306,7 +306,7 @@ def test_length_is_the_heading_everywhere_and_never_cut(page):
 
 def test_the_spreadsheet_and_the_editor_say_length():
     import pull_sheet
-    assert pull_sheet.HEADERS[:2] == ['Cable Type', 'Length']
+    assert pull_sheet.HEADERS[:2] == ['Gear', 'Length']
     src = open(os.path.join(ROOT, 'static', 'js', 'app-pull-sheet-editor.js'), encoding='utf-8').read()
     assert '<th>Length</th>' in src and '>Len<' not in src
     import openpyxl
