@@ -820,7 +820,7 @@ def calculate_port_assignments(layer, canvas_height=0, warnings=None):
             # Judged against the capacity THIS unit has: on 5G a single narrow
             # column is penalised in its own right.
             #
-            # v1.5.4: a line too long for one port is SPLIT along its length
+            # v1.6.0: a line too long for one port is SPLIT along its length
             # (the owner's ruling, 2026-11-01): the port in hand closes, the
             # line is cut into ports of as many whole cabinets as fit, read
             # from the pattern's start side, and the last takes the

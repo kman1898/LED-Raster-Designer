@@ -1,17 +1,23 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
-v1.5.4 - October 23, 2026
+v1.6.0 - November 1, 2026
 ----------------------------
 
 The pull sheet and the binder now say exactly which cable to pull: TRUE1
 or powerCON for power, Cat6 or etherCON for data, and every distro gets a
 row for its feed. Edison and L6-20 screens pick the connector their
 panels take, each kind of cable can have its own stock list, and the
-panel you pick is saved on the screen and counted on the pull sheet. US
-circuits now fill to 80% of the breaker, and several other fixes change
-counts on the pull sheet, so check any show you've already ordered cable
-from. They're all listed under Opening an older show.
+panel you pick is saved on the screen and counted on the pull sheet.
+
+On the data side, Mixed redundancy lets each card on a chassis be backed
+up its own way, and a card in Copy mode feeds a mirror screen: drag it
+onto one screen, then onto a matching second screen, and the second
+becomes its copy.
+
+US circuits now fill to 80% of the breaker, and several other fixes
+change counts on the pull sheet, so check any show you've already ordered
+cable from. They're all listed under Opening an older show.
 
 POWER CABLES NAME THEIR CONNECTOR
 

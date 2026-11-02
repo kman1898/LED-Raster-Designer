@@ -1,4 +1,4 @@
-<h1 align="center"><img src="src/icon.png" width="112" alt=""><br>LED Raster Designer v1.5.4</h1>
+<h1 align="center"><img src="src/icon.png" width="112" alt=""><br>LED Raster Designer v1.6.0</h1>
 
 <p align="center"><strong>Plan LED video walls, from pixel map to binder.</strong></p>
 

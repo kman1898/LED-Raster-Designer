@@ -1329,7 +1329,7 @@ class _Binder {
 
     // A SCREEN THAT CANNOT FIT A CIRCUIT (owner, 2026-10-22: "Both"): one
     // panel draws more than one circuit carries at the packing percentage
-    // (since 1.5.4 a row or column too big for one circuit is cut into
+    // (since 1.6.0 a row or column too big for one circuit is cut into
     // several, never refused), so it has
     // no circuits. Its power sheet still prints, this sentence in place
     // of its circuits, and the export says which screens and why - never
@@ -1354,7 +1354,7 @@ class _Binder {
         const cap = this.circuitCapacity(layer);
         const fmt = (w) => `${Math.round(Number(w) || 0).toLocaleString('en-US')} W`;
         // One panel over a circuit is the only power error: Organized cuts
-        // a row or column too big for one circuit into several (1.5.4).
+        // a row or column too big for one circuit into several (1.6.0).
         const what = `${fmt(parseFloat(layer.panelWatts))} panels`;
         const usable = `${+cap.amps.toFixed(2)} A usable${cap.pct < 1 ? ` at ${Math.round(cap.pct * 100)}%` : ''}`;
         return { note: `Cannot fit a circuit: ${what}, ${cap.voltage} V / ${+cap.breakerA.toFixed(2)} A breaker, ${usable}`,

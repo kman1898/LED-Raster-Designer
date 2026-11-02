@@ -211,7 +211,7 @@ class _ScreenInfo {
     // calculatePortAssignments (for the Low Latency derate note) pass it in
     // rather than paying for the walk twice.
     //
-    // v1.5.4: on a custom data path this is the ports DRAWN (what the cards,
+    // v1.6.0: on a custom data path this is the ports DRAWN (what the cards,
     // the port labels and the canvas count). Screen Info's "Ports required"
     // reads getLayerPortsMinimum below instead: the fewest the screen needs.
     getLayerPortsRequired(layer, assignments = null) {

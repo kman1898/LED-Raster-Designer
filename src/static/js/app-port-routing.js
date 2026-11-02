@@ -493,7 +493,7 @@ class _PortRouting {
                 return capacityForRect(portCapacity, bounds);
             };
 
-            // v1.5.4: cut ONE line that no port can carry whole into ports
+            // v1.6.0: cut ONE line that no port can carry whole into ports
             // along its length. The line is read from the pattern's start
             // side (tl-h left to right, tr-h right to left, tl-v top down),
             // the way every Organized port starts (getOrganizedPanelsForUnits
@@ -574,7 +574,7 @@ class _PortRouting {
                 // single narrow column is penalised in its own right, so the
                 // unpenalised table figure would let an over-filled unit past.
                 //
-                // v1.5.4: a row (or column) too long for one port is SPLIT,
+                // v1.6.0: a row (or column) too long for one port is SPLIT,
                 // not refused. The owner's ruling, 2026-11-01, on a 90-wide
                 // Armor wall that carries 8 cabinets a port: "i should be able
                 // to do 8 panels and then start a new port". The port in hand

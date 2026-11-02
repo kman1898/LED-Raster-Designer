@@ -5,7 +5,7 @@ import { sendClientLog, setupColorPickerWithHex } from './helpers.js';
 
 // Library models renamed in a release, old "<manufacturer>|<model>" to new:
 // a favorite saved under the old name finds the model under its new one
-// (_libraryPanelFor). 1.5.4: ROE's "Graphite 2.6 (4 in 1)" is named the
+// (_libraryPanelFor). 1.6.0: ROE's "Graphite 2.6 (4 in 1)" is named the
 // way ROE names it, "Graphite GP2.6 (4 in 1)".
 const PANEL_CATALOG_RENAMES = {
     'ROE|Graphite 2.6 (4 in 1) Full Tile': 'ROE|Graphite GP2.6 (4 in 1) Full Tile',

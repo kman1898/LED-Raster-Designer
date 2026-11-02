@@ -4,7 +4,7 @@
  * Keyed by MAJOR.MINOR ("0.12", "1.0", ...). One entry per feature release.
  * A patch release (0.12.1 -> 0.12.2) re-opens the window only when it added
  * Advanced Guide steps (a step's `since`, quickstart.js); it may carry an
- * entry of its own keyed by the full version ("1.5.4"), and without one the
+ * entry of its own keyed by the full version ("1.5.3"), and without one the
  * window lists the new steps' titles. An update that skips a patch shows
  * every patch entry since the version last run, newest first. This is NOT the changelog: VERSION.txt
  * is the full record; each entry here is 4-8 short items a person can read
@@ -18,8 +18,8 @@
  *   h: short heading, d: one or two plain sentences. No markup, no emoji.
  */
 window.WHATS_NEW_CONTENT = {
-    '1.5.4': {
-        title: 'Every cable named by its connector, a panel input for Edison and L6-20 screens, and a feed for every distro',
+    '1.6': {
+        title: 'Every cable named by its connector, mixed redundancy and mirror screens, and a feed for every distro',
         items: [
             { h: 'TRUE1 or powerCON, Cat6 or etherCON',
               d: 'The pull sheet and the binder say exactly which cable to pull. Power reads TRUE1 or powerCON from each screen\'s breakout, and data reads Cat6 or etherCON from each box\'s own outputs.' },

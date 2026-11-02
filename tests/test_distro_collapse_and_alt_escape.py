@@ -1,4 +1,4 @@
-"""Two Power view fixes for 1.5.4, pinned in a real browser.
+"""Two Power view fixes for 1.6.0, pinned in a real browser.
 
 * A FOLDED DISTRO CARD hides its OUTPUTS row (owner, 2026-10-30: "When you
   minimize distro, we do not need to see the multi and l2130 stuff that you
