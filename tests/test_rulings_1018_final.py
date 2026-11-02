@@ -291,11 +291,15 @@ def test_length_is_the_heading_everywhere_and_never_cut(page):
     assert {'power', 'pull'} <= kinds, kinds
     pull_list = [p for p in pages if any(t['t'] == 'PULL LIST' for t in p['texts'])]
     assert pull_list and any(t['t'] == 'LENGTH' for t in pull_list[0]['texts'])
+    # The pull list holds every piece of gear, so it says GEAR, not CABLE.
+    assert any(t['t'] == 'GEAR' for t in pull_list[0]['texts']), pull_list[0]['texts']
     for p in pages:
         for t in p['texts']:
             if t['t'] != 'LENGTH':
                 continue
-            cable = next(c for c in p['texts'] if c['t'] == 'CABLE' and abs(c['y'] - t['y']) < 0.5)
+            # A pull list heads its first column GEAR (2026-11-02); a block
+            # of only cables keeps CABLE.
+            cable = next(c for c in p['texts'] if c['t'] in ('CABLE', 'GEAR') and abs(c['y'] - t['y']) < 0.5)
             assert t['size'] == cable['size'] and t['align'] == 'center', (p['title'], t, cable)
     assert errors == []
 

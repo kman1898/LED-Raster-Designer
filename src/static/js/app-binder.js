@@ -7622,10 +7622,12 @@ class _Binder {
     // ("powerCON Power Jump", "Edison → powerCON cable", "400 A cam set ·
     // 5-wire" - owner, 2026-10-21); on the pull pages, sized to their
     // content, it has the room to print each on one line wherever the
-    // sheet holds it.
-    _bPullCableCols() {
+    // sheet holds it. A pull list holds every piece of gear (the cables, the
+    // distros, the boxes, the cards), so its first column reads GEAR (owner,
+    // 2026-11-02); a block of only cables keeps CABLE.
+    _bPullCableCols(head = 'cable') {
         const tick = { title: '', w: 0.28, tick: true };
-        return [tick, { title: 'cable', w: 1.5, lend: true, list: 2, words: true, asksWhole: true },
+        return [tick, { title: head, w: 1.5, lend: true, list: 2, words: true, asksWhole: true },
                 // LENGTH holds "no length" whole where the table has the
                 // room, else on two lines - never "no len…"
                 { title: 'length', w: 0.6, borrow: 'len', list: 2, words: true, asksWhole: true },
@@ -7636,7 +7638,7 @@ class _Binder {
     _bPullLines(book, title, rows) {
         return this._bTableLines(book, {
             title,
-            cols: this._bPullCableCols(),
+            cols: this._bPullCableCols('gear'),
             rows: rows.length ? rows.map(r => ({ cells: ['', ...this._bPullCableCells(r), this._bQty(r.qty), r.label || ''] }))
                 : [{ cells: ['', 'none', '', '', ''] }],
         });

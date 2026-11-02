@@ -474,6 +474,8 @@ FIXES
   they zig-zagged over and under the ports. They now sit in one row. The
   binder names the connector once, under each screen's name on its data
   page, like Port cables: etherCON.
+- FIX: The binder's pull lists head their first column GEAR, not CABLE,
+  since they list every piece of gear: cables, distros, boxes and cards.
 
 v1.5.3 - October 21, 2026
 ----------------------------
