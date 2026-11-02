@@ -414,6 +414,28 @@ def unpin_port():
     return _saved(_store(state))
 
 
+@port_assignment_bp.route('/api/port-assignments/merge', methods=['POST'])
+def merge_ports():
+    """Several ports of one screen redrawn as one (port_assignment.
+    merge_pins): the removed ports' pins are released, every later pin of
+    the screen follows its port to the number it closed up to. The client
+    has already renumbered the screen's runs; this keeps the cards in step
+    with them. Released sockets forget their port cable the way any release
+    does (_store)."""
+    data = request.json or {}
+    layer_id = data.get('layerId')
+    if layer_id is None:
+        return jsonify({'error': 'layerId is required'}), 400
+    try:
+        removed = [int(i) for i in data.get('removed') or []]
+    except (TypeError, ValueError):
+        return jsonify({'error': 'removed must be port indices'}), 400
+    _retire()
+    state = assignment.merge_pins(_working(), layer_id, removed)
+    log_event('port_assignment_merge', {'layer': layer_id, 'removed': removed})
+    return _saved(_store(state))
+
+
 @port_assignment_bp.route('/api/port-assignments/move-block', methods=['POST'])
 def move_block():
     data = request.json or {}

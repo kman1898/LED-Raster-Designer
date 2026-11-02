@@ -359,6 +359,13 @@ class _CustomRuns {
     _customRunFullMessage(owner, kind, num) {
         const cap = this.customRunFill(owner, kind, num);
         const noun = kind === 'power' ? 'Circuit' : 'Port';
+        // Several ports redrawn as one have ONE port to draw: there is no
+        // next port to step to, only keeping or putting back.
+        if (kind !== 'power' && typeof this._mergeRedrawOn === 'function'
+                && this._mergeRedrawOn(owner, num)) {
+            return `${noun} ${this._customRunLabel(owner, kind, num)} is full, `
+                + `${cap.describe}. One port takes no more: Enter keeps what is drawn, Esc puts the ports back.`;
+        }
         return `${noun} ${this._customRunLabel(owner, kind, num)} is full, `
             + `${cap.describe}. Step to the next ${noun.toLowerCase()} (Tab / ]).`;
     }
@@ -481,6 +488,9 @@ class _CustomRuns {
         this.updatePortLabelEditor();
         this._syncCustomFillReadout('data');
         window.canvasRenderer.render();
+        // Several ports redrawn as one: drawing the last freed cabinet keeps
+        // the drawing (app-merge-runs.js).
+        if (typeof this._mergeRedrawAfterStep === 'function') this._mergeRedrawAfterStep(owner);
     }
 
     addPanelToCustomPowerPath(panel, panelLayer = null) {
@@ -1108,6 +1118,14 @@ class _CustomRuns {
             return false;
         }
         const chunks = cut.chunks;
+        // Several ports redrawn as one draw ONE port: a fill that would
+        // spill onto the next number is refused, with the port's limit.
+        if (!isPower && chunks.length > 1 && typeof this._mergeRedrawOn === 'function'
+                && this._mergeRedrawOn(owner, startNum)) {
+            toast(this._customRunFullMessage(owner, kind, startNum), true);
+            sayLocked();
+            return false;
+        }
         // The picks in the order they were dealt, run after run.
         const ordered = chunks.flatMap(c => c.picks);
         if (ordered.length === 0) {
@@ -1279,6 +1297,7 @@ class _CustomRuns {
             this.updatePortLabelEditor();
         }
         window.canvasRenderer.render();
+        if (!isPower && typeof this._mergeRedrawAfterStep === 'function') this._mergeRedrawAfterStep(owner);
         return true;
     }
 

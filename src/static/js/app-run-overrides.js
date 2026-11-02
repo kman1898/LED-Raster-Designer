@@ -100,6 +100,11 @@ class _RunOverrides {
                 });
             });
         });
+        // Several ports being redrawn as one (app-merge-runs.js): the
+        // cabinets they freed stay out of the walk until the redraw ends.
+        if (kind !== 'power' && typeof this._mergeHeldPanels === 'function') {
+            this._mergeHeldPanels(scope).forEach(p => claimed.add(p));
+        }
         return claimed;
     }
 
@@ -200,6 +205,11 @@ class _RunOverrides {
     //   * an automatic run - take it over (overrideRun below).
     // Returns true when the click was consumed.
     handleOverrideClick(worldX, worldY) {
+        // A redraw of several ports as one keeps its drawing when another
+        // run is picked up, the way a single redraw does.
+        if (typeof this._mergeRedrawLive === 'function' && this._mergeRedrawLive()) {
+            this.finishMergeRedraw();
+        }
         const run = this.runAtPoint(worldX, worldY);
         if (!run) return false;
         const { kind, layer: owner, num } = run;
@@ -330,6 +340,12 @@ class _RunOverrides {
     // Close the open override edit. No model change - the override and its
     // path stay exactly as drawn - so no undo entry.
     endOverrideEdit() {
+        // Ending the edit of several ports redrawn as one keeps what was
+        // drawn (Esc, which puts it all back, is caught before this).
+        if (typeof this._mergeRedrawLive === 'function' && this._mergeRedrawLive()) {
+            this.finishMergeRedraw();
+            return;
+        }
         if (!this._overrideEditing) return;
         const wasPower = this._overrideEditing.kind === 'power';
         this._overrideEditing = null;

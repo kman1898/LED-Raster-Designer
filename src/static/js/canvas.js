@@ -2084,6 +2084,19 @@ class CanvasRenderer {
                 && sw.nums.includes(num)))) {
             return true;
         }
+        // Data ports picked for "Redraw ports ... as one" (app-merge-runs.js)
+        // wear it while picked, the box being dragged lights what it will
+        // pick, and the one port such a redraw is drawing stays lit until it
+        // is kept or put back.
+        if (this.viewMode === 'data-flow' && window.app) {
+            const pk = window.app._portPicks;
+            if (pk && pk.layerId === layer.id && pk.nums.includes(num)) return true;
+            const box = this._portPickPending;
+            if (box && box.run && box.run.layerId === layer.id
+                    && Array.isArray(box.preview) && box.preview.includes(num)) return true;
+            const mr = window.app._mergeRedraw;
+            if (mr && mr.ready && mr.layerId === layer.id && mr.num === num) return true;
+        }
         // The run open for redrawing stays lit until the redraw ends (Esc,
         // or another run picked): the owner, 2026-10-20, "it stays
         // highlighted until after it has been redrawn". The Alt hover that
@@ -2708,6 +2721,21 @@ class CanvasRenderer {
                 this.ctx.restore();
             }
 
+            // The Shift+drag box picking data ports (app-merge-runs.js): the
+            // same dashed outline the screen marquee draws; the ports it
+            // will pick light up under it (_runUnderlayLit).
+            const pickBox = this._portPickPending && this._portPickPending.rect;
+            if (!this.exportMode && pickBox) {
+                this.ctx.save();
+                this.ctx.strokeStyle = '#4A90E2';
+                this.ctx.lineWidth = 2 / this.zoom;
+                this.ctx.setLineDash([6 / this.zoom, 4 / this.zoom]);
+                this.ctx.strokeRect(Math.min(pickBox.x1, pickBox.x2), Math.min(pickBox.y1, pickBox.y2),
+                    Math.abs(pickBox.x2 - pickBox.x1), Math.abs(pickBox.y2 - pickBox.y1));
+                this.ctx.setLineDash([]);
+                this.ctx.restore();
+            }
+
             // The landing pulse (pulseLayer): a transient outline that grows
             // and fades over the pulsed layer for ~1.2s, so "center on this
             // screen" ends with the eye on the right wall. Pure view state -
@@ -3143,6 +3171,16 @@ class CanvasRenderer {
     }
     
     setViewMode(mode) {
+        // Ports picked on the wall belong to the Data view; a tab switch
+        // drops them. A redraw of several ports as one keeps its drawing,
+        // the way a single redraw does (finishMergeRedraw).
+        if (window.app && window.app._portPicks && mode !== this.viewMode) {
+            window.app._portPicks = null;
+        }
+        if (window.app && window.app._mergeRedraw && mode !== this.viewMode
+                && typeof window.app.finishMergeRedraw === 'function') {
+            window.app.finishMergeRedraw();
+        }
         // An open override edit is a gesture of the view it began in; a tab
         // switch closes it (the override itself stays). The hover highlight
         // goes with it.

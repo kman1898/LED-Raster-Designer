@@ -242,6 +242,21 @@ Object.assign(CanvasRenderer.prototype, {
         this.ctx.restore();
     },
 
+    // One dashed accent ring per freed cabinet, under the runs.
+    _drawMergeFreedRings(panels) {
+        this.ctx.save();
+        this.ctx.strokeStyle = this._accentUnderlayColor();
+        this.ctx.lineWidth = Math.max(6, 8 / Math.max(this.zoom, 0.01));
+        this.ctx.setLineDash([this.ctx.lineWidth * 2, this.ctx.lineWidth * 1.5]);
+        panels.forEach(p => {
+            const inset = Math.min(p.width, p.height) * 0.12;
+            this.ctx.strokeRect(p.x + inset, p.y + inset,
+                                p.width - inset * 2, p.height - inset * 2);
+        });
+        this.ctx.setLineDash([]);
+        this.ctx.restore();
+    },
+
     renderDataFlowArrows(layer) {
         // Get the flow pattern (default: top-right, vertical-first)
         const pattern = layer.flowPattern || 'tl-h';
@@ -293,6 +308,15 @@ Object.assign(CanvasRenderer.prototype, {
         // Save context, clip to active raster bounds (translate-aware)
         this.ctx.save();
         this._clipToActiveRaster();
+
+        // Several ports being redrawn as one (app-merge-runs.js): the
+        // cabinets they freed that the new path has not taken yet wear a
+        // dashed ring, so what is left to draw is on the wall.
+        if (!this.exportMode && !this._crossMemberPass && window.app
+                && typeof window.app.mergeFreedPanels === 'function') {
+            const freed = window.app.mergeFreedPanels(layer);
+            if (freed.length) this._drawMergeFreedRings(freed);
+        }
 
         this.ctx.lineCap = 'round';
         this.ctx.lineJoin = 'round';
