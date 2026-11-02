@@ -242,6 +242,45 @@ Object.assign(CanvasRenderer.prototype, {
         this.ctx.restore();
     },
 
+    // ONE ROW OF TAGS PER ROW OF DISCS (data map, 2026-11-02). A tag
+    // hangs a fixed gap off its own disc, and a disc grows with its label
+    // ("UL B-10" against "UL B-9"), so the tags under one row of discs
+    // stepped by a few pixels where a label ran longer. The tags placeTagHeads
+    // hung clear on one side of discs that share a centre line are lined
+    // up with the one farthest out (the lowest under the row, the highest
+    // over it), each only where it lands clear there - inside the screen,
+    // off every disc and every other pill - else it stays where it was.
+    // `placed` and `taken` are updated in place.
+    _alignDataTagRows(heads, placed, labelSize, bounds, discs, taken) {
+        const eps = 1e-6;
+        const rows = new Map();
+        heads.forEach((h, i) => {
+            const tag = placed[i] && placed[i].tag;
+            const side = tag && tag.opts && tag.opts.side;
+            if (!tag || !tag.clear || (side !== 'below' && side !== 'above')) return;
+            const key = `${side}|${Math.round(h.own.y * 2) / 2}`;
+            if (!rows.has(key)) rows.set(key, { side, members: [] });
+            rows.get(key).members.push(i);
+        });
+        for (const { side, members } of rows.values()) {
+            if (members.length < 2) continue;
+            const ys = members.map(i => placed[i].tag.rect.y);
+            const target = side === 'below' ? Math.max(...ys) : Math.min(...ys);
+            for (const i of members) {
+                const tag = placed[i].tag;
+                const delta = target - tag.rect.y;
+                if (Math.abs(delta) <= eps) continue;
+                const rect = this.cableTagRect(heads[i].text, tag.x, tag.y + delta, labelSize, tag.opts);
+                if (Math.abs(rect.y - target) > eps) continue;          // the screen's edge held it
+                const others = taken.filter(r => r !== tag.rect);
+                if (this._tagCover(bounds, discs, heads[i].own, others, true)(rect) > eps) continue;
+                const at = taken.indexOf(tag.rect);
+                if (at >= 0) taken[at] = rect;
+                placed[i].tag = Object.assign({}, tag, { y: tag.y + delta, rect });
+            }
+        }
+    },
+
     // One dashed accent ring per freed cabinet, under the runs.
     _drawMergeFreedRings(panels) {
         this.ctx.save();
@@ -427,6 +466,7 @@ Object.assign(CanvasRenderer.prototype, {
             }));
             const placed = this.placeTagHeads(heads, labelSize, bounds, discsU, taken,
                                               this._tagSideKey('data', layer));
+            this._alignDataTagRows(heads, placed, labelSize, bounds, discsU, taken);
             // the rect each disc's tag took, for the load badge beside it
             const tagOf = new Map();
             heads.forEach((h, i) => {
