@@ -2175,11 +2175,18 @@ def check_fiber_extension(body, unit='ft'):
 
 def merge_fiber_extension(old, body, cable):
     """The extension a checked body leaves: the keys it sends over `old`.
-    A new one starts as a fan-out off an MTP and a duplex patch off a TAC
-    - a first pick the user changes freely - with its trunk end left to
-    read the trunk's own connector."""
-    ext = dict(old) if isinstance(old, dict) else {
-        'kind': 'fanout' if (cable or {}).get('kind') == 'mtp' else 'patch'}
+    A new one starts as a fan-out to LC duplex off a TAC and a duplex
+    patch off an MTP (owner, 2026-11-02: "For tac fan out should be
+    default and for mtp patch should default"; a TAC's fan-out lands on LC
+    duplex, "two LC duplex" off an LC TAC and "ST to LC ... at minimum"
+    off an ST one) - a first pick the user changes freely - with its trunk
+    end left to read the trunk's own connector."""
+    if isinstance(old, dict):
+        ext = dict(old)
+    elif (cable or {}).get('kind') == 'mtp':
+        ext = {'kind': 'patch'}
+    else:
+        ext = {'kind': 'fanout', 'boxEnd': 'LC duplex'}
     for key, value in body.items():
         if key == 'kind':
             ext['kind'] = value
