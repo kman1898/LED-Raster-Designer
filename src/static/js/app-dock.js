@@ -3893,16 +3893,19 @@ class _HardwareDock {
     // distro, number, the stored tail set and breaker offset, the typed
     // name and home-run length, the circuits' label overrides, and the
     // manual share/split entries covering those circuits - see
-    // _wipeSocaProgramming. The cuts at the cleared multis' edges go too,
-    // and with them every cut left between two multis nobody is feeding
-    // on the touched layers (user ruling, 2026-09-04, extending the
-    // above: after a clear the one-circuit multis a run of pip drops left
-    // behind still read S1[1-6] S2[7] S3[8] ..., "the numbering is all
-    // wrong"), so the cleared circuits AND the unassigned leftovers fall
-    // back onto the natural box grid - _socaClearSplitPoints decides
-    // which points, _resegmentSocaStores re-keys every multi that was NOT
-    // cleared so it keeps its name, distro, number and length under its
-    // new index. Still ONE history entry.
+    // _wipeSocaProgramming. Every cut left between two multis nobody is
+    // feeding on the touched layers goes too, the cleared multis' own
+    // edges included (user ruling, 2026-09-04, extending the above: after
+    // a clear the one-circuit multis a run of pip drops left behind still
+    // read S1[1-6] S2[7] S3[8] ..., "the numbering is all wrong"), so the
+    // cleared circuits AND the unassigned leftovers fall back onto the
+    // natural box grid. A cut beside a multi that is still fed stays
+    // (owner, 2026-11-02: "it should just clear the ports"): the clear
+    // never grows another feed over the freed circuits.
+    // _socaClearSplitPoints decides which points, _resegmentSocaStores
+    // re-keys every multi that was NOT cleared so it keeps its name,
+    // distro, number, length and tails under its new index. Still ONE
+    // history entry.
     _clearMultis(members, action) {
         sendClientLog('dock_clear', { kind: 'multis', action,
                                       count: members.length });
@@ -3975,11 +3978,13 @@ class _HardwareDock {
     // multi's own clear forgets those).
     //
     // Where the holder is a multi of ONE circuit (the pip drop's product)
-    // the multi IS the circuit: the two cuts the pip drop made around it
-    // go with it, and so does every cut between the unassigned leftovers
-    // its neighbours were chopped into (user ruling, 2026-09-04), so the
-    // whole run falls back into the natural box - _socaClearSplitPoints,
-    // the same rule the multi clear runs. Where the holder has MORE
+    // the multi IS the circuit: each cut the pip drop made around it goes
+    // with it when the multi on the other side is unassigned too, and so
+    // does every cut between the unassigned leftovers its neighbours were
+    // chopped into (user ruling, 2026-09-04), so the run falls back into
+    // the natural box; a cut against a multi that is still fed stays, so
+    // that multi keeps its circuits and tails (owner, 2026-11-02) -
+    // _socaClearSplitPoints, the same rule the multi clear runs. Where the holder has MORE
     // circuits (user, 2026-09-05: "delete the 6th circuit from the
     // distro"), the circuit is cut out on its own and the rest of the
     // multi stays put - head and tail parts on the same box, holding the

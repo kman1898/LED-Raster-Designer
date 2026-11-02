@@ -20,8 +20,12 @@ Two rulings, pinned here:
 
   1. A CLEAR FORGETS THE CUTS TOO (extends 2026-08-30: "clearing must not
      remember how i had it programmed"). The split points at a cleared
-     multi's edges go with its programming, so the cleared circuits fall
-     back onto the natural box grid; multis that were NOT cleared keep
+     multi's edges go with its programming when the multi on the other
+     side is unassigned too, so the cleared circuits fall back onto the
+     natural box grid; a cut against a multi that is still fed stays
+     (owner, 2026-11-02: "it should just clear the ports"), so a clear
+     never grows another feed over the freed circuits. Multis that were
+     NOT cleared keep
      their name, distro, number and length under their new index
      (_resegmentSocaStores). One history entry; one undo restores the
      cuts. AND every cut left between two multis that are both unassigned
@@ -335,10 +339,13 @@ def test_uncleared_multis_keep_their_identity_under_the_new_index(page):
     assert read(page, lid) == before, 'one undo did not restore everything'
 
 
-def test_a_cleared_run_welds_onto_its_one_kept_neighbour(page):
-    """[1-2] kept on the box, [3-6] cleared: the cut after 2 goes, the kept
-    multi holds the whole natural block [1-6] and re-deals its tails on
-    its box (the stored set covered two circuits, not six)."""
+def test_a_cleared_run_never_welds_onto_a_fed_neighbour(page):
+    """[1-2] kept on the box, [3-6] cleared: the cut after 2 stays, so the
+    kept multi holds its two circuits and its two tails exactly as before
+    and [3-6] just sits unplugged. Owner (2026-11-02): "when i clear a
+    breakout on the power it jumps them to another breakout. it should
+    just clear the ports." The cut used to go, and the kept multi grew
+    over [1-6] and dealt itself four more tails on its box."""
     ids = seed(page, [{'name': 'W', 'columns': 6, 'fields': {
         'powerSocaSplits': [2],
         'powerSocaDistro': {'1': 'dtk', '2': 'dtk'},
@@ -351,11 +358,12 @@ def test_a_cleared_run_welds_onto_its_one_kept_neighbour(page):
     }""", lid)
     page.wait_for_timeout(600)
     out = read(page, lid)
-    assert out['splits'] == [] and out['shape'] == [6], out
+    assert out['splits'] == [2] and out['shape'] == [2, 4], out
     assert out['distro'] == {'1': 'dtk'} and out['num'] == {'1': 1}, out
-    assert out['pos'] == {}, (
-        f'a multi that grew must shed its stored tail set: {out}')
-    assert out['plan'][0]['tails'] == [1, 2, 3, 4, 5, 6], out
+    assert out['pos'] == {'1': [5, 6]}, (
+        f'the kept multi lost its stored tails: {out}')
+    assert out['plan'][0]['tails'] == [5, 6], out
+    assert out['plan'][1]['distro'] is None, out
 
 
 def test_a_cleared_run_flanked_by_kept_multis_keeps_both_cuts(page):

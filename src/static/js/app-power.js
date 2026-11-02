@@ -4431,46 +4431,39 @@ class _Power {
     // re-assigning resurrected the old balance layout. Now the clear wipes
     // the cleared thing's stored programming too, and the caller folds
     // every wipe into ONE history entry so a single undo restores all of
-    // it. The split boundaries at the cleared multi's edges go too, and
-    // so does every cut left between multis nobody is feeding (user
+    // it. Every cut left between multis nobody is feeding goes too (user
     // ruling, 2026-09-04, extending the above: a wall of one-circuit
     // multis left by circuit-pip drops read S1[1-6] S2[7] S3[8] ... after
-    // a clear - "the numbering is all wrong") - see _socaClearSplitPoints.
+    // a clear - "the numbering is all wrong"), but a cut beside a multi
+    // that is still fed stays, so a clear never moves another feed
+    // (owner, 2026-11-02) - see _socaClearSplitPoints.
 
     // The split points that survive clearing `indices` on this layer.
-    // Two rules, one home:
+    // ONE rule: a stored cut goes when NEITHER multi beside it is fed
+    // once the clear has run (a cleared multi counts as unfed), and every
+    // other cut stays.
     //
-    // 1. The cleared multis' own edges. The boundary that ends each
-    //    cleared multi and the one that ends the multi before it are
-    //    forgotten, so the cleared circuits fall back onto the natural box
-    //    grid (_socaSegments cuts at every multiple of socaBoxSize
-    //    whatever is stored). A run of cleared multis inside one grid
-    //    cell is treated as one: its interior cuts always go; the cut to
-    //    a KEPT neighbour goes when the run has a kept neighbour on ONE
-    //    side only (the run welds onto it - the neighbour keeps its
-    //    identity and re-deals its tails, the un-split rule), and both
-    //    cuts stay when kept multis flank the run on both sides -
-    //    forgetting either would weld two multis that were not cleared
-    //    into one and lose the second's distro, number and name, which
-    //    the ruling never asked for. Grid lines are never stored, so a
-    //    neighbour across one is not a neighbour here.
+    // So the cuts between the cleared multis themselves go, and so do the
+    // cuts to an unassigned neighbour, welding the freed circuits back
+    // onto the natural box grid (_socaSegments cuts at every multiple of
+    // socaBoxSize whatever is stored). That is the leftover rule (user,
+    // 2026-09-04): a run of circuit-pip drops had left twelve one-circuit
+    // multis S2..S13 behind S1, already unassigned, and a clear that kept
+    // their cuts left the wall reading S1[1-6] S2[7] S3[8] ... - "if i
+    // add circuits the numbering is all wrong". An unassigned cut is
+    // programming nobody is using, and a clear must not remember how the
+    // wall was programmed (2026-08-30).
     //
-    // 2. The leftovers. Every remaining stored cut that sits between two
-    //    multis which are BOTH unassigned (no distro) once the clear has
-    //    run goes too, welding them back onto the natural grid. On the
-    //    user's own show (2026-09-04) a run of circuit-pip drops had left
-    //    twelve one-circuit multis S2..S13 behind S1, already unassigned,
-    //    so rule 1 alone cleared S1 and left the wall reading S1[1-6]
-    //    S2[7] S3[8] ... - "if i add circuits the numbering is all wrong",
-    //    and "we need to audit this so it allows me to do up to 6 if i am
-    //    doing multi/soca". An unassigned cut is programming nobody is
-    //    using, and a clear must not remember how the wall was programmed
-    //    (the 2026-08-30 ruling above). A cut with an ASSIGNED multi on
-    //    either side stays: that multi keeps its identity, its number and
-    //    its circuits under its new index (_resegmentSocaStores), so a
-    //    flanked run of leftovers between two fed multis keeps both cuts
-    //    - rule 1's flanked case is the same test with the cleared run
-    //    counted as unassigned.
+    // A cut with a FED multi on either side always stays, the cleared
+    // multi's own edge included. Owner (2026-11-02): "when i clear a
+    // breakout on the power it jumps them to another breakout. it should
+    // just clear the ports." The cut to a fed neighbour used to go when
+    // the cleared run had a neighbour on one side only, so the neighbour
+    // grew over the freed circuits and dealt them fresh tails on its own
+    // box: unplugging one multi moved another, and could double-book its
+    // box against a screen already on those tails. Now the neighbour
+    // keeps its circuits, tails and identity exactly as they were, and
+    // the freed circuits just sit unplugged.
     //
     // Pure: reads the stores as the caller left them (the wipe ran first,
     // so a cleared multi's distro is already gone; `indices` covers it
@@ -4481,32 +4474,13 @@ class _Power {
         const count = this.screenCircuits(layer).length;
         const segs = this._socaSegments(layer, count);
         const stored = new Set(this._socaSplitPoints(layer, count));
-        const size = this.socaBoxSize(layer);
         const cleared = new Set((indices || []).map(Number));
-        const gone = new Set();
-        for (let i = 0; i < segs.length; i++) {
-            if (!cleared.has(segs[i].index)) continue;
-            let j = i;
-            while (j + 1 < segs.length && cleared.has(segs[j + 1].index)
-                    && segs[j].end % size !== 0) j++;
-            for (let k = i; k < j; k++) gone.add(segs[k].end);
-            const before = segs[i].start - 1;
-            const after = segs[j].end;
-            const keptBefore = before >= 1 && before % size !== 0
-                && stored.has(before);
-            const keptAfter = after < count && after % size !== 0
-                && stored.has(after);
-            if (!(keptBefore && keptAfter)) {
-                if (keptBefore) gone.add(before);
-                if (keptAfter) gone.add(after);
-            }
-            i = j;
-        }
         const assign = layer.powerSocaDistro || {};
         const fed = s => !cleared.has(s.index) && !!assign[s.index];
+        const gone = new Set();
         for (let i = 0; i + 1 < segs.length; i++) {
             const p = segs[i].end;
-            if (!stored.has(p) || gone.has(p)) continue;
+            if (!stored.has(p)) continue;
             if (!fed(segs[i]) && !fed(segs[i + 1])) gone.add(p);
         }
         return [...stored].filter(p => !gone.has(p));
