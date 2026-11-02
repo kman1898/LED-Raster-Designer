@@ -3673,9 +3673,10 @@
         fiberExtension: {
             fiberStep: true,
             since: '1.6.0',
-            target: function () { var b = box(); return b ? '[data-lrd-field="fiber-ext-add-' + b.id + '-p1"]' : '#hardware-dock-body .hw-dock-cable-fiber'; },
+            // the link's row: there before + Extension and after it
+            target: function () { var b = box(); return b ? '[data-lrd-fiber-link="' + b.id + ':p1"]' : '#hardware-dock-body .hw-dock-cable-fiber'; },
             place: 'top', title: 'Extend a TAC or MTP',
-            body: 'A TAC or MTP doesn&rsquo;t always plug straight into the box. + Extension adds a fan-out or duplex patch to one link: the connector at each end and its length. It goes on the pull sheet and in the binder, and Remove takes it off.',
+            body: 'A TAC or MTP doesn&rsquo;t always plug straight into the box. + Extension adds a fan-out or duplex patch to one link, with the connector at each end and its length, for the pull sheet and the binder.',
             before: function () { switchView('data-flow'); closePopover(); openBoxSheet(); },
             act: function (t) {
                 var b = box();
