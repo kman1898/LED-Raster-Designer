@@ -581,6 +581,12 @@ select, .info-select {
 }
 .hw-dock-loop-names { color:var(--ps-text); font-weight:600; }
 .hw-dock-loop-end { color:var(--ps-faint); }
+/* a folded strip's header carries its near box's ≡ and ⚙; open, the
+   rows below carry them */
+.hw-dock-foldctl { display:none; flex:0 0 auto; margin-left:auto;
+  align-items:center; gap:3px; }
+.hw-dock-foldctl > .hw-dock-cablebtn { margin-left:0; }
+.hw-dock-loop.lrd-sec-collapsed > .hw-dock-head-row > .hw-dock-foldctl { display:inline-flex; }
 /* the distro's always-on legs line sits OUTSIDE the foldable body, so the
    unit's zeroed padding must not glue it to the frame */
 .hw-dock-unit > .hw-dock-legs { margin:2px 6px; }
