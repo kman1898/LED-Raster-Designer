@@ -288,6 +288,9 @@ pull sheet again and compare it with anything you've already ordered.
 
 FIXES
 
+- FIX: The Screens list uses its whole width. The blank strip down its
+  right side is gone and the arrows, grid and eye sit closer together, so
+  longer screen names show in full.
 - FIX: A direct output's cable names both ends, like CEE 16A → TRUE1, or
   just TRUE1 when the outlet already is one.
 - FIX: Distro boxes are listed by their own names everywhere (SR1,

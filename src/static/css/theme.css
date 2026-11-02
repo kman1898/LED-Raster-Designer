@@ -354,7 +354,7 @@ label:has(#use-fractional-inches) { margin-left:8px !important; flex-shrink:0; }
 /* ════════ DENSER LAYER CARDS ════════ */
 .layer-item { padding:7px 9px !important; margin-bottom:5px !important; }
 .layer-item .layer-info { margin-top:3px !important; line-height:1.25 !important; }
-.layer-item .layer-header { gap:6px !important; }
+.layer-item .layer-header { gap:4px !important; }
 
 /* ════════ RESIZABLE SIDEBARS ════════ */
 /* width is driven by CSS vars (set/persisted by theme.js); collapse still wins */
