@@ -52,6 +52,7 @@ class _ClientProps {
                         if (layerProps.processorType !== undefined) layer.processorType = layerProps.processorType;
                         if (layerProps.lowLatency !== undefined) layer.lowLatency = layerProps.lowLatency;
                         if (layerProps.portMappingMode !== undefined) layer.portMappingMode = layerProps.portMappingMode;
+                        if (layerProps.portNumberOrder !== undefined) layer.portNumberOrder = layerProps.portNumberOrder;
                         if (layerProps.portLabelTemplatePrimary !== undefined) layer.portLabelTemplatePrimary = layerProps.portLabelTemplatePrimary;
                         if (layerProps.portLabelTemplateReturn !== undefined) layer.portLabelTemplateReturn = layerProps.portLabelTemplateReturn;
                         if (layerProps.portLabelOverridesPrimary !== undefined) layer.portLabelOverridesPrimary = layerProps.portLabelOverridesPrimary;
@@ -407,6 +408,7 @@ class _ClientProps {
                 processorType: layer.processorType,
                 lowLatency: layer.lowLatency,
                 portMappingMode: layer.portMappingMode,
+                portNumberOrder: layer.portNumberOrder,
                 portLabelTemplatePrimary: layer.portLabelTemplatePrimary,
                 portLabelTemplateReturn: layer.portLabelTemplateReturn,
                 portLabelOverridesPrimary: layer.portLabelOverridesPrimary,

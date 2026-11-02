@@ -109,7 +109,7 @@ class _ScreenGroups {
         return [
             // Processor / data
             'processorType', 'lowLatency', 'bitDepth', 'frameRate',
-            'portMappingMode', 'flowPattern',
+            'portMappingMode', 'portNumberOrder', 'flowPattern',
             'portLabelTemplatePrimary', 'portLabelTemplateReturn',
             'showDataFlowPortInfo', 'showDataFlowPortLoad',
             'showDataCableTags',

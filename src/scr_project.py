@@ -374,6 +374,16 @@ def panel_pixel_area(panel):
 
 # ── traversal (app-screen-info.js) ───────────────────────────────────────
 
+# The Z twins of the eight snakes (helpers.js FLOW_Z_PATTERNS): every row
+# or column starts again from the start side instead of running back.
+FLOW_Z_PATTERNS = ('tl-h-z', 'tr-h-z', 'bl-h-z', 'br-h-z',
+                   'tl-v-z', 'tr-v-z', 'bl-v-z', 'br-v-z')
+
+
+def is_z_flow_pattern(pattern):
+    return str(pattern or '') in FLOW_Z_PATTERNS
+
+
 def get_ordered_panels_by_pattern(layer, pattern='tl-h', include_hidden=False):
     """The cabinets of a layer in its flow order.
 
@@ -415,6 +425,7 @@ def get_ordered_panels_by_pattern(layer, pattern='tl-h', include_hidden=False):
         col_dir = -1
 
     ordered = []
+    bounce = 0 if is_z_flow_pattern(pattern) else 1
 
     def take(r, c):
         panel = panel_map.get((r, c))
@@ -424,7 +435,7 @@ def get_ordered_panels_by_pattern(layer, pattern='tl-h', include_hidden=False):
     if direction == 'v':
         c = start_col
         while 0 <= c < cols:
-            reverse = abs(c - start_col) % 2 == 1
+            reverse = (abs(c - start_col) * bounce) % 2 == 1
             if reverse:
                 r = start_row + (rows - 1) * row_dir
                 while 0 <= r < rows:
@@ -439,7 +450,7 @@ def get_ordered_panels_by_pattern(layer, pattern='tl-h', include_hidden=False):
     else:
         r = start_row
         while 0 <= r < rows:
-            reverse = abs(r - start_row) % 2 == 1
+            reverse = (abs(r - start_row) * bounce) % 2 == 1
             if reverse:
                 c = start_col + (cols - 1) * col_dir
                 while 0 <= c < cols:
@@ -472,7 +483,10 @@ def get_organized_panels_for_units(layer, pattern, is_horizontal_first,
     cols = _int(layer.get('columns'))
     rows = _int(layer.get('rows'))
     ordered = []
-    for unit_pos, unit_idx in enumerate(ordered_unit_indices):
+    # A Z pattern runs every line of the port from the start side.
+    bounce = 0 if is_z_flow_pattern(pattern) else 1
+    for at, unit_idx in enumerate(ordered_unit_indices):
+        unit_pos = at * bounce
         if is_horizontal_first:
             left_to_right = (unit_pos % 2 == 0) if starts_left else (unit_pos % 2 != 0)
             col_range = range(cols) if left_to_right else range(cols - 1, -1, -1)
@@ -521,6 +535,45 @@ def _rect_area(rect):
 
 def _empty_rect():
     return {'minX': 0, 'minY': 0, 'maxX': 0, 'maxY': 0, 'count': 0}
+
+
+# ── the Port numbers switch (app-port-routing.js portNumbersStack) ──────
+
+def port_numbers_stack(layer, is_horizontal_first):
+    """True when Organized's runs cut from long lines are numbered stack by
+    stack: Down on a horizontal-first pattern, Across on a vertical one.
+    A screen never switched (no portNumberOrder) numbers along its lines,
+    the numbering before the switch: Across when horizontal first, Down
+    when vertical first."""
+    if (layer.get('portMappingMode') or 'organized') != 'organized':
+        return False
+    order = layer.get('portNumberOrder')
+    if order not in ('across', 'down'):
+        order = 'across' if is_horizontal_first else 'down'
+    return order == 'down' if is_horizontal_first else order == 'across'
+
+
+def stack_split_runs(runs):
+    """Inside every unbroken stretch of runs cut from long lines, the first
+    run of each line first, then the second of each, and so on; any other
+    run ends the stretch and keeps its place. A stable permutation."""
+    out = []
+    block = []
+
+    def flush():
+        block.sort(key=lambda x: (x[1]['seg'], x[1]['line'], x[0]))
+        out.extend(run for _, _, run in block)
+        del block[:]
+
+    for at, run in enumerate(runs):
+        info = run.get('split')
+        if info:
+            block.append((at, info, run))
+            continue
+        flush()
+        out.append(run)
+    flush()
+    return out
 
 
 # ── the port walk (app-export-io.js calculatePortAssignments) ────────────
@@ -711,8 +764,44 @@ def calculate_port_assignments(layer, canvas_height=0, warnings=None):
                         bounds = _union_rect(bounds, p)
             return capacity_for_rect(port_capacity, bounds)
 
+        def split_unit(unit_idx, line_pos):
+            # One line no port carries whole, cut into ports along its length
+            # (calculatePortAssignments' splitUnit): the Armor / 1G reserved
+            # rectangle, the 5G narrow-port penalty, half tiles at their own
+            # size, hidden and blank cabinets skipped. None when one cabinet
+            # alone is over a port.
+            along = 'col' if is_horizontal_first else 'row'
+            forward = starts_left if is_horizontal_first else starts_top
+            cells = [p for p in unit_panels(unit_idx)
+                     if not _is_placeholder(p) and panel_pixel_area(p) > 0]
+            cells.sort(key=lambda p: _int(p.get(along)), reverse=not forward)
+            segments = []
+            seg = None
+            for panel in cells:
+                area = panel_pixel_area(panel)
+                if seg is not None:
+                    cand_rect = _union_rect(seg['rect'], panel)
+                    cand_load = _rect_area(cand_rect) if rect_constraint else seg['load'] + area
+                    if cand_load <= capacity_for_rect(port_capacity, cand_rect):
+                        seg['panels'].append(panel)
+                        seg['rect'] = cand_rect
+                        seg['load'] = cand_load
+                        continue
+                    segments.append(seg)
+                    seg = None
+                solo_rect = _panel_rect(panel)
+                solo_load = _rect_area(solo_rect) if rect_constraint else area
+                if solo_load > capacity_for_rect(port_capacity, solo_rect):
+                    return None
+                seg = {'panels': [panel], 'rect': solo_rect, 'load': solo_load,
+                       'unitIndices': [unit_idx],
+                       'split': {'line': line_pos, 'seg': len(segments)}}
+            if seg is not None:
+                segments.append(seg)
+            return segments
+
         current = {'unitIndices': [], 'load': 0}
-        for unit_idx in unit_indices:
+        for line_pos, unit_idx in enumerate(unit_indices):
             all_in_unit = unit_panels(unit_idx)
             if not all_in_unit:
                 continue
@@ -730,11 +819,24 @@ def calculate_port_assignments(layer, canvas_height=0, warnings=None):
 
             # Judged against the capacity THIS unit has: on 5G a single narrow
             # column is penalised in its own right.
+            #
+            # v1.6.0: a line too long for one port is SPLIT along its length
+            # (the owner's ruling, 2026-11-01): the port in hand closes, the
+            # line is cut into ports of as many whole cabinets as fit, read
+            # from the pattern's start side, and the last takes the
+            # remainder. None of them carries on onto the next line. Only a
+            # single cabinet bigger than a port is still an error.
             if single_unit_load > capacity_for_units([unit_idx]):
-                raise_capacity_error('row' if is_horizontal_first else 'column',
-                                     _int(layer.get('columns')) if is_horizontal_first
-                                     else _int(layer.get('rows')))
-                break
+                if current['unitIndices']:
+                    current['load'] = bounding_rect_load(current['unitIndices'])
+                    ports.append(current)
+                current = {'unitIndices': [], 'load': 0}
+                segments = split_unit(unit_idx, line_pos)
+                if segments is None:
+                    raise_capacity_error('panel', 1)
+                    break
+                ports.extend(segments)
+                continue
 
             candidate = current['unitIndices'] + [unit_idx]
             candidate_load = bounding_rect_load(candidate)
@@ -750,6 +852,10 @@ def calculate_port_assignments(layer, canvas_height=0, warnings=None):
             ports = []
         elif current['load'] > 0 or current['unitIndices']:
             ports.append(current)
+        # The Port numbers switch: the runs cut from long lines keep their
+        # cabinets and only change number (port_numbers_stack).
+        if ports and port_numbers_stack(layer, is_horizontal_first):
+            ports = stack_split_runs(ports)
 
     elif rect_constraint:
         # Max Capacity on a rectangle-constraint processor. The load is the
@@ -846,7 +952,7 @@ def calculate_port_assignments(layer, canvas_height=0, warnings=None):
         return num
 
     for port in ports:
-        if is_organized and not ll_geometry:
+        if is_organized and not ll_geometry and 'panels' not in port:
             port_panels = unclaimed(get_organized_panels_for_units(
                 layer, pattern, is_horizontal_first, port.get('unitIndices') or [], False))
         else:

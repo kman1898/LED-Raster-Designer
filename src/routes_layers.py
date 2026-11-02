@@ -427,7 +427,7 @@ def update_layer(layer_id):
                 # v0.11.0: lowLatency rides with processorType - leaving it out
                 # would drop the flag on every per-layer PUT.
                 'flowPattern', 'bitDepth', 'frameRate', 'processorType', 'lowLatency',
-                'portMappingMode',
+                'portMappingMode', 'portNumberOrder',
                 'dataFlowColor', 'dataFlowLabelSize', 'randomDataColors',
                 'portLabelTemplatePrimary', 'portLabelTemplateReturn',
                 'portLabelOverridesPrimary', 'portLabelOverridesReturn',

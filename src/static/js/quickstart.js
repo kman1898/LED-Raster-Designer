@@ -2737,7 +2737,7 @@
         },
         flowPattern: {
             target: '.flow-pattern-btn[data-pattern="tl-v"]:not(.power-flow-pattern-btn)', place: 'right', title: 'Flow pattern',
-            body: 'The eight patterns pick the serpentine the ports follow. This one starts top-left and runs down each column.',
+            body: 'The top row of patterns are snakes: each row or column runs back the other way. This one starts top-left and runs down each column.',
             before: function () { switchView('data-flow'); },
             act: function (t) {
                 return t.click('.flow-pattern-btn[data-pattern="tl-v"]:not(.power-flow-pattern-btn)').then(function () {
@@ -2747,6 +2747,94 @@
             check: function () {
                 var w = wall();
                 return w && w.flowPattern === 'tl-v' ? 'Ports now run top-left, vertical first.' : null;
+            }
+        },
+        // The Z patterns (tl-h-z ...), the row under the snakes. The step
+        // picks the Z twin of the wall's top-left vertical snake, reads the
+        // walk (every column a port moves into starts again at the top),
+        // and puts the wall back on the snake so the rest of the guide runs
+        // on the map it always has.
+        zPattern: {
+            since: '1.6.0',
+            target: '.flow-pattern-btn[data-pattern="tl-v-z"]:not(.power-flow-pattern-btn)', place: 'right', title: 'Z patterns',
+            body: 'The row under the snakes holds the Z patterns: every row or column starts again from the same side, the way a cable goes back to the start. This one starts top-left and reads every column from the top.',
+            before: function () { switchView('data-flow'); },
+            act: function (t) {
+                var sel = function (p) { return '.flow-pattern-btn[data-pattern="' + p + '"]:not(.power-flow-pattern-btn)'; };
+                return t.click(sel('tl-v-z')).then(function () {
+                    return t.wait(function () { var w = wall(); return w && w.flowPattern === 'tl-v-z'; });
+                }).then(function () {
+                    // Every cabinet that opens a new column inside a port is
+                    // on the top row: no column ran back up.
+                    var w = wall();
+                    var a = (A().calculatePortAssignments(w) || []);
+                    t.mem.zTop = a.every(function (x, i) {
+                        var prev = a[i - 1];
+                        return !prev || prev.port !== x.port || prev.panel.col === x.panel.col || x.panel.row === 0;
+                    });
+                    return t.click(sel('tl-v'));
+                }).then(function () {
+                    return t.wait(function () { var w = wall(); return w && w.flowPattern === 'tl-v'; });
+                });
+            },
+            check: function (mem) {
+                var w = wall();
+                if (!mem.zTop || !w || w.flowPattern !== 'tl-v') return null;
+                return 'On the Z pattern every column started at the top. The wall is back on top-left, vertical first.';
+            }
+        },
+        // Port numbers (layer.portNumberOrder): shown only where Organized
+        // cuts a row into more than one port, so the step adds a screen
+        // whose rows are 8 cabinets of 512 x 256 on NovaStar Armor, 5 to a
+        // port: each row is a port of 5 and a port of 3.
+        portNumbers: {
+            since: '1.6.0',
+            target: '#port-number-order-row', place: 'right', title: 'Port numbers',
+            avoid: ['#port-number-down'],
+            body: 'A row too long for one port is cut into ports of whole cabinets. Port numbers sets their order: Across goes along each row, Down goes down the stacks and starts each new stack back at the first row.',
+            before: function () { closePrefs(); hideMenus(); closePopover(); switchView('data-flow'); },
+            act: function (t) {
+                var a = A(), w = wall();
+                var bottom = screens().reduce(function (m, l) {
+                    return Math.max(m, (Number(l.offset_y) || 0) + (Number(l.rows) || 0) * (Number(l.cabinet_height) || 0));
+                }, 0);
+                var find = function () {
+                    return (a.project.layers || []).find(function (x) { return x.id === t.mem.layer; }) || null;
+                };
+                return j('POST', '/api/layer/add', {
+                    name: 'LONG ROWS', columns: 8, rows: 2,
+                    cabinet_width: 512, cabinet_height: 256,
+                    offset_x: (w && Number(w.offset_x)) || 0, offset_y: bottom + 200
+                }).then(function (layer) {
+                    a.initializeLayerDefaults(layer);
+                    layer.processorType = 'novastar-armor';
+                    layer.flowPattern = 'tl-h';
+                    layer.portMappingMode = 'organized';
+                    a.upsertProjectLayer(layer);
+                    a.updateLayers([layer]);
+                    t.mem.layer = layer.id;
+                    var l = find();
+                    a.selectLayer(l);
+                    frameLayers([l]);
+                    a.saveState('Add Layer');
+                    a.updatePortCapacityDisplay();
+                    return t.wait(function () {
+                        var row = $('#port-number-order-row');
+                        return row && row.style.display !== 'none' ? row : null;
+                    });
+                }).then(function (row) {
+                    if (!row) throw new Error('Port numbers is not shown for LONG ROWS');
+                    return t.click('#port-number-down');
+                }).then(function () {
+                    return t.wait(function () { var l = find(); return l && l.portNumberOrder === 'down'; });
+                });
+            },
+            check: function (mem) {
+                var a = A();
+                var l = (a.project.layers || []).find(function (x) { return x.id === mem.layer; });
+                if (!l || l.portNumberOrder !== 'down') return null;
+                var start = (a.calculatePortAssignments(l) || []).find(function (x) { return x.port === 2 && x.isPortStart; });
+                return start ? 'Port 2 now starts row ' + (start.panel.row + 1) + ' of LONG ROWS, under port 1.' : null;
             }
         },
         addProcessor: {
@@ -5047,7 +5135,7 @@
             title: 'Advanced Guide',
             seed: { name: 'New Show', layer: { panelWatts: 100, powerBreakoutType: 'soca-powercon' } },
             steps: ['introAdvanced', 'projectName', 'cabinetSize', 'panelName', 'gridSize', 'fit', 'blankCabinet',
-                    'cabinetIdStyle', 'showLook', 'processing', 'flowPattern', 'addProcessor',
+                    'cabinetIdStyle', 'showLook', 'processing', 'flowPattern', 'zPattern', 'addProcessor',
                     'nameProcessor', 'redundancy', 'backupProcessor', 'mixedRedundancy', 'dropProcessor', 'releasePort', 'attachmentFlag', 'pinPort',
                     'clearPortByMenu', 'clearCard', 'dropProcessorAgain',
                     'snakePorts', 'cableSheet', 'snakeHomeRun', 'loosePortLength', 'dataJumpers', 'dataCableTags',
@@ -5061,7 +5149,7 @@
                     'addService', 'serviceRating', 'serviceDistro', 'feederLength',
                     'addBeach', 'screenBeach', 'addScreen', 'beachByMenu', 'crossScreens', 'groupScreens',
                     'exportBinder', 'screenOrder', 'wiringTick', 'titleBlock', 'fileExports', 'preferences',
-                    'mirrorScreen', 'helpMenu', 'outroAdvanced']
+                    'mirrorScreen', 'portNumbers', 'helpMenu', 'outroAdvanced']
         }
     };
 

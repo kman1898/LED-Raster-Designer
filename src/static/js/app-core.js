@@ -854,6 +854,7 @@ export class LEDRasterApp {
             processorType: layer.processorType,
             lowLatency: layer.lowLatency,
             portMappingMode: layer.portMappingMode,
+            portNumberOrder: layer.portNumberOrder,
             portLabelTemplatePrimary: layer.portLabelTemplatePrimary,
             portLabelTemplateReturn: layer.portLabelTemplateReturn,
             portLabelOverridesPrimary: layer.portLabelOverridesPrimary,
