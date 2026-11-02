@@ -4,7 +4,8 @@
 // memory of which face a box shows. Moved verbatim out of app-dock.js and
 // attached to the prototype via the carrier class.
 import { LEDRasterApp } from './app-core.js';
-import { fiberStrandName, FIBER_STRAND_SUGGESTIONS, TAC_CONNECTORS, COPPER_LINK_KINDS } from './app-fiber.js';
+import { fiberStrandName, FIBER_STRAND_SUGGESTIONS, TAC_CONNECTORS, COPPER_LINK_KINDS,
+         FIBER_EXTENSION_KINDS, FIBER_EXTENSION_CONNECTORS } from './app-fiber.js';
 
 class _DockCableSheets {
     // ── the box's cable sheet ─────────────────────────────────────────────
@@ -982,7 +983,17 @@ class _DockCableSheets {
                             this._fiberEdit = open ? null : { boxId: m.id, key: l.key };
                             this.renderHardwareDock();
                         }, row);
+                    // A TAC or an MTP may need an extension to reach the
+                    // box's port (owner, 2026-11-02): "+ Extension" adds
+                    // one to THIS link; its line follows the row.
+                    if (this.fiberCableIsStranded(l.cable) && !this.fiberLinkExtension(l)) {
+                        button('+ Extension', `fiber-ext-add-${m.id}-${l.key}`,
+                            `A fan-out or patch between ${l.cable.name}’s end and `
+                            + `${l.title}. One undo step.`,
+                            () => this.setFiberExtension(m, l.key, {}, 'Add Fiber Extension'), row);
+                    }
                 }
+                if (this.fiberLinkExtension(l)) sec.appendChild(this._dockBuildFiberExtension(m, l));
                 const wz = this._fiberWizard;
                 if (wz && wz.boxId === m.id && wz.key === l.key) {
                     sec.appendChild(this._dockBuildFiberWizard(m, l));
@@ -994,6 +1005,102 @@ class _DockCableSheets {
             }
         });
         return sec;
+    }
+
+    // A link's EXTENSION, on its own line right under the link's row
+    // (owner, 2026-11-02): the cable between the TAC's or MTP's end and
+    // the box's port - its kind (a fan-out or a duplex patch), the
+    // connector at the trunk end (blank reads the trunk's own) and at the
+    // box end, each offered from the fiber connector list or typed, and
+    // its length in the show's unit. Remove takes it off in one click.
+    // Each commit is one request and one history entry. Nothing here says
+    // which connector the box's port takes: the user's pick is recorded.
+    _dockBuildFiberExtension(box, l) {
+        const ext = this.fiberLinkExtension(l);
+        const ends = this.fiberExtensionEnds(ext, l.cable);
+        const base = `${box.id}-${l.key}`;
+        const line = document.createElement('div');
+        line.className = 'hw-dock-fiber-ext' + (l.backup ? ' hw-dock-fiber-link-backup' : '');
+        line.dataset.lrdFiberExt = `${box.id}:${l.key}`;
+        const put = (body) => this.setFiberExtension(box, l.key, body);
+        const cap = document.createElement('span');
+        cap.className = 'hw-dock-fiber-dim hw-dock-fiber-ext-cap';
+        cap.textContent = `${l.title} extension`;
+        line.appendChild(cap);
+        const kind = document.createElement('select');
+        kind.className = 'hw-dock-cable-connector hw-dock-fiber-select';
+        kind.dataset.lrdField = `fiber-ext-kind-${base}`;
+        kind.title = 'A fan-out (breakout harness) or a plain duplex patch.';
+        FIBER_EXTENSION_KINDS.forEach(([v, t]) => {
+            const o = document.createElement('option');
+            o.value = v;
+            o.textContent = t;
+            kind.appendChild(o);
+        });
+        kind.value = ext.kind;
+        kind.addEventListener('change', () => put({ kind: kind.value }));
+        line.appendChild(kind);
+        const listId = `hw-fiber-ext-connectors-${base}`;
+        const list = document.createElement('datalist');
+        list.id = listId;
+        FIBER_EXTENSION_CONNECTORS.forEach(c => {
+            const o = document.createElement('option');
+            o.value = c;
+            list.appendChild(o);
+        });
+        line.appendChild(list);
+        const end = (key, value, title, write) => {
+            const f = document.createElement('input');
+            f.type = 'text';
+            f.className = 'hw-dock-fiber-text hw-dock-fiber-ext-end';
+            f.dataset.lrdField = key;
+            f.value = value;
+            f.title = title;
+            f.setAttribute('list', listId);
+            f.addEventListener('change', () => write(f.value.trim()));
+            line.appendChild(f);
+            return f;
+        };
+        const own = this.fiberCableEndText(l.cable);
+        const trunk = end(`fiber-ext-trunk-${base}`, ends.trunk,
+            `The connector at ${l.cable.name}’s end.`
+            + (own ? ` Blank reads ${own}, the trunk’s own.` : ''),
+            // the trunk's own connector, typed again, is stored as blank
+            // so it keeps following the trunk
+            (v) => put({ trunkEnd: v === own ? '' : v }));
+        trunk.placeholder = own || 'trunk end';
+        line.appendChild(document.createTextNode(' to '));
+        end(`fiber-ext-box-${base}`, ends.box, `The connector at ${l.title}.`,
+            (v) => put({ boxEnd: v })).placeholder = 'box end';
+        const ft = document.createElement('input');
+        ft.type = 'text';
+        ft.inputMode = 'decimal';
+        ft.className = 'hw-dock-cable-ft';
+        ft.placeholder = this.cableUnitAbbr();
+        ft.dataset.lrdField = `fiber-ext-ft-${base}`;
+        const len = this.parseCableLength(ext.ft);
+        ft.value = len !== null ? String(len) : '';
+        ft.title = `The extension's length in ${this.cableUnitWord()}.`;
+        ft.addEventListener('change', () => {
+            // read the way every typed length is (readTypedLength)
+            const read = this.readTypedLength(ft.value.trim(), 'extension');
+            if (!read.ok) return;
+            put({ ft: read.n });
+        });
+        line.appendChild(ft);
+        line.appendChild(document.createTextNode(` ${this.cableUnitAbbr()} `));
+        const rm = document.createElement('button');
+        rm.type = 'button';
+        rm.className = 'btn hw-dock-btn';
+        rm.textContent = 'Remove';
+        rm.title = 'Take this extension off the link. One undo step.';
+        rm.dataset.lrdField = `fiber-ext-remove-${base}`;
+        rm.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.setFiberExtension(box, l.key, null, 'Remove Fiber Extension');
+        });
+        line.appendChild(rm);
+        return line;
     }
 
     // A copper link's length, in the show's unit: blank is no length. Its

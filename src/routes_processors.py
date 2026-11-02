@@ -1469,8 +1469,53 @@ def _fiber_link_strands(boxes, cables, box_id, key, cable_id, strands):
 
 
 def _set_fiber_link(raw, key, cable_id, strands):
-    raw.setdefault('fiberLinks', {})[key] = {'cable': cable_id,
-                                            'strands': list(strands)}
+    """Put the link on its cable and strands. Its extension stays while the
+    link stays on a TAC or an MTP - the patch at the box is the link's, so
+    moving strands or picking another trunk keeps it - and goes on an
+    opticalCON (settle_fiber holds the same)."""
+    links = raw.setdefault('fiberLinks', {})
+    old = catalog.resolved_fiber_links(raw).get(key) or {}
+    link = {'cable': cable_id, 'strands': list(strands)}
+    cable = _find_fiber_cable(cable_id) or {}
+    if old.get('extension') and cable.get('kind') in catalog.FIBER_STRANDED_KINDS:
+        link['extension'] = old['extension']
+    links[key] = link
+
+
+def _set_fiber_extension(entry, key, data):
+    """A link's extension at the box end: {extension: {kind?, trunkEnd?,
+    boxEnd?, ft?}} adds one (a fan-out off an MTP, a duplex patch off a
+    TAC, as first picked) or changes the keys sent; {extension: null}
+    removes it. Only on a link already on a TAC or an MTP."""
+    res, raw = entry['res'], entry['raw']
+    title = catalog.fiber_box_title(entry)
+    device = catalog.get_device(res.get('deviceId'))
+    port = catalog.fiber_link_title(key, device)
+    link = catalog.resolved_fiber_links(raw).get(key)
+    body = data.get('extension')
+    if body is None:
+        if link and link.get('extension'):
+            raw['fiberLinks'][key].pop('extension', None)
+        log_event('fiber_extension_remove', {'box': res.get('id'), 'key': key})
+        return _state()
+    if not link or not link.get('cable'):
+        return jsonify({'error': (
+            f'{title} {port} has no TAC or MTP to extend - pick its cable '
+            f'first.')}), 400
+    cable = _find_fiber_cable(link['cable']) or {}
+    if cable.get('kind') not in catalog.FIBER_STRANDED_KINDS:
+        return jsonify({'error': (
+            f'{title} {port} is on an opticalCON - an extension is added to '
+            f'a TAC or an MTP.')}), 400
+    why = catalog.check_fiber_extension(body, unit=app.cable_unit())
+    if why:
+        return jsonify({'error': why}), 400
+    ext = catalog.merge_fiber_extension(link.get('extension'), body, cable)
+    stored = raw['fiberLinks'][key]
+    stored['extension'] = ext
+    log_event('fiber_extension_set', {'box': res.get('id'), 'key': key,
+                                      'extension': ext})
+    return _state()
 
 
 @processors_bp.route('/api/fiber-cables', methods=['POST'])
@@ -1568,6 +1613,8 @@ def set_fiber_link(processor_id, cvt_id, key):
     entry = boxes.get(cvt_id)
     if 'copper' in data:
         return _set_copper_link(entry, key, data)
+    if 'extension' in data and 'cable' not in data:
+        return _set_fiber_extension(entry, key, data)
     if 'cable' in data and not data.get('cable'):
         links = cvt.get('fiberLinks') or {}
         if key in links:

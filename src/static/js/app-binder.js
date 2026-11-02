@@ -8005,13 +8005,20 @@ class _Binder {
                 .filter(Boolean).join(' · ');
             const m = uses.get(cable.id) || new Map();
             const rows = [];
+            // a link with an extension at the box end notes it after the
+            // port: "XD A · X1 · ext Fan-out 10'" (the Fiber connections
+            // table has its two ends)
+            const linkText = (who) => {
+                const at = `${this._bBoxTitle(who.box)} · ${this.fiberLinkTitle(who.key, who.box)}`;
+                const ext = this._bFiberExtensionParts({ link: (who.box.fiberLinks || {})[who.key], cable });
+                return ext.length ? `${at} · ${ext[0].text}` : at;
+            };
             for (let n = 1; n <= (cable.strands || 0); n++) {
                 const who = m.get(n);
                 const piece = this._bStrandPiece(n, cable);
                 rows.push({ swatch: piece.swatch,
                             cells: [piece.text,
-                                    who ? `${this._bBoxTitle(who.box)} · ${this.fiberLinkTitle(who.key, who.box)}`
-                                        : 'spare',
+                                    who ? linkText(who) : 'spare',
                                     who ? this._bLinkPortsText(who.box, who.card, who.key) : ''] });
             }
             out.push({ title, note: also.length ? `Also on ${also.join(', ')}` : '',
@@ -8019,6 +8026,21 @@ class _Binder {
                               { title: 'box ports', w: 0.8 }],
                        rows, shrink: true });
         }
+        return out;
+    }
+
+    // A link's EXTENSION at the box end as the binder says it, a line
+    // each: its kind and length ("ext Fan-out 10'", "ext Duplex patch ·
+    // no length"), then its two ends ("MTP / MPO to LC duplex") where
+    // either is named. [] for a link with none.
+    _bFiberExtensionParts(l) {
+        const ext = typeof this.fiberLinkExtension === 'function' ? this.fiberLinkExtension(l) : null;
+        if (!ext) return [];
+        const ft = this.parseCableLength(ext.ft);
+        const out = [{ text: `ext ${this.fiberExtensionKindWord(ext.kind)} `
+            + (Number.isFinite(ft) && ft > 0 ? this.pullLengthText(ft) : '· no length'), brk: true }];
+        const path = this.fiberExtensionPathText(ext, l.cable);
+        if (path) out.push({ text: path, brk: true });
         return out;
     }
 
@@ -8137,6 +8159,10 @@ class _Binder {
             const atInput = crosses
                 ? swatched(set, cable).concat([{ text: 'crosses inside', brk: true }])
                 : swatched(this._bStrandsAtBox(l.link, cable), cable);
+            // the link's extension sits between the trunk's end and the
+            // box's port (owner, 2026-11-02), so the path says it last, at
+            // the breakout: "ext Fan-out 10'" then its two ends
+            atInput.push(...this._bFiberExtensionParts(l));
             return { cells: [output, name, joined(atProcessor), input, joined(atInput)],
                      parts: { 2: atProcessor, 4: atInput } };
         };

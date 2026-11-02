@@ -3663,6 +3663,49 @@
                 if (!bl || bl.link.strands.join() !== '3,4') return null;
                 return bl.title + ' rides ' + boxStrandsText(bl) + ' of ' + (bl.cable.name || 'TAC A') + '; 1 and 2 are spare for the next box.';
             },
+            after: function (next) { if (!next || !next.fiberStep) closeBoxSheet(); }
+        },
+        // An extension at the box end (2026-11-02: "MTP cant run direct to
+        // X1 for example it would need an extension beyond that ... same
+        // goes for Tac cable"): + Extension on the box's OPT 1 link, a
+        // duplex patch from the TAC's ST to LC duplex, 10 ft. The ends are
+        // the guide's picks, not a fact about the box.
+        fiberExtension: {
+            fiberStep: true,
+            since: '1.6.0',
+            // the link's row: there before + Extension and after it
+            target: function () { var b = box(); return b ? '[data-lrd-fiber-link="' + b.id + ':p1"]' : '#hardware-dock-body .hw-dock-cable-fiber'; },
+            place: 'top', title: 'Extend a TAC or MTP',
+            body: 'A TAC or MTP doesn&rsquo;t always plug straight into the box. + Extension adds a fan-out or duplex patch to one link, with the connector at each end and its length, for the pull sheet and the binder.',
+            before: function () { switchView('data-flow'); closePopover(); openBoxSheet(); },
+            act: function (t) {
+                var b = box();
+                if (!b) throw new Error('no breakout box on the processor');
+                var base = b.id + '-p1';
+                var ext = function () { var bl = boxLink(); return bl && bl.link.extension ? bl.link.extension : null; };
+                var add = '[data-lrd-field="fiber-ext-add-' + base + '"]';
+                return t.wait(function () { return $(add); }).then(function () {
+                    return t.click(add);
+                }).then(function () {
+                    return t.wait(function () { return ext() && $('[data-lrd-field="fiber-ext-box-' + base + '"]'); }, 6000);
+                }).then(function () {
+                    return t.type('[data-lrd-field="fiber-ext-box-' + base + '"]', 'LC duplex', { enter: true });
+                }).then(function () {
+                    return t.wait(function () { var e = ext(); return e && e.boxEnd === 'LC duplex'; }, 6000);
+                }).then(function () {
+                    return t.wait(function () { return $('[data-lrd-field="fiber-ext-ft-' + base + '"]'); });
+                }).then(function () {
+                    return t.type('[data-lrd-field="fiber-ext-ft-' + base + '"]', '10', { enter: true });
+                }).then(function () {
+                    return t.wait(function () { var e = ext(); return e && Number(e.ft) === 10; }, 6000);
+                }).then(function () { return t.pause(PACE.rest); });
+            },
+            check: function () {
+                var bl = boxLink(), a = A();
+                var e = bl && bl.link.extension;
+                if (!e || e.boxEnd !== 'LC duplex' || Number(e.ft) !== 10) return null;
+                return bl.title + ' on ' + (bl.cable.name || 'TAC A') + ' now has its extension: ' + a.fiberExtensionText(e, bl.cable) + '.';
+            },
             after: function () { closeBoxSheet(); }
         },
         // Jumpers, link by link (1.3.4, app-jumpers.js): the screen's own
@@ -5591,7 +5634,7 @@
                     'nameProcessor', 'redundancy', 'backupProcessor', 'mixedRedundancy', 'cardNames', 'dropProcessor', 'releasePort', 'attachmentFlag', 'pinPort',
                     'clearPortByMenu', 'clearCard', 'dropProcessorAgain',
                     'snakePorts', 'cableSheet', 'snakeHomeRun', 'loosePortLength', 'dataJumpers', 'dataCableTags',
-                    'overrideRun', 'addBreakoutBox', 'boxFiber', 'fiberStrands', 'panelWatts', 'panelInput', 'breakoutType',
+                    'overrideRun', 'addBreakoutBox', 'boxFiber', 'fiberStrands', 'fiberExtension', 'panelWatts', 'panelInput', 'breakoutType',
                     'addDistro', 'nameDistro',
                     'distroPhase', 'distroRating', 'distroMain', 'distroPreset', 'distroRows',
                     'dropMulti', 'clearCircuit', 'clearMultiByMenu', 'dropMultiAgain',

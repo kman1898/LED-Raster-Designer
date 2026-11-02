@@ -218,6 +218,24 @@ The new port keeps the first port's socket, and the sockets of the ports
 that went away are freed. A locked screen can't be redrawn this way, and
 the app tells you why.
 
+FIBER EXTENSIONS
+
+A TAC or MTP doesn't always plug straight into the box. An MTP needs a
+fan-out to reach an XD's X1, for example. On a breakout box's sheet,
+each link on a TAC or MTP now has + Extension. Pick a fan-out or a
+duplex patch, the connector at each end and its length. The trunk end
+starts as the TAC's or MTP's own connector, and you can pick ST, LC
+duplex, opticalCON DUO, opticalCON QUAD or MTP / MPO, or type your own.
+Each link gets its own, so two boxes on one shared MTP can have one
+extension and one without. A backup link can have its own too.
+Remove takes it off in one click.
+
+The pull sheet lists extensions as cables to pull, with matching ones
+counted together on one row. The binder's Fiber connections table shows
+the extension at the breakout end, and the strand map notes it beside
+the link. An extension goes when its link, its TAC or MTP, or its box
+does. Shows without extensions open exactly as before.
+
 OPENING AN OLDER SHOW
 
 Some counts will change when you open a show from an earlier version.
