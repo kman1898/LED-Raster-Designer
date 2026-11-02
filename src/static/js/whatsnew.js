@@ -7,10 +7,10 @@
  *   - a new MAJOR.MINOR with curated highlights (whatsnew_content.js), or
  *   - ANY update, patch releases included, that added Advanced Guide steps
  *     (each step's `since`, quickstart.js). The window shows that
- *     version's curated entry when it has one ("1.5.4"), else the new
+ *     version's curated entry when it has one ("1.6.1"), else the new
  *     steps' titles, then every other curated patch entry of the same
- *     MAJOR.MINOR newer than the version last run, newest first (1.5.2 ->
- *     1.5.4 reads 1.5.4's entry, then 1.5.3's); Show me is offered either
+ *     MAJOR.MINOR newer than the version last run, newest first (1.6.0 ->
+ *     1.6.2 reads 1.6.2's entry, then 1.6.1's); Show me is offered either
  *     way.
  * When steps were added, Show me runs exactly the Advanced Guide steps
  * whose `since` is newer than the version last run (in guide order, so a
@@ -24,7 +24,7 @@
  * 1.5.3 a beta stamped the bare "1.5.3"; a stamp written before the
  * lrd_whatsnew_full mark reads as a beta's for the same reason. A beta
  * that goes straight to a later version never ran its own full release,
- * so 1.5.3-beta.11 -> 1.5.4 also shows 1.5.3's entry and steps.
+ * so 1.6.1-beta.2 -> 1.6.2 also shows 1.6.1's entry and steps.
  *
  * A brand-new install has no stamp: it is stamped silently and the
  * first-run Quick Start guide keeps its job: the window and the guide
@@ -123,7 +123,7 @@
         return s ? s.title : String(k);
     }
 
-    // The curated patch entries ("1.5.3", "1.5.4") of `cur`'s MAJOR.MINOR
+    // The curated patch entries ("1.6.1", "1.6.2") of `cur`'s MAJOR.MINOR
     // newer than `seen` (every one when `seen` is null) and not newer than
     // `cur`, newest first.
     function patchEntries(seen, cur) {
@@ -143,8 +143,8 @@
      * new MAJOR.MINOR leads with that feature version's entry, so a person
      * skipping 1.5.0 still reads what 1.5 brought. Within one MAJOR.MINOR
      * the running version's own entry leads. Every curated patch entry
-     * since `seen` follows in `also`, newest first, so 1.5.2 -> 1.5.4 reads
-     * 1.5.4's entry and then 1.5.3's.
+     * since `seen` follows in `also`, newest first, so 1.6.0 -> 1.6.2 reads
+     * 1.6.2's entry and then 1.6.1's.
      *   { key, also: [keys], after, upTo, steps }  key null = list the steps' titles
      */
     function windowFor(seen, cur, between) {
@@ -193,7 +193,7 @@
             return { show: false, stamp: stampOf(stamped) === mine ? null : mine, window: null };
         } else if (beta) {
             // A beta straight to a later version: its own version's entry
-            // and steps are news too (1.5.3-beta.11 -> 1.5.4 shows 1.5.3's).
+            // and steps are news too (1.6.1-beta.2 -> 1.6.2 shows 1.6.1's).
             win = windowFor(below(seen), cur, between);
             if (win) win.after = null;
         } else {
@@ -416,7 +416,7 @@
     // closed the window for yet shows exactly the window it is owed: the
     // steps since the version last run. Otherwise it shows the running
     // version's curated entry and then every earlier patch entry of its
-    // MAJOR.MINOR, newest first (1.5.4, then 1.5.3), and Show me runs the
+    // MAJOR.MINOR, newest first (1.6.2, then 1.6.1), and Show me runs the
     // steps those versions added. A build with no entry of its own shows
     // its feature version's entry (the newest entry when there is none),
     // and Show me runs every step that feature version has added so far

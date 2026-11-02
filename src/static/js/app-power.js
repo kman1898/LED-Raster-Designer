@@ -3,9 +3,13 @@
 import { LEDRasterApp } from './app-core.js';
 import { sendClientLog } from './helpers.js';
 
-// The build whose US circuits first packed to 80% of the breaker: a show
+// The first build whose US circuits packed to 80% of the breaker: a show
 // saved before it keeps its automatic 2fers and 3fers as they were
-// (keepOlderShowShares).
+// (keepOlderShowShares). 1.5.4 only ever shipped as betas (1.5.4-beta.N)
+// on the way to 1.6.0, which packs the same way; it stays the bar so a
+// show those betas saved reads as a new one, while a 1.5.3 or older show
+// (or an unstamped one) is old. projectPredatesVersion compares
+// MAJOR.MINOR.PATCH only, so "1.5.4-beta.3" reads as 1.5.4: not before it.
 const KEPT_SHARES_BEFORE = '1.5.4';
 
 class _Power {
@@ -320,7 +324,7 @@ class _Power {
         // derate note, and re-walking it would be pure waste.
         const portsRequired = this.getLayerPortsRequired(this.currentLayer, assignments);
         this.currentLayer._portsRequired = portsRequired;
-        // v1.5.4: the READOUT is the fewest ports the screen needs in its
+        // v1.6.0: the READOUT is the fewest ports the screen needs in its
         // Organized / Max Capacity setting (the owner's ruling, 2026-11-01),
         // which on a custom data path is not the number of ports drawn so
         // far. _portsRequired above stays the drawn count: Apply Style and
@@ -4891,10 +4895,11 @@ class _Power {
         return { circuits, runs: counts, runIds };
     }
 
-    // ---- an older show's automatic shares (1.5.4) ---------------------------
+    // ---- an older show's automatic shares (1.6.0) ---------------------------
     //
-    // Before 1.5.4 a US circuit packed to 100% of its breaker; it packs to
-    // 80% now (circuitCapacity). Automatic 2fers and 3fers are never
+    // Up to 1.5.3 a US circuit packed to 100% of its breaker; it packs to
+    // 80% now (circuitCapacity), since the 1.5.4 betas that led to 1.6.0.
+    // Automatic 2fers and 3fers are never
     // stored: the walk above derives them from that figure on every read,
     // so an older show whose 2fers fit at 100% but not at 80% opened with
     // them re-split - more circuits, more multis, a different pull sheet -

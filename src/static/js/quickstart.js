@@ -2583,14 +2583,14 @@
                     ? 'Each cabinet is 200 × 200 px.' : null;
             }
         },
-        // The panel saved on the screen (1.5.4, app-screen-info.js
+        // The panel saved on the screen (1.6.0, app-screen-info.js
         // updateLayerFromInputs, app-presets.js catalogPanelModelFields): a
         // pick from the panel library fills Screen Info's Panel field, and
         // a typed name names a panel of your own. The cabinet step just
         // typed its pixels by hand, which forgets any saved panel, so the
         // demo wall names its own here; the pull sheet's panel rows print it.
         panelName: {
-            since: '1.5.4',
+            since: '1.6.0',
             target: '#panel-model-name', place: 'right', title: 'Name the panel',
             avoid: ['#panel-model-name'],
             body: 'Panel is the cabinet as the pull sheet names it. A pick from the panel library fills it in; for a panel of your own, type its name.',
@@ -2755,7 +2755,7 @@
         // and puts the wall back on the snake so the rest of the guide runs
         // on the map it always has.
         zPattern: {
-            since: '1.5.4',
+            since: '1.6.0',
             target: '.flow-pattern-btn[data-pattern="tl-v-z"]:not(.power-flow-pattern-btn)', place: 'right', title: 'Z patterns',
             body: 'The row under the snakes holds the Z patterns: every row or column starts again from the same side, the way a cable goes back to the start. This one starts top-left and reads every column from the top.',
             before: function () { switchView('data-flow'); },
@@ -2788,7 +2788,7 @@
         // whose rows are 8 cabinets of 512 x 256 on NovaStar Armor, 5 to a
         // port: each row is a port of 5 and a port of 3.
         portNumbers: {
-            since: '1.5.4',
+            since: '1.6.0',
             target: '#port-number-order-row', place: 'right', title: 'Port numbers',
             avoid: ['#port-number-down'],
             body: 'A row too long for one port is cut into ports of whole cabinets. Port numbers sets their order: Across goes along each row, Down goes down the stacks and starts each new stack back at the first row.',
@@ -3207,7 +3207,7 @@
         // screen is), then the bar's Mixed, card 1's partner and card 3's
         // split are each pressed for real.
         mixedRedundancy: {
-            since: '1.5.4',
+            since: '1.6.0',
             target: function () { var h = chassis(); return h ? '[data-hwpop="proc-' + h.id + '"]' : '#hw-dock-data-controls'; },
             place: 'top', title: 'Mixed redundancy on a chassis',
             avoid: ['#processor-add-btn'],
@@ -3501,13 +3501,13 @@
                 return (w.name || 'The screen') + ' takes 2 ft vertical and 3 ft horizontal power jumpers.';
             }
         },
-        // One power jumper name per connector (1.5.4, app-pull-list.js
+        // One power jumper name per connector (1.6.0, app-pull-list.js
         // pullPowerJumpName): the show's names live in the Export dialog's
         // Pull Sheet section (project.pullSheet, one undo step each); the
         // Preferences hold the names a new show starts with. The wall is
         // TRUE1 here, so the TRUE1 name is the one its rows print.
         jumperNames: {
-            since: '1.5.4',
+            since: '1.6.0',
             exportStep: true,
             target: '#export-pull-sheet-power-jump-name-true1', place: 'left', title: 'A name for each jumper',
             avoid: ['#export-pull-sheet-power-jump-name-true1', '#export-pull-sheet-power-jump-name-powercon'],
@@ -3537,13 +3537,13 @@
             },
             after: function () { closeExport(); }
         },
-        // Panel counts on the pull sheet (1.5.4, app-pull-list.js
+        // Panel counts on the pull sheet (1.6.0, app-pull-list.js
         // pullPanelCounts): the Export dialog's Edit rows opens the pull
         // sheet editor, and each screen's position has a row per panel type
         // it hangs, named by the panel saved on it (the Name the panel
         // step), blank and hidden cabinets left out.
         pullPanels: {
-            since: '1.5.4',
+            since: '1.6.0',
             target: function () { return pullSheetOpen() ? PANEL_ROW : '#export-pull-sheet-edit-rows'; },
             place: 'left', title: 'Panels on the pull sheet',
             avoid: ['#export-pull-sheet-edit-rows'],
@@ -3596,13 +3596,13 @@
                 return '150 W per cabinet at 208 V, ' + usable + '. Circuits required: ' + req + '.';
             }
         },
-        // The panel input (1.5.4, app-power.js panelInput): a TRUE1 or
+        // The panel input (1.6.0, app-power.js panelInput): a TRUE1 or
         // powerCON breakout IS the panels' connector; an Edison or L6-20
         // one leaves it to the screen. The demo wall is 208V, so the L6-20
         // breakout is the one that offers the choice. The breakout step
         // after it puts the wall on Multi to TRUE1 for the rest of the tour.
         panelInput: {
-            since: '1.5.4',
+            since: '1.6.0',
             target: '#power-breakout-type', place: 'right', title: 'The panel input',
             avoid: ['#power-breakout-type', '#power-panel-input'],
             body: 'Pick Multi to L6-20 and Panel input appears: the connector your panels take. Pick powerCON and the cables, jumpers and splitters all say powerCON.',
@@ -4063,14 +4063,14 @@
                 return 'The 125 ft home run is written ' + a.cableStockText(125, 'multi') + ': the pull sheet lists one 100 ft and one 25 ft multi.';
             }
         },
-        // A list per kind (1.5.4, app-cable-stock.js): multis, data, power,
+        // A list per kind (1.6.0, app-cable-stock.js): multis, data, power,
         // L21-30 and Harting home runs, direct-output cables and feeders.
         // The kinds' lists are kept apart from the one shared list, so the
         // multis get theirs again and the feeders a list of their own; the
         // Feeder step types a length this list makes. Save is pressed the
         // way the Cable stock step presses it.
         cableStockPerKind: {
-            since: '1.5.4',
+            since: '1.6.0',
             target: '#pref-cable-stock-per-kind', place: 'bottom', title: 'A list for each kind of cable',
             avoid: ['#pref-cable-stock-per-kind', '#pref-cable-stock-multi-ft', '#pref-cable-stock-feeder-ft', '#preferences-save'],
             body: 'Tick A list for each kind of cable and each kind gets its own lengths. Here the multis keep 25, 50 and 100, and the feeds come in 50 and 100.',
@@ -4486,13 +4486,13 @@
                     + (u ? ': its busiest leg reads ' + u.textContent.trim() + '.' : '.');
             }
         },
-        // The feeder (1.5.4, app-services.js _buildDistroFeederRow): the
+        // The feeder (1.6.0, app-services.js _buildDistroFeederRow): the
         // cable that powers the distro, behind its gear. A length, written
         // from the feeders' stock list, and where it is fed from: the
         // service, or thru another distro. It is always on the pull sheet,
         // "no length" until one is typed.
         feederLength: {
-            since: '1.5.4',
+            since: '1.6.0',
             target: function () { var d = distro(); return d ? '[data-hwpop="distro-' + d.id + '"]' : '#hardware-dock-body .hw-dock-gear'; },
             place: 'top', title: 'The distro&rsquo;s feed',
             avoid: [function () { var d = distro(); return d ? '[data-lrd-field="distro-feeder-ft-' + d.id + '"]' : null; },
@@ -4982,7 +4982,7 @@
         // IMAG screens with IMAG L already on the card, are put in for you;
         // the card's drag onto IMAG R is made for real.
         mirrorScreen: {
-            since: '1.5.4',
+            since: '1.6.0',
             target: function () {
                 var a = A();
                 var hit = null;

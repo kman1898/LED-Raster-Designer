@@ -1,8 +1,9 @@
-"""An older show's automatic 2fers and 3fers are kept as saved (1.5.4).
+"""An older show's automatic 2fers and 3fers are kept as saved (1.6.0).
 
-Before 1.5.4 a US circuit packed to 100% of its breaker; it packs to 80%
-now. Automatic shares are worked out from that figure on every read, so a
-show saved by an older build whose 2fers fit at 100% but not at 80% used
+Up to 1.5.3 a US circuit packed to 100% of its breaker; it packs to 80%
+now (since the 1.5.4 betas that led to 1.6.0). Automatic shares are
+worked out from that figure on every read, so a show saved by an older
+build whose 2fers fit at 100% but not at 80% used
 to open with them re-split: more circuits, more multis, a different pull
 sheet. The owner's ruling: opening it keeps them exactly as saved and
 flags the overloaded ones OVER, the same OVER every shared circuit past
@@ -211,10 +212,25 @@ def test_an_unstamped_show_is_an_older_one_too(page):
 def test_a_show_saved_by_this_build_packs_at_80(page):
     pg, errors = page
     version = pg.evaluate("() => window.app.appVersion()")
-    for stamp in (version, '1.5.4', '1.5.4-beta.1'):
+    for stamp in (version, '1.6.0', '1.5.4', '1.5.4-beta.1', '1.5.4-beta.3'):
         open_file(pg, show(pg, [{'name': 'WALL A'}], version=stamp))
         s = read(pg)['WALL A']
         assert s['runIds'] == REPACKED and s['kept'] is None and s['gangs'] == [], (stamp, s)
+    assert errors == [], errors
+
+
+def test_the_bar_is_the_1_5_4_betas(page):
+    """1.5.4 only ever shipped as betas, on the way to 1.6.0, and those
+    betas already packed at 80%. A show any of them saved, or 1.6.0 and
+    later (its betas too), is a new show; 1.5.3 and earlier, a 1.5.3
+    beta, and an unstamped show are older ones."""
+    pg, errors = page
+    ask = lambda v: pg.evaluate("(v) => window.app.olderShowKeepsShares({app_version: v})", v)
+    for v in ('1.5.4-beta.1', '1.5.4-beta.2', '1.5.4-beta.3', '1.6.0-beta.1', '1.6.0',
+              'v1.6.0', '1.6.1', '1.7.0'):
+        assert ask(v) is False, v
+    for v in ('1.5.3', '1.5.3-beta.11', '1.5.2', '1.4.1', '1.0', None, ''):
+        assert ask(v) is True, v
     assert errors == [], errors
 
 

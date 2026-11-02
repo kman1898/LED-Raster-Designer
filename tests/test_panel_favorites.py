@@ -5,7 +5,7 @@ figures, kept in localStorage when it was hearted. Picking it:
 
   * looks the model up in the loaded library by manufacturer and name and
     uses the library's CURRENT figures and model id, so a correction to
-    the library (ROE's Graphite weights and watts, 1.5.4) reaches it;
+    the library (ROE's Graphite weights and watts, 1.6.0) reaches it;
   * a model the library renamed in this release ("Graphite 2.6 (4 in 1)"
     is "Graphite GP2.6 (4 in 1)") is found under its new name;
   * a model the library no longer has keeps the snapshot's figures and

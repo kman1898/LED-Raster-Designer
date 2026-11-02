@@ -40,13 +40,13 @@ def _flat(text):
     return re.sub(r'\s+', ' ', text)
 
 
-# ── the v1.5.4 notes ──────────────────────────────────────────────────────
+# ── the v1.6.0 notes (written as 1.5.4) ──────────────────────────────────
 
-def test_the_notes_say_what_154_does():
+def test_the_notes_say_what_160_does():
     top = _top_entry()
-    assert top.startswith('v1.5.4 - ')
+    assert top.startswith('v1.6.0 - ')
     flat = _flat(top)
-    # the fix to code new in 1.5.4 is gone; the refusal is one sentence of
+    # the fix to code new in this release is gone; the refusal is one sentence of
     # the 80% section
     assert "doesn't repack a locked screen" not in flat
     assert ('A change that would repack a locked screen is refused, and the message names '
@@ -87,7 +87,7 @@ def test_count_changes_are_listed_under_opening_an_older_show():
 
 def test_whats_new_80_item_covers_a_screen_on_no_distro():
     src = _read(JS, 'whatsnew_content.js')
-    entry = src[src.index("'1.5.4': {"):src.index("'1.5.3': {")]
+    entry = src[src.index("'1.6': {"):src.index("'1.5.3': {")]
     assert len(re.findall(r'\{\s*h:', entry)) == 8
     assert 'or on a screen with no distro at 208 V or below, is now filled to 80%' in entry
     assert 'A 400 A cam input lists a 400 A cam set' in entry
