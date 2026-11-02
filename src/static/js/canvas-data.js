@@ -416,6 +416,27 @@ Object.assign(CanvasRenderer.prototype, {
                 paint(j.text, at, 'jump');
             }
             pendingJumps.length = 0;
+            // PROTOTYPE (wip/cable-tag-options): window.__tagOption picks
+            // one of the layout options for tags wider than the pitch.
+            const tagOpt = (typeof window !== 'undefined' && window.__tagOption) | 0;
+            if (tagOpt >= 1 && tagOpt <= 6 && pendingTags.length) {
+                const res = this._protoTagOption(tagOpt, {
+                    pendingTags, labelDiscs, discsU, F, bounds, labelSize, taken, paint,
+                    layer, center: F.toU((layerLeft + layerRight) / 2, (layerTop + layerBottom) / 2),
+                });
+                if (res) {
+                    pendingTags.length = 0;
+                    for (const b of pendingLoads) {
+                        const own = discsU[labelDiscs.indexOf(b.disc)];
+                        const rect = this.placePortLoadBadge(b.badge, own, res.get(b.disc) || null,
+                                                             bounds, discsU, taken);
+                        taken.push(rect);
+                        this.drawPortLoadBadge(layer, b.badge, rect, F);
+                    }
+                    pendingLoads.length = 0;
+                    return;
+                }
+            }
             // One side for the screen's tags (placeTagHeads, owner
             // 2026-10-30, the power map's rule): the run's side when every
             // tag fits there, else the other side, else the side most of
@@ -626,7 +647,7 @@ Object.assign(CanvasRenderer.prototype, {
                 // way the circle's centre was shifted.
                 const cable = window.app.dataPortCableForScreen(layer, portNum);
                 if (cable && cable.text) {
-                    pendingTags.push({ text: cable.text, disc: primaryDisc,
+                    pendingTags.push({ text: cable.text, disc: primaryDisc, cable, role: 'primary',
                                        step: runStep(portPanels[0], portPanels[1]) });
                 }
                 // The return marker wears the BACKUP socket's own tag the
@@ -638,7 +659,7 @@ Object.assign(CanvasRenderer.prototype, {
                     ? window.app.dataPortBackupCableForScreen(layer, portNum) : null;
                 if (backup && backup.text) {
                     const n = portPanels.length;
-                    pendingTags.push({ text: backup.text, disc: returnDisc,
+                    pendingTags.push({ text: backup.text, disc: returnDisc, cable: backup, role: 'return',
                                        step: runStep(portPanels[n - 1], portPanels[n - 2]) });
                 }
             }

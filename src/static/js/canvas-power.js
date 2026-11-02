@@ -1214,7 +1214,14 @@ Object.assign(CanvasRenderer.prototype, {
         const cap = size * (4.5 / 0.7);
         let lines = [str];
         let widest = widthOf(str);
-        if (widest > cap) {
+        // PROTOTYPE option 4: a forced two-line tag ("25'" over "etherCON")
+        if (this._protoForceTwoLine) {
+            const units = this._cableTagUnits(str);
+            if (units.length >= 2) {
+                lines = this._balancedSplit(units, 2, widthOf);
+                widest = Math.max(...lines.map(widthOf));
+            }
+        } else if (widest > cap && !this._protoNoWrap) {
             const units = this._cableTagUnits(str);
             for (let n = 2; n <= Math.min(units.length, 3); n++) {
                 lines = this._balancedSplit(units, n, widthOf);
@@ -1386,6 +1393,265 @@ Object.assign(CanvasRenderer.prototype, {
             if (k < bestCost) { bestCost = k; best = c; }
         }
         return strip(best || candidate('below'), false);
+    },
+
+    // ── PROTOTYPE (wip/cable-tag-options) ───────────────────────────────
+    // Layout options for a screen whose cable tags are wider than the
+    // pitch between its port discs, picked by window.__tagOption (1-6) so
+    // the owner can compare rendered options by number. Data map only.
+    // Returns Map(disc -> pill rect) when it drew the tags, null to let
+    // the normal pass draw them.
+    _protoTagOption(opt, c) {
+        const { pendingTags, labelDiscs, discsU, F, bounds, labelSize, taken } = c;
+        const eps = 1e-6;
+        const tagOf = new Map();
+        const minGap = labelSize * 0.3;
+        const FLOOR = 0.65;   // shrink floor: tag text 0.85 x 0.65 = 55% of the label size
+        const heads = pendingTags.map(t => {
+            const own = discsU[labelDiscs.indexOf(t.disc)];
+            let vertical = false;
+            if (t.step) {
+                const o = F.toU(0, 0), e = F.toU(t.step.dx, t.step.dy);
+                vertical = Math.abs(e.y - o.y) >= Math.abs(e.x - o.x);
+            }
+            return { t, text: t.text, own, prefer: this._tagRunSide(t.step, F), vertical };
+        });
+        // the pitch a head's tag has: the nearest other disc on its row
+        const pitchOf = (h) => {
+            let best = Infinity;
+            for (const o of heads) {
+                if (o === h || Math.abs(o.own.y - h.own.y) > Math.max(o.own.r, h.own.r)) continue;
+                best = Math.min(best, Math.abs(o.own.x - h.own.x));
+            }
+            return best;
+        };
+        const widthAt = (text, ls) => this.cableTagLayout(text, ls).width;
+        const crowded = heads.some(h => widthAt(h.text, labelSize) + minGap > pitchOf(h));
+        const fitScale = (textOf) => {
+            let s = 1;
+            for (const h of heads) {
+                const p = pitchOf(h);
+                if (p < Infinity) s = Math.min(s, (p - minGap) / widthAt(textOf(h), labelSize));
+            }
+            return s;
+        };
+        const paintLs = (text, at, ls) => {
+            const pivot = F.fromU(at.x, at.y);
+            this.drawCableTag(text, at.x, at.y, ls, DATA_CABLE_TAG_COLORS,
+                              Object.assign({ pivot }, at.opts));
+        };
+        const atRect = (rc, ls) => ({ x: rc.x - ls * 0.25, y: rc.y + rc.h / 2, opts: { side: 'right' } });
+        const coverOf = (own, extra) => this._tagCover(bounds, discsU, own, taken.concat(extra || []), false);
+        const line = (pts, width) => {
+            this.ctx.save();
+            this.ctx.setLineDash([]);
+            this.ctx.strokeStyle = this.printerMode ? '#000000' : DATA_CABLE_TAG_COLORS.rim;
+            this.ctx.lineWidth = width || Math.max(1, labelSize * 0.07);
+            this.ctx.lineCap = 'round';
+            this.ctx.beginPath();
+            pts.forEach((p, i) => {
+                const q = F.fromU(p.x, p.y);
+                if (i) this.ctx.lineTo(q.x, q.y); else this.ctx.moveTo(q.x, q.y);
+            });
+            this.ctx.stroke();
+            this.ctx.restore();
+        };
+        // the normal pass (placeTagHeads), at a label size and text of our choosing
+        const normal = (list, ls, textOf) => {
+            if (!list.length) return;
+            const hs = list.map(h => ({ text: textOf ? textOf(h) : h.text, nfer: null,
+                                        own: h.own, prefer: h.prefer }));
+            const placed = this.placeTagHeads(hs, ls, bounds, discsU, taken, null);
+            hs.forEach((x, i) => {
+                tagOf.set(list[i].t.disc, placed[i].tag.rect);
+                paintLs(x.text, placed[i].tag, ls);
+            });
+        };
+        // option 1: the pill turned to run along the cable, on the run's side
+        const rotated = (list, ls) => {
+            const gap = ls * 0.35;
+            const rectFor = (h, side) => {
+                const L = this.cableTagLayout(h.text, ls);
+                const w = L.height, hh = L.width;
+                const y = side === 'below' ? h.own.y + h.own.r + gap : h.own.y - h.own.r - gap - hh;
+                return { x: h.own.x - w / 2, y, w, h: hh, L };
+            };
+            for (const cls of [...new Set(list.map(h => h.prefer))]) {
+                const members = list.filter(h => h.prefer === cls);
+                const tryPlace = (side) => {
+                    const pl = [];
+                    let ok = true;
+                    for (const h of members) {
+                        const rc = rectFor(h, side);
+                        if (coverOf(h.own, pl)(rc) > eps) ok = false;
+                        pl.push(rc);
+                    }
+                    return { ok, pl };
+                };
+                let res = tryPlace(cls);
+                if (!res.ok) {
+                    const alt = tryPlace(cls === 'below' ? 'above' : 'below');
+                    if (alt.ok) res = alt;
+                }
+                members.forEach((h, i) => {
+                    const rc = res.pl[i];
+                    taken.push(rc);
+                    tagOf.set(h.t.disc, rc);
+                    const m = F.fromU(rc.x + rc.w / 2, rc.y + rc.h / 2);
+                    this.ctx.save();
+                    this.ctx.translate(m.x, m.y);
+                    this.ctx.rotate(-Math.PI / 2);
+                    this.drawCableTag(h.text, -rc.L.width / 2 - ls * 0.25, 0, ls,
+                                      DATA_CABLE_TAG_COLORS, { side: 'right' });
+                    this.ctx.restore();
+                });
+            }
+        };
+        const rotateOrNormal = (ls) => {
+            const rot = crowded ? heads.filter(h => h.vertical) : [];
+            normal(heads.filter(h => !rot.includes(h)), ls);
+            rotated(rot, ls);
+        };
+
+        if (opt === 1) {
+            rotateOrNormal(labelSize);
+        } else if (opt === 2) {
+            const s = fitScale(h => h.text);
+            if (s >= 1) normal(heads, labelSize);
+            else if (s >= FLOOR) normal(heads, labelSize * s);
+            else rotateOrNormal(labelSize);           // below the floor: turn them instead
+        } else if (opt === 3) {
+            const app = window.app;
+            const words = new Set(heads.map(h => (h.t.cable && h.t.cable.kind === 'cable')
+                ? h.t.cable.name : null));
+            if (words.size !== 1 || words.has(null) || !app) return null;
+            const word = [...words][0];
+            const note = `Port cables: ${word}`;
+            this._protoNoWrap = true;
+            try {
+                const L = this.cableTagLayout(note, labelSize);
+                const rc = { x: c.center.x - L.width / 2, y: c.center.y + labelSize * 0.75,
+                             w: L.width, h: L.height };
+                taken.push(rc);
+                paintLs(note, atRect(rc, labelSize), labelSize);
+            } finally {
+                this._protoNoWrap = false;
+            }
+            normal(heads, labelSize, h => app.cableText(h.t.cable.ft, '', 'data'));
+        } else if (opt === 4) {
+            if (!crowded) {
+                normal(heads, labelSize);
+            } else {
+                this._protoForceTwoLine = true;
+                try {
+                    const s = Math.max(FLOOR, Math.min(1, fitScale(h => h.text)));
+                    normal(heads, labelSize * s);
+                } finally {
+                    this._protoForceTwoLine = false;
+                }
+            }
+        } else if (opt === 5) {
+            const texts = new Set(heads.map(h => h.text));
+            if (texts.size !== 1) {
+                rotateOrNormal(labelSize);
+                return tagOf;
+            }
+            const text = `All ports ${[...texts][0]}`;
+            const prim = heads.filter(h => h.t.role === 'primary');
+            const row = prim.length ? prim : heads;
+            this._protoNoWrap = true;
+            const L = this.cableTagLayout(text, labelSize);
+            const gap = labelSize * 0.6;
+            const xs = row.map(h => h.own.x);
+            const x0 = Math.min(...xs), x1 = Math.max(...xs);
+            const rectOn = (side) => {
+                const y = side === 'below'
+                    ? Math.max(...row.map(h => h.own.y + h.own.r)) + gap
+                    : Math.min(...row.map(h => h.own.y - h.own.r)) - gap - L.height;
+                let x = (x0 + x1) / 2 - L.width / 2;
+                x = Math.max(bounds.left, Math.min(bounds.right - L.width, x));
+                return { x, y, w: L.width, h: L.height, side };
+            };
+            const pref = row[0].prefer;
+            let rc = rectOn(pref);
+            if (coverOf(null, [])(rc) > eps) {
+                const alt = rectOn(pref === 'below' ? 'above' : 'below');
+                if (coverOf(null, [])(alt) <= eps) rc = alt;
+            }
+            // a bus under (or over) the row, a tick to each disc: the one
+            // tag visibly belongs to every port on it
+            const busY = rc.y + rc.h / 2;
+            if (row.length > 1) {
+                line([{ x: x0, y: busY }, { x: x1, y: busY }], Math.max(1, labelSize * 0.1));
+                for (const h of row) {
+                    const edge = rc.side === 'below' ? h.own.y + h.own.r : h.own.y - h.own.r;
+                    line([{ x: h.own.x, y: busY }, { x: h.own.x, y: edge }], Math.max(1, labelSize * 0.1));
+                }
+            }
+            taken.push(rc);
+            try {
+                paintLs(text, atRect(rc, labelSize), labelSize);
+            } finally {
+                this._protoNoWrap = false;
+            }
+            for (const h of heads) tagOf.set(h.t.disc, rc);
+        } else if (opt === 6) {
+            for (const cls of [...new Set(heads.map(h => h.prefer))]) {
+                const members = heads.filter(h => h.prefer === cls)
+                    .slice().sort((a, b) => a.own.x - b.own.x);
+                const Ls = members.map(h => this.cableTagLayout(h.text, labelSize));
+                const H = Math.max(...Ls.map(L => L.height));
+                const lead = labelSize * 0.5, step = H + labelSize * 0.3;
+                const plan = (side, k) => {
+                    const edge = side === 'below'
+                        ? Math.max(...members.map(h => h.own.y + h.own.r))
+                        : Math.min(...members.map(h => h.own.y - h.own.r));
+                    const rects = members.map((h, i) => {
+                        const t = i % k;
+                        let x = h.own.x - Ls[i].width / 2;
+                        x = Math.max(bounds.left, Math.min(bounds.right - Ls[i].width, x));
+                        const y = side === 'below' ? edge + lead + t * step
+                            : edge - lead - H - t * step;
+                        return { x, y, w: Ls[i].width, h: Ls[i].height, tier: t, side };
+                    });
+                    // no two pills of one tier may touch
+                    for (let i = 0; i < rects.length; i++) {
+                        for (let j = i + 1; j < rects.length; j++) {
+                            const a = rects[i], b = rects[j];
+                            if (a.tier !== b.tier) continue;
+                            if (a.x < b.x + b.w + minGap && b.x < a.x + a.w + minGap) return null;
+                        }
+                    }
+                    const ok = rects.every((rc, i) => coverOf(members[i].own,
+                        rects.filter((_, j) => j !== i))(rc) <= eps);
+                    return { rects, ok };
+                };
+                let chosen = null;
+                for (const side of [cls, cls === 'below' ? 'above' : 'below']) {
+                    for (let k = 1; k <= 4 && !chosen; k++) {
+                        const p = plan(side, k);
+                        if (p && p.ok) chosen = p;
+                    }
+                    if (chosen) break;
+                }
+                for (let k = 1; k <= 6 && !chosen; k++) chosen = plan(cls, k);
+                chosen.rects.forEach((rc, i) => {
+                    const h = members[i];
+                    const from = rc.side === 'below' ? h.own.y + h.own.r : h.own.y - h.own.r;
+                    const to = rc.side === 'below' ? rc.y : rc.y + rc.h;
+                    line([{ x: h.own.x, y: from }, { x: rc.x + rc.w / 2, y: to }],
+                         Math.max(1, labelSize * 0.1));
+                });
+                chosen.rects.forEach((rc, i) => {
+                    taken.push(rc);
+                    tagOf.set(members[i].t.disc, rc);
+                    paintLs(members[i].text, atRect(rc, labelSize), labelSize);
+                });
+            }
+        } else {
+            return null;
+        }
+        return tagOf;
     },
 
     // ONE SIDE PER SCREEN (owner, 2026-10-30). The run's side above is a
