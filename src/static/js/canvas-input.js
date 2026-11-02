@@ -1929,8 +1929,16 @@ Object.assign(CanvasRenderer.prototype, {
             }
             return;
         }
-        // Esc drops the picked data ports.
-        if (e.code === 'Escape' && !isTyping && window.app && window.app._portPicks) {
+        // Esc drops the picked data ports - unless it is closing the
+        // right-click menu that was about to deal them.
+        const menuEl = document.getElementById('context-menu');
+        const menuOpen = !!(menuEl && menuEl.style.display === 'block');
+        if (e.code === 'Escape' && !isTyping && menuOpen && window.app && window.app._portPicks) {
+            e.preventDefault();
+            window.app.hideContextMenu();
+            return;
+        }
+        if (e.code === 'Escape' && !isTyping && !menuOpen && window.app && window.app._portPicks) {
             e.preventDefault();
             window.app.clearPortPicks();
             return;
