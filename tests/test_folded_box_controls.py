@@ -228,7 +228,8 @@ def test_the_folded_sheet_button_opens_the_primarys_sheet_in_place(
             return {
                 folded: s.classList.contains('lrd-sec-collapsed'),
                 shown: !!sheet && sheet.getClientRects().length > 0,
-                outsideFold: !!sheet && !sheet.closest('.lrd-sec-body'),
+                outsideFold: !!sheet && !s.querySelector(
+                    ':scope > .lrd-sec-body').contains(sheet),
                 farSheet: !!s.querySelector(
                     `[data-lrd-cable-sheet="cvt:${far}"]`),
                 on: s.querySelector(':scope > .lrd-sec-head '
