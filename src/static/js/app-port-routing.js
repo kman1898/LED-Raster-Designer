@@ -535,8 +535,13 @@ class _PortRouting {
                     const soloRect = panelRect(panel);
                     const soloLoad = usesRectangle ? rectArea(soloRect) : area;
                     if (soloLoad > capacityForRect(portCapacity, soloRect)) return null;
+                    // `pos`: where the run's first cabinet sits along the
+                    // line, counted from the start side, so the Port
+                    // numbers switch can put a run cut differently from
+                    // the lines around it under the right stack.
                     seg = { panels: [panel], rect: soloRect, load: soloLoad, unitIndices: [unitIdx],
-                            split: { line: linePos, seg: segments.length } };
+                            split: { line: linePos, seg: segments.length,
+                                     pos: forward ? along(panel) : -along(panel) } };
                 }
                 if (seg) segments.push(seg);
                 return segments;
@@ -859,15 +864,29 @@ class _PortRouting {
     // Reorder `runs` (in flow order) so that, inside every unbroken stretch
     // of runs cut from consecutive long lines, the first run of each line
     // comes first, then the second run of each, and so on. `infoOf(run)`
-    // gives { line, seg } for a cut run and null for any other; a run that is
-    // not cut ends the stretch, so whole-line ports keep their places.
-    // Stable, and a pure permutation: every run comes back exactly once.
+    // gives { line, seg, pos } for a cut run and null for any other; a run
+    // that is not cut ends the stretch, so whole-line ports keep their
+    // places. Stable, and a pure permutation: every run comes back exactly
+    // once.
+    //
+    // A line cut differently from the stacks (the owner's ruling,
+    // 2026-11-02, on a wall whose bottom row of half-height cabinets runs
+    // 17 a port under rows of 8): "the first column should be 1 through 5.
+    // then the next column should start at 6-9 then 10-13 with 14 being
+    // next under 13 and one over to the right". Each stack numbers its own
+    // lines, and a run from a line cut another way joins the stack its
+    // FIRST cabinet sits under, in line order, so a differently cut bottom
+    // row comes after the stack's rows and a top row before them
+    // (_splitRunStacks). Where every line cuts the same, the stacks are the
+    // runs' own places along the line, the numbering it always had.
     _stackSplitRuns(runs, infoOf) {
         const out = [];
         let block = [];
         const flush = () => {
-            block.sort((a, b) => (a.info.seg - b.info.seg) || (a.info.line - b.info.line)
-                || (a.at - b.at));
+            const stacks = this._splitRunStacks(block.map(x => x.info));
+            block.forEach((x, i) => { x.stack = stacks[i]; });
+            block.sort((a, b) => (a.stack - b.stack) || (a.info.line - b.info.line)
+                || (a.info.seg - b.info.seg) || (a.at - b.at));
             block.forEach(x => out.push(x.run));
             block = [];
         };
@@ -882,6 +901,58 @@ class _PortRouting {
         });
         flush();
         return out;
+    }
+
+    // The stack each cut run belongs to, for one stretch of cut lines
+    // (`infos` in flow order, each { line, seg, pos }, `pos` where the run's
+    // first cabinet sits along the line, counted from the start side).
+    // A line's CUT is the spacing of its run starts, measured from its own
+    // first run. The stacks are the cut most lines share (the finer cut on
+    // a tie, then the first line's). A line IN STEP with it, its starts
+    // spaced the same wherever both have a run, numbers its runs by place
+    // (stack `seg`): a line that lost cabinets at either end to a taken-over
+    // port, or has a run more, is in step, so every wall whose lines cut
+    // alike numbers exactly as it always has. A run of a line cut another
+    // way (a row of half-height cabinets 17 a port under rows of 8) is in
+    // the stack its first cabinet sits under: the last stack starting at
+    // or before it on the wall. Without positions every run's stack is its
+    // `seg`. scr_project.py split_run_stacks is the same rule.
+    _splitRunStacks(infos) {
+        if (infos.length === 0 || !infos.every(i => Number.isFinite(i.pos))) return infos.map(i => i.seg);
+        const byLine = new Map();
+        infos.forEach(i => {
+            if (!byLine.has(i.line)) byLine.set(i.line, []);
+            byLine.get(i.line).push(i);
+        });
+        const cuts = [];
+        byLine.forEach((list, line) => {
+            const starts = list.slice().sort((a, b) => a.seg - b.seg).map(i => i.pos);
+            const rel = starts.map(p => p - starts[0]);
+            cuts.push({ line, starts, rel, key: rel.join(',') });
+        });
+        const tally = new Map();
+        cuts.forEach(c => {
+            if (!tally.has(c.key)) tally.set(c.key, { first: c, lines: 0 });
+            tally.get(c.key).lines += 1;
+        });
+        let ref = null;
+        tally.forEach(t => {
+            if (!ref || t.lines > ref.lines
+                    || (t.lines === ref.lines && t.first.rel.length > ref.first.rel.length)) ref = t;
+        });
+        const refRel = ref.first.rel;
+        const inStep = cuts.filter(c => c.rel.every((p, k) => k >= refRel.length || p === refRel[k]));
+        const stepped = new Set(inStep.map(c => c.line));
+        // The stacks' starts on the wall: the reference line's, carried on
+        // by the longest line in step with it.
+        const longest = inStep.reduce((a, c) => (c.rel.length > a.rel.length ? c : a), ref.first);
+        const stackStarts = longest.rel.map(r => ref.first.starts[0] + r);
+        return infos.map(i => {
+            if (stepped.has(i.line)) return i.seg;
+            let stack = 0;
+            stackStarts.forEach((start, k) => { if (start <= i.pos) stack = k; });
+            return stack;
+        });
     }
 
     // Fold this layer's overridden ports into an automatic assignment, in the

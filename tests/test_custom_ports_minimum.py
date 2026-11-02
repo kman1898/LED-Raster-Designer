@@ -74,19 +74,29 @@ window.__cpm = {
             powerFlowPattern: 'tl-h', powerOrganized: true, powerMaximize: false,
             customPortPaths: {}, customPortIndex: 1, customPortOverrides: [],
         }, opts || {});
+        // `halfRow` / `halfCol`: one row of half-height (or one column of
+        // half-width) cabinets, the rows below (columns right) moved up.
+        const halfRow = o.halfRow, halfCol = o.halfCol;
+        delete o.halfRow;
+        delete o.halfCol;
+        const h = r => (r === halfRow ? o.cabinet_height / 2 : o.cabinet_height);
+        const w = c => (c === halfCol ? o.cabinet_width / 2 : o.cabinet_width);
         const panels = [];
+        let y = o.offset_y;
         for (let r = 0; r < o.rows; r++) {
+            let x = o.offset_x;
             for (let c = 0; c < o.columns; c++) {
                 panels.push({
                     id: r * o.columns + c + 1, number: r * o.columns + c + 1,
-                    row: r, col: c,
-                    x: o.offset_x + c * o.cabinet_width,
-                    y: o.offset_y + r * o.cabinet_height,
-                    width: o.cabinet_width, height: o.cabinet_height,
-                    hidden: false, blank: false, halfTile: 'none',
+                    row: r, col: c, x, y,
+                    width: w(c), height: h(r),
+                    hidden: false, blank: false,
+                    halfTile: r === halfRow ? 'height' : (c === halfCol ? 'width' : 'none'),
                     is_color1: (r + c) % 2 === 0,
                 });
+                x += w(c);
             }
+            y += h(r);
         }
         o.panels = panels;
         return o;
@@ -739,3 +749,170 @@ def test_labels_and_runs_follow_the_new_numbers(page):
     assert got['run2'] == [[1, c] for c in range(8)]
     assert got['run6'] == [[0, c] for c in range(8, 16)]
     assert got['start2'] == [1, 0]
+
+
+# ── A line cut differently from the stacks ──────────────────────────────
+#
+# The owner's ruling, 2026-11-02, on an 85 x 5 Armor wall whose bottom row
+# is half-height cabinets: rows of 8 a port above, the half row 17 a port
+# (17 x 192 x 192 fits 659,722 px, 9 full cabinets do not). "the first
+# column should be 1 through 5. then the next column should start at 6-9
+# then 10-13 with 14 being next under 13 and one over to the right". Each
+# stack numbers its own rows; a run of the line cut another way joins the
+# stack its first cabinet sits under, in line order.
+
+HALF_BOTTOM = {'columns': 85, 'rows': 5, 'halfRow': 4, 'portNumberOrder': 'down'}
+HALF_RIGHT = {'columns': 5, 'rows': 85, 'cabinet_width': 384, 'cabinet_height': 192,
+              'halfCol': 4, 'flowPattern': 'tl-v', 'portNumberOrder': 'across'}
+
+
+def _stacks_with_half(full_runs, half_runs, stack_starts, half_starts, before):
+    """The expected order: stack k is the full lines' k-th runs in line
+    order; each half-line run goes into the stack its first cabinet sits
+    under, ahead of the stack's own runs when its line comes first."""
+    out = []
+    for k, start in enumerate(stack_starts):
+        end = stack_starts[k + 1] if k + 1 < len(stack_starts) else None
+        mine = [h for h, at in zip(half_runs, half_starts)
+                if at >= start and (end is None or at < end)]
+        out.extend((mine if before else []) + full_runs[k] + ([] if before else mine))
+    return out
+
+
+def _owner_down(pattern='tl-h'):
+    """Expected Down numbering of HALF_BOTTOM read from `pattern`."""
+    forward = 'l-' in pattern
+    top_start = pattern.startswith('t')
+    full_rows = [0, 1, 2, 3] if top_start else [3, 2, 1, 0]
+    cols = list(range(85)) if forward else list(range(84, -1, -1))
+    full_runs = [[_run(r, cols[i:i + 8]) for r in full_rows] for i in range(0, 85, 8)]
+    half_runs = [_run(4, cols[i:i + 17]) for i in range(0, 85, 17)]
+    return _stacks_with_half(full_runs, half_runs, list(range(0, 85, 8)),
+                             list(range(0, 85, 17)), before=not top_start)
+
+
+def test_down_puts_a_half_row_run_under_the_stack_it_starts_in(page):
+    got = _port_map(page, HALF_BOTTOM)
+    assert got['error'] is None and got['auto'] == 49
+    cells = _cells(got['ports'])
+    # The owner's words: 1-5 the first stack and the half row's first run,
+    # 6-9 the next stack, 10-13, then 14 under 13 one over to the right.
+    assert cells[:5] == [_run(r, range(8)) for r in range(4)] + [_run(4, range(17))]
+    assert cells[5:9] == [_run(r, range(8, 16)) for r in range(4)]
+    assert cells[9:13] == [_run(r, range(16, 24)) for r in range(4)]
+    assert cells[13] == _run(4, range(17, 34))
+    assert cells == _owner_down()
+    across = _cells(_port_map(page, dict(HALF_BOTTOM, portNumberOrder='across'))['ports'])
+    assert sorted(map(str, cells)) == sorted(map(str, across))
+
+
+@pytest.mark.parametrize("pattern", ['tr-h', 'bl-h', 'br-h'])
+def test_a_half_row_follows_the_start_corner(page, pattern):
+    """The same rule from every corner: a right start counts the stacks
+    from the right, and a bottom start numbers the half row (its first
+    line) first in each stack it starts under."""
+    got = _cells(_port_map(page, dict(HALF_BOTTOM, flowPattern=pattern))['ports'])
+    assert got == _owner_down(pattern)
+
+
+def test_a_differently_cut_top_row_comes_first_in_its_stack(page):
+    got = _cells(_port_map(page, dict(HALF_BOTTOM, halfRow=0))['ports'])
+    assert got[:5] == [_run(0, range(17))] + [_run(r, range(8)) for r in range(1, 5)]
+    assert got[5:9] == [_run(r, range(8, 16)) for r in range(1, 5)]
+    assert got[9] == _run(0, range(17, 34))
+    assert got[10:14] == [_run(r, range(16, 24)) for r in range(1, 5)]
+    assert len(got) == 49
+
+
+def test_vertical_across_puts_a_half_column_run_in_its_band(page):
+    """The vertical mirror: columns cut 8 tall, a half-width last column
+    17 tall; Across numbers each band of the full columns, and a half
+    column run joins the band its first cabinet sits in."""
+    def col(c, rows):
+        return [[r, c] for r in rows]
+    got = _cells(_port_map(page, HALF_RIGHT)['ports'])
+    assert got[:5] == [col(c, range(8)) for c in range(4)] + [col(4, range(17))]
+    assert got[5:9] == [col(c, range(8, 16)) for c in range(4)]
+    assert got[9:13] == [col(c, range(16, 24)) for c in range(4)]
+    assert got[13] == col(4, range(17, 34))
+    assert len(got) == 49
+
+
+def test_across_with_a_half_row_still_numbers_along_the_rows(page):
+    got = _cells(_port_map(page, dict(HALF_BOTTOM, portNumberOrder='across'))['ports'])
+    want = [_run(r, range(c, min(c + 8, 85))) for r in range(4) for c in range(0, 85, 8)]
+    want += [_run(4, range(c, c + 17)) for c in range(0, 85, 17)]
+    assert got == want
+
+
+def test_custom_apply_pattern_numbers_a_half_row_the_same_way(page):
+    got = page.evaluate("""(opts) => {
+        const h = window.__cpm;
+        const s = h.screen(opts);
+        s.flowPattern = 'custom';
+        const auto = h.screen(opts);
+        return h.withProject([s], app => {
+            app.selectPanelsInRect(s, { x1: 1, y1: 1, x2: 85 * 192 - 1, y2: 4 * 384 + 191 });
+            app.applyPatternToSelection('tl-h');
+            const paths = s.customPortPaths || {};
+            const nums = Object.keys(paths).map(Number).sort((a, b) => a - b);
+            return {
+                drawn: nums.map(n => paths[n].map(e => [e.row, e.col])),
+                walked: h.portMap(app, auto).ports.map(p => p.cells),
+            };
+        });
+    }""", HALF_BOTTOM)
+    assert got['walked'] == _owner_down()
+    assert got['drawn'] == got['walked']
+
+
+@pytest.mark.parametrize("opts", [
+    HALF_BOTTOM,
+    dict(HALF_BOTTOM, flowPattern='tr-h'),
+    dict(HALF_BOTTOM, flowPattern='bl-h'),
+    dict(HALF_BOTTOM, flowPattern='br-h'),
+    dict(HALF_BOTTOM, halfRow=0),
+    dict(HALF_BOTTOM, portNumberOrder='across'),
+    HALF_RIGHT,
+    dict(HALF_RIGHT, flowPattern='br-v'),
+    {'portNumberOrder': 'down'},
+], ids=['tl', 'tr', 'bl', 'br', 'top', 'across', 'v-tl', 'v-br', 'uniform'])
+def test_the_scr_export_numbers_a_half_line_the_same_way(page, opts):
+    """scr_project.py split_unit and stack_split_runs number every case
+    exactly as the app does."""
+    js = page.evaluate("""(opts) => {
+        const h = window.__cpm;
+        const s = h.screen(opts);
+        return h.withProject([s], app => ({
+            screen: JSON.parse(JSON.stringify(s)),
+            map: h.portMap(app, s),
+        }));
+    }""", opts)
+    items = scr_project.calculate_port_assignments(js['screen'])
+    by = {}
+    for it in items:
+        by.setdefault(it['port'], []).append([it['panel']['row'], it['panel']['col']])
+    assert [by[k] for k in sorted(by)] == [p['cells'] for p in js['map']['ports']]
+
+
+def test_split_run_stacks_is_the_old_order_where_every_line_cuts_the_same():
+    """Lines cut alike number exactly as before the ruling, with or without
+    run positions; a line cut another way goes by its first cabinet."""
+    same = [{'line': ln, 'seg': k, 'pos': 8 * k} for ln in range(4) for k in range(11)]
+    assert scr_project.split_run_stacks(same) == [i['seg'] for i in same]
+    assert scr_project.split_run_stacks([]) == []
+    bare = [{'line': ln, 'seg': k} for ln in range(3) for k in range(2)]
+    assert scr_project.split_run_stacks(bare) == [0, 1, 0, 1, 0, 1]
+    runs = [{'split': i, 'n': n} for n, i in enumerate(same)]
+    old = sorted(runs, key=lambda r: (r['split']['seg'], r['split']['line']))
+    assert scr_project.stack_split_runs(runs) == old
+    odd = same + [{'line': 4, 'seg': k, 'pos': 17 * k} for k in range(5)]
+    assert scr_project.split_run_stacks(odd)[-5:] == [0, 2, 4, 6, 8]
+    # Lines that lost cabinets at an end to a taken-over port, or start
+    # further in, are cut alike and keep numbering by place.
+    short = [{'line': ln, 'seg': k, 'pos': 8 * k} for ln in range(5)
+             for k in range(12 if ln in (1, 4) else 11)]
+    assert scr_project.split_run_stacks(short) == [i['seg'] for i in short]
+    shifted = [{'line': ln, 'seg': k, 'pos': 8 * k + (2 if ln % 2 else 0)}
+               for ln in range(5) for k in range(11)]
+    assert scr_project.split_run_stacks(shifted) == [i['seg'] for i in shifted]

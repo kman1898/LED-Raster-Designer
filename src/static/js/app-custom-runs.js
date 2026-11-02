@@ -1107,10 +1107,21 @@ class _CustomRuns {
         // automatic wall does (_chunkPicksIntoShares) - one run per line,
         // neighbouring runs on one circuit through a 2fer / 3fer.
         const sharing = isPower && this._customFillShares(owner);
+        // Where each cabinet sits along its line, counted from the
+        // pattern's start side: the Port numbers switch puts a run cut
+        // differently from the lines around it under the stack its first
+        // cabinet sits under (_splitRunStacks), as the automatic walk does.
+        const vertical = isVerticalFlowPattern(pattern);
+        const corner = pattern.split('-')[0] || 'tl';
+        const fromEnd = vertical ? corner[0] === 'b' : corner[1] === 'r';
+        const posOf = (pick) => {
+            const at = (vertical ? lattice.rowOf : lattice.colOf).get(pick.panel);
+            return Number.isFinite(at) ? (fromEnd ? -at : at) : undefined;
+        };
         const cut = sharing
             ? this._chunkPicksIntoShares(owner, startNum, lines, frozen)
             : this._chunkPicksByCapacity(owner, kind, startNum, lines, frozen,
-                { vertical: isVerticalFlowPattern(pattern), zigzag: isZFlowPattern(pattern) });
+                { vertical, zigzag: isZFlowPattern(pattern), posOf });
         if (cut.skipped && cut.skipped.length) steppedOver(cut.skipped);
         if (cut.error) {
             toast(`Cannot apply: ${cut.error}`, true);
@@ -1680,7 +1691,8 @@ class _CustomRuns {
             let cells = line;
             let segNo = 0;
             while (cells.length > 0) {
-                cur.split = { line: linePos, seg: segNo };
+                cur.split = { line: linePos, seg: segNo,
+                    pos: (opts && opts.posOf) ? opts.posOf(cells[0]) : undefined };
                 segNo += 1;
                 let took = 0;
                 for (const pick of cells) {

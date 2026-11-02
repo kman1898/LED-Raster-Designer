@@ -481,6 +481,13 @@ FIXES
   The pull sheet spreadsheet and the in-app pull sheet say Gear too, in
   place of Cable Type, and the spreadsheet's READ ME is titled LED GEAR
   PULL SHEET.
+- FIX: With Port numbers on Down, a row cut differently from the rows
+  above it, like a bottom row of half-height panels that fits 17 to a
+  port under rows of 8, no longer weaves its numbers through the stacks.
+  Each of its ports takes the number right after the stack its first
+  panel sits under, so ports 1 to 4 run down the first stack and port 5
+  is the bottom row's first port. A column cut differently on a vertical
+  pattern numbers the same way with Across.
 
 v1.5.3 - October 21, 2026
 ----------------------------

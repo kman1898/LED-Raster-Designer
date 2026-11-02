@@ -553,16 +553,76 @@ def port_numbers_stack(layer, is_horizontal_first):
     return order == 'down' if is_horizontal_first else order == 'across'
 
 
+def split_run_stacks(infos):
+    """The stack each cut run belongs to, for one stretch of cut lines
+    (app-port-routing.js _splitRunStacks). `infos` in flow order, each
+    {'line', 'seg', 'pos'}, `pos` being where the run's first cabinet sits
+    along the line counted from the start side. A line's cut is the
+    spacing of its run starts from its own first run; the stacks are the
+    cut most lines share (the finer cut on a tie, then the first line's).
+    A line in step with it (spaced the same wherever both have a run)
+    numbers by place, stack `seg`; a run of a line cut another way is in
+    the last stack starting at or before its first cabinet. Without
+    positions every run's stack is its `seg`."""
+    if not infos or not all(isinstance(i.get('pos'), (int, float)) for i in infos):
+        return [i['seg'] for i in infos]
+    by_line = {}
+    for i in infos:
+        by_line.setdefault(i['line'], []).append(i)
+    cuts = []
+    for line, items in by_line.items():
+        starts = [i['pos'] for i in sorted(items, key=lambda i: i['seg'])]
+        rel = [p - starts[0] for p in starts]
+        cuts.append({'line': line, 'starts': starts, 'rel': rel, 'key': tuple(rel)})
+    tally = {}
+    for c in cuts:
+        if c['key'] not in tally:
+            tally[c['key']] = {'first': c, 'lines': 0}
+        tally[c['key']]['lines'] += 1
+    ref = None
+    for t in tally.values():
+        if (ref is None or t['lines'] > ref['lines']
+                or (t['lines'] == ref['lines']
+                    and len(t['first']['rel']) > len(ref['first']['rel']))):
+            ref = t
+    ref_rel = ref['first']['rel']
+    in_step = [c for c in cuts
+               if all(k >= len(ref_rel) or p == ref_rel[k] for k, p in enumerate(c['rel']))]
+    stepped = {c['line'] for c in in_step}
+    longest = ref['first']
+    for c in in_step:
+        if len(c['rel']) > len(longest['rel']):
+            longest = c
+    stack_starts = [ref['first']['starts'][0] + r for r in longest['rel']]
+    stacks = []
+    for i in infos:
+        if i['line'] in stepped:
+            stacks.append(i['seg'])
+            continue
+        stack = 0
+        for k, start in enumerate(stack_starts):
+            if start <= i['pos']:
+                stack = k
+        stacks.append(stack)
+    return stacks
+
+
 def stack_split_runs(runs):
     """Inside every unbroken stretch of runs cut from long lines, the first
     run of each line first, then the second of each, and so on; any other
-    run ends the stretch and keeps its place. A stable permutation."""
+    run ends the stretch and keeps its place. A stable permutation. A line
+    cut differently from the stacks puts each run under the stack its first
+    cabinet sits under, in line order (split_run_stacks; the owner's
+    ruling, 2026-11-02)."""
     out = []
     block = []
 
     def flush():
-        block.sort(key=lambda x: (x[1]['seg'], x[1]['line'], x[0]))
-        out.extend(run for _, _, run in block)
+        stacks = split_run_stacks([info for _, info, _ in block])
+        keyed = [(stack, info['line'], info['seg'], at, run)
+                 for stack, (at, info, run) in zip(stacks, block)]
+        keyed.sort(key=lambda x: x[:4])
+        out.extend(x[4] for x in keyed)
         del block[:]
 
     for at, run in enumerate(runs):
@@ -793,9 +853,11 @@ def calculate_port_assignments(layer, canvas_height=0, warnings=None):
                 solo_load = _rect_area(solo_rect) if rect_constraint else area
                 if solo_load > capacity_for_rect(port_capacity, solo_rect):
                     return None
+                at = _int(panel.get(along))
                 seg = {'panels': [panel], 'rect': solo_rect, 'load': solo_load,
                        'unitIndices': [unit_idx],
-                       'split': {'line': line_pos, 'seg': len(segments)}}
+                       'split': {'line': line_pos, 'seg': len(segments),
+                                 'pos': at if forward else -at}}
             if seg is not None:
                 segments.append(seg)
             return segments
