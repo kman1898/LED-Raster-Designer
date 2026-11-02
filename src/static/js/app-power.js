@@ -5251,6 +5251,16 @@ class _Power {
             // PANEL WATTS error above.
             const walkOf = (indices) => unclaimed(this._livePanels(this.getOrganizedPanelsForUnits(
                 layer, pattern, isHorizontalFirst, indices, false, plan)));
+            // Where a piece's first cabinet sits along its line, counted
+            // from the pattern's start side (a right start counts from the
+            // right edge, a bottom start from the bottom), so Down can put
+            // a piece of a line cut differently from the lines around it
+            // under the stack it starts in (_splitRunStacks).
+            const posOf = (panel) => {
+                const at = isHorizontalFirst ? colOfPanel(panel) : rowOfPanel(panel);
+                if (!Number.isFinite(at)) return undefined;
+                return (isHorizontalFirst ? startsLeft : startsTop) ? at : -at;
+            };
             const units = [];
             for (const idx of unitIndices) {
                 const unitPanels = visibleOrdered.filter(p => (isHorizontalFirst ? rowOfPanel(p) === idx : colOfPanel(p) === idx));
@@ -5263,7 +5273,7 @@ class _Power {
                     walkOf([idx]).forEach(p => {
                         const w = loadOf(p);
                         if (piece && piece.load + w > wattsPerCircuit) piece = null;
-                        if (!piece) unit.pieces.push(piece = { panels: [], load: 0 });
+                        if (!piece) unit.pieces.push(piece = { panels: [], load: 0, pos: posOf(p) });
                         piece.panels.push(p);
                         piece.load += w;
                     });
@@ -5273,28 +5283,25 @@ class _Power {
             const anyCut = units.some(u => u.pieces);
             // STACKS. Read across the lines instead of along them: inside
             // every unbroken stretch of cut units, each unit's first piece,
-            // then each unit's second, and so on (the data side's
-            // _stackSplitRuns, the same rule); anything that is not a piece
-            // of a cut unit ends the stretch and keeps its place. `items`
-            // come in walk order and each carries `at` = [unit, piece] and
-            // `piece` (true for a piece of a cut unit). Returns the indices.
-            const stackOrder = (items) => {
-                const out = [];
-                let block = [];
-                const flushBlock = () => {
-                    block.sort((a, b) => (items[a].at[1] - items[b].at[1])
-                        || (items[a].at[0] - items[b].at[0]) || (a - b));
-                    out.push(...block);
-                    block = [];
-                };
-                items.forEach((item, i) => {
-                    if (item.piece) { block.push(i); return; }
-                    flushBlock();
-                    out.push(i);
+            // then each unit's second, and so on; anything that is not a
+            // piece of a cut unit ends the stretch and keeps its place. A
+            // unit cut differently from the stacks (a half-height row whose
+            // circuits carry twice the cabinets) puts each piece in the
+            // stack its first cabinet sits under, in walk order: "Power
+            // will be the same" (the owner, 2026-11-02). The data side's
+            // _stackSplitRuns, the one rule both share. `items` come in
+            // walk order and each carries `at` = [unit, piece], `pos` (its
+            // first cabinet along the unit) and `piece` (true for a piece
+            // of a cut unit). Returns the indices. `byPlace` leaves the
+            // positions out, so every piece stacks by its place along its
+            // unit: the splitter packing's reading below, which the
+            // numbers never move.
+            const stackOrder = (items, byPlace = false) => this._stackSplitRuns(
+                items.map((_, i) => i), (i) => {
+                    const item = items[i];
+                    if (!item.piece) return null;
+                    return { line: item.at[0], seg: item.at[1], pos: byPlace ? undefined : item.pos };
                 });
-                flushBlock();
-                return out;
-            };
             // THE NUMBERS (the Circuit numbers switch, powerNumberOrder):
             // along the walk, or down the stacks - Down on a
             // horizontal-first pattern, Across on a vertical-first one,
@@ -5320,8 +5327,12 @@ class _Power {
             // to each other and share the way neighbouring runs always
             // have. That reading is the packing's own and never moves with
             // the Circuit numbers switch: renumbering never changes which
-            // cabinets share a circuit. An uncut screen reads one run per
-            // unit in walk order, exactly as before.
+            // cabinets share a circuit. It reads every piece by its place
+            // along its unit (byPlace), as it always has, so a unit cut
+            // differently from the stacks shares exactly as before; only
+            // its circuits' NUMBERS follow the stack it starts under. An
+            // uncut screen reads one run per unit in walk order, exactly
+            // as before.
             const splitters = this.getPowerSplitters(layer);
             if (splitters.enabled) {
                 const walkRuns = [];
@@ -5332,7 +5343,7 @@ class _Power {
                         walkRuns.push({ panels: walkOf([u.idx]), load: u.load, at: [k, 0], piece: false });
                     }
                 });
-                const runs = anyCut ? stackOrder(walkRuns).map(i => walkRuns[i]) : walkRuns;
+                const runs = anyCut ? stackOrder(walkRuns, true).map(i => walkRuns[i]) : walkRuns;
                 const manual = this.appliedSplitterGroups(
                     layer, runs.map((_, i) => i + 1));
                 // An older show's automatic shares, kept as it was saved
@@ -5382,7 +5393,7 @@ class _Power {
                     flush();
                     u.pieces.forEach((piece, j) => {
                         circuits.push(piece.panels);
-                        items.push({ at: [k, j], piece: true });
+                        items.push({ at: [k, j], piece: true, pos: piece.pos });
                     });
                     return;
                 }

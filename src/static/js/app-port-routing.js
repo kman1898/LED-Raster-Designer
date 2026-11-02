@@ -879,6 +879,10 @@ class _PortRouting {
     // row comes after the stack's rows and a top row before them
     // (_splitRunStacks). Where every line cuts the same, the stacks are the
     // runs' own places along the line, the numbering it always had.
+    // "Power will be the same" (the owner, 2026-11-02): the Circuit numbers
+    // switch stacks Organized power's cut circuits through this too
+    // (calculatePowerAssignments stackOrder), and "columns always supersede
+    // row": a run numbers inside the stack its first cabinet sits under.
     _stackSplitRuns(runs, infoOf) {
         const out = [];
         let block = [];

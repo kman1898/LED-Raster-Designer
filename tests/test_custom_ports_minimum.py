@@ -876,7 +876,13 @@ def test_custom_apply_pattern_numbers_a_half_row_the_same_way(page):
     HALF_RIGHT,
     dict(HALF_RIGHT, flowPattern='br-v'),
     {'portNumberOrder': 'down'},
-], ids=['tl', 'tr', 'bl', 'br', 'top', 'across', 'v-tl', 'v-br', 'uniform'])
+    dict(HALF_BOTTOM, flowPattern='tr-h', portNumberOrder='across'),
+    dict(HALF_BOTTOM, flowPattern='br-h', portNumberOrder='across'),
+    dict(HALF_RIGHT, flowPattern='tr-v'),
+    dict(HALF_RIGHT, flowPattern='bl-v', portNumberOrder='down'),
+    dict(HALF_RIGHT, flowPattern='br-v-z', portNumberOrder='down'),
+], ids=['tl', 'tr', 'bl', 'br', 'top', 'across', 'v-tl', 'v-br', 'uniform',
+        'across-tr', 'across-br', 'v-tr', 'v-bl-down', 'v-br-z-down'])
 def test_the_scr_export_numbers_a_half_line_the_same_way(page, opts):
     """scr_project.py split_unit and stack_split_runs number every case
     exactly as the app does."""
@@ -916,3 +922,55 @@ def test_split_run_stacks_is_the_old_order_where_every_line_cuts_the_same():
     shifted = [{'line': ln, 'seg': k, 'pos': 8 * k + (2 if ln % 2 else 0)}
                for ln in range(5) for k in range(11)]
     assert scr_project.split_run_stacks(shifted) == [i['seg'] for i in shifted]
+
+
+# ── Numbers start where the wall is cabled ──────────────────────────────
+#
+# The owner, 2026-11-02: "power should be able to start from top right and
+# go to the left or bottom right and go to the left, depending on how it
+# is cabled. Same with data." The flow pattern's corner is where the
+# cabling starts: Across and Down both number from that corner and walk
+# away from it, with or without a line cut differently from the rest.
+
+def _expect_from_corner(pattern, lines, length, by_stack):
+    """Worked out here on its own. `lines` in walk order, each (line,
+    cabinets a port); every line is cut from the pattern's start side, and
+    a port's stack is the stack of the most finely cut lines its first
+    cabinet sits in. By stacks: stack, then walk order; else walk order."""
+    vertical = '-v' in pattern
+    forward = pattern.startswith('t') if vertical else 'l-' in pattern
+    along = list(range(length)) if forward else list(range(length - 1, -1, -1))
+    stack_len = min(per for _, per in lines)
+    keyed = []
+    for walk_at, (line, per) in enumerate(lines):
+        for seg, start in enumerate(range(0, length, per)):
+            span = along[start:start + per]
+            cells = [[r, line] for r in span] if vertical else _run(line, span)
+            keyed.append(((start // stack_len) if by_stack else walk_at, walk_at, seg, cells))
+    keyed.sort(key=lambda k: k[:3])
+    return [k[3] for k in keyed]
+
+
+@pytest.mark.parametrize("pattern", ['tl-h', 'tr-h', 'bl-h', 'br-h', 'tr-h-z', 'br-h-z'])
+@pytest.mark.parametrize("half", [None, 4], ids=['full', 'half'])
+def test_across_numbers_from_the_start_corner(page, pattern, half):
+    rows = [0, 1, 2, 3, 4] if pattern.startswith('t') else [4, 3, 2, 1, 0]
+    opts = dict(HALF_BOTTOM, flowPattern=pattern, portNumberOrder='across', halfRow=half)
+    got = _cells(_port_map(page, opts)['ports'])
+    lines = [(r, 17 if r == half else 8) for r in rows]
+    assert got == _expect_from_corner(pattern, lines, 85, by_stack=False)
+    assert got[0][0] == [rows[0], 0 if 'l-' in pattern else 84]
+
+
+@pytest.mark.parametrize("pattern", ['tl-v', 'tr-v', 'bl-v', 'br-v', 'tr-v-z', 'br-v-z'])
+@pytest.mark.parametrize("order", ['across', 'down'])
+def test_a_half_column_numbers_from_the_start_corner(page, pattern, order):
+    """Vertical first: Across numbers the bands of runs across the
+    columns, Down down each column; a right start steps the columns right
+    to left and a bottom start reads each column from the bottom."""
+    cols = [0, 1, 2, 3, 4] if 'l-' in pattern else [4, 3, 2, 1, 0]
+    got = _cells(_port_map(page, dict(HALF_RIGHT, flowPattern=pattern,
+                                      portNumberOrder=order))['ports'])
+    lines = [(c, 17 if c == 4 else 8) for c in cols]
+    assert got == _expect_from_corner(pattern, lines, 85, by_stack=order == 'across')
+    assert got[0][0] == [0 if pattern.startswith('t') else 84, cols[0]]
