@@ -1679,9 +1679,11 @@ class _HardwareDock {
         // loop's far box says what it is on its row ("· loop end"), and
         // only a copy box still wears a tag.
         // ...and a box on a copy OPT feeding a mirror screen says so: its
-        // sockets carry the mirror's runs, not the primary's again.
+        // sockets carry the mirror's runs, not the primary's again. A box
+        // bound as another's backup (backupOf - a NovaStar Backup-mode
+        // OPT 3-4) is a loop's far end, which its strip already says.
         const tag = cvt.copyRole === 'mirror' ? ' (mirror)'
-            : (cvt.duplicateOf ? ' (copy)' : '');
+            : (cvt.duplicateOf && !cvt.backupOf ? ' (copy)' : '');
         // Four boxes all reading "XD" are four sections nobody
         // can tell apart, so an unnamed box on a trunked card wears its
         // trunk letter - "XD A" - the letters the pairing rule

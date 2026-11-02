@@ -2548,8 +2548,17 @@ def test_the_novastar_pair_is_freely_overridable(client):
     state = client.delete(
         f'/api/processors/{pid}/cvts/{primary_id}').get_json()
     card = first_card(only(state))
-    assert all(c['backupOf'] is None for c in card['cvts']), (
+    assert all(c['backupOf'] != primary_id for c in card['cvts']), (
         'a backup still points at a deleted primary')
+    raw = next(s['card'] for s in state['processors'][0]['slots']
+               if s['card'])
+    assert all(not c.get('backupOf') for c in raw['cvts']), (
+        'a stored link outlived the box it named')
+    # The box left on OPT 4 is the backup of OPT 2's box because Backup
+    # mode says OPT 4 backs up OPT 2 (resolve_card), not because of any
+    # link the add made - it reads off the trunks, stored nowhere.
+    by_trunk = {c['trunkTitle']: c for c in card['cvts']}
+    assert by_trunk['OPT 4']['backupOf'] == by_trunk['OPT 2']['id']
 
 
 def test_a_pair_that_does_not_fit_degrades_to_one_box(client):
@@ -2564,7 +2573,13 @@ def test_a_pair_that_does_not_fit_degrades_to_one_box(client):
                         json={'deviceId': 'novastar-cvt10'}).get_json()
     card = first_card(only(state))
     assert len(card['cvts']) == 4
-    assert card['cvts'][3]['backupOf'] is None
+    # No second box was made for it, so its record carries no link...
+    raw = next(s['card'] for s in state['processors'][0]['slots']
+               if s['card'])
+    assert not raw['cvts'][3].get('backupOf')
+    # ...and on OPT 4 of a Backup card it backs up OPT 2's box all the same.
+    assert card['cvts'][3]['trunkTitle'] == 'OPT 4'
+    assert card['cvts'][3]['backupOf'] == card['cvts'][1]['id']
     assert card['trunksUsed'] == 4
 
 

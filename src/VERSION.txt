@@ -481,6 +481,11 @@ FIXES
   The pull sheet spreadsheet and the in-app pull sheet say Gear too, in
   place of Cable Type, and the spreadsheet's READ ME is titled LED GEAR
   PULL SHEET.
+- FIX: An H_4xfiber card set to Backup pairs its breakout boxes the way
+  NovaStar wires it: the box on OPT 3-4 is the backup of the box on OPT
+  1-2, even when the boxes went on before Backup was picked. Before, that
+  box showed in the Data tray as a copy with 16 free ports. Switching the
+  card to Independent or Copy undoes the pairing.
 
 v1.5.3 - October 21, 2026
 ----------------------------
