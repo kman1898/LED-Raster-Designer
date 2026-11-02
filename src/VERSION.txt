@@ -481,11 +481,12 @@ FIXES
   The pull sheet spreadsheet and the in-app pull sheet say Gear too, in
   place of Cable Type, and the spreadsheet's READ ME is titled LED GEAR
   PULL SHEET.
-- FIX: The binder's Overview page draws your screens bigger. The drawing
-  now fills the free space on the sheet, beside the Contents list or
-  below it, wherever it comes out larger. A Contents title that fits on
-  one line no longer leaves an empty line under it, which on a long
-  binder had pushed the last few sheets off the Contents.
+- FIX: The binder's Overview page draws your screens much bigger. Its
+  tables now share one short band across the top, with a long Contents
+  list split into two or more columns, and the drawing fills the whole
+  width under them. A Contents title that fits on one line no longer
+  leaves an empty line under it, and every sheet is listed: on a long
+  binder the last few used to be left off.
 
 v1.5.3 - October 21, 2026
 ----------------------------

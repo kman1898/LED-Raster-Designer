@@ -1,24 +1,23 @@
-"""The binder's Overview (sheet 1.1): the drawing takes the free room.
+"""The binder's Overview (sheet 1.1): tables across the top, the drawing
+under them.
 
-"we have a ton of wasted space on page 1" - and, asked how to use it,
-"always prefer a bigger drawing" (owner, 2026-11-02). On a Tabloid sheet
-of a real show the CONTENTS ran 30-odd rows down the right of the
-POSITIONS and SHOW TOTALS tables, and the overview's drawing stood under
-the CONTENTS, across the whole width, small at the sheet's foot: the
-room under the two short tables, half the sheet, stayed empty.
+"we have a ton of wasted space on page 1", "always prefer a bigger
+drawing", then "Tables across the top" and "can also split the page
+content into two columns" (owner, 2026-11-02). On a Tabloid sheet of a
+real show the CONTENTS ran 30-odd rows down the right of the POSITIONS and
+SHOW TOTALS tables, and the drawing stood under it, small at the sheet's
+foot, with the room under the two short tables empty.
 
-  * The drawing stands in whichever room the tables leave draws it
-    largest: a run of side-by-side columns from below its tallest table
-    to the bubble's room at the foot. Under the short tables, left of the
-    CONTENTS, wins on a long binder; under every table, across the whole
-    width, wins on a short one (test_binder.py's overview tests). Centered
-    in its room, at its own proportions. The tables keep their size and
-    their place.
+  * POSITIONS, SHOW TOTALS and CONTENTS share one band across the top,
+    the CONTENTS split, in order, into as many columns of balanced height
+    as draw the map largest ("CONTENTS 1", "CONTENTS 2"); where more
+    columns gain the map nothing, the fewest. Nothing in the band is cut
+    and every sheet is listed, at the table's type size.
+  * The drawing takes the whole width under the band, as large as it
+    fits, centered; the "1 OVERVIEW" bubble just under it.
   * Every table is measured in the column it is painted in. Measured in
-    the narrower COL_W, two CONTENTS titles that print on one line were
-    given a second line's height they never used, and on that real show
-    the taller column then lost its last two sheets to the half-height
-    cap.
+    the narrower COL_W, CONTENTS titles that print on one line were given
+    a second line's height they never used.
 
 The show here is synthetic, the real show's shape: six screens on three
 canvases (Center: two 18 x 4; Outboards: two 9 x 4; Upstage: two 11 x 4,
@@ -167,165 +166,144 @@ def _disjoint(a, b):
             or a['y'] + a['h'] <= b['y'] or b['y'] + b['h'] <= a['y'])
 
 
-def _rooms(da, tables):
-    """Every room the tables leave, the way the sheet lays its columns:
-    each run of side-by-side columns, from below its tallest table to
-    the bubble's room at the foot."""
-    across = max(1, (da['w'] + COL_GAP) // (COL_W + COL_GAP))
-    wide = (da['w'] - (across - 1) * COL_GAP) / across
-    col_x = [da['x'] + i * (wide + COL_GAP) for i in range(across)]
-    heights = [0] * across
-    for t in tables:
-        i = min(range(across), key=lambda k: abs(col_x[k] - t['x']))
-        heights[i] = t['h']
-    rooms = []
-    for i in range(across):
-        for j in range(i, across):
-            top = max(heights[i:j + 1])
-            y = da['y'] + top + (COL_GAP if top else 0)
-            rooms.append({'x': col_x[i], 'y': y, 'w': col_x[j] + wide - col_x[i],
-                          'h': da['y'] + da['h'] - BUBBLE_H - y, 'from': i, 'to': j})
-    return rooms
-
-
-def _fit_area(room, aspect):
-    """The area a drawing of this aspect (w / h) takes, as large as fits."""
-    if room['h'] <= 0:
-        return 0
-    w = min(room['w'], room['h'] * aspect)
-    return w * w / aspect
-
-
-def test_the_overview_drawing_takes_the_larger_free_room(page):
-    """On this 30-sheet binder the CONTENTS runs most of the way down the
-    right of the tables: the room under POSITIONS and SHOW TOTALS, left of
-    the CONTENTS, draws the show larger than the room under the CONTENTS,
-    and the drawing stands there - as large as it fits, centered. It is
-    about 1.5 x the area it had before (1499 x 598 page px); the drawing's
-    own proportions (about 2.5 : 1) stop it at the room's width, so the
-    gain is not more."""
+def test_the_tables_share_a_band_and_the_drawing_takes_the_width(page):
+    """On this 30-sheet binder the CONTENTS splits into two columns, beside
+    POSITIONS over SHOW TOTALS: the band is as short as the two halves,
+    and the drawing under it is the sheet's whole width (its height to
+    spare: it is stopped by the width), centered, the bubble just under
+    it - about 3.4 x the area it had before (1499 x 598 page px)."""
     pg, errors = page
     out = _overview(pg)
     m, da = out['map'], _da(W, H)
-    tables = m['tables']
-    assert len(tables) == 3 and len(out['plan']) >= 30, (tables, len(out['plan']))
-    # the CONTENTS is the tall column, the two short tables beside it
-    assert tables[2]['h'] > 2 * max(tables[0]['h'], tables[1]['h']), tables
-    assert m['placement'] == {'from': 0, 'to': 1, 'fullWidth': False}, m['placement']
+    band = m['band']
+    assert len(out['plan']) >= 30, len(out['plan'])
+    assert band['contentsCols'] == 2 and band['layout'] == 'stacked', band
+    # the band: POSITIONS over SHOW TOTALS in the first column, the two
+    # CONTENTS columns beside them, each ending above the drawing
+    heads = [o for o in out['ops'] if o['op'] == 'text' and o['weight'] == 700
+             and o['text'] in ('POSITIONS', 'SHOW TOTALS', 'CONTENTS 1', 'CONTENTS 2')]
+    at = {o['text']: (o['x'], o['y']) for o in heads}
+    assert at['POSITIONS'][0] == at['SHOW TOTALS'][0] < at['CONTENTS 1'][0] < at['CONTENTS 2'][0], at
+    assert at['POSITIONS'][1] == at['CONTENTS 1'][1] == at['CONTENTS 2'][1] < at['SHOW TOTALS'][1], at
+    assert band['h'] == max(t['h'] for t in m['tables']), (band, m['tables'])
+    # the halves balanced: the CONTENTS columns within two rows of each other
+    assert abs(m['tables'][1]['h'] - m['tables'][2]['h']) <= 2 * ROW_H, m['tables']
     area = m['area']
-    assert area['x'] == da['x'] and area['w'] == tables[1]['x'] + tables[1]['w'] - da['x'], area
-    assert area['y'] == da['y'] + max(tables[0]['h'], tables[1]['h']) + COL_GAP, area
-    assert area['y'] + area['h'] == da['y'] + da['h'] - BUBBLE_H, area
-    # the largest of the rooms, and larger than the old one (under every
-    # table, across the width)
-    aspect = m['w'] / m['h']
-    rooms = _rooms(da, tables)
-    best = max(_fit_area(r, aspect) for r in rooms)
-    full = next(r for r in rooms if r['from'] == 0 and r['to'] == 2)
-    assert m['w'] * m['h'] >= best * 0.99, (m, best)
-    assert m['w'] * m['h'] > _fit_area(full, aspect) * 1.03, (m, full)
-    # as large as it fits: stopped by the room's width, centered in it
+    assert area == {'x': da['x'], 'y': da['y'] + band['h'] + COL_GAP, 'w': da['w'],
+                    'h': da['y'] + da['h'] - BUBBLE_H - (da['y'] + band['h'] + COL_GAP)}, area
+    # the whole width, centered in the height it leaves
+    assert m['x'] == da['x'] and m['w'] == da['w'], m
+    assert m['h'] <= area['h'] and abs((m['y'] - area['y']) - (area['y'] + area['h'] - m['y'] - m['h'])) <= 1, m
     assert m['zoom'] < MAP_ZOOM_CAP
-    assert abs(m['w'] - area['w']) <= 1 or abs(m['h'] - area['h']) <= 1, (m, area)
-    assert abs((m['x'] - area['x']) - (area['x'] + area['w'] - m['x'] - m['w'])) <= 1, (m, area)
-    assert abs((m['y'] - area['y']) - (area['y'] + area['h'] - m['y'] - m['h'])) <= 1, (m, area)
     # the gain over the drawing before this change
-    assert m['w'] * m['h'] >= 1.25 * BEFORE[0] * BEFORE[1], (m, BEFORE)
-    assert errors == []
-
-
-def _check_sheet(out, da, tb_x):
-    """Nothing on the overview overlaps: the drawing in the drawing area,
-    clear of every table and of the title block; the bubble under the
-    drawing, inside the area, clear of the tables; every screen inside the
-    drawing; every table at the top of its column, as it always was."""
-    m = out['map']
-    tables = m['tables']
-    draw = {'x': m['x'], 'y': m['y'], 'w': m['w'], 'h': m['h']}
-    assert draw['x'] >= da['x'] - 0.5 and draw['x'] + draw['w'] <= da['x'] + da['w'] + 0.5, (draw, da)
-    assert draw['y'] >= da['y'] and draw['y'] + draw['h'] <= da['y'] + da['h'] - BUBBLE_H + 1, (draw, da)
-    assert draw['x'] + draw['w'] <= tb_x, (draw, tb_x)
-    for t in tables:
-        assert t['y'] == da['y'], t
-        assert _disjoint(draw, t), (draw, t)
-    for sc in m['screens']:
-        assert draw['x'] - 0.01 <= sc['x'] and sc['x'] + sc['w'] <= draw['x'] + draw['w'] + 0.01, (sc, draw)
-        assert draw['y'] - 0.01 <= sc['y'] and sc['y'] + sc['h'] <= draw['y'] + draw['h'] + 0.01, (sc, draw)
+    assert m['w'] * m['h'] >= 2.5 * BEFORE[0] * BEFORE[1], (m, BEFORE)
     b = out['bubble']
-    assert b['number'] == 1 and b['name'] == 'OVERVIEW', b
-    circle = {'x': b['x'] - b['r'], 'y': b['y'] - b['r'], 'w': 2 * b['r'], 'h': 2 * b['r']}
-    assert circle['y'] >= draw['y'] + draw['h'], (b, draw)
-    assert circle['y'] + circle['h'] <= da['y'] + da['h'] + 1, (b, da)
-    assert circle['x'] >= da['x'], (b, da)
-    # the bubble's line: the circle and its name, about 340 px wide
-    line = {'x': circle['x'], 'y': circle['y'], 'w': 340, 'h': circle['h']}
-    for t in tables:
-        assert _disjoint(line, t), (b, t)
-    # the image op is the drawing
-    images = [o for o in out['ops'] if o['op'] == 'image']
-    for im in images:
-        assert abs(im['x'] - draw['x']) < 1 and abs(im['y'] - draw['y']) < 1, (im, draw)
-
-
-def test_nothing_on_the_overview_overlaps_on_any_sheet(page):
-    """The drawing and its bubble keep clear of every table and of the
-    title block, on every sheet size and with the title block off, and
-    always stand in the largest room."""
-    pg, errors = page
-    for sheet, (w, h) in SHEETS.items():
-        for block in (True, False):
-            out = _overview(pg, sheet=sheet, titleBlock=block)
-            da = _da(w, h, block)
-            tb_x = w - PAD - (TB_W if block else 0)
-            assert out['page']['layout'] == 'overview', (sheet, out['page'])
-            _check_sheet(out, da, tb_x)
-            m = out['map']
-            if m['zoom'] < MAP_ZOOM_CAP - 1e-6:
-                best = max(_fit_area(r, m['w'] / m['h']) for r in _rooms(da, m['tables']))
-                assert m['w'] * m['h'] >= best * 0.99, (sheet, block, m, best)
+    assert 0 <= (b['y'] - b['r']) - (m['y'] + m['h']) <= 20, (b, m)
     assert errors == []
 
 
 def _contents_rows(out):
-    """The CONTENTS rows as painted: each row's top, its height, its sheet
-    number and the lines of its title, read off the sheet's text ops."""
+    """The CONTENTS rows as painted, column after column: each row's sheet
+    number, its height and the lines of its title, read off the sheet's
+    text ops."""
     ops = [o for o in out['ops'] if o['op'] == 'text']
-    head = next(o for o in ops if o['text'] == 'CONTENTS')
-    col = next(t for t in out['map']['tables'] if t['x'] <= head['x'] < t['x'] + t['w'])
+    heads = [o for o in ops if o['weight'] == 700 and re.fullmatch(r'CONTENTS( \d+)?', o['text'])]
+    names = [o['text'] for o in heads]
+    assert names == (['CONTENTS'] if len(heads) == 1 else [f'CONTENTS {i + 1}' for i in range(len(heads))]), names
     numbers = {n for n, _t in out['plan']}
-    inside = [o for o in ops if col['x'] <= o['x'] < col['x'] + col['w'] and o['y'] > head['y']
-              and o['text'] not in ('SHEET', 'TITLE')]
-    nums = sorted((o for o in inside if o['text'] in numbers and re.fullmatch(r'\d+\.\d+', o['text'])),
-                  key=lambda o: o['y'])
-    titles = [o for o in inside if o not in nums]
     rows = []
-    for i, o in enumerate(nums):
-        top = o['y'] - 27
-        bottom = nums[i + 1]['y'] - 27 if i + 1 < len(nums) else col['y'] + col['h']
-        lines = sorted((t for t in titles if top <= t['y'] < bottom), key=lambda t: t['y'])
-        rows.append({'number': o['text'], 'top': top, 'h': bottom - top, 'lines': lines})
+    for head in heads:
+        col = next((t for t in out['map']['tables'] if t['x'] - 0.5 <= head['x'] < t['x'] + t['w']), None)
+        assert col, (head, out['map']['tables'], out['map']['band'])
+        inside = [o for o in ops if col['x'] - 0.5 <= o['x'] < col['x'] + col['w'] and o['y'] > head['y']
+                  and o['y'] < col['y'] + col['h'] and o['text'] not in ('SHEET', 'TITLE')]
+        nums = sorted((o for o in inside if o['text'] in numbers and re.fullmatch(r'\d+\.\d+', o['text'])),
+                      key=lambda o: o['y'])
+        titles = [o for o in inside if o not in nums]
+        for i, o in enumerate(nums):
+            top = o['y'] - 27
+            bottom = nums[i + 1]['y'] - 27 if i + 1 < len(nums) else col['y'] + col['h']
+            lines = sorted((t for t in titles if top <= t['y'] < bottom), key=lambda t: t['y'])
+            rows.append({'number': o['text'], 'h': bottom - top, 'lines': lines})
     return rows
+
+
+def _check_contents(out, where):
+    """Every sheet of the plan listed, in order, column after column; each
+    title whole, at the table's type size, its row exactly as tall as the
+    lines it prints."""
+    rows = _contents_rows(out)
+    assert [r['number'] for r in rows] == [n for n, _t in out['plan']], (where, [r['number'] for r in rows])
+    for r, (_n, title) in zip(rows, out['plan']):
+        assert r['lines'], (where, r)
+        assert ' '.join(t['text'] for t in r['lines']) == title, (where, r['number'], r['lines'], title)
+        assert all(abs(t['size'] - SZ_CELL) < 0.01 for t in r['lines']), (where, r['number'], r['lines'])
+        assert math.isclose(r['h'], ROW_H + (len(r['lines']) - 1) * LIST_H, abs_tol=0.5), \
+            (where, r['number'], r['h'], [t['text'] for t in r['lines']])
+    return rows
+
+
+def _check_sheet(out, da, tb_x, where):
+    """Nothing on the overview overlaps: the band of tables at the top, the
+    drawing under it across the drawing area's whole width, as large as it
+    fits and clear of the title block; the bubble just under the drawing,
+    inside the area; every screen inside the drawing."""
+    m = out['map']
+    tables = m['tables']
+    band = m['band']
+    area = m['area']
+    draw = {'x': m['x'], 'y': m['y'], 'w': m['w'], 'h': m['h']}
+    assert area['x'] == da['x'] and area['w'] == da['w'], (where, area, da)
+    for t in tables:
+        assert t['y'] == da['y'] and t['h'] <= band['h'], (where, t, band)
+        assert t['y'] + t['h'] + COL_GAP <= area['y'] <= draw['y'], (where, t, area, draw)
+        assert _disjoint(draw, t), (where, draw, t)
+        assert t['x'] + t['w'] <= tb_x, (where, t, tb_x)
+    assert draw['x'] >= da['x'] - 0.5 and draw['x'] + draw['w'] <= da['x'] + da['w'] + 0.5, (where, draw, da)
+    assert draw['y'] + draw['h'] <= da['y'] + da['h'] - BUBBLE_H + 1, (where, draw, da)
+    assert draw['x'] + draw['w'] <= tb_x, (where, draw, tb_x)
+    # as large as it fits its room
+    assert (m['zoom'] >= MAP_ZOOM_CAP - 1e-6 or abs(draw['w'] - area['w']) <= 1
+            or abs(draw['h'] - area['h']) <= 1), (where, draw, area)
+    for sc in m['screens']:
+        assert draw['x'] - 0.01 <= sc['x'] and sc['x'] + sc['w'] <= draw['x'] + draw['w'] + 0.01, (where, sc, draw)
+        assert draw['y'] - 0.01 <= sc['y'] and sc['y'] + sc['h'] <= draw['y'] + draw['h'] + 0.01, (where, sc, draw)
+    b = out['bubble']
+    assert b['number'] == 1 and b['name'] == 'OVERVIEW', (where, b)
+    circle = {'x': b['x'] - b['r'], 'y': b['y'] - b['r'], 'w': 2 * b['r'], 'h': 2 * b['r']}
+    assert 0 <= circle['y'] - (draw['y'] + draw['h']) <= 20, (where, b, draw)
+    assert circle['y'] + circle['h'] <= da['y'] + da['h'] + 1 and circle['x'] >= da['x'], (where, b, da)
+    images = [o for o in out['ops'] if o['op'] == 'image']
+    for im in images:
+        assert abs(im['x'] - draw['x']) < 1 and abs(im['y'] - draw['y']) < 1, (where, im, draw)
+
+
+def test_nothing_on_the_overview_overlaps_or_is_cut_on_any_sheet(page):
+    """On Tabloid, Letter, A3 and ARCH D, with the title block on and
+    off: the band above the drawing, nothing overlapping, every sheet in
+    the CONTENTS, nothing cut or shrunk."""
+    pg, errors = page
+    for sheet, (w, h) in SHEETS.items():
+        for block in (True, False):
+            where = (sheet, block)
+            out = _overview(pg, sheet=sheet, titleBlock=block)
+            da = _da(w, h, block)
+            tb_x = w - PAD - (TB_W if block else 0)
+            assert out['page']['layout'] == 'overview', (where, out['page'])
+            _check_sheet(out, da, tb_x, where)
+            _check_contents(out, where)
+    assert errors == []
 
 
 def test_every_contents_row_is_as_tall_as_its_title(page):
     """A CONTENTS row is one line's height unless its title really wraps
     where it is painted: the table is measured in the column it is drawn
-    in. Every sheet of the plan is listed, in order, its title whole and
-    at the table's type size - nothing cut, nothing shrunk."""
+    in. Most titles print on one line; POSITIONS' "Upstage Left, Upstage
+    Right" fits its column."""
     pg, errors = page
     out = _overview(pg)
-    rows = _contents_rows(out)
-    assert [r['number'] for r in rows] == [n for n, _t in out['plan']], rows
-    for r, (_n, title) in zip(rows, out['plan']):
-        assert r['lines'], r
-        assert ' '.join(t['text'] for t in r['lines']) == title, (r['number'], r['lines'], title)
-        assert all(abs(t['size'] - SZ_CELL) < 0.01 for t in r['lines']), (r['number'], r['lines'])
-        assert math.isclose(r['h'], ROW_H + (len(r['lines']) - 1) * LIST_H, abs_tol=0.5), \
-            (r['number'], r['h'], [t['text'] for t in r['lines']])
-    # most titles print on one line
+    rows = _check_contents(out, 'tabloid')
     assert sum(1 for r in rows if len(r['lines']) == 1) >= len(rows) - 3, rows
-    # the POSITIONS rows: one line each - "Upstage Left, Upstage Right"
-    # fits its column
     p = out['texts'].index('POSITIONS')
     assert 'Upstage Left, Upstage Right' in out['texts'][p:], out['texts'][p:p + 30]
     assert errors == []

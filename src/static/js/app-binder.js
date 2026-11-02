@@ -6600,12 +6600,12 @@ class _Binder {
 
     // ---- the overview (1.1) -------------------------------------------------
 
-    // The show map as view 1, the POSITIONS, SHOW TOTALS and CONTENTS
-    // tables across the top the way their inventory tables sit. The tables
-    // take at most half the height (what does not fit is cut - the
-    // overview never continues, the contents naming every sheet must stay
-    // on it). The map takes the largest free room the tables leave
-    // (_bOverviewMapArea).
+    // The show map as view 1 under a BAND of tables across the top -
+    // POSITIONS, SHOW TOTALS and CONTENTS, the contents in as many
+    // columns as draw the map largest (_bOverviewBand) - the map across
+    // the whole width under the band, its bubble just under it. Nothing in
+    // the band is cut: the overview never continues, and the contents
+    // names every sheet of the set.
     _bOverviewPage(book) {
         const list = book.list;
         // The tables' columns, worked out first: every table is measured in
@@ -6724,71 +6724,149 @@ class _Binder {
         // The contents: every sheet of the set, from the plan the dry pass
         // made (a dry pass has none yet and lists nothing).
         const contents = (book.plan || []).map(p => ({ cells: [p.number, p.sheetTitle] }));
-        blocks.push({ lines: this._bTableLines(book, {
-            title: 'Contents',
-            cols: [{ title: 'sheet', w: 0.4 }, { title: 'title', w: 1.6 }],
-            rows: contents.length ? contents : [{ cells: ['', ''] }],
-            width: wide,
-        }) });
-        // The tables take half the height - up to 65% where the contents
-        // is long - and, where the sheet has a column for each, sit side
-        // by side the way their inventory tables do; on a narrower sheet
-        // they pack as they fit.
-        const contentsH = blocks[2].lines.reduce((s, l) => s + l.h, 0);
-        const colH = Math.min(Math.max(Math.floor(da.h * 0.5), contentsH), Math.floor(da.h * 0.65));
-        const pack = across >= blocks.length
-            ? { cols: blocks.map(b => this._bPack([b], colH, 1).cols[0]).filter(Boolean), rest: [] }
-            : this._bPack(blocks, colH, across);
+        const band = this._bOverviewBand(book, blocks[0].lines, blocks[1].lines,
+                                         contents.length ? contents : [{ cells: ['', ''] }], across, wide);
+        const pack = { cols: band.cols, rest: [] };
         const L = { kind: 'overview', cols: across, colW: wide, top: da.y, pack,
                     colX: (i) => da.x + i * (wide + COL_GAP) };
-        const { area: mapArea, from, to } = this._bOverviewMapArea(book, L);
+        const mapArea = band.area;
         const view = ++book.views;
         this._bPage(book, { kind: 'overview', title: 'Overview', sheetTitle: 'OVERVIEW', viewName: 'OVERVIEW',
                             subject: book.meta.show, view, layout: 'overview', cols: across }, () => {
             this._bDrawLayout(book, L);
             const used = this._bShowMap(book, mapArea) || mapArea;
-            this._bViewBubble(book, view, 'OVERVIEW', mapArea.x + 20, used.y + used.h + 8);
-            // what the tests read: each table column's box, and which
-            // columns the map stood under
+            // the view's bubble just under the drawing, at its left
+            this._bViewBubble(book, view, 'OVERVIEW', Math.max(mapArea.x, used.x) + 20, used.y + used.h + 8);
+            // what the tests read: each table column's box, the band's
+            // height and how the contents split
             if (book.log && book.log.map) {
-                book.log.map.placement = { from, to, fullWidth: from === 0 && to === across - 1 };
+                book.log.map.band = { h: band.h, contentsCols: band.contentsCols, layout: band.layout };
                 book.log.map.tables = pack.cols.map((c, i) => ({ x: L.colX(i), y: da.y, w: wide, h: c.h }));
             }
         });
     }
 
-    // THE BIGGER DRAWING WINS (owner, 2026-11-02, on page 1 of a real
-    // binder: "we have a ton of wasted space on page 1" - "always prefer a
-    // bigger drawing"). The map used to stand under the TALLEST column,
-    // across the whole width: a long CONTENTS pushed it to the foot of the
-    // sheet and left the room under the short POSITIONS and SHOW TOTALS
-    // empty. Every run of side-by-side columns is a room now - from below
-    // the tallest table in the run to the bubble's room at the sheet's
-    // foot, as wide as the run (the whole width is the run of every
-    // column, the old room) - and the map takes the one it is drawn
-    // largest in, at its own proportions; a tie keeps the wider room.
-    // Returns { area, from, to }: the room and the columns it spans.
-    _bOverviewMapArea(book, L) {
+    // TABLES ACROSS THE TOP, THE DRAWING UNDER THEM (owner, 2026-11-02, on
+    // page 1 of a real binder: "we have a ton of wasted space on page 1",
+    // "always prefer a bigger drawing", then "Tables across the top" and
+    // "can also split the page content into two columns"). The map used to
+    // stand under a CONTENTS of 30-odd rows, small at the sheet's foot,
+    // with the room under POSITIONS and SHOW TOTALS empty. Now the tables
+    // share one band across the top and the map takes the whole width
+    // under it. The band is tried in the sheet's columns every way that
+    // holds it whole:
+    //   - POSITIONS and SHOW TOTALS side by side, or one over the other,
+    //     and the CONTENTS beside them in k columns of balanced height,
+    //     its rows in order ("CONTENTS 1", "CONTENTS 2", ...);
+    //   - all three run in order down the columns as short as they will
+    //     go, the CONTENTS starting under SHOW TOTALS (a narrow sheet with
+    //     two columns, where the first way leaves the CONTENTS one long
+    //     column).
+    // The way that draws the map largest wins. Where several draw it the
+    // same - a map stopped by the sheet's width - the one with the fewest
+    // contents columns does, the tables side by side before one over the
+    // other. Every table is measured in the column it is painted in:
+    // measured in the narrower COL_W, a contents title that prints on one
+    // line took a second line's height.
+    // Returns { cols, h, area, contentsCols, layout }: the band's columns
+    // as _bDrawLayout takes them, its height, the map's room under it, how
+    // many columns the contents took and which way won.
+    _bOverviewBand(book, positions, totals, contents, across, wide) {
         const da = book.geo.da;
-        const n = L.cols;
-        const heights = Array.from({ length: n }, (_v, i) => (L.pack.cols[i] ? L.pack.cols[i].h : 0));
+        const sum = (lines) => lines.reduce((s, l) => s + l.h, 0);
+        const contentsTable = (title, rows) => this._bTableLines(book, {
+            title, cols: [{ title: 'sheet', w: 0.4 }, { title: 'title', w: 1.6 }], rows, width: wide,
+        });
+        // the contents' rows' heights, as one table measures them: its
+        // head lines (title, headings), then one line per row
+        const whole = contentsTable('Contents', contents);
+        const headH = sum(whole.filter(l => l.head));
+        const rowH = whole.filter(l => !l.head).map(l => l.h);
+        const posH = sum(positions), totH = sum(totals);
+        // the smallest height under which `fill(cap)` takes no more than
+        // `n` columns, and what it fills
+        const shortest = (fill, n, lo, hi) => {
+            while (lo < hi) {
+                const mid = Math.floor((lo + hi) / 2);
+                if (fill(mid).length <= n) hi = mid; else lo = mid + 1;
+            }
+            return fill(lo);
+        };
+        // the contents' rows in order, a new part each time the next row
+        // would take its column past `cap`
+        const rowsIn = (cap) => {
+            const parts = [];
+            let h = 0;
+            rowH.forEach((r, i) => {
+                if (!parts.length || h + r > cap) { parts.push([]); h = headH; }
+                parts[parts.length - 1].push(i);
+                h += r;
+            });
+            return parts;
+        };
+        const tallestRow = Math.max(...rowH);
+        const allRows = rowH.reduce((s, r) => s + r, 0);
+        // Every candidate: a list of columns, each a list of items - 'P',
+        // 'T' or a contents part (its rows' indexes).
+        const tries = [];
+        for (let k = 1; k <= Math.max(1, Math.min(contents.length, across)); k++) {
+            const parts = shortest(rowsIn, k, headH + tallestRow, headH + allRows);
+            if (parts.length !== k) continue;
+            if (2 + k <= across) tries.push({ layout: 'side', cols: [['P'], ['T'], ...parts.map(p => [p])] });
+            if (1 + k <= across) tries.push({ layout: 'stacked', cols: [['P', 'T'], ...parts.map(p => [p])] });
+        }
+        // all three in order down the columns, each column as short as
+        // the band allows
+        const runIn = (cap) => {
+            const cols = [];
+            let cur = null, part = null;
+            const open = () => { cur = { items: [], h: 0 }; cols.push(cur); part = null; };
+            const start = () => (cur.items.length ? cur.h + BLOCK_GAP : 0);
+            open();
+            for (const [key, h] of [['P', posH], ['T', totH]]) {
+                if (cur.items.length && start() + h > cap) open();
+                cur.h = start() + h;
+                cur.items.push(key);
+            }
+            rowH.forEach((r, i) => {
+                if (part && cur.h + r <= cap) { part.push(i); cur.h += r; return; }
+                if (cur.items.length && start() + headH + r > cap) open();
+                cur.h = start() + headH + r;
+                part = [i];
+                cur.items.push(part);
+            });
+            return cols.map(c => c.items);
+        };
+        tries.push({ layout: 'run', cols: shortest(runIn, across, Math.max(posH, totH, headH + tallestRow),
+                                                   posH + totH + headH + allRows + 2 * BLOCK_GAP) });
+        // a column of blocks, one under the next
+        const column = (blocks) => {
+            const items = [];
+            let y = 0;
+            blocks.forEach((lines, i) => {
+                if (i) y += BLOCK_GAP;
+                for (const line of lines) { items.push({ line, y }); y += line.h; }
+            });
+            return { h: y, items };
+        };
         const ext = this._bShowMapExtent();
-        const rooms = [];
-        for (let i = 0; i < n; i++) {
-            for (let j = i; j < n; j++) {
-                const top = Math.max(...heights.slice(i, j + 1));
-                const y = da.y + top + (top ? COL_GAP : 0);
-                const x = L.colX(i);
-                const w = L.colX(j) + L.colW - x;
-                const h = da.y + da.h - BUBBLE_H - y;
-                const zoom = h > 0 ? Math.min(w / ext.w, h / ext.h, MAP_ZOOM_CAP) : 0;
-                rooms.push({ area: { x, y, w, h }, from: i, to: j, zoom });
+        let best = null;
+        for (const t of tries) {
+            if (!t.cols.length || t.cols.length > across) continue;
+            const parts = t.cols.flat().filter(it => Array.isArray(it));
+            const tables = new Map(parts.map((p, i) => [p, contentsTable(
+                parts.length > 1 ? `Contents ${i + 1}` : 'Contents', p.map(r => contents[r]))]));
+            const cols = t.cols.map(items => column(items.map(it => (it === 'P' ? positions
+                : it === 'T' ? totals : tables.get(it)))));
+            const h = cols.reduce((m, c) => Math.max(m, c.h), 0);
+            const y = da.y + h + COL_GAP;
+            const area = { x: da.x, y, w: da.w, h: Math.max(0, da.y + da.h - BUBBLE_H - y) };
+            const zoom = area.h > 0 ? Math.min(area.w / ext.w, area.h / ext.h, MAP_ZOOM_CAP) : 0;
+            if (!best || zoom > best.zoom * (1 + 1e-9)) {
+                best = { cols, h, area, zoom, contentsCols: parts.length, layout: t.layout };
             }
         }
-        // the widest room first, so a tie keeps it
-        rooms.sort((a, b) => (b.to - b.from) - (a.to - a.from) || a.from - b.from);
-        const best = rooms.reduce((m, r) => (r.zoom > m.zoom * (1 + 1e-9) ? r : m), rooms[0]);
-        return { area: best.area, from: best.from, to: best.to };
+        return best;
     }
 
     // The show at a glance: the Show Look, cropped to the SCREENS' bounds
