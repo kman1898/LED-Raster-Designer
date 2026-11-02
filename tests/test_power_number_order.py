@@ -12,8 +12,9 @@ The owner's rulings, 2026-11-01:
   2. The short leftover is a circuit like any other: with splitters on,
      the leftovers share through 2fers / 3fers.
   3. The same for a column too tall for one circuit (vertical first).
-  4. Circuit numbers: Across | Down (layer.powerNumberOrder, missing =
-     Across). The circuits stay the same runs; only the numbers move.
+  4. Circuit numbers: Across | Down (layer.powerNumberOrder; missing
+     follows the flow: Across on horizontal first, Down on vertical
+     first). The circuits stay the same runs; only the numbers move.
      Across numbers along each line first, Down down the stacks, then the
      next stack back at the first line. Vertical first keeps the words'
      meaning on the wall: Across numbers along the top band of runs,
@@ -212,17 +213,23 @@ def test_column_too_tall_splits_down_the_column(page):
     22 + 8, read from the top on tl-v and from the bottom on bl-v."""
     tl = cells(page, "window.__pn.screen({ columns: 3, rows: 30, powerFlowPattern: 'tl-v' })")
     assert tl['error'] is None and tl['cut'] is True
-    # Across is the default: along the top band first (vertical first)
-    assert tl['circuits'] == [
-        col_run(0, range(0, 22)), col_run(1, range(0, 22)), col_run(2, range(0, 22)),
-        col_run(0, range(22, 30)), col_run(1, range(22, 30)), col_run(2, range(22, 30)),
-    ]
-    tld = cells(page, """window.__pn.screen({ columns: 3, rows: 30, powerFlowPattern: 'tl-v',
-        powerNumberOrder: 'down' })""")
-    assert tld['circuits'] == [
+    # No saved order follows the flow: Down on a vertical-first pattern,
+    # down each column first - the walk's own order
+    down_each_column = [
         col_run(0, range(0, 22)), col_run(0, range(22, 30)),
         col_run(1, range(0, 22)), col_run(1, range(22, 30)),
         col_run(2, range(0, 22)), col_run(2, range(22, 30)),
+    ]
+    assert tl['circuits'] == down_each_column
+    tld = cells(page, """window.__pn.screen({ columns: 3, rows: 30, powerFlowPattern: 'tl-v',
+        powerNumberOrder: 'down' })""")
+    assert tld['circuits'] == down_each_column
+    # Across: along the top band first, then back for the next band
+    tla = cells(page, """window.__pn.screen({ columns: 3, rows: 30, powerFlowPattern: 'tl-v',
+        powerNumberOrder: 'across' })""")
+    assert tla['circuits'] == [
+        col_run(0, range(0, 22)), col_run(1, range(0, 22)), col_run(2, range(0, 22)),
+        col_run(0, range(22, 30)), col_run(1, range(22, 30)), col_run(2, range(22, 30)),
     ]
     bl = cells(page, """window.__pn.screen({ columns: 2, rows: 30, powerFlowPattern: 'bl-v',
         powerNumberOrder: 'down' })""")
@@ -326,7 +333,7 @@ def test_vertical_first_is_the_mirror_image(page):
     """3 x 5 at 1,500 W, tl-v: each column is 2 + 2 + 1 down. Across numbers
     along the top band of runs first; Down numbers down each column."""
     S = "window.__pn.screen({ columns: 3, rows: 5, panelWatts: 1500, powerFlowPattern: '%s'%s })"
-    across = cells(page, S % ('tl-v', ''))['circuits']
+    across = cells(page, S % ('tl-v', ", powerNumberOrder: 'across'"))['circuits']
     assert across == [
         col_run(0, [0, 1]), col_run(1, [0, 1]), col_run(2, [0, 1]),
         col_run(0, [2, 3]), col_run(1, [2, 3]), col_run(2, [2, 3]),
@@ -338,8 +345,10 @@ def test_vertical_first_is_the_mirror_image(page):
         col_run(1, [0, 1]), col_run(1, [2, 3]), col_run(1, [4]),
         col_run(2, [0, 1]), col_run(2, [2, 3]), col_run(2, [4]),
     ]
+    # no saved order on a vertical-first screen follows the flow: Down
+    assert cells(page, S % ('tl-v', ''))['circuits'] == down
     # a right-start vertical pattern steps its band right to left
-    tr = cells(page, S % ('tr-v', ''))['circuits']
+    tr = cells(page, S % ('tr-v', ", powerNumberOrder: 'across'"))['circuits']
     assert tr[:3] == [col_run(2, [0, 1]), col_run(1, [0, 1]), col_run(0, [0, 1])]
 
 
@@ -362,16 +371,26 @@ def test_split_with_z_on_the_90x5(page):
     assert zr['circuits'][5][0] == [1, 89], 'row 2 starts again at the right'
 
 
-def test_a_show_without_the_field_reads_across(page):
+def test_a_show_without_the_field_follows_the_flow(page):
+    """No saved order follows the flow (the owner, 2026-11-01, as on the
+    data side): Across on a horizontal-first pattern, Down on a
+    vertical-first one - the walk's own order either way."""
     out = page.evaluate("""() => {
-        const pn = window.__pn;
-        const S = pn.repro();
-        delete S.powerNumberOrder;
-        return { order: window.app.powerNumberOrder(S),
-                 same: JSON.stringify(pn.cells(S).circuits)
-                     === JSON.stringify(pn.cells(pn.repro({ powerNumberOrder: 'across' })).circuits) };
+        const pn = window.__pn, app = window.app;
+        const same = (S, order) => JSON.stringify(pn.cells(S).circuits)
+            === JSON.stringify(pn.cells(Object.assign({}, S, { powerNumberOrder: order })).circuits);
+        const H = pn.repro();
+        delete H.powerNumberOrder;
+        const V = pn.screen({ columns: 3, rows: 30, powerFlowPattern: 'bl-v-z' });
+        // a custom screen reads the pattern it remembers
+        const C = pn.screen({ powerFlowPattern: 'custom', lastPowerFlowPattern: 'tr-v' });
+        return { h: app.powerNumberOrder(H), hSame: same(H, 'across'),
+                 v: app.powerNumberOrder(V), vSame: same(V, 'down'),
+                 c: app.powerNumberOrder(C),
+                 saved: app.powerNumberOrder(Object.assign({}, V, { powerNumberOrder: 'across' })) };
     }""")
-    assert out == {'order': 'across', 'same': True}
+    assert out == {'h': 'across', 'hSame': True, 'v': 'down', 'vSame': True,
+                   'c': 'down', 'saved': 'across'}
 
 
 # ── 3. the switch in Power Settings ──────────────────────────────────────
@@ -389,39 +408,54 @@ def test_switch_shows_only_where_a_row_is_cut_and_saves_down(page, e2e_server):
         const a = window.app;
         const post = (body) => fetch('/api/layer/add', { method: 'POST',
             headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json());
-        const add = async (name, cols) => {
-            const layer = await post({ name, columns: cols, rows: 5, cabinet_width: 192, cabinet_height: 384,
-                                       offset_x: 0, offset_y: 4000 + cols * 10 });
+        const add = async (name, cols, rows = 5, pattern = 'tl-h') => {
+            const layer = await post({ name, columns: cols, rows, cabinet_width: 192, cabinet_height: 384,
+                                       offset_x: 0, offset_y: 4000 + cols * 10 + rows * 1000 });
             a.initializeLayerDefaults(layer);
             a.setScreenVoltage(layer, 208);
             layer.powerAmperage = 20; layer.powerAmperageCustom = 20;
             layer.panelWatts = 150; layer.powerOrganized = true; layer.powerMaximize = false;
-            layer.powerFlowPattern = 'tl-h';
+            layer.powerFlowPattern = pattern;
             a.upsertProjectLayer(layer);
             a.updateLayers([layer]);
             return a.project.layers.find(l => l.id === layer.id);
         };
         const wide = await add('PN WIDE', 90);
         const narrow = await add('PN NARROW', 10);
+        // vertical first, columns of 30 cut 22 + 8, no saved order
+        const tall = await add('PN TALL', 3, 30, 'tl-v');
         const row = document.getElementById('power-number-order-row');
-        const shown = (l) => { a.selectLayer(l); a.loadLayerToInputs(); return row.style.display !== 'none'; };
+        // the live layer objects: a server echo can replace them in the project
+        const live = (l) => a.project.layers.find(x => x.id === l.id);
+        const shown = (l) => { a.selectLayer(live(l)); a.loadLayerToInputs(); return row.style.display !== 'none'; };
+        const lit = () => ['across', 'down'].filter(o =>
+            document.getElementById('power-number-' + o).classList.contains('active'));
         const res = { field: wide.powerNumberOrder === undefined ? null : wide.powerNumberOrder };
+        res.tallShown = shown(tall);
+        res.tallLit = lit();
+        res.tallField = live(tall).powerNumberOrder === undefined ? null : live(tall).powerNumberOrder;
+        res.tallSecond = a.calculatePowerAssignments(live(tall)).circuits[1].map(p => [p.row, p.col])[0];
         res.narrowShown = shown(narrow);
         res.wideShown = shown(wide);
         res.acrossLit = document.getElementById('power-number-across').classList.contains('active');
         res.downLit = document.getElementById('power-number-down').classList.contains('active');
         document.getElementById('power-number-down').click();
-        res.after = wide.powerNumberOrder;
+        res.after = live(wide).powerNumberOrder;
         res.downLitAfter = document.getElementById('power-number-down').classList.contains('active');
-        res.first2 = a.calculatePowerAssignments(wide).circuits[1][0].row;
+        res.first2 = a.calculatePowerAssignments(live(wide)).circuits[1][0].row;
         res.id = wide.id;
         return res;
     }""")
     assert out['field'] is None, 'a new screen stores no Circuit numbers until it is set'
+    # vertical first with no saved order follows the flow: Down is lit and
+    # circuit 2 is column 1's second run, down the column
+    assert out['tallShown'] is True and out['tallField'] is None
+    assert out['tallLit'] == ['down'], out['tallLit']
+    assert out['tallSecond'] == [22, 0], out['tallSecond']
     assert out['narrowShown'] is False, 'nothing is cut on a 10-wide row'
     assert out['wideShown'] is True
     assert out['acrossLit'] is True and out['downLit'] is False
-    assert out['after'] == 'down' and out['downLitAfter'] is True
+    assert out['after'] == 'down' and out['downLitAfter'] is True, out
     assert out['first2'] == 1, 'circuit 2 starts row 2 under Down'
     # the PUT carried the field to the server
     page.wait_for_function("""(id) => fetch('/api/project').then(r => r.json()).then(p =>

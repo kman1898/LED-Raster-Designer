@@ -378,6 +378,8 @@ FIXES
   row first, Down goes down the stacks and starts the next stack back at
   the first row. The circuits stay the same, only their numbers change,
   and it shows only on a screen where Organized cuts a row or column.
+  Until you pick one it follows the flow pattern: Across when it's
+  horizontal first, Down when it's vertical first.
 
 v1.5.3 - October 21, 2026
 ----------------------------

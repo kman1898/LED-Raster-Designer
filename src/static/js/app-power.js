@@ -1,7 +1,7 @@
 // app-power: feature methods for LEDRasterApp (verbatim from the old
 // monolithic app.js), attached to the prototype via the carrier class.
 import { LEDRasterApp } from './app-core.js';
-import { sendClientLog } from './helpers.js';
+import { sendClientLog, isVerticalFlowPattern } from './helpers.js';
 
 // The build whose US circuits first packed to 80% of the breaker: a show
 // saved before it keeps its automatic 2fers and 3fers as they were
@@ -5110,37 +5110,50 @@ class _Power {
     // runs first, Down numbers down each column first. The pattern's start
     // corner decides where the first line and the first run are, so a
     // bottom-start pattern stacks up from the bottom and a right-start one
-    // steps its stacks right to left. Missing (every show before the
-    // switch) is Across; a screen whose lines all fit has nothing to
-    // renumber either way, so no older show moves.
-    powerNumberOrder(layer) {
-        return (layer && layer.powerNumberOrder === 'down') ? 'down' : 'across';
+    // steps its stacks right to left.
+    //
+    // A screen that has never been switched (no powerNumberOrder, every
+    // show from before the switch) FOLLOWS THE FLOW (the owner, 2026-11-01,
+    // the same rule as the data side): it numbers along its lines, the way
+    // the walk always has - Across on a horizontal-first pattern, Down on a
+    // vertical-first one. `isHorizontalFirst` says which; left out, the
+    // screen's automatic pattern decides (autoPowerPattern, so a custom
+    // screen reads the pattern it remembers). A screen whose lines all fit
+    // has nothing to renumber either way, so no older show moves.
+    powerNumberOrder(layer, isHorizontalFirst = null) {
+        const saved = layer && layer.powerNumberOrder;
+        if (saved === 'down' || saved === 'across') return saved;
+        const horizontal = isHorizontalFirst === null
+            ? !isVerticalFlowPattern(this.autoPowerPattern(layer))
+            : !!isHorizontalFirst;
+        return horizontal ? 'across' : 'down';
     }
 
     // Does the Circuit numbers switch do anything on this screen? Only on
     // an automatic Organized screen whose walk cuts a row (or a column)
     // into several circuits; a group member routed on its owner reads the
-    // owner's walk.
+    // owner's walk. Returns that walking screen, or null.
     powerNumberOrderApplies(layer) {
-        if (!layer || (layer.type || 'screen') !== 'screen') return false;
+        if (!layer || (layer.type || 'screen') !== 'screen') return null;
         const plan = (typeof this.getAutoRoutePlan === 'function')
             ? this.getAutoRoutePlan(layer, 'power') : null;
         const walker = (plan && !plan.isOwner && plan.owner) ? plan.owner : layer;
-        if (walker.powerMaximize || !walker.powerOrganized) return false;
-        if (this.usesCustomCircuits(walker)) return false;
-        return !!this.calculatePowerAssignments(walker).cut;
+        if (walker.powerMaximize || !walker.powerOrganized) return null;
+        if (this.usesCustomCircuits(walker)) return null;
+        return this.calculatePowerAssignments(walker).cut ? walker : null;
     }
 
     // The Circuit numbers row under Organized: shown only where it does
-    // something (powerNumberOrderApplies), its lit button the screen's
-    // order as it reads now (powerNumberOrder - unset reads Across).
+    // something (powerNumberOrderApplies), its lit button the order the
+    // walking screen numbers by now (powerNumberOrder - unset follows the
+    // flow: Across on horizontal first, Down on vertical first).
     syncPowerNumberOrder(layer = this.currentLayer) {
         const row = document.getElementById('power-number-order-row');
         if (!row) return;
-        const on = !!layer && this.powerNumberOrderApplies(layer);
-        row.style.display = on ? '' : 'none';
-        if (!on) return;
-        const order = this.powerNumberOrder(layer);
+        const walker = layer ? this.powerNumberOrderApplies(layer) : null;
+        row.style.display = walker ? '' : 'none';
+        if (!walker) return;
+        const order = this.powerNumberOrder(walker);
         row.querySelectorAll('[data-order]').forEach(btn => {
             btn.classList.toggle('active', btn.getAttribute('data-order') === order);
         });
@@ -5309,8 +5322,8 @@ class _Power {
             // where the lines are columns. `items` in walk order; returns
             // the indices in circuit-number order. Only the numbers move.
             const numberByStacks = isHorizontalFirst
-                ? this.powerNumberOrder(layer) === 'down'
-                : this.powerNumberOrder(layer) === 'across';
+                ? this.powerNumberOrder(layer, true) === 'down'
+                : this.powerNumberOrder(layer, false) === 'across';
             const numberOrder = (items) => (numberByStacks
                 ? stackOrder(items) : items.map((_, i) => i));
 
