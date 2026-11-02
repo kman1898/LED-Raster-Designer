@@ -2163,6 +2163,13 @@ button.hw-dock-typechip:focus-visible { outline: 1px solid var(--ps-accent, #ef3
 .hw-dock-fiber-editor {
     margin-left: 7.5ch; padding: 3px 5px; border-left: 2px solid #444;
 }
+/* a link's extension at the box end (2026-11-02): its own line right
+   under the link it extends, indented like the editor */
+.hw-dock-fiber-ext {
+    display: flex; flex-wrap: wrap; gap: 6px; row-gap: 3px; align-items: center;
+    margin-left: 7.5ch; padding: 1px 5px; border-left: 2px solid #444;
+}
+.hw-dock-fiber-ext .hw-dock-fiber-ext-end { width: 13ch; }
 .hw-dock-fiber-editor { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
 .hw-dock-fiber-field { display: inline-flex; align-items: center; gap: 4px; }
 .hw-dock-fiber-names {
