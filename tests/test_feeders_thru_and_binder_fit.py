@@ -151,7 +151,7 @@ def test_a_distro_fed_thru_another_on_a_different_service_is_refused(page):
     n = len(pg.evaluate(HIST_JS))
     moved = pg.evaluate("() => window.app.setDistroService('d2', 's2')")
     why = ("SR is powered thru SL, which is on HOUSE. A distro powered thru another counts on that "
-           "distro's service: feed it from GEN directly, or leave it off a service.")
+           "distro's service: power it from GEN directly, or leave it off a service.")
     assert moved is False and why in pg.evaluate(TOASTS_JS), pg.evaluate(TOASTS_JS)
     assert len(pg.evaluate(HIST_JS)) == n, 'a refusal took a history entry'
     assert pg.evaluate("() => window.app.setDistroService('d2', 's1')") is True
