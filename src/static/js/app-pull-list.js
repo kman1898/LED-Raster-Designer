@@ -3,7 +3,7 @@
 // packet next.
 //
 // The user's own pull sheet (Google Sheets, exported to xlsx) is the shape
-// this feeds: POSITIONS side by side, each a list of (Cable Type, Length,
+// this feeds: POSITIONS side by side, each a list of (Gear, Length,
 // Qty, Label, Notes) rows in the GEAR LIST vocabulary, then TOTALS built
 // from every position. Rulings (2026-09-06):
 //

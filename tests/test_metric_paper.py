@@ -161,10 +161,11 @@ def test_a_feet_workbook_keeps_the_template_s_feet():
     """A feet show (and a show that names no unit) writes the template's
     GEAR LIST, READ ME and sort key untouched, only the lengths used
     appended - save the template's old TRUE1 spelling, which reads TRUE1
-    (2026-10-21), and its " - " dashes, rewritten (2026-10-23)."""
+    (2026-10-21), its " - " dashes, rewritten (2026-10-23), and its
+    Cable Type wording, which reads Gear (2026-11-02)."""
     tpl = _template()
     tpl_lengths = _gear_lengths(tpl)
-    tpl_readme = [pull_sheet.dash_spelling(pull_sheet.true1_spelling(c.value))
+    tpl_readme = [pull_sheet.gear_spelling(pull_sheet.dash_spelling(pull_sheet.true1_spelling(c.value)))
                   for row in tpl[README].iter_rows() for c in row]
     tpl_keys = [tpl[CALC].cell(r, CALC_SORTKEY_COL).value
                 for r in range(CALC_FIRST_ROW, CALC_LAST_ROW + 1)]

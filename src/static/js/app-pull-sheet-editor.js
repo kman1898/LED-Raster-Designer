@@ -2,7 +2,7 @@
 // list (app-pull-list.js). Ruling (user, 2026-09-06): "edit in the app and
 // then export a whole file i can share" - so the list buildPullList()
 // recomputes from the show is shown as the user's workbook lays it out
-// (positions side by side, Cable Type · Length · Qty · Label · Notes, a
+// (positions side by side, Gear · Length · Qty · Label · Notes, a
 // TOTALS block at the right), and what he changes is stored as deltas in
 // project.pullSheetEdits and read back by BOTH exports through
 // buildPullSheet().
@@ -194,7 +194,7 @@ class _PullSheetEditor {
             html.push(`<div class="pull-pos" data-pos="${esc(key)}">`);
             html.push(`<div class="pull-pos-head"><div class="pull-pos-name">${esc(pos.name)}</div>`
                 + `<div class="pull-pos-screens">${esc(screensText)}</div></div>`);
-            html.push('<table class="pull-table"><thead><tr><th>Cable Type</th><th>Length</th>'
+            html.push('<table class="pull-table"><thead><tr><th>Gear</th><th>Length</th>'
                 + '<th class="pull-th-qty">Qty</th><th>Label</th><th>Notes</th><th></th></tr></thead><tbody>');
             const hidden = [];
             for (const r of pos.rows) {
@@ -207,7 +207,7 @@ class _PullSheetEditor {
                 html.push(this._pullSheetAddedRowHtml(a, idx, vocab));
             });
             if (!pos.rows.length && !(pe.added || []).length) {
-                html.push('<tr class="pull-empty"><td colspan="6">No cable on this position.</td></tr>');
+                html.push('<tr class="pull-empty"><td colspan="6">No gear on this position.</td></tr>');
             }
             html.push('</tbody></table>');
             html.push(`<div class="pull-pos-foot"><button type="button" class="btn pull-add" tabindex="-1">+ Add row</button>`
@@ -321,7 +321,7 @@ class _PullSheetEditor {
         const rows = list.totals || [];
         const html = ['<div class="pull-pos-head"><div class="pull-pos-name">TOTALS</div>'
             + `<div class="pull-pos-screens">${list.positions.length} ${list.positions.length === 1 ? 'position' : 'positions'}</div></div>`];
-        html.push('<table class="pull-table pull-table-ro"><thead><tr><th>Cable Type</th><th>Length</th>'
+        html.push('<table class="pull-table pull-table-ro"><thead><tr><th>Gear</th><th>Length</th>'
             + '<th class="pull-th-qty">Qty</th><th>Label</th></tr></thead><tbody>');
         for (const r of rows) {
             html.push(`<tr><td class="pull-ro pull-type">${esc(r.type)}</td><td class="pull-ro pull-len">${esc(r.length || '')}</td>`

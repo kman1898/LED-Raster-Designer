@@ -291,7 +291,7 @@ def test_a_free_row_naming_a_panel_lands_on_the_panel_side(seeded):
 def test_the_xlsx_and_its_gear_list_carry_the_panel_rows(seeded, e2e_server):
     """The workbook is the edited sheet: the panel rows in their positions'
     blocks with an edit on one, and every written panel type appended to
-    the GEAR LIST's Cable Type column."""
+    the GEAR LIST's Gear column."""
     pg, _, _ = seeded
     import urllib.request
     sheet = pg.evaluate("""([plain]) => {
