@@ -497,6 +497,18 @@ FIXES
   with it, so two CVT4K-S boxes give 16 ports, each with its backup. Like
   the MX40 Pro, each box there can be set to Mirror instead, to feed a
   mirror screen.
+- FIX: The VX400 Pro, VX600 Pro, VX1000 Pro and VX2000 Pro have an OPT
+  mode, Copy or Backup, as on the unit's own menu. In Backup, the default,
+  a breakout box on OPT 2 (OPT 3 or 4 on the VX2000 Pro) is the backup of
+  the box it copies and shows in the Data tray as one loop with it. In
+  Copy, that box feeds a mirror screen. Files saved before open in Backup.
+- FIX: A breakout box on OPT 2 of an MCTRL660 Pro is the backup of the
+  box on OPT 1. On an MCTRL R5 (OPT 2) or an MCTRL4K (OPT 3 or 4), each
+  copy box can be set to Backup, the default, or Mirror, like the NovaPro
+  UHD.
+- FIX: A breakout box on OPT 2 of an MX30 or MX20 is a copy of the box on
+  OPT 1 and feeds a mirror screen, since NovaStar documents that OPT as a
+  copy channel. The port count never changes.
 - FIX: The binder's Overview page draws your screens much bigger. Its
   tables now share one short band across the top, with a long Contents
   list split into two or more columns, and the drawing fills the whole

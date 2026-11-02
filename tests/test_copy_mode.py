@@ -59,6 +59,33 @@ H16 = 'novastar-card-h-16xrj45-2xfiber'
 MX40 = 'novastar-mx40-pro'
 CVT10 = 'novastar-cvt10'
 
+# The units whose own documents name a copy or backup OPT, beyond the H
+# cards, the MX40 Pro and the NovaPro UHDs, each with the field that quotes
+# it and the words it must quote (2026-11-02, the owner: "Any processor that
+# supports hot backup or copy will need to support this in our app").
+COPY_SOURCES = {
+    'novastar-vx400-pro': ('modesNote', ['Table 5-7 OPT working mode',
+        'Backup: OPT 2 backs up the output on Ethernet ports 1~4.']),
+    'novastar-vx600-pro': ('modesNote', ['Table 5-7 OPT working mode',
+        'Backup: OPT 2 backs up the output on Ethernet ports 1~6.']),
+    'novastar-vx1000-pro': ('modesNote', ['Table 5-7 OPT working mode',
+        'Backup: OPT 2 backs up the output on Ethernet ports 1~10.']),
+    'novastar-vx2000-pro': ('modesNote', ['Table 5-7 OPT working mode',
+        'You can set the working mode of OPT 3 and OPT 4 to Copy or Backup.']),
+    'novastar-mctrl660-pro': ('copyTrunksNote', ['Specifications V1.4.1 p.4',
+        'OPT2 is the backup input or output port of OPT1.']),
+    'novastar-mctrl-r5': ('copyTrunksNote', ['Specifications V1.0.5 p.4',
+        'OPT 2 is the copy channel of OPT 1.',
+        'OPT2 serves as the backup for OPT1.']),
+    'novastar-mctrl4k': ('copyTrunksNote', ['Specifications V1.2.1 p.4',
+        'OPT3 is a duplicate channel of OPT1.',
+        'OPT3 and OPT4 are backup input/output ports.']),
+    'novastar-mx30': ('copyTrunksNote', ['Specifications V1.5.0 p.8',
+        'OPT 2 is the copy channel of OPT 1.']),
+    'novastar-mx20': ('copyTrunksNote', ['Specifications V1.5.1 p.6',
+        'OPT 2 is the copy channel of OPT 1.']),
+}
+
 
 # ── helpers ───────────────────────────────────────────────────────────────
 
@@ -189,11 +216,19 @@ def test_only_the_named_products_carry_the_new_rules():
                           if any(m.get('copyTrunks') for m in
                                  (d.get('ports') or {}).get('modes') or []))
     # The NovaPro UHD and UHD Jr joined on 2026-11-02, each quoting its own
-    # sheet's "copy/hot backup" channel (copyTrunksNote).
+    # sheet's "copy/hot backup" channel (copyTrunksNote), and the same day
+    # every other NovaStar unit whose own documents name a copy or backup
+    # OPT (tests/test_copy_backup_all.py holds each quote).
     assert copy_devices == sorted([H4, H4E, MX40, 'novastar-novapro-uhd',
-                                   'novastar-novapro-uhd-jr'])
+                                   'novastar-novapro-uhd-jr'] + list(COPY_SOURCES))
+    # each quotes its source: a mode set per unit in modesNote, one fixed
+    # role or a per-box choice in copyTrunksNote
     assert all(catalog.get_device(d).get('copyTrunksNote')
-               for d in copy_devices if d not in (H4, H4E))
+               or catalog.get_device(d).get('modesNote')
+               for d in copy_devices)
+    for unit, (field, words) in COPY_SOURCES.items():
+        for w in words:
+            assert w in catalog.get_device(unit)[field], (unit, w)
     assert sorted(d['id'] for d in catalog.devices() if d.get('plugChoice')) \
         == sorted([H16, MX40])
     assert sorted(d['id'] for d in catalog.devices()

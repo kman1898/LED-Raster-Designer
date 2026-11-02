@@ -45,7 +45,8 @@
       "portsPerTrunk": 10,
       "trunkRate": "10G",
       "trunkDelivery": "copy",
-      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 10}]},
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 10, "copyTrunks": "mirror"}]},
+      "copyTrunksNote": "MX30 LED Display Controller Specifications V1.5.0 p.8 (User Manual V1.5.0 p.8 the same), OPT 1-2: \"OPT 1 transmits the data of Ethernet ports 1 to 10.\" \"OPT 2 is the copy channel of OPT 1.\" Copy only: no MX30 document says backup, so a box on OPT 2 feeds a mirror screen. The MX40 Pro's Mirror or Backup choice is the owner's ruling for the MX40 Pro alone.",
       "note": "2x 10G OPT at 10.3125 Gbps: OPT 1 transmits Ethernet ports 1-10 and OPT 2 is its copy channel, so both carry the unit's own copper and a box on either adds no ports."
     },
     {
@@ -61,7 +62,8 @@
       "portsPerTrunk": 6,
       "trunkRate": "10G",
       "trunkDelivery": "copy",
-      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 6}]},
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 6, "copyTrunks": "mirror"}]},
+      "copyTrunksNote": "MX20 LED Display Controller Specifications V1.5.1 p.6 (User Manual V1.5.1 p.7 the same), OPT 1-2: \"OPT 1 transmits the data of Ethernet ports 1 to 6.\" \"OPT 2 is the copy channel of OPT 1.\" Copy only: no MX20 document says backup, so a box on OPT 2 feeds a mirror screen. The MX40 Pro's Mirror or Backup choice is the owner's ruling for the MX40 Pro alone.",
       "note": "2x 10G OPT: OPT 1 transmits Ethernet ports 1-6 and OPT 2 is its copy channel - the unit's own six ports again, never more."
     },
     {
@@ -126,7 +128,14 @@
       "portsPerTrunk": 4,
       "trunkRate": "10G",
       "trunkDelivery": "copy",
-      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 4}]},
+      "ports": {
+        "defaultMode": "backup",
+        "modes": [
+          {"id": "copy", "label": "Copy", "count": 4, "copyTrunks": "mirror"},
+          {"id": "backup", "label": "Backup", "count": 4, "copyTrunks": "backup", "aliases": ["default"]}
+        ]
+      },
+      "modesNote": "VX Pro Series All-in-One Controller User Manual (file V1.4.2) p.87-88, Table 5-7 OPT working mode: \"Copy: OPT 2 copies the output on Ethernet ports 1~4.\" \"Backup: OPT 2 backs up the output on Ethernet ports 1~4.\" VX400 Pro All-in-One Controller Specifications V1.4.0 p.12, OPT: \"OPT 2: For output with copy and backup modes or loop output\", \"Output: OPT 1 sends the output on 4 Ethernet ports, while OPT 2 copies or backs up the output on 4 Ethernet ports.\" Copy: the box on OPT 2 feeds a mirror screen. Backup: it backs up the box on OPT 1. One setting for the unit, as the menu sets it. A file saved before the modes reads Backup.",
       "note": "Max 2.6 million px, 650,000 px per port on 8-bit. 2x 10G OPT carrying the unit's own four ports: in Output mode OPT 1 sends them and OPT 2 copies or backs them up; in the input modes the OPTs are video in / loop out instead. The port count is 4 in every mode, and a box adds none."
     },
     {
@@ -158,7 +167,14 @@
       "portsPerTrunk": 6,
       "trunkRate": "10G",
       "trunkDelivery": "copy",
-      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 6}]},
+      "ports": {
+        "defaultMode": "backup",
+        "modes": [
+          {"id": "copy", "label": "Copy", "count": 6, "copyTrunks": "mirror"},
+          {"id": "backup", "label": "Backup", "count": 6, "copyTrunks": "backup", "aliases": ["default"]}
+        ]
+      },
+      "modesNote": "VX Pro Series All-in-One Controller User Manual (file V1.4.2) p.87-88, Table 5-7 OPT working mode: \"Copy: OPT 2 copies the output on Ethernet ports 1~6.\" \"Backup: OPT 2 backs up the output on Ethernet ports 1~6.\" VX600 Pro All-in-One Controller Specifications V1.4.0 p.12, OPT: \"OPT 2: For output with copy and backup modes or loop output\", \"Output: OPT 1 sends the output on 6 Ethernet ports, while OPT 2 copies or backs up the output on 6 Ethernet ports.\" Copy: the box on OPT 2 feeds a mirror screen. Backup: it backs up the box on OPT 1. One setting for the unit, as the menu sets it. A file saved before the modes reads Backup.",
       "note": "Max 3.9 million px, 650,000 px per port on 8-bit. 2x 10G OPT carrying the unit's own six ports (Output mode: OPT 1 sends, OPT 2 copies or backs up; input modes repurpose them). The port count is 6 in every mode."
     },
     {
@@ -190,7 +206,14 @@
       "portsPerTrunk": 10,
       "trunkRate": "10G",
       "trunkDelivery": "copy",
-      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 10}]},
+      "ports": {
+        "defaultMode": "backup",
+        "modes": [
+          {"id": "copy", "label": "Copy", "count": 10, "copyTrunks": "mirror"},
+          {"id": "backup", "label": "Backup", "count": 10, "copyTrunks": "backup", "aliases": ["default"]}
+        ]
+      },
+      "modesNote": "VX Pro Series All-in-One Controller User Manual (file V1.4.2) p.87-88, Table 5-7 OPT working mode: \"Copy: OPT 2 copies the output on Ethernet ports 1~10.\" \"Backup: OPT 2 backs up the output on Ethernet ports 1~10.\" VX1000 Pro All-in-One Controller Specifications V1.4.0 p.12, OPT: \"OPT 2: For output with copy and backup modes or loop output\", \"Output: OPT 1 sends the output on 10 Ethernet ports, while OPT 2 copies or backs up the output on 10 Ethernet ports.\" Copy: the box on OPT 2 feeds a mirror screen. Backup: it backs up the box on OPT 1. One setting for the unit, as the menu sets it. A file saved before the modes reads Backup.",
       "note": "Max 6.5 million px, 650,000 px per port on 8-bit. 2x 10G OPT carrying the unit's own ten ports (Output mode: OPT 1 sends, OPT 2 copies or backs up; input modes repurpose them). The port count is 10 in every mode."
     },
     {
@@ -206,7 +229,14 @@
       "portsPerTrunk": 10,
       "trunkRate": "10G",
       "trunkDelivery": "copy",
-      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 20}]},
+      "ports": {
+        "defaultMode": "backup",
+        "modes": [
+          {"id": "copy", "label": "Copy", "count": 20, "copyTrunks": "mirror"},
+          {"id": "backup", "label": "Backup", "count": 20, "copyTrunks": "backup", "aliases": ["default"]}
+        ]
+      },
+      "modesNote": "VX Pro Series All-in-One Controller User Manual (file V1.4.2) p.88, Table 5-7 OPT working mode, VX2000 Pro OPT 3/4: \"Copy: OPT 3 copies the output on Ethernet ports 1~10, and OPT 4 copies the output on Ethernet ports 11~20.\" \"Backup: OPT 3 backs up the output on Ethernet ports 1~10, and OPT 4 backs up the output on Ethernet ports 11~20.\" p.14: \"You can set the working mode of OPT 3 and OPT 4 to Copy or Backup.\" VX2000 Pro All-in-One Controller Specifications V1.4.0 p.14, OPT: \"Output: OPT 1/2 sends the output on Ethernet ports, while OPT 3/4 copies or backs up the output on Ethernet ports.\" Copy: the boxes on OPT 3/4 feed a mirror screen. Backup: they back up the boxes on OPT 1/2. One setting for both OPTs, as the menu sets it. A file saved before the modes reads Backup.",
       "note": "4x 10G OPT carrying the unit's own twenty copper ports: OPT 1/2 send Ethernet 1-10 / 11-20 and OPT 3/4 copy or back them up, so no box adds a port. OPT 1/2 are self-adaptive and become video INPUTS in the input+output working modes, leaving only OPT 3/4 as outputs; the port count is 20 in every mode."
     },
     {
@@ -252,7 +282,8 @@
       "portsPerTrunk": 8,
       "trunkRate": "10G",
       "trunkDelivery": "copy",
-      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 16}]},
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 16, "copyTrunks": "per-box"}]},
+      "copyTrunksNote": "MCTRL4K LED Display Controller Specifications V1.2.1 p.4, OPT1~OPT4: \"OPT3 is a duplicate channel of OPT1.\" \"OPT4 is a duplicate channel of OPT2.\" The novastar.tech MCTRL 4K product page: \"OPT3 and OPT4 are backup input/output ports.\" Copy and backup are both its own published words, so a box on OPT 3/4 is set per box to Mirror (it feeds a mirror screen) or Backup (it backs up OPT 1/2), as on the NovaPro UHD. Backup is the default.",
       "note": "16x Neutrik Gigabit Ethernet on the unit. 4x 10G OPT carry them again - OPT1 transmits Ethernet 1-8, OPT2 transmits 9-16, OPT3/4 are their duplicate channels - so a box on any OPT is another place to plug into the same sixteen."
     },
     {
@@ -268,7 +299,8 @@
       "portsPerTrunk": 6,
       "trunkRate": "10G",
       "trunkDelivery": "copy",
-      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 6}]},
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 6, "copyTrunks": "backup"}]},
+      "copyTrunksNote": "MCTRL660 PRO Independent Controller Specifications V1.4.1 p.4, OPT1 OPT2: \"OPT2 is the backup input or output port of OPT1.\" The novastar.tech product page says the same: \"The OPT2 works as the backup input or output port of OPT1.\" Neither names a copy role, so a box on OPT 2 is the backup of the box on OPT 1 and nothing else.",
       "note": "2x 10G OPT: OPT1 corresponds to all 6 Gigabit Ethernet ports and OPT2 is its backup, each optical port equal to 6 Gigabit ports - the unit's own six again. In fiber converter mode the OPTs become inputs; the port count is 6 either way."
     },
     {
@@ -295,7 +327,8 @@
       "portsPerTrunk": 8,
       "trunkRate": "10G",
       "trunkDelivery": "copy",
-      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 8}]},
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 8, "copyTrunks": "per-box"}]},
+      "copyTrunksNote": "MCTRL R5 LED Display Controller Specifications V1.0.5 p.4 and User Manual V1.0.5 p.3, OPT1-OPT2: \"OPT 2 is the copy channel of OPT 1.\" The novastar.tech MCTRL R5 product page: \"OPT2 serves as the backup for OPT1.\" Copy and backup are both its own published words, so a box on OPT 2 is set per box to Mirror (it feeds a mirror screen) or Backup (it backs up OPT 1), as on the NovaPro UHD. Backup is the default.",
       "note": "8x RJ45 Gigabit Ethernet, 650,000 px per port on 8-bit and 325,000 on 10-bit; loads up to 3840x1080@60Hz. Supports port and screen rotation (10-bit input does not rotate). 2x 10G OPT carry the same eight ports - OPT 1 copies Ethernet 1-8 and OPT 2 is the copy channel of OPT 1 - so a box adds nothing."
     },
     {
