@@ -63,7 +63,7 @@ def test_the_pieces_are_wired():
         assert f"import './{name}';" in main_js, name
     presets = _src('src', 'static', 'js', 'app-presets.js')
     for fn in ('openChangeCabinet(', 'changeCabinetForLayers(', '_cabinetFieldsFrom(',
-               '_preferencesCabinetData(', '_setPickerChrome(', '_wireChangeCabinetMenuItem()'):
+               '_lastScreenPanelData(', '_setPickerChrome(', '_wireChangeCabinetMenuItem()'):
         assert fn in presets, fn
     menu = _src('src', 'static', 'js', 'app-context-menu.js')
     for fn in ('_prepareChangeCabinetMenu(', '_wireChangeCabinetMenuItem(', 'runChangeCabinetMenu('):

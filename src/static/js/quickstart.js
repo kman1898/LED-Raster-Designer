@@ -2628,6 +2628,70 @@
                 return (w.name || 'The screen') + ' hangs ' + types.none + ': the pull sheet counts its cabinets by that name, and a half tile as ' + types.height + '.';
             }
         },
+        // The panel a new project starts with (1.6.0, app-presets.js
+        // maybeOpenStartupPicker): a launch and File > New open the panel
+        // library first, and the pick makes the first screen, its name in
+        // the Panel field. The step opens the same chooser over the scratch
+        // show to show it, and closes it with nothing changed.
+        startPanel: {
+            since: '1.6.0',
+            target: '#btn-new', place: 'bottom', title: 'Pick a panel to start',
+            body: 'A new project opens the panel library first. The panel you pick makes the first screen and names it in Panel; Cancel starts with no screens.',
+            before: function () { switchView('pixel-map'); },
+            act: function (t) {
+                return t.hover('#btn-new').then(function (p) {
+                    ripple(p.x, p.y);
+                    A().openPresetPicker({ mode: 'startup' });
+                    return t.wait(function () { return pickerOpen() && $('#panel-catalog-list .panel-catalog-row'); }, 6000);
+                }).then(function (row) {
+                    if (!row) throw new Error('the panel library did not load');
+                    return t.spot($('#preset-picker-modal .modal-content')).then(function () {
+                        return t.pause(PACE.opened);
+                    });
+                });
+            },
+            check: function () {
+                var title = $('#preset-picker-title');
+                return pickerOpen() && A()._pickerMode === 'startup' && title && title.textContent === 'Choose a panel'
+                    ? 'File > New opens this: pick a panel, and Use Panel makes Screen1 of it.' : null;
+            },
+            after: function () { closePicker(); }
+        },
+        // Add Screen with nothing picked (1.6.0, app-presets.js
+        // _lastScreenPanelData): the new screen hangs the last screen's
+        // panel, and the line at the chooser's foot names it. The step
+        // opens Add Screen over the demo wall the Panel step named and
+        // closes it with nothing added.
+        sameAsLast: {
+            since: '1.6.0',
+            target: function () { return pickerOpen() ? '#preset-picker-summary' : '#layers-list .canvas-add-btn'; },
+            place: 'top', title: 'Add Screen copies the last panel',
+            body: 'Add Screen with nothing picked makes a screen of the last screen&rsquo;s panel. The line at the foot says which panel that is.',
+            before: function () { switchView('pixel-map'); },
+            act: function (t) {
+                var a = A();
+                return t.hover('#layers-list .canvas-add-btn').then(function (p) {
+                    press(true); ripple(p.x, p.y);
+                    return t.pause(200);
+                }).then(function () {
+                    press(false);
+                    a.openPresetPicker();
+                    return t.wait(function () {
+                        var s = $('#preset-picker-summary');
+                        return pickerOpen() && s && /will use/.test(s.textContent) ? s : null;
+                    }, 6000);
+                }).then(function (s) {
+                    if (!s) throw new Error('Add Screen did not offer the last screen panel');
+                    return t.spot(s).then(function () { return t.pause(PACE.opened); });
+                });
+            },
+            check: function () {
+                var s = pickerOpen() ? $('#preset-picker-summary') : null;
+                var m = s && /will use (.+)'s panel \((.+)\)/.exec(s.textContent);
+                return m ? 'With nothing picked, the new screen hangs ' + m[2] + ', the panel on ' + m[1] + '.' : null;
+            },
+            after: function () { closePicker(); }
+        },
         // Average power in the panel library (1.6.0, app-presets.js
         // _panelWattsText): the max every power figure is planned on, and
         // the sheet's average beside it where the sheet gives one. The step
@@ -5418,7 +5482,7 @@
         advanced: {
             title: 'Advanced Guide',
             seed: { name: 'New Show', layer: { panelWatts: 100, powerBreakoutType: 'soca-powercon' } },
-            steps: ['introAdvanced', 'projectName', 'cabinetSize', 'panelName', 'avgPower', 'gridSize', 'fit', 'blankCabinet',
+            steps: ['introAdvanced', 'projectName', 'cabinetSize', 'panelName', 'startPanel', 'sameAsLast', 'avgPower', 'gridSize', 'fit', 'blankCabinet',
                     'cabinetIdStyle', 'showLook', 'processing', 'flowPattern', 'zPattern', 'addProcessor',
                     'nameProcessor', 'redundancy', 'backupProcessor', 'mixedRedundancy', 'cardNames', 'dropProcessor', 'releasePort', 'attachmentFlag', 'pinPort',
                     'clearPortByMenu', 'clearCard', 'dropProcessorAgain',
@@ -5472,21 +5536,31 @@
         }
     };
 
+    // The boot's own business, from load until the stash is recovered and
+    // the first-run guide has either shown or decided not to. The startup
+    // panel picker (app-presets.js maybeOpenStartupPicker) waits it out, so
+    // the guide never opens over the picker and closes it.
+    var autoPending = true;
+    window.QuickStart.autoPending = function () { return autoPending; };
+
     function maybeAutoShow() {
-        if (disabled()) return;
+        if (disabled()) { autoPending = false; return; }
         // Never auto-show inside an automated browser (Playwright/Selenium set
         // navigator.webdriver). The tour's click-catcher would otherwise block
         // E2E tests. Real users are unaffected; they can still open it manually.
-        if (navigator.webdriver) return;
+        if (navigator.webdriver) { autoPending = false; return; }
         var tries = 0;
         var t = setInterval(function () {
             tries++;
             if (document.querySelector('#view-tabs') && document.querySelector('#right-sidebar')
                     && window.app && window.app.project && window.canvasRenderer) {
                 clearInterval(t);
-                setTimeout(function () { show('quick'); }, 400);
+                setTimeout(function () {
+                    try { show('quick'); } finally { autoPending = false; }
+                }, 400);
             } else if (tries > 40) {
                 clearInterval(t);
+                autoPending = false;
             }
         }, 150);
     }
@@ -5504,9 +5578,11 @@
                 clearInterval(t);
                 recoverStash().then(function (recovered) {
                     if (!recovered) maybeAutoShow();
-                });
+                    else autoPending = false;
+                }, function () { autoPending = false; });
             } else if (tries > 80) {
                 clearInterval(t);
+                autoPending = false;
             }
         }, 150);
     }

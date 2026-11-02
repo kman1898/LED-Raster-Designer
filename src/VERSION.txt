@@ -83,6 +83,24 @@ aren't counted. A screen from an older show uses the library's name for
 a panel that matches its size, pixels and weight, or its size, like
 500 × 500 mm panel.
 
+PICK A PANEL TO START
+
+When the app opens, and when you pick File > New, the panel library
+opens first. Pick a panel or one of your presets and Use Panel makes
+Screen1 from it, with the panel's pixels, size, weight and watts, and
+its name in Screen Info's Panel field, where you can type over it.
+Cancel starts an empty project, and Add Screen makes the first screen
+when you're ready. Opening a saved show never asks.
+
+Add Screen with nothing picked now makes a screen of the last screen's
+panel, and the line at the foot says which one, like Screen3's panel
+(ROE Black Pearl BP2V2). In an empty project, pick a panel or a preset
+first. Change cabinet also waits for you to pick one.
+
+Preferences no longer has Panel size or Panel weight. The kg or lb
+choice is its own Weight unit row, and a panel from the library gives
+its weight in that unit.
+
 THE AMPERAGE BOX
 
 You still type the breaker size in a screen's Amperage box, and the

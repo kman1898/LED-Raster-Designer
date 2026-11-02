@@ -14,6 +14,11 @@ const LEGACY_POWER_JUMP_NAME = 'Tru-1 Power Jump';
 // colors" default, and what any position of a stored set falls back to.
 const SHIPPED_CIRCUIT_COLORS = ['#BC382F', '#CC6B30', '#D2E94D', '#2CF82B', '#2145DC', '#7414F5'];
 
+// The panel preferences retired in 1.6.0 (Panel size px / mm, Panel
+// weight). A record saved before then still carries them; getPreferences
+// drops them, so nothing can read a stale panel from Preferences.
+const RETIRED_PANEL_PREFERENCE_KEYS = ['panelWidth', 'panelHeight', 'panelWidthMM', 'panelHeightMM', 'panelWeight'];
+
 class _Preferences {
     getPreferencesDefaults() {
         return {
@@ -21,11 +26,10 @@ class _Preferences {
             rasterHeight: 1080,
             columns: 8,
             rows: 5,
-            panelWidth: 128,
-            panelHeight: 128,
-            panelWidthMM: 500,
-            panelHeightMM: 500,
-            panelWeight: 20,
+            // The panel is no preference (1.6.0, owner 2026-11-02): a new
+            // project asks for it from the panel library and Add Screen
+            // copies the last screen's (RETIRED_PANEL_PREFERENCE_KEYS).
+            // The weight unit stays: a display choice, not a panel spec.
             weightUnit: 'kg',
             cabinetFontSize: 30,
             labelFontSize: 30,
@@ -248,6 +252,7 @@ class _Preferences {
             if (legacy && legacy !== LEGACY_POWER_JUMP_NAME) out.powerJumpNameTrue1 = legacy;
         }
         delete out.powerJumpName;
+        RETIRED_PANEL_PREFERENCE_KEYS.forEach(k => { delete out[k]; });
         // A record from before the system picker (1.5) kept a voltage and
         // a phase; it reads as the system they map to.
         if (saved && saved.distroSystem === undefined
@@ -692,11 +697,6 @@ class _Preferences {
         setVal('pref-raster-height', prefs.rasterHeight);
         setVal('pref-columns', prefs.columns);
         setVal('pref-rows', prefs.rows);
-        setVal('pref-panel-width', prefs.panelWidth);
-        setVal('pref-panel-height', prefs.panelHeight);
-        setVal('pref-panel-width-mm', prefs.panelWidthMM);
-        setVal('pref-panel-height-mm', prefs.panelHeightMM);
-        setVal('pref-panel-weight', prefs.panelWeight);
         setVal('pref-weight-unit', prefs.weightUnit || 'kg');
         setVal('pref-cabinet-font-size', prefs.cabinetFontSize);
         setVal('pref-label-font-size', prefs.labelFontSize);
@@ -896,11 +896,6 @@ class _Preferences {
             rasterHeight: readNum('pref-raster-height', defaults.rasterHeight),
             columns: readNum('pref-columns', defaults.columns),
             rows: readNum('pref-rows', defaults.rows),
-            panelWidth: readNum('pref-panel-width', defaults.panelWidth),
-            panelHeight: readNum('pref-panel-height', defaults.panelHeight),
-            panelWidthMM: readNum('pref-panel-width-mm', defaults.panelWidthMM),
-            panelHeightMM: readNum('pref-panel-height-mm', defaults.panelHeightMM),
-            panelWeight: readNum('pref-panel-weight', defaults.panelWeight),
             weightUnit: readStr('pref-weight-unit', defaults.weightUnit),
             cabinetFontSize: readNum('pref-cabinet-font-size', defaults.cabinetFontSize),
             labelFontSize: readNum('pref-label-font-size', defaults.labelFontSize),

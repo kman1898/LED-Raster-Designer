@@ -379,7 +379,7 @@
     // again next launch.
     function whenTourClear(cb, tries) {
         tries = tries || 0;
-        if (tries > 240) return;
+        if (tries > 240) { autoPending = false; return; }
         var overlay = document.getElementById('qs-catch');
         var tourUp = !!overlay && overlay.style.display !== 'none';
         var tourEnabled = true;
@@ -398,16 +398,23 @@
         if (openWindow(win)) pendingStampOnDismiss = win.stamp || win.upTo;
     }
 
+    // The launch's own decision, from load until the window has opened or
+    // decided not to. The startup panel picker (app-presets.js
+    // maybeOpenStartupPicker) waits it out, so the two never stack.
+    var autoPending = true;
+
     function autoRun(force) {
         // Never auto-show inside an automated browser (same rule as the
         // guide): the backdrop would block E2E tests. Tests that exercise
         // the window itself call autoRun(true).
-        if (!force && navigator.webdriver) return;
+        if (!force && navigator.webdriver) { autoPending = false; return; }
         fetchVersion(function (version) {
             var d = decide(version, getStamp());
             if (d.stamp) setStamp(d.stamp);
-            if (!d.show) return;
-            var go = function () { show(d.window); };
+            if (!d.show) { autoPending = false; return; }
+            var go = function () {
+                try { show(d.window); } finally { autoPending = false; }
+            };
             force ? go() : whenTourClear(go, 0);
         });
     }
@@ -451,6 +458,7 @@
         open: open,
         dismiss: dismiss,
         autoRun: autoRun,
+        autoPending: function () { return autoPending; },
         decide: decide,
         windowFor: windowFor,
         _majorMinor: majorMinor,
