@@ -319,6 +319,18 @@
     }
     function closeExport() { var m = $('#export-modal'); if (m) m.style.display = 'none'; }
     function closeExportUnless(next) { if (!next || !next.exportStep) closeExport(); }
+    // The screen chooser (app-presets.js openPresetPicker), closed with its
+    // library search cleared so the next person to open it sees every panel.
+    // AVG_ROW is the library row the average power step reads: a panel
+    // whose sheet gives both a max and an average.
+    var AVG_ROW = '#panel-catalog-list .panel-catalog-row[data-name="Black Pearl BP2V2"]';
+    function pickerOpen() { var m = $('#preset-picker-modal'); return !!m && m.style.display === 'block'; }
+    function closePicker() {
+        var s = $('#panel-catalog-search'), a = A();
+        if (s && s.value) { s.value = ''; s.dispatchEvent(new Event('input', { bubbles: true })); }
+        if (a && typeof a.closePresetPicker === 'function') a.closePresetPicker();
+        else { var m = $('#preset-picker-modal'); if (m) m.style.display = 'none'; }
+    }
     // The pull sheet editor (app-pull-sheet-editor.js), opened from the
     // Export dialog's Edit rows; closed here without the editor's own trip
     // back to the Export dialog.
@@ -2027,8 +2039,14 @@
         keys = keys || [];
         var picked = adv.filter(function (k, i) { return adv.indexOf(k) === i && keys.indexOf(k) >= 0; });
         if (!picked.length) return Promise.resolve();
+        // Headed by the newest feature version among them: What's New in 1.6.
+        var newest = picked.reduce(function (m, k) {
+            var p = versionParts(STEPS[k].since);
+            return p && (!m || versionCmp(p, m) > 0) ? p : m;
+        }, null);
         return show('whatsNew', {
-            title: 'What&rsquo;s New', seed: TOURS.advanced.seed, steps: picked,
+            title: 'What&rsquo;s New' + (newest && newest.length >= 2 ? ' in ' + newest[0] + '.' + newest[1] : ''),
+            seed: TOURS.advanced.seed, steps: picked,
             entries: picked.map(function (k) { return adv.indexOf(k); })
         });
     }
@@ -2610,6 +2628,45 @@
                 return (w.name || 'The screen') + ' hangs ' + types.none + ': the pull sheet counts its cabinets by that name, and a half tile as ' + types.height + '.';
             }
         },
+        // Average power in the panel library (1.6.0, app-presets.js
+        // _panelWattsText): the max every power figure is planned on, and
+        // the sheet's average beside it where the sheet gives one. The step
+        // opens the screen chooser, finds a panel whose sheet gives both,
+        // and closes the chooser with nothing added.
+        avgPower: {
+            since: '1.6.0',
+            target: function () { return $(AVG_ROW) ? AVG_ROW : '#layers-list .canvas-add-btn'; },
+            place: 'left', title: 'Average power in the library',
+            avoid: ['#panel-catalog-search'],
+            body: 'The panel library shows a panel&rsquo;s average power beside its max where the spec sheet gives one. Power is still planned on the max.',
+            before: function () { switchView('pixel-map'); },
+            act: function (t) {
+                var a = A();
+                return t.hover('#layers-list .canvas-add-btn').then(function (p) {
+                    press(true); ripple(p.x, p.y);
+                    return t.pause(200);
+                }).then(function () {
+                    press(false);
+                    a.openPresetPicker();
+                    return t.wait(function () { return pickerOpen() && $('#panel-catalog-list .panel-catalog-row'); }, 6000);
+                }).then(function (row) {
+                    if (!row) throw new Error('the panel library did not load');
+                    return t.type('#panel-catalog-search', 'BP2V2');
+                }).then(function () {
+                    return t.wait(function () { return $(AVG_ROW); }, 4000);
+                }).then(function (row) {
+                    if (!row) throw new Error('the library has no Black Pearl BP2V2');
+                    return t.spot(row).then(function () { return t.pause(PACE.opened); });
+                });
+            },
+            check: function () {
+                var row = pickerOpen() ? $(AVG_ROW) : null;
+                var m = row && /(\d+(?:\.\d+)?)W max · (\d+(?:\.\d+)?)W avg/.exec(row.textContent);
+                return m ? 'The BP2V2 reads ' + m[1] + 'W max · ' + m[2] + 'W avg; a screen of them is planned at '
+                    + m[1] + ' W a panel.' : null;
+            },
+            after: function () { closePicker(); }
+        },
         gridSize: {
             target: '#screen-columns', ring: ['#screen-columns', '#screen-rows'], place: 'right', title: 'Columns and rows',
             avoid: ['#screen-columns', '#screen-rows'],
@@ -2835,6 +2892,46 @@
                 if (!l || l.portNumberOrder !== 'down') return null;
                 var start = (a.calculatePortAssignments(l) || []).find(function (x) { return x.port === 2 && x.isPortStart; });
                 return start ? 'Port 2 now starts row ' + (start.panel.row + 1) + ' of LONG ROWS, under port 1.' : null;
+            }
+        },
+        // Ports required is the minimum (1.6.0, app-screen-info.js
+        // getLayerPortsMinimum): on a custom data path it reads the fewest
+        // ports the screen needs in its Organized or Max Capacity setting,
+        // never the ports drawn so far. LONG ROWS goes into custom mode,
+        // which starts it empty, and the readout holds.
+        portsMinimum: {
+            since: '1.6.0',
+            target: '#ports-required', place: 'right', title: 'Ports required is the minimum',
+            avoid: ['#custom-flow-toggle'],
+            body: 'Ports required is the fewest ports the screen needs in its Organized or Max Capacity setting. In custom mode it still reads that, however many ports you&rsquo;ve drawn.',
+            before: function () { closePrefs(); hideMenus(); closePopover(); switchView('data-flow'); },
+            act: function (t) {
+                var a = A();
+                var l = (a.project.layers || []).find(function (x) { return x.name === 'LONG ROWS'; });
+                if (!l) throw new Error('LONG ROWS is missing');
+                t.mem.layer = l.id;
+                if (!a.currentLayer || a.currentLayer.id !== l.id) a.selectLayer(l);
+                a.updatePortCapacityDisplay();
+                t.mem.before = $('#ports-required') ? $('#ports-required').textContent.trim() : '';
+                return t.click('#custom-flow-toggle').then(function () {
+                    return t.wait(function () {
+                        var x = (a.project.layers || []).find(function (y) { return y.id === t.mem.layer; });
+                        return x && a.isCustomFlow(x);
+                    });
+                }).then(function (ok) {
+                    if (!ok) throw new Error('LONG ROWS did not go into custom mode');
+                    return t.spot($('#ports-required')).then(function () { return t.pause(PACE.rest); });
+                });
+            },
+            check: function (mem) {
+                var a = A();
+                var l = (a.project.layers || []).find(function (x) { return x.id === mem.layer; });
+                if (!l || !a.isCustomFlow(l)) return null;
+                var paths = l.customPortPaths || {};
+                var drawn = Object.keys(paths).filter(function (k) { return (paths[k] || []).length; }).length;
+                var req = $('#ports-required') ? $('#ports-required').textContent.trim() : '';
+                if (drawn || !req || req !== mem.before || !(Number(req) > 0)) return null;
+                return 'LONG ROWS is in custom mode with no ports drawn, and Ports required still reads ' + req + '.';
             }
         },
         addProcessor: {
@@ -3273,6 +3370,43 @@
                 if (cs.length < 3 || cs[0].backupCardId !== cs[1].id || !cs[1].backupFor
                         || !mode || ['1to1', 'sequential', 'manual'].indexOf(mode) >= 0) return null;
                 return (h.name || h.deviceName) + ' runs Mixed: card 2 backs up card 1 port for port, and card 3 brings its own returns back on ports 9 to 16.';
+            },
+            after: function () { closePopover(); }
+        },
+        // Card N (1.6.0): a card nobody named, in an H series, MX2000 or
+        // MX6000, reads Card 1, Card 2, Card 3 by its slot everywhere, and
+        // its model stays where gear is pulled and in its own settings. The
+        // H9 the step before put in has three unnamed cards.
+        cardNames: {
+            since: '1.6.0',
+            target: function () {
+                var h = chassis();
+                var s = h && (h.slots || []).find(function (x) { return x && x.card; });
+                return s ? '[data-hwdock="card-' + s.card.id + '"] .hw-dock-unit-name' : '#hw-dock-data-controls';
+            },
+            place: 'top', title: 'Cards by slot',
+            body: 'A card you haven&rsquo;t named reads Card 1, Card 2, Card 3 by its slot, in the tray, its settings and the binder. Its &#9881; still shows the model under the name.',
+            before: function () { switchView('data-flow'); closePopover(); },
+            act: function (t) {
+                var h = chassis();
+                var s = h && (h.slots || []).find(function (x) { return x && x.card; });
+                if (!s) throw new Error('there is no chassis card to read');
+                t.mem.card = s.card.id;
+                return t.click('[data-hwpop="card-' + s.card.id + '"]').then(function () {
+                    return t.wait(popover);
+                }).then(function (pop) {
+                    if (!pop) throw new Error('the card settings did not open');
+                    return t.spot(pop).then(function () { return t.pause(PACE.opened); });
+                });
+            },
+            check: function (mem) {
+                var name = $('[data-hwdock="card-' + mem.card + '"] .hw-dock-unit-name');
+                var pop = popover();
+                var found = A()._dockFindCard ? A()._dockFindCard(mem.card) : null;
+                var model = found ? found.card.deviceName : '';
+                if (!name || name.textContent.trim() !== 'Card 1' || !pop || !model
+                        || pop.textContent.indexOf(model) < 0) return null;
+                return 'Slot 1 reads Card 1, and its settings name the model, ' + model + '. A name you type still wins.';
             },
             after: function () { closePopover(); }
         },
@@ -5069,6 +5203,60 @@
             },
             after: function () { closePopover(); }
         },
+        // Where a port plugs in (1.6.0, app-mirror-screens.js
+        // _buildCardPlugRows): on an MX40 Pro each port an OPT also carries
+        // plugs in at the unit's own RJ45 or at the box, never both. The
+        // CVT10 on OPT 1 is plain RJ45 and the MX40 Pro's own outputs are
+        // etherCON, so a port's run is named by where it plugs in: Cat6 at
+        // the box, etherCON at the unit (runText, as the pull sheet lists it).
+        portPlug: {
+            since: '1.6.0',
+            target: function () { var c = card(); return c ? '[data-hwpop="card-' + c.id + '"]' : '#hardware-dock-body .hw-dock-gear'; },
+            place: 'top', title: 'RJ45 or the box',
+            avoid: [function () { var c = card(), b = box(); return c && b ? '[data-lrd-field="processor-card-plug-' + c.id + '-' + b.id + '"]' : null; }],
+            body: 'A port an OPT carries plugs in at one place, the MX40 Pro&rsquo;s own RJ45 or the box. Pick it in the &#9881; and its cable is named for that connector: Cat6 at the CVT10, etherCON at the MX40 Pro.',
+            before: function () { closePrefs(); hideMenus(); closePopover(); switchView('data-flow'); },
+            act: function (t) {
+                var a = A(), c = card(), b = box();
+                if (!c || !b) throw new Error('there is no breakout box on the processor');
+                var seg = '[data-lrd-field="processor-card-plug-' + c.id + '-' + b.id + '"] [data-level="card"]';
+                // The first of the box's ports with no length typed and no
+                // snake, at the box or on the unit's own record (the loose
+                // port's 50 ft run sits there), read as the pull sheet
+                // lists it before the move ("Cat6 no length").
+                var own = owner();
+                var kept = (own && own.rec && own.rec.portCables) || {};
+                var socket = null;
+                for (var n = b.firstPort; n < b.firstPort + b.portCount && !socket; n++) {
+                    if (!a.dataPortCable(c.id, n) && !kept[String(n)]) socket = n;
+                }
+                if (!socket) throw new Error('every port on ' + (b.displayTitle || 'the box') + ' has a cable');
+                t.mem.socket = socket;
+                t.mem.box = b.displayTitle || 'the box';
+                t.mem.before = a.runText(null, { cardId: c.id, port: socket });
+                return t.click('[data-hwpop="card-' + c.id + '"]').then(function () {
+                    return t.wait(function () { return popover() && $(seg); });
+                }).then(function (el) {
+                    if (!el) throw new Error('the card has no RJ45 or box choice for ' + t.mem.box);
+                    return t.click(seg, { hover: 400, rest: 1200 });
+                }).then(function () {
+                    return t.wait(function () {
+                        var q = card();
+                        var port = q && (q.ports || []).find(function (p) { return p.number === socket; });
+                        return port && port.plug === 'card';
+                    });
+                });
+            },
+            check: function (mem) {
+                var c = card();
+                var port = c && (c.ports || []).find(function (p) { return p.number === mem.socket; });
+                var now = c ? A().runText(A().dataPortCable(c.id, mem.socket), { cardId: c.id, port: mem.socket }) : '';
+                if (!port || port.plug !== 'card' || !/etherCON/.test(now) || !/Cat6/.test(mem.before || '')) return null;
+                return 'The ports ' + mem.box + ' carried plug in at the MX40 Pro now: port ' + mem.socket
+                    + ' reads ' + now + ' on the pull sheet, where it read ' + mem.before + '.';
+            },
+            after: function () { closePopover(); }
+        },
         // Z flow patterns for power (the owner's ruling, 2026-11-01): the
         // picker's bottom row, where every row starts again from the same
         // side. The step adds WIDE WALL under the other screens, 24 x 4 of
@@ -5230,9 +5418,9 @@
         advanced: {
             title: 'Advanced Guide',
             seed: { name: 'New Show', layer: { panelWatts: 100, powerBreakoutType: 'soca-powercon' } },
-            steps: ['introAdvanced', 'projectName', 'cabinetSize', 'panelName', 'gridSize', 'fit', 'blankCabinet',
+            steps: ['introAdvanced', 'projectName', 'cabinetSize', 'panelName', 'avgPower', 'gridSize', 'fit', 'blankCabinet',
                     'cabinetIdStyle', 'showLook', 'processing', 'flowPattern', 'zPattern', 'addProcessor',
-                    'nameProcessor', 'redundancy', 'backupProcessor', 'mixedRedundancy', 'dropProcessor', 'releasePort', 'attachmentFlag', 'pinPort',
+                    'nameProcessor', 'redundancy', 'backupProcessor', 'mixedRedundancy', 'cardNames', 'dropProcessor', 'releasePort', 'attachmentFlag', 'pinPort',
                     'clearPortByMenu', 'clearCard', 'dropProcessorAgain',
                     'snakePorts', 'cableSheet', 'snakeHomeRun', 'loosePortLength', 'dataJumpers', 'dataCableTags',
                     'overrideRun', 'addBreakoutBox', 'boxFiber', 'fiberStrands', 'panelWatts', 'panelInput', 'breakoutType',
@@ -5245,7 +5433,8 @@
                     'addService', 'serviceRating', 'serviceDistro', 'feederLength',
                     'addBeach', 'screenBeach', 'addScreen', 'beachByMenu', 'crossScreens', 'groupScreens',
                     'exportBinder', 'screenOrder', 'wiringTick', 'titleBlock', 'fileExports', 'preferences',
-                    'mirrorScreen', 'portNumbers', 'powerZPattern', 'circuitNumbers', 'helpMenu', 'outroAdvanced']
+                    'mirrorScreen', 'portPlug', 'portNumbers', 'portsMinimum', 'powerZPattern', 'circuitNumbers',
+                    'helpMenu', 'outroAdvanced']
         }
     };
 

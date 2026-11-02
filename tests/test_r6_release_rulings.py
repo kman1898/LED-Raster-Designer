@@ -67,10 +67,10 @@ def test_the_feeder_example_is_the_fed_from_line():
     assert "like Fed from: HOUSE · 600 A · 120/208V 3φ · 200 A cam set 100'+50'." in feeders
     assert "It only reads Feed: when there's no service or distro to name." in feeders
     assert "Feed: 50'" not in feeders
-    # "feed", never "feeder" (2026-11-01): the old word only where old
-    # pull sheet edits are said to carry over
-    assert top.lower().count('feeder') == 1, top
-    assert 'saved on a row that said feeder carry over to the feed.' in feeders
+    # "feed", never "feeder" (2026-11-01). A pull sheet row only ever said
+    # feeder in the 1.5.4 betas, never in a public release, so the notes
+    # for 1.6.0 (read against 1.5.3) say nothing about carrying it over.
+    assert 'feeder' not in top.lower(), top
 
 
 def test_opening_an_older_show_lists_the_round_6_changes():
