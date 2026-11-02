@@ -200,6 +200,24 @@ circumstances, not how many ports you've drawn so far. It's the number
 to plan cards and boxes around before you start drawing. The ports you
 draw are still the ones the cards, the port labels and the map count.
 
+REDRAW SEVERAL PORTS AS ONE
+
+In the Data view, Shift+click a run to pick its port, and Shift+click it
+again to drop it. Shift+drag a box from a run to pick every port the box
+touches. With two or more picked, right-click and choose Redraw ports
+51-54 as one (it reads 51, 53, 54 when the numbers aren't in a row).
+Their panels are freed and you draw one new port by clicking the panels
+in order, the same way Redraw port works. The new port keeps the first
+number and the ports after it move down to close the gap, so 54 ports
+become 51. Enter keeps the drawing, and so does drawing every freed
+panel. Esc puts the ports back the way they were, and one undo takes
+the whole thing back.
+
+Ports already on a card stay on their sockets under their new numbers.
+The new port keeps the first port's socket, and the sockets of the ports
+that went away are freed. A locked screen can't be redrawn this way, and
+the app tells you why.
+
 OPENING AN OLDER SHOW
 
 Some counts will change when you open a show from an earlier version.
