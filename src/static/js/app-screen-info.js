@@ -2883,7 +2883,7 @@ class _ScreenInfo {
             }
         }
         if (powerAmperageSelect && powerAmperageCustomInput) {
-            const presets = ['15', '20'];
+            const presets = ['15', '16', '20'];
             const currentAmp = String(primary.powerAmperage ?? 15);
             if (presets.includes(currentAmp)) {
                 powerAmperageSelect.value = currentAmp;

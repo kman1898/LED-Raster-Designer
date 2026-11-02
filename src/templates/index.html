@@ -734,7 +734,7 @@
                             <div style="display: grid; grid-template-columns: max-content 44px max-content; gap: 4px 6px; align-items: center; font-size: 11px;">
                                 <span>Vertical</span><input type="text" inputmode="decimal" id="data-jump-v" placeholder="none" autocomplete="off" aria-label="Data jumper vertical length (ft)" data-cable-unit-aria="Data jumper vertical length ({unit})" style="width: 44px; text-align: right; box-sizing: border-box;"><span data-cable-unit>ft</span>
                                 <span>Horizontal</span><input type="text" inputmode="decimal" id="data-jump-h" placeholder="none" autocomplete="off" aria-label="Data jumper horizontal length (ft)" data-cable-unit-aria="Data jumper horizontal length ({unit})" style="width: 44px; text-align: right; box-sizing: border-box;"><span data-cable-unit>ft</span>
-                                <span>Unit</span><select id="data-jump-unit" class="cable-unit-select" aria-label="Cable length unit of this show" data-tooltip="Unit, The unit this show's cable lengths are typed and printed in: one setting for the whole show, the same as the Export dialog's Cable lengths. Changing it keeps every typed number: 25 ft becomes 25 m." style="grid-column: 2 / span 2; justify-self: start; width: 58px; padding: 3px 6px; font-size: 11px; box-sizing: border-box;"><option value="ft">ft</option><option value="m">m</option></select>
+                                <span>Unit</span><select id="data-jump-unit" class="cable-unit-select" aria-label="Cable length unit of this show" data-tooltip="Unit, The unit this show's cable lengths are typed and printed in: one setting for the whole show, the same as the Export dialog's Cable lengths. Changing it keeps every typed number: 25 ft becomes 25 m." style="grid-column: 2 / span 2; justify-self: start; width: 44px; padding: 3px 6px; font-size: 11px; box-sizing: border-box;"><option value="ft">ft</option><option value="m">m</option></select>
                             </div>
                         </div>
 
@@ -758,7 +758,7 @@
                             
                             <div class="info-row" style="margin-bottom: 8px;" data-tooltip="Bit Depth, Color depth used by the processor; higher values reduce pixels per port.">
                                 <label>Bit Depth</label>
-                                <select id="bit-depth" class="info-select" style="width: 100%;">
+                                <select id="bit-depth" class="info-select" style="width: 72px;">
                                     <option value="8">8-bit</option>
                                     <option value="10">10-bit</option>
                                     <option value="12">12-bit</option>
@@ -767,7 +767,7 @@
                             
                             <div class="info-row" style="margin-bottom: 8px;" data-tooltip="Frame Rate, Output refresh rate in Hz; higher rates reduce pixels per port.">
                                 <label>Frame Rate</label>
-                                <select id="frame-rate" class="info-select" style="width: 100%;">
+                                <select id="frame-rate" class="info-select" style="width: 96px;">
                                     <option value="23.976">23.976 Hz</option>
                                     <option value="24">24 Hz</option>
                                     <option value="25">25 Hz</option>
@@ -1286,7 +1286,7 @@
                             <div style="display: grid; grid-template-columns: max-content 44px max-content; gap: 4px 6px; align-items: center; font-size: 11px;">
                                 <span>Vertical</span><input type="text" inputmode="decimal" id="power-jump-v" placeholder="none" autocomplete="off" aria-label="Power jumper vertical length (ft)" data-cable-unit-aria="Power jumper vertical length ({unit})" style="width: 44px; text-align: right; box-sizing: border-box;"><span data-cable-unit>ft</span>
                                 <span>Horizontal</span><input type="text" inputmode="decimal" id="power-jump-h" placeholder="none" autocomplete="off" aria-label="Power jumper horizontal length (ft)" data-cable-unit-aria="Power jumper horizontal length ({unit})" style="width: 44px; text-align: right; box-sizing: border-box;"><span data-cable-unit>ft</span>
-                                <span>Unit</span><select id="power-jump-unit" class="cable-unit-select" aria-label="Cable length unit of this show" data-tooltip="Unit, The unit this show's cable lengths are typed and printed in: one setting for the whole show, the same as the Export dialog's Cable lengths. Changing it keeps every typed number: 25 ft becomes 25 m." style="grid-column: 2 / span 2; justify-self: start; width: 58px; padding: 3px 6px; font-size: 11px; box-sizing: border-box;"><option value="ft">ft</option><option value="m">m</option></select>
+                                <span>Unit</span><select id="power-jump-unit" class="cable-unit-select" aria-label="Cable length unit of this show" data-tooltip="Unit, The unit this show's cable lengths are typed and printed in: one setting for the whole show, the same as the Export dialog's Cable lengths. Changing it keeps every typed number: 25 ft becomes 25 m." style="grid-column: 2 / span 2; justify-self: start; width: 44px; padding: 3px 6px; font-size: 11px; box-sizing: border-box;"><option value="ft">ft</option><option value="m">m</option></select>
                             </div>
                         </div>
                         
@@ -1295,7 +1295,7 @@
                         <div class="info-row" data-tooltip="Voltage, Supply voltage for circuit capacity calculations.">
                             <label>Voltage (V)</label>
                             <div style="display: flex; gap: 6px; align-items: center;">
-                                <select id="power-voltage-select" class="info-select" style="width: auto;">
+                                <select id="power-voltage-select" class="info-select" style="width: 64px;">
                                     <option value="110">110V</option>
                                     <option value="208">208V</option>
                                     <option value="220">220V</option>
@@ -1303,24 +1303,25 @@
                                     <option value="240">240V</option>
                                     <option value="custom">Custom</option>
                                 </select>
-                                <input type="number" id="power-voltage-custom" min="1" max="1000" step="1" autocomplete="off" placeholder="V" style="width: 70px; display: none;">
+                                <input type="number" id="power-voltage-custom" min="1" max="1000" step="1" autocomplete="off" placeholder="V" style="width: 52px; display: none;">
                             </div>
                         </div>
                         <div class="info-row" data-tooltip="Amperage, the size of the breaker each circuit is on (type the breaker, not the usable amps). A US circuit carries a continuous load to 80% of it, so a 20 A breaker gives 16 A usable. UK/EU circuits, and US distros with 100% rated breakers, use the whole breaker. The usable amps show beside it.">
                             <label>Amperage (A)</label>
                             <div style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center;">
-                                <select id="power-amperage-select" class="info-select" style="width: auto;">
+                                <select id="power-amperage-select" class="info-select" style="width: 64px;">
                                     <option value="15">15A</option>
+                                    <option value="16">16A</option>
                                     <option value="20">20A</option>
                                     <option value="custom">Custom</option>
                                 </select>
-                                <input type="number" id="power-amperage-custom" value="15" min="0" step="0.1" autocomplete="off" style="width: 70px; display: none;">
+                                <input type="number" id="power-amperage-custom" value="15" min="0" step="0.1" autocomplete="off" style="width: 52px; display: none;">
                                 <span id="power-amperage-usable" style="font-size: 11px; color: var(--ps-dim, #c0c0c0); white-space: nowrap;"></span>
                             </div>
                         </div>
                         <div class="info-row" data-tooltip="Watts per Panel, Power draw of a single LED cabinet at full white, used to calculate circuits required. Math OK (e.g., 200+50, 500*2, 1000/3).">
                             <label>Watts per Panel</label>
-                            <input type="text" inputmode="decimal" id="power-panel-watts" value="200" autocomplete="off" style="width: 100px;" placeholder="e.g., 200 or 200+50">
+                            <input type="text" inputmode="decimal" id="power-panel-watts" value="200" autocomplete="off" style="width: 64px;" placeholder="e.g., 200 or 200+50">
                         </div>
 
                         <div style="padding: 8px; background: #111; border: 1px solid #333; border-radius: 4px; font-size: 12px; color: #ccc; margin-bottom: 12px;">
@@ -2776,6 +2777,7 @@
                                 <input type="text" id="pref-power-voltage-custom" inputmode="numeric" min="1" max="1000" placeholder="Custom V" style="display:none;">
                                 <select id="pref-power-amperage-select">
                                     <option value="15">15A</option>
+                                    <option value="16">16A</option>
                                     <option value="20">20A</option>
                                     <option value="custom">Custom</option>
                                 </select>
