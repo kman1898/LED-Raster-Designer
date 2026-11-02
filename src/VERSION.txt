@@ -224,12 +224,13 @@ FIBER EXTENSIONS
 A TAC or MTP doesn't always plug straight into the box. An MTP needs a
 fan-out to reach an XD's X1, for example. On a breakout box's sheet,
 each link on a TAC or MTP now has + Extension. Pick a fan-out or a
-duplex patch, the connector at each end and its length. The trunk end
-starts as the TAC's or MTP's own connector, and you can pick ST, LC
-duplex, opticalCON DUO, opticalCON QUAD or MTP / MPO, or type your own.
-Each link gets its own, so two boxes on one shared MTP can have one
-extension and one without. A backup link can have its own too.
-Remove takes it off in one click.
+duplex patch, the connector at each end and its length. A new one on a
+TAC starts as a fan-out to LC duplex, and on an MTP as a duplex patch.
+The trunk end starts as the TAC's or MTP's own connector, and you can
+pick ST, LC duplex, opticalCON DUO, opticalCON QUAD or MTP / MPO, or
+type your own. Each link gets its own, so two boxes on one shared MTP
+can have one extension and one without. A backup link can have its own
+too. Remove takes it off in one click.
 
 The pull sheet lists extensions as cables to pull, with matching ones
 counted together on one row. The binder's Fiber connections table shows
