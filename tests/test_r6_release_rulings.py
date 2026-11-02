@@ -62,11 +62,11 @@ def test_the_refusal_lists_only_what_the_app_refuses():
 
 def test_the_feeder_example_is_the_fed_from_line():
     top = _top_entry()
-    feeders = _flat(top[top.index('\nFEEDS\n'):top.index('\nTHE PANEL ON EACH SCREEN\n')])
+    feeders = _flat(top[top.index('\nPOWER IN\n'):top.index('\nTHE PANEL ON EACH SCREEN\n')])
     # round 7: the service prints with its size, as the binder prints it
-    assert "like Fed from: HOUSE · 600 A · 120/208V 3φ · 200 A cam set 100'+50'." in feeders
-    assert "It only reads Feed: when there's no service or distro to name." in feeders
-    assert "Feed: 50'" not in feeders
+    assert "like Powered from: HOUSE · 600 A · 120/208V 3φ · 200 A cam set 100'+50'." in feeders
+    assert "It only reads Power in: when there's no service or distro to name." in feeders
+    assert "Power in: 50'" not in feeders
     # "feed", never "feeder" (2026-11-01). A pull sheet row only ever said
     # feeder in the 1.5.4 betas, never in a public release, so the notes
     # for 1.6.0 (read against 1.5.3) say nothing about carrying it over.

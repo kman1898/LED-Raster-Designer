@@ -387,7 +387,7 @@ def test_a_distro_of_another_system_is_refused_with_the_reason(page):
     assert pg.evaluate(STATUS_JS) == ('SL is on HOUSE (120/208V 3φ). '
                                       'Take it off the service before changing its system.')
     pg.evaluate("() => window.app.updateService('s1', { system: '230/400' })")
-    assert pg.evaluate(STATUS_JS) == 'HOUSE feeds SL. Take them off before changing its system.'
+    assert pg.evaluate(STATUS_JS) == 'HOUSE powers SL. Take them off before changing its system.'
     out = read(pg)
     assert out['stored'][0]['system'] == '120/208'
     assert pg.evaluate("() => window.app.getDistros()[0].system") == '120/208'
@@ -673,11 +673,11 @@ def test_the_binder_names_the_service_and_prints_a_service_sheet(page):
     # Fed from on the distros on it ("HOUSE · 400 A · ...", read the way
     # FACTS reads it) - and every rating line by its service size first,
     # an old-style distro's too (2026-10-21)
-    fed = [d.get('Fed from') for d in distro]
+    fed = [d.get('Powered from') for d in distro]
     assert fed == ['HOUSE · 400 A · 120/208V 3φ', 'HOUSE · 400 A · 120/208V 3φ', None], distro
     assert [d['Rating'] for d in distro] == ['400 A service · 120/208V 3φ', '200 A service · 120/208V 3φ',
                                              '200 A service · 120/208V 3φ']
-    assert list(distro[0])[:2] == ['Rating', 'Fed from'], list(distro[0])
+    assert list(distro[0])[:2] == ['Rating', 'Powered from'], list(distro[0])
     # the Service block
     assert len(service) == 1, service
     s = service[0]
