@@ -150,8 +150,8 @@ def test_a_distro_fed_thru_another_on_a_different_service_is_refused(page):
           services=two)
     n = len(pg.evaluate(HIST_JS))
     moved = pg.evaluate("() => window.app.setDistroService('d2', 's2')")
-    why = ("SR is fed thru SL, which is on HOUSE. A distro fed thru another counts on that "
-           "distro's service: feed it from GEN directly, or leave it off a service.")
+    why = ("SR is powered thru SL, which is on HOUSE. A distro powered thru another counts on that "
+           "distro's service: power it from GEN directly, or leave it off a service.")
     assert moved is False and why in pg.evaluate(TOASTS_JS), pg.evaluate(TOASTS_JS)
     assert len(pg.evaluate(HIST_JS)) == n, 'a refusal took a history entry'
     assert pg.evaluate("() => window.app.setDistroService('d2', 's1')") is True
@@ -159,7 +159,7 @@ def test_a_distro_fed_thru_another_on_a_different_service_is_refused(page):
     pg.evaluate("() => window.app.setDistroService('d3', 's2')")
     n = len(pg.evaluate(HIST_JS))
     fed = pg.evaluate("() => window.app.setDistroFeeder('d3', { from: 'd1' })")
-    why = ("FOH is on GEN and SL draws from HOUSE. A distro fed thru another counts on that "
+    why = ("FOH is on GEN and SL draws from HOUSE. A distro powered thru another counts on that "
            "distro's service: take FOH off GEN first.")
     assert fed is False and why in pg.evaluate(TOASTS_JS), pg.evaluate(TOASTS_JS)
     assert pg.evaluate("() => window.app.getDistros().find(d => d.id === 'd3').feeder || null") is None
@@ -172,7 +172,7 @@ def test_a_distro_fed_thru_another_on_a_different_service_is_refused(page):
     setup(pg, distros=[US('d1', 'SL'), thru('d2', 'SR', 'd1', serviceId='s2')], services=two)
     n = len(pg.evaluate(HIST_JS))
     moved = pg.evaluate("() => window.app.setDistroService('d1', 's1')")
-    why = 'SR is fed thru SL and is on GEN. Take SR off GEN, or feed it from its service, before putting SL on HOUSE.'
+    why = 'SR is powered thru SL and is on GEN. Take SR off GEN, or power it from its service, before putting SL on HOUSE.'
     assert moved is False and why in pg.evaluate(TOASTS_JS), pg.evaluate(TOASTS_JS)
     assert read(pg)['serviceIds'] == {'d1': None, 'd2': 's2'}
     assert len(pg.evaluate(HIST_JS)) == n
@@ -259,7 +259,7 @@ def test_a_feeder_length_in_the_other_unit_is_converted_and_junk_is_refused(page
         delete app.getDistros()[0].serviceId;
         return [none, on, app.serviceLabel(app.serviceById('s1'))];
     }""")
-    assert labels == ['Fed from: none', 'from HOUSE', 'HOUSE · 400 A · 120/208V 3φ'], labels
+    assert labels == ['Powered from: none', 'from HOUSE', 'HOUSE · 400 A · 120/208V 3φ'], labels
     assert not errors, errors
 
 
@@ -291,7 +291,7 @@ def test_a_pass_through_or_fed_distro_is_listed_with_nothing_plugged_in(page):
     assert named == ['FOH', 'MON', 'SL'], out['rows']
     hw = dict(out['hw'])
     assert set(hw) == {'d1', 'd2', 'd3'}, hw
-    assert ['Distro', 'EA', 'FOH', ''] in hw['d2'] and ['Feed', '', 'FOH', 'no length'] in hw['d2'], hw['d2']
+    assert ['Distro', 'EA', 'FOH', ''] in hw['d2'] and ['Power in', '', 'FOH', 'no length'] in hw['d2'], hw['d2']
     assert ['400 A cam set', '', 'MON', '5-wire · no length'] in hw['d3'], hw['d3']
     # the pass-through's row lands where a screen is: WALL A's position
     assert {r[0] for r in out['rows'] if r[4] in ('FOH', 'MON')} == {'WALL A'}, out['rows']
@@ -342,7 +342,7 @@ def test_the_kv_rows_never_draw_past_their_height(page):
         const app = window.app;
         const book = app._binderBook(app.readBinderOptions(), { dry: true });
         book.ctx = book.ctx || app._bDryCtx(book.measureCtx);
-        const pairs = [['Fed from', 'SR DISTRO B, cam thru · 400 A cam set 100\\'+25\\' · '
+        const pairs = [['Powered from', 'SR DISTRO B, cam thru · 400 A cam set 100\\'+25\\' · '
                         + 'HOUSE · 600 A · 120/208V 3φ · 100% rated · and some more words to wrap'],
                        ['Load', 'X 87.1 · Y 81.4 · Z 81.4 A']];
         const lines = app._bKvLines(book, 'Distro', pairs);
@@ -388,7 +388,7 @@ def test_the_distro_sheet_prints_input_names_whole_and_no_length(page):
     assert 'Distro' in titles and 'Service' not in titles, titles
     blocks = [dict(c['pairs']) for c in b['caught'] if c['title'] == 'Distro']
     assert [p['Rating'] for p in blocks] == ['400 A service · 120/208V 3φ'] * 2, blocks
-    assert blocks[1]['Fed from'] == 'SR DISTRO B, cam thru · 400 A cam set, no length', blocks[1]
+    assert blocks[1]['Powered from'] == 'SR DISTRO B, cam thru · 400 A cam set, no length', blocks[1]
     sheets = [p for p in b['pages'] if p['kind'] == 'distro']
     texts = [t['t'] for p in sheets for t in p['texts']]
     assert 'DISTRO' in texts and 'SERVICE' not in texts, texts

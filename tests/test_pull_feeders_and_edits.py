@@ -312,9 +312,9 @@ def test_a_distro_s_feeder_on_the_pull_sheet(seeded):
     did = ids['distroId']
     base = pg.evaluate(LIST_JS)
     sr = _rows(base['positions'][0]['rows'])
-    assert ('Feed', '', 1, 'SR', 'no length') in sr, sr
+    assert ('Power in', '', 1, 'SR', 'no length') in sr, sr
     hw = _rows(next(h for h in base['hardware'] if h['kind'] == 'distro')['rows'])
-    assert ('Feed', '', 1, 'SR', 'no length') in hw, hw
+    assert ('Power in', '', 1, 'SR', 'no length') in hw, hw
 
     out = pg.evaluate("""(id) => {
         const app = window.app;
@@ -339,12 +339,12 @@ def test_a_distro_s_feeder_on_the_pull_sheet(seeded):
                  totals: pieces.totals, l2130: l2130.positions[0].rows };
     }""", did)
     assert out['changed'] is True and out['again'] is False and out['steps'] == 1, out
-    assert out['step'] == 'Set Distro Feed' and out['stored'] == {'ft': 150}, out
+    assert out['step'] == 'Set Distro Power In' and out['stored'] == {'ft': 150}, out
     assert ('400 A cam set', "150'", 1, 'SR', '5-wire') in _rows(out['one']), _rows(out['one'])
-    assert not [r for r in _rows(out['one']) if r[0] == 'Feed'], 'the old blank row stayed'
+    assert not [r for r in _rows(out['one']) if r[0] == 'Power in'], 'the old blank row stayed'
     cams = sorted((r[1], r[2]) for r in _rows(out['pieces']) if r[0] == '400 A cam set')
     assert cams == [("100'", 1), ("50'", 1)], _rows(out['pieces'])
-    assert ('L21-30 feed', "150'", 1, 'SR', '') in _rows(out['l2130']), _rows(out['l2130'])
+    assert ('L21-30 power in', "150'", 1, 'SR', '') in _rows(out['l2130']), _rows(out['l2130'])
     assert errors == [], errors
 
 
@@ -355,10 +355,10 @@ def test_the_preferences_say_feeds_never_feeders(client):
     html = client.get('/').get_data(as_text=True)
     row = html[html.index('data-cable-stock-list="feeder"'):]
     row = row[:row.index('</div>', row.index('pref-cable-stock-feeder-m'))]
-    assert '<label>Feeds</label>' in row, row
-    assert 'Feed lengths in feet' in row and 'Feed lengths in meters' in row, row
+    assert '<label>Power in cables</label>' in row, row
+    assert 'Power in cable lengths in feet' in row and 'Power in cable lengths in meters' in row, row
     assert 'Feeder' not in row and ' feeder ' not in row, row
-    assert 'direct-output cables and feeds."' in html
+    assert 'direct-output cables and power in cables."' in html
 
 
 def test_the_feed_row_its_gear_and_old_feeder_edits(seeded):
@@ -379,14 +379,14 @@ def test_the_feed_row_its_gear_and_old_feeder_edits(seeded):
             cap: wrap.textContent,
             titles,
             keys: ["Feeder|50'", "L21-30 feeder|EA", "Feedback|EA", "Feed|50'"].map(k => app.pullEditKey(k)),
-            sides: ['Feed', 'L21-30 feed', 'SDI feed', 'Feeder'].map(t => app.pullGuessSide(t)),
+            sides: ['Power in', 'L21-30 power in', 'Feed', 'SDI feed', 'Feeder'].map(t => app.pullGuessSide(t)),
         };
     }""", ids['distroId'])
-    assert out['type'] == 'Feed', out
-    assert 'Feed' in out['cap'] and 'Feeder' not in out['cap'], out
-    assert 'feeder' not in out['titles'].lower() and 'Where the feed comes from' in out['titles'], out
-    assert out['keys'] == ["Feed|50'", "L21-30 feed|EA", "Feedback|EA", "Feed|50'"], out
-    assert out['sides'] == ['power', 'power', 'data', 'power'], out
+    assert out['type'] == 'Power in', out
+    assert 'Power in' in out['cap'] and 'Feed' not in out['cap'], out
+    assert 'feed' not in out['titles'].lower() and 'Where the power in comes from' in out['titles'], out
+    assert out['keys'] == ["Power in|50'", "L21-30 power in|EA", "Feedback|EA", "Power in|50'"], out
+    assert out['sides'] == ['power', 'power', 'power', 'data', 'power'], out
     assert errors == [], errors
 
 
@@ -423,7 +423,7 @@ def test_fed_from_another_distro_and_the_server_round_trip(seeded):
         app.removeDistro(sl.id);
         await app._distroPushQueue;
         const after = (await (await fetch('/api/project')).json()).distros.find(x => x.id === id).feeder;
-        return { slId: sl.id, stored, loop, sources, served, fed: block && block['Fed from'],
+        return { slId: sl.id, stored, loop, sources, served, fed: block && block['Powered from'],
                  after, client: d.feeder, source: app.feederSourceText(d), text: app.feederText(d) };
     }""", did)
     assert out['stored']['from'] == out['slId'] and out['served'] == {'ft': 150, 'from': out['slId']}, out
@@ -456,14 +456,14 @@ def test_the_gear_sets_the_feeder(seeded):
     src = f'#hw-gear-popover [data-lrd-field="distro-feeder-from-{did}"]'
     assert pg.locator(ft).count() == 1 and pg.locator(src).count() == 1
     # SR is on no service: the first pick says so, not "from the service"
-    assert pg.locator(src).locator('option').first.text_content() == 'Fed from: none'
+    assert pg.locator(src).locator('option').first.text_content() == 'Powered from: none'
     n0 = pg.evaluate("() => window.app.history.length")
     pg.locator(ft).fill('80')
     pg.locator(ft).dispatch_event('change')
     pg.wait_for_timeout(300)
     st = pg.evaluate("(id) => [window.app.getDistros().find(x => x.id === id).feeder, "
                      "window.app.history.length, window.app.history[window.app.historyIndex].action]", did)
-    assert st[0] == {'ft': 80} and st[1] == n0 + 1 and st[2] == 'Set Distro Feed', st
+    assert st[0] == {'ft': 80} and st[1] == n0 + 1 and st[2] == 'Set Distro Power In', st
     pg.evaluate("() => window.app.undo()")
     pg.wait_for_timeout(500)
     assert pg.evaluate("(id) => window.app.getDistros().find(x => x.id === id).feeder || null", did) is None

@@ -2060,7 +2060,7 @@
                         </span>
                         <span id="hw-dock-power-controls" class="hw-dock-ctl view-hidden">
                             <button id="power-distro-add" class="btn" data-lrd-field="power-distro-add" data-tooltip="Add a power distro, A project-level power source. Its multis appear in this tray to drag onto circuits, and the load rolls up on its header.">+ Add distro</button>
-                            <button id="power-service-add" class="btn" data-lrd-field="power-service-add" data-tooltip="Add a service, the house power several distros are fed from. Drag a distro's header bar onto its card to put the distro on it; the card adds up their leg loads against the service.">+ Add service</button>
+                            <button id="power-service-add" class="btn" data-lrd-field="power-service-add" data-tooltip="Add a service, the house power several distros draw from. Drag a distro's header bar onto its card to put the distro on it; the card adds up their leg loads against the service.">+ Add service</button>
                         </span>
                         <span class="hw-dock-head-sp"></span>
                         <button type="button" id="hw-dock-flag" class="view-hidden" data-lrd-field="hw-dock-flag" aria-label="Attachment flag"></button>
@@ -3024,7 +3024,7 @@
                         <div class="pm-row">
                             <label>This show</label>
                             <div class="prefs-row">
-                                <label class="pm-check" data-tooltip="Off: one list for every cable. On: a list for each kind: multis, data, power, L21-30 and Harting home runs, direct-output cables and feeds."><input type="checkbox" id="pref-cable-stock-per-kind"> A list for each kind of cable</label>
+                                <label class="pm-check" data-tooltip="Off: one list for every cable. On: a list for each kind: multis, data, power, L21-30 and Harting home runs, direct-output cables and power in cables."><input type="checkbox" id="pref-cable-stock-per-kind"> A list for each kind of cable</label>
                             </div>
                             <div class="pm-note" title="A run the stock can't make exactly is written as the pieces with the least extra length, on the map tags, the pull sheet and the binder. Fiber and jumpers aren't counted here.">The lengths this show has on hand. With 25, 50 and 100, a 125 run reads 100'+25'. Blank: lengths are written as typed.</div>
                         </div>
@@ -3092,11 +3092,11 @@
                             </div>
                         </div>
                         <div class="pm-row" data-cable-stock-list="feeder">
-                            <label>Feeds</label>
+                            <label>Power in cables</label>
                             <div class="prefs-row">
-                                <input type="text" id="pref-cable-stock-feeder-ft" placeholder="none" class="pm-wide" data-tooltip="Feed lengths in feet: the cam set or feed cable that powers a distro.">
+                                <input type="text" id="pref-cable-stock-feeder-ft" placeholder="none" class="pm-wide" data-tooltip="Power in cable lengths in feet: the cam set or other cable that powers a distro.">
                                 <span class="pm-unit">ft</span>
-                                <input type="text" id="pref-cable-stock-feeder-m" placeholder="none" class="pm-wide" data-tooltip="Feed lengths in meters: the cam set or feed cable that powers a distro.">
+                                <input type="text" id="pref-cable-stock-feeder-m" placeholder="none" class="pm-wide" data-tooltip="Power in cable lengths in meters: the cam set or other cable that powers a distro.">
                                 <span class="pm-unit">m</span>
                             </div>
                         </div>

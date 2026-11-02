@@ -19,7 +19,7 @@
  */
 window.WHATS_NEW_CONTENT = {
     '1.6': {
-        title: 'Every cable named by its connector, a feed for every distro, mirror screens and Z flow patterns',
+        title: 'Every cable named by its connector, a power in for every distro, mirror screens and Z flow patterns',
         items: [
             { h: 'TRUE1 or powerCON, Cat6 or etherCON',
               d: 'The pull sheet and the binder say exactly which cable to pull. Power reads TRUE1 or powerCON from each screen\'s breakout, and data reads Cat6 or etherCON from each box\'s own outputs.' },
@@ -27,10 +27,10 @@ window.WHATS_NEW_CONTENT = {
               d: 'An Edison or L6-20 breakout now asks which connector your panels take, TRUE1 or powerCON, and the jumpers and splitters follow it. Each circuit gets one cable from its Edison or L6-20 plug to that panel input, with the 2fers at the panels.' },
             { h: 'US circuits filled to 80%',
               d: 'A circuit on a US distro, or on a screen with no distro at 208 V or below, is now filled to 80% of its breaker unless the distro\'s breakers are 100% rated, so a US screen may need more circuits than before. You still type the breaker size in the Amperage box, and the amps you can use now show beside it.' },
-            { h: 'A feed for every distro',
-              d: 'Open a distro\'s gear, type its feed length and pick whether it\'s fed from the service or thru another distro. A 400 A cam input lists a 400 A cam set with 5-wire, and the feed is on the pull sheet even before you type a length.' },
+            { h: 'A power in for every distro',
+              d: 'Open a distro\'s gear, type its power in length and pick whether it\'s powered from the service or thru another distro. A 400 A cam input lists a 400 A cam set with 5-wire, and the power in is on the pull sheet even before you type a length.' },
             { h: 'Your panels and your cable stock on the pull sheet',
-              d: 'A new project opens the panel library first, and the panel you pick makes its first screen. Add Screen with nothing picked uses the last screen\'s panel. A panel you pick from the library is saved on the screen, and the pull sheet counts your panels by name, a row for each type on each screen. In Preferences > Cable stock, tick A list for each kind of cable to give multis, data, power, feeds and the rest their own lengths.' },
+              d: 'A new project opens the panel library first, and the panel you pick makes its first screen. Add Screen with nothing picked uses the last screen\'s panel. A panel you pick from the library is saved on the screen, and the pull sheet counts your panels by name, a row for each type on each screen. In Preferences > Cable stock, tick A list for each kind of cable to give multis, data, power, power in cables and the rest their own lengths.' },
             { h: 'Mixed redundancy and mirror screens',
               d: 'On a chassis like an H series, the redundancy bar has a Mixed choice, so card 1 can be backed up 1:1 by card 2 while card 3 pairs its own ports. With an H_4xfiber in Copy mode, or an MX40 Pro with a box set to Mirror, drag it onto one screen and then onto a matching second screen, and the second becomes its copy with its runs off the copy OPTs.' },
             { h: 'Z flow patterns, and long rows cut into ports and circuits',

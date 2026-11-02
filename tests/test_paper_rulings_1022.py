@@ -261,16 +261,17 @@ def test_feeder_said_once_and_kv_separators_end_their_line(page):
         'a': {'powerSocaDistro': {'1': 'd1'}, 'powerSocaNumber': {'1': 1}}})
     b = pg.evaluate(BINDER_JS, {})
     block = next(dict(k['pairs']) for k in b['kv'] if k['title'] == 'Distro')
-    assert block.get('Feed') == "50'" and 'Feeder' not in block, block
-    # the old word ("feeder" until 2026-11-01) is still said once
-    for old, want in (("Feeder 50'", "50'"), ("L21-30 feeder 50'", "L21-30 50'")):
+    assert block.get('Power in') == "50'" and 'Feeder' not in block and 'Feed' not in block, block
+    # the word is said once whatever the text leads with ("Power in" since
+    # 2026-11-02)
+    for old, want in (("Power in 50'", "50'"), ("L21-30 power in 50'", "L21-30 50'")):
         pg.evaluate("(t) => { window.app.feederText = () => t; }", old)
         try:
             b = pg.evaluate(BINDER_JS, {})
         finally:
             pg.evaluate("() => { delete window.app.feederText; }")
         block = next(dict(k['pairs']) for k in b['kv'] if k['title'] == 'Distro')
-        assert block.get('Feed') == want, (old, block)
+        assert block.get('Power in') == want, (old, block)
     words = ev(pg, "return app._bKvWords('SL · 400 A · X 87.1 · Y 81.4 · Z 20.7 A');")
     assert words == ['SL ·', '400 A ·', 'X 87.1 ·', 'Y 81.4 ·', 'Z 20.7 A'], words
     assert not [w for w in words if w.startswith('·')], words

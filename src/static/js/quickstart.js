@@ -3929,7 +3929,7 @@
             target: function () { var d = distro(); return d ? '[data-hwpop="distro-' + d.id + '"]' : '#hardware-dock-body .hw-dock-gear'; },
             place: 'top', title: 'The distro&rsquo;s input',
             avoid: [function () { var d = distro(); return d ? '[data-lrd-field="distro-input-' + d.id + '"]' : null; }],
-            body: 'Behind the distro&rsquo;s &#9881;, Input lists only what can feed its System: cams by their amps, L21-30, CEE or Powerlock. Pick 200 A and Rating fills in 200 A per leg.',
+            body: 'Behind the distro&rsquo;s &#9881;, Input lists only what can power its System: cams by their amps, L21-30, CEE or Powerlock. Pick 200 A and Rating fills in 200 A per leg.',
             before: function () { switchView('power'); closePopover(); },
             act: function (t) {
                 var d = distro();
@@ -4319,7 +4319,7 @@
             since: '1.6.0',
             target: '#pref-cable-stock-per-kind', place: 'bottom', title: 'A list for each kind of cable',
             avoid: ['#pref-cable-stock-per-kind', '#pref-cable-stock-multi-ft', '#pref-cable-stock-feeder-ft', '#preferences-save'],
-            body: 'Tick A list for each kind of cable and each kind gets its own lengths. Here the multis keep 25, 50 and 100, and the feeds come in 50 and 100.',
+            body: 'Tick A list for each kind of cable and each kind gets its own lengths. Here the multis keep 25, 50 and 100, and the power in cables come in 50 and 100.',
             before: function () {
                 switchView('power');
                 var a = A();
@@ -4356,7 +4356,7 @@
                 var a = A();
                 if (a.cableStockList('feeder', 'ft').join(',') !== '50,100'
                         || a.cableStockList('multi', 'ft').join(',') !== '25,50,100') return null;
-                return 'Multis come in 25, 50 and 100 ft, feeds in 50 and 100 ft: a 150 ft feed is written ' + a.cableStockText(150, 'feeder') + '.';
+                return 'Multis come in 25, 50 and 100 ft, power in cables in 50 and 100 ft: a 150 ft power in cable is written ' + a.cableStockText(150, 'feeder') + '.';
             },
             after: function () { closePrefs(); }
         },
@@ -4656,7 +4656,7 @@
         addService: {
             since: '1.5.3',
             target: '#power-service-add', place: 'top', title: 'Add a service',
-            body: 'Add service puts a Service card above the distros: the house power they are fed from. It starts at 400 A per leg, and its rating and system sit behind its &#9881;.',
+            body: 'Add service puts a Service card above the distros: the house power they draw from. It starts at 400 A per leg, and its rating and system sit behind its &#9881;.',
             before: function () { switchView('power'); closePopover(); },
             act: function (t) {
                 return t.click('#power-service-add').then(function () {
@@ -4740,14 +4740,14 @@
         feederLength: {
             since: '1.6.0',
             target: function () { var d = distro(); return d ? '[data-hwpop="distro-' + d.id + '"]' : '#hardware-dock-body .hw-dock-gear'; },
-            place: 'top', title: 'The distro&rsquo;s feed',
+            place: 'top', title: 'The distro&rsquo;s power in',
             avoid: [function () { var d = distro(); return d ? '[data-lrd-field="distro-feeder-ft-' + d.id + '"]' : null; },
                     function () { var d = distro(); return d ? '[data-lrd-field="distro-feeder-from-' + d.id + '"]' : null; }],
-            body: 'Open the distro&rsquo;s &#9881; and type its Feed length. Beside it you pick where it&rsquo;s fed from: the service, or thru another distro.',
+            body: 'Open the distro&rsquo;s &#9881; and type its power in length. Beside it you pick where it&rsquo;s powered from: the service, or thru another distro.',
             before: function () { switchView('power'); closePopover(); },
             act: function (t) {
                 var d = distro();
-                if (!d) throw new Error('there is no distro to feed');
+                if (!d) throw new Error('there is no distro to power');
                 return t.click('[data-hwpop="distro-' + d.id + '"]').then(function () {
                     return t.wait(popover);
                 }).then(function (pop) {
@@ -4758,10 +4758,10 @@
                 }).then(function () {
                     return t.wait(function () { var q = distro(); return q && q.feeder && Number(q.feeder.ft) === 150; });
                 }).then(function (ok) {
-                    if (!ok) throw new Error('the feed did not take 150');
+                    if (!ok) throw new Error('the power in did not take 150');
                     return t.wait(function () { return $('[data-lrd-field="distro-feeder-from-' + d.id + '"]'); });
                 }).then(function (sel) {
-                    if (!sel) throw new Error('the fed-from choice did not come up');
+                    if (!sel) throw new Error('the powered-from choice did not come up');
                     return t.hover('[data-lrd-field="distro-feeder-from-' + d.id + '"]');
                 }).then(function () {
                     return t.pause(PACE.acted);
@@ -4773,7 +4773,11 @@
                 var f = a.distroFeeder(d);
                 var from = f.from ? 'thru ' + (f.from.name || f.from.id)
                     : 'from ' + (f.service ? f.service.name || 'the service' : 'the service');
-                return (d.name || 'The distro') + '\'s feed: ' + a.feederText(d) + ', fed ' + from
+                // said once, lower case mid-sentence: "SL's power in: 150'",
+                // never "SL's power in: Power in 150'" (the binder's rule)
+                var text = String(a.feederText(d)).replace(/^Power in(?:,\s*|\s+)(?=\S)/, '')
+                    .replace(/^(\S.*?) power in(?=,? |$)/, '$1');
+                return (d.name || 'The distro') + '\'s power in: ' + text + ', powered ' + from
                     + '. The pull sheet lists it where the distro sits.';
             },
             after: function () { closePopover(); }

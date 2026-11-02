@@ -1758,7 +1758,7 @@ class _DistroSystems {
         const input = document.createElement('select');
         input.className = 'info-select';
         input.dataset.lrdField = `distro-input-${d.id}`;
-        input.title = 'What feeds the distro. Picking one sets the rating '
+        input.title = 'What powers the distro. Picking one sets the rating '
             + 'per leg to the input\'s own figure.';
         const none = document.createElement('option');
         none.value = '';

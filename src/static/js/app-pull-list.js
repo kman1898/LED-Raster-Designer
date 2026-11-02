@@ -205,11 +205,13 @@ const PULL_LEGACY_TRUE1_WORD = /(^|[\s(/])(?:Tru-1|TRU-1)(?=[\s)/]|$)/g;
 // and an edit keyed on the old row answers to the new one (pullEditKey).
 const PULL_LEGACY_ADAPTER = /^((?:Edison|L6-20) → (?:TRUE1|powerCON)) tail(?=\||$)/;
 
-// A distro's feed printed as "Feeder" / "L21-30 feeder" in the 1.5.4
-// betas; it is "Feed" / "L21-30 feed" now (2026-11-01, a word that reads
-// right outside the US too), and an edit keyed on the old row answers to
-// the new one (pullEditKey).
-const PULL_LEGACY_FEEDER = /^(Feed|.+ feed)er(?=\||$)/;
+// A distro's power in printed as "Feeder" / "L21-30 feeder" in the 1.5.4
+// betas and "Feed" / "L21-30 feed" in the 1.6.0 betas; it is "Power in" /
+// "L21-30 power in" now (2026-11-02), and an edit keyed on either old row
+// answers to the new one (pullEditKey). Read against a row's TYPE; the
+// words before " feed" must be a distro input's name, so an "SDI feed"
+// stays what it is.
+const PULL_LEGACY_FEEDER = /^(?:Feed(?:er)?|(.+) feed(?:er)?)$/;
 
 // Brompton models as the pull sheet printed them until 2026-10-17 -
 // "Tessera XD", "Tessera SX40" - and as older files key their edits. The
@@ -2147,17 +2149,22 @@ class _PullList {
     // "TRUE1 Breakout|EA"; the old shipped jumper name "Tru-1 Power Jump"
     // is the TRUE1 jumper's shipped one), and the Edison adapter's old
     // "Edison → TRUE1 tail|EA" as "Edison → TRUE1 cable|EA", and a distro's
-    // old "Feeder|50'" / "L21-30 feeder|50'" as its "Feed|50'" / "L21-30
-    // feed|50'" (unless that type is a distro Type somebody typed). Every
+    // old "Feeder|50'" / "Feed|50'" / "L21-30 feeder|50'" / "L21-30
+    // feed|50'" as its "Power in|50'" / "L21-30 power in|50'" (unless that
+    // type is a distro Type somebody typed). Every
     // other key is itself. Nothing is rewritten on open - the stored key
     // takes the new spelling the next time somebody edits that row.
     pullEditKey(key) {
         const text = String(key == null ? '' : key);
         if (PULL_LEGACY_ADAPTER.test(text)) return text.replace(PULL_LEGACY_ADAPTER, '$1 cable');
-        if (PULL_LEGACY_FEEDER.test(text)) {
+        {
             const cut = text.indexOf('|');
             const type = cut < 0 ? text : text.slice(0, cut);
-            if (!this._pullUserTypeNames().has(type.toLowerCase())) return text.replace(PULL_LEGACY_FEEDER, '$1');
+            const m = PULL_LEGACY_FEEDER.exec(type);
+            if (m && (!m[1] || this._pullDistroInputNames().has(m[1]))
+                    && !this._pullUserTypeNames().has(type.toLowerCase())) {
+                return (m[1] ? `${m[1]} power in` : 'Power in') + (cut < 0 ? '' : text.slice(cut));
+            }
         }
         // A key whose type is the USER'S TEXT - a distro's Type, a jumper
         // name somebody typed, a panel name from Screen Info - is never
@@ -2291,6 +2298,14 @@ class _PullList {
         const out = { ...r, type: this.pullFreeRowType(r.type) };
         if (r.notes != null) out.notes = this.pullFreeRowNotes(r.notes);
         return out;
+    }
+
+    // The names of the distro inputs, as a power in row prints them
+    // ("L21-30", "Powerlock 400 A"): the words an old "<input> feed" row
+    // started with (pullEditKey).
+    _pullDistroInputNames() {
+        const list = typeof this.distroInputs === 'function' ? this.distroInputs() || [] : [];
+        return new Set(list.map(i => i && i.name).filter(Boolean));
     }
 
     // The row types that are the user's own text, lower-cased: every
