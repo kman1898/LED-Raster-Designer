@@ -41,6 +41,16 @@ export const FIBER_STRAND_SUGGESTIONS = [4, 6, 8, 12, 24, 48];
 // A TAC's ends, offered; free text is taken too. An MTP names none.
 export const TAC_CONNECTORS = ['ST', 'LC duplex'];
 
+// A FIBER EXTENSION (owner, 2026-11-02: "MTP cant run direct to X1 for
+// example it would need an extension beyond that"): the cable between a
+// TAC's or an MTP's end and the box's own port, at the box end only, per
+// link - link.extension = { kind, trunkEnd?, boxEnd?, ft? } (the server's
+// processor_catalog.FIBER_EXTENSION_KINDS has the rules). Its ends are
+// offered from the fiber connector list of the 2026-09-25 ruling, and any
+// other may be typed; a trunk end left blank reads the trunk's own.
+export const FIBER_EXTENSION_KINDS = [['fanout', 'Fan-out'], ['patch', 'Duplex patch']];
+export const FIBER_EXTENSION_CONNECTORS = ['ST', 'LC duplex', 'opticalCON DUO', 'opticalCON QUAD', 'MTP / MPO'];
+
 // Copper on an XD link, each kind with its 10G maximum in feet: Cat6A 60 m
 // and Cat5e 30 m are Brompton's, Cat6 100 ft the owner's. The meter
 // figures are converted exactly (60 m = 196.85 ft, 30 m = 98.43 ft); they
@@ -138,6 +148,59 @@ class _Fiber {
             parts.push(String(cable.connector).trim());
         }
         return parts.join(' · ');
+    }
+
+    // ---- extensions at the box end ----------------------------------------
+
+    // The connector a trunk ends in, as an extension's trunk end reads it
+    // when none is typed: a TAC's own ends ('' where it names none), an
+    // MTP's MTP / MPO, an opticalCON its own.
+    fiberCableEndText(cable) {
+        if (!cable) return '';
+        if (cable.kind === 'tac') return String(cable.connector || '').trim();
+        return { mtp: 'MTP / MPO', 'opticalcon-duo': 'opticalCON DUO',
+                 'opticalcon-quad': 'opticalCON QUAD' }[cable.kind] || '';
+    }
+
+    fiberExtensionKindWord(kind) {
+        const hit = FIBER_EXTENSION_KINDS.find(([k]) => k === kind);
+        return hit ? hit[1] : 'Extension';
+    }
+
+    // A link's extension, or null: one rides a TAC or an MTP only.
+    fiberLinkExtension(l) {
+        const ext = l && l.link && l.link.extension;
+        return ext && l.cable && this.fiberCableIsStranded(l.cable) ? ext : null;
+    }
+
+    // Its two ends as they read: the trunk end typed, else the trunk's own.
+    fiberExtensionEnds(ext, cable) {
+        const typed = String((ext && ext.trunkEnd) || '').trim();
+        return { trunk: typed || this.fiberCableEndText(cable),
+                 box: String((ext && ext.boxEnd) || '').trim() };
+    }
+
+    // "MTP / MPO to LC duplex" - '' where neither end is named.
+    fiberExtensionPathText(ext, cable) {
+        const { trunk, box } = this.fiberExtensionEnds(ext, cable);
+        if (trunk && box) return `${trunk} to ${box}`;
+        if (trunk) return `from ${trunk}`;
+        return box ? `to ${box}` : '';
+    }
+
+    // The pull sheet's type for it: "Fan-out · MTP / MPO to LC duplex".
+    // Two extensions of one kind, ends and length are one row, counted.
+    fiberExtensionType(ext, cable) {
+        const path = this.fiberExtensionPathText(ext, cable);
+        return this.fiberExtensionKindWord(ext && ext.kind) + (path ? ` · ${path}` : '');
+    }
+
+    // The whole of it in one line, the length or "no length" last: "Fan-out ·
+    // MTP / MPO to LC duplex · 10'".
+    fiberExtensionText(ext, cable) {
+        const ft = this.parseCableLength(ext && ext.ft);
+        return `${this.fiberExtensionType(ext, cable)} · `
+            + (Number.isFinite(ft) && ft > 0 ? this.pullLengthText(ft) : 'no length');
     }
 
     // A link by the box's own port name - "X1", "OPT 3" - off the
@@ -371,6 +434,12 @@ class _Fiber {
         const url = this._fiberBoxUrl(box);
         if (!url) return Promise.resolve();
         return this._processorRequest(`${url}/fiber-links/${key}`, 'PUT', body, action);
+    }
+
+    // A link's extension: {} adds one, the keys sent change it, null
+    // removes it - one request, one history entry.
+    setFiberExtension(box, key, body, action = 'Set Fiber Extension') {
+        return this.setFiberLink(box, key, { extension: body }, action);
     }
 
     setBoxFiber(box, body, action = 'Set Box Fiber') {

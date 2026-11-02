@@ -200,6 +200,42 @@ circumstances, not how many ports you've drawn so far. It's the number
 to plan cards and boxes around before you start drawing. The ports you
 draw are still the ones the cards, the port labels and the map count.
 
+REDRAW SEVERAL PORTS AS ONE
+
+In the Data view, Shift+click a run to pick its port, and Shift+click it
+again to drop it. Shift+drag a box from a run to pick every port the box
+touches. With two or more picked, right-click and choose Redraw ports
+51-54 as one (it reads 51, 53, 54 when the numbers aren't in a row).
+Their panels are freed and you draw one new port by clicking the panels
+in order, the same way Redraw port works. The new port keeps the first
+number and the ports after it move down to close the gap, so 54 ports
+become 51. Enter keeps the drawing, and so does drawing every freed
+panel. Esc puts the ports back the way they were, and one undo takes
+the whole thing back.
+
+Ports already on a card stay on their sockets under their new numbers.
+The new port keeps the first port's socket, and the sockets of the ports
+that went away are freed. A locked screen can't be redrawn this way, and
+the app tells you why.
+
+FIBER EXTENSIONS
+
+A TAC or MTP doesn't always plug straight into the box. An MTP needs a
+fan-out to reach an XD's X1, for example. On a breakout box's sheet,
+each link on a TAC or MTP now has + Extension. Pick a fan-out or a
+duplex patch, the connector at each end and its length. The trunk end
+starts as the TAC's or MTP's own connector, and you can pick ST, LC
+duplex, opticalCON DUO, opticalCON QUAD or MTP / MPO, or type your own.
+Each link gets its own, so two boxes on one shared MTP can have one
+extension and one without. A backup link can have its own too.
+Remove takes it off in one click.
+
+The pull sheet lists extensions as cables to pull, with matching ones
+counted together on one row. The binder's Fiber connections table shows
+the extension at the breakout end, and the strand map notes it beside
+the link. An extension goes when its link, its TAC or MTP, or its box
+does. Shows without extensions open exactly as before.
+
 OPENING AN OLDER SHOW
 
 Some counts will change when you open a show from an earlier version.
@@ -288,6 +324,13 @@ pull sheet again and compare it with anything you've already ordered.
 
 FIXES
 
+- FIX: Amperage offers 16A beside 15A and 20A, in Power settings and in
+  Preferences, so a 16 A circuit no longer needs Custom.
+- FIX: The Unit, Voltage, Amperage, Watts per Panel, Bit Depth and Frame
+  Rate boxes in Data and Power settings are only as wide as what they hold.
+- FIX: The Screens list uses its whole width. The blank strip down its
+  right side is gone and the arrows, grid and eye sit closer together, so
+  longer screen names show in full.
 - FIX: A direct output's cable names both ends, like CEE 16A → TRUE1, or
   just TRUE1 when the outlet already is one.
 - FIX: Distro boxes are listed by their own names everywhere (SR1,
@@ -418,6 +461,24 @@ FIXES
 - FIX: Starting a new show or opening one right after an Undo waits for
   the Undo to finish saving, so the undone show can no longer land on top
   of the one you just opened.
+- FIX: Unplugging a multi, a single circuit or a whole distro in Power
+  takes off only the circuits it fed. Before, the multi or circuit next
+  to them could grow onto the freed circuits and take new circuits on
+  its own box, so a feed you never touched moved to another breakout.
+- FIX: A minimized pair of breakout boxes in a redundancy loop, like an
+  XD A and B on an SX40, shows the cable sheet and gear buttons on its
+  header. They open the primary box's sheet and settings. Before, you
+  had to open the pair to reach them.
+- FIX: Data cable tags show only the length, like 25'. With the connector
+  on every tag, a wall of narrow columns had tags wider than a column, so
+  they zig-zagged over and under the ports. They now sit in one row. The
+  binder names the connector once, under each screen's name on its data
+  page, like Port cables: etherCON.
+- FIX: The binder's pull lists head their first column GEAR, not CABLE,
+  since they list every piece of gear: cables, distros, boxes and cards.
+  The pull sheet spreadsheet and the in-app pull sheet say Gear too, in
+  place of Cable Type, and the spreadsheet's READ ME is titled LED GEAR
+  PULL SHEET.
 
 v1.5.3 - October 21, 2026
 ----------------------------

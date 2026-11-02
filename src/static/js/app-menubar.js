@@ -447,6 +447,12 @@ class _MenuBar {
                     this._overrideMenuActions.redraw.run();
                 }
                 break;
+            case 'ovr-merge':
+                if (this._mergeRunsMenuAction
+                        && typeof this._mergeRunsMenuAction.run === 'function') {
+                    this._mergeRunsMenuAction.run();
+                }
+                break;
             case 'ovr-auto':
                 if (this._overrideMenuActions && this._overrideMenuActions.backToAuto
                         && typeof this._overrideMenuActions.backToAuto.run === 'function') {

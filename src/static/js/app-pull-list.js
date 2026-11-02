@@ -3,7 +3,7 @@
 // packet next.
 //
 // The user's own pull sheet (Google Sheets, exported to xlsx) is the shape
-// this feeds: POSITIONS side by side, each a list of (Cable Type, Length,
+// this feeds: POSITIONS side by side, each a list of (Gear, Length,
 // Qty, Label, Notes) rows in the GEAR LIST vocabulary, then TOTALS built
 // from every position. Rulings (2026-09-06):
 //
@@ -817,6 +817,21 @@ class _PullList {
                 this.copperOverText(l.copper) || (has ? '' : 'no length')];
     }
 
+    // A fiber link's EXTENSION at the box end (owner, 2026-11-02) as a
+    // pull row's cells: its kind and two ends, "Fan-out · MTP / MPO to LC
+    // duplex", its length, one, "XD A (X1)" as a copper link reads, and
+    // the trunk it extends in Notes ("ext · MTP A", "no length" where none
+    // is typed). Rows merge by type and length, so identical extensions -
+    // kind, both ends, length - are one row with a count.
+    _pullFiberExtensionCells(l) {
+        const ext = this.fiberLinkExtension(l);
+        const ft = this.parseCableLength(ext.ft);
+        const has = Number.isFinite(ft) && ft > 0;
+        return [this.fiberExtensionType(ext, l.cable), has ? this.pullLengthText(ft) : '', 1,
+                `${this.pullBoxTitle(l.box)} (${l.title})`,
+                `ext · ${l.cable.name || this.fiberCableTypeText(l.cable)}` + (has ? '' : ' · no length')];
+    }
+
     pullPowerConnectorName(appName) {
         const name = String(appName || '').trim();
         return POWER_CONNECTOR_SHEET_NAMES[name] || name;
@@ -1388,7 +1403,29 @@ class _PullList {
             const hosts = typeof this._fiberAllBoxes === 'function'
                 ? this._fiberAllBoxes() : this._pullAllBoxes();
             for (const { box, proc, card } of hosts) {
+                // A card cabled on links of its own (a QD-S, `box` the
+                // card itself) has no location and no first screen: its
+                // fiber goes where its boxes are, as its gear row does,
+                // else where its processor's ports first land.
+                const place = (r) => {
+                    const placed = box === card
+                        ? ((card.cvts || []).some(b => gearAt(r, this.pullLocationOf(b), boxFirstLayer.get(b.id)))
+                           || gearAt(r, null, procFirstLayer.get(proc.id)))
+                        : gearAt(r, this.pullLocationOf(box), boxFirstLayer.get(box.id));
+                    if (!placed) {
+                        if (!bases.length) return;
+                        land(bases[0].key, r, null);
+                    }
+                    hw('processor', proc.id, proc.name || proc.deviceName || proc.id).rows.push({ ...r });
+                };
                 for (const l of this.fiberBoxLinks(box)) {
+                    // the link's own extension at the box end, once per link
+                    const extKey = `ext:${l.box.id}:${l.key}`;
+                    if (!l.copper && this.fiberLinkExtension(l) && !fiberSeen.has(extKey)) {
+                        fiberSeen.add(extKey);
+                        const [type, length, qty, label, notes] = this._pullFiberExtensionCells(l);
+                        place({ type, length, qty, label, notes, side: 'data' });
+                    }
                     const key = l.copper ? `cu:${l.box.id}:${l.key}` : (l.cable ? `fib:${l.cable.id}` : null);
                     if (!key || fiberSeen.has(key)) continue;
                     fiberSeen.add(key);
@@ -1402,19 +1439,7 @@ class _PullList {
                         r = { type: this.fiberCableTypeText(l.cable), length: this.pullLengthText(ft),
                               qty: 1, label: l.cable.name || '', notes: has ? '' : 'no length', side: 'data' };
                     }
-                    // A card cabled on links of its own (a QD-S, `box` the
-                    // card itself) has no location and no first screen: its
-                    // fiber goes where its boxes are, as its gear row does,
-                    // else where its processor's ports first land.
-                    const placed = box === card
-                        ? ((card.cvts || []).some(b => gearAt(r, this.pullLocationOf(b), boxFirstLayer.get(b.id)))
-                           || gearAt(r, null, procFirstLayer.get(proc.id)))
-                        : gearAt(r, this.pullLocationOf(box), boxFirstLayer.get(box.id));
-                    if (!placed) {
-                        if (!bases.length) continue;
-                        land(bases[0].key, r, null);
-                    }
-                    hw('processor', proc.id, proc.name || proc.deviceName || proc.id).rows.push({ ...r });
+                    place(r);
                 }
             }
         }
@@ -1907,6 +1932,18 @@ class _PullList {
             // on that box's processor's hardware rows.
             const sayLinks = (links) => {
                 for (const l of links) {
+                    // the link's own extension at the box end, said once
+                    // per link, where its box sits
+                    const extKey = `ext:${l.box.id}:${l.key}`;
+                    if (!l.copper && this.fiberLinkExtension(l)) {
+                        if (fiberSeen.has(extKey)) tagOnce(extKey);
+                        else {
+                            fiberSeen.add(extKey);
+                            const er = row(...this._pullFiberExtensionCells(l), at);
+                            saidOnce.set(extKey, er);
+                            push(er);
+                        }
+                    }
                     const key = l.copper ? `cu:${l.box.id}:${l.key}` : `fib:${l.cable.id}`;
                     if (fiberSeen.has(key)) { tagOnce(key); continue; }
                     fiberSeen.add(key);

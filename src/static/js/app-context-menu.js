@@ -74,6 +74,11 @@ class _ContextMenu {
         const ovr = (!inDock && typeof this._prepareOverrideMenu === 'function')
             ? this._prepareOverrideMenu(x, y) : null;
         this._overrideMenuActions = ovr;
+        // Several ports picked with Shift (app-merge-runs.js): "Redraw ports
+        // 51-54 as one", armed on a run of the picks' screen in Data view.
+        const mergeRuns = (!inDock && typeof this._prepareMergeRunsMenu === 'function')
+            ? this._prepareMergeRunsMenu(x, y) : null;
+        this._mergeRunsMenuAction = mergeRuns;
         // Distro outputs, the click path (2026-08-31): on a screen in the
         // power view - its cabinets, or its circuit chips in the tray -
         // "Add <type> from…" opens a submenu of every distro, the ones
@@ -287,6 +292,7 @@ class _ContextMenu {
          ['hw-unshare-only', 'hw-unshare', sharing.unshare],
          ['hw-nfer-it-only', 'hw-nfer-it', nferIt],
          ['ovr-redraw-only', 'ovr-redraw', ovr && ovr.redraw],
+         ['ovr-merge-only', 'ovr-merge', mergeRuns],
          ['ovr-auto-only', 'ovr-auto', ovr && ovr.backToAuto],
         ].forEach(([cls, action, armed]) => {
             menu.querySelectorAll(`.${cls}`).forEach(el => {
@@ -301,6 +307,13 @@ class _ContextMenu {
                 item.classList.toggle('menu-disabled', !!armed.disabled);
             }
         });
+
+        // On a custom screen there is no Redraw item above the merge entry,
+        // so it brings its own divider.
+        const mergeDivider = menu.querySelector('.menu-divider.ovr-merge-div');
+        if (mergeDivider) {
+            mergeDivider.style.display = (mergeRuns && !(ovr && ovr.redraw)) ? '' : 'none';
+        }
 
         // Tab steps circuits in the Power view and ports everywhere else, so
         // the two items say which.

@@ -1927,6 +1927,34 @@ def clear_pin(state, layer_id, index=None):
     return state
 
 
+def merge_pins(state, layer_id, removed):
+    """Several screen ports redrawn as one (the owner, 2026-11-02: "redraw
+    all of those as one port"): the merged port keeps the FIRST port's
+    number, so its pin stays where it was; every port in `removed` (0-based
+    indices) goes away, and its pin is released; and every later port of
+    that screen closes up by the removed ports below it, its pin riding
+    along to the new number on the socket it already had. Other screens'
+    pins are untouched. A release next door still never slides anything
+    into the socket it left - only this screen's own numbers move, because
+    the ports themselves did."""
+    gone = sorted({int(i) for i in removed or []})
+
+    def shift(index):
+        return index - sum(1 for r in gone if r < index)
+
+    pins = []
+    for pin in _clean_pins(state.get('pins')):
+        if pin['layerId'] != str(layer_id):
+            pins.append(pin)
+            continue
+        if pin['index'] in gone:
+            continue
+        pins.append(dict(pin, index=shift(pin['index'])))
+    pins.sort(key=lambda p: (p['layerId'], p['index']))
+    state['pins'] = pins
+    return state
+
+
 def taken_by_pins(processors, pins):
     """{(cardId, socket)} every pin holds, plus each backup socket that
     carries the return of a pinned main (the backupRoles link

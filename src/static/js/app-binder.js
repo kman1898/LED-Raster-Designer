@@ -4365,7 +4365,8 @@ class _Binder {
             const used = spec.draw(L.mapArea) || L.mapArea;
             scaled(() => {
                 const [bx, by] = L.toBase(L.mapArea.x + 20, used.y + used.h + 8);
-                this._bViewBubble(book, view, spec.viewName, bx, by);
+                const [ex] = L.toBase(L.mapArea.x + L.mapArea.w, used.y);
+                this._bViewBubble(book, view, spec.viewName, bx, by, spec.note, ex - bx);
                 this._bDrawLayout(book, L);
             });
         });
@@ -4380,8 +4381,10 @@ class _Binder {
     }
 
     // The view's bubble under its map: a circle with the number, the name
-    // in caps over a short rule beside it.
-    _bViewBubble(book, number, name, x, y) {
+    // in caps over a short rule beside it. `note` (a data sheet's
+    // _bDataCableNote, "Port cables: etherCON") is one line under the
+    // rule, inside the bubble's room (BUBBLE_H), no wider than `room`.
+    _bViewBubble(book, number, name, x, y, note = null, room = null) {
         const ctx = book.ctx;
         const r = 34;
         const cx = x + r, cy = y + r + 4;
@@ -4403,9 +4406,15 @@ class _Binder {
         const ruleW = Math.max(240, Math.ceil(ctxM.measureText(label).width) + 40);
         ctx.fillStyle = INK;
         ctx.fillRect(nx, cy + 12, ruleW, 3);
+        let noteText = null;
+        if (note) {
+            const maxWidth = Math.max(240, (Number.isFinite(room) ? room : Infinity) - (nx - x));
+            noteText = this._bText(book, note, nx, cy + 44, { size: SZ.foot, weight: 400, maxWidth, shrink: true });
+        }
         if (book.log && book.page && book.page.painting) {
             const [px, py] = this._bLogXY(book, cx, cy);
-            book.log.bubble = { number, name: label, x: px, y: py, r: r * (book.fill ? book.fill.s : 1) };
+            book.log.bubble = { number, name: label, note: noteText, x: px, y: py,
+                                r: r * (book.fill ? book.fill.s : 1) };
         }
     }
 
@@ -5759,6 +5768,7 @@ class _Binder {
         const mode = view === 'power' ? 'power' : 'data-flow';
         this._bMapSheets(book, {
             kind: view, title, sheetTitle, viewName: sheetTitle,
+            note: view === 'data' ? this._bDataCableNote(s) : null,
             layerId: s.id, subject: s.name, position: pos.name,
             ...(s.groupId != null ? { groupId: s.groupId, layerIds: s.layers.map(l => l.id) } : {}),
             measure: (area) => this._bMap(book, s, mode, area),
@@ -5773,6 +5783,39 @@ class _Binder {
                 return geo.area;
             },
         }, blocks);
+    }
+
+    // The connector a data sheet's port tags leave out (owner, 2026-11-02:
+    // the map's tags read the length alone, "25'", dataMapTagText): one
+    // line under the screen's name, "Port cables: etherCON". A screen
+    // whose typed cables mix connectors names each with the ports on it,
+    // in port order, "Port cables: etherCON 1-10 · Cat6A 11" - a port's
+    // backup cable counted under its port's number. Snakes carry no
+    // connector on their tags and are not counted; null with no typed
+    // cable on the sheet, and then no line is printed.
+    _bDataCableNote(target) {
+        const subject = this._bSubject(target);
+        const byWord = new Map();               // word -> Set of port numbers
+        const add = (c, num) => {
+            if (!c || c.kind !== 'cable' || !c.name) return;
+            if (!byWord.has(c.name)) byWord.set(c.name, new Set());
+            byWord.get(c.name).add(num);
+        };
+        for (const { carrier, run } of this._bSubjectRuns(subject)) {
+            if (typeof this.dataPortCableForScreen === 'function') {
+                add(this.dataPortCableForScreen(carrier, run.num), run.num);
+            }
+            if (typeof this.dataPortBackupCableForScreen === 'function') {
+                add(this.dataPortBackupCableForScreen(carrier, run.num), run.num);
+            }
+        }
+        if (!byWord.size) return null;
+        if (byWord.size === 1) return `Port cables: ${[...byWord.keys()][0]}`;
+        const parts = [...byWord.entries()]
+            .map(([word, nums]) => ({ word, nums: [...nums].sort((a, b) => a - b) }))
+            .sort((a, b) => a.nums[0] - b.nums[0] || a.word.localeCompare(b.word))
+            .map(g => `${g.word} ${this._fmtTails(g.nums)}`);
+        return `Port cables: ${parts.join(' · ')}`;
     }
 
     // The band over a multi's circuits: "SR1 · Multi 208 · 125' · 6
@@ -7579,10 +7622,12 @@ class _Binder {
     // ("powerCON Power Jump", "Edison → powerCON cable", "400 A cam set ·
     // 5-wire" - owner, 2026-10-21); on the pull pages, sized to their
     // content, it has the room to print each on one line wherever the
-    // sheet holds it.
-    _bPullCableCols() {
+    // sheet holds it. A pull list holds every piece of gear (the cables, the
+    // distros, the boxes, the cards), so its first column reads GEAR (owner,
+    // 2026-11-02); a block of only cables keeps CABLE.
+    _bPullCableCols(head = 'cable') {
         const tick = { title: '', w: 0.28, tick: true };
-        return [tick, { title: 'cable', w: 1.5, lend: true, list: 2, words: true, asksWhole: true },
+        return [tick, { title: head, w: 1.5, lend: true, list: 2, words: true, asksWhole: true },
                 // LENGTH holds "no length" whole where the table has the
                 // room, else on two lines - never "no len…"
                 { title: 'length', w: 0.6, borrow: 'len', list: 2, words: true, asksWhole: true },
@@ -7593,7 +7638,7 @@ class _Binder {
     _bPullLines(book, title, rows) {
         return this._bTableLines(book, {
             title,
-            cols: this._bPullCableCols(),
+            cols: this._bPullCableCols('gear'),
             rows: rows.length ? rows.map(r => ({ cells: ['', ...this._bPullCableCells(r), this._bQty(r.qty), r.label || ''] }))
                 : [{ cells: ['', 'none', '', '', ''] }],
         });
@@ -7962,13 +8007,20 @@ class _Binder {
                 .filter(Boolean).join(' · ');
             const m = uses.get(cable.id) || new Map();
             const rows = [];
+            // a link with an extension at the box end notes it after the
+            // port: "XD A · X1 · ext Fan-out 10'" (the Fiber connections
+            // table has its two ends)
+            const linkText = (who) => {
+                const at = `${this._bBoxTitle(who.box)} · ${this.fiberLinkTitle(who.key, who.box)}`;
+                const ext = this._bFiberExtensionParts({ link: (who.box.fiberLinks || {})[who.key], cable });
+                return ext.length ? `${at} · ${ext[0].text}` : at;
+            };
             for (let n = 1; n <= (cable.strands || 0); n++) {
                 const who = m.get(n);
                 const piece = this._bStrandPiece(n, cable);
                 rows.push({ swatch: piece.swatch,
                             cells: [piece.text,
-                                    who ? `${this._bBoxTitle(who.box)} · ${this.fiberLinkTitle(who.key, who.box)}`
-                                        : 'spare',
+                                    who ? linkText(who) : 'spare',
                                     who ? this._bLinkPortsText(who.box, who.card, who.key) : ''] });
             }
             out.push({ title, note: also.length ? `Also on ${also.join(', ')}` : '',
@@ -7976,6 +8028,21 @@ class _Binder {
                               { title: 'box ports', w: 0.8 }],
                        rows, shrink: true });
         }
+        return out;
+    }
+
+    // A link's EXTENSION at the box end as the binder says it, a line
+    // each: its kind and length ("ext Fan-out 10'", "ext Duplex patch ·
+    // no length"), then its two ends ("MTP / MPO to LC duplex") where
+    // either is named. [] for a link with none.
+    _bFiberExtensionParts(l) {
+        const ext = typeof this.fiberLinkExtension === 'function' ? this.fiberLinkExtension(l) : null;
+        if (!ext) return [];
+        const ft = this.parseCableLength(ext.ft);
+        const out = [{ text: `ext ${this.fiberExtensionKindWord(ext.kind)} `
+            + (Number.isFinite(ft) && ft > 0 ? this.pullLengthText(ft) : '· no length'), brk: true }];
+        const path = this.fiberExtensionPathText(ext, l.cable);
+        if (path) out.push({ text: path, brk: true });
         return out;
     }
 
@@ -8094,6 +8161,10 @@ class _Binder {
             const atInput = crosses
                 ? swatched(set, cable).concat([{ text: 'crosses inside', brk: true }])
                 : swatched(this._bStrandsAtBox(l.link, cable), cable);
+            // the link's extension sits between the trunk's end and the
+            // box's port (owner, 2026-11-02), so the path says it last, at
+            // the breakout: "ext Fan-out 10'" then its two ends
+            atInput.push(...this._bFiberExtensionParts(l));
             return { cells: [output, name, joined(atProcessor), input, joined(atInput)],
                      parts: { 2: atProcessor, 4: atInput } };
         };

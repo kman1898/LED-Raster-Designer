@@ -2115,9 +2115,92 @@ def fiber_cable_type_text(cable):
     return f'{text} · {conn}' if conn else text
 
 
+# A FIBER EXTENSION (owner, 2026-11-02: "MTP cant run direct to X1 for
+# example it would need an extension beyond that ... same goes for Tac
+# cable"): the cable between a TAC's or an MTP's end and the box's own
+# port, at the BOX end only, set per link - each box's link off a shared
+# trunk has its own or none, a backup link the same:
+#
+#   link['extension'] = {kind: 'fanout' | 'patch', trunkEnd?, boxEnd?, ft?}
+#
+# `kind` is a fan-out (breakout harness) or a plain duplex patch; the two
+# ends are free text (app-fiber.js offers ST, LC duplex, opticalCON DUO,
+# opticalCON QUAD, MTP / MPO); a trunkEnd left out reads the trunk's own
+# connector; `ft` is in the show's unit, absent when none. Nothing here
+# says which connector a box's port takes - the app records what the user
+# picks. A link on an opticalCON or on copper has no extension; one with
+# none stores no key, so a link without reads exactly as it always did.
+FIBER_EXTENSION_KINDS = ('fanout', 'patch')
+_FIBER_EXTENSION_ENDS = ('trunkEnd', 'boxEnd')
+
+
+def _fiber_extension(raw):
+    """One stored extension, shaped - else None (an unreadable one is
+    dropped, never the link it rides on)."""
+    if not isinstance(raw, dict) or raw.get('kind') not in FIBER_EXTENSION_KINDS:
+        return None
+    ext = {'kind': raw['kind']}
+    for key in _FIBER_EXTENSION_ENDS:
+        text = raw.get(key)
+        if isinstance(text, str) and text.strip():
+            ext[key] = text.strip()
+    ft = _cable_ft(raw.get('ft'))
+    if ft is not None:
+        ext['ft'] = ft
+    return ext
+
+
+def check_fiber_extension(body, unit='ft'):
+    """Why an extension body ({kind?, trunkEnd?, boxEnd?, ft?} - each key
+    sent is changed, the rest kept) cannot be stored, or None."""
+    if not isinstance(body, dict):
+        return 'extension must be {kind, trunkEnd, boxEnd, ft}, or null to remove it.'
+    if 'kind' in body and body['kind'] not in FIBER_EXTENSION_KINDS:
+        return 'An extension’s kind must be fanout or patch.'
+    for key in _FIBER_EXTENSION_ENDS:
+        if body.get(key) is not None and not isinstance(body[key], str):
+            return f'{key} must be text.'
+    if body.get('ft') not in (None, ''):
+        words = cable_unit_words(unit)
+        if isinstance(body['ft'], bool):
+            return f'ft must be a number of {words}.'
+        try:
+            ft = float(body['ft'])
+        except (TypeError, ValueError):
+            return f'ft must be a number of {words}.'
+        if not math.isfinite(ft) or ft < 0:
+            return f'ft must be a number of {words}, 0 or more.'
+    return None
+
+
+def merge_fiber_extension(old, body, cable):
+    """The extension a checked body leaves: the keys it sends over `old`.
+    A new one starts as a fan-out off an MTP and a duplex patch off a TAC
+    - a first pick the user changes freely - with its trunk end left to
+    read the trunk's own connector."""
+    ext = dict(old) if isinstance(old, dict) else {
+        'kind': 'fanout' if (cable or {}).get('kind') == 'mtp' else 'patch'}
+    for key, value in body.items():
+        if key == 'kind':
+            ext['kind'] = value
+        elif key in _FIBER_EXTENSION_ENDS:
+            text = (value or '').strip()
+            if text:
+                ext[key] = text
+            else:
+                ext.pop(key, None)
+        elif key == 'ft':
+            ft = _cable_ft(value)
+            if ft is None:
+                ext.pop('ft', None)
+            else:
+                ext['ft'] = ft
+    return _fiber_extension(ext)
+
+
 def _fiber_link(raw):
-    """One stored link, shaped: {cable, strands: [int, ...]} - or a copper
-    link, {copper: 'Cat6A', ft?} - else None."""
+    """One stored link, shaped: {cable, strands: [int, ...], extension?} -
+    or a copper link, {copper: 'Cat6A', ft?} - else None."""
     if not isinstance(raw, dict):
         return None
     if 'copper' in raw:
@@ -2138,7 +2221,11 @@ def _fiber_link(raw):
         if isinstance(s, bool) or not isinstance(s, int):
             return None
         out.append(s)
-    return {'cable': cable, 'strands': out}
+    link = {'cable': cable, 'strands': out}
+    ext = _fiber_extension(raw.get('extension'))
+    if ext:
+        link['extension'] = ext
+    return link
 
 
 def resolved_fiber_links(cvt):
@@ -2479,6 +2566,10 @@ def settle_fiber(project, used_before=None):
                     or any((link['cable'], s) in taken for s in strands):
                 continue
             taken.update((link['cable'], s) for s in strands)
+            # an extension rides a TAC or an MTP only
+            if 'extension' in link \
+                    and cable.get('kind') not in FIBER_STRANDED_KINDS:
+                link.pop('extension')
             kept[key] = link
         if kept != links:
             changed = True

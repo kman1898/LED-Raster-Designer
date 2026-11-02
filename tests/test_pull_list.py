@@ -242,7 +242,7 @@ def test_four_to_six_positions_take_the_s_y_ae_blocks_and_more_overflow(client):
     assert [ws.cell(5, c).value for c in pull_sheet.BLOCK_COLS] == ['P0', 'P1', 'P2', 'P3', 'NEW POSITION', None]
     assert ws['S5'].fill.fgColor.rgb == ws['A5'].fill.fgColor.rgb and ws['U5'].value is None
     assert ws['Y5'].fill.fgColor.rgb == 'FFFBE9D0' and ws['AA5'].value == '< copy to add a position >'
-    assert ws['Y6'].value == 'Cable Type' and ws['Y7'].border.left.style == 'thin'
+    assert ws['Y6'].value == 'Gear' and ws['Y7'].border.left.style == 'thin'
     assert wb.defined_names['NEW_BLOCK_TEMPLATE'].attr_text == "'Pull Sheet'!$Y$5:$AC$36"
     assert 'Y7:Y36' in str([str(dv.sqref) for dv in ws.data_validations.dataValidation])
 
@@ -260,7 +260,7 @@ def test_four_to_six_positions_take_the_s_y_ae_blocks_and_more_overflow(client):
     assert sorted(str(dv.sqref) for dv in ws.data_validations.dataValidation) == [
         'A7:A41 G7:G41 M7:M41 S7:S41 Y7:Y41 AE7:AE41', 'B7:B41 H7:H41 N7:N41 T7:T41 Z7:Z41 AF7:AF41']
     ov = wb['Overflow']
-    assert [c.value for c in ov[1]] == ['Position', 'Cable Type', 'Length', 'Qty', 'Label', 'Notes']
+    assert [c.value for c in ov[1]] == ['Position', 'Gear', 'Length', 'Qty', 'Label', 'Notes']
     assert [c.value for c in ov[2]] == ['P6', 'Multi 0', "6'", 1, None, None]
     assert wb['calc'].sheet_state == 'hidden'
 
@@ -272,6 +272,53 @@ def test_four_to_six_positions_take_the_s_y_ae_blocks_and_more_overflow(client):
     assert ws.cell(66, 1).value == 'Row 59' and ws.cell(67, 1).value is None
     assert [c.value for c in wb['Overflow'][2]] == ['BIG', 'Row 60', "6'", 1, None, None]
     assert any('more than 60 rows' in w for w in json.loads(r.headers['X-Pull-Sheet-Warnings']))
+
+
+def test_the_copy_says_gear_where_the_template_says_cable_type():
+    """A pull list holds every piece of gear, not only cable (owner,
+    2026-11-02): the copy the app hands out heads every position's first
+    column, Spares', TOTALS' and the GEAR LIST's Gear, and its READ ME is
+    the LED GEAR PULL SHEET. The shipped template is left as it is, and no
+    formula, name or validation finds a column by its header text, so
+    every formula-built tab reads exactly what the template's does."""
+    tpl = openpyxl.load_workbook(pull_sheet.TEMPLATE_PATH)
+    assert tpl['Pull Sheet']['A6'].value == 'Cable Type'
+    assert tpl['READ ME']['B2'].value == 'LED CABLE PULL SHEET  -  how it works'
+    rows = [{'type': 'Multi', 'length': "100'", 'qty': 2, 'label': '', 'notes': ''},
+            {'type': 'Distro', 'length': 'EA', 'qty': 1, 'label': '', 'notes': ''}]
+    for n in (1, 4):
+        data, _ = pull_sheet.build_workbook(
+            {'positions': [{'name': f'P{i}', 'rows': rows} for i in range(n)]})
+        wb = openpyxl.load_workbook(io.BytesIO(data))
+        ws = wb['Pull Sheet']
+        # every block with a header (the copy-me block too) says Gear
+        heads = [ws.cell(pull_sheet.HEADER_ROW, c).value for c in pull_sheet.BLOCK_COLS]
+        assert {h for h in heads if h is not None} == {'Gear'}, heads
+        assert heads.count('Gear') == max(4, n + 1), heads
+        assert [ws.cell(pull_sheet.HEADER_ROW, c).value for c in range(2, 6)] == pull_sheet.HEADERS[1:]
+        assert wb['Spares']['A5'].value == 'Gear' and wb['TOTALS']['A4'].value == 'Gear'
+        assert [wb['GEAR LIST']['A3'].value, wb['GEAR LIST']['B3'].value] == ['Gear', 'Lengths']
+        readme = [c.value for row in wb['READ ME'].iter_rows() for c in row if isinstance(c.value, str)]
+        assert wb['READ ME']['B2'].value == 'LED GEAR PULL SHEET: how it works'
+        assert any("type new gear under 'Gear' or a length under 'Lengths'" in t for t in readme), readme
+        assert wb['TOTALS']['A2'].value.endswith('Only lists gear you actually have. Spares = qty x spare %.')
+        assert wb['GEAR LIST']['A2'].value.startswith('Add gear here. Type new gear in column A')
+        said = [(w.title, c.coordinate, c.value) for w in wb.worksheets for row in w.iter_rows()
+                for c in row if isinstance(c.value, str) and not c.value.startswith('=')
+                and ('Cable Type' in c.value or 'CABLE PULL SHEET' in c.value)]
+        assert said == [], said
+        # the GEAR LIST vocabulary below its heading is the list's, not reworded
+        gear, _ = pull_sheet._gear_column(wb['GEAR LIST'], pull_sheet.GEAR_TYPE_COL, pull_sheet.GEAR_TYPE_LAST_ROW)
+        assert 'Multi' in gear and 'Distro' in gear and 'Gear' not in gear, gear
+        # the formula-built tabs are the template's, cell for cell
+        for name in ('calc', 'TOTALS', 'Spares'):
+            a, b = tpl[name], wb[name]
+            for r in range(1, 140):
+                for c in range(1, 10):
+                    fa, fb = _formula_text(a.cell(r, c).value), _formula_text(b.cell(r, c).value)
+                    if isinstance(fa, str) and fa.startswith('='):
+                        assert fa == fb, (name, r, c)
+        assert wb.defined_names['NEW_BLOCK_TEMPLATE'].attr_text.startswith("'Pull Sheet'!$")
 
 
 def test_the_route_refuses_a_shapeless_body(client):

@@ -242,6 +242,60 @@ Object.assign(CanvasRenderer.prototype, {
         this.ctx.restore();
     },
 
+    // ONE ROW OF TAGS PER ROW OF DISCS (data map, 2026-11-02). A tag
+    // hangs a fixed gap off its own disc, and a disc grows with its label
+    // ("UL B-10" against "UL B-9"), so the tags under one row of discs
+    // stepped by a few pixels where a label ran longer. The tags placeTagHeads
+    // hung clear on one side of discs that share a centre line are lined
+    // up with the one farthest out (the lowest under the row, the highest
+    // over it), each only where it lands clear there - inside the screen,
+    // off every disc and every other pill - else it stays where it was.
+    // `placed` and `taken` are updated in place.
+    _alignDataTagRows(heads, placed, labelSize, bounds, discs, taken) {
+        const eps = 1e-6;
+        const rows = new Map();
+        heads.forEach((h, i) => {
+            const tag = placed[i] && placed[i].tag;
+            const side = tag && tag.opts && tag.opts.side;
+            if (!tag || !tag.clear || (side !== 'below' && side !== 'above')) return;
+            const key = `${side}|${Math.round(h.own.y * 2) / 2}`;
+            if (!rows.has(key)) rows.set(key, { side, members: [] });
+            rows.get(key).members.push(i);
+        });
+        for (const { side, members } of rows.values()) {
+            if (members.length < 2) continue;
+            const ys = members.map(i => placed[i].tag.rect.y);
+            const target = side === 'below' ? Math.max(...ys) : Math.min(...ys);
+            for (const i of members) {
+                const tag = placed[i].tag;
+                const delta = target - tag.rect.y;
+                if (Math.abs(delta) <= eps) continue;
+                const rect = this.cableTagRect(heads[i].text, tag.x, tag.y + delta, labelSize, tag.opts);
+                if (Math.abs(rect.y - target) > eps) continue;          // the screen's edge held it
+                const others = taken.filter(r => r !== tag.rect);
+                if (this._tagCover(bounds, discs, heads[i].own, others, true)(rect) > eps) continue;
+                const at = taken.indexOf(tag.rect);
+                if (at >= 0) taken[at] = rect;
+                placed[i].tag = Object.assign({}, tag, { y: tag.y + delta, rect });
+            }
+        }
+    },
+
+    // One dashed accent ring per freed cabinet, under the runs.
+    _drawMergeFreedRings(panels) {
+        this.ctx.save();
+        this.ctx.strokeStyle = this._accentUnderlayColor();
+        this.ctx.lineWidth = Math.max(6, 8 / Math.max(this.zoom, 0.01));
+        this.ctx.setLineDash([this.ctx.lineWidth * 2, this.ctx.lineWidth * 1.5]);
+        panels.forEach(p => {
+            const inset = Math.min(p.width, p.height) * 0.12;
+            this.ctx.strokeRect(p.x + inset, p.y + inset,
+                                p.width - inset * 2, p.height - inset * 2);
+        });
+        this.ctx.setLineDash([]);
+        this.ctx.restore();
+    },
+
     renderDataFlowArrows(layer) {
         // Get the flow pattern (default: top-right, vertical-first)
         const pattern = layer.flowPattern || 'tl-h';
@@ -293,6 +347,15 @@ Object.assign(CanvasRenderer.prototype, {
         // Save context, clip to active raster bounds (translate-aware)
         this.ctx.save();
         this._clipToActiveRaster();
+
+        // Several ports being redrawn as one (app-merge-runs.js): the
+        // cabinets they freed that the new path has not taken yet wear a
+        // dashed ring, so what is left to draw is on the wall.
+        if (!this.exportMode && !this._crossMemberPass && window.app
+                && typeof window.app.mergeFreedPanels === 'function') {
+            const freed = window.app.mergeFreedPanels(layer);
+            if (freed.length) this._drawMergeFreedRings(freed);
+        }
 
         this.ctx.lineCap = 'round';
         this.ctx.lineJoin = 'round';
@@ -403,6 +466,7 @@ Object.assign(CanvasRenderer.prototype, {
             }));
             const placed = this.placeTagHeads(heads, labelSize, bounds, discsU, taken,
                                               this._tagSideKey('data', layer));
+            this._alignDataTagRows(heads, placed, labelSize, bounds, discsU, taken);
             // the rect each disc's tag took, for the load badge beside it
             const tagOf = new Map();
             heads.forEach((h, i) => {
@@ -579,7 +643,7 @@ Object.assign(CanvasRenderer.prototype, {
             }
 
             // The port's home run, as a small blue tag beside its label -
-            // the snake it rides ("SNAKE A") or its own cable ("50' Cat6"):
+            // the snake it rides ("SNAKE A") or its own cable's length ("50'"):
             // "the same option for data homeruns" (2026-09-06), per screen,
             // default OFF, and the same test in exportMode so the PDF is
             // what was asked for. The power tag's drawer, in the data
@@ -600,9 +664,15 @@ Object.assign(CanvasRenderer.prototype, {
                 // taller than its label circle, so it carries the
                 // screen's top and bottom too and shifts inside them the
                 // way the circle's centre was shifted.
+                // The tag reads the LENGTH only ("25'", owner 2026-11-02,
+                // dataMapTagText): the connector is named once in the
+                // binder, under the screen's name.
+                const tagText = (c) => (c && typeof window.app.dataMapTagText === 'function')
+                    ? window.app.dataMapTagText(c) : (c && c.text) || '';
                 const cable = window.app.dataPortCableForScreen(layer, portNum);
-                if (cable && cable.text) {
-                    pendingTags.push({ text: cable.text, disc: primaryDisc,
+                const cableTag = tagText(cable);
+                if (cableTag) {
+                    pendingTags.push({ text: cableTag, disc: primaryDisc,
                                        step: runStep(portPanels[0], portPanels[1]) });
                 }
                 // The return marker wears the BACKUP socket's own tag the
@@ -612,9 +682,10 @@ Object.assign(CanvasRenderer.prototype, {
                 // port has no backup or the backup socket carries nothing.
                 const backup = typeof window.app.dataPortBackupCableForScreen === 'function'
                     ? window.app.dataPortBackupCableForScreen(layer, portNum) : null;
-                if (backup && backup.text) {
+                const backupTag = tagText(backup);
+                if (backupTag) {
                     const n = portPanels.length;
-                    pendingTags.push({ text: backup.text, disc: returnDisc,
+                    pendingTags.push({ text: backupTag, disc: returnDisc,
                                        step: runStep(portPanels[n - 1], portPanels[n - 2]) });
                 }
             }

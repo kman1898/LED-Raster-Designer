@@ -296,9 +296,9 @@ def test_new_steps_filter_by_since(page):
         'addService', 'serviceRating', 'serviceDistro']
     assert _new_steps(page, '1.5.3', '1.6.0') == [
         'panelName', 'startPanel', 'sameAsLast', 'avgPower', 'zPattern', 'mixedRedundancy',
-        'cardNames', 'panelInput',
+        'cardNames', 'fiberExtension', 'panelInput',
         'jumperNames', 'pullPanels', 'cableStockPerKind', 'feederLength', 'mirrorScreen',
-        'portPlug', 'portNumbers', 'portsMinimum', 'powerZPattern', 'circuitNumbers']
+        'portPlug', 'portNumbers', 'portsMinimum', 'powerZPattern', 'circuitNumbers', 'redrawAsOne']
     # 1.5.4 never shipped in full: no step is marked with it, and the
     # steps its betas brought are 1.6.0's.
     assert _new_steps(page, '1.5.3', '1.5.4') == []

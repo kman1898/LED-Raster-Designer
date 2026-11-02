@@ -3,7 +3,7 @@
 "i like option one that i can import and edit further. or better yet edit
 in the app and then export a whole file i can share" (user, 2026-09-06).
 So: a modal over the engine's list (app-pull-sheet-editor.js) laid out
-like the workbook - positions side by side, Cable Type · Length · Qty ·
+like the workbook - positions side by side, Gear · Length · Qty ·
 Label · Notes, TOTALS at the right - whose edits are stored as deltas in
 project.pullSheetEdits and overlaid by buildPullSheet(), the ONE list the
 workbook export and the binder's pull pages both read. Engine rows keep
@@ -268,7 +268,7 @@ def test_the_file_menu_opens_the_editor_laid_out_like_the_workbook(page):
     # a loose screen is its own position; its name is not said twice
     assert _pos(pg, ids['center']).locator('.pull-pos-screens').inner_text() == ''
     heads = _pos(pg, ids['sr']).locator('thead th').evaluate_all("els => els.map(e => e.textContent)")
-    assert heads == ['Cable Type', 'Length', 'Qty', 'Label', 'Notes', '']
+    assert heads == ['Gear', 'Length', 'Qty', 'Label', 'Notes', '']
     engine = pg.evaluate(LIST_JS)
     keys = _pos(pg, ids['sr']).locator('tr.pull-row').evaluate_all("els => els.map(e => e.dataset.key)")
     # a grouped wall's jumper rows are one per member (2026-10-01), keyed

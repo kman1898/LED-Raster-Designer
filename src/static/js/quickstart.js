@@ -2317,6 +2317,11 @@
         if (a._traySweepClear) a._traySweepClear(false);
         a._sweepSelection = null;
         if (r) { r._sweepPending = null; if (r._removeSweepHud) r._removeSweepHud(); }
+        // Ports picked for a redraw as one, and an unfinished one: the
+        // step's own snapshot is what comes back, so they are just dropped.
+        a._portPicks = null;
+        a._mergeRedraw = null;
+        if (r) r._portPickPending = null;
         if (a._overrideEditing && a.endOverrideEdit) { try { a.endOverrideEdit(); } catch (e) {} }
         if (a.updateOverrideHover) { try { a.updateOverrideHover(false, 0, 0); } catch (e) {} }
         a._dockFlagOpen = false;
@@ -3657,6 +3662,49 @@
                 var bl = boxLink();
                 if (!bl || bl.link.strands.join() !== '3,4') return null;
                 return bl.title + ' rides ' + boxStrandsText(bl) + ' of ' + (bl.cable.name || 'TAC A') + '; 1 and 2 are spare for the next box.';
+            },
+            after: function (next) { if (!next || !next.fiberStep) closeBoxSheet(); }
+        },
+        // An extension at the box end (2026-11-02: "MTP cant run direct to
+        // X1 for example it would need an extension beyond that ... same
+        // goes for Tac cable"): + Extension on the box's OPT 1 link, a
+        // duplex patch from the TAC's ST to LC duplex, 10 ft. The ends are
+        // the guide's picks, not a fact about the box.
+        fiberExtension: {
+            fiberStep: true,
+            since: '1.6.0',
+            // the link's row: there before + Extension and after it
+            target: function () { var b = box(); return b ? '[data-lrd-fiber-link="' + b.id + ':p1"]' : '#hardware-dock-body .hw-dock-cable-fiber'; },
+            place: 'top', title: 'Extend a TAC or MTP',
+            body: 'A TAC or MTP doesn&rsquo;t always plug straight into the box. + Extension adds a fan-out or duplex patch to one link, with the connector at each end and its length, for the pull sheet and the binder.',
+            before: function () { switchView('data-flow'); closePopover(); openBoxSheet(); },
+            act: function (t) {
+                var b = box();
+                if (!b) throw new Error('no breakout box on the processor');
+                var base = b.id + '-p1';
+                var ext = function () { var bl = boxLink(); return bl && bl.link.extension ? bl.link.extension : null; };
+                var add = '[data-lrd-field="fiber-ext-add-' + base + '"]';
+                return t.wait(function () { return $(add); }).then(function () {
+                    return t.click(add);
+                }).then(function () {
+                    return t.wait(function () { return ext() && $('[data-lrd-field="fiber-ext-box-' + base + '"]'); }, 6000);
+                }).then(function () {
+                    return t.type('[data-lrd-field="fiber-ext-box-' + base + '"]', 'LC duplex', { enter: true });
+                }).then(function () {
+                    return t.wait(function () { var e = ext(); return e && e.boxEnd === 'LC duplex'; }, 6000);
+                }).then(function () {
+                    return t.wait(function () { return $('[data-lrd-field="fiber-ext-ft-' + base + '"]'); });
+                }).then(function () {
+                    return t.type('[data-lrd-field="fiber-ext-ft-' + base + '"]', '10', { enter: true });
+                }).then(function () {
+                    return t.wait(function () { var e = ext(); return e && Number(e.ft) === 10; }, 6000);
+                }).then(function () { return t.pause(PACE.rest); });
+            },
+            check: function () {
+                var bl = boxLink(), a = A();
+                var e = bl && bl.link.extension;
+                if (!e || e.boxEnd !== 'LC duplex' || Number(e.ft) !== 10) return null;
+                return bl.title + ' on ' + (bl.cable.name || 'TAC A') + ' now has its extension: ' + a.fiberExtensionText(e, bl.cable) + '.';
             },
             after: function () { closeBoxSheet(); }
         },
@@ -5421,6 +5469,105 @@
                 return 'Circuit 2 now starts row 2 of WIDE WALL, under circuit 1.';
             }
         },
+        // Redraw several ports as one (1.6.0, app-merge-runs.js; the owner,
+        // 2026-11-02: "redraw all of those as one port"). LEFTOVERS is six
+        // 512 x 256 cabinets wide on NovaStar Legacy, five to a port, so
+        // every row is a port of five and a leftover of one; numbered Down,
+        // the four leftovers are ports 5-8. Shift+drag picks them, the menu
+        // redraws them as one, and four clicks draw it: 8 ports become 5.
+        redrawAsOne: {
+            since: '1.6.0',
+            target: '#main-canvas', place: 'top', title: 'Redraw several ports as one',
+            body: 'Shift+click runs, or Shift+drag a box across them, to pick their ports. Right-click and pick Redraw ports as one, then click the cabinets in order: the new port keeps the first number and the ports after it close up.',
+            before: function () { closePrefs(); hideMenus(); closePopover(); switchView('data-flow'); },
+            act: function (t) {
+                var a = A(), w = wall();
+                var bottom = screens().reduce(function (m, l) {
+                    return Math.max(m, (Number(l.offset_y) || 0) + (Number(l.rows) || 0) * (Number(l.cabinet_height) || 0));
+                }, 0);
+                var find = function () {
+                    return (a.project.layers || []).find(function (x) { return x.id === t.mem.layer; }) || null;
+                };
+                var at = function (row, col) {
+                    var l = find();
+                    var i = l.panels.findIndex(function (p) { return p.row === row && p.col === col; });
+                    return t.cabinetPoint(l, { index: i });
+                };
+                return j('POST', '/api/layer/add', {
+                    name: 'LEFTOVERS', columns: 6, rows: 4,
+                    cabinet_width: 512, cabinet_height: 256,
+                    offset_x: (w && Number(w.offset_x)) || 0, offset_y: bottom + 200
+                }).then(function (layer) {
+                    a.initializeLayerDefaults(layer);
+                    layer.processorType = 'novastar-armor';
+                    layer.flowPattern = 'tl-h';
+                    layer.portMappingMode = 'organized';
+                    layer.portNumberOrder = 'down';
+                    a.upsertProjectLayer(layer);
+                    a.updateLayers([layer]);
+                    t.mem.layer = layer.id;
+                    var l = find();
+                    a.selectLayer(l);
+                    frameLayers([l]);
+                    a.saveState('Add Layer');
+                    a.updatePortCapacityDisplay();
+                    t.mem.before = a.getLayerPortsRequired(l);
+                    return t.pause(PACE.rest);
+                }).then(function () {
+                    // Shift+drag down the leftover column: ports 5-8 light.
+                    var from = at(0, 5), to = at(3, 5);
+                    return t.moveTo(from, { badge: 'Shift' }).then(function () {
+                        press(true);
+                        t.canvasDown(from, { shiftKey: true });
+                        return t.pause(PACE.dragPress);
+                    }).then(function () {
+                        return t.canvasGlide(to, { shiftKey: true });
+                    }).then(function () {
+                        t.canvasUp(to, { shiftKey: true });
+                        press(false);
+                        badge('');
+                        return t.pause(PACE.rest);
+                    });
+                }).then(function () {
+                    t.mem.picks = a.portPicksFor(find());
+                    return t.rightClick(at(1, 5));
+                }).then(function () {
+                    var item = $('[data-action="ovr-merge"]');
+                    t.mem.label = item ? item.textContent : '';
+                    return t.pickMenu('ovr-merge');
+                }).then(function () {
+                    return t.wait(function () { return a._mergeRedraw && a._mergeRedraw.ready; }, 2500);
+                }).then(function () {
+                    return [[0, 5], [1, 5], [2, 5], [3, 5]].reduce(function (chain, rc) {
+                        return chain.then(function () {
+                            var q = at(rc[0], rc[1]);
+                            return t.hover(q).then(function () {
+                                press(true);
+                                t.canvasDown(q, {});
+                                return t.pause(70);
+                            }).then(function () {
+                                t.canvasUp(q, {});
+                                press(false);
+                                ripple(q.x, q.y);
+                                return t.pause(PACE.rest);
+                            });
+                        });
+                    }, Promise.resolve());
+                }).then(function () {
+                    return t.wait(function () { return !a._mergeRedraw; }, 2500);
+                });
+            },
+            check: function (mem) {
+                var a = A();
+                var l = (a.project.layers || []).find(function (x) { return x.id === mem.layer; });
+                if (!l || a._mergeRedraw || (mem.picks || []).join() !== '5,6,7,8') return null;
+                var five = (a.calculatePortAssignments(l) || []).filter(function (x) { return x.port === 5; });
+                var n = a.getLayerPortsRequired(l);
+                if (five.length !== 4 || !five.every(function (x) { return x.panel.col === 5; }) || n !== 5) return null;
+                return (mem.label || 'Redraw ports 5-8 as one') + ': port 5 runs down the last column, and LEFTOVERS needs '
+                    + n + ' ports instead of ' + mem.before + '.';
+            }
+        },
         helpMenu: {
             target: '[data-menu="help"]', place: 'bottom', title: 'Help',
             body: 'Every guide lives under Help: Quick Start, What&rsquo;s New, the Advanced Guide and the keyboard shortcuts.',
@@ -5491,7 +5638,7 @@
                     'nameProcessor', 'redundancy', 'backupProcessor', 'mixedRedundancy', 'cardNames', 'dropProcessor', 'releasePort', 'attachmentFlag', 'pinPort',
                     'clearPortByMenu', 'clearCard', 'dropProcessorAgain',
                     'snakePorts', 'cableSheet', 'snakeHomeRun', 'loosePortLength', 'dataJumpers', 'dataCableTags',
-                    'overrideRun', 'addBreakoutBox', 'boxFiber', 'fiberStrands', 'panelWatts', 'panelInput', 'breakoutType',
+                    'overrideRun', 'addBreakoutBox', 'boxFiber', 'fiberStrands', 'fiberExtension', 'panelWatts', 'panelInput', 'breakoutType',
                     'addDistro', 'nameDistro',
                     'distroPhase', 'distroRating', 'distroMain', 'distroPreset', 'distroRows',
                     'dropMulti', 'clearCircuit', 'clearMultiByMenu', 'dropMultiAgain',
@@ -5502,7 +5649,7 @@
                     'addBeach', 'screenBeach', 'addScreen', 'beachByMenu', 'crossScreens', 'groupScreens',
                     'exportBinder', 'screenOrder', 'wiringTick', 'titleBlock', 'fileExports', 'preferences',
                     'mirrorScreen', 'portPlug', 'portNumbers', 'portsMinimum', 'powerZPattern', 'circuitNumbers',
-                    'helpMenu', 'outroAdvanced']
+                    'redrawAsOne', 'helpMenu', 'outroAdvanced']
         }
     };
 

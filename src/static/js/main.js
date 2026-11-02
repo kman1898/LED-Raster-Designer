@@ -25,6 +25,7 @@ import './app-naming.js';
 import './app-pixel-select.js';
 import './app-cross-layer-paths.js';
 import './app-run-overrides.js';
+import './app-merge-runs.js';
 import './app-custom-runs.js';
 import './app-layers-panel.js';
 import './app-pull-list.js';

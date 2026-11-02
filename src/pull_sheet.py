@@ -5,7 +5,7 @@ scrubbed, as static/templates/pull-sheet-template.xlsx). Its shape is the
 contract this module writes to, nothing is invented here:
 
   Pull Sheet   positions SIDE BY SIDE in 6-column blocks from column A
-               (Cable Type | Length | Qty | Label | Notes | spacer): blocks
+               (Gear | Length | Qty | Label | Notes | spacer): blocks
                at A, G, M, S, Y, AE. Row 5 holds the position name (the
                first two cells merged), row 6 the headers, rows 7-36 the
                data (30 rows). The fourth block (S) is the tan "NEW
@@ -56,7 +56,7 @@ OVERFLOW = 'Overflow'
 
 # The six blocks' first columns (1-based): A, G, M, S, Y, AE.
 BLOCK_COLS = [1, 7, 13, 19, 25, 31]
-BLOCK_WIDTH = 5            # Cable Type, Length, Qty, Label, Notes
+BLOCK_WIDTH = 5            # Gear, Length, Qty, Label, Notes
 BLOCK_STRIDE = 6           # plus the spacer column
 TITLE_ROW = 5
 HEADER_ROW = 6
@@ -67,7 +67,7 @@ MAX_POSITIONS = len(BLOCK_COLS)
 TEMPLATE_BLOCK = 3         # index of the tan NEW POSITION block (S)
 TEMPLATE_TITLE = 'NEW POSITION'
 TEMPLATE_NOTE = '< copy to add a position >'
-HEADERS = ['Cable Type', 'Length', 'Qty', 'Label', 'Notes']
+HEADERS = ['Gear', 'Length', 'Qty', 'Label', 'Notes']
 
 GEAR_TYPE_COL, GEAR_LENGTH_COL, GEAR_FIRST_ROW = 1, 2, 4
 GEAR_TYPE_LAST_ROW, GEAR_LENGTH_LAST_ROW = 200, 60   # the validations' ranges
@@ -411,6 +411,66 @@ TEMPLATE_DASH_TEXTS = {
     'automatically - no button needed there.': 'automatically, no button needed there.',
 }
 TOTALS = 'TOTALS'
+SPARES = 'Spares'
+
+# A pull list holds every piece of gear: cables, distros, boxes and cards
+# (owner, 2026-11-02). The template names its first column "Cable Type"
+# and itself a "CABLE PULL SHEET"; the copy the app hands out says Gear
+# instead, and the shipped template is left as it is. No formula, name or
+# validation finds a column by its header text (calc, TOTALS and Spares
+# read fixed cells through INDIRECT() literals), so renaming a header
+# moves nothing.
+#   TEMPLATE_GEAR_HEADERS   whole header cells: the Pull Sheet's header
+#                           row, Spares' and TOTALS' header rows, the GEAR
+#                           LIST's column A head
+#   TEMPLATE_GEAR_TEXTS     phrases inside a READ ME, TOTALS or GEAR LIST
+#                           cell (after dash_spelling)
+TEMPLATE_GEAR_HEADERS = {'Cable Type': 'Gear', 'Cable Types': 'Gear'}
+TEMPLATE_GEAR_TEXTS = {
+    'LED CABLE PULL SHEET': 'LED GEAR PULL SHEET',
+    "type a new cable under 'Cable Types'": "type new gear under 'Gear'",
+    'Type a new cable in column A': 'Type new gear in column A',
+    'Only lists cables you actually have.': 'Only lists gear you actually have.',
+}
+SPARES_HEADER_ROW, TOTALS_HEADER_ROW, GEAR_HEADER_ROW = 5, 4, 3
+
+
+def gear_spelling(text):
+    """`text` with each TEMPLATE_GEAR_TEXTS phrase in it rewritten,
+    wherever it appears in the text; anything else is left alone."""
+    if not isinstance(text, str):
+        return text
+    for old, new in TEMPLATE_GEAR_TEXTS.items():
+        text = text.replace(old, new)
+    return text
+
+
+def _gear_header(cell):
+    if isinstance(cell.value, str) and cell.value in TEMPLATE_GEAR_HEADERS:
+        cell.value = TEMPLATE_GEAR_HEADERS[cell.value]
+
+
+def _gear_workbook(wb):
+    """The copy's headers and the READ ME, TOTALS and GEAR LIST text say
+    Gear where the template says Cable Type (TEMPLATE_GEAR_HEADERS,
+    gear_spelling). Runs after _true1_workbook."""
+    ws = wb[SHEET]
+    for col in BLOCK_COLS:
+        _gear_header(ws.cell(HEADER_ROW, col))
+    for name, row in ((SPARES, SPARES_HEADER_ROW), (TOTALS, TOTALS_HEADER_ROW),
+                      (GEAR, GEAR_HEADER_ROW)):
+        if name in wb.sheetnames:
+            for cell in wb[name][row]:
+                _gear_header(cell)
+    for name in (README, TOTALS, GEAR):
+        if name not in wb.sheetnames:
+            continue
+        # the GEAR LIST's own words sit above its vocabulary, never in it
+        last = GEAR_FIRST_ROW - 1 if name == GEAR else None
+        for row in wb[name].iter_rows(max_row=last):
+            for cell in row:
+                if isinstance(cell.value, str) and not cell.value.startswith('='):
+                    cell.value = gear_spelling(cell.value)
 
 
 def dash_spelling(text):
@@ -651,12 +711,13 @@ def build_workbook(pull_list, meta=None, template_path=TEMPLATE_PATH):
     if meta.get('cable_unit') == 'm':
         _metric_workbook(wb)
     _true1_workbook(wb)
+    _gear_workbook(wb)
     used = set()
     for pos in positions:
         for r in pos['rows']:
             used |= gear_connectors(r['type'])
     _drop_unused_connectors(gear, used)
-    _add_gear(gear, GEAR_TYPE_COL, GEAR_TYPE_LAST_ROW, list(dict.fromkeys(types)), warnings, 'Cable Type')
+    _add_gear(gear, GEAR_TYPE_COL, GEAR_TYPE_LAST_ROW, list(dict.fromkeys(types)), warnings, 'Gear')
     _add_gear(gear, GEAR_LENGTH_COL, GEAR_LENGTH_LAST_ROW, list(dict.fromkeys(lengths)), warnings, 'Length')
 
     if overflow_positions:
