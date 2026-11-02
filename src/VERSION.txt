@@ -306,6 +306,10 @@ pull sheet again and compare it with anything you've already ordered.
 
 FIXES
 
+- FIX: Amperage offers 16A beside 15A and 20A, in Power settings and in
+  Preferences, so a 16 A circuit no longer needs Custom.
+- FIX: The Unit, Voltage, Amperage, Watts per Panel, Bit Depth and Frame
+  Rate boxes in Data and Power settings are only as wide as what they hold.
 - FIX: The Screens list uses its whole width. The blank strip down its
   right side is gone and the arrows, grid and eye sit closer together, so
   longer screen names show in full.
