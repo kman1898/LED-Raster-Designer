@@ -44,8 +44,8 @@ def _section(start, end):
 
 
 def test_the_feeder_example_names_the_service_with_its_size():
-    feeders = _section('\nFEEDS\n', '\nTHE PANEL ON EACH SCREEN\n')
-    assert "like Fed from: HOUSE · 600 A · 120/208V 3φ · 200 A cam set 100'+50'." in feeders
+    feeders = _section('\nPOWER IN\n', '\nTHE PANEL ON EACH SCREEN\n')
+    assert "like Powered from: HOUSE · 600 A · 120/208V 3φ · 200 A cam set 100'+50'." in feeders
     # the binder joins the service label and the feeder with " · ", and the
     # service label is "name · size · system"
     services = _read(JS, 'app-services.js')
