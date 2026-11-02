@@ -93,6 +93,10 @@ def page(e2e_server, pw_browser):
 # pin below leans on.
 RESET_JS = """async () => {
     const app = window.app, r = window.canvasRenderer;
+    // The test before ends on Undo and Redo: their restore PUTs land first.
+    // Landing after the reset, one put that test's three screens back
+    // beside the three made here (2026-11-01: ids 1-6, not 3).
+    await app._layerSavesSettled();
     let project = await (await fetch('/api/project')).json();
     project.layers = [];
     project.groups = [];

@@ -108,6 +108,11 @@ def page(e2e_server, pw_browser):
 # first, and the module guard puts the server back at the end.
 SEED_JS = """async (spec) => {
     const app = window.app, r = window.canvasRenderer;
+    // Every save the test before made lands first - its last Undo's restore
+    // PUT above all. Landing after this seed, it put that test's screen back
+    // over the one made here under the same id (2026-11-01: counts {W: 4}
+    // for a 6-wide W, reproduced by holding the restore PUT).
+    await app._layerSavesSettled();
     let project = await (await fetch('/api/project')).json();
     project.layers = (project.layers || [])
         .filter(l => !String(l.name || '').startsWith('TK '));

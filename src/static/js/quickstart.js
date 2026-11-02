@@ -5069,6 +5069,102 @@
             },
             after: function () { closePopover(); }
         },
+        // Z flow patterns for power (the owner's ruling, 2026-11-01): the
+        // picker's bottom row, where every row starts again from the same
+        // side. The step adds WIDE WALL under the other screens, 24 x 4 of
+        // the wall's cabinets at 60 W on 208V / 20A: a circuit carries
+        // 3,328 W, so two rows (2,880 W) share one, and with Top-left Z the
+        // second row starts at the left again instead of running back.
+        powerZPattern: {
+            since: '1.6.0',
+            target: '.power-flow-pattern-btn[data-pattern="tl-h-z"]', place: 'right', title: 'Z patterns for power',
+            avoid: ['.power-flow-pattern-btn[data-pattern="tl-h-z"]'],
+            body: 'The bottom row of Flow Pattern holds the Z patterns. Each row starts again from the same side as the first instead of running back, with a diagonal return between rows.',
+            before: function () { closePrefs(); hideMenus(); closePopover(); switchView('power'); },
+            act: function (t) {
+                var a = A(), w = wall();
+                var bottom = screens().reduce(function (m, l) {
+                    return Math.max(m, (Number(l.offset_y) || 0) + (Number(l.rows) || 0) * (Number(l.cabinet_height) || 0));
+                }, 0);
+                var find = function () {
+                    return (a.project.layers || []).find(function (x) { return x.id === t.mem.layer; }) || null;
+                };
+                return j('POST', '/api/layer/add', {
+                    name: 'WIDE WALL', columns: 24, rows: 4,
+                    cabinet_width: w.cabinet_width, cabinet_height: w.cabinet_height,
+                    offset_x: (Number(w.offset_x) || 0), offset_y: bottom + 200
+                }).then(function (layer) {
+                    a.initializeLayerDefaults(layer);
+                    a.setScreenVoltage(layer, 208);
+                    layer.powerAmperage = 20;
+                    layer.powerAmperageCustom = 20;
+                    layer.panelWatts = 60;
+                    layer.powerMaximize = false;
+                    layer.powerOrganized = true;
+                    layer.powerFlowPattern = 'tl-h';
+                    a.upsertProjectLayer(layer);
+                    a.updateLayers([layer]);
+                    t.mem.layer = layer.id;
+                    var l = find();
+                    a.selectLayer(l);
+                    frameLayers([l]);
+                    a.saveState('Add Layer');
+                    return t.click('.power-flow-pattern-btn[data-pattern="tl-h-z"]');
+                }).then(function () {
+                    return t.wait(function () { var l = find(); return l && l.powerFlowPattern === 'tl-h-z'; });
+                });
+            },
+            check: function (mem) {
+                var l = (A().project.layers || []).find(function (x) { return x.id === mem.layer; });
+                if (!l || l.powerFlowPattern !== 'tl-h-z') return null;
+                var c = (A().calculatePowerAssignments(l).circuits || [])[0] || [];
+                var next = c[l.columns];
+                if (!next || next.row !== 1 || next.col !== 0) return null;
+                return 'Circuit 1 runs row 1 left to right, then row 2 starts again at the left.';
+            }
+        },
+        // Circuit numbers (powerNumberOrder): shown only where Organized
+        // cuts a row too long for one circuit. WIDE WALL goes to 150 W a
+        // cabinet, so a row (3,600 W) is over a circuit (3,328 W) and is cut
+        // into circuits of 22 and 2; Down numbers them down the stacks.
+        circuitNumbers: {
+            since: '1.6.0',
+            target: '#power-number-order-row', place: 'right', title: 'Circuit numbers',
+            avoid: ['#power-number-down'],
+            body: 'A row too long for one circuit is cut into circuits of whole panels. Circuit numbers sets their order: Across goes along each row, Down goes down the stacks and starts each new stack back at the top.',
+            before: function () { closePrefs(); hideMenus(); closePopover(); switchView('power'); },
+            act: function (t) {
+                var a = A();
+                var l = (a.project.layers || []).find(function (x) { return x.name === 'WIDE WALL'; });
+                if (!l) throw new Error('WIDE WALL is missing');
+                t.mem.layer = l.id;
+                a.selectLayer(l);
+                l.panelWatts = 150;
+                a.updateLayers([l]);
+                a.saveState('Change Panel Watts');
+                a.loadLayerToInputs();
+                a.updatePowerCapacityDisplay();
+                return t.wait(function () {
+                    var row = $('#power-number-order-row');
+                    return row && row.style.display !== 'none' ? row : null;
+                }).then(function (row) {
+                    if (!row) throw new Error('Circuit numbers is not shown for WIDE WALL');
+                    return t.click('#power-number-down');
+                }).then(function () {
+                    return t.wait(function () {
+                        var x = (a.project.layers || []).find(function (y) { return y.id === t.mem.layer; });
+                        return x && x.powerNumberOrder === 'down';
+                    });
+                });
+            },
+            check: function (mem) {
+                var l = (A().project.layers || []).find(function (x) { return x.id === mem.layer; });
+                if (!l || l.powerNumberOrder !== 'down') return null;
+                var c = A().calculatePowerAssignments(l).circuits || [];
+                if (!c[1] || !c[1][0] || c[1][0].row !== 1) return null;
+                return 'Circuit 2 now starts row 2 of WIDE WALL, under circuit 1.';
+            }
+        },
         helpMenu: {
             target: '[data-menu="help"]', place: 'bottom', title: 'Help',
             body: 'Every guide lives under Help: Quick Start, What&rsquo;s New, the Advanced Guide and the keyboard shortcuts.',
@@ -5149,7 +5245,7 @@
                     'addService', 'serviceRating', 'serviceDistro', 'feederLength',
                     'addBeach', 'screenBeach', 'addScreen', 'beachByMenu', 'crossScreens', 'groupScreens',
                     'exportBinder', 'screenOrder', 'wiringTick', 'titleBlock', 'fileExports', 'preferences',
-                    'mirrorScreen', 'portNumbers', 'helpMenu', 'outroAdvanced']
+                    'mirrorScreen', 'portNumbers', 'powerZPattern', 'circuitNumbers', 'helpMenu', 'outroAdvanced']
         }
     };
 

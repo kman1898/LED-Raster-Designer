@@ -1,7 +1,7 @@
 // app-power: feature methods for LEDRasterApp (verbatim from the old
 // monolithic app.js), attached to the prototype via the carrier class.
 import { LEDRasterApp } from './app-core.js';
-import { sendClientLog } from './helpers.js';
+import { sendClientLog, isVerticalFlowPattern } from './helpers.js';
 
 // The first build whose US circuits packed to 80% of the breaker: a show
 // saved before it keeps its automatic 2fers and 3fers as they were
@@ -660,6 +660,9 @@ class _Power {
         if (amps3El) { amps3El.textContent = shownAmps3 ? shownAmps3.toFixed(2) + ' A' : '0'; amps3El.title = wallTitle; }
         // The cap under the custom controls reads the same figures.
         this._syncCustomFillReadout('power');
+        // A change that cuts a row, or stops cutting one, shows or hides
+        // the Circuit numbers switch.
+        this.syncPowerNumberOrder(layer);
         // Deferred, not called inline: this runs synchronously inside the
         // change handlers of the static Power fields (panel watts, voltage,
         // amperage). The knob syncs are cheap, but refreshDistroPanel is a
@@ -3010,11 +3013,13 @@ class _Power {
     // sentence, minus its lead-in, so the soca host ("No circuits — ...")
     // and the label editor ("No circuits to edit — ...") share one story.
     //
-    // Live repro: a 13-wide screen of 200W panels at 110V/15A in organized
-    // row mode cannot fit a row on a circuit, so the plan is empty - and the
-    // soca panel rendered NOTHING, which read as the soca feature being
-    // broken. The explanation lived only in the left sidebar and the red
-    // wall tint. Every other empty state stays blank: a non-screen layer, a
+    // Live repro: a screen whose one cabinet draws more than a circuit
+    // carries has an empty plan - and the soca panel rendered NOTHING,
+    // which read as the soca feature being broken. The explanation lived
+    // only in the left sidebar and the red wall tint. Since 1.6.0 that is
+    // the only power error: Organized cuts a row (or a column) too big for
+    // one circuit into several (calculatePowerAssignments), so no pattern
+    // change is ever the fix. Every other empty state stays blank: a non-screen layer, a
     // screen with nothing visible on it, a group member counted on its
     // owner, and a custom-routed screen (whose drawn paths supersede the
     // auto error - the same rule updatePowerCapacityDisplay applies to
@@ -3028,12 +3033,6 @@ class _Power {
         const fmt = (w) => `${Math.round(w).toLocaleString('en-US')} W`;
         const held = cap.pct < 1 ? ` (${Math.round(cap.pct * 100)}% of the breaker)` : '';
         const circuit = `a circuit at ${cap.voltage} V / ${cap.breakerA} A carries ${fmt(cap.watts)}${held}`;
-        if (err.unitType) {
-            const across = err.unitType === 'row' ? 'column' : 'row';
-            return `a full ${err.unitType} is ${fmt(err.unitLoad || 0)} and ${circuit}. `
-                + `Fix in Power Settings: higher voltage or amperage, a ${across} pattern, or a custom path `
-                + `(select a narrower block and apply a pattern, and circuits cut at capacity).`;
-        }
         // PANEL WATTS EXCEED CIRCUIT CAPACITY: one cabinet alone is over,
         // so no pattern can help.
         return `one panel is ${fmt(parseFloat(layer.panelWatts) || 0)} and ${circuit}. `
@@ -4218,7 +4217,7 @@ class _Power {
         const byRow = cut('row');
         const vertical = byCol.length < byRow.length
             || (byCol.length === byRow.length
-                && String(this.autoPowerPattern(layer)).endsWith('-v'));
+                && String(this.autoPowerPattern(layer)).includes('-v'));
         // Every leg is fed from the same end as the first, the way the
         // automatic wall feeds each column run at its head: a run that
         // snaked down one column and up the next becomes legs that all run
@@ -5036,7 +5035,7 @@ class _Power {
         screens.forEach(layer => {
             const then = this._keptShareWalk(layer, 1);
             if (!then || !then.runIds.some(g => g.length > 1)) return;
-            // A row or column that cannot fit now has no circuits to keep:
+            // A panel that cannot fit now has no circuits to keep:
             // the screen says it cannot fit (_bCannotFit).
             const now = this._keptShareWalk(layer, null);
             if (!now || JSON.stringify(now.runIds) === JSON.stringify(then.runIds)) return;
@@ -5099,6 +5098,70 @@ class _Power {
         if (raw !== 'custom') return raw;
         const last = layer.lastPowerFlowPattern;
         return (last && last !== 'custom') ? last : 'tl-h';
+    }
+
+    // The screen's Circuit numbers switch (powerNumberOrder), the owner's
+    // ruling of 2026-11-01, worded and read the way the data side's Port
+    // numbers switch is (portNumberOrderOf). It decides only how the
+    // circuits Organized cuts from a row (or a column) too big for one
+    // circuit are NUMBERED; the circuits themselves never move:
+    //   Across  along each row first: circuit 1 is row 1's first run,
+    //           circuit 2 its next, and row 2 starts after the last;
+    //   Down    down the stacks: circuit 1 is row 1's first run, circuit 2
+    //           row 2's first, and when the stack ends the next one starts
+    //           back at the first row.
+    // For a vertical-first pattern the lines are columns and the two words
+    // keep their meaning on the wall: Across numbers along the top band of
+    // runs first, Down numbers down each column first. The pattern's start
+    // corner decides where the first line and the first run are, so a
+    // bottom-start pattern stacks up from the bottom and a right-start one
+    // steps its stacks right to left.
+    //
+    // A screen that has never been switched (no powerNumberOrder, every
+    // show from before the switch) FOLLOWS THE FLOW (the owner, 2026-11-01,
+    // the same rule as the data side): it numbers along its lines, the way
+    // the walk always has - Across on a horizontal-first pattern, Down on a
+    // vertical-first one. `isHorizontalFirst` says which; left out, the
+    // screen's automatic pattern decides (autoPowerPattern, so a custom
+    // screen reads the pattern it remembers). A screen whose lines all fit
+    // has nothing to renumber either way, so no older show moves.
+    powerNumberOrder(layer, isHorizontalFirst = null) {
+        const saved = layer && layer.powerNumberOrder;
+        if (saved === 'down' || saved === 'across') return saved;
+        const horizontal = isHorizontalFirst === null
+            ? !isVerticalFlowPattern(this.autoPowerPattern(layer))
+            : !!isHorizontalFirst;
+        return horizontal ? 'across' : 'down';
+    }
+
+    // Does the Circuit numbers switch do anything on this screen? Only on
+    // an automatic Organized screen whose walk cuts a row (or a column)
+    // into several circuits; a group member routed on its owner reads the
+    // owner's walk. Returns that walking screen, or null.
+    powerNumberOrderApplies(layer) {
+        if (!layer || (layer.type || 'screen') !== 'screen') return null;
+        const plan = (typeof this.getAutoRoutePlan === 'function')
+            ? this.getAutoRoutePlan(layer, 'power') : null;
+        const walker = (plan && !plan.isOwner && plan.owner) ? plan.owner : layer;
+        if (walker.powerMaximize || !walker.powerOrganized) return null;
+        if (this.usesCustomCircuits(walker)) return null;
+        return this.calculatePowerAssignments(walker).cut ? walker : null;
+    }
+
+    // The Circuit numbers row under Organized: shown only where it does
+    // something (powerNumberOrderApplies), its lit button the order the
+    // walking screen numbers by now (powerNumberOrder - unset follows the
+    // flow: Across on horizontal first, Down on vertical first).
+    syncPowerNumberOrder(layer = this.currentLayer) {
+        const row = document.getElementById('power-number-order-row');
+        if (!row) return;
+        const walker = layer ? this.powerNumberOrderApplies(layer) : null;
+        row.style.display = walker ? '' : 'none';
+        if (!walker) return;
+        const order = this.powerNumberOrder(walker);
+        row.querySelectorAll('[data-order]').forEach(btn => {
+            btn.classList.toggle('active', btn.getAttribute('data-order') === order);
+        });
     }
 
     // A unit's cabinets less the blank ones - a blank draws no power and
@@ -5200,38 +5263,102 @@ class _Power {
                 ? [...Array(gridRows).keys()].map(i => (startsTop ? i : (gridRows - 1 - i)))
                 : [...Array(gridCols).keys()].map(i => (startsLeft ? i : (gridCols - 1 - i)));
 
+            // The units (rows, or columns for a vertical-first pattern) in
+            // walk order, each with its load. A unit too big for one circuit
+            // is CUT along its own walk (the owner's ruling, 2026-11-01):
+            // each circuit takes as many whole cabinets as fit, the next
+            // starts where it stopped in the same unit, and the last takes
+            // the remainder - a 90-wide row of 150 W cabinets on a 3,328 W
+            // circuit is 22, 22, 22, 22 and 2. A piece never wraps onto the
+            // next unit. A one-unit circuit walks from the pattern's start
+            // side, the way every one-row circuit always has, so the pieces
+            // of every cut row line up in stacks. Rows that fit are the
+            // walk they always were. One cabinet over a circuit is the
+            // PANEL WATTS error above.
+            const walkOf = (indices) => unclaimed(this._livePanels(this.getOrganizedPanelsForUnits(
+                layer, pattern, isHorizontalFirst, indices, false, plan)));
+            const units = [];
+            for (const idx of unitIndices) {
+                const unitPanels = visibleOrdered.filter(p => (isHorizontalFirst ? rowOfPanel(p) === idx : colOfPanel(p) === idx));
+                if (unitPanels.length === 0) continue;
+                const unitLoad = unitPanels.reduce((sum, p) => sum + loadOf(p), 0);
+                const unit = { idx, load: unitLoad, pieces: null };
+                if (unitLoad > wattsPerCircuit) {
+                    unit.pieces = [];
+                    let piece = null;
+                    walkOf([idx]).forEach(p => {
+                        const w = loadOf(p);
+                        if (piece && piece.load + w > wattsPerCircuit) piece = null;
+                        if (!piece) unit.pieces.push(piece = { panels: [], load: 0 });
+                        piece.panels.push(p);
+                        piece.load += w;
+                    });
+                }
+                units.push(unit);
+            }
+            const anyCut = units.some(u => u.pieces);
+            // STACKS. Read across the lines instead of along them: inside
+            // every unbroken stretch of cut units, each unit's first piece,
+            // then each unit's second, and so on (the data side's
+            // _stackSplitRuns, the same rule); anything that is not a piece
+            // of a cut unit ends the stretch and keeps its place. `items`
+            // come in walk order and each carries `at` = [unit, piece] and
+            // `piece` (true for a piece of a cut unit). Returns the indices.
+            const stackOrder = (items) => {
+                const out = [];
+                let block = [];
+                const flushBlock = () => {
+                    block.sort((a, b) => (items[a].at[1] - items[b].at[1])
+                        || (items[a].at[0] - items[b].at[0]) || (a - b));
+                    out.push(...block);
+                    block = [];
+                };
+                items.forEach((item, i) => {
+                    if (item.piece) { block.push(i); return; }
+                    flushBlock();
+                    out.push(i);
+                });
+                flushBlock();
+                return out;
+            };
+            // THE NUMBERS (the Circuit numbers switch, powerNumberOrder):
+            // along the walk, or down the stacks - Down on a
+            // horizontal-first pattern, Across on a vertical-first one,
+            // where the lines are columns. `items` in walk order; returns
+            // the indices in circuit-number order. Only the numbers move.
+            const numberByStacks = isHorizontalFirst
+                ? this.powerNumberOrder(layer, true) === 'down'
+                : this.powerNumberOrder(layer, false) === 'across';
+            const numberOrder = (items) => (numberByStacks
+                ? stackOrder(items) : items.map((_, i) => i));
+
             // Splitter packing: one RUN per unit (row/column) - each branch
             // is its own short daisy fed at its head, the physical truth of
             // a wall cabled top-down - then _packPowerRuns gangs consecutive
-            // runs onto shared circuits within maxWays and capacity. The
-            // single-unit-too-big error is unchanged. Off by default; the
-            // default path below is byte-identical to the pre-splitter code.
+            // runs onto shared circuits within maxWays and capacity. Off by
+            // default; the default path below is byte-identical to the
+            // pre-splitter code.
+            //
+            // A cut unit's pieces are runs like any other (the owner's
+            // ruling, 2026-11-01: the short leftover is a circuit like any
+            // other and shares). The runs of a cut stretch are read by
+            // stacks (stackOrder), so the leftovers at the far end sit next
+            // to each other and share the way neighbouring runs always
+            // have. That reading is the packing's own and never moves with
+            // the Circuit numbers switch: renumbering never changes which
+            // cabinets share a circuit. An uncut screen reads one run per
+            // unit in walk order, exactly as before.
             const splitters = this.getPowerSplitters(layer);
             if (splitters.enabled) {
-                const runs = [];
-                for (const idx of unitIndices) {
-                    const unitPanels = visibleOrdered.filter(p => (isHorizontalFirst ? rowOfPanel(p) === idx : colOfPanel(p) === idx));
-                    if (unitPanels.length === 0) continue;
-                    const unitLoad = unitPanels.reduce((sum, p) => sum + loadOf(p), 0);
-                    if (unitLoad > wattsPerCircuit) {
-                        return {
-                            circuits: [],
-                            error: {
-                                message: isHorizontalFirst ? 'CANNOT FIT COMPLETE ROW' : 'CANNOT FIT COMPLETE COLUMN',
-                                unitType: isHorizontalFirst ? 'row' : 'column',
-                                unitCount: isHorizontalFirst ? gridCols : gridRows,
-                                // the offending unit's own watts, so the empty
-                                // soca panel can say WHY with real figures
-                                unitLoad
-                            }
-                        };
+                const walkRuns = [];
+                units.forEach((u, k) => {
+                    if (u.pieces) {
+                        u.pieces.forEach((p, j) => walkRuns.push({ ...p, at: [k, j], piece: true }));
+                    } else {
+                        walkRuns.push({ panels: walkOf([u.idx]), load: u.load, at: [k, 0], piece: false });
                     }
-                    runs.push({
-                        panels: unclaimed(this._livePanels(this.getOrganizedPanelsForUnits(
-                            layer, pattern, isHorizontalFirst, [idx], false, plan))),
-                        load: unitLoad,
-                    });
-                }
+                });
+                const runs = anyCut ? stackOrder(walkRuns).map(i => walkRuns[i]) : walkRuns;
                 const manual = this.appliedSplitterGroups(
                     layer, runs.map((_, i) => i + 1));
                 // An older show's automatic shares, kept as it was saved
@@ -5246,43 +5373,55 @@ class _Power {
                 if (this._keptShareProbe) {
                     this._keptShareProbe.set(layer, { sig: sigOf(), runIds: packed.runIds });
                 }
-                return this._mergeOverrideCircuits(layer, withOwners({
-                    circuits: packed.circuits, runs: packed.runs,
-                    runIds: packed.runIds, error: null }));
+                const result = { circuits: packed.circuits, runs: packed.runs,
+                    runIds: packed.runIds, error: null };
+                if (anyCut) {
+                    // Each circuit sits where its first run does; put them
+                    // in walk order, then number them.
+                    const heads = packed.runIds.map(ids => runs[ids[0] - 1]);
+                    const walk = heads.map((_, i) => i).sort((a, b) =>
+                        (heads[a].at[0] - heads[b].at[0]) || (heads[a].at[1] - heads[b].at[1]) || (a - b));
+                    const order = numberOrder(walk.map(i => heads[i])).map(n => walk[n]);
+                    result.circuits = order.map(i => packed.circuits[i]);
+                    result.runs = order.map(i => packed.runs[i]);
+                    result.runIds = order.map(i => packed.runIds[i]);
+                    result.cut = true;
+                }
+                return this._mergeOverrideCircuits(layer, withOwners(result));
             }
 
-            let current = { unitIndices: [], load: 0 };
-
-            for (const idx of unitIndices) {
-                const unitPanels = visibleOrdered.filter(p => (isHorizontalFirst ? rowOfPanel(p) === idx : colOfPanel(p) === idx));
-                if (unitPanels.length === 0) continue;
-                const unitLoad = unitPanels.reduce((sum, p) => sum + loadOf(p), 0);
-                if (unitLoad > wattsPerCircuit) {
-                    return {
-                        circuits: [],
-                        error: {
-                            message: isHorizontalFirst ? 'CANNOT FIT COMPLETE ROW' : 'CANNOT FIT COMPLETE COLUMN',
-                            unitType: isHorizontalFirst ? 'row' : 'column',
-                            unitCount: isHorizontalFirst ? gridCols : gridRows,
-                            // the offending unit's own watts, so the empty
-                            // soca panel can say WHY with real figures
-                            unitLoad
-                        }
-                    };
+            // Whole units that fit share one circuit while they fit, as
+            // always; a cut unit closes the circuit in hand, and each of its
+            // pieces is a circuit of its own (a piece joining the next unit
+            // would wrap onto the next row).
+            const items = [];
+            let current = { unitIndices: [], load: 0, at: null };
+            const flush = () => {
+                if (current.unitIndices.length > 0) {
+                    circuits.push(walkOf(current.unitIndices));
+                    items.push({ at: current.at, piece: false });
                 }
-                if (current.load > 0 && current.load + unitLoad > wattsPerCircuit) {
-                    circuits.push(unclaimed(
-                        this._livePanels(this.getOrganizedPanelsForUnits(layer, pattern, isHorizontalFirst, current.unitIndices || [], false, plan))
-                    ));
-                    current = { unitIndices: [], load: 0 };
+                current = { unitIndices: [], load: 0, at: null };
+            };
+            units.forEach((u, k) => {
+                if (u.pieces) {
+                    flush();
+                    u.pieces.forEach((piece, j) => {
+                        circuits.push(piece.panels);
+                        items.push({ at: [k, j], piece: true });
+                    });
+                    return;
                 }
-                current.unitIndices.push(idx);
-                current.load += unitLoad;
-            }
-            if ((current.unitIndices || []).length > 0) {
-                circuits.push(unclaimed(
-                    this._livePanels(this.getOrganizedPanelsForUnits(layer, pattern, isHorizontalFirst, current.unitIndices || [], false, plan))
-                ));
+                if (current.load > 0 && current.load + u.load > wattsPerCircuit) flush();
+                if (current.unitIndices.length === 0) current.at = [k, 0];
+                current.unitIndices.push(u.idx);
+                current.load += u.load;
+            });
+            flush();
+            if (anyCut) {
+                const walked = circuits.splice(0, circuits.length);
+                numberOrder(items).forEach(i => circuits.push(walked[i]));
+                return this._mergeOverrideCircuits(layer, withOwners({ circuits, error: null, cut: true }));
             }
         } else {
             let current = [];
@@ -5355,6 +5494,7 @@ class _Power {
         });
         rows.sort((a, b) => a.num - b.num);
         const out = { circuits: rows.map(r => r.panels), error: null, nums: rows.map(r => r.num) };
+        if (result.cut) out.cut = true;
         if (result.layers || crossing) {
             // Owner rows for the auto circuits that never had any: every
             // cabinet is this layer's own. _powerOwnerIdRows nulls those rows

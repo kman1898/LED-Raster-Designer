@@ -13,9 +13,9 @@ class _CustomRuns {
 
     // ── Capacity while drawing by hand ────────────────────────────────────
     //
-    // The wall this was built for: 28 cabinets wide on 110 V / 15 A, so
-    // automatic power refuses ("a full row is N W and a circuit carries
-    // M W"). The way round it is custom mode - select a 14 x 6 block, press
+    // The wall this was built for: 28 cabinets wide on 110 V / 15 A, which
+    // automatic power once refused ("a full row is N W and a circuit carries
+    // M W"; since 2026-11-01 Organized cuts the row). Custom mode - select a 14 x 6 block, press
     // serpentine, get circuits 1..6 at 14 apiece - which only works if the
     // pattern fill CUTS at capacity instead of pouring the whole selection
     // into the one active circuit, and if a click past the cap is refused

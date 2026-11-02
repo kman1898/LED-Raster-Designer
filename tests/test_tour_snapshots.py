@@ -240,7 +240,7 @@ def _indices(tour, n, every=1):
     return [i for i in range(1, n) if (i % every == 0 or i == n - 1)]
 
 
-ADVANCED_STEPS = 84
+ADVANCED_STEPS = 86
 QUICK_STEPS = 10
 
 
@@ -322,17 +322,16 @@ def test_a_jump_past_the_preference_steps_still_puts_preferences_back(page):
         assert i > _step_index(page, 'advanced', 'Border and title block')
         landed, landing, st = _jump(page, 'advanced', i)
         _assert_landed('advanced', i, landed, landing, st)
-        page.locator('#qs-next').click()      # Next from Preferences: Mirror a screen
-        st = _wait_step(page, i + 1)
-        assert st['state'] == 'done', st
-        page.locator('#qs-next').click()      # Port numbers
-        st = _wait_step(page, i + 2)
-        assert st['state'] == 'done', st
-        page.locator('#qs-next').click()      # Help
-        st = _wait_step(page, i + 3)
-        assert st['state'] == 'done', st
+        # Next from Preferences through every later step (Mirror a screen,
+        # Port numbers, the power Z patterns, Circuit numbers, Help), each
+        # taking
+        n = page.evaluate("() => window.QuickStart.tours().advanced.length")
+        for k in range(i + 1, n - 1):
+            page.locator('#qs-next').click()
+            st = _wait_step(page, k)
+            assert st['state'] == 'done', st
         page.locator('#qs-next').click()      # the outro
-        _wait_step(page, i + 4)
+        _wait_step(page, n - 1)
         page.locator('#qs-next').click()      # Done
         page.wait_for_timeout(1500)
         assert not page.evaluate("window.QuickStart.state().visible")

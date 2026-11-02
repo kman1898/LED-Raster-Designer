@@ -903,6 +903,7 @@ export class LEDRasterApp {
             panelWatts: layer.panelWatts,
             powerMaximize: layer.powerMaximize,
             powerOrganized: layer.powerOrganized,
+            powerNumberOrder: layer.powerNumberOrder,
             powerCustomPath: layer.powerCustomPath,
             powerFlowPattern: layer.powerFlowPattern,
             powerLineWidth: layer.powerLineWidth,
@@ -1412,7 +1413,14 @@ export class LEDRasterApp {
 
     _layerSavesSettled() {
         const pending = [...(this._inflightLayerPuts || [])]
-            .concat([...((this._layerPutChains && this._layerPutChains.values()) || [])]);
+            .concat([...((this._layerPutChains && this._layerPutChains.values()) || [])])
+            // and an undo or redo's restore PUT (app-history
+            // _syncRestoredProject), which carries the whole project as it
+            // was: landing after New or Open's PUT, it put the undone show
+            // back over the new one, its screens under the new screens' ids
+            // (2026-11-01: a test's last Undo overwrote the next test's
+            // freshly made screen 2 with the old 4-wide one).
+            .concat([...(this._restorePutsInFlight || [])]);
         // the pull sheet's POST queue too (the show's cable unit, its edits)
         const sheet = typeof this._pullSheetStateSettled === 'function'
             ? this._pullSheetStateSettled() : null;

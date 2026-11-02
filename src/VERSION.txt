@@ -367,6 +367,28 @@ FIXES
   along each row first, Down goes down the stacks and starts the next
   stack back at the first row. It shows only on a screen where Organized
   cuts a row or column, and older shows keep the numbers they had.
+- NEW: Eight Z flow patterns join the eight snakes for power too: every
+  row or column starts again from the same side. They're the row under
+  the snakes in Flow Pattern in Power Settings and in Preferences, in the
+  same order as on the Data tab.
+- FIX: Organized power no longer refuses a row too long for one circuit.
+  Each circuit takes as many whole panels as fit along the row, the next
+  one starts where it stopped in the same row, and the last takes the
+  rest, so a row of 90 panels that fit 22 to a circuit is four circuits
+  of 22 and one of 2. A column too tall for one circuit is cut the same
+  way, and the short circuits at the end share through 2fers and 3fers
+  like any others. Only a single panel that draws more than a circuit
+  carries still can't fit.
+- FIX: A Circuit numbers switch beside Organized numbers the circuits of
+  a row that is cut into more than one circuit: Across goes along each
+  row first, Down goes down the stacks and starts the next stack back at
+  the first row. The circuits stay the same, only their numbers change,
+  and it shows only on a screen where Organized cuts a row or column.
+  Until you pick one it follows the flow pattern: Across when it's
+  horizontal first, Down when it's vertical first.
+- FIX: Starting a new show or opening one right after an Undo waits for
+  the Undo to finish saving, so the undone show can no longer land on top
+  of the one you just opened.
 
 v1.5.3 - October 21, 2026
 ----------------------------

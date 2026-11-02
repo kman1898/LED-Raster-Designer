@@ -67,6 +67,7 @@ class _ClientProps {
                         if (layerProps.panelWatts !== undefined) layer.panelWatts = layerProps.panelWatts;
                         if (layerProps.powerMaximize !== undefined) layer.powerMaximize = layerProps.powerMaximize;
                         if (layerProps.powerOrganized !== undefined) layer.powerOrganized = layerProps.powerOrganized;
+                        if (layerProps.powerNumberOrder !== undefined) layer.powerNumberOrder = layerProps.powerNumberOrder;
                         if (layerProps.powerCustomPath !== undefined) layer.powerCustomPath = layerProps.powerCustomPath;
                         if (layerProps.powerFlowPattern !== undefined) layer.powerFlowPattern = layerProps.powerFlowPattern;
                         if (layerProps.powerLineWidth !== undefined) layer.powerLineWidth = layerProps.powerLineWidth;
@@ -482,6 +483,7 @@ class _ClientProps {
                 panelWatts: layer.panelWatts,
                 powerMaximize: layer.powerMaximize,
                 powerOrganized: layer.powerOrganized,
+                powerNumberOrder: layer.powerNumberOrder,
                 powerCustomPath: layer.powerCustomPath,
                 powerFlowPattern: layer.powerFlowPattern,
                 powerLineWidth: layer.powerLineWidth,

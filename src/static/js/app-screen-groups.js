@@ -120,6 +120,7 @@ class _ScreenGroups {
             // Power
             'powerVoltage', 'powerVoltageCustom', 'powerAmperage',
             'powerAmperageCustom', 'powerMaximize', 'powerOrganized',
+            'powerNumberOrder',
             'powerFlowPattern', 'powerLineWidth', 'powerLineColor',
             'powerArrowColor', 'powerRandomColors', 'powerColorCodedView',
             'powerCircuitColors', 'powerLabelBgColor', 'powerLabelTextColor',

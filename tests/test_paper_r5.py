@@ -166,20 +166,22 @@ def _group(pg, mode):
 @pytest.mark.parametrize('mode', ['group', 'screens'])
 def test_a_group_that_cannot_fit_prints_the_note_and_the_warning_names_it(page, mode):
     """WALL A and WALL B grouped, routed as one wall at 120 V / 10 A with
-    200 W panels: a row of the wall is 16 panels, 3,200 W, over the 960 W
-    a circuit carries at 80%. The group's sheet (or each member's) prints
-    the owner's note, no wiring sheet, and the warning names MAIN WALL."""
+    1,200 W panels: one panel is over the 960 W a circuit carries at 80%.
+    (A row too long for one circuit is cut since 2026-11-01, so it no longer
+    cannot fit.) The group's sheet (or each member's) prints the owner's
+    note, no wiring sheet, and the warning names MAIN WALL."""
     pg, errors = page
     _reset(pg)
-    setup(pg, distros=[DIST], walls={'a': {'powerVoltage': 120, 'powerAmperage': 10},
-                                     'b': {'powerVoltage': 120, 'powerAmperage': 10}})
+    setup(pg, distros=[DIST], walls={'a': {'powerVoltage': 120, 'powerAmperage': 10, 'panelWatts': 1200},
+                                     'b': {'powerVoltage': 120, 'powerAmperage': 10, 'panelWatts': 1200}})
     _group(pg, mode)
     try:
         assert ev(pg, "return !!app.getAutoRoutePlan(A, 'power') && app.screenCircuits(A).length === 0;")
-        note = 'Cannot fit a circuit: a full row is 3,200 W, 120 V / 10 A breaker, 8 A usable at 80%'
+        note = 'Cannot fit a circuit: 1,200 W panels, 120 V / 10 A breaker, 8 A usable at 80%'
         warn = ev(pg, f"return app.binderCannotFitWarning({OPTS_JS});")
-        assert 'MAIN WALL (WALL A, WALL B): a full row is 3,200 W' in warn, warn
-        assert 'WALL A: ' not in warn and warn.endswith('or another pattern.'), warn
+        assert 'MAIN WALL (WALL A, WALL B): 1,200 W panels' in warn, warn
+        assert 'WALL A: ' not in warn and warn.endswith(
+            'No pattern helps: one panel alone draws more than a circuit carries.'), warn
         assert ' - ' not in warn, warn
         b = pg.evaluate(BINDER_JS, {'wiring': True, 'kinds': ['power', 'wiring']})
         power = [p for p in b['plan'] if p['kind'] == 'power']
@@ -213,8 +215,10 @@ def test_one_panel_over_the_circuit_says_no_pattern_helps(page):
     try:
         warn = ev(pg, f"return app.binderCannotFitWarning({OPTS_JS});")
         assert 'WALL A: 1,200 W panels' in warn, warn
-        # WALL B's row is the trouble there: a pattern can help it, not A
-        assert 'or another pattern.' in warn and 'No pattern helps WALL A: one panel alone' in warn, warn
+        # WALL B's row is too long for one circuit, so Organized cuts it
+        # (2026-11-01) and only A is named
+        assert 'WALL B' not in warn and 'another pattern' not in warn, warn
+        assert warn.endswith('No pattern helps: one panel alone draws more than a circuit carries.'), warn
         ev(pg, "B.panelWatts = 1200; app._circuitTailCache = null; return null;")
         warn = ev(pg, f"return app.binderCannotFitWarning({OPTS_JS});")
         assert 'another pattern' not in warn, warn

@@ -304,21 +304,22 @@ def test_the_circuits_cell_on_a_direct_output_reads_the_outputs_length(page):
 # ── 4. a screen that can't fit a circuit ─────────────────────────────────
 
 def test_a_screen_that_cannot_fit_prints_its_power_sheet_with_a_note(page):
-    """WALL A at 120 V / 10 A with 200 W panels: a row of ten is 2,000 W
-    and a circuit carries 960 W at 80%. The export warns; its power sheet
-    prints the note in place of circuits; no wiring sheet."""
+    """WALL A at 120 V / 10 A with 1,000 W panels: a circuit carries 960 W
+    at 80%, so one panel alone is over. (A row too long for one circuit is
+    cut since 2026-11-01, so it is no longer a reason.) The export warns;
+    its power sheet prints the note in place of circuits; no wiring sheet."""
     pg, errors = page
     setup(pg, distros=[DIST], walls={
-        'a': {'powerVoltage': 120, 'powerAmperage': 10},
+        'a': {'powerVoltage': 120, 'powerAmperage': 10, 'panelWatts': 1000},
         'b': {'powerSocaDistro': {'1': 'd1'}, 'powerSocaNumber': {'1': 1}}})
-    note = 'Cannot fit a circuit: a full row is 2,000 W, 120 V / 10 A breaker, 8 A usable at 80%'
+    note = 'Cannot fit a circuit: 1,000 W panels, 120 V / 10 A breaker, 8 A usable at 80%'
     got = ev(pg, "return { n: app.screenCircuits(A).length, list: app.binderCannotFit(Object.assign("
                  "app.readBinderOptions(), { scope: { kind: 'show' }, sides: { power: true, data: false } }))"
                  ".map(x => [x.layer.name, x.note]), warn: app.binderCannotFitWarning(Object.assign("
                  "app.readBinderOptions(), { scope: { kind: 'show' }, sides: { power: true, data: false } })) };")
     assert got['n'] == 0, got
     assert got['list'] == [['WALL A', note]], got
-    assert 'WALL A: a full row is 2,000 W' in got['warn'] and ' - ' not in got['warn'], got
+    assert 'WALL A: 1,000 W panels' in got['warn'] and ' - ' not in got['warn'], got
     b = pg.evaluate(BINDER_JS, {'wiring': True, 'kinds': ['power']})
     titles = [p['title'] for p in b['plan']]
     assert any(t.startswith('WALL A - Power') for t in titles), titles

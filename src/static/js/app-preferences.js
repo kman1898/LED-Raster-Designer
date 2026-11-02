@@ -297,8 +297,8 @@ class _Preferences {
     }
 
     // `patterns`: the tiles to offer, in order. The Data pattern offers the
-    // sixteen of the Data Flow picker (snakes, then their Z twins); Power
-    // keeps its eight.
+    // sixteen of the Data Flow picker (snakes, then their Z twins), and so
+    // does Power, the Power Settings picker's sixteen (2026-11-01).
     renderPreferencePatternButtons(containerId, buttonClass, patterns = null) {
         const container = document.getElementById(containerId);
         if (!container) return;
@@ -469,7 +469,8 @@ class _Preferences {
     setupPreferences() {
         this.renderPreferencePatternButtons('pref-data-flow-pattern-grid', 'pref-data-flow-pattern-btn',
             FLOW_AUTO_PATTERNS);
-        this.renderPreferencePatternButtons('pref-power-flow-pattern-grid', 'pref-power-flow-pattern-btn');
+        this.renderPreferencePatternButtons('pref-power-flow-pattern-grid', 'pref-power-flow-pattern-btn',
+            FLOW_AUTO_PATTERNS);
         this._fillPreferenceCatalogs();
         const saveBtn = document.getElementById('preferences-save');
         const cancelBtn = document.getElementById('preferences-cancel');

@@ -356,7 +356,8 @@ def test_a_z_tile_sets_the_screen_and_lights_up(page):
 
 def test_preferences_offers_the_sixteen_data_patterns(page):
     """Preferences > Data pattern (setupPreferences, at start-up) offers the
-    same sixteen in the picker's order; Power keeps its own eight."""
+    same sixteen in the picker's order, and Power its sixteen too (the
+    power Z patterns, 2026-11-01)."""
     got = page.evaluate("""() => {
         const read = id => [...document.getElementById(id).children]
             .map(b => b.getAttribute('data-pattern'));
@@ -367,7 +368,7 @@ def test_preferences_offers_the_sixteen_data_patterns(page):
                  zPath: z ? z.getAttribute('d') : null };
     }""")
     assert got['data'] == SNAKES + ZS
-    assert len(got['power']) == 8 and not any(p.endswith('-z') for p in got['power'])
+    assert got['power'] == SNAKES + ZS
     assert got['zPath'] == 'M 4 4 L 28 4 L 4 16 L 28 16 L 4 28 L 22 28'
 
 

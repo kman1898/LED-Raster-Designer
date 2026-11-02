@@ -1,8 +1,9 @@
 """Custom drawing caps at capacity, and a pattern fill cuts there.
 
 The wall that asked for this (2026-09-03): 28 cabinets wide on 110 V / 15 A.
-Automatic power refuses it - a full row is more than a circuit carries - so
-the user goes to custom mode, selects a 14 x 6 block, presses serpentine, and
+Automatic power refused it then - a full row is more than a circuit carries;
+since 2026-11-01 Organized cuts the row - so
+the user went to custom mode, selects a 14 x 6 block, presses serpentine, and
 wants circuits 1..6 at 14 apiece. Before this the pattern buttons poured the
 WHOLE selection into the one active circuit, and a click past the cap was
 taken without a word.
@@ -827,13 +828,26 @@ def test_the_data_badge_and_readout_mirror_the_port_cap(page):
     assert '525,000 px/port' in out['readout'], out['readout']
 
 
-def test_the_auto_power_refusal_names_the_pattern_fill_route(page):
-    """The message the user hit: it now says the custom route works."""
+def test_auto_power_cuts_the_wide_rows_instead_of_refusing(page):
+    """The message the user hit is gone (the owner's ruling, 2026-11-01):
+    Organized cuts the 28-wide row the way the custom fill does, 14 and
+    14, each circuit inside one row and read from the left."""
     reset(page, autoPower=True)
-    why = page.evaluate("() => window.app._socaPlanEmptyReason(window.__cap.layer())")
-    assert why and 'a full row is' in why, why
-    assert 'select a narrower block and apply a pattern' in why, why
-    assert 'circuits cut at capacity' in why, why
+    out = page.evaluate("""() => {
+        const app = window.app, L = window.__cap.layer();
+        const a = app.calculatePowerAssignments(L);
+        return {
+            why: app._socaPlanEmptyReason(L),
+            error: a.error,
+            sizes: (a.circuits || []).map(c => c.length),
+            oneRow: (a.circuits || []).every(c => new Set(c.map(p => p.row)).size === 1),
+            firstCols: (a.circuits || []).map(c => c[0].col),
+        };
+    }""")
+    assert out['why'] is None and out['error'] is None, out
+    assert out['sizes'] and all(n == 14 for n in out['sizes']), out
+    assert out['oneRow'], out
+    assert set(out['firstCols']) == {0, 14}, out
 
 
 # ── The readout lives in the canvas strip, not on the wall ────────────────

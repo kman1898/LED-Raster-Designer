@@ -49,7 +49,7 @@ def add_layer():
         'cabinetIdStyle', 'cabinetIdPosition', 'cabinetIdColor',
         'dataFlowPattern', 'arrowLineWidth', 'arrowSize', 'arrowColor', 'dataFlowColor', 'primaryColor', 'primaryTextColor', 'backupColor', 'backupTextColor',
         'powerVoltage', 'powerVoltageCustom', 'powerAmperage', 'powerAmperageCustom', 'panelWatts',
-        'powerMaximize', 'powerOrganized', 'powerCustomPath', 'powerFlowPattern',
+        'powerMaximize', 'powerOrganized', 'powerNumberOrder', 'powerCustomPath', 'powerFlowPattern',
         'powerLineWidth', 'powerLineColor', 'powerArrowColor', 'powerRandomColors',
         'powerLabelSize', 'powerLabelBgColor', 'powerLabelTextColor', 'powerLabelTemplate', 'powerLabelOverrides',
         'powerCircuitCables',
@@ -377,7 +377,7 @@ def update_layer(layer_id):
                 'labelsColor', 'labelsFontSize', 'infoLabelSize', 'useFractionalInches',
                 'showOffsetTL', 'showOffsetTR', 'showOffsetBL', 'showOffsetBR',
                 'powerVoltage', 'powerVoltageCustom', 'powerAmperage', 'powerAmperageCustom', 'panelWatts',
-                'powerMaximize', 'powerOrganized', 'powerCustomPath', 'powerFlowPattern', 'powerLineWidth',
+                'powerMaximize', 'powerOrganized', 'powerNumberOrder', 'powerCustomPath', 'powerFlowPattern', 'powerLineWidth',
                 'powerLineColor', 'powerArrowColor', 'powerRandomColors', 'powerColorCodedView', 'powerCircuitColors', 'powerLabelSize', 'powerLabelBgColor', 'powerLabelTextColor',
                 'powerLabelTemplate', 'powerLabelOverrides', 'powerCustomPaths', 'powerCustomIndex',
                 # Per-circuit cables ({circuit: {ft, connector}}) - the
