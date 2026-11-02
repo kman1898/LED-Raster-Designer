@@ -277,9 +277,10 @@ def copy_trunks(device, mode_id=None):
     H_4xfiber and its enhanced card in Copy mode), 'backup' (they back up
     the primaries - both cards in Backup mode), 'per-box' (each box on one
     is set Mirror or Backup - the MX40 Pro in 20-port mode, owner
-    2026-10-30: "Either, you pick"), else None. A copy trunk is a trunk
-    past the mode's blocks of ports: OPT 3/4 of a 16-port H_4xfiber, OPT
-    5-8 of an enhanced one, OPT 3/4 of a 20-port MX40 Pro. Read off the
+    2026-10-30: "Either, you pick"; the NovaPro UHD and UHD Jr, owner
+    2026-11-02), else None. A copy trunk is a trunk past the mode's blocks
+    of ports: OPT 3/4 of a 16-port H_4xfiber, OPT 5-8 of an enhanced one,
+    OPT 3/4 of a 20-port MX40 Pro or a NovaPro UHD. Read off the
     catalog mode's `copyTrunks` and nothing else, so no other product
     gains a mirror by resemblance."""
     kind = (mode_entry(device, mode_id) or {}).get('copyTrunks')
@@ -877,6 +878,9 @@ def default_backup_pair(card):
     if device.get('trunkDelivery') == 'copy':
         # The trunks copy the card's own copper: a box there is another place
         # to plug into ports the card already delivers, not a backup unit.
+        # The NovaPro UHDs' OPT 3/4 are copy/hot backup channels a box there
+        # may be set to (copyTrunks 'per-box'), but a box on OPT 1/2 still
+        # comes alone: no ruling makes it bring a second box.
         return False
     # IN COPY MODE THE COPY TRUNKS ARE NOT BACKUPS (NovaStar, 2026-10-30:
     # "OPT 3 copies the output on OPT 1") - they feed a mirror screen, so a
@@ -3745,16 +3749,21 @@ def resolve_card(card, proc):
                          and c['trunkIndex'] == box['copiesTrunk']), None)
             box['mirrorOf'] = mate['id'] if mate else None
 
-    # A MODE THAT MAKES ITS COPY OPTS BACKUPS BINDS THEIR BOXES. NovaStar
-    # documents the H_4xfiber's Backup mode as "OPT 3 serves as the backup
-    # of OPT 1, while OPT 4 serves as the backup of OPT 2" (copyTrunks
-    # 'backup'), and the 2026-09-25 ruling binds a same-processor NovaStar
-    # backup to its primary AUTOMATICALLY. So the box on a copy OPT backs
-    # up the box on the OPT it copies, whichever came first - the boxes or
-    # the mode (a card starts in Independent, where a box comes alone, so
-    # boxes put on before Backup carried no link and drew as a "(copy)"
-    # box of free sockets). Only where the primary box takes exactly the
-    # same OPTs: a CVT4K-S on OPT 3-4 copies two CVT10s, not one box.
+    # A COPY OPT THAT BACKS UP BINDS ITS BOX. NovaStar documents the
+    # H_4xfiber's Backup mode as "OPT 3 serves as the backup of OPT 1,
+    # while OPT 4 serves as the backup of OPT 2" (copyTrunks 'backup'; the
+    # enhanced card's OPT 5-8 back up OPT 1-4 the same way), and the
+    # 2026-09-25 ruling binds a same-processor NovaStar backup to its
+    # primary AUTOMATICALLY. So the box on a copy OPT backs up the box on
+    # the OPT it copies, whichever came first - the boxes or the mode (a
+    # card starts in Independent, where a box comes alone, so boxes put on
+    # before Backup carried no link and drew as a "(copy)" box of free
+    # sockets). On a per-box mode (copyTrunks 'per-box': the MX40 Pro's
+    # 20-port, the NovaPro UHD and UHD Jr, each catalog entry quoting its
+    # own sheet's copy channel in copyTrunksNote) the box set to Backup -
+    # the default - binds the same way, and one set to Mirror feeds a
+    # mirror instead. Only where the primary box takes exactly the same
+    # OPTs: a CVT4K-S on OPT 3-4 copies two CVT10s, not one box.
     # Derived every resolve and stored nowhere, like the fixed pairing
     # below. On a card whose catalog documents copy OPTs, a box that is
     # NOT on a backup copy OPT in the current mode backs nothing up - an
@@ -3766,7 +3775,7 @@ def resolve_card(card, proc):
         for box in cvts:
             if box['copyRole'] != 'backup':
                 box['backupOf'] = None
-    if copy_kind == 'backup':
+    if copy_kind in ('backup', 'per-box'):
         for box in cvts:
             if box['copyRole'] != 'backup' or box['backupOf']:
                 continue

@@ -488,7 +488,15 @@ FIXES
   NovaStar wires it: the box on OPT 3-4 is the backup of the box on OPT
   1-2, even when the boxes went on before Backup was picked. Before, that
   box showed in the Data tray as a copy with 16 free ports. Switching the
-  card to Independent or Copy undoes the pairing.
+  card to Independent or Copy undoes the pairing. The enhanced H_4xfiber
+  pairs OPT 5-8 with OPT 1-4 the same way, and on an MX40 Pro in 20-port
+  mode a box on OPT 3 or 4 set to Backup now pairs with the box on OPT 1
+  or 2 too, however it was added.
+- FIX: A breakout box on OPT 3 or 4 of a NovaPro UHD or UHD Jr is the hot
+  backup of the box on OPT 1 or 2 and shows in the Data tray as one loop
+  with it, so two CVT4K-S boxes give 16 ports, each with its backup. Like
+  the MX40 Pro, each box there can be set to Mirror instead, to feed a
+  mirror screen.
 - FIX: The binder's Overview page draws your screens much bigger. Its
   tables now share one short band across the top, with a long Contents
   list split into two or more columns, and the drawing fills the whole

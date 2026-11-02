@@ -188,7 +188,12 @@ def test_only_the_named_products_carry_the_new_rules():
     copy_devices = sorted(d['id'] for d in catalog.devices()
                           if any(m.get('copyTrunks') for m in
                                  (d.get('ports') or {}).get('modes') or []))
-    assert copy_devices == sorted([H4, H4E, MX40])
+    # The NovaPro UHD and UHD Jr joined on 2026-11-02, each quoting its own
+    # sheet's "copy/hot backup" channel (copyTrunksNote).
+    assert copy_devices == sorted([H4, H4E, MX40, 'novastar-novapro-uhd',
+                                   'novastar-novapro-uhd-jr'])
+    assert all(catalog.get_device(d).get('copyTrunksNote')
+               for d in copy_devices if d not in (H4, H4E))
     assert sorted(d['id'] for d in catalog.devices() if d.get('plugChoice')) \
         == sorted([H16, MX40])
     assert sorted(d['id'] for d in catalog.devices()

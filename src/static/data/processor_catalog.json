@@ -355,7 +355,8 @@
       "portsPerTrunk": 8,
       "trunkRate": "10G",
       "trunkDelivery": "copy",
-      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 16}]},
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 16, "copyTrunks": "per-box"}]},
+      "copyTrunksNote": "NovaPro UHD All-in-One Controller Specifications V1.2.0, Output table: \"OPT 3 is the copy/hot backup channel for OPT 1.\", \"OPT 4 is the copy/hot backup channel for OPT 2.\" Owner, 2026-11-02: a box on OPT 3/4 is set per box to Mirror (it feeds a mirror screen) or Backup (it backs up OPT 1/2), as on the MX40 Pro. Backup is the default.",
       "note": "16x Neutrik Gigabit Ethernet out, max 10,400,000 px. The four 10G OPTs add no ports - OPT 1/2 carry Ethernet 1-8 / 9-16 and OPT 3/4 are their copy/hot backup channels - so a box on any OPT is another place to plug into ports the back of the unit already has. Its spec publishes no per-port pixel figure; the Jr's numbers are the Jr's."
     },
     {
@@ -371,7 +372,8 @@
       "portsPerTrunk": 8,
       "trunkRate": "10G",
       "trunkDelivery": "copy",
-      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 16}]},
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 16, "copyTrunks": "per-box"}]},
+      "copyTrunksNote": "NovaPro UHD Jr All-in-One Controller Specifications V1.5.1, OPT 1-4: \"Copy and hot backup modes are available when four OPT ports are all used for output.\", \"OPT 3 serves as the copy/hot backup for OPT 1.\", \"OPT 4 serves as the copy/hot backup for OPT 2.\" Owner, 2026-11-02: a box on OPT 3/4 is set per box to Mirror (it feeds a mirror screen) or Backup (it backs up OPT 1/2), as on the MX40 Pro. Backup is the default.",
       "note": "16x Neutrik Gigabit Ethernet out, max 10,400,000 px - per port 650,000 px on an 8-bit source, 320,000 on 10/12-bit. Same OPT shape as the NovaPro UHD: OPT 1/2 transmit Ethernet 1-8 / 9-16 and OPT 3/4 are their copy/hot backup, available when all four OPTs are used for output. The OPTs add no ports."
     },
     {
