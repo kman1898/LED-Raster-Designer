@@ -382,8 +382,7 @@ FIXES
   horizontal first, Down when it's vertical first.
 - FIX: Starting a new show or opening one right after an Undo waits for
   the Undo to finish saving, so the undone show can no longer land on top
-  of the one you just opened. Two quick Undos in a row also save in
-  order, so the show that's saved is always the one you see.
+  of the one you just opened.
 
 v1.5.3 - October 21, 2026
 ----------------------------

@@ -228,12 +228,7 @@ class _History {
     // the snapshot carries instead of ending it (restore_project). Undo
     // and redo never pass it: an undone edit is still an edit.
     _syncRestoredProject(entry, label, { keepPristine = false } = {}) {
-        const inflight = [...(this._inflightLayerPuts || [])]
-            // and behind every restore still on its way: two quick undos
-            // (or the guide's restore, then a jump's) sent both PUTs at
-            // once, and the server could take the older one last and keep
-            // the show the page had already left (2026-11-01).
-            .concat([...(this._restorePutsInFlight || [])]);
+        const inflight = [...(this._inflightLayerPuts || [])];
         // And behind the pull sheet's POST queue (app-pull-list.js): a
         // cable-unit or edits POST still in flight carries the state being
         // undone, and landing after this PUT it would put it back.
