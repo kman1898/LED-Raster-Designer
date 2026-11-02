@@ -232,7 +232,9 @@ class _ClientProps {
             if (layer.halfFirstRow === undefined) layer.halfFirstRow = false;
             if (layer.halfLastRow === undefined) layer.halfLastRow = false;
             if (layer.weight_unit === undefined) layer.weight_unit = prefs.weightUnit || 'kg';
-            if (layer.panel_weight === undefined) layer.panel_weight = prefs.panelWeight || 20;
+            // The server's own default weight (create_layer); the panel
+            // weight is no longer a preference (1.6.0).
+            if (layer.panel_weight === undefined) layer.panel_weight = 20;
             if (layer.infoLabelSize === undefined) layer.infoLabelSize = 14;
             if (layer.showDataFlowPortInfo === undefined) layer.showDataFlowPortInfo = false;
             // v0.11.0: port load % defaults OFF - an existing project must open
@@ -318,7 +320,9 @@ class _ClientProps {
             layer.backupTextColor = layer.backupTextColor || '#FFFFFF';
             layer.powerLabelBgColor = layer.powerLabelBgColor || '#D95000';
             layer.powerLabelTextColor = layer.powerLabelTextColor || '#000000';
-            layer.panel_weight = prefs.panelWeight || 20;
+            // The weight unit only: the cabinet (and its weight) is no
+            // longer a preference (1.6.0); the startup panel pick makes
+            // the first screen from the panel library instead.
             layer.weight_unit = prefs.weightUnit || 'kg';
             // Apply default raster on startup so app open matches Preferences.
             // Both the Pixel Map raster AND the Show Look raster start at the

@@ -21,10 +21,10 @@ def _guard(server_project_guard):
 # each holds. Every id today's dialog had keeps its id; the new ones are
 # the mock's (mocks/preferences-mock.html?layout=tabs).
 TABS = {
+    # The panel size and weight rows went in 1.6.0 (a new project picks its
+    # panel from the library, RETIRED_PANEL_IDS); the weight unit stays.
     'wall': ['pref-raster-width', 'pref-raster-height', 'pref-columns', 'pref-rows',
-             'pref-panel-width', 'pref-panel-height', 'pref-panel-width-mm',
-             'pref-panel-height-mm', 'pref-panel-weight', 'pref-weight-unit',
-             'pref-canvas-gap'],
+             'pref-weight-unit', 'pref-canvas-gap'],
     'look': ['pref-color1', 'pref-color2', 'pref-border-color', 'pref-screen-name-color',
              'pref-cabinet-id-color', 'pref-font',
              'pref-cabinet-font-size', 'pref-label-font-size', 'pref-data-label-size',
@@ -76,7 +76,7 @@ TABS = {
 }
 ALL_IDS = [i for ids in TABS.values() for i in ids]
 # 1.5 audit: the distro voltage + phase pair became one system picker.
-assert len(ALL_IDS) == 109
+assert len(ALL_IDS) == 104
 
 # Issue 28: the colour defaults a NEW screen starts with, id -> (the colour
 # the dialog is given, the preference key, the layer property it lands on).
@@ -98,11 +98,13 @@ COLOR_FIELDS = [
 ]
 CIRCUIT_COLORS = ['#a10001', '#a20002', '#a30003', '#a40004', '#a50005', '#a60006']
 
-# What today's dialog had (36 ids, the three buttons and the modal among
-# them) - every one of them stays.
+# What the dialog had before the tabs (36 ids, the three buttons and the
+# modal among them) - every one stays but the five panel rows 1.6.0 took
+# out (RETIRED_PANEL_IDS).
+RETIRED_PANEL_IDS = ['pref-panel-width', 'pref-panel-height', 'pref-panel-width-mm',
+                     'pref-panel-height-mm', 'pref-panel-weight']
 TODAY = ['preferences-modal', 'pref-raster-width', 'pref-raster-height', 'pref-columns',
-         'pref-rows', 'pref-panel-width', 'pref-panel-height', 'pref-panel-width-mm',
-         'pref-panel-height-mm', 'pref-panel-weight', 'pref-weight-unit',
+         'pref-rows', 'pref-weight-unit',
          'pref-cabinet-font-size', 'pref-label-font-size', 'pref-color1', 'pref-color2',
          'pref-border-color', 'pref-font', 'pref-data-flow-pattern-grid',
          'pref-power-flow-pattern-grid', 'pref-data-line-width', 'pref-power-line-width',
@@ -331,6 +333,9 @@ def test_every_field_is_there_once_and_one_tab_shows_at_a_time(page):
     _open(pg)
     present = pg.evaluate("(ids) => ids.filter(i => !document.getElementById(i))", ALL_IDS + TODAY)
     assert present == [], f'missing: {present}'
+    # the panel rows 1.6.0 took out stay out
+    back = pg.evaluate("(ids) => ids.filter(i => document.getElementById(i))", RETIRED_PANEL_IDS)
+    assert back == [], f'retired panel rows are back: {back}'
     dup = pg.evaluate("""() => {
         const all = [...document.querySelectorAll('#preferences-modal [id]')].map(e => e.id);
         return all.filter((x, i) => all.indexOf(x) !== i);

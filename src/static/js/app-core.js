@@ -1067,6 +1067,12 @@ export class LEDRasterApp {
                 // the rest of updateUI stayed as the page shipped.
                 this.updateUI();
 
+                // A launch is a fresh project (the app never reopens a
+                // show at boot): ask for the first screen's panel once the
+                // guide and the What's New window are out of the way
+                // (app-presets.js maybeOpenStartupPicker).
+                if (typeof this.maybeOpenStartupPicker === 'function') this.maybeOpenStartupPicker('launch');
+
                 // Default to Fit view on load. Retry while layout settles: on
                 // a slow first paint the canvas wrapper can still be 0-height
                 // at +100ms, which computes zoom 0 and leaves the canvas blank
@@ -1279,6 +1285,10 @@ export class LEDRasterApp {
                 setTimeout(() => {
                     window.canvasRenderer.fitToView();
                 }, 100);
+
+                // File > New asks for the panel of the first screen, the
+                // same as a launch (app-presets.js maybeOpenStartupPicker).
+                if (typeof this.maybeOpenStartupPicker === 'function') this.maybeOpenStartupPicker('new');
             });
     }
 
@@ -1286,11 +1296,9 @@ export class LEDRasterApp {
         if (!this.currentLayer) return;
         this.currentLayer.columns = prefs.columns;
         this.currentLayer.rows = prefs.rows;
-        this.currentLayer.cabinet_width = prefs.panelWidth;
-        this.currentLayer.cabinet_height = prefs.panelHeight;
-        this.currentLayer.panel_width_mm = prefs.panelWidthMM;
-        this.currentLayer.panel_height_mm = prefs.panelHeightMM;
-        this.currentLayer.panel_weight = prefs.panelWeight;
+        // The cabinet itself (pixels, millimeters, weight) is no longer a
+        // preference (1.6.0): the startup screen keeps the server's
+        // cabinet until the startup panel pick replaces the screen.
         this.currentLayer.weight_unit = prefs.weightUnit || 'kg';
         this.currentLayer.number_size = prefs.cabinetFontSize;
         this.currentLayer.labelsFontSize = prefs.labelFontSize;
@@ -2006,10 +2014,20 @@ export class LEDRasterApp {
         return `Screen${maxNum + 1}`;
     }
 
+    // Resolves once the new screen has landed (or the add has failed and
+    // said so), so a caller can follow it: the startup panel pick resets
+    // the history after it.
     addLayer(presetData) {
         // Server-side props control panel generation (columns/rows/cabinet sizes/colors/etc.)
         // Client-side props (data flow, power, labels...) are applied after the layer is returned.
         const prefs = this.getPreferences();
+        // Nothing picked: the new screen hangs the last screen's panel
+        // (1.6.0, owner 2026-11-02; the cabinet is no longer a
+        // preference). With no screen to copy, the server's own cabinet.
+        if (!(presetData && typeof presetData === 'object')
+                && typeof this._lastScreenPanelData === 'function') {
+            presetData = this._lastScreenPanelData() || undefined;
+        }
         // A stored preference that is not a colour ('#FFF', 'abcdef', '')
         // must not reach the server verbatim; the literal is what shipped.
         // The tile colours take the same check (a 3-digit '#FFF' expands):
@@ -2041,18 +2059,26 @@ export class LEDRasterApp {
             const hex = tile(value, '');
             return hex ? this.hexToRgb(hex) : fallback;
         };
+        // A cabinet figure the data does not carry is left out of the
+        // request (undefined drops from the JSON), so the server's own
+        // default stands: the canvas's newest screen, else 128 px, 500 mm,
+        // 20 kg (routes_layers add_layer, create_layer). A weight and its
+        // unit travel as a pair, so a missing weight never takes a unit
+        // that does not belong to it.
+        const given = (v) => (v != null && v !== '' ? v : undefined);
         let serverProps;
         if (presetData && typeof presetData === 'object') {
+            const weight = given(presetData.panel_weight);
             serverProps = {
                 columns: presetData.columns != null ? presetData.columns : prefs.columns,
                 rows: presetData.rows != null ? presetData.rows : prefs.rows,
-                cabinet_width: presetData.cabinet_width != null ? presetData.cabinet_width : prefs.panelWidth,
-                cabinet_height: presetData.cabinet_height != null ? presetData.cabinet_height : prefs.panelHeight,
+                cabinet_width: given(presetData.cabinet_width),
+                cabinet_height: given(presetData.cabinet_height),
                 color1: tileRgb(presetData.color1, color1),
                 color2: tileRgb(presetData.color2, color2),
                 border_color: tile(presetData.border_color, borderColor),
-                panel_weight: presetData.panel_weight != null ? presetData.panel_weight : prefs.panelWeight,
-                weight_unit: presetData.weight_unit || prefs.weightUnit,
+                panel_weight: weight,
+                weight_unit: weight === undefined ? undefined : (presetData.weight_unit || prefs.weightUnit),
                 // The two colours the server sets on a new layer (create_layer);
                 // the Look tab's "Info labels" and "Cabinet ID text" preferences.
                 // A preset value that is not a colour ('nope', 'red', [], {})
@@ -2070,16 +2096,13 @@ export class LEDRasterApp {
                 powerVoltageCustom: presetData.powerVoltage != null ? presetData.powerVoltage : prefs.powerVoltage
             };
         } else {
+            // No screen to copy (an empty project): the server's cabinet.
             serverProps = {
                 columns: prefs.columns,
                 rows: prefs.rows,
-                cabinet_width: prefs.panelWidth,
-                cabinet_height: prefs.panelHeight,
                 color1: color1,
                 color2: color2,
                 border_color: borderColor,
-                panel_weight: prefs.panelWeight,
-                weight_unit: prefs.weightUnit,
                 labelsColor: labelsColor,
                 cabinetIdColor: cabinetIdColor,
                 // Same reason as the preset branch above.
@@ -2088,7 +2111,7 @@ export class LEDRasterApp {
             };
         }
 
-        fetch('/api/layer/add', {
+        return fetch('/api/layer/add', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

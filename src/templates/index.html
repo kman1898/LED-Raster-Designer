@@ -297,7 +297,7 @@
                             <select id="layer-beach" class="info-select" data-lrd-field="layer-beach"></select>
                         </div>
                         <div id="screen-grid-settings" class="screen-only">
-                            <div class="info-row" data-tooltip="Panel, The panel this screen hangs, as the pull sheet names it. A pick from the panel library fills it in; type your own name for a custom panel. Changing the cabinet's pixels or size by hand clears it, and clearing it goes back to the library's name for its size, or its size.">
+                            <div class="info-row" data-tooltip="Panel, The panel this screen hangs, as the pull sheet names it. It starts as the name of the panel the screen was made with: a pick from the panel library, a preset, or the last screen's panel. Type over it to name a custom panel. Changing the cabinet's pixels or size by hand clears it, and clearing it goes back to the library's name for its size, or its size.">
                                 <label>Panel</label>
                                 <input type="text" id="panel-model-name" value="" autocomplete="off" spellcheck="false">
                             </div>
@@ -2535,31 +2535,19 @@
                                 <span>Rows</span>
                             </div>
                         </div>
+                        <!-- The panel itself is no preference (1.6.0): a new
+                             project asks for it from the panel library, and
+                             Add Screen copies the last screen's. The weight
+                             unit stays, a display choice. -->
                         <div class="pm-row">
-                            <label>Panel size (px)</label>
+                            <label>Weight unit</label>
                             <div class="prefs-row">
-                                <input type="text" id="pref-panel-width" placeholder="128">
-                                <span>×</span>
-                                <input type="text" id="pref-panel-height" placeholder="128">
-                            </div>
-                        </div>
-                        <div class="pm-row">
-                            <label>Panel size (mm)</label>
-                            <div class="prefs-row">
-                                <input type="text" id="pref-panel-width-mm" placeholder="500">
-                                <span>×</span>
-                                <input type="text" id="pref-panel-height-mm" placeholder="500">
-                            </div>
-                        </div>
-                        <div class="pm-row">
-                            <label>Panel weight</label>
-                            <div class="prefs-row">
-                                <input type="number" id="pref-panel-weight" placeholder="20" step="0.1">
                                 <select id="pref-weight-unit" class="pm-fit">
                                     <option value="kg">kg</option>
                                     <option value="lb">lb</option>
                                 </select>
                             </div>
+                            <div class="pm-note">The unit a panel picked from the library gives its weight in.</div>
                         </div>
                         <div class="pm-row">
                             <label>Canvas gap</label>
@@ -3298,9 +3286,10 @@
     <!-- About Modal -->
     <div id="preset-picker-modal" class="modal" style="display: none;">
         <div class="modal-content" style="background: #252525; border-radius: 8px; padding: 20px; width: 900px; max-width: 95vw; margin: 50px auto; border: 1px solid #3a3a3a;">
-            <!-- Add mode's heading and brief. Change cabinet… (app-presets.js
-                 _setPickerChrome) rewrites both, and the confirm button, for
-                 replace mode, and puts them back for the next add. -->
+            <!-- Add mode's heading and brief. Change cabinet… and the
+                 start-up pick (app-presets.js _setPickerChrome) rewrite
+                 both, and the confirm button, for their modes, and put
+                 them back for the next add. -->
             <h2 id="preset-picker-title" style="margin-top: 0; color: #fff; margin-bottom: 4px; font-size: 18px;">Add Screen</h2>
             <div id="preset-picker-subtitle" style="color: #888; font-size: 12px; margin-bottom: 14px;">Pick a saved preset <em>or</em> a panel from the built-in catalog.</div>
             <div style="display: flex; gap: 14px;">
@@ -3335,7 +3324,7 @@
                 </div>
             </div>
             <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 14px; gap: 12px;">
-                <div id="preset-picker-summary" style="color: #888; font-size: 12px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Nothing selected, will use Default.</div>
+                <div id="preset-picker-summary" style="color: #888; font-size: 12px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Nothing selected.</div>
                 <div style="display: flex; gap: 8px;">
                     <button id="preset-picker-cancel" class="btn" style="background: #3a3a3a; padding: 8px 16px;">Cancel</button>
                     <button id="preset-picker-add" class="btn btn-primary" style="padding: 8px 16px;">Add Screen</button>

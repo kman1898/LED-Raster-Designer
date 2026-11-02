@@ -540,7 +540,10 @@ def test_screen_info_names_the_panel_and_a_hand_edit_of_its_size_forgets_it(pick
     assert pg.evaluate(MODEL_JS, air)['name'] == 'Again'
 
 
-def test_change_cabinet_saves_the_new_panel_and_the_default_saves_none(picked):
+# A cabinet given as bare figures (a preset saved before panels were saved,
+# say) names no panel, so the screen keeps none. Until 1.6.0 the picker's
+# Preferences default was such a pick; the panel is no preference now.
+def test_change_cabinet_saves_the_new_panel_and_bare_figures_save_none(picked):
     pg, ids, _ = picked
     got = pg.evaluate("""async (id) => {
         const app = window.app;
@@ -549,7 +552,8 @@ def test_change_cabinet_saves_the_new_panel_and_the_default_saves_none(picked):
         app.changeCabinetForLayers([id], app._panelToPresetData({ ...panel, _mfr: 'ROE' }));
         const l = app.project.layers.find(x => x.id === id);
         const picked = { id: l.panelModelId, name: l.panelModelName, halves: l.panelModelHalves };
-        app.changeCabinetForLayers([id], app._preferencesCabinetData());
+        app.changeCabinetForLayers([id], { cabinet_width: 128, cabinet_height: 128,
+            panel_width_mm: 500, panel_height_mm: 500, panel_weight: 20, weight_unit: 'kg' });
         const dflt = { id: l.panelModelId, name: l.panelModelName, halves: l.panelModelHalves };
         return { picked, dflt };
     }""", ids['floor'])
