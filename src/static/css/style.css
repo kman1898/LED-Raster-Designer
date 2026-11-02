@@ -44,7 +44,9 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 .btn-primary:hover { background: #357ABD; }
 .full-width { width: 100%; }
 #left-sidebar, #right-sidebar { background: #252525; width: 260px; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; padding: 10px; box-sizing: border-box; transition: width 0.18s ease, padding 0.18s ease, border-color 0.18s ease; }
-#right-sidebar { display: flex; flex-direction: column; overflow: hidden; padding: 0; }
+/* The right sidebar never scrolls itself (its panels do), so it holds no
+   scrollbar gutter: a stable one left a blank strip down its right side. */
+#right-sidebar { display: flex; flex-direction: column; overflow: hidden; padding: 0; scrollbar-gutter: auto; }
 /* A panel's seam is on its inner edge, the one facing the canvas. */
 .lrd-panel[data-lrd-edge="left"] { border-right: 1px solid #3a3a3a; }
 .lrd-panel[data-lrd-edge="right"] { border-left: 1px solid #3a3a3a; }
@@ -226,7 +228,9 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
     display: none;
     margin: 0;
 }
-#layers-list { margin-bottom: 10px; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; }
+/* The scrollbar takes room only when the list is long enough to scroll;
+   until then the screen rows use the whole width. */
+#layers-list { margin-bottom: 10px; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: auto; }
 .layer-item { background: #1a1a1a; border: 1px solid #3a3a3a; border-radius: 4px; padding: 10px; margin-bottom: 8px; cursor: pointer; box-sizing: border-box; width: 100%; }
 .layer-item:hover { background: #2a2a2a; }
 .layer-item.active { border-color: #4A90E2; background: #1a2a3a; }
@@ -511,7 +515,10 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 }
 .layer-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
 .layer-name { font-size: 13px; color: #e0e0e0; font-weight: 600; }
-.layer-controls { display: flex; gap: 5px; align-items: center; }
+.layer-controls { display: flex; gap: 1px; align-items: center; }
+/* A screen row's arrows, grid and eye sit close together, so the name
+   gets the width. */
+.layer-controls > .layer-btn { padding: 2px 3px; }
 .layer-btn { background: transparent; border: none; color: #888; cursor: pointer; padding: 2px 6px; font-size: 14px; }
 .layer-btn:hover { color: #e0e0e0; }
 .layer-btn:disabled { color: #444; cursor: default; }
