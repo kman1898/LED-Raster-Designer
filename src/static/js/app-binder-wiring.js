@@ -1056,7 +1056,8 @@ class _BinderWiring {
                 const tx = (socketX.get(w.device.key) || new Map()).get(w.socket);
                 const ty = !b ? bottom
                     : T === 'top' ? b.y + (BOXH - SOCKET_DY + SOCK) * K : b.y + (SOCKET_DY - SOCK) * K;
-                const { edge, stub } = this._bwExit(disc, wall, ink, ownOf(disc), pad, room, near);
+                const own = ownOf(disc);
+                const { edge, stub, cost } = this._bwExit(disc, wall, ink, own, pad, room, near);
                 // is the socket already clear of the wall on the side this
                 // run can travel? then the rail IS the way to it. Clear
                 // means as far out as the first rail stands: a socket a
@@ -1070,7 +1071,22 @@ class _BinderWiring {
                 // socket is nearer to, so the lane by the wall is short
                 const side = edge === 'left' || edge === 'right' ? edge
                     : (tx - wall.x <= wall.x + wall.w - tx ? 'left' : 'right');
-                return { w, disc, tx, ty, edge, stub, side, out, T, near };
+                // Straight down (or up) onto a socket already in line with
+                // the disc, off the disc's edge AT THE SOCKET'S x - not at
+                // the stub _bwExit weighed. So it is only taken where that
+                // line is no dearer than the stub: a cable tag under the
+                // disc is in its way, and then the run keeps its stub and
+                // goes by the lane like any other (2026-11-02: once the
+                // tags read the length alone, "50'" stood under a corner
+                // disc, the stub stepped round it and the drop went through
+                // it).
+                let straight = false;
+                if (edge === near && Number.isFinite(tx) && Math.abs(tx - disc.x) < STRAIGHT * K) {
+                    const dy = Math.sqrt(Math.max(0, disc.r * disc.r - (tx - disc.x) * (tx - disc.x)));
+                    const head = [tx, near === 'top' ? disc.y - dy : disc.y + dy];
+                    straight = this._bwCost(head, [tx, ty], pad, ink, own) <= (cost || 0);
+                }
+                return { w, disc, tx, ty, edge, stub, side, out, T, near, straight };
             });
 
             // The rails, one per run that has to go along beside the wall,
@@ -1115,7 +1131,7 @@ class _BinderWiring {
             const zone = (edge) => {
                 const T = edge;   // the boxes this zone is the near side of
                 const dropped = (s) => plans.filter(p => p.T === T && p.edge === p.near && p.side === s
-                    && Math.abs(p.tx - p.disc.x) >= STRAIGHT * K);
+                    && Number.isFinite(p.tx) && !p.straight);
                 const nearL = railed.left.filter(p => p.T === T);
                 const nearR = railed.right.filter(p => p.T === T);
                 const nearSpans = weave(
@@ -1173,7 +1189,7 @@ class _BinderWiring {
                     const toX = p.out ? tx : railX.get(p);
                     pts.push([at, oy], [toX, oy]);
                     if (!p.out) pts.push([toX, nearY()], [tx, nearY()]);
-                } else if (Math.abs(tx - disc.x) < STRAIGHT * K) {
+                } else if (p.straight) {
                     // already outside its socket and in line with it:
                     // straight on, off the disc's own edge onto the socket
                     const off = Math.sqrt(Math.max(0, disc.r * disc.r - (tx - disc.x) * (tx - disc.x)));
