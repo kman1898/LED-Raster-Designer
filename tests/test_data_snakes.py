@@ -35,7 +35,7 @@ difference: the stores live on the HARDWARE record, not the screen -
     programming and a clear forgets it.)
   - layer.showDataCableTags (default FALSE), "Show Cable Tags" under Show
     Port Load %; on, a blue tag beside the port's label on screen and in
-    exportMode alike: the snake's name, or "50' Cat6".
+    exportMode alike: the snake's name, or a loose cable's length, "50'".
 
 Run locally (each session takes its own free port, so it runs beside
 any other):
@@ -519,7 +519,7 @@ FRAME_TEXTS_JS = """() => {
         const texts = [];
         ctx.fillText = function (t, x, y, w) { texts.push(String(t)); return oT.call(ctx, t, x, y, w); };
         try { r.render(); } finally { ctx.fillText = oT; }
-        return texts.filter(t => /^(SNAKE |FOH|\\d+(\\.\\d+)?' )/.test(t));
+        return texts.filter(t => /^(SNAKE |FOH|\\d+(\\.\\d+)?'( |$))/.test(t));
     };
     const prevMode = r.viewMode, prevExport = r.exportMode;
     let interactive, exported;
@@ -1120,15 +1120,16 @@ def test_the_canvas_tag_follows_the_switch_and_the_export(page):
         f'the export pass must match the screen: {frame}')
     served = _served(pg, ids, lambda s: s['flag'] is True)
     assert served and served['flag'] is True, served
-    # A loose port with its own cable prints "50' Cat6": move WALL's port 6
-    # onto card socket 9 (the card's loose 50' Cat6) and read the tag.
+    # A loose port with its own cable prints its length alone, "50'" (the
+    # map's tag never names the connector, owner 2026-11-02): move WALL's
+    # port 6 onto card socket 9 (the card's loose 50' Cat6) and read the tag.
     pg.evaluate("""(ids) => window.app._assignmentRequest(
         '/api/port-assignments/place', 'POST',
         {layerId: String(ids.id), index: 5, cardId: ids.cardId, port: 9},
         null, 'Place Port')""", ids)
     _settle(pg)
     frame = pg.evaluate(FRAME_TEXTS_JS)
-    assert sorted(frame['interactive']) == sorted(['FOH'] * 5 + ["50' Cat6"]), frame
+    assert sorted(frame['interactive']) == sorted(['FOH'] * 5 + ["50'"]), frame
     assert sorted(frame['exported']) == sorted(frame['interactive']), frame
     pg.evaluate('() => window.app.undo()')
     _settle(pg)

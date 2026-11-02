@@ -603,7 +603,7 @@ Object.assign(CanvasRenderer.prototype, {
             }
 
             // The port's home run, as a small blue tag beside its label -
-            // the snake it rides ("SNAKE A") or its own cable ("50' Cat6"):
+            // the snake it rides ("SNAKE A") or its own cable's length ("50'"):
             // "the same option for data homeruns" (2026-09-06), per screen,
             // default OFF, and the same test in exportMode so the PDF is
             // what was asked for. The power tag's drawer, in the data
@@ -624,9 +624,15 @@ Object.assign(CanvasRenderer.prototype, {
                 // taller than its label circle, so it carries the
                 // screen's top and bottom too and shifts inside them the
                 // way the circle's centre was shifted.
+                // The tag reads the LENGTH only ("25'", owner 2026-11-02,
+                // dataMapTagText): the connector is named once in the
+                // binder, under the screen's name.
+                const tagText = (c) => (c && typeof window.app.dataMapTagText === 'function')
+                    ? window.app.dataMapTagText(c) : (c && c.text) || '';
                 const cable = window.app.dataPortCableForScreen(layer, portNum);
-                if (cable && cable.text) {
-                    pendingTags.push({ text: cable.text, disc: primaryDisc,
+                const cableTag = tagText(cable);
+                if (cableTag) {
+                    pendingTags.push({ text: cableTag, disc: primaryDisc,
                                        step: runStep(portPanels[0], portPanels[1]) });
                 }
                 // The return marker wears the BACKUP socket's own tag the
@@ -636,9 +642,10 @@ Object.assign(CanvasRenderer.prototype, {
                 // port has no backup or the backup socket carries nothing.
                 const backup = typeof window.app.dataPortBackupCableForScreen === 'function'
                     ? window.app.dataPortBackupCableForScreen(layer, portNum) : null;
-                if (backup && backup.text) {
+                const backupTag = tagText(backup);
+                if (backupTag) {
                     const n = portPanels.length;
-                    pendingTags.push({ text: backup.text, disc: returnDisc,
+                    pendingTags.push({ text: backupTag, disc: returnDisc,
                                        step: runStep(portPanels[n - 1], portPanels[n - 2]) });
                 }
             }

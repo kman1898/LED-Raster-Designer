@@ -2115,6 +2115,24 @@ class _Processors {
         };
     }
 
+    // What a port's tag on the DATA MAP reads (owner, 2026-11-02: "just
+    // list 25'"): a loose cable by its length alone ("25'", "8 m", the
+    // stock pieces "100'+25'"), never its connector - on a wall of narrow
+    // columns "25' etherCON" was wider than a column and the tags zig-
+    // zagged over and under the discs. The binder names the connector once
+    // under the screen's name instead (_bDataCableNote). A snake reads as
+    // it always has ("SNAKE A", "SNAKE A +25'"): its text carries no
+    // connector. The pull sheet, the binder's tables and the cable sheets
+    // keep the whole cable (`text`, runText); the power map is not read
+    // through here.
+    dataMapTagText(cable) {
+        if (!cable) return '';
+        if (cable.kind === 'cable' && Number.isFinite(Number(cable.ft)) && Number(cable.ft) > 0) {
+            return this.cableText(cable.ft, '', 'data');
+        }
+        return cable.text || '';
+    }
+
     // One run as the papers say it, whole - the binder's home-run cell and
     // the pull list share this: a snake reads "SR Primary 150'" (its name
     // and its home run; "SR Primary · no length" without one), plus

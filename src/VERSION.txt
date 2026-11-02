@@ -447,6 +447,11 @@ FIXES
   takes off only the circuits it fed. Before, the multi or circuit next
   to them could grow onto the freed circuits and take new circuits on
   its own box, so a feed you never touched moved to another breakout.
+- FIX: Data cable tags show only the length, like 25'. With the connector
+  on every tag, a wall of narrow columns had tags wider than a column, so
+  they zig-zagged over and under the ports. They now sit in one row. The
+  binder names the connector once, under each screen's name on its data
+  page, like Port cables: etherCON.
 
 v1.5.3 - October 21, 2026
 ----------------------------
