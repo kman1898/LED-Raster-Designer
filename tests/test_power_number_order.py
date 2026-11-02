@@ -84,17 +84,28 @@ window.__pn = {
             powerFlowPattern: 'tl-h', powerOrganized: true, powerMaximize: false,
             group_id: null,
         }, opts || {});
+        // `halfRow` / `halfCol`: one row of half-height (or one column of
+        // half-width) cabinets, the rows below (columns right) moved up.
+        // A half cabinet draws half the watts (getPanelLoadFactor).
+        const halfRow = o.halfRow, halfCol = o.halfCol;
+        delete o.halfRow;
+        delete o.halfCol;
+        const h = r => (r === halfRow ? o.cabinet_height / 2 : o.cabinet_height);
+        const w = c => (c === halfCol ? o.cabinet_width / 2 : o.cabinet_width);
         const panels = [];
+        let y = o.offset_y;
         for (let r = 0; r < o.rows; r++) {
+            let x = o.offset_x;
             for (let c = 0; c < o.columns; c++) {
                 panels.push({
-                    row: r, col: c,
-                    x: o.offset_x + c * o.cabinet_width,
-                    y: o.offset_y + r * o.cabinet_height,
-                    width: o.cabinet_width, height: o.cabinet_height,
-                    hidden: false, blank: false, halfTile: 'none',
+                    row: r, col: c, x, y,
+                    width: w(c), height: h(r),
+                    hidden: false, blank: false,
+                    halfTile: r === halfRow ? 'height' : (c === halfCol ? 'width' : 'none'),
                 });
+                x += w(c);
             }
+            y += h(r);
         }
         o.panels = panels;
         return o;
@@ -607,3 +618,127 @@ def test_custom_apply_pattern_follows_the_z_order(page):
         return { snake: ids('tl-h'), z: ids('tl-h-z'), zv: ids('br-v-z'), v: ids('br-v') };
     }""")
     assert out == {'snake': 'abcfed', 'z': 'abcdef', 'zv': 'fcebda', 'v': 'fcbeda'}
+
+
+# ── 5. a line cut differently from the stacks ───────────────────────────
+#
+# The owner's rulings, 2026-11-02: "Power will be the same" as the data
+# side's Port numbers, and "columns always supersede row". On the owner's
+# 85 x 5 shape with a bottom row of half-height cabinets, a full row of
+# 150 W cabinets is cut 22 + 22 + 22 + 19 a circuit (3,328 W), the half
+# row (75 W a cabinet) 44 + 41. Down numbers each stack's own rows, and a
+# circuit of the half row takes the number right after the stack its
+# FIRST cabinet sits under: 1-4 the first stack, 5 the half row's first
+# circuit, 6-9, 10-13, then 14 the half row's second circuit (it starts
+# at column 45, under the third stack), then 15-18. Every start corner
+# counts from where the wall is cabled: a right start numbers from the
+# right edge and walks left.
+
+HALF_BOTTOM = "window.__pn.repro({ columns: 85, halfRow: %s, powerFlowPattern: '%s'%s })"
+HALF_RIGHT = """window.__pn.repro({ columns: 5, rows: 85, cabinet_width: 384,
+    cabinet_height: 192, halfCol: 4, powerFlowPattern: '%s', powerNumberOrder: '%s' })"""
+
+
+def half(page, pattern='tl-h', order='down', half_row=4):
+    return cells(page, HALF_BOTTOM % (half_row, pattern, ", powerNumberOrder: '%s'" % order))
+
+
+def expect_by_stacks(pattern, lines, length, by_stack=True):
+    """The order worked out here on its own. `lines` in walk order, each
+    (line, cabinets a circuit). Every line is cut from the pattern's start
+    side; a circuit's stack is the stack of the most finely cut lines its
+    first cabinet sits in. By stacks: stack, then walk order; otherwise
+    walk order."""
+    vertical = '-v' in pattern
+    forward = pattern.startswith('t') if vertical else 'l-' in pattern
+    along = list(range(length)) if forward else list(range(length - 1, -1, -1))
+    stack_len = min(per for _, per in lines)
+    keyed = []
+    for walk_at, (line, per) in enumerate(lines):
+        for seg, start in enumerate(range(0, length, per)):
+            span = along[start:start + per]
+            got = col_run(line, span) if vertical else run(line, span)
+            keyed.append(((start // stack_len) if by_stack else walk_at, walk_at, seg, got))
+    keyed.sort(key=lambda k: k[:3])
+    return [k[3] for k in keyed]
+
+
+def bottom_lines(pattern, half_row=4, rows=5):
+    order = list(range(rows)) if pattern.startswith('t') else list(range(rows - 1, -1, -1))
+    return [(r, 44 if r == half_row else 22) for r in order]
+
+
+def test_down_puts_a_half_row_circuit_under_the_stack_it_starts_in(page):
+    out = half(page)
+    assert out['error'] is None and out['cut'] is True
+    got = out['circuits']
+    assert len(got) == 4 * 4 + 2
+    assert got[:5] == [run(r, range(22)) for r in range(4)] + [run(4, range(44))]
+    assert got[5:9] == [run(r, range(22, 44)) for r in range(4)]
+    assert got[9:13] == [run(r, range(44, 66)) for r in range(4)]
+    assert got[13] == run(4, range(44, 85)), 'circuit 14 starts under the third stack'
+    assert got[14:] == [run(r, range(66, 85)) for r in range(4)]
+    # the same circuits as Across; only the numbers moved
+    across = half(page, order='across')['circuits']
+    assert sorted(map(json.dumps, got)) == sorted(map(json.dumps, across))
+
+
+@pytest.mark.parametrize('pattern', ['tl-h', 'tr-h', 'bl-h', 'br-h',
+                                     'tl-h-z', 'tr-h-z', 'bl-h-z', 'br-h-z'])
+def test_a_half_row_follows_the_start_corner(page, pattern):
+    """Every corner: a right start counts the stacks from the right edge
+    and walks left, a bottom start climbs, and the half row (the first
+    line on a bottom start) numbers first in each stack it starts under."""
+    got = half(page, pattern)['circuits']
+    assert got == expect_by_stacks(pattern, bottom_lines(pattern), 85)
+    assert got[0][0] == [0 if pattern.startswith('t') else 4, 0 if 'l-' in pattern else 84]
+
+
+def test_a_differently_cut_top_row_comes_first_in_its_stack(page):
+    got = half(page, half_row=0)['circuits']
+    assert got[:5] == [run(0, range(44))] + [run(r, range(22)) for r in range(1, 5)]
+    assert got[5:9] == [run(r, range(22, 44)) for r in range(1, 5)]
+    assert got[9] == run(0, range(44, 85))
+    assert got[10:14] == [run(r, range(44, 66)) for r in range(1, 5)]
+
+
+@pytest.mark.parametrize('pattern', ['tl-h', 'tr-h', 'bl-h', 'br-h'])
+def test_across_with_a_half_row_numbers_along_the_rows_from_the_start(page, pattern):
+    got = half(page, pattern, order='across')['circuits']
+    assert got == expect_by_stacks(pattern, bottom_lines(pattern), 85, by_stack=False)
+    assert got[0][0] == [0 if pattern.startswith('t') else 4, 0 if 'l-' in pattern else 84]
+
+
+@pytest.mark.parametrize('pattern', ['tl-v', 'tr-v', 'bl-v', 'br-v'])
+def test_vertical_half_column_numbers_from_the_start_corner(page, pattern):
+    """The vertical mirror: 5 columns of 85, the last half-width. Across
+    numbers each band of the full columns, and a half column's circuit
+    joins the band its first cabinet sits in; Down numbers down each
+    column. A right start steps the columns right to left, a bottom start
+    counts each column up from the bottom."""
+    cols = list(range(5)) if 'l-' in pattern else list(range(4, -1, -1))
+    lines = [(c, 44 if c == 4 else 22) for c in cols]
+    across = cells(page, HALF_RIGHT % (pattern, 'across'))['circuits']
+    assert across == expect_by_stacks(pattern, lines, 85)
+    down = cells(page, HALF_RIGHT % (pattern, 'down'))['circuits']
+    assert down == expect_by_stacks(pattern, lines, 85, by_stack=False)
+    assert across[0][0] == down[0][0] == [0 if pattern.startswith('t') else 84,
+                                          0 if 'l-' in pattern else 4]
+
+
+def test_a_half_row_shares_as_before_and_numbers_by_its_stack(page):
+    """Splitters on, 90 wide: the half row is cut 44 + 44 + 2. Its
+    2-cabinet leftover at columns 88-89 is the circuit of its own it
+    always was (the packing reads every piece by its place along its row,
+    so no cabinet changes circuit); Down numbers it with the stack it
+    sits under, the last, after the leftovers above it."""
+    S = """window.__pn.repro({ halfRow: 4, powerNumberOrder: '%s',
+        powerSplitters: { enabled: true, maxWays: 3, manual: { merge: [], split: [] } } })"""
+    down = cells(page, S % 'down')
+    across = cells(page, S % 'across')
+    assert down['error'] is None and down['cut'] is True
+    assert sorted(map(json.dumps, down['circuits'])) == sorted(map(json.dumps, across['circuits']))
+    assert down['circuits'][-1] == run(4, [88, 89])
+    assert [c[0] for c in down['circuits'][:5]] == [[r, 0] for r in range(5)]
+    # the half row's second circuit starts at column 44, under the third stack
+    assert [c[0] for c in down['circuits'][9:14]] == [[r, 44] for r in range(5)]

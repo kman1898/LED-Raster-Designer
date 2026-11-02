@@ -510,6 +510,14 @@ FIXES
   panel sits under, so ports 1 to 4 run down the first stack and port 5
   is the bottom row's first port. A column cut differently on a vertical
   pattern numbers the same way with Across.
+- FIX: Circuit numbers on Down follow the same rule as Port numbers.
+  A row cut differently from the rows above it, like a bottom row of
+  half-height panels that fits twice as many to a circuit, gives each of
+  its circuits the number right after the stack its first panel sits
+  under, instead of weaving through the stacks. The circuits themselves
+  and the panels sharing a 2fer or 3fer don't change, only the numbers.
+  A column cut differently on a vertical pattern numbers the same way
+  with Across.
 
 v1.5.3 - October 21, 2026
 ----------------------------
