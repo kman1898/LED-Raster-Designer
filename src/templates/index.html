@@ -169,6 +169,10 @@
                  written at open time. -->
             <div class="menu-divider ovr-redraw-only" style="display: none;"></div>
             <div class="menu-option ovr-redraw-only" data-action="ovr-redraw" style="display: none;"></div>
+            <!-- Several ports picked with Shift: "Redraw ports 51-54 as one",
+                 armed by _prepareMergeRunsMenu (app-merge-runs.js). -->
+            <div class="menu-divider ovr-merge-div" style="display: none;"></div>
+            <div class="menu-option ovr-merge-only" data-action="ovr-merge" style="display: none;"></div>
             <div class="menu-option ovr-auto-only" data-action="ovr-auto" style="display: none;"></div>
             <div class="menu-divider hw-clear-only" style="display: none;"></div>
             <div class="menu-option hw-clear-only" data-action="hw-clear" style="display: none;"></div>
@@ -3155,7 +3159,7 @@
                     <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+click a screen</td><td>Toggle it in or out of the selection</td></tr>
                     <tr><td class="sc-key">Drag in empty space</td><td>Marquee-select screens; hold <span data-sc-mod>Ctrl</span> to toggle the caught ones</td></tr>
                     <tr><td class="sc-key">Click &amp; drag a screen-name label</td><td>Move the current screen's label in that view</td></tr>
-                    <tr><td class="sc-key">Shift+drag</td><td>In Cabinet ID, Data and Power: move the screen-name label, not the screen</td></tr>
+                    <tr><td class="sc-key">Shift+drag</td><td>In Cabinet ID, Data and Power: move the screen-name label, not the screen (in Data, a Shift+drag that starts on a run picks ports instead)</td></tr>
                     <tr><td class="sc-key">Right-click</td><td>The menu for what is under the cursor: a screen, a run, a chip, a row</td></tr>
                     <tr><td class="sc-key">Enter / Esc in a rename field</td><td>Commit / revert the name</td></tr>
                     <tr><td class="sc-key">Esc</td><td>Close a menu, a popover or a prompt</td></tr>
@@ -3196,6 +3200,9 @@
                     <tr><td class="sc-key">Esc</td><td>End the redraw (the drawing stays) or drop the cabinet selection</td></tr>
                     <tr><td class="sc-key">Tab / Shift+Tab, ] / [</td><td>Next / previous port in custom mode</td></tr>
                     <tr><td class="sc-key">Right-click a run</td><td>Redraw port N, Port N back to auto, Clear port N</td></tr>
+                    <tr><td class="sc-key">Shift+click a run</td><td>Pick that port (Shift+click again to drop it)</td></tr>
+                    <tr><td class="sc-key">Shift+drag a box from a run</td><td>Pick every port the box touches</td></tr>
+                    <tr><td class="sc-key">Right-click the picked ports</td><td>Redraw ports N-M as one: draw one new port, Enter keeps it, Esc puts the ports back</td></tr>
                     <tr><td class="sc-key">Drag a port, card, box or processor onto a screen</td><td>Assign it: a port lands on a run, a card or box fills ports in order</td></tr>
                     <tr><td class="sc-key">Drag an assigned port back onto the tray</td><td>Release it</td></tr>
                     <tr><td class="sc-key">Right-click a port chip, card or box header</td><td>Clear it</td></tr>

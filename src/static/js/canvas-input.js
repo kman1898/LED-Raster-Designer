@@ -33,6 +33,14 @@ Object.assign(CanvasRenderer.prototype, {
             window.app._sweepSelection = null;
             this.render();
         }
+        // The data ports picked with Shift go the same way on a plain
+        // press; Shift adds to them, and a right press is what deals them.
+        this._portPickPending = null;
+        if (e.button === 0 && !e.altKey && !e.shiftKey && window.app
+                && window.app._portPicks) {
+            window.app._portPicks = null;
+            this.render();
+        }
 
         // v0.8.7.7: plain-click directly on a screen-name label starts a
         // screen-name drag (no modifier needed). This is the universal
@@ -240,6 +248,26 @@ Object.assign(CanvasRenderer.prototype, {
             return;
         }
         
+        // Data view: Shift+press on a run PICKS ports for "Redraw ports ...
+        // as one" (the owner, 2026-11-02). Released inside the click
+        // threshold it toggles that run; dragged past it, it is a box, and
+        // every port of that run's screen the box touches is picked
+        // (app-merge-runs.js). A Shift+press off every run - empty canvas,
+        // or the screen-name label itself - is still the label drag below.
+        if (e.button === 0 && e.shiftKey && !e.altKey && !this.spacePressed
+                && this.viewMode === 'data-flow' && window.app
+                && typeof window.app.runAtPoint === 'function'
+                && !this._pressOnScreenName(worldX, worldY)) {
+            const run = window.app.runAtPoint(worldX, worldY);
+            if (run && run.kind === 'data') {
+                this._portPickPending = {
+                    worldX, worldY, rect: null, preview: null,
+                    run: { layerId: run.layer.id, num: run.num },
+                };
+                return;
+            }
+        }
+
         if (e.button === 0 && e.shiftKey) {
             // Let shift+drag behavior handle screen name move on cabinet-id /
             // data-flow / power. On pixel-map and show-look, fall through so
@@ -728,6 +756,23 @@ Object.assign(CanvasRenderer.prototype, {
             return;
         }
 
+        // An armed Shift+press on a data run: past the click threshold it
+        // is the pick box, and the ports it touches light as it grows.
+        if (this._portPickPending) {
+            const p = this._portPickPending;
+            if (!p.rect) {
+                if (!this._pressPastClick(e)) return;
+                p.rect = { x1: p.worldX, y1: p.worldY, x2: worldX, y2: worldY };
+            }
+            p.rect.x2 = worldX;
+            p.rect.y2 = worldY;
+            if (window.app && typeof window.app.portsInWorldRect === 'function') {
+                p.preview = window.app.portsInWorldRect(p.run.layerId, p.rect);
+            }
+            this.render();
+            return;
+        }
+
         // An armed Alt+press in Power: inside the 4px threshold it is still
         // a click-to-be; past it, the press becomes the SWEEP and collects
         // the contiguous run range between the anchor and the cursor.
@@ -1064,6 +1109,27 @@ Object.assign(CanvasRenderer.prototype, {
             const upX = this._unmirrorWorldX(((e.clientX - r.left) - this.panX) / this.zoom, upY);
             const rect = this.isSelectingLayers ? this.layerSelectionRect : this.selectionRect;
             if (rect) { rect.x2 = upX; rect.y2 = upY; }
+        }
+
+        // The armed Shift+press on a data run resolves here: a click toggles
+        // the run's pick, a box picks every port it touches.
+        if (this._portPickPending) {
+            const p = this._portPickPending;
+            this._portPickPending = null;
+            if (!p.rect && !pressWasClick && e && typeof e.clientX === 'number') {
+                p.rect = { x1: p.worldX, y1: p.worldY, x2: p.worldX, y2: p.worldY };
+            }
+            if (p.rect && e && typeof e.clientX === 'number') {
+                const r = this.canvas.getBoundingClientRect();
+                p.rect.y2 = ((e.clientY - r.top) - this.panY) / this.zoom;
+                p.rect.x2 = this._unmirrorWorldX(((e.clientX - r.left) - this.panX) / this.zoom, p.rect.y2);
+            }
+            if (window.app) {
+                if (p.rect) window.app.pickPortsInRect(p.run, p.rect);
+                else window.app.togglePortPick(p.run);
+            }
+            this.render();
+            return;
         }
 
         // The armed Alt+press resolves here: a release inside the 4px
@@ -1849,6 +1915,27 @@ Object.assign(CanvasRenderer.prototype, {
             return;
         }
 
+        // Several ports being redrawn as one (app-merge-runs.js): Esc puts
+        // every port back as it was, Enter keeps the drawing. Ahead of the
+        // single redraw's Esc below, which keeps the drawing instead.
+        if (!isTyping && window.app && window.app._mergeRedraw
+                && !e.altKey && !e.metaKey && !e.ctrlKey
+                && (e.code === 'Escape' || e.code === 'Enter' || e.code === 'NumpadEnter')) {
+            e.preventDefault();
+            if (e.code === 'Escape') {
+                window.app.cancelMergeRedraw(`Ports ${window.app._portNumbersText(window.app._mergeRedraw.picks)} are back as they were.`);
+            } else {
+                window.app.finishMergeRedraw();
+            }
+            return;
+        }
+        // Esc drops the picked data ports.
+        if (e.code === 'Escape' && !isTyping && window.app && window.app._portPicks) {
+            e.preventDefault();
+            window.app.clearPortPicks();
+            return;
+        }
+
         // Esc closes an open per-run override edit (the override and its path
         // stay - only the editing session ends). Checked ahead of everything
         // else so a stray Esc cannot fall through to some other consumer while
@@ -2094,6 +2181,12 @@ Object.assign(CanvasRenderer.prototype, {
     // those moves unpersisted with no undo snapshot.
     _releaseTransientInput() {
         this.spacePressed = false;
+        // A Shift+press picking data ports whose release went elsewhere
+        // picks nothing.
+        if (this._portPickPending) {
+            this._portPickPending = null;
+            this.render();
+        }
         // The Alt keyup goes with the focus too, so the run highlight would
         // otherwise stay lit until the next mouse move.
         if (window.app && window.app._overrideHover
@@ -2118,6 +2211,16 @@ Object.assign(CanvasRenderer.prototype, {
             });
         }
         this.canvas.style.cursor = 'default';
+    },
+
+    // Is this point on the current screen's name label in this view? The
+    // label is grabbed by a plain press and by Shift+press alike.
+    _pressOnScreenName(worldX, worldY) {
+        const layer = window.app && window.app.currentLayer;
+        const r = layer && layer._screenNameHitRect;
+        return !!(r && r.viewMode === this.viewMode
+            && worldX >= r.x1 && worldX <= r.x2
+            && worldY >= r.y1 && worldY <= r.y2);
     },
 
     // Has the press moved past the click threshold? 4 screen pixels from
