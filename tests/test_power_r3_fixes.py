@@ -253,3 +253,58 @@ def test_a_cleared_circuit_drawn_again_takes_its_own_tail_back(page):
     got = _labels(pg, 'W1')
     assert got[:-1] == want, got
     assert not got[-1][1].startswith('SR'), got
+
+
+# ── An L6-20 breakout plugs into a line-to-line multi ─────────────────────
+
+def _cab_point(pg, name, row, col):
+    return pg.evaluate("""([n, r, c]) => {
+        const R = window.canvasRenderer, L = window.__pu.layer(n);
+        const cv = R.canvas.getBoundingClientRect();
+        return [cv.x + R.panX + (L.offset_x + (c + 0.5) * L.cabinet_width) * R.zoom,
+                cv.y + R.panY + (L.offset_y + (r + 0.5) * L.cabinet_height) * R.zoom];
+    }""", [name, row, col])
+
+
+def _menu_add_from(pg, name, distro_label):
+    """Right-click a cabinet of `name`, Add … from…, pick `distro_label`."""
+    x, y = _cab_point(pg, name, 0, 0)
+    pg.mouse.click(x, y, button='right')
+    item = pg.locator('.context-menu .menu-option:visible').filter(has_text='from…').first
+    item.wait_for()
+    label = item.inner_text().strip()
+    item.hover()
+    pick = pg.locator('.context-menu .menu-option:visible').filter(has_text=distro_label).last
+    pick.wait_for()
+    pick.click()
+    _settle(pg)
+    return label
+
+
+def test_an_l6_20_screen_plugs_into_a_line_to_line_multi(page):
+    """A 208V screen on Multi → L6-20: its breakout is a six-circuit multi
+    box whose outlets are line-to-line, so the Socapex 208V rows of a
+    face distro and a Multi 208 feed it like TRUE1. Every drop used to
+    be refused, and the screen had no Add … from… item at all."""
+    pg = page
+    _open(pg, [{'powerBreakoutType': 'soca-l620', 'powerPanelInput': 'true1'},
+               {'powerBreakoutType': 'soca-l620', 'powerPanelInput': 'powercon'}])
+    pg.evaluate("() => window.canvasRenderer.fitToView()")
+    gates = pg.evaluate("""() => {
+        const app = window.app;
+        return ['W1', 'W2'].map(n => { const l = window.__pu.layer(n);
+            return app._distroDropRefusal({ distroId: 'd1' }, l, app.getSocaPlan(l)[0]); });
+    }""")
+    assert gates == [None, None], gates
+    assert _menu_add_from(pg, 'W1', 'PD').startswith('Add ')
+    assert _menu_add_from(pg, 'W2', 'SR') == 'Add Multi 208 from…'
+    got = {n: [(s['distro'], s['circuits']) for s in _socas(pg, n)] for n in ('W1', 'W2')}
+    assert got == {'W1': [('d1', [1, 2, 3, 4, 5])], 'W2': [('d2', [1, 2, 3, 4, 5])]}, got
+    srv = _wait_server(pg, lambda p: (_srv_layer('W2', p).get('powerSocaDistro') or {}) == {'1': 'd2'}
+                       and (_srv_layer('W1', p).get('powerSocaDistro') or {}) == {'1': 'd1'})
+    assert _srv_layer('W1', srv)['powerBreakoutType'] == 'soca-l620'
+    # the pull list carries the L6-20 breakout box and its cables
+    rows = pg.evaluate("() => JSON.stringify(window.app.buildPullList())")
+    assert 'L6-20 Breakout' in rows and 'L6-20 → TRUE1 cable' in rows \
+        and 'L6-20 → powerCON cable' in rows
+

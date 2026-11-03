@@ -1633,7 +1633,7 @@ class _DockDrag {
         // that type passes the same gate a single-output drag does, with
         // the same refusal on the strip. All or nothing: one multi the
         // distro would not feed refuses the whole drop and nothing
-        // mutates. A screen whose breakout no output type names (L6-20)
+        // mutates. A screen whose breakout no output type names
         // is refused naming the breakout, as its chip drops are; a distro
         // whose explicit OUTPUTS list leaves the type out is refused the
         // way the right-click submenu greys it.
