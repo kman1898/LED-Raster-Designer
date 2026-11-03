@@ -104,9 +104,10 @@ def cut(pages, kinds=None):
 
 def test_a_distro_fed_thru_counts_on_the_service_not_the_pass_through(page):
     """SL on HOUSE with five full multis (165 A a leg); SR fed thru SL with
-    five more, never put on HOUSE. HOUSE reads 330 A a leg and ratings of
-    800 A; SL's own legs stay 165 A. The card's chip says SR is thru SL;
-    the binder's Service sheet lists it."""
+    five more, never put on HOUSE. HOUSE reads 330 A a leg; its ratings
+    are SL's 400 A alone - SR draws thru SL's rating, not beside it (1.6.0
+    beta.4 QA: "800 A on 400 A"). SL's own legs stay 165 A. The card's chip
+    says SR is thru SL; the binder's Service sheet lists it."""
     pg, errors = page
     setup(pg, distros=[dict(US('d1', 'SL'), serviceId='s1'), thru('d2', 'SR', 'd1')],
           services=[SVC(rating=400)],
@@ -118,7 +119,7 @@ def test_a_distro_fed_thru_counts_on_the_service_not_the_pass_through(page):
     s = out['services']['s1']
     assert s['distros'] == ['d1', 'd2'], s
     assert s['legs'] == [330, 330, 330] and s['over'], s
-    assert s['ratingSum'] == 800 and s['ratingsOver'], s
+    assert s['ratingSum'] == 400 and not s['ratingsOver'], s
     assert s['chips'] == ['SL 400 A', 'SR 400 A thru SL'], s['chips']
     eff = pg.evaluate("() => window.app.getDistros().map(d => "
                       "(window.app.distroEffectiveService(d) || {}).id || null)")
@@ -128,9 +129,9 @@ def test_a_distro_fed_thru_counts_on_the_service_not_the_pass_through(page):
     sheet = next(p for p in b['pages'] if p['kind'] == 'service')
     texts = [t['t'] for t in sheet['texts']]
     assert 'SR · thru SL' in texts and 'SL' in texts, texts
-    assert '2 DISTROS' in texts and '800 A' in texts, texts
+    assert '2 DISTROS' in texts and '800 A' not in texts, texts
     svc = next(c for c in b['caught'] if c['title'] == 'Service')
-    assert dict(svc['pairs'])['Distros'] == 'ratings 800 A on 400 A · past the service', svc
+    assert dict(svc['pairs'])['Distros'] == 'ratings 400 A on 400 A', svc
     # a thru distro of another system never counts
     setup(pg, distros=[dict(US('d1', 'SL'), serviceId='s1'), thru('d2', 'GEN', 'd1', 100, '120/240')],
           services=[SVC(rating=400)])

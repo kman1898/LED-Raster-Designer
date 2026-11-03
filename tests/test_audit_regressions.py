@@ -586,12 +586,13 @@ def test_group_and_ungroup_are_one_undo_step_each(page):
     # the fixtures genuinely disagree on it: __fresh writes 208 V, while the
     # preset-added screen takes the 110 V default. That is a real conflict and
     # the dialog is right to open on it - but this test is about the undo step,
-    # so normalise it here alongside the others.
+    # so normalise it here alongside the others. powerAmperage joined them
+    # too (1.6.0-beta.4 QA: one wall is cut on one breaker size).
     page.evaluate("""() => {
         window.app.project.layers.forEach(l => {
             if ((l.type || 'screen') !== 'screen') return;
             l.processorType = 'brompton'; l.bitDepth = 8; l.frameRate = 60;
-            l.lowLatency = false; l.powerVoltage = 208;
+            l.lowLatency = false; l.powerVoltage = 208; l.powerAmperage = 20;
             l.canvas_id = window.app.project.active_canvas_id;
         });
         window.app.updateLayers(window.app.project.layers);

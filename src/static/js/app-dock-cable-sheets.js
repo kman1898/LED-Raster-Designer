@@ -146,7 +146,7 @@ class _DockCableSheets {
                 const ft = document.createElement('input');
                 ft.type = 'text';
                 ft.inputMode = 'decimal';
-                ft.placeholder = '—';
+                ft.placeholder = '';
                 ft.className = 'hw-dock-cable-ft';
                 ft.value = stored && Number(stored.ft) > 0
                     ? String(stored.ft) : '';
@@ -172,7 +172,10 @@ class _DockCableSheets {
                 if (direct && direct.kind === 'direct') follows = this.directCableType(follows, layer);
                 const blank = document.createElement('option');
                 blank.value = '';
-                blank.textContent = `follows ${typeName} (${follows})`;
+                // The plug first: the select is narrow, and "follows Multi
+                // 208 (TRUE1)" cut the TRUE1 off (QA 1.6.0-beta.4).
+                blank.textContent = follows
+                    ? `${follows} (follows ${typeName})` : `follows ${typeName}`;
                 sel.appendChild(blank);
                 connectors.forEach(c => {
                     const o = document.createElement('option');
@@ -512,7 +515,7 @@ class _DockCableSheets {
             const ft = document.createElement('input');
             ft.type = 'text';
             ft.inputMode = 'decimal';
-            ft.placeholder = '—';
+            ft.placeholder = '';
             ft.className = 'hw-dock-cable-ft';
             ft.value = Number(value) > 0 ? String(value) : '';
             ft.dataset.lrdField = key;
@@ -1465,7 +1468,7 @@ class _DockCableSheets {
         const ft = field(this.cableUnitAbbr(), input('text', `fiber-cable-ft-${cable.id}`,
             Number(cable.ft) > 0 ? cable.ft : '', 'hw-dock-cable-ft'));
         ft.inputMode = 'decimal';
-        ft.placeholder = '—';
+        ft.placeholder = '';
         ft.addEventListener('change', () => {
             // read the way every typed length is (readTypedLength)
             const read = this.readTypedLength(ft.value.trim(), 'fiber');

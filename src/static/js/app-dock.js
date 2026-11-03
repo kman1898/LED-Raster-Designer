@@ -2923,7 +2923,7 @@ class _HardwareDock {
             top.appendChild(corner);
         }
         if (face) {
-            face.title = `${this.distroLabel(d)} ${box.number}: ${type.name}, one circuit. `
+            face.title = `${this.distroBoxName(d, box.number)}: ${type.name}, one circuit. `
                 + face.title;
         }
         const editor = tile.querySelector('.lrd-tile-body');
@@ -2931,7 +2931,7 @@ class _HardwareDock {
             holders.forEach(h => {
                 const l = layerOf(h);
                 if (!l) return;
-                const tip = `The cable from ${this.distroLabel(d)} ${box.number} to ${l.name}, in `
+                const tip = `The cable from ${this.distroBoxName(d, box.number)} to ${l.name}, in `
                     + `${this.cableUnitWord()}. It goes on the pull sheet as `
                     + `${this.directCableType(type.cable, l)}.`
                     + this.cableStockHint((l.powerSocaLengths || {})[h.soca], 'direct');
@@ -3200,7 +3200,7 @@ class _HardwareDock {
         if (overflow || tailClash) sec.classList.add('hw-dock-multi-clash');
         // The box's problems are strip questions too - the same states the
         // chips wear, said where a glance lands first.
-        const boxName = `${this.distroLabel(d)} ${n}`;
+        const boxName = this.distroBoxName(d, n);
         // Said in the distro checks' words (_boxOverflowText), naming a
         // hidden screen that still holds the box (round 7), and once: the
         // distro's checks, read first, already say it for a box a showing
@@ -3301,13 +3301,13 @@ class _HardwareDock {
         // its payload: its drop is the join/move it always was.
         const payload = {
             type: 'slot', distroId: d.id, number: n,
-            title: `${this.distroLabel(d)} ${n}`,
+            title: this.distroBoxName(d, n),
         };
         if (!members.length) payload.output = boxType.id;
         const head = this._dockBuildHandle(
             payload,
             `slot-${d.id}-${n}`,
-            memberRecs.length ? '' : `${this.distroLabel(d)} ${n}`,
+            memberRecs.length ? '' : this.distroBoxName(d, n),
             memberRecs.length
                 ? `${legs} circuit${legs === 1 ? '' : 's'} · `
                     + `${boxAmps.toFixed(1)} A`
@@ -3366,7 +3366,7 @@ class _HardwareDock {
             const nameField = this._dockHeadName({
                 value: (first.layer.powerSocaNames || {})[first.m.soca],
                 placeholder: (first.s && first.s.name)
-                    || `${this.distroLabel(d)} ${n}`,
+                    || this.distroBoxName(d, n),
                 key: `power-soca-name-${first.layer.id}-${first.m.soca}`,
                 title: 'Name this multi by hand, and all screens sharing it '
                     + 'follow. Left blank it follows its distro '
@@ -3463,7 +3463,7 @@ class _HardwareDock {
         const name = document.createElement('b');
         name.textContent = t.name;
         el.appendChild(name);
-        const boxName = `${this.distroLabel(d)} ${n}`;
+        const boxName = this.distroBoxName(d, n);
         if (editable) {
             const offered = this.distroOutputs(d);
             const list = offered.length ? offered : this.getDistroOutputTypes();
@@ -3603,7 +3603,7 @@ class _HardwareDock {
 
         this._dockWireDraggable(face, {
             type: 'tail', distroId: d.id, number: n, tail: t,
-            title: `${this.distroLabel(d)} ${n} circuit ${t}`,
+            title: `${this.distroBoxName(d, n)} circuit ${t}`,
         }, `tail-${d.id}-${n}-${t}`);
         return tile;
     }
@@ -4248,6 +4248,9 @@ class _HardwareDock {
             this._restateNaming();
             return;
         }
+        // Another part of this multi still on the box keeps the home run
+        // (_passHomeRunOn), read before the box is let go.
+        this._passHomeRunOn(layer, idx);
         for (const field of ['powerSocaNumber', 'powerSocaDistro',
                              'powerSocaPhasePos', 'powerSocaPhaseOffset']) {
             if (layer[field]) delete layer[field][idx];
@@ -4269,6 +4272,32 @@ class _HardwareDock {
         this._dropPullEditsGoneWith(pullBefore);
         this.updateLayers([layer], true, 'Unplug Circuit');
         this._restateNaming();
+    }
+
+    // The home run belongs to the BOX, not to the part of the multi that
+    // happens to carry it. Unplug circuit leaves a multi in parts on one
+    // box (1-2 and 4-5 with 3 taken off) and the home run rides the first
+    // part alone - one cable, counted once (_socaReleaseCircuit). When
+    // that part leaves the box while another part of this screen's multi
+    // stays on it, the length moves to the part that stays, so it is
+    // forgotten only when nothing of the multi is left on the box (the
+    // feed-lengths rule, 2026-10-17). A part that already has a length
+    // keeps its own. No history entry: the caller's carries it.
+    _passHomeRunOn(layer, socaIndex) {
+        const idx = Number(socaIndex);
+        const len = ((layer && layer.powerSocaLengths) || {})[idx];
+        if (len === undefined || len === null || len === '') return false;
+        const nm = this._powerNaming(layer);
+        const rec = nm.socas.get(idx);
+        if (!rec || !rec.distroId) return false;
+        const heir = [...nm.socas.values()].find(r => r.index !== idx
+            && r.distroId === rec.distroId
+            && Number(r.number) === Number(rec.number));
+        if (!heir) return false;
+        const cur = layer.powerSocaLengths[heir.index];
+        if (cur !== undefined && cur !== null && cur !== '') return false;
+        layer.powerSocaLengths[heir.index] = len;
+        return true;
     }
 
     // One resolved card (with its processor, for the routes that key on

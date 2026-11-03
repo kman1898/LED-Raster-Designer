@@ -7463,7 +7463,9 @@ class _Binder {
         // close up.
         if (!printed.length) return null;
         if (printed.length !== load.distros.length) {
-            const ratingSum = printed.reduce((t, r) => t + (Number(r.distro.ratingA) || 0), 0);
+            // the ratings ON the service: a distro thru another is not (_serviceLoad)
+            const ratingSum = printed.filter(r => !r.thru)
+                .reduce((t, r) => t + (Number(r.distro.ratingA) || 0), 0);
             load = { ...load, distros: printed, ratingSum,
                      ratingsOver: load.ratingA > 0 && ratingSum > load.ratingA + 1e-9 };
         }

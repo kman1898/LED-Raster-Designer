@@ -149,14 +149,41 @@ class _DockMenus {
                     + 'unplug.',
             };
         }
+        // The multi is the BOX, (distro, number): every part on it goes,
+        // as the tray's own Unplug on this box does (the slot chip). An
+        // Unplug circuit leaves a multi in parts on one box - 1-2 and 4-5
+        // with 3 taken off - and unplugging only the clicked part left the
+        // rest plugged while the home run, carried by the first part, went
+        // with it (QA 1.6.0-beta.4).
+        const members = this._distroMultiNumbers(rec.distroId)
+            .get(rec.number) || [];
+        const jobs = members.length
+            ? members.map(m => ({ layerId: m.layerId, soca: m.soca }))
+            : [{ layerId: owner.id, soca: rec.index }];
+        // A DIRECT output is one circuit on its own connector, not a
+        // multi: the item names the connector it is (a TRUE1, a
+        // stage pin), as the tray's chip for it does.
+        if (typeof this._isDirectBox === 'function'
+                && this._isDirectBox(rec.distroId, rec.number)) {
+            const d = this.getDistros().find(x => x.id === rec.distroId);
+            const box = this.faceBox(d, rec.number);
+            const plug = box ? box.conn.short : this.distroBoxType(d, rec.number).type.name;
+            return {
+                label: `Unplug ${plug} ${name}`,
+                title: `Unplug this circuit from its ${plug} output. `
+                    + 'Its stored position, home-run length and label '
+                    + 'override are forgotten. One undo puts everything '
+                    + 'back.',
+                run: () => this._clearMultis(jobs, 'Unplug Multi'),
+            };
+        }
         return {
             label: `Unplug multi ${name}`,
-            title: 'Unplug this multi. Its distro, number, stored '
-                + 'positions, typed name, home-run length and label '
-                + 'overrides are all forgotten. One undo puts everything '
-                + 'back.',
-            run: () => this._clearMultis(
-                [{ layerId: owner.id, soca: rec.index }], 'Unplug Multi'),
+            title: 'Unplug this multi, every circuit on it. Its distro, '
+                + 'number, stored positions, typed name, home-run length '
+                + 'and label overrides are all forgotten. One undo puts '
+                + 'everything back.',
+            run: () => this._clearMultis(jobs, 'Unplug Multi'),
         };
     }
 

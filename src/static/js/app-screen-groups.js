@@ -58,9 +58,8 @@ class _ScreenGroups {
     // EDIT; without an entry here nothing checks it at creation.
     //
     // app.py's GROUP_SHARED_SETTINGS is the server's copy of this list. It is
-    // only read by validate_group_settings, which no route calls today, so the
-    // two being out of step cannot contradict a decision - but they should be
-    // brought back into line the next time that file is touched.
+    // only read by validate_group_settings, which no route calls today; it is
+    // kept in step with this one, the same normalisation included.
     // powerVoltage is here because a GROUP is one wall, and one wall runs on
     // one supply. Two sections of the same wall on 110 V and 208 V is a wiring
     // error, not a configuration - so it is resolved at the point of grouping
@@ -68,8 +67,16 @@ class _ScreenGroups {
     // way to answer it. (A PROJECT may legitimately span voltages: two walls,
     // two supplies. That case is handled the other way round - getPowerCounts
     // refuses to blend them and reports each voltage separately.)
+    // powerAmperage joins it for the same reason (QA 1.6.0-beta.4): the
+    // circuits of one wall are cut on one breaker size, and a 20 A member
+    // grouped with a 15 A one used to group without a word, each member
+    // packing its own circuits while Power Settings showed whichever
+    // member was current. powerAmperageCustom is not here: it is only the
+    // cache of the last typed figure, and the figure a screen RUNS on is
+    // powerAmperage (_writeGroupSettings keeps the cache in step).
     get GROUP_SHARED_SETTINGS() {
-        return ['processorType', 'bitDepth', 'frameRate', 'lowLatency', 'powerVoltage'];
+        return ['processorType', 'bitDepth', 'frameRate', 'lowLatency', 'powerVoltage',
+                'powerAmperage'];
     }
 
     // Fields a Screen Info edit propagates to every member, because they
@@ -1342,6 +1349,12 @@ class _ScreenGroups {
             const v = parseFloat(layer.powerVoltage);
             return Number.isFinite(v) && v > 0 ? v : 110;
         }
+        // The same for the breaker: absent is the 15 A every new screen is
+        // made with (create_layer), and '20' from a file is 20.
+        if (field === 'powerAmperage') {
+            const a = parseFloat(layer.powerAmperage);
+            return Number.isFinite(a) && a > 0 ? a : 15;
+        }
         return layer[field] === undefined ? null : layer[field];
     }
 
@@ -1389,6 +1402,15 @@ class _ScreenGroups {
                     this.setScreenVoltage(layer, chosen[field]);
                     return;
                 }
+                // A breaker no stock option names is a Custom one, and
+                // the custom box shows it (loadLayerToInputs).
+                if (field === 'powerAmperage') {
+                    layer.powerAmperage = chosen[field];
+                    if (![15, 16, 20].includes(Number(chosen[field]))) {
+                        layer.powerAmperageCustom = chosen[field];
+                    }
+                    return;
+                }
                 layer[field] = chosen[field];
             });
         });
@@ -1411,6 +1433,7 @@ class _ScreenGroups {
             frameRate: 'Frame Rate',
             lowLatency: 'Low Latency',
             powerVoltage: 'Voltage',
+            powerAmperage: 'Amperage',
         }[field] || field;
     }
 
@@ -1426,6 +1449,7 @@ class _ScreenGroups {
             bitDepth: 'bit-depth',
             frameRate: 'frame-rate',
             powerVoltage: 'power-voltage-select',
+            powerAmperage: 'power-amperage-select',
         }[field];
         const select = selectId ? document.getElementById(selectId) : null;
         if (select) {
@@ -1437,6 +1461,7 @@ class _ScreenGroups {
         // power-voltage-custom - so name the unit rather than showing a bare
         // number next to "Voltage".
         if (field === 'powerVoltage') return `${value} V`;
+        if (field === 'powerAmperage') return `${value} A`;
         return String(value);
     }
 

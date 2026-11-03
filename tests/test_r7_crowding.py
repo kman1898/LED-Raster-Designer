@@ -125,7 +125,7 @@ def test_a_visible_screen_pinned_onto_a_hidden_screens_socapex_is_flagged_everyw
     pg.wait_for_function("() => window.app._layerSavesSettled()")
     out = ev(pg, SURFACES_JS, 4)
     assert out['planB'] == [[4, [7, 8, 9]]], out['planB']
-    said = 'PD 4 has more circuits than the six a Socapex 208V holds. WALL A is hidden and still holds it.'
+    said = 'PD4 has more circuits than the six a Socapex 208V holds. WALL A is hidden and still holds it.'
     assert said in out['checks'], out['checks']
     assert out['strip'].count(said) == 1, out['strip']
     assert out['overfull'] == {'circuits': 9, 'size': 6}, out
@@ -142,7 +142,7 @@ def test_two_visible_screens_past_a_socapex_are_flagged_everywhere(seeded):
     pin = {'powerSocaDistro': {'1': 'd1'}, 'powerSocaNumber': {'1': 4}}
     setup(pg, distros=[FACE], walls={'a': pin, 'b': dict(pin, powerSocaSplits=[3])})
     out = ev(pg, SURFACES_JS, 4)
-    said = 'PD 4 has more circuits than the six a Socapex 208V holds.'
+    said = 'PD4 has more circuits than the six a Socapex 208V holds.'
     assert said in out['checks'], out['checks']
     assert out['strip'].count(said) == 1, out['strip']
     assert out['overfull'] == {'circuits': 9, 'size': 6}, out

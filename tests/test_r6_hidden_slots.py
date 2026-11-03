@@ -79,7 +79,7 @@ def test_a_visible_copy_pinned_with_a_hidden_screen_never_takes_its_positions(se
     assert not set(a['pos']) & set(b['pos']), (a, b)
     strip = ev(pg, "app.renderHardwareDock(); return (app._dockPowerWarnings || []).map(w => w.text);")
     # round 7: the line names the hidden screen that still holds the box
-    said = 'PD 4 has more circuits than the six a Socapex 208V holds. WALL A is hidden and still holds it.'
+    said = 'PD4 has more circuits than the six a Socapex 208V holds. WALL A is hidden and still holds it.'
     assert strip.count(said) == 1, strip
     assert not errors, errors
 

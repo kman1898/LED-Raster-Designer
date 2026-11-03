@@ -537,7 +537,7 @@ def test_a_direct_row_drop_takes_one_circuit_pinned(seeded):
         return { plan: plan.text, ok: plan.ok,
                  plan2: app.getSocaPlan(B).map(s => [s.legs.map(g => g.circuit), s.distroId, s.number, s.name]),
                  labels: app.screenCircuits(B).map(c => app.getPowerCircuitLabel(B, c.num)) };""")
-    assert out['ok'] and out['plan'].startswith('SL 1 → circuit 1'), out
+    assert out['ok'] and out['plan'].startswith('SL1 → circuit 1'), out
     assert out['plan2'][0] == [[1], 'd1', 1, 'SL1'], out
     assert out['plan2'][1] == [[2], 'd1', 2, 'SL2'], out
     assert out['labels'][:2] == ['SL1', 'SL2'], out

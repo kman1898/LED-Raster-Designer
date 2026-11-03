@@ -604,7 +604,7 @@ def test_a_pin_onto_a_direct_output_is_refused(seeded):
         return { touched: touched.length, pin: A.powerSocaNumber[1], same: app.historyIndex === n,
                  status };""")
     assert out['touched'] == 0 and out['pin'] == 4 and out['same'], out
-    assert out['status'] == ("WALL A's 6-circuit multi cannot go on PD 2: a TRUE1 carries "
+    assert out['status'] == ("WALL A's 6-circuit multi cannot go on PD2: a TRUE1 carries "
                              'one circuit. Use a multi output.'), out
     # one circuit on TRUE1 output 3 is fine; a second one-circuit multi
     # onto it is refused
@@ -620,7 +620,7 @@ def test_a_pin_onto_a_direct_output_is_refused(seeded):
         return { first, touched: t.length, pin: B.powerSocaNumber[plan[2].soca] ?? null,
                  status: document.getElementById('status-message').textContent };""")
     assert out['first'] == 1 and out['touched'] == 0 and out['pin'] is None, out
-    assert out['status'] == 'PD 3 already carries its one circuit, and a TRUE1 takes no more.', out
+    assert out['status'] == 'PD3 already carries its one circuit, and a TRUE1 takes no more.', out
     # carried pin: a multi pinned to 2 on another distro, moved onto this one
     out = ev(pg, """
         app.project.distros.push({ id: 'd2', name: 'XX', ratingA: 200, system: '120/208' });

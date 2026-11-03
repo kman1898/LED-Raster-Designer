@@ -422,7 +422,9 @@ class _Services {
     // distro ("SR, cam thru"), the service's label, or null for the house.
     feederSourceText(d) {
         const f = this.distroFeeder(d);
-        if (f.from) return `${this.distroLabel(f.from)}, ${this.feederTypeOf(d).cam ? 'cam thru' : 'daisy chain'}`;
+        // "thru", the word the tray, the ⚙ and the service card use for a
+        // distro powered from another; "daisy chain" said the same thing.
+        if (f.from) return `${this.distroLabel(f.from)}, ${this.feederTypeOf(d).cam ? 'cam thru' : 'thru'}`;
         return f.service ? this.serviceLabel(f.service) : null;
     }
 
@@ -580,7 +582,8 @@ class _Services {
     // One record per service, off the distros' own roll-up (getDistroLoads)
     // - never a second walk of the circuits:
     //   { id, name, label, ratingA, system, limitA, limitPct, main100,
-    //     distros: [{ distro, load }], ratingSum, ratingsOver,
+    //     distros: [{ distro, thru, load }], ratingSum (the distros
+    //     plugged into it, not those powered thru them), ratingsOver,
     //     watts, amps, legs, worstLeg, imbalancePct, pct, over }
     // A leg's load is its distros' figures for that leg ADDED, the way the
     // owner reads them off the headers (rulings 3a) - on the safe side of
@@ -635,7 +638,12 @@ class _Services {
             legs.over = past(legs.worstAmps);
             amps = legs.worstAmps;
         }
-        const ratingSum = rows.reduce((t, r) => t + (Number(r.distro.ratingA) || 0), 0);
+        // The ratings on the service are the distros plugged INTO it. A
+        // distro powered thru another draws thru that distro's rating, not
+        // beside it: its load counts on the service above, its rating does
+        // not (QA 1.6.0-beta.4, "800 A on 400 A" for SL with SR thru it).
+        const ratingSum = rows.filter(r => !r.thru)
+            .reduce((t, r) => t + (Number(r.distro.ratingA) || 0), 0);
         return {
             id: s.id, name: s.name || s.id, label: this.serviceLabel(s),
             ratingA: rating, system: s.system || null,
@@ -685,9 +693,9 @@ class _Services {
         if (load.ratingsOver) {
             this._dockPowerWarnings.push({
                 mild: true,
-                text: `${name} service: its distros are rated ${+load.ratingSum.toFixed(1)} A together `
-                    + `(${load.distros.map(r => `${this.distroLabel(r.distro)} ${+(Number(r.distro.ratingA) || 0).toFixed(1)} A`).join(', ')}) `
-                    + `on a ${+load.ratingA.toFixed(1)} A service`,
+                text: `${name} service (${+load.ratingA.toFixed(1)} A): its distros are rated `
+                    + `${+load.ratingSum.toFixed(1)} A together `
+                    + `(${load.distros.filter(r => !r.thru).map(r => `${this.distroLabel(r.distro)} ${+(Number(r.distro.ratingA) || 0).toFixed(1)} A`).join(', ')})`,
             });
         }
     }

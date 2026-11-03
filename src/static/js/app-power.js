@@ -629,6 +629,21 @@ class _Power {
                     + `${wattsPerCircuit.toLocaleString('en-US')} W.`
                 : '';
         }
+        // Screens selected together on different voltages, breakers or
+        // panel watts have no one circuit to describe: the per-circuit
+        // figures read "-", as their boxes do (loadLayerToInputs), rather
+        // than the current screen's as if they were everyone's.
+        const picked = (typeof this.getSelectedLayers === 'function'
+            ? this.getSelectedLayers() : [])
+            .filter(l => l && (l.type || 'screen') === 'screen');
+        const differ = (key, dflt) => picked.length > 1 && picked.some(l =>
+            String(l[key] ?? dflt) !== String(picked[0][key] ?? dflt));
+        if (differ('powerVoltage', 110) || differ('powerAmperage', 15)
+                || differ('panelWatts', 200)) {
+            if (usableEl) { usableEl.textContent = ''; usableEl.title = ''; }
+            if (wattsEl) { wattsEl.textContent = '-'; wattsEl.title = ''; }
+            if (panelsEl) { panelsEl.textContent = '-'; panelsEl.title = ''; }
+        }
         const powerAssignments = this.calculatePowerAssignments(layer);
         // count via the shared authority so a custom-routed screen reports the
         // circuits actually drawn, not what auto routing would have produced
@@ -878,6 +893,30 @@ class _Power {
     // replacement for ceil(count / 6), shared with the canvas info line.
     socaCountFor(layer, count) {
         return this._socaSegments(layer, count).length;
+    }
+
+    // The multis the circuit info line counts for `layers` (a screen, or
+    // a group's members): one per BOX their circuits are plugged into,
+    // and one per part not plugged in yet. An Unplug circuit leaves a
+    // multi in parts on ONE box (1-2 and 4-5 on DISTRO 1-1), and a circuit
+    // on a direct output is on no multi at all; counting segments read
+    // both as multis (QA 1.6.0-beta.4). A box two members share is one
+    // multi. With nothing plugged in it is socaCountFor's figure.
+    infoMultiCount(layers) {
+        const keys = new Set();
+        (Array.isArray(layers) ? layers : [layers]).forEach(layer => {
+            if (!layer || (layer.type || 'screen') !== 'screen') return;
+            for (const rec of this._powerNaming(layer).socas.values()) {
+                if (!rec || !rec.circuits || !rec.circuits.length) continue;
+                if (!rec.distroId) {
+                    keys.add(`${layer.id}#${rec.index}`);
+                } else if (!(typeof this._isDirectBox === 'function'
+                        && this._isDirectBox(rec.distroId, rec.number))) {
+                    keys.add(`${rec.distroId}|${rec.number}`);
+                }
+            }
+        });
+        return keys.size;
     }
 
     // Insert (delta +1) or remove (delta -1) one multi's slot at `at` in
@@ -3080,7 +3119,12 @@ class _Power {
                 this.getPowerBreakoutTypes().forEach(t => {
                     const opt = document.createElement('option');
                     opt.value = t.id;
-                    opt.textContent = t.name;
+                    // The L21-30's "(3 × 208V)" stays in the type's name
+                    // everywhere else; in this select it ran the longest
+                    // option past the sidebar (QA 1.6.0-beta.4), and the
+                    // select only offers it at 208V anyway.
+                    opt.textContent = String(t.id).startsWith('l2130-')
+                        ? t.name.replace(/\s*\(3 × 208V\)/, '') : t.name;
                     sel.appendChild(opt);
                 });
             }
@@ -4645,6 +4689,31 @@ class _Power {
         });
         this._circuitTailCache = null;
         return { touched: [...touched], unplugged };
+    }
+
+    // Clear Circuit on a custom screen: the drawn circuit holding run
+    // `num` comes off the wall the way a trim takes an emptied circuit off
+    // (_removeCircuitsKeepFeeds), so every other circuit keeps its distro,
+    // its multi number and its tail. A multi is read by its circuits'
+    // PLACES, and deleting the path alone moved every later circuit a
+    // place down: the next circuit, unplugged, slid onto the freed slot
+    // and read DISTRO 1-2-1 (QA 1.6.0-beta.4). The circuit's own label
+    // override, cable and share entries go with it, as Unplug circuit
+    // forgets them. `whole` takes a shared circuit (a 2fer, 3fer) with
+    // every leg; otherwise only a circuit of the one run is taken, and a
+    // leg of a share is left to the caller. Unrecorded: the caller's
+    // entry carries it. Returns the layers written, or null when there is
+    // no such drawn circuit here (the caller deletes the path as before).
+    _clearDrawnCircuitKeepFeeds(layer, num, whole = false) {
+        const n = parseInt(num, 10);
+        if (!layer || !Number.isFinite(n) || !this.usesCustomCircuits(layer)) return null;
+        this._circuitTailCache = null;
+        const c = this.screenCircuits(layer)
+            .find(x => (x.runIds || [x.num]).map(Number).includes(n));
+        if (!c) return null;
+        const runs = (c.runIds || [c.num]).map(Number);
+        if (runs.length > 1 && !whole) return null;
+        return this._removeCircuitsKeepFeeds(layer, [{ num: c.num, runs }]).touched;
     }
 
     // Share wall circuits `refs` as ONE circuit through a splitter - the

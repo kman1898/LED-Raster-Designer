@@ -151,6 +151,16 @@ class _Naming {
         return `${base}${sep}${number}`;
     }
 
+    // Box `number` of distro `d` in words: the name a multi on it derives
+    // ("DISTRO 1-1", "SR1"), the name the paper prints for it
+    // (distroBoxLabels). The tray's chips, its refusals and its menus say
+    // a box this way too - never the distro's name and the number with a
+    // space, "DISTRO 1 1" beside a multi reading DISTRO 1-1 (QA
+    // 1.6.0-beta.4).
+    distroBoxName(d, number) {
+        return this._deriveMultiName(this.distroLabel(d), number, null);
+    }
+
     // Old projects keyed the per-multi stores - lengths, tail positions,
     // breaker offsets, distro assignments - by the number the SCREEN's own
     // template produced, so `S3-#` stored its multis under 3, 4, 5. That was

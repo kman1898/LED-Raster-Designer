@@ -785,7 +785,7 @@ class _DockDrag {
             const type = this.faceBoxType(d, faceRow.boxes[0]);
             if (!layer || (layer.type || 'screen') !== 'screen') {
                 return { ok: false, glyph: type.glyph,
-                         message: `${(layer && layer.name) || 'That layer'} `
+                         message: `${(layer && layer.name) || 'That screen'} `
                             + 'draws no power.' };
             }
             const el = this.faceBoxEligible(d, faceRow.boxes[0], layer);
@@ -800,7 +800,7 @@ class _DockDrag {
         }
         if (!layer || (layer.type || 'screen') !== 'screen') {
             return { ok: false, glyph,
-                     message: `${(layer && layer.name) || 'That layer'} `
+                     message: `${(layer && layer.name) || 'That screen'} `
                         + 'draws no power.' };
         }
         // The distro's SYSTEM first (1.5, bug fix 4): a screen whose voltage
@@ -845,7 +845,7 @@ class _DockDrag {
         }
         const nums = direct ? [s.legs[0].circuit] : s.legs.map(g => g.circuit);
         const amps = direct ? (s.legs[0].amps || 0) : s.amps;
-        const boxName = `${this.distroLabel(d)} ${box.number}`;
+        const boxName = this.distroBoxName(d, box.number);
         return {
             ok: true, glyph, face: true, direct,
             socaIndex: (!direct || s.legs.length === 1) ? s.soca : null,
@@ -924,7 +924,7 @@ class _DockDrag {
             .flatMap(s => s.legs)
             .filter(g => nums.includes(g.circuit))
             .reduce((t, g) => t + (g.amps || 0), 0);
-        const boxName = `${this.distroLabel(d)} ${plan.number}`;
+        const boxName = this.distroBoxName(d, plan.number);
         const whole = plan.seg && plan.spanStart === plan.seg.start
             && plan.spanEnd === plan.seg.end;
         return {
@@ -1140,7 +1140,22 @@ class _DockDrag {
                 },
             };
         });
-        return { label: `Add ${type.name} from…`, type: type.id, entries };
+        // The type said the way the tray's chips say it: on a show whose
+        // distros are all faces the box chips read their connector
+        // ("Socapex 208V"), and a header reading "Add Multi 208" beside
+        // them named the same thing twice (QA 1.6.0-beta.4). Where the
+        // face rows that feed this screen agree on one name, that is the
+        // header; otherwise the type's own name.
+        let word = type.name;
+        if (distros.every(d => this.distroFace(d))) {
+            const names = new Set();
+            distros.forEach(d => {
+                const gate = this._plugGate({ distroId: d.id, output: null }, layer);
+                if (gate.ok && gate.type) names.add(gate.type.name);
+            });
+            if (names.size === 1) word = [...names][0];
+        }
+        return { label: `Add ${word} from…`, type: type.id, entries };
     }
 
     // The screen a right-click names, for the outputs submenu: a circuit
@@ -1598,7 +1613,7 @@ class _DockDrag {
         if (!layer) return;
         if (this._lockedRefused(layer)) return;
         if ((layer.type || 'screen') !== 'screen') {
-            this._dockSay(`${layer.name || 'That layer'} draws no power.`);
+            this._dockSay(`${layer.name || 'That screen'} draws no power.`);
             return;
         }
         const plan = this.getSocaPlan(layer);

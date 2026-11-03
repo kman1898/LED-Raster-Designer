@@ -412,7 +412,7 @@ def test_mismatch_dialog_lists_only_the_differing_fields(page):
     # error to resolve here rather than a state to report forever. (A PROJECT
     # may legitimately span voltages - that is reported per voltage instead.)
     assert dom['matching'] == [
-        'Frame Rate: 60 Hz', 'Low Latency: Off', 'Voltage: 110V'], dom
+        'Frame Rate: 60 Hz', 'Low Latency: Off', 'Voltage: 110V', 'Amperage: 15A'], dom
     assert '2 screens' in dom['sublabel'], dom
     assert dom['note'] == 'Cancel leaves the screens ungrouped and unchanged.'
     assert dom['apply'] == 'Apply to Group'

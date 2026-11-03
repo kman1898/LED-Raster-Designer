@@ -1270,7 +1270,34 @@ def _next_duplicate_canvas_name(src_name):
 # The settings every member of a group must agree on. A group is one screen,
 # so a port that crosses a member boundary needs one rule set to be checked
 # against - two members on different processors have no single answer.
-GROUP_SHARED_SETTINGS = ('processorType', 'bitDepth', 'frameRate')
+# The client's copy (app-screen-groups.js GROUP_SHARED_SETTINGS) is the one
+# the grouping dialog reads; this one is kept in step with it, the same
+# normalisation included (_group_setting_value).
+GROUP_SHARED_SETTINGS = ('processorType', 'bitDepth', 'frameRate',
+                         'lowLatency', 'powerVoltage', 'powerAmperage')
+
+
+def _group_setting_value(layer, field):
+    """One member's value for a shared setting, read as the client reads
+    it (_groupSettingValueOf): an absent Low Latency is off, an absent or
+    unreadable voltage is 110 and breaker 15 (what create_layer writes), and
+    '20' from a file is 20. Every other field is the raw value, None when
+    missing."""
+    if field == 'lowLatency':
+        return bool(layer.get('lowLatency'))
+    if field in ('powerVoltage', 'powerAmperage'):
+        default = 110 if field == 'powerVoltage' else 15
+        raw = layer.get(field)
+        if isinstance(raw, bool) or not isinstance(raw, (int, float, str)):
+            return default
+        try:
+            value = float(raw)
+        except ValueError:
+            return default
+        if not math.isfinite(value) or value <= 0:
+            return default
+        return int(value) if value.is_integer() else value
+    return layer.get(field)
 
 
 def _highest_group_seq(project):
@@ -1928,7 +1955,7 @@ def validate_group_settings(layers):
         if not isinstance(layer, dict):
             continue
         for field in GROUP_SHARED_SETTINGS:
-            value = layer.get(field)
+            value = _group_setting_value(layer, field)
             if value not in seen[field]:
                 seen[field].append(value)
     conflicts = {f: v for f, v in seen.items() if len(v) > 1}

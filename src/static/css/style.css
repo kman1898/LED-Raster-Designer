@@ -559,6 +559,7 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 #custom-run-readout .cr-pill { background: #2f3a2f; color: #bfe8bf; border: 1px solid #4a6a4a; }
 #custom-run-readout.cr-empty .cr-pill { color: #9cc09c; border-color: #3e553e; }
 #custom-run-readout.cr-full .cr-pill { background: #f2c744; color: #111; border-color: #f2c744; }
+#custom-run-readout.cr-over .cr-pill { background: #ff6b6b; color: #111; border-color: #ff6b6b; }
 #custom-run-readout .cr-selected { background: #f2c744; color: #111; border: 1px solid #f2c744; }
 #custom-run-readout .cr-selected[hidden] { display: none; }
 .canvas-raster-input { width: 82px; text-align: center; background: #1a1a1a; border: 1px solid #3a3a3a; color: #e0e0e0; padding: 4px 8px; border-radius: 4px; font-size: 12px; }

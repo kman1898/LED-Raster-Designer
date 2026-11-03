@@ -90,7 +90,7 @@ def test_the_input_list_shows_only_what_fits_the_system(page, system):
     pg, errors = page
     _set(pg, {'system': system, 'input': None})
     shown = _shown(pg)
-    assert shown == {'options': ['—'] + EXPECTED[system], 'value': ''}, shown
+    assert shown == {'options': [''] + EXPECTED[system], 'value': ''}, shown
     pg.evaluate("() => window.app._hwPopoverClose()")
     assert not errors, errors
 
@@ -120,7 +120,7 @@ def test_an_input_that_no_longer_fits_stays_shown_and_nothing_changes_by_itself(
     _set(pg, {'system': '120/208', 'input': 'cee63', 'ratingA': 63})
     shown = _shown(pg)
     assert shown['value'] == 'cee63', shown
-    assert shown['options'] == ['—'] + CAMS + ['L21-30', 'CEE 63 A red'], shown
+    assert shown['options'] == [''] + CAMS + ['L21-30', 'CEE 63 A red'], shown
     # the system changes after the pick: the input and the rating stay
     _set(pg, {'system': '230', 'input': 'cam400', 'ratingA': 400})
     _set(pg, {'system': '120'})
@@ -128,7 +128,7 @@ def test_an_input_that_no_longer_fits_stays_shown_and_nothing_changes_by_itself(
                       " return {system: d.system, input: d.input, ratingA: d.ratingA}; }")
     assert got == {'system': '120', 'input': 'cam400', 'ratingA': 400}, got
     shown = _shown(pg)
-    assert shown == {'options': ['—'] + CAMS, 'value': 'cam400'}, shown
+    assert shown == {'options': [''] + CAMS, 'value': 'cam400'}, shown
     _set(pg, {'system': '230'})
     shown = _shown(pg)
     assert shown['value'] == 'cam400', shown
