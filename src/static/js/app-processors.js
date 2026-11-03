@@ -1206,8 +1206,12 @@ class _Processors {
             .filter(d => !d.vendor || !card.vendor
                          || d.vendor === card.vendor)
             .map(d => {
-                if ((d.trunksIn || 1) <= card.trunksFree) return d;
-                if (d.singleInput && card.trunksFree >= 1) {
+                // never across the primary/copy split (boxRunMax): a
+                // CVT4K-S on a VX1000 is offered on one OPT only
+                const room = Math.min(card.trunksFree,
+                    card.boxRunMax != null ? card.boxRunMax : card.trunksFree);
+                if ((d.trunksIn || 1) <= room) return d;
+                if (d.singleInput && room >= 1) {
                     return Object.assign({}, d, {
                         name: `${d.name} (1 ${this._boxInputWord(d)})`,
                         addInputs: 1,
@@ -1646,6 +1650,9 @@ class _Processors {
         // ports come out of it, and it is the one that decides what else will
         // go on the card.
         if (cvt.trunksIn > 1) info.textContent += `, ${cvt.trunksIn} trunks in`;
+        // a box from a file that straddles a primary OPT and a copy OPT:
+        // its copy input adds no ports (box_input_numbers)
+        if (cvt.spansCopy) info.textContent += ', one input on a copy OPT adds no ports';
         const backupOfId = cvt.backupOf
             || (card.redundancyPairing ? cvt.duplicateOf : null);
         if (cvt.beyondTrunks) {

@@ -964,6 +964,26 @@ def add_cvt(processor_id, card_id):
                 or not all(t in open_ for t in range(trunk, trunk + takes)):
             return jsonify({'error': 'That box cannot go on that copy '
                                      'output.'}), 400
+    else:
+        # A BOX NEVER STRADDLES A PRIMARY OPT AND A COPY OPT
+        # (next_box_spans_copy): its input on the copy would carry ports
+        # the unit already has, and nothing published says what the box
+        # does with them. Refused, with the one-OPT way to put it on.
+        rcard = _resolved_card(card_id) or {}
+        takes = (inputs if inputs is not None
+                 else catalog.trunks_in(box_device or {})) or 1
+        if catalog.next_box_spans_copy(rcard, takes):
+            index = catalog.next_box_index(rcard, takes)
+            titles = rcard.get('trunkTitles') or []
+            split = rcard['copySplit']
+            name = (box_device or {}).get('name', device_id)
+            first, copy_ = titles[index], titles[split]
+            copies = titles[0]
+            return jsonify({'error': (
+                f'A {name} here would take {first} and {copy_}, and '
+                f'{copy_} carries a copy of {copies}, not ports of its own. '
+                f'Put the {name} on one '
+                f'{catalog.box_input_word(box_device or {})}.')}), 400
     cvt = catalog.new_cvt(device_id, _next_seq(), data.get('name', ''))
     if not cvt:
         return jsonify({'error': f'Unknown device: {device_id}'}), 400

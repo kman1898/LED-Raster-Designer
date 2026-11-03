@@ -555,6 +555,7 @@ class _PortAssignment {
                           cardId: offer.cardId,
                           firstPort: offer.firstPort || undefined,
                           lastPort: offer.lastPort || undefined,
+                          boxId: offer.boxId || undefined,
                           // The dock's whole-unit drop names the screen
                           // port under the cursor (0-based): the fill
                           // takes the unplaced ports up to it, no further.

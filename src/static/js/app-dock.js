@@ -1767,8 +1767,11 @@ class _HardwareDock {
         // and D is 1-10"). The card-wide first/last ride the payload
         // below untouched; they are the server's window keys, not a
         // number anyone reads off metal.
+        // ...except a port-by-port backup's row, whose sockets read their
+        // silkscreen on the chips: its header names the PORTS they carry,
+        // card-wide (a CVT10 behind ports 11-16: chips 1-6, "ports 11-16").
         const locals = shown.map(
-            p => p.localNumber || p.number);
+            p => (p.loopOf ? p.number : (p.localNumber || p.number)));
         const span = `${Math.min(...locals)}-${Math.max(...locals)}`;
         // "(backup)" is the backup PROCESSOR's word now (2026-09-25): a
         // loop's far box says what it is on its row ("· loop end"), and
@@ -1798,7 +1801,7 @@ class _HardwareDock {
         const boxCount = this.socketsTaken(card.id, cvt.id);
         const boxHead = this._dockBuildHandle(
             {
-                type: 'box', cardId: card.id,
+                type: 'box', cardId: card.id, boxId: cvt.id,
                 first: Math.min(...nums), last: Math.max(...nums),
                 title: boxTitle,
                 beyondTrunks: !!cvt.beyondTrunks,
@@ -1875,16 +1878,20 @@ class _HardwareDock {
         return box;
     }
 
-    // A port-by-port backup socket's hover: which primary socket it backs
-    // up, and its own number on its box (boxLoopPorts' `loopOf`).
+    // A port-by-port backup socket's hover: the port it backs up
+    // (boxLoopPorts' `loopOf`), by that box's own number - "the backup of
+    // port 1 on CVT10 B" - or the unit's own port.
     _dockLoopSocketText(card, port) {
+        return `, the backup of ${this._dockLoopBackedName(card, port)}`;
+    }
+
+    // The port a port-by-port backup socket backs up, as words: "port 1 on
+    // CVT10 B", "own port 17".
+    _dockLoopBackedName(card, port) {
         const lo = port.loopOf;
-        const main = lo.boxId ? (card.cvts || []).find(b => b.id === lo.boxId) : null;
-        const own = (card.cvts || []).find(b => b.id !== lo.boxId
-            && (b.backsUpPorts || []).some(m => m.number === port.number));
-        return `, the backup of ${lo.boxId ? '' : 'own '}port ${lo.local}`
-            + (main ? ` on ${this._dockBoxLabel(main)}` : '')
-            + (own ? `, socket ${lo.socket} of ${this._dockBoxLabel(own)}` : '');
+        const main = lo.boxId ? ((card && card.cvts) || []).find(b => b.id === lo.boxId) : null;
+        return `${lo.boxId ? '' : 'own '}port ${lo.local}`
+            + (main ? ` on ${this._dockBoxLabel(main)}` : '');
     }
 
     // A loop pair as ONE strip (owner, 2026-09-25, "option 2"). The header
@@ -1918,7 +1925,7 @@ class _HardwareDock {
         const of = counts.reduce((t, c) => t + c.of, 0);
         const head = this._dockBuildHandle(
             {
-                type: 'box', cardId: card.id,
+                type: 'box', cardId: card.id, boxId: near.id,
                 first: Math.min(...nums), last: Math.max(...nums),
                 title: near.displayTitle || near.name || near.deviceName,
                 beyondTrunks: !!near.beyondTrunks,

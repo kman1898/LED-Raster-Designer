@@ -543,9 +543,11 @@ class _MirrorScreens {
         (card.cvts || []).forEach(cvt => {
             if (cvt.copyRole || cvt.beyondTrunks || !cvt.portCount) return;
             const numbers = [];
-            for (let n = cvt.firstPort; n < cvt.firstPort + cvt.portCount; n++) {
+            const own = cvt.portNumbers
+                || Array.from({ length: cvt.portCount }, (_, i) => cvt.firstPort + i);
+            own.forEach(n => {
                 if (n <= limit && byNumber.has(n) && byNumber.get(n).plug) numbers.push(n);
-            }
+            });
             if (!numbers.length) return;
             const atCard = numbers.filter(n => byNumber.get(n).plug === 'card');
             const now = atCard.length === numbers.length ? 'card'

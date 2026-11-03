@@ -113,17 +113,21 @@ def run(numbers, primary, local_first, socket_first=None):
 
 
 # (id, unit, backup mode, other mode, boxes in add order, map, count)
+# A CVT4K-S gives 8 outputs an OPT input (owner, 2026-11-02: "Much the same
+# if you use a CVT 4K with a VX1000, which does 10 ports, you can only use
+# eight of them"), so on the 10-port OPTs of an enhanced H_4xfiber or an
+# MX40 Pro it carries 1-8 and 11-18, its sockets 1-8 and 9-16.
 SHAPES = [
     # 1. a CVT4K-S on OPT 5-6 behind CVT10s on OPT 1 and 2
     ('h4e-cvt4k-behind-cvt10s', H4E, 'backup', 'copy',
      [CVT10] * 4 + [CVT4K],
-     {'OPT 5-6': run(range(1, 11), 'OPT 1', 1)
-      + run(range(11, 17), 'OPT 2', 1)}, 40),
+     {'OPT 5-6': run(range(1, 9), 'OPT 1', 1)
+      + run(range(11, 19), 'OPT 2', 1, socket_first=9)}, 40),
     # 2. CVT10s on OPT 5 and 6 behind a CVT4K-S on OPT 1-2
     ('h4e-cvt10s-behind-cvt4k', H4E, 'backup', 'copy',
      [CVT4K, CVT4K, CVT10, CVT10],
-     {'OPT 5': run(range(1, 11), 'OPT 1-2', 1),
-      'OPT 6': run(range(11, 17), 'OPT 1-2', 11, socket_first=1)}, 32),
+     {'OPT 5': run(range(1, 9), 'OPT 1-2', 1),
+      'OPT 6': run(range(11, 19), 'OPT 1-2', 9, socket_first=1)}, 32),
     # 3. a CVT4K-S on OPT 3-4 behind CVT10s on OPT 1 and 2 (8 each)
     ('uhdjr-cvt4k-behind-cvt10s', UHD_JR, None, None,
      [CVT10, CVT10, CVT4K],
@@ -137,15 +141,16 @@ SHAPES = [
     # 5. the MX40 Pro 20-port, the same two shapes
     ('mx40-cvt4k-behind-cvt10s', MX40, '20-port', '40-port',
      [CVT10, CVT10, CVT4K],
-     {'OPT 3-4': run(range(1, 11), 'OPT 1', 1)
-      + run(range(11, 17), 'OPT 2', 1)}, 20),
-    # ...where ports 17-20, on no box, are the MX40 Pro's own RJ45s, and
-    # the OPT 4 box's sockets 7-10 back those up
+     {'OPT 3-4': run(range(1, 9), 'OPT 1', 1)
+      + run(range(11, 19), 'OPT 2', 1, socket_first=9)}, 20),
+    # ...where ports 9-10 and 19-20, on no box, are the MX40 Pro's own
+    # RJ45s, and each CVT10's sockets 9-10 back those up
     ('mx40-cvt10s-behind-cvt4k', MX40, '20-port', '40-port',
      [CVT4K, CVT10, CVT10],
-     {'OPT 3': run(range(1, 11), 'OPT 1-2', 1),
-      'OPT 4': run(range(11, 17), 'OPT 1-2', 11, socket_first=1)
-      + run(range(17, 21), 'own', 17, socket_first=7)}, 20),
+     {'OPT 3': run(range(1, 9), 'OPT 1-2', 1)
+      + run(range(9, 11), 'own', 9),
+      'OPT 4': run(range(11, 19), 'OPT 1-2', 9, socket_first=1)
+      + run(range(19, 21), 'own', 19, socket_first=9)}, 20),
 ]
 IDS = [s[0] for s in SHAPES]
 PARAMS = 'name,unit,mode,other,boxes,expected,count'
@@ -196,27 +201,28 @@ def test_the_backup_box_backs_up_port_by_port(client, name, unit, mode, other,
 
 def test_ports_only_a_backup_box_reaches_are_not_counted(client):
     """The audit's case 2: CVT10s on OPT 5 and 6 behind CVT4K-S boxes on
-    OPT 1-2 and 3-4. Ports 17-20 came only out of the OPT 6 backup, and the
-    card read 36. The primaries carry 32."""
+    OPT 1-2 and 3-4. Ports only the backups reached used to count, and the
+    card read 36. The primaries carry 32, 8 off each OPT."""
     pid, cid = rig(client, H4E, 'backup')
     add_boxes(client, pid, cid, [CVT4K, CVT4K, CVT10, CVT10])
     card = card_of(client, cid)
     assert card['ceiling'] == 32, card['ceiling']
     assert card['defined'] == 32, card['defined']
     numbers = [p['number'] for p in card['ports']]
-    assert not any(17 <= n <= 20 for n in numbers), numbers
+    assert numbers == [n for b in (0, 10, 20, 30)
+                       for n in range(b + 1, b + 9)], numbers
     assert sum(1 for p in card['ports'] if not p['mirrorOf']) == 32
 
 
 def test_the_mx40_pros_own_ports_past_the_primary_box_stay_its_own(client):
-    """MX40 Pro, CVT4K-S on OPT 1-2: ports 17-20 are its own RJ45s, not the
-    OPT 4 backup box's - the backup box backs them up, on its sockets
-    7-10, and they are no box's ports."""
+    """MX40 Pro, CVT4K-S on OPT 1-2 (1-8 and 11-18): ports 9-10 and 19-20
+    are its own RJ45s, not the backup boxes' - those back them up on their
+    sockets 9-10 - and they are no box's ports."""
     pid, cid = rig(client, MX40, '20-port')
     add_boxes(client, pid, cid, [CVT4K, CVT10, CVT10])
     card = card_of(client, cid)
     face = [p['number'] for p in card['ports'] if not p['cvtId']]
-    assert face == [17, 18, 19, 20]
+    assert face == [9, 10, 19, 20]
 
 
 @pytest.mark.parametrize(PARAMS, SHAPES, ids=IDS)
@@ -294,7 +300,7 @@ OWN = [
     ('uhdjr-cvt4k-opt3-4', UHD_JR, None, CVT4K, 2, 'OPT 3-4',
      range(1, 17), 16),
     ('mx40-cvt4k-opt3-4', MX40, '20-port', CVT4K, 2, 'OPT 3-4',
-     range(1, 17), 20),
+     [*range(1, 9), *range(11, 19)], 20),
     ('mx40-cvt10-opt4', MX40, '20-port', CVT10, 3, 'OPT 4',
      range(11, 21), 20),
 ]
@@ -310,9 +316,8 @@ def test_a_box_on_a_copy_opt_backs_up_the_units_own_ports(
     assert trunk in card_of(client, cid)['copyTrunksOpen']
     _ok(add_on_copy(client, pid, cid, box, trunk))
     card = card_of(client, cid)
-    first = min(backed)
-    assert mapping(card) == {opts: [(n, n - first + 1, 'own', n)
-                                    for n in backed]}
+    assert mapping(card) == {opts: [(n, i + 1, 'own', n)
+                                    for i, n in enumerate(backed)]}
     assert _own_backed_by(card) == [opts]
     assert all(p['cvtId'] is None for p in card['ports'])
     assert card['ceiling'] == count and card['defined'] == count
@@ -383,24 +388,214 @@ def test_a_box_goes_only_onto_an_open_copy_opt(client, unit, mode, trunk):
     assert not card_of(client, cid)['cvts']
 
 
-def test_the_rule_is_the_catalogs_copy_word_and_nothing_else(client,
-                                                             monkeypatch):
-    """A VX1000 Pro's OPT 2 copies its Ethernet ports, but until its
-    catalog mode carries a sourced copyTrunks nothing is offered. Given
-    one, the same rule backs up its own ports 1-10 from a CVT10 on OPT 2."""
-    pid, cid = rig(client, VX1000_PRO)
-    card = card_of(client, cid)
-    if catalog.copy_trunks(catalog.get_device(VX1000_PRO), card['mode']):
-        pytest.skip('the VX1000 Pro has a copyTrunks of its own now')
-    assert card['copyTrunksOpen'] == []
+def test_the_rule_is_the_catalogs_copy_word_and_nothing_else(client):
+    """A CX80 Pro's OPTs copy its Ethernet ports too (trunkDelivery
+    'copy'), but its catalog mode carries no sourced copyTrunks, so no copy
+    OPT is offered and none is taken."""
+    unit = 'novastar-cx80-pro'
+    assert catalog.copy_trunks(catalog.get_device(unit), 'default') is None
+    pid, cid = rig(client, unit)
+    assert card_of(client, cid)['copyTrunksOpen'] == []
     assert add_on_copy(client, pid, cid, CVT10, 1).status_code == 400
-    mode = catalog.mode_entry(catalog.get_device(VX1000_PRO), card['mode'])
-    monkeypatch.setitem(mode, 'copyTrunks', 'per-box')
-    assert card_of(client, cid)['copyTrunksOpen'] == [1]
-    _ok(add_on_copy(client, pid, cid, CVT10, 1))
+
+
+# EVERY UNIT WITH ETHERNET PORTS OF ITS OWN WHOSE CATALOG MODE SOURCES ITS
+# COPY OPTS (copyTrunks), as the catalog has them: the box on the copy OPT,
+# nothing on the primary OPT, backs up or mirrors the unit's own ports by
+# the unit's mode (VX Pros and VX1000: Copy or Backup; MCTRL660 Pro:
+# Backup; MX30 and MX20: Copy) or by the box's own role (MCTRL R5 and
+# MCTRL4K, Backup by default).
+# (unit, backup mode, mirror: ('mode', id) | ('role',) | None, box, its
+#  copy OPT, OPTs title, own ports backed, the unit's count)
+ALL_OWN = [
+    ('novastar-vx400-pro', 'backup', ('mode', 'copy'), CVT10, 1, 'OPT 2',
+     4, 4),
+    ('novastar-vx600-pro', 'backup', ('mode', 'copy'), CVT10, 1, 'OPT 2',
+     6, 6),
+    ('novastar-vx1000', 'backup', ('mode', 'copy'), CVT10, 1, 'OPT 2',
+     10, 10),
+    (VX1000_PRO, 'backup', ('mode', 'copy'), CVT10, 1, 'OPT 2', 10, 10),
+    ('novastar-vx2000-pro', 'backup', ('mode', 'copy'), CVT4K, 2,
+     'OPT 3-4', [*range(1, 9), *range(11, 19)], 20),
+    ('novastar-mctrl660-pro', 'default', None, CVT10, 1, 'OPT 2', 6, 6),
+    ('novastar-mctrl-r5', 'default', ('role',), CVT10, 1, 'OPT 2', 8, 8),
+    ('novastar-mctrl4k', 'default', ('role',), CVT4K, 2, 'OPT 3-4', 16, 16),
+    ('novastar-mx30', None, ('mode', 'default'), CVT10, 1, 'OPT 2', 10, 10),
+    ('novastar-mx20', None, ('mode', 'default'), CVT10, 1, 'OPT 2', 6, 6),
+]
+ALL_OWN_IDS = [u[0].replace('novastar-', '') for u in ALL_OWN]
+ALL_OWN_PARAMS = 'unit,backup,mirror,box,trunk,opts,backed,count'
+
+
+@pytest.mark.parametrize(ALL_OWN_PARAMS, ALL_OWN, ids=ALL_OWN_IDS)
+def test_each_sourced_unit_backs_up_or_mirrors_its_own_ports(
+        client, unit, backup, mirror, box, trunk, opts, backed, count):
+    device = catalog.get_device(unit)
+    assert not device.get('requiresDistribution')
+    modes = [m for m in ([backup] if backup else [])
+             + ([mirror[1]] if mirror and mirror[0] == 'mode' else [])]
+    for mode in modes:
+        assert catalog.copy_trunks(device, mode), (unit, mode)
+    if backup:
+        pid, cid = rig(client, unit, backup)
+        assert trunk in card_of(client, cid)['copyTrunksOpen']
+        _ok(add_on_copy(client, pid, cid, box, trunk))
+        card = card_of(client, cid)
+        assert card['cvts'][0]['trunkTitle'] == opts
+        assert card['cvts'][0]['copyRole'] == 'backup'
+        assert mapping(card) == {opts: [(n, i + 1, 'own', n)
+                                        for i, n in enumerate(_ports(backed))]}
+        assert _own_backed_by(card) == [opts]
+        assert all(p['cvtId'] is None for p in card['ports'])
+        assert card['ceiling'] == count and card['defined'] == count
+        assert _own_ports(card) == list(range(1, count + 1))
+        box_id = card['cvts'][0]['id']
+        if mirror and mirror[0] == 'mode':
+            set_mode(client, pid, cid, mirror[1])
+        elif mirror:
+            _ok(client.put(f'/api/processors/{pid}/cvts/{box_id}',
+                           json={'copyRole': 'mirror'}))
+    else:
+        pid, cid = rig(client, unit, mirror[1])
+        _ok(add_on_copy(client, pid, cid, box, trunk))
+    if not mirror:
+        return
     card = card_of(client, cid)
-    assert mapping(card) == {'OPT 2': run(range(1, 11), 'own', 1)}
-    assert card['ceiling'] == 10 and len(_own_ports(card)) == 10
+    assert card['cvts'][0]['copyRole'] == 'mirror'
+    assert mapping(card) == {} and card['ownBackedUpBy'] == []
+    assert card['ceiling'] == count
+    assert _own_ports(card) == list(range(1, count + 1))
+    copies = {int(k): v for k, v in card['mirrorSockets'].items()}
+    assert sorted(copies) == _ports(backed)
+    assert all(v > count for v in copies.values())
+
+
+def _ports(backed):
+    """ALL_OWN's ports backed: a count from 1, or the list itself."""
+    return list(range(1, backed + 1)) if isinstance(backed, int) \
+        else list(backed)
+
+
+# ── a box takes what each OPT carries, up to its outputs an input ─────────
+#
+# Owner, 2026-11-02: "If you use a CVT 10 with a 16 port card or processor,
+# you only get eight ports" and "Much the same if you use a CVT 4K with a
+# VX1000, which does 10 ports, you can only use eight of them".
+
+H4 = 'novastar-card-h-4xfiber'
+VX1000 = 'novastar-vx1000'
+
+
+def _boxes(card):
+    return {b['trunkTitle']: (b['portNumbers'], b['portCount'])
+            for b in card['cvts']}
+
+
+def test_a_cvt10_on_8_port_opts_gives_8_as_a_backup(client):
+    """H_4xfiber in Backup: a CVT4K-S on OPT 1-2 carries 1-16, and the
+    CVT10s on OPT 3 and 4 back up 1-8 and 9-16, 8 sockets each."""
+    pid, cid = rig(client, H4, 'backup')
+    add_boxes(client, pid, cid, [CVT4K, CVT10, CVT10])
+    card = card_of(client, cid)
+    assert _boxes(card) == {'OPT 1-2': (list(range(1, 17)), 16),
+                            'OPT 3': (list(range(1, 9)), 8),
+                            'OPT 4': (list(range(9, 17)), 8)}
+    assert mapping(card) == {
+        'OPT 3': run(range(1, 9), 'OPT 1-2', 1),
+        'OPT 4': run(range(9, 17), 'OPT 1-2', 9, socket_first=1)}
+    assert card['ceiling'] == 16
+
+
+def test_the_uhd_jr_the_same(client):
+    pid, cid = rig(client, UHD_JR)
+    add_boxes(client, pid, cid, [CVT4K, CVT10, CVT10])
+    assert _boxes(card_of(client, cid)) == {
+        'OPT 1-2': (list(range(1, 17)), 16),
+        'OPT 3': (list(range(1, 9)), 8), 'OPT 4': (list(range(9, 17)), 8)}
+
+
+@pytest.mark.parametrize('unit,mode,ports', [
+    (H4, 'backup', range(1, 9)),
+    (UHD_JR, None, range(1, 9)),
+    # the enhanced card is 10 an OPT: a CVT10 keeps all 10
+    (H4E, 'backup', range(1, 11)),
+], ids=['h4', 'uhd-jr', 'h4e-keeps-10'])
+def test_a_cvt10_primary_gives_what_its_opt_carries(client, unit, mode,
+                                                    ports):
+    pid, cid = rig(client, unit, mode)
+    add_boxes(client, pid, cid, [CVT10])
+    assert _boxes(card_of(client, cid)) == {'OPT 1': (list(ports),
+                                                      len(ports))}
+
+
+@pytest.mark.parametrize('unit', [VX1000, VX1000_PRO])
+def test_a_cvt4k_on_a_vx1000_gives_8_never_10(client, unit):
+    """OPT 2 of a VX1000 is the copy or backup of OPT 1, not 10 more
+    ports: a CVT4K-S across OPT 1-2 is refused, and on OPT 1 alone it
+    gives 8 of the 10, ports 9-10 staying on the unit's own Ethernet."""
+    pid, cid = rig(client, unit)
+    card = card_of(client, cid)
+    assert card['boxRunMax'] == 1
+    resp = client.post(f'/api/processors/{pid}/cards/{cid}/cvts',
+                       json={'deviceId': CVT4K, 'pair': False})
+    assert resp.status_code == 400
+    assert 'OPT 2 carries a copy of OPT 1' in resp.get_json()['error']
+    assert not card_of(client, cid)['cvts']
+    _ok(client.post(f'/api/processors/{pid}/cards/{cid}/cvts',
+                    json={'deviceId': CVT4K, 'inputs': 1, 'pair': False}))
+    card = card_of(client, cid)
+    assert _boxes(card) == {'OPT 1': (list(range(1, 9)), 8)}
+    assert [p['number'] for p in card['ports'] if not p['cvtId']] == [9, 10]
+    assert card['ceiling'] == 10
+
+
+@pytest.mark.parametrize('unit', [VX1000, VX1000_PRO])
+def test_a_saved_cvt4k_across_opt_1_2_of_a_vx1000_counts_8(client, unit):
+    """A file carrying one (the add allowed it before): its OPT 2 input adds
+    nothing, the box gives 8, and it says why."""
+    pid, cid = rig(client, unit)
+    project = client.get('/api/project').get_json()
+    raw = next(s['card'] for p in project['processors'] for s in p['slots']
+               if s.get('card') and s['card']['id'] == cid)
+    raw.setdefault('cvts', []).append(catalog.new_cvt(CVT4K, 9001, ''))
+    _ok(client.put('/api/project', json=project))
+    card = card_of(client, cid)
+    assert _boxes(card) == {'OPT 1-2': (list(range(1, 9)), 8)}
+    assert card['cvts'][0]['spansCopy'] is True
+    assert card['ceiling'] == 10 and card['defined'] == 10
+
+
+def test_a_box_drop_lands_on_the_boxs_own_sockets(client):
+    """MX40 Pro 20-port, a CVT4K-S on OPT 1-2 (1-8 and 11-18): a 12-port
+    screen dropped on the box takes 1-8 and 11-14, never the MX40 Pro's own
+    9 and 10 inside the box's span."""
+    resp = client.post('/api/layer/add', json={
+        'name': 'WALL', 'columns': 4, 'rows': 3,
+        'cabinet_width': 200, 'cabinet_height': 200})
+    wall = str(_ok(resp)['id'])
+    pid, cid = rig(client, MX40, '20-port')
+    add_boxes(client, pid, cid, [CVT4K])
+    box = card_of(client, cid)['cvts'][0]
+    _ok(client.post('/api/port-assignments/place-overflow', json={
+        'layerId': wall, 'cardId': cid, 'firstPort': 1, 'lastPort': 18,
+        'boxId': box['id'],
+        'screens': [{'layerId': wall, 'name': 'WALL', 'ports': 12}]}))
+    pins = client.get('/api/project').get_json()['port_assignments']['pins']
+    assert sorted(p['port'] for p in pins if p['layerId'] == wall)         == [*range(1, 9), *range(11, 15)]
+
+
+def test_a_cvt4k_never_straddles_a_uhd_jrs_primary_and_copy_opts(client):
+    """A CVT10 on OPT 1 leaves OPT 2 and the copies: the next CVT4K-S
+    would take OPT 2-3 and is refused; on OPT 2 alone it gives 9-16."""
+    pid, cid = rig(client, UHD_JR)
+    add_boxes(client, pid, cid, [CVT10])
+    assert card_of(client, cid)['boxRunMax'] == 1
+    resp = client.post(f'/api/processors/{pid}/cards/{cid}/cvts',
+                       json={'deviceId': CVT4K, 'pair': False})
+    assert resp.status_code == 400, resp.get_data(as_text=True)
+    _ok(client.post(f'/api/processors/{pid}/cards/{cid}/cvts',
+                    json={'deviceId': CVT4K, 'inputs': 1, 'pair': False}))
+    assert _boxes(card_of(client, cid))['OPT 2'] == (list(range(9, 17)), 8)
 
 
 # ── the tray, its sheets, the binder's words and the pull sheet ───────────
@@ -492,6 +687,7 @@ TRAY_JS = """(cardId) => {
     // the backup box's own cable sheet, flipped open: a row per socket,
     // numbered with the port it backs up
     const sheets = {};
+    const sheetText = [];
     for (const b of backups) {
         app._setDataCableSheetOpen({ kind: 'cvt', id: b.id }, true);
     }
@@ -499,10 +695,12 @@ TRAY_JS = """(cardId) => {
     for (const b of backups) {
         const sheet = document.querySelector(
             `[data-lrd-cable-sheet="cvt:${b.id}"]`);
-        sheets[b.trunkTitle] = sheet ? [...sheet.querySelectorAll('tr')]
+        const rows = sheet ? [...sheet.querySelectorAll('tr')]
             .filter(tr => tr.children[0] && tr.children[0].tagName === 'TD'
-                    && !tr.classList.contains('hw-dock-cable-snake'))
-            .map(tr => parseInt(tr.children[1].textContent, 10)) : null;
+                    && !tr.classList.contains('hw-dock-cable-snake')) : [];
+        sheets[b.trunkTitle] = sheet
+            ? rows.map(tr => parseInt(tr.children[1].textContent, 10)) : null;
+        sheetText.push(...rows.map(tr => tr.children[1].textContent));
         app._setDataCableSheetOpen({ kind: 'cvt', id: b.id }, false);
     }
     app.renderHardwareDock();
@@ -512,6 +710,7 @@ TRAY_JS = """(cardId) => {
         strips,
         ownRows,
         sheets,
+        sheetText,
         alone: backups.filter(b => document.querySelector(
             `[data-lrd-sec-id="hwdock-box-${b.id}"]`)).map(b => b.trunkTitle),
         copyTag: !!unit && unit.textContent.includes('(copy)'),
@@ -534,19 +733,19 @@ TRAY_JS = """(cardId) => {
 def _spans(rows):
     """'1-10, 1-6 as 11-16' style words, per primary, for one backup."""
     groups = {}
-    for number, _socket, primary, local in rows:
+    for _number, _socket, primary, local in rows:
         groups.setdefault(primary, ([], []))
         groups[primary][0].append(local)
-        groups[primary][1].append(number)
+        groups[primary][1].append(_socket)
 
     def text(ns):
         return f'{min(ns)}-{max(ns)}'
     parts = []
-    for primary, (locals_, numbers) in groups.items():
-        mine, shown = text(locals_), text(numbers)
+    for primary, (locals_, sockets) in groups.items():
+        mine, shown = text(locals_), text(sockets)
         primary = 'own ports' if primary == 'own' else primary
         parts.append(f'{primary} {mine}'
-                     + (f' as {shown}' if shown != mine else ''))
+                     + (f' on sockets {shown}' if shown != mine else ''))
     return 'loop of ' + ', '.join(parts)
 
 
@@ -580,11 +779,11 @@ def test_the_tray_draws_each_backup_socket_in_its_primarys_loop(
     # socket numbered with the card port it backs up
     want = {}
     for backup, rows in expected.items():
-        for number, _socket, primary, _local in rows:
+        for _number, _socket, primary, _local in rows:
             fars = want.setdefault(primary, [])
             if not fars or fars[-1][0] != backup:
                 fars.append([backup, []])
-            fars[-1][1].append(number)
+            fars[-1][1].append(_socket)
     assert tray['ownRows'] == want.pop('own', []), tray['ownRows']
     assert set(tray['strips']) == set(want), tray['strips']
     for primary, fars in want.items():
@@ -594,9 +793,11 @@ def test_the_tray_draws_each_backup_socket_in_its_primarys_loop(
     # no backup box drawn on its own, and no "(copy)" box of free sockets
     assert tray['alone'] == [], tray['alone']
     assert not tray['copyTag']
-    # the backup's cable sheet: every socket, by the port it backs up
-    assert tray['sheets'] == {b: [r[0] for r in rows]
+    # the backup's cable sheet: every socket by its silkscreen, the port it
+    # backs up named beside it
+    assert tray['sheets'] == {b: [r[1] for r in rows]
                               for b, rows in expected.items()}
+    assert all('backs up' in t for t in tray['sheetText'])
     assert tray['words'] == {b: _spans(rows) for b, rows in expected.items()}
     for backup, rows in expected.items():
         nears, fars = tray['groups'][backup]
@@ -637,6 +838,89 @@ OFFER_JS = """(cardId) => {
     return app._dockCopyPlacements(card, app._cardBoxFits(card))
         .map(c => `${c.fit.name} on ${c.title}`);
 }"""
+
+
+UNIT_TRAY_JS = """async ([proc, cardId, device, trunk]) => {
+    const app = window.app;
+    const find = () => app._processorsResolved.flatMap(p => p.slots)
+        .map(s => s.card).find(c => c && c.id === cardId);
+    let card = find();
+    const fits = app._cardBoxFits(card).map(d => d.name);
+    const offered = app._dockCopyPlacements(card, app._cardBoxFits(card))
+        .map(c => [c.fit.id, c.trunk, `${c.fit.name} on ${c.title}`]);
+    await fetch(`/api/processors/${proc}/cards/${cardId}/cvts`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deviceId: device, trunk }) });
+    await app.refreshProcessors();
+    app.renderHardwareDock();
+    card = find();
+    const box = card.cvts[0];
+    const own = document.querySelector(`[data-lrd-loop-own="${cardId}"]`);
+    const alone = document.querySelector(
+        `[data-lrd-sec-id="hwdock-box-${box.id}"]`);
+    const unit = (own || alone).closest('.hw-dock-unit, .hw-dock-card');
+    return {
+        fits,
+        offered,
+        role: box.copyRole,
+        rows: own ? [...own.querySelectorAll('[data-lrd-loop-far]')].map(r =>
+            [...r.querySelectorAll('.lrd-tile-face')].map(f => parseInt(
+                f.querySelector('.lrd-tile-line span').textContent, 10))) : null,
+        loose: unit.querySelectorAll(
+            '.lrd-tile-grid[data-lrd-snake-owner^="card:"] .lrd-tile-face').length,
+        alone: !!alone,
+        copyTag: unit.textContent.includes('(copy)'),
+        mirrorTag: !!alone && alone.textContent.includes('(mirror)'),
+        ceiling: card.ceiling,
+    };
+}"""
+
+
+@pytest.mark.parametrize(ALL_OWN_PARAMS, ALL_OWN, ids=ALL_OWN_IDS)
+def test_each_sourced_units_tray_offers_the_copy_opt_and_draws_the_loop(
+        e2e_server, pw_browser, unit, backup, mirror, box, trunk, opts,
+        backed, count):
+    """+ Box offers the box on the copy OPT; put there, a backup draws as
+    loop rows under the unit's own ports, a mirror as a box of its own."""
+    context = pw_browser.new_context(viewport={'width': 1700, 'height': 1100})
+    context.add_init_script(
+        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+    context.add_init_script(FETCH_COUNT_JS)
+    page = context.new_page()
+    try:
+        page.goto(e2e_server, wait_until='domcontentloaded')
+        page.wait_for_function(
+            "() => window.app && window.app._initialLoadComplete === true"
+            " && window.app._socketConnects >= 1")
+        page.evaluate("() => { window.__lrdQuiet = 0; }")
+        page.wait_for_function(QUIET_JS)
+        ids = page.evaluate(SEED_JS, [unit, 'unit', backup or mirror[1], []])
+        page.locator('[data-mode="data-flow"]').click()
+        page.wait_for_function(
+            "() => window.canvasRenderer.viewMode === 'data-flow'")
+        page.evaluate("() => { window.__lrdQuiet = 0; }")
+        page.wait_for_function(QUIET_JS)
+        tray = page.evaluate(UNIT_TRAY_JS,
+                             [ids['proc'], ids['card'], box, trunk])
+    finally:
+        context.close()
+    assert [box, trunk] in [o[:2] for o in tray['offered']], tray['offered']
+    if catalog.get_device(unit)['trunks'] == 2:
+        # OPT 2 is the copy: a CVT4K-S is offered on one OPT only
+        assert 'CVT4K-S' not in tray['fits'], tray['fits']
+        assert 'CVT4K-S (1 OPT)' in tray['fits'], tray['fits']
+    assert any(o[2].endswith(f' on {opts}') for o in tray['offered'])
+    assert tray['loose'] == count and tray['ceiling'] == count
+    assert not tray['copyTag']
+    if backup:
+        assert tray['role'] == 'backup'
+        # each socket reads its silkscreen, 1..N
+        assert tray['rows'] == [list(range(1, len(_ports(backed)) + 1))], \
+            tray['rows']
+        assert not tray['alone']
+    else:
+        assert tray['role'] == 'mirror'
+        assert tray['rows'] is None and tray['alone'] and tray['mirrorTag']
 
 
 def test_the_tray_draws_the_own_ports_backup_as_loop_rows(e2e_server,

@@ -487,6 +487,8 @@ def place_overflow():
         # Same box-span window move-block carries; see that route.
         first_port=None if first is None else int(first),
         last_port=None if last is None else int(last),
+        # ...and the box itself, whose sockets need not run unbroken.
+        box_id=data.get('boxId') or None,
         # The dock's drop names the screen port under the cursor (0-based):
         # the fill takes the unplaced ports up to it and no further.
         last_index=None if last_index is None else int(last_index))

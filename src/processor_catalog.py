@@ -1065,6 +1065,79 @@ def _cvt_port_count(cvt_device, card_device, takes=None):
 
 # ── The project model ─────────────────────────────────────────────────────
 
+def box_input_numbers(cvt_device, index, takes, block_count, per_trunk,
+                      ceiling, mirrored=False):
+    """The card ports a box on `takes` OPTs from `index` delivers, socket
+    by socket: each input fans out the first ports of ITS OPT, as many as
+    the box gives an input (single_input's documented share - the
+    CVT4K-S's 8 - else its nameplate over its inputs).
+
+    Owner, 2026-11-02: "If you use a CVT 10 with a 16 port card or
+    processor, you only get eight ports" and "Much the same if you use a
+    CVT 4K with a VX1000, which does 10 ports, you can only use eight of
+    them". So a CVT4K-S on two 10-port OPTs gives 1-8 and 11-18, never
+    1-16: OPT 1's ports 9-10 do not reach it. On 8-port OPTs (an
+    H_4xfiber, a NovaPro UHD) that is 1-8 and 9-16, as it always read.
+
+    An input on the other side of the primary/copy split from the box's
+    first one carries a copy of ports the unit already has, never ports of
+    its own, so it adds none (the add refuses such a box - next_box_spans_
+    copy; this is a file that carries one). `mirrored`: the box feeds a
+    mirror screen, numbered past the mode's count as resolve_card does."""
+    full = trunks_in(cvt_device) or 1
+    single = single_input(cvt_device) or {}
+    count = port_capacity(cvt_device.get('id'))['count'] or 0
+    per_input = single.get('ports') or (count // full)
+    copy_side = index >= block_count
+    out = []
+    for t in range(index, index + takes):
+        if (t >= block_count) != copy_side:
+            continue
+        block = t % block_count
+        lo = block * per_trunk + 1
+        hi = (block + 1) * per_trunk
+        if ceiling:
+            hi = min(hi, ceiling)
+        offset = ceiling * (t // block_count) if mirrored and ceiling else 0
+        n = max(0, min(per_input, hi - lo + 1))
+        out.extend(range(lo + offset, lo + offset + n))
+    return out
+
+
+def next_box_index(card, takes):
+    """The trunk index the next box taking `takes` trunks lands on - the
+    lowest run of free trunks, as resolve_card places an unheld box - off
+    a RESOLVED card; None where no run is free."""
+    taken = set(card.get('trunksTaken') or [])
+    trunks = card.get('trunks') or 0
+    for index in range(0, max(0, trunks - takes + 1)):
+        if not any(t in taken for t in range(index, index + takes)):
+            return index
+    return None
+
+
+def next_box_spans_copy(card, takes):
+    """Whether the next box taking `takes` trunks would straddle the line
+    between a mode's primary OPTs and its copy OPTs (a CVT4K-S on OPT 1-2
+    of a VX1000, whose OPT 2 copies OPT 1). Nothing NovaStar publishes says
+    what such a box does with a copy on its second main input - the
+    CVT4K-S's own sheet gives its OPT1 and OPT2 to the main processor - so
+    the add refuses it rather than guess. Off a RESOLVED card."""
+    split = card.get('copySplit')
+    index = next_box_index(card, takes)
+    return bool(split and index is not None and index < split < index + takes)
+
+
+def box_run_max(card):
+    """The most trunks one more box may take on a RESOLVED card: free, and
+    not across the primary/copy split (next_box_spans_copy). 0 when full."""
+    for takes in range(card.get('trunks') or 0, 0, -1):
+        if next_box_index(card, takes) is not None \
+                and not next_box_spans_copy(card, takes):
+            return takes
+    return 0
+
+
 def new_processor(device_id, seq, name=''):
     """Build a processor node. A chassis gets one empty slot per documented
     output card; an all-in-one gets a single fixed slot holding itself, so the
@@ -3639,11 +3712,23 @@ def resolve_card(card, proc):
                     copy_role = copy_kind
             if copy_role == 'mirror' and mirror_numbers:
                 first += ceiling * (index // block_count)
+            numbers = list(range(first, first + (size or 0)))
+            # A box on more than one OPT takes each OPT's ports through its
+            # own input (box_input_numbers): a CVT4K-S is 8 outputs an
+            # input, so on 10-port OPTs it gives 1-8 and 11-18.
+            if takes > 1 and size:
+                numbers = box_input_numbers(
+                    cvt_device, index, takes, block_count, per_trunk,
+                    ceiling, bool(copy_role == 'mirror' and mirror_numbers)
+                )[:size]
+                first = numbers[0] if numbers else first
+                size = len(numbers)
         else:
             first = beyond
             block = None
             over_trunk = True
             beyond += size or 0
+            numbers = list(range(first, first + (size or 0)))
         earlier = next((c for c in cvts if c['firstPort'] == first), None)
         resolved = {
             'id': cvt.get('id'),
@@ -3659,6 +3744,10 @@ def resolve_card(card, proc):
             'returnLabelTemplate': cvt.get('returnLabelTemplate') or '',
             'portCount': size,
             'firstPort': first,
+            # The card ports the box delivers, socket by socket (socket 1
+            # first): a run from firstPort, except where an input of the
+            # box takes fewer ports than its OPT carries (box_input_numbers).
+            'portNumbers': numbers,
             'trunkIndex': index,
             'trunksIn': takes,
             # The box's input switch (update_cvt's `inputs`): offered only
@@ -3695,6 +3784,11 @@ def resolve_card(card, proc):
             'backsUpPorts': [],
             'backedUpBy': [],
             'beyondTrunks': over_trunk,
+            # A box from a file that straddles a primary OPT and a copy OPT
+            # (the add refuses one - next_box_spans_copy): its copy input
+            # adds no ports, and the box's gear says so.
+            'spansCopy': bool(copy_kind and block_count and not over_trunk
+                              and index < block_count < index + takes),
             # The box's fiber trunk, as typed on it (update_cvt): what the
             # fiber is and how long its home run is. '' / None when unset -
             # the pull list lists no fiber for a box without a length, and
@@ -3753,9 +3847,9 @@ def resolve_card(card, proc):
         cvts.append(resolved)
         placed_by_id[resolved['id']] = resolved
         if size and copy_role == 'mirror' and mirror_numbers:
-            mirror_claimed = max(mirror_claimed, first + size - 1)
+            mirror_claimed = max(mirror_claimed, max(numbers))
         elif size:
-            claimed = max(claimed, first + size - 1)
+            claimed = max(claimed, max(numbers))
 
     # Each mirror box names the box it copies: the one on its primary trunk.
     for box in cvts:
@@ -3898,8 +3992,7 @@ def resolve_card(card, proc):
         # come out of both boxes - but the FIRST one names it, since the backup
         # is not what anyone patches to or reads a number off.
         covering = [c for c in cvts
-                    if c['portCount']
-                    and c['firstPort'] <= number < c['firstPort'] + c['portCount']]
+                    if c['portCount'] and number in c['portNumbers']]
         # A BACKUP BOX DELIVERS NO PORT OF ITS OWN (owner, 2026-11-02: "A
         # backup port never adds to the card's or processor's port
         # count"). A box on a copy OPT set to Backup copies what its
@@ -3936,7 +4029,7 @@ def resolve_card(card, proc):
         if cvt is None and not at_card \
                 and (box_fed or (own and number > own)):
             continue
-        local = number - cvt['firstPort'] + 1 if cvt else number
+        local = cvt['portNumbers'].index(number) + 1 if cvt else number
         owner, owner_source = _label_owner(cvt, card, proc)
         source = owner_source
         # A BOX'S SOCKETS ARE NUMBERED BY ITS OWN SILKSCREEN, whoever names
@@ -4070,7 +4163,7 @@ def resolve_card(card, proc):
                     continue
                 box['backsUpPorts'].append({
                     'number': port['number'],
-                    'socket': port['number'] - box['firstPort'] + 1,
+                    'socket': box['portNumbers'].index(port['number']) + 1,
                     'boxId': main['id'] if main is not None else None,
                     'local': port['localNumber'],
                 })
@@ -4314,6 +4407,13 @@ def resolve_card(card, proc):
         # The backup boxes behind the unit's own Ethernet ports (each
         # box's backsUpPorts entries with boxId None), in card order.
         'ownBackedUpBy': own_backed_by,
+        # The trunks the boxes hold, the first copy trunk where the mode
+        # has copies (None elsewhere), and the most trunks the next box may
+        # take without crossing from the primaries into the copies
+        # (box_run_max) - what the box picker offers.
+        'trunksTaken': sorted(taken),
+        'copySplit': (block_count if copy_kind and block_count
+                      and trunks > block_count else None),
         # THE COPY OPTS A BOX MAY GO ON WITH ITS PRIMARY OPT EMPTY (owner,
         # 2026-11-02: "you could use 16 ports on processor and then opt
         # 3/4 for 16 ports of backup/copy"): the free copy trunks of a
@@ -4377,6 +4477,7 @@ def resolve_card(card, proc):
             'bidiAllowed': fiber_bidi_allowed(device),
             'backupInputs': False,
         })
+    out['boxRunMax'] = box_run_max(out)
     return out
 
 
