@@ -2461,7 +2461,14 @@ def test_low_latency_survives_localstorage_and_duplicate(page):
             l => (l.type || 'screen') === 'screen' && l.lowLatency === true);
         app.duplicateLayer(layer);
     }""")
-    page.wait_for_timeout(900)
+    # The copy arrives with the server's answer to POST /api/layer/add. A
+    # fixed 900 ms missed it once on a loaded run (the add answered about
+    # a second after the call; the app's log shows it landed whole).
+    try:
+        page.wait_for_function(f"() => window.app.project.layers.length === {before + 1}",
+                               timeout=10000)
+    except pw.TimeoutError:
+        pass
     assert layer_count(page) == before + 1, 'duplicate did not add a layer'
     assert page.evaluate(
         "!!window.app.currentLayer.lowLatency") is True, (
