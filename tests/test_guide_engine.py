@@ -282,6 +282,69 @@ def test_replay_starts_the_step_from_a_known_state(page):
     assert st['state'] == 'done' and not st['fail'], st
 
 
+def test_pick_the_strands_survives_the_tray_rebuilding_after_the_click(page):
+    """The strand pick is the chip swapped for a select in place, so a tray
+    rebuild just after the click (a late echo of the Go to's restore) puts
+    the chip back and the pick is gone. With the tray rebuilt after the
+    first click on each strand chip, "Pick the strands" still takes."""
+    page.evaluate("""() => {
+        window.__injected = {};
+        if (window.__strandRebuild) return;
+        window.__strandRebuild = (e) => {
+            const f = e.target && e.target.dataset && e.target.dataset.lrdField;
+            if (!f || !/^fiber-strand-[^p]/.test(f) || window.__injected[f]) return;
+            window.__injected[f] = 1;
+            setTimeout(() => window.app.renderHardwareDock(), 0);
+        };
+        document.addEventListener('click', window.__strandRebuild, true);
+    }""")
+    try:
+        i = _index(page, 'fiberStrands')
+        _open_advanced(page, 3)
+        _go_to(page, i)
+        st = _wait_step(page, i)
+        assert st['state'] == 'done' and not st['fail'], st
+        assert len(page.evaluate("Object.keys(window.__injected)")) == 2
+    finally:
+        page.evaluate("() => { document.removeEventListener('click', window.__strandRebuild, true); "
+                      "window.__strandRebuild = null; }")
+
+
+def test_whats_new_never_carries_on_from_an_entry_it_did_not_reach(page):
+    """What's New, with the shipped file stale, applies the Advanced steps
+    before each step. When that apply stops on the way, the step still
+    plays, but the show is not the next step's entry: the next step starts
+    over from a fresh scratch show instead of carrying on from a broken
+    one (a played step that took on a broken entry sent "Put the distro on
+    the service" to a show with no distro)."""
+    keys = page.evaluate("() => window.QuickStart.newSteps('1.5.2', '1.5.3')")
+    picked = [keys[0], keys[-1]]
+    assert picked[-1] == 'serviceDistro', picked
+    page.evaluate("""() => {
+        const st = window.QuickStart.steps();
+        window.__qsTitle = st.cabinetSize.title;
+        st.cabinetSize.title += ' (changed)';
+        // The apply for the FIRST What's New step stops at Add distro.
+        window.__origAddDistro = st.addDistro.check;
+        st.addDistro.check = function (mem) {
+            if (window.QuickStart.state().index === 0) return null;
+            return window.__origAddDistro.call(this, mem);
+        };
+    }""")
+    try:
+        page.evaluate("(s) => window.QuickStart.setSpeed(s)", 3)
+        page.evaluate("(k) => { window.QuickStart.startSteps(k); }", picked)
+        st = _wait_step(page, 0, timeout=240)
+        assert st['state'] == 'done', st      # Cable stock needs no distro
+        page.locator('#qs-next').click()
+        st = _wait_step(page, 1, timeout=300)
+        assert st['state'] == 'done' and not st['fail'], st
+    finally:
+        _end(page)
+        page.evaluate("""() => { const st = window.QuickStart.steps();
+            st.cabinetSize.title = window.__qsTitle; st.addDistro.check = window.__origAddDistro; }""")
+
+
 def test_the_guide_runs_on_the_shipped_preferences(page, matt_prefs):
     """Matt's Preferences (Brompton, 10-bit, 30 Hz) and a 230/400 distro
     system never reach the guide's objects: inside the guide the app reads

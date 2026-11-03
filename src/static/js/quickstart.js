@@ -2038,7 +2038,8 @@
             return applyEntry(k);
         }).catch(function (e) {
             // The step still plays; if its entry state is not there its
-            // check says so.
+            // check says so. The show's state is unknown from here on.
+            S.entryAt = null;
             console.warn('QuickStart: entry state failed', e);
         });
     }
@@ -2340,8 +2341,17 @@
             showResult(note, err);
             settle();
             setState(note ? 'done' : 'failed');
-            // The step took: the show holds the next Advanced step's entry.
-            if (S.entries) S.entryAt = note ? S.entries[S.idx] + 1 : null;
+            // The step took on its own entry state: the show holds the next
+            // Advanced step's entry. A step that took on an entry that was
+            // NOT reached (applyEntry stopped on the way, the step played
+            // anyway) proves nothing about the show: the next What's New
+            // step must not carry on from it. It did, and "Put the distro
+            // on the service" then found no distro (1.6.0 QA: the apply
+            // fallback failed 3 runs in 4).
+            if (S.entries) {
+                var k = S.entries[S.idx];
+                S.entryAt = note && S.entryAt === k ? k + 1 : null;
+            }
             return afterStep();
         });
     }
@@ -3938,18 +3948,30 @@
             before: function () { switchView('data-flow'); closePopover(); openBoxSheet(); },
             act: function (t) {
                 var b = box();
-                var move = function (i, to) {
+                // The pick is the chip swapped for a select in place, not
+                // app state: a tray rebuild (a late save's echo restates
+                // the tray) puts the chip back and the pick is gone. The
+                // Go to that lands here restores the show, and its echoes
+                // rebuilt the tray just after the click: "the strand pick
+                // did not open" (1.6.0 QA, 1 run in 4 under a loaded
+                // machine). So the hand clicks the chip again, up to three
+                // times, until the strand has moved.
+                var move = function (i, to, tries) {
+                    tries = tries || 1;
                     var chip = '[data-lrd-field="fiber-strand-' + b.id + '-p1-' + i + '"]';
                     var pick = '[data-lrd-field="fiber-strand-pick-' + b.id + '-p1-' + i + '"]';
-                    return t.wait(function () { return $(chip); }).then(function () {
-                        return t.click(chip);
+                    var moved = function () { var bl = boxLink(); return bl && bl.link.strands[i] === to; };
+                    return t.wait(function () { return $(chip) || $(pick); }).then(function () {
+                        return $(pick) ? null : t.click(chip);
                     }).then(function () {
-                        return t.wait(function () { return $(pick); });
+                        return t.wait(function () { return $(pick); }, 1500);
                     }).then(function (el) {
-                        if (!el) throw new Error('the strand pick did not open');
-                        return t.select(pick, String(to));
-                    }).then(function () {
-                        return t.wait(function () { var bl = boxLink(); return bl && bl.link.strands[i] === to; }, 6000);
+                        if (!el) return null;
+                        return t.select(pick, String(to)).then(function () { return t.wait(moved, 3000); });
+                    }).then(function (ok) {
+                        if (ok || moved()) return true;
+                        if (tries >= 3) throw new Error('the strand pick did not open');
+                        return move(i, to, tries + 1);
                     });
                 };
                 return move(0, 3).then(function () { return move(1, 4); })
