@@ -7973,7 +7973,8 @@ class _Binder {
             // CVT10s) sits after the last primary it backs up, and says
             // which ports of each it carries: "loop of CVT10 A 1-10,
             // CVT10 B 1-6 as 11-16" (boxLoopText).
-            const mixed = list.filter(b => !fars.has(b.id) && this.boxLoopMixed(b));
+            const mixed = list.filter(b => !fars.has(b.id) && b.copyRole === 'backup'
+                && this.boxLoopMixed(b));
             const lastMain = (f) => {
                 const ids = new Set(f.backsUpPorts.map(m => m.boxId));
                 return [...list].reverse().find(b => ids.has(b.id));
@@ -7988,7 +7989,9 @@ class _Binder {
             mixed.filter(f => !ordered.includes(f)).forEach(f => ordered.push(f));
             for (const box of ordered) {
                 const near = fars.has(box.id) ? list.find(n => n.id === box.backupOf) : null;
-                const loop = mixed.includes(box) ? this.boxLoopText(box, list, b => this._bBoxTitle(b)) : '';
+                // ...and a box straddling a main OPT and its copy says its own
+                const loop = !fars.has(box.id) && this.boxLoopMixed(box)
+                    ? this.boxLoopText(box, list, b => this._bBoxTitle(b)) : '';
                 const title = this._bBoxTitle(box) + (near ? ` · loop of ${this._bBoxTitle(near)}` : '')
                     + (loop ? ` · ${loop}` : '');
                 const fiber = this._bBoxFiberParts(box);

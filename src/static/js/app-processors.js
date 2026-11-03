@@ -1646,6 +1646,11 @@ class _Processors {
         // ports come out of it, and it is the one that decides what else will
         // go on the card.
         if (cvt.trunksIn > 1) info.textContent += `, ${cvt.trunksIn} trunks in`;
+        // a box straddling a main OPT and its copy OPT feeding a mirror
+        // from its copy input (a backup says its loop below)
+        if (cvt.spansCopy && cvt.copyInputRole === 'mirror') {
+            info.textContent += ', its input on a copy OPT feeds a mirror screen';
+        }
         const backupOfId = cvt.backupOf
             || (card.redundancyPairing ? cvt.duplicateOf : null);
         if (cvt.beyondTrunks) {

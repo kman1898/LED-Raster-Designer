@@ -5341,7 +5341,9 @@
                 var own = owner();
                 var kept = (own && own.rec && own.rec.portCables) || {};
                 var socket = null;
-                for (var n = b.firstPort; n < b.firstPort + b.portCount && !socket; n++) {
+                var nums = b.portNumbers || [];
+                for (var i = 0; i < nums.length && !socket; i++) {
+                    var n = nums[i];
                     if (!a.dataPortCable(c.id, n) && !kept[String(n)]) socket = n;
                 }
                 if (!socket) throw new Error('every port on ' + (b.displayTitle || 'the box') + ' has a cable');

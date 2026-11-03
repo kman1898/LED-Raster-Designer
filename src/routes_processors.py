@@ -1181,6 +1181,9 @@ def update_cvt(processor_id, cvt_id):
         # OPT as its copy (copyOf), a Backup as its backup (backupOf). The
         # sockets it delivered move with it, so its port cables go.
         mate = cvt.pop('backupOf', None) or cvt.pop('copyOf', None)
+        # A box straddling a main OPT and its copy (spansCopy) keeps its
+        # main sockets, and their cables, whichever its copy input carries.
+        straddle = bool(rbox.get('spansCopy'))
         if role == 'mirror':
             cvt['copyRole'] = 'mirror'
             if mate:
@@ -1189,7 +1192,8 @@ def update_cvt(processor_id, cvt_id):
             cvt.pop('copyRole', None)
             if mate:
                 cvt['backupOf'] = mate
-        cvt.pop('portCables', None)
+        if not straddle:
+            cvt.pop('portCables', None)
         changed['copyRole'] = role
     for key in ('snakes', 'portCables'):
         if key in data:

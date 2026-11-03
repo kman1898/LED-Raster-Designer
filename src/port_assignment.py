@@ -2423,7 +2423,8 @@ def _pin_block(state, layer_id, card_id, start, size):
 
 
 def place_overflow(processors, screens, state, layer_id, card_id,
-                   first_port=None, last_port=None, last_index=None):
+                   first_port=None, last_port=None, last_index=None,
+                   box_id=None):
     """Put a screen's unattached ports onto a card, in order.
 
     This is the fill a card or box drop runs - a screen with nothing on a
@@ -2435,8 +2436,10 @@ def place_overflow(processors, screens, state, layer_id, card_id,
     either; it is only the app that must not do it unasked.
 
     `first_port`/`last_port` bound the fill to one window of the card: a
-    breakout box is a contiguous span of card ports, so "fill onto that box"
-    is this fill with the box's span as the window.
+    breakout box is a span of card ports, so "fill onto that box" is this
+    fill with the box's span as the window. `box_id` keeps the fill to that
+    box's own sockets inside it: a CVT4K-S on two 10-port OPTs carries 1-8
+    and 11-18, and the unit's own 9 and 10 between are not the box's.
 
     `last_index` bounds the fill to the screen's ports up to that one
     (0-based, the port under the cursor): the dock's whole-unit drop lands
@@ -2499,8 +2502,10 @@ def place_overflow(processors, screens, state, layer_id, card_id,
     top = max(sockets) if sockets else 0
     lo = max(1, int(first_port)) if first_port is not None else 1
     hi = min(top, int(last_port)) if last_port is not None else top
+    held = card.get('boxSockets') or {}
+    mine = set(held[box_id]) if box_id in held else None
     free = [n for n in sockets
-            if lo <= n <= hi
+            if lo <= n <= hi and (mine is None or n in mine)
             and (card['cardId'], n) not in taken and n not in roles]
     if not free:
         if first_port is not None or last_port is not None:

@@ -454,7 +454,9 @@ class _MirrorScreens {
             + 'screen to make it the copy.'],
          ['backup', 'Backup', 'Backs up the output this box copies.']]
             .forEach(([role, text, tip]) => {
-                const lit = (cvt.copyRole || 'backup') === role;
+                // a box straddling a main OPT and its copy picks for its
+                // copy input (copyInputRole)
+                const lit = (cvt.copyInputRole || cvt.copyRole || 'backup') === role;
                 const seg = document.createElement('button');
                 seg.type = 'button';
                 seg.className = 'hw-pop-seg-btn' + (lit ? ' hw-pop-seg-on' : '');
@@ -543,9 +545,11 @@ class _MirrorScreens {
         (card.cvts || []).forEach(cvt => {
             if (cvt.copyRole || cvt.beyondTrunks || !cvt.portCount) return;
             const numbers = [];
-            for (let n = cvt.firstPort; n < cvt.firstPort + cvt.portCount; n++) {
+            const own = cvt.portNumbers
+                || Array.from({ length: cvt.portCount }, (_, i) => cvt.firstPort + i);
+            own.forEach(n => {
                 if (n <= limit && byNumber.has(n) && byNumber.get(n).plug) numbers.push(n);
-            }
+            });
             if (!numbers.length) return;
             const atCard = numbers.filter(n => byNumber.get(n).plug === 'card');
             const now = atCard.length === numbers.length ? 'card'

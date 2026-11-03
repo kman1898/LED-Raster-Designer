@@ -692,8 +692,15 @@ class _DockCableSheets {
                 (on) => this._setCableTick(owner, n, on)));
             tr.appendChild(td0);
             const td1 = document.createElement('td');
-            td1.textContent = port.label
-                ? `${spoken} · ${port.label}` : String(spoken);
+            // A port-by-port backup's socket: its silkscreen, then the port
+            // it backs up ("1 · backs up port 11 on CVT4K-S A-B").
+            const backs = port.loopOf
+                ? this._dockLoopBackedName((this._dockFindCard(owner.cardId) || {}).card, port)
+                : '';
+            td1.textContent = (backs
+                ? `${spoken} · backs up ${port.label || backs}`
+                : (port.label ? `${spoken} · ${port.label}` : String(spoken)))
+                + (port.selfBackup ? ` · backup on ${port.selfBackup}` : '');
             tr.appendChild(td1);
             const td2 = document.createElement('td');
             who(td2, tr, whoOf(owner, n) || (occupied ? '' : 'free'),

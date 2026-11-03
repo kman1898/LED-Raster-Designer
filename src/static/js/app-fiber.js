@@ -325,9 +325,10 @@ class _Fiber {
     }
 
     // A backup box's sockets as the tray and its sheet show them. Port by
-    // port, each is numbered with the card port it backs up (owner,
-    // 2026-11-02), `loopOf` saying which primary box (null: the unit's own
-    // port) and its own number for it. `mainId` keeps the sockets backing
+    // port, each reads the box's own silkscreen number (the standing
+    // silkscreen rule wins, owner 2026-11-02: a CVT10 behind ports 11-16
+    // shows 1-6), `loopOf` saying which primary box (null: the unit's own
+    // port) and that box's own number for the port it backs up. `mainId` keeps the sockets backing
     // one primary box (null: the unit's own ports); left out, all of them.
     // A one-to-one pair keeps its sockets as they are. Any other box: its
     // ports.
@@ -341,7 +342,7 @@ class _Fiber {
             if (mainId !== undefined && (m.boxId || null) !== mainId) continue;
             const port = byNumber.get(m.number);
             if (!port) continue;
-            out.push(!mixed ? port : { ...port, localNumber: m.number,
+            out.push(!mixed ? port : { ...port, localNumber: m.socket,
                 loopOf: { boxId: m.boxId || null, local: m.local, socket: m.socket } });
         }
         return out;
@@ -349,19 +350,53 @@ class _Fiber {
 
     // The port-by-port backups behind one primary box (`near` null: the
     // unit's own ports), each with the sockets backing it, in the card's
-    // order: [{ box, ports }]. A one-to-one partner is not one of them.
+    // order: [{ box, ports }] - the box's own loop first where it
+    // straddles a main OPT and its copy (boxStraddles). A one-to-one
+    // partner is not one of them.
     boxLoopSlices(near, cvts) {
         const id = near ? near.id : null;
-        return (cvts || []).filter(b => b !== near && (b.backsUpPorts || []).length
+        const self = near && (near.backsUpPorts || []).some(m => m.boxId === near.id)
+            ? [{ box: near, ports: this.boxLoopPorts(near, near.id) }] : [];
+        return self.concat((cvts || []).filter(b => b !== near && (b.backsUpPorts || []).length
                 && (this.boxLoopMixed(b) || !near)
                 && b.backsUpPorts.some(m => (m.boxId || null) === id))
-            .map(b => ({ box: b, ports: this.boxLoopPorts(b, id) }));
+            .map(b => ({ box: b, ports: this.boxLoopPorts(b, id) })));
+    }
+
+    // A box STRADDLING a mode's main OPTs and its copy OPTs set to Backup
+    // (owner, 2026-11-02: a CVT4K-S on OPT 1-2 of a VX1000 carries ports
+    // 1-8 on outputs 1-8 and their backup on 9-16): its sockets after its
+    // own ports back up card ports (`backNumbers`).
+    boxStraddles(box) {
+        return !!(box && (box.backNumbers || []).length);
+    }
+
+    // The ports a box itself DELIVERS (its portNumbers), without the ones
+    // a straddling box only backs up.
+    boxMainPorts(box) {
+        const ports = (box && box.ports) || [];
+        if (!this.boxStraddles(box)) return ports;
+        const mine = new Set(box.portNumbers || []);
+        return ports.filter(p => mine.has(p.number));
+    }
+
+    // A box's sockets for its cable sheet: its ports, and a straddling
+    // box's backup sockets too - each by its silkscreen and the port it
+    // backs up - except where it backs up its own port, whose row says so
+    // instead (`selfBackup`, the socket), the one port being one run.
+    boxSheetPorts(box) {
+        if (!this.boxStraddles(box)) return this.boxLoopPorts(box);
+        const self = new Map(box.backsUpPorts.filter(m => m.boxId === box.id)
+            .map(m => [m.number, m.socket]));
+        return this.boxMainPorts(box)
+            .map(p => (self.has(p.number) ? { ...p, selfBackup: self.get(p.number) } : p))
+            .concat(this.boxLoopPorts(box).filter(p => !self.has(p.number)));
     }
 
     // What a port-by-port backup backs up, per primary box: "loop of CVT10
-    // A 1-10, CVT10 B 1-6 as 11-16" - the primary's own numbers, and the
-    // numbers this box shows for them where they differ. '' on any other
-    // box. `titleOf` names a box the way the reader's sheet does.
+    // A 1-10, CVT10 B 1-6 on sockets 11-16" - the primary's own numbers,
+    // and this box's own sockets for them where they differ. '' on any
+    // other box. `titleOf` names a box the way the reader's sheet does.
     boxLoopText(box, cvts, titleOf) {
         const own = (box && box.backsUpPorts || []).some(m => !m.boxId);
         if (!this.boxLoopMixed(box) && !own) return '';
@@ -370,14 +405,14 @@ class _Fiber {
             if (box.backupOf && m.boxId) continue;
             if (!groups.has(m.boxId)) groups.set(m.boxId, { locals: [], numbers: [] });
             groups.get(m.boxId).locals.push(m.local);
-            groups.get(m.boxId).numbers.push(m.number);
+            groups.get(m.boxId).numbers.push(m.socket);
         }
         const parts = [...groups].map(([id, g]) => {
             const main = (cvts || []).find(b => b.id === id);
             const mine = this.fiberStrandRangeText(g.locals);
             const shown = this.fiberStrandRangeText(g.numbers);
             return `${id ? (main ? titleOf(main) : 'its primary') : 'own ports'} ${mine}`
-                + (shown !== mine ? ` as ${shown}` : '');
+                + (shown !== mine ? ` on sockets ${shown}` : '');
         });
         return `loop of ${parts.join(', ')}`;
     }

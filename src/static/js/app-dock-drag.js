@@ -1331,8 +1331,11 @@ class _DockDrag {
             this._dockSay(plan.message);
             return;
         }
+        // ...and the box itself: a box on two 10-port OPTs is 1-8 and
+        // 11-18, so the span alone would take in the unit's own 9 and 10.
         const window_ = payload.type === 'box'
-            ? { firstPort: payload.first, lastPort: payload.last } : {};
+            ? { firstPort: payload.first, lastPort: payload.last,
+                boxId: payload.boxId } : {};
         return this._takeOffer(Object.assign({
             action: 'place-overflow', layerId: scr.layerId,
             cardId: payload.cardId,
