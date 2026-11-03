@@ -1276,7 +1276,14 @@ class _HardwareDock {
         // slot, "Card 2" (owner, 2026-10-29: "Card 1, 2, 3 etc instead of
         // H_16"); the model is in its ⚙ and on the binder's Cards table,
         // and the name typed on it is in the field beside.
-        const slotTitle = this.cardSlotTitle(proc, card);
+        // ONE NAME PER CARD (beta.4 QA): a card somebody named goes by that
+        // name everywhere, so its header reads the slot it sits in - "Slot
+        // 2", the gear rows' word - never "Card 2" beside a field reading
+        // "Card 3".
+        const slotTitle = this.cardTypedName(proc, card)
+            ? (this.cardSlotTitle(proc, card)
+                .replace(/^Card /, 'Slot ') || '')
+            : this.cardSlotTitle(proc, card);
         const model = slotTitle || (card.unitTitle
             ? `${card.unitTitle} · ${card.deviceName}` : card.deviceName);
         const head = this._dockBuildHandle(

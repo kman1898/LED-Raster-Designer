@@ -345,3 +345,34 @@ def test_the_pull_page_hardware_lists_every_card_with_its_model(sheets):
             if w.startswith('H9 Card '):
                 rows.append((w, t[i + 1] if i + 1 < len(t) else None))
     assert rows == [('H9 Card 1', MODEL), ('H9 Card 2', MODEL), ('H9 Card 4', MODEL)], rows
+
+
+def test_a_named_card_goes_by_its_name_alone_in_the_tray(page):
+    """Beta.4 QA (a real show): the card in slot 2, named "Card 3", read
+    "Card 2 (backs up Card 1)" in its header beside a field reading "Card
+    3" - one card, two names. A named card's header reads the slot it sits
+    in, the gear rows' word, and the name is the field's alone. Runs last:
+    it names a card and puts the name back."""
+    pg, ids, _errors = page
+    pg.evaluate("""async (ids) => {
+        await fetch(`/api/processors/${ids.pid}/cards/${ids.c2}`, {method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({name: 'Card 3'})});
+        await window.app.refreshProcessors();
+    }""", ids)
+    try:
+        quiet(pg)
+        out = pg.evaluate("""(cid) => {
+            const head = document.querySelector(`[data-hwdock="card-${cid}"]`);
+            return {label: head.querySelector('.hw-dock-unit-name').textContent,
+                    field: head.querySelector('input.hw-dock-name').value};
+        }""", ids['c2'])
+        assert out == {'label': 'Slot 2 (backs up Card 1)', 'field': 'Card 3'}, out
+        assert pg.evaluate(TRAY_JS, ids)['labels'][0] == 'Card 1'
+    finally:
+        pg.evaluate("""async (ids) => {
+            await fetch(`/api/processors/${ids.pid}/cards/${ids.c2}`, {method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({name: ''})});
+            await window.app.refreshProcessors();
+        }""", ids)
