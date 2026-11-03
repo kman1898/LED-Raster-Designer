@@ -4091,6 +4091,363 @@ class _Power {
         return { steps, touched };
     }
 
+    // ── A wall that shrinks: its drawn circuits (the owner, 2026-11-02) ──
+    //
+    // The data side came first (app-merge-runs.js trimPortsOffWall). Power
+    // had the same fault: a circuit taken over by hand across columns 0-9
+    // still listed columns 6-9 once the wall was cut to 6 columns, and a
+    // custom circuit drawn wholly on columns 6-9 stayed a circuit with no
+    // cabinets, listed and counted. The ruling, "trim, leave the hole":
+    //   trim       every drawn circuit (custom paths, a taken-over circuit's
+    //              path, a drawing left from a custom spell) drops the
+    //              cabinets that fell off the wall. A `branch` mark (the
+    //              head of a shared take-over's next run) passes to the
+    //              run's first cabinet still on the wall.
+    //   the hole   a circuit left with none is removed and every other
+    //              circuit KEEPS its number: unlike a port, nothing closes
+    //              up. On a custom screen the circuit comes off its multi
+    //              the way Unplug circuit takes it off (its cable, its
+    //              label, its share entries; its multi's home run when it
+    //              was the multi's only circuit), and every other circuit
+    //              keeps its distro, its multi number and its tail
+    //              (_removeCircuitsKeepFeeds). On an automatic screen a
+    //              taken-over circuit left with none is let go the way
+    //              returnRunToAuto lets it go, its cable with it, and the
+    //              walk deals the wall as it does after any shrink.
+    //   shares     a custom 2fer or 3fer keeps the legs that still have
+    //              cabinets; with one leg left it is a plain circuit, with
+    //              none it goes. A circuit whose FIRST leg went is read by
+    //              its next one, so its typed label and cable follow.
+    // The pass rides trimPortsOffWall: the same hooks (updateLayers, the
+    // load repair, the `_projectOpening` hold), the same off-the-wall test
+    // (`onWall`, a step past the grid of the screen it names, its own or a
+    // group peer's), the same locked-screen skip and one toast. Returns
+    // { layers: the screens it wrote, notes: the toast's sentences }.
+    _trimCircuitsOffWall({ load = false, onWall } = {}) {
+        const out = { layers: [], notes: [] };
+        if (!this.project || !Array.isArray(this.project.layers)
+                || typeof onWall !== 'function') {
+            return out;
+        }
+        const plans = [];
+        this.project.layers.forEach(owner => {
+            if (!owner || (owner.type || 'screen') !== 'screen') return;
+            const old = owner.powerCustomPaths;
+            if (!old || typeof old !== 'object') return;
+            const trimmed = {};
+            let cut = 0;
+            Object.keys(old).forEach(k => {
+                const path = old[k];
+                if (!Array.isArray(path)) return;
+                const kept = this._circuitStepsOnWall(owner, path, onWall);
+                if (kept.length === path.length) return;
+                trimmed[k] = kept;
+                cut += path.length - kept.length;
+            });
+            if (!cut) return;
+            const custom = this.isCustomPower(owner);
+            const ovr = custom ? [] : this.getOverrideNums(owner, 'power');
+            const live = n => custom || ovr.includes(n);
+            const emptied = Object.keys(trimmed).map(k => parseInt(k, 10))
+                .filter(n => Number.isFinite(n) && live(n) && trimmed[n].length === 0)
+                .sort((a, b) => a - b);
+            if (this._layerLocked(owner)) {
+                sendClientLog('circuits_off_wall_locked',
+                    { layerId: owner.id, cut, circuits: emptied });
+                return;
+            }
+            plans.push({ owner, trimmed, emptied, cut, custom });
+        });
+        if (!plans.length) return out;
+
+        const pullBefore = typeof this._pullLiveRowKeys === 'function'
+            ? this._pullLiveRowKeys() : null;
+        const touched = new Set();
+        plans.forEach(plan => {
+            const r = plan.custom
+                ? this._trimCustomCircuits(plan) : this._trimTakenOverCircuits(plan);
+            r.touched.forEach(l => touched.add(l));
+            const name = plan.owner.name || 'Screen';
+            const said = [];
+            if (r.removed.length) {
+                const one = r.removed.length === 1;
+                said.push(`circuit${one ? '' : 's'} ${r.removed.join(', ')} `
+                    + (load ? 'had no cabinets on the wall'
+                        : 'had only cabinets that came off the wall')
+                    + `, so ${one ? 'it is' : 'they are'} gone`
+                    + (plan.custom ? ' and the other circuits keep their numbers.' : '.'));
+            }
+            if (r.unplugged.length) {
+                const one = r.unplugged.length === 1;
+                said.push(`${r.unplugged.join(', ')} ${one ? 'is' : 'are'} unplugged `
+                    + `from ${one ? 'its' : 'their'} distro.`);
+            }
+            r.shares.forEach(s => {
+                said.push(`Circuit ${s.label} lost ${s.lost === 1 ? 'a leg' : 'legs'} `
+                    + 'that came off the wall'
+                    + (s.ways >= 2 ? ` and is a ${s.ways}fer now.` : ' and is one circuit now.'));
+            });
+            if (said.length) out.notes.push(`${name}: ${said.join(' ')}`);
+            sendClientLog('circuits_off_wall_trimmed', {
+                layerId: plan.owner.id, cut: plan.cut, removed: r.removedNums,
+                shares: r.shares.map(s => ({ num: s.num, ways: s.ways })), load: !!load,
+            });
+        });
+        if (pullBefore && typeof this._dropPullEditsGoneWith === 'function') {
+            this._dropPullEditsGoneWith(pullBefore);
+        }
+        this._circuitTailCache = null;
+        // A show being opened takes its first history entry afresh, which
+        // forgets a moved multi hold; its distros are written here instead.
+        if (load && this._multiHoldsDirty && typeof this._persistDistros === 'function') {
+            this._persistDistros();
+        }
+        out.layers = [...touched];
+        return out;
+    }
+
+    // `path` without the steps off the wall. A dropped step that started a
+    // run (`branch`, a shared take-over) hands the mark to the first step
+    // of that run still on the wall, so each run still starts where it did.
+    // The same array when nothing is dropped.
+    _circuitStepsOnWall(owner, path, onWall) {
+        if (path.every(e => onWall(owner, e))) return path;
+        const kept = [];
+        let pending = false;
+        path.forEach((e, i) => {
+            if (i > 0 && e && e.branch) pending = true;
+            if (!onWall(owner, e)) return;
+            kept.push(pending && kept.length && !e.branch ? { ...e, branch: true } : e);
+            pending = false;
+        });
+        return kept;
+    }
+
+    // An automatic screen: the trimmed paths are written, and a taken-over
+    // circuit left with no cabinets is let go (returnRunToAuto's way) with
+    // its cable. A drawing left from a custom spell that lost everything
+    // simply goes.
+    _trimTakenOverCircuits({ owner, trimmed, emptied }) {
+        const paths = owner.powerCustomPaths;
+        const removed = emptied.map(n => this.getPowerCircuitLabel(owner, n));
+        Object.keys(trimmed).forEach(k => {
+            if (trimmed[k].length) paths[k] = trimmed[k];
+            else delete paths[k];
+        });
+        emptied.forEach(n => {
+            this._dropRunOverride(owner, 'power', n);
+            this._forgetRunCable(owner, 'power', n);
+        });
+        this._circuitTailCache = null;
+        return { touched: [owner], removed, removedNums: emptied, unplugged: [], shares: [] };
+    }
+
+    // A custom screen: partial trims written, shares that lost a leg kept
+    // with the legs left, and every circuit left with no cabinets removed
+    // with its feed (_removeCircuitsKeepFeeds).
+    _trimCustomCircuits({ owner, trimmed, emptied }) {
+        const paths = owner.powerCustomPaths;
+        const emptySet = new Set(emptied);
+        const covered = new Set();
+        const whole = [];
+        const legs = [];
+        // Read before anything moves: the circuits as the wall shows them.
+        this._circuitTailCache = null;
+        this.screenCircuits(owner).forEach(c => {
+            const runs = (c.runIds || [c.num]).map(n => parseInt(n, 10));
+            runs.forEach(n => covered.add(n));
+            const gone = runs.filter(n => emptySet.has(n));
+            if (!gone.length) return;
+            const label = this.getPowerCircuitLabel(owner, c.num);
+            if (gone.length === runs.length) whole.push({ num: c.num, runs, label });
+            else legs.push({ num: c.num, runs, gone, label });
+        });
+        // Paths that keep cabinets take their trim now; an emptied run of a
+        // circuit keeps its steps until that circuit is taken off below.
+        Object.keys(trimmed).forEach(k => {
+            const n = parseInt(k, 10);
+            if (trimmed[k].length) { paths[k] = trimmed[k]; return; }
+            if (!Number.isFinite(n) || !covered.has(n)) delete paths[k];
+        });
+        const shares = [];
+        legs.forEach(g => {
+            const left = g.runs.filter(n => !g.gone.includes(n));
+            // the share keeps its other legs; with one left it dissolves
+            this._wipeSplitterManualFor(owner, g.gone);
+            g.gone.forEach(n => {
+                delete paths[n];
+                if (n !== g.num && owner.powerLabelOverrides) delete owner.powerLabelOverrides[n];
+                if (n !== g.num) this._forgetRunCable(owner, 'power', n);
+            });
+            // the circuit is read by its first leg now
+            const head = left[0];
+            if (head !== g.num) {
+                ['powerLabelOverrides', 'powerCircuitCables'].forEach(key => {
+                    const store = owner[key];
+                    if (!store || store[g.num] === undefined) return;
+                    if (store[head] === undefined) store[head] = store[g.num];
+                    delete store[g.num];
+                });
+            }
+            shares.push({ num: head, label: g.label, ways: left.length, lost: g.gone.length });
+        });
+        let touched = [owner];
+        let unplugged = [];
+        if (whole.length) {
+            const r = this._removeCircuitsKeepFeeds(owner, whole);
+            touched = r.touched;
+            unplugged = whole.filter(g => r.unplugged.includes(g.num)).map(g => g.label);
+        }
+        const ed = this._overrideEditing;
+        if (ed && ed.kind === 'power' && ed.layerId === owner.id && emptySet.has(ed.num)) {
+            this._overrideEditing = null;
+        }
+        this._circuitTailCache = null;
+        return {
+            touched, removed: whole.map(g => g.label), removedNums: whole.map(g => g.num),
+            unplugged, shares,
+        };
+    }
+
+    // Take custom circuits `gone` ([{ num, runs }], still drawn) off
+    // `layer` for good, every other circuit kept on its feed. A circuit's
+    // multi is read by its PLACE among the screen's circuits, so a circuit
+    // taken out moves every later one a place down, and the box grid (six
+    // to a soca) would then regroup them: the first circuit of the next
+    // multi slid into this one. So the multis are rebuilt from what each
+    // one held: a multi keeps the circuits it had (less the gone ones), its
+    // distro, its number (held as a pin, as Unplug circuit holds the parts
+    // it leaves), its home run, its name and each circuit's tail - so S1
+    // feeding 1-6 on tails 1-6 reads S1-1, S1-3 ... S1-6 with tail 2 free.
+    // Where the grid still cuts a multi in two, both parts sit on the same
+    // box (the shared-box shape Unplug circuit leaves), each circuit on its
+    // tail; the home run stays with the first part. A multi left with no
+    // circuit goes with its programming and home run. Unplugged multis next
+    // to each other are not kept apart (the leftover rule a clear runs,
+    // _socaClearSplitPoints): they fall back onto the box grid. Every
+    // other screen on a shared box holds its tails first, as every split
+    // does (_materializeSocaBox). Unrecorded: the caller's entry carries
+    // it. Returns { touched: layers written, unplugged: the gone circuit
+    // numbers that were on a distro }.
+    _removeCircuitsKeepFeeds(layer, gone) {
+        const touched = new Set([layer]);
+        const goneNums = new Set(gone.map(g => g.num));
+        this._circuitTailCache = null;
+        const before = this.screenCircuits(layer);
+        const segs = this._socaSegments(layer, before.length);
+        let naming = this._powerNaming(layer);
+        const assign = layer.powerSocaDistro || {};
+        const olds = segs.map(s => {
+            const circ = before.slice(s.start - 1, s.end).map(c => c.num);
+            return { s, circ, keep: circ.filter(n => !goneNums.has(n)),
+                     fed: !!assign[s.index] };
+        });
+        const firstHit = olds.findIndex(o => o.keep.length !== o.circ.length);
+        olds.forEach((o, i) => {
+            if (firstHit < 0 || i < firstHit || !o.fed) return;
+            const rec = naming.socas.get(o.s.index);
+            if (!rec) return;
+            this._materializeSocaBox(rec.distroId, rec.number, layer, o.s.index)
+                .forEach(l => touched.add(l));
+        });
+        this._circuitTailCache = null;
+        naming = this._powerNaming(layer);
+        const unplugged = [];
+        olds.forEach(o => {
+            const rec = naming.socas.get(o.s.index);
+            o.distroId = assign[o.s.index] || null;
+            o.number = rec ? parseInt(rec.number, 10) : NaN;
+            o.tails = new Map();
+            if (rec && Array.isArray(rec.positions) && rec.positions.length === o.circ.length) {
+                o.circ.forEach((n, k) => o.tails.set(n, rec.positions[k]));
+            }
+            if (o.fed) o.circ.forEach(n => { if (goneNums.has(n)) unplugged.push(n); });
+        });
+        const FIELDS = ['powerSocaDistro', 'powerSocaLengths', 'powerSocaPhasePos',
+                        'powerSocaPhaseOffset', 'powerSocaNames', 'powerSocaNumber'];
+        const snap = {};
+        FIELDS.forEach(f => { snap[f] = { ...(layer[f] || {}) }; });
+
+        // The circuits go: paths, typed labels and cables, share entries -
+        // the entries first, while the drawn numbers still read as custom.
+        this._wipeSplitterManualFor(layer, gone.flatMap(g => g.runs));
+        gone.forEach(g => {
+            [g.num, ...g.runs].forEach(n => {
+                if (layer.powerCustomPaths) delete layer.powerCustomPaths[n];
+                if (layer.powerLabelOverrides) delete layer.powerLabelOverrides[n];
+                this._forgetRunCable(layer, 'power', n);
+            });
+        });
+        this._circuitTailCache = null;
+
+        // The multis again, each from what it held.
+        if (firstHit < 0) return { touched: [...touched], unplugged };
+        const size = this.socaBoxSize(layer);
+        const groups = [];
+        let ord = 0;
+        olds.forEach(o => {
+            if (!o.keep.length) return;
+            groups.push({ o, start: ord + 1, end: ord + o.keep.length });
+            ord += o.keep.length;
+        });
+        const points = [];
+        for (let i = 0; i + 1 < groups.length; i++) {
+            const a = groups[i], b = groups[i + 1];
+            if (a.end % size === 0) continue;
+            if (a.o.fed || b.o.fed || a.o.s.userEnd) points.push(a.end);
+        }
+        if (Array.isArray(layer.powerSocaSplits) || points.length) {
+            layer.powerSocaSplits = points;
+        }
+        const nums = groups.flatMap(g => g.o.keep);
+        const groupAt = [];
+        groups.forEach((g, gi) => { for (let i = g.start; i <= g.end; i++) groupAt[i] = gi; });
+        const next = {};
+        FIELDS.forEach(f => {
+            next[f] = {};
+            Object.keys(snap[f]).forEach(k => {
+                // not a multi index, so not ours to move (_spliceSocaStores)
+                if (!Number.isFinite(parseInt(k, 10))) next[f][k] = snap[f][k];
+            });
+        });
+        const firstPart = new Map();
+        this._socaSegments(layer, ord).forEach(ns => {
+            const g = groups[groupAt[ns.start]];
+            if (!g) return;
+            const o = g.o;
+            const oi = o.s.index;
+            const first = !firstPart.has(oi);
+            if (first) firstPart.set(oi, ns.index);
+            const carry = (f) => {
+                if (snap[f][oi] !== undefined) next[f][ns.index] = snap[f][oi];
+            };
+            if (first && ns.start === g.start && ns.end === g.end
+                    && o.keep.length === o.circ.length) {
+                FIELDS.forEach(carry);
+                return;
+            }
+            if (first) carry('powerSocaLengths');
+            carry('powerSocaNames');
+            if (!o.fed) return;
+            next.powerSocaDistro[ns.index] = o.distroId;
+            if (Number.isFinite(o.number) && o.number >= 1) {
+                next.powerSocaNumber[ns.index] = o.number;
+            }
+            const pos = nums.slice(ns.start - 1, ns.end).map(n => o.tails.get(n));
+            if (pos.every(p => Number.isInteger(p) && p >= 1) && new Set(pos).size === pos.length) {
+                next.powerSocaPhasePos[ns.index] = pos;
+            }
+        });
+        if (typeof this._rekeyMultiHolds === 'function') {
+            this._rekeyMultiHolds(layer, n => (firstPart.has(n) ? firstPart.get(n) : null));
+        }
+        FIELDS.forEach(f => {
+            if (layer[f] !== undefined || Object.keys(next[f]).length) layer[f] = next[f];
+        });
+        this._circuitTailCache = null;
+        return { touched: [...touched], unplugged };
+    }
+
     // Share wall circuits `refs` as ONE circuit through a splitter - the
     // single-run Share across the seam: adoption first, then the merge the
     // way mergeSplitterCircuits writes it (custom mode honors a share past

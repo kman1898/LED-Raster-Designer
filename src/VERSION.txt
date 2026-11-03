@@ -553,6 +553,15 @@ FIXES
   takes the number right after the stack its first panel sits under.
   Which panels share a 2fer or 3fer doesn't change, and circuits you've
   already drawn keep their numbers.
+- FIX: Making a screen smaller takes the panels that came off the wall out
+  of every power circuit you drew or took over too. A circuit left with
+  no panels is removed and comes off its distro, with its cable length,
+  and the other circuits keep their numbers and stay where they are on
+  their multis. A 2fer or 3fer keeps the legs that are still on the
+  wall. Before, a circuit could sit wholly off the wall and still be
+  listed and counted in Circuits Required. Circuits Required now counts
+  the circuits drawn, so a gap a cleared circuit leaves doesn't count
+  either. A show saved that way is fixed when you open it.
 
 v1.5.3 - October 21, 2026
 ----------------------------
