@@ -1537,9 +1537,18 @@ def _fiber_link_strands(boxes, cables, box_id, key, cable_id, strands):
         cable = cables[cable_id]
         strands = catalog.fiber_next_free(cable, taken, need)
         if strands is None:
-            return None, (f'{cable.get("name") or "That cable"} has no '
-                          f'{need} free strand{"" if need == 1 else "s"} '
-                          f'left.')
+            # Said plainly (beta.4 QA: "TAC A has no 2 free strands left."
+            # read oddly): a cable with nothing left is full; one with a
+            # strand left but not the two this link needs says both.
+            name = cable.get('name') or 'That cable'
+            free = sum(1 for s in range(
+                1, catalog.fiber_cable_strand_count(cable) + 1)
+                if (cable_id, s) not in taken)
+            if not free:
+                return None, f'{name} is full: every strand is in use.'
+            return None, (f'{name} has {free} free strand'
+                          f'{"" if free == 1 else "s"} and this link needs '
+                          f'{need}.')
     why = catalog.check_fiber_link(boxes, cables, box_id, key, cable_id,
                                    strands)
     return (None, why) if why else (list(strands), None)
