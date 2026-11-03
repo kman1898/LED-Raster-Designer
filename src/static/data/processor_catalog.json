@@ -652,6 +652,8 @@
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 16}]},
       "capAtTrunk": true,
       "singleInput": {"ports": 8},
+      "inputOutputs": 8,
+      "inputOutputsNote": "Owner, 2026-11-03: \"the cvt 1-8 is locked to opt 1 always\". Outputs 1-8 belong to input 1 and input 2 always starts at output 9, whatever processor feeds it: on 4-port OPTs the main OPT is outputs 1-4 and the copy or backup OPT 9-12 (5-8 empty), on 6-port OPTs 1-6 and 9-14.",
       "singleInputNote": "Owner, 2026-09-26: \"it is technically possible on a UHD Junior that has four optical ports that I use for CVT 4K's. And each one only uses one optical port.\" On ONE OPT the box carries only that OPT's share - 8 of its 16 outputs, fewer where the trunk carries fewer - so on a UHD Jr OPT 1 = Ethernet 1-8, OPT 2 = 9-16, OPT 3/4 copies of them. Set per box with a switch on the box (inputs: 1).",
       "note": "16x Neutrik etherCON out on 2 OPT in. Its four LC connectors are TWO optical ports - LC is duplex - and counting them as four would double the box. Two OPTs at 8 per trunk is exactly its 16, so behind an H_4xfiber it delivers the lot; one box also takes both OPTs of an H_16xRJ45+2xfiber and delivers all 16 there, where CVT10s need two boxes."
     },

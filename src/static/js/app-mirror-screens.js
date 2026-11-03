@@ -270,10 +270,49 @@ class _MirrorScreens {
         }
         const source = sources.find(s => !screens.some(m =>
             m.mirrorOf === s.layerId)) || sources[0];
+        // A COPY NEEDS SOMEWHERE TO PLUG IN: every socket the source takes
+        // on this card needs a copy socket on a box set to Mirror. An MX40
+        // Pro with the box on OPT 3 at Backup and OPT 4 at Mirror feeds no
+        // mirror of a screen on OPT 1 - refused here, out loud, the way the
+        // other mirror refusals are, instead of making a mirror whose ports
+        // have nowhere to go.
+        const why = this._copyDropUnfed(unit.cardId, own(source)
+            .filter(p => p.cardId === unit.cardId).map(p => Number(p.port)));
+        if (why) {
+            return { ok: false,
+                     message: `${name} can't mirror ${source.name}: ${why}.` };
+        }
         const nums = [];
         for (let n = 1; n <= (target.required || 0); n++) nums.push(n);
         return { ok: true, sourceId: source.layerId, sourceName: source.name,
                  nums, text: `Copy of ${source.name}` };
+    }
+
+    // Why the copies of these card sockets give a mirror nowhere to plug
+    // in, or '' where each has a copy socket (a resolved port whose
+    // mirrorOf is that socket). Said by what is missing on the copy OPT
+    // that copies the socket's OPT (the resolved copyTrunkList), the words
+    // the server's mirror-unfed issue uses (port_assignment
+    // _mirror_missing).
+    _copyDropUnfed(cardId, sockets) {
+        const found = typeof this._dockFindCard === 'function'
+            ? this._dockFindCard(cardId) : null;
+        const card = found && found.card;
+        if (!card) return '';
+        const copied = new Set((card.ports || []).filter(p => p.mirrorOf)
+            .map(p => p.mirrorOf));
+        const port = sockets.find(n => !copied.has(n));
+        if (port == null) return '';
+        const per = card.portsPerTrunk || 0;
+        const block = per ? Math.floor((port - 1) / per) : 0;
+        const entry = (card.copyTrunkList || []).find(t => t && t.copiesTrunk === block);
+        if (!entry) return 'no copy output carries those ports';
+        if (!entry.boxId) return `${entry.trunkTitle} has no box (it copies ${entry.copiesTitle})`;
+        if (entry.role !== 'mirror') {
+            return `the box on ${entry.trunkTitle} is set to Backup. Set it to Mirror `
+                + 'to feed a mirror screen';
+        }
+        return `the box on ${entry.trunkTitle} has no socket copying those ports`;
     }
 
     // The release of a copy plan: the screen is set to mirror the source
@@ -324,24 +363,31 @@ class _MirrorScreens {
             ? null : sourceId;
         const typed = want === null ? null
             : (Number.isFinite(Number(want)) ? Number(want) : want);
-        return fetch(`/api/layer/${layer.id}?edited=1`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ dataMirrorOf: typed }),
-        })
-            .then(r => r.json().then(data => ({ ok: r.ok, data })))
+        const refused = (why) => {
+            why = why || 'That screen cannot be mirrored.';
+            if (typeof this._toast === 'function') {
+                this._toast(why, true, 6000);
+            }
+            sendClientLog('mirror_screen_refused',
+                          { layerId: layer.id, mirrorOf: typed, error: why });
+            return false;
+        };
+        // A refusal is an expected answer, so it is ASKED for first, on a
+        // 200 (routes_layers mirror_refusal_check): a 409 on the wire is
+        // logged by the browser as an error. The PUT's own 409 still
+        // guards a race between the two.
+        const check = typed === null ? Promise.resolve({ error: null })
+            : fetch(`/api/layer/${layer.id}/mirror-refusal?of=${encodeURIComponent(typed)}`)
+                .then(r => r.json()).catch(() => ({ error: null }));
+        return check.then(pre => (pre && pre.error
+            ? { ok: false, data: pre }
+            : fetch(`/api/layer/${layer.id}?edited=1`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ dataMirrorOf: typed }),
+            }).then(r => r.json().then(data => ({ ok: r.ok, data })))))
             .then(({ ok, data }) => {
-                if (!ok) {
-                    const why = (data && data.error)
-                        || 'That screen cannot be mirrored.';
-                    if (typeof this._toast === 'function') {
-                        this._toast(why, true, 6000);
-                    }
-                    sendClientLog('mirror_screen_refused',
-                                  { layerId: layer.id, mirrorOf: typed,
-                                    error: why });
-                    return false;
-                }
+                if (!ok) return refused(data && data.error);
                 if (typed === null) delete layer.dataMirrorOf;
                 else layer.dataMirrorOf = typed;
                 if (typed !== null && this.project && this.project.port_assignments

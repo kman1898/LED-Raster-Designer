@@ -480,3 +480,147 @@ def test_the_tray_draws_each_backup_as_its_primarys_loop_end(
                           'ceiling': ceiling}, totals
     finally:
         context.close()
+
+
+# ── the backup end on paper (QA, beta.4) ──────────────────────────────────
+#
+# A loop box's sockets carry the SAME card-wide numbers as the ports they
+# back up, so the main port's `backedBy` names the box (`cvtId`) and its own
+# socket (`localPort`) - the one link every paper reader follows, as it
+# follows a 1:1 partner or an OPT split. Before, only those wrote it, and
+# the pull sheet, the binder's BACKUP half and the processor sheet left the
+# loop box off: no EA row for it, no backup home runs.
+
+def _loop_links(card):
+    """{port: (backup box's OPTs, its own socket, loop)} for every port a
+    backup box backs up."""
+    title = {b['id']: b['trunkTitle'] for b in card['cvts']}
+    return {p['number']: (title.get(p['backedBy'].get('cvtId')),
+                          p['backedBy']['localPort'],
+                          p['backedBy'].get('loop'))
+            for p in card['ports'] if p.get('backedBy')}
+
+
+def test_a_loop_box_is_what_backs_the_ports_up(client):
+    pid, cid = rig(client, UHD_JR)
+    _fill(client, pid, cid, CVT10, {}, 2)
+    links = _loop_links(card_of(client, cid))
+    assert links == {**{n: ('OPT 3', n, True) for n in range(1, 9)},
+                     **{n: ('OPT 4', n - 8, True) for n in range(9, 17)}}
+    # no port is consumed as a return: the socket number is the main's
+    assert not [p for p in card_of(client, cid)['ports'] if p.get('backsUp')]
+
+
+def test_an_h4xfiber_in_backup_backs_up_on_its_opt_3_4_box(client):
+    pid, cid = rig(client, 'novastar-card-h-4xfiber', 'backup')
+    # one add in Backup brings its bound pair on OPT 3-4
+    add_box(client, pid, cid, CVT4K)
+    assert len(card_of(client, cid)['cvts']) == 2
+    links = _loop_links(card_of(client, cid))
+    assert links == {n: ('OPT 3-4', n, True) for n in range(1, 17)}
+    # Independent: the OPT 3-4 box carries ports of its own, backs nothing
+    set_mode(client, pid, cid, 'independent')
+    assert _loop_links(card_of(client, cid)) == {}
+
+
+def test_a_snake_on_a_backup_box_stays_on_it(client):
+    """The backup box's sockets share their numbers with the primary's, and
+    a snake made of them is the backup's loom: never re-homed onto the box
+    that delivers the port."""
+    pid, cid = rig(client, UHD_JR)
+    _fill(client, pid, cid, CVT10, {}, 2)
+    card = card_of(client, cid)
+    backup = next(b for b in card['cvts'] if b['trunkTitle'] == 'OPT 3')
+    members = [{'kind': 'cvt', 'id': backup['id'], 'socket': n}
+               for n in (1, 2)]
+    _ok(client.post('/api/snakes', json={'members': members}))
+    # any later write runs the prune
+    _ok(client.put(f'/api/processors/{pid}/cvts/{backup["id"]}',
+                   json={'name': 'BK'}))
+    snakes = client.get('/api/processors').get_json()['snakes']
+    assert [s['members'] for s in snakes] == [members]
+
+
+PAPER_JS = """async (ids) => {
+    const app = window.app;
+    const send = (url, method, body) => fetch(url, { method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body) }).then(r => r.json());
+    const proc0 = app._processorsResolved.find(p => p.id === ids.proc);
+    const card0 = proc0.slots[0].card;
+    const backup = card0.cvts.find(b => b.trunkTitle === 'OPT 3');
+    // a typed length on the backup box's socket 1, and one left over on
+    // the unit's own socket 1, which the box now delivers
+    await send(`/api/processors/${ids.proc}/cvts/${backup.id}`, 'PUT',
+               { portCables: { '1': { ft: 75 } } });
+    await send(`/api/processors/${ids.proc}/cards/${ids.card}`, 'PUT',
+               { portCables: { '1': { ft: 40 } } });
+    app.project = await (await fetch('/api/project')).json();
+    app.dedupeProjectLayers('loop_paper_setup');
+    const wall = app.project.layers.find(l => l.name === 'WALL');
+    ids.wall = wall.id;
+    app.selectLayer(wall);
+    await app._assignmentRequest('/api/port-assignments/place-overflow',
+        'POST', { layerId: String(ids.wall), cardId: ids.card });
+    await app.refreshProcessors();
+    await app.refreshPortAssignment();
+    const proc = app._processorsResolved.find(p => p.id === ids.proc);
+    const list = app.buildPullList();
+    const scr = list.byScreen[String(ids.wall)];
+    const tables = [];
+    app._bTableLines = (book, spec) => { tables.push(spec); return []; };
+    app._bKvLines = () => [];
+    app._bPullLines = () => [];
+    try {
+        app._bProcessorBlocks({ list: { hardware: [] } }, proc,
+            proc.slots.filter(s => s.card).map(s => ({ slot: s.index, card: s.card })));
+    } finally {
+        delete app._bTableLines; delete app._bKvLines; delete app._bPullLines;
+    }
+    const cells = (title) => (tables.find(t => t.title === title) || { rows: [] })
+        .rows.filter(r => r.cells).map(r => r.cells);
+    return {
+        ports: scr.ports.map(p => [p.box, p.backup && p.backup.box]),
+        boxes: list.totals.filter(r => r.type === 'CVT10').map(r => r.qty),
+        runs: list.totals.filter(r => /^(Cat6|etherCON)$/.test(r.type))
+            .map(r => [r.length, r.qty]),
+        redundancy: app._bRedundancyText(proc),
+        unitBackup: cells('Processor').concat(cells('Cards')).map(c => c[c.length - 1]),
+        homeRuns: cells('Snakes & home runs').map(c => [c[0], c[2]]),
+    };
+}"""
+
+
+def test_the_paper_lists_the_loop_box_and_its_backup_runs(e2e_server,
+                                                          pw_browser):
+    context = pw_browser.new_context(viewport={'width': 1700, 'height': 1100})
+    context.add_init_script(
+        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+    context.add_init_script(FETCH_COUNT_JS)
+    page = context.new_page()
+    try:
+        page.goto(e2e_server, wait_until='domcontentloaded')
+        page.wait_for_function(
+            "() => window.app && window.app._initialLoadComplete === true"
+            " && window.app._socketConnects >= 1")
+        page.evaluate("() => { window.__lrdQuiet = 0; }")
+        page.wait_for_function(QUIET_JS)
+        ids = page.evaluate(SEED_JS, [UHD_JR, 'unit', None, None, CVT10, 4])
+        out = page.evaluate(PAPER_JS, ids)
+    finally:
+        context.close()
+    # every placed port has its backup end, on the OPT 3 box
+    assert out['ports'], out
+    assert all(a == 'CVT10 A' and b == 'CVT10 C' for a, b in out['ports']), out
+    # both boxes the screen reaches are pulled: the primary and its loop
+    assert out['boxes'] == [2], out
+    # primary runs and backup runs, the backup socket's typed 75'
+    n = len(out['ports'])
+    assert sum(q for _l, q in out['runs']) == 2 * n, out
+    assert ["75'", 1] in out['runs'], out
+    assert out['redundancy'] == 'Backup boxes', out
+    assert any('CVT10 C backs up CVT10 A' in c for c in out['unitBackup']), out
+    # the processor sheet: the backup box's own sockets by its own numbers,
+    # the 75' on CVT10 C 1, and no 40' left over on the unit's own socket
+    assert ['CVT10 C 1', "75'"] in out['homeRuns'], out
+    assert not [r for r in out['homeRuns'] if r[1] == "40'"], out

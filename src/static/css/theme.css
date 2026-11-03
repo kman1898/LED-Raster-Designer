@@ -968,6 +968,7 @@ select, .info-select {
 #hardware-dock .btn,
 #hw-gear-popover .btn:not(.hw-pop-remove),
 #hw-gear-popover button:not(.hw-pop-remove):not(.hw-dock-gear):not(.hw-pop-close),
+.hw-pop-port-plug .hw-pop-seg > button.hw-pop-seg-btn,
 #balance-modal .btn {
   background:linear-gradient(#505050,#3a3a3a) !important;
   border:1px solid #161616 !important; border-radius:3px !important;
@@ -979,12 +980,14 @@ select, .info-select {
 #hardware-dock .btn:hover,
 #hw-gear-popover .btn:not(.hw-pop-remove):hover,
 #hw-gear-popover button:not(.hw-pop-remove):not(.hw-dock-gear):not(.hw-pop-close):hover,
+.hw-pop-port-plug .hw-pop-seg > button.hw-pop-seg-btn:hover,
 #balance-modal .btn:hover {
   background:linear-gradient(#5a5a5a,#444) !important;
 }
 #hardware-dock .btn:active,
 #hw-gear-popover .btn:not(.hw-pop-remove):active,
 #hw-gear-popover button:not(.hw-pop-remove):not(.hw-dock-gear):not(.hw-pop-close):active,
+.hw-pop-port-plug .hw-pop-seg > button.hw-pop-seg-btn:active,
 #balance-modal .btn:active {
   transform:translateY(1px);
   background:linear-gradient(#2e2e2e,#383838) !important;
@@ -1020,26 +1023,33 @@ select, .info-select {
    dialog's Apply does. The per-slot chips are the same recipe one size
    down, the lit one in the backup role's gold as the mock draws it.
    Legends are primary text ("grey on grey is hard to read"). ---- */
-#hw-gear-popover .hw-pop-seg { display:flex; margin-top:8px; }
+/* ...and the same bar wherever it is drawn outside the popover: the
+   PLUGS IN AT switch in a port chip's editor in the tray
+   (app-mirror-screens.js _buildPlugSeg) */
+#hw-gear-popover .hw-pop-seg, .hw-pop-port-plug .hw-pop-seg { display:flex; margin-top:8px; }
 /* the bar's name (2026-09-05: "it doesnt say it is for redundancy") -
    the dock's strip caption (LEGS / OUTPUTS) in primary text, above the
    bar so the chassis's four segments keep the popover's whole width */
 #hw-gear-popover .hw-pop-red-strip { margin-top:8px; }
-#hw-gear-popover .hw-pop-red-cap {
+#hw-gear-popover .hw-pop-red-cap, .hw-pop-port-plug .hw-pop-red-cap {
   display:block; margin-bottom:3px;
   font:9px ui-monospace, Menlo, monospace; letter-spacing:0.5px;
   text-transform:uppercase; color:var(--ps-text) !important;
 }
-#hw-gear-popover .hw-pop-red-strip > .hw-pop-seg { margin-top:0; }
-#hw-gear-popover .hw-pop-seg > button.hw-pop-seg-btn {
+#hw-gear-popover .hw-pop-red-strip > .hw-pop-seg,
+.hw-pop-port-plug.hw-pop-red-strip > .hw-pop-seg { margin-top:0; }
+#hw-gear-popover .hw-pop-seg > button.hw-pop-seg-btn,
+.hw-pop-port-plug .hw-pop-seg > button.hw-pop-seg-btn {
   flex:1 1 0; min-width:0; position:relative; margin-left:-1px;
   padding:3px 4px !important; border-radius:0 !important;
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
 }
-#hw-gear-popover .hw-pop-seg > button.hw-pop-seg-btn:first-child {
+#hw-gear-popover .hw-pop-seg > button.hw-pop-seg-btn:first-child,
+.hw-pop-port-plug .hw-pop-seg > button.hw-pop-seg-btn:first-child {
   margin-left:0; border-radius:3px 0 0 3px !important;
 }
-#hw-gear-popover .hw-pop-seg > button.hw-pop-seg-btn:last-child {
+#hw-gear-popover .hw-pop-seg > button.hw-pop-seg-btn:last-child,
+.hw-pop-port-plug .hw-pop-seg > button.hw-pop-seg-btn:last-child {
   border-radius:0 3px 3px 0 !important;
 }
 /* a chassis's four segments (Off · Per card · Per port · Mixed): each as
@@ -1047,7 +1057,8 @@ select, .info-select {
 #hw-gear-popover .hw-pop-seg.hw-pop-seg-fit > button.hw-pop-seg-btn {
   flex:1 1 auto; padding:3px 6px !important;
 }
-#hw-gear-popover .hw-pop-seg > button.hw-pop-seg-btn.hw-pop-seg-on {
+#hw-gear-popover .hw-pop-seg > button.hw-pop-seg-btn.hw-pop-seg-on,
+.hw-pop-port-plug .hw-pop-seg > button.hw-pop-seg-btn.hw-pop-seg-on {
   z-index:1;
   background:linear-gradient(var(--ps-accent-hi),var(--ps-accent)) !important;
   border-color:var(--ps-accent-deep) !important;

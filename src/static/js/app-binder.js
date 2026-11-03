@@ -6071,7 +6071,7 @@ class _Binder {
     _bBackupEnd(layer, portNum, bb) {
         const label = (typeof this.getPortLabelText === 'function')
             ? this.getPortLabelText(layer, portNum, 'return') : '';
-        const home = this._bPortHome(bb.cardId, bb.port);
+        const home = this._bPortHome(bb.cardId, bb.port, bb.cvtId || null);
         let where = home && home.box ? this._bBoxTitle(home.box) : (bb.boxTitle || '');
         if (!where) {
             where = home ? home.unitTitle : (bb.cardTitle || this._bCardShort(bb.cardId));
@@ -6281,6 +6281,17 @@ class _Binder {
                 text += ` → ${this._backupUnitTitle(found.proc, found.card)}`;
             }
         }
+        // LOOP BOXES (a box on a copy OPT set to Backup) back ports up
+        // whatever the bar says: where they are the only backup the unit's
+        // ports have, they ARE its redundancy; beside a working shape they
+        // are said after it.
+        const cards = (proc.slots || []).map(s => s.card).filter(Boolean);
+        if (typeof this._cardLoopBackups === 'function'
+                && cards.some(c => this._cardLoopBackups(c).length)) {
+            const shaped = cards.some(c => c.backupFor || (c.ports || []).some(p => p.backsUp
+                || (p.backedBy && !p.backedBy.loop)));
+            text = shaped ? `${text} · backup boxes` : 'Backup boxes';
+        }
         if (proc.backupUnit) text += ` · backed up by ${proc.backupUnit.name}`;
         return text;
     }
@@ -6299,7 +6310,7 @@ class _Binder {
     // `slotNamed` is true where the card goes by Card N because nobody
     // named it: its model is said only where gear is pulled, so a band or
     // a box drops it.
-    _bPortHome(cardId, socket) {
+    _bPortHome(cardId, socket, boxId = null) {
         const found = (typeof this._dockFindCard === 'function') ? this._dockFindCard(cardId) : null;
         if (!found) return null;
         const { proc, card } = found;
@@ -6323,8 +6334,13 @@ class _Binder {
         const n = parseInt(socket, 10);
         const port = (card.ports || []).find(p => p.number === n) || null;
         // The box that DELIVERS the port (its cvtId), never a backup box
-        // carrying the same number again - none for the unit's own port.
-        const box = (port
+        // carrying the same number again - none for the unit's own port -
+        // unless `boxId` names the box: a backup end on a loop box
+        // (backedBy's cvtId) is read on that box (_dataPortOwner).
+        const named = boxId
+            ? (card.cvts || []).find(c => c.id === boxId && (c.ports || []).some(p => p.number === n))
+            : null;
+        const box = named || (port
             ? (port.cvtId && (card.cvts || []).find(c => c.id === port.cvtId))
             : (card.cvts || []).find(c => (c.ports || []).some(p => p.number === n))) || null;
         return { proc, card, procTitle, cardTitle, box, port, slotNamed,
@@ -6492,7 +6508,7 @@ class _Binder {
             // The backup end's own run, as the backup card's or box's own ≡
             // sheet typed it.
             const backupCable = end && typeof this.dataPortCable === 'function'
-                ? this.dataPortCable(bb.cardId, bb.port) : null;
+                ? this.dataPortCable(bb.cardId, bb.port, bb.cvtId || null) : null;
             if (end) {
                 split = true;
                 // A return on ANOTHER unit names that unit once, over the
@@ -7942,7 +7958,16 @@ class _Binder {
         // 1", the tray pill's "1:1, no partner", the processor ⚙'s chips
         // "Sequential", "OPT Split", "Manual", and a pairing the device
         // fixes as its card row in the tray reads it ("Loop A to B").
-        const backupOf = (card) => {
+        // A card whose ports a loop box backs up (a box on a copy OPT set
+        // to Backup) says which box backs up which first: "CVT4K-S C-D
+        // backs up CVT4K-S A-B" - the vendor's wiring, in force whatever
+        // the bar says - then any shape still at work beside it.
+        const loopsOf = (card) => (typeof this._cardLoopBackups === 'function'
+            ? this._cardLoopBackups(card) : [])
+            .map(l => `${this._bBoxTitle(l.box)} backs up `
+                + l.mains.map(m => (m ? this._bBoxTitle(m) : 'own ports')).join(', '))
+            .join('; ');
+        const shapeOf = (card) => {
             const rshape = card.redundancyShape;
             const shape = rshape && rshape.mode;
             if (card.backupFor && card.backupFor.cardId) {
@@ -7954,6 +7979,18 @@ class _Binder {
                 return card.backupCardId ? `1:1, backed up by ${nameOf(card.backupCardId)}` : '1:1, no partner';
             }
             return this._redundancyShapeLabel(card, shape) || '—';
+        };
+        // ...and only a shape at work: none, or a 1:1 still waiting on its
+        // partner, says nothing beside the loop
+        const idle = (card) => {
+            const rs = card.redundancyShape;
+            return !card.backupFor && (!rs || !rs.mode || rs.mode === 'off'
+                || (!rs.forced && rs.mode === '1to1' && !card.backupCardId));
+        };
+        const backupOf = (card) => {
+            const loops = loopsOf(card);
+            if (!loops) return shapeOf(card);
+            return idle(card) ? loops : `${loops}; ${shapeOf(card)}`;
         };
         const taken = (card) => `${used(card.id)} / ${this._bCardPortCount(card) != null ? this._bCardPortCount(card) : '?'}`;
         const blocks = [];
@@ -8050,13 +8087,27 @@ class _Binder {
         // B") so the count and the sockets under it always add up.
         const runs = [];
         for (const { card } of cards) {
-            const owners = [{ kind: 'card', id: card.id,
+            const owners = [{ kind: 'card', id: card.id, cardId: card.id,
                               title: this.cardShortName(proc, card) || this.cardTypedName(proc, card)
                                   || this.dataUnitTitle(proc, card).title,
                               rec: card }]
                 .concat((card.cvts || []).map(c => ({
-                    kind: 'cvt', id: c.id, title: this._bBoxTitle(c), rec: c })));
+                    kind: 'cvt', id: c.id, cardId: card.id, title: this._bBoxTitle(c), rec: c })));
             for (const o of owners) {
+                // Each socket by the number beside it on THIS device - a
+                // box's own 1..N, never the card-wide key (dataSocketLocal).
+                const local = (socket) => this.dataSocketLocal(o, socket);
+                // The sockets whose run this device carries: the ones it
+                // delivers, and on a loop box the backups of the ports it
+                // backs up (backedBy's cvtId). A length typed on a socket
+                // some other device delivers now is no run of this one.
+                const mine = (socket) => {
+                    const own = this._dataPortOwner(card.id, socket);
+                    if (own && own.kind === o.kind && own.id === o.id) return true;
+                    const port = (card.ports || []).find(p => p.number === parseInt(socket, 10));
+                    const bb = port && port.backedBy;
+                    return !!(o.kind === 'cvt' && bb && bb.loop && bb.cvtId === o.id);
+                };
                 for (const s of this.getShowSnakes()) {
                     const here = this.snakeMembersOn(s, o);
                     if (!here.length) continue;
@@ -8072,7 +8123,7 @@ class _Binder {
                     runs.push({ cells: [`${s.name || 'snake'} · ${this.snakeSizeText('snake', (s.members || []).length)}`,
                                         'snake',
                                         s.ft ? this.pullLengthText(s.ft, 'data') : 'no length',
-                                        `${o.title} ${this._fmtTails(here)}`
+                                        `${o.title} ${this._fmtTails(here.map(local))}`
                                         + ` · ${this.dataCableWord(connId)}`
                                         + away] });
                 }
@@ -8087,14 +8138,11 @@ class _Binder {
                 // listed too, "no length", as its Pull list lists it
                 // (owner, 2026-10-22) - it was left out here.
                 const occ = this._assignment && this._assignment.occupancy;
-                const typed = Object.entries(o.rec.portCables || {});
+                const typed = Object.entries(o.rec.portCables || {}).filter(([socket]) => mine(socket));
                 const loose = occ ? Object.keys(occ[card.id] || {})
                     .filter(socket => !(o.rec.portCables || {})[socket]
                         && this._portOccupants(card.id, socket).length)
-                    .filter(socket => {
-                        const own = this._dataPortOwner(card.id, socket);
-                        return own && own.kind === o.kind && own.id === o.id;
-                    })
+                    .filter(mine)
                     .sort((a, b) => (parseInt(a, 10) || 0) - (parseInt(b, 10) || 0))
                     .map(socket => [socket, null]) : [];
                 for (const [socket, c] of [...typed, ...loose]) {
@@ -8107,17 +8155,17 @@ class _Binder {
                         // a snaked socket's run is the snake's row; with
                         // no assignment read, nothing says it is placed
                         if (!snake && occ) {
-                            runs.push({ cells: [`${o.title} ${socket}`, 'cable', 'no length',
+                            runs.push({ cells: [`${o.title} ${local(socket)}`, 'cable', 'no length',
                                                 this.dataCableWord(connId)] });
                         }
                         continue;
                     }
                     if (snake) {
-                        runs.push({ cells: [`${o.title} ${socket}`, 'ext', this.pullLengthText(ft, 'data'),
+                        runs.push({ cells: [`${o.title} ${local(socket)}`, 'ext', this.pullLengthText(ft, 'data'),
                                             snake.name || 'snake'] });
                         continue;
                     }
-                    runs.push({ cells: [`${o.title} ${socket}`, 'cable', this.pullLengthText(ft, 'data'),
+                    runs.push({ cells: [`${o.title} ${local(socket)}`, 'cable', this.pullLengthText(ft, 'data'),
                                         this.dataCableWord(connId)] });
                 }
             }
@@ -8228,9 +8276,13 @@ class _Binder {
     // face numbers them: every one of them on a box taking one trunk (an
     // XD on its X1 - and on its X2, the backup of the same trunk - the
     // loop's far box on trunk B the same, a CVT4K-S switched to one OPT);
-    // on a box taking two, each input its own trunk's share at the card's
-    // ports per trunk, as the resolver lays them (a CVT4K-S on an
-    // H_16xRJ45+2xfiber: OPT1 1-8, OPT2 9-16). '' for a card's own link (a
+    // on a box taking two, each input the outputs the resolver gave it
+    // (socketNumbers beside portNumbers): a CVT4K-S's outputs are locked
+    // to its inputs, so on 10-port OPTs OPT1 is 1-8 and OPT2 9-16, never
+    // the OPT's 10, and on 4-port OPTs OPT1 is 1-4 and OPT2 9-12. An
+    // input is told by the card's block its ports come from (the card's
+    // ports per trunk), and a straddling box's backup input is its
+    // backSockets after its own. '' for a card's own link (a
     // QD-S's IN 1 carries its outputs, not data ports) or where the card
     // states no ports per trunk to split by.
     _bLinkPortsText(box, card, key) {
@@ -8242,9 +8294,25 @@ class _Binder {
         if (takes > 1) {
             const per = card && card.portsPerTrunk;
             if (!per) return '';
-            lo = (k - 1) * per + 1;
-            hi = Math.min(n, k * per);
-            if (lo > hi) return '';
+            const numbers = box.portNumbers || [];
+            const faces = box.socketNumbers || [];
+            const inputs = [];
+            let block = null;
+            numbers.forEach((num, i) => {
+                const b = Math.floor((num - 1) / per);
+                if (b !== block) { inputs.push([]); block = b; }
+                inputs[inputs.length - 1].push(faces[i] != null ? faces[i] : i + 1);
+            });
+            const back = box.backNumbers || [];
+            const backFaces = box.backSockets || [];
+            if (back.length) {
+                inputs.push(back.map((_, i) => (backFaces[i] != null ? backFaces[i]
+                    : numbers.length + i + 1)));
+            }
+            const mine = inputs[k - 1];
+            if (!mine || !mine.length) return '';
+            lo = mine[0];
+            hi = mine[mine.length - 1];
         }
         return lo === hi ? String(lo) : `${lo}-${hi}`;
     }
