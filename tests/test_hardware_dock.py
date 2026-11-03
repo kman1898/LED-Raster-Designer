@@ -2342,11 +2342,11 @@ def test_right_click_on_a_circuit_clears_the_multi_in_one_step(dock_page):
     page.evaluate(RESET_POWER_JS, ids)
     landed(page)
 
-    # unassigned first: the item is there, disabled, and says why
+    # unassigned first: nothing to unplug, so no Unplug item at all (QA
+    # 1.6.0-beta.4: a greyed one read as an item that did nothing)
     tgt = panel_point(page, ids['aId'], {'circuit': 0})
     item = right_click(page, tgt['x'], tgt['y'])
-    assert item['shown'] and item['disabled'], item
-    assert 'not on a distro' in item['title'], item
+    assert item is None or not item['shown'], item
     close_menu(page)
 
     page.evaluate("""(ids) => {
@@ -2606,6 +2606,14 @@ def test_the_canvas_run_menu_keeps_layer_items_beside_the_clear(dock_page):
 
     open_view(page, 'power')
     page.evaluate(RESET_POWER_JS, ids)
+    # plugged in: an unplugged multi has no Unplug item to offer
+    page.evaluate("""(ids) => {
+        const app = window.app;
+        const a = app.project.layers.find(x => x.id === ids.aId);
+        app.setSocaDistro(a, 1, ids.distroId);
+        app._restateNaming();
+        app.resetHistory('Dock Seed');
+    }""", ids)
     landed(page)
     tgt = panel_point(page, ids['aId'], {'circuit': 0})
     item = right_click(page, tgt['x'], tgt['y'])

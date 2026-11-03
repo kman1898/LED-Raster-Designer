@@ -209,7 +209,8 @@ def test_a_circuit_drawn_after_a_clear_leaves_the_freed_tail_free(page):
     """Custom circuits 1-4 on SR 9. Clear Circuit 2, then draw the next
     circuit: 1, 3 and 4 stay on SR9-1, -3, -4 and the newcomer takes
     SR9-5 - it used to re-pack the multi, 3 reading SR9-2 and 5 SR9-4.
-    The server keeps the tails; the label the field predicts is the one
+    The Active Circuit field counts the held gap, so it agrees with the
+    labels (it read 2 over SR9-3). The server keeps the tails; the label the field predicts is the one
     drawn; undo takes the newcomer back off, a cabinet a step."""
     pg = page
     _open(pg, [{'columns': 8, 'powerFlowPattern': 'custom', 'powerCustomIndex': 2,
@@ -217,7 +218,14 @@ def test_a_circuit_drawn_after_a_clear_leaves_the_freed_tail_free(page):
                 'powerSocaDistro': {'1': 'd2'}, 'powerSocaNumber': {'1': 9}}])
     _clear_circuit(pg)
     assert _labels(pg, 'W1') == [[1, 'SR9-1'], [3, 'SR9-3'], [4, 'SR9-4']]
-    _type_active(pg, 4)  # the place after the last circuit: run 5
+    # the field reads the held gap as place 2 and circuit 3 as 3, the
+    # number its label prints (it read 2 over SR9-3)
+    assert pg.locator('#power-custom-active').input_value() == '2'
+    pg.locator('#power-custom-next').click()
+    _settle(pg)
+    assert pg.locator('#power-custom-active').input_value() == '3'
+    assert pg.evaluate("() => window.__pu.layer('W1').powerCustomIndex") == 3
+    _type_active(pg, 5)  # the place after the last circuit: run 5
     assert pg.evaluate("() => window.__pu.layer('W1').powerCustomIndex") == 5
     predicted = pg.evaluate("() => window.app.getPowerCircuitLabel(window.__pu.layer('W1'), 5)")
     assert predicted == 'SR9-5', predicted
@@ -393,3 +401,115 @@ def test_a_group_reads_the_walls_figures_whichever_member_is_current(page):
     assert pg.evaluate(READOUT_JS, ['W1', 'W2']) == lead
     assert pg.evaluate(READOUT_JS, ['W1', 'W3']) == ['-', '-', '-']
     assert pg.evaluate(READOUT_JS, ['W3']) != ['-', '-', '-']
+
+
+# ── Custom on leaves no phantom load ──────────────────────────────────────
+
+def test_custom_on_takes_the_emptied_multis_off_their_distro(page):
+    """W1's multi on SR 9 with a 150' home run. Custom circuits on wipes
+    the circuits, and the multi with them: SR used to keep W1's automatic
+    load (17.3 A) with nothing drawn. One undo puts it all back."""
+    pg = page
+    _open(pg, [{'columns': 6, 'powerSocaDistro': {'1': 'd2'}, 'powerSocaNumber': {'1': 9},
+                'powerSocaLengths': {'1': '150'}}])
+    load = "() => { window.app._circuitTailCache = null; return (window.app.getDistroLoads() || []).filter(d => d.id === 'd2').map(d => +d.amps.toFixed(1)); }"
+    assert pg.evaluate(load) == [17.3]
+    cb = pg.locator('#power-custom-toggle')
+    cb.scroll_into_view_if_needed()
+    cb.click()
+    _settle(pg)
+    assert pg.evaluate(load) == [0.0]
+    srv = _wait_server(pg, lambda p: not (_srv_layer('W1', p).get('powerSocaDistro') or {}))
+    assert (_srv_layer('W1', srv).get('powerSocaLengths') or {}) == {}
+    pg.evaluate("() => window.app.undo()")
+    _settle(pg)
+    assert pg.evaluate(load) == [17.3]
+    assert [(s['distro'], s['number'], s['length']) for s in _socas(pg, 'W1')] == [('d2', 9, '150')]
+
+
+# ── Menus and words ───────────────────────────────────────────────────────
+
+FACE = {'distros': [
+    {'id': 'd1', 'name': 'DISTRO 1', 'ratingA': 200, 'system': '120/208',
+     'outputRows': [{'id': 'r1', 'connector': 'true1', 'count': 5, 'coupling': 'll', 'breakerA': 20},
+                    {'id': 'r2', 'connector': 'soca', 'count': 2, 'coupling': 'll', 'breakerA': 20}]},
+    {'id': 'd2', 'name': 'DISTRO 2', 'ratingA': 400, 'system': '120/208', 'voltage': 208, 'phase': 3},
+    {'id': 'd3', 'name': 'DISTRO 3', 'ratingA': 30, 'system': '120/208',
+     'outputRows': [{'id': 'r1', 'connector': 'true1', 'count': 3, 'coupling': 'll', 'breakerA': 20}]}]}
+
+
+def test_menus_offer_only_what_they_can_do(page):
+    """W1's circuit 1 on DISTRO 1's TRUE1 direct output, 2-6 split off it
+    onto the Socapex 6: no "Merge back into DISTRO 1-1" (it piled five
+    circuits onto one connector, then flagged its own result OVER). W2 is
+    on no distro: no "Unplug multi" (offered greyed, it did nothing). The
+    Add … from… entry for a distro that cannot take the screen names the
+    distro once ("DISTRO 3: DISTRO 3 has no multi outputs")."""
+    pg = page
+    _open(pg, [{'columns': 7, 'powerSocaDistro': {'1': 'd1', '2': 'd1'},
+                'powerSocaNumber': {'1': 1, '2': 6}, 'powerSocaSplits': [1]},
+               {'columns': 3, 'offset_x': 1200}], FACE)
+    out = pg.evaluate("""() => { const app = window.app, l = window.__pu.layer('W1');
+        const W2 = window.__pu.layer('W2');
+        const m = app._mergeMenuForMulti(l, 2, false);
+        const un = app._clearMenuForCircuit({ layerId: W2.id, panel: W2.panels[0] });
+        const plugged = app._clearMenuForCircuit({ layerId: l.id, panel: l.panels.find(p => p.col === 2) });
+        return { merge: m ? m.label : null, unplug: un ? un.label : null,
+                 plugged: plugged ? plugged.label : null,
+                 labels: app.screenCircuits(l).map(c => app.getPowerCircuitLabel(l, c.num)) }; }""")
+    assert out['labels'][:2] == ['DISTRO 1-1', 'DISTRO 1-6-1'], out
+    assert out['merge'] is None and out['unplug'] is None, out
+    assert out['plugged'] == 'Unplug multi DISTRO 1-6', out
+    pg.evaluate("() => window.canvasRenderer.fitToView()")
+    x, y = _cab_point(pg, 'W2', 0, 0)
+    pg.mouse.click(x, y, button='right')
+    item = pg.locator('.context-menu .menu-option:visible').filter(has_text='from…').first
+    item.hover()
+    entry = pg.locator('.context-menu .menu-option:visible').filter(has_text='DISTRO 3').last
+    entry.wait_for()
+    assert entry.inner_text().strip().startswith('DISTRO 3 has no multi outputs'), entry.inner_text()
+    pg.keyboard.press('Escape')
+
+
+def test_names_and_messages_read_plainly(page):
+    """Two distros on one pull row read "DISTRO 1, DISTRO 2", never the
+    multi's name "DISTRO 1-2"; SR1, SR2 still fold to "SR 1-2". The
+    service warning says "service" once with the default name."""
+    pg = page
+    _open(pg, [{'columns': 3, 'powerSocaDistro': {'1': 'd2'}}], dict(FACE, services=[
+        {'id': 's1', 'name': 'SERVICE 1', 'ratingA': 100, 'system': '120/208'}]))
+    pg.evaluate("""() => { const app = window.app;
+        app.project.distros.forEach(d => { d.serviceId = 's1'; }); app.renderHardwareDock(); }""")
+    folds = pg.evaluate("""() => [['DISTRO 1', 'DISTRO 2'], ['DISTRO 1', 'DISTRO 2', 'DISTRO 3'], ['SR1', 'SR2']]
+        .map(n => window.app._pullCompressNames(n))""")
+    assert folds == ['DISTRO 1, DISTRO 2', 'DISTRO 1 … 3', 'SR 1-2'], folds
+    warn = pg.evaluate("""() => { const app = window.app; app._dockPowerWarnings = [];
+        const s = app.getServices()[0]; app._dockServiceWarnings(s, app.getServiceLoads().find(x => x.id === s.id));
+        return app._dockPowerWarnings.map(w => w.text); }""")
+    assert warn and warn[0].startswith('SERVICE 1 (100 A): its distros are rated 630 A together'), warn
+    assert not any('service service' in w.lower() or 'SERVICE 1 service' in w for w in warn), warn
+
+
+def test_the_pull_sheet_tiles_hold_their_tables(page):
+    """A long gear name (a distro's type, "63A 3φ: 3 × Socapex, one per
+    phase + 1 TRUE1") wraps in its tile: the tables were wider than their
+    tiles (636 px in 558) and the LABEL and NOTES columns and the × were
+    cut off."""
+    pg = page
+    face = {'distros': [dict(FACE['distros'][0], typeName='63A 3φ: 3 × Socapex, one per phase + 1 TRUE1')]
+            + FACE['distros'][1:]}
+    _open(pg, [{'columns': 7, 'powerSocaDistro': {'1': 'd1', '2': 'd1'},
+                'powerSocaNumber': {'1': 1, '2': 6}, 'powerSocaSplits': [1]}], face)
+    pg.evaluate("() => { document.getElementById('export-modal').style.display = 'none'; }")
+    pg.locator('[data-menu="file"]').click()
+    pg.locator('[data-action="pull-sheet"]').click()
+    pg.wait_for_function("() => window.app.isPullSheetEditorOpen()")
+    pg.wait_for_timeout(300)
+    fit = pg.evaluate("""() => Array.from(document.querySelectorAll('#pull-sheet-modal .pull-pos'))
+        .map(p => { const t = p.querySelector('table'); return t ? [t.getBoundingClientRect().width, p.clientWidth] : null; })
+        .filter(Boolean)""")
+    assert fit and all(tw <= cw + 1 for tw, cw in fit), fit
+    longest = pg.evaluate("""() => Math.max(...Array.from(document.querySelectorAll('#pull-sheet-modal td.pull-type'))
+        .map(td => td.textContent.length))""")
+    assert longest > 30, longest
+    pg.locator('#pull-sheet-close').click()

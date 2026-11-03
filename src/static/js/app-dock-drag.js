@@ -1095,8 +1095,12 @@ class _DockDrag {
                 const fig = load && load.ratingA > 0
                     ? ` ${load.amps.toFixed(0)}/${+load.limitA.toFixed(1)} A` : '';
                 if (!gate.ok) {
-                    return { label: `${name}: ${gate.message}`, disabled: true,
-                             title: gate.message };
+                    // A reason that already starts with the distro's name
+                    // is not named twice ("DISTRO 3: DISTRO 3 has no multi
+                    // outputs", QA 1.6.0-beta.4).
+                    const said = String(gate.message || '').startsWith(name);
+                    return { label: said ? gate.message : `${name}: ${gate.message}`,
+                             disabled: true, title: gate.message };
                 }
                 const payload = { type: 'plug', distroId: d.id,
                                   output: `face:${gate.faceRow.row.id}`,

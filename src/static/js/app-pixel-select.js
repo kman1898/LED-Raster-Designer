@@ -3,6 +3,7 @@
 // the Pixel Map bulk-select with its half-tile / blank bulk verbs.
 import { LEDRasterApp } from './app-core.js';
 import { sendClientLog } from './helpers.js';
+import { SCREEN_FEED_KEYS } from './app-clipboard.js';
 
 // getPanelByRowCol's per-screen index: panels array -> { len, map of
 // "row,col" -> the panel's SLOT in the array }. Weak, so a rebuilt screen's
@@ -253,6 +254,7 @@ class _PixelSelect {
                 if (this._clearMemberCustomRuns(layer, 'power', keptFor)) wiped = true;
                 if (customGroups && this._wipeCustomSplitterGroups(layer)) wiped = true;
                 if (this._wipeTypedCircuitLabels(layer)) wiped = true;
+                if (this._unplugEmptyCustomWall(layer)) wiped = true;
                 if (layer.powerFlowPattern && layer.powerFlowPattern !== 'custom') {
                     layer.lastPowerFlowPattern = layer.powerFlowPattern;
                 }
@@ -306,6 +308,31 @@ class _PixelSelect {
                 false, 6000);
         }
         window.canvasRenderer.render();
+    }
+
+    // The custom toggle's way in, once the wipe left the screen no drawn
+    // circuit: its multis held circuits that are gone, and a multi left
+    // with no circuit goes with its programming and home run
+    // (_removeCircuitsKeepFeeds). Kept, they stayed on their distro and
+    // the automatic plan an empty custom screen falls back to was charged
+    // to it: a phantom load on the distro and a voltage warning for a box
+    // nothing was drawn on (QA 1.6.0-beta.4). The stores are emptied,
+    // never deleted (an absent key is missing from the PUT). True when it
+    // wrote.
+    _unplugEmptyCustomWall(layer) {
+        if (!layer || this.usesCustomCircuits(layer)) return false;
+        let changed = false;
+        SCREEN_FEED_KEYS.forEach(k => {
+            const store = layer[k];
+            if (!store || typeof store !== 'object' || !Object.keys(store).length) return;
+            layer[k] = {};
+            changed = true;
+        });
+        if (Array.isArray(layer.powerSocaSplits) && layer.powerSocaSplits.length) {
+            layer.powerSocaSplits = [];
+            changed = true;
+        }
+        return changed;
     }
 
     // The custom toggle's way in: forget the labels typed on the circuits

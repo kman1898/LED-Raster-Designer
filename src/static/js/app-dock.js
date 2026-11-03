@@ -3260,7 +3260,7 @@ class _HardwareDock {
         // held to the main's continuous rule (2026-10-18): 80% of 30 A -
         // 24 A - on a US system unless the distro's main is 100% rated
         // (distroFeedLimit), and the strip says the limit the way the
-        // main's does: "29.98 A / 24 A (80% of 30 A)". Over is a strip
+        // main's does: "30.0 A / 24 A (80% of 30 A)". Over is a strip
         // question and reddens the box like any other clash.
         let feedOver = false;
         const feedRule = feedLegA > 0 && typeof this.distroFeedLimit === 'function'
@@ -3277,7 +3277,11 @@ class _HardwareDock {
                 feedOver = true;
                 sec.classList.add('hw-dock-multi-clash');
                 this._dockPowerWarnings.push({
-                    text: `${boxName}: feed leg at ${worst.toFixed(2)} A / ${feedLimitText}, OVER`,
+                    // "L21-30 leg", never "feed leg": the cable is named by
+                    // its plug, and "feed" is retired display language
+                    // (owner, 2026-11-02); one decimal, as every other
+                    // line of the strip.
+                    text: `${boxName}: L21-30 leg at ${worst.toFixed(1)} A / ${feedLimitText}, OVER`,
                 });
             }
         }

@@ -94,7 +94,7 @@ def test_a_circuit_over_its_limit_prints_over_and_the_export_warns(page):
     facts = [k for k in b['kv'] if k['title'] == 'Facts']
     over = [p for k in facts for p in k['pairs'] if p[0] == 'Over']
     # (the sheet is laid out more than once: each pass the same row)
-    assert over and all(p == ['Over', '1 circuit over a 20 A circuit held to 16 A (80%)'] for p in over), facts
+    assert over and all(p == ['Over', '1 circuit over 16 A (80% of 20 A)'] for p in over), facts
     sheet = _power_sheet(b, 'WALL A')
     assert '19.2 · OVER' in sheet['logged'], sheet['logged']
     # the export's warning: one message, the screen and its circuit, the

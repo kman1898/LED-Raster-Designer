@@ -301,7 +301,7 @@ def test_the_box_header_flips_into_the_sheet(page):
     assert s['heads'] == ['no.', 'circuit', 'screen', 'cable', 'connector'], s['heads']
     assert all(r['who'] == 'WALL' and not r['free'] for r in s['rows']), s
     assert all(r['ft'] == '' and r['connector'] == '' for r in s['rows']), s
-    assert all(r['blank'] == 'TRUE1 (follows Multi 208)' for r in s['rows']), s
+    assert all(r['blank'] == 'TRUE1 (default)' for r in s['rows']), s
     # the breakouts' connectors, then every distro face connector's cable
     # (2026-10-21: a cable off a direct output can be any of them)
     assert s['rows'][0]['options'] == ['', 'true1', 'powercon', 'edison', 'l620', 'powerconxx',

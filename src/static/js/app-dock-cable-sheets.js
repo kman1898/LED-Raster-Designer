@@ -173,9 +173,11 @@ class _DockCableSheets {
                 const blank = document.createElement('option');
                 blank.value = '';
                 // The plug first: the select is narrow, and "follows Multi
-                // 208 (TRUE1)" cut the TRUE1 off (QA 1.6.0-beta.4).
+                // 208 (TRUE1)" cut the TRUE1 off, then "TRUE1 (follows
+                // Socapex 208V)" cut the box off (QA 1.6.0-beta.4). The
+                // plug and "default"; the title says what it follows.
                 blank.textContent = follows
-                    ? `${follows} (follows ${typeName})` : `follows ${typeName}`;
+                    ? `${follows} (default)` : `follows ${typeName}`;
                 sel.appendChild(blank);
                 connectors.forEach(c => {
                     const o = document.createElement('option');

@@ -953,6 +953,10 @@ class _PullList {
             }
             return runs;
         };
+        // the labels of the distros whose multis are named with a dash
+        const dashNamed = new Set((typeof this.getDistros === 'function' ? this.getDistros() : [])
+            .map(d => (typeof this.distroLabel === 'function' ? this.distroLabel(d) : d && d.name))
+            .filter(n => /\d$/.test(String(n || ''))).map(String));
         // key -> { names, nums, text(runs) }, in first-seen order
         const groups = new Map();
         const plain = [];
@@ -1000,6 +1004,19 @@ class _PullList {
             // no two names here follow on: each is a name, not a run
             if (!runs.some(([a, b]) => b > a)) { out.push(...g.names); continue; }
             const prefix = key.slice(2).trim();
+            // Distros whose names end in a number name their multis with
+            // a dash ("DISTRO 1-2" is DISTRO 1's second multi), so a run
+            // of those distros never folds with one: "DISTRO 1, DISTRO 2"
+            // and "DISTRO 1 … 4" (QA 1.6.0-beta.4: two distros read
+            // "DISTRO 1-2", a multi's name).
+            if (g.names.every(n => dashNamed.has(n))) {
+                for (const [a, b] of runs) {
+                    const at = (k) => g.names[g.nums.indexOf(k)];
+                    if (b - a >= 2) out.push(`${at(a)} … ${b}`);
+                    else for (let k = a; k <= b; k++) out.push(at(k));
+                }
+                continue;
+            }
             const text = runs.map(([a, b]) => (a === b ? `${a}` : `${a}-${b}`)).join(', ');
             out.push(prefix ? `${prefix} ${text}` : text);
         }

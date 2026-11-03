@@ -25,20 +25,30 @@ class _Power {
             // A custom wall steps circuit by circuit, never leg by leg
             // (customCircuitRun below).
             if (kind === 'power' && this.isCustomPower(layer)) {
-                // A cleared gap reads as the place of the circuit after it
-                // (customCircuitShown), so Next from the gap lands on that
-                // circuit, not past it.
-                const shown = this.customCircuitShown(layer, current);
-                const head = parseInt(this._customCircuitHead(layer, current), 10);
-                const onCircuit = !this.usesCustomCircuits(layer)
-                    || this.screenCircuits(layer).some(c => c.num === head);
-                const target = shown + delta - (!onCircuit && delta > 0 ? 1 : 0);
-                // Prev from a gap goes to the circuit before it. A gap with
-                // no circuit before it (circuit 1 cleared) stays put: the
-                // place-1 circuit is AFTER the gap, and stepping back must
-                // never move forward.
-                if (!onCircuit && delta < 0 && target < 1) return current;
-                return this.customCircuitRun(layer, Math.max(1, target));
+                if (!this.usesCustomCircuits(layer)) {
+                    return this.customCircuitRun(layer, Math.max(1, current + delta));
+                }
+                // Circuit to circuit, never onto a cleared gap (the
+                // owner's ruling, 2026-10-22) - a gap the field counts
+                // (_customPlaceRuns) included. Next from a gap lands on
+                // the circuit after it, Prev on the one before it; a gap
+                // with no circuit before it (circuit 1 cleared) stays put,
+                // since stepping back must never move forward. Past the
+                // last circuit is the next free number.
+                const heads = this.screenCircuits(layer).map(c => Number(c.num));
+                let at = parseInt(this._customCircuitHead(layer, current), 10);
+                for (let i = 0; i < Math.abs(delta); i++) {
+                    if (delta > 0) {
+                        const next = heads.find(h => h > at);
+                        at = next != null ? next
+                            : this.customCircuitRun(layer, Number.MAX_SAFE_INTEGER);
+                    } else {
+                        const before = heads.filter(h => h < at);
+                        if (before.length) at = before[before.length - 1];
+                        else if (heads.includes(at)) at = heads[0];
+                    }
+                }
+                return at;
             }
             return Math.max(1, current + delta);
         }
@@ -89,23 +99,60 @@ class _Power {
     // would take, so the field and the label agree after a clear (the
     // owner's ruling, 2026-10-22: the drawn number counted the gap, and
     // the field read 4 over S1-3). With nothing drawn it is the number.
+    //
+    // A gap whose tail its multi still holds free on a distro (sticky
+    // multi numbers: the circuits after it keep their tails, 1, 3, 4 read
+    // S1-1, S1-3, S1-4) is counted, so the field reads 2 on it and 3 over
+    // S1-3 - it read 2 over S1-3 and the clicks went to circuit 3 (QA
+    // 1.6.0-beta.4, round 3) - and a typed 2 is that gap, to draw it
+    // again. Next / Prev still step over it. A gap on a multi that
+    // re-packs (no distro) is not counted: the labels close up over it.
     customCircuitShown(owner, num) {
         const n = parseInt(num, 10) || 1;
         if (!owner || !this.usesCustomCircuits(owner)) return n;
         const head = parseInt(this._customCircuitHead(owner, n), 10) || n;
-        return this.screenCircuits(owner).filter(c => c.num < head).length + 1;
+        const places = this._customPlaceRuns(owner);
+        const at = places.indexOf(head);
+        return at >= 0 ? at + 1 : places.filter(r => r < head).length + 1;
+    }
+
+    // The drawn numbers that are places on a custom wall, in wall order:
+    // every circuit's first run, and every cleared gap whose tail stays
+    // held - the next circuit after it sits on a distro, which keeps its
+    // tails where a clear left them (_removeCircuitsKeepFeeds). A share's
+    // later legs are no place.
+    _customPlaceRuns(owner) {
+        const circuits = this.screenCircuits(owner);
+        if (!circuits.length) return [];
+        const heads = circuits.map(c => Number(c.num));
+        const runs = new Set(circuits.flatMap(c => (c.runIds || [c.num]).map(Number)));
+        const max = Math.max(...runs);
+        const nm = this._powerNaming(owner);
+        const out = [];
+        let next = 0;
+        for (let n = 1; n <= max; n++) {
+            if (runs.has(n)) {
+                if (heads.includes(n)) out.push(n);
+                continue;
+            }
+            while (next < heads.length && heads[next] < n) next += 1;
+            const slot = next < heads.length ? nm.slots.get(heads[next]) : null;
+            const rec = slot ? nm.socas.get(slot.multi) : null;
+            if (rec && rec.distroId) out.push(n);
+        }
+        return out;
     }
 
     // The drawn number circuit `shown` is written under: the first run of
-    // the circuit in that place, or past the last circuit the next free
-    // number, one after the highest drawn. The inverse of
-    // customCircuitShown, so stepping and typing land on circuits and the
-    // next free one, never on a cleared gap.
+    // the circuit in that place (a held gap is a place, _customPlaceRuns),
+    // or past the last circuit the next free number, one after the
+    // highest drawn. The inverse of customCircuitShown, so stepping and
+    // typing land on circuits, held gaps and the next free one.
     customCircuitRun(owner, shown) {
         const want = Math.max(1, parseInt(shown, 10) || 1);
         if (!owner || !this.isCustomPower(owner) || !this.usesCustomCircuits(owner)) return want;
-        const circuits = this.screenCircuits(owner);
-        if (want <= circuits.length) return circuits[want - 1].num;
+        const places = this._customPlaceRuns(owner);
+        if (want <= places.length) return places[want - 1];
         const paths = owner.powerCustomPaths || {};
         const drawn = Object.keys(paths).map(k => parseInt(k, 10))
             .filter(k => Number.isFinite(k) && (paths[k] || []).length > 0);

@@ -2250,7 +2250,7 @@ L2130_DOCK_JS = """(over) => {
                 chipCount: chips.length,
                 clash: !!(sec
                     && sec.classList.contains('hw-dock-multi-clash')),
-                feedWarn: warnings.some(t => t.includes('feed leg')),
+                feedWarn: warnings.some(t => t.includes('L21-30 leg')),
                 worstFeed: Math.max(feed.X, feed.Y, feed.Z),
             };
         } finally {

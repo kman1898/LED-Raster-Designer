@@ -1144,6 +1144,9 @@ select, .info-select {
 .pull-table td { padding:2px 4px; border-bottom:1px solid #262626; vertical-align:middle; position:relative; }
 .pull-table tr:last-child td { border-bottom:none; }
 .pull-table td.pull-ro { color:var(--ps-text); padding:4px 6px; white-space:nowrap; }
+/* A long gear name wraps inside its tile: it held the table wider than
+   the tile, and the tile's overflow cut off LABEL, NOTES and the x. */
+.pull-table td.pull-ro.pull-type { white-space:normal; overflow-wrap:anywhere; min-width:120px; }
 .pull-table td.pull-len { color:var(--ps-dim); }
 .pull-table td.pull-qty-ro { text-align:right; font-variant-numeric:tabular-nums; }
 .pull-table td.pull-label-ro { color:var(--ps-dim); white-space:normal; max-width:180px; }
