@@ -5576,7 +5576,7 @@
         sweepPorts: {
             since: '1.6.0',
             target: '#main-canvas', place: 'top', title: 'Pick ports with Alt',
-            body: 'Hold Alt and drag across runs to pick every port the drag crosses, the way Alt picks circuits in Power. Right-click to redraw them as one. Alt+click alone still redraws one port.',
+            body: 'Hold Alt and drag across runs to pick every port the drag crosses, then right-click to redraw them as one. Alt+click alone still redraws one port.',
             before: function () { closePrefs(); hideMenus(); closePopover(); switchView('data-flow'); },
             act: function (t) {
                 var a = A();
