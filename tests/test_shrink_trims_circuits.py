@@ -66,9 +66,13 @@ window.__ct = {
     // power setup and `distros` on the show. With `peer` (fields of its
     // own) a second screen of the same size sits to its right and the two
     // are grouped as one wall; a step naming layerId 'PEER' names it.
+    // With `extra` ({ name, columns, fields }) a screen of its own sits
+    // below, not grouped.
     async reset(spec) {
         const app = window.app, r = window.canvasRenderer;
         app._overrideEditing = null;
+        delete app._halfLockHolders;
+        app._circuitTrimHeld = null;
         await app._layerSavesSettled();
         let project = await (await fetch('/api/project')).json();
         project.layers = [];
@@ -96,9 +100,20 @@ window.__ct = {
                 }),
             });
         }
+        if (spec.extra) {
+            await fetch('/api/layer/add', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    name: spec.extra.name, columns: spec.extra.columns, rows: spec.rows || 5,
+                    cabinet_width: 200, cabinet_height: 200, offset_x: 0, offset_y: 2000,
+                }),
+            });
+        }
         project = await (await fetch('/api/project')).json();
         const layer = project.layers.find(l => l.name === 'TrimWall');
         const peer = project.layers.find(l => l.name === 'TrimPeer') || null;
+        const extra = spec.extra
+            ? project.layers.find(l => l.name === spec.extra.name) : null;
         const power = (fields) => Object.assign({
             powerFlowPattern: 'tl-v', lastPowerFlowPattern: 'tl-v',
             powerCustomPath: false, powerOrganized: true, powerMaximize: false,
@@ -110,6 +125,7 @@ window.__ct = {
             sizeByDimensions: false, locked: false,
         }, fields || {});
         Object.assign(layer, power(spec.fields));
+        if (extra) Object.assign(extra, power(spec.extra.fields));
         if (peer) {
             Object.assign(peer, power(spec.peer.fields), { group_id: 'gT' });
             layer.group_id = 'gT';
@@ -143,6 +159,7 @@ window.__ct = {
             };
             app.__ctToastWrapped = true;
         }
+        if (extra) return [live.id, extra.id];
         return peer ? [live.id, peer.id] : live.id;
     },
 
@@ -202,6 +219,25 @@ def st(page, lid):
 
 def notes(page):
     return page.evaluate("() => window.__notes")
+
+
+def errs(page):
+    return page.evaluate("() => window.__errs")
+
+
+def shrink(page, lid, columns):
+    """Cut a screen's columns through the funnel every layer commit takes
+    (updateLayers), the way the group test cuts a peer."""
+    page.evaluate("""([id, n]) => { const app = window.app, l = window.__ct.layer(id);
+        l.columns = n; app.updateLayers([l]); app.saveState('Update Properties'); }""",
+                  [lid, columns])
+    page.wait_for_timeout(800)
+
+
+def power_fields(page, lid):
+    return page.evaluate("""(id) => { const l = window.__ct.layer(id), out = {};
+        Object.keys(l).forEach(k => { if (k.startsWith('power')) out[k] = l[k]; });
+        return JSON.parse(JSON.stringify(out)); }""", lid)
 
 
 def server_layer(page, lid):
@@ -543,6 +579,135 @@ def test_a_locked_screen_is_left_as_it_is(page, tmp_path):
     assert s['keys'] == [1, 2, 3, 4]
     assert s['paths']['1'] == pairs([0], range(10))
     assert not any('circuit' in n for n in notes(page))
+    # never silent: the locked error says what the lock kept
+    e = errs(page)
+    assert any('TrimWall: circuit S1-2 had no cabinets on the wall and stays as it is' in m
+               and 'TrimWall is locked. Unlock it to change it.' in m for m in e), e
+
+
+# ── locked screens a trim would reach ─────────────────────────────────────
+
+def _shared_box(locked_fields=None):
+    """TrimWall's circuits 1-3 (columns 0, 2, 1: circuit 2 on the last
+    column) on S1 of one distro, pinned to number 1; TrimLocked's two
+    circuits pinned to the same box, so the two screens share one multi.
+    Neither stores its tails: the box deals them in layer order, TrimWall
+    on 1-3 and TrimLocked on 4-5."""
+    return dict(
+        columns=3, distros=[{'id': 'dtr', 'name': 'S'}],
+        fields={
+            'powerFlowPattern': 'custom', 'powerCustomPaths': {
+                '1': cells(range(5), [0]), '2': cells(range(5), [2]),
+                '3': cells(range(5), [1])},
+            'powerSocaDistro': {'1': 'dtr'}, 'powerSocaNumber': {'1': 1},
+        },
+        extra={'name': 'TrimLocked', 'columns': 2, 'fields': dict({
+            'powerFlowPattern': 'custom', 'powerCustomPaths': {
+                '1': cells(range(5), [0]), '2': cells(range(5), [1])},
+            'powerSocaDistro': {'1': 'dtr'}, 'powerSocaNumber': {'1': 1},
+            'locked': True,
+        }, **(locked_fields or {}))})
+
+
+def test_a_removal_that_would_move_a_locked_screens_tails_waits(page):
+    """Taking circuit 2 off would free tail 2, and TrimLocked, dealt the
+    box's lowest free tails, would move from 4-5 onto 2 and 4. A locked
+    screen stays as it is, so the removal waits: TrimWall keeps circuit 2,
+    TrimLocked keeps every store and every tail, and the locked error says
+    which screen kept what and why - once, not on every save after.
+    Unlocked, the next save makes the removal."""
+    lid, locked = reset(page, **_shared_box())
+    before = power_fields(page, locked)
+    s0 = st(page, locked)
+    assert [s0['feeds'][k] for k in ('1', '2')] == [[1, 4, 'dtr'], [1, 5, 'dtr']]
+    shrink(page, lid, 2)
+    s = st(page, lid)
+    assert s['keys'] == [1, 2, 3]
+    assert s['feeds']['2'] == [1, 2, 'dtr']
+    assert power_fields(page, locked) == before
+    assert st(page, locked)['feeds'] == s0['feeds']
+    e = errs(page)
+    assert len(e) == 1, e
+    assert 'circuit S1-2 had only cabinets that came off the wall and stays for now' in e[0]
+    assert 'TrimLocked is locked, and this would move its circuits on a shared multi' in e[0]
+    # another save says nothing more
+    page.evaluate("(id) => window.app.updateLayers([window.__ct.layer(id)])", lid)
+    page.wait_for_timeout(500)
+    assert len(errs(page)) == 1
+    assert st(page, lid)['keys'] == [1, 2, 3]
+    # unlocked, the next save takes the circuit off
+    page.evaluate("""(id) => { const app = window.app, l = window.__ct.layer(id);
+        l.locked = false; app.updateLayers([l]); }""", locked)
+    page.wait_for_timeout(800)
+    assert st(page, lid)['keys'] == [1, 3]
+
+
+def test_a_locked_screen_holding_its_tails_lets_the_removal_through(page):
+    """The same box with TrimLocked's tails stored (4-5): taking circuit 2
+    off moves nothing of TrimLocked's, so the removal goes through and
+    TrimLocked is not written at all."""
+    lid, locked = reset(page, **_shared_box({'powerSocaPhasePos': {'1': [4, 5]}}))
+    before = power_fields(page, locked)
+    shrink(page, lid, 2)
+    s = st(page, lid)
+    assert s['keys'] == [1, 3]
+    assert s['feeds'] == {'1': [1, 1, 'dtr'], '3': [1, 3, 'dtr']}
+    assert power_fields(page, locked) == before
+    assert st(page, locked)['feeds'] == {'1': [1, 4, 'dtr'], '2': [1, 5, 'dtr']}
+    assert errs(page) == []
+
+
+def test_a_group_owner_held_by_a_locked_member_keeps_its_circuits_and_says_so(page, tmp_path):
+    """A show saved with its wall's owner unlocked and the other member
+    locked (a half-locked group, read as locked until the user picks) and
+    a circuit wholly off the owner's wall: the owner keeps its circuits,
+    and the locked error names the locked member and the circuit kept."""
+    lid, peer = reset(page, fields={
+        'powerFlowPattern': 'custom', 'powerCustomPaths': GAP_PATHS,
+        'powerLabelOverrides': {'2': 'GONE'},
+    }, peer={'fields': {}})
+    project = _saved_shrunk_without_trim(page, lid, 'TrimHalfLocked', 6)
+    next(x for x in project['layers'] if x['id'] == peer)['locked'] = True
+    _open_file(page, tmp_path, project, 'TrimHalfLocked')
+    s = st(page, lid)
+    assert s['keys'] == [1, 2, 3, 4]
+    assert s['paths']['1'] == pairs([0], range(10))
+    e = errs(page)
+    assert any('circuit GONE had no cabinets on the wall and stays as it is' in m
+               and 'TrimPeer is locked' in m for m in e), e
+
+
+def test_a_removal_that_would_repack_a_locked_group_member_waits(page):
+    """The repack lock every unplug runs: a removal that moves a locked
+    group member's packing % is put back and said. Circuit 2, alone on a
+    multi of a distro with 100% rated breakers, is the wall's only feed
+    there, so taking it off would drop the locked member from 100% to 80%.
+    (A half-locked group reads its unlocked members as locked too, which
+    the trim refuses before this; the read is switched off here so the
+    owner can reach the repack lock behind it.)"""
+    lid, peer = reset(page, columns=3,
+                      distros=[{'id': 'd100', 'name': 'S', 'system': '120/208',
+                                'breakers100': True}],
+                      fields={
+                          'powerFlowPattern': 'custom', 'powerCustomPaths': {
+                              '1': cells(range(5), [0]), '2': cells(range(5), [2])},
+                          'powerSocaSplits': [1],
+                          'powerSocaDistro': {'2': 'd100'},
+                      }, peer={'fields': {'locked': True}})
+    page.evaluate("() => { window.app._halfLockHolders = () => []; }")
+    pct = "(id) => { window.app._circuitTailCache = null; " \
+          "return window.app.circuitCapacity(window.__ct.layer(id)).pct; }"
+    assert page.evaluate(pct, peer) == 1
+    before = power_fields(page, peer)
+    shrink(page, lid, 2)
+    s = st(page, lid)
+    assert s['keys'] == [1, 2]
+    assert s['feeds']['2'][2] == 'd100'
+    assert page.evaluate(pct, peer) == 1
+    assert power_fields(page, peer) == before
+    e = errs(page)
+    assert any('stays for now' in m and 'TrimPeer is locked, and this would repack its circuits' in m
+               for m in e), e
 
 
 def test_no_page_errors(page):

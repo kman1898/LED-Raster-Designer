@@ -561,7 +561,11 @@ FIXES
   wall. Before, a circuit could sit wholly off the wall and still be
   listed and counted in Circuits Required. Circuits Required now counts
   the circuits drawn, so a gap a cleared circuit leaves doesn't count
-  either. A show saved that way is fixed when you open it.
+  either. A show saved that way is fixed when you open it. A locked
+  screen keeps its circuits as they are, and a circuit whose removal
+  would move a locked screen's circuits on a shared multi stays until
+  that screen is unlocked. Either way a message says which locked
+  screen kept which circuit.
 
 v1.5.3 - October 21, 2026
 ----------------------------

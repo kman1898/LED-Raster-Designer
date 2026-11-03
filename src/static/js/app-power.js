@@ -4121,8 +4121,19 @@ class _Power {
     // The pass rides trimPortsOffWall: the same hooks (updateLayers, the
     // load repair, the `_projectOpening` hold), the same off-the-wall test
     // (`onWall`, a step past the grid of the screen it names, its own or a
-    // group peer's), the same locked-screen skip and one toast. Returns
-    // { layers: the screens it wrote, notes: the toast's sentences }.
+    // group peer's) and one toast. Returns { layers: the screens it wrote,
+    // notes: the toast's sentences }.
+    //
+    // LOCKED SCREENS (the owner's rule, 2026-10-16: a locked screen stays
+    // unchanged until unlocked, and any attempt says why). A locked owner
+    // keeps its circuits as they are. A removal that would change another
+    // locked screen - repack it (the repack lock every unplug runs,
+    // _repackTrial, a locked member of the owner's group) or move its
+    // circuits, numbers or tails on a multi box it shares - is not made:
+    // everything it wrote is put back and the circuit stays, pending, until
+    // the screen is unlocked; the next layer save tries again. Each is said
+    // in the locked error naming what was kept (_sayTrimHeld), once for as
+    // long as it stays held - the pass runs on every layer save.
     _trimCircuitsOffWall({ load = false, onWall } = {}) {
         const out = { layers: [], notes: [] };
         if (!this.project || !Array.isArray(this.project.layers)
@@ -4154,9 +4165,16 @@ class _Power {
             if (this._layerLocked(owner)) {
                 sendClientLog('circuits_off_wall_locked',
                     { layerId: owner.id, cut, circuits: emptied });
+                const labels = emptied.map(n => this.getPowerCircuitLabel(owner, n));
+                const one = labels.length === 1;
+                this._sayTrimHeld(owner, 'owner', [owner], null, labels.length
+                    ? `${owner.name || 'Screen'}: ${this._trimCircuitsText(labels, load)} `
+                        + `and ${one ? 'stays' : 'stay'} as ${one ? 'it is' : 'they are'}.`
+                    : `${owner.name || 'Screen'}: its circuits keep the cabinets that came off the wall.`,
+                `${cut}:${emptied.join(',')}`);
                 return;
             }
-            plans.push({ owner, trimmed, emptied, cut, custom });
+            plans.push({ owner, trimmed, emptied, cut, custom, load });
         });
         if (!plans.length) return out;
 
@@ -4171,9 +4189,7 @@ class _Power {
             const said = [];
             if (r.removed.length) {
                 const one = r.removed.length === 1;
-                said.push(`circuit${one ? '' : 's'} ${r.removed.join(', ')} `
-                    + (load ? 'had no cabinets on the wall'
-                        : 'had only cabinets that came off the wall')
+                said.push(this._trimCircuitsText(r.removed, load)
                     + `, so ${one ? 'it is' : 'they are'} gone`
                     + (plan.custom ? ' and the other circuits keep their numbers.' : '.'));
             }
@@ -4190,6 +4206,7 @@ class _Power {
             if (said.length) out.notes.push(`${name}: ${said.join(' ')}`);
             sendClientLog('circuits_off_wall_trimmed', {
                 layerId: plan.owner.id, cut: plan.cut, removed: r.removedNums,
+                held: r.held || [],
                 shares: r.shares.map(s => ({ num: s.num, ways: s.ways })), load: !!load,
             });
         });
@@ -4204,6 +4221,74 @@ class _Power {
         }
         out.layers = [...touched];
         return out;
+    }
+
+    // "circuits S1-2, S1-3 had only cabinets that came off the wall" (or,
+    // opening a show, "had no cabinets on the wall").
+    _trimCircuitsText(labels, load) {
+        const one = labels.length === 1;
+        return `circuit${one ? '' : 's'} ${labels.join(', ')} `
+            + (load ? 'had no cabinets on the wall' : 'had only cabinets that came off the wall');
+    }
+
+    // The locked error for a trim the lock held, said once while that same
+    // trim stays held (`key`): the pass runs on every layer save, and the
+    // user hears it the first time, not on every edit after. A trim that
+    // goes through forgets the screen's keys, so a later hold is said anew.
+    _sayTrimHeld(owner, kind, screens, why, lead, key) {
+        const held = this._circuitTrimHeld || (this._circuitTrimHeld = new Set());
+        const id = `${owner.id}|${kind}|${key}`;
+        if (held.has(id)) return;
+        held.add(id);
+        this._showLockedError(screens, why, lead);
+    }
+
+    _forgetTrimHeld(owner) {
+        const held = this._circuitTrimHeld;
+        if (!held) return;
+        [...held].forEach(id => { if (id.startsWith(`${owner.id}|`)) held.delete(id); });
+    }
+
+    // What a locked screen shows of its power and holds of it: every
+    // power store, and each multi's distro, number, circuits and tails as
+    // the naming reads them. A removal elsewhere that changes this changed
+    // the locked screen.
+    _lockedPowerFacts(layer) {
+        const fields = {};
+        Object.keys(layer).forEach(k => {
+            if (k.startsWith('power')) fields[k] = layer[k];
+        });
+        const socas = [...this._powerNaming(layer).socas.values()].map(rec => [
+            rec.index, rec.distroId || null, rec.number, rec.circuits,
+            Array.isArray(rec.positions) ? rec.positions : null,
+        ]);
+        return JSON.stringify({ fields, socas });
+    }
+
+    // Make a removal (`apply`) on `owner` only if no locked screen changes
+    // with it: the repack lock the unplug gestures run (_repackTrial, the
+    // locked members of the owner's group, whose packing % the wall
+    // shares), then every locked screen's power as _lockedPowerFacts reads
+    // it (a multi box shared with the owner re-dealing its tails). Either
+    // way, a refusal puts back everything `apply` wrote and says so,
+    // `lead` first (_sayTrimHeld). True when the removal stands.
+    _trimUnderLocks(owner, lead, key, apply) {
+        const say = (screens, why) => this._sayTrimHeld(owner, why, screens, why, lead, key);
+        const repacked = this._repackTrial([owner], screens => say(screens, 'repack'));
+        const locked = (this.project.layers || []).filter(l => l && l !== owner
+            && (l.type || 'screen') === 'screen' && this._layerLocked(l));
+        this._circuitTailCache = null;
+        const before = new Map(locked.map(l => [l, this._lockedPowerFacts(l)]));
+        const release = locked.length ? this._holdPowerRecords() : null;
+        apply();
+        this._circuitTailCache = null;
+        if (repacked()) return false;
+        const moved = locked.filter(l => this._lockedPowerFacts(l) !== before.get(l));
+        if (!moved.length) return true;
+        release();
+        this._circuitTailCache = null;
+        say(moved, 'shared');
+        return false;
     }
 
     // `path` without the steps off the wall. A dropped step that started a
@@ -4227,25 +4312,38 @@ class _Power {
     // circuit left with no cabinets is let go (returnRunToAuto's way) with
     // its cable. A drawing left from a custom spell that lost everything
     // simply goes.
-    _trimTakenOverCircuits({ owner, trimmed, emptied }) {
+    _trimTakenOverCircuits({ owner, trimmed, emptied, load }) {
         const paths = owner.powerCustomPaths;
         const removed = emptied.map(n => this.getPowerCircuitLabel(owner, n));
+        const live = new Set(emptied.map(String));
         Object.keys(trimmed).forEach(k => {
             if (trimmed[k].length) paths[k] = trimmed[k];
-            else delete paths[k];
+            else if (!live.has(k)) delete paths[k];
         });
-        emptied.forEach(n => {
-            this._dropRunOverride(owner, 'power', n);
-            this._forgetRunCable(owner, 'power', n);
+        const out = { touched: [owner], removed, removedNums: emptied, unplugged: [], shares: [] };
+        if (!emptied.length) return out;
+        const one = removed.length === 1;
+        const lead = `${owner.name || 'Screen'}: ${this._trimCircuitsText(removed, load)} `
+            + `and ${one ? 'stays' : 'stay'} for now.`;
+        const done = this._trimUnderLocks(owner, lead, emptied.join(','), () => {
+            emptied.forEach(n => {
+                delete paths[n];
+                this._dropRunOverride(owner, 'power', n);
+                this._forgetRunCable(owner, 'power', n);
+            });
         });
         this._circuitTailCache = null;
-        return { touched: [owner], removed, removedNums: emptied, unplugged: [], shares: [] };
+        if (done) {
+            this._forgetTrimHeld(owner);
+            return out;
+        }
+        return { ...out, removed: [], removedNums: [], held: emptied };
     }
 
     // A custom screen: partial trims written, shares that lost a leg kept
     // with the legs left, and every circuit left with no cabinets removed
     // with its feed (_removeCircuitsKeepFeeds).
-    _trimCustomCircuits({ owner, trimmed, emptied }) {
+    _trimCustomCircuits({ owner, trimmed, emptied, load }) {
         const paths = owner.powerCustomPaths;
         const emptySet = new Set(emptied);
         const covered = new Set();
@@ -4293,19 +4391,33 @@ class _Power {
         });
         let touched = [owner];
         let unplugged = [];
+        let held = [];
         if (whole.length) {
-            const r = this._removeCircuitsKeepFeeds(owner, whole);
-            touched = r.touched;
-            unplugged = whole.filter(g => r.unplugged.includes(g.num)).map(g => g.label);
+            const one = whole.length === 1;
+            const lead = `${owner.name || 'Screen'}: `
+                + `${this._trimCircuitsText(whole.map(g => g.label), load)} `
+                + `and ${one ? 'stays' : 'stay'} for now.`;
+            let r = null;
+            const done = this._trimUnderLocks(owner, lead, whole.map(g => g.num).join(','),
+                () => { r = this._removeCircuitsKeepFeeds(owner, whole); });
+            if (done) {
+                touched = r.touched;
+                unplugged = whole.filter(g => r.unplugged.includes(g.num)).map(g => g.label);
+                this._forgetTrimHeld(owner);
+            } else {
+                held = whole.map(g => g.num);
+            }
         }
         const ed = this._overrideEditing;
-        if (ed && ed.kind === 'power' && ed.layerId === owner.id && emptySet.has(ed.num)) {
+        if (ed && ed.kind === 'power' && ed.layerId === owner.id && emptySet.has(ed.num)
+                && !held.length) {
             this._overrideEditing = null;
         }
         this._circuitTailCache = null;
+        const kept = whole.filter(g => !held.includes(g.num));
         return {
-            touched, removed: whole.map(g => g.label), removedNums: whole.map(g => g.num),
-            unplugged, shares,
+            touched, removed: kept.map(g => g.label), removedNums: kept.map(g => g.num),
+            unplugged, shares, held,
         };
     }
 
@@ -4343,12 +4455,25 @@ class _Power {
                      fed: !!assign[s.index] };
         });
         const firstHit = olds.findIndex(o => o.keep.length !== o.circ.length);
+        // A LOCKED screen on the box is not written, not even to hold the
+        // tails it shows: it keeps its stores as they are, and if the
+        // rebuild would deal its tails again, the caller's lock check
+        // (_trimUnderLocks) finds it and puts the removal back.
+        const lockedHeld = (this.project.layers || [])
+            .filter(l => l && l !== layer && this._layerLocked(l))
+            .map(l => [l, JSON.stringify(l.powerSocaPhasePos === undefined
+                ? null : l.powerSocaPhasePos)]);
         olds.forEach((o, i) => {
             if (firstHit < 0 || i < firstHit || !o.fed) return;
             const rec = naming.socas.get(o.s.index);
             if (!rec) return;
             this._materializeSocaBox(rec.distroId, rec.number, layer, o.s.index)
-                .forEach(l => touched.add(l));
+                .forEach(l => { if (!this._layerLocked(l)) touched.add(l); });
+        });
+        lockedHeld.forEach(([l, json]) => {
+            const was = JSON.parse(json);
+            if (was === null) delete l.powerSocaPhasePos;
+            else l.powerSocaPhasePos = was;
         });
         this._circuitTailCache = null;
         naming = this._powerNaming(layer);
