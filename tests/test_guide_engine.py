@@ -146,6 +146,14 @@ LEAK_JS = """() => {
 }"""
 
 
+CALLOUT_BOX_JS = """() => {
+    const c = document.getElementById('qs-callout');
+    if (!c) return null;
+    const r = c.getBoundingClientRect();
+    return [r.left, r.top, r.right, r.bottom];
+}"""
+
+
 def _settle_with_noise(page, index, rng, timeout=120):
     """Until step `index` settles, a hand on the mouse: it wanders, clicks,
     right-clicks, scrolls and presses keys whenever the step is running."""
@@ -158,6 +166,12 @@ def _settle_with_noise(page, index, rng, timeout=120):
             return st
         if q['running']:
             x, y = rng.uniform(40, VIEWPORT['width'] - 40), rng.uniform(60, VIEWPORT['height'] - 30)
+            # A click on the callout's Skip ends the guide by design (the
+            # person meant it), so the stray hand keeps off the callout.
+            box = page.evaluate(CALLOUT_BOX_JS)
+            if box and any(box[0] - 8 <= px <= box[2] + 8 and box[1] - 8 <= py <= box[3] + 8
+                           for px, py in ((x, y), (x + 60, y + 30))):
+                continue
             page.mouse.move(x, y, steps=4)
             r = rng.random()
             if r < 0.2:
