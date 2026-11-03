@@ -1086,6 +1086,18 @@
         var corner = function (ax, ay) {
             return { x: ax < vw / 2 ? vw - cw - 12 : 12, y: ay < vh / 2 ? vh - ch - 12 : 12, p: null };
         };
+        // The locked spot is measured once, for the box of its first step;
+        // a taller step held there ran off the bottom of a short window
+        // and took Next with it (1.6.0: the start page step on a 720 px
+        // window). The box keeps the spot's column and rises only as far
+        // as the window needs.
+        var inWindow = function (b) {
+            var y = Math.max(12, Math.min(b.y, vh - ch - 12));
+            if (y === b.y) return b;
+            var moved = { x: b.x, y: y, p: b.p };
+            moved.clear = clear(moved) && !(r && hits(moved, cw, ch, r, 8));
+            return moved;
+        };
         var box;
         if (!r || step.center) {
             // The intro sits in the middle of the window; the first Next
@@ -1093,6 +1105,7 @@
             // later step with nothing to ring yet (a control that appears
             // after its first click, the outro) uses the locked spot too.
             box = S.idx > 0 ? lockedBox(cw, ch, null, keep) : null;
+            if (box) box = inWindow(box);
             if (!box || !clear(box)) box = { x: (vw - cw) / 2, y: (vh - ch) / 2, p: null };
             if (!clear(box)) {
                 var c0 = keep[0];
@@ -1107,6 +1120,7 @@
             // hold the box at all.
             var locked = lockedBox(cw, ch, r, keep);
             if (locked) {
+                locked = inWindow(locked);
                 if (dry) return locked;
                 call.style.left = locked.x + 'px';
                 call.style.top = locked.y + 'px';
@@ -1221,7 +1235,12 @@
         // one overlap for another, and a nudge of a few pixels is not worth
         // the slide.
         var better = place(step, null, true);
-        if (better.clear && (Math.abs(better.x - c.left) > 40 || Math.abs(better.y - c.top) > 40)) place(step);
+        // A box past the window's edge always moves (its Next may be out of
+        // reach); a box over the ring moves only to a clear spot, and only
+        // for a real move.
+        var inside = better.x + c.width <= window.innerWidth - 12 + 0.5 && better.y + c.height <= window.innerHeight - 12 + 0.5;
+        if (off ? inside && (better.x !== c.left || better.y !== c.top)
+                : better.clear && (Math.abs(better.x - c.left) > 40 || Math.abs(better.y - c.top) > 40)) place(step);
     }
     // A window resize (the app fires one after a view switch re-lays the
     // canvas out) re-measures the ring but moves the callout only if it

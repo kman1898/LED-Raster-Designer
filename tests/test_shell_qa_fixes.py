@@ -412,17 +412,38 @@ def test_the_processing_select_shows_the_whole_coex_1g_name(e2e_server, pw_brows
     try:
         pg.locator('[data-mode="data-flow"]').click()
         pg.wait_for_timeout(400)
+        # The name shown closed (the value set without a change event, so
+        # the screen keeps its processor). It either fits its one line or,
+        # where the font is wider than the room (Linux's DejaVu Sans), wraps
+        # word by word onto as many lines as the box is tall: every word
+        # fits the room, and the box holds every line.
         fit = pg.evaluate("""() => {
             const s = document.getElementById('processor-type');
+            const was = s.value;
             const opt = [...s.options].find(o => o.value === 'novastar-coex-1g');
+            s.value = opt.value;
             const cs = getComputedStyle(s);
             const ctx = document.createElement('canvas').getContext('2d');
             ctx.font = cs.font;
             const room = s.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
-            return {text: opt.text, need: ctx.measureText(opt.text).width, room};
+            const inner = s.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+            const w = t => ctx.measureText(t).width;
+            let lines = 1, line = '';
+            for (const word of opt.text.split(' ')) {
+                const next = line ? line + ' ' + word : word;
+                if (line && w(next) > room) { lines += 1; line = word; } else line = next;
+            }
+            const out = {text: opt.text, need: w(opt.text), room, lines,
+                         widest: Math.max(...opt.text.split(' ').map(w)),
+                         wraps: cs.whiteSpace === 'normal', inner,
+                         lineHeight: parseFloat(cs.fontSize) * 1.15};
+            s.value = was;
+            return out;
         }""")
         assert fit['text'] == 'NovaStar COEX A10s/A8s (1G)', fit
-        assert fit['need'] <= fit['room'], fit
+        if fit['need'] > fit['room']:
+            assert fit['wraps'] and fit['widest'] <= fit['room'], fit
+            assert fit['inner'] >= fit['lines'] * fit['lineHeight'] - 1, fit
     finally:
         context.close()
 

@@ -38,7 +38,13 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
     #toolbar h1 .lrd-app-title { display: none; }
     #toolbar h1 .lrd-logo-mark { margin-right: 0 !important; }
     #project-name { min-width: 120px; }
-    #canvas-controls { flex-wrap: wrap; row-gap: 6px; }
+    /* The strip wraps, but never taller than its column leaves room for:
+       in a window too narrow for the panels beside it, one control a row
+       stacked the strip past the window's bottom and took the hardware
+       tray, its gears and their panels with it. It scrolls instead (the
+       column it sits in may give way below its content for that). */
+    #canvas-container { min-height: 0; }
+    #canvas-controls { flex-wrap: wrap; row-gap: 6px; min-height: 0; overflow-y: auto; }
     #canvas-controls .magnet-toggle { margin-left: 0 !important; }
 }
 #project-name { color: #e0e0e0; font-size: 13px; background: transparent; border: 1px solid transparent; padding: 4px 8px; border-radius: 4px; min-width: 200px; }
@@ -198,9 +204,13 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 .info-row input[type="checkbox"] { width: 18px; height: 18px; }
 /* The Processing select carries the longest processor names
    ("NovaStar COEX A10s/A8s (1G)"): a tighter arrow gutter, with the Port
-   Capacity box's narrower sides, keeps the whole name readable closed. */
+   Capacity box's narrower sides, keeps the whole name readable closed.
+   Where the font is wider than that room (Linux's DejaVu Sans; the name is
+   about 183 px there, the room 162) the name wraps onto a second line
+   instead of being cut off, the way the distro panel's selects do. */
 #processor-type { padding-left: 5px !important; padding-right: 16px !important;
-    background-position: right 5px center !important; }
+    background-position: right 5px center !important;
+    white-space: normal; height: auto; text-align: left; }
 .info-row select, .info-select { 
     width: 100%; 
     background: #1a1a1a url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' fill='white'%3E%3Cpath d='M0 0l6 8 6-8H0z'/%3E%3C/svg%3E") no-repeat right 8px center; 
