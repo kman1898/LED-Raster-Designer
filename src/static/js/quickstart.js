@@ -5211,6 +5211,44 @@
             },
             after: closeExportUnless
         },
+        // The Fiber page (1.6.0, app-binder-fiber.js): one sheet after the
+        // processors for a show that uses fiber - the guide's breakout box
+        // took a TAC in Fiber to the box - every processor to its breakout
+        // boxes, a row per link, with the strand maps and the fiber cables
+        // to pull. The tick shows only on a show with fiber; it goes off
+        // and on, and the set is planned until the page is in it.
+        fiberPage: {
+            since: '1.6.0',
+            exportStep: true,
+            target: '#export-binder-fiber-label', place: 'left', title: 'The Fiber page',
+            body: 'A show with fiber gets a Fiber page after the processors: each processor to its breakout boxes, a row per link with its strands at both ends, then the strand maps and the fiber cables to pull.',
+            before: openExport,
+            act: function (t) {
+                var box = $('#export-binder-fiber');
+                if (!box) return Promise.reject(new Error('no Fiber tick'));
+                return (box.checked ? t.click(box).then(function () { return t.pause(500); }) : Promise.resolve()).then(function () {
+                    t.mem.mid = $('#export-binder-fiber').checked;
+                    return t.click('#export-binder-fiber');
+                }).then(function () {
+                    return t.wait(function () {
+                        var a = A();
+                        if (!$('#export-binder-fiber').checked) return null;
+                        var hit = a.planBinder(a.readBinderOptions()).find(function (p) { return p.kind === 'fiber'; });
+                        if (hit) t.mem.number = hit.number;
+                        return hit || null;
+                    }, 4000);
+                }).then(function (hit) {
+                    if (!hit) throw new Error('the binder planned no Fiber page');
+                    return t.pause(PACE.acted);
+                });
+            },
+            check: function (mem) {
+                var box = $('#export-binder-fiber');
+                return box && box.checked && !mem.mid && mem.number
+                    ? 'Fiber is on: the Fiber page prints as sheet ' + mem.number + ', after the processors.' : null;
+            },
+            after: closeExportUnless
+        },
         titleBlock: {
             exportStep: true,
             target: '#export-binder-title-block', place: 'left', title: 'Border and title block',
@@ -5776,7 +5814,7 @@
                     'powerColumns', 'splitters', 'takeOver', 'customPower', 'customDraw', 'sweepShare', 'balance',
                     'addService', 'serviceRating', 'serviceDistro', 'feederLength',
                     'addBeach', 'screenBeach', 'addScreen', 'beachByMenu', 'crossScreens', 'groupScreens',
-                    'exportBinder', 'screenOrder', 'wiringTick', 'titleBlock', 'fileExports', 'preferences',
+                    'exportBinder', 'screenOrder', 'wiringTick', 'fiberPage', 'titleBlock', 'fileExports', 'preferences',
                     'mirrorScreen', 'portPlug', 'portNumbers', 'portsMinimum', 'powerZPattern', 'circuitNumbers',
                     'redrawAsOne', 'sweepPorts', 'helpMenu', 'outroAdvanced']
         }

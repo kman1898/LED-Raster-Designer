@@ -2367,6 +2367,7 @@
                         <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; flex: none; white-space: nowrap; line-height: 20px;" data-tooltip="A pull sheet per position with tick boxes (3.x), and the show-wide pull list at the back."><input type="checkbox" id="export-binder-pull" checked> Pull sheets</label>
                         <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; flex: none; white-space: nowrap; line-height: 20px;" data-tooltip="One sheet per distro and per processor at the back (4.x)."><input type="checkbox" id="export-binder-hardware" checked> Hardware</label>
                         <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; flex: none; white-space: nowrap; line-height: 20px;" data-tooltip="A wiring sheet behind each map (2.x): Power Wiring right after a screen's Power sheet, every circuit wired to its breakout; Data Wiring right after its Data sheet, every port wired to its socket. Each follows its own map: Maps on Power gives no Data Wiring sheet, and the other way round."><input type="checkbox" id="export-binder-wiring" checked> Wiring</label>
+                        <label id="export-binder-fiber-label" style="display: flex; align-items: center; gap: 5px; cursor: pointer; flex: none; white-space: nowrap; line-height: 20px;" data-tooltip="One Fiber sheet at the back (4.x), offered when the show uses fiber: every processor to its breakout boxes, a row per link, with the strand maps and the fiber cables to pull."><input type="checkbox" id="export-binder-fiber" checked> Fiber</label>
                         </div>
                     </div>
                     <!-- The border, the title block column and the rev line, or
@@ -2868,6 +2869,7 @@
                                 <label class="pm-check"><input type="checkbox" id="pref-binder-pull"> Pull sheets</label>
                                 <label class="pm-check"><input type="checkbox" id="pref-binder-hardware"> Hardware</label>
                                 <label class="pm-check"><input type="checkbox" id="pref-binder-wiring"> Wiring</label>
+                                <label class="pm-check"><input type="checkbox" id="pref-binder-fiber"> Fiber</label>
                             </div>
                         </div>
                         <div class="pm-row">

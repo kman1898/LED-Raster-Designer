@@ -19,7 +19,7 @@
  */
 window.WHATS_NEW_CONTENT = {
     '1.6': {
-        title: 'A start page, cables named by their connector, US circuits at 80%, a power in for every distro, your panels on the pull sheet, mixed redundancy, mirror screens and Z flow patterns',
+        title: 'A start page, cables named by their connector, US circuits at 80%, a power in for every distro, your panels on the pull sheet, mixed redundancy, mirror screens, a Fiber page and Z flow patterns',
         items: [
             { h: 'TRUE1 or powerCON, Cat6 or etherCON',
               d: 'The pull sheet and the binder say exactly which cable to pull. Power reads TRUE1 or powerCON from each screen\'s breakout, and data reads Cat6 or etherCON from each box\'s own outputs.' },
@@ -31,8 +31,8 @@ window.WHATS_NEW_CONTENT = {
               d: 'Open a distro\'s gear, type its power in length and pick whether it\'s powered from the service or thru another distro. A 400 A cam input lists a 400 A cam set with 5-wire, and the power in is on the pull sheet even before you type a length.' },
             { h: 'A start page, and your panels and cable stock on the pull sheet',
               d: 'The app opens on a start page: start a new project, open a file, or pick one of your recent files, which now opens as you last saved it. A new project opens the panel library first, and the panel you pick makes its first screen. Add Screen with nothing picked uses the last screen\'s panel. A panel you pick from the library is saved on the screen, and the pull sheet counts your panels by name, a row for each type on each screen. In Preferences > Cable stock, tick A list for each kind of cable to give multis, data, power, power in cables and the rest their own lengths.' },
-            { h: 'Mixed redundancy and mirror screens',
-              d: 'On a chassis like an H series, the redundancy bar has a Mixed choice, so card 1 can be backed up 1:1 by card 2 while card 3 pairs its own ports. With an H_4xfiber in Copy mode, or an MX40 Pro with a box set to Mirror, drag it onto one screen and then onto a matching second screen, and the second becomes its copy with its runs off the copy OPTs.' },
+            { h: 'Mixed redundancy, mirror screens and a Fiber page',
+              d: 'On a chassis like an H series, the redundancy bar has a Mixed choice, so card 1 can be backed up 1:1 by card 2 while card 3 pairs its own ports. With an H_4xfiber in Copy mode, or an MX40 Pro with a box set to Mirror, drag it onto one screen and then onto a matching second screen, and the second becomes its copy with its runs off the copy OPTs. A show that uses fiber gets a Fiber page in the binder: every processor to its breakout boxes on one sheet, with the strands at both ends, the strand maps and the fiber cables to pull.' },
             { h: 'Z flow patterns, and long rows cut into ports and circuits',
               d: 'Data and power get eight Z flow patterns, where every row starts again from the same side. Organized now cuts a row too long for one port or circuit into whole cabinets, Port numbers and Circuit numbers set the order, and Ports required shows the fewest ports a screen needs.' },
             { h: 'Check paperwork you\'ve already ordered from',

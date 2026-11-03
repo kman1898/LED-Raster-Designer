@@ -268,7 +268,7 @@ const SCREEN_ORDERS = ['alpha', 'layers', 'layers-up', 'data', 'power'];
 // The logo is stored no larger than this on its long side.
 const LOGO_MAX_PX = 1200;
 const SERIES = { overview: 1, power: 2, data: 2, wiring: 2, pull: 3,
-                 service: 4, distro: 4, processor: 4, totals: 4 };
+                 service: 4, distro: 4, processor: 4, totals: 4, fiber: 4 };
 
 class _Binder {
 
@@ -288,7 +288,7 @@ class _Binder {
                 // A single screen is that screen's sheets and nothing else
                 // unless asked; the whole show is the whole set.
                 const single = scope.value !== 'show';
-                ['export-binder-cover', 'export-binder-pull', 'export-binder-hardware']
+                ['export-binder-cover', 'export-binder-pull', 'export-binder-hardware', 'export-binder-fiber']
                     .forEach(id => {
                         const el = document.getElementById(id);
                         if (el) el.checked = !single;
@@ -445,7 +445,12 @@ class _Binder {
             tick('export-binder-pull', prefs.binderPull !== false);
             tick('export-binder-hardware', prefs.binderHardware !== false);
             tick('export-binder-wiring', prefs.binderWiring !== false);
+            tick('export-binder-fiber', prefs.binderFiber !== false);
         }
+        // The Fiber tick is offered only to a show that uses fiber: the
+        // page prints for nothing else (app-binder-fiber.js).
+        const fiberTick = document.getElementById('export-binder-fiber-label');
+        if (fiberTick) fiberTick.style.display = this.binderUsesFiber() ? 'flex' : 'none';
         const scope = document.getElementById('export-binder-scope');
         if (scope) {
             const want = this._binderPresetScope != null
@@ -461,7 +466,7 @@ class _Binder {
             for (const l of this._pullScreens()) opt(`screen:${l.id}`, `Screen: ${l.name || l.id}`);
             scope.value = [...scope.options].some(o => o.value === want) ? want : 'show';
             if (want !== 'show' && scope.value === want) {
-                ['export-binder-cover', 'export-binder-pull', 'export-binder-hardware']
+                ['export-binder-cover', 'export-binder-pull', 'export-binder-hardware', 'export-binder-fiber']
                     .forEach(id => {
                         const el = document.getElementById(id);
                         if (el) el.checked = false;
@@ -577,6 +582,9 @@ class _Binder {
             cover: on('export-binder-cover', scope.kind === 'show'),
             pull: on('export-binder-pull', scope.kind === 'show'),
             hardware: on('export-binder-hardware', scope.kind === 'show'),
+            // the Fiber page (app-binder-fiber.js): a show's, printed only
+            // where the show uses fiber
+            fiber: on('export-binder-fiber', scope.kind === 'show'),
             // the Wiring tick - one for both wiring sheets, each following
             // its own map through the Maps choice - is a SCREEN sheet's: on
             // whatever the scope
@@ -1156,6 +1164,9 @@ class _Binder {
                  coverage: Number.isFinite(p.coverage) ? Math.round(p.coverage * 1000) / 1000 : null,
                  names: p.names || null, sides: p.sides || null, halves: p.halves || null,
                  w: book.sheet.w, h: book.sheet.h, sheet: book.sheet.key,
+                 // the Fiber page's layout: its drawing's columns, the
+                 // processors each draws, its tables' columns
+                 ...(p.fiber ? { fiber: p.fiber } : {}),
                  // a grouped wall's sheet: its group and the screens it draws
                  ...(p.groupId != null ? { groupId: p.groupId, layerIds: p.layerIds || null } : {}) };
     }
@@ -1189,7 +1200,7 @@ class _Binder {
                  dashes: log.dashes, map: log.map || null, brackets: log.brackets || [],
                  bracketKey: log.bracketKey || null,
                  bubble: log.bubble || null, titleBlock: log.titleBlock || null,
-                 logo: log.logo || null, wiring: log.wiring || null,
+                 logo: log.logo || null, wiring: log.wiring || null, fiber: log.fiber || null,
                  page: plan[index] || null, pages: plan.length, sheet: book.sheet };
     }
 
@@ -1319,6 +1330,11 @@ class _Binder {
         }
         if (opts.pull) hardware.push(this._bTotalsGroup(book));
         this._bHardwareSheets(book, hardware);
+        // THE FIBER PAGE (owner, 2026-11-03: "just a fiber page if fiber
+        // is used. So it can all be shown together processor to
+        // breakout"): the show's, after the hardware, only where fiber is
+        // used and only when asked (opts.fiber - the dialog's Fiber tick).
+        if (opts.fiber === true && !scopeLayer) this._bFiberSheets(book);
         return this._binderFinish(book);
     }
 
@@ -2045,7 +2061,9 @@ class _Binder {
             this._bPageFrame(book, page);
             const s = page.scale || 1;
             const scaled = (fn) => {
-                if (!(s > 1)) { fn(); return; }
+                // (under 1 only on the Fiber page's two drawing columns,
+                // app-binder-fiber.js TWO_MIN; every other sheet is 1 or more)
+                if (!(s > 0) || s === 1) { fn(); return; }
                 const da = book.geo.da;
                 book.fill = { s, x: da.x, y: da.y, e: da.x - s * da.x, f: da.y - s * da.y };
                 book.ctx.save();
@@ -7906,15 +7924,20 @@ class _Binder {
     _bProcessorGroup(book, proc) {
         const cards = (proc.slots || []).filter(s => s && s.card).map(s => ({ slot: s.index, card: s.card }));
         if (!cards.length) return null;
-        // The unit's own name heads its column: a processor nobody named
-        // whose FIXED card is its own face goes by the card's name
-        // ("WALL A"), not by its model twice over. A processor with slots
-        // keeps its own name - a card in it is a part, not the unit.
+        const procTitle = this._bProcessorTitle(proc);
+        return { kind: 'processor', name: procTitle, blocks: this._bProcessorBlocks(book, proc, cards, procTitle) };
+    }
+
+    // The unit's own name, as its column and the Fiber page head it: a
+    // processor nobody named whose FIXED card is its own face goes by the
+    // card's name ("WALL A"), not by its model twice over. A processor
+    // with slots keeps its own name - a card in it is a part, not the unit.
+    _bProcessorTitle(proc) {
+        const cards = (proc.slots || []).filter(s => s && s.card);
         const unit = cards.length === 1 && cards[0].card.fixed
             && typeof this.dataUnitTitle === 'function'
             ? this.dataUnitTitle(proc, cards[0].card) : null;
-        const procTitle = proc.name || (unit && unit.title) || proc.deviceName || proc.id;
-        return { kind: 'processor', name: procTitle, blocks: this._bProcessorBlocks(book, proc, cards, procTitle) };
+        return proc.name || (unit && unit.title) || proc.deviceName || proc.id;
     }
 
     // A processor's BACKUP UNIT as its own column (owner, 2026-09-25): "WALL
@@ -8304,12 +8327,8 @@ class _Binder {
         const out = [];
         for (const cable of this.getFiberCables()) {
             if (firsts.get(cable.id) !== proc.id) continue;
-            const ft = this.parseCableLength(cable.ft);
             const also = (procsOf.get(cable.id) || []).filter(t => t !== here);
-            const title = [`Strand map · ${cable.name || this.fiberKindWord(cable.kind)}`,
-                           this.fiberCableTypeText(cable),
-                           Number.isFinite(ft) && ft > 0 ? this.pullLengthText(ft) : 'no length']
-                .filter(Boolean).join(' · ');
+            const title = this._bStrandMapTitle(cable);
             const m = uses.get(cable.id) || new Map();
             const rows = [];
             // a link with an extension at the box end notes it after the
@@ -8334,6 +8353,17 @@ class _Binder {
                        rows, shrink: true });
         }
         return out;
+    }
+
+    // A strand map's title, on a processor's page and on the Fiber page
+    // alike: "Strand map · TAC A · TAC 24 · LC duplex · 500'", "no length"
+    // where the cable has none.
+    _bStrandMapTitle(cable) {
+        const ft = this.parseCableLength(cable.ft);
+        return [`Strand map · ${cable.name || this.fiberKindWord(cable.kind)}`,
+                this.fiberCableTypeText(cable),
+                Number.isFinite(ft) && ft > 0 ? this.pullLengthText(ft) : 'no length']
+            .filter(Boolean).join(' · ');
     }
 
     // A link's EXTENSION at the box end as the binder says it, a line
@@ -8461,6 +8491,11 @@ class _Binder {
         // _bStrandPiece has it
         const swatched = (list, cable) => list.map((n, j) => ({ ...this._bStrandPiece(n, cable), brk: j > 0 }));
         const joined = (parts) => parts.map(p => p.text).join(' · ');
+        // Each linked row also carries what the Fiber page draws from it
+        // (app-binder-fiber.js), so the page can never read a link another
+        // way: `link` (fiberBoxLinks' entry) and, on a fiber cable, `fiber`
+        // - the strands at either end as the cells have them, whether the
+        // cable crosses inside, and the extension's parts.
         const linkRow = (output, l) => {
             linked++;
             const input = `${l.title} on ${this._bBoxTitle(l.box)}`;
@@ -8469,10 +8504,10 @@ class _Binder {
                 const over = this.copperOverText(l.copper);
                 const run = [l.copper.copper, Number.isFinite(ft) && ft > 0 ? this.pullLengthText(ft) : '']
                     .filter(Boolean).join(' ') + (over ? ` (${over})` : '');
-                return { cells: [output, run, 'copper', input, 'copper'] };
+                return { cells: [output, run, 'copper', input, 'copper'], link: l, fiber: null };
             }
             const cable = l.cable;
-            if (!cable) return { cells: [output, 'no fiber picked', '', input, ''] };
+            if (!cable) return { cells: [output, 'no fiber picked', '', input, ''], link: l, fiber: null };
             let name = cable.name || this.fiberCableTypeText(cable);
             if (cable.name && !typed.has(cable.id)) name += ` (${this.fiberCableTypeText(cable)})`;
             // a cable nobody gave a length is flagged here as everywhere
@@ -8483,15 +8518,16 @@ class _Binder {
             const atProcessor = swatched(set, cable);
             const crosses = cable.kind === 'mtp' || cable.kind === 'opticalcon-duo'
                 || cable.kind === 'opticalcon-quad';
-            const atInput = crosses
-                ? swatched(set, cable).concat([{ text: 'crosses inside', brk: true }])
-                : swatched(this._bStrandsAtBox(l.link, cable), cable);
+            const atBox = crosses ? swatched(set, cable) : swatched(this._bStrandsAtBox(l.link, cable), cable);
+            const atInput = crosses ? atBox.concat([{ text: 'crosses inside', brk: true }]) : atBox.slice();
             // the link's extension sits between the trunk's end and the
             // box's port (owner, 2026-11-02), so the path says it last, at
             // the breakout: "ext Fan-out 10'" then its two ends
-            atInput.push(...this._bFiberExtensionParts(l));
+            const ext = this._bFiberExtensionParts(l);
+            atInput.push(...ext);
             return { cells: [output, name, joined(atProcessor), input, joined(atInput)],
-                     parts: { 2: atProcessor, 4: atInput } };
+                     parts: { 2: atProcessor, 4: atInput }, link: l,
+                     fiber: { atProcessor, atBreakout: atBox, crosses, ext } };
         };
         // output by output (Matt's option 1): the main's output, then the
         // backup's same output onto the same breakout - p1 then b1, p2
@@ -8618,4 +8654,5 @@ for (const k of Object.getOwnPropertyNames(_Binder.prototype)) {
 // The set's vocabulary the wiring mixin (app-binder-wiring.js) draws with -
 // the same inks, type sizes and fill rules - so its sheet reads as the
 // rest of the set does.
-export const BINDER_STYLE = { INK, RULE, FAINT, MUTED, SZ, FILL_CAP, MAP_ZOOM_CAP, MAP_MIN_FRAC, BUBBLE_H, FONT };
+export const BINDER_STYLE = { INK, RULE, FAINT, MUTED, SZ, FILL_CAP, MAP_ZOOM_CAP, MAP_MIN_FRAC, BUBBLE_H, FONT,
+                               BAND_BG, COL_W, COL_GAP, DATA_COL_W, GROUP_H, TH_H, ROW_H, LIST_H, BLOCK_GAP, SWATCH_W };
