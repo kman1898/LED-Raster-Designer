@@ -356,8 +356,8 @@ def test_recent_files_count_screens(e2e_server, pw_browser):
         dates = pg.evaluate("""() => {
             const p = window.app.project;
             localStorage.setItem('ledRasterRecentFiles', JSON.stringify([
-                {name: 'One', timestamp: Date.now(), layerCount: 1, data: p},
-                {name: 'Two', timestamp: Date.now(), layerCount: 2, data: p}]));
+                {name: 'One', timestamp: Date.now(), screenCount: 1, layerCount: 1, data: p},
+                {name: 'Two', timestamp: Date.now(), screenCount: 2, layerCount: 2, data: p}]));
             window.app.updateRecentFilesMenu();
             return [...document.querySelectorAll('.recent-file-date')].map(e => e.textContent);
         }""")

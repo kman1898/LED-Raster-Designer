@@ -81,7 +81,7 @@ def test_opening_an_older_show_lists_the_round_6_changes():
     assert 'The first four come from the new 80% fill' in intro
     assert "the last six change what's listed or what you can do" in intro
     # round 8 adds the overfull multi box note, a FIX among the rest
-    assert len(bullets) == 20, bullets
+    assert len(bullets) == 22, bullets   # beta.4 QA: loop backup boxes, CVT4K-S input 2 at 9
     assert '80%' in bullets[3] and '16 A breaker · 12.8 A usable' in bullets[3], bullets[3]
     assert all(b.startswith('- CHANGE (IMPORTANT): ') for b in bullets[-6:]), bullets[-6:]
     assert not any(b.startswith('- CHANGE') for b in bullets[:3] + bullets[4:-6])

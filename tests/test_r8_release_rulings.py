@@ -75,7 +75,7 @@ def test_the_overfull_box_note_is_listed_for_older_shows():
     # among the ones that were wrong before: after the first four, before
     # the last six, and the intro still counts them right
     assert 4 <= bullets.index(line) < len(bullets) - 6
-    assert len(bullets) == 20
+    assert len(bullets) == 22   # beta.4 QA: loop backup boxes, CVT4K-S input 2 at 9
     intro = _flat(older[:older.index('\n- ')])
     assert 'The first four come from the new 80% fill' in intro
     assert "the last six change what's listed or what you can do" in intro

@@ -19,7 +19,7 @@
  */
 window.WHATS_NEW_CONTENT = {
     '1.6': {
-        title: 'Cables named by their connector, US circuits at 80%, a power in for every distro, your panels on the pull sheet, mixed redundancy, mirror screens and Z flow patterns',
+        title: 'A start page, cables named by their connector, US circuits at 80%, a power in for every distro, your panels on the pull sheet, mixed redundancy, mirror screens and Z flow patterns',
         items: [
             { h: 'TRUE1 or powerCON, Cat6 or etherCON',
               d: 'The pull sheet and the binder say exactly which cable to pull. Power reads TRUE1 or powerCON from each screen\'s breakout, and data reads Cat6 or etherCON from each box\'s own outputs.' },

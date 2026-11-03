@@ -79,7 +79,7 @@ def test_a_half_locked_group_still_hides_and_shows():
 def test_the_new_lines_change_no_counts():
     top = _top_entry()
     older = top[top.index('OPENING AN OLDER SHOW'):top.index('\nFIXES\n')]
-    assert len(re.findall(r'^- ', older, re.M)) == 20   # round 8: the overfull box note
+    assert len(re.findall(r'^- ', older, re.M)) == 22   # round 8: the overfull box note; beta.4 QA: backup boxes, CVT4K-S
     assert 'short tags' not in older and 'more circuits than it takes' not in older
 
 

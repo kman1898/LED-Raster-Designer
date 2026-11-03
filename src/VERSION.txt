@@ -84,14 +84,17 @@ aren't counted. A screen from an older show uses the library's name for
 a panel that matches its size, pixels and weight, or its size, like
 500 × 500 mm panel.
 
-PICK A PANEL TO START
+A START PAGE, THEN A PANEL
 
-When the app opens, and when you pick File > New, the panel library
-opens first. Pick a panel or one of your presets and Use Panel makes
-Screen1 from it, with the panel's pixels, size, weight and watts, and
+The app opens on a start page: start a new project, open a file, or
+pick one of your recent files. New project opens the panel library,
+and so does File > New. Pick a panel or one of your presets and Use
+Panel makes Screen1 from it, with the panel's pixels, size, weight and watts, and
 its name in Screen Info's Panel field, where you can type over it.
-Cancel starts an empty project, and Add Screen makes the first screen
-when you're ready. Opening a saved show never asks.
+Cancel takes you back to the start page (after File > New it starts an
+empty project), and closing the start page starts an empty project too;
+Add Screen makes the first screen when you're ready. Opening a saved
+show never asks.
 
 Add Screen with nothing picked now makes a screen of the last screen's
 panel, and the line at the foot says which one, like Screen3's panel
@@ -299,6 +302,20 @@ pull sheet again and compare it with anything you've already ordered.
 - FIX (IMPORTANT): A multi box carrying more circuits than it holds gets
   a note on the pull sheet, like 8 circuits on a six-circuit output, and
   a Crowded line on the distro sheet.
+- FIX (IMPORTANT): A breakout box that backs up another on a copy OPT,
+  like an H_4xfiber or enhanced card in Backup or a NovaPro UHD or UHD Jr
+  box set to Backup, is on the paperwork. The pull sheet counts the
+  backup box and a home run for each backup socket, the binder's Ports
+  table fills its BACKUP half, CABLES THIS SCREEN counts the backup runs,
+  and the processor sheet lists the backup box's sockets. FACTS says
+  Backup boxes and the Cards table says which box backs up which, where
+  they said Off or "1:1, no partner". Check the cable counts on any show
+  with these boxes.
+- FIX (IMPORTANT): A CVT4K-S's outputs 1-8 always belong to its first
+  input, and its second input always starts at output 9. On a VX400 Pro
+  the main OPT is outputs 1-4 and the backup or copy is 9-12; on a VX600
+  Pro, an MCTRL660 Pro or an MX20 it is 1-6 and 9-14. Shows with a
+  CVT4K-S on those processors renumber the box's second input that way.
 - CHANGE (IMPORTANT): The pull sheet has a row for each panel type on
   each screen and a Power in row for each distro, so an older show's pull
   sheet gets these new rows.
@@ -615,6 +632,114 @@ FIXES
   When the locked screen's circuits stay as they are, the change goes
   through and the locked screen isn't touched. Before, these could move
   a locked screen's circuits on the multi or write to it.
+- FIX: Recent Files could open an older version of a show
+  than the one you last saved, and on the Mac a nearly full browser
+  storage could make File > Open stop partway. A recent show is now read
+  from its file each time you open it, so it opens as last saved on any
+  machine. A file that has moved says so, two files with the same name
+  are listed separately, and Recent Files counts screens.
+- FIX: The binder marks every circuit over its limit: OVER
+  beside its amps in Circuits and Shared circuits, an Over line in Facts,
+  and a warning at export naming the screens and circuits.
+- FIX: Redraw port on an automatic screen no longer dead-ends. The port
+  keeps its cabinets while you redraw it: click one of its cabinets to
+  cut the run back to it, then click the rest in any order. Clear Port no
+  longer hands them to the other ports, and any you leave undrawn go back
+  to the automatic ports with a note saying where.
+- FIX: On a custom screen too, clicking an earlier cabinet of the port
+  you are drawing cuts the run back to that cabinet; the cabinets after
+  it are free to draw again.
+- FIX: Custom ports always run 1 to N with no gaps. A show opened with a
+  gap in its custom ports, or a screen switched to custom with one,
+  closes it up; the ports after it keep their names and card places.
+- FIX: With two or more ports picked, right-click offers only Redraw
+  ports as one. The single Redraw port shows when one port or none is
+  picked.
+- FIX: Keeping a half-drawn Redraw ports as one says which ports the
+  cabinets left over went to.
+- FIX: Esc ends a port redraw even after a box in the side panel was
+  clicked.
+- FIX: Redraw port on a mirror screen says why it can't be redrawn
+  instead of doing nothing.
+- FIX: A screen that was locked when its show was opened gets the same
+  port repair as soon as it is unlocked.
+- FIX: Port redraw and fill messages name ports one way, by the screen's
+  port number (P15).
+- FIX: A mirror screen is checked again whenever either screen is
+  resized or a cabinet is blanked, hidden or made a half tile, not only
+  when the mirror is made. An edit that breaks it says which screens no
+  longer match and why, and the warning clears as soon as they match
+  again. Mirror messages read as plain sentences and say which setting
+  to change.
+- FIX: Dragging a processor onto a second screen no longer makes a mirror
+  with nowhere to plug in. Where the box on the copy OPT is set to
+  Backup, the drop is refused and says to set it to Mirror.
+- FIX: The guides' practice screens no longer take your Preferences' bit
+  depth, frame rate or Low Latency, so steps like Redraw several ports
+  as one and Port numbers work whatever those are set to. The Advanced
+  Guide's Redraw port step checks that the cabinets you clicked joined
+  the port.
+- FIX: Unplug multi on the map takes the whole multi off its
+  distro, even after a circuit was unplugged from the middle of it, and
+  a multi's home-run length stays as long as any of its circuits are
+  still on the distro.
+- FIX: Clear Circuit on a custom screen leaves every other
+  circuit where it was. Before, the next circuit could slide onto the
+  freed spot on the distro.
+- FIX: Grouping screens with different amperage asks which one the group
+  uses, as it does for voltage. When the selected screens disagree,
+  Voltage, Amperage, Watts per Panel and the per-circuit figures read
+  "-" instead of one screen's numbers.
+- FIX: A distro powered thru another distro no longer counts toward its
+  service's ratings.
+- FIX: Power wording is the same everywhere. Boxes read DISTRO 1-1 or
+  SR1, the Add menu matches its chip (Add Socapex 208V), a direct
+  output's menu says what it is (Unplug TRUE1 PD1), "thru" replaces
+  "daisy chain", and the Multi count on a screen's circuit info counts
+  each distro box once.
+- FIX: A custom circuit past its limit reads "over" instead of "full".
+- FIX: The binder's strand map gives each input of a CVT4K-S the outputs
+  it feeds: on 10-port OPTs, OPT1 is 1-8 and OPT2 is 9-16.
+- FIX: The processor sheet's Snakes & home runs names each socket by the
+  number on its box, lists a backup box's sockets, and no longer prints
+  a length left on a card's own socket after a breakout box took it.
+- FIX: In the Data tray a backup box says which box it backs up by its
+  letter, a loop row names its ports by the primary box's numbers, and a
+  card with both trunks full says "Both trunks are used."
+- FIX: Export Binder from the pull sheet editor prints on the saved sheet
+  size.
+- FIX: The distro sheet names a screen once when two of its multis share
+  a box, and pull sheet totals no longer fold two different names such
+  as Screen1 and Screen 2 into one run.
+- FIX: A 2fer or 3fer pill no longer touches the cable tag above it, and
+  a tag at a wall's edge stays inside the wall.
+- FIX: Empty cells on the binder, the cable sheets and the pull sheet
+  boxes in Preferences are blank instead of a dash, and ranges read 6-12.
+- FIX: A show with more than one canvas opens on the canvas it was saved
+  on.
+- FIX: Duplicate, a copied screen, Duplicate group and Add Screen never
+  give a screen a name another screen already has.
+- FIX: Esc closes the right-click menu, and closes Preferences, Export,
+  About, Keyboard Shortcuts, Logs and What's New the way Cancel or Close
+  does.
+- FIX: The app says Screen, not Layer, in its menus, labels, tooltips,
+  the shortcuts list and Recent Files.
+- FIX: In a narrow window the toolbar and the canvas controls wrap onto a
+  second row instead of hiding under the Screens panel.
+- FIX: Long names show in full: NovaStar COEX A10s/A8s (1G) in
+  Processing, Custom in Voltage and Amperage, the Breakout names, and
+  the cable sheet's connector, which now shows the plug first.
+- FIX: The panel library opens with its search and manufacturer filter
+  cleared.
+- FIX: Help > Check for Updates answers in the app's own message, and
+  clicking the words Lock Selected locks or unlocks the selection.
+- FIX: With no screen selected, Screen Info is blank and can't be typed
+  in.
+- FIX: A show's snakes save the same way whatever order shows were opened
+  in, the gear popover stays put when you pick a mode in it, and the
+  PLUGS IN AT switch in a port's editor has the same buttons as the gear
+  popover.
+- FIX: The What's New window's 1.6 heading names what the window lists.
 
 v1.5.3 - October 21, 2026
 ----------------------------
