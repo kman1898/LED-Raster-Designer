@@ -1920,7 +1920,9 @@ class _PullList {
             (cardId != null && socket != null && typeof this._dataPortOwner === 'function'
                 ? this._dataPortOwner(cardId, socket, boxId) : null);
         const boxAt = (owner) => (owner && owner.kind === 'cvt' ? locationOf(owner.rec) : null);
-        const walk = (cardId, socket, label, into, boxId = null) => {
+        // `key` reads a self-backing box's backup output (backupCableKey):
+        // a cable of its own, never the main output's.
+        const walk = (cardId, socket, label, into, boxId = null, key = null) => {
             const owner = owned(cardId, socket, boxId);
             if (!owner) return;
             const at = boxAt(owner);
@@ -1997,13 +1999,13 @@ class _PullList {
                 if (r._pieces && r._pieces.length > 1) r._join = { type: `${word} Barrel`, per };
                 return r;
             };
-            const cable = this._dataPortCableOn(owner, socket);
+            const cable = this._dataPortCableOn(owner, socket, key);
             if (!cable) {
                 // A socket with a screen on it and no home run typed still
                 // takes a cable: one row in the cable's word, an empty
                 // length and "no length" in Notes, as a multi, a snake or a
                 // TAC with no length reads (owner, 2026-10-21).
-                const rec = (owner.rec.portCables || {})[String(socket)];
+                const rec = (owner.rec.portCables || {})[key || String(socket)];
                 push(row(this.pullDataConnectorWord(this.dataPortConnectorId(owner, rec && rec.connector)),
                          '', 1, label, 'no length', at));
                 return;
@@ -2105,7 +2107,8 @@ class _PullList {
                     ? this.getPortLabelText(layer, run.num, 'return')
                     : this.deriveReturnLabel(run.label);
                 port.backup = { label, cable: null, snake: null, ext: null, box: null };
-                walk(bb.cardId, bb.port, label, port.backup, bb.cvtId || null);
+                walk(bb.cardId, bb.port, label, port.backup, bb.cvtId || null,
+                     typeof this.backupCableKey === 'function' ? this.backupCableKey(bb) : null);
             }
         }
         for (const b of dataJumps.values()) jumpRow(settings.dataJumpName, b);

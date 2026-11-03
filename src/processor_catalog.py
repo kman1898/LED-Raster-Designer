@@ -1335,6 +1335,14 @@ def sync_next_processor_seq(project):
 #
 #   node['portCables'] = {str(socket): {ft?, connector?}}
 #
+# A box backing up its OWN outputs (a CVT4K-S straddling a VX1000's OPT 1
+# and its copy, ports 1-8 out on 1-8 and their backup on 9-16) carries
+# each port twice: the backup output is a cable of its own, with its own
+# length - "of course it will have its own extension" (owner, 2026-11-03).
+# Both ends share the card-wide number, so the backup output's cable is
+# keyed 'r<socket>' ('r1' is the backup of port 1) in the same store
+# (port_cable_socket reads either key).
+#
 # A SNAKE is no longer one of those stores. "Any sockets, any device"
 # (user, 2026-09-09): one snake carries A-1..A-4 and B-1..B-4 together, so
 # it belongs to the SHOW and names its members (project['snakes'] - see the
@@ -1431,6 +1439,25 @@ def _snake_letter_name(taken, prefix=SNAKE_NAME_PREFIX):
         n += 1
 
 
+def port_cable_socket(key):
+    """The card-wide socket a ``portCables`` key names, or None: '3' is
+    socket 3, 'r3' the backup output of socket 3 on a box that backs up its
+    own outputs (the module comment above)."""
+    text = str(key).strip()
+    if text[:1] == 'r':
+        text = text[1:]
+    try:
+        return int(text)
+    except (TypeError, ValueError):
+        return None
+
+
+def _port_cable_key(key):
+    """A ``portCables`` key as stored: '3', or 'r3' for a backup output."""
+    n = port_cable_socket(key)
+    return f'r{n}' if str(key).strip()[:1] == 'r' else str(n)
+
+
 def _cable_ft(value):
     """A stored length: a positive finite number, else None (no length).
 
@@ -1516,9 +1543,8 @@ def check_cable_store(data, port_numbers, what='card', unit='ft'):
         if not isinstance(cables, dict):
             return 'portCables must be an object keyed by socket number.'
         for key, rec in cables.items():
-            try:
-                n = int(key)
-            except (TypeError, ValueError):
+            n = port_cable_socket(key)
+            if n is None:
                 return f'portCables: {key!r} is not a socket number.'
             if n not in allowed:
                 return (f'portCables: there is no socket {n} on this {what}'
@@ -1584,7 +1610,7 @@ def apply_cable_store(node, data, port_numbers, next_seq):
                 cable['ft'] = ft
             if conn is not None:
                 cable['connector'] = conn
-            out[str(int(key))] = cable
+            out[_port_cable_key(key)] = cable
         if out:
             node['portCables'] = out
         else:
@@ -1603,13 +1629,10 @@ def prune_cable_store(node, port_numbers):
     allowed = set(int(n) for n in port_numbers)
     cables = {}
     for key, rec in (node.get('portCables') or {}).items():
-        try:
-            n = int(key)
-        except (TypeError, ValueError):
+        n = port_cable_socket(key)
+        if n is None or n not in allowed or not rec:
             continue
-        if n not in allowed or not rec:
-            continue
-        cables[str(n)] = rec
+        cables[_port_cable_key(key)] = rec
     if cables:
         node['portCables'] = cables
     else:
@@ -1646,10 +1669,14 @@ def forget_port_cables(processors, sockets):
     for card_id, n in sorted(wanted):
         node = raw.get(delivers.get((card_id, n)) or card_id)
         cables = (node or {}).get('portCables')
-        if not isinstance(cables, dict) or str(n) not in cables:
+        if not isinstance(cables, dict):
             continue
-        cables.pop(str(n))
-        dropped += 1
+        # the socket's own cable, and its backup output's on a box that
+        # backs up its own outputs
+        for key in (str(n), f'r{n}'):
+            if key in cables:
+                cables.pop(key)
+                dropped += 1
         if not cables:
             node.pop('portCables', None)
     return dropped
@@ -4809,14 +4836,15 @@ def _apply_backup_mapping(processors, resolved):
     # main's, never a return of its own. Every reader of the backup end -
     # pull list, binder, tags - then reads a loop box the way it reads a
     # 1:1 partner or an OPT split. A straddling box's loop onto its OWN
-    # outputs is left out: which outputs it uses is still an open
-    # hardware question.
+    # outputs (a CVT4K-S on a VX1000's OPT 1-2: ports 1-8 on outputs 1-8,
+    # their backup on 9-16 - owner, 2026-11-02) links the same way, marked
+    # `self`: the backup output is a cable of its own (owner, 2026-11-03),
+    # its length kept under the 'r' key of the box's port cables.
     for cid in order:
         rcard, rproc = res_cards[cid]
         for box in rcard.get('cvts') or []:
             for m in box.get('backsUpPorts') or []:
-                if m.get('boxId') == box['id']:
-                    continue
+                own = m.get('boxId') == box['id']
                 mport = ports_of[cid].get(m['number'])
                 if not mport or mport.get('backedBy'):
                     continue
@@ -4833,6 +4861,8 @@ def _apply_backup_mapping(processors, resolved):
                     # label keeps its derived rung (port_assignment)
                     'loop': True,
                 }
+                if own:
+                    mport['backedBy']['self'] = True
 
     # 1to1 first: it consumes whole units, and a consumed unit's own choices
     # go quiet - a backup card is its main's return end, not a main itself.

@@ -597,7 +597,11 @@ class _DockCableSheets {
         ports.forEach(port => {
             const n = port.number;
             const spoken = port.localNumber || n;
-            const snake = this.dataPortSnake(owner, n);
+            // A box backing up its own outputs: the backup output's row
+            // (boxSheetPorts' `cableKey`) is a cable of its own - its own
+            // length, no snake, no tick (a snake holds the main output).
+            const own = port.cableKey || null;
+            const snake = own ? null : this.dataPortSnake(owner, n);
             if (snake && !seenSnakes.has(snake.id)) {
                 seenSnakes.add(snake.id);
                 const tr = document.createElement('tr');
@@ -685,7 +689,7 @@ class _DockCableSheets {
             if (snake) tr.className = 'hw-dock-cable-member';
             else if (!occupied) tr.className = 'hw-dock-cable-free';
             const td0 = document.createElement('td');
-            td0.appendChild(tick(
+            if (!own) td0.appendChild(tick(
                 `data-snake-tick-${owner.id}-${n}`,
                 this._cableTicked(owner, n),
                 snake ? 'Tick, then Unsnake above to take this port out of '
@@ -700,10 +704,9 @@ class _DockCableSheets {
             const backs = port.loopOf
                 ? this._dockLoopBackedName((this._dockFindCard(owner.cardId) || {}).card, port)
                 : '';
-            td1.textContent = (backs
+            td1.textContent = backs
                 ? `${spoken} · backs up ${port.label || backs}`
-                : (port.label ? `${spoken} · ${port.label}` : String(spoken)))
-                + (port.selfBackup ? ` · backup on ${port.selfBackup}` : '');
+                : (port.label ? `${spoken} · ${port.label}` : String(spoken));
             tr.appendChild(td1);
             const td2 = document.createElement('td');
             who(td2, tr, whoOf(owner, n) || (occupied ? '' : 'free'),
@@ -715,8 +718,8 @@ class _DockCableSheets {
             // fan-out sometimes needs, 2026-09-07); the member row stays
             // dim under its snake and still ticks for Unsnake. The entry's
             // connector, if one was stored, rides the commit untouched.
-            const stored = (owner.rec.portCables || {})[String(n)] || null;
-            const ft = ftInput(`data-cable-ft-${owner.id}-${n}`,
+            const stored = (owner.rec.portCables || {})[own || String(n)] || null;
+            const ft = ftInput(`data-cable-ft-${owner.id}-${own || n}`,
                                stored && stored.ft,
                                (snake
                                    ? 'Extension from the snake to this '
@@ -726,7 +729,7 @@ class _DockCableSheets {
                                    : `This port’s own home run in ${this.cableUnitWord()}. `
                                      + 'Blank = no cable.')
                                + this.cableStockHint(stored && stored.ft, 'data'));
-            const commit = () => this.setPortCable(owner, n, {
+            const commit = () => this.setPortCable(owner, own || n, {
                 ft: ft.value.trim(),
                 connector: (stored && stored.connector) || null,
             }).then(after);

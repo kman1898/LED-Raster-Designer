@@ -382,15 +382,14 @@ class _Fiber {
 
     // A box's sockets for its cable sheet: its ports, and a straddling
     // box's backup sockets too - each by its silkscreen and the port it
-    // backs up - except where it backs up its own port, whose row says so
-    // instead (`selfBackup`, the socket), the one port being one run.
+    // backs up. Where it backs up its OWN port the backup output is a
+    // cable of its own with its own length (owner, 2026-11-03: "of course
+    // it will have its own extension"): its row carries `cableKey`, the
+    // 'r<socket>' entry it is kept under (backupCableKey).
     boxSheetPorts(box) {
         if (!this.boxStraddles(box)) return this.boxLoopPorts(box);
-        const self = new Map(box.backsUpPorts.filter(m => m.boxId === box.id)
-            .map(m => [m.number, m.socket]));
-        return this.boxMainPorts(box)
-            .map(p => (self.has(p.number) ? { ...p, selfBackup: self.get(p.number) } : p))
-            .concat(this.boxLoopPorts(box).filter(p => !self.has(p.number)));
+        return this.boxMainPorts(box).concat(this.boxLoopPorts(box).map(p => (
+            p.loopOf && p.loopOf.boxId === box.id ? { ...p, cableKey: `r${p.number}` } : p)));
     }
 
     // What a port-by-port backup backs up, per primary box: "loop of CVT10

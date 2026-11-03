@@ -6594,8 +6594,8 @@ class _Binder {
             const end = bb ? this._bBackupEnd(carrier, run.num, bb) : null;
             // The backup end's own run, as the backup card's or box's own ≡
             // sheet typed it.
-            const backupCable = end && typeof this.dataPortCable === 'function'
-                ? this.dataPortCable(bb.cardId, bb.port, bb.cvtId || null) : null;
+            const backupCable = end && typeof this.dataPortBackupCable === 'function'
+                ? this.dataPortBackupCable(bb) : null;
             if (end) {
                 split = true;
                 // A return on ANOTHER unit names that unit once, over the
@@ -8258,6 +8258,22 @@ class _Binder {
                     }
                     runs.push({ cells: [`${o.title} ${local(socket)}`, 'cable', this.pullLengthText(ft, 'data'),
                                         this.dataCableWord(connId)] });
+                }
+                // A box backing up its OWN outputs: each backup output is
+                // a cable of its own (owner, 2026-11-03), by its own
+                // socket, its length under its 'r' key (backupCableKey).
+                if (o.kind === 'cvt') {
+                    for (const m of o.rec.backsUpPorts || []) {
+                        if (m.boxId !== o.id) continue;
+                        if (!occ || !this._portOccupants(card.id, m.number).length) continue;
+                        const c = (o.rec.portCables || {})[`r${m.number}`] || null;
+                        const ft = this.parseCableLength(c && c.ft);
+                        const has = Number.isFinite(ft) && ft > 0;
+                        const connId = this.dataPortConnectorId({ rec: o.rec }, c && c.connector);
+                        runs.push({ cells: [`${o.title} ${m.socket}`, 'cable',
+                                            has ? this.pullLengthText(ft, 'data') : 'no length',
+                                            this.dataCableWord(connId)] });
+                    }
                 }
             }
         }
