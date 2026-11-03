@@ -565,7 +565,12 @@ class _Binder {
         const side = on('export-binder-side-power', false) ? 'power'
             : on('export-binder-side-data', false) ? 'data' : 'both';
         return {
-            sheet: val('export-binder-sheet') || this.getBinderSheet(),
+            // the saved size, never the select: the select is filled at
+            // start-up on its first option (Letter) and synced only when
+            // the Export dialog opens, so the pull sheet editor's Export
+            // Binder printed Letter until then (QA 1.6.0); its change
+            // saves the choice at once (setBinderSheet)
+            sheet: this.getBinderSheet(),
             palette: printer ? 'printer' : 'colour',
             sides: { power: side !== 'data', data: side !== 'power' },
             scope,
@@ -1101,6 +1106,10 @@ class _Binder {
         // note; the export says which and why (owner, 2026-10-22)
         const cannotFit = this.binderCannotFitWarning(opts);
         if (cannotFit && typeof this._toast === 'function') this._toast(cannotFit, true, 12000);
+        // circuits over their limit print marked OVER; the export goes
+        // ahead and says which
+        const over = this.binderOverWarning(opts);
+        if (over && typeof this._toast === 'function') this._toast(over, true, 12000);
         sendClientLog('export_binder_start', {
             pages: pages.length, palette: opts.palette, scope: opts.scope.kind, sheet: opts.sheet,
             view: this.getBinderInfo().view,
@@ -1125,7 +1134,7 @@ class _Binder {
         }
         const blob = await response.blob();
         await this.saveBlobWithPicker(blob, this.binderFileName(name), 'application/pdf');
-        return { pages: pages.length, cannotFit };
+        return { pages: pages.length, cannotFit, over };
     }
 
     // The sheet list, without drawing anything: [{ kind, number, title,
@@ -1413,6 +1422,71 @@ class _Binder {
             out.push({ layer: l, note: why.note, panel: why.panel, name, group: !!group, sheets });
         }
         return out;
+    }
+
+    // A CIRCUIT OVER ITS LIMIT: its amps past the amps one circuit of its
+    // screen carries (circuitCapacity - 80% of the breaker on a US screen).
+    // The app's own test, the one that turns a circuit red in the tray and
+    // hangs OVER on a 2fer on the wall (canvas _nferGangs) - so the binder's
+    // tables, FACTS and export warning never disagree with the screen.
+    // `layer` is the screen whose plan carries the circuit (the carrier).
+    _bCircuitOver(layer, amps) {
+        if (!layer || typeof this.circuitCapacity !== 'function') return false;
+        const cap = this.circuitCapacity(layer).amps;
+        return cap > 0 && Number(amps) > cap + 1e-9;
+    }
+
+    // A circuit's AMPS cell: the figure, "· OVER" after it when it is past
+    // its limit (_bCircuitOver), as the map's tag says it.
+    _bAmpsCell(layer, amps) {
+        const fig = this._bNum(amps, 1);
+        return this._bCircuitOver(layer, amps) ? `${fig} · OVER` : fig;
+    }
+
+    // The screens a binder with these options prints whose circuits are
+    // over their limit (owner QA, 1.6.0: a custom wall drawn at 19.9 A on
+    // 20 A breakers printed clean while the app showed it red):
+    // [{ layer, name, circuits: [label], top, limit }] in layer order -
+    // `top` the most any of them draws, `limit` how a sentence names the
+    // circuit (circuitLimitText). The export warns, never refuses.
+    binderOverCircuits(opts) {
+        const o = opts || this.readBinderOptions();
+        if (!o.sides || !o.sides.power) return [];
+        if (typeof this.getSocaPlan !== 'function' || typeof this.circuitCapacity !== 'function') return [];
+        const scoped = o.scope && o.scope.kind === 'screen' ? String(o.scope.layerId) : null;
+        const screens = typeof this._pullScreens === 'function' ? this._pullScreens()
+            : ((this.project && this.project.layers) || []).filter(l => (l.type || 'screen') === 'screen');
+        const shown = new Set(screens);
+        const out = [];
+        for (const l of screens) {
+            const legs = (this.getSocaPlan(l) || []).flatMap(s => s.legs || [])
+                .filter(leg => this._bCircuitOver(l, leg.amps));
+            if (!legs.length) continue;
+            if (scoped) {
+                const plan = typeof this.getAutoRoutePlan === 'function' ? this.getAutoRoutePlan(l, 'power') : null;
+                const members = plan && Array.isArray(plan.members) ? plan.members.filter(m => shown.has(m)) : [l];
+                if (!members.some(m => String(m.id) === scoped)) continue;
+            }
+            out.push({ layer: l, name: l.name, circuits: legs.map(leg => leg.label),
+                       top: Math.max(...legs.map(leg => Number(leg.amps) || 0)),
+                       limit: typeof this.circuitLimitText === 'function' ? this.circuitLimitText(l) : '' });
+        }
+        return out;
+    }
+
+    // The export's warning for them: one message, every screen with its
+    // circuits named (the first few, then how many more). '' when none.
+    binderOverWarning(opts) {
+        const list = this.binderOverCircuits(opts);
+        if (!list.length) return '';
+        const names = (xs) => (xs.length <= 4 ? xs.join(', ') : `${xs.slice(0, 4).join(', ')} and ${xs.length - 4} more`);
+        // the limit said once where every screen shares it
+        const limits = [...new Set(list.map(x => x.limit))];
+        const one = limits.length === 1 && limits[0];
+        return 'Circuits over their limit print marked OVER: '
+            + list.map(x => `${x.name}, ${this._bPlural(x.circuits.length, 'circuit')} up to `
+                + `${this._bNum(x.top, 1)} A${!one && x.limit ? ` on ${x.limit}` : ''} (${names(x.circuits)})`).join('; ')
+            + (one ? `. Each is ${one}.` : '.');
     }
 
     // The export's warning: each such screen and why, one sentence each.
@@ -1706,7 +1780,7 @@ class _Binder {
                    { title: 'qty', w: 0.6, align: 'right', lend: true }],
             rows: rows.length
                 ? rows.map(r => ({ cells: [r.also ? `${this._bType(r.type)} · ${r.also}` : this._bType(r.type),
-                                           r.length || (/(^|; |· )no length\b/.test(r.notes || '') ? 'no length' : '—'),
+                                           r.length || (/(^|; |· )no length\b/.test(r.notes || '') ? 'no length' : ''),
                                            this._bQty(r.qty)] }))
                 : [{ cells: [emptyText || 'no cables typed', '', ''] }],
         });
@@ -2682,7 +2756,7 @@ class _Binder {
     // ("1,724.4"); toFixed alone printed "1724.4".
     _bNum(n, digits) {
         const v = Number(n);
-        if (!Number.isFinite(v)) return '—';
+        if (!Number.isFinite(v)) return '';
         const d = Number.isInteger(digits) && digits > 0 ? digits : 0;
         return (d === 0 ? Math.round(v) : v).toLocaleString('en-US',
             { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -5927,8 +6001,10 @@ class _Binder {
             for (const c of box.circuits || []) {
                 const where = also.get(c.num);
                 if (where) crossing = true;
+                // a circuit past its limit says OVER beside its amps, as
+                // the map's tag does (_bAmpsCell)
                 rows.push({ cells: [where ? `${c.label} · ${where}` : c.label, String(c.tail), this._bNum(c.tiles, 0),
-                                    this._bNum(c.amps, 1), c.cable || '—'] });
+                                    this._bAmpsCell(carrier, c.amps), c.cable || ''] });
             }
         }
         // a screen that cannot fit a circuit - or a group routed as one
@@ -5958,7 +6034,17 @@ class _Binder {
         const circuits = units.flatMap(u => u.box.circuits || []);
         const tiles = circuits.map(c => Number(c.tiles) || 0);
         const tMin = tiles.length ? Math.min(...tiles) : 0, tMax = tiles.length ? Math.max(...tiles) : 0;
-        const each = tiles.length ? (tMin === tMax ? `${tMin} panels each` : `${tMin}–${tMax} panels each`) : '';
+        const each = tiles.length ? (tMin === tMax ? `${tMin} panels each` : `${tMin}-${tMax} panels each`) : '';
+        // the circuits past their limit (_bCircuitOver), each judged on
+        // its own carrier's figure: an OVER row in FACTS names how many
+        // and the limit, "22 circuits over a 20 A circuit held to 16 A
+        // (80%)"
+        const overs = units.flatMap(u => (u.box.circuits || []).filter(c => this._bCircuitOver(u.carrier, c.amps))
+            .map(() => u.carrier));
+        const overLimits = [...new Set(overs.map(l => (typeof this.circuitLimitText === 'function'
+            ? this.circuitLimitText(l) : '')).filter(Boolean))];
+        const overRow = overs.length
+            ? [['Over', `${this._bPlural(overs.length, 'circuit')} over ${overLimits.join(' / ') || 'the limit'}`]] : [];
         const distroIds = [...new Set(units.map(u => u.box.distroId).filter(Boolean))];
         const loads = (typeof this.getDistroLoads === 'function') ? this.getDistroLoads() : [];
         // A member's sheet reads the amps of the circuits it lists; where
@@ -6035,6 +6121,7 @@ class _Binder {
             ...wall,
             ['Circuits', [`${circuits.length} at ${f.voltage} V / ${parseFloat(layer.powerAmperage) || 0} A`, each]
                 .filter(Boolean).join(' · ')],
+            ...overRow,
             ...(fed.length ? fed : [['Distro', 'none']]),
         ]) });
         // Gangs, only when the sheet's circuits have any.
@@ -6050,7 +6137,7 @@ class _Binder {
                     if (!(Array.isArray(c.runIds) && c.runIds.length > 1)) continue;
                     if (grouped && !mine.has(c.num)) continue;
                     shared.push({ cells: [this.getPowerCircuitLabel(carrier, c.num),
-                                          `${c.runIds.length}fer`, this._bNum(mine.get(c.num), 1)] });
+                                          `${c.runIds.length}fer`, this._bAmpsCell(carrier, mine.get(c.num))] });
                 }
             }
         }
@@ -6383,7 +6470,7 @@ class _Binder {
     // model string.
     _bCardShort(cardId) {
         const found = (typeof this._dockFindCard === 'function') ? this._dockFindCard(cardId) : null;
-        if (!found) return cardId || '—';
+        if (!found) return cardId || '';
         const short = this.cardShortName(found.proc, found.card);
         if (short) return short;
         const typed = (typeof this.cardTypedName === 'function')
@@ -6444,12 +6531,12 @@ class _Binder {
         // "why is the same data written multiple times under the snake
         // under a specific port number" (2026-09-09) - so under its heading
         // an end on it carries only what is the PORT'S OWN, its extension
-        // from the fan-out to the panel ('—' with none); an end that is not
+        // from the fan-out to the panel (blank with none); an end that is not
         // on a snake reads its whole run, because no heading said it.
         // A placed end with nothing typed says "etherCON no length"
         // (`at`, its socket - runText), the way CABLES THIS SCREEN does.
         const runOf = (c, headed, at) => (headed
-            ? (snakeId(c) ? (c.ext != null ? `+${this.cableText(c.ext, '', 'data')}` : '—') : this.runText(c, at))
+            ? (snakeId(c) ? (c.ext != null ? `+${this.cableText(c.ext, '', 'data')}` : '') : this.runText(c, at))
             : this.runText(c, at));
         const partnered = new Set();
         let procs = new Map();
@@ -6466,7 +6553,7 @@ class _Binder {
             const panelsText = this._bNum((run.panels || []).length, 0);
             if (!home) {
                 group(band('none', ['Not placed']), `${snakeId(cable)}|`, cable)
-                    .ports.push({ label: run.label, also, out: '—', cable, back: null, panels: panelsText });
+                    .ports.push({ label: run.label, also, out: '', cable, back: null, panels: panelsText });
                 continue;
             }
             // OUTPUT is where the port lands - the sending card ("H9 SR ·
@@ -6549,13 +6636,13 @@ class _Binder {
         // every row of the sheet, both halves, names its output as its
         // port is named - "S1 A-1" landing on "S1 A · 1" - the column
         // repeats PORT and is left out. One output that says more (a
-        // custom label, a sending card, "—" where nothing is placed) keeps
+        // custom label, a sending card, a blank where nothing is placed) keeps
         // it, for every row. Read once, over the whole table, so a table
         // running on to its "(cont.)" sheet reads the same there.
         const named = (label, out) => {
             const key = (t) => String(t || '').split(' · also on ')[0]
                 .replace(/\s*[·-]\s*/g, '-').trim();
-            return !!out && out !== '—' && key(label) === key(out);
+            return !!out && key(label) === key(out);
         };
         const cellRows = rows.filter(r => r.cells);
         const repeats = cellRows.length > 0 && cellRows.every(({ cells: c }) => named(c[0], c[1])
@@ -6632,8 +6719,8 @@ class _Binder {
             const ports = scrs.reduce((s, x) => s + (x.ports || []).length, 0);
             const screens = members.length ? members.map(l => l.name).join(', ')
                 : (pulled.length ? `gear for ${pulled.map(l => l.name).join(', ')}` : 'no screens');
-            return { cells: [pos.name, screens, members.length ? String(circuits) : '—',
-                             members.length ? String(ports) : '—'] };
+            return { cells: [pos.name, screens, members.length ? String(circuits) : '',
+                             members.length ? String(ports) : ''] };
         });
         const blocks = [];
         blocks.push({ lines: this._bTableLines(book, {
@@ -7311,7 +7398,7 @@ class _Binder {
         const gangText = (g) => [g.twofer ? `${g.twofer}× 2fer` : '', g.threefer ? `${g.threefer}× 3fer` : '',
             ...Object.keys(g.wider || {}).map(Number).sort((a, b) => a - b)
                 .map(w => (g.wider[w] ? `${g.wider[w]}× ${w}fer` : ''))]
-            .filter(Boolean).join(', ') || '—';
+            .filter(Boolean).join(', ');
         const addWider = (into, from) => Object.keys((from && from.wider) || {}).forEach(w => {
             into.wider = into.wider || {};
             into.wider[w] = (into.wider[w] || 0) + from.wider[w];
@@ -7366,17 +7453,17 @@ class _Binder {
                 continue;
             }
             if (pGroup || dGroup) {
-                screens.push({ cells: ['', gp.name, '—', '—',
-                                       pGroup ? String(sum('circuits')) : '—',
-                                       dGroup ? String(sum('ports')) : '—',
-                                       pGroup ? gangText(groupGangs) : '—'] });
+                screens.push({ cells: ['', gp.name, '', '',
+                                       pGroup ? String(sum('circuits')) : '',
+                                       dGroup ? String(sum('ports')) : '',
+                                       pGroup ? gangText(groupGangs) : ''] });
             }
             for (const m of here) {
                 const o = own(m);
                 const mine = (gp.mode.power === 'screens' || gp.mode.data === 'screens') ? listed(gp, m) : null;
-                const circuits = pGroup ? '—' : String(gp.mode.power === 'screens' ? mine.circuits : o.circuits);
-                const ports = dGroup ? '—' : String(gp.mode.data === 'screens' ? mine.ports : o.ports);
-                const gangs = pGroup ? '—' : gangText(gp.mode.power === 'screens' ? mine.gangs : o.gangs);
+                const circuits = pGroup ? '' : String(gp.mode.power === 'screens' ? mine.circuits : o.circuits);
+                const ports = dGroup ? '' : String(gp.mode.data === 'screens' ? mine.ports : o.ports);
+                const gangs = pGroup ? '' : gangText(gp.mode.power === 'screens' ? mine.gangs : o.gangs);
                 screens.push({ cells: ['', m.name, `${m.columns} × ${m.rows}`, String(o.panels),
                                        circuits, ports, gangs] });
             }
@@ -7527,8 +7614,10 @@ class _Binder {
                 // a wall printed as its group on Power is named by the
                 // group, the way its Power sheet is (2026-10-01)
                 const gp = this._bGroupPlanOf(book, layer);
-                if (!(gp && gp.mode.power === 'group')) names.push(layer.name);
-                else if (!names.includes(gp.name)) names.push(gp.name);
+                // (a screen with two multis on this one box - its circuits
+                // on both - is named once: "SR - MAIN + SR - MAIN", QA 1.6.0)
+                const said = gp && gp.mode.power === 'group' ? gp.name : layer.name;
+                if (!names.includes(said)) names.push(said);
                 const s = this.getSocaPlan(layer).find(x => x.soca === m.soca);
                 if (!s) continue;
                 if (!homeRun) homeRun = this.parseCableLength(s.length);
@@ -7543,7 +7632,7 @@ class _Binder {
             // flagged error state) keeps the output's home run.
             const fbox = typeof this.faceBox === 'function' ? this.faceBox(d, number) : null;
             // Its TYPE is that cable too (2026-10-21): "Edison → TRUE1".
-            let typeText = typed ? typed.name : '—';
+            let typeText = typed ? typed.name : '';
             if (fbox && fbox.kind === 'direct' && circuits === 1 && lone) {
                 const one = this.directCircuitCable(lone.layer, lone.circuit);
                 homeRun = one ? one.ft : null;
@@ -7764,7 +7853,7 @@ class _Binder {
         const notes = String((r && r.notes) || '');
         const carried = notes.split(/ · |; /).map(t => t.trim()).filter(t => t === '5-wire');
         const type = [this._bType(r.type), ...carried].join(' · ');
-        const length = r.length || (/(^|; |· )no length\b/.test(notes) ? 'no length' : '—');
+        const length = r.length || (/(^|; |· )no length\b/.test(notes) ? 'no length' : '');
         return [type, length];
     }
 
@@ -7846,7 +7935,7 @@ class _Binder {
                 title: 'Breakout boxes',
                 cols: [{ title: 'breakout box', w: 1.3 }, { title: 'trunk', w: 0.7 },
                        { title: 'ports', w: 0.65, align: 'right' }, { title: 'mirrors', w: 1.2 }],
-                rows: unit.boxes.map(b => ({ cells: [b.deviceName, b.trunkTitle || '—',
+                rows: unit.boxes.map(b => ({ cells: [b.deviceName, b.trunkTitle || '',
                                                      String(b.portCount || ''), b.displayTitle || b.deviceName] })),
                 shrink: true,
             }) });
@@ -7877,7 +7966,7 @@ class _Binder {
                 title: 'Cards',
                 cols: [{ title: 'slot', w: 0.5, align: 'right' }, { title: 'card', w: 1 }, { title: 'device', w: 1.6 },
                        { title: 'ports', w: 0.8, align: 'right' }, { title: 'backup', w: 1, list: true }],
-                rows: cards.map(({ slot, card }) => ({ cells: [String((slot || 0) + 1), this.cardShortName(proc, card) || '—',
+                rows: cards.map(({ slot, card }) => ({ cells: [String((slot || 0) + 1), this.cardShortName(proc, card) || '',
                                                               card.deviceName, taken(card), backupOf(card)] })),
             };
         }
@@ -7898,7 +7987,7 @@ class _Binder {
             cols: [{ title: 'output', w: 0.6 }, { title: this.unitWordFor(proc, cards[0].card), w: 0.9 },
                    { title: 'device', w: 1.1 }, { title: 'ports', w: 0.8, align: 'right' }, { title: 'backup', w: 1, list: true }],
             rows: cards.map(({ slot, card }) => ({ cells: [slotName(slot),
-                                                          this.cardTypedName(proc, card) || card.unitTitle || '—',
+                                                          this.cardTypedName(proc, card) || card.unitTitle || '',
                                                           card.deviceName, taken(card), backupOf(card)] })),
         };
     }
@@ -7928,7 +8017,7 @@ class _Binder {
             const hit = cards.find(c => c.card.id === cardId);
             if (hit) return this.cardShortName(proc, hit.card) || this.cardTypedName(proc, hit.card)
                 || `slot ${(hit.slot || 0) + 1}`;
-            if (!cardId) return '—';
+            if (!cardId) return '';
             return this.dataUnitTitleForCard(cardId).title || cardId;
         };
         // Read per card, never per processor: under Mixed one chassis holds
@@ -7948,12 +8037,12 @@ class _Binder {
             if (card.backupFor && card.backupFor.cardId) {
                 return `backs up ${nameOf(card.backupFor.cardId)}`;
             }
-            if (!shape || shape === 'off') return '—';
+            if (!shape || shape === 'off') return '';
             if (rshape.forced && typeof this._dockLoopText === 'function') return this._dockLoopText(proc);
             if (shape === '1to1') {
                 return card.backupCardId ? `1:1, backed up by ${nameOf(card.backupCardId)}` : '1:1, no partner';
             }
-            return this._redundancyShapeLabel(card, shape) || '—';
+            return this._redundancyShapeLabel(card, shape) || '';
         };
         const taken = (card) => `${used(card.id)} / ${this._bCardPortCount(card) != null ? this._bCardPortCount(card) : '?'}`;
         const blocks = [];
@@ -7996,7 +8085,7 @@ class _Binder {
                     + (loop ? ` · ${loop}` : '');
                 const fiber = this._bBoxFiberParts(box);
                 const groups = this._bBoxFiberGroups(box);
-                boxRows.push({ cells: [title, this._bBoxUnitCell(proc, card, nameOf), box.trunkTitle || '—',
+                boxRows.push({ cells: [title, this._bBoxUnitCell(proc, card, nameOf), box.trunkTitle || '',
                                        this._bBoxFiberText(box)],
                                ...(fiber ? { parts: { 3: fiber } } : {}),
                                ...(groups ? { inputs: { 3: groups } } : {}) });
@@ -8354,7 +8443,7 @@ class _Binder {
         // own already says it ("QD 1 A").
         const several = slots.filter(s => s.card).length > 1;
         const onCard = (slot, card, output) => {
-            if (!several || card.unitTitle) return output;
+            if (!output || !several || card.unitTitle) return output;
             const named = this.cardShortName(proc, card)
                 || (typeof this.cardTypedName === 'function' ? this.cardTypedName(proc, card) : '');
             return `${named || `slot ${(slot.index || 0) + 1}`} · ${output}`;
@@ -8374,7 +8463,7 @@ class _Binder {
             if (!boxes.length) continue;
             const titles = card.trunkTitles || [];
             const outputOf = (box, l) => onCard(slot, card,
-                titles[(box.trunkIndex || 0) + Number(l.key.slice(1)) - 1] || box.trunkTitle || '—');
+                titles[(box.trunkIndex || 0) + Number(l.key.slice(1)) - 1] || box.trunkTitle || '');
             const onTrunk = boxes.filter(b => !b.beyondTrunks && Number.isInteger(b.trunkIndex));
             for (let t = 0; t < titles.length; t++) {
                 const covering = onTrunk.find(b => b.trunkIndex <= t && t < b.trunkIndex + (b.trunksIn || 1));

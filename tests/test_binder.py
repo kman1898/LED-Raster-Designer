@@ -2484,10 +2484,10 @@ def test_the_data_sheet_prints_the_return_end_and_the_processor_once(page):
             socket = primary.rsplit(' · ', 1)[-1]
             assert (blabel, boutput) == (f'{label}R', f'H9 Card 2 · {socket}'), rows
             assert _on_map(out['mapTexts'], f'{label}R'), (label, out['mapTexts'])
-            assert panels != '—', rows
+            assert panels != '', rows
             # the run itself is in each heading; each end says only its
             # own extension - none at the primary, 25' at the backup
-            assert home == '—' and bhome == "+25'", (label, home, bhome)
+            assert home == '' and bhome == "+25'", (label, home, bhome)
         assert 'PX' not in texts
         assert not [t for t in texts if t.startswith('slot ') or t.endswith('…')]
         cables = texts[texts.index('CABLES THIS SCREEN'):texts.index('Screen')]
@@ -3239,8 +3239,8 @@ def test_smoke_live_show_b(page):
     heading_b = "SR B · 4 channel snake · 100'"
     assert data.count(heading_a) == 1 and data.count(heading_b) == 1, [t for t in data if 'channel' in t]
     assert data.index(heading_a) + 1 == data.index(heading_b) < data.index('SR A-1'), data
-    assert [data[data.index(f'SR A-{n}') + 1] for n in (1, 2, 3, 4)] == ["+10'", '—', "+25'", "+25'"], data
-    assert [data[data.index(f'SR A-{n}') + 3] for n in (1, 2, 3, 4)] == ["+10'", '—', "+10'", "+75'"], data
+    assert [data[data.index(f'SR A-{n}') + 1] for n in (1, 2, 3, 4)] == ["+10'", '', "+25'", "+25'"], data
+    assert [data[data.index(f'SR A-{n}') + 3] for n in (1, 2, 3, 4)] == ["+10'", '', "+10'", "+75'"], data
     cables = data[data.index('CABLES THIS SCREEN'):data.index('FACTS')]
     k = cables.index('etherCON Barrel')
     assert cables[k:k + 3] == ['etherCON Barrel', 'EA', '6'], cables

@@ -168,6 +168,11 @@ def test_lone_names_stay_whole_and_only_runs_fold(seeded):
         (['SR1-1', 'SR1-2'], 'SR1-1, SR1-2'),
         (['SR1-1', 'SR1-2', 'SR1-3', 'SR2-1'], 'SR1-1 … 1-3, SR2-1'),
         (['SR-1', 'SR-2'], 'SR-1, SR-2'),
+        # two names whose prefixes differ are two names, never a run
+        # (QA 1.6.0: "Screen1" and "Screen 2" read "Screen 1-2")
+        (['Screen1', 'Screen 2'], 'Screen1, Screen 2'),
+        (['Screen 1', 'Screen 2'], 'Screen 1-2'),
+        (['Screen1', 'Screen2'], 'Screen 1-2'),
         (['WALL-A'], 'WALL-A'),
     ]
     got = pg.evaluate("(cases) => cases.map(c => window.app._pullCompressNames(c))", [c for c, _ in cases])

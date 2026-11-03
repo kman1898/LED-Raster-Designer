@@ -77,8 +77,10 @@ BINDER_JS = """() => {
         caught.push({ title, pairs: pairs.map(p => p.slice()) });
         return orig.apply(this, arguments);
     };
+    // Letter: the size these sheets were read on (the dialog's select,
+    // unsynced, said Letter until 1.6.0 read the saved size instead)
     const opts = Object.assign(app.readBinderOptions(),
-        { scope: { kind: 'show' }, hardware: true, pull: true, cover: false, wiring: false,
+        { sheet: 'letter', scope: { kind: 'show' }, hardware: true, pull: true, cover: false, wiring: false,
           sides: { power: true, data: false } });
     let plan;
     try { plan = app.planBinder(opts); } finally { app._bKvLines = orig; }
@@ -302,7 +304,7 @@ def test_a_pass_through_or_fed_distro_is_listed_with_nothing_plugged_in(page):
 
 def test_binder_cells_rating_line_and_kv_words(page):
     """The pull tables' cells: "no length" after any separator, "5-wire"
-    with the type, "—" only for an empty cell. Every rating line by its
+    with the type, a blank only for an empty cell. Every rating line by its
     service size, an old-style distro's too. A KV row never wraps between
     a number and its unit, nor inside "50 m+20 m"; a words cell neither."""
     pg, errors = page
@@ -322,7 +324,7 @@ def test_binder_cells_rating_line_and_kv_words(page):
         };
     }""")
     assert out['cells'] == [['400 A cam set · 5-wire', 'no length'], ['400 A cam set · 5-wire', "150'"],
-                            ['Multi', 'no length'], ['TAC 4', 'no length'], ['Spare Widget', '—']], out['cells']
+                            ['Multi', 'no length'], ['TAC 4', 'no length'], ['Spare Widget', '']], out['cells']
     assert out['legacy'] == '400 A service · 120/208V 3φ', out['legacy']
     # (a " · " rides at the end of the word before it - 2026-10-22)
     assert '400 A' in out['words'] and '50 m+20 m ·' in out['words'] and '320 A' in out['words'], out['words']
