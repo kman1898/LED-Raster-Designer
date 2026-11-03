@@ -3679,6 +3679,14 @@ def resolve_card(card, proc):
             # The NovaStar pair link, carried through so the panel can say
             # "backs up X" about the box somebody may want to delete.
             'backupOf': cvt.get('backupOf') or None,
+            # PORT BY PORT (filled in once every port is enumerated): on a
+            # box on a copy OPT set to Backup, each primary port it backs
+            # up, [{number, socket, boxId, local}] - the card-wide number,
+            # this box's own socket for it, and the primary box carrying
+            # it with that box's own number; on a primary box, the backup
+            # boxes behind any of its ports, in card order.
+            'backsUpPorts': [],
+            'backedUpBy': [],
             'beyondTrunks': over_trunk,
             # The box's fiber trunk, as typed on it (update_cvt): what the
             # fiber is and how long its home run is. '' / None when unset -
@@ -3884,6 +3892,19 @@ def resolve_card(card, proc):
         covering = [c for c in cvts
                     if c['portCount']
                     and c['firstPort'] <= number < c['firstPort'] + c['portCount']]
+        # A BACKUP BOX DELIVERS NO PORT OF ITS OWN (owner, 2026-11-02: "A
+        # backup port never adds to the card's or processor's port
+        # count"). A box on a copy OPT set to Backup copies what its
+        # primary OPT carries, so it lists a number only where a primary
+        # box carries it too - a CVT10 on OPT 6 behind a CVT4K-S on OPT
+        # 1-2 backs up 11-16, and its sockets for 17-20, which no primary
+        # box has, are not ports of the card. The primaries come first so
+        # they name the port whatever order the boxes were added in.
+        if copy_kind in ('backup', 'per-box'):
+            mains = [c for c in covering if c['copyRole'] != 'backup']
+            covering = (mains + [c for c in covering
+                                 if c['copyRole'] == 'backup']
+                        if mains else [])
         # A MIRROR SOCKET EXISTS ONLY ON ITS BOX: past the mode's count and
         # inside the copies' range, a number no mirror box covers is not a
         # socket of the card's face - nothing is there to plug into.
@@ -4014,6 +4035,32 @@ def resolve_card(card, proc):
         ports.append(port)
         for box in covering:
             box['ports'].append(port)
+
+    # EACH BACKUP SOCKET, PORT BY PORT (owner, 2026-11-02: "pair port by
+    # port"). A box on a copy OPT set to Backup backs up the same port
+    # numbers on whichever primary boxes carry them, so a CVT4K-S on OPT
+    # 5-6 behind two CVT10s backs up ports 1-10 on the first and 11-16 on
+    # the second, and a CVT4K-S on OPT 1-2 is backed up by the CVT10s on
+    # OPT 5 and 6 together. `backupOf` above stays the one-to-one pair
+    # (the two boxes take the same OPTs); this is the whole map, the
+    # one-to-one pair included. Derived every resolve and stored nowhere.
+    if copy_kind in ('backup', 'per-box'):
+        by_id = {c['id']: c for c in cvts}
+        for box in cvts:
+            if box['copyRole'] != 'backup':
+                continue
+            for port in box['ports']:
+                main = by_id.get(port['cvtId'])
+                if main is None or main is box or main['copyRole']:
+                    continue
+                box['backsUpPorts'].append({
+                    'number': port['number'],
+                    'socket': port['number'] - box['firstPort'] + 1,
+                    'boxId': main['id'],
+                    'local': port['localNumber'],
+                })
+                if box['id'] not in main['backedUpBy']:
+                    main['backedUpBy'].append(box['id'])
 
     # What the card DEFINES is a count - the panel prints it as "n / N
     # ports". Everywhere but a box-fed card the enumeration is 1..top, so

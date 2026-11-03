@@ -1666,6 +1666,12 @@ class _Processors {
                 ? (primary.name || primary.deviceName) : 'the primary box';
             info.style.color = '#c8a04a';
             info.textContent += ` - backs up ${who}`;
+        } else if (this.boxLoopMixed(cvt)) {
+            // A backup bound port by port: the ports of each primary box
+            // it backs up (boxLoopText), "loop of CVT10 A 1-10, ...".
+            info.style.color = '#c8a04a';
+            info.textContent += ` - ${this.boxLoopText(cvt, card.cvts,
+                b => b.name || b.displayTitle || b.deviceName)}`;
         } else if (cvt.copyRole === 'mirror') {
             // A copy that feeds a mirror screen: sockets of its own,
             // carrying the mirror's runs.

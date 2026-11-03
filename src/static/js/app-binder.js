@@ -6321,8 +6321,11 @@ class _Binder {
         const unit = (typeof this.dataUnitTitle === 'function')
             ? this.dataUnitTitle(proc, card) : { title: `${procTitle} ${cardTitle}`, named: true };
         const n = parseInt(socket, 10);
-        const box = (card.cvts || []).find(c => (c.ports || []).some(p => p.number === n)) || null;
         const port = (card.ports || []).find(p => p.number === n) || null;
+        // The box that DELIVERS the port (its cvtId), never a backup box
+        // listed before it that carries the same number again.
+        const box = (port && port.cvtId && (card.cvts || []).find(c => c.id === port.cvtId))
+            || (card.cvts || []).find(c => (c.ports || []).some(p => p.number === n)) || null;
         return { proc, card, procTitle, cardTitle, box, port, slotNamed,
                  unitTitle: unit.title, named: unit.named };
     }
@@ -7965,15 +7968,28 @@ class _Binder {
             const list = card.cvts || [];
             const fars = new Set(list.filter(b => b.backupOf && list.some(n => n.id === b.backupOf))
                 .map(b => b.id));
+            // A backup bound port by port (a CVT4K-S on OPT 5-6 behind two
+            // CVT10s) sits after the last primary it backs up, and says
+            // which ports of each it carries: "loop of CVT10 A 1-10,
+            // CVT10 B 1-6 as 11-16" (boxLoopText).
+            const mixed = list.filter(b => !fars.has(b.id) && this.boxLoopMixed(b));
+            const lastMain = (f) => {
+                const ids = new Set(f.backsUpPorts.map(m => m.boxId));
+                return [...list].reverse().find(b => ids.has(b.id));
+            };
             const ordered = [];
             list.forEach(b => {
-                if (fars.has(b.id)) return;
+                if (fars.has(b.id) || mixed.includes(b)) return;
                 ordered.push(b);
                 list.filter(f => fars.has(f.id) && f.backupOf === b.id).forEach(f => ordered.push(f));
+                mixed.filter(f => lastMain(f) === b).forEach(f => ordered.push(f));
             });
+            mixed.filter(f => !ordered.includes(f)).forEach(f => ordered.push(f));
             for (const box of ordered) {
                 const near = fars.has(box.id) ? list.find(n => n.id === box.backupOf) : null;
-                const title = this._bBoxTitle(box) + (near ? ` · loop of ${this._bBoxTitle(near)}` : '');
+                const loop = mixed.includes(box) ? this.boxLoopText(box, list, b => this._bBoxTitle(b)) : '';
+                const title = this._bBoxTitle(box) + (near ? ` · loop of ${this._bBoxTitle(near)}` : '')
+                    + (loop ? ` · ${loop}` : '');
                 const fiber = this._bBoxFiberParts(box);
                 const groups = this._bBoxFiberGroups(box);
                 boxRows.push({ cells: [title, this._bBoxUnitCell(proc, card, nameOf), box.trunkTitle || '—',

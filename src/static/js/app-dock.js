@@ -1440,10 +1440,27 @@ class _HardwareDock {
             }
         });
         const fars = new Set([...farOf.values()].map(c => c.id));
+        // A BACKUP BOUND PORT BY PORT (owner, 2026-11-02) - a CVT4K-S on
+        // OPT 5-6 behind two CVT10s, two CVT10s behind one CVT4K-S - is
+        // a loop end too, split by the primary it backs up: each primary's
+        // strip ends in a row per backup box holding the sockets that back
+        // ITS ports, numbered with the ports they back up. A backup box
+        // behind two primaries rows in both strips; its name, ≡ and ⚙
+        // ride the first, the second reads its name only (`cont`).
+        const mixed = cvts.filter(c => !fars.has(c.id) && this.boxLoopMixed(c));
+        const shared = new Set();
         cvts.forEach(cvt => {
-            if (!(cvt.ports || []).length || fars.has(cvt.id)) return;
-            unitBody.appendChild(farOf.has(cvt.id)
-                ? this._dockBuildLoopPair(proc, card, cvt, farOf.get(cvt.id))
+            if (!(cvt.ports || []).length || fars.has(cvt.id)
+                    || mixed.includes(cvt)) return;
+            const slices = (farOf.has(cvt.id)
+                ? [{ box: farOf.get(cvt.id), ports: farOf.get(cvt.id).ports || [] }] : [])
+                .concat(this.boxLoopSlices(cvt, mixed).map(s => {
+                    const cont = shared.has(s.box.id);
+                    shared.add(s.box.id);
+                    return { ...s, mixed: true, cont };
+                }));
+            unitBody.appendChild(slices.length
+                ? this._dockBuildLoopPair(proc, card, cvt, slices)
                 : this._dockBuildBox(proc, card, cvt));
         });
         // ...and the empty slot after the last box: where the next one goes
@@ -1658,8 +1675,14 @@ class _HardwareDock {
     // no fold of its own (the strip folds the pair), `row.far` adds the
     // "· loop end" beside its name. Everything else - the drag, the
     // counts, the sheet, the gear, the keys - is the same box either way.
+    // `row.ports`: the sockets the row holds where it is not the whole box
+    // (a port-by-port backup's sockets behind one primary, numbered with
+    // the ports they back up - boxLoopPorts); `row.cont`: the same backup
+    // box's row in a second primary's strip, its name with no field, ≡,
+    // ⚙ or sheet of its own (they are on its first row).
     _dockBuildBox(proc, card, cvt, row = null) {
-        const nums = (cvt.ports || []).map(p => p.number);
+        const shown = (row && row.ports) || cvt.ports || [];
+        const nums = shown.map(p => p.number);
         const box = document.createElement('div');
         box.className = 'hw-dock-box';
         if (row) {
@@ -1672,7 +1695,7 @@ class _HardwareDock {
         // and D is 1-10"). The card-wide first/last ride the payload
         // below untouched; they are the server's window keys, not a
         // number anyone reads off metal.
-        const locals = (cvt.ports || []).map(
+        const locals = shown.map(
             p => p.localNumber || p.number);
         const span = `${Math.min(...locals)}-${Math.max(...locals)}`;
         // "(backup)" is the backup PROCESSOR's word now (2026-09-25): a
@@ -1683,7 +1706,8 @@ class _HardwareDock {
         // bound as another's backup (backupOf - a NovaStar Backup-mode
         // OPT 3-4) is a loop's far end, which its strip already says.
         const tag = cvt.copyRole === 'mirror' ? ' (mirror)'
-            : (cvt.duplicateOf && !cvt.backupOf ? ' (copy)' : '');
+            : (cvt.duplicateOf && !cvt.backupOf && !this.boxLoopMixed(cvt)
+                ? ' (copy)' : '');
         // Four boxes all reading "XD" are four sections nobody
         // can tell apart, so an unnamed box on a trunked card wears its
         // trunk letter - "XD A" - the letters the pairing rule
@@ -1707,9 +1731,10 @@ class _HardwareDock {
                 title: boxTitle,
                 beyondTrunks: !!cvt.beyondTrunks,
             },
-            `box-${cvt.id}`,
-            // a loop row's strip header already prints the model
-            row ? '' : cvt.deviceName + tag,
+            row && row.cont ? `box-${cvt.id}-${row.cont}` : `box-${cvt.id}`,
+            // a loop row's strip header already prints the model; a
+            // continued row prints the box's name, having no field for it
+            row ? (row.cont ? this._dockBoxLabel(cvt) : '') : cvt.deviceName + tag,
             `ports ${span}`,
             'Drag the whole box onto a screen: the screen\'s ports fill '
             + 'onto this box\'s sockets in order from the first '
@@ -1723,7 +1748,7 @@ class _HardwareDock {
         // still reads on the header the server's refusals name.
         const boxOwner = { kind: 'cvt', id: cvt.id, procId: proc.id,
                            cardId: card.id, rec: cvt };
-        this._dockHeadAugment(boxHead, {
+        if (!(row && row.cont)) this._dockHeadAugment(boxHead, {
             // The box's ≡: its cable sheet, for the sockets it
             // delivers (2026-09-06).
             controls: [this._dockBuildDataCableSheetButton(boxOwner)],
@@ -1751,7 +1776,7 @@ class _HardwareDock {
             const end = document.createElement('span');
             end.className = 'hw-dock-loop-end';
             end.textContent = '· loop end';
-            const field = boxHead.querySelector('.hw-dock-name');
+            const field = boxHead.querySelector('.hw-dock-name, .hw-dock-unit-name');
             if (field) field.after(end);
         }
         box.appendChild(boxHead);
@@ -1760,19 +1785,34 @@ class _HardwareDock {
         // would, inside the strip, beside the ≡ that opened it.
         // `row.sheetOut`: the folded strip draws this sheet under its own
         // header instead (_dockBuildLoopPair), so it shows while folded.
-        const boxSheetUp = this._dataCableSheetOpen(boxOwner);
+        // A port-by-port backup's sheet lists all its sockets, each by the
+        // port it backs up (boxLoopPorts).
+        const boxSheetUp = !(row && row.cont) && this._dataCableSheetOpen(boxOwner);
         if (boxSheetUp && !(row && row.sheetOut)) {
             box.classList.add('hw-dock-sheet-up');
             box.appendChild(this._dockBuildDataCableSheet(
-                boxOwner, cvt.ports || []));
+                boxOwner, this.boxLoopPorts(cvt)));
         }
         const boxBody = row ? box
             : this._dockSectionBody(box, boxHead, `hwdock-box-${cvt.id}`);
         if (!boxSheetUp) {
             boxBody.appendChild(this._dockBuildPortGrid(
-                proc, card, cvt.ports || [], boxTitle, boxOwner));
+                proc, card, shown, boxTitle, boxOwner));
         }
+        if (row && row.far) box.dataset.lrdLoopFar = cvt.id;
         return box;
+    }
+
+    // A port-by-port backup socket's hover: which primary socket it backs
+    // up, and its own number on its box (boxLoopPorts' `loopOf`).
+    _dockLoopSocketText(card, port) {
+        const lo = port.loopOf;
+        const main = (card.cvts || []).find(b => b.id === lo.boxId);
+        const own = (card.cvts || []).find(b => b.id !== lo.boxId
+            && (b.backsUpPorts || []).some(m => m.number === port.number));
+        return `, the backup of port ${lo.local}`
+            + (main ? ` on ${this._dockBoxLabel(main)}` : '')
+            + (own ? `, socket ${lo.socket} of ${this._dockBoxLabel(own)}` : '');
     }
 
     // A loop pair as ONE strip (owner, 2026-09-25, "option 2"). The header
@@ -1784,13 +1824,23 @@ class _HardwareDock {
     // own box - its own drag handle, name, count, ≡ and ⚙. The strip
     // folds as one, under the near box's fold key; its header drags the
     // near box, the way grabbing the old near header did.
-    _dockBuildLoopPair(proc, card, near, far) {
+    // `slices`: the far rows, [{ box, ports, mixed, cont }] - one for a
+    // one-to-one pair, and a row per backup box behind a primary backed
+    // up port by port, holding just the sockets that back this primary.
+    _dockBuildLoopPair(proc, card, near, slices) {
         const strip = document.createElement('div');
         strip.className = 'hw-dock-loop';
         const nums = (near.ports || []).map(p => p.number);
         const a = this._dockBoxLabel(near, true);
-        const b = this._dockBoxLabel(far, true);
-        const counts = [near, far].map(c => this.socketsTaken(card.id, c.id))
+        const b = slices.map(s => this._dockBoxLabel(s.box, true)).join(', ');
+        const farNames = slices.map(s => this._dockBoxLabel(s.box)).join(' and ');
+        // A slice counts its own sockets: lit where the port it backs up
+        // carries something, the way the whole far box's count reads.
+        const counts = [this.socketsTaken(card.id, near.id)]
+            .concat(slices.map(s => (s.mixed
+                ? { taken: s.ports.filter(p => this._portOccupants(card.id, p.number).length).length,
+                    of: s.ports.length }
+                : this.socketsTaken(card.id, s.box.id))))
             .filter(Boolean);
         const taken = counts.reduce((t, c) => t + c.taken, 0);
         const of = counts.reduce((t, c) => t + c.of, 0);
@@ -1804,10 +1854,10 @@ class _HardwareDock {
             `loop-${near.id}`,
             near.deviceName || far.deviceName || 'Box',
             '',
-            `${this._dockBoxLabel(near)} and ${this._dockBoxLabel(far)} `
+            `${this._dockBoxLabel(near)} and ${farNames} `
             + 'are one loop. Drag this header onto a screen to fill '
             + `${this._dockBoxLabel(near)}; its returns come home on `
-            + `${this._dockBoxLabel(far)}.`,
+            + `${farNames}.`,
             of ? { frac: taken / of, over: false, text: `${taken}/${of}` }
                 : null);
         const names = document.createElement('span');
@@ -1816,10 +1866,15 @@ class _HardwareDock {
         const tag = document.createElement('span');
         tag.className = 'hw-dock-redpill hw-dock-looptag';
         tag.textContent = 'loop';
-        tag.title = `${this._dockBoxLabel(far)} is the far end of `
-            + `${this._dockBoxLabel(near)}'s loop: each of its sockets `
-            + 'carries the return of the same socket on '
-            + `${this._dockBoxLabel(near)}.`;
+        tag.title = slices.some(s => s.mixed)
+            ? `${farNames} ${slices.length > 1 ? 'are' : 'is'} the far end of `
+                + `${this._dockBoxLabel(near)}'s loop: each socket in `
+                + 'its row carries the return of the port it is numbered '
+                + `with on ${this._dockBoxLabel(near)}.`
+            : `${farNames} is the far end of `
+                + `${this._dockBoxLabel(near)}'s loop: each of its sockets `
+                + 'carries the return of the same socket on '
+                + `${this._dockBoxLabel(near)}.`;
         const before = head.querySelector(
             '.hw-dock-unit-use, .hw-dock-headbar, .hw-dock-unit-info');
         head.insertBefore(names, before || null);
@@ -1856,7 +1911,8 @@ class _HardwareDock {
                                            `hwdock-box-${near.id}`);
         body.appendChild(this._dockBuildBox(proc, card, near,
                                             { far: false, sheetOut }));
-        body.appendChild(this._dockBuildBox(proc, card, far, { far: true }));
+        slices.forEach(s => body.appendChild(this._dockBuildBox(proc, card, s.box,
+            { far: true, ports: s.ports, cont: s.cont ? near.id : null })));
         return strip;
     }
 
@@ -2090,6 +2146,7 @@ class _HardwareDock {
                             || port.backsUp.port} on ${port.backsUp.boxTitle
                             || port.backsUp.cardTitle}`}`
                     : ': free'))
+            + (port.loopOf ? this._dockLoopSocketText(card, port) : '')
             + (port.beyondCeiling ? `, beyond this ${this.unitWordFor(proc, card)}’s ceiling` : '')
             + '. Click to edit'
             + (port.backsUp

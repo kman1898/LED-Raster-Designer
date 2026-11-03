@@ -308,6 +308,94 @@ class _Fiber {
         return far ? { near: box, far } : null;
     }
 
+    // A BACKUP BOUND PORT BY PORT (owner, 2026-11-02: "pair port by
+    // port"). A box on a copy OPT set to Backup whose OPTs are not its
+    // primary's - a CVT4K-S on OPT 5-6 behind two CVT10s, two CVT10s on
+    // OPT 5 and 6 behind one CVT4K-S - backs up the same port numbers on
+    // whichever primary boxes carry them. The server says which, socket by
+    // socket: `backsUpPorts` on the backup box ({ number, socket, boxId,
+    // local }), `backedUpBy` on each primary. A one-to-one pair keeps
+    // `backupOf` and reads as before; this is true only past it.
+    boxLoopMixed(box) {
+        return !!(box && !box.backupOf && (box.backsUpPorts || []).length);
+    }
+
+    // A port-by-port backup's sockets as the tray and its sheet show them:
+    // each numbered with the card port it backs up (owner, 2026-11-02),
+    // `loopOf` saying which primary box and its own number for it. `mainId`
+    // keeps the sockets backing one primary box. Any other box: its ports.
+    boxLoopPorts(box, mainId = null) {
+        if (!this.boxLoopMixed(box)) return (box && box.ports) || [];
+        const byNumber = new Map((box.ports || []).map(p => [p.number, p]));
+        const out = [];
+        for (const m of box.backsUpPorts) {
+            if (mainId && m.boxId !== mainId) continue;
+            const port = byNumber.get(m.number);
+            if (!port) continue;
+            out.push({ ...port, localNumber: m.number,
+                       loopOf: { boxId: m.boxId, local: m.local, socket: m.socket } });
+        }
+        return out;
+    }
+
+    // The port-by-port backups behind one primary box, each with the
+    // sockets backing it, in the card's order: [{ box, ports }].
+    boxLoopSlices(near, cvts) {
+        return (cvts || []).filter(b => b !== near && this.boxLoopMixed(b)
+                && b.backsUpPorts.some(m => m.boxId === near.id))
+            .map(b => ({ box: b, ports: this.boxLoopPorts(b, near.id) }));
+    }
+
+    // What a port-by-port backup backs up, per primary box: "loop of CVT10
+    // A 1-10, CVT10 B 1-6 as 11-16" - the primary's own numbers, and the
+    // numbers this box shows for them where they differ. '' on any other
+    // box. `titleOf` names a box the way the reader's sheet does.
+    boxLoopText(box, cvts, titleOf) {
+        if (!this.boxLoopMixed(box)) return '';
+        const groups = new Map();
+        for (const m of box.backsUpPorts) {
+            if (!groups.has(m.boxId)) groups.set(m.boxId, { locals: [], numbers: [] });
+            groups.get(m.boxId).locals.push(m.local);
+            groups.get(m.boxId).numbers.push(m.number);
+        }
+        const parts = [...groups].map(([id, g]) => {
+            const main = (cvts || []).find(b => b.id === id);
+            const mine = this.fiberStrandRangeText(g.locals);
+            const shown = this.fiberStrandRangeText(g.numbers);
+            return `${main ? titleOf(main) : 'its primary'} ${mine}`
+                + (shown !== mine ? ` as ${shown}` : '');
+        });
+        return `loop of ${parts.join(', ')}`;
+    }
+
+    // Every box looped with `box`, one-to-one or port by port, on its own
+    // card: the primaries (`nears`) and their backups (`fars`), each in the
+    // card's order. A CVT4K-S on OPT 5-6 behind CVT10s on OPT 1 and 2 is
+    // one group of three. null where the box is in no loop.
+    fiberLoopGroup(box) {
+        if (!box) return null;
+        const hit = this._fiberAllBoxes().find(b => b.box.id === box.id);
+        const cvts = (hit && hit.card && hit.card.cvts) || [];
+        const backs = (b) => [b.backupOf, ...(b.backsUpPorts || []).map(m => m.boxId)]
+            .filter(Boolean);
+        const seen = new Set([box.id]);
+        const queue = [box];
+        while (queue.length) {
+            const b = queue.shift();
+            for (const o of cvts) {
+                if (seen.has(o.id)) continue;
+                if (backs(b).includes(o.id) || backs(o).includes(b.id)) {
+                    seen.add(o.id);
+                    queue.push(o);
+                }
+            }
+        }
+        if (seen.size < 2) return null;
+        const members = cvts.filter(b => seen.has(b.id));
+        return { nears: members.filter(b => !backs(b).length),
+                 fars: members.filter(b => backs(b).length) };
+    }
+
     // Every strand of one cable some link holds: Map strand -> { box, key }.
     fiberStrandUsers(cableId) {
         const used = new Map();

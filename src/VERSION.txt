@@ -497,6 +497,16 @@ FIXES
   with it, so two CVT4K-S boxes give 16 ports, each with its backup. Like
   the MX40 Pro, each box there can be set to Mirror instead, to feed a
   mirror screen.
+- FIX: A breakout box set to Backup on a copy OPT backs up its primaries
+  port by port when the boxes differ, like a CVT4K-S on OPT 5-6 behind two
+  CVT10s, or CVT10s on OPT 5 and 6 behind one CVT4K-S. In the Data tray
+  each primary ends in a loop row of the backup sockets for its ports,
+  each numbered with the port it backs up, and the box's cable sheet, its
+  settings and the binder's Breakout boxes table say which ports it
+  carries. Before, the backup box showed as a copy with free sockets.
+- FIX: A backup box never adds ports to its card. An enhanced H_4xfiber
+  in Backup with CVT4K-S boxes on OPT 1-2 and 3-4 and CVT10s on OPT 5 and
+  6 read 36 ports; it reads 32 now.
 - FIX: The binder's Overview page draws your screens much bigger. Its
   tables now share one short band across the top, with a long Contents
   list split into two or more columns, and the drawing fills the whole
