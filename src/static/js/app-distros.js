@@ -84,6 +84,11 @@ class _Distros {
         d.voltage = sys.voltage;
         d.phase = sys.phase;
         list.push(d);
+        // Its id may be a removed distro's: it starts with nothing open or
+        // folded (app-dock-cable-sheets.js _forgetDistroViews).
+        if (typeof this._forgetDistroViews === 'function') {
+            this._forgetDistroViews({ ids: [d.id] });
+        }
         // Adding a distro adds a bucket the numbering runs over, and its name
         // is what the multis landing on it will be called.
         this._circuitTailCache = null;

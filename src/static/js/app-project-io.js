@@ -401,6 +401,10 @@ class _ProjectIo {
         if (typeof this._forgetHardwareViews === 'function') {
             this._forgetHardwareViews(null, true);
         }
+        // ...nor any distro's: its ids start again at d1 too.
+        if (typeof this._forgetDistroViews === 'function') {
+            this._forgetDistroViews({ all: true });
+        }
         this.resetHistory('Initial State');
         // The project about to be adopted is another show: the multi numbers
         // the outgoing one held (app-naming) must not reach it while it

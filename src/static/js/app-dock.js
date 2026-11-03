@@ -2567,6 +2567,8 @@ class _HardwareDock {
     }
 
     _dockRenderPower(host) {
+        // A gone distro's sheets and folds go with it (_forgetDistroViews).
+        if (typeof this._forgetDistroViews === 'function') this._forgetDistroViews();
         // The strip's warnings are collected DURING this render, from the
         // exact figures the chips and headers draw - a second derivation
         // could disagree with the surfaces it warns about.
