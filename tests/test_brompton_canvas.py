@@ -742,3 +742,39 @@ def test_the_owners_grouped_wall_fits_one_sx40_a_screen(page):
     assert out['status'].startswith("SX40 S1 can't take this: its "
                                     "screens would span 6048 × 1536 px."), out
     assert ids['errors'] == []
+
+
+REDRAW_JS = """async (id) => {
+    const app = window.app, find = () => app.project.layers.find(x => x.id === id);
+    const wait = ms => new Promise(r => setTimeout(r, ms));
+    app.overrideRun(find(), 'data', 1);
+    await wait(400);
+    const seeded = (find().customPortPaths[1] || []).map(e => [e.row, e.col]);
+    const click = async ([r, c]) => { const l = find();
+        app.addPanelToCustomPath(l.panels.find(p => p.row === r && p.col === c), l,
+                                 {click: true});
+        await wait(400); };
+    await click(seeded[0]);
+    const cut = find().customPortPaths[1].map(e => [e.row, e.col]);
+    const held = !!app._overrideHoldLive();
+    await click(seeded[1]);
+    const after = find().customPortPaths[1].map(e => [e.row, e.col]);
+    app.endOverrideEdit();
+    return {seeded, cut, held, after};
+}"""
+
+
+def test_a_single_redraw_keeps_its_cabinets_on_a_brompton_processor(page):
+    """QA, 1.6.0: on a screen a Brompton processor drives, every edit runs
+    the canvas guard, which writes the screen's base fields back for a
+    moment to measure them. The single redraw's hold read that moment as
+    "not editing" and let go, so a click on an earlier step cut the port
+    back and the cabinets cut off went straight to the walk: the redraw
+    had nowhere to go. The hold must outlive the measurement."""
+    pg, _ids = page
+    ids = pg.evaluate(SEED_JS)
+    out = pg.evaluate(REDRAW_JS, ids['a'])
+    assert len(out['seeded']) > 1, out
+    assert out['cut'] == out['seeded'][:1], out
+    assert out['held'] is True, out
+    assert out['after'] == out['seeded'][:2], out

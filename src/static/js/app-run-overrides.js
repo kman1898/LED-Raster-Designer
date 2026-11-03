@@ -132,7 +132,11 @@ class _RunOverrides {
         const owner = ed && h.editing === ed && this.project
             ? (this.project.layers || []).find(l => l.id === ed.layerId) : null;
         if (!owner || ed.kind !== 'data' || !this._isOverrideEditing(owner, 'data')) {
-            this._overrideHeld = null;
+            // A canvas processor's edit guard measuring the base state
+            // writes the base's fields onto the layer for a moment
+            // (_canvasSpansWith): the hold does not apply to that state,
+            // and it does not end there either.
+            if (!this._canvasMeasuring) this._overrideHeld = null;
             return null;
         }
         return h;

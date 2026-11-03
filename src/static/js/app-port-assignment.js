@@ -995,10 +995,16 @@ class _PortAssignment {
     // Every canvas processor's span with `overrides` (layer id -> fields)
     // written onto those screens - their panels rebuilt from them - for the
     // length of the measurement, then put back exactly as they were.
+    // `_canvasMeasuring` says so for that length: session state that checks
+    // itself against the layers (a single redraw's hold, _overrideHoldLive)
+    // must not end because the base's fields were written for a moment (QA,
+    // 1.6.0: on a canvas processor a redraw lost its hold at its first
+    // click, and the cabinets it cut off could not be drawn again).
     _canvasSpansWith(overrides) {
         const keys = this._canvasGeomKeys();
         const saved = [];
         const layers = this._canvasScreenLayers();
+        this._canvasMeasuring = (this._canvasMeasuring || 0) + 1;
         try {
             layers.forEach(l => {
                 const fields = overrides.get(l.id);
@@ -1022,6 +1028,7 @@ class _PortAssignment {
                 else delete l[k];
             }));
             this._dockRunPanelsCache = null;
+            this._canvasMeasuring -= 1;
         }
     }
 
