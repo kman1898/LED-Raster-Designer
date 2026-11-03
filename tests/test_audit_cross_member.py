@@ -644,7 +644,7 @@ def test_peer_cabinet_cannot_be_claimed_by_two_ports_of_the_owner(page):
     assert result['p2'] == [], result
     assert len(result['toasts']) == 1, result
     assert 'Half Panels' in result['toasts'][0], result['toasts']
-    assert 'port 1' in result['toasts'][0], result['toasts']
+    assert 'P1' in result['toasts'][0], result['toasts']
 
 
 def test_conflict_across_members_names_the_owning_screen(page):
@@ -662,7 +662,7 @@ def test_conflict_across_members_names_the_owning_screen(page):
     """)
     assert result['aPort1'] == ['2:0,0'], result
     assert result['bPort1'] == 0, result
-    assert 'port 1 on JP5' in result['toasts'][-1], result['toasts']
+    assert 'P1 on JP5' in result['toasts'][-1], result['toasts']
 
 
 def test_pattern_apply_is_rejected_wholesale_on_a_cross_member_conflict(page):
@@ -692,7 +692,7 @@ def test_pattern_apply_sees_a_claim_made_by_a_peers_own_port(page):
         return { p1: ax.pathKeys(a, 1), toasts: window.__ax.toasts };
     """)
     assert result['p1'] == [], result
-    assert 'port 3 on Half Panels' in result['toasts'][-1], result['toasts']
+    assert 'P3 on Half Panels' in result['toasts'][-1], result['toasts']
 
 
 def test_same_cabinet_cannot_be_added_twice_to_one_port(page):
@@ -1088,7 +1088,7 @@ def test_three_member_group_conflict_is_found_on_the_third_member(page):
         });
     }""")
     assert result['path'] == [], result
-    assert 'port 4 on C' in result['toasts'][-1], result['toasts']
+    assert 'P4 on C' in result['toasts'][-1], result['toasts']
     assert 'R2C2 on B' in result['toasts'][-1], result['toasts']
 
 

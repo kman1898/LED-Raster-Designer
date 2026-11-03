@@ -448,7 +448,7 @@ def test_cabinet_claimed_by_a_peers_port_reads_as_taken(page):
     assert paths_of(page, ids[0]).get('1') == [], paths_of(page, ids[0])
     toast = last_toast(page)
     assert toast, 'no toast raised for a cross-member conflict'
-    assert 'port 1' in toast, toast
+    assert 'P1' in toast, toast
     assert 'PathB' in toast, (
         'the toast does not name the screen the conflicting port lives on: %r'
         % (toast,))

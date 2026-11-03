@@ -601,7 +601,7 @@ def test_a_cross_member_conflict_rejects_the_whole_apply_and_names_the_screen(pa
     # Names the cabinet's screen AND the port that holds it. R2C2 alone stops
     # meaning anything the moment two grids are in play.
     assert 'R2C2 on Half Panels' in msg, msg
-    assert 'port 2' in msg, msg
+    assert 'P2' in msg, msg
 
 
 def test_a_conflict_on_a_peers_own_port_is_seen_and_named(page):
@@ -620,7 +620,7 @@ def test_a_conflict_on_a_peers_own_port_is_seen_and_named(page):
     """)
     assert result['port1'] == [], result['port1']
     msg = result['toasts'][0]
-    assert 'port 3 on Half Panels' in msg, msg
+    assert 'P3 on Half Panels' in msg, msg
 
 
 def test_a_clean_apply_leaves_no_toast_and_one_history_step(page):
