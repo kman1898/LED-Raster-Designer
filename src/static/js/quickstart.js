@@ -101,6 +101,18 @@
         var ls = screens();
         return ls.find(function (l) { return l.name === 'DEMO WALL 2'; }) || null;
     }
+    // A screen the guide puts in for a step. initializeLayerDefaults gives
+    // it the person's Preferences, and their bit depth, frame rate and Low
+    // Latency change how many cabinets a port carries: a 10-bit, 50 Hz or
+    // Low Latency preference cut the practice screens into other ports and
+    // the steps that count them did not take (1.6.0 QA). The guide's
+    // screens are always 8-bit, 60 Hz, Low Latency off.
+    var PRACTICE_PROCESSING = { bitDepth: 8, frameRate: 60, lowLatency: false };
+    function practiceScreen(layer) {
+        A().initializeLayerDefaults(layer);
+        Object.keys(PRACTICE_PROCESSING).forEach(function (k) { layer[k] = PRACTICE_PROCESSING[k]; });
+        return layer;
+    }
     function proc() { return ((A() && A()._processorsResolved) || [])[0] || null; }
     // The H9 the Mixed redundancy step puts beside the guide's own unit.
     function chassis() {
@@ -2452,8 +2464,10 @@
             a.selectLayer(a.project.layers[0]);
             // The tour's prerequisites, stamped AFTER selectLayer (which
             // fills what is unset from the preferences) and written through
-            // so the server holds the same screen.
-            var fields = Object.assign({ powerVoltage: 208, powerAmperage: 20, panelWatts: 200 }, seed.layer || {});
+            // so the server holds the same screen. Its processing is the
+            // practice screens' (PRACTICE_PROCESSING), not the preferences'.
+            var fields = Object.assign({ powerVoltage: 208, powerAmperage: 20, panelWatts: 200 },
+                                       PRACTICE_PROCESSING, seed.layer || {});
             var l = a.project.layers[0];
             Object.keys(fields).forEach(function (k) { l[k] = fields[k]; });
             // A screen always carries a breakout its voltage allows.
@@ -2932,7 +2946,7 @@
                     cabinet_width: 512, cabinet_height: 256,
                     offset_x: (w && Number(w.offset_x)) || 0, offset_y: bottom + 200
                 }).then(function (layer) {
-                    a.initializeLayerDefaults(layer);
+                    practiceScreen(layer);
                     layer.processorType = 'novastar-armor';
                     layer.flowPattern = 'tl-h';
                     layer.portMappingMode = 'organized';
@@ -4909,7 +4923,7 @@
                         offset_y: Number(w.offset_y) || 0
                     });
                 }).then(function (layer) {
-                    a.initializeLayerDefaults(layer);
+                    practiceScreen(layer);
                     ['processorType', 'bitDepth', 'frameRate', 'lowLatency', 'powerVoltage',
                      'powerAmperage', 'panelWatts', 'powerBreakoutType', 'flowPattern'].forEach(function (k) {
                         if (w[k] !== undefined) layer[k] = w[k];
@@ -5254,7 +5268,7 @@
                         offset_x: (Number(w.offset_x) || 0) + dx,
                         offset_y: (Number(w.offset_y) || 0) + w.rows * w.cabinet_height + 200
                     }).then(function (layer) {
-                        a.initializeLayerDefaults(layer);
+                        practiceScreen(layer);
                         layer.processorType = 'novastar-armor';
                         a.upsertProjectLayer(layer);
                         a.updateLayers([layer]);
@@ -5398,7 +5412,7 @@
                     cabinet_width: w.cabinet_width, cabinet_height: w.cabinet_height,
                     offset_x: (Number(w.offset_x) || 0), offset_y: bottom + 200
                 }).then(function (layer) {
-                    a.initializeLayerDefaults(layer);
+                    practiceScreen(layer);
                     a.setScreenVoltage(layer, 208);
                     layer.powerAmperage = 20;
                     layer.powerAmperageCustom = 20;
@@ -5498,7 +5512,7 @@
                     cabinet_width: 512, cabinet_height: 256,
                     offset_x: (w && Number(w.offset_x)) || 0, offset_y: bottom + 200
                 }).then(function (layer) {
-                    a.initializeLayerDefaults(layer);
+                    practiceScreen(layer);
                     layer.processorType = 'novastar-armor';
                     layer.flowPattern = 'tl-h';
                     layer.portMappingMode = 'organized';

@@ -450,3 +450,50 @@ def test_a_guide_step_survives_the_tray_rebuilding_under_it(page):
         assert st['state'] == 'done' and not st['fail'], st
     finally:
         _end(page)
+
+
+ODD_PROCESSING = {'bitDepth': 10, 'frameRate': 50, 'lowLatency': True}
+# The guide steps that put in a screen of their own and count its ports.
+PRACTICE_STEPS = ('mirrorScreen', 'portNumbers', 'portsMinimum',
+                  'redrawAsOne', 'sweepPorts')
+
+
+def test_practice_screens_ignore_the_processing_preferences(page):
+    """1.6.0 QA: with 10-bit, 50 Hz and Low Latency in Preferences, "Redraw
+    several ports as one" and "Port numbers" did not take - their practice
+    screens took the preferences' processing (initializeLayerDefaults), so
+    a port carried fewer cabinets than the step counts on. Every screen a
+    guide puts in is 8-bit, 60 Hz, Low Latency off, whatever the
+    preferences say; the scratch show's DEMO WALL too."""
+    from test_tour_anchors import PREFS_JS
+    original = page.evaluate(PREFS_JS, None)
+    page.evaluate(PREFS_JS, ODD_PROCESSING)
+    page.wait_for_timeout(300)
+    try:
+        page.evaluate("(s) => window.QuickStart.setSpeed(s)", 3)
+        page.evaluate("(k) => { window.QuickStart.startSteps(k); }",
+                      list(PRACTICE_STEPS))
+        made = {}
+        for i, key in enumerate(PRACTICE_STEPS):
+            if i:
+                page.fill('#qs-jump', str(i + 1))
+                page.press('#qs-jump', 'Enter')
+            st = _wait_step(page, i)
+            assert st['state'] == 'done' and not st['fail'], (key, st)
+            for name, bits, rate, ull in page.evaluate(
+                    "() => window.app.project.layers.map(l => "
+                    "[l.name, l.bitDepth, l.frameRate, !!l.lowLatency])"):
+                made[name] = (bits, rate, ull)
+        _end(page)
+        for name in ('IMAG L', 'IMAG R', 'LONG ROWS', 'LEFTOVERS'):
+            assert made.get(name) == (8, 60, False), (name, made)
+        st = _start(page, 'quick')
+        assert st['state'] in ('done', 'idle'), st
+        wall = page.evaluate(
+            "() => { const l = window.app.project.layers.find("
+            "x => x.name === 'DEMO WALL'); "
+            "return [l.bitDepth, l.frameRate, !!l.lowLatency]; }")
+        assert wall == [8, 60, False], wall
+    finally:
+        _end(page)
+        page.evaluate(PREFS_JS, {k: original.get(k) for k in ODD_PROCESSING})
