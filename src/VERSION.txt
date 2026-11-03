@@ -518,6 +518,13 @@ FIXES
   and the panels sharing a 2fer or 3fer don't change, only the numbers.
   A column cut differently on a vertical pattern numbers the same way
   with Across.
+- FIX: Custom power screens show the Circuit numbers switch, the way
+  custom data screens show Port numbers. With Down picked, Apply Pattern
+  numbers the circuits it cuts from long rows down the stacks, by the
+  same rule as the automatic map, so a half-height bottom row's circuit
+  takes the number right after the stack its first panel sits under.
+  Which panels share a 2fer or 3fer doesn't change, and circuits you've
+  already drawn keep their numbers.
 
 v1.5.3 - October 21, 2026
 ----------------------------

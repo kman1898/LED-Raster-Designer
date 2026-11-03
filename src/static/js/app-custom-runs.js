@@ -1108,9 +1108,11 @@ class _CustomRuns {
         // neighbouring runs on one circuit through a 2fer / 3fer.
         const sharing = isPower && this._customFillShares(owner);
         // Where each cabinet sits along its line, counted from the
-        // pattern's start side: the Port numbers switch puts a run cut
-        // differently from the lines around it under the stack its first
-        // cabinet sits under (_splitRunStacks), as the automatic walk does.
+        // pattern's start side: the Port numbers switch (and on power the
+        // Circuit numbers switch, the owner's ruling of 2026-11-02) puts a
+        // run cut differently from the lines around it under the stack its
+        // first cabinet sits under (_splitRunStacks), as the automatic walk
+        // does.
         const vertical = isVerticalFlowPattern(pattern);
         const corner = pattern.split('-')[0] || 'tl';
         const fromEnd = vertical ? corner[0] === 'b' : corner[1] === 'r';
@@ -1119,7 +1121,7 @@ class _CustomRuns {
             return Number.isFinite(at) ? (fromEnd ? -at : at) : undefined;
         };
         const cut = sharing
-            ? this._chunkPicksIntoShares(owner, startNum, lines, frozen)
+            ? this._chunkPicksIntoShares(owner, startNum, lines, frozen, { vertical, posOf })
             : this._chunkPicksByCapacity(owner, kind, startNum, lines, frozen,
                 { vertical, zigzag: isZFlowPattern(pattern), posOf });
         if (cut.skipped && cut.skipped.length) steppedOver(cut.skipped);
@@ -1345,8 +1347,17 @@ class _CustomRuns {
     // each CIRCUIT takes one, its runs concatenated with `heads` marking
     // where each run after the first starts (the take-over's own shape).
     //
+    // THE CIRCUIT NUMBERS SWITCH (powerNumbersStack; the owner's ruling,
+    // 2026-11-02: custom power follows Down like data): the circuits a long
+    // line is cut into are renumbered stack by stack, the way the plain
+    // fill and the automatic walk number them. Those pieces never share, so
+    // only the numbers they take move among themselves; every shared
+    // circuit keeps its runs and its numbers, and no 2fer or 3fer changes.
+    // `opts.vertical` says the lines are columns, `opts.posOf` where a
+    // cabinet sits along its line.
+    //
     // Returns { chunks, skipped, merges, runs, sizes } or { error, skipped }.
-    _chunkPicksIntoShares(owner, startNum, lines, skip = null) {
+    _chunkPicksIntoShares(owner, startNum, lines, skip = null, opts = null) {
         const kind = 'power';
         const cap = this.customRunCapacity(owner, kind);
         const eps = CUSTOM_RUN_EPS;
@@ -1357,7 +1368,10 @@ class _CustomRuns {
         const skipped = [];
         // The runs, in pattern order.
         const runs = [];
+        const posOf = (opts && opts.posOf) || null;
+        let lineNo = -1;
         for (const line of lines) {
+            lineNo += 1;
             if (line.length === 0) continue;
             for (const pick of line) {
                 const load = loadFor([pick]);
@@ -1371,13 +1385,16 @@ class _CustomRuns {
                 continue;
             }
             let cells = line;
+            let seg = 0;
             while (cells.length > 0) {
                 const piece = [];
                 for (const pick of cells) {
                     if (piece.length > 0 && loadFor(piece.concat([pick])) > limit + eps) break;
                     piece.push(pick);
                 }
-                runs.push({ picks: piece, solo: true });
+                runs.push({ picks: piece, solo: true,
+                    split: { line: lineNo, seg, pos: posOf ? posOf(piece[0]) : undefined } });
+                seg += 1;
                 cells = cells.slice(piece.length);
             }
         }
@@ -1412,6 +1429,17 @@ class _CustomRuns {
         const chunks = [];
         const merges = [];
         const sizes = circuits.map(c => c.length);
+        // The cut pieces' numbers down the stacks (see above). A piece of a
+        // cut line is always a circuit of its own, so the numbers move
+        // only among those circuits, and a merge (numbers of whole-line
+        // runs) is never touched.
+        const numbered = (list) => {
+            if (!this.powerNumbersStack(owner, !(opts && opts.vertical))) return list;
+            const nums = list.map(c => c.num);
+            const stacked = this._stackSplitRuns(list, c => c.split || null);
+            stacked.forEach((c, i) => { c.num = nums[i]; });
+            return stacked;
+        };
         if (this._isOverrideEditing(owner, kind)) {
             for (const c of circuits) {
                 if (num === null) return { skipped, error: outOfNumbers() };
@@ -1421,9 +1449,11 @@ class _CustomRuns {
                     if (k > 0) heads.add(picks.length);
                     picks.push(...run.picks);
                 });
-                chunks.push({ num: take(), picks, load: loadFor(picks), heads });
+                const chunk = { num: take(), picks, load: loadFor(picks), heads };
+                if (c.length === 1 && c[0].split) chunk.split = c[0].split;
+                chunks.push(chunk);
             }
-            return { chunks, skipped, merges: null, runs: runs.length, sizes };
+            return { chunks: numbered(chunks), skipped, merges: null, runs: runs.length, sizes };
         }
         for (const c of circuits) {
             const nums = [];
@@ -1431,11 +1461,13 @@ class _CustomRuns {
                 if (num === null) return { skipped, error: outOfNumbers() };
                 const n = take();
                 nums.push(n);
-                chunks.push({ num: n, picks: run.picks, load: loadFor(run.picks) });
+                const chunk = { num: n, picks: run.picks, load: loadFor(run.picks) };
+                if (run.split) chunk.split = run.split;
+                chunks.push(chunk);
             }
             if (nums.length >= 2) merges.push(nums);
         }
-        return { chunks, skipped, merges, runs: runs.length, sizes };
+        return { chunks: numbered(chunks), skipped, merges, runs: runs.length, sizes };
     }
 
     // A PARTIAL GROUP FILL (the owner's ruling, 2026-10-16: "Warn and do
@@ -1563,11 +1595,13 @@ class _CustomRuns {
     // `error` instead when a single cabinet is over the cap on its own or
     // the override list runs out - nothing is written in either case.
     //
-    // THE PORT NUMBERS SWITCH (data, Organized; portNumbersStack): the runs
-    // a long line is cut into keep their cabinets and only change number,
-    // the same way the automatic walk numbers them. `opts.vertical` says the
-    // lines are columns. The numbers handed out are the same set, in the
-    // same skip-aware sequence; only which run gets which one moves.
+    // THE PORT NUMBERS SWITCH (data, Organized; portNumbersStack) and THE
+    // CIRCUIT NUMBERS SWITCH (power, whole lines; powerNumbersStack - the
+    // owner's ruling, 2026-11-02: custom power follows Down like data):
+    // the runs a long line is cut into keep their cabinets and only change
+    // number, the same way the automatic walk numbers them. `opts.vertical`
+    // says the lines are columns. The numbers handed out are the same set,
+    // in the same skip-aware sequence; only which run gets which one moves.
     _chunkPicksByCapacity(owner, kind, startNum, lines, skip = null, opts = null) {
         const cap = this.customRunCapacity(owner, kind);
         const eps = CUSTOM_RUN_EPS;
@@ -1713,7 +1747,11 @@ class _CustomRuns {
             sealed = kind !== 'power';
         }
         chunks.push(cur);
-        if (kind !== 'power' && this.portNumbersStack(owner, !(opts && opts.vertical))) {
+        const horizontal = !(opts && opts.vertical);
+        const stacks = kind === 'power'
+            ? this.powerNumbersStack(owner, horizontal)
+            : this.portNumbersStack(owner, horizontal);
+        if (stacks) {
             const nums = chunks.map(c => c.num);
             const stacked = this._stackSplitRuns(chunks, c => c.split || null);
             stacked.forEach((c, i) => { c.num = nums[i]; });
