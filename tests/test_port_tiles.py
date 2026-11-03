@@ -1262,7 +1262,7 @@ def test_a_backing_tile_carries_the_mirrored_return_occupant(panel_page):
         back = tile_state(panel_page, f"port-{ids['cardId']}-2")
         main = tile_state(panel_page, f"port-{ids['cardId']}-1")
         assert back, 'socket 2 lost its tile'
-        assert 'Screen1 p1 return' in back['faceText'], back
+        assert 'Screen1 P1 return' in back['faceText'], back
         assert back['occupied'], (
             f'a working return must wear the occupied ground: {back}')
         assert 'Screen1' in main['faceText'], main

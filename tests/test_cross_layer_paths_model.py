@@ -468,8 +468,8 @@ def test_conflict_within_one_screen_still_names_only_the_port(page):
     page.wait_for_timeout(400)
 
     toast = last_toast(page)
-    assert toast == ('Panel R1C1 is already wired to port 1. '
-                     'Clear it from port 1 first.'), toast
+    assert toast == ('Cabinet R1C1 is already wired to P1. '
+                     'Clear it from P1 first.'), toast
 
 
 # ── arrow-key handoff ─────────────────────────────────────────────────────

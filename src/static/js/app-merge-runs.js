@@ -850,6 +850,7 @@ class _MergeRuns {
         if (load) {
             this._projectOpening = false;
             this._portRepairPending = new Set();
+            this._portRepairDone = new Set();
         } else if (this._projectOpening) return [];
         if (!this.project || !Array.isArray(this.project.layers)) return [];
         const screens = this.project.layers
@@ -875,7 +876,9 @@ class _MergeRuns {
             const opening = load || pending.has(String(owner.id));
             if (opening && !this._layerLocked(owner)) {
                 opened.push(owner);
-                pending.delete(String(owner.id));
+                if (pending.delete(String(owner.id))) {
+                    (this._portRepairDone || (this._portRepairDone = new Set())).add(String(owner.id));
+                }
             }
             const custom = this.isCustomFlow(owner);
             const ovr = custom ? [] : this.getOverrideNums(owner, 'data');
@@ -911,6 +914,19 @@ class _MergeRuns {
                 if (opening) pending.add(String(owner.id));
                 if (cut || gone.length) {
                     sendClientLog('ports_off_wall_locked', { layerId: owner.id, cut, ports: gone });
+                    // Said, the way the power side says it (_sayTrimHeld):
+                    // once while the same hold stands (QA, 1.6.0: the data
+                    // side opened a locked screen's ghost ports in silence).
+                    if (typeof this._sayTrimHeld === 'function') {
+                        const one = gone.length === 1;
+                        this._sayTrimHeld(owner, 'data', [owner], null, gone.length
+                            ? `${owner.name || 'Screen'}: port${one ? '' : 's'} ${this._portNumbersText(gone)} `
+                                + ((opening || emptied === 0) ? 'had no cabinets on the wall'
+                                    : 'had only cabinets that came off the wall')
+                                + ` and ${one ? 'stays' : 'stay'} as ${one ? 'it is' : 'they are'}.`
+                            : `${owner.name || 'Screen'}: its ports keep the cabinets that came off the wall.`,
+                        `${cut}:${gone.join(',')}`);
+                    }
                 }
                 return;
             }
@@ -1115,9 +1131,17 @@ class _MergeRuns {
 
     // Does one of `layers` still wait for the open's repair (it was locked
     // when its show was opened)?
+    // One that got it at an unlock is asked again at the next: an undo of
+    // that unlock put the screen back locked with its ghost ports, and the
+    // repair is the open's, so running it twice changes nothing more (QA,
+    // 1.6.0: undo the unlock, unlock again, and the repair was skipped).
     portRepairPending(layers) {
-        const pending = this._portRepairPending;
-        if (!pending || pending.size === 0) return false;
+        const pending = this._portRepairPending || (this._portRepairPending = new Set());
+        const done = this._portRepairDone;
+        (layers || []).forEach(l => {
+            if (l && done && done.has(String(l.id))) pending.add(String(l.id));
+        });
+        if (pending.size === 0) return false;
         return (layers || []).some(l => l && pending.has(String(l.id)));
     }
 

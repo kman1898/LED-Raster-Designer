@@ -889,7 +889,7 @@ class _CrossLayerPaths {
         const base = circuit
             ? `${kind} ${this.getPowerCircuitLabel(conflict.layer,
                 this._customCircuitHead(conflict.layer, conflict.number))}`
-            : `${kind} ${conflict.number}`;
+            : (kind === 'port' ? `P${conflict.number}` : `${kind} ${conflict.number}`);
         return conflict.foreign ? `${base} on ${this._pathLayerName(conflict.layer)}` : base;
     }
 

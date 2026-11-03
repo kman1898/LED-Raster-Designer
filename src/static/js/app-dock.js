@@ -2199,7 +2199,7 @@ class _HardwareDock {
             tile.classList.add('lrd-tile-gold');
             who.style.color = '#c8a04a';
             who.textContent =
-                `${occupants[0].name} p${occupants[0].number} return`;
+                `${occupants[0].name} P${occupants[0].number} return`;
         } else {
             who.style.color = 'var(--ps-dim, #c0c0c0)';
             who.textContent = occupants[0].name;
@@ -2238,7 +2238,7 @@ class _HardwareDock {
         face.title = `Port ${spoken}`
             + (port.label ? `, ${port.label}` : '')
             + (occupants.length
-                ? `: ${occupants.map(o => `${o.name} p${o.number}`
+                ? `: ${occupants.map(o => `${o.name} P${o.number}`
                     + (o.role === 'return' ? ' return' : '')).join(', ')}`
                 : (idleLoopEnd
                     ? `: free, the loop end of ${bu.label
@@ -2415,7 +2415,7 @@ class _HardwareDock {
             who.textContent = 'free';
             who.title = 'No screen is on this port.';
         } else {
-            const parts = occupants.map(o => `${o.name} p${o.number}`
+            const parts = occupants.map(o => `${o.name} P${o.number}`
                 + (o.role === 'return' ? ' return' : ''));
             const derived = occupants.length === 1
                 && occupants[0].role === 'return';
@@ -4374,7 +4374,7 @@ class _HardwareDock {
                     + `${main.localPort || main.port}`
                 : 'its main port');
         return `${payload.title} carries ${occupant.name} `
-            + `p${occupant.number}'s return. It follows ${mainName}; `
+            + `P${occupant.number}'s return. It follows ${mainName}; `
             + 'clear that port to clear both ends.';
     }
 

@@ -1749,8 +1749,8 @@ def test_a_backing_port_wears_its_role_in_the_dock(dock_page):
         };
     }""", ids)
     try:
-        assert out['even'] and 'WALL A p1 return' in out['even'], out
-        assert 'WALL A p1 return' in (out['evenTitle'] or ''), out
+        assert out['even'] and 'WALL A P1 return' in out['even'], out
+        assert 'WALL A P1 return' in (out['evenTitle'] or ''), out
         assert out['evenOccupied'] is True, (
             f'a working return must wear the occupied ground: {out}')
         assert out['idle'] and 'backs up' in out['idle'], out
@@ -1802,7 +1802,7 @@ def test_a_mirrored_return_refuses_clear_and_drag_back_naming_the_screen(
         assert item and item['shown'], item
         assert item['disabled'], (
             f'the mirrored return offered an enabled clear: {item}')
-        assert "carries WALL A p1's return" in item['title'], item
+        assert "carries WALL A P1's return" in item['title'], item
         assert 'clear that port' in item['title'], item
         close_menu(page)
 
@@ -1816,7 +1816,7 @@ def test_a_mirrored_return_refuses_clear_and_drag_back_naming_the_screen(
         drag(page, x, y, inside['x'], inside['y'])
         said = page.evaluate(
             "() => document.getElementById('status-message').textContent")
-        assert "carries WALL A p1's return" in said, said
+        assert "carries WALL A P1's return" in said, said
         assert page.evaluate(PINS_JS) == pins_before, (
             'a refused release moved a pin')
         assert page.evaluate(HIST_LEN_JS) == hist_before, (

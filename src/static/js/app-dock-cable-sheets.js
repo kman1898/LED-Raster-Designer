@@ -571,7 +571,7 @@ class _DockCableSheets {
             const occ = this._portOccupants(at.cardId, n);
             if (!occ.length) return '';
             return [...new Set(occ.map(o => `${o.name}${o.role === 'return'
-                ? ` p${o.number} return` : ''}`))].join(', ');
+                ? ` P${o.number} return` : ''}`))].join(', ');
         };
         // The cell wears its full text as a title too, and a row whose
         // detail says more than its cell - a return end - carries it on

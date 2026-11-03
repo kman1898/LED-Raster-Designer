@@ -66,20 +66,30 @@ Object.assign(CanvasRenderer.prototype, {
         // whole cabinets, and Max Capacity always could. Any other unit type
         // keeps its old wording.
         const onePanel = err.unitType === 'panel';
+        // Low Latency lowers a port's capacity the lower on the canvas it
+        // starts (the walk's derate): a cabinet that fits at the top can
+        // fit nowhere this low, and the error names Low Latency.
+        const lowLatency = onePanel && !!err.lowLatency;
         this.ctx.font = `bold 48px ${projectFontFamily()}`;
-        const titleText = onePanel
-            ? 'ONE PANEL IS BIGGER THAN A PORT'
-            : `CANNOT FIT COMPLETE ${String(err.unitType || '').toUpperCase()}`;
+        const titleText = lowLatency
+            ? 'LOW LATENCY: NO PORT THIS LOW TAKES A PANEL'
+            : (onePanel
+                ? 'ONE PANEL IS BIGGER THAN A PORT'
+                : `CANNOT FIT COMPLETE ${String(err.unitType || '').toUpperCase()}`);
         const titleWidth = this.ctx.measureText(titleText).width;
 
         this.ctx.font = `28px ${projectFontFamily()}`;
-        const detailText = onePanel
-            ? 'Lower the bit depth or frame rate, or pick a processor with bigger ports'
-            : `Need ${err.unitCount} panels, port only fits ${err.panelsPerPort}`;
+        const detailText = lowLatency
+            ? 'Low Latency gives a port fewer pixels the lower it starts. Turn it off or move the screen up'
+            : (onePanel
+                ? 'Lower the bit depth or frame rate, or pick a processor with bigger ports'
+                : `Need ${err.unitCount} panels, port only fits ${err.panelsPerPort}`);
         const detailWidth = this.ctx.measureText(detailText).width;
         
         this.ctx.font = `24px ${projectFontFamily()}`;
-        const infoText = `Port: ${err.portCapacity.toLocaleString('en-US')} px | Panel: ${err.panelPixels.toLocaleString('en-US')} px`;
+        const portPx = lowLatency && Number.isFinite(err.portCapacityHere)
+            ? err.portCapacityHere : err.portCapacity;
+        const infoText = `Port${lowLatency ? ' here' : ''}: ${portPx.toLocaleString('en-US')} px | Panel: ${err.panelPixels.toLocaleString('en-US')} px`;
         const infoWidth = this.ctx.measureText(infoText).width;
         
         // Size box to fit text with padding

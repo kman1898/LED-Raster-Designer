@@ -411,6 +411,12 @@ class _ProjectIo {
         // the outgoing one held (app-naming) must not reach it while it
         // loads. Its own are taken by the resetHistory its load ends with.
         this._multiBaseline = null;
+        // The tray's Add a processor picker starts blank in another show: a
+        // model left picked from the last one read as gear this show has
+        // (QA, 1.6.0).
+        const picker = typeof document !== 'undefined'
+            && document.getElementById('processor-add-device');
+        if (picker) picker.value = '';
     }
 
     applyMissingLayerDefaults(layer) {

@@ -255,25 +255,14 @@ class _PortRouting {
         // pixel rectangle that encloses every visible cabinet in the port, so
         // a port's load is that rect's area rather than a pixel sum. Shared by
         // the Max Capacity and Low Latency branches below.
-        //
-        // The rect never charges less than the cabinets' own pixels (QA,
-        // 1.6.0): two grouped screens that overlap in Pixel Map (a duplicate
-        // keeps its offset) put cabinets on the same pixels, and the rect of
-        // the overlap held 48 cabinets' worth on one port. `area` carries
-        // the sum, and rectArea is the larger of the two. Cabinets that do
-        // not overlap always sum to no more than their rect, so no other
-        // wall reads differently.
         const panelRect = (panel) => {
             const x1 = Number(panel.x) || 0;
             const y1 = Number(panel.y) || 0;
-            const w = Number(panel.width) || 0;
-            const h = Number(panel.height) || 0;
             return {
                 minX: x1,
                 minY: y1,
-                maxX: x1 + w,
-                maxY: y1 + h,
-                area: w * h,
+                maxX: x1 + (Number(panel.width) || 0),
+                maxY: y1 + (Number(panel.height) || 0),
                 count: 1
             };
         };
@@ -285,13 +274,11 @@ class _PortRouting {
                 minY: Math.min(rect.minY, r.minY),
                 maxX: Math.max(rect.maxX, r.maxX),
                 maxY: Math.max(rect.maxY, r.maxY),
-                area: (rect.area || 0) + r.area,
                 count: rect.count + 1
             };
         };
-        const rectArea = (rect) => (rect.count === 0 ? 0
-            : Math.max((rect.maxX - rect.minX) * (rect.maxY - rect.minY), rect.area || 0));
-        const emptyRect = () => ({ minX: 0, minY: 0, maxX: 0, maxY: 0, area: 0, count: 0 });
+        const rectArea = (rect) => (rect.count === 0 ? 0 : (rect.maxX - rect.minX) * (rect.maxY - rect.minY));
+        const emptyRect = () => ({ minX: 0, minY: 0, maxX: 0, maxY: 0, count: 0 });
 
         // v0.11.0: `base` less the NovaStar 5G narrow-port penalty, measured
         // from the bounding box of the port's VISIBLE cabinets - the port's own
@@ -422,6 +409,14 @@ class _PortRouting {
                 // Organized and Max Capacity branches, not a bad map.
                 if (soloLoad > portLimit(y, soloBounds)) {
                     raiseCapacityError('panel', 1);
+                    // A cabinet that fits a port at the top of the canvas
+                    // but not this low down: Low Latency's derate is the
+                    // reason, and the error says so (QA, 1.6.0: it read
+                    // as a cabinet too big for any port).
+                    if (llGeometry.yDerate && soloLoad <= capacityForRect(portCapacity, soloBounds)) {
+                        layer._capacityError.lowLatency = true;
+                        layer._capacityError.portCapacityHere = Math.floor(portLimit(y, soloBounds));
+                    }
                     return;
                 }
                 current = {
@@ -473,7 +468,6 @@ class _PortRouting {
                 let minX = Infinity, maxX = -Infinity;
                 let minY = Infinity, maxY = -Infinity;
                 let hasVisible = false;
-                let own = 0;
                 unitIdxList.forEach(idx => {
                     const visible = orderedForCapacity.filter(p => (isHorizontalFirst ? rowOfPanel(p) === idx : colOfPanel(p) === idx) && !this.isPanelDataDark(p));
                     visible.forEach(p => {
@@ -482,7 +476,6 @@ class _PortRouting {
                         const y1 = Number(p.y) || 0;
                         const x2 = x1 + (Number(p.width) || 0);
                         const y2 = y1 + (Number(p.height) || 0);
-                        own += (x2 - x1) * (y2 - y1);
                         if (x1 < minX) minX = x1;
                         if (y1 < minY) minY = y1;
                         if (x2 > maxX) maxX = x2;
@@ -490,8 +483,7 @@ class _PortRouting {
                     });
                 });
                 if (!hasVisible) return 0;
-                // never less than the cabinets' own pixels (rectArea above)
-                return Math.max((maxX - minX) * (maxY - minY), own);
+                return (maxX - minX) * (maxY - minY);
             };
 
             // v0.11.0: bounding box of the VISIBLE cabinets in a unit list -

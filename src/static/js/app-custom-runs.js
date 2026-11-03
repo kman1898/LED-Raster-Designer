@@ -371,6 +371,21 @@ class _CustomRuns {
     _customRunFullMessage(owner, kind, num) {
         const cap = this.customRunFill(owner, kind, num);
         const noun = kind === 'power' ? 'Circuit' : 'Port';
+        // On NovaStar (Legacy) a port pays for the rectangle round its
+        // cabinets, so it can be full with pixels to spare: the refusal says
+        // that is the rule, not a count that looks short (QA, 1.6.0).
+        const rect = kind !== 'power' && !cap.over && typeof this.usesRectangleConstraint === 'function'
+            && this.usesRectangleConstraint((owner && owner.processorType) || 'novastar-armor');
+        if (rect) {
+            const why = 'On NovaStar (Legacy) a port carries the whole rectangle around its '
+                + 'cabinets, and no cabinet left fits inside it.';
+            if (typeof this._mergeRedrawOn === 'function' && this._mergeRedrawOn(owner, num)) {
+                return `${noun} ${this._customRunLabel(owner, kind, num)} is full, `
+                    + `${cap.describe}. ${why} Enter keeps what is drawn, Esc puts the ports back.`;
+            }
+            return `${noun} ${this._customRunLabel(owner, kind, num)} is full, `
+                + `${cap.describe}. ${why} Step to the next port (Tab / ]).`;
+        }
         // Several ports redrawn as one have ONE port to draw: there is no
         // next port to step to, only keeping or putting back.
         if (kind !== 'power' && typeof this._mergeRedrawOn === 'function'
@@ -495,7 +510,7 @@ class _CustomRuns {
         if (conflict) {
             if (typeof this._toast === 'function') {
                 const where = this._describePathConflict(conflict, 'port');
-                this._toast(`Panel ${this._describePathPanel(owner, source, panel)} is already wired to ${where}. Clear it from ${where} first.`, true);
+                this._toast(`Cabinet ${this._describePathPanel(owner, source, panel)} is already wired to ${where}. Clear it from ${where} first.`, true);
             }
             return;
         }
@@ -579,7 +594,7 @@ class _CustomRuns {
         if (conflict) {
             if (typeof this._toast === 'function') {
                 const where = this._describePathConflict(conflict, 'circuit');
-                this._toast(`Panel ${this._describePathPanel(owner, source, panel)} is already wired to ${where}. Clear it from ${where} first.`, true);
+                this._toast(`Cabinet ${this._describePathPanel(owner, source, panel)} is already wired to ${where}. Clear it from ${where} first.`, true);
             }
             return;
         }
