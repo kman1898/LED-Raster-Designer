@@ -947,6 +947,23 @@ def add_cvt(processor_id, card_id):
     ok, why = catalog.can_add_cvt(card, device_id, inputs)
     if not ok:
         return jsonify({'error': why}), 400
+    # A BOX PUT STRAIGHT ON A COPY OPT (`trunk`, 0-based), its primary OPT
+    # left empty: the unit's own Ethernet ports are the primaries and the
+    # box backs them up or mirrors them (owner, 2026-11-02: "you could use
+    # 16 ports on processor and then opt 3/4 for 16 ports of backup/copy").
+    # Only onto the copy OPTs the resolved card offers (copyTrunksOpen),
+    # every OPT the box takes among them; the box holds that OPT
+    # (held_trunk) the way a box on a box-fed card holds its own.
+    trunk = data.get('trunk')
+    if trunk is not None:
+        rcard = _resolved_card(card_id) or {}
+        open_ = set(rcard.get('copyTrunksOpen') or [])
+        takes = (inputs if inputs is not None
+                 else catalog.trunks_in(box_device or {})) or 1
+        if isinstance(trunk, bool) or not isinstance(trunk, int) \
+                or not all(t in open_ for t in range(trunk, trunk + takes)):
+            return jsonify({'error': 'That box cannot go on that copy '
+                                     'output.'}), 400
     cvt = catalog.new_cvt(device_id, _next_seq(), data.get('name', ''))
     if not cvt:
         return jsonify({'error': f'Unknown device: {device_id}'}), 400
@@ -954,6 +971,8 @@ def add_cvt(processor_id, card_id):
     if inputs is not None \
             and inputs < catalog.trunks_in(box_device):
         cvt['inputs'] = inputs
+    if trunk is not None:
+        cvt['trunk'] = trunk
     card.setdefault('cvts', []).append(cvt)
     # NOVASTAR'S DEFAULT IS A PAIR: a primary box and a backup box, unit to
     # unit, whenever the card's mode has trunks backing other trunks - and a
@@ -972,7 +991,8 @@ def add_cvt(processor_id, card_id):
         card['cvts'].remove(cvt)
         return jsonify({'error': "copyRole must be 'mirror' or 'backup'"}), 400
     backup_id = None
-    if data.get('pair') is not False and catalog.default_backup_pair(card):
+    if trunk is None and data.get('pair') is not False \
+            and catalog.default_backup_pair(card):
         ok_backup, _why = catalog.can_add_cvt(card, device_id, inputs)
         if ok_backup:
             backup = catalog.new_cvt(device_id, _next_seq(), '')

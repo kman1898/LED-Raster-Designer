@@ -514,6 +514,23 @@ FIXES
 - FIX: A breakout box on OPT 2 of an MX30 or MX20 is a copy of the box on
   OPT 1 and feeds a mirror screen, since NovaStar documents that OPT as a
   copy channel. The port count never changes.
+- FIX: A breakout box set to Backup on a copy OPT backs up its primaries
+  port by port when the boxes differ, like a CVT4K-S on OPT 5-6 behind two
+  CVT10s, or CVT10s on OPT 5 and 6 behind one CVT4K-S. In the Data tray
+  each primary ends in a loop row of the backup sockets for its ports,
+  each numbered with the port it backs up, and the box's cable sheet, its
+  settings and the binder's Breakout boxes table say which ports it
+  carries. Before, the backup box showed as a copy with free sockets.
+- FIX: A backup box never adds ports to its card. An enhanced H_4xfiber
+  in Backup with CVT4K-S boxes on OPT 1-2 and 3-4 and CVT10s on OPT 5 and
+  6 read 36 ports; it reads 32 now.
+- FIX: On a NovaPro UHD or UHD Jr, or an MX40 Pro in 20-port mode, a box
+  can go on OPT 3 or 4 with nothing on OPT 1 or 2: + Box offers each box
+  on the free copy OPTs. Set to Backup it backs up the processor's own
+  Ethernet ports, shown as loop rows under them in the Data tray, and set
+  to Mirror it feeds a mirror of them. The processor keeps its own port
+  count. Some ports on a box and some on the processor's own Ethernet
+  are backed up port by port the same way.
 - FIX: The binder's Overview page draws your screens much bigger. Its
   tables now share one short band across the top, with a long Contents
   list split into two or more columns, and the drawing fills the whole

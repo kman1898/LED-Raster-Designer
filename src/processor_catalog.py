@@ -1604,8 +1604,9 @@ def snake_device_index(processors):
     Returns (devices, delivers):
       devices  {(kind, id): {'sockets', 'title', 'cardId', 'procId', 'order'}}
       delivers {(cardId, socket): boxId} - the box a reader is routed to
-               for that socket (the FIRST box carrying it, resolve_card's
-               own order, which is what _dataPortOwner picks).
+               for that socket (the box DELIVERING it, the port's cvtId -
+               never a backup box carrying it again - which is what
+               _dataPortOwner picks).
     """
     devices = {}
     delivers = {}
@@ -1633,8 +1634,9 @@ def snake_device_index(processors):
                     'order': order,
                 }
                 order += 1
-                for n in nums:
-                    delivers.setdefault((card['id'], n), box['id'])
+            for p in card.get('ports') or []:
+                if p.get('cvtId'):
+                    delivers.setdefault((card['id'], p['number']), p['cvtId'])
     return devices, delivers
 
 
@@ -3684,6 +3686,14 @@ def resolve_card(card, proc):
             # The NovaStar pair link, carried through so the panel can say
             # "backs up X" about the box somebody may want to delete.
             'backupOf': cvt.get('backupOf') or None,
+            # PORT BY PORT (filled in once every port is enumerated): on a
+            # box on a copy OPT set to Backup, each primary port it backs
+            # up, [{number, socket, boxId, local}] - the card-wide number,
+            # this box's own socket for it, and the primary box carrying
+            # it with that box's own number; on a primary box, the backup
+            # boxes behind any of its ports, in card order.
+            'backsUpPorts': [],
+            'backedUpBy': [],
             'beyondTrunks': over_trunk,
             # The box's fiber trunk, as typed on it (update_cvt): what the
             # fiber is and how long its home run is. '' / None when unset -
@@ -3890,6 +3900,22 @@ def resolve_card(card, proc):
         covering = [c for c in cvts
                     if c['portCount']
                     and c['firstPort'] <= number < c['firstPort'] + c['portCount']]
+        # A BACKUP BOX DELIVERS NO PORT OF ITS OWN (owner, 2026-11-02: "A
+        # backup port never adds to the card's or processor's port
+        # count"). A box on a copy OPT set to Backup copies what its
+        # primary OPT carries, so it backs up a number only where the port
+        # exists without it: on a box on a primary OPT, or on the unit's
+        # own Ethernet port where the unit has one (owner, 2026-11-02:
+        # "you could use 16 ports on processor and then opt 3/4 for 16
+        # ports of backup/copy"). A CVT10 on OPT 6 of an enhanced
+        # H_4xfiber behind a CVT4K-S on OPT 1-2 backs up 11-16, and its
+        # sockets for 17-20, which no primary box has and the box-fed card
+        # has no Ethernet for, are not ports. The backups are set aside
+        # here and join the port once it is known to exist (below).
+        backing = []
+        if copy_kind in ('backup', 'per-box'):
+            backing = [c for c in covering if c['copyRole'] == 'backup']
+            covering = [c for c in covering if c['copyRole'] != 'backup']
         # A MIRROR SOCKET EXISTS ONLY ON ITS BOX: past the mode's count and
         # inside the copies' range, a number no mirror box covers is not a
         # socket of the card's face - nothing is there to plug into.
@@ -4018,8 +4044,40 @@ def resolve_card(card, proc):
             'plug': ('card' if at_card else 'box') if plug_offered else None,
         }
         ports.append(port)
-        for box in covering:
+        for box in covering + backing:
             box['ports'].append(port)
+
+    # EACH BACKUP SOCKET, PORT BY PORT (owner, 2026-11-02: "pair port by
+    # port"). A box on a copy OPT set to Backup backs up the same port
+    # numbers on whichever primary boxes carry them, so a CVT4K-S on OPT
+    # 5-6 behind two CVT10s backs up ports 1-10 on the first and 11-16 on
+    # the second, and a CVT4K-S on OPT 1-2 is backed up by the CVT10s on
+    # OPT 5 and 6 together. `backupOf` above stays the one-to-one pair
+    # (the two boxes take the same OPTs); this is the whole map, the
+    # one-to-one pair included. Derived every resolve and stored nowhere.
+    # The unit's own ports backed up this way name their backup boxes on
+    # the card (`ownBackedUpBy`).
+    own_backed_by = []
+    if copy_kind in ('backup', 'per-box'):
+        by_id = {c['id']: c for c in cvts}
+        for box in cvts:
+            if box['copyRole'] != 'backup':
+                continue
+            for port in box['ports']:
+                # boxId None: the unit's own Ethernet port is the primary
+                main = by_id.get(port['cvtId'])
+                if main is box or (main is not None and main['copyRole']):
+                    continue
+                box['backsUpPorts'].append({
+                    'number': port['number'],
+                    'socket': port['number'] - box['firstPort'] + 1,
+                    'boxId': main['id'] if main is not None else None,
+                    'local': port['localNumber'],
+                })
+                backed = (main['backedUpBy'] if main is not None
+                          else own_backed_by)
+                if box['id'] not in backed:
+                    backed.append(box['id'])
 
     # What the card DEFINES is a count - the panel prints it as "n / N
     # ports". Everywhere but a box-fed card the enumeration is 1..top, so
@@ -4253,6 +4311,20 @@ def resolve_card(card, proc):
         'nextBoxOnCopy': bool(copy_kind == 'per-box'
                               and _next_box_on_copy(card, taken, trunks,
                                                     block_count)),
+        # The backup boxes behind the unit's own Ethernet ports (each
+        # box's backsUpPorts entries with boxId None), in card order.
+        'ownBackedUpBy': own_backed_by,
+        # THE COPY OPTS A BOX MAY GO ON WITH ITS PRIMARY OPT EMPTY (owner,
+        # 2026-11-02: "you could use 16 ports on processor and then opt
+        # 3/4 for 16 ports of backup/copy"): the free copy trunks of a
+        # mode whose copies the catalog documents (copy_trunks), on a unit
+        # with Ethernet ports of its own - a box there backs up or mirrors
+        # those ports. Never on a box-fed card, which has none. 0-based;
+        # the add takes one as `trunk`.
+        'copyTrunksOpen': ([t for t in range(block_count, trunks)
+                            if t not in taken]
+                           if copy_kind and block_count and not box_fed
+                           else []),
         # PER PORT, CARD ETHERNET OR BOX (plugChoice): how many of the
         # card's own RJ45s its OPTs also carry, and the ones stored as
         # plugged in at the RJ45 (each port's `plug` says where it is).

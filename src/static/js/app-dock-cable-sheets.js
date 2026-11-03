@@ -855,7 +855,11 @@ class _DockCableSheets {
     // boxes with their own links, shown as ONE section on either box's
     // sheet - "Fiber · USR A ↔ USR B (loop)", the near box's rows first,
     // each row named by its box - and drawn once where both sheets are
-    // open, on the near box's. A 1.3 typed fiber stays as a read-only
+    // open, on the near box's. A backup bound port by port is one group
+    // with every box it loops with (fiberLoopGroup): a CVT4K-S on OPT 5-6
+    // behind CVT10s on OPT 1 and 2 reads "Fiber · CVT10 A, CVT10 B ↔
+    // CVT4K-S E-F (loop)", drawn on the first primary's sheet where that
+    // is open. A 1.3 typed fiber stays as a read-only
     // note, with Clear,
     // until a link has a cable. Every commit is ONE request and ONE history
     // entry; the server refuses with the reason. The row's element keys are
@@ -893,25 +897,31 @@ class _DockCableSheets {
         };
         const titleOf = (b) => b.displayTitle || b.name || b.deviceName;
 
-        const pair = this.fiberLoopPair(box);
+        const pair = this.fiberLoopGroup(box);
         const head = line('hw-dock-fiber-head');
         if (pair) {
+            const lead = pair.nears[0];
             head.appendChild(text('hw-dock-cable-fiber-cap',
-                `Fiber · ${titleOf(pair.near)} ↔ ${titleOf(pair.far)} (loop)`));
-            sec.dataset.lrdFiberLoop = `${pair.near.id}:${pair.far.id}`;
-            if (box.id === pair.far.id
-                    && this._dataCableSheetOpen({ kind: 'cvt', id: pair.near.id })) {
+                `Fiber · ${pair.nears.map(titleOf).join(', ')} ↔ `
+                + `${pair.fars.map(titleOf).join(', ')} (loop)`));
+            sec.dataset.lrdFiberLoop = [...pair.nears, ...pair.fars].map(b => b.id).join(':');
+            if (lead && box.id !== lead.id
+                    && this._dataCableSheetOpen({ kind: 'cvt', id: lead.id })) {
                 const row = line('hw-dock-fiber-bound');
                 row.appendChild(text('hw-dock-fiber-bound-text',
-                    `Set with ${titleOf(pair.near)} on its sheet.`));
+                    `Set with ${titleOf(lead)} on its sheet.`));
                 return sec;
             }
         } else {
             const tag = box.copyRole === 'mirror' ? ' (mirror)'
-                : (box.duplicateOf && !box.backupOf ? ' (copy)' : '');
-            head.appendChild(text('hw-dock-cable-fiber-cap', `Fiber · ${titleOf(box)}${tag}`));
+                : (box.duplicateOf && !box.backupOf && !this.boxLoopMixed(box) ? ' (copy)' : '');
+            // a backup of the unit's own ports alone: which ones
+            const hit = this._fiberAllBoxes().find(b => b.box.id === box.id);
+            const loop = this.boxLoopText(box, hit ? hit.card.cvts : [], titleOf);
+            head.appendChild(text('hw-dock-cable-fiber-cap',
+                `Fiber · ${titleOf(box)}${tag}${loop ? ` (${loop})` : ''}`));
         }
-        const members = pair ? [pair.near, pair.far] : [box];
+        const members = pair ? [...pair.nears, ...pair.fars] : [box];
         members.forEach(m => {
             if (!m.bidiAllowed) return;
             const lab = document.createElement('label');

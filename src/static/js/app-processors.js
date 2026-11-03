@@ -1666,6 +1666,12 @@ class _Processors {
                 ? (primary.name || primary.deviceName) : 'the primary box';
             info.style.color = '#c8a04a';
             info.textContent += ` - backs up ${who}`;
+        } else if (this.boxLoopMixed(cvt)) {
+            // A backup bound port by port: the ports of each primary box
+            // it backs up (boxLoopText), "loop of CVT10 A 1-10, ...".
+            info.style.color = '#c8a04a';
+            info.textContent += `: ${this.boxLoopText(cvt, card.cvts,
+                b => b.name || b.displayTitle || b.deviceName)}`;
         } else if (cvt.copyRole === 'mirror') {
             // A copy that feeds a mirror screen: sockets of its own,
             // carrying the mirror's runs.
@@ -1754,16 +1760,19 @@ class _Processors {
             || this.dataCableConnectorName('cat') || 'Cat6';
     }
 
-    // The record that OWNS a socket's home run: the first breakout box
-    // delivering it (the one that names it - resolve_card), else the card
+    // The record that OWNS a socket's home run: the breakout box
+    // delivering it (the port's cvtId, the one that names it -
+    // resolve_card; never a backup box carrying it again), else the card
     // itself. Returns { kind: 'card'|'cvt', id, procId, cardId, rec } or
     // null for a socket nothing resolves to.
     _dataPortOwner(cardId, socket) {
         const found = this._dockFindCard(cardId);
         if (!found) return null;
         const n = parseInt(socket, 10);
-        const box = (found.card.cvts || []).find(c =>
-            (c.ports || []).some(p => p.number === n));
+        const port = (found.card.ports || []).find(p => p.number === n);
+        const box = port
+            ? (port.cvtId ? (found.card.cvts || []).find(c => c.id === port.cvtId) : null)
+            : (found.card.cvts || []).find(c => (c.ports || []).some(p => p.number === n));
         if (box) {
             return { kind: 'cvt', id: box.id, procId: found.proc.id,
                      cardId, rec: box };

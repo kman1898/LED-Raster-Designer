@@ -308,6 +308,108 @@ class _Fiber {
         return far ? { near: box, far } : null;
     }
 
+    // A BACKUP BOUND PORT BY PORT (owner, 2026-11-02: "pair port by
+    // port"). A box on a copy OPT set to Backup whose OPTs are not its
+    // primary's - a CVT4K-S on OPT 5-6 behind two CVT10s, two CVT10s on
+    // OPT 5 and 6 behind one CVT4K-S - backs up the same port numbers on
+    // whichever primary boxes carry them. The server says which, socket by
+    // socket: `backsUpPorts` on the backup box ({ number, socket, boxId,
+    // local }), `backedUpBy` on each primary. A port with no box on its
+    // primary OPT is the unit's own Ethernet port (boxId null - owner,
+    // 2026-11-02: "you could use 16 ports on processor and then opt 3/4
+    // for 16 ports of backup/copy"), and the card lists those backups as
+    // `ownBackedUpBy`. A one-to-one pair keeps `backupOf` and reads as
+    // before; this is true only past it.
+    boxLoopMixed(box) {
+        return !!(box && !box.backupOf && (box.backsUpPorts || []).length);
+    }
+
+    // A backup box's sockets as the tray and its sheet show them. Port by
+    // port, each is numbered with the card port it backs up (owner,
+    // 2026-11-02), `loopOf` saying which primary box (null: the unit's own
+    // port) and its own number for it. `mainId` keeps the sockets backing
+    // one primary box (null: the unit's own ports); left out, all of them.
+    // A one-to-one pair keeps its sockets as they are. Any other box: its
+    // ports.
+    boxLoopPorts(box, mainId) {
+        const map = (box && box.backsUpPorts) || [];
+        if (!map.length) return (box && box.ports) || [];
+        const mixed = this.boxLoopMixed(box);
+        const byNumber = new Map((box.ports || []).map(p => [p.number, p]));
+        const out = [];
+        for (const m of map) {
+            if (mainId !== undefined && (m.boxId || null) !== mainId) continue;
+            const port = byNumber.get(m.number);
+            if (!port) continue;
+            out.push(!mixed ? port : { ...port, localNumber: m.number,
+                loopOf: { boxId: m.boxId || null, local: m.local, socket: m.socket } });
+        }
+        return out;
+    }
+
+    // The port-by-port backups behind one primary box (`near` null: the
+    // unit's own ports), each with the sockets backing it, in the card's
+    // order: [{ box, ports }]. A one-to-one partner is not one of them.
+    boxLoopSlices(near, cvts) {
+        const id = near ? near.id : null;
+        return (cvts || []).filter(b => b !== near && (b.backsUpPorts || []).length
+                && (this.boxLoopMixed(b) || !near)
+                && b.backsUpPorts.some(m => (m.boxId || null) === id))
+            .map(b => ({ box: b, ports: this.boxLoopPorts(b, id) }));
+    }
+
+    // What a port-by-port backup backs up, per primary box: "loop of CVT10
+    // A 1-10, CVT10 B 1-6 as 11-16" - the primary's own numbers, and the
+    // numbers this box shows for them where they differ. '' on any other
+    // box. `titleOf` names a box the way the reader's sheet does.
+    boxLoopText(box, cvts, titleOf) {
+        const own = (box && box.backsUpPorts || []).some(m => !m.boxId);
+        if (!this.boxLoopMixed(box) && !own) return '';
+        const groups = new Map();
+        for (const m of box.backsUpPorts) {
+            if (box.backupOf && m.boxId) continue;
+            if (!groups.has(m.boxId)) groups.set(m.boxId, { locals: [], numbers: [] });
+            groups.get(m.boxId).locals.push(m.local);
+            groups.get(m.boxId).numbers.push(m.number);
+        }
+        const parts = [...groups].map(([id, g]) => {
+            const main = (cvts || []).find(b => b.id === id);
+            const mine = this.fiberStrandRangeText(g.locals);
+            const shown = this.fiberStrandRangeText(g.numbers);
+            return `${id ? (main ? titleOf(main) : 'its primary') : 'own ports'} ${mine}`
+                + (shown !== mine ? ` as ${shown}` : '');
+        });
+        return `loop of ${parts.join(', ')}`;
+    }
+
+    // Every box looped with `box`, one-to-one or port by port, on its own
+    // card: the primaries (`nears`) and their backups (`fars`), each in the
+    // card's order. A CVT4K-S on OPT 5-6 behind CVT10s on OPT 1 and 2 is
+    // one group of three. null where the box is in no loop.
+    fiberLoopGroup(box) {
+        if (!box) return null;
+        const hit = this._fiberAllBoxes().find(b => b.box.id === box.id);
+        const cvts = (hit && hit.card && hit.card.cvts) || [];
+        const backs = (b) => [b.backupOf, ...(b.backsUpPorts || []).map(m => m.boxId)]
+            .filter(Boolean);
+        const seen = new Set([box.id]);
+        const queue = [box];
+        while (queue.length) {
+            const b = queue.shift();
+            for (const o of cvts) {
+                if (seen.has(o.id)) continue;
+                if (backs(b).includes(o.id) || backs(o).includes(b.id)) {
+                    seen.add(o.id);
+                    queue.push(o);
+                }
+            }
+        }
+        if (seen.size < 2) return null;
+        const members = cvts.filter(b => seen.has(b.id));
+        return { nears: members.filter(b => !backs(b).length),
+                 fars: members.filter(b => backs(b).length) };
+    }
+
     // Every strand of one cable some link holds: Map strand -> { box, key }.
     fiberStrandUsers(cableId) {
         const used = new Map();
