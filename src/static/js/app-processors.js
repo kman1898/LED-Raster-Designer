@@ -402,7 +402,10 @@ class _Processors {
     // backup box), taken off both sides; the capacity check reads the
     // usable counts. A card that is nothing but returns reads "16 backup
     // ports".
-    _buildCapacityRow(used, ceiling, known, reason, backup = 0) {
+    // `inside`: how many of the backup sockets are among `used` and the
+    // ceiling (the server's backupInPorts) - a backup box on a card in
+    // Backup mode delivers sockets the counts never held.
+    _buildCapacityRow(used, ceiling, known, reason, backup = 0, inside = backup) {
         const row = document.createElement('div');
         row.style.fontSize = '11px';
         row.style.fontFamily = 'monospace';
@@ -412,12 +415,12 @@ class _Processors {
             // and says so. Substituting a sibling's number here would silently
             // cap a wall, which is the one failure this panel must not have.
             row.style.color = '#c8a04a';
-            row.textContent = `${used - backup} ports / ceiling unknown${spare}`;
+            row.textContent = `${used - inside} ports / ceiling unknown${spare}`;
             if (reason) row.title = reason;
             return row;
         }
-        const usable = used - backup;
-        const reach = ceiling - backup;
+        const usable = used - inside;
+        const reach = ceiling - inside;
         const over = usable > reach;
         row.style.color = over ? '#d05a52' : 'var(--ps-dim, #c0c0c0)';
         row.textContent = backup > 0 && usable === 0 && reach === 0
@@ -475,7 +478,7 @@ class _Processors {
         cap.style.gap = '8px';
         cap.appendChild(this._buildCapacityRow(
             proc.defined, proc.ceiling, proc.ceilingKnown, proc.note,
-            proc.backupCount || 0));
+            proc.backupCount || 0, proc.backupInPorts || 0));
         if (proc.maxCards !== null && proc.maxCards !== undefined
                 && proc.form === 'chassis') {
             const cards = document.createElement('div');
@@ -1459,7 +1462,7 @@ class _Processors {
 
         const cap = this._buildCapacityRow(
             card.defined, card.ceiling, card.ceilingKnown, card.ceilingReason,
-            card.backupCount || 0);
+            card.backupCount || 0, card.backupInPorts || 0);
         cap.style.marginTop = '6px';
         wrap.appendChild(cap);
 

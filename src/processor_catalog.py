@@ -5031,15 +5031,38 @@ def _count_backup_ports(resolved):
     The owner's ruling (2026-11-03): the processor's capacity reads usable
     ports with the backups beside them - "40 / 40 ports · 40 backup" for
     two 40-port cards paired 1:1, never "80 / 80 ports". `defined` and
-    `ceiling` stay the socket counts the rest of the tree is built on; the
-    readout subtracts this from both."""
+    `ceiling` stay the socket counts the rest of the tree is built on.
+
+    A backup socket counts however the resolver marks it, and once: a
+    card port with `backsUp` (keyed by its box and box number, or its card
+    number), and a backup box's socket in `backsUpPorts` (a box on a
+    backup OPT of a card in Backup mode - its sockets are not card ports,
+    so `defined` never held them). `backupInPorts` is how many of them ARE
+    card ports, the part the readout takes off `defined` and the ceiling:
+    an enhanced card in Backup with two CVT10s and a CVT4K-S as primaries
+    and a CVT4K-S backup reads "36 / 36 ports · 16 backup"."""
     for rproc in resolved:
-        total = 0
+        total = inside_total = 0
         for slot in rproc.get('slots') or []:
             rcard = slot.get('card')
             if not rcard:
                 continue
-            count = sum(1 for p in rcard.get('ports') or [] if p.get('backsUp'))
-            rcard['backupCount'] = count
-            total += count
+            sockets = set()
+            inside = 0
+            for p in rcard.get('ports') or []:
+                if not p.get('backsUp'):
+                    continue
+                key = ((p['cvtId'], p.get('localNumber') or p['number'])
+                       if p.get('cvtId') else (None, p['number']))
+                if key not in sockets:
+                    sockets.add(key)
+                    inside += 1
+            for box in rcard.get('cvts') or []:
+                for entry in box.get('backsUpPorts') or []:
+                    sockets.add((box.get('id'), entry.get('socket')))
+            rcard['backupCount'] = len(sockets)
+            rcard['backupInPorts'] = inside
+            total += len(sockets)
+            inside_total += inside
         rproc['backupCount'] = total
+        rproc['backupInPorts'] = inside_total
