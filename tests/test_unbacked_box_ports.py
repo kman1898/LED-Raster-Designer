@@ -127,3 +127,9 @@ def test_the_box_header_and_the_processor_gear_say_it(page):
     }""", ids['pid'])
     assert line == ('CVT10 A ports 9-10 have no backup. '
                     'CVT10 B ports 9-10 have no backup.'), line
+    # ...beside the capacity line, which counts the backup box's sockets
+    # as backup however the resolver marks them (owner, 2026-11-03)
+    cap = page.evaluate("""() => [...document.querySelectorAll('#hw-gear-popover div')]
+        .map(d => d.textContent).filter(t => / ports( · \\d+ backup)?$/.test(t)
+                                            && /^\\d+ \\/ \\d+/.test(t))""")
+    assert cap == ['36 / 36 ports · 16 backup'], cap

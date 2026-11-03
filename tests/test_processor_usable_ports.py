@@ -69,9 +69,34 @@ def test_a_port_shape_counts_its_returns(client, shape):
     assert _counts(_proc(state, pid)) == (16, 16, 8, [8])
 
 
+def test_a_backup_box_on_a_card_in_backup_mode_counts_once(client):
+    """An enhanced H_4xfiber in Backup: CVT10 A, CVT10 B and CVT4K-S C-D
+    are the primaries (36 ports), a CVT4K-S on E-F backs up the CVT10s
+    port by port. Its 16 sockets are not card ports, so `defined` never
+    held them: the header reads "36 / 36 ports · 16 backup", every backup
+    socket counted once however the resolver marks it."""
+    state = _ok(client.post('/api/processors',
+                            json={'deviceId': 'novastar-h9-enhanced'}))
+    pid = state['resolved'][-1]['id']
+    state = _ok(client.put(f'/api/processors/{pid}/slots/0', json={
+        'deviceId': 'novastar-card-h-4xfiber-enhanced'}))
+    cid = state['resolved'][-1]['slots'][0]['card']['id']
+    _ok(client.put(f'/api/processors/{pid}/cards/{cid}', json={'mode': 'backup'}))
+    for device_id in ('novastar-cvt10', 'novastar-cvt10', 'novastar-cvt4k-s',
+                      'novastar-cvt4k-s'):
+        state = _ok(client.post(f'/api/processors/{pid}/cards/{cid}/cvts',
+                                json={'deviceId': device_id, 'pair': False}))
+    proc = _proc(state, pid)
+    assert _counts(proc) == (36, 36, 16, [16])
+    assert proc['backupInPorts'] == 0
+    assert proc['slots'][0]['card']['backupInPorts'] == 0
+
+
 def test_a_loop_pair_counts_its_far_boxes(client):
     """An SX40's loops, A to B and C to D: B and D carry the returns."""
     state = _ok(client.post('/api/processors', json={'deviceId': 'brompton-sx40'}))
     pid = state['resolved'][-1]['id']
     state = _ok(client.put(f'/api/processors/{pid}', json={'redundancy': True}))
     assert _counts(_proc(state, pid)) == (40, 40, 20, [20])
+    # every one of them a card port: all 20 come off the 40
+    assert _proc(state, pid)['backupInPorts'] == 20
