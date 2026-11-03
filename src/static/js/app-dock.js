@@ -1433,8 +1433,10 @@ class _HardwareDock {
             own.className = 'hw-dock-loop-own';
             own.dataset.lrdLoopOwn = card.id;
             ownSlices.forEach(s => {
+                // a straddling box has its own row: here it is its name only
+                const cont = shared.has(s.box.id) || this.boxStraddles(s.box);
                 own.appendChild(this._dockBuildBox(proc, card, s.box,
-                    { far: true, ports: s.ports, cont: shared.has(s.box.id) ? card.id : null }));
+                    { far: true, ports: s.ports, cont: cont ? card.id : null }));
                 shared.add(s.box.id);
             });
             unitBody.appendChild(own);
@@ -1463,14 +1465,20 @@ class _HardwareDock {
         // ITS ports, numbered with the ports they back up. A backup box
         // behind two primaries rows in both strips; its name, ≡ and ⚙
         // ride the first, the second reads its name only (`cont`).
-        const mixed = cvts.filter(c => !fars.has(c.id) && this.boxLoopMixed(c));
+        // A box STRADDLING a main OPT and its copy OPT (a CVT4K-S on OPT
+        // 1-2 of a VX1000, owner 2026-11-02) is a primary with a loop of
+        // its own: its strip's far row is its own sockets 9-16, backing up
+        // its 1-8 - or, across a UHD Jr's OPT 2-3, the box on OPT 1.
+        const mixed = cvts.filter(c => !fars.has(c.id) && c.copyRole === 'backup'
+            && this.boxLoopMixed(c));
+        const backers = cvts.filter(c => mixed.includes(c) || this.boxStraddles(c));
         cvts.forEach(cvt => {
             if (!(cvt.ports || []).length || fars.has(cvt.id)
                     || mixed.includes(cvt)) return;
             const slices = (farOf.has(cvt.id)
                 ? [{ box: farOf.get(cvt.id), ports: this.boxLoopPorts(farOf.get(cvt.id), cvt.id) }] : [])
-                .concat(this.boxLoopSlices(cvt, mixed).map(s => {
-                    const cont = shared.has(s.box.id);
+                .concat(this.boxLoopSlices(cvt, backers).map(s => {
+                    const cont = shared.has(s.box.id) || this.boxStraddles(s.box);
                     shared.add(s.box.id);
                     return { ...s, mixed: true, cont };
                 }));
@@ -1753,7 +1761,7 @@ class _HardwareDock {
     // box's row in a second primary's strip, its name with no field, ≡,
     // ⚙ or sheet of its own (they are on its first row).
     _dockBuildBox(proc, card, cvt, row = null) {
-        const shown = (row && row.ports) || cvt.ports || [];
+        const shown = (row && row.ports) || this.boxMainPorts(cvt);
         const nums = shown.map(p => p.number);
         const box = document.createElement('div');
         box.className = 'hw-dock-box';
@@ -1866,7 +1874,7 @@ class _HardwareDock {
         if (boxSheetUp && !(row && row.sheetOut)) {
             box.classList.add('hw-dock-sheet-up');
             box.appendChild(this._dockBuildDataCableSheet(
-                boxOwner, this.boxLoopPorts(cvt)));
+                boxOwner, this.boxSheetPorts(cvt)));
         }
         const boxBody = row ? box
             : this._dockSectionBody(box, boxHead, `hwdock-box-${cvt.id}`);
@@ -1909,7 +1917,7 @@ class _HardwareDock {
     _dockBuildLoopPair(proc, card, near, slices) {
         const strip = document.createElement('div');
         strip.className = 'hw-dock-loop';
-        const nums = (near.ports || []).map(p => p.number);
+        const nums = this.boxMainPorts(near).map(p => p.number);
         const a = this._dockBoxLabel(near, true);
         const b = slices.map(s => this._dockBoxLabel(s.box, true)).join(', ');
         const farNames = slices.map(s => this._dockBoxLabel(s.box)).join(' and ');
@@ -1977,7 +1985,7 @@ class _HardwareDock {
         const sheetOut = folded && this._dataCableSheetOpen(nearOwner);
         if (sheetOut) {
             strip.appendChild(this._dockBuildDataCableSheet(
-                nearOwner, near.ports || []));
+                nearOwner, this.boxSheetPorts(near)));
         }
         if (this._dataCableSheetOpen(nearOwner)) {
             new MutationObserver((_, obs) => {

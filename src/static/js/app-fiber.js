@@ -350,13 +350,47 @@ class _Fiber {
 
     // The port-by-port backups behind one primary box (`near` null: the
     // unit's own ports), each with the sockets backing it, in the card's
-    // order: [{ box, ports }]. A one-to-one partner is not one of them.
+    // order: [{ box, ports }] - the box's own loop first where it
+    // straddles a main OPT and its copy (boxStraddles). A one-to-one
+    // partner is not one of them.
     boxLoopSlices(near, cvts) {
         const id = near ? near.id : null;
-        return (cvts || []).filter(b => b !== near && (b.backsUpPorts || []).length
+        const self = near && (near.backsUpPorts || []).some(m => m.boxId === near.id)
+            ? [{ box: near, ports: this.boxLoopPorts(near, near.id) }] : [];
+        return self.concat((cvts || []).filter(b => b !== near && (b.backsUpPorts || []).length
                 && (this.boxLoopMixed(b) || !near)
                 && b.backsUpPorts.some(m => (m.boxId || null) === id))
-            .map(b => ({ box: b, ports: this.boxLoopPorts(b, id) }));
+            .map(b => ({ box: b, ports: this.boxLoopPorts(b, id) })));
+    }
+
+    // A box STRADDLING a mode's main OPTs and its copy OPTs set to Backup
+    // (owner, 2026-11-02: a CVT4K-S on OPT 1-2 of a VX1000 carries ports
+    // 1-8 on outputs 1-8 and their backup on 9-16): its sockets after its
+    // own ports back up card ports (`backNumbers`).
+    boxStraddles(box) {
+        return !!(box && (box.backNumbers || []).length);
+    }
+
+    // The ports a box itself DELIVERS (its portNumbers), without the ones
+    // a straddling box only backs up.
+    boxMainPorts(box) {
+        const ports = (box && box.ports) || [];
+        if (!this.boxStraddles(box)) return ports;
+        const mine = new Set(box.portNumbers || []);
+        return ports.filter(p => mine.has(p.number));
+    }
+
+    // A box's sockets for its cable sheet: its ports, and a straddling
+    // box's backup sockets too - each by its silkscreen and the port it
+    // backs up - except where it backs up its own port, whose row says so
+    // instead (`selfBackup`, the socket), the one port being one run.
+    boxSheetPorts(box) {
+        if (!this.boxStraddles(box)) return this.boxLoopPorts(box);
+        const self = new Map(box.backsUpPorts.filter(m => m.boxId === box.id)
+            .map(m => [m.number, m.socket]));
+        return this.boxMainPorts(box)
+            .map(p => (self.has(p.number) ? { ...p, selfBackup: self.get(p.number) } : p))
+            .concat(this.boxLoopPorts(box).filter(p => !self.has(p.number)));
     }
 
     // What a port-by-port backup backs up, per primary box: "loop of CVT10

@@ -697,9 +697,10 @@ class _DockCableSheets {
             const backs = port.loopOf
                 ? this._dockLoopBackedName((this._dockFindCard(owner.cardId) || {}).card, port)
                 : '';
-            td1.textContent = backs
+            td1.textContent = (backs
                 ? `${spoken} · backs up ${port.label || backs}`
-                : (port.label ? `${spoken} · ${port.label}` : String(spoken));
+                : (port.label ? `${spoken} · ${port.label}` : String(spoken)))
+                + (port.selfBackup ? ` · backup on ${port.selfBackup}` : '');
             tr.appendChild(td1);
             const td2 = document.createElement('td');
             who(td2, tr, whoOf(owner, n) || (occupied ? '' : 'free'),

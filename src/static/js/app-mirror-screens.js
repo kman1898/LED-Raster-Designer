@@ -454,7 +454,9 @@ class _MirrorScreens {
             + 'screen to make it the copy.'],
          ['backup', 'Backup', 'Backs up the output this box copies.']]
             .forEach(([role, text, tip]) => {
-                const lit = (cvt.copyRole || 'backup') === role;
+                // a box straddling a main OPT and its copy picks for its
+                // copy input (copyInputRole)
+                const lit = (cvt.copyInputRole || cvt.copyRole || 'backup') === role;
                 const seg = document.createElement('button');
                 seg.type = 'button';
                 seg.className = 'hw-pop-seg-btn' + (lit ? ' hw-pop-seg-on' : '');

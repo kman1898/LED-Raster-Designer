@@ -528,11 +528,15 @@ FIXES
 - FIX: A breakout box takes from each OPT only as many ports as it has
   outputs for one OPT. A CVT4K-S has 8 for each OPT, so on the 10-port
   OPTs of an enhanced H_4xfiber, an MX40 Pro or a VX2000 Pro it carries
-  ports 1-8 and 11-18, not 1-16, and on a VX1000 it gives 8 of the 10. A
-  CVT10 on an 8-port OPT gives 8. A box can no longer take a main OPT and
-  a copy OPT together, like a CVT4K-S on OPT 1-2 of a VX1000, where OPT 2
-  is a copy of OPT 1: + Box offers it on one OPT, and a show that already
-  has one counts only the main OPT's ports.
+  ports 1-8 and 11-18, not 1-16. Shows you already have with those boxes
+  on those processors renumber that way; their port counts stay the same.
+  A CVT10 on an 8-port OPT gives 8.
+- FIX: A CVT4K-S on a main OPT and the copy OPT beside it, like OPT 1-2 of
+  a VX1000 where OPT 2 copies OPT 1, carries that OPT's ports on its
+  outputs 1-8 (8 of the VX1000's 10) and their backup on outputs 9-16. In
+  the Data tray those sockets are the box's own loop row. Where the
+  processor's OPT mode or the box is set to Mirror, outputs 9-16 feed a
+  mirror screen instead. The port count stays the main OPT's ports.
 - FIX: A breakout box can go on a copy OPT with nothing on the OPT it
   copies, on the NovaPro UHD and UHD Jr, the MX40 Pro in 20-port mode,
   the VX400 Pro, VX600 Pro, VX1000, VX1000 Pro and VX2000 Pro, the
