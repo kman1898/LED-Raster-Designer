@@ -830,6 +830,124 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
     font-style: italic;
 }
 
+/* The start page a launch opens on (app-start-page.js): a card over the
+   dimmed app, the modal language of the panel picker (theme.css gives
+   .modal-content and its first h2 the panel surface and accent bar). */
+.start-page-content {
+    position: relative;
+    box-sizing: border-box;
+    width: 520px;
+    max-width: calc(100vw - 32px);
+    margin: 12vh auto 40px;
+    padding: 0 0 16px;
+    background: var(--ps-panel, #2e2e2e);
+    border: 1px solid var(--ps-dark, #131313);
+    border-radius: 4px;
+    color: var(--ps-text, #f0f0f0);
+}
+.start-page-content > h2 {
+    margin: 0;
+    padding: 10px 44px 10px 16px;
+    font-size: 15px;
+}
+.start-page-close {
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    width: 28px;
+    height: 28px;
+    border: none;
+    background: transparent;
+    color: var(--ps-dim, #c0c0c0);
+    font-size: 20px;
+    line-height: 28px;
+    cursor: pointer;
+    border-radius: 3px;
+}
+.start-page-close:hover { color: var(--ps-text, #f0f0f0); background: rgba(255, 255, 255, 0.08); }
+.start-page-actions {
+    display: flex;
+    gap: 10px;
+    padding: 16px 16px 6px;
+}
+.start-page-actions .btn { flex: 1; padding: 9px 14px; font-size: 13px; }
+.start-page-heading {
+    padding: 12px 16px 6px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: var(--ps-faint, #969696);
+}
+.start-page-recent {
+    margin: 0 16px;
+    max-height: 340px;
+    overflow-y: auto;
+    border: 1px solid var(--ps-dark, #131313);
+    border-radius: 3px;
+    background: var(--ps-inset, #1c1c1c);
+}
+.start-page-recent-row {
+    display: flex;
+    width: 100%;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 8px 12px;
+    border: none;
+    border-bottom: 1px solid var(--ps-panel-2, #262626);
+    background: transparent;
+    color: var(--ps-text, #f0f0f0);
+    font: inherit;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+}
+.start-page-recent-row:last-child { border-bottom: none; }
+.start-page-recent-row:hover, .start-page-recent-row:focus-visible {
+    background: var(--ps-tile, #3c3c3c);
+    outline: none;
+}
+.start-page-recent-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.start-page-recent-detail {
+    flex-shrink: 0;
+    font-size: 11px;
+    color: var(--ps-faint, #969696);
+}
+.start-page-empty {
+    padding: 14px 12px;
+    font-size: 12px;
+    color: var(--ps-faint, #969696);
+}
+
+/* A Recent Files entry whose file is gone (app-logs-recent.js). */
+.recent-missing-content {
+    box-sizing: border-box;
+    width: 460px;
+    max-width: calc(100vw - 32px);
+    margin: 18vh auto 40px;
+    padding: 0 0 14px;
+    background: var(--ps-panel, #2e2e2e);
+    border: 1px solid var(--ps-dark, #131313);
+    border-radius: 4px;
+    color: var(--ps-text, #f0f0f0);
+}
+.recent-missing-content > h2 { margin: 0; padding: 10px 16px; font-size: 15px; }
+.recent-missing-text { margin: 14px 16px 6px; font-size: 13px; line-height: 1.45; }
+.recent-missing-path {
+    margin: 0 16px;
+    font-size: 11px;
+    color: var(--ps-faint, #969696);
+    overflow-wrap: anywhere;
+}
+.recent-missing-buttons { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 16px 0; }
+
 .prefs-grid {
     display: flex;
     flex-direction: column;

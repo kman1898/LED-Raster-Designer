@@ -21,7 +21,7 @@ class _ClientProps {
             console.log('Props version mismatch, resetting to new defaults');
             localStorage.removeItem('ledRasterClientProps');
             localStorage.removeItem('ledRasterSize'); // Also reset raster size
-            localStorage.setItem('ledRasterPropsVersion', currentVersion);
+            this._setLocalItem('ledRasterPropsVersion', currentVersion);
             // Don't load from localStorage, just use defaults below
             window.canvasRenderer.rasterWidth = prefs.rasterWidth;
             window.canvasRenderer.rasterHeight = prefs.rasterHeight;
@@ -558,7 +558,31 @@ class _ClientProps {
             };
         });
 
-        localStorage.setItem('ledRasterClientProps', JSON.stringify(propsMap));
+        this._setLocalItem('ledRasterClientProps', JSON.stringify(propsMap));
+    }
+
+    // localStorage.setItem that never throws. A full localStorage (about
+    // 5 MB on the Mac, most of it once taken by copies of shows in Recent
+    // Files) threw out of this file's writes mid-way through opening a
+    // show, and the open was logged as failed with its last steps skipped
+    // (2026-11-03). On quota the oldest kept Recent copies make room
+    // (app-logs-recent.js pruneRecentCopies) and the write is tried again.
+    _setLocalItem(key, value) {
+        for (let tries = 0; tries < 25; tries++) {
+            try {
+                localStorage.setItem(key, value);
+                return true;
+            } catch (e) {
+                if (!(typeof this.pruneRecentCopies === 'function' && this.pruneRecentCopies())) {
+                    if (!this._localStorageFullLogged) {
+                        this._localStorageFullLogged = true;
+                        sendClientLog('local_storage_write_failed', { key, name: e && e.name, message: e && e.message });
+                    }
+                    return false;
+                }
+            }
+        }
+        return false;
     }
     
     // Save raster size to localStorage
@@ -567,7 +591,7 @@ class _ClientProps {
             width: window.canvasRenderer.rasterWidth,
             height: window.canvasRenderer.rasterHeight
         };
-        localStorage.setItem('ledRasterSize', JSON.stringify(rasterSize));
+        this._setLocalItem('ledRasterSize', JSON.stringify(rasterSize));
     }
 
     /**
@@ -642,7 +666,7 @@ class _ClientProps {
             console.log('Version mismatch in loadRasterSize - clearing ALL localStorage');
             localStorage.removeItem('ledRasterSize');
             localStorage.removeItem('ledRasterClientProps');
-            localStorage.setItem('ledRasterPropsVersion', currentVersion);
+            this._setLocalItem('ledRasterPropsVersion', currentVersion);
             const prefs = this.getPreferences();
             seed(prefs.rasterWidth, prefs.rasterHeight);
             this.saveRasterSize();

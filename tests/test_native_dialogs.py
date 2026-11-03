@@ -10,6 +10,7 @@ helper-level contract; this file covers the routes.
 
 import os
 import base64
+import codecs
 import tempfile
 from unittest.mock import patch
 
@@ -237,7 +238,9 @@ def test_native_dialogs_reject_remote_clients(client, monkeypatch):
     for path in ('/api/native-dialog/save-file',
                  '/api/native-dialog/select-directory',
                  '/api/native-dialog/write-file',
-                 '/api/native-dialog/write-multiple'):
+                 '/api/native-dialog/write-multiple',
+                 '/api/native-dialog/open-file',
+                 '/api/native-dialog/read-file'):
         resp = client.post(path, json={},
                            environ_overrides={'REMOTE_ADDR': '192.168.1.50'})
         assert resp.status_code == 403, f'{path} not blocked for remote client'
@@ -265,3 +268,47 @@ def test_a_test_run_never_opens_a_real_dialog():
     import routes_dialog
     assert routes_dialog._native_choose_save_file('probe.pdf') == (None, 'unavailable')
     assert routes_dialog._native_choose_directory() == (None, 'unavailable')
+    assert routes_dialog._native_choose_open_file() == (None, 'unavailable')
+
+
+# ── Open file dialog + read-file (File > Open and Recent Files, 1.6.0) ──
+
+def test_open_file_dialog_reports_the_three_outcomes(client):
+    for answer, want in (((None, 'cancelled'), {'ok': False, 'cancelled': True, 'unavailable': False}),
+                         ((None, 'unavailable'), {'ok': False, 'cancelled': False, 'unavailable': True}),
+                         (('/shows/a.json', 'ok'), {'ok': True, 'path': '/shows/a.json'})):
+        with patch('routes_dialog._native_choose_open_file', return_value=answer):
+            resp = client.post('/api/native-dialog/open-file', json={})
+        assert resp.status_code == 200
+        assert resp.get_json() == want, answer
+
+
+def test_read_file_returns_the_text_on_disk(client, tmp_path):
+    show = tmp_path / 'Show A.json'
+    show.write_text('{"name": "Show A", "layers": []}', encoding='utf-8')
+    body = client.post('/api/native-dialog/read-file', json={'path': str(show)}).get_json()
+    assert body['ok'] is True and body['text'] == '{"name": "Show A", "layers": []}', body
+    # a later write is what the next read sees (no copy kept anywhere)
+    show.write_text('{"name": "Show A", "layers": [1]}', encoding='utf-8')
+    body = client.post('/api/native-dialog/read-file', json={'path': str(show)}).get_json()
+    assert body['text'] == '{"name": "Show A", "layers": [1]}', body
+    # a byte-order mark is not part of the text
+    show.write_bytes(codecs.BOM_UTF8 + b'{"name": "BOM"}')
+    body = client.post('/api/native-dialog/read-file', json={'path': str(show)}).get_json()
+    assert body['text'] == '{"name": "BOM"}', body
+
+
+def test_read_file_says_when_the_file_is_gone(client, tmp_path):
+    gone = tmp_path / 'Moved.json'
+    resp = client.post('/api/native-dialog/read-file', json={'path': str(gone)})
+    assert resp.status_code == 200
+    assert resp.get_json() == {'ok': False, 'missing': True, 'path': str(gone)}
+
+
+def test_read_file_reads_only_absolute_json_paths(client, tmp_path):
+    other = tmp_path / 'notes.txt'
+    other.write_text('secret', encoding='utf-8')
+    for path in (str(other), 'relative/show.json', '', None):
+        resp = client.post('/api/native-dialog/read-file', json={'path': path})
+        assert resp.status_code == 400, path
+        assert 'text' not in resp.get_json(), path

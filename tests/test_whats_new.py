@@ -295,7 +295,7 @@ def test_new_steps_filter_by_since(page):
         'cableStock', 'cableStockPieces', 'takeOver', 'customPower', 'customDraw', 'sweepShare',
         'addService', 'serviceRating', 'serviceDistro']
     assert _new_steps(page, '1.5.3', '1.6.0') == [
-        'panelName', 'startPanel', 'sameAsLast', 'avgPower', 'zPattern', 'mixedRedundancy',
+        'panelName', 'startPage', 'startPanel', 'sameAsLast', 'avgPower', 'zPattern', 'mixedRedundancy',
         'cardNames', 'fiberExtension', 'panelInput',
         'jumperNames', 'pullPanels', 'cableStockPerKind', 'feederLength', 'mirrorScreen',
         'portPlug', 'portNumbers', 'portsMinimum', 'powerZPattern', 'circuitNumbers', 'redrawAsOne',

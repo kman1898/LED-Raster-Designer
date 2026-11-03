@@ -142,6 +142,9 @@ class _Presets {
         const mode = opts.mode === 'replace' || opts.mode === 'startup' ? opts.mode : 'add';
         const replace = mode === 'replace';
         this._pickerMode = mode;
+        // The start page's New opens it (app-start-page.js), and its
+        // Cancel goes back there (cancelPresetPicker).
+        this._pickerFromStartPage = mode === 'startup' && opts.fromStartPage === true;
         this._pickerTargetIds = replace ? [...(opts.layerIds || [])] : [];
         this._setPickerChrome(mode, replace ? (opts.title || 'Change cabinet') : null);
         list.innerHTML = '<div style="padding: 12px; color: #888; font-size: 12px;">Loading…</div>';
@@ -1151,7 +1154,10 @@ class _Presets {
             if (confirmBtn) confirmBtn.textContent = 'Change';
         } else if (mode === 'startup') {
             if (title) title.textContent = 'Choose a panel';
-            if (brief) brief.textContent = 'Pick the panel for this project\'s first screen, from your presets or the panel catalog. Cancel starts with no screens.';
+            // From the start page, Cancel goes back to it (cancelPresetPicker).
+            const cancelSays = this._pickerFromStartPage
+                ? 'Cancel goes back to the start page.' : 'Cancel starts with no screens.';
+            if (brief) brief.textContent = 'Pick the panel for this project\'s first screen, from your presets or the panel catalog. ' + cancelSays;
             if (confirmBtn) confirmBtn.textContent = 'Use Panel';
         } else {
             if (title) title.textContent = 'Add Screen';
@@ -1258,8 +1264,20 @@ class _Presets {
     // the guide and the What's New window keep, so a test boots to the
     // familiar Screen1; a test of this picker sets
     // window.__lrdStartupPicker = true before the page loads.
+    //
+    // Since 1.6.0 (owner, 2026-11-03) a launch opens the start page
+    // instead (app-start-page.js: New project, Open file…, Recent), at the
+    // same moment and over the same startup screen; its New opens this
+    // picker, and the picker's Cancel goes back to it. File > New still
+    // opens the picker directly. A test of the start page sets
+    // window.__lrdStartPage = true; with only __lrdStartupPicker set, a
+    // launch opens the picker as before.
     maybeOpenStartupPicker(reason) {
-        if (typeof navigator !== 'undefined' && navigator.webdriver
+        const startPage = reason === 'launch' && typeof this._startPageAllowed === 'function'
+            && this._startPageAllowed();
+        // File > New made while the start page stood: the picker takes over.
+        if (reason !== 'launch' && typeof this.closeStartPage === 'function') this.closeStartPage();
+        if (!startPage && typeof navigator !== 'undefined' && navigator.webdriver
                 && window.__lrdStartupPicker !== true) return false;
         if (!this._isPristineStartupProject()) return false;
         const token = this._startupPickerToken = (this._startupPickerToken || 0) + 1;
@@ -1277,6 +1295,10 @@ class _Presets {
             // added): no picker.
             if (!this._isPristineStartupProject()) return;
             this._startupTargetId = this.project.layers[0].id;
+            if (startPage) {
+                this.openStartPage(reason);
+                return;
+            }
             sendClientLog('startup_picker_open', { reason: reason || null, layerId: this._startupTargetId });
             this.openPresetPicker({ mode: 'startup' });
         };
@@ -1399,9 +1421,19 @@ class _Presets {
     // Cancel and a click on the backdrop. The startup picker's Cancel
     // leaves the project empty (the owner's ruling, 2026-11-02): the
     // startup screen goes, and Add Screen makes the first one later.
+    //
+    // Opened from the start page's New (1.6.0), Cancel goes back to the
+    // start page instead, the startup screen still standing under it.
     cancelPresetPicker() {
         const startup = this._pickerMode === 'startup';
+        const back = startup && this._pickerFromStartPage === true;
+        this._pickerFromStartPage = false;
         this.closePresetPicker();
+        if (back && this._startupScreenStands(this._startupTargetId)) {
+            sendClientLog('startup_picker_back_to_start_page', { layerId: this._startupTargetId });
+            this.openStartPage('picker_cancel');
+            return;
+        }
         if (startup) this._startEmpty();
     }
 
@@ -1444,7 +1476,7 @@ class _Presets {
                 // Add Screen still makes a screen, of the last screen's
                 // panel; an existing screen is left exactly as it was, and
                 // the startup picker asks again.
-                if (startup) this.openPresetPicker({ mode: 'startup' });
+                if (startup) this.openPresetPicker({ mode: 'startup', fromStartPage: this._pickerFromStartPage === true });
                 else if (!replace) this.addLayer();
             });
         }
