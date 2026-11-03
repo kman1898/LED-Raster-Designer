@@ -394,14 +394,18 @@ class _Fiber {
 
     // What a port-by-port backup backs up, per primary box: "loop of CVT10
     // A 1-10, CVT10 B 1-6 on sockets 11-16" - the primary's own numbers,
-    // and this box's own sockets for them where they differ. '' on any
-    // other box. `titleOf` names a box the way the reader's sheet does.
+    // and this box's own sockets for them where they differ. A box backing
+    // up its OWN outputs says so in those words (boxSelfBackupText), never
+    // its own name as its primary. '' on any other box. `titleOf` names a
+    // box the way the reader's sheet does.
     boxLoopText(box, cvts, titleOf) {
         const own = (box && box.backsUpPorts || []).some(m => !m.boxId);
         if (!this.boxLoopMixed(box) && !own) return '';
+        const self = this.boxSelfBackupText(box);
         const groups = new Map();
         for (const m of box.backsUpPorts) {
             if (box.backupOf && m.boxId) continue;
+            if (m.boxId && m.boxId === box.id) continue;
             if (!groups.has(m.boxId)) groups.set(m.boxId, { locals: [], numbers: [] });
             groups.get(m.boxId).locals.push(m.local);
             groups.get(m.boxId).numbers.push(m.socket);
@@ -413,7 +417,20 @@ class _Fiber {
             return `${id ? (main ? titleOf(main) : 'its primary') : 'own ports'} ${mine}`
                 + (shown !== mine ? ` on sockets ${shown}` : '');
         });
-        return `loop of ${parts.join(', ')}`;
+        return [parts.length ? `loop of ${parts.join(', ')}` : '', self ? `backs up ${self}` : '']
+            .filter(Boolean).join('; ');
+    }
+
+    // A box backing up its OWN outputs (a CVT4K-S straddling a VX1000's
+    // OPT 1 and its copy): "its own outputs 1-8 on 9-16", both ranges by
+    // the box's own silkscreen (each backsUpPorts entry's `local`, the
+    // output backed up, and `socket`, the output carrying its backup).
+    // '' for a box that does not.
+    boxSelfBackupText(box) {
+        const mine = ((box && box.backsUpPorts) || []).filter(m => m.boxId && m.boxId === box.id);
+        if (!mine.length) return '';
+        return `its own outputs ${this.fiberStrandRangeText(mine.map(m => m.local))}`
+            + ` on ${this.fiberStrandRangeText(mine.map(m => m.socket))}`;
     }
 
     // Every box looped with `box`, one-to-one or port by port, on its own

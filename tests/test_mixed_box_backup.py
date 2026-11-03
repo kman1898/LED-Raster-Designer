@@ -1134,7 +1134,8 @@ def test_the_tray_draws_a_vx1000_straddle_as_its_own_loop(e2e_server,
     # a box looping onto itself is named once, by its sockets
     assert tray['names'] == 'A-B 1-8 ↔ 9-16', tray
     assert 'the backup of port 1 on' in tray['hover'], tray['hover']
-    assert tray['words'] == 'loop of OPT 1-2 1-8 on sockets 9-16'
+    # a box backing up its own outputs says so, never its own name
+    assert tray['words'] == 'backs up its own outputs 1-8 on 9-16'
     assert tray['ceiling'] == 10
 
 
@@ -1228,6 +1229,23 @@ SELF_READ_JS = """(boxId) => {
 }"""
 
 
+# Every text the binder prints, data side and the processor sheets.
+BINDER_TEXTS_JS = """() => {
+    const app = window.app;
+    const opts = { sheet: 'tabloid', palette: 'colour', sides: { power: false, data: true },
+                   scope: { kind: 'show' }, cover: false, pull: false, hardware: true,
+                   wiring: false };
+    const plan = app.planBinder(opts);
+    const out = [];
+    for (let i = 0; i < plan.length; i++) {
+        const r = app.renderBinderPage(opts, i);
+        r.record.ops.filter(o => o.op === 'text' && String(o.text).trim())
+            .forEach(o => out.push(String(o.text)));
+    }
+    return out;
+}"""
+
+
 def test_each_backup_output_of_a_self_backing_box_is_its_own_cable(
         e2e_server, pw_browser):
     """The box's cable sheet has a length of its own for each backup output
@@ -1271,6 +1289,17 @@ def test_each_backup_output_of_a_self_backing_box_is_its_own_cable(
         got = page.evaluate(SELF_READ_JS, seeded['box'])
         assert got['ends'][1] == [None, "100' etherCON"], got
         assert got['fieldR2'] == '100', got
+        # the binder says the box backs up its own outputs, in those words,
+        # and never names the box as its own primary
+        texts = page.evaluate(BINDER_TEXTS_JS)
+        title = page.evaluate("(id) => window.app._bBoxTitle(window.app"
+                              "._processorsResolved.flatMap(p => p.slots).map(s => s.card)"
+                              ".find(c => c && c.cvts && c.cvts.length).cvts[0])",
+                              seeded['box'])
+        want = f'{title} backs up its own outputs 1-8 on 9-16'
+        assert any(t == want for t in texts), (want, [t for t in texts if 'backs up' in t])
+        assert not any(f'{title} backs up {title}' in t for t in texts), texts
+        assert any(t == 'Backup boxes' for t in texts), [t for t in texts if 'ackup' in t]
     finally:
         context.close()
 

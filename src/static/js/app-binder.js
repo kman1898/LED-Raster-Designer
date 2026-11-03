@@ -8053,10 +8053,14 @@ class _Binder {
         // to Backup) says which box backs up which first: "CVT4K-S C-D
         // backs up CVT4K-S A-B" - the vendor's wiring, in force whatever
         // the bar says - then any shape still at work beside it.
+        // A box backing up its own outputs says so: "CVT4K-S A-B backs up
+        // its own outputs 1-8 on 9-16" (boxSelfBackupText), never itself
+        // by name.
         const loopsOf = (card) => (typeof this._cardLoopBackups === 'function'
             ? this._cardLoopBackups(card) : [])
             .map(l => `${this._bBoxTitle(l.box)} backs up `
-                + l.mains.map(m => (m ? this._bBoxTitle(m) : 'own ports')).join(', '))
+                + l.mains.map(m => (m === l.box ? this.boxSelfBackupText(l.box)
+                    : m ? this._bBoxTitle(m) : 'own ports')).join(', '))
             .join('; ');
         const shapeOf = (card) => {
             const rshape = card.redundancyShape;
