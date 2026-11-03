@@ -883,11 +883,16 @@ class _DockDrag {
             // with this screen) refuses the whole drop before the pin or
             // the entry (owner, 2026-10-22).
             if (this._assignRepacksLocked(layer, [[plan.socaIndex, payload.distroId]])) return;
+            // One gesture under the shared-box lock: either setter refused
+            // for a locked screen sharing the box refuses the drop whole
+            // (_lockedPowerTrial).
+            const shared = this._lockedPowerTrial();
             const touched = new Set();
             this.setSocaDistro(layer, plan.socaIndex, payload.distroId, false)
                 .forEach(l => touched.add(l));
             this.setSocaNumber(layer, plan.socaIndex, plan.number, false)
                 .forEach(l => touched.add(l));
+            if (shared()) return;
             this.updateLayers([...touched], true, 'Assign Multi Distro');
         }
         this._restateNaming();
@@ -1039,13 +1044,19 @@ class _DockDrag {
         // this screen) refuses the drop before anything is stamped or
         // recorded (owner, 2026-10-22).
         if (this._assignRepacksLocked(layer, [[plan.socaIndex, payload.distroId]])) return;
+        // A locked screen the assignment would move on a shared box
+        // refuses the drop whole, the box type with it (_lockedPowerTrial).
+        const shared = this._lockedPowerTrial();
         // The box this makes wears the type it was dragged as - stamped
         // before the assignment's entry, so the gesture stays one step.
-        if (plan.number != null) {
-            this._stampBoxType(payload.distroId, plan.number, payload.output);
-        }
+        const typed = plan.number != null
+            && this._stampBoxType(payload.distroId, plan.number, payload.output);
         const touched = this.setSocaDistro(layer, plan.socaIndex,
                                            payload.distroId, false);
+        if (shared()) {
+            if (typed) this._persistDistros();
+            return;
+        }
         this.updateLayers([...new Set(touched)], true, 'Assign Multi Distro');
         this._restateNaming();
         if (plan.warn) {
@@ -1385,11 +1396,18 @@ class _DockDrag {
                 // before the box type is stamped (owner, 2026-10-22).
                 if (this._takeRepacksLocked(layer, this._socaTakePlan(layer, ordinal,
                         payload.distroId, payload.number), payload.distroId)) return;
-                this._stampBoxType(payload.distroId, payload.number,
-                                   payload.output);
             }
+            // A take refused for a locked screen sharing the box takes the
+            // box type back with it (_lockedPowerTrial).
+            const shared = this._lockedPowerTrial();
+            const typed = !!payload.output && this._stampBoxType(
+                payload.distroId, payload.number, payload.output);
             const r = this.takeSocaOnto(layer, ordinal, payload.distroId,
                                         payload.number, 'Assign Multi Distro');
+            if (shared()) {
+                if (typed) this._persistDistros();
+                return;
+            }
             if (!r.ok) {
                 if (r.locked) return;
                 this._dockSay(this._takeRefusalText(payload, r, label, layer));
@@ -1528,6 +1546,10 @@ class _DockDrag {
         const sameBox = !!rec.distroId && rec.distroId === payload.distroId
             && Number(rec.number) === n;
         const pullBefore = sameBox ? null : this._pullLiveRowKeys();
+        // A locked screen on the box the circuit leaves or lands on keeps
+        // its tails: refused whole when the move would deal them again,
+        // the screen named (_lockedPowerTrial).
+        const shared = this._lockedPowerTrial();
         const touched = new Set([layer]);
         let idx = rec.index;
         if (at > 0) {
@@ -1560,6 +1582,7 @@ class _DockDrag {
         (layer.powerSocaPhasePos || (layer.powerSocaPhasePos = {}))[idx]
             = [payload.tail];
         this._circuitTailCache = null;
+        if (shared()) return;
         this._dropPullEditsGoneWith(pullBefore);
         this.updateLayers([...touched], true, 'Assign Circuit');
         this._restateNaming();
@@ -1614,6 +1637,10 @@ class _DockDrag {
         // this one act ("its unassigned multis ALL land on this distro");
         // recorded per-multi it cost N Ctrl+Z presses through half-cabled
         // intermediate walls.
+        // All or nothing for a locked screen sharing a box too: the drop
+        // and its box types are put back whole when they would move its
+        // circuits (_lockedPowerTrial).
+        const shared = this._lockedPowerTrial();
         const touched = new Set();
         unassigned.forEach(s => {
             this.setSocaDistro(layer, s.soca, payload.distroId, false)
@@ -1627,12 +1654,12 @@ class _DockDrag {
         const landedType = this.distroFace(this.getDistros()
             .find(x => x.id === payload.distroId)) ? null
             : this.outputTypeForBreakout(this.getPowerBreakout(layer), layer.powerVoltage);
+        let stamped = false;
         if (landedType) {
             this._circuitTailCache = null;
             const naming = this._powerNaming(layer);
             // Stamp every box, persist once: one POST for the gesture,
             // not one per multi the handle fed.
-            let stamped = false;
             unassigned.forEach(s => {
                 const rec = naming.socas.get(s.soca);
                 if (rec && rec.number != null) {
@@ -1641,8 +1668,9 @@ class _DockDrag {
                     }
                 }
             });
-            if (stamped) this._persistDistros();
         }
+        if (shared()) return;
+        if (stamped) this._persistDistros();
         this.updateLayers([...touched], true, 'Assign Multi Distro');
         this._restateNaming();
     }

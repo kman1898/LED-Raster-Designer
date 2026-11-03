@@ -1018,8 +1018,15 @@ class _Power {
     // dropped because the arrangement covered circuits the part no longer
     // has. Contiguous only: a boundary, never a reshuffle.
     splitSocaAfter(layer, socaIndex, afterLeg) {
+        // A locked screen stays unchanged (owner, 2026-10-16), and so does
+        // a locked screen sharing the box: a split that would deal its
+        // tails again is put back whole, the screen named
+        // (_lockedPowerTrial).
+        if (this._lockedRefused(layer)) return false;
+        const shared = this._lockedPowerTrial();
         const stamped = this._splitSocaApply(layer, socaIndex, afterLeg);
         if (!stamped) return false;
+        if (shared()) return false;
         this.updateLayers([...new Set([layer, ...stamped])], true,
                           'Split Multi');
         return true;
@@ -1201,7 +1208,12 @@ class _Power {
         if (this._takeRepacksLocked(layer, plan, distroId)) {
             return { ok: false, why: 'locked', free: 0, tailLen: 0, locked: true };
         }
+        // Nor one sharing the box the take joins or the multi leaves: a take
+        // that would deal its tails again is put back whole, the screen
+        // named (_lockedPowerTrial).
+        const shared = this._lockedPowerTrial();
         const touched = this._takeSocaApply(layer, plan, distroId);
+        if (shared()) return { ok: false, why: 'locked', free: 0, tailLen: 0, locked: true };
         this.updateLayers([...touched], true, action || 'Assign Multi Distro');
         return { ok: true, took: plan.take, tailLen: plan.remaining,
                  free: plan.free };
@@ -1352,6 +1364,9 @@ class _Power {
                 .filter(p => p !== seg.end);
             this._spliceSocaStores(layer, Number(socaIndex) + 1, -1);
         }, [layer])) return false;
+        // ...and a locked screen on the box the weld re-deals keeps its
+        // tails: put back whole when it would not (_lockedPowerTrial).
+        const shared = this._lockedPowerTrial();
         // The welded multi keeps the first part's pin with MORE circuits,
         // so it re-deals on its box exactly like a split part does - the
         // other members of a shared box hold their rendered tails first.
@@ -1364,6 +1379,7 @@ class _Power {
         delete (layer.powerSocaPhasePos || {})[socaIndex];
         delete (layer.powerSocaPhaseOffset || {})[socaIndex];
         this._circuitTailCache = null;
+        if (shared()) return false;
         this.updateLayers([...new Set([layer, ...stamped])], true,
                           'Un-split Multi');
         return true;
@@ -1924,7 +1940,13 @@ class _Power {
         if (!layer) return false;
         const type = this.getPowerBreakoutTypes().find(t => t.id === id);
         if (!type || !this._breakoutEligible(type, layer.powerVoltage)) return false;
+        // A locked screen keeps its breakout, and so does the box a locked
+        // screen shares with this one: a breakout is the box size, and a
+        // box that changes size deals its tails again (_lockedPowerTrial).
+        if (this._lockedRefused(layer)) return false;
+        const shared = this._lockedPowerTrial();
         layer.powerBreakoutType = type.id;
+        if (shared()) return false;
         this.updateLayers([layer], true, 'Change Power Breakout');
         return true;
     }
@@ -3149,7 +3171,15 @@ class _Power {
                 sel.value = this.getPowerBreakout(layer).id;
                 return;
             }
+            // A breakout is the box size: a locked screen sharing a box
+            // with one of these keeps its tails, or nothing is written
+            // (_lockedPowerTrial).
+            const shared = this._lockedPowerTrial();
             write.forEach(l => { l.powerBreakoutType = type.id; });
+            if (shared()) {
+                sel.value = this.getPowerBreakout(layer).id;
+                return;
+            }
             this.updateLayers(write, true, 'Change Power Breakout');
             this.refreshSocaRuns();
         });
@@ -3216,6 +3246,10 @@ class _Power {
             };
             const blocked = [];
             const list = [];
+            // Packing changes the circuits, so a box shared with a locked
+            // screen deals again: refused whole when that would move the
+            // locked screen's tails (_lockedPowerTrial).
+            const shared = this._lockedPowerTrial();
             walls.forEach(members => {
                 const wall = this.getPowerSplitters(members[0]);
                 const next = { enabled: wall.enabled, maxWays: wall.maxWays, ...patch };
@@ -3232,7 +3266,7 @@ class _Power {
                 });
             });
             this._showLockedError(blocked);
-            if (!list.length) {
+            if (!list.length || shared()) {
                 this.refreshSplitterPanel();
                 return;
             }
@@ -3482,8 +3516,7 @@ class _Power {
         // screen named (owner, 2026-10-23): tried and put back first.
         if (this._repackRefused(() => this._writeSplitterManual(
             layer, write, null, { silent: true }), [layer])) return false;
-        this._writeSplitterManual(layer, write);
-        return true;
+        return this._writeSplitterManual(layer, write) !== false;
     }
 
     // Un-merge the selected circuits. Auto runs are additionally PINNED out
@@ -4265,30 +4298,79 @@ class _Power {
         return JSON.stringify({ fields, socas });
     }
 
+    // The locked screens on any distro one of `layers` feeds from: the
+    // only ones a change to those screens' circuits can deal again or
+    // re-number (a box and its numbers belong to one distro).
+    _lockedOnDistrosOf(layers) {
+        const ids = new Set();
+        (layers || []).forEach(l => {
+            if (l) Object.values(l.powerSocaDistro || {}).forEach(id => { if (id) ids.add(id); });
+        });
+        if (!ids.size) return [];
+        return ((this.project && this.project.layers) || []).filter(l => l
+            && (l.type || 'screen') === 'screen' && this._layerLocked(l)
+            && Object.values(l.powerSocaDistro || {}).some(id => ids.has(id)));
+    }
+
+    // THE SHARED-BOX LOCK (the owner's rule, 2026-10-16: a locked screen
+    // stays unchanged until unlocked, and any attempt says why). A gesture
+    // on an unlocked screen can still move a LOCKED screen's circuits
+    // through a multi box they share, or a distro they are both on: a
+    // circuit unplugged, a multi cleared, split, pinned or moved, a share
+    // or a row of the distro changed re-deals the box, and a locked member
+    // that does not store its tails is dealt again with it.
+    //
+    // Called BEFORE the gesture's first write, it returns moved(), to call
+    // after the writes and before the commit. moved() is true when a locked
+    // screen's power (_lockedPowerFacts) is not what it was: then every
+    // record the gesture wrote is already put back (_holdPowerRecords), the
+    // locked screens are named ('shared', or `say(screens)` when given),
+    // and the caller returns without its commit or its history entry.
+    // False keeps the change - the locked screens were never written
+    // (_materializeSocaBox leaves them alone).
+    //
+    // A gesture made of setters that run this lock themselves (a drop that
+    // assigns and pins) runs it around them too: a setter refused inside
+    // the gesture's own trial refuses the whole gesture, without a second
+    // error. _repackTrial runs this lock with the repack lock.
+    _lockedPowerTrial(say = null) {
+        const locked = ((this.project && this.project.layers) || []).filter(l => l
+            && (l.type || 'screen') === 'screen' && this._layerLocked(l));
+        if (!locked.length) return () => false;
+        const mark = this._lockedPowerRefusals || 0;
+        this._circuitTailCache = null;
+        const before = new Map(locked.map(l => [l, this._lockedPowerFacts(l)]));
+        const release = this._holdPowerRecords();
+        return () => {
+            this._circuitTailCache = null;
+            const moved = locked.filter(l => this._lockedPowerFacts(l) !== before.get(l));
+            const inner = (this._lockedPowerRefusals || 0) !== mark;
+            if (!moved.length && !inner) return false;
+            release();
+            this._circuitTailCache = null;
+            if (moved.length) {
+                this._lockedPowerRefusals = (this._lockedPowerRefusals || 0) + 1;
+                sendClientLog('locked_shared_refused', { screens: moved.map(l => l.id) });
+                if (typeof say === 'function') say(moved);
+                else this._showLockedError(moved, 'shared');
+            }
+            return true;
+        };
+    }
+
     // Make a removal (`apply`) on `owner` only if no locked screen changes
     // with it: the repack lock the unplug gestures run (_repackTrial, the
     // locked members of the owner's group, whose packing % the wall
-    // shares), then every locked screen's power as _lockedPowerFacts reads
-    // it (a multi box shared with the owner re-dealing its tails). Either
-    // way, a refusal puts back everything `apply` wrote and says so,
-    // `lead` first (_sayTrimHeld). True when the removal stands.
+    // shares) and the shared-box lock it runs with it (_lockedPowerTrial,
+    // a multi box shared with the owner re-dealing a locked screen's
+    // tails). Either way, a refusal puts back everything `apply` wrote and
+    // says so, `lead` first (_sayTrimHeld). True when the removal stands.
     _trimUnderLocks(owner, lead, key, apply) {
         const say = (screens, why) => this._sayTrimHeld(owner, why, screens, why, lead, key);
-        const repacked = this._repackTrial([owner], screens => say(screens, 'repack'));
-        const locked = (this.project.layers || []).filter(l => l && l !== owner
-            && (l.type || 'screen') === 'screen' && this._layerLocked(l));
-        this._circuitTailCache = null;
-        const before = new Map(locked.map(l => [l, this._lockedPowerFacts(l)]));
-        const release = locked.length ? this._holdPowerRecords() : null;
+        const refused = this._repackTrial([owner], say);
         apply();
         this._circuitTailCache = null;
-        if (repacked()) return false;
-        const moved = locked.filter(l => this._lockedPowerFacts(l) !== before.get(l));
-        if (!moved.length) return true;
-        release();
-        this._circuitTailCache = null;
-        say(moved, 'shared');
-        return false;
+        return !refused();
     }
 
     // `path` without the steps off the wall. A dropped step that started a
@@ -4456,24 +4538,16 @@ class _Power {
         });
         const firstHit = olds.findIndex(o => o.keep.length !== o.circ.length);
         // A LOCKED screen on the box is not written, not even to hold the
-        // tails it shows: it keeps its stores as they are, and if the
-        // rebuild would deal its tails again, the caller's lock check
-        // (_trimUnderLocks) finds it and puts the removal back.
-        const lockedHeld = (this.project.layers || [])
-            .filter(l => l && l !== layer && this._layerLocked(l))
-            .map(l => [l, JSON.stringify(l.powerSocaPhasePos === undefined
-                ? null : l.powerSocaPhasePos)]);
+        // tails it shows (_materializeSocaBox passes it by): it keeps its
+        // stores as they are, and if the rebuild would deal its tails
+        // again, the caller's lock check (_trimUnderLocks) finds it and
+        // puts the removal back.
         olds.forEach((o, i) => {
             if (firstHit < 0 || i < firstHit || !o.fed) return;
             const rec = naming.socas.get(o.s.index);
             if (!rec) return;
             this._materializeSocaBox(rec.distroId, rec.number, layer, o.s.index)
-                .forEach(l => { if (!this._layerLocked(l)) touched.add(l); });
-        });
-        lockedHeld.forEach(([l, json]) => {
-            const was = JSON.parse(json);
-            if (was === null) delete l.powerSocaPhasePos;
-            else l.powerSocaPhasePos = was;
+                .forEach(l => touched.add(l));
         });
         this._circuitTailCache = null;
         naming = this._powerNaming(layer);
@@ -5108,6 +5182,13 @@ class _Power {
     // nor refresh - for a caller folding the edit into its own history
     // entry and its own rebuild (the custom toggle's way out).
     _writeSplitterManual(layer, fn, action, opts) {
+        const silent = !!(opts && opts.silent);
+        // A share or un-share changes the screen's circuits, so a multi box
+        // it shares with a locked screen deals again: refused whole, the
+        // locked screen named, when that would move the locked screen's
+        // tails (_lockedPowerTrial). A silent write's caller owns the check
+        // with its commit. False when refused.
+        const shared = silent ? null : this._lockedPowerTrial();
         const cur = this._ownPowerSplitters(layer);
         // An edit is made in the CURRENT id space. Groups stored from the
         // other space cannot be edited alongside it - one store, one space -
@@ -5124,7 +5205,11 @@ class _Power {
         fn(manual);
         manual.space = space;
         layer.powerSplitters = { ...cur, manual };
-        if (opts && opts.silent) return;
+        if (silent) return true;
+        if (shared()) {
+            this.refreshSplitterPanel();
+            return false;
+        }
         this.updateLayers([layer], true, action || 'Edit Splitter Groups');
         this._rebuildAfterGesture(() => {
             this.refreshSplitterPanel();
@@ -5133,6 +5218,7 @@ class _Power {
             this.updatePowerLabelEditor && this.updatePowerLabelEditor();
             if (window.canvasRenderer) window.canvasRenderer.render();
         });
+        return true;
     }
 
     // Multi-select doctrine: a panel edit applies to EVERY selected screen,

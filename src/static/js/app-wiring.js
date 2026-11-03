@@ -1998,8 +1998,11 @@ class _Wiring {
                 // the same number that lands here - see clearCustomRun. A
                 // custom 2fer / 3fer is one circuit: every leg goes, in one
                 // entry (clearCustomCircuit).
+                // A clear that would move a locked screen's circuits on a
+                // multi box it shares is put back whole (_lockedPowerTrial).
+                const shared = this._lockedPowerTrial();
                 const { touched, skipped } = this.clearCustomCircuit(owner, circuitNum);
-                if (touched.length) {
+                if (touched.length && !shared()) {
                     this.saveState('Power Custom Clear Circuit');
                     this.saveClientSideProperties();
                     this.updateLayers(this._persistWith(touched));
@@ -2015,9 +2018,10 @@ class _Wiring {
                 if (!this.currentLayer) return;
                 // Overrides go with their paths - see the data Clear All. On a
                 // grouped screen the whole wall clears (clearAllCustomRuns).
+                const shared = this._lockedPowerTrial();
                 const { touched, skipped } = this.clearAllCustomRuns(this.currentLayer, 'power');
                 this.powerCustomSelection.clear();
-                if (touched.length) {
+                if (touched.length && !shared()) {
                     this.saveState('Power Custom Clear All');
                     this.saveClientSideProperties();
                     this.updateLayers(this._persistWith(touched));

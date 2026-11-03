@@ -124,6 +124,11 @@ class _Distros {
                 return null;
             }
         }
+        // Nor does a change to its rows or outputs move a locked screen's
+        // multis: a row removed or resized re-deals a box or re-numbers an
+        // auto multi. Written, checked, and put back whole when it would
+        // (_lockedPowerTrial), the locked screens named.
+        const shared = this._lockedPowerTrial();
         if (patch.name !== undefined) d.name = String(patch.name).trim() || d.name;
         // The distro's TYPE (2026-10-18): what the gear is, as the pull
         // sheet names it ("200A 24 circuits"). Blank forgets the key - a
@@ -239,6 +244,7 @@ class _Distros {
         // renamed by it, and so is every circuit hanging off those multis.
         // (Location is not - it is descriptive and names nothing.)
         this._circuitTailCache = null;
+        if (shared()) return null;
         // One entry per committed field (these fire on change, not per
         // keystroke), same as the other discrete label edits - under the
         // caller's name where the field has one of its own (the box type
@@ -345,31 +351,46 @@ class _Distros {
     // answers the locked screens it repacked - [] when none, else every
     // screen the edit could reach (the selection and their groups) is put
     // back field by field (_holdLayerFields). Null when no locked screen
-    // packs with the selection.
+    // packs with the selection or shares a distro with it.
+    //
+    // The shared-box lock too (_lockedPowerTrial): an edit that changes an
+    // unlocked screen's circuits (its panel watts, say) re-deals a multi
+    // box it shares with a locked screen. A locked screen on a distro the
+    // reached screens are on that shows other circuits, tails or numbers
+    // after the edit is answered the same way, the list marked
+    // `why: 'shared'` for the error.
     _repackEditTrial(layers) {
-        if (typeof this.circuitCapacity !== 'function') return null;
         const screens = (layers || []).filter(l => l && (l.type || 'screen') === 'screen');
         if (!screens.length) return null;
-        const locked = this._repackLockedScreens(screens);
-        if (!locked.length) return null;
+        const locked = typeof this.circuitCapacity === 'function'
+            ? this._repackLockedScreens(screens) : [];
         const reach = new Set(screens);
         screens.forEach(l => {
             if (l.group_id && typeof this.groupMembersOf === 'function') {
                 this.groupMembersOf(l).forEach(m => reach.add(m));
             }
         });
+        const shared = typeof this._lockedOnDistrosOf === 'function'
+            ? this._lockedOnDistrosOf([...reach]) : [];
+        if (!locked.length && !shared.length) return null;
         const pctOf = () => new Map(locked.map(l => [l, this.circuitCapacity(l).pct]));
+        const factsOf = () => new Map(shared.map(l => [l, this._lockedPowerFacts(l)]));
         this._circuitTailCache = null;
         const before = pctOf();
+        const factsBefore = factsOf();
         const release = this._holdLayerFields([...reach]);
         return () => {
             this._circuitTailCache = null;
             const after = pctOf();
             const repacked = locked.filter(l => before.get(l) !== after.get(l));
-            if (!repacked.length) return [];
+            const moved = repacked.length ? []
+                : shared.filter(l => this._lockedPowerFacts(l) !== factsBefore.get(l));
+            if (!repacked.length && !moved.length) return [];
             release();
             this._circuitTailCache = null;
-            return repacked;
+            if (repacked.length) return repacked;
+            moved.why = 'shared';
+            return moved;
         };
     }
 
@@ -380,12 +401,20 @@ class _Distros {
     // then every record the change can reach is already put back
     // (_holdPowerRecords), the screens are named, and the caller returns
     // without its commit or its history entry. False keeps the change.
-    // `say(screens)`, when given, says the refusal in place of the plain
-    // 'repack' error (a wall that shrank names what the lock kept).
+    // It runs the shared-box lock with it (_lockedPowerTrial): a change
+    // that would move a locked screen's circuits, tails or numbers on a
+    // multi box it shares is refused the same way, as 'shared'.
+    // `say(screens, why)`, when given, says the refusal in place of the
+    // plain error, `why` 'repack' or 'shared' (a wall that shrank names
+    // what the lock kept).
     _repackTrial(near, say = null) {
-        if (typeof this.circuitCapacity !== 'function') return () => false;
+        const shared = typeof this._lockedPowerTrial === 'function'
+            ? this._lockedPowerTrial(typeof say === 'function'
+                ? (screens => say(screens, 'shared')) : null)
+            : () => false;
+        if (typeof this.circuitCapacity !== 'function') return shared;
         const locked = this._repackLockedScreens(near);
-        if (!locked.length) return () => false;
+        if (!locked.length) return shared;
         const pctOf = () => new Map(locked.map(l => [l, this.circuitCapacity(l).pct]));
         this._circuitTailCache = null;
         const before = pctOf();
@@ -394,9 +423,9 @@ class _Distros {
             this._circuitTailCache = null;
             const after = pctOf();
             const repacked = locked.filter(l => before.get(l) !== after.get(l));
-            if (!repacked.length) return false;
+            if (!repacked.length) return shared();
             release();
-            if (typeof say === 'function') say(repacked);
+            if (typeof say === 'function') say(repacked, 'repack');
             else this._showLockedError(repacked, 'repack');
             return true;
         };
@@ -503,6 +532,10 @@ class _Distros {
                 for (const k of Object.keys(map)) if (map[k] === id) delete map[k];
             }
         })) return false;
+        // ...and so does a locked screen whose multis the removal would
+        // deal again or re-number (_lockedPowerTrial): written, checked,
+        // put back whole.
+        const shared = this._lockedPowerTrial();
         // The multis it fed lose their typed lengths with it (owner,
         // 2026-10-17): each one's home run - a direct output's included -
         // and its circuits' cables. Read off the naming index before any
@@ -539,6 +572,7 @@ class _Distros {
             for (const k of Object.keys(map)) if (map[k] === id) { delete map[k]; changed = true; }
             if (changed) touched.push(layer);
         }
+        if (shared()) return false;
         if (touched.length) this.updateLayers(touched);
         // The orphaned multis fall back into the unassigned bucket, which
         // renumbers it and everything after it.
@@ -575,6 +609,10 @@ class _Distros {
         const crowd = distroId && typeof this._crowdRefusal === 'function'
             ? this._crowdRefusal(layer, socaIndex, distroId, carried) : null;
         if (crowd) { this._sayCrowdRefusal(crowd); return []; }
+        // A locked screen on the box this leaves or lands on keeps its
+        // circuits where they are: the move is written, checked, and put
+        // back whole when it would deal them again (_lockedPowerTrial).
+        const shared = this._lockedPowerTrial();
         const map = layer.powerSocaDistro || (layer.powerSocaDistro = {});
         // A multi that carries its pin onto another distro can land on an
         // occupied box there - the same join as pinning, spelled as an
@@ -598,6 +636,7 @@ class _Distros {
         // show can move. Stale labels for a frame is a bug this has already
         // been bitten by once.
         this._circuitTailCache = null;
+        if (shared()) return [];
         const touched = [...new Set([layer, ...stamped])];
         if (record) {
             this.updateLayers(touched, true, 'Assign Multi Distro');
@@ -629,6 +668,10 @@ class _Distros {
             ? this._crowdRefusal(layer, socaIndex, (layer.powerSocaDistro || {})[socaIndex], number)
             : null;
         if (crowd) { this._sayCrowdRefusal(crowd); return []; }
+        // A locked screen on the box this joins or leaves keeps its
+        // circuits where they are (_lockedPowerTrial): a pin that would
+        // deal them again is put back whole, the screen named.
+        const shared = this._lockedPowerTrial();
         // Always leave an object behind, never delete the property: an
         // absent key is missing from the update payload and the server
         // keeps whatever it had, so "back to Auto" would silently not clear.
@@ -647,6 +690,7 @@ class _Distros {
         // A pin renumbers the whole distro bucket (autos deal around it) and
         // can merge or split a shared box, so every label can move.
         this._circuitTailCache = null;
+        if (shared()) return [];
         const touched = [...new Set([layer, ...stamped])];
         if (record) {
             this.updateLayers(touched, true, 'Set Multi Number');
@@ -682,12 +726,20 @@ class _Distros {
     // is not an arrangement worth freezing. Returns the layers stamped so
     // the caller's updateLayers carries them - the incumbents can live on
     // other screens than the joiner.
+    //
+    // A LOCKED incumbent is never written, not even to hold the tails it
+    // shows (the owner's rule: a locked screen stays unchanged until
+    // unlocked). Every gesture that stamps runs the shared-box lock
+    // (_lockedPowerTrial): when the gesture would deal the locked screen's
+    // tails again, it is put back whole and the locked screen named; when
+    // they stay as they are, it goes through without touching that screen.
     _materializeSocaBox(distroId, number, exceptLayer, exceptSoca) {
         const touched = [];
         const n = parseInt(number, 10);
         if (!distroId || !Number.isFinite(n) || n < 1) return touched;
         for (const l of ((this.project && this.project.layers) || [])) {
             if ((l.type || 'screen') !== 'screen') continue;
+            if (this._layerLocked(l)) continue;
             for (const rec of this._powerNaming(l).socas.values()) {
                 // Only a PIN holds a slot against the joiner: an auto at
                 // this number re-deals around the new pin and keeps its

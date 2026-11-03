@@ -646,6 +646,10 @@ class _PhaseBalance {
         // move from somewhere else.
         const byId = (id) => (this.project.layers || []).find(l => l.id === id);
         const lockedMet = new Map();
+        // And a move on a box a locked screen shares is put back whole with
+        // the rest when it would deal the locked screen's tails again
+        // (_lockedPowerTrial).
+        const shared = this._lockedPowerTrial();
         for (const m of moves || []) {
             const ids = (m.members && m.members.length)
                 ? m.members.map(mem => mem.layerId) : [m.layerId];
@@ -658,6 +662,7 @@ class _PhaseBalance {
         }
         this._showLockedError([...lockedMet.values()]);
         this._circuitTailCache = null;
+        if (shared()) return 0;
         if (touched.size) this.updateLayers([...touched], true, 'Balance Phase Legs');
         return touched.size;
     }
@@ -1197,12 +1202,17 @@ class _PhaseBalance {
     // back on 1-4" once evaporated and let the joiner keep tail 1.
     setSocaCircuitPositions(layer, socaNum, positions, legsUsed) {
         if (!layer) return false;
+        // A locked screen keeps its tails, and so does a locked screen on
+        // a box this one shares: a move that would deal them again is put
+        // back whole, the screen named (_lockedPowerTrial).
+        if (this._lockedRefused(layer)) return false;
         const size = this.socaBoxSize(layer);
         const L = Math.max(0, Math.min(size, Number(legsUsed) || 0));
         const ok = Array.isArray(positions) && positions.length === L
             && positions.every(p => Number.isInteger(p) && p >= 1 && p <= size)
             && new Set(positions).size === L;
         if (!ok) return false;
+        const shared = this._lockedPowerTrial();
         const store = layer.powerSocaPhasePos || (layer.powerSocaPhasePos = {});
         const sorted = positions.slice().sort((a, b) => a - b);
         const natural = sorted.every((p, i) => p === i + 1);
@@ -1212,6 +1222,7 @@ class _PhaseBalance {
             store[socaNum] = sorted;
         }
         this._circuitTailCache = null;
+        if (shared()) return false;
         this.updateLayers([layer], true, 'Move Circuits');
         return true;
     }
@@ -1229,6 +1240,9 @@ class _PhaseBalance {
 
     setSocaPhaseOffset(layer, socaNum, offset, legsUsed) {
         if (!layer) return;
+        // The same locks as a tail move (setSocaCircuitPositions).
+        if (this._lockedRefused(layer)) return;
+        const shared = this._lockedPowerTrial();
         // Always leave an object behind, never delete the property itself:
         // an absent key is simply missing from the update payload and the
         // server keeps whatever it had, so "clear this" would silently not
@@ -1239,6 +1253,7 @@ class _PhaseBalance {
                                this.socaBoxSize(layer)));
         if (v) map[socaNum] = v; else delete map[socaNum];
         this._circuitTailCache = null;
+        if (shared()) return;
         this.updateLayers([layer], true, 'Set Breaker Offset');
     }
 
@@ -1256,6 +1271,9 @@ class _PhaseBalance {
     // have changed is named.
     clearPhaseBalance(distroId) {
         const screens = (this.project.layers || []).filter(l => (l.type || 'screen') === 'screen');
+        // Whatever still moves a locked screen after all that holding puts
+        // the whole reset back, the screen named (_lockedPowerTrial).
+        const shared = this._lockedPowerTrial();
         const lockedBoxes = this._lockedSharedBoxes(screens, distroId);
         // Every screen's stores as they were, for a multi the reset has to
         // leave where it is (_resetAroundPairedRows).
@@ -1291,6 +1309,7 @@ class _PhaseBalance {
         this._circuitTailCache = null;
         this._showPairedResetError(this._resetAroundPairedRows(screens, distroId, preReset));
         this._circuitTailCache = null;
+        if (shared()) return 0;
         // Locked screens are not written: nothing on them changed.
         const writable = screens.filter(l => !this._layerLocked(l));
         if (writable.length) this.updateLayers(writable, true, 'Reset Phase Offsets');

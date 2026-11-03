@@ -588,6 +588,16 @@ FIXES
   would move a locked screen's circuits on a shared multi stays until
   that screen is unlocked. Either way a message says which locked
   screen kept which circuit.
+- FIX: A locked screen sharing a multi with another screen keeps its
+  circuits when you change the other screen. Unplug circuit, Unplug
+  multi, a new multi number or distro, a split or un-split, a circuit
+  dropped on a box, moved circuits, a 2fer or 3fer, Clear Circuit and
+  Clear All, a drawn panel, a panel setting or a change to the distro's
+  outputs is refused when it would move the locked screen's circuits:
+  nothing changes, and a message says which screen is locked and why.
+  When the locked screen's circuits stay as they are, the change goes
+  through and the locked screen isn't touched. Before, these could move
+  a locked screen's circuits on the multi or write to it.
 
 v1.5.3 - October 21, 2026
 ----------------------------
