@@ -678,6 +678,18 @@ def export_pdf_from_images():
 _PAGE_OPS = ('rect', 'line', 'text', 'image')
 
 
+def _page_image_reader(data, ImageReader):
+    """PROTOTYPE (wip/binder-size): an image op's bitmap - a data URL or
+    raw bytes (a multipart part) - as a reportlab reader. A JPEG is handed
+    over as its own bytes so reportlab embeds it as is (DCTDecode) rather
+    than inflating it to raw RGB and deflating it again."""
+    if isinstance(data, str):
+        data = base64.b64decode(data.split(',', 1)[1] if ',' in data else data)
+    if data[:2] == bytes((0xFF, 0xD8)):
+        return ImageReader(io.BytesIO(data))
+    return ImageReader(Image.open(io.BytesIO(data)))
+
+
 def _pdf_page_replay(c, page, ImageReader, pdfmetrics, HexColor):
     """Replay one binder page - its display list (app-binder.js's _bRecCtx)
     - onto the reportlab canvas `c`, sized to the page. Raises ValueError
@@ -781,13 +793,13 @@ def _pdf_page_replay(c, page, ImageReader, pdfmetrics, HexColor):
         elif kind == 'image':
             iid = op.get('id')
             data = images.get(iid) if isinstance(iid, str) else None
-            if not isinstance(data, str):
+            if not isinstance(data, (str, bytes)):
                 raise ValueError(f'image {iid!r} has no bitmap')
             x, y = num(op.get('x'), 'x') * s, num(op.get('y'), 'y') * sy
             w, h = num(op.get('w'), 'w') * s, num(op.get('h'), 'h') * sy
             if iid not in readers:
                 try:
-                    readers[iid] = ImageReader(decode_base64_image(data))
+                    readers[iid] = _page_image_reader(data, ImageReader)
                 except Exception:
                     raise ValueError(f'image {iid!r} is not a PNG data URL')
             c.drawImage(readers[iid], x, ph - y - h, width=w, height=h, mask='auto')
@@ -809,7 +821,23 @@ def export_pdf_from_pages():
     except ImportError:
         return jsonify({'error': 'PDF export requires reportlab library'}), 500
 
-    data = request.get_json(silent=True)
+    if request.mimetype == 'multipart/form-data':
+        # PROTOTYPE: the display lists as a JSON 'manifest' part, every
+        # bitmap its own binary part named in the page's images as
+        # {"part": name}
+        try:
+            data = json.loads(request.form.get('manifest') or '')
+        except ValueError:
+            data = None
+        if isinstance(data, dict):
+            for pg in data.get('pages') or []:
+                imgs = pg.get('images') if isinstance(pg, dict) else None
+                if isinstance(imgs, dict):
+                    for k, v in list(imgs.items()):
+                        if isinstance(v, dict) and v.get('part') in request.files:
+                            imgs[k] = request.files[v['part']].read()
+    else:
+        data = request.get_json(silent=True)
     if not isinstance(data, dict):
         return jsonify({'error': 'Expected a JSON object with pages'}), 400
     project_name = data.get('project_name') or 'Project'

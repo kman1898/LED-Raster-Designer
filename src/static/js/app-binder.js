@@ -2414,7 +2414,64 @@ class _Binder {
     // units it lands in. Nothing else the binder draws with needs tracking
     // (grep `ctx\.` here: no arcs - the view bubble's circle is a polyline
     // - no fills of paths).
+    // PROTOTYPE (wip/binder-size): the map bitmaps' print density in px per
+    // page unit - window.__binderImg.dpi when set, else book.scale.
+    _bMapScale(book) {
+        const o = (typeof window !== 'undefined' && window.__binderImg) || null;
+        if (o && o.dpi) return o.dpi / PX_PER_IN;
+        return book.scale || 2;
+    }
+
+    // PROTOTYPE: a map canvas as a data URL in the format window.__binderImg
+    // .fmt names: 'png' (as shipped), 'png-flat' (flattened onto its matte,
+    // opaque), 'jpeg:Q', 'webp:Q'.
+    _bEncodeMap(img) {
+        const o = (typeof window !== 'undefined' && window.__binderImg) || {};
+        const fmt = String(img._binderFmt || o.fmt || 'png');
+        if (fmt === 'png') return img.toDataURL('image/png');
+        const flat = this._binderFlatCanvas || (this._binderFlatCanvas = document.createElement('canvas'));
+        flat.width = img.width; flat.height = img.height;
+        const fc = flat.getContext('2d', { alpha: false });
+        fc.fillStyle = img._binderMatte || '#ffffff';
+        fc.fillRect(0, 0, flat.width, flat.height);
+        fc.drawImage(img, 0, 0);
+        if (fmt === 'png-flat') return flat.toDataURL('image/png');
+        const [kind, q] = fmt.split(':');
+        return flat.toDataURL('image/' + kind, q ? parseFloat(q) : 0.9);
+    }
+
+    // PROTOTYPE: lay a map as its split pair (cabinets bitmap + overlay), or -
+    // with split.auto - as the single full render `off` in the plain format
+    // when that encodes smaller than the pair. Each bitmap is encoded here
+    // once and handed to the recorder as _binderDataUrl.
+    _bDrawSplitOrSingle(book, split, off, pair, rect) {
+        const urls = pair.map(c => this._bEncodeMap(c));
+        let single = null;
+        if (split.auto) {
+            off._binderFmt = split.single || 'png';
+            off._binderMatte = pair[0]._binderMatte;
+            single = this._bEncodeMap(off);
+            delete off._binderFmt;
+            const pairLen = urls[0].length + urls[1].length;
+            this._binderAutoLog = this._binderAutoLog || [];
+            this._binderAutoLog.push({ single: single.length, pair: pairLen, pick: single.length <= pairLen ? 'single' : 'split' });
+            if (single.length > pairLen) single = null;
+        }
+        try {
+            if (single) {
+                off._binderDataUrl = single;
+                book.ctx.drawImage(off, ...rect);
+            } else {
+                pair.forEach((c, i) => { c._binderDataUrl = urls[i]; book.ctx.drawImage(c, ...rect); });
+            }
+        } finally {
+            delete off._binderDataUrl;
+            pair.forEach(c => { delete c._binderDataUrl; });
+        }
+    }
+
     _bRecCtx(book, page) {
+        const app = this;
         const t = book.realCtx;
         const ops = page.ops;
         const images = page.images;
@@ -2532,7 +2589,7 @@ class _Binder {
                 let data = null;
                 try {
                     data = typeof img._binderDataUrl === 'string' ? img._binderDataUrl
-                        : typeof img.toDataURL === 'function' ? img.toDataURL('image/png') : null;
+                        : typeof img.toDataURL === 'function' ? app._bEncodeMap(img) : null;
                 } catch (_) {}
                 if (data) {
                     images[id] = data;
@@ -4564,7 +4621,7 @@ class _Binder {
         // the gutters: the rulers' and the brackets' room by default; a
         // caller that draws neither (the wiring sheet) passes its own
         let G = gutter || MAP_GUTTER;
-        const S = (book.scale || 2) * ((book.fill && book.fill.s) || 1);
+        const S = this._bMapScale(book) * ((book.fill && book.fill.s) || 1);
         const canvases = (this.project && Array.isArray(this.project.canvases)) ? this.project.canvases : [];
         const hadBy = !!this.project && Object.prototype.hasOwnProperty.call(this.project, 'groupNameDisplayByView');
         const saved = {
@@ -4707,6 +4764,7 @@ class _Binder {
                 const off = this._binderMapCanvas || (this._binderMapCanvas = document.createElement('canvas'));
                 off.width = Math.max(1, Math.round(used.w * S));
                 off.height = Math.max(1, Math.round(used.h * S));
+                off._binderMatte = '#ffffff';
                 const offCtx = off.getContext('2d', { alpha: true });
                 if (book.log) {
                     const oT = offCtx.fillText.bind(offCtx), oD = offCtx.setLineDash.bind(offCtx);
@@ -4745,7 +4803,7 @@ class _Binder {
                 const probe = outerProbe || ((typeof r.startLabelProbe === 'function')
                     ? r.startLabelProbe() : null);
                 r.render();
-                if (cut) {
+                const applyCut = (offCtx, off) => {
                     // the other members off the bitmap, then everything past
                     // this member's own room
                     const px = (rc) => [(rc.x - area.x) * S, (rc.y - area.y) * S, rc.w * S, rc.h * S];
@@ -4768,7 +4826,8 @@ class _Binder {
                     offCtx.globalCompositeOperation = 'destination-in';
                     offCtx.fillRect(...px(cut.keep));
                     offCtx.restore();
-                }
+                };
+                if (cut) applyCut(offCtx, off);
                 if (probe) {
                     const boxes = outerProbe ? outerProbe.slice(outerLen)
                                              : r.endLabelProbe();
@@ -4784,9 +4843,38 @@ class _Binder {
                     geo.mapInkLeft = minX === Infinity ? null : area.x + minX / S;
                     geo.mapArea = { x: area.x, y: area.y, w: used.w, h: used.h };
                 }
+                // PROTOTYPE split: the cabinets (Panels stage - fills and
+                // gradients) as one bitmap, everything else as a transparent
+                // overlay, each in its own format.
+                const split = (typeof window !== 'undefined' && window.__binderImg && window.__binderImg.split) || null;
+                if (split) {
+                    const ALL = ['Background', 'Image', 'Text', 'Test pattern', 'Cabinet IDs', 'Data', 'Power',
+                                 'Screen name', 'Borders', 'Panels'];
+                    const passes = [[['Panels'], split.bg || 'jpeg:0.85', '#ffffff'],
+                                    [ALL.filter(n => n !== 'Panels'), split.fg || 'png', null]];
+                    const savedStages = r.renderStages;
+                    this._binderSplit = this._binderSplit || [document.createElement('canvas'), document.createElement('canvas')];
+                    try {
+                        passes.forEach(([stages, fmt, matte], i) => {
+                            const c = this._binderSplit[i];
+                            c.width = off.width; c.height = off.height;
+                            const cx = c.getContext('2d', { alpha: true });
+                            r.canvas = c; r.ctx = cx;
+                            r.renderStages = new Set(stages);
+                            r.render();
+                            if (cut) applyCut(cx, c);
+                            c._binderFmt = fmt;
+                            c._binderMatte = matte;
+                        });
+                    } finally {
+                        r.renderStages = savedStages;
+                    }
+                    this._bDrawSplitOrSingle(book, split, off, this._binderSplit, [area.x, area.y, used.w, used.h]);
+                } else {
                 // Laid at the map's sheet size: on the scaled sheet that is
                 // one offscreen pixel per sheet pixel.
                 book.ctx.drawImage(off, area.x, area.y, used.w, used.h);
+                }
             }
         } finally {
             saved.canvasVis.forEach(([c, v]) => { c.visible = v; });
@@ -7056,7 +7144,7 @@ class _Binder {
 
     _bPaintShowMap(book, area) {
         const r = window.canvasRenderer;
-        const S = book.scale || 2;
+        const S = this._bMapScale(book);
         const saved = { canvas: r.canvas, ctx: r.ctx, exportMode: r.exportMode, transparent: r.exportTransparentBg,
                         printer: r.printerMode, viewMode: r.viewMode, zoom: r.zoom, panX: r.panX, panY: r.panY };
         let used = null;
@@ -7079,8 +7167,9 @@ class _Binder {
             if (book.log) book.log.map = { x: dx, y: dy, w: drawW, h: drawH, zoom, area: { ...area }, screens: screenRects };
             if (!(book.page && book.page.painting)) return used;
             const off = this._binderMapCanvas || (this._binderMapCanvas = document.createElement('canvas'));
-            off.width = drawW * S;
-            off.height = drawH * S;
+            off.width = Math.max(1, Math.round(drawW * S));
+            off.height = Math.max(1, Math.round(drawH * S));
+            off._binderMatte = '#f4f4f4';
             r.canvas = off;
             r.ctx = off.getContext('2d', { alpha: true });
             r.exportMode = true;
@@ -7092,7 +7181,31 @@ class _Binder {
             r.render();
             book.ctx.fillStyle = '#f4f4f4';
             book.ctx.fillRect(dx, dy, drawW, drawH);
-            book.ctx.drawImage(off, dx, dy, drawW, drawH);
+            const split = (typeof window !== 'undefined' && window.__binderImg && window.__binderImg.split) || null;
+            if (split) {
+                const ALL = ['Background', 'Image', 'Text', 'Test pattern', 'Cabinet IDs', 'Data', 'Power',
+                             'Screen name', 'Borders', 'Panels'];
+                const passes = [[['Panels'], split.bg || 'jpeg:0.85', '#f4f4f4'],
+                                [ALL.filter(n => n !== 'Panels'), split.fg || 'png', null]];
+                const savedStages = r.renderStages;
+                this._binderSplit = this._binderSplit || [document.createElement('canvas'), document.createElement('canvas')];
+                try {
+                    passes.forEach(([stages, fmt, matte], i) => {
+                        const c = this._binderSplit[i];
+                        c.width = off.width; c.height = off.height;
+                        r.canvas = c; r.ctx = c.getContext('2d', { alpha: true });
+                        r.renderStages = new Set(stages);
+                        r.render();
+                        c._binderFmt = fmt;
+                        c._binderMatte = matte;
+                    });
+                } finally {
+                    r.renderStages = savedStages;
+                }
+                this._bDrawSplitOrSingle(book, split, off, this._binderSplit, [dx, dy, drawW, drawH]);
+            } else {
+                book.ctx.drawImage(off, dx, dy, drawW, drawH);
+            }
             book.ctx.strokeStyle = RULE;
             book.ctx.lineWidth = 2;
             book.ctx.setLineDash([]);
