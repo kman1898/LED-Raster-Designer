@@ -129,6 +129,12 @@ def _screens():
     # A mirror this very request let go of (_clear_mirror) is no mirror,
     # whatever the payload - sent before the request - still says.
     cleared = {str(i) for i in (g.get('mirrors_cleared') or [])}
+    # The shape each mirrored or mirroring screen has on the client (its
+    # `mirrorShape`): checked in place of the stored layer's, which a
+    # resize's layer PUT may not have reached yet.
+    shapes = {str(scr.get('layerId', scr.get('id'))):
+              assignment.clean_mirror_shape(scr.get('mirrorShape'))
+              for scr in screens if isinstance(scr, dict)}
     out = []
     for scr in screens:
         if not isinstance(scr, dict):
@@ -143,7 +149,9 @@ def _screens():
         # A mirror whose two screens no longer match (one resized after
         # the mirror was set) is flagged, never followed.
         if src not in (None, '') and str(src) in layers and key in layers:
-            why = assignment.mirror_mismatch(layers[str(src)], layers[key])
+            why = assignment.mirror_mismatch(
+                layers[str(src)], layers[key],
+                (shapes.get(str(src)), shapes.get(key)))
             if why:
                 scr = dict(scr, mirrorMismatch=why)
         out.append(scr)

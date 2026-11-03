@@ -503,7 +503,7 @@ def test_a_mirror_screen_cannot_be_placed_on_its_own(client):
         assert resp.status_code == 409, (route, resp.get_data(as_text=True))
         # the way back is the new one: unplug the card from the copy
         assert resp.get_json()['error'] == (
-            "SR mirrors SL - its ports follow SL's and cannot be placed on "
+            "SR mirrors SL. Its ports follow SL's and cannot be placed on "
             "their own. Place SL's ports, or unplug the card from SR to stop "
             "mirroring.")
 
@@ -623,8 +623,10 @@ def test_no_socket_takes_a_hand_placed_run_on_a_mirror_box(client):
 
 @pytest.mark.parametrize('mode,boxes,needle', [
     ('copy', 2, 'OPT 3 on '),
-    ('independent', 4, 'is in Independent mode - set it to Copy mode'),
-    ('backup', 4, 'is in Backup mode - set it to Copy mode'),
+    ('independent', 4, 'is in Independent mode. Set it to Copy mode to '
+                       'feed a mirror screen.'),
+    ('backup', 4, 'is in Backup mode. Set it to Copy mode to feed a mirror '
+                  'screen.'),
 ])
 def test_a_mirror_with_nowhere_to_land_says_what_is_missing(client, mode,
                                                            boxes, needle):
@@ -659,7 +661,8 @@ def test_mx40_pro_backup_box_tells_the_mirror_to_set_it_to_mirror(client):
     set_mirror(client, b, a)
     res = resolve(client, screens)
     msg = next(i for i in res['issues'] if i['kind'] == 'mirror-unfed')
-    assert 'is set to Backup - set it to Mirror' in msg['message']
+    assert 'is set to Backup. Set it to Mirror to feed a mirror screen.' \
+        in msg['message']
     opt3 = card_of(client, cid)['cvts'][1]['id']
     _ok(client.put(f'/api/processors/{pid}/cvts/{opt3}',
                    json={'copyRole': 'mirror'}))
@@ -684,7 +687,7 @@ def test_a_size_pixel_or_port_order_mismatch_is_refused(client, change,
     body = set_mirror(client, b, a, 409)
     assert body['error'].startswith(needle), body['error']
     assert body['error'].endswith(
-        'a mirror screen must match the screen it copies.')
+        'A mirror screen must match the screen it copies.')
     assert 'dataMirrorOf' not in _layer(client, b)
 
 
@@ -742,6 +745,44 @@ def test_a_resize_after_the_mirror_is_set_is_flagged_not_followed(client):
     assert flag[0]['message'].startswith('SR is 4 x 3 cabinets and SL is '
                                          '6 x 3')
     assert scr_of(res, b)['unplaced'] == [0, 1, 2]
+
+
+def _shape(columns=4, rows=3, px=128, marks=()):
+    return {'columns': columns, 'rows': rows, 'cabinetWidth': px,
+            'cabinetHeight': px, 'halves': [False] * 4,
+            'marks': [list(m) for m in marks], 'crossRuns': False}
+
+
+def test_the_clients_shape_is_checked_not_the_stored_layer(client):
+    """1.6.0 QA: a resize that kept the port count was never checked. The
+    client now sends each mirror screen's shape (`mirrorShape`) with the
+    resolve, and that is what the match rule reads - the layer PUT of the
+    resize may not have landed yet."""
+    pid, cid, a, b, screens = mirror_rig(client)
+    set_mirror(client, b, a)
+    sent = [dict(screens[0], mirrorShape=_shape()),
+            dict(screens[1], mirrorShape=_shape(columns=5))]
+    res = resolve(client, sent)
+    flag = [i for i in res['issues'] if i['kind'] == 'mirror-mismatch']
+    assert [f['message'] for f in flag] == [
+        'SR is 5 x 3 cabinets and SL is 4 x 3. A mirror screen must match '
+        'the screen it copies. SR is not mirroring until they match again.']
+    assert scr_of(res, b)['unplaced'] == [0, 1, 2]
+    # a blank cabinet on one end only, the sizes equal
+    sent[1]['mirrorShape'] = _shape(marks=[(0, 3, True, True, 'none')])
+    flag = [i for i in resolve(client, sent)['issues']
+            if i['kind'] == 'mirror-mismatch']
+    assert flag and 'different blank, hidden or half' in flag[0]['message']
+    # matching shapes: mirrored again, the warning gone
+    sent[1]['mirrorShape'] = _shape()
+    res = resolve(client, sent)
+    assert not [i for i in res['issues'] if i['kind'] == 'mirror-mismatch']
+    assert [p['port'] for p in scr_of(res, b)['ports']] == [17, 18, 19]
+    # a shape that is not one is ignored: the stored layers decide
+    sent[1]['mirrorShape'] = {'columns': 9}
+    assert assignment.clean_mirror_shape(sent[1]['mirrorShape']) is None
+    res = resolve(client, sent)
+    assert not [i for i in res['issues'] if i['kind'] == 'mirror-mismatch']
 
 
 def test_a_one_to_one_partner_in_copy_mode_backs_up_the_mirror(client):
