@@ -718,7 +718,8 @@ class _Distros {
         return (rec && rec.share) || null;
     }
 
-    // What was SHOWING becomes HELD - the pin philosophy applied to tails.
+    // What was SHOWING becomes HELD - the pin philosophy applied to tails
+    // and to the box number.
     // Called by every gesture that lands a multi on box (distroId, number)
     // - a pin, a re-assignment carrying a pin, a split or un-split of a
     // member - BEFORE the gesture mutates anything, while "current tails"
@@ -746,12 +747,19 @@ class _Distros {
             if ((l.type || 'screen') !== 'screen') continue;
             if (this._layerLocked(l)) continue;
             for (const rec of this._powerNaming(l).socas.values()) {
-                // Only a PIN holds a slot against the joiner: an auto at
-                // this number re-deals around the new pin and keeps its
-                // own box, so it has nothing to defend.
-                if (!rec.pinned) continue;
                 if (rec.distroId !== distroId || rec.number !== n) continue;
                 if (l === exceptLayer && rec.index === Number(exceptSoca)) continue;
+                // An AUTO multi on this box holds its number too (sticky
+                // multi numbers, the owner's ruling 2026-10-16): a pin
+                // outvotes a held number, so the joiner's pin re-dealt
+                // the incumbent onto the next free number - sharing a free
+                // tail of DISTRO 2-4 moved its screen's four circuits to
+                // DISTRO 2-2 without a word (QA 1.6.0-beta.4). The box it
+                // shows is pinned before the joiner lands.
+                if (!rec.pinned) {
+                    (l.powerSocaNumber || (l.powerSocaNumber = {}))[rec.index] = n;
+                    if (!touched.includes(l)) touched.push(l);
+                }
                 const store = l.powerSocaPhasePos || (l.powerSocaPhasePos = {});
                 if (Array.isArray(store[rec.index])) continue;
                 const L = rec.circuits.length;
@@ -761,9 +769,10 @@ class _Distros {
                 if (!pos.every(p => Number.isInteger(p) && p >= 1 && p <= cap)
                     || new Set(pos).size !== L) continue;
                 store[rec.index] = pos.slice();
-                touched.push(l);
+                if (!touched.includes(l)) touched.push(l);
             }
         }
+        if (touched.length) this._circuitTailCache = null;
         return touched;
     }
 

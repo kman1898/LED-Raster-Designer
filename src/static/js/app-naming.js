@@ -1086,7 +1086,16 @@ class _Naming {
             // The box exists: the newcomer takes its lowest free tail, and
             // the box's tails are then read ascending in wall order - the
             // same rule socaCircuitPositions applies to a stored set.
-            const have = (rec.positions || []).slice();
+            const have = (rec.positions || []).slice().sort((a, b) => a - b);
+            // A plugged multi seats a newcomer between the tails either
+            // side of it, so no circuit moves (_seatNewCustomCircuit).
+            if (rec.distroId && this.usesCustomCircuits(layer)) {
+                const lo = at >= 2 ? (have[at - 2] || 0) : 0;
+                const hi = have[at - 1] || this.socaBoxSize(layer) + 1;
+                for (let t = lo + 1; t < hi; t++) {
+                    if (!have.includes(t)) return { name: rec.name, tail: t };
+                }
+            }
             let free = 1;
             while (have.includes(free)) free += 1;
             const tails = have.concat(free).sort((a, b) => a - b);

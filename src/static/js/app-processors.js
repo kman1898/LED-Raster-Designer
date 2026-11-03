@@ -2256,9 +2256,13 @@ class _Processors {
         return this._dataPortCableOn(owner, socket);
     }
 
-    _dataPortCableOn(owner, socket) {
-        const snake = this.dataPortSnake(owner, socket);
-        const rec = (owner.rec.portCables || {})[String(socket)];
+    // `key` reads another entry of the socket's store: a box backing up
+    // its OWN outputs keeps the backup output's cable under 'r<socket>'
+    // (backupCableKey) - a cable of its own that rides no snake (a snake
+    // holds the socket's main output).
+    _dataPortCableOn(owner, socket, key = null) {
+        const snake = key ? null : this.dataPortSnake(owner, socket);
+        const rec = (owner.rec.portCables || {})[key || String(socket)];
         const ft = rec ? this.parseCableLength(rec.ft) : null;
         const hasFt = !!rec && Number.isFinite(ft) && ft > 0;
         if (snake) {
@@ -2354,8 +2358,28 @@ class _Processors {
     dataPortBackupCableForScreen(layer, portNum) {
         const port = this._screenPortPin(layer, portNum);
         if (!port || typeof this._pullBackedBy !== 'function') return null;
-        const bb = this._pullBackedBy(port.cardId, port.port);
-        return bb ? this.dataPortCable(bb.cardId, bb.port, bb.cvtId || null) : null;
+        return this.dataPortBackupCable(this._pullBackedBy(port.cardId, port.port));
+    }
+
+    // A BOX BACKING UP ITS OWN OUTPUTS (a CVT4K-S straddling a VX1000's
+    // OPT 1 and its copy: ports 1-8 out on 1-8, their backup on 9-16,
+    // processor_catalog link() marks the backup end `self`). The backup
+    // output is a cable of its own with its own length - "of course it
+    // will have its own extension" (owner, 2026-11-03) - kept in the box's
+    // port cables under 'r<socket>', since both outputs share the
+    // card-wide number. Null for every other backup end, whose socket's
+    // own entry is its cable.
+    backupCableKey(bb) {
+        return bb && bb.self && bb.port != null ? `r${parseInt(bb.port, 10)}` : null;
+    }
+
+    // The home run of a port's backup end (`bb`, the main port's
+    // backedBy): read off the box or card the return comes back on, a
+    // self-backing box's backup output by its own key. Null for none.
+    dataPortBackupCable(bb) {
+        if (!bb || bb.cardId == null || bb.port == null) return null;
+        const owner = this._dataPortOwner(bb.cardId, bb.port, bb.cvtId || null);
+        return owner ? this._dataPortCableOn(owner, bb.port, this.backupCableKey(bb)) : null;
     }
 
     // The snake's tag as the bracket and the sheet print it:
@@ -2568,7 +2592,9 @@ class _Processors {
                 ? 'Set Port Extension' : 'Set Port Cable';
         }
         const stores = this._dataCableStores(owner);
-        const key = String(parseInt(socket, 10));
+        // a self-backing box's backup output: its own 'r' key
+        // (backupCableKey)
+        const key = /^r\d+$/.test(String(socket)) ? String(socket) : String(parseInt(socket, 10));
         const before = JSON.stringify(stores.portCables[key] || null);
         // a length typed as text reads the way every typed length does
         // (readTypedLength): converted and said, or refused and kept
@@ -2608,8 +2634,10 @@ class _Processors {
         }));
         const before = JSON.stringify(stores.portCables);
         (ports || owner.rec.ports || []).forEach(p => {
-            if (snaked.has(p.number)) return;
-            const key = String(p.number);
+            // a self-backing box's backup output rides no snake and keeps
+            // its own key (boxSheetPorts' cableKey)
+            if (!p.cableKey && snaked.has(p.number)) return;
+            const key = p.cableKey || String(p.number);
             const cur = stores.portCables[key] || {};
             if (ft == null) {
                 delete stores.portCables[key];

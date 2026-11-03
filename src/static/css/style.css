@@ -2225,7 +2225,7 @@ button.hw-dock-typechip:focus-visible { outline: 1px solid var(--ps-accent, #ef3
 /* the power sheet's plug column - True1 / powerCON / Edison are real
    choices there; the data sheet has none (CAT is the only data plug) */
 .hw-dock-cable-connector {
-    width: 120px; background: #0d0d0d; color: #eeeeee; border: 1px solid #555;
+    width: auto; min-width: 120px; max-width: 200px; background: #0d0d0d; color: #eeeeee; border: 1px solid #555;
     border-radius: 3px; padding: 1px 4px;
     font: 10.5px ui-monospace, Menlo, monospace;
 }

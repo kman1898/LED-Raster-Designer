@@ -11,8 +11,8 @@ The rule (the house rule for groups: per-cabinet figures never cross
 between members, TOTALS combine):
   * the load a screen's circuits carry (getCarriedPowerLoad) is the sum
     the circuit table is built from - the sheet's circuit amps add up to it;
-  * the screen carrying a wall's circuits reads the wall's load in the
-    sidebar; the wall's Power sheets follow the Power tab's Names switch
+  * a wall's members read the wall's load in the sidebar, the screen
+    carrying its circuits or not; the wall's Power sheets follow the Power tab's Names switch
     (2026-10-01: "It should depend if it is set to group vs screens"): on
     Group ONE sheet titled by the group, its Load the group's panels beside
     a "Wall load" row; on Screens a sheet per member, each Load the
@@ -220,8 +220,8 @@ def test_the_walls_load_is_both_members_and_its_circuits_sum_to_it(page):
     """The wall's first member carries every circuit: the load its circuits
     carry is WALL-L's panels plus WALL-R's, each counted once; WALL-R's own
     circuits carry nothing; the circuit amps sum to the carried amps; the
-    sidebar of the carrying screen reads the wall's amps while its cached
-    own figure stays its own."""
+    sidebar reads the wall's amps on either member while each cached own
+    figure stays its own."""
     pg, ids, errors = page
     out = _run(pg, ids)
     (ol, orr, olone), (cl, cr, clone) = out['own'], out['carried']
@@ -234,8 +234,12 @@ def test_the_walls_load_is_both_members_and_its_circuits_sum_to_it(page):
     assert side['WALL-L']['amps1'] == '%.2f A' % cl['amps1'], side
     assert side['WALL-L']['amps3'] == '%.2f A' % cl['amps3'], side
     assert side['WALL-L']['cached1'] == pytest.approx(ol['amps1'])
-    # the peer reads its own panels; the lone screen its own
-    assert side['WALL-R']['amps1'] == '%.2f A' % orr['amps1'], side
+    # the peer reads the wall's load too, whichever member is current
+    # (QA 1.6.0-beta.4); its cached own figure stays its own; the lone
+    # screen reads its own
+    assert side['WALL-R']['amps1'] == '%.2f A' % cl['amps1'], side
+    assert side['WALL-R']['amps3'] == '%.2f A' % cl['amps3'], side
+    assert side['WALL-R']['cached1'] == pytest.approx(orr['amps1'])
     assert side['LONE']['amps1'] == '%.2f A' % olone['amps1'], side
     assert not errors, errors
 

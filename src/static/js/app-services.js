@@ -680,20 +680,24 @@ class _Services {
 
     _dockServiceWarnings(s, load) {
         if (!load || !this._dockPowerWarnings) return;
-        const name = s.name || s.id;
+        // "HOUSE service", but a name that already says it - the default
+        // "SERVICE 1" - is not followed by the word again (QA
+        // 1.6.0-beta.4: "SERVICE 1 service (400 A)").
+        const raw = s.name || s.id;
+        const name = /\bservice\b/i.test(String(raw)) ? raw : `${raw} service`;
         if (load.over) {
             const leg = load.legs && load.worstLeg
                 ? ` worst leg ${this.distroLegLabel(s, load.worstLeg)}` : '';
             const note = this.distroMainLimitNote(this.distroMainLimit(s));
             this._dockPowerWarnings.push({
-                text: `${name} service:${leg} ${load.amps.toFixed(1)} A / ${+load.limitA.toFixed(1)} A`
+                text: `${name}:${leg} ${load.amps.toFixed(1)} A / ${+load.limitA.toFixed(1)} A`
                     + (note ? ` (${note}, continuous)` : ` (${Math.round(load.pct)}%)`) + ', OVER',
             });
         }
         if (load.ratingsOver) {
             this._dockPowerWarnings.push({
                 mild: true,
-                text: `${name} service (${+load.ratingA.toFixed(1)} A): its distros are rated `
+                text: `${name} (${+load.ratingA.toFixed(1)} A): its distros are rated `
                     + `${+load.ratingSum.toFixed(1)} A together `
                     + `(${load.distros.filter(r => !r.thru).map(r => `${this.distroLabel(r.distro)} ${+(Number(r.distro.ratingA) || 0).toFixed(1)} A`).join(', ')})`,
             });

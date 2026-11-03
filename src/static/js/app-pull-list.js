@@ -953,6 +953,10 @@ class _PullList {
             }
             return runs;
         };
+        // the labels of the distros whose multis are named with a dash
+        const dashNamed = new Set((typeof this.getDistros === 'function' ? this.getDistros() : [])
+            .map(d => (typeof this.distroLabel === 'function' ? this.distroLabel(d) : d && d.name))
+            .filter(n => /\d$/.test(String(n || ''))).map(String));
         // key -> { names, nums, text(runs) }, in first-seen order
         const groups = new Map();
         const plain = [];
@@ -1000,6 +1004,19 @@ class _PullList {
             // no two names here follow on: each is a name, not a run
             if (!runs.some(([a, b]) => b > a)) { out.push(...g.names); continue; }
             const prefix = key.slice(2).trim();
+            // Distros whose names end in a number name their multis with
+            // a dash ("DISTRO 1-2" is DISTRO 1's second multi), so a run
+            // of those distros never folds with one: "DISTRO 1, DISTRO 2"
+            // and "DISTRO 1 … 4" (QA 1.6.0-beta.4: two distros read
+            // "DISTRO 1-2", a multi's name).
+            if (g.names.every(n => dashNamed.has(n))) {
+                for (const [a, b] of runs) {
+                    const at = (k) => g.names[g.nums.indexOf(k)];
+                    if (b - a >= 2) out.push(`${at(a)} … ${b}`);
+                    else for (let k = a; k <= b; k++) out.push(at(k));
+                }
+                continue;
+            }
             const text = runs.map(([a, b]) => (a === b ? `${a}` : `${a}-${b}`)).join(', ');
             out.push(prefix ? `${prefix} ${text}` : text);
         }
@@ -1920,7 +1937,9 @@ class _PullList {
             (cardId != null && socket != null && typeof this._dataPortOwner === 'function'
                 ? this._dataPortOwner(cardId, socket, boxId) : null);
         const boxAt = (owner) => (owner && owner.kind === 'cvt' ? locationOf(owner.rec) : null);
-        const walk = (cardId, socket, label, into, boxId = null) => {
+        // `key` reads a self-backing box's backup output (backupCableKey):
+        // a cable of its own, never the main output's.
+        const walk = (cardId, socket, label, into, boxId = null, key = null) => {
             const owner = owned(cardId, socket, boxId);
             if (!owner) return;
             const at = boxAt(owner);
@@ -1997,13 +2016,13 @@ class _PullList {
                 if (r._pieces && r._pieces.length > 1) r._join = { type: `${word} Barrel`, per };
                 return r;
             };
-            const cable = this._dataPortCableOn(owner, socket);
+            const cable = this._dataPortCableOn(owner, socket, key);
             if (!cable) {
                 // A socket with a screen on it and no home run typed still
                 // takes a cable: one row in the cable's word, an empty
                 // length and "no length" in Notes, as a multi, a snake or a
                 // TAC with no length reads (owner, 2026-10-21).
-                const rec = (owner.rec.portCables || {})[String(socket)];
+                const rec = (owner.rec.portCables || {})[key || String(socket)];
                 push(row(this.pullDataConnectorWord(this.dataPortConnectorId(owner, rec && rec.connector)),
                          '', 1, label, 'no length', at));
                 return;
@@ -2105,7 +2124,8 @@ class _PullList {
                     ? this.getPortLabelText(layer, run.num, 'return')
                     : this.deriveReturnLabel(run.label);
                 port.backup = { label, cable: null, snake: null, ext: null, box: null };
-                walk(bb.cardId, bb.port, label, port.backup, bb.cvtId || null);
+                walk(bb.cardId, bb.port, label, port.backup, bb.cvtId || null,
+                     typeof this.backupCableKey === 'function' ? this.backupCableKey(bb) : null);
             }
         }
         for (const b of dataJumps.values()) jumpRow(settings.dataJumpName, b);

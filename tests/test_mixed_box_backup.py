@@ -1134,5 +1134,172 @@ def test_the_tray_draws_a_vx1000_straddle_as_its_own_loop(e2e_server,
     # a box looping onto itself is named once, by its sockets
     assert tray['names'] == 'A-B 1-8 ↔ 9-16', tray
     assert 'the backup of port 1 on' in tray['hover'], tray['hover']
-    assert tray['words'] == 'loop of OPT 1-2 1-8 on sockets 9-16'
+    # a box backing up its own outputs says so, never its own name
+    assert tray['words'] == 'backs up its own outputs 1-8 on 9-16'
     assert tray['ceiling'] == 10
+
+
+# ── a box backing up its own outputs: each backup output its own cable ────
+#
+# The owner, 2026-11-03, on the CVT4K-S across a VX1000's OPT 1-2 (ports 1-8
+# out on outputs 1-8, their backup on 9-16): "of course it will have its own
+# extension". Each backup output is a cable of its own, with its own length
+# on the box's cable sheet, and its own row on the pull sheet and the
+# binder. Both outputs share the card-wide number, so the backup output's
+# cable is kept under 'r<n>' in the box's port cables.
+
+def test_a_box_backing_up_its_own_outputs_links_each_backup_output(client):
+    """Each of ports 1-8 is backed by the same box's socket 8 higher, marked
+    `self`, and the box keeps a cable for each output: '1' for output 1,
+    'r1' for output 9. A released port forgets both."""
+    pid, cid = rig(client, VX1000)
+    add_boxes(client, pid, cid, [CVT4K])
+    card = card_of(client, cid)
+    box = card['cvts'][0]
+    backed = {p['number']: p['backedBy'] for p in card['ports'] if p.get('backedBy')}
+    assert sorted(backed) == list(range(1, 9)), backed
+    for n, bb in backed.items():
+        assert (bb['cvtId'], bb['port'], bb['localPort'], bb['loop'], bb.get('self')) \
+            == (box['id'], n, n + 8, True, True), bb
+    _ok(client.put(f'/api/processors/{pid}/cvts/{box["id"]}',
+                   json={'portCables': {'1': {'ft': 50}, 'r1': {'ft': 75}}}))
+    box = card_of(client, cid)['cvts'][0]
+    assert box['portCables']['1']['ft'] == 50
+    assert box['portCables']['r1']['ft'] == 75
+    # a key naming a socket the box does not have is refused, as ever
+    resp = client.put(f'/api/processors/{pid}/cvts/{box["id"]}',
+                      json={'portCables': {'r9': {'ft': 10}}})
+    assert resp.status_code == 400, resp.get_data(as_text=True)
+    procs = copy.deepcopy(client.get('/api/project').get_json()['processors'])
+    assert catalog.forget_port_cables(procs, [(cid, 1)]) == 2
+    raw = next(c for p in procs for s in p['slots'] if s.get('card')
+               for c in s['card'].get('cvts') or [])
+    assert 'portCables' not in raw, raw
+
+
+SELF_BACKUP_JS = """async (cables) => {
+    const app = window.app;
+    const send = (url, method, body) => fetch(url, { method,
+        headers: { 'Content-Type': 'application/json' },
+        body: body === undefined ? undefined : JSON.stringify(body) })
+        .then(r => r.json());
+    const card = app._processorsResolved.flatMap(p => p.slots)
+        .map(s => s.card).find(c => c && c.cvts && c.cvts.length);
+    const box = card.cvts[0];
+    const proc = app._processorsResolved.find(p => p.slots.some(s => s.card === card));
+    // a wall of four ports
+    await send('/api/layer/add', 'POST', { name: 'BIG', columns: 4, rows: 2,
+        cabinet_width: 500, cabinet_height: 500 });
+    app.project = await send('/api/project', 'GET');
+    const wall = app.project.layers.find(l => l.name === 'BIG');
+    await app._assignmentRequest('/api/port-assignments/place-overflow', 'POST', {
+        layerId: String(wall.id), cardId: card.id, firstPort: 1, lastPort: 8,
+        boxId: box.id, screens: [{ layerId: String(wall.id), name: 'BIG',
+                                   ports: app.getLayerPortsRequired(wall) }] });
+    await send(`/api/processors/${proc.id}/cvts/${box.id}`, 'PUT', { portCables: cables });
+    await app.refreshProcessors();
+    await app.refreshPortAssignment();
+    app._setDataCableSheetOpen({ kind: 'cvt', id: box.id }, true);
+    app.renderHardwareDock();
+    return { box: box.id, ports: app.getLayerPortsRequired(wall) };
+}"""
+
+SELF_READ_JS = """(boxId) => {
+    const app = window.app;
+    const wall = app.project.layers.find(l => l.name === 'BIG');
+    const list = app.buildPullList();
+    const scr = Object.values(list.byScreen || {}).find(s => s.name === 'BIG');
+    const sheet = document.querySelector(`[data-lrd-cable-sheet="cvt:${boxId}"]`);
+    const field = (key) => {
+        const el = sheet && sheet.querySelector(`[data-lrd-field="data-cable-ft-${boxId}-${key}"]`);
+        return el ? el.value : null;
+    };
+    const rowText = (key) => {
+        const el = sheet && sheet.querySelector(`[data-lrd-field="data-cable-ft-${boxId}-${key}"]`);
+        return el ? el.closest('tr').children[1].textContent : null;
+    };
+    return {
+        ends: scr.ports.map(p => [p.cable, p.backup && p.backup.cable]),
+        rows: (list.totals || []).filter(r => /etherCON|Cat6/.test(r.type))
+            .map(r => [r.length, r.qty, r.label]),
+        field1: field(1), fieldR1: field('r1'), fieldR2: field('r2'),
+        textR1: rowText('r1'),
+        tag: (app.dataPortBackupCableForScreen(wall, 1) || {}).text || null,
+    };
+}"""
+
+
+# Every text the binder prints, data side and the processor sheets.
+BINDER_TEXTS_JS = """() => {
+    const app = window.app;
+    const opts = { sheet: 'tabloid', palette: 'colour', sides: { power: false, data: true },
+                   scope: { kind: 'show' }, cover: false, pull: false, hardware: true,
+                   wiring: false };
+    const plan = app.planBinder(opts);
+    const out = [];
+    for (let i = 0; i < plan.length; i++) {
+        const r = app.renderBinderPage(opts, i);
+        r.record.ops.filter(o => o.op === 'text' && String(o.text).trim())
+            .forEach(o => out.push(String(o.text)));
+    }
+    return out;
+}"""
+
+
+def test_each_backup_output_of_a_self_backing_box_is_its_own_cable(
+        e2e_server, pw_browser):
+    """The box's cable sheet has a length of its own for each backup output
+    (socket 9 backs up port 1), the pull sheet pulls the backup run as its
+    own row, and the backup end's tag reads its own length. Typing in the
+    backup output's field writes that output only."""
+    context = pw_browser.new_context(viewport={'width': 1700, 'height': 1100})
+    context.add_init_script(
+        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+    context.add_init_script(FETCH_COUNT_JS)
+    page = context.new_page()
+    try:
+        page.goto(e2e_server, wait_until='domcontentloaded')
+        page.wait_for_function(
+            "() => window.app && window.app._initialLoadComplete === true"
+            " && window.app._socketConnects >= 1")
+        page.evaluate("() => { window.__lrdQuiet = 0; }")
+        page.wait_for_function(QUIET_JS)
+        page.evaluate(SEED_JS, [VX1000, 'unit', None, [CVT4K]])
+        page.locator('[data-mode="data-flow"]').click()
+        page.wait_for_function(
+            "() => window.canvasRenderer.viewMode === 'data-flow'")
+        seeded = page.evaluate(SELF_BACKUP_JS, {'1': {'ft': 50}, 'r1': {'ft': 75}})
+        assert seeded['ports'] >= 2, seeded
+        page.evaluate("() => window.app.renderLayers()")
+        page.evaluate("() => { window.__lrdQuiet = 0; }")
+        page.wait_for_function(QUIET_JS)
+        got = page.evaluate(SELF_READ_JS, seeded['box'])
+        assert got['ends'][0] == ["50' etherCON", "75' etherCON"], got
+        assert ["75'", 1, '1R'] in got['rows'], got['rows']
+        assert (got['field1'], got['fieldR1']) == ('50', '75'), got
+        assert got['textR1'].startswith('9 · backs up port 1'), got['textR1']
+        assert got['tag'] == "75' etherCON", got
+        # the user types the backup of port 2 on its own row
+        field = page.locator(f'[data-lrd-field="data-cable-ft-{seeded["box"]}-r2"]')
+        field.click()
+        field.fill('100')
+        page.keyboard.press('Enter')
+        page.evaluate("() => { window.__lrdQuiet = 0; }")
+        page.wait_for_function(QUIET_JS)
+        got = page.evaluate(SELF_READ_JS, seeded['box'])
+        assert got['ends'][1] == [None, "100' etherCON"], got
+        assert got['fieldR2'] == '100', got
+        # the binder says the box backs up its own outputs, in those words,
+        # and never names the box as its own primary
+        texts = page.evaluate(BINDER_TEXTS_JS)
+        title = page.evaluate("(id) => window.app._bBoxTitle(window.app"
+                              "._processorsResolved.flatMap(p => p.slots).map(s => s.card)"
+                              ".find(c => c && c.cvts && c.cvts.length).cvts[0])",
+                              seeded['box'])
+        want = f'{title} backs up its own outputs 1-8 on 9-16'
+        assert any(t == want for t in texts), (want, [t for t in texts if 'backs up' in t])
+        assert not any(f'{title} backs up {title}' in t for t in texts), texts
+        assert any(t == 'Backup boxes' for t in texts), [t for t in texts if 'ackup' in t]
+    finally:
+        context.close()
+

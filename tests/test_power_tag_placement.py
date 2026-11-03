@@ -10,10 +10,11 @@ circuit's run LEAVES its label disc -
   - the run goes RIGHT, or LEFT                 -> the tags ABOVE the disc;
   - a circuit of one cabinet has no step        -> ABOVE;
 
-centred on the disc's x, the tag first and the pill beneath it, the pill
-CENTRED under the tag ("3fer etc needs to be centered under the TRUE1
-extension") - so above the disc the column reads tag, pill, disc and under
-it disc, tag, pill. The direction is the run's first step AS DRAWN: on a
+centred on the disc's x, the pill CENTRED on the tag ("3fer etc needs to
+be centered under the TRUE1 extension"). The splitter pill is always the
+one next to the disc, in the row of every other splitter pill on the
+screen (the owner, 2026-11-03): above the disc the column reads tag, pill,
+disc and under it disc, pill, tag. The direction is the run's first step AS DRAWN: on a
 rotated screen "down" is down on the sheet. When the preferred spot would
 leave the screen or cover another disc or pill, the tags fall back through
 the OTHER side of the disc (above <-> under), and beside it only after
@@ -265,13 +266,19 @@ def _faults(boxes, want):
                 bad.append('%s: the column is not under the disc (disc bottom %.1f, %r)'
                            % (name, d['y'] + d['h'], [(b['text'], b['y'], b['h']) for b in column]))
         if p:
-            # the pill centred under the tag, a hair apart; above the disc
-            # that puts it between the tag and the disc
+            # the pill centred on the tag, a hair apart, between the tag
+            # and the disc: beneath the tag above the disc, over it under
+            # the disc
             if abs(_cx(p) - _cx(t)) > HAIR:
                 bad.append('%s: pill %s centre x %.1f, tag centre x %.1f' % (name, p['text'], _cx(p), _cx(t)))
-            gap = p['y'] - (t['y'] + t['h'])
+            if want == 'above':
+                gap = p['y'] - (t['y'] + t['h'])
+                where = 'beneath'
+            else:
+                gap = t['y'] - (p['y'] + p['h'])
+                where = 'over'
             if not (-HAIR <= gap < 6):
-                bad.append('%s: pill %s is not directly beneath the tag (gap %.1f)' % (name, p['text'], gap))
+                bad.append('%s: pill %s is not directly %s the tag (gap %.1f)' % (name, p['text'], where, gap))
     # nothing the tags drew covers a disc - its own or another - or
     # another pill
     for b in ink:
@@ -351,7 +358,8 @@ def test_with_no_room_over_the_disc_the_tags_go_under_it(page):
     row and the column (tag, pill, stand-off) is taller than the room above
     it inside the screen - so the tags go to the OTHER side of the disc
     (the owner, 2026-09-25: "we should go below"): UNDER it, centred on
-    it, the pill still centred under the tag, covering nothing."""
+    it, the pill next to the disc and the tag beneath it (2026-11-03),
+    covering nothing."""
     pg, errors = page
     boxes = _probe(pg, ['SHORT'], 'tl-v')
     heads = _heads(boxes)
@@ -365,15 +373,15 @@ def test_with_no_room_over_the_disc_the_tags_go_under_it(page):
         # the disc would start over the wall's top edge
         column_h = t['h'] + p['h'] + 1 + 14 * 0.6
         assert d['y'] - column_h < top, ('the fixture must leave no room above', name, d, top)
-        if t['y'] < d['y'] + d['h'] - HAIR:
-            bad.append('%s: tag top %.1f is not under the disc (bottom %.1f)'
-                       % (name, t['y'], d['y'] + d['h']))
+        if p['y'] < d['y'] + d['h'] - HAIR:
+            bad.append('%s: pill top %.1f is not under the disc (bottom %.1f)'
+                       % (name, p['y'], d['y'] + d['h']))
         if abs(_cx(t) - _cx(d)) > HAIR:
             bad.append('%s: tag centre x %.1f, disc centre x %.1f' % (name, _cx(t), _cx(d)))
         if abs(_cx(p) - _cx(t)) > HAIR:
             bad.append('%s: pill centre x %.1f, tag centre x %.1f' % (name, _cx(p), _cx(t)))
-        if not (-HAIR <= p['y'] - (t['y'] + t['h']) < 6):
-            bad.append('%s: pill not directly beneath the tag' % name)
+        if not (-HAIR <= t['y'] - (p['y'] + p['h']) < 6):
+            bad.append('%s: tag not directly beneath the pill' % name)
     ink = _kind(boxes, 'tag') + _kind(boxes, 'gang')
     for b in ink:
         for d in _kind(boxes, 'disc'):
@@ -546,8 +554,9 @@ def test_every_head_of_a_screen_hangs_its_tags_on_one_side(page):
     """MIXED, run down from the top row: the 3fer with a length has no room
     for its tag and pill over its disc, while the 3fer with no length and
     the lone 25' tag would each fit there. Every head hangs under its disc
-    - the tag first, the pill centred under it; the lone 3fer pill in the
-    tag's slot - covering nothing."""
+    - the pill next to the disc, the tag centred under it; the lone 3fer
+    pill in the same row as the stacked one (the owner, 2026-11-03: the
+    splitter pills line up) - covering nothing."""
     pg, errors = page
     try:
         boxes = _probe(pg, ['MIXED'], 'tl-v')
@@ -568,14 +577,22 @@ def test_every_head_of_a_screen_hangs_its_tags_on_one_side(page):
         sides = [(d['text'], sorted(set(s for _, _, s in worn))) for d, worn in stacks]
         assert all(s == ['under'] for _, s in sides), sides
         bad = _faults(_wall_boxes(boxes, _heads(boxes)), 'under') + _covers(boxes)
-        # the lone pill sits in the tag's slot: centred under its disc, the
-        # stand-off a tag keeps
+        # the lone pill stands where the stacked one does: centred under
+        # its disc, the stand-off a pill keeps, in the same row; the lone
+        # tag (head 3) stands where a tag with no pill does
+        pill1 = [b for b in _kind(boxes, 'gang') if _gap(b, d1) < 20][0]
+        tag3 = [b for b in _kind(boxes, 'tag') if b['text'] == "25' TRUE1"][0]
         if abs(_cx(pill2) - _cx(d2)) > HAIR:
             bad.append('lone 3fer centre x %.1f, disc %.1f' % (_cx(pill2), _cx(d2)))
-        t1 = tag1['y'] - (d1['y'] + d1['h'])
+        p1 = pill1['y'] - (d1['y'] + d1['h'])
         p2 = pill2['y'] - (d2['y'] + d2['h'])
-        if abs(p2 - t1) > HAIR:
-            bad.append('lone 3fer stands %.1f off its disc, the tag %.1f' % (p2, t1))
+        t3 = tag3['y'] - (d3['y'] + d3['h'])
+        if abs(p2 - p1) > HAIR:
+            bad.append('lone 3fer stands %.1f off its disc, the stacked 3fer %.1f' % (p2, p1))
+        if abs(t3 - p1) > HAIR:
+            bad.append('lone tag stands %.1f off its disc, the stacked 3fer %.1f' % (t3, p1))
+        if tag1['y'] < pill1['y'] + pill1['h'] - HAIR:
+            bad.append("the 10' tag is not beneath its 3fer")
         assert not bad, '\n'.join([''] + bad)
     finally:
         pg.evaluate(BUILD_JS, [['WALL'], 'tl-h', 0])

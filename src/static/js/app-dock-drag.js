@@ -1095,8 +1095,12 @@ class _DockDrag {
                 const fig = load && load.ratingA > 0
                     ? ` ${load.amps.toFixed(0)}/${+load.limitA.toFixed(1)} A` : '';
                 if (!gate.ok) {
-                    return { label: `${name}: ${gate.message}`, disabled: true,
-                             title: gate.message };
+                    // A reason that already starts with the distro's name
+                    // is not named twice ("DISTRO 3: DISTRO 3 has no multi
+                    // outputs", QA 1.6.0-beta.4).
+                    const said = String(gate.message || '').startsWith(name);
+                    return { label: said ? gate.message : `${name}: ${gate.message}`,
+                             disabled: true, title: gate.message };
                 }
                 const payload = { type: 'plug', distroId: d.id,
                                   output: `face:${gate.faceRow.row.id}`,
@@ -1633,7 +1637,7 @@ class _DockDrag {
         // that type passes the same gate a single-output drag does, with
         // the same refusal on the strip. All or nothing: one multi the
         // distro would not feed refuses the whole drop and nothing
-        // mutates. A screen whose breakout no output type names (L6-20)
+        // mutates. A screen whose breakout no output type names
         // is refused naming the breakout, as its chip drops are; a distro
         // whose explicit OUTPUTS list leaves the type out is refused the
         // way the right-click submenu greys it.

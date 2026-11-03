@@ -142,13 +142,11 @@ class _DockMenus {
         const rec = slot ? nm.socas.get(slot.multi) : null;
         if (!rec) return null;
         const name = rec.name || `multi ${rec.number}`;
-        if (!rec.distroId) {
-            return {
-                label: `Unplug multi ${name}`, disabled: true,
-                title: `${name} is not on a distro, so there is nothing to `
-                    + 'unplug.',
-            };
-        }
+        // A multi on no distro has nothing to unplug: the item is left off
+        // the menu, as the merge item is with nothing to merge (QA
+        // 1.6.0-beta.4: offered greyed, it read as an item that did
+        // nothing).
+        if (!rec.distroId) return null;
         // The multi is the BOX, (distro, number): every part on it goes,
         // as the tray's own Unplug on this box does (the slot chip). An
         // Unplug circuit leaves a multi in parts on one box - 1-2 and 4-5
@@ -272,6 +270,10 @@ class _DockMenus {
             : (!tailOnly && seg.userEnd ? seg.index : null);
         if (headIdx == null) return null;
         const head = this._powerNaming(layer).socas.get(headIdx);
+        // A head on a DIRECT output holds one circuit: merging the next
+        // part into it piled every circuit onto one connector and the app
+        // then flagged its own result OVER (QA 1.6.0-beta.4). Not offered.
+        if (head && head.distroId && this._isDirectBox(head.distroId, head.number)) return null;
         const name = (head && head.name) || `multi ${headIdx}`;
         return {
             label: `Merge back into ${name}`,

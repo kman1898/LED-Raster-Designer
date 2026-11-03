@@ -609,12 +609,19 @@ class _CustomRuns {
         // locked screen is not added when it would move that screen's
         // tails (_lockedPowerTrial).
         const shared = this._lockedPowerTrial();
+        // A NEW circuit keeps every plugged circuit on its tail
+        // (_seatNewCustomCircuit): a tail a Clear Circuit freed stays free.
+        const seatBefore = owner.powerCustomPaths[circuitNum].length === 0
+            ? this._customSeatSnapshot(owner) : null;
         owner.powerCustomPaths[circuitNum].push(this.makePathEntry(owner, source, panel));
+        const seated = seatBefore ? this._seatNewCustomCircuit(owner, circuitNum, seatBefore) : [];
         if (shared()) return;
         this.saveState('Power Custom Path Edit');
         this.saveClientSideProperties();
         // v0.8.2: PUT to server so per-panel circuit assignments persist.
-        this.updateLayers(this._pathPersistLayers(owner));
+        const persist = this._pathPersistLayers(owner);
+        seated.forEach(l => { if (!persist.includes(l)) persist.push(l); });
+        this.updateLayers(persist);
         if (this.powerCustomDebug) {
             console.log('[CustomPower] Add panel', {
                 circuitNum, row: panel.row, col: panel.col,

@@ -301,7 +301,7 @@ def test_the_box_header_flips_into_the_sheet(page):
     assert s['heads'] == ['no.', 'circuit', 'screen', 'cable', 'connector'], s['heads']
     assert all(r['who'] == 'WALL' and not r['free'] for r in s['rows']), s
     assert all(r['ft'] == '' and r['connector'] == '' for r in s['rows']), s
-    assert all(r['blank'] == 'TRUE1 (follows Multi 208)' for r in s['rows']), s
+    assert all(r['blank'] == 'TRUE1 (default)' for r in s['rows']), s
     # the breakouts' connectors, then every distro face connector's cable
     # (2026-10-21: a cable off a direct output can be any of them)
     assert s['rows'][0]['options'] == ['', 'true1', 'powercon', 'edison', 'l620', 'powerconxx',
@@ -646,8 +646,13 @@ TAG_SIDES_JS = """([pattern, labelSize]) => {
             labels.push([text, p[1], group.reduce((a, g) => a + g[2], 0) / group.length]);
         }
     });
+    // A tag beside its label on the side its run leaves by stands just
+    // above the run's line (QA 1.6.0-beta.4), so it is matched to the
+    // nearest label within a label's height, not on the label's own y.
     return tags.map(t => {
-        const lab = labels.find(x => Math.abs(x[2] - t[2]) < 2);
+        const near = labels.filter(x => Math.abs(x[2] - t[2]) < labelSize)
+            .sort((a, b) => Math.abs(a[2] - t[2]) - Math.abs(b[2] - t[2]));
+        const lab = near[0];
         return { tag: t[0], side: lab ? (t[1] > lab[1] ? 'right' : 'left') : 'none',
                  lx: lab ? Math.round(lab[1]) : null, tx: Math.round(t[1]) };
     });

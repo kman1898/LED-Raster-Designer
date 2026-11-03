@@ -6331,12 +6331,19 @@ class _Binder {
         const each = tiles.length ? (tMin === tMax ? `${tMin} panels each` : `${tMin}-${tMax} panels each`) : '';
         // the circuits past their limit (_bCircuitOver), each judged on
         // its own carrier's figure: an OVER row in FACTS names how many
-        // and the limit, "22 circuits over a 20 A circuit held to 16 A
-        // (80%)"
+        // and the limit, "22 circuits over 16 A (80% of 20 A)" - it read
+        // "22 circuits over a 20 A circuit", a plural against a singular
+        // (QA 1.6.0-beta.4)
         const overs = units.flatMap(u => (u.box.circuits || []).filter(c => this._bCircuitOver(u.carrier, c.amps))
             .map(() => u.carrier));
-        const overLimits = [...new Set(overs.map(l => (typeof this.circuitLimitText === 'function'
-            ? this.circuitLimitText(l) : '')).filter(Boolean))];
+        const limitOf = (l) => {
+            if (typeof this.circuitCapacity !== 'function') return '';
+            const cap = this.circuitCapacity(l);
+            const breaker = +cap.breakerA.toFixed(2);
+            return cap.pct >= 1 ? `${breaker} A`
+                : `${+cap.amps.toFixed(2)} A (${Math.round(cap.pct * 100)}% of ${breaker} A)`;
+        };
+        const overLimits = [...new Set(overs.map(limitOf).filter(Boolean))];
         const overRow = overs.length
             ? [['Over', `${this._bPlural(overs.length, 'circuit')} over ${overLimits.join(' / ') || 'the limit'}`]] : [];
         const distroIds = [...new Set(units.map(u => u.box.distroId).filter(Boolean))];
@@ -6888,8 +6895,8 @@ class _Binder {
             const end = bb ? this._bBackupEnd(carrier, run.num, bb) : null;
             // The backup end's own run, as the backup card's or box's own ≡
             // sheet typed it.
-            const backupCable = end && typeof this.dataPortCable === 'function'
-                ? this.dataPortCable(bb.cardId, bb.port, bb.cvtId || null) : null;
+            const backupCable = end && typeof this.dataPortBackupCable === 'function'
+                ? this.dataPortBackupCable(bb) : null;
             if (end) {
                 split = true;
                 // A return on ANOTHER unit names that unit once, over the
@@ -8355,10 +8362,14 @@ class _Binder {
         // to Backup) says which box backs up which first: "CVT4K-S C-D
         // backs up CVT4K-S A-B" - the vendor's wiring, in force whatever
         // the bar says - then any shape still at work beside it.
+        // A box backing up its own outputs says so: "CVT4K-S A-B backs up
+        // its own outputs 1-8 on 9-16" (boxSelfBackupText), never itself
+        // by name.
         const loopsOf = (card) => (typeof this._cardLoopBackups === 'function'
             ? this._cardLoopBackups(card) : [])
             .map(l => `${this._bBoxTitle(l.box)} backs up `
-                + l.mains.map(m => (m ? this._bBoxTitle(m) : 'own ports')).join(', '))
+                + l.mains.map(m => (m === l.box ? this.boxSelfBackupText(l.box)
+                    : m ? this._bBoxTitle(m) : 'own ports')).join(', '))
             .join('; ');
         const shapeOf = (card) => {
             const rshape = card.redundancyShape;
@@ -8560,6 +8571,22 @@ class _Binder {
                     }
                     runs.push({ cells: [`${o.title} ${local(socket)}`, 'cable', this.pullLengthText(ft, 'data'),
                                         this.dataCableWord(connId)] });
+                }
+                // A box backing up its OWN outputs: each backup output is
+                // a cable of its own (owner, 2026-11-03), by its own
+                // socket, its length under its 'r' key (backupCableKey).
+                if (o.kind === 'cvt') {
+                    for (const m of o.rec.backsUpPorts || []) {
+                        if (m.boxId !== o.id) continue;
+                        if (!occ || !this._portOccupants(card.id, m.number).length) continue;
+                        const c = (o.rec.portCables || {})[`r${m.number}`] || null;
+                        const ft = this.parseCableLength(c && c.ft);
+                        const has = Number.isFinite(ft) && ft > 0;
+                        const connId = this.dataPortConnectorId({ rec: o.rec }, c && c.connector);
+                        runs.push({ cells: [`${o.title} ${m.socket}`, 'cable',
+                                            has ? this.pullLengthText(ft, 'data') : 'no length',
+                                            this.dataCableWord(connId)] });
+                    }
                 }
             }
         }

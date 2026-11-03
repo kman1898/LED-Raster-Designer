@@ -406,6 +406,9 @@ Object.assign(CanvasRenderer.prototype, {
         // backup feeds it: from the last cabinet back to the one before.
         const labelDiscs = [];
         const pendingTags = [];
+        // Every run line this pass draws (layer frame), so a pill is not
+        // hung across one (_placeCableTag).
+        const runSegs = [];
         // The ports' load badges, placed after the tags (placePortLoadBadge).
         const pendingLoads = [];
         // LONG JUMPS (2026-09-25): with the cable tags on, a link between
@@ -474,6 +477,9 @@ Object.assign(CanvasRenderer.prototype, {
                 text: t.text, nfer: null,
                 own: discsU[labelDiscs.indexOf(t.disc)],
                 prefer: this._tagRunSide(t.step, F),
+                run: this._tagRunDir(t.step, F),
+                line: this._tagRunLine(t.step, F),
+                segs: this._tagRunSegs(runSegs.filter(g => g[4] === t.run), F),
             }));
             const placed = this.placeTagHeads(heads, labelSize, bounds, discsU, taken,
                                               this._tagSideKey('data', layer));
@@ -505,7 +511,8 @@ Object.assign(CanvasRenderer.prototype, {
         // port of one cabinet. The tag's side is read off it (2026-09-25).
         const runStep = (a, b) => (a && b)
             ? { dx: (b.x + b.width / 2) - (a.x + a.width / 2),
-                dy: (b.y + b.height / 2) - (a.y + a.height / 2) }
+                dy: (b.y + b.height / 2) - (a.y + a.height / 2),
+                ax: a.x + a.width / 2, ay: a.y + a.height / 2 }
             : null;
 
         const drawPort = (portPanels, portNum, loadPanels) => {
@@ -537,6 +544,7 @@ Object.assign(CanvasRenderer.prototype, {
                 this.ctx.moveTo(cx, cy);
                 this.ctx.lineTo(nx, ny);
                 this.ctx.stroke();
+                runSegs.push([cx, cy, nx, ny, portNum]);
             }
             this.ctx.restore();
             
@@ -684,7 +692,7 @@ Object.assign(CanvasRenderer.prototype, {
                 const cableTag = tagText(cable);
                 if (cableTag) {
                     pendingTags.push({ text: cableTag, disc: primaryDisc,
-                                       step: runStep(portPanels[0], portPanels[1]) });
+                                       step: runStep(portPanels[0], portPanels[1]), run: portNum });
                 }
                 // The return marker wears the BACKUP socket's own tag the
                 // same way - the backup box's snake, its extension, or its
@@ -697,7 +705,7 @@ Object.assign(CanvasRenderer.prototype, {
                 if (backupTag) {
                     const n = portPanels.length;
                     pendingTags.push({ text: backupTag, disc: returnDisc,
-                                       step: runStep(portPanels[n - 1], portPanels[n - 2]) });
+                                       step: runStep(portPanels[n - 1], portPanels[n - 2]), run: portNum });
                 }
             }
 

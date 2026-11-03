@@ -25,20 +25,30 @@ class _Power {
             // A custom wall steps circuit by circuit, never leg by leg
             // (customCircuitRun below).
             if (kind === 'power' && this.isCustomPower(layer)) {
-                // A cleared gap reads as the place of the circuit after it
-                // (customCircuitShown), so Next from the gap lands on that
-                // circuit, not past it.
-                const shown = this.customCircuitShown(layer, current);
-                const head = parseInt(this._customCircuitHead(layer, current), 10);
-                const onCircuit = !this.usesCustomCircuits(layer)
-                    || this.screenCircuits(layer).some(c => c.num === head);
-                const target = shown + delta - (!onCircuit && delta > 0 ? 1 : 0);
-                // Prev from a gap goes to the circuit before it. A gap with
-                // no circuit before it (circuit 1 cleared) stays put: the
-                // place-1 circuit is AFTER the gap, and stepping back must
-                // never move forward.
-                if (!onCircuit && delta < 0 && target < 1) return current;
-                return this.customCircuitRun(layer, Math.max(1, target));
+                if (!this.usesCustomCircuits(layer)) {
+                    return this.customCircuitRun(layer, Math.max(1, current + delta));
+                }
+                // Circuit to circuit, never onto a cleared gap (the
+                // owner's ruling, 2026-10-22) - a gap the field counts
+                // (_customPlaceRuns) included. Next from a gap lands on
+                // the circuit after it, Prev on the one before it; a gap
+                // with no circuit before it (circuit 1 cleared) stays put,
+                // since stepping back must never move forward. Past the
+                // last circuit is the next free number.
+                const heads = this.screenCircuits(layer).map(c => Number(c.num));
+                let at = parseInt(this._customCircuitHead(layer, current), 10);
+                for (let i = 0; i < Math.abs(delta); i++) {
+                    if (delta > 0) {
+                        const next = heads.find(h => h > at);
+                        at = next != null ? next
+                            : this.customCircuitRun(layer, Number.MAX_SAFE_INTEGER);
+                    } else {
+                        const before = heads.filter(h => h < at);
+                        if (before.length) at = before[before.length - 1];
+                        else if (heads.includes(at)) at = heads[0];
+                    }
+                }
+                return at;
             }
             return Math.max(1, current + delta);
         }
@@ -89,23 +99,60 @@ class _Power {
     // would take, so the field and the label agree after a clear (the
     // owner's ruling, 2026-10-22: the drawn number counted the gap, and
     // the field read 4 over S1-3). With nothing drawn it is the number.
+    //
+    // A gap whose tail its multi still holds free on a distro (sticky
+    // multi numbers: the circuits after it keep their tails, 1, 3, 4 read
+    // S1-1, S1-3, S1-4) is counted, so the field reads 2 on it and 3 over
+    // S1-3 - it read 2 over S1-3 and the clicks went to circuit 3 (QA
+    // 1.6.0-beta.4, round 3) - and a typed 2 is that gap, to draw it
+    // again. Next / Prev still step over it. A gap on a multi that
+    // re-packs (no distro) is not counted: the labels close up over it.
     customCircuitShown(owner, num) {
         const n = parseInt(num, 10) || 1;
         if (!owner || !this.usesCustomCircuits(owner)) return n;
         const head = parseInt(this._customCircuitHead(owner, n), 10) || n;
-        return this.screenCircuits(owner).filter(c => c.num < head).length + 1;
+        const places = this._customPlaceRuns(owner);
+        const at = places.indexOf(head);
+        return at >= 0 ? at + 1 : places.filter(r => r < head).length + 1;
+    }
+
+    // The drawn numbers that are places on a custom wall, in wall order:
+    // every circuit's first run, and every cleared gap whose tail stays
+    // held - the next circuit after it sits on a distro, which keeps its
+    // tails where a clear left them (_removeCircuitsKeepFeeds). A share's
+    // later legs are no place.
+    _customPlaceRuns(owner) {
+        const circuits = this.screenCircuits(owner);
+        if (!circuits.length) return [];
+        const heads = circuits.map(c => Number(c.num));
+        const runs = new Set(circuits.flatMap(c => (c.runIds || [c.num]).map(Number)));
+        const max = Math.max(...runs);
+        const nm = this._powerNaming(owner);
+        const out = [];
+        let next = 0;
+        for (let n = 1; n <= max; n++) {
+            if (runs.has(n)) {
+                if (heads.includes(n)) out.push(n);
+                continue;
+            }
+            while (next < heads.length && heads[next] < n) next += 1;
+            const slot = next < heads.length ? nm.slots.get(heads[next]) : null;
+            const rec = slot ? nm.socas.get(slot.multi) : null;
+            if (rec && rec.distroId) out.push(n);
+        }
+        return out;
     }
 
     // The drawn number circuit `shown` is written under: the first run of
-    // the circuit in that place, or past the last circuit the next free
-    // number, one after the highest drawn. The inverse of
-    // customCircuitShown, so stepping and typing land on circuits and the
-    // next free one, never on a cleared gap.
+    // the circuit in that place (a held gap is a place, _customPlaceRuns),
+    // or past the last circuit the next free number, one after the
+    // highest drawn. The inverse of customCircuitShown, so stepping and
+    // typing land on circuits, held gaps and the next free one.
     customCircuitRun(owner, shown) {
         const want = Math.max(1, parseInt(shown, 10) || 1);
         if (!owner || !this.isCustomPower(owner) || !this.usesCustomCircuits(owner)) return want;
-        const circuits = this.screenCircuits(owner);
-        if (want <= circuits.length) return circuits[want - 1].num;
+        const places = this._customPlaceRuns(owner);
+        if (want <= places.length) return places[want - 1];
         const paths = owner.powerCustomPaths || {};
         const drawn = Object.keys(paths).map(k => parseInt(k, 10))
             .filter(k => Number.isFinite(k) && (paths[k] || []).length > 0);
@@ -657,22 +704,31 @@ class _Power {
         // circuit with its neighbour's number.
         layer._powerCircuitNumKeys = powerAssignments.nums || null;
 
-        if (circuitsEl) circuitsEl.textContent = circuitsRequired > 0 ? circuitsRequired.toLocaleString('en-US') : '0';
         layer._powerCircuitsRequired = circuitsRequired;
-        // The screen that carries a wall's circuits reads the WALL's load
-        // beside the wall's circuit count - the figure its circuits draw,
-        // every member's panels counted once (getCarriedPowerLoad) - the
-        // way its canvas label already does. A screen that routes alone
-        // reads its own panels, exactly as before; the cached
-        // _powerTotalAmps1/3 stay this screen's own either way.
-        const carried = circuitsRequired > 0 ? this.getCarriedPowerLoad(layer) : null;
-        const wall = carried && carried.peers.length ? carried : null;
-        const shownAmps1 = wall ? wall.amps1 : totalAmps1;
-        const shownAmps3 = wall ? wall.amps3 : totalAmps3;
-        const wallTitle = wall
-            ? `The wall's load on these circuits: ${[layer, ...wall.peers].map(l => l.name).join(' + ')}` : '';
-        if (amps1El) { amps1El.textContent = shownAmps1 ? shownAmps1.toFixed(2) + ' A' : '0'; amps1El.title = wallTitle; }
-        if (amps3El) { amps3El.textContent = shownAmps3 ? shownAmps3.toFixed(2) + ' A' : '0'; amps3El.title = wallTitle; }
+        // The circuit count and the load beside it are the WALL's wherever
+        // the screen's circuits are (_powerReadoutFor): a group member
+        // whose cabinets ride a peer's circuits read 0 and its own amps
+        // while the member carrying them read the wall's (QA 1.6.0-beta.4).
+        // The cached _powerTotalAmps1/3 stay this screen's own either way.
+        const shown = this._powerReadoutFor(layer, circuitsRequired, totalAmps1, totalAmps3);
+        // Screens selected together that read different figures have no
+        // one count or load to show: "-", as the per-circuit boxes above.
+        const others = picked.length > 1 && picked.includes(layer)
+            ? picked.filter(l => l !== layer) : [];
+        const mixed = others.length > 0 && others.some(l => {
+            const r = this._powerReadoutFor(l);
+            return r.circuits !== shown.circuits
+                || Math.abs(r.amps1 - shown.amps1) > 0.005
+                || Math.abs(r.amps3 - shown.amps3) > 0.005;
+        });
+        if (circuitsEl) {
+            circuitsEl.textContent = mixed ? '-'
+                : (shown.circuits > 0 ? shown.circuits.toLocaleString('en-US') : '0');
+        }
+        const wallTitle = mixed ? '' : shown.title;
+        const amps = (v) => (mixed ? '-' : (v ? v.toFixed(2) + ' A' : '0'));
+        if (amps1El) { amps1El.textContent = amps(shown.amps1); amps1El.title = wallTitle; }
+        if (amps3El) { amps3El.textContent = amps(shown.amps3); amps3El.title = wallTitle; }
         // The cap under the custom controls reads the same figures.
         this._syncCustomFillReadout('power');
         // A change that cuts a row, or stops cutting one, shows or hides
@@ -690,6 +746,54 @@ class _Power {
             this.refreshSplitterPanel();
             this.refreshDistroPanel();
         });
+    }
+
+    // What the Power settings box reads for `layer`: { circuits, amps1,
+    // amps3, title }. The screen that carries a wall's circuits reads the
+    // WALL's load beside the wall's circuit count - the figure its
+    // circuits draw, every member's panels counted once
+    // (getCarriedPowerLoad) - the way its canvas label already does. A
+    // group member with no circuits of its own whose cabinets ride its
+    // peers' circuits reads those carriers' count and load, so a group
+    // reads the same whichever member is current. A screen that routes
+    // alone reads its own panels. `circuits`, `amps1` and `amps3` may be
+    // passed when the caller already has them.
+    _powerReadoutFor(layer, circuits = null, amps1 = null, amps3 = null) {
+        const own = circuits == null ? this.screenCircuitCount(layer) : circuits;
+        if (amps1 == null || amps3 == null) {
+            const v = parseFloat(layer.powerVoltage) || 0;
+            const panels = (layer.panels || []).filter(p => !p.blank && !p.hidden);
+            const watts = (parseFloat(layer.panelWatts) || 0)
+                * panels.reduce((sum, p) => sum + this.getPanelLoadFactor(layer, p), 0);
+            const lineV = this.threePhaseLineVoltage(layer);
+            amps1 = v > 0 ? watts / v : 0;
+            amps3 = lineV > 0 ? watts / (lineV * 1.73) : 0;
+        }
+        const wallOf = (carriers) => {
+            const loads = carriers.map(c => ({ c, load: this.getCarriedPowerLoad(c) }));
+            const names = new Map();
+            loads.forEach(({ c, load }) => {
+                names.set(String(c.id), c.name);
+                load.peers.forEach(p => names.set(String(p.id), p.name));
+            });
+            return {
+                circuits: loads.reduce((n, x) => n + x.load.circuits, 0),
+                amps1: loads.reduce((n, x) => n + x.load.amps1, 0),
+                amps3: loads.reduce((n, x) => n + x.load.amps3, 0),
+                title: `The wall's load on these circuits: ${[...names.values()].join(' + ')}`,
+            };
+        };
+        if (own > 0) {
+            const carried = this.getCarriedPowerLoad(layer);
+            if (carried.peers.length) return Object.assign(wallOf([layer]), { circuits: own });
+            return { circuits: own, amps1, amps3, title: '' };
+        }
+        const carriers = (typeof this.getPathScopeLayers === 'function'
+            ? this.getPathScopeLayers(layer) : [layer])
+            .filter(m => m !== layer && m.id !== layer.id
+                && this.getCarriedPowerLoad(m).peerIds.some(id => String(id) === String(layer.id)));
+        if (carriers.length) return wallOf(carriers);
+        return { circuits: own, amps1, amps3, title: '' };
     }
 
     // ---- Soca plan (Phase B) -------------------------------------------------
@@ -2003,10 +2107,13 @@ class _Power {
     // Multi 120 on a screen up to 120V with a True1, powerCON or Edison
     // breakout, an L21-30 on a 208V screen's L21-30 box. The voltage
     // matters because True1 and powerCON breakouts now exist at both
-    // voltages. Nothing is extrapolated past the table - a breakout no
-    // type names (L6-20) is a mismatch like any other, refused with the
-    // fix said out loud, never silently re-typed; a screen at a blank
-    // voltage matches by breakout alone. `faces` are the breakout
+    // voltages. The L6-20 breakout is a six-circuit multi box whose
+    // outlets are line-to-line (L6-20 is line-to-line only), so a Multi
+    // 208 feeds it beside True1 and powerCON (QA 1.6.0-beta.4: the
+    // breakout was offered on a 208V screen that nothing could then
+    // plug in). A breakout no type names is a mismatch like any other,
+    // refused with the fix said out loud, never silently re-typed; a
+    // screen at a blank voltage matches by breakout alone. `faces` are the breakout
     // connectors the popover row shows beside the type; `badge` is the
     // bracket's text sub-pill.
     //
@@ -2030,7 +2137,7 @@ class _Power {
         return [
             { id: 'soca208', name: 'Multi 208', sub: 'TRUE1 / powerCON',
               glyph: 'soca', faces: ['true1', 'powercon'], volts: [208],
-              breakouts: ['soca-true1', 'soca-powercon'], badge: 'MULTI 208' },
+              breakouts: ['soca-true1', 'soca-powercon', 'soca-l620'], badge: 'MULTI 208' },
             { id: 'soca120', name: 'Multi 120', sub: 'Edison / TRUE1 / powerCON',
               glyph: 'soca', faces: ['edison', 'true1', 'powercon'], volts: [110, 120],
               breakouts: ['soca-edison', 'soca-true1', 'soca-powercon'], badge: 'MULTI 120' },
@@ -4618,6 +4725,22 @@ class _Power {
 
         // The multis again, each from what it held.
         if (firstHit < 0) return { touched: [...touched], unplugged };
+        this._rebuildSocaStores(layer, olds, snap);
+        return { touched: [...touched], unplugged };
+    }
+
+    // Write a screen's multi stores again from what each multi holds now:
+    // `olds` is one entry per multi in wall order - { s: its segment as it
+    // was (index, userEnd), circ: the circuits it had, keep: the circuits
+    // it has now, fed, distroId, number, tails: circuit -> tail } - and
+    // `snap` the stores as they were (FIELDS below). A multi boundary goes
+    // where a plugged multi now ends off the box grid, and each part takes
+    // its multi's distro, number and its circuits' tails. Shared by a
+    // removal (_removeCircuitsKeepFeeds) and a newcomer
+    // (_seatNewCustomCircuit). Unrecorded.
+    _rebuildSocaStores(layer, olds, snap) {
+        const FIELDS = ['powerSocaDistro', 'powerSocaLengths', 'powerSocaPhasePos',
+                        'powerSocaPhaseOffset', 'powerSocaNames', 'powerSocaNumber'];
         const size = this.socaBoxSize(layer);
         const groups = [];
         let ord = 0;
@@ -4630,7 +4753,7 @@ class _Power {
         for (let i = 0; i + 1 < groups.length; i++) {
             const a = groups[i], b = groups[i + 1];
             if (a.end % size === 0) continue;
-            if (a.o.fed || b.o.fed || a.o.s.userEnd) points.push(a.end);
+            if (a.o.fed || b.o.fed || (a.o.s && a.o.s.userEnd)) points.push(a.end);
         }
         if (Array.isArray(layer.powerSocaSplits) || points.length) {
             layer.powerSocaSplits = points;
@@ -4651,8 +4774,8 @@ class _Power {
             const g = groups[groupAt[ns.start]];
             if (!g) return;
             const o = g.o;
-            const oi = o.s.index;
-            const first = !firstPart.has(oi);
+            const oi = o.s ? o.s.index : null;
+            const first = oi != null && !firstPart.has(oi);
             if (first) firstPart.set(oi, ns.index);
             const carry = (f) => {
                 if (snap[f][oi] !== undefined) next[f][ns.index] = snap[f][oi];
@@ -4681,7 +4804,6 @@ class _Power {
             if (layer[f] !== undefined || Object.keys(next[f]).length) layer[f] = next[f];
         });
         this._circuitTailCache = null;
-        return { touched: [...touched], unplugged };
     }
 
     // Clear Circuit on a custom screen: the drawn circuit holding run
@@ -4707,6 +4829,128 @@ class _Power {
         const runs = (c.runIds || [c.num]).map(Number);
         if (runs.length > 1 && !whole) return null;
         return this._removeCircuitsKeepFeeds(layer, [{ num: c.num, runs }]).touched;
+    }
+
+    // A circuit drawn NEW on a custom screen keeps every plugged circuit on
+    // its tail (sticky multi numbers, the owner's ruling): a Clear Circuit
+    // leaves its tail free, and the next circuit drawn used to re-pack the
+    // multi onto it - 1, 3, 4 on tails 1, 3, 4 read 1, 3, 4, 5 on tails
+    // 1-4 (QA 1.6.0-beta.4, round 3). `before` is _customSeatSnapshot,
+    // taken before the first cabinet went on. The newcomer joins the multi
+    // of a neighbour it can sit beside: the lowest free tail of that box
+    // between the tails of the circuits either side of it, the stores
+    // written again around it (_rebuildSocaStores). Past the last circuit,
+    // beside a full box, it opens a multi of its own. When the write would
+    // move any other circuit, or nothing fits in order, the stores are put
+    // back and the multi deals as it always did. Unrecorded: the caller's
+    // entry carries it. Returns the layers written ([] for none).
+    _customSeatSnapshot(layer) {
+        if (!layer || !this.usesCustomCircuits(layer)) return null;
+        this._circuitTailCache = null;
+        const nm = this._powerNaming(layer);
+        const recs = [...nm.socas.values()].map(r => ({
+            index: r.index, distroId: r.distroId || null, number: Number(r.number),
+            circuits: (r.circuits || []).map(Number),
+            positions: Array.isArray(r.positions) ? r.positions.slice() : null }));
+        return { nums: this.screenCircuits(layer).map(c => Number(c.num)), recs };
+    }
+
+    _seatNewCustomCircuit(layer, num, before) {
+        const n = Number(num);
+        if (!before || !layer || before.nums.includes(n)) return [];
+        this._circuitTailCache = null;
+        const nums = this.screenCircuits(layer).map(c => Number(c.num));
+        const k = nums.indexOf(n) + 1;
+        if (!k || nums.length !== before.nums.length + 1) return [];
+        const prev = k > 1 ? nums[k - 2] : null;
+        const next = k < nums.length ? nums[k] : null;
+        const size = this.socaBoxSize(layer);
+        const assign = layer.powerSocaDistro || {};
+        // The multis as they were: the push wrote no store, so the old
+        // segments are the stored splits over the old count.
+        const olds = this._socaSegments(layer, before.nums.length).map(seg => {
+            const circ = before.nums.slice(seg.start - 1, seg.end);
+            const rec = before.recs.find(r => r.index === seg.index);
+            const tails = new Map();
+            if (rec && rec.positions && rec.positions.length === circ.length) {
+                circ.forEach((c, i) => tails.set(c, rec.positions[i]));
+            }
+            return { s: seg, circ, keep: circ.slice(), fed: !!assign[seg.index],
+                     distroId: assign[seg.index] || null,
+                     number: rec ? Number(rec.number) : NaN, tails };
+        });
+        const plugged = (o) => o && o.fed && o.tails.size === o.circ.length;
+        const ofCircuit = (c) => olds.find(o => o.circ.includes(c)) || null;
+        // Tails of the box held by every other multi on it, any screen.
+        const takenOn = (o) => {
+            const taken = new Set(o.tails.values());
+            for (const l of ((this.project && this.project.layers) || [])) {
+                if ((l.type || 'screen') !== 'screen') continue;
+                for (const r of this._powerNaming(l).socas.values()) {
+                    if (l === layer && r.index === o.s.index) continue;
+                    if (r.distroId !== o.distroId || Number(r.number) !== o.number) continue;
+                    (r.positions || []).forEach(p => taken.add(p));
+                }
+            }
+            return taken;
+        };
+        const seat = (o) => {
+            if (!plugged(o)) return null;
+            const lo = prev != null && o.circ.includes(prev) ? o.tails.get(prev) : 0;
+            const hi = next != null && o.circ.includes(next) ? o.tails.get(next) : size + 1;
+            const taken = takenOn(o);
+            for (let t = lo + 1; t < hi; t++) if (!taken.has(t)) return t;
+            return null;
+        };
+        const op = prev != null ? ofCircuit(prev) : null;
+        const on = next != null ? ofCircuit(next) : null;
+        let target = null, tail = null;
+        if (op && (tail = seat(op)) != null) target = op;
+        else if (on && on !== op && (tail = seat(on)) != null) target = on;
+        // Past the last circuit, beside a plugged multi with no tail left
+        // in order: the newcomer opens a multi of its own, unplugged,
+        // rather than dealing a seventh tail or re-packing the box.
+        const alone = !target && plugged(op) && next == null;
+        if (!target && !alone) return [];
+        // Every circuit's box and tail before, the newcomer's after: the
+        // write stands only when it delivers exactly that.
+        const factsOf = (recs) => {
+            const out = new Map();
+            recs.forEach(r => (r.circuits || []).forEach((c, i) => out.set(Number(c), r.distroId
+                ? `${r.distroId}:${Number(r.number)}:${(r.positions || [])[i]}` : '-')));
+            return out;
+        };
+        const want = factsOf(before.recs);
+        if (target) want.set(n, `${target.distroId}:${target.number}:${tail}`);
+        else want.set(n, '-');
+        const release = this._holdPowerRecords();
+        const touched = new Set([layer]);
+        // Every other screen on the box holds the tails it shows first.
+        if (target) {
+            this._materializeSocaBox(target.distroId, target.number, layer, target.s.index)
+                .forEach(l => touched.add(l));
+        }
+        const FIELDS = ['powerSocaDistro', 'powerSocaLengths', 'powerSocaPhasePos',
+                        'powerSocaPhaseOffset', 'powerSocaNames', 'powerSocaNumber'];
+        const snap = {};
+        FIELDS.forEach(f => { snap[f] = { ...(layer[f] || {}) }; });
+        if (target) {
+            const at = target.keep.indexOf(target === op ? prev : next);
+            target.keep.splice(target === op ? at + 1 : at, 0, n);
+            target.tails.set(n, tail);
+        } else {
+            olds.push({ s: null, circ: [], keep: [n], fed: false, distroId: null,
+                        number: NaN, tails: new Map() });
+        }
+        this._rebuildSocaStores(layer, olds, snap);
+        this._circuitTailCache = null;
+        const got = factsOf([...this._powerNaming(layer).socas.values()]);
+        if ([...want].some(([c, v]) => got.get(c) !== v)) {
+            release();
+            this._circuitTailCache = null;
+            return [];
+        }
+        return [...touched];
     }
 
     // Share wall circuits `refs` as ONE circuit through a splitter - the
@@ -5458,10 +5702,15 @@ class _Power {
     // the amps - a custom screen's, or a file's older group past them, the
     // soca `over` convention flags); a split-pinned run is its own circuit
     // and a boundary.
+    // `apart(a, b)` (run indices, optional) says another circuit sits
+    // between two runs: the automatic walk passes it so a 2fer / 3fer never
+    // jumps over a redrawn circuit (the owner's ruling, 2026-11-03 - see
+    // calculatePowerAssignments' `apart`). The run stays a circuit of its
+    // own and the next circuit starts there.
     // Returns { circuits, runs, runIds } index-aligned: circuits[i] is the
     // concatenated panels, runs[i] the per-branch panel counts, runIds[i]
     // the run ordinals ganged into that circuit.
-    _packPowerRuns(runs, wattsPerCircuit, maxWays, manual) {
+    _packPowerRuns(runs, wattsPerCircuit, maxWays, manual, apart = null) {
         const N = runs.length;
         const groupOf = new Map();
         ((manual && manual.merge) || []).forEach(g =>
@@ -5486,6 +5735,7 @@ class _Power {
                     if (members.length >= maxWays) break;
                     if (groupOf.has(nid) || splitSet.has(nid)) break;
                     if (load + runs[j].load > wattsPerCircuit) break;
+                    if (apart && apart(members[members.length - 1] - 1, j)) break;
                     members.push(nid);
                     load += runs[j].load;
                 }
@@ -5968,6 +6218,35 @@ class _Power {
                 units.push(unit);
             }
             const anyCut = units.some(u => u.pieces);
+            // SIDE BY SIDE ONLY (the owner's ruling, 2026-11-03). Once a
+            // circuit is redrawn, the cabinets it took are out of the walk,
+            // and two runs either side of it read as neighbours: a column
+            // left over before a redrawn 2fer was ganged with the column
+            // after it, a 2fer whose cable jumped the other circuit and
+            // whose disc landed on that circuit's. "All circuits cabling
+            // should move to the left": the automatic circuits after a
+            // redraw pack from the first free line, side by side, and a
+            // share or a daisy never reaches over a line a redrawn circuit
+            // holds. `claimedLines` are the lines (rows, or columns on a
+            // vertical-first pattern) with a cabinet on an override;
+            // `apart(a, b)` is true when one lies between units a and b
+            // (indices into `units`). A blank or hidden line is no circuit
+            // and parts nothing. Empty without overrides: every walk below
+            // is the one it always was.
+            const lineOf = (p) => (isHorizontalFirst ? rowOfPanel(p) : colOfPanel(p));
+            const claimedLines = new Set();
+            if (claimed.size) {
+                (plan ? plan.ordered.map(c => c.panel) : layer.panels).forEach(p => {
+                    if (p && !p.hidden && !p.blank && claimed.has(p)) claimedLines.add(lineOf(p));
+                });
+            }
+            const unitsApart = (a, b) => {
+                if (!claimedLines.size || a === b) return false;
+                const lo = Math.min(units[a].idx, units[b].idx);
+                const hi = Math.max(units[a].idx, units[b].idx);
+                for (let k = lo + 1; k < hi; k++) if (claimedLines.has(k)) return true;
+                return false;
+            };
             // STACKS. Read across the lines instead of along them: inside
             // every unbroken stretch of cut units, each unit's first piece,
             // then each unit's second, and so on; anything that is not a
@@ -6038,8 +6317,10 @@ class _Power {
                 const sigOf = () => this._keptShareSig(
                     layer, pattern, runs, splitters.maxWays, manual, layerOfPanel);
                 const kept = this._keptShares(layer, runs.length, sigOf);
+                const apart = claimedLines.size
+                    ? (a, b) => unitsApart(runs[a].at[0], runs[b].at[0]) : null;
                 const packed = kept ? this._packKeptRuns(runs, kept) : this._packPowerRuns(
-                    runs, wattsPerCircuit, splitters.maxWays, manual);
+                    runs, wattsPerCircuit, splitters.maxWays, manual, apart);
                 if (this._keptShareProbe) {
                     this._keptShareProbe.set(layer, { sig: sigOf(), runIds: packed.runIds });
                 }
@@ -6065,13 +6346,13 @@ class _Power {
             // pieces is a circuit of its own (a piece joining the next unit
             // would wrap onto the next row).
             const items = [];
-            let current = { unitIndices: [], load: 0, at: null };
+            let current = { unitIndices: [], load: 0, at: null, last: null };
             const flush = () => {
                 if (current.unitIndices.length > 0) {
                     circuits.push(walkOf(current.unitIndices));
                     items.push({ at: current.at, piece: false });
                 }
-                current = { unitIndices: [], load: 0, at: null };
+                current = { unitIndices: [], load: 0, at: null, last: null };
             };
             units.forEach((u, k) => {
                 if (u.pieces) {
@@ -6083,7 +6364,10 @@ class _Power {
                     return;
                 }
                 if (current.load > 0 && current.load + u.load > wattsPerCircuit) flush();
+                // never a daisy over a redrawn circuit's line (unitsApart)
+                if (current.last !== null && unitsApart(current.last, k)) flush();
                 if (current.unitIndices.length === 0) current.at = [k, 0];
+                current.last = k;
                 current.unitIndices.push(u.idx);
                 current.load += u.load;
             });

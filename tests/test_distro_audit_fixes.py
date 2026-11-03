@@ -319,7 +319,7 @@ def test_an_l2130_box_on_an_old_208v_single_phase_distro_keeps_its_feed_check(se
     worst = max(out['fl'])
     assert worst > 30
     # an old 208 V record is a US one: the leg is held to 80% of 30 A
-    assert any(f'feed leg at {worst:.2f} A / 24 A (80% of 30 A), OVER' in w for w in out['strip']), out['strip']
+    assert any(f'L21-30 leg at {worst:.1f} A / 24 A (80% of 30 A), OVER' in w for w in out['strip']), out['strip']
 
 
 # ── EU phasing select ─────────────────────────────────────────────────────

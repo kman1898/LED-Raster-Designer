@@ -382,27 +382,30 @@ class _Fiber {
 
     // A box's sockets for its cable sheet: its ports, and a straddling
     // box's backup sockets too - each by its silkscreen and the port it
-    // backs up - except where it backs up its own port, whose row says so
-    // instead (`selfBackup`, the socket), the one port being one run.
+    // backs up. Where it backs up its OWN port the backup output is a
+    // cable of its own with its own length (owner, 2026-11-03: "of course
+    // it will have its own extension"): its row carries `cableKey`, the
+    // 'r<socket>' entry it is kept under (backupCableKey).
     boxSheetPorts(box) {
         if (!this.boxStraddles(box)) return this.boxLoopPorts(box);
-        const self = new Map(box.backsUpPorts.filter(m => m.boxId === box.id)
-            .map(m => [m.number, m.socket]));
-        return this.boxMainPorts(box)
-            .map(p => (self.has(p.number) ? { ...p, selfBackup: self.get(p.number) } : p))
-            .concat(this.boxLoopPorts(box).filter(p => !self.has(p.number)));
+        return this.boxMainPorts(box).concat(this.boxLoopPorts(box).map(p => (
+            p.loopOf && p.loopOf.boxId === box.id ? { ...p, cableKey: `r${p.number}` } : p)));
     }
 
     // What a port-by-port backup backs up, per primary box: "loop of CVT10
     // A 1-10, CVT10 B 1-6 on sockets 11-16" - the primary's own numbers,
-    // and this box's own sockets for them where they differ. '' on any
-    // other box. `titleOf` names a box the way the reader's sheet does.
+    // and this box's own sockets for them where they differ. A box backing
+    // up its OWN outputs says so in those words (boxSelfBackupText), never
+    // its own name as its primary. '' on any other box. `titleOf` names a
+    // box the way the reader's sheet does.
     boxLoopText(box, cvts, titleOf) {
         const own = (box && box.backsUpPorts || []).some(m => !m.boxId);
         if (!this.boxLoopMixed(box) && !own) return '';
+        const self = this.boxSelfBackupText(box);
         const groups = new Map();
         for (const m of box.backsUpPorts) {
             if (box.backupOf && m.boxId) continue;
+            if (m.boxId && m.boxId === box.id) continue;
             if (!groups.has(m.boxId)) groups.set(m.boxId, { locals: [], numbers: [] });
             groups.get(m.boxId).locals.push(m.local);
             groups.get(m.boxId).numbers.push(m.socket);
@@ -414,7 +417,20 @@ class _Fiber {
             return `${id ? (main ? titleOf(main) : 'its primary') : 'own ports'} ${mine}`
                 + (shown !== mine ? ` on sockets ${shown}` : '');
         });
-        return `loop of ${parts.join(', ')}`;
+        return [parts.length ? `loop of ${parts.join(', ')}` : '', self ? `backs up ${self}` : '']
+            .filter(Boolean).join('; ');
+    }
+
+    // A box backing up its OWN outputs (a CVT4K-S straddling a VX1000's
+    // OPT 1 and its copy): "its own outputs 1-8 on 9-16", both ranges by
+    // the box's own silkscreen (each backsUpPorts entry's `local`, the
+    // output backed up, and `socket`, the output carrying its backup).
+    // '' for a box that does not.
+    boxSelfBackupText(box) {
+        const mine = ((box && box.backsUpPorts) || []).filter(m => m.boxId && m.boxId === box.id);
+        if (!mine.length) return '';
+        return `its own outputs ${this.fiberStrandRangeText(mine.map(m => m.local))}`
+            + ` on ${this.fiberStrandRangeText(mine.map(m => m.socket))}`;
     }
 
     // Every box looped with `box`, one-to-one or port by port, on its own

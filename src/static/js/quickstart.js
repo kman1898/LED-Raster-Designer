@@ -4527,12 +4527,10 @@
                 }).then(function (ok) {
                     if (!ok) throw new Error('the circuit was not taken over');
                     badge('');
+                    // left open for redrawing: a take-over that ends
+                    // unchanged goes back to automatic (2026-11-03), so
+                    // the step reads it while it is open and `after` ends it
                     return t.pause(PACE.acted);
-                }).then(function () {
-                    t.key('Escape', {}, document);
-                    return t.wait(function () { return !A()._overrideEditing; });
-                }).then(function () {
-                    return t.pause(PACE.rest);
                 });
             },
             check: function (mem) {

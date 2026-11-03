@@ -701,7 +701,10 @@ class _DistroSystems {
         let breakouts = [];
         if (conn.kind === 'multi') {
             if (conn.id === 'l2130') breakouts = ['l2130-true1', 'l2130-powercon'];
-            else if (box.coupling === 'll') breakouts = ['soca-true1', 'soca-powercon'];
+            // A line-to-line multi feeds the L6-20 breakout too: L6-20 is
+            // line-to-line only (the connector table above), and its
+            // breakout is a six-circuit multi box like TRUE1's.
+            else if (box.coupling === 'll') breakouts = ['soca-true1', 'soca-powercon', 'soca-l620'];
             else breakouts = ['soca-edison', 'soca-true1', 'soca-powercon'];
         }
         return {
