@@ -1884,6 +1884,19 @@ class _HardwareDock {
                 },
             },
         });
+        // The box's ports no backup covers (owner, 2026-11-03): said on
+        // its header, where its ports are (boxUnbackedText).
+        const unbacked = !(row && (row.far || row.cont))
+            ? this.boxUnbackedText(cvt) : '';
+        if (unbacked) {
+            const note = document.createElement('span');
+            note.className = 'hw-dock-unbacked';
+            note.dataset.lrdField = `box-unbacked-${cvt.id}`;
+            note.style.color = '#c8a04a';
+            note.textContent = unbacked;
+            note.title = `This box has more ports than its backup carries: ${unbacked}.`;
+            boxHead.appendChild(note);
+        }
         if (row && row.far) {
             const end = document.createElement('span');
             end.className = 'hw-dock-loop-end';
@@ -2567,6 +2580,8 @@ class _HardwareDock {
     }
 
     _dockRenderPower(host) {
+        // A gone distro's sheets and folds go with it (_forgetDistroViews).
+        if (typeof this._forgetDistroViews === 'function') this._forgetDistroViews();
         // The strip's warnings are collected DURING this render, from the
         // exact figures the chips and headers draw - a second derivation
         // could disagree with the surfaces it warns about.

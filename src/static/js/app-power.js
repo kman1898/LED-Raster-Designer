@@ -3022,19 +3022,12 @@ class _Power {
             // Refused (a locked screen it would repack): nothing went, so
             // its fold keys stay.
             if (!this.removeDistro(d.id)) return;
-            // The distro is gone and its id never comes back, so its fold
-            // keys go with it - the dock section's, and the per-number
-            // multi keys under it (a prefix sweep catches however many the
-            // tray ever drew).
-            try {
-                localStorage.removeItem(
-                    `ledRasterPanelCollapsed_hwdock-distro-${d.id}`);
-                const prefix =
-                    `ledRasterPanelCollapsed_hwdock-multi-${d.id}-`;
-                Object.keys(localStorage)
-                    .filter(k => k.startsWith(prefix))
-                    .forEach(k => localStorage.removeItem(k));
-            } catch (_) { /* blocked storage never held the key */ }
+            // The distro is gone, and its id DOES come back (the next add
+            // takes it), so its sheets and folds go with it now
+            // (_forgetDistroViews).
+            if (typeof this._forgetDistroViews === 'function') {
+                this._forgetDistroViews();
+            }
             this._restateNaming();
         });
         wrap.appendChild(remove);

@@ -470,7 +470,7 @@ def test_a_cvt10_pro_runs_duplex_only_like_an_xd(client):
     pid, (pro, pro2, pro3) = _h9_with_boxes(client, 'novastar-cvt10-pro', 3, bidi=False)
     assert _res_box(client, pro)['bidiAllowed'] is False
     why = _refused(client.put(f'/api/processors/{pid}/cvts/{pro}/fiber', json={'bidi': True}))
-    assert why == 'CVT10 Pro runs duplex only - a pair per link, like an XD - so it has no BiDi.', why
+    assert why == 'CVT10 Pro runs duplex only, a pair per link like an XD, so it has no BiDi.', why
     assert not _raw_box(client, pro).get('bidi')
     quad = _new(client, 'opticalcon-quad', pro, 'p1')
     _ok(_link(client, pid, pro2, 'p1', {'cable': quad['id']}))

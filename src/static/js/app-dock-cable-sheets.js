@@ -43,6 +43,42 @@ class _DockCableSheets {
         } catch (_) { /* no storage: the flip lasts the render */ }
     }
 
+    // A NEW DISTRO STARTS WITH EVERY SHEET DOWN AND EVERY SECTION OPEN,
+    // the power side of _forgetHardwareViews. A multi's cable sheet and the
+    // distro's folds are remembered under the distro's id, and distro ids
+    // come back: a new one takes the next number after the highest
+    // (addDistro), so removing DISTRO 2 and adding one hands "d2" out
+    // again, and so do undo and every new show. So the memory goes with
+    // the distro: every power render forgets the keys of distros not in
+    // the project, an add forgets its new id's (`ids`), and another show
+    // opening or File > New forgets them all (`all`). A reload keeps them.
+    _forgetDistroViews({ all = false, ids = null } = {}) {
+        const live = new Set();
+        if (!all) {
+            const fresh = new Set((ids || []).map(String));
+            ((this.project && this.project.distros) || []).forEach(d => {
+                if (d && !fresh.has(String(d.id))) live.add(String(d.id));
+            });
+        }
+        const patterns = [
+            /^lrd_cable_sheet_(.+)_\d+$/,
+            /^ledRasterPanelCollapsed_hwdock-distro-(.+)$/,
+            /^ledRasterPanelCollapsed_hwdock-multi-(.+)-\d+$/,
+            /^ledRasterPanelCollapsed_hwdock-drow-([^-]+)-.+$/,
+        ];
+        try {
+            const gone = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                const k = localStorage.key(i) || '';
+                for (const re of patterns) {
+                    const m = re.exec(k);
+                    if (m && !live.has(m[1])) { gone.push(k); break; }
+                }
+            }
+            gone.forEach(k => localStorage.removeItem(k));
+        } catch (_) { /* no storage: nothing was remembered */ }
+    }
+
     _dockBuildCableSheetButton(d, n) {
         const open = this._cableSheetOpen(d.id, n);
         const btn = document.createElement('button');

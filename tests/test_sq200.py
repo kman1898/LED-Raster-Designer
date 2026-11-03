@@ -151,7 +151,7 @@ def test_two_qd_s_at_most_and_nothing_else_on_an_out_port(client):
     why = _refused(client.put(f'/api/processors/{pid}/slots/2',
                               json={'deviceId': QD}))
     assert why == ('SQ200 has 2 outputs, OUT 1 and OUT 2, and each '
-                   'takes one QD-S - there is no place for another.')
+                   'takes one QD-S. There is no place for another.')
     assert len([s for s in _res_proc(client, pid)['slots'] if s['card']]) == 2
     why = _refused(client.put(f'/api/processors/{pid}/slots/0',
                               json={'deviceId': 'novastar-card-h-4xfiber'}))
