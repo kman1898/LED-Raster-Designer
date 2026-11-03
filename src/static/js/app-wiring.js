@@ -299,6 +299,12 @@ class _Wiring {
             toggleLockBtn.addEventListener('click', () => {
                 this.toggleLockOnSelected();
             });
+            // The words beside the button are part of the control: a click
+            // on them is a click on the button.
+            const toggleLockLabel = document.getElementById('toggle-lock-selected-label');
+            if (toggleLockLabel) {
+                toggleLockLabel.addEventListener('click', () => toggleLockBtn.click());
+            }
         }
         
     }

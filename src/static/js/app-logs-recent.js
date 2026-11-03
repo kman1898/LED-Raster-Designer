@@ -495,7 +495,7 @@ class _LogsRecent {
             item.setAttribute('data-action', `recent-file-${idx}`);
             const date = new Date(file.timestamp);
             const dateStr = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-            item.innerHTML = `<div class="recent-file-item"><span class="recent-file-name">${this.escapeHtml(file.name)}</span><span class="recent-file-date">${dateStr} &middot; ${file.layerCount || 0} layers</span></div>`;
+            item.innerHTML = `<div class="recent-file-item"><span class="recent-file-name">${this.escapeHtml(file.name)}</span><span class="recent-file-date">${dateStr} &middot; ${file.layerCount || 0} screen${(file.layerCount || 0) === 1 ? '' : 's'}</span></div>`;
             item.addEventListener('click', (e) => {
                 e.stopPropagation();
                 // Hide all menus
@@ -554,9 +554,8 @@ class _LogsRecent {
                 this.saveRasterSize();
             }
             this.updateUI();
-            if (this.project.layers && this.project.layers.length > 0) {
-                this.selectLayer(this.project.layers[0]);
-            }
+            // the canvas the show was saved on (app-canvas-ui)
+            this._selectOpeningScreen();
             this.saveClientSideProperties();
             window.canvasRenderer.fitToView();
 
@@ -591,9 +590,8 @@ class _LogsRecent {
                         this.trimPortsOffWall({ load: true });
                     }
                     this.updateUI();
-                    if (this.project.layers && this.project.layers.length > 0) {
-                        this.selectLayer(this.project.layers[0]);
-                    }
+                    // the canvas the show was saved on (app-canvas-ui)
+                    this._selectOpeningScreen();
                     this.saveClientSideProperties();
                     window.canvasRenderer.fitToView();
                     this.updateLayers(this.project.layers, false, 'Recent File Load Sync');

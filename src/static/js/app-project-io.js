@@ -182,9 +182,8 @@ class _ProjectIo {
 
                         // Show locally right away (even if server sync fails)
                         this.updateUI();
-                        if (this.project.layers && this.project.layers.length > 0) {
-                            this.selectLayer(this.project.layers[0]);
-                        }
+                        // the canvas the show was saved on (app-canvas-ui)
+                        this._selectOpeningScreen();
                         this.saveClientSideProperties();
                         window.canvasRenderer.fitToView();
 
@@ -228,9 +227,8 @@ class _ProjectIo {
                                 // (and falls back to the pixel raster when show wasn't saved).
                                 this.syncRasterFromProject();
                                 this.updateUI();
-                                if (this.project.layers && this.project.layers.length > 0) {
-                                    this.selectLayer(this.project.layers[0]);
-                                }
+                                // the canvas the show was saved on (app-canvas-ui)
+                                this._selectOpeningScreen();
                                 this.saveClientSideProperties();
                                 window.canvasRenderer.fitToView();
                                 // Push all layers to server so client-side properties

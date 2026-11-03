@@ -1046,8 +1046,8 @@ export class LEDRasterApp {
                 if (breakoutRewrote.length) this.updateLayers(breakoutRewrote);
                 
                 // Auto-select first layer BEFORE updateUI so render has correct data
-                if (this.project.layers && this.project.layers.length > 0) {
-                    this.selectLayer(this.project.layers[0]);
+                // (the first on the active canvas, so a reload stays on it)
+                if (this._selectOpeningScreen()) {
                     // Never force-apply defaults to arbitrary loaded projects.
                     // Only apply to true startup default project when criteria match.
                     this.applyPreferencesToDefaultLayerIfMatch(false);

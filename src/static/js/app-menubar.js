@@ -81,11 +81,67 @@ class _MenuBar {
         // the context menu above: setupMenuBar can run again.
         if (!this.menuShortcutsBound) {
             document.addEventListener('keydown', (e) => this.handleMenuShortcut(e));
+            // Esc closes the dialog on top (_escapeClosesDialog). On the
+            // window, capturing, so it answers before the canvas's own Esc
+            // (a pixel-map selection, a redraw) reads a key the dialog owns.
+            window.addEventListener('keydown', (e) => this._escapeClosesDialog(e), true);
             this.menuShortcutsBound = true;
         }
 
         // Populate recent files submenu
         this.updateRecentFilesMenu();
+    }
+
+    // Esc closes what is on top: the right-click menu, or a dialog the way
+    // its Cancel or Close button does - never its OK: Preferences and Export
+    // cancel, the rest just close. Each dialog entry names the button the
+    // Esc presses, so the close runs through the dialog's own handler (Logs
+    // stops its refresh, What's New stamps the version it showed). A dialog
+    // with its own Esc (the group dialogs, the preset save, License) is not
+    // listed and keeps it. The pull sheet editor is not listed either: its Esc
+    // belongs to the cell being typed in.
+    //
+    // The right-click menu closes and nothing else happens: cabinets picked
+    // on the Pixel Map, data ports about to be dealt, an Alt redraw under
+    // way all stay for the next Esc, which reaches them as before.
+    //
+    // Only the TOPMOST open .modal answers, and only when it is one of these:
+    // a confirm opened over Preferences takes the Esc for itself. Something
+    // floating over either - the Colors window or a swatch popover, a canvas
+    // popup menu, a running guide - owns the Esc, so it is left alone.
+    _escapeClosesDialog(e) {
+        if (e.key !== 'Escape' || e.defaultPrevented || e.isComposing) return;
+        const above = document.querySelector(
+            '.lrd-cw-window:not([hidden]), .lrd-cp-popover:not([hidden]), .canvas-menu-popup');
+        if (above && above.getClientRects().length) return;
+        const guide = window.QuickStart && typeof window.QuickStart.state === 'function'
+            ? window.QuickStart.state() : null;
+        if (guide && guide.visible) return;
+        const menu = document.getElementById('context-menu');
+        if (menu && menu.style.display === 'block') {
+            e.preventDefault();
+            e.stopPropagation();
+            this.hideContextMenu();
+            return;
+        }
+        const CLOSERS = {
+            'preferences-modal': 'preferences-cancel',
+            'export-modal': 'export-cancel',
+            'about-modal': 'about-close',
+            'shortcuts-modal': 'shortcuts-close',
+            'logs-modal': 'logs-close',
+            'whatsnew-modal': 'whatsnew-close',
+        };
+        const open = [...document.querySelectorAll('.modal')]
+            .filter(m => m.style.display !== 'none' && getComputedStyle(m).display !== 'none');
+        const top = open[open.length - 1];
+        if (!top || !CLOSERS[top.id]) return;
+        const btn = document.getElementById(CLOSERS[top.id]);
+        if (!btn) return;
+        e.preventDefault();
+        e.stopPropagation();
+        btn.click();
+        sendClientLog('dialog_escape', { dialog: top.id });
     }
 
     // The keyboard route into the File menu. One chord string is built from

@@ -45,6 +45,15 @@
         banner.style.display = '';
     }
 
+    // A Check for Updates answer is said in the app's own message (the
+    // toast every other notice uses), not a browser alert() that stops the
+    // page and reads as the browser talking.
+    function say(msg, isError) {
+        var app = window.app;
+        if (app && typeof app._toast === 'function') app._toast(msg, !!isError, 6000);
+        else alert(msg);
+    }
+
     // ── Check API ───────────────────────────────────────────────────
     function checkForUpdate(opts) {
         opts = opts || {};
@@ -60,12 +69,12 @@
             })
             .then(function (data) {
                 if (data.error && opts.userInitiated) {
-                    alert('Update check failed: ' + data.error);
+                    say('Update check failed: ' + data.error, true);
                     return;
                 }
                 if (!data.available) {
                     if (opts.userInitiated) {
-                        alert('You are running the latest version (' + data.current_version + ').');
+                        say('You are running the latest version (' + data.current_version + ').');
                     }
                     return;
                 }
@@ -75,7 +84,7 @@
             })
             .catch(function (err) {
                 if (opts.userInitiated) {
-                    alert('Could not reach update server.\n\n' + (err.message || err));
+                    say('Could not reach the update server. ' + (err.message || err), true);
                 }
                 console.warn('Update check failed:', err);
             });

@@ -99,7 +99,7 @@
             <div class="menu-option" data-action="copy" data-label="Copy" data-shortcut-mac="Cmd+C" data-shortcut-win="Ctrl+C"></div>
             <div class="menu-option" data-action="paste" data-label="Paste" data-shortcut-mac="Cmd+V" data-shortcut-win="Ctrl+V"></div>
             <div class="menu-option" data-action="duplicate" data-label="Duplicate" data-shortcut-mac="Cmd+J" data-shortcut-win="Ctrl+J"></div>
-            <div class="menu-option" data-action="delete" data-label="Delete Layer" data-shortcut-mac="Del" data-shortcut-win="Del"></div>
+            <div class="menu-option" data-action="delete" data-label="Delete Screen" data-shortcut-mac="Del" data-shortcut-win="Del"></div>
             <!-- Screen groups (v0.11.0). Shown/hidden in showContextMenu():
                  group needs 2+ screen layers selected, ungroup/remove need the
                  selection to already be in a group. -->
@@ -241,7 +241,7 @@
 
         <div id="toolbar">
             <div class="toolbar-section toolbar-project">
-                    <h1><svg class="lrd-logo-mark" width="38" height="38" viewBox="0 0 48 48" aria-hidden="true" style="vertical-align:middle; margin-right:11px;"><rect x="3" y="3" width="42" height="42" rx="10" fill="#161616" stroke="#3a3a3a" stroke-width="1.5"/><rect x="11" y="11" width="8" height="8" rx="2" fill="#5a5a5a"/><rect x="20" y="11" width="8" height="8" rx="2" fill="var(--ps-accent, #e22330)"/><rect x="29" y="11" width="8" height="8" rx="2" fill="#5a5a5a"/><rect x="11" y="20" width="8" height="8" rx="2" fill="var(--ps-accent, #e22330)"/><rect x="20" y="20" width="8" height="8" rx="2" fill="#cfcfcf"/><rect x="29" y="20" width="8" height="8" rx="2" fill="#5a5a5a"/><rect x="11" y="29" width="8" height="8" rx="2" fill="#5a5a5a"/><rect x="20" y="29" width="8" height="8" rx="2" fill="#5a5a5a"/><rect x="29" y="29" width="8" height="8" rx="2" fill="var(--ps-accent, #e22330)"/></svg><span style="white-space:nowrap; vertical-align:middle;">LED Raster Designer <span id="app-version-label" style="font-size: 0.6em; color: #888;">v1.6.0</span></span></h1>
+                    <h1><svg class="lrd-logo-mark" width="38" height="38" viewBox="0 0 48 48" aria-hidden="true" style="vertical-align:middle; margin-right:11px;"><rect x="3" y="3" width="42" height="42" rx="10" fill="#161616" stroke="#3a3a3a" stroke-width="1.5"/><rect x="11" y="11" width="8" height="8" rx="2" fill="#5a5a5a"/><rect x="20" y="11" width="8" height="8" rx="2" fill="var(--ps-accent, #e22330)"/><rect x="29" y="11" width="8" height="8" rx="2" fill="#5a5a5a"/><rect x="11" y="20" width="8" height="8" rx="2" fill="var(--ps-accent, #e22330)"/><rect x="20" y="20" width="8" height="8" rx="2" fill="#cfcfcf"/><rect x="29" y="20" width="8" height="8" rx="2" fill="#5a5a5a"/><rect x="11" y="29" width="8" height="8" rx="2" fill="#5a5a5a"/><rect x="20" y="29" width="8" height="8" rx="2" fill="#5a5a5a"/><rect x="29" y="29" width="8" height="8" rx="2" fill="var(--ps-accent, #e22330)"/></svg><span class="lrd-app-title" style="white-space:nowrap; vertical-align:middle;">LED Raster Designer <span id="app-version-label" style="font-size: 0.6em; color: #888;">v1.6.0</span></span></h1>
                 <div style="position:relative;">
                     <input type="text" id="project-name" value="Untitled Project" class="editable-project-name">
                     <div id="project-name-warning" style="display:none; position:absolute; top:100%; left:0; margin-top:4px; padding:4px 8px; font-size:11px; color:#f5a623; background:#1a1a1a; border:1px solid #f5a623; border-radius:4px; white-space:nowrap; z-index:1000; pointer-events:none;"></div>
@@ -275,15 +275,15 @@
                 </div>
                 <!-- Pixel Map Controls -->
                 <div class="panel tab-panel" data-tab="pixel-map">
-                    <div class="panel-header" data-tooltip="Screen Info, Set the position, cabinet size, grid layout, physical dimensions, and weight of the selected LED screen layer.">
+                    <div class="panel-header" data-tooltip="Screen Info, Set the position, cabinet size, grid layout, physical dimensions, and weight of the selected LED screen.">
                         <h2>Screen Info</h2>
                     </div>
                     <div class="panel-content">
-                        <div class="info-row screen-only" data-tooltip="Offset X, Horizontal position of the layer on the canvas in pixels.">
+                        <div class="info-row screen-only" data-tooltip="Offset X, Horizontal position of the screen on the canvas in pixels.">
                             <label>Offset X</label>
                             <input type="text" id="offset-x" value="0">
                         </div>
-                        <div class="info-row screen-only" data-tooltip="Offset Y, Vertical position of the layer on the canvas in pixels.">
+                        <div class="info-row screen-only" data-tooltip="Offset Y, Vertical position of the screen on the canvas in pixels.">
                             <label>Offset Y</label>
                             <input type="text" id="offset-y" value="0">
                         </div>
@@ -385,7 +385,7 @@
                         <div id="image-layer-section" style="display: none;">
                             <div class="info-row" style="margin-top: 8px;">
                                 <label>Image/Logo</label>
-                                <button id="btn-replace-image" class="btn btn-secondary" style="width: 100%;" data-tooltip="Replace Image, Choose a new image file to replace the current image layer.">Replace Image</button>
+                                <button id="btn-replace-image" class="btn btn-secondary" style="width: 100%;" data-tooltip="Replace Image, Choose a new image file to replace the current image.">Replace Image</button>
                             </div>
                             <div class="info-row">
                                 <label>Image Size</label>
@@ -443,11 +443,11 @@
 
                 <!-- Labels Section -->
                 <div class="panel tab-panel screen-only" data-tab="pixel-map">
-                    <div class="panel-header" data-tooltip="Labels, Control which information labels are displayed on each screen layer in the pixel map view.">
+                    <div class="panel-header" data-tooltip="Labels, Control which information labels are displayed on each screen in the pixel map view.">
                         <h2>Labels</h2>
                     </div>
                     <div class="panel-content">
-                        <div class="info-row checkbox-row" data-tooltip="Screen Name, Display the layer's name on the canvas. Each tab has its own independent toggle.">
+                        <div class="info-row checkbox-row" data-tooltip="Screen Name, Display the screen's name on the canvas. Each tab has its own independent toggle.">
                             <input type="checkbox" id="show-label-name" checked>
                             <label for="show-label-name">Screen Name</label>
                         </div>
@@ -455,7 +455,7 @@
                              tab (2026-10-01), beside every tab's Screen Name
                              control; each copy drives its own tab's value
                              (data-name-view). -->
-                        <div class="info-row" data-tooltip="Names, How grouped screens are named on this tab. Screens draws each layer's own name, Group draws one name across the whole group, Both draws the group name plus every layer's. Each tab keeps its own choice. Ungrouped screens always keep their own name.">
+                        <div class="info-row" data-tooltip="Names, How grouped screens are named on this tab. Screens draws each screen's own name, Group draws one name across the whole group, Both draws the group name plus every screen's. Each tab keeps its own choice. Ungrouped screens always keep their own name.">
                             <label>Names</label>
                             <div style="display: flex; gap: 4px;">
                                 <button type="button" class="btn btn-secondary name-display-btn" data-name-view="pixel-map" data-name-display="screens" style="flex: 1; padding: 4px 6px; font-size: 11px;">Screens</button>
@@ -463,49 +463,49 @@
                                 <button type="button" class="btn btn-secondary name-display-btn" data-name-view="pixel-map" data-name-display="both" style="flex: 1; padding: 4px 6px; font-size: 11px;">Both</button>
                             </div>
                         </div>
-                        <div class="info-row checkbox-row" data-tooltip="Layer Size (px), Show the total pixel dimensions of the screen layer.">
+                        <div class="info-row checkbox-row" data-tooltip="Screen Size (px), Show the total pixel dimensions of the screen.">
                             <input type="checkbox" id="show-label-size-px">
-                            <label for="show-label-size-px">Layer Size (px)</label>
+                            <label for="show-label-size-px">Screen Size (px)</label>
                         </div>
-                        <div class="info-row checkbox-row" data-tooltip="Layer Size (m), Show the physical size of the screen in meters, based on panel dimensions.">
+                        <div class="info-row checkbox-row" data-tooltip="Screen Size (m), Show the physical size of the screen in meters, based on panel dimensions.">
                             <input type="checkbox" id="show-label-size-m">
-                            <label for="show-label-size-m">Layer Size (m)</label>
+                            <label for="show-label-size-m">Screen Size (m)</label>
                         </div>
-                        <div class="info-row checkbox-row" data-tooltip="Layer Size (ft), Show the physical size in feet and inches. Enable Fractions to show fractional inches.">
+                        <div class="info-row checkbox-row" data-tooltip="Screen Size (ft), Show the physical size in feet and inches. Enable Fractions to show fractional inches.">
                             <input type="checkbox" id="show-label-size-ft">
-                            <label for="show-label-size-ft">Layer Size (ft)</label>
+                            <label for="show-label-size-ft">Screen Size (ft)</label>
                             <label style="margin-left: 10px; font-size: 11px; color: #888;">
                                 <input type="checkbox" id="use-fractional-inches">
                                 Fractions
                             </label>
                         </div>
-                        <div class="info-row checkbox-row" data-tooltip="Panel Weight, Show the total weight of all panels in the layer.">
+                        <div class="info-row checkbox-row" data-tooltip="Panel Weight, Show the total weight of all panels in the screen.">
                             <input type="checkbox" id="show-label-weight">
                             <label for="show-label-weight">Panel Weight</label>
                         </div>
-                        <div class="info-row checkbox-row" data-tooltip="Info, Show a custom info label on each layer. Adjust the font size with the number field.">
+                        <div class="info-row checkbox-row" data-tooltip="Info, Show a custom info label on each screen. Adjust the font size with the number field.">
                             <input type="checkbox" id="show-label-info">
                             <label for="show-label-info">Info</label>
                             <input type="number" id="info-label-size" min="8" max="200" value="14" autocomplete="off" style="margin-left: auto; width: 64px;">
                         </div>
                         <div style="margin-top: 10px; margin-bottom: 6px; color: #666; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;">Offset Labels</div>
-                        <div class="info-row checkbox-row" data-tooltip="Top Left, Show the pixel offset label at the top-left corner of the layer.">
+                        <div class="info-row checkbox-row" data-tooltip="Top Left, Show the pixel offset label at the top-left corner of the screen.">
                             <input type="checkbox" id="show-offset-tl">
                             <label for="show-offset-tl">Top Left</label>
                         </div>
-                        <div class="info-row checkbox-row" data-tooltip="Top Right, Show the pixel offset label at the top-right corner of the layer.">
+                        <div class="info-row checkbox-row" data-tooltip="Top Right, Show the pixel offset label at the top-right corner of the screen.">
                             <input type="checkbox" id="show-offset-tr">
                             <label for="show-offset-tr">Top Right</label>
                         </div>
-                        <div class="info-row checkbox-row" data-tooltip="Bottom Left, Show the pixel offset label at the bottom-left corner of the layer.">
+                        <div class="info-row checkbox-row" data-tooltip="Bottom Left, Show the pixel offset label at the bottom-left corner of the screen.">
                             <input type="checkbox" id="show-offset-bl">
                             <label for="show-offset-bl">Bottom Left</label>
                         </div>
-                        <div class="info-row checkbox-row" data-tooltip="Bottom Right, Show the pixel offset label at the bottom-right corner of the layer.">
+                        <div class="info-row checkbox-row" data-tooltip="Bottom Right, Show the pixel offset label at the bottom-right corner of the screen.">
                             <input type="checkbox" id="show-offset-br">
                             <label for="show-offset-br">Bottom Right</label>
                         </div>
-                        <div class="info-row" data-tooltip="Labels Color, Set the text color for all labels on this layer.">
+                        <div class="info-row" data-tooltip="Labels Color, Set the text color for all labels on this screen.">
                             <label>Labels Color</label>
                             <div style="display: flex; gap: 5px; align-items: center;">
                                 <input type="color" id="labels-color" value="#ffffff">
@@ -545,12 +545,12 @@
                         <h2>Cabinet ID Settings</h2>
                     </div>
                     <div class="panel-content">
-                        <div class="info-row checkbox-row" data-tooltip="Screen Name, Show or hide the screen layer name on the canvas in Cabinet ID view.">
+                        <div class="info-row checkbox-row" data-tooltip="Screen Name, Show or hide the screen name on the canvas in Cabinet ID view.">
                             <input type="checkbox" id="show-label-name-cabinet" checked>
                             <label for="show-label-name-cabinet">Screen Name</label>
                         </div>
 
-                        <div class="info-row" data-tooltip="Names, How grouped screens are named on this tab. Screens draws each layer's own name, Group draws one name across the whole group, Both draws the group name plus every layer's. Each tab keeps its own choice. Ungrouped screens always keep their own name.">
+                        <div class="info-row" data-tooltip="Names, How grouped screens are named on this tab. Screens draws each screen's own name, Group draws one name across the whole group, Both draws the group name plus every screen's. Each tab keeps its own choice. Ungrouped screens always keep their own name.">
                             <label>Names</label>
                             <div style="display: flex; gap: 4px;">
                                 <button type="button" class="btn btn-secondary name-display-btn" data-name-view="cabinet-id" data-name-display="screens" style="flex: 1; padding: 4px 6px; font-size: 11px;">Screens</button>
@@ -638,11 +638,11 @@
 
                 <div class="panel tab-panel image-only" data-tab="cabinet-id" style="display: none;">
                     <div class="panel-header">
-                        <h2>Image Layer</h2>
+                        <h2>Image</h2>
                     </div>
                     <div class="panel-content">
                         <div style="color:#aaa; font-size: 12px;">
-                            Image layers do not use Cabinet ID settings.
+                            Images do not use Cabinet ID settings.
                         </div>
                     </div>
                 </div>
@@ -664,7 +664,7 @@
                             <label>Show Offset Y</label>
                             <input type="text" id="show-offset-y" value="0">
                         </div>
-                        <div class="info-row" data-tooltip="Names, How grouped screens are named on this tab. Screens draws each layer's own name, Group draws one name across the whole group, Both draws the group name plus every layer's. Each tab keeps its own choice. Ungrouped screens always keep their own name.">
+                        <div class="info-row" data-tooltip="Names, How grouped screens are named on this tab. Screens draws each screen's own name, Group draws one name across the whole group, Both draws the group name plus every screen's. Each tab keeps its own choice. Ungrouped screens always keep their own name.">
                             <label>Names</label>
                             <div style="display: flex; gap: 4px;">
                                 <button type="button" class="btn btn-secondary name-display-btn" data-name-view="show-look" data-name-display="screens" style="flex: 1; padding: 4px 6px; font-size: 11px;">Screens</button>
@@ -676,7 +676,7 @@
                             <button id="show-look-reset" class="btn" style="width:100%;" data-tooltip="Reset this screen's Show Look position to match its Pixel Map position. Also re-links its canvas's Show Look raster to its Pixel Map raster.">Reset to Pixel Map Position</button>
                         </div>
                         <div style="margin-top: 6px;">
-                            <button id="show-look-reset-all" class="btn" style="width:100%;" data-tooltip="Reset the ENTIRE Show Look across every canvas: all layer positions, show-canvas overrides, and show-raster sizes snap back to mirror Pixel Map. Undoable.">Reset Entire Show Look</button>
+                            <button id="show-look-reset-all" class="btn" style="width:100%;" data-tooltip="Reset the ENTIRE Show Look across every canvas: all screen positions, show-canvas overrides, and show-raster sizes snap back to mirror Pixel Map. Undoable.">Reset Entire Show Look</button>
                         </div>
                     </div>
                 </div>
@@ -696,12 +696,12 @@
                             </div>
                         </div>
 
-                        <div class="info-row checkbox-row" data-tooltip="Screen Name, Show or hide the screen layer name on the canvas in Data Flow view.">
+                        <div class="info-row checkbox-row" data-tooltip="Screen Name, Show or hide the screen name on the canvas in Data Flow view.">
                             <input type="checkbox" id="show-label-name-data" checked>
                             <label for="show-label-name-data">Screen Name</label>
                         </div>
 
-                        <div class="info-row" data-tooltip="Names, How grouped screens are named on this tab. Screens draws each layer's own name, Group draws one name across the whole group, Both draws the group name plus every layer's. Each tab keeps its own choice. Ungrouped screens always keep their own name. The binder's Data sheets follow it: Group prints one sheet for the group, Screens a sheet per screen, Both asks at export.">
+                        <div class="info-row" data-tooltip="Names, How grouped screens are named on this tab. Screens draws each screen's own name, Group draws one name across the whole group, Both draws the group name plus every screen's. Each tab keeps its own choice. Ungrouped screens always keep their own name. The binder's Data sheets follow it: Group prints one sheet for the group, Screens a sheet per screen, Both asks at export.">
                             <label>Names</label>
                             <div style="display: flex; gap: 4px;">
                                 <button type="button" class="btn btn-secondary name-display-btn" data-name-view="data-flow" data-name-display="screens" style="flex: 1; padding: 4px 6px; font-size: 11px;">Screens</button>
@@ -741,7 +741,7 @@
                         <p style="font-size: 11px; color: #888; margin: 4px 0 12px 0;">Click & drag the screen name to reposition</p>
 
                         <!-- Port Capacity Settings -->
-                        <div style="margin-top: 15px; padding: 12px; background: #1a1a1a; border-radius: 6px; border: 1px solid #333;">
+                        <div style="margin-top: 15px; padding: 12px 6px; background: #1a1a1a; border-radius: 6px; border: 1px solid #333;">
                             <label style="font-weight: 600; margin-bottom: 10px; display: block; color: #4A90E2;">Port Capacity</label>
                             
                             <div class="info-row" style="margin-bottom: 8px;" data-tooltip="Processing, Select the video processor model to calculate port pixel capacity.">
@@ -1178,11 +1178,11 @@
 
                 <div class="panel tab-panel image-only" data-tab="data-flow" style="display: none;">
                     <div class="panel-header">
-                        <h2>Image Layer</h2>
+                        <h2>Image</h2>
                     </div>
                     <div class="panel-content">
                         <div style="color:#aaa; font-size: 12px;">
-                            Image layers do not use Data settings.
+                            Images do not use Data settings.
                         </div>
                     </div>
                 </div>
@@ -1251,12 +1251,12 @@
                             </div>
                         </div>
 
-                        <div class="info-row checkbox-row" data-tooltip="Screen Name, Show or hide the screen layer name on the canvas in Power view.">
+                        <div class="info-row checkbox-row" data-tooltip="Screen Name, Show or hide the screen name on the canvas in Power view.">
                             <input type="checkbox" id="show-label-name-power" checked>
                             <label for="show-label-name-power">Screen Name</label>
                         </div>
 
-                        <div class="info-row" data-tooltip="Names, How grouped screens are named on this tab. Screens draws each layer's own name, Group draws one name across the whole group, Both draws the group name plus every layer's. Each tab keeps its own choice. Ungrouped screens always keep their own name. The binder's Power sheets follow it: Group prints one sheet for the group, Screens a sheet per screen, Both asks at export.">
+                        <div class="info-row" data-tooltip="Names, How grouped screens are named on this tab. Screens draws each screen's own name, Group draws one name across the whole group, Both draws the group name plus every screen's. Each tab keeps its own choice. Ungrouped screens always keep their own name. The binder's Power sheets follow it: Group prints one sheet for the group, Screens a sheet per screen, Both asks at export.">
                             <label>Names</label>
                             <div style="display: flex; gap: 4px;">
                                 <button type="button" class="btn btn-secondary name-display-btn" data-name-view="power" data-name-display="screens" style="flex: 1; padding: 4px 6px; font-size: 11px;">Screens</button>
@@ -1682,11 +1682,11 @@
 
                 <div class="panel tab-panel image-only" data-tab="power" style="display: none;">
                     <div class="panel-header">
-                        <h2>Image Layer</h2>
+                        <h2>Image</h2>
                     </div>
                     <div class="panel-content">
                         <div style="color:#aaa; font-size: 12px;">
-                            Image layers do not use Power settings.
+                            Images do not use Power settings.
                         </div>
                     </div>
                 </div>
@@ -1952,7 +1952,7 @@
                                 <input type="checkbox" id="text-layer-show-date"> Date
                             </label>
                             <label style="text-transform:uppercase; font-size:10px; color:#666; margin:8px 0 4px; display:block;">Data &amp; Power Scope</label>
-                            <select id="text-layer-dynamic-info-scope" style="width:100%; padding:4px 6px; background:#1a1a1a; border:1px solid #444; color:#ddd; border-radius:3px; font-size:12px; margin-bottom:6px;" data-tooltip="Choose which totals to inject into the text layer. 'This Canvas' uses the text layer's parent canvas; 'Both' renders both lines (e.g. 'Primary Ports (SR): 4' and 'Primary Ports (Total): 12').">
+                            <select id="text-layer-dynamic-info-scope" style="width:100%; padding:4px 6px; background:#1a1a1a; border:1px solid #444; color:#ddd; border-radius:3px; font-size:12px; margin-bottom:6px;" data-tooltip="Choose which totals to inject into the text label. 'This Canvas' uses the text label's parent canvas; 'Both' renders both lines (e.g. 'Primary Ports (SR): 4' and 'Primary Ports (Total): 12').">
                                 <option value="canvas">This Canvas Only</option>
                                 <option value="project" selected>All Canvases (Project Total)</option>
                                 <option value="both">Both, This Canvas + Project Total</option>
@@ -2019,14 +2019,14 @@
                     <input type="text" id="zoom-level" value="100%" style="width: 60px; text-align: center; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px; padding: 2px 4px;" data-tooltip="Zoom Level, Current zoom percentage. Type a value or use +/- buttons. Scroll wheel to zoom on canvas.">
                     <button id="btn-zoom-in" data-tooltip="Zoom in">+</button>
                     <button id="btn-fit" data-tooltip="Fit raster to view (Ctrl/Cmd+Shift+1)">Fit</button>
-                    <button id="btn-zoom-actual" data-tooltip="Zoom to Selection, Zoom to fit the selected screen layer at actual size (Ctrl/Cmd+Shift+2)">1:1</button>
+                    <button id="btn-zoom-actual" data-tooltip="Zoom to Selection, Zoom to fit the selected screen at actual size (Ctrl/Cmd+Shift+2)">1:1</button>
                     <!-- The custom-run readout: the active port (Data) or
                          circuit (Power) while a custom flow is being drawn,
                          its count against the cap, and any pending marquee
                          count. canvas.js _drawActiveBadge is its only writer;
                          it hides on any frame that draws no custom run. -->
                     <span id="custom-run-readout" hidden data-tooltip="Active run, The port or circuit you are drawing, how many cabinets it holds against its capacity, and how many cabinets a pending selection would add."><span class="cr-label"></span><span class="cr-pill"></span><span class="cr-selected" hidden></span></span>
-                    <label class="magnet-toggle" style="margin-left: 15px;" data-tooltip="Snap layers to grid when dragging (Ctrl/Cmd+Shift+')">
+                    <label class="magnet-toggle" style="margin-left: 15px;" data-tooltip="Snap screens to grid when dragging (Ctrl/Cmd+Shift+')">
                         <input type="checkbox" id="magnetic-snap" checked>
                         <span>🧲 Snap</span>
                     </label>
@@ -2088,18 +2088,18 @@
         <button id="right-sidebar-toggle" class="sidebar-toggle" data-side="right" title="Collapse right panel" aria-label="Toggle right panel">›</button>
         <div id="right-sidebar">
             <div class="panel">
-                <div class="panel-header" data-lrd-grip="screens" data-tooltip="Screens, Manage screen and image layers: reorder, lock, add, or remove layers in the design.">
+                <div class="panel-header" data-lrd-grip="screens" data-tooltip="Screens, Manage screens, images and text labels: reorder, lock, add, or remove them in the design.">
                     <h2>Screens</h2>
                 </div>
                 <div class="panel-content">
                     <div class="info-row" style="gap: 8px; margin-bottom: 8px; align-items: center;">
-                        <button id="toggle-lock-selected" class="btn btn-secondary" title="Toggle Lock Selected" data-tooltip="Lock or unlock the selected layer">🔒</button>
-                        <span style="color:#888; font-size:12px;">Lock Selected</span>
+                        <button id="toggle-lock-selected" class="btn btn-secondary" title="Toggle Lock Selected" data-tooltip="Lock or unlock the selected screen">🔒</button>
+                        <span id="toggle-lock-selected-label" style="color:#888; font-size:12px; cursor:pointer;">Lock Selected</span>
                     </div>
                     <div id="layers-list"></div>
                     <div id="beaches-panel" data-tooltip="Beaches, The positions the show is pulled to, in pull-sheet and binder order. Drag to reorder, double-click a name to rename, x to remove."></div>
                     <button id="btn-add-canvas" class="btn btn-secondary full-width" style="margin-top: 8px;" data-tooltip="Add a new canvas (a separate raster / processor) to this project">+ Add Canvas</button>
-                    <button id="btn-save-preset" class="btn btn-secondary full-width" style="margin-top: 6px;" data-tooltip="Save the currently selected layer's settings as a reusable preset">Save as Preset</button>
+                    <button id="btn-save-preset" class="btn btn-secondary full-width" style="margin-top: 6px;" data-tooltip="Save the currently selected screen's settings as a reusable preset">Save as Preset</button>
                 </div>
             </div>
 
@@ -2947,14 +2947,14 @@
                             <label>Power jumper</label>
                             <div class="prefs-row">
                                 <span>V</span>
-                                <input type="text" id="pref-pull-power-jump-length" placeholder="—" class="pm-short">
+                                <input type="text" id="pref-pull-power-jump-length" class="pm-short">
                                 <span>H</span>
-                                <input type="text" id="pref-pull-power-jump-length-h" placeholder="—" class="pm-short">
+                                <input type="text" id="pref-pull-power-jump-length-h" class="pm-short">
                                 <span class="pm-unit">ft</span>
                                 <span>V</span>
-                                <input type="text" id="pref-pull-power-jump-length-m" placeholder="—" class="pm-short">
+                                <input type="text" id="pref-pull-power-jump-length-m" class="pm-short">
                                 <span>H</span>
-                                <input type="text" id="pref-pull-power-jump-length-h-m" placeholder="—" class="pm-short">
+                                <input type="text" id="pref-pull-power-jump-length-h-m" class="pm-short">
                                 <span class="pm-unit">m</span>
                             </div>
                         </div>
@@ -2963,14 +2963,14 @@
                             <div class="prefs-row">
                                 <input type="text" id="pref-pull-data-jump-name" placeholder="Data Jump" class="pm-wide">
                                 <span>V</span>
-                                <input type="text" id="pref-pull-data-jump-length" placeholder="—" class="pm-short">
+                                <input type="text" id="pref-pull-data-jump-length" class="pm-short">
                                 <span>H</span>
-                                <input type="text" id="pref-pull-data-jump-length-h" placeholder="—" class="pm-short">
+                                <input type="text" id="pref-pull-data-jump-length-h" class="pm-short">
                                 <span class="pm-unit">ft</span>
                                 <span>V</span>
-                                <input type="text" id="pref-pull-data-jump-length-m" placeholder="—" class="pm-short">
+                                <input type="text" id="pref-pull-data-jump-length-m" class="pm-short">
                                 <span>H</span>
-                                <input type="text" id="pref-pull-data-jump-length-h-m" placeholder="—" class="pm-short">
+                                <input type="text" id="pref-pull-data-jump-length-h-m" class="pm-short">
                                 <span class="pm-unit">m</span>
                             </div>
                             <div class="pm-note">The lengths a new screen starts with: V to the cabinet above or below, H to the one beside. Blank: no cable counted.</div>
@@ -2988,9 +2988,9 @@
                         <div class="pm-row">
                             <label>Snake home run</label>
                             <div class="prefs-row">
-                                <input type="text" id="pref-snake-home-run-length" placeholder="—" class="pm-short">
+                                <input type="text" id="pref-snake-home-run-length" class="pm-short">
                                 <span class="pm-unit">ft</span>
-                                <input type="text" id="pref-snake-home-run-length-m" placeholder="—" class="pm-short">
+                                <input type="text" id="pref-snake-home-run-length-m" class="pm-short">
                                 <span class="pm-unit">m</span>
                                 <span style="font-size: 11px;">Blank: a new snake starts with no length.</span>
                             </div>
@@ -3143,10 +3143,10 @@
                 <h3>Everywhere</h3>
                 <table class="sc-table">
                     <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+Z / <span data-sc-mod>Ctrl</span>+Shift+Z</td><td>Undo / redo</td></tr>
-                    <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+C / <span data-sc-mod>Ctrl</span>+V</td><td>Copy / paste the selected layer</td></tr>
-                    <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+J</td><td>Duplicate the current layer</td></tr>
+                    <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+C / <span data-sc-mod>Ctrl</span>+V</td><td>Copy / paste the selected screen</td></tr>
+                    <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+J</td><td>Duplicate the current screen</td></tr>
                     <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+A</td><td>Select every screen on the canvas (every cabinet of the screen when a cabinet selection is open)</td></tr>
-                    <tr><td class="sc-key">Delete / Backspace</td><td>Delete the current layer</td></tr>
+                    <tr><td class="sc-key">Delete / Backspace</td><td>Delete the current screen</td></tr>
                     <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+,</td><td>Open Preferences</td></tr>
                     <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+O</td><td>Open a project file</td></tr>
                     <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+S</td><td>Save the project to a file</td></tr>
@@ -3345,8 +3345,8 @@
 
     <div id="preset-save-modal" class="modal" style="display: none;">
         <div class="modal-content" style="background: #252525; border-radius: 8px; padding: 24px; max-width: 460px; margin: 80px auto; border: 1px solid #3a3a3a;">
-            <h2 style="margin-top: 0; color: #fff; margin-bottom: 4px; font-size: 18px;">Save Layer as Preset</h2>
-            <div id="preset-save-sublabel" style="color: #888; font-size: 12px; margin-bottom: 12px;">Save the current layer's settings for reuse.</div>
+            <h2 style="margin-top: 0; color: #fff; margin-bottom: 4px; font-size: 18px;">Save Screen as Preset</h2>
+            <div id="preset-save-sublabel" style="color: #888; font-size: 12px; margin-bottom: 12px;">Save the current screen's settings for reuse.</div>
             <label style="color: #ccc; font-size: 12px; display: block; margin-bottom: 4px;">Preset name</label>
             <input id="preset-save-name" type="text" maxlength="80" placeholder="e.g., Standard SRR Pillar"
                    style="width: 100%; padding: 8px; background: #1a1a1a; border: 1px solid #333; border-radius: 4px; color: #fff; font-size: 13px; box-sizing: border-box; margin-bottom: 8px;">

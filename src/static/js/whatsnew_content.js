@@ -184,7 +184,7 @@ window.WHATS_NEW_CONTENT = {
             { h: 'Export treats a group as one screen',
               d: 'One shape in the Resolume XML named for the group, one Photoshop layer, and a rectangular group exports as a plain rectangle.' },
             { h: 'Drop shadows on logos and images',
-              d: 'An image layer can cast a drop shadow, with its color, opacity, angle, distance, spread and size. It is drawn into the artwork, so it exports exactly as you see it.' },
+              d: 'An image can cast a drop shadow, with its color, opacity, angle, distance, spread and size. It is drawn into the artwork, so it exports exactly as you see it.' },
             { h: 'Export asks where to save',
               d: 'On the machine running the app, export asks for a folder even when you opened the app at its network address, and canceling the chooser actually cancels.' }
         ]
