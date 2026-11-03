@@ -9,7 +9,7 @@ keyboard events:
   un-picks it. Shift+drag a box from a run picks every port it touches.
   Alt+drag across runs picks every port it crosses, the way Alt+drag
   sweeps circuits in Power; a plain Alt+click still takes one port over.
-* MENU - with 2+ picked, right-click reads "Redraw ports 56-59 as one", or
+* MENU - with 2+ picked, right-click reads "Redraw ports P56-P59 as one", or
   a list where the numbers are not consecutive.
 * REDRAW - the picked ports' cabinets are freed and one new path is drawn on
   the lowest number; drawing every freed cabinet (or Enter) keeps it.
@@ -324,12 +324,12 @@ def test_menu_names_the_picked_ports(page):
     assert menu_item(page, 0, 88) is None, 'offered with one port picked'
     page.keyboard.press('Escape')
     shift_box(page, (0, 88), (3, 89))
-    assert menu_item(page, 2, 88) == 'Redraw ports 56-59 as one'
+    assert menu_item(page, 2, 88) == 'Redraw ports P56-P59 as one'
     page.keyboard.press('Escape')
     page.evaluate("() => window.app.hideContextMenu()")
     shift_click(page, 1, 88)
     assert st(page, lid)['picks'] == [56, 58, 59]
-    assert menu_item(page, 0, 88) == 'Redraw ports 56, 58, 59 as one'
+    assert menu_item(page, 0, 88) == 'Redraw ports P56, P58, P59 as one'
     page.evaluate("() => window.app.hideContextMenu()")
 
 
@@ -369,7 +369,7 @@ def test_redraw_over_ports_already_redrawn_one_by_one(page):
     page.wait_for_timeout(200)
     assert st(page, lid)['overrides'] == [56, 58, 59]
     shift_box(page, (0, 88), (3, 89))
-    assert redraw_as_one(page, 1, 88) == 'Redraw ports 56-59 as one'
+    assert redraw_as_one(page, 1, 88) == 'Redraw ports P56-P59 as one'
     draw(page, LEFTOVERS)
     after = st(page, lid)
     assert after['session'] is None
@@ -384,7 +384,7 @@ def test_numbers_close_up_on_a_custom_screen(page):
     shift_click(page, 0, 88)
     shift_click(page, 2, 88)
     shift_click(page, 3, 88)
-    assert redraw_as_one(page, 0, 88) == 'Redraw ports 56, 58, 59 as one'
+    assert redraw_as_one(page, 0, 88) == 'Redraw ports P56, P58, P59 as one'
     # on a custom screen the freed cabinets are simply unwired
     draw(page, [[0, 88], [0, 89], [2, 88], [2, 89], [3, 88], [3, 89]])
     after = st(page, lid)
@@ -444,11 +444,11 @@ def test_picks_past_one_port_are_refused_before_anything_is_freed(page):
     assert base_ports[52] == [[1, c] for c in range(80, 88)]
     shift_click(page, 0, 80)
     shift_click(page, 1, 80)
-    assert menu_item(page, 0, 80) == 'Redraw ports 51-52 as one'
+    assert menu_item(page, 0, 80) == 'Redraw ports P51-P52 as one'
     page.click('[data-action="ovr-merge"]')
     page.wait_for_timeout(300)
     e = errs(page)
-    assert e and e[-1] == ('Ports 51-52 hold 16 panels together, and one port takes '
+    assert e and e[-1] == ('Ports P51-P52 hold 16 panels together, and one port takes '
                            '8 panels at 659,722 px/port. Pick fewer ports to redraw as one.'), e
     after = st(page, lid)
     assert after['session'] is None
@@ -467,7 +467,7 @@ def test_the_rectangle_around_the_picks_is_what_a_port_pays_for(page):
     base_ports = ports(page, lid)
     shift_click(page, 0, 88)
     shift_click(page, 3, 88)
-    assert menu_item(page, 0, 88) == 'Redraw ports 56, 59 as one'
+    assert menu_item(page, 0, 88) == 'Redraw ports P56, P59 as one'
     page.click('[data-action="ovr-merge"]')
     page.wait_for_function("() => window.app._mergeRedraw && window.app._mergeRedraw.ready")
     assert errs(page) == []
@@ -477,11 +477,11 @@ def test_the_rectangle_around_the_picks_is_what_a_port_pays_for(page):
     shift_click(page, 0, 80)
     shift_click(page, 1, 88)
     assert st(page, lid)['picks'] == [51, 57]
-    assert menu_item(page, 0, 80) == 'Redraw ports 51, 57 as one'
+    assert menu_item(page, 0, 80) == 'Redraw ports P51, P57 as one'
     page.click('[data-action="ovr-merge"]')
     page.wait_for_timeout(300)
     e = errs(page)
-    assert e and e[-1].startswith('Ports 51, 57 hold 10 panels together, and one port takes 8 panels'), e
+    assert e and e[-1].startswith('Ports P51, P57 hold 10 panels together, and one port takes 8 panels'), e
     assert st(page, lid)['session'] is None
     assert ports(page, lid) == base_ports
 
@@ -567,7 +567,7 @@ def test_alt_drag_picks_every_port_it_crosses(page):
     lit = page.evaluate("""(id) => [56, 59, 60].map(n => window.canvasRenderer._runUnderlayLit(
         window.__mrg.layer(id), n))""", lid)
     assert lit == [True, True, False]
-    assert menu_item(page, 1, 88) == 'Redraw ports 56-59 as one'
+    assert menu_item(page, 1, 88) == 'Redraw ports P56-P59 as one'
     page.evaluate("() => window.app.hideContextMenu()")
 
 
@@ -674,7 +674,7 @@ def test_a_locked_screen_is_refused_with_the_locked_error(page):
     base_ports = ports(page, lid)
     shift_box(page, (0, 88), (3, 89))
     assert st(page, lid)['picks'] == [56, 57, 58, 59], 'picking is not changing'
-    assert menu_item(page, 0, 88) == 'Redraw ports 56-59 as one'
+    assert menu_item(page, 0, 88) == 'Redraw ports P56-P59 as one'
     page.click('[data-action="ovr-merge"]')
     page.wait_for_timeout(300)
     after = st(page, lid)
@@ -697,3 +697,88 @@ def test_merge_pins_moves_only_that_screens_pins():
     pa.merge_pins(state, 1, [2, 3])
     assert [(p['layerId'], p['index'], p['port']) for p in state['pins']] == [
         ('1', 0, 1), ('1', 3, 6), ('2', 3, 9)]
+
+
+# ── QA, 1.6.0 ─────────────────────────────────────────────────────────────
+
+def notes(page):
+    return page.evaluate("() => window.__notes")
+
+
+def test_enter_on_a_half_drawn_redraw_says_where_the_leftovers_went(page):
+    """Enter keeps a half-drawn redraw; the freed cabinets left undrawn go
+    back to the automatic walk, and the toast says which ports took them
+    instead of re-walking them in silence."""
+    lid = reset(page)
+    shift_click(page, 0, 88)
+    shift_click(page, 1, 88)
+    redraw_as_one(page, 0, 88)
+    draw(page, [[0, 88], [0, 89]])
+    page.keyboard.press('Enter')
+    page.wait_for_timeout(300)
+    assert st(page, lid)['session'] is None
+    p = ports(page, lid)
+    took = sorted({n for n, cells in p.items() for c in cells if c in ([1, 88], [1, 89])})
+    assert took, p
+    if len(took) == 1:
+        where = 'port P%d' % took[0]
+    elif took == list(range(took[0], took[-1] + 1)):
+        where = 'ports P%d-P%d' % (took[0], took[-1])
+    else:
+        where = 'ports ' + ', '.join('P%d' % n for n in took)
+    assert notes(page)[-1] == ('Ports P56-P57 are now port P56. '
+                               '2 cabinets left over went to %s.' % where), notes(page)
+    assert errs(page) == []
+
+
+def test_a_click_on_a_drawn_step_cuts_the_redraw_back(page):
+    """A click on a step already drawn cuts the new path back to it; the
+    cabinets after it are still the redraw's and are drawn again in a new
+    order, and drawing the last of them keeps the drawing as before."""
+    lid = reset(page)
+    shift_click(page, 0, 88)
+    shift_click(page, 1, 88)
+    redraw_as_one(page, 0, 88)
+    draw(page, [[0, 88], [0, 89], [1, 89]])
+    draw(page, [[0, 88]])
+    assert ports(page, lid)[56] == [[0, 88]]
+    assert st(page, lid)['session'] is not None
+    ringed = page.evaluate("""(id) => window.app.mergeFreedPanels(window.__mrg.layer(id))
+        .map(p => [p.row, p.col]).sort()""", lid)
+    assert ringed == [[0, 89], [1, 88], [1, 89]]
+    assert notes(page)[-1].startswith('Port P56 now ends at R1C89.'), notes(page)
+    draw(page, [[1, 88], [1, 89], [0, 89]])
+    assert st(page, lid)['session'] is None, 'drawing every freed cabinet did not keep it'
+    assert ports(page, lid)[56] == [[0, 88], [1, 88], [1, 89], [0, 89]]
+    assert errs(page) == []
+
+
+def _redraw_entries(page, row, col):
+    """Right-click the cabinet: the redraw entries the menu shows."""
+    x, y = cab(page, row, col)
+    page.mouse.click(x, y, button='right')
+    page.wait_for_timeout(200)
+    shown = page.evaluate("""() => ['ovr-redraw', 'ovr-merge'].map(a => {
+        const el = document.querySelector(`[data-action="${a}"]`);
+        return (el && el.style.display !== 'none') ? el.textContent : null;
+    }).filter(Boolean)""")
+    page.evaluate("() => window.app.hideContextMenu()")
+    return shown
+
+
+def test_picked_ports_offer_only_the_redraw_of_all_of_them(page):
+    """The owner, 2026-11-03: "when multi selecting on auto to draw when i
+    click redraw it should not give the option to redraw just one". Two or
+    more picked: only "Redraw ports ... as one". One picked, or none: the
+    single "Redraw port" as before."""
+    reset(page)
+    assert _redraw_entries(page, 0, 88) == ['Redraw port P56']
+    shift_click(page, 0, 88)
+    assert _redraw_entries(page, 0, 88) == ['Redraw port P56']
+    shift_click(page, 1, 88)
+    assert _redraw_entries(page, 0, 88) == ['Redraw ports P56-P57 as one']
+    assert _redraw_entries(page, 1, 89) == ['Redraw ports P56-P57 as one']
+    # the Alt+drag sweep's picks too
+    page.evaluate("() => { window.app._portPicks = null; }")
+    alt_drag(page, (0, 88), (2, 88))
+    assert _redraw_entries(page, 2, 88) == ['Redraw ports P56-P58 as one']

@@ -71,13 +71,17 @@ class _ContextMenu {
         // and never on the dock (a chip is hardware, not a run). "Back to
         // auto" appears only where an override exists to drop - the same
         // only-what-applies rule the clears follow.
-        const ovr = (!inDock && typeof this._prepareOverrideMenu === 'function')
+        let ovr = (!inDock && typeof this._prepareOverrideMenu === 'function')
             ? this._prepareOverrideMenu(x, y) : null;
-        this._overrideMenuActions = ovr;
         // Several ports picked with Shift (app-merge-runs.js): "Redraw ports
         // 51-54 as one", armed on a run of the picks' screen in Data view.
         const mergeRuns = (!inDock && typeof this._prepareMergeRunsMenu === 'function')
             ? this._prepareMergeRunsMenu(x, y) : null;
+        // With several ports picked the redraw is of all of them: the
+        // single "Redraw port" is not offered beside it (the owner,
+        // 2026-11-03: "it should only allow redraw of all selected").
+        if (mergeRuns && ovr && ovr.redraw) ovr = Object.assign({}, ovr, { redraw: null });
+        this._overrideMenuActions = ovr;
         this._mergeRunsMenuAction = mergeRuns;
         // Distro outputs, the click path (2026-08-31): on a screen in the
         // power view - its cabinets, or its circuit chips in the tray -

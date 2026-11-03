@@ -156,11 +156,21 @@ class _MergeRuns {
         return [...out].sort((a, b) => a - b);
     }
 
-    // "51-54" for consecutive numbers, "51, 53, 54" otherwise.
+    // One screen port as every data redraw and fill message names it:
+    // "P15", its screen port number, the way the tray numbers a screen's
+    // ports. Never the socket's label beside it (QA, 1.6.0: "Filled ports 1
+    // to P15" named one end by its socket and the other by its number).
+    _portNumberText(num) {
+        return `P${num}`;
+    }
+
+    // "P51-P54" for consecutive numbers, "P51, P53, P54" otherwise.
     _portNumbersText(nums) {
         const s = nums.slice().sort((a, b) => a - b);
         const consecutive = s.every((n, i) => i === 0 || n === s[i - 1] + 1);
-        return (consecutive && s.length > 1) ? `${s[0]}-${s[s.length - 1]}` : s.join(', ');
+        const p = n => this._portNumberText(n);
+        return (consecutive && s.length > 1)
+            ? `${p(s[0])}-${p(s[s.length - 1])}` : s.map(p).join(', ');
     }
 
     // The right-click entry: armed in the Data view on a run of the screen
@@ -181,7 +191,7 @@ class _MergeRuns {
         return {
             label: `Redraw ports ${this._portNumbersText(nums)} as one`,
             title: `Free the cabinets of these ports and draw them as one port, `
-                + `numbered ${nums[0]}; the ports after it close up. Click the `
+                + `numbered ${this._portNumberText(nums[0])}; the ports after it close up. Click the `
                 + 'cabinets in order. Enter keeps it, Esc puts the ports back.',
             run: () => this.beginMergeRedraw(owner, nums),
         };
@@ -325,7 +335,7 @@ class _MergeRuns {
                 return;
             }
             if (typeof this._toast === 'function') {
-                this._toast(`Draw port ${first}: click the cabinets in order. `
+                this._toast(`Draw port ${this._portNumberText(first)}: click the cabinets in order. `
                     + `Enter keeps it, Esc puts ports ${this._portNumbersText(picks)} back.`,
                     false, 6000);
             }
@@ -347,14 +357,25 @@ class _MergeRuns {
     //              renumber, and the walk fills the numbers between. A
     //              drawing left from an earlier custom spell stays where it
     //              was, unused; one on a removed number goes.
+    //              `dormantGone` (the shrink trim only): numbers of that
+    //              unused drawing the trim emptied. Then the unused drawing
+    //              closes up too, by those and the removed ports alike, so
+    //              custom mode turned on later finds no holes where the
+    //              wall shrank (QA, 1.6.0: holes at P45-47). Where a moved
+    //              number would land on a live port's, the unused drawing is
+    //              left where it was instead (only the emptied numbers go),
+    //              so no part of it is overwritten.
     // A port's typed name follows its number, and the active port follows
     // its port. The cards follow on the server (_closeUpPortPins).
     // Returns the numbers removed, ascending.
-    _closeUpPorts(owner, gone) {
-        const out = [...new Set((gone || []).map(n => parseInt(n, 10))
+    _closeUpPorts(owner, gone, dormantGone = null) {
+        const clean = list => [...new Set((list || []).map(n => parseInt(n, 10))
             .filter(n => Number.isFinite(n) && n >= 1))].sort((a, b) => a - b);
-        if (!owner || out.length === 0) return out;
+        const out = clean(gone);
+        const outAll = clean(out.concat(dormantGone || []));
+        if (!owner || outAll.length === 0) return out;
         const shift = n => n - out.filter(r => r < n).length;
+        const shiftAll = n => n - outAll.filter(r => r < n).length;
         this.ensureCustomFlowState(owner);
         const old = owner.customPortPaths || {};
         const paths = {};
@@ -367,10 +388,19 @@ class _MergeRuns {
             });
         } else {
             const ovr = this.getOverrideNums(owner, 'data');
+            // The unused drawing closes up only where no moved number lands
+            // on a live port's: otherwise it stays where it was, as before.
+            const liveAfter = new Set(ovr.filter(n => !out.includes(n)).map(shift));
+            const closes = !!dormantGone && Object.keys(old).every(k => {
+                const n = parseInt(k, 10);
+                return !Number.isFinite(n) || ovr.includes(n) || outAll.includes(n)
+                    || !liveAfter.has(shiftAll(n));
+            });
             Object.keys(old).forEach(k => {
                 const n = parseInt(k, 10);
-                if (Number.isFinite(n) && (ovr.includes(n) || out.includes(n))) return;
-                paths[k] = old[k];
+                if (!Number.isFinite(n)) { paths[k] = old[k]; return; }
+                if (ovr.includes(n) || (closes ? outAll : out).includes(n)) return;
+                paths[closes ? shiftAll(n) : n] = old[k];
             });
             const next = [];
             ovr.forEach(n => {
@@ -440,12 +470,21 @@ class _MergeRuns {
     // goes and the others keep their numbers. Its sentences join this
     // toast; the data ports are not touched by it.
     //
+    // A screen that was LOCKED when its show was opened is left as it is
+    // then; it is remembered (_portRepairPending) and gets the open's
+    // repair, empty overrides included, the moment it is unlocked
+    // (setLockOnSelected asks portRepairPending). Before that only the
+    // shrink's half ran, at the next edit, and an empty override stayed a
+    // hole until the show was opened again (QA, 1.6.0).
+    //
     // Returns the screens it changed.
     trimPortsOffWall({ load = false } = {}) {
         // A show being opened is trimmed once, on the server's copy (the
         // load passes `load`); a layer save before then leaves it be.
-        if (load) this._projectOpening = false;
-        else if (this._projectOpening) return [];
+        if (load) {
+            this._projectOpening = false;
+            this._portRepairPending = new Set();
+        } else if (this._projectOpening) return [];
         if (!this.project || !Array.isArray(this.project.layers)) return [];
         const screens = this.project.layers
             .filter(l => l && (l.type || 'screen') === 'screen');
@@ -456,11 +495,15 @@ class _MergeRuns {
             // A step naming a screen that is gone is the server's prune.
             return !target || this._panelOnWall(target, e);
         };
+        const pending = this._portRepairPending || new Set();
         const plans = [];
         screens.forEach(owner => {
             const old = owner.customPortPaths;
             if (!old || typeof old !== 'object') return;
             if (typeof this.mirrorSourceOf === 'function' && this.mirrorSourceOf(owner)) return;
+            // The open's repair: on the open itself, or on a screen that
+            // was locked then and is not any more.
+            const opening = load || pending.has(String(owner.id));
             const custom = this.isCustomFlow(owner);
             const ovr = custom ? [] : this.getOverrideNums(owner, 'data');
             const live = n => custom || ovr.includes(n);
@@ -476,19 +519,30 @@ class _MergeRuns {
             });
             const gone = Object.keys(trimmed).map(k => parseInt(k, 10))
                 .filter(n => Number.isFinite(n) && live(n) && trimmed[n].length === 0);
-            if (load) {
+            // The unused drawing an automatic screen kept from a custom
+            // spell: its numbers the trim emptied close up with it.
+            const dormantGone = Object.keys(trimmed).map(k => parseInt(k, 10))
+                .filter(n => Number.isFinite(n) && !live(n) && trimmed[n].length === 0);
+            if (opening) {
                 ovr.forEach(n => {
                     const path = trimmed[n] || old[n];
                     if (!gone.includes(n) && !(Array.isArray(path) && path.length)) gone.push(n);
                 });
             }
-            if (!cut && !gone.length) return;
+            if (!cut && !gone.length) {
+                pending.delete(String(owner.id));
+                return;
+            }
             if (this._layerLocked(owner)) {
+                if (opening) pending.add(String(owner.id));
                 sendClientLog('ports_off_wall_locked', { layerId: owner.id, cut, ports: gone });
                 return;
             }
-            plans.push({ owner, trimmed, gone: gone.sort((a, b) => a - b), cut, live });
+            pending.delete(String(owner.id));
+            plans.push({ owner, trimmed, gone: gone.sort((a, b) => a - b),
+                dormantGone, cut, live, opening });
         });
+        this._portRepairPending = pending;
         const power = (typeof this._trimCircuitsOffWall === 'function')
             ? this._trimCircuitsOffWall({ load, onWall }) : { layers: [], notes: [] };
         const sayAll = (notes) => {
@@ -507,7 +561,7 @@ class _MergeRuns {
         const taken = new Set(Array.isArray(this.history) ? this.history : []);
         const pinsBefore = JSON.stringify(this.project.port_assignments || null,
             this._snapshotReplacer);
-        plans.forEach(({ owner, trimmed, gone, cut, live }) => {
+        plans.forEach(({ owner, trimmed, gone, dormantGone, cut, live, opening }) => {
             const paths = owner.customPortPaths;
             Object.keys(trimmed).forEach(k => {
                 const n = parseInt(k, 10);
@@ -516,13 +570,14 @@ class _MergeRuns {
                 if (trimmed[k].length || (Number.isFinite(n) && live(n))) paths[k] = trimmed[k];
                 else delete paths[k];
             });
-            this._closeUpPorts(owner, gone);
+            this._closeUpPorts(owner, gone, dormantGone);
             const ed = this._overrideEditing;
             if (gone.length && ed && ed.kind === 'data' && ed.layerId === owner.id) {
                 this._overrideEditing = null;
             }
             sendClientLog('ports_off_wall_trimmed', {
-                layerId: owner.id, cut, removed: gone, load: !!load,
+                layerId: owner.id, cut, removed: gone, unused: dormantGone,
+                load: !!load, opening: !!opening,
             });
         });
         if (pullBefore && typeof this._dropPullEditsGoneWith === 'function') {
@@ -539,15 +594,23 @@ class _MergeRuns {
         chain.then(moved => { if (moved) this._followPinsIntoHistory(pinsBefore, taken); });
 
         const said = plans.filter(p => p.gone.length);
-        sayAll(said.map(({ owner, gone }) => {
+        sayAll(said.map(({ owner, gone, opening }) => {
             const one = gone.length === 1;
             return `${owner.name || 'Screen'}: port${one ? '' : 's'} ${this._portNumbersText(gone)} `
-                + (load ? 'had no cabinets on the wall' : 'had only cabinets that came off the wall')
+                + (opening ? 'had no cabinets on the wall' : 'had only cabinets that came off the wall')
                 + `, so ${one ? 'it is' : 'they are'} gone and the ports after moved up.`;
         }).concat(power.notes));
         const out = plans.map(p => p.owner);
         power.layers.forEach(l => { if (!out.includes(l)) out.push(l); });
         return out;
+    }
+
+    // Does one of `layers` still wait for the open's repair (it was locked
+    // when its show was opened)?
+    portRepairPending(layers) {
+        const pending = this._portRepairPending;
+        if (!pending || pending.size === 0) return false;
+        return (layers || []).some(l => l && pending.has(String(l.id)));
     }
 
     // Pins the server moved after undo steps were already taken: each step
@@ -605,8 +668,13 @@ class _MergeRuns {
     }
 
     // The freed cabinets not drawn yet, on `layer` (for the canvas's ring).
+    // A single port being redrawn rings the cabinets it holds the same way
+    // (overrideFreedPanels).
     mergeFreedPanels(layer) {
         const s = this._mergeRedraw;
+        if (!s && typeof this.overrideFreedPanels === 'function') {
+            return this.overrideFreedPanels(layer);
+        }
         if (!s || !layer || !s.held || !s.ready) return [];
         const owner = (this.project.layers || []).find(l => l.id === s.layerId);
         if (!owner) return [];
@@ -640,6 +708,13 @@ class _MergeRuns {
             this.cancelMergeRedraw(`Nothing was drawn, so ports ${this._portNumbersText(s.picks)} stay as they were.`);
             return false;
         }
+        // Freed cabinets the drawing did not take: on an automatic screen
+        // the walk takes them back once the session closes, and the toast
+        // names the ports they went to (QA, 1.6.0: they were re-walked into
+        // new ports in silence); on a custom screen they are left unwired.
+        const drawnKeys = new Set(path.filter(Boolean)
+            .map(e => this.getScopedPanelKey(this.getPathEntryLayerId(owner, e), e)));
+        const left = [...(s.held || [])].filter(k => !drawnKeys.has(k));
         this._mergeRedraw = null;
         const idx = this.history.indexOf(s.baseEntry);
         if (idx >= 0) {
@@ -657,10 +732,12 @@ class _MergeRuns {
         this.updatePortLabelEditor();
         if (typeof this.updateUI === 'function') this.updateUI();
         sendClientLog('merge_runs_kept', {
-            layerId: owner.id, num: s.num, picks: s.picks, drawn: path.length,
+            layerId: owner.id, num: s.num, picks: s.picks, drawn: path.length, left: left.length,
         });
         if (typeof this._toast === 'function') {
-            this._toast(`Ports ${this._portNumbersText(s.picks)} are now port ${s.num}.`, false, 4000);
+            const leftover = left.length ? ` ${this._leftoverPortsNote(owner, left)}` : '';
+            this._toast(`Ports ${this._portNumbersText(s.picks)} are now port `
+                + `${this._portNumberText(s.num)}.${leftover}`, false, left.length ? 8000 : 4000);
         }
         if (window.canvasRenderer) window.canvasRenderer.render();
         return true;

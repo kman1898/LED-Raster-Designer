@@ -288,7 +288,7 @@ def test_custom_ports_trim_and_close_up_when_columns_shrink(page):
         "(id) => window.__shr.layer(id).customPortPaths", lid)
     # said, not silent
     notes = page.evaluate("() => window.__notes")
-    assert any('ports 12, 24, 36, 48, 60' in n and 'came off the wall' in n for n in notes), notes
+    assert any('ports P12, P24, P36, P48, P60' in n and 'came off the wall' in n for n in notes), notes
     # the trim is part of the shrink's own undo step, pins included
     assert s['historyAction'] == 'Update Properties'
     assert s['firstEntryPins'] is not None
@@ -492,3 +492,60 @@ def test_a_saved_automatic_show_is_repaired_when_opened(page, tmp_path):
     # opening it again changes nothing more
     assert page.evaluate("() => window.app.trimPortsOffWall({ load: true }).length") == 0
 
+
+
+# ── QA, 1.6.0 ─────────────────────────────────────────────────────────────
+
+def test_an_unused_old_drawing_closes_up_with_the_cut(page):
+    """An automatic screen keeps the drawing of an earlier custom spell,
+    unused. Cut, its ports left with no cabinet go and its later numbers
+    close up like the live ports', so custom mode turned on again finds no
+    holes where the wall shrank."""
+    lid = reset(page, custom=True)
+    page.evaluate("""(id) => { const app = window.app, l = window.__shr.layer(id);
+        l.flowPattern = 'tl-h'; app.updateLayers([l]); app.resetHistory('Unused Drawing'); }""", lid)
+    page.wait_for_timeout(400)
+    assert st(page, lid)['pathKeys'] == list(range(1, 61))
+    type_columns(page, 85)
+    s = st(page, lid)
+    assert s['pathKeys'] == list(range(1, 56)), s['pathKeys']
+    paths = page.evaluate("(id) => window.__shr.layer(id).customPortPaths", lid)
+    assert [[[e['row'], e['col']] for e in paths[str(n)]] for n in range(1, 56)] == row_ports_across(85)
+    assert s['overrides'] == []
+    # the automatic walk itself is whole
+    p = ports(page, lid)
+    assert sorted(p) == list(range(1, len(p) + 1))
+    assert_every_cabinet_once(p, 85)
+
+
+def test_a_screen_locked_when_opened_is_repaired_when_unlocked(page, tmp_path):
+    """A locked screen is left as it is when its show is opened. Unlocked,
+    it gets the open's whole repair in the unlock's own step: the override
+    held empty goes as well as the one standing off the wall."""
+    lid = reset(page, overrides=[13])
+    project = _saved_shrunk_without_trim(page, lid, 'ShrinkSavedLocked')
+    layer = next(x for x in project['layers'] if x['id'] == lid)
+    layer['customPortOverrides'] = [12, 13, 14]
+    layer['customPortPaths']['12'] = []
+    layer['customPortPaths']['14'] = [{'row': 1, 'col': 88}, {'row': 1, 'col': 89}]
+    layer['locked'] = True
+    _open_file(page, tmp_path, project, 'ShrinkSavedLocked')
+    assert st(page, lid)['overrides'] == [12, 13, 14], 'a locked screen was changed'
+    page.evaluate("""(id) => { const app = window.app;
+        app.selectLayer(window.__shr.layer(id));
+        app.selectedLayerIds = new Set([id]);
+        app.setLockOnSelected(false); }""", lid)
+    page.wait_for_timeout(800)
+    s = st(page, lid)
+    assert s['overrides'] == [12]
+    assert s['historyAction'] == 'Unlock Layers'
+    paths = page.evaluate("(id) => window.__shr.layer(id).customPortPaths", lid)
+    assert [[e['row'], e['col']] for e in paths['12']] == [[1, c] for c in range(8)]
+    p = ports(page, lid)
+    assert sorted(p) == list(range(1, len(p) + 1)), 'the numbers have a hole'
+    stored = server_layer(page, lid)
+    assert stored['customPortOverrides'] == [12] and stored['locked'] is False
+    # undo puts the lock and the screen back together
+    page.evaluate("() => window.app.undo()")
+    page.wait_for_timeout(500)
+    assert st(page, lid)['overrides'] == [12, 13, 14]

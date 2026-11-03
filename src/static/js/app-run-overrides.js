@@ -105,7 +105,133 @@ class _RunOverrides {
         if (kind !== 'power' && typeof this._mergeHeldPanels === 'function') {
             this._mergeHeldPanels(scope).forEach(p => claimed.add(p));
         }
+        // One port open for redrawing holds its cabinets the same way.
+        if (kind !== 'power') this._overrideHeldPanels(scope).forEach(p => claimed.add(p));
         return claimed;
+    }
+
+    // ── The cabinets a single redraw holds (QA, 1.6.0) ────────────────────
+    //
+    // A data port taken over on an AUTOMATIC screen keeps the cabinets it
+    // carried when the redraw opened, the way "Redraw ports as one" holds
+    // the ports it freed (_mergeHeldPanels): while the redraw is open the
+    // walk leaves them alone, so a cabinet cut off the path (a click on an
+    // earlier step, Clear Port) stays free for this port to take again in
+    // a new order. Without the hold the walk took such a cabinet straight
+    // back, every click on it was refused as wired, and the redraw had
+    // nowhere to go. When the redraw ends, a held cabinet left undrawn goes
+    // back to the walk (_endOverrideHold says where).
+    //
+    // Session state like _overrideEditing, never saved: it lives only while
+    // that very editing state does (`editing` is the same object), so undo,
+    // a reset or anything that drops the edit drops the hold with it.
+    _overrideHoldLive() {
+        const h = this._overrideHeld;
+        if (!h) return null;
+        const ed = this._overrideEditing;
+        const owner = ed && h.editing === ed && this.project
+            ? (this.project.layers || []).find(l => l.id === ed.layerId) : null;
+        if (!owner || ed.kind !== 'data' || !this._isOverrideEditing(owner, 'data')) {
+            this._overrideHeld = null;
+            return null;
+        }
+        return h;
+    }
+
+    // The held cabinets among `scope` (the walking screen's path scope), as
+    // panel objects.
+    _overrideHeldPanels(scope) {
+        const h = this._overrideHoldLive();
+        if (!h || h.keys.size === 0) return [];
+        if (!(scope || []).some(m => m && m.id === h.layerId)) return [];
+        const out = [];
+        scope.forEach(m => (m && m.panels || []).forEach(p => {
+            if (h.keys.has(this.getScopedPanelKey(m.id, p))) out.push(p);
+        }));
+        return out;
+    }
+
+    // The scoped keys of the cabinets on `owner`'s overridden paths, every
+    // one: a held cabinet drawn onto any of them (Tab steps between them
+    // while the redraw is open) is drawn.
+    _overridePathKeys(owner) {
+        const paths = (owner && owner.customPortPaths) || {};
+        const out = new Set();
+        this.getOverrideNums(owner, 'data').forEach(n => (paths[n] || []).forEach(e => {
+            if (e) out.add(this.getScopedPanelKey(this.getPathEntryLayerId(owner, e), e));
+        }));
+        return out;
+    }
+
+    // Held, not drawn: the cabinets still to draw, on `layer` (for the
+    // canvas's dashed ring, with the merge redraw's).
+    overrideFreedPanels(layer) {
+        const h = this._overrideHoldLive();
+        if (!h || !layer || h.keys.size === 0) return [];
+        const owner = (this.project.layers || []).find(l => l.id === h.layerId);
+        const drawn = this._overridePathKeys(owner);
+        return (layer.panels || []).filter(p => {
+            const k = this.getScopedPanelKey(layer.id, p);
+            return h.keys.has(k) && !drawn.has(k);
+        });
+    }
+
+    // Raise the hold for the data port `num` of `owner`, just opened for
+    // redrawing: the cabinets on its path now. `prev` is the hold that was
+    // live before the open (read before the editing state was replaced): on
+    // the same screen it carries on, so a cabinet cut off one port stays
+    // free while another is picked up; on another screen it ends.
+    _beginOverrideHold(owner, num, prev) {
+        const keys = new Set();
+        const paths = owner.customPortPaths || {};
+        (paths[num] || []).forEach(e => {
+            if (e) keys.add(this.getScopedPanelKey(this.getPathEntryLayerId(owner, e), e));
+        });
+        if (prev && prev.layerId === owner.id) prev.keys.forEach(k => keys.add(k));
+        else if (prev) this._endOverrideHold(prev);
+        this._overrideHeld = { editing: this._overrideEditing, layerId: owner.id, keys };
+    }
+
+    // Let the hold go (the redraw ended, or one on another screen opened).
+    // The cabinets left undrawn go back to the walk; the toast names the
+    // ports they went to, so the change is not silent.
+    _endOverrideHold(h = this._overrideHeld) {
+        if (!h) return;
+        if (h === this._overrideHeld) this._overrideHeld = null;
+        const owner = (this.project && this.project.layers || []).find(l => l.id === h.layerId);
+        if (!owner) return;
+        const drawn = this._overridePathKeys(owner);
+        const left = [...h.keys].filter(k => !drawn.has(k));
+        if (!left.length) return;
+        sendClientLog('override_hold_released', { layerId: owner.id, left: left.length });
+        this.updatePortCapacityDisplay();
+        if (typeof this.updateUI === 'function') this.updateUI();
+        const note = this._leftoverPortsNote(owner, left);
+        if (note && typeof this._toast === 'function') this._toast(note, false, 6000);
+    }
+
+    // "2 cabinets left over went to ports P15-P16." - where the
+    // cabinets `keys` (scoped keys) of `owner`'s path scope sit now that
+    // nothing holds them: on an automatic screen the walk took them, on a
+    // custom one they are unwired.
+    _leftoverPortsNote(owner, keys) {
+        const n = (keys || []).length;
+        if (!owner || !n) return '';
+        const cabs = `${n} cabinet${n === 1 ? '' : 's'} left over`;
+        if (this.isCustomFlow(owner)) {
+            return `${cabs} ${n === 1 ? 'is' : 'are'} unwired now.`;
+        }
+        const want = new Set(keys);
+        const map = this._dockBuildDataMap();
+        const nums = new Set();
+        this.getPathScopeLayers(owner).forEach(m => (m && m.panels || []).forEach(p => {
+            if (!want.has(this.getScopedPanelKey(m.id, p))) return;
+            const run = map.get(p);
+            if (run && run.ownerId === owner.id) nums.add(run.portNum);
+        }));
+        if (!nums.size) return `${cabs} went back to the automatic ports.`;
+        const list = [...nums];
+        return `${cabs} went to ${list.length === 1 ? 'port' : 'ports'} ${this._portNumbersText(list)}.`;
     }
 
     // This layer's own overridden runs, resolved and ready to merge into an
@@ -213,6 +339,9 @@ class _RunOverrides {
         const run = this.runAtPoint(worldX, worldY);
         if (!run) return false;
         const { kind, layer: owner, num } = run;
+        // A mirror screen's map is its source's (app-mirror-screens.js):
+        // refused out loud, as every other edit of it is.
+        if (this._overrideMirrorRefused(owner, kind)) return true;
         const wholeCustom = kind === 'power'
             ? this.isCustomPower(owner) : this.isCustomFlow(owner);
         if (wholeCustom) {
@@ -264,6 +393,7 @@ class _RunOverrides {
             if (typeof this._showLockedError === 'function') this._showLockedError([owner]);
             return;
         }
+        if (this._overrideMirrorRefused(owner, kind)) return;
         const hits = this._runSeedHits(owner, kind, num);
         const pathsKey = kind === 'power' ? 'powerCustomPaths' : 'customPortPaths';
         const ovrKey = kind === 'power' ? 'powerCustomOverrides' : 'customPortOverrides';
@@ -290,7 +420,16 @@ class _RunOverrides {
     // active index, so the undo entry is the one that change has always had.
     beginOverrideEdit(owner, kind, num) {
         if (!this.isRunOverridden(owner, kind, num)) return;
+        if (this._overrideMirrorRefused(owner, kind)) return;
         this._activateRunForEdit(owner, kind, num, null);
+    }
+
+    // A data run on a mirror screen is its source's: redrawing it is
+    // refused with the mirror's own message (_mirrorRefused). Power is the
+    // screen's own and is not refused.
+    _overrideMirrorRefused(owner, kind) {
+        return kind !== 'power' && typeof this._mirrorRefused === 'function'
+            && this._mirrorRefused(owner);
     }
 
     // The shared tail of every entry path: select the owner, point the active
@@ -316,8 +455,19 @@ class _RunOverrides {
         owner[idxKey] = num;
         const wholeCustom = kind === 'power'
             ? this.isCustomPower(owner) : this.isCustomFlow(owner);
+        // The hold of the redraw open until now, read while it is still live.
+        const prevHold = this._overrideHoldLive();
         this._overrideEditing = wholeCustom
             ? null : { layerId: owner.id, kind, num };
+        // A data port on an automatic screen holds its cabinets while it is
+        // redrawn (_beginOverrideHold). Several ports redrawn as one hold
+        // their own (_mergeHeldPanels).
+        const merging = !!(this._mergeRedraw && this._mergeRedraw.layerId === owner.id);
+        if (kind !== 'power' && !wholeCustom && !merging) {
+            this._beginOverrideHold(owner, num, prevHold);
+        } else if (prevHold) {
+            this._endOverrideHold(prevHold);
+        }
         const label = undoLabel || (idxChanged
             ? (kind === 'power' ? 'Power Custom Circuit Change' : 'Custom Port Change')
             : null);
@@ -348,7 +498,11 @@ class _RunOverrides {
         }
         if (!this._overrideEditing) return;
         const wasPower = this._overrideEditing.kind === 'power';
+        const hold = this._overrideHoldLive();
         this._overrideEditing = null;
+        // The cabinets the redraw held and left undrawn go back to the
+        // walk, and the toast says where they went.
+        if (hold) this._endOverrideHold(hold);
         if (wasPower) {
             if (this.powerCustomSelection) this.powerCustomSelection.clear();
             this.updateCustomPowerUI();
@@ -456,7 +610,7 @@ class _RunOverrides {
         }
         const noun = kind === 'power'
             ? `circuit ${this.getPowerCircuitLabel(owner, num)}`
-            : `port ${this.getPortLabelText(owner, num, 'primary')}`;
+            : `port ${this._portNumberText(num)}`;
         const overridden = this.isRunOverridden(owner, kind, num);
         return {
             redraw: {

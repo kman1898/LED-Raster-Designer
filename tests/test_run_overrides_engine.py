@@ -249,6 +249,11 @@ def test_cabinets_freed_from_an_override_reflow_into_the_walk(page):
         const l = window.__ovr.layer(id);
         return l.customPortPaths[num].pop();
     }""", [lid, target])
+    # while the redraw is open the port still holds it, free to draw again
+    # (QA, 1.6.0); the walk takes it once the redraw ends
+    held = data_map(page, lid)
+    assert (dropped['row'], dropped['col']) not in {(r['row'], r['col']) for r in held}
+    page.evaluate("() => window.app.endOverrideEdit()")
     after = data_map(page, lid)
     # nothing fed twice, nothing dropped: the union still covers exactly the
     # baseline's cabinets, the freed one included

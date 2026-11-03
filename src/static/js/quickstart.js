@@ -3481,12 +3481,28 @@
         },
         overrideRun: {
             target: '#main-canvas', place: 'top', title: 'Take over one run',
-            body: 'Hold Alt and the run under the cursor lights up. Alt+click takes over just that port: click cabinets to redraw it, Esc when done.',
+            body: 'Hold Alt and the run under the cursor lights up. Alt+click takes that port over: click its first cabinet to start again there, then the rest in a new order, and Esc when done.',
             before: function () { switchView('data-flow'); closePopover(); },
             act: function (t) {
                 var w = wall();
                 var pt = t.cabinetPoint(w, { port: 2 });
-                var others = A().calculatePortAssignments(w).filter(function (i) { return i.port === 3; }).slice(0, 2);
+                // Port 2 redrawn in a new order: a click on its first
+                // cabinet cuts the run back to it, and its other cabinets
+                // are clicked again as a snake row by row (column by column
+                // where the walk already ran it row by row).
+                var seed = A().calculatePortAssignments(w).filter(function (i) { return i.port === 2; })
+                    .map(function (i) { return i.panel; });
+                var snake = function (major, minor) {
+                    return seed.slice(1).sort(function (a, b) {
+                        if (a[major] !== b[major]) return a[major] - b[major];
+                        return (a[major] - seed[0][major]) % 2 ? b[minor] - a[minor] : a[minor] - b[minor];
+                    });
+                };
+                var key = function (p) { return p.row + ',' + p.col; };
+                var rest = snake('row', 'col');
+                if (rest.map(key).join(' ') === seed.slice(1).map(key).join(' ')) rest = snake('col', 'row');
+                var clicks = seed.length ? [seed[0]].concat(rest) : [];
+                t.mem.clicked = clicks.map(key);
                 return t.moveTo(pt, { badge: 'Alt' }).then(function () {
                     A().updateOverrideHover(true, pt.worldX, pt.worldY);
                     return t.pause(PACE.hover + 150);   // the lit run, read
@@ -3503,9 +3519,11 @@
                     badge('');
                     return t.pause(PACE.rest);
                 }).then(function () {
-                    return others.reduce(function (chain, it) {
+                    return clicks.reduce(function (chain, panel) {
                         return chain.then(function () {
-                            var q = t.cabinetPoint(w, { index: w.panels.indexOf(it.panel) });
+                            var live = (A().project.layers || []).find(function (l) { return l.id === w.id; }) || w;
+                            var q = t.cabinetPoint(live, { index: live.panels.findIndex(function (p) {
+                                return p.row === panel.row && p.col === panel.col; }) });
                             if (!q) return;
                             return t.hover(q).then(function () {
                                 press(true);
@@ -3524,12 +3542,16 @@
                     return t.pause(PACE.rest);
                 });
             },
-            check: function () {
+            // Passes only when the clicks landed: port 2 is taken over and
+            // its path is the cabinets clicked, in the order clicked.
+            check: function (mem) {
                 var w = wall();
                 var ov = (w && w.customPortOverrides) || [];
-                if (!ov.includes(2)) return null;
-                var path = (w.customPortPaths || {})[2] || [];
-                return 'Port 2 is hand-drawn (' + path.length + ' cabinets); the rest of the screen re-flows around it.';
+                if (!ov.includes(2) || !mem.clicked || !mem.clicked.length) return null;
+                var path = ((w.customPortPaths || {})[2] || []).map(function (e) { return e.row + ',' + e.col; });
+                if (path.join(' ') !== mem.clicked.join(' ')) return null;
+                return 'Port 2 is redrawn: its ' + path.length + ' cabinets run in the order they were '
+                    + 'clicked, and the rest of the screen keeps its runs.';
             }
         },
         // A breakout box (Matt, 2026-09-15: "show how to set breakout
@@ -5621,7 +5643,7 @@
                 });
             },
             check: function (mem) {
-                if ((mem.picks || []).join() !== '1,2,3' || mem.label !== 'Redraw ports 1-3 as one') return null;
+                if ((mem.picks || []).join() !== '1,2,3' || mem.label !== 'Redraw ports P1-P3 as one') return null;
                 return 'One Alt+drag down LEFTOVERS picked ports 1-3; the menu offered ' + mem.label + '.';
             }
         },

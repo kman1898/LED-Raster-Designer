@@ -348,9 +348,10 @@ Object.assign(CanvasRenderer.prototype, {
         this.ctx.save();
         this._clipToActiveRaster();
 
-        // Several ports being redrawn as one (app-merge-runs.js): the
-        // cabinets they freed that the new path has not taken yet wear a
-        // dashed ring, so what is left to draw is on the wall.
+        // Several ports being redrawn as one (app-merge-runs.js), or one
+        // port (app-run-overrides.js): the cabinets they freed that the
+        // new path has not taken yet wear a dashed ring, so what is left
+        // to draw is on the wall.
         if (!this.exportMode && !this._crossMemberPass && window.app
                 && typeof window.app.mergeFreedPanels === 'function') {
             const freed = window.app.mergeFreedPanels(layer);
