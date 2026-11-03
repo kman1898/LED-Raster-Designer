@@ -411,7 +411,7 @@ class _Processors {
         const over = used > ceiling;
         row.style.color = over ? '#d05a52' : 'var(--ps-dim, #c0c0c0)';
         row.textContent = `${used} / ${ceiling} ports`;
-        if (over) row.textContent += ' - over capacity';
+        if (over) row.textContent += ' · over capacity';
         return row;
     }
 
@@ -873,6 +873,13 @@ class _Processors {
         if (shown === 'unit') {
             // One row: the partner. A standalone unit is its one card, so
             // it picks that card's 1:1 partner - the second sending card.
+            // A unit that IS another's backup says whose instead: a backup
+            // takes no backup of its own.
+            if (cards[0].backupFor) {
+                block.appendChild(this._buildRedRow('backup',
+                    this._buildBacksUpFact(proc, cards[0])));
+                return block;
+            }
             const pick = this._buildCardBackupPick(proc, cards[0]);
             if (pick) block.appendChild(this._buildRedRow('mirrored by', pick));
             return block;
@@ -889,9 +896,13 @@ class _Processors {
                 block.appendChild(this._buildMixedCardRow(proc, card, legend));
                 return;
             }
-            let control = shown === 'card'
-                ? this._buildCardBackupPick(proc, card)
-                : this._buildCardShapeChips(proc, card);
+            // Per card, a card that is another card's 1:1 backup offers no
+            // partner pick (owner, beta.4: no backup of a backup) - it says
+            // whose it is, "backs up Card 1".
+            let control = shown !== 'card'
+                ? this._buildCardShapeChips(proc, card)
+                : card.backupFor ? this._buildBacksUpFact(proc, card)
+                : this._buildCardBackupPick(proc, card);
             if (!control) {
                 // A card the sheet says cannot pair states so in the
                 // control's place; nothing is drawn that could not act.
@@ -1002,6 +1013,34 @@ class _Processors {
     // gesture writes ONLY this card, through the card's own route, one
     // request and one undo step each, and says redundancyMixed so the
     // bar stays at Mixed even where the write leaves the cards agreeing.
+    // "backs up Card 1": the Per card row of a card that is another
+    // card's 1:1 backup (owner, beta.4), gold like the Mixed row's fact,
+    // offering nothing. The main by the name it goes by (cardShortName:
+    // its typed name, else Card N) where it is in this processor, else by
+    // its unit ("Card 1 in H9"), else the server's title.
+    _buildBacksUpFact(proc, card) {
+        const fact = document.createElement('span');
+        fact.className = 'hw-pop-red-backupfor';
+        fact.style.fontSize = '11px';
+        fact.style.color = '#c8a04a';
+        fact.dataset.lrdField = `processor-card-backupfor-${card.id}`;
+        const mainId = card.backupFor.cardId;
+        const mainSlot = (proc.slots || [])
+            .find(s => s.card && s.card.id === mainId);
+        const elsewhere = mainSlot ? null : this._otherCards(card.id)
+            .find(x => x.card.id === mainId);
+        const main = mainSlot
+            ? (this.cardShortName(proc, mainSlot.card)
+               || this._backupUnitTitle(proc, mainSlot.card))
+            : elsewhere ? this._backupUnitTitle(elsewhere.proc, elsewhere.card)
+            : card.backupFor.title;
+        fact.textContent = `backs up ${main}`;
+        fact.title = `This ${this.unitWordFor(proc, card)} is ${main}’s 1:1 `
+            + 'backup: its ports carry those returns. Clear the pick on '
+            + `${main}’s row to free it.`;
+        return fact;
+    }
+
     // A card consumed as another card's 1:1 backup is that card's return
     // end: it says whose, gold, and offers nothing.
     _buildMixedCardRow(proc, card, legend) {
@@ -1076,17 +1115,21 @@ class _Processors {
         blank.selected = !card.backupCardId;
         partner.appendChild(blank);
         this._otherCards(card.id).forEach(({ proc: p, card: c }) => {
+            // A card already doing a job the pick would give it twice is
+            // not offered (the server refuses both, _check_backup_card): one
+            // that backs up another card, and a main with a backup of its
+            // own. The current partner always stays, so the pick reads it.
+            if (c.id !== card.backupCardId
+                    && ((c.backupFor && c.backupFor.cardId !== card.id)
+                        || (c.backupCardId && c.redundancyShape
+                            && c.redundancyShape.mode === '1to1'))) return;
             const opt = document.createElement('option');
             opt.value = c.id;
             const title = this._backupUnitTitle(p, c);
             // The card's reach - on a box-fed card, what its boxes give
             // ("Follow the boxes", 2026-10-04).
             const count = c.ceilingKnown ? `${c.ceiling}` : '?';
-            let note = '';
-            if (c.backupFor && c.id !== card.backupCardId) {
-                note = ` (backs up ${c.backupFor.title})`;
-            }
-            opt.textContent = `${title} - ${count} ports${note}`;
+            opt.textContent = `${title} · ${count} ports`;
             if (c.id === card.backupCardId) opt.selected = true;
             partner.appendChild(opt);
         });
@@ -1329,7 +1372,7 @@ class _Processors {
             if (conflict) {
                 const blank = document.createElement('option');
                 blank.value = '';
-                blank.textContent = 'sources disagree - pick one';
+                blank.textContent = 'sources disagree, pick one';
                 blank.selected = !card.mode;
                 select.appendChild(blank);
             }
@@ -1337,7 +1380,7 @@ class _Processors {
                 const opt = document.createElement('option');
                 opt.value = m.id;
                 opt.textContent = m.count === null
-                    ? m.label : `${m.label} - ${m.count} ports`;
+                    ? m.label : `${m.label} · ${m.count} ports`;
                 if (m.id === card.mode) opt.selected = true;
                 select.appendChild(opt);
             });

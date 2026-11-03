@@ -295,7 +295,7 @@ GEAR_JS = """async ([pid, cid]) => {
     };
     let pop = open(`card-${cid}`);
     const rows = [...pop.querySelectorAll('div')].map(d => d.textContent);
-    const cap = rows.find(t => / ports( - over capacity)?$/.test(t)
+    const cap = rows.find(t => / ports( · over capacity)?$/.test(t)
                           && /^\\d+ \\/ \\d+/.test(t));
     const gaps = [...pop.querySelectorAll('.hw-pop-gap')]
         .map(d => d.textContent);

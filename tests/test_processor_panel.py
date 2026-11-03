@@ -4292,7 +4292,7 @@ def test_the_bar_draws_the_partner_row_only_where_the_vendor_does_not_fix(
     }""", ids)
     assert out['underBar'], 'the partner pick does not sit under the bar'
     assert out['partnerTexts'][0] == 'backed up by…', out
-    assert any('BK - 6 ports' in t for t in out['partnerTexts']), out
+    assert any('BK · 6 ports' in t for t in out['partnerTexts']), out
     assert not out['levelSelect'], 'the level select is back'
     assert not out['modeSelect'], 'the four-way mode select is back'
     assert not out['switchBox'], 'the checkbox switch is back'

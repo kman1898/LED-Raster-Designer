@@ -226,10 +226,26 @@ def test_the_processor_gear_rows_and_partner_pick_read_card_n(page):
     quiet(pg)
     bar = pg.evaluate(BAR_JS, ids['pid'])
     assert bar['rows'] == ['Slot 1 · Card 1', 'Slot 2 · Card 2', 'Slot 4 · Card 4'], bar
-    opts = pg.evaluate(PICKER_JS, ids['c4'])
-    assert opts == ['backed up by…', 'Card 1 in H9 - 16 ports',
-                    'Card 2 in H9 - 16 ports (backs up Card 1)'], opts
+    # Card 1's pick reads its partner and the free card by Card N, with
+    # the house separator (no spaced hyphen)
+    opts = pg.evaluate(PICKER_JS, ids['c1'])
+    assert opts == ['backed up by…', 'Card 2 in H9 · 16 ports',
+                    'Card 4 in H9 · 16 ports'], opts
     assert not any(MODEL in o for o in opts), opts
+    # Card 4 is offered neither Card 2 (it backs up Card 1) nor Card 1 (a
+    # main with a backup of its own): the server refuses both, and the
+    # pick used to offer them and draw a 400 (beta.4 QA).
+    assert pg.evaluate(PICKER_JS, ids['c4']) == ['backed up by…']
+    # Card 2 is Card 1's backup: no pick of its own, it says whose
+    # (owner, beta.4: no backup of a backup).
+    assert pg.evaluate(PICKER_JS, ids['c2']) is None
+    fact = pg.evaluate("""(cid) => {
+        const pop = document.getElementById('hw-gear-popover');
+        const el = pop && pop.querySelector(
+            `[data-lrd-field="processor-card-backupfor-${cid}"]`);
+        return el ? el.textContent : null;
+    }""", ids['c2'])
+    assert fact == 'backs up Card 1', fact
 
 
 def test_the_card_gear_is_headed_card_n_with_its_model_under(page):
