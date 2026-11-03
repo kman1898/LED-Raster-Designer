@@ -122,6 +122,12 @@ const DA_PAD = 30;
 // A3 sheet; the ARCH sheets, four times the pixels, paint at 1x - the
 // canvas is a look, the PDF is vector either way.
 const SCALE_PX_BUDGET = 8_000_000;
+// The map bitmaps print at 300 px/in, never denser than the sheet itself
+// (an ARCH sheet's 200). 400 made a gradient show's binder a quarter of a
+// gigabyte to post; at print size 300 reads the same (2026-11-03).
+const MAP_DPI = 300;
+// A split map's cabinet fills go as a JPEG at this quality (_bLayMapBitmap).
+const MAP_JPEG_QUALITY = 0.85;
 // Helvetica first: the PDF route draws the page's text in reportlab's
 // Helvetica, so the canvas measures with a Helvetica-metric face (Arial is
 // metric-compatible where Helvetica is missing) and the vector page lays
@@ -1110,9 +1116,19 @@ class _Binder {
         // ahead and says which
         const over = this.binderOverWarning(opts);
         if (over && typeof this._toast === 'function') this._toast(over, true, 12000);
+        // the bitmaps the request carries, by kind, and their size: a map
+        // is one PNG or a JPEG under a PNG (_bLayMapBitmap)
+        const bitmaps = { png: 0, jpeg: 0, mb: 0 };
+        for (const p of pages) {
+            for (const d of Object.values(p.images || {})) {
+                if (d.startsWith('data:image/jpeg')) bitmaps.jpeg++; else bitmaps.png++;
+                bitmaps.mb += d.length / 1e6;
+            }
+        }
+        bitmaps.mb = Math.round(bitmaps.mb * 10) / 10;
         sendClientLog('export_binder_start', {
             pages: pages.length, palette: opts.palette, scope: opts.scope.kind, sheet: opts.sheet,
-            view: this.getBinderInfo().view,
+            view: this.getBinderInfo().view, bitmaps,
         });
         const response = await fetch('/api/export/pdf-from-pages', {
             method: 'POST',
@@ -1190,6 +1206,7 @@ class _Binder {
                  bracketKey: log.bracketKey || null,
                  bubble: log.bubble || null, titleBlock: log.titleBlock || null,
                  logo: log.logo || null, wiring: log.wiring || null,
+                 mapBitmaps: log.mapBitmaps || [],
                  page: plan[index] || null, pages: plan.length, sheet: book.sheet };
     }
 
@@ -4492,6 +4509,261 @@ class _Binder {
         }
     }
 
+    // ---- the map bitmaps ----------------------------------------------------
+
+    // A map bitmap's pixels per page unit: MAP_DPI, or the sheet's own
+    // density where that is lower (book.scale; an ARCH sheet's is 1). The
+    // wiring sheet reads its discs back off the bitmap at this same figure
+    // (app-binder-wiring.js _bwPaintMap).
+    _bMapScale(book) {
+        return Math.min((book && book.scale) || 2, MAP_DPI / PX_PER_IN);
+    }
+
+    // The project's visible layers in the order render() paints them:
+    // canvas by canvas (project.canvases order, a hidden canvas skipped),
+    // each canvas's layers bottom to top; a project with no canvases paints
+    // its layers as listed.
+    _bMapDrawOrder() {
+        const r = window.canvasRenderer;
+        const on = ((this.project && this.project.layers) || []).filter(l => l && l.visible);
+        const canvases = (this.project && Array.isArray(this.project.canvases)) ? this.project.canvases : [];
+        if (!canvases.length) return on;
+        const out = [];
+        for (const c of canvases) {
+            if (!c || c.visible === false) continue;
+            for (const l of on) if (r._effectiveLayerCanvasId(l) === c.id) out.push(l);
+        }
+        return out;
+    }
+
+    // Why the map render() just drew cannot go as a split pair
+    // (_bLayMapBitmap), or null when it can. A split paints every cabinet
+    // fill on the map first and everything else over them, where render()
+    // paints the layers bottom to top and each screen whole - its fills,
+    // then its borders, runs, discs, tags and name. The two agree only
+    // where nothing painted before a fill lies under that fill, so the map
+    // stays one PNG when:
+    //   - an image or text layer is painted before a screen: a picture or
+    //     a caption under the cabinets would come out on top of them;
+    //   - a Power or Data map carries more than one screen (a group's
+    //     sheets): each member's runs, discs, tags and brackets are painted
+    //     before the next member's fills and reach over the seam onto them;
+    //   - the show map carries a screen group: its one label spans the
+    //     whole wall, painted with one member, under the others' fills;
+    //   - two screens overlap: the upper one's fills cover the lower one's
+    //     borders and lettering;
+    //   - two cabinets of one screen overlap, the same inside the screen;
+    //   - a cabinet is hidden on a map painted without the per-cabinet clip
+    //     (`clipped` false: a screen's own sheets, ignoreRasterBounds): its
+    //     dashed ghost outline straddles its edge, and the half that falls
+    //     on a neighbour painted after it is under that neighbour's fill.
+    // Everything else is painted after every fill it could touch: a
+    // screen's borders sit inside its own cabinets, its name and sizes are
+    // clipped to its own bounds, and the crossing runs, the held-back group
+    // names, the error overlays and the BACK VIEW badge come after every
+    // screen. What the PAGE has under the map is _bInkUnderMap's.
+    _bMapSplitBlocker({ view, clipped }) {
+        const r = window.canvasRenderer;
+        const order = this._bMapDrawOrder();
+        const isScreen = (l) => (l.type || 'screen') === 'screen';
+        const screens = order.filter(isScreen);
+        if (!screens.length) return null;
+        const top = order.lastIndexOf(screens[screens.length - 1]);
+        if (order.some((l, i) => i < top && !isScreen(l))) return 'an image or text layer under a screen';
+        if (view !== 'show-look' && screens.length > 1) return 'more than one screen';
+        if (screens.length > 1 && typeof this.groupMembersOf === 'function') {
+            const on = new Set(screens);
+            if (screens.some(l => this.groupMembersOf(l).filter(m => on.has(m)).length > 1)) return 'a screen group';
+        }
+        const canvases = (this.project && Array.isArray(this.project.canvases)) ? this.project.canvases : [];
+        const rects = screens.map(l => {
+            const cid = r._effectiveLayerCanvasId(l);
+            const ws = r._canvasWorkspace(canvases.find(c => c && c.id === cid) || null);
+            const b = r.getLayerBounds(l);
+            const { dx, dy } = r.getLayerRenderOffset(l);
+            return { x: ws.wx + b.x + dx, y: ws.wy + b.y + dy, w: b.width, h: b.height };
+        });
+        const meet = (a, b) => Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) > 1e-6
+            && Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) > 1e-6;
+        for (let i = 0; i < rects.length; i++) {
+            for (let j = i + 1; j < rects.length; j++) if (meet(rects[i], rects[j])) return 'two screens overlap';
+        }
+        if (screens.some(l => this._bCabinetsOverlap(l))) return 'two cabinets overlap';
+        if (!clipped && screens.some(l => (l.panels || []).some(p => p && p.hidden))) return 'a hidden cabinet';
+        return null;
+    }
+
+    // Whether any two of a screen's cabinets overlap - a shared edge is not
+    // an overlap: a sweep along x, holding the cabinets still open there.
+    _bCabinetsOverlap(layer) {
+        const ps = (layer.panels || []).filter(p => p && p.width > 0 && p.height > 0)
+            .sort((a, b) => a.x - b.x);
+        const open = [];
+        for (const p of ps) {
+            for (let i = open.length - 1; i >= 0; i--) {
+                if (open[i].x + open[i].width <= p.x + 1e-6) open.splice(i, 1);
+            }
+            if (open.some(q => Math.min(q.y + q.height, p.y + p.height) - Math.max(q.y, p.y) > 1e-6)) return true;
+            open.push(p);
+        }
+        return false;
+    }
+
+    // Whether the page already carries ink under a map's rect (`rect` in
+    // the context's units, as drawImage takes it) - anything but a fill of
+    // `matte`, the sheet's white or the overview's grey, and anything a
+    // later matte fill covers whole - by the display list written so far.
+    // A split pair's JPEG is opaque and would hide it.
+    // Text is measured in the sheet's own face and given an em above and
+    // below its anchor; turned text, a square round the anchor its width
+    // and an em either way.
+    _bInkUnderMap(book, rect, matte) {
+        const t = book.realCtx.getTransform();
+        const S = book.scale || 1;
+        const [x, y, w, h] = rect;
+        const xs = [x, x + w].map((u, i) => (t.a * u + t.c * [y, y + h][i] + t.e) / S);
+        const ys = [x, x + w].map((u, i) => (t.b * u + t.d * [y, y + h][i] + t.f) / S);
+        const R = { x: Math.min(...xs), y: Math.min(...ys), w: Math.abs(xs[1] - xs[0]), h: Math.abs(ys[1] - ys[0]) };
+        const meets = (b) => Math.min(b.x + b.w, R.x + R.w) - Math.max(b.x, R.x) > 0.01
+            && Math.min(b.y + b.h, R.y + R.h) - Math.max(b.y, R.y) > 0.01;
+        const covers = (b) => b.x <= R.x + 0.01 && b.y <= R.y + 0.01
+            && b.x + b.w >= R.x + R.w - 0.01 && b.y + b.h >= R.y + R.h - 0.01;
+        let found = null;
+        for (const op of (book.page && book.page.ops) || []) {
+            let b;
+            if (op.op === 'rect' && !op.stroke) {
+                // a fill of the matte: whatever it covers whole is gone, and
+                // it is the very colour the JPEG is flattened onto
+                if (op.fill === matte) { if (covers(op)) found = null; continue; }
+                b = op;
+            } else if (op.op === 'rect') {
+                // a stroked rect is its four edges, not its inside
+                const p = (op.width || 0) / 2;
+                const edges = [{ x: op.x - p, y: op.y - p, w: op.w + p * 2, h: p * 2 },
+                               { x: op.x - p, y: op.y + op.h - p, w: op.w + p * 2, h: p * 2 },
+                               { x: op.x - p, y: op.y - p, w: p * 2, h: op.h + p * 2 },
+                               { x: op.x + op.w - p, y: op.y - p, w: p * 2, h: op.h + p * 2 }];
+                if (edges.some(meets)) found = 'ink under the map';
+                continue;
+            } else if (op.op === 'line') {
+                const px = op.points.map(p => p[0]), py = op.points.map(p => p[1]);
+                const pad = (op.width || 0) / 2;
+                b = { x: Math.min(...px) - pad, y: Math.min(...py) - pad,
+                      w: Math.max(...px) - Math.min(...px) + pad * 2, h: Math.max(...py) - Math.min(...py) + pad * 2 };
+            } else if (op.op === 'text') {
+                // its own context: the book's carries the sheet's font state
+                const mc = this._binderInkMeasure
+                    || (this._binderInkMeasure = document.createElement('canvas').getContext('2d'));
+                mc.font = this._bFont(op.size, op.weight);
+                const tw = mc.measureText(op.text).width, sz = op.size || 0;
+                if (op.rotate) {
+                    const n = Math.max(tw, sz) + sz;
+                    b = { x: op.x - n, y: op.y - n, w: n * 2, h: n * 2 };
+                } else {
+                    const left = op.align === 'center' ? op.x - tw / 2
+                        : (op.align === 'right' || op.align === 'end') ? op.x - tw : op.x;
+                    // a whole em above and below the anchor covers every baseline
+                    b = { x: left - 2, y: op.y - sz * 1.2, w: tw + 4, h: sz * 2.4 };
+                }
+            } else {
+                b = { x: op.x, y: op.y, w: op.w, h: op.h };
+            }
+            if (meets(b)) found = 'ink under the map';
+        }
+        return found;
+    }
+
+    // Lays the map bitmap `off` - render()'s whole render of the map, the
+    // renderer still set up for it - into the sheet at `rect` through the
+    // recording context, as whichever comes out smaller:
+    //   - one PNG of `off`, lossless, exactly as drawn; or
+    //   - its SPLIT PAIR at the same rect: the cabinet fills alone (the
+    //     Panels stage) flattened onto `matte` - the colour the page has
+    //     under the map - as a JPEG, and everything else (every other
+    //     stage) as a transparent PNG laid over it. The text, runs, discs,
+    //     tags and borders stay lossless; only the fills take the JPEG,
+    //     and a gradient's smooth ramp is where PNG costs a dozen times as
+    //     much (2026-11-03: a gradient show's binder posted 253 MB as PNGs,
+    //     13 MB split; a flat show's PNGs stay the smaller).
+    // The pair is tried only where it shows the same map: nothing but the
+    // matte under it on the page (_bInkUnderMap) and nothing `blocker()`
+    // names (the painter's _bMapSplitBlocker). book.log, where kept, gets
+    // one entry per map in `mapBitmaps`.
+    _bLayMapBitmap(book, off, rect, matte, blocker) {
+        const single = off.toDataURL('image/png');
+        const blocked = this._bInkUnderMap(book, rect, matte) || (blocker ? blocker() : null);
+        const passes = this._binderSplitCanvases
+            || (this._binderSplitCanvases = [document.createElement('canvas'), document.createElement('canvas')]);
+        try {
+            const pair = blocked ? null : this._bSplitMapPair(off, matte, passes);
+            const pairLen = pair ? pair[0].length + pair[1].length : null;
+            const split = !!pair && pairLen < single.length;
+            if (book.log) {
+                (book.log.mapBitmaps || (book.log.mapBitmaps = [])).push(
+                    { split, blocked: blocked || null, png: single.length, pair: pairLen });
+            }
+            if (split) {
+                passes.forEach((c, i) => {
+                    c._binderDataUrl = pair[i];
+                    book.ctx.drawImage(c, ...rect);
+                });
+            } else {
+                off._binderDataUrl = single;
+                book.ctx.drawImage(off, ...rect);
+            }
+        } finally {
+            delete off._binderDataUrl;
+            // the pair's canvases are a whole map each: let them go now
+            for (const c of passes) { delete c._binderDataUrl; c.width = 0; c.height = 0; }
+        }
+    }
+
+    // The split pair of the map in `off`: two more renders, the fills alone
+    // onto passes[0] and everything else onto passes[1], at off's size and
+    // the renderer's transform; the fills flattened onto `matte` (a JPEG has
+    // no alpha) and both encoded - [JPEG, PNG] data URLs - or null when the
+    // renderer names no stages. The passes are quiet: the label registry is
+    // put aside and _binderQuietPass turns the wiring sheet's disc watch
+    // away, so what the painter read off the whole render stands alone.
+    _bSplitMapPair(off, matte, passes) {
+        const r = window.canvasRenderer;
+        const stages = (window.CanvasRenderer && window.CanvasRenderer.RENDER_STAGES) || [];
+        if (!stages.includes('Panels')) return null;
+        // 'Canvas outline' is drawn only when the stage list asks for it;
+        // 'Background' is the export's own clear
+        const over = stages.filter(n => n !== 'Panels' && n !== 'Background' && n !== 'Canvas outline');
+        const saved = { canvas: r.canvas, ctx: r.ctx, stages: r.renderStages,
+                        probe: r.labelProbe, radii: r._labelProbeRadii };
+        this._binderQuietPass = true;
+        r.labelProbe = null;
+        r._labelProbeRadii = null;
+        try {
+            [[['Panels'], passes[0]], [over, passes[1]]].forEach(([names, c]) => {
+                c.width = off.width;
+                c.height = off.height;
+                r.canvas = c;
+                r.ctx = c.getContext('2d', { alpha: true });
+                r.renderStages = new Set(names);
+                r.render();
+            });
+        } finally {
+            r.canvas = saved.canvas;
+            r.ctx = saved.ctx;
+            r.renderStages = saved.stages;
+            r.labelProbe = saved.probe;
+            r._labelProbeRadii = saved.radii;
+            this._binderQuietPass = false;
+        }
+        const fx = passes[0].getContext('2d');
+        fx.save();
+        fx.setTransform(1, 0, 0, 1, 0, 0);
+        fx.globalCompositeOperation = 'destination-over';
+        fx.fillStyle = matte;
+        fx.fillRect(0, 0, passes[0].width, passes[0].height);
+        fx.restore();
+        return [passes[0].toDataURL('image/jpeg', MAP_JPEG_QUALITY), passes[1].toDataURL('image/png')];
+    }
+
     // ---- the map ------------------------------------------------------------
 
     // The screen's map through the canvas renderer, in exportMode, in the
@@ -4504,13 +4776,14 @@ class _Binder {
     // scales uniformly to fit it between the gutters (capped at
     // MAP_ZOOM_CAP) and the area actually used comes back as geo.area.
     //
-    // Print density: the offscreen canvas is book.scale times the map's
-    // sheet size - times the sheet's fill scale, where the drawing is
-    // painted larger (book.fill) - and the renderer draws at that times
-    // the zoom, so the wall's text and lines come out sharp when the
-    // bitmap is laid onto the scaled sheet - never upscaled from a
-    // smaller render. geo.extent is the map's compact extent in the area:
-    // the wall with its gutters, and the height used.
+    // Print density: the offscreen canvas is _bMapScale(book) times the
+    // map's sheet size - times the sheet's fill scale, where the drawing
+    // is painted larger (book.fill) - and the renderer draws at that times
+    // the zoom, so the wall's text and lines come out at MAP_DPI on the
+    // paper whatever the fill. Only the bitmap's density is set here: the
+    // map's place, its type sizes and line widths are in page units and
+    // never move with it. geo.extent is the map's compact extent in the
+    // area: the wall with its gutters, and the height used.
     _bMap(book, layer, view, area, gutter) {
         // The set's one View choice, for the length of this paint: the
         // renderer mirrors a Power or Data map when ITS canvas's
@@ -4564,7 +4837,7 @@ class _Binder {
         // the gutters: the rulers' and the brackets' room by default; a
         // caller that draws neither (the wiring sheet) passes its own
         let G = gutter || MAP_GUTTER;
-        const S = (book.scale || 2) * ((book.fill && book.fill.s) || 1);
+        const S = this._bMapScale(book) * ((book.fill && book.fill.s) || 1);
         const canvases = (this.project && Array.isArray(this.project.canvases)) ? this.project.canvases : [];
         const hadBy = !!this.project && Object.prototype.hasOwnProperty.call(this.project, 'groupNameDisplayByView');
         const saved = {
@@ -4784,9 +5057,12 @@ class _Binder {
                     geo.mapInkLeft = minX === Infinity ? null : area.x + minX / S;
                     geo.mapArea = { x: area.x, y: area.y, w: used.w, h: used.h };
                 }
-                // Laid at the map's sheet size: on the scaled sheet that is
-                // one offscreen pixel per sheet pixel.
-                book.ctx.drawImage(off, area.x, area.y, used.w, used.h);
+                // Laid at the map's sheet size, at the map's own density
+                // (_bMapScale) - as one PNG or as its split pair. Only this
+                // sheet's own screens are on (the rest were hidden above).
+                this._bLayMapBitmap(book, off, [area.x, area.y, used.w, used.h], '#ffffff',
+                    () => (cut ? 'a group member sheet'
+                        : this._bMapSplitBlocker({ view, clipped: false })));
             }
         } finally {
             saved.canvasVis.forEach(([c, v]) => { c.visible = v; });
@@ -6978,8 +7254,8 @@ class _Binder {
 
     // The show at a glance: the Show Look, cropped to the SCREENS' bounds
     // (every screen on a visible canvas), fitted into the area at
-    // min(fit, 3x) - through the renderer in exportMode, at book.scale
-    // like the maps, so it prints sharp. Returns the rect it used, with
+    // min(fit, 3x) - through the renderer in exportMode, at the maps'
+    // density (_bMapScale), so it prints sharp. Returns the rect it used, with
     // `screens`: each screen's page rect.
     //
     // Every screen then wears its own OUTLINE over the bitmap - its
@@ -7056,7 +7332,7 @@ class _Binder {
 
     _bPaintShowMap(book, area) {
         const r = window.canvasRenderer;
-        const S = book.scale || 2;
+        const S = this._bMapScale(book);
         const saved = { canvas: r.canvas, ctx: r.ctx, exportMode: r.exportMode, transparent: r.exportTransparentBg,
                         printer: r.printerMode, viewMode: r.viewMode, zoom: r.zoom, panX: r.panX, panY: r.panY };
         let used = null;
@@ -7079,8 +7355,8 @@ class _Binder {
             if (book.log) book.log.map = { x: dx, y: dy, w: drawW, h: drawH, zoom, area: { ...area }, screens: screenRects };
             if (!(book.page && book.page.painting)) return used;
             const off = this._binderMapCanvas || (this._binderMapCanvas = document.createElement('canvas'));
-            off.width = drawW * S;
-            off.height = drawH * S;
+            off.width = Math.max(1, Math.round(drawW * S));
+            off.height = Math.max(1, Math.round(drawH * S));
             r.canvas = off;
             r.ctx = off.getContext('2d', { alpha: true });
             r.exportMode = true;
@@ -7092,7 +7368,10 @@ class _Binder {
             r.render();
             book.ctx.fillStyle = '#f4f4f4';
             book.ctx.fillRect(dx, dy, drawW, drawH);
-            book.ctx.drawImage(off, dx, dy, drawW, drawH);
+            // every screen the show has on (the show map leaves the
+            // user's own visibility alone), as the renderer just drew them
+            this._bLayMapBitmap(book, off, [dx, dy, drawW, drawH], '#f4f4f4',
+                () => this._bMapSplitBlocker({ view: 'show-look', clipped: true }));
             book.ctx.strokeStyle = RULE;
             book.ctx.lineWidth = 2;
             book.ctx.setLineDash([]);
