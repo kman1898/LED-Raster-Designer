@@ -657,22 +657,31 @@ class _Power {
         // circuit with its neighbour's number.
         layer._powerCircuitNumKeys = powerAssignments.nums || null;
 
-        if (circuitsEl) circuitsEl.textContent = circuitsRequired > 0 ? circuitsRequired.toLocaleString('en-US') : '0';
         layer._powerCircuitsRequired = circuitsRequired;
-        // The screen that carries a wall's circuits reads the WALL's load
-        // beside the wall's circuit count - the figure its circuits draw,
-        // every member's panels counted once (getCarriedPowerLoad) - the
-        // way its canvas label already does. A screen that routes alone
-        // reads its own panels, exactly as before; the cached
-        // _powerTotalAmps1/3 stay this screen's own either way.
-        const carried = circuitsRequired > 0 ? this.getCarriedPowerLoad(layer) : null;
-        const wall = carried && carried.peers.length ? carried : null;
-        const shownAmps1 = wall ? wall.amps1 : totalAmps1;
-        const shownAmps3 = wall ? wall.amps3 : totalAmps3;
-        const wallTitle = wall
-            ? `The wall's load on these circuits: ${[layer, ...wall.peers].map(l => l.name).join(' + ')}` : '';
-        if (amps1El) { amps1El.textContent = shownAmps1 ? shownAmps1.toFixed(2) + ' A' : '0'; amps1El.title = wallTitle; }
-        if (amps3El) { amps3El.textContent = shownAmps3 ? shownAmps3.toFixed(2) + ' A' : '0'; amps3El.title = wallTitle; }
+        // The circuit count and the load beside it are the WALL's wherever
+        // the screen's circuits are (_powerReadoutFor): a group member
+        // whose cabinets ride a peer's circuits read 0 and its own amps
+        // while the member carrying them read the wall's (QA 1.6.0-beta.4).
+        // The cached _powerTotalAmps1/3 stay this screen's own either way.
+        const shown = this._powerReadoutFor(layer, circuitsRequired, totalAmps1, totalAmps3);
+        // Screens selected together that read different figures have no
+        // one count or load to show: "-", as the per-circuit boxes above.
+        const others = picked.length > 1 && picked.includes(layer)
+            ? picked.filter(l => l !== layer) : [];
+        const mixed = others.length > 0 && others.some(l => {
+            const r = this._powerReadoutFor(l);
+            return r.circuits !== shown.circuits
+                || Math.abs(r.amps1 - shown.amps1) > 0.005
+                || Math.abs(r.amps3 - shown.amps3) > 0.005;
+        });
+        if (circuitsEl) {
+            circuitsEl.textContent = mixed ? '-'
+                : (shown.circuits > 0 ? shown.circuits.toLocaleString('en-US') : '0');
+        }
+        const wallTitle = mixed ? '' : shown.title;
+        const amps = (v) => (mixed ? '-' : (v ? v.toFixed(2) + ' A' : '0'));
+        if (amps1El) { amps1El.textContent = amps(shown.amps1); amps1El.title = wallTitle; }
+        if (amps3El) { amps3El.textContent = amps(shown.amps3); amps3El.title = wallTitle; }
         // The cap under the custom controls reads the same figures.
         this._syncCustomFillReadout('power');
         // A change that cuts a row, or stops cutting one, shows or hides
@@ -690,6 +699,54 @@ class _Power {
             this.refreshSplitterPanel();
             this.refreshDistroPanel();
         });
+    }
+
+    // What the Power settings box reads for `layer`: { circuits, amps1,
+    // amps3, title }. The screen that carries a wall's circuits reads the
+    // WALL's load beside the wall's circuit count - the figure its
+    // circuits draw, every member's panels counted once
+    // (getCarriedPowerLoad) - the way its canvas label already does. A
+    // group member with no circuits of its own whose cabinets ride its
+    // peers' circuits reads those carriers' count and load, so a group
+    // reads the same whichever member is current. A screen that routes
+    // alone reads its own panels. `circuits`, `amps1` and `amps3` may be
+    // passed when the caller already has them.
+    _powerReadoutFor(layer, circuits = null, amps1 = null, amps3 = null) {
+        const own = circuits == null ? this.screenCircuitCount(layer) : circuits;
+        if (amps1 == null || amps3 == null) {
+            const v = parseFloat(layer.powerVoltage) || 0;
+            const panels = (layer.panels || []).filter(p => !p.blank && !p.hidden);
+            const watts = (parseFloat(layer.panelWatts) || 0)
+                * panels.reduce((sum, p) => sum + this.getPanelLoadFactor(layer, p), 0);
+            const lineV = this.threePhaseLineVoltage(layer);
+            amps1 = v > 0 ? watts / v : 0;
+            amps3 = lineV > 0 ? watts / (lineV * 1.73) : 0;
+        }
+        const wallOf = (carriers) => {
+            const loads = carriers.map(c => ({ c, load: this.getCarriedPowerLoad(c) }));
+            const names = new Map();
+            loads.forEach(({ c, load }) => {
+                names.set(String(c.id), c.name);
+                load.peers.forEach(p => names.set(String(p.id), p.name));
+            });
+            return {
+                circuits: loads.reduce((n, x) => n + x.load.circuits, 0),
+                amps1: loads.reduce((n, x) => n + x.load.amps1, 0),
+                amps3: loads.reduce((n, x) => n + x.load.amps3, 0),
+                title: `The wall's load on these circuits: ${[...names.values()].join(' + ')}`,
+            };
+        };
+        if (own > 0) {
+            const carried = this.getCarriedPowerLoad(layer);
+            if (carried.peers.length) return Object.assign(wallOf([layer]), { circuits: own });
+            return { circuits: own, amps1, amps3, title: '' };
+        }
+        const carriers = (typeof this.getPathScopeLayers === 'function'
+            ? this.getPathScopeLayers(layer) : [layer])
+            .filter(m => m !== layer && m.id !== layer.id
+                && this.getCarriedPowerLoad(m).peerIds.some(id => String(id) === String(layer.id)));
+        if (carriers.length) return wallOf(carriers);
+        return { circuits: own, amps1, amps3, title: '' };
     }
 
     // ---- Soca plan (Phase B) -------------------------------------------------

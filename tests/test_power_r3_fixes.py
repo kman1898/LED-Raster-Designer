@@ -360,3 +360,36 @@ def test_sharing_a_locked_screens_box_is_still_refused(page):
     assert _labels(pg, 'W1')[6] == [7, 'SR4-1']
     assert pg.evaluate("() => window.app.history.length") == n
     assert pg.evaluate("() => window.__pu.layer('W1').powerSocaNumber") in ({}, None)
+
+
+# ── A group's Power readout ───────────────────────────────────────────────
+
+READOUT_JS = """(names) => {
+    const app = window.app;
+    const ls = names.map(n => window.__pu.layer(n));
+    app.selectLayer(ls[ls.length - 1]);
+    app.selectedLayerIds = new Set(ls.map(l => l.id));
+    app.updatePowerCapacityDisplay();
+    return ['power-circuits-required', 'power-total-amps-1ph', 'power-total-amps-3ph']
+        .map(id => document.getElementById(id).textContent);
+}"""
+
+
+def test_a_group_reads_the_walls_figures_whichever_member_is_current(page):
+    """W1 and W2 grouped: W1 carries the wall's five circuits across both.
+    With W2 current the box read 0 circuits and W2's own 36.54 A; it now
+    reads the wall's 5 and 73.08 A, the same as with W1 current or both
+    selected. W1 at 208V and W3 at 110V selected together read "-" for
+    the circuit count and both amps, never one screen's numbers."""
+    pg = page
+    wall = dict(columns=8, rows=5, panelWatts=190, powerAmperage=20,
+                powerFlowPattern='tl-h', group_id='g1')
+    _open(pg, [dict(wall), dict(wall, offset_x=1024),
+               {'columns': 4, 'offset_x': 2500, 'powerVoltage': 110, 'powerAmperage': 20}],
+          {'groups': [{'id': 'g1', 'name': 'Wall', 'layer_ids': [1, 2]}]})
+    lead = pg.evaluate(READOUT_JS, ['W1'])
+    assert lead == ['5', '73.08 A', '42.24 A'], lead
+    assert pg.evaluate(READOUT_JS, ['W2']) == lead
+    assert pg.evaluate(READOUT_JS, ['W1', 'W2']) == lead
+    assert pg.evaluate(READOUT_JS, ['W1', 'W3']) == ['-', '-', '-']
+    assert pg.evaluate(READOUT_JS, ['W3']) != ['-', '-', '-']
