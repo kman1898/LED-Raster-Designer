@@ -308,3 +308,55 @@ def test_an_l6_20_screen_plugs_into_a_line_to_line_multi(page):
     assert 'L6-20 Breakout' in rows and 'L6-20 → TRUE1 cable' in rows \
         and 'L6-20 → powerCON cable' in rows
 
+
+# ── Sharing a free tail never renumbers the box's own multi ──────────────
+
+def test_sharing_a_free_tail_keeps_the_owner_on_its_number(page):
+    """W1's two automatic multis hold SR 3 and SR 4 (SR 2 is free); W2
+    sits on SR 1. Dragging SR4's free tail 5 onto W2's circuit 3 shares
+    the box: W1 stays SR4-1 to SR4-4 and W2's circuit reads SR4-5. It
+    used to move W1's four circuits to SR2 without a word - the pin the
+    share writes outvoted the number W1 held. One undo puts both back;
+    the server keeps W1 on SR 4."""
+    pg = page
+    _open(pg, [{'columns': 10, 'powerSocaDistro': {'1': 'd2', '2': 'd2'}},
+               {'columns': 5, 'offset_x': 1500, 'powerSocaDistro': {'1': 'd2'}}])
+    pg.evaluate("""() => { const app = window.app;
+        const d = app.project.distros.find(x => x.id === 'd2');
+        d.multiNumbers = { '1:1': 3, '1:2': 4, '2:1': 1 };
+        app._circuitTailCache = null; app._resetMultiBaseline(); app.resetHistory('seed'); }""")
+    w1 = [[i, f'SR{3 if i <= 6 else 4}-{(i - 1) % 6 + 1}'] for i in range(1, 11)]
+    assert _labels(pg, 'W1') == w1
+    pg.evaluate("""() => { const app = window.app, l = window.__pu.layer('W2');
+        app._dockDropTail({ type: 'tail', distroId: 'd2', number: '4', tail: 5, title: 'SR 4' },
+                          { kind: 'run', layerId: l.id, num: 3 }); }""")
+    _settle(pg)
+    assert _labels(pg, 'W1') == w1, _labels(pg, 'W1')
+    assert _labels(pg, 'W2')[2] == [3, 'SR4-5'], _labels(pg, 'W2')
+    srv = _wait_server(pg, lambda p: (_srv_layer('W2', p).get('powerSocaNumber') or {}).get('2') == 4)
+    assert (_srv_layer('W1', srv).get('powerSocaNumber') or {}).get('2') == 4
+    pg.evaluate("() => window.app.undo()")
+    _settle(pg)
+    assert _labels(pg, 'W1') == w1
+    assert [lab for _, lab in _labels(pg, 'W2')] == [f'SR1-{i}' for i in range(1, 6)]
+
+
+def test_sharing_a_locked_screens_box_is_still_refused(page):
+    """The same share with W1 locked: W1 cannot be written to hold its
+    number, so the drop is refused whole and W1 named, as before."""
+    pg = page
+    _open(pg, [{'columns': 10, 'locked': True, 'powerSocaDistro': {'1': 'd2', '2': 'd2'}},
+               {'columns': 5, 'offset_x': 1500, 'powerSocaDistro': {'1': 'd2'}}])
+    pg.evaluate("""() => { const app = window.app;
+        const d = app.project.distros.find(x => x.id === 'd2');
+        d.multiNumbers = { '1:1': 3, '1:2': 4, '2:1': 1 };
+        app._circuitTailCache = null; app._resetMultiBaseline(); app.resetHistory('seed'); }""")
+    n = pg.evaluate("() => window.app.history.length")
+    pg.evaluate("""() => { const app = window.app, l = window.__pu.layer('W2');
+        app._dockDropTail({ type: 'tail', distroId: 'd2', number: '4', tail: 5, title: 'SR 4' },
+                          { kind: 'run', layerId: l.id, num: 3 }); }""")
+    _settle(pg)
+    assert [lab for _, lab in _labels(pg, 'W2')] == [f'SR1-{i}' for i in range(1, 6)]
+    assert _labels(pg, 'W1')[6] == [7, 'SR4-1']
+    assert pg.evaluate("() => window.app.history.length") == n
+    assert pg.evaluate("() => window.__pu.layer('W1').powerSocaNumber") in ({}, None)
