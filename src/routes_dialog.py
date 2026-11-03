@@ -290,6 +290,31 @@ def _native_choose_save_file(suggested_name):
          f'--filename={suggested_name}'], 'save_file')
 
 
+def _native_choose_open_file():
+    """The OS Open dialog for a project file (.json). Same contract as the
+    save dialog: (path_or_None, 'ok' | 'cancelled' | 'unavailable')."""
+    system = platform.system()
+    if system == 'Darwin':
+        # `of type` takes UTIs and bare extensions alike; both are given so
+        # a .json the system has no UTI for can still be picked.
+        script = ('POSIX path of (choose file with prompt "Open Project" '
+                  'of type {"public.json", "json"})')
+        return _run_dialog_command(['osascript', '-e', script], 'open_file')
+    if system == 'Windows':
+        script = (
+            _WIN_OWNER_PREAMBLE
+            + '$d=New-Object System.Windows.Forms.OpenFileDialog;'
+              '$d.Title="Open Project";'
+              '$d.Filter="Project files (*.json)|*.json|All files (*.*)|*.*";'
+              'try{if($d.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK)'
+              '{Write-Output $d.FileName}}finally{$owner.Close()}'
+        )
+        return _run_dialog_command(_WIN_PS + [script], 'open_file')
+    return _run_dialog_command(
+        ['zenity', '--file-selection', '--title=Open Project',
+         '--file-filter=Project files | *.json'], 'open_file')
+
+
 def _native_choose_directory():
     system = platform.system()
     if system == 'Darwin':
@@ -332,6 +357,72 @@ def native_dialog_save_file():
         return jsonify({'ok': True, 'path': file_path})
     except Exception as e:
         log_event('native_dialog_save_file_error', {'error': str(e)})
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@dialog_bp.route('/api/native-dialog/open-file', methods=['POST'])
+def native_dialog_open_file():
+    """File > Open on the host: the OS Open dialog, answering the PATH, so
+    the show can be read from disk (read-file below) and Recent Files can
+    remember where it lives. Same answers as save-file: a cancel is not a
+    failure, and 'unavailable' sends the client to the browser's own file
+    chooser."""
+    try:
+        log_event('native_dialog_open_file_start', {})
+        file_path, status = _native_choose_open_file()
+        if not file_path:
+            log_event('native_dialog_open_file_no_path', {'status': status})
+            return jsonify({'ok': False,
+                            'cancelled': status == 'cancelled',
+                            'unavailable': status == 'unavailable'})
+        log_event('native_dialog_open_file', {'path': file_path})
+        return jsonify({'ok': True, 'path': file_path})
+    except Exception as e:
+        log_event('native_dialog_open_file_error', {'error': str(e)})
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+# A show is a few MB at most; anything past this is not one of ours.
+_READ_FILE_MAX_BYTES = 200 * 1024 * 1024
+
+
+@dialog_bp.route('/api/native-dialog/read-file', methods=['POST'])
+def native_dialog_read_file():
+    """Read a project file (.json) from disk, for File > Open on the host
+    and for Recent Files, which re-reads the file each time instead of
+    keeping a copy of the show in the browser.
+
+    Read-only, .json only, an absolute path only, and (like every route
+    here) only for a client on this machine. A file that is not there is
+    a normal answer ({ok: false, missing: true}), not an error: the client
+    tells the person and offers to drop it from the list.
+    """
+    data = request.get_json(silent=True) or {}
+    file_path = data.get('path')
+    if not isinstance(file_path, str) or not file_path.strip():
+        return jsonify({'ok': False, 'error': 'path is required'}), 400
+    if not os.path.isabs(file_path):
+        log_event('native_dialog_read_file_refused', {'path': file_path, 'why': 'not absolute'})
+        return jsonify({'ok': False, 'error': 'path must be absolute'}), 400
+    if os.path.splitext(file_path)[1].lower() != '.json':
+        log_event('native_dialog_read_file_refused', {'path': file_path, 'why': 'not .json'})
+        return jsonify({'ok': False, 'error': 'only .json project files can be read'}), 400
+    if not os.path.isfile(file_path):
+        log_event('native_dialog_read_file_missing', {'path': file_path})
+        return jsonify({'ok': False, 'missing': True, 'path': file_path})
+    try:
+        size = os.path.getsize(file_path)
+        if size > _READ_FILE_MAX_BYTES:
+            log_event('native_dialog_read_file_refused', {'path': file_path, 'why': 'too large', 'size': size})
+            return jsonify({'ok': False, 'error': 'the file is too large to be a project'}), 400
+        # utf-8-sig: a file an editor saved with a byte-order mark still reads.
+        with open(file_path, 'r', encoding='utf-8-sig') as f:
+            text = f.read()
+        log_event('native_dialog_read_file', {'path': file_path, 'bytes': size})
+        return jsonify({'ok': True, 'path': file_path, 'text': text,
+                        'modified': os.path.getmtime(file_path)})
+    except Exception as e:
+        log_event('native_dialog_read_file_error', {'path': file_path, 'error': str(e)})
         return jsonify({'ok': False, 'error': str(e)}), 500
 
 

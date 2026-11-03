@@ -325,6 +325,8 @@
     // whose sheet gives both a max and an average.
     var AVG_ROW = '#panel-catalog-list .panel-catalog-row[data-name="Black Pearl BP2V2"]';
     function pickerOpen() { var m = $('#preset-picker-modal'); return !!m && m.style.display === 'block'; }
+    // The start page a launch opens on (app-start-page.js).
+    function startPageUp() { var m = $('#start-page-modal'); return !!m && m.style.display === 'block'; }
     function closePicker() {
         var s = $('#panel-catalog-search'), a = A();
         if (s && s.value) { s.value = ''; s.dispatchEvent(new Event('input', { bubbles: true })); }
@@ -2329,6 +2331,7 @@
         $$('.canvas-add-popup, .canvas-menu-popup').forEach(function (el) { el.remove(); });
         closePrefs();
         var pp = $('#preset-picker-modal'); if (pp) pp.style.display = 'none';
+        if (typeof a.closeStartPage === 'function') a.closeStartPage();
         hideMenus();
         closePullSheet();
         closeExport();
@@ -2633,11 +2636,44 @@
                 return (w.name || 'The screen') + ' hangs ' + types.none + ': the pull sheet counts its cabinets by that name, and a half tile as ' + types.height + '.';
             }
         },
+        // The start page a launch opens on (1.6.0, app-start-page.js):
+        // New project, Open file… and the Recent Files list. A recent file
+        // with a known path is read from disk again (app-logs-recent.js), so
+        // it opens as last saved. The step opens the page over the scratch
+        // show, points at New project, and closes it with nothing chosen.
+        startPage: {
+            since: '1.6.0',
+            target: function () { return startPageUp() ? '#start-page-modal .start-page-content' : '#btn-open'; },
+            place: 'right', title: 'The start page',
+            body: 'The app opens on a start page: New project, Open file&hellip;, or a show from your recent files. A recent show is read from its file, so it opens as you last saved it.',
+            // Opened before the callout is placed, so the callout sits
+            // beside the page rather than under it.
+            before: function () {
+                switchView('pixel-map');
+                var a = A();
+                if (a && a.openStartPage && !startPageUp()) a.openStartPage('guide');
+            },
+            act: function (t) {
+                return t.wait(function () { return startPageUp() && $('#start-page-new'); }, 4000).then(function (btn) {
+                    if (!btn) throw new Error('the start page did not open');
+                    return null;
+                }).then(function () {
+                    return t.pause(PACE.opened);
+                });
+            },
+            check: function () {
+                var n = $('#start-page-new'), o = $('#start-page-open');
+                return startPageUp() && n && o && n.textContent === 'New project'
+                    ? 'New project opens the panel library, Open file… is File > Open, and Recent lists the shows you saved or opened, newest first.' : null;
+            },
+            after: function () { var a = A(); if (a && a.closeStartPage) a.closeStartPage(); }
+        },
         // The panel a new project starts with (1.6.0, app-presets.js
-        // maybeOpenStartupPicker): a launch and File > New open the panel
-        // library first, and the pick makes the first screen, its name in
-        // the Panel field. The step opens the same chooser over the scratch
-        // show to show it, and closes it with nothing changed.
+        // maybeOpenStartupPicker): File > New, and New on the start page,
+        // open the panel library first, and the pick makes the first
+        // screen, its name in the Panel field. The step opens the same
+        // chooser over the scratch show to show it, and closes it with
+        // nothing changed.
         startPanel: {
             since: '1.6.0',
             target: '#btn-new', place: 'bottom', title: 'Pick a panel to start',
@@ -5690,7 +5726,7 @@
         advanced: {
             title: 'Advanced Guide',
             seed: { name: 'New Show', layer: { panelWatts: 100, powerBreakoutType: 'soca-powercon' } },
-            steps: ['introAdvanced', 'projectName', 'cabinetSize', 'panelName', 'startPanel', 'sameAsLast', 'avgPower', 'gridSize', 'fit', 'blankCabinet',
+            steps: ['introAdvanced', 'projectName', 'cabinetSize', 'panelName', 'startPage', 'startPanel', 'sameAsLast', 'avgPower', 'gridSize', 'fit', 'blankCabinet',
                     'cabinetIdStyle', 'showLook', 'processing', 'flowPattern', 'zPattern', 'addProcessor',
                     'nameProcessor', 'redundancy', 'backupProcessor', 'mixedRedundancy', 'cardNames', 'dropProcessor', 'releasePort', 'attachmentFlag', 'pinPort',
                     'clearPortByMenu', 'clearCard', 'dropProcessorAgain',
