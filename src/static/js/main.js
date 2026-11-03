@@ -37,6 +37,7 @@ import './app-beaches.js';
 import './app-pull-sheet-editor.js';
 import './app-binder.js';
 import './app-binder-wiring.js';
+import './app-binder-fiber.js';
 import './app-canvas-ui.js';
 import './app-project-io.js';
 import './app-screen-groups.js';
