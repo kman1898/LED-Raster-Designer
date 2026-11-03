@@ -2053,8 +2053,9 @@ Object.assign(CanvasRenderer.prototype, {
         // Cmd/Ctrl+J - Duplicate (standard)
         if ((e.metaKey || e.ctrlKey) && e.code === 'KeyJ' && !isTyping) {
             e.preventDefault();
+            // every selected screen, not just the current one
             if (window.app && window.app.currentLayer) {
-                window.app.duplicateLayer(window.app.currentLayer);
+                window.app.duplicateSelection();
             }
         }
 

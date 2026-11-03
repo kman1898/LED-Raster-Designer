@@ -1790,7 +1790,7 @@ class _HardwareDock {
         // (a CVT10 behind a CVT4K-S's 9-14: chips 1-6, "ports 9-14").
         const locals = shown.map(
             p => (p.loopOf ? (p.loopOf.local || p.number) : (p.localNumber || p.number)));
-        const span = `${Math.min(...locals)}-${Math.max(...locals)}`;
+        const span = this._dockPortSpanText(locals);
         // "(backup)" is the backup PROCESSOR's word now (2026-09-25): a
         // loop's far box says what it is on its row ("· loop end"), and
         // only a copy box still wears a tag.
@@ -1828,7 +1828,7 @@ class _HardwareDock {
             // a loop row's strip header already prints the model; a
             // continued row prints the box's name, having no field for it
             row ? (row.cont ? this._dockBoxLabel(cvt) : '') : cvt.deviceName + tag,
-            `ports ${span}`,
+            span,
             'Drag the whole box onto a screen: the screen\'s ports fill '
             + 'onto this box\'s sockets in order from the first '
             + 'unassigned.',
@@ -3797,6 +3797,13 @@ class _HardwareDock {
             this._dockRunPanelsCache.set(layer, byPort);
         }
         return byPort.get(num) || [];
+    }
+
+    // A box row's ports as its header says them: "ports 1-10", and one
+    // socket "port 1", never "ports 1-1" (QA round 3, 2026-11-03).
+    _dockPortSpanText(numbers) {
+        const lo = Math.min(...numbers), hi = Math.max(...numbers);
+        return lo === hi ? `port ${lo}` : `ports ${lo}-${hi}`;
     }
 
     // A unit's title strip, which is also the unit's drag handle. The grip

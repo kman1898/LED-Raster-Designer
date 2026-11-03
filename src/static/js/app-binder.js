@@ -2825,12 +2825,13 @@ class _Binder {
     // included (the draw pass, held to the lines its row was measured at:
     // adding a member's extra lines a second time printed more lines than
     // the row had and no fold, the leftovers squeezed into the last).
-    // A member a hair too wide for a line shrinks a little first (the 14
-    // px a heading shrinks to) on a line of its own; one wider than that
-    // goes on at its words on lines of its own - never two names on one
-    // line, never a break beside a range's "…" ("CVT10-1 … 10-10"). The
-    // fold shows whole members only: a member it would cut is left out
-    // and counted in "+N more".
+    // A member too wide for a line goes on at its words on lines of its
+    // own, at the cell's own size - never two names on one line, never a
+    // break beside a range's "…" ("CVT10-1 … 10-10"). It no longer shrinks
+    // onto one line first (QA round 3, 2026-11-03: a card's BACKUP cell
+    // printed its first line small and the rest full size). The fold shows
+    // whole members only: a member it would cut is left out and counted in
+    // "+N more".
     _bCellLines(book, text, size, weight, maxWidth, maxLines, words, hard) {
         const ctxM = book.measureCtx;
         const font = this._bFont(size, weight);
@@ -2881,7 +2882,6 @@ class _Binder {
                 } else lines.push({ text: [p], m: [m], open: true });
                 return;
             }
-            if (fitsSmall(p.trim())) { lines.push({ text: [p], m: [m], open: false }); return; }
             const own = [];
             for (const w of wordsOf(p)) {
                 const cur = own[own.length - 1];
@@ -8145,7 +8145,10 @@ class _Binder {
                 // A box on fiber cables lists each input and its strands a
                 // line each, swatched (_bBoxFiberParts), and FIBER takes the
                 // larger share a strand's swatch and name need.
-                cols: [{ title: 'breakout box', w: 1.3, list: 2 },
+                // A box's name and its loop ("CVT4K-S E-F · loop of CVT10 A 1-8,
+                // CVT10 B 1-8 on sockets 9-16") is one name, never a list: it
+                // wraps at its words and never folds to "+2 more" (QA round 3).
+                cols: [{ title: 'breakout box', w: 1.3, list: 2, words: true },
                        { title: unitWord, w: unitWord === 'processor' ? 0.95 : 0.7 },
                        { title: 'trunk', w: 0.7 },
                        { title: 'fiber', w: boxRows.some(r => r.inputs || (r.parts && r.parts[3])) ? 2.4 : 1.7,

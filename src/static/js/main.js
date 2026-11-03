@@ -3,6 +3,7 @@
 // modules each attach their methods to LEDRasterApp.prototype on import.
 import { LEDRasterApp } from './app-core.js';
 import './app-wiring.js';
+import './app-dialogs.js';
 import './app-client-props.js';
 import './app-presets.js';
 import './app-colors.js';

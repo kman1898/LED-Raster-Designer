@@ -94,9 +94,11 @@ window.__cd = {
     window.app.currentLayer = window.app.project.layers.find(l => l.id === ids[ids.length - 1]);
     window.app.lastSelectedLayerId = ids[ids.length - 1];
   },
+  // The app asks in its own dialog (app-dialogs.js appConfirm): stubbed
+  // here with the answer, the question recorded.
   stubConfirm(answer) {
     window.__cd.asked = [];
-    window.confirm = (m) => { window.__cd.asked.push(m); return answer; };
+    window.app.appConfirm = (m) => { window.__cd.asked.push(m); return Promise.resolve(answer); };
   },
   // Drive the real sidebar kebab: its menu button, then the Delete entry.
   async deleteViaKebab(canvasId) {

@@ -7,7 +7,7 @@
 // did. Nothing here is shared between blocks: every handle and closure
 // a block uses is declared inside it.
 import { LEDRasterApp } from './app-core.js';
-import { evaluateMathExpression, sendClientLog, setupColorPickerWithHex } from './helpers.js';
+import { evaluateMathExpression, sendClientLog, setupColorPickerWithHex, commitEditOnPress } from './helpers.js';
 
 // How long after one custom-mode box change a REVERSED change with no
 // pointer or key press in between is read as the same click firing twice
@@ -2398,10 +2398,10 @@ class _Wiring {
     // export modal: option preview, format-specific rows, confirm, and
     // the backdrop close.
     _wireExportAndPrefs() {
+        // New asks about unsaved changes, as File > New does
+        // (app-project-io requestNewProject).
         document.getElementById('btn-new').addEventListener('click', () => {
-            if (confirm('Create a new project? Unsaved changes will be lost.')) {
-                this.createNewProject();
-            }
+            this.requestNewProject();
         });
         
         document.getElementById('btn-open').addEventListener('click', () => {
@@ -2468,6 +2468,9 @@ class _Wiring {
             document.getElementById('export-modal').style.display = 'none';
         });
         
+        // A Rev (or any field) still being typed in commits before the
+        // export reads it (helpers.js commitEditOnPress).
+        commitEditOnPress(document.getElementById('export-confirm'));
         document.getElementById('export-confirm').addEventListener('click', async () => {
             const projectName = document.getElementById('export-name').value.trim() || 'Project';
             const format = document.getElementById('export-format').value;
@@ -2540,7 +2543,7 @@ class _Wiring {
             if (document.getElementById('export-power').checked) views.push('power');
 
             if (views.length === 0) {
-                alert('Please select at least one view to export.');
+                this._toast('Pick at least one view to export.', true);
                 return;
             }
 
@@ -2551,7 +2554,7 @@ class _Wiring {
             // matching v0.7 export behaviour exactly.
             const canvasIds = this.getSelectedExportCanvasIds();
             if (canvasIds.length === 0) {
-                alert('Please select at least one canvas to export.');
+                this._toast('Pick at least one canvas to export.', true);
                 return;
             }
 

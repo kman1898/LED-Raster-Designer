@@ -29,6 +29,7 @@ import os
 import sys
 
 import pytest
+from app_dialogs import answer_app_dialog  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, '..', 'src'))
@@ -324,22 +325,18 @@ def test_changing_the_unit_keeps_every_number_and_asks_first(page):
                                                        added: [{type: 'TRUE1', length: "25'", qty: 2}]}}};
     }""")
     asked = []
-
-    def no(d):
-        asked.append(d.message)
-        d.dismiss()
-    pg.once('dialog', no)
     pg.evaluate("() => { window.app.openExportModal ? window.app.openExportModal() : null; }")
     pg.evaluate("""() => { const s = document.getElementById('export-pull-sheet-cable-unit');
                           s.value = 'm'; s.dispatchEvent(new Event('change')); }""")
+    asked.append(answer_app_dialog(pg, accept=False))
     pg.wait_for_timeout(300)
     assert asked and '25 ft becomes 25 m' in asked[0] and 'meters' in asked[0], asked
     st = pg.evaluate("() => [window.app.cableUnit(), document.getElementById('export-pull-sheet-cable-unit').value]")
     assert st == ['ft', 'ft'], st
 
-    pg.once('dialog', lambda d: d.accept())
     pg.evaluate("""() => { const s = document.getElementById('export-binder-cable-unit');
                           s.value = 'm'; s.dispatchEvent(new Event('change')); }""")
+    answer_app_dialog(pg)
     pg.wait_for_timeout(600)
     st = pg.evaluate("""async () => {
         const app = window.app, l = app.project.layers[0];
@@ -426,8 +423,8 @@ def test_the_stock_ladders_are_preferences(page):
     served = pg.evaluate("async () => (await (await fetch('/api/preferences')).json())")
     assert served['jumperStockFt'] == [4, 8, 12], served
     pg.evaluate("() => { window.app.openPreferencesModal(); window.app.showPreferencesTab('pull'); }")
-    pg.once('dialog', lambda d: d.accept())
     pg.click('#preferences-reset')
+    answer_app_dialog(pg)
     pg.click('#preferences-save')
     pg.wait_for_timeout(500)
     served = pg.evaluate("async () => (await (await fetch('/api/preferences')).json())")

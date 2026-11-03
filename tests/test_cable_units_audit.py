@@ -28,6 +28,7 @@ sys.path.insert(0, HERE)
 pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
 from test_cable_units import _seed  # noqa: E402
+from app_dialogs import answer_app_dialog  # noqa: E402
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -205,18 +206,14 @@ def test_a_cancelled_unit_change_leaves_the_select_right(page):
     state = """(id) => { const s = document.getElementById(id);
                          return [window.app.cableUnit(), s.value, document.activeElement === s]; }"""
     asked = []
-
-    def no(d):
-        asked.append(d.message)
-        d.dismiss()
-    pg.once('dialog', no)
     sid = pg.evaluate(pick)
+    asked.append(answer_app_dialog(pg, accept=False))
     pg.wait_for_timeout(300)
     assert asked, 'the change did not ask'
     assert pg.evaluate(state, sid) == ['ft', 'ft', True]
 
-    pg.once('dialog', lambda d: d.accept())
     pg.evaluate(pick)
+    answer_app_dialog(pg)
     pg.wait_for_timeout(300)
     assert pg.evaluate(state, sid) == ['m', 'm', True]
     pg.evaluate("() => { document.getElementById('export-modal').style.display = 'none'; }")

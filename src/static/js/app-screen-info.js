@@ -1325,7 +1325,7 @@ class _ScreenInfo {
             if (ids.length === 0) return;
         }
         if (this.project.layers.length === 1) {
-            alert('Cannot delete the last screen');
+            this._toast('The last screen cannot be deleted.', true);
             return;
         }
         

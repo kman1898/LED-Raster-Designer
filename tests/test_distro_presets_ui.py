@@ -14,6 +14,7 @@ import pytest
 
 import app as app_module
 import routes_distro_presets as rdp
+from app_dialogs import answer_app_dialog  # noqa: E402
 
 pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
@@ -104,15 +105,15 @@ def test_a_saved_preset_is_deleted_from_the_gear_after_saying_yes(page, presets_
 
     # No: nothing changes
     asked = []
-    pg.once('dialog', lambda d: (asked.append(d.message), d.dismiss()))
     pg.select_option(DELETE, 'Our rack')
+    asked.append(answer_app_dialog(pg, accept=False))
     assert asked and 'Our rack' in asked[0], asked
     assert _stored_names(presets_file) == ['Our rack']
     assert pg.eval_on_selector(DELETE, 'el => el.value') == ''
 
     # Yes: it is gone from the file and from both lists
-    pg.once('dialog', lambda d: d.accept())
     pg.select_option(DELETE, 'Our rack')
+    answer_app_dialog(pg)
     _status_is(pg, 'Deleted preset "Our rack".')
     assert _stored_names(presets_file) == []
     after = pg.evaluate(f"""() => {{
@@ -149,8 +150,8 @@ def test_a_refused_save_says_why_in_plain_words(page, presets_file):
 
     pg.route('**/api/distro-presets', fail_put)
     try:
-        pg.once('dialog', lambda d: d.accept('Rack X'))
         pg.click('#hw-gear-popover [data-lrd-field="distro-preset-save-d1"]')
+        answer_app_dialog(pg, text='Rack X')
         _status_is(pg, 'Preset not saved: the server said 500.')
     finally:
         pg.unroute('**/api/distro-presets', fail_put)

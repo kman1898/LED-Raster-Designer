@@ -433,18 +433,20 @@ class _LogsRecent {
             .then(r => {
                 if (!r.ok) return r.json().then(e => Promise.reject(e));
             })
-            .catch(err => alert('Failed to open logs folder: ' + (err && err.error || 'unknown')));
+            .catch(err => this._toast('The logs folder did not open: ' + (err && err.error || 'unknown error'), true, 6000));
     }
 
-    clearLogs() {
-        if (!confirm('Clear the current log file? Archived (rotated) logs will be preserved.')) return;
+    async clearLogs() {
+        const yes = await this.appConfirm('Clear the current log file? Archived (rotated) logs are kept.',
+            { id: 'logs-clear-modal', title: 'Clear Log', okLabel: 'Clear' });
+        if (!yes) return;
         fetch('/api/logs', { method: 'DELETE' })
             .then(r => {
                 if (!r.ok) return r.json().then(e => Promise.reject(e));
                 return r.json();
             })
             .then(() => this.refreshLogs(true))
-            .catch(err => alert('Failed to clear logs: ' + (err && err.error || 'unknown')));
+            .catch(err => this._toast('The log was not cleared: ' + (err && err.error || 'unknown error'), true, 6000));
     }
 
     // ── Recent Files ──────────────────────────────────────────────
@@ -478,6 +480,12 @@ class _LogsRecent {
     // The kept copies together stay under RECENT_COPY_BUDGET characters
     // (the newest copy is always kept), so Recent Files can no longer fill
     // localStorage on its own. Returns whether the list was written.
+    //
+    // Storage filled by something else (QA round 3: a save then went
+    // unlisted, the log said recent_files_write_failed and the window said
+    // nothing): with no copies left to drop, the oldest entries go, one at
+    // a time, the newest kept, the way the list's 20th entry falls off.
+    // If even the newest alone cannot be written, the person is told.
     saveRecentFiles(files) {
         const list = this._withinCopyBudget(Array.isArray(files) ? files.slice() : []);
         let dropped = 0;
@@ -494,11 +502,17 @@ class _LogsRecent {
                     for (let i = list.length - 1; i >= 0; i--) {
                         if (list[i] && list[i].data) { oldest = i; break; }
                     }
+                    if (oldest < 0 && list.length > 1) oldest = list.length - 1;
                 }
                 if (oldest < 0) {
                     sendClientLog('recent_files_write_failed', {
                         name: e && e.name, message: e && e.message, entries: list.length, dropped
                     });
+                    if (typeof this._toast === 'function') {
+                        this._toast(quota
+                            ? 'Recent Files could not be updated: the storage this app keeps in the browser is full.'
+                            : 'Recent Files could not be updated.', true, 8000);
+                    }
                     return false;
                 }
                 list.splice(oldest, 1);
@@ -711,13 +725,15 @@ class _LogsRecent {
     async loadRecentFile(idx) {
         const recent = this.getRecentFiles();
         if (idx < 0 || idx >= recent.length) return false;
+        // Unsaved work is asked about first, as File > Open and New do.
+        if (!(await this.confirmUnsavedChanges('open'))) return false;
         const file = recent[idx];
         if (file && file.path) {
             sendClientLog('recent_file_open', { path: file.path });
             return this.openProjectFromPath(file.path, { source: 'recent' });
         }
         if (!file || !file.data) {
-            alert('Recent file data is unavailable.');
+            this._toast('This Recent Files entry has no copy of the show to open.', true, 6000);
             return false;
         }
         const when = new Date(file.savedAt || file.timestamp);

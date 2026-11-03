@@ -41,6 +41,7 @@ sys.path.insert(0, HERE)
 import app as app_module  # noqa: E402
 
 from test_pull_list import SEED_JS, LIST_JS, _rows  # noqa: E402
+from app_dialogs import answer_app_dialog  # noqa: E402
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -413,8 +414,8 @@ def test_new_beach_from_the_picker_creates_and_selects_in_one_step(page):
     pg.wait_for_timeout(400)
     _select_layer(pg, ids['names']['LEFT'])
     before = _history(pg)
-    pg.once('dialog', lambda d: d.accept('  Dimmer Beach '))
     pg.select_option('#layer-beach', '__new_beach__')
+    answer_app_dialog(pg, text='  Dimmer Beach ')
     pg.wait_for_timeout(900)
     st = pg.evaluate(PANEL_JS)
     assert st['beaches'] == [{'id': 'b1', 'name': 'SR'}, {'id': 'b2', 'name': 'SL'}, {'id': 'b3', 'name': 'Dimmer Beach'}]
@@ -423,8 +424,8 @@ def test_new_beach_from_the_picker_creates_and_selects_in_one_step(page):
     after = _history(pg)
     assert after['action'] == 'Set Beach' and after['index'] == before['index'] + 1
     # a cancelled prompt makes nothing and puts the select back
-    pg.once('dialog', lambda d: d.dismiss())
     pg.select_option('#layer-beach', '__new_beach__')
+    answer_app_dialog(pg, accept=False)
     pg.wait_for_timeout(500)
     assert pg.evaluate("() => document.getElementById('layer-beach').value") == 'b3'
     assert len(pg.evaluate(PANEL_JS)['beaches']) == 3
@@ -636,8 +637,8 @@ def test_the_box_picker_pulls_its_rows_to_its_beach(page):
     assert pg.evaluate("(bid) => window.app._dockFindCvt(bid).cvt.beachId", box) == 'b1'
     assert pg.evaluate("(bid) => document.querySelector(`[data-lrd-field=\"processor-cvt-beach-${bid}\"]`).value", box) == 'b1'
     # "+ New beach..." from the gear: prompt, create, select - one entry
-    pg.once('dialog', lambda d: d.accept('Video Village'))
     pg.select_option(f'[data-lrd-field="processor-cvt-beach-{box}"]', '__new_beach__')
+    answer_app_dialog(pg, text='Video Village')
     pg.wait_for_timeout(1200)
     h2 = _history(pg)
     assert h2['action'] == 'Set Box Beach' and h2['index'] == h1['index'] + 1
@@ -921,8 +922,8 @@ def test_new_beach_from_the_menu_creates_and_puts_in_one_undo(page):
     before = _history(pg)
     st = _right_click_screen(pg, left)
     assert st['shown'], st
-    pg.once('dialog', lambda d: d.accept('Stage Right'))
     _pick_beach_row(pg, 'beach-new')
+    answer_app_dialog(pg, text='Stage Right')
     pg.wait_for_timeout(500)
     st = pg.evaluate(PANEL_JS)
     # the id comes off the counter (an earlier test made and removed one)
@@ -952,8 +953,8 @@ def test_new_beach_from_the_menu_creates_and_puts_in_one_undo(page):
     at = _history(pg)
     st = _right_click_screen(pg, left)
     assert st['rows'][2] == ['beach-2', 'Stage Right', True], st
-    pg.once('dialog', lambda d: d.dismiss())
     _pick_beach_row(pg, 'beach-new')
+    answer_app_dialog(pg, accept=False)
     assert _history(pg) == at
     assert len(pg.evaluate(PANEL_JS)['beaches']) == 3
     assert ids['errors'] == []

@@ -13,6 +13,9 @@ class _MenuBar {
             menus.forEach(menu => menu.style.display = 'none');
             menuItems.forEach(item => item.classList.remove('active'));
         };
+        // Esc closes an open File / Edit / View / Help menu too
+        // (_escapeClosesDialog).
+        this._hideMenuBarMenus = hideMenus;
 
         this.updateShortcutLabels();
 
@@ -105,6 +108,11 @@ class _MenuBar {
     // on the Pixel Map, data ports about to be dealt, an Alt redraw under
     // way all stay for the next Esc, which reaches them as before.
     //
+    // An open File, Edit, View or Help menu closes first, the way a click
+    // anywhere else closes it (QA 2026-11-03), and the panel picker's Esc
+    // is its Cancel: back to the start page when the start page opened it,
+    // an empty project at launch, nothing added from Add Screen.
+    //
     // Only the TOPMOST open .modal answers, and only when it is one of these:
     // a confirm opened over Preferences takes the Esc for itself. Something
     // floating over either - the Colors window or a swatch popover, a canvas
@@ -117,6 +125,15 @@ class _MenuBar {
         const guide = window.QuickStart && typeof window.QuickStart.state === 'function'
             ? window.QuickStart.state() : null;
         if (guide && guide.visible) return;
+        const dropdown = [...document.querySelectorAll('.menu-dropdown')]
+            .find(m => m.style.display === 'block');
+        if (dropdown && typeof this._hideMenuBarMenus === 'function') {
+            e.preventDefault();
+            e.stopPropagation();
+            this._hideMenuBarMenus();
+            sendClientLog('menu_escape', { menu: dropdown.id });
+            return;
+        }
         const menu = document.getElementById('context-menu');
         if (menu && menu.style.display === 'block') {
             e.preventDefault();
@@ -131,6 +148,7 @@ class _MenuBar {
             'shortcuts-modal': 'shortcuts-close',
             'logs-modal': 'logs-close',
             'whatsnew-modal': 'whatsnew-close',
+            'preset-picker-modal': 'preset-picker-cancel',
         };
         const open = [...document.querySelectorAll('.modal')]
             .filter(m => m.style.display !== 'none' && getComputedStyle(m).display !== 'none');
@@ -322,7 +340,7 @@ class _MenuBar {
     handleMenuAction(action) {
         switch (action) {
             case 'new':
-                this.createNewProject();
+                this.requestNewProject();
                 break;
             case 'open':
                 this.loadProjectFromFile();
@@ -376,7 +394,8 @@ class _MenuBar {
                 this.pasteLayer();
                 break;
             case 'duplicate':
-                if (this.currentLayer) this.duplicateLayer(this.currentLayer);
+                // every selected screen (app-clipboard duplicateSelection)
+                if (this.currentLayer) this.duplicateSelection();
                 break;
             case 'delete':
                 if (this.currentLayer) this.deleteLayer(this.currentLayer.id);

@@ -1117,7 +1117,9 @@ class _CanvasUi {
         } else if (action === 'color') {
             this.openCanvasColorPicker(canvas);
         } else if (action === 'delete') {
-            if (window.confirm(this._deleteCanvasConfirmText(canvas))) this.deleteCanvas(canvas.id);
+            this.appConfirm(this._deleteCanvasConfirmText(canvas),
+                { id: 'canvas-delete-modal', title: 'Delete canvas', okLabel: 'Delete', danger: true })
+                .then(yes => { if (yes) this.deleteCanvas(canvas.id); });
         }
     }
 

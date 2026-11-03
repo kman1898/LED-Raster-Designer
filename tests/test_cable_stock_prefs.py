@@ -24,6 +24,7 @@ sys.path.insert(0, HERE)
 pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
 from test_power_cables import SEED_JS  # noqa: E402
+from app_dialogs import answer_app_dialog  # noqa: E402
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -179,9 +180,8 @@ def test_presets_save_load_and_delete(page):
     _open(pg)
     pg.fill('#pref-cable-stock-all-ft', '20, 40, 80')
     pg.fill('#pref-cable-stock-all-m', '6, 12')
-    answers = iter(['Shop B'])
-    pg.once('dialog', lambda d: d.accept(next(answers)))
     pg.click('#pref-cable-stock-save-preset')
+    answer_app_dialog(pg, text='Shop B')
     pg.wait_for_timeout(500)
     presets = _presets(pg)
     assert [p['name'] for p in presets] == ['Shop B'], presets
@@ -209,12 +209,12 @@ def test_presets_save_load_and_delete(page):
     _open(pg)
     pg.wait_for_function("() => document.querySelectorAll('#pref-cable-stock-preset option').length > 1")
     pg.select_option('#pref-cable-stock-preset', 'Shop B')
-    pg.once('dialog', lambda d: d.dismiss())
     pg.click('#pref-cable-stock-delete')
+    answer_app_dialog(pg, accept=False)
     pg.wait_for_timeout(300)
     assert [p['name'] for p in _presets(pg)] == ['Shop B']
-    pg.once('dialog', lambda d: d.accept())
     pg.click('#pref-cable-stock-delete')
+    answer_app_dialog(pg)
     pg.wait_for_timeout(500)
     assert _presets(pg) == []
     assert pg.evaluate("() => document.querySelectorAll('#pref-cable-stock-preset option').length") == 1

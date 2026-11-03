@@ -5,6 +5,10 @@ import { sendClientLog } from './helpers.js';
 
 class _History {
     // ===== HISTORY SYSTEM =====
+    // An 'Initial State' history is the project as it was loaded, opened
+    // or made new: nothing unsaved (app-project-io markProjectClean). A
+    // guide's 'Tutorial' and 'Recovered' are not: the recovered project
+    // was never saved as it stands.
     resetHistory(initialAction = 'Initial State') {
         this.history = [];
         this.historyIndex = -1;
@@ -14,6 +18,9 @@ class _History {
         this._multiBaseline = null;
         this._multiHoldsDirty = false;
         this.saveState(initialAction);
+        if (initialAction === 'Initial State' && typeof this.markProjectClean === 'function') {
+            this.markProjectClean();
+        }
         sendClientLog('history_reset', { action: initialAction });
     }
     

@@ -938,7 +938,11 @@ class _PullList {
     // from the number before the dash: "DISTRO 1-1 … 1-7". A socket's
     // port label - a letter before the dash, "VX A-1" off a box named VX A
     // (2026-10-21, a snake's and its extensions' labels) - folds the same
-    // way: "VX A-1 … A-4". A list still
+    // way: "VX A-1 … A-4". A port's return label - the port number and
+    // an R, "1R" (app-naming deriveReturnLabel) - folds as returns: "1R",
+    // "2R", "3R" -> "1R-3R" (QA round 3, 2026-11-03: twenty Cat6 runs,
+    // ports 1-10 and their returns, read "1R … 1 (20)"; now "1-10,
+    // 1R-10R"). A list still
     // longer than eight pieces after folding (a wall's worth of circuit
     // labels) is said as its ends and a count.
     _pullCompressNames(names) {
@@ -962,6 +966,11 @@ class _PullList {
             groups.set(key, g);
         };
         for (const n of list) {
+            const ret = n.match(/^(\d+)R$/);
+            if (ret) {
+                add('r\u0000', n, parseInt(ret[1], 10), null);
+                continue;
+            }
             const dashed = n.match(/^(.*?)(\d+)([-–])(\d+)$/);
             if (dashed) {
                 const [, head, mid, sep, tail] = dashed;
@@ -989,6 +998,11 @@ class _PullList {
         const out = [];
         for (const [key, g] of groups) {
             const runs = runsOf(g.nums);
+            if (key.startsWith('r')) {
+                // returns: a run that follows on is its ends, "1R-10R"
+                out.push(runs.map(([a, b]) => (a === b ? `${a}R` : `${a}R-${b}R`)).join(', '));
+                continue;
+            }
             if (key.startsWith('d')) {
                 // a dashed run of three or more folds; the rest as typed
                 for (const [a, b] of runs) {
