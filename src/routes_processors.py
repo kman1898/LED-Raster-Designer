@@ -206,7 +206,7 @@ def _fixed_pairing_refusal(card):
     device = catalog.get_device(card.get('deviceId')) or {}
     if ((device.get('redundancy') or {}).get('pairing')) == 'adjacent':
         return (f'{device.get("name", "This device")} pairs adjacent outputs '
-                f'automatically - its pairing is a fact of the device, not a '
+                f'automatically: its pairing is a fact of the device, not a '
                 f'mode.')
     return None
 
@@ -278,7 +278,7 @@ def _check_backup_card(card, card_id, backup_id):
                 f'mirror cannot be checked.')
     if main_cap['count'] != back_cap['count']:
         return (f'{back_title} has {back_cap["count"]} ports and {title} '
-                f'has {main_cap["count"]} - a 1:1 backup mirrors port for '
+                f'has {main_cap["count"]}. A 1:1 backup mirrors port for '
                 f'port, so the counts must match.')
     resolved_target = _resolved_card(backup_id)
     taken = (resolved_target or {}).get('backupFor')
@@ -287,12 +287,12 @@ def _check_backup_card(card, card_id, backup_id):
     resolved_self = _resolved_card(card_id)
     mine = (resolved_self or {}).get('backupFor')
     if mine:
-        return (f'{title} backs up {mine.get("title")} - a backup unit '
+        return (f'{title} backs up {mine.get("title")}, and a backup unit '
                 f'cannot take a backup of its own.')
     t_shape = (resolved_target or {}).get('redundancyShape') or {}
     if t_shape.get('mode') == '1to1' and \
             (resolved_target or {}).get('backupCardId'):
-        return (f'{back_title} has a backup of its own - it is a main, and '
+        return (f'{back_title} has a backup of its own: it is a main, and '
                 f'a main cannot also be one.')
     return None
 
@@ -339,14 +339,14 @@ def _set_redundancy_pairs(proc, pairs):
     marks = catalog.trunk_pair_marks(device)
     if not marks:
         return (f'{device.get("name", "This device")} has no trunk pairs to '
-                f'pick - its redundancy is on or off.')
+                f'pick: its redundancy is on or off.')
     if pairs is None:
         proc.pop('redundancyPairs', None)
         return None
     if not isinstance(pairs, list) or not pairs \
             or any(p not in marks for p in pairs):
-        return (f'redundancyPairs must name the pairs by their first trunk '
-                f'- {" or ".join(marks)}.')
+        return (f'redundancyPairs must name the pairs by their first trunk: '
+                f'{" or ".join(marks)}.')
     if set(pairs) == set(marks):
         proc.pop('redundancyPairs', None)
     else:
@@ -590,7 +590,7 @@ def set_processor_order():
     have = [p.get('id') for p in _processors()]
     if sorted(ids) != sorted(have):
         return jsonify({
-            'error': 'ids must name every processor exactly once - '
+            'error': 'ids must name every processor exactly once: '
                      f'{len(have)} on file, {len(ids)} given.'}), 400
     by_id = {p.get('id'): p for p in _processors()}
     _processors_mut()[:] = [by_id[i] for i in ids]
@@ -612,7 +612,7 @@ def update_processor(processor_id):
     # ONE request and ONE undo step.
     if 'backupProcessorId' in data:
         return jsonify({'error': (
-            'A backup processor is an option on its main now - switch it '
+            'A backup processor is an option on its main now. Switch it '
             'on behind the main’s ⚙ (backupUnit).')}), 400
     if 'redundancyMixed' in data:
         why = _check_redundancy_mixed(proc, data.get('redundancyMixed'))
@@ -681,8 +681,8 @@ def set_slot_card(processor_id, index):
         each = kinds[0].get('name') if len(kinds) == 1 else 'card'
         return jsonify({'error': (
             f'{device.get("name", "This processor")} has {len(names)} '
-            f'outputs, {_and_list(names)}, and each takes one {each} - '
-            f'there is no place for another.')}), 400
+            f'outputs, {_and_list(names)}, and each takes one {each}. '
+            f'There is no place for another.')}), 400
     if slot is None:
         return jsonify({'error': 'Slot not found'}), 404
     if slot.get('card') and slot['card'].get('fixed'):
@@ -1380,7 +1380,7 @@ def _check_snake_cable(data):
     conn = data.get('connector')
     ids = catalog.data_cable_connector_ids()
     if 'connector' in data and conn not in (None, '') and conn not in ids:
-        return (f'unknown connector {conn!r} - one of '
+        return (f'unknown connector {conn!r}: one of '
                 f'{", ".join(sorted(ids))}, or null to follow the port.')
     if 'name' in data and data.get('name') is not None \
             and not isinstance(data.get('name'), str):
@@ -1586,12 +1586,12 @@ def _set_fiber_extension(entry, key, data):
         return _state()
     if not link or not link.get('cable'):
         return jsonify({'error': (
-            f'{title} {port} has no TAC or MTP to extend - pick its cable '
+            f'{title} {port} has no TAC or MTP to extend. Pick its cable '
             f'first.')}), 400
     cable = _find_fiber_cable(link['cable']) or {}
     if cable.get('kind') not in catalog.FIBER_STRANDED_KINDS:
         return jsonify({'error': (
-            f'{title} {port} is on an opticalCON - an extension is added to '
+            f'{title} {port} is on an opticalCON. An extension is added to '
             f'a TAC or an MTP.')}), 400
     why = catalog.check_fiber_extension(body, unit=app.cable_unit())
     if why:
@@ -1715,7 +1715,7 @@ def set_fiber_link(processor_id, cvt_id, key):
         primary = catalog.resolved_fiber_links(cvt).get('p' + key[1:])
         if not primary or not primary.get('cable'):
             return jsonify({'error': (
-                f'Pick a cable for {catalog.fiber_link_title(key, device)} - '
+                f'Pick a cable for {catalog.fiber_link_title(key, device)}: '
                 f'{catalog.fiber_link_title("p" + key[1:], device)} has no '
                 f'fiber to follow.')}), 400
         cable_id = primary['cable']
@@ -1748,8 +1748,8 @@ def _set_copper_link(entry, key, data):
         }), 400
     if not res.get('copperLinks'):
         return jsonify({'error': (
-            f'{res.get("deviceName") or title} takes fiber only on its links '
-            f'- copper is offered on an XD.')}), 400
+            f'{res.get("deviceName") or title} takes fiber only on its links. '
+            f'Copper is offered on an XD.')}), 400
     kind = data.get('copper')
     if catalog.copper_link_max_ft(kind) is None:
         kinds = ', '.join(k for k, _ft in catalog.COPPER_LINK_KINDS)
@@ -1798,7 +1798,7 @@ def update_box_fiber(processor_id, cvt_id):
     if 'boundTo' in data or 'unbound' in data:
         return jsonify({'error': (
             'Boxes are not bound any more: a loop’s far box is a box of its '
-            'own, and a backup processor - an option behind the main’s ⚙ - '
+            'own, and a backup processor (an option behind the main’s ⚙) '
             'feeds each box on its backup input.')}), 400
     if 'bidi' in data and not isinstance(data['bidi'], bool):
         return jsonify({'error': 'bidi must be true or false.'}), 400
@@ -1807,10 +1807,10 @@ def update_box_fiber(processor_id, cvt_id):
             vendor = res.get('vendor') or 'this vendor'
             if vendor in catalog.BIDI_VENDORS:
                 return jsonify({'error': (
-                    f'{res.get("deviceName") or title} runs duplex only - a '
-                    f'pair per link, like an XD - so it has no BiDi.')}), 400
+                    f'{res.get("deviceName") or title} runs duplex only, a '
+                    f'pair per link like an XD, so it has no BiDi.')}), 400
             return jsonify({'error': (
-                f'{res.get("deviceName") or title} is a {vendor} box - BiDi '
+                f'{res.get("deviceName") or title} is a {vendor} box. BiDi '
                 f'is offered on NovaStar and Megapixel boxes only.')}), 400
     if 'bidi' in data and bool(cvt.get('bidi')) != data['bidi']:
         if data['bidi']:

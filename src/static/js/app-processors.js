@@ -800,7 +800,7 @@ class _Processors {
                 fact.style.lineHeight = '1.4';
                 fact.style.margin = '6px 0 0';
                 fact.textContent = proc.redundancyPairing.statement;
-                fact.title = 'The loops this unit runs now - each is its '
+                fact.title = 'The loops this unit runs now: each is its '
                     + 'own switch above.';
                 block.appendChild(fact);
             }
@@ -844,7 +844,7 @@ class _Processors {
             fact.style.color = '#c8a04a';
             fact.textContent = `Backs up ${main
                 ? (main.name || main.deviceName) : 'another processor'}`
-                + ' - card for card; its ports carry that unit’s returns.';
+                + ', card for card; its ports carry that unit’s returns.';
             fact.title = 'Picked as the whole-processor backup. Clear the '
                 + 'pick on the main processor to free this one.';
             block.appendChild(fact);
@@ -877,7 +877,7 @@ class _Processors {
             none.style.fontSize = '11px';
             none.style.color = 'var(--ps-dim, #c0c0c0)';
             none.style.marginTop = '6px';
-            none.textContent = `No ${this.unitWordFor(proc)}s in the slots yet - put a ${this.unitWordFor(proc)} in `
+            none.textContent = `No ${this.unitWordFor(proc)}s in the slots yet. Put a ${this.unitWordFor(proc)} in `
                 + 'a slot below and its row appears here.';
             block.appendChild(none);
             return block;
@@ -970,15 +970,15 @@ class _Processors {
             off: 'Redundancy off for this processor.',
             on: 'Redundancy on. The device pairs its outputs itself.',
             unit: 'Backed up: another unit mirrors this one, port for '
-                + `port - ${word === 'card' ? 'the second sending card' : `a second ${word}`}. Pick it below.`,
+                + `port: ${word === 'card' ? 'the second sending card' : `a second ${word}`}. Pick it below.`,
             card: `Per ${word}: each ${word} is mirrored 1:1 by a ${word} you pick, `
                 + 'one row per slot.',
             // One processor can hold copper cards and fiber cards at once,
             // so this line names no trunk: the CARD's chip does that, in
             // the word its own face prints (_portShapeSplitLabel).
-            port: `Per port: ports pair inside ${word === 'processor' ? 'the processor' : `each ${word}`} - sequential, `
+            port: `Per port: ports pair inside ${word === 'processor' ? 'the processor' : `each ${word}`}: sequential, `
                 + 'split, or picked by hand on each chip.',
-            mixed: `Mixed: each ${word} picks its own - 1:1 onto a ${word} you pick, `
+            mixed: `Mixed: each ${word} picks its own: 1:1 onto a ${word} you pick, `
                 + 'or its ports paired inside it. One row per slot.',
         };
         segments.forEach(([level, text]) => {
@@ -1080,7 +1080,7 @@ class _Processors {
                 : elsewhere ? this._backupUnitTitle(elsewhere.proc, elsewhere.card)
                 : card.backupFor.title;
             fact.textContent = `Backup for ${main}`;
-            fact.title = `${fact.textContent} - its ports carry that `
+            fact.title = `${fact.textContent}: its ports carry that `
                 + `${this.unitWordFor(proc, card)}’s returns. Clear the pick `
                 + 'on that row to free it.';
             const row = this._buildRedRow(legend, fact);
@@ -1250,7 +1250,7 @@ class _Processors {
             (val) => this._processorRequest(`/api/processors/${proc.id}`, 'PUT',
                 { backupUnit: { name: val } }, 'Rename Backup Processor'));
         field.style.marginTop = '6px';
-        field.title = `The backup unit's name - ${main} BU until one is typed.`;
+        field.title = `The backup unit's name, ${main} BU until one is typed.`;
         block.appendChild(field);
         return block;
     }
@@ -1484,7 +1484,7 @@ class _Processors {
                 full.style.fontSize = '11px';
                 full.style.color = 'var(--ps-dim, #c0c0c0)';
                 full.textContent = card.trunksFree
-                    ? `Only ${card.trunksFree} trunk left - no box fits it.`
+                    ? `Only ${card.trunksFree} trunk left, and no box fits it.`
                     : (card.trunks === 2 ? 'Both trunks are used.' : `All ${card.trunks} trunks are used.`);
                 row.appendChild(full);
             }
@@ -1537,7 +1537,7 @@ class _Processors {
                 short.style.marginTop = '2px';
                 short.style.lineHeight = '1.4';
                 const s = card.shortfall;
-                short.textContent = `${s.delivered} of ${s.ceiling} ports - `
+                short.textContent = `${s.delivered} of ${s.ceiling} ports: `
                     + (s.reachesWith.length
                         ? `this ${word} reaches ${s.ceiling} with `
                           + `${s.reachesWith.join(' or ')}.`
@@ -1689,8 +1689,8 @@ class _Processors {
         const beachField = this.buildBeachPicker({
             value: cvt.beachId,
             fieldKey: `processor-cvt-beach-${cvt.id}`,
-            title: 'The beach this box sits on. Every row it produces - the '
-                + 'cables of the ports it delivers, its fiber, the box itself - '
+            title: 'The beach this box sits on. Every row it produces (the '
+                + 'cables of the ports it delivers, its fiber, the box itself) '
                 + 'is pulled there.',
             onPick: (beachId) => this._processorRequest(
                 url, 'PUT', { beachId }, 'Set Box Beach'),
@@ -1735,7 +1735,7 @@ class _Processors {
             // be drawing a machine they have not built - but it is the one
             // thing that can push a card past its ceiling, so it says so.
             info.style.color = '#d05a52';
-            info.textContent += ' - no trunk left for this box';
+            info.textContent += ' · no trunk left for this box';
         } else if (backupOfId) {
             // A BACKUP UNIT, SAID AS SUCH. Two ways a box earns the line: it
             // was created as a NovaStar primary's backup (backupOf, delete it
@@ -1749,7 +1749,7 @@ class _Processors {
             const who = primary
                 ? (primary.displayTitle || primary.name || primary.deviceName) : 'the primary box';
             info.style.color = '#c8a04a';
-            info.textContent += ` - backs up ${who}`;
+            info.textContent += ` · backs up ${who}`;
         } else if (this.boxLoopMixed(cvt)) {
             // A backup bound port by port: the ports of each primary box
             // it backs up (boxLoopText), "loop of CVT10 A 1-10, ...".
@@ -1762,7 +1762,7 @@ class _Processors {
             const primary = (card.cvts || []).find(c => c.id === cvt.mirrorOf);
             const trunk = (card.trunkTitles || [])[cvt.copiesTrunk];
             info.style.color = '#c8a04a';
-            info.textContent += ` - mirrors ${primary
+            info.textContent += ` · mirrors ${primary
                 ? (primary.displayTitle || primary.name || primary.deviceName)
                 : (trunk || 'its primary')} for a mirror screen`;
         } else if (cvt.duplicateOf) {
@@ -2613,7 +2613,7 @@ class _Processors {
         fact.style.color = 'var(--ps-dim, #c0c0c0)';
         fact.title = 'Set behind the processor\u2019s \u2699.';
         if (!proc.redundancy) {
-            fact.textContent = 'Redundancy: off - set behind the '
+            fact.textContent = 'Redundancy: off, set behind the '
                 + 'processor’s ⚙';
             return fact;
         }
@@ -2632,7 +2632,7 @@ class _Processors {
         const named = shape.mode === 'halves'
             ? this._portShapeSplitLabel(card) : shape.mode;
         if (shape.forced) {
-            fact.textContent = `Redundancy: ${named} - fixed by the `
+            fact.textContent = `Redundancy: ${named}, fixed by the `
                 + 'device';
             return fact;
         }
@@ -2732,10 +2732,10 @@ class _Processors {
           + 'Pick it under the chips.']] : []),
          ['sequential', this._redundancyShapeLabel(card, 'sequential'),
           card.ceilingKnown && card.ceiling
-              ? `1 backed by 2, 3 by 4 - ${shape.mode === 'sequential'
+              ? `1 backed by 2, 3 by 4: ${shape.mode === 'sequential'
                   ? shape.usable : Math.ceil(card.ceiling / 2)} of `
                 + `${card.ceiling} ports usable.`
-              : '1 backed by 2, 3 by 4 - even ports are the returns.'],
+              : '1 backed by 2, 3 by 4: even ports are the returns.'],
          // The same split the server maps: mains are the front ceil(n/2),
          // returns the back floor(n/2) - port 1 comes back on 9 of 16.
          // Both spans named, because this is the one shape whose main
