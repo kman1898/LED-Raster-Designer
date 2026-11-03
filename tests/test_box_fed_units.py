@@ -575,3 +575,30 @@ def test_the_tray_after_remove_box_shows_the_trunk_empty_and_toasts(sx_page):
     assert wall_pins(page, wall) == [(0, 11), (1, 12), (2, 13)], (
         page.evaluate(PINS_JS))
     assert wall_pins(page, wall, from_server=True) == [(0, 11), (1, 12), (2, 13)]
+
+
+# ── a shrunk screen's pins light no socket ────────────────────────────────
+
+def test_a_pin_past_a_shrunk_screens_ports_takes_no_socket(client):
+    """Beta.4 QA: a show with 8 ports on XD A read "XD A 10/10" while tiles
+    9 and 10 were free - the screen had shrunk from 10 ports, and its two
+    stored pins past the 8th still counted. A pin on a port the screen no
+    longer has is kept (the port comes back with the cabinets) but takes
+    no socket: the box's n/N, the card's and the free count read what the
+    tiles show."""
+    wall = add_layer(client, 'WALL')
+    state = add_processor(client, SX40)
+    _proc, card, boxes = unit(state)
+    cid, box_a = card['id'], boxes[0]['id']
+    attach(client, wall, cid, screens((wall, 'WALL', 10, 'brompton')),
+           first=1, last=10)
+    assert len(pins(client)) == 10
+    res = resolve(client, screens((wall, 'WALL', 8, 'brompton')))
+    summ = summary(res, cid)
+    assert summ['boxes'][box_a] == {'taken': 8, 'sockets': 10}, summ['boxes']
+    assert (summ['taken'], summ['used'], summ['free']) == (8, 8, 32), summ
+    assert ports_of(res, wall) == (list(range(1, 9)), [])
+    # the pins stay: the screen grown back takes its sockets again
+    assert len(pins(client)) == 10
+    res = resolve(client, screens((wall, 'WALL', 10, 'brompton')))
+    assert summary(res, cid)['boxes'][box_a] == {'taken': 10, 'sockets': 10}
