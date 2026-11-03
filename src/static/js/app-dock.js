@@ -819,7 +819,7 @@ class _HardwareDock {
         this._hwPopoverRender(anchor);
     }
 
-    _hwPopoverRender(anchor) {
+    _hwPopoverRender(anchor, hold = false) {
         let pop = document.getElementById('hw-gear-popover');
         if (!pop) {
             pop = document.createElement('div');
@@ -865,7 +865,7 @@ class _HardwareDock {
         pop.appendChild(frame);
         content.addEventListener('scroll', () => this._hwPopoverFade());
         pop.style.display = 'block';
-        this._hwPopoverPlace(anchor);
+        this._hwPopoverPlace(anchor, hold);
         content.scrollTop = keepScroll;
         this._hwPopoverFade();
     }
@@ -970,10 +970,17 @@ class _HardwareDock {
     // (the fields wrap, never clip) when the window is narrower than that.
     // Re-run on resize and dock drags: a popover placed for one window
     // must not end up half off another.
-    _hwPopoverPlace(anchor) {
+    //
+    // `hold`: a refresh of the panel's own content (a mode picked, a
+    // field committed) keeps its top-left corner where it already is
+    // (`at`, the last spot placed), so a body that grows or shrinks under
+    // a click never moves the panel out from under the pointer; only a
+    // fresh open, a resize or a dock drag places it off the gear again.
+    _hwPopoverPlace(anchor, hold = false) {
         const pop = document.getElementById('hw-gear-popover');
         const frame = pop && pop.querySelector('.hw-pop-frame');
-        const pos = this._hwPopover && this._hwPopover.pos;
+        const rec = this._hwPopover;
+        const pos = (rec && rec.pos) || (hold && rec && rec.at) || null;
         if (!pop || !frame || (!anchor && !pos)) return;
         const margin = 8, gap = 6;
         const vw = Math.min(window.innerWidth,
@@ -1011,7 +1018,8 @@ class _HardwareDock {
         y = Math.max(margin, Math.min(y, vh - pr.height - margin));
         // A dragged spot is kept as placed, so a window that grows again
         // leaves the panel where the reader last saw it.
-        if (pos) { pos.x = x; pos.y = y; }
+        if (rec && rec.pos) { rec.pos.x = x; rec.pos.y = y; }
+        if (rec) rec.at = { x, y };
         pop.style.left = `${Math.round(x)}px`;
         pop.style.top = `${Math.round(y)}px`;
         pop.style.visibility = 'visible';
@@ -1063,7 +1071,7 @@ class _HardwareDock {
             this._hwPopoverClose();
             return;
         }
-        this._hwPopoverRender(anchor);
+        this._hwPopoverRender(anchor, true);
     }
 
     _dockNote(host, text) {
@@ -1776,10 +1784,12 @@ class _HardwareDock {
         // below untouched; they are the server's window keys, not a
         // number anyone reads off metal.
         // ...except a port-by-port backup's row, whose sockets read their
-        // silkscreen on the chips: its header names the PORTS they carry,
-        // card-wide (a CVT10 behind ports 11-16: chips 1-6, "ports 11-16").
+        // silkscreen on the chips: its header names the ports they back
+        // up by the PRIMARY box's own numbers (loopOf.local) - the strip's
+        // box, the row sits in - never the card-wide key no face prints
+        // (a CVT10 behind a CVT4K-S's 9-14: chips 1-6, "ports 9-14").
         const locals = shown.map(
-            p => (p.loopOf ? p.number : (p.localNumber || p.number)));
+            p => (p.loopOf ? (p.loopOf.local || p.number) : (p.localNumber || p.number)));
         const span = `${Math.min(...locals)}-${Math.max(...locals)}`;
         // "(backup)" is the backup PROCESSOR's word now (2026-09-25): a
         // loop's far box says what it is on its row ("· loop end"), and
@@ -1918,9 +1928,17 @@ class _HardwareDock {
         const strip = document.createElement('div');
         strip.className = 'hw-dock-loop';
         const nums = this.boxMainPorts(near).map(p => p.number);
-        const a = this._dockBoxLabel(near, true);
-        const b = slices.map(s => this._dockBoxLabel(s.box, true)).join(', ');
-        const farNames = slices.map(s => this._dockBoxLabel(s.box)).join(' and ');
+        // A box looping onto its OWN sockets (a straddling box - its
+        // inputs across a main OPT and its copy) is named once, by its
+        // sockets: "A-B 1-8 ↔ 9-16", never "A-B ↔ A-B".
+        const range = (ports) => this.fiberStrandRangeText(ports.map(p => p.localNumber));
+        const self = slices.some(s => s.box === near);
+        const a = this._dockBoxLabel(near, true)
+            + (self ? ` ${range(this.boxMainPorts(near))}` : '');
+        const b = slices.map(s => (s.box === near ? range(s.ports)
+            : this._dockBoxLabel(s.box, true))).join(', ');
+        const farNames = slices.map(s => (s.box === near ? `its own sockets ${range(s.ports)}`
+            : this._dockBoxLabel(s.box))).join(' and ');
         // A slice counts its own sockets: lit where the port it backs up
         // carries something, the way the whole far box's count reads.
         const counts = [this.socketsTaken(card.id, near.id)]

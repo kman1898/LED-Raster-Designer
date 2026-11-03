@@ -637,3 +637,23 @@ def test_five_and_six_at_both_ends_are_one_four_way(page):
     show = pg.evaluate(SHOW_JS)
     assert show['snakes'] == [], show
     assert show['index'] == 0, show
+
+
+def test_a_snake_is_stored_one_way_whatever_the_file_said(client):
+    """A file carrying `connector: null` / `ft: null` (an older save, a copy
+    taken off the served list) loads in the stored shape - no key for an
+    unset length or connector - so the next save is the same file whatever
+    order the show was opened in (QA, beta.4)."""
+    ids = _two_cards_with_boxes(client)
+    project = _project(client)
+    project['snakes'] = [
+        {'id': 'snk70', 'name': 'NULLS', 'ft': None, 'connector': None,
+         'members': [_member('cvt', ids['boxA'], 1),
+                     _member('cvt', ids['boxA'], 2)]},
+        {'id': 'snk71', 'name': 'SET', 'ft': 50, 'connector': 'ethercon',
+         'members': [_member('cvt', ids['boxB'], 1)]}]
+    r = client.put('/api/project', json=project)
+    assert r.status_code == 200, r.get_data(as_text=True)
+    stored = {s['name']: s for s in _project(client)['snakes']}
+    assert 'ft' not in stored['NULLS'] and 'connector' not in stored['NULLS']
+    assert (stored['SET']['ft'], stored['SET']['connector']) == (50, 'ethercon')

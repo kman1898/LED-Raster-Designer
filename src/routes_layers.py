@@ -303,6 +303,27 @@ def _apply_group_id(layer, previous_group_id, requested):
     app._enforce_group_integrity(app.current_project)
 
 
+@layers_bp.route('/api/layer/<int:layer_id>/mirror-refusal', methods=['GET'])
+def mirror_refusal_check(layer_id):
+    """Why this screen may not mirror the screen `of`, asked BEFORE the PUT
+    that sets it: {'error': why} or {'error': None}, always 200. A refusal
+    is an expected answer to a drop, said to the user out loud, and a 409
+    on the wire is logged by the browser as an error - so the dock asks
+    here first and the PUT's own 409 stays a guard nobody normally meets.
+    The same rule as the PUT (port_assignment.mirror_set_refusal)."""
+    layer = next((l for l in app.current_project['layers']
+                  if l['id'] == layer_id), None)
+    if not layer:
+        return jsonify({'error': 'That screen is not in this project.'})
+    wanted = request.args.get('of')
+    if wanted in (None, ''):
+        return jsonify({'error': None})
+    if str(wanted) == str(layer.get('dataMirrorOf')):
+        return jsonify({'error': None})
+    return jsonify({'error': assignment.mirror_set_refusal(
+        app.current_project, layer, wanted)})
+
+
 @layers_bp.route('/api/layer/<int:layer_id>', methods=['PUT'])
 def update_layer(layer_id):
     data = dict(request.json or {})

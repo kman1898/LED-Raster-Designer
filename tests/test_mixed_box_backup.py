@@ -651,6 +651,67 @@ def test_a_cvt4k_across_a_uhd_jrs_opt_2_3_backs_up_opt_1(client):
     assert card['ceiling'] == 16
 
 
+# Owner, 2026-11-03: "the cvt 1-8 is locked to opt 1 always". A CVT4K-S's
+# outputs 1-8 belong to its input 1 and input 2 starts at output 9 whatever
+# feeds it, so on OPTs of fewer than 8 ports outputs are left empty between
+# the two inputs. (unit, mode, ports per OPT, what OPT 2's input carries)
+CVT4K_LOCK = [
+    ('novastar-vx400-pro', None, 4, 'backup'),
+    ('novastar-vx600-pro', None, 6, 'backup'),
+    ('novastar-mctrl660-pro', None, 6, 'backup'),
+    ('novastar-mx20', None, 6, 'mirror'),
+    (VX1000, None, 8, 'backup'),
+]
+
+
+@pytest.mark.parametrize('unit,mode,per,role', CVT4K_LOCK,
+                         ids=[u[0].replace('novastar-', '') for u in CVT4K_LOCK])
+def test_a_cvt4ks_second_input_starts_at_output_9(client, unit, mode, per,
+                                                  role):
+    pid, cid = rig(client, unit, mode)
+    add_boxes(client, pid, cid, [CVT4K])
+    card = card_of(client, cid)
+    box = card['cvts'][0]
+    assert (box['trunkTitle'], box['copyInputRole']) == ('OPT 1-2', role)
+    # input 1: the main OPT's ports on outputs 1..per
+    assert box['portNumbers'][:per] == list(range(1, per + 1))
+    assert box['socketNumbers'][:per] == list(range(1, per + 1))
+    own = {p['number']: p['localNumber'] for p in card['ports']
+           if p['cvtId'] == box['id'] and not p['mirrorOf']}
+    assert own == {n: n for n in range(1, per + 1)}
+    # input 2: its copy on outputs 9.., never per + 1
+    second = list(range(9, 9 + per))
+    if role == 'backup':
+        assert box['backNumbers'] == list(range(1, per + 1))
+        assert box['backSockets'] == second
+        assert mapping(card) == {'OPT 1-2': run(range(1, per + 1), 'OPT 1-2',
+                                                1, socket_first=9)}
+    else:
+        assert box['socketNumbers'][per:] == second
+        mirrors = sorted(p['localNumber'] for p in card['ports']
+                         if p['mirrorOf'] and p['cvtId'] == box['id'])
+        assert mirrors == second
+
+
+def test_the_enhanced_cards_cvt4k_still_reads_1_8_and_9_16(client):
+    """10-port OPTs: card ports 1-8 and 11-18 on outputs 1-8 and 9-16, as
+    before the lock."""
+    pid, cid = rig(client, H4E, 'backup')
+    add_boxes(client, pid, cid, [CVT4K])
+    box = card_of(client, cid)['cvts'][0]
+    assert box['portNumbers'] == [*range(1, 9), *range(11, 19)]
+    assert box['socketNumbers'] == list(range(1, 17))
+
+
+def test_only_the_cvt4k_locks_its_outputs_to_its_inputs():
+    locked = [d['id'] for d in (catalog.devices().values()
+                                if isinstance(catalog.devices(), dict)
+                                else catalog.devices())
+              if catalog.input_outputs(d)]
+    assert locked == [CVT4K]
+    assert catalog.input_outputs(catalog.get_device(CVT4K)) == 8
+
+
 # ── the tray, its sheets, the binder's words and the pull sheet ───────────
 
 FETCH_COUNT_JS = """(() => {
@@ -1033,6 +1094,7 @@ STRADDLE_TRAY_JS = """(cardId) => {
         near: rows[0] ? chips(rows[0]) : null,
         far: far ? chips(far) : null,
         farHead: far ? far.querySelector('.hw-dock-unit-info').textContent : '',
+        names: sec ? sec.querySelector('.hw-dock-loop-names').textContent : '',
         hover: far ? far.querySelector('.lrd-tile-face').title : '',
         words: app.boxLoopText(box, card.cvts, x => x.trunkTitle),
         ceiling: card.ceiling,
@@ -1069,6 +1131,8 @@ def test_the_tray_draws_a_vx1000_straddle_as_its_own_loop(e2e_server,
     assert tray['near'] == list(range(1, 9)), tray
     assert tray['far'] == list(range(9, 17)), tray
     assert tray['farHead'] == 'ports 1-8', tray
+    # a box looping onto itself is named once, by its sockets
+    assert tray['names'] == 'A-B 1-8 ↔ 9-16', tray
     assert 'the backup of port 1 on' in tray['hover'], tray['hover']
     assert tray['words'] == 'loop of OPT 1-2 1-8 on sockets 9-16'
     assert tray['ceiling'] == 10

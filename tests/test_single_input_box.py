@@ -167,7 +167,7 @@ def test_a_vx1000_takes_one_and_gets_8_of_its_10(client):
     assert (second['copyRole'], second['backupOf']) == ('backup', first['id'])
     assert (card['trunksUsed'], card['trunksFree']) == (2, 0)
     assert card['ceiling'] == 10
-    assert 'All 2 trunks' in _refused(_add(client, pid, cid, inputs=1))
+    assert 'Both trunks' in _refused(_add(client, pid, cid, inputs=1))
 
 
 def test_the_enhanced_h_card_gives_8_not_10_on_one_input(client):

@@ -327,7 +327,7 @@ class _BinderWiring {
             const ret = { kind: 'return', text: this.getPortLabelText(carrier, run.num, 'return'),
                           panel: last.p, layer: last.on, port: run.num };
             stubs.push(ret);
-            const bh = bb.cardId ? this._bPortHome(bb.cardId, bb.port) : null;
+            const bh = bb.cardId ? this._bPortHome(bb.cardId, bb.port, bb.cvtId || null) : null;
             if (!bh) continue;
             const bd = device(bh);
             const bsock = bb.localPort != null ? Number(bb.localPort)

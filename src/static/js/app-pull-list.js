@@ -1914,12 +1914,14 @@ class _PullList {
         // Every row of a socket a BOX delivers is pulled where the box
         // sits (its location); a socket straight off a card stays with
         // the screen - a processor has no location.
-        const owned = (cardId, socket) =>
+        // `boxId` reads the socket on a named box: a loop box's backup
+        // socket shares its main's card-wide number (backedBy's cvtId).
+        const owned = (cardId, socket, boxId = null) =>
             (cardId != null && socket != null && typeof this._dataPortOwner === 'function'
-                ? this._dataPortOwner(cardId, socket) : null);
+                ? this._dataPortOwner(cardId, socket, boxId) : null);
         const boxAt = (owner) => (owner && owner.kind === 'cvt' ? locationOf(owner.rec) : null);
-        const walk = (cardId, socket, label, into) => {
-            const owner = owned(cardId, socket);
+        const walk = (cardId, socket, label, into, boxId = null) => {
+            const owner = owned(cardId, socket, boxId);
             if (!owner) return;
             const at = boxAt(owner);
             const proc = (this.project.processors || []).find(p => p.id === owner.procId) || null;
@@ -2103,7 +2105,7 @@ class _PullList {
                     ? this.getPortLabelText(layer, run.num, 'return')
                     : this.deriveReturnLabel(run.label);
                 port.backup = { label, cable: null, snake: null, ext: null, box: null };
-                walk(bb.cardId, bb.port, label, port.backup);
+                walk(bb.cardId, bb.port, label, port.backup, bb.cvtId || null);
             }
         }
         for (const b of dataJumps.values()) jumpRow(settings.dataJumpName, b);

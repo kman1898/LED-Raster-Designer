@@ -606,3 +606,159 @@ def test_an_mx40_pro_with_a_mirror_box_mirrors_by_dragging_the_processor(page):
     assert out['mirrorOf'] == ma
     assert out['ports'][0] == [mx['cid'], 21, 'mirror'], out
     assert errors == []
+
+
+def test_a_mirror_with_nowhere_to_plug_in_is_refused_on_the_drop(page):
+    """MX40 Pro 20-port, the box on OPT 3 at Backup and the one on OPT 4 at
+    Mirror: a screen on OPT 1 has no copy socket, so dragging the processor
+    onto a second screen is refused out loud and nothing changes (QA,
+    beta.4: it used to make a mirror with nowhere to plug in)."""
+    pg, ids, errors = page
+    mx = pg.evaluate(MX40_JS, '20-port')
+    pg.evaluate("""async (mx) => {
+        const box = (copyRole) => fetch(
+            `/api/processors/${mx.pid}/cards/${mx.cid}/cvts`, {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({deviceId: 'novastar-cvt10', copyRole})});
+        await box('backup');
+        await box('mirror');
+        const add = (name, x) => fetch('/api/layer/add', {method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({name, columns: 2, rows: 2,
+                cabinet_width: 256, cabinet_height: 256, offset_x: x,
+                offset_y: 2600})}).then(r => r.json());
+        const app = window.app;
+        for (const [n, x] of [['MC', 0], ['MD', 700]]) {
+            const layer = await add(n, x);
+            app.initializeLayerDefaults(layer);
+            layer.processorType = 'novastar-coex-1g';
+            app.upsertProjectLayer(layer);
+            app.updateLayers([layer]);
+        }
+        await app.refreshProcessors();
+        app.renderLayers();
+        await app.refreshPortAssignment();
+    }""", mx)
+    roles = pg.evaluate("""(mx) => window.app._dockFindCard(mx.cid).card.cvts
+        .map(b => [b.trunkTitle, b.copyRole])""", mx)
+    assert sorted(roles, key=lambda r: r[0]) == [
+        ['OPT 1', None], ['OPT 2', None], ['OPT 3', 'backup'],
+        ['OPT 4', 'mirror']], roles
+    mc = pg.evaluate("() => window.app.project.layers.find(l => l.name === 'MC').id")
+    md = pg.evaluate("() => window.app.project.layers.find(l => l.name === 'MD').id")
+    first = drop(pg, mx['pid'], mc, 'processor')
+    assert first['mirrorOf'] is None and first['ports'][0][1] == 1
+    out = drop(pg, mx['pid'], md, 'processor')
+    want = ("MD can't mirror MC: the box on OPT 3 is set to Backup. Set it "
+            "to Mirror to feed a mirror screen.")
+    assert out['pill'] == {'ok': False, 'message': want}, out
+    assert out['said'] == want, out
+    assert out['mirrorOf'] is None
+    assert all(p[0] is None for p in out['ports']), out['ports']
+    assert errors == []
+
+
+def test_a_refused_mirror_drop_sends_no_409(page):
+    """A size mismatch is refused in the server's words, asked for on a 200
+    first: no 409 reaches the browser's console (QA, beta.4)."""
+    pg, ids, errors = page
+    conflicts = []
+    listen = (lambda r: conflicts.append(r.url) if r.status == 409 else None)
+    pg.on('response', listen)
+    try:
+        pg.evaluate(TOASTS_JS)
+        layer = pg.evaluate("""async () => {
+            const r = await fetch('/api/layer/add', {method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({name: 'ODD', columns: 3, rows: 3,
+                    cabinet_width: 256, cabinet_height: 256,
+                    offset_x: 0, offset_y: 3400})});
+            const layer = await r.json();
+            const app = window.app;
+            app.initializeLayerDefaults(layer);
+            app.upsertProjectLayer(layer);
+            app.renderLayers();
+            await app.refreshPortAssignment();
+            return layer.id;
+        }""")
+        source = pg.evaluate("""() => window.app.project.layers
+            .find(l => l.name === 'SL').id""")
+        ok = pg.evaluate("""([id, src]) => window.app.setLayerMirror(
+            window.app.project.layers.find(l => l.id === id), src)""",
+                         [layer, source])
+        pg.wait_for_timeout(300)
+        toasts = pg.evaluate(TOASTS_JS)
+    finally:
+        pg.remove_listener('response', listen)
+    assert ok is False
+    assert any(t['err'] and t['msg'].startswith('ODD is 3 x 3 cabinets')
+               for t in toasts), toasts
+    assert conflicts == [], conflicts
+    assert errors == []
+
+
+def test_the_plugs_in_at_switch_wears_the_popovers_bar_in_the_tray(page):
+    """The port chip editor's PLUGS IN AT switch is drawn in the tray, not
+    in the gear popover: it wears the same raised segments there (QA,
+    beta.4: it was bare browser buttons)."""
+    pg, ids, errors = page
+    mx = pg.evaluate(MX40_JS, '40-port')
+    out = pg.evaluate("""async (mx) => {
+        await fetch(`/api/processors/${mx.pid}/cards/${mx.cid}/cvts`, {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({deviceId: 'novastar-cvt10'})});
+        const app = window.app;
+        await app.refreshProcessors();
+        const found = app._dockFindCard(mx.cid);
+        const port = found.card.ports.find(p => p.number === 3);
+        const strip = app._buildPortPlugStrip(found.proc, found.card, port);
+        const host = document.getElementById('hardware-dock-body') || document.body;
+        host.appendChild(strip);
+        const look = (el) => { const cs = getComputedStyle(el);
+            return {bg: cs.backgroundImage, radius: cs.borderTopLeftRadius,
+                    display: getComputedStyle(el.parentElement).display}; };
+        const segs = [...strip.querySelectorAll('button.hw-pop-seg-btn')].map(look);
+        strip.remove();
+        return segs;
+    }""", mx)
+    assert len(out) == 2, out
+    assert all('linear-gradient' in s['bg'] for s in out), out
+    assert out[0]['display'] == 'flex', out
+    assert out[0]['radius'] == '3px' and out[1]['radius'] == '0px', out
+    assert errors == []
+
+
+def test_the_gear_popover_holds_still_when_its_content_changes(page):
+    """A refresh of the open popover's own content (a mode picked) keeps
+    its top-left corner where it is; only a fresh open places it off the
+    gear (QA, beta.4: it jumped when the mode changed)."""
+    pg, ids, errors = page
+    pg.wait_for_timeout(600)
+    pg.locator(f'[data-hwpop="card-{ids["ind"]}"]').first.click()
+    pg.wait_for_function("() => !!window.app._hwPopover")
+    pg.wait_for_timeout(300)
+    out = pg.evaluate("""() => {
+        const app = window.app;
+        const pop = document.getElementById('hw-gear-popover');
+        const at = () => { const r = pop.getBoundingClientRect();
+                           return [Math.round(r.left), Math.round(r.top),
+                                   Math.round(r.height)]; };
+        const before = at();
+        // the panel's content grows, the way a mode with more fields does
+        const build = app._hwPopover.build;
+        app._hwPopover.build = () => {
+            const content = build();
+            const pad = document.createElement('div');
+            pad.style.height = '120px';
+            content.insertBefore(pad, content.children[1] || null);
+            return content;
+        };
+        app._hwPopoverRefresh();
+        const after = at();
+        app._hwPopover.build = build;
+        app._hwPopoverClose();
+        return {before, after};
+    }""")
+    assert out['after'][2] != out['before'][2], out
+    assert out['after'][:2] == out['before'][:2], out
+    assert errors == []

@@ -1099,7 +1099,8 @@ def update_cvt(processor_id, cvt_id):
             if more > free:
                 name = card_device.get('name', 'This card')
                 word = catalog.box_input_word(box_device)
-                have = (f'all {trunks} trunks on {name} are used'
+                every = 'both' if trunks == 2 else f'all {trunks}'
+                have = (f'{every} trunks on {name} are used'
                         if free <= 0 else f'{name} has {free} free')
                 return jsonify({'error': (
                     f'{box_device.get("name", "This box")} on {inputs} '

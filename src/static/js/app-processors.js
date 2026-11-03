@@ -109,9 +109,18 @@ class _Processors {
         // onto the project under the tree's own rule: never written onto a
         // project that has none and never had any, so a file that never
         // met the feature stays byte-for-byte what it was.
+        // Each in the STORED shape (processor_catalog store_show_snake):
+        // an unset length or connector is no key at all, never null, so
+        // the saved file is the same whichever order a show was opened,
+        // edited or re-read in.
         if (Array.isArray(data.snakes) && this.project
                 && (data.snakes.length || this.project.snakes)) {
-            this.project.snakes = data.snakes;
+            this.project.snakes = data.snakes.map(s => {
+                const out = { id: s.id, members: s.members, name: s.name };
+                if (s.ft != null) out.ft = s.ft;
+                if (s.connector != null) out.connector = s.connector;
+                return out;
+            });
         }
         // The show's fiber cables, the same way - except that an emptied
         // list leaves no key behind (the server drops it too), so the
@@ -581,6 +590,28 @@ class _Processors {
     _cardPortShaped(card) {
         const shape = card && card.redundancyShape;
         return !!(shape && shape.mode !== '1to1');
+    }
+
+    // The loop boxes backing a card's ports - a box on a copy OPT set to
+    // Backup (an H_4xfiber in Backup mode, a NovaPro UHD box set to
+    // Backup) - each with the boxes whose ports it backs up (null: the
+    // unit's own ports), in card order: [{ box, mains: [box|null] }].
+    // Read off the same `backedBy` link every backup end is read off
+    // (processor_catalog's _apply_backup_mapping, `loop`), so the paper
+    // never says Off for a card whose returns come home on a box.
+    _cardLoopBackups(card) {
+        const cvts = (card && card.cvts) || [];
+        const byId = new Map(cvts.map(c => [c.id, c]));
+        const out = new Map();
+        for (const p of (card && card.ports) || []) {
+            const bb = p.backedBy;
+            if (!bb || !bb.loop || !byId.has(bb.cvtId)) continue;
+            if (!out.has(bb.cvtId)) out.set(bb.cvtId, { box: byId.get(bb.cvtId), mains: [] });
+            const main = p.cvtId ? (byId.get(p.cvtId) || null) : null;
+            const mains = out.get(bb.cvtId).mains;
+            if (!mains.includes(main)) mains.push(main);
+        }
+        return [...out.values()];
     }
 
     // THE DERIVED LEVEL. What the bar lights is read from what is stored,
@@ -1408,7 +1439,7 @@ class _Processors {
                 full.style.color = 'var(--ps-dim, #c0c0c0)';
                 full.textContent = card.trunksFree
                     ? `Only ${card.trunksFree} trunk left - no box fits it.`
-                    : `All ${card.trunks} trunks are used.`;
+                    : (card.trunks === 2 ? 'Both trunks are used.' : `All ${card.trunks} trunks are used.`);
                 row.appendChild(full);
             }
             wrap.appendChild(row);
@@ -1667,8 +1698,10 @@ class _Processors {
             // the only thing a second box can be.
             const primary = (card.cvts || [])
                 .find(c => c.id === backupOfId);
+            // by its title, letter and all ("CVT10 A"), never the bare
+            // model every box on the card shares
             const who = primary
-                ? (primary.name || primary.deviceName) : 'the primary box';
+                ? (primary.displayTitle || primary.name || primary.deviceName) : 'the primary box';
             info.style.color = '#c8a04a';
             info.textContent += ` - backs up ${who}`;
         } else if (this.boxLoopMixed(cvt)) {
@@ -1676,7 +1709,7 @@ class _Processors {
             // it backs up (boxLoopText), "loop of CVT10 A 1-10, ...".
             info.style.color = '#c8a04a';
             info.textContent += `: ${this.boxLoopText(cvt, card.cvts,
-                b => b.name || b.displayTitle || b.deviceName)}`;
+                b => b.displayTitle || b.name || b.deviceName)}`;
         } else if (cvt.copyRole === 'mirror') {
             // A copy that feeds a mirror screen: sockets of its own,
             // carrying the mirror's runs.
@@ -1684,7 +1717,7 @@ class _Processors {
             const trunk = (card.trunkTitles || [])[cvt.copiesTrunk];
             info.style.color = '#c8a04a';
             info.textContent += ` - mirrors ${primary
-                ? (primary.name || primary.displayTitle || primary.deviceName)
+                ? (primary.displayTitle || primary.name || primary.deviceName)
                 : (trunk || 'its primary')} for a mirror screen`;
         } else if (cvt.duplicateOf) {
             // A copy trunk outside any backup pairing: the same ports
@@ -1770,14 +1803,25 @@ class _Processors {
     // resolve_card; never a backup box carrying it again), else the card
     // itself. Returns { kind: 'card'|'cvt', id, procId, cardId, rec } or
     // null for a socket nothing resolves to.
-    _dataPortOwner(cardId, socket) {
+    //
+    // `boxId` names the box to read the socket on where the socket number
+    // alone cannot: a loop box on a copy OPT set to Backup carries the
+    // SAME card-wide numbers as the ports it backs up, so a backup end
+    // (`backedBy` - processor_catalog's _apply_backup_mapping, its
+    // `cvtId`) is read on that box. Ignored where that box does not carry
+    // the socket.
+    _dataPortOwner(cardId, socket, boxId = null) {
         const found = this._dockFindCard(cardId);
         if (!found) return null;
         const n = parseInt(socket, 10);
         const port = (found.card.ports || []).find(p => p.number === n);
-        const box = port
+        const named = boxId
+            ? (found.card.cvts || []).find(c => c.id === boxId
+                && (c.ports || []).some(p => p.number === n))
+            : null;
+        const box = named || (port
             ? (port.cvtId ? (found.card.cvts || []).find(c => c.id === port.cvtId) : null)
-            : (found.card.cvts || []).find(c => (c.ports || []).some(p => p.number === n));
+            : (found.card.cvts || []).find(c => (c.ports || []).some(p => p.number === n)));
         if (box) {
             return { kind: 'cvt', id: box.id, procId: found.proc.id,
                      cardId, rec: box };
@@ -2054,6 +2098,23 @@ class _Processors {
         return String((port && port.localNumber) || n);
     }
 
+    // The number silkscreened beside a socket ON `owner` - the card-wide
+    // key turned into the box's own 1..N: a loop box's backup socket by
+    // its own socket (backedBy's localPort), a box's own port by its
+    // localNumber, a card's port by its number.
+    dataSocketLocal(owner, socket) {
+        const n = parseInt(socket, 10);
+        if (!owner || owner.kind !== 'cvt') return n;
+        const found = this._dockFindCard(owner.cardId);
+        const port = ((found && found.card.ports) || []).find(p => p.number === n);
+        const bb = port && port.backedBy;
+        if (bb && bb.loop && bb.cvtId === owner.id && port.cvtId !== owner.id) return bb.localPort;
+        if (port && port.cvtId === owner.id && port.localNumber != null) return port.localNumber;
+        const at = ((owner.rec && owner.rec.portNumbers) || []).indexOf(n);
+        const faces = (owner.rec && owner.rec.socketNumbers) || [];
+        return at >= 0 ? (faces[at] != null ? faces[at] : at + 1) : n;
+    }
+
     // The members of `snake` that are NOT on `owner`, grouped by the
     // device they sit on: [{ owner, sockets, text }] - what a sheet says
     // about the rest of a snake it can only show part of ("+ B-1, B-2 on
@@ -2100,8 +2161,8 @@ class _Processors {
     // fan-out to the panel (rec.portCables on that socket - the same store
     // a loose socket's home run lives in), null when none; `text` is what
     // the chip corner, the canvas tag and the paperwork print.
-    dataPortCable(cardId, socket) {
-        const owner = this._dataPortOwner(cardId, socket);
+    dataPortCable(cardId, socket, boxId = null) {
+        const owner = this._dataPortOwner(cardId, socket, boxId);
         if (!owner) return null;
         return this._dataPortCableOn(owner, socket);
     }
@@ -2158,7 +2219,7 @@ class _Processors {
     runText(cable, at = null) {
         if (!cable) {
             const owner = at && at.cardId != null && typeof this._dataPortOwner === 'function'
-                ? this._dataPortOwner(at.cardId, at.port) : null;
+                ? this._dataPortOwner(at.cardId, at.port, at.cvtId || null) : null;
             if (!owner || typeof this.pullDataConnectorWord !== 'function') return '';
             const rec = (owner.rec.portCables || {})[String(at.port)];
             return `${this.pullDataConnectorWord(this.dataPortConnectorId(owner, rec && rec.connector))} no length`;
@@ -2205,7 +2266,7 @@ class _Processors {
         const port = this._screenPortPin(layer, portNum);
         if (!port || typeof this._pullBackedBy !== 'function') return null;
         const bb = this._pullBackedBy(port.cardId, port.port);
-        return bb ? this.dataPortCable(bb.cardId, bb.port) : null;
+        return bb ? this.dataPortCable(bb.cardId, bb.port, bb.cvtId || null) : null;
     }
 
     // The snake's tag as the bracket and the sheet print it:

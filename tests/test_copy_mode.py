@@ -927,3 +927,18 @@ def test_mix_reason_is_symmetric_and_reads_the_catalog():
     assert assignment._mix_reason('W', list(reversed(cards)))
     assert assignment._mix_reason('W', [cards[0], copy.deepcopy(cards[0])]) \
         is None
+
+
+def test_the_mirror_refusal_is_asked_for_on_a_200(client):
+    """The dock asks first (GET /api/layer/<id>/mirror-refusal) so a refused
+    drop is an answer, not a 409 the browser logs as an error (QA, beta.4);
+    the PUT keeps its 409 as the guard."""
+    pid, cid, a, b, screens = mirror_rig(client)
+    wide = screen(client, 'WIDE', columns=5)
+    resp = client.get(f'/api/layer/{wide}/mirror-refusal?of={a}')
+    assert resp.status_code == 200
+    assert resp.get_json()['error'].startswith('WIDE is 5 x 3 cabinets')
+    resp = client.get(f'/api/layer/{b}/mirror-refusal?of={a}')
+    assert resp.status_code == 200 and resp.get_json()['error'] is None
+    assert client.put(f'/api/layer/{wide}',
+                      json={'dataMirrorOf': a}).status_code == 409

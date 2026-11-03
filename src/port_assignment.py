@@ -372,10 +372,13 @@ def cards_in(processors):
                 # lands on, by the number written beside THAT socket. Read
                 # by _attached_labels when nothing upstream is named, so an
                 # unnamed card's return end prints the socket it comes back
-                # on rather than nothing.
+                # on rather than nothing. A loop box's socket (`loop` - a
+                # box on a copy OPT set to Backup) keeps the derived return
+                # it has always printed.
                 'backupSockets': {p['number']: p['backedBy']['localPort']
                                   for p in card['ports']
-                                  if p.get('backedBy')},
+                                  if p.get('backedBy')
+                                  and not p['backedBy'].get('loop')},
                 # Each breakout box's sockets by card-wide number, in the
                 # box's order, so the summary can count a box's taken
                 # sockets the same way it counts the card's. A copy box

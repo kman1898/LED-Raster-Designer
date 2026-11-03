@@ -980,7 +980,8 @@ def can_add_cvt(card, device_id, inputs=None):
     free = trunks - trunks_used(card)
     if need > free:
         if free <= 0:
-            return False, (f'All {trunks} trunks on {name} are used. Remove a '
+            every = 'Both' if trunks == 2 else f'All {trunks}'
+            return False, (f'{every} trunks on {name} are used. Remove a '
                            f'box before adding another.')
         return False, (f'{box.get("name", device_id)} takes {need} trunks and '
                        f'{name} has {free} left.')
@@ -1078,6 +1079,10 @@ def box_input_numbers(cvt_device, index, takes, block_count, per_trunk,
     them". So a CVT4K-S on two 10-port OPTs gives 1-8 and 11-18, never
     1-16: OPT 1's ports 9-10 do not reach it. On 8-port OPTs (an
     H_4xfiber, a NovaPro UHD) that is 1-8 and 9-16, as it always read.
+    Those are CARD ports. The box's own outputs are locked to its inputs
+    (owner, 2026-11-03: "the cvt 1-8 is locked to opt 1 always" -
+    input_outputs): input 2 starts at output 9 even where input 1's OPT
+    fills only 1-4 (a VX400 Pro) or 1-6 (a VX600 Pro, an MX20).
 
     A box STRADDLING a mode's main OPTs and its copy OPTs (a CVT4K-S on
     OPT 1-2 of a VX1000, whose OPT 2 copies OPT 1) takes its ports from the
@@ -1088,7 +1093,12 @@ def box_input_numbers(cvt_device, index, takes, block_count, per_trunk,
     (ports, across): `across` the copied ports, on the sockets after
     `ports`. `mirrored`: the box feeds a mirror screen, numbered past the
     mode's count as resolve_card does; `across_mirrored` the same for the
-    inputs across the split."""
+    inputs across the split.
+
+    WHICH OUTPUTS each input feeds is box_input_layout's: on a box whose
+    outputs are locked to its inputs (input_outputs - the CVT4K-S) an
+    input on an OPT carrying fewer ports leaves the rest of its outputs
+    empty, and the next input still starts where its outputs start."""
     return _box_input_numbers(cvt_device, index, takes, block_count,
                               per_trunk, ceiling, mirrored)[0]
 
@@ -1098,7 +1108,45 @@ def box_input_split(cvt_device, index, takes, block_count, per_trunk,
     """box_input_numbers' ports and the ports its inputs across the main /
     copy split carry copies of, (ports, across)."""
     return _box_input_numbers(cvt_device, index, takes, block_count,
+                              per_trunk, ceiling, mirrored,
+                              across_mirrored)[:2]
+
+
+def box_input_layout(cvt_device, index, takes, block_count, per_trunk,
+                     ceiling, mirrored=False, across_mirrored=False):
+    """box_input_split's (ports, across) and, beside each, where it sits on
+    the box: (input, place) - the box's input it comes in on (0 first) and
+    its place among that input's outputs (0 first). input_sockets turns
+    those into the numbers on the box's face."""
+    return _box_input_numbers(cvt_device, index, takes, block_count,
                               per_trunk, ceiling, mirrored, across_mirrored)
+
+
+def input_outputs(cvt_device):
+    """How many of a box's outputs are LOCKED to each of its inputs, or
+    None where its outputs simply follow on from one input to the next.
+
+    Owner, 2026-11-03: "the cvt 1-8 is locked to opt 1 always" - a
+    CVT4K-S's outputs 1-8 belong to input 1 and input 2 always starts at
+    output 9, whatever feeds it. So on 4-port OPTs (a VX400 Pro) the main
+    OPT is outputs 1-4 and the copy or backup OPT 9-12, 5-8 empty; on
+    6-port OPTs (a VX600 Pro, an MCTRL660 Pro, an MX20) 1-6 and 9-14; on
+    8- or 10-port OPTs 1-8 and 9-16 as it always read. A rule of that box
+    alone: only a catalog entry stating it (inputOutputs) has it."""
+    n = (cvt_device or {}).get('inputOutputs')
+    if isinstance(n, bool) or not isinstance(n, int) or n <= 0:
+        return None
+    return n
+
+
+def input_sockets(cvt_device, places, start=1):
+    """The box's own output numbers for ports at `places` ((input, place)
+    pairs, box_input_layout): locked to their input where the box says so
+    (input_outputs), else one after another from `start`."""
+    lock = input_outputs(cvt_device)
+    if lock:
+        return [k * lock + j + 1 for k, j in places]
+    return list(range(start, start + len(places)))
 
 
 def _box_input_numbers(cvt_device, index, takes, block_count, per_trunk,
@@ -1109,6 +1157,7 @@ def _box_input_numbers(cvt_device, index, takes, block_count, per_trunk,
     per_input = single.get('ports') or (count // full)
     copy_side = index >= block_count
     out, across = [], []
+    out_at, across_at = [], []
     for t in range(index, index + takes):
         mine = (t >= block_count) == copy_side
         block = t % block_count
@@ -1120,7 +1169,9 @@ def _box_input_numbers(cvt_device, index, takes, block_count, per_trunk,
         offset = ceiling * (t // block_count) if shifted and ceiling else 0
         n = max(0, min(per_input, hi - lo + 1))
         (out if mine else across).extend(range(lo + offset, lo + offset + n))
-    return out, across
+        (out_at if mine else across_at).extend(
+            (t - index, j) for j in range(n))
+    return out, across, out_at, across_at
 
 
 def new_processor(device_id, seq, name=''):
@@ -1879,6 +1930,12 @@ def prune_show_snakes(project, processors=None):
                     continue
                 box = delivers.get((device['cardId'], socket))
                 home = ('cvt', box) if box else ('card', device['cardId'])
+                # A box that carries the socket keeps it: a loop box on a
+                # copy OPT set to Backup carries its main's card-wide
+                # numbers, and its own snake is the backup's loom, never
+                # the main box's.
+                if member['kind'] == 'cvt':
+                    home = ('cvt', member['id'])
                 at_home = (member['kind'], member['id']) == home
                 if at_home != (pas == 0):
                     continue
@@ -1895,6 +1952,13 @@ def prune_show_snakes(project, processors=None):
         if not members:
             continue
         snake['members'] = members
+        # ONE STORED SHAPE: an unset length or connector is no key at
+        # all (store_show_snake), never a null a file carried in - so a
+        # show saves the same whatever order it was opened in.
+        if snake.get('ft') is None:
+            snake.pop('ft', None)
+        if _stored_connector(snake) is None:
+            snake.pop('connector', None)
         out.append(snake)
     if out:
         project['snakes'] = out
@@ -3661,6 +3725,12 @@ def resolve_card(card, proc):
         across_role = None
         mirror_across = []
         back_numbers = []
+        # ...and the box's own output number for each of them, socket by
+        # socket (input_sockets): one after another, except on a box
+        # whose outputs are locked to its inputs (the CVT4K-S)
+        sockets = None
+        mirror_sockets = []
+        back_sockets = []
         # A box created as another box's BACKUP sits on the trunk that
         # duplicates its primary's - OPT 3 for a primary on OPT 1 - rather
         # than the next one along, or the "pair" would be two boxes carrying
@@ -3718,17 +3788,23 @@ def resolve_card(card, proc):
             # own input (box_input_numbers): a CVT4K-S is 8 outputs an
             # input, so on 10-port OPTs it gives 1-8 and 11-18.
             if takes > 1 and size:
-                numbers, across = box_input_split(
+                numbers, across, at, across_at = box_input_layout(
                     cvt_device, index, takes, block_count, per_trunk,
                     ceiling, bool(copy_role == 'mirror' and mirror_numbers),
                     bool(across_role == 'mirror' and mirror_numbers))
                 numbers = numbers[:size]
+                at = at[:size]
                 first = numbers[0] if numbers else first
                 size = len(numbers)
+                sockets = input_sockets(cvt_device, at)
                 if across_role == 'mirror' and mirror_numbers:
                     mirror_across = across
+                    mirror_sockets = input_sockets(
+                        cvt_device, across_at, len(numbers) + 1)
                 elif across_role == 'backup':
                     back_numbers = across
+                    back_sockets = input_sockets(
+                        cvt_device, across_at, len(numbers) + 1)
         else:
             first = beyond
             block = None
@@ -3757,6 +3833,15 @@ def resolve_card(card, proc):
             # A straddling box's sockets after those, each the backup of
             # one card port (its input on a copy OPT, set to Backup).
             'backNumbers': back_numbers,
+            # The number on the box's face for each of those, in the same
+            # order: portNumbers' (socketNumbers) and backNumbers'
+            # (backSockets). One after another from 1 on most boxes; on a
+            # CVT4K-S each input's outputs are its own, so input 2 starts
+            # at 9 whatever input 1 fills (input_outputs).
+            'socketNumbers': ((sockets if sockets is not None
+                               else list(range(1, len(numbers) + 1)))
+                              + mirror_sockets),
+            'backSockets': back_sockets,
             'trunkIndex': index,
             'trunksIn': takes,
             # The box's input switch (update_cvt's `inputs`): offered only
@@ -4044,7 +4129,8 @@ def resolve_card(card, proc):
         if cvt is None and not at_card \
                 and (box_fed or (own and number > own)):
             continue
-        local = cvt['portNumbers'].index(number) + 1 if cvt else number
+        local = (cvt['socketNumbers'][cvt['portNumbers'].index(number)]
+                 if cvt else number)
         owner, owner_source = _label_owner(cvt, card, proc)
         source = owner_source
         # A BOX'S SOCKETS ARE NUMBERED BY ITS OWN SILKSCREEN, whoever names
@@ -4182,10 +4268,11 @@ def resolve_card(card, proc):
                 if (main is box and not straddle) \
                         or (main is not None and main['copyRole']):
                     continue
-                socket = (len(box['portNumbers'])
-                          + box['backNumbers'].index(port['number']) + 1
-                          if straddle
-                          else box['portNumbers'].index(port['number']) + 1)
+                socket = (box['backSockets'][
+                    box['backNumbers'].index(port['number'])]
+                    if straddle
+                    else box['socketNumbers'][
+                        box['portNumbers'].index(port['number'])])
                 box['backsUpPorts'].append({
                     'number': port['number'],
                     'socket': socket,
@@ -4632,7 +4719,9 @@ def _apply_backup_mapping(processors, resolved):
     trunk-level pairing (SX40) maps here too, a block at a time: trunk pairs
     carry box pairs, so main n in an even block returns on n + portsPerTrunk
     in the odd block beside it - socket 1 returns on 11, 21 on 31 - and the
-    backing box's sockets keep their own numbers on the drawing.
+    backing box's sockets keep their own numbers on the drawing. A loop
+    box on a copy OPT set to Backup maps here too (`backedBy` with the
+    box's `cvtId`), ahead of every shape.
     """
     raw_cards = {}
     res_cards = {}
@@ -4696,6 +4785,7 @@ def _apply_backup_mapping(processors, resolved):
             'cardTitle': (tcard['name'] or card_slot_title(tcard, tproc)
                           or tcard['deviceName']),
             'boxTitle': box_title(target_id, tport),
+            'cvtId': tport.get('cvtId'),
             'port': t, 'localPort': tport['localNumber'],
             'label': tport['label'],
         }
@@ -4707,6 +4797,42 @@ def _apply_backup_mapping(processors, resolved):
     def shape_of(cid):
         rcard, _rproc = res_cards[cid]
         return rcard.get('redundancyShape')
+
+    # LOOP BOXES BEFORE ANY SHAPE. A box on a copy OPT set to Backup (an
+    # H_4xfiber in Backup mode, a NovaPro UHD's box set to Backup -
+    # resolve_card's backsUpPorts) carries the returns of the ports it
+    # backs up, by the vendor's own wiring, whatever the redundancy bar
+    # says. Its sockets are the SAME card-wide numbers as the ports they
+    # back up - the same port objects, on a second box - so the main port
+    # gains a `backedBy` naming the box (`cvtId`) and that box's own socket
+    # (`localPort`), and no port gains `backsUp`: the socket number is the
+    # main's, never a return of its own. Every reader of the backup end -
+    # pull list, binder, tags - then reads a loop box the way it reads a
+    # 1:1 partner or an OPT split. A straddling box's loop onto its OWN
+    # outputs is left out: which outputs it uses is still an open
+    # hardware question.
+    for cid in order:
+        rcard, rproc = res_cards[cid]
+        for box in rcard.get('cvts') or []:
+            for m in box.get('backsUpPorts') or []:
+                if m.get('boxId') == box['id']:
+                    continue
+                mport = ports_of[cid].get(m['number'])
+                if not mport or mport.get('backedBy'):
+                    continue
+                mport['backedBy'] = {
+                    'processorId': rproc['id'], 'cardId': cid,
+                    'cardTitle': (rcard['name']
+                                  or card_slot_title(rcard, rproc)
+                                  or rcard['deviceName']),
+                    'boxTitle': box.get('displayTitle'),
+                    'cvtId': box['id'],
+                    'port': m['number'], 'localPort': m['socket'],
+                    'label': None,
+                    # a loop box's socket, not a mapped port: the return
+                    # label keeps its derived rung (port_assignment)
+                    'loop': True,
+                }
 
     # 1to1 first: it consumes whole units, and a consumed unit's own choices
     # go quiet - a backup card is its main's return end, not a main itself.
