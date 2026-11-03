@@ -4625,6 +4625,22 @@ class _Power {
 
         // The multis again, each from what it held.
         if (firstHit < 0) return { touched: [...touched], unplugged };
+        this._rebuildSocaStores(layer, olds, snap);
+        return { touched: [...touched], unplugged };
+    }
+
+    // Write a screen's multi stores again from what each multi holds now:
+    // `olds` is one entry per multi in wall order - { s: its segment as it
+    // was (index, userEnd), circ: the circuits it had, keep: the circuits
+    // it has now, fed, distroId, number, tails: circuit -> tail } - and
+    // `snap` the stores as they were (FIELDS below). A multi boundary goes
+    // where a plugged multi now ends off the box grid, and each part takes
+    // its multi's distro, number and its circuits' tails. Shared by a
+    // removal (_removeCircuitsKeepFeeds) and a newcomer
+    // (_seatNewCustomCircuit). Unrecorded.
+    _rebuildSocaStores(layer, olds, snap) {
+        const FIELDS = ['powerSocaDistro', 'powerSocaLengths', 'powerSocaPhasePos',
+                        'powerSocaPhaseOffset', 'powerSocaNames', 'powerSocaNumber'];
         const size = this.socaBoxSize(layer);
         const groups = [];
         let ord = 0;
@@ -4637,7 +4653,7 @@ class _Power {
         for (let i = 0; i + 1 < groups.length; i++) {
             const a = groups[i], b = groups[i + 1];
             if (a.end % size === 0) continue;
-            if (a.o.fed || b.o.fed || a.o.s.userEnd) points.push(a.end);
+            if (a.o.fed || b.o.fed || (a.o.s && a.o.s.userEnd)) points.push(a.end);
         }
         if (Array.isArray(layer.powerSocaSplits) || points.length) {
             layer.powerSocaSplits = points;
@@ -4658,8 +4674,8 @@ class _Power {
             const g = groups[groupAt[ns.start]];
             if (!g) return;
             const o = g.o;
-            const oi = o.s.index;
-            const first = !firstPart.has(oi);
+            const oi = o.s ? o.s.index : null;
+            const first = oi != null && !firstPart.has(oi);
             if (first) firstPart.set(oi, ns.index);
             const carry = (f) => {
                 if (snap[f][oi] !== undefined) next[f][ns.index] = snap[f][oi];
@@ -4688,7 +4704,6 @@ class _Power {
             if (layer[f] !== undefined || Object.keys(next[f]).length) layer[f] = next[f];
         });
         this._circuitTailCache = null;
-        return { touched: [...touched], unplugged };
     }
 
     // Clear Circuit on a custom screen: the drawn circuit holding run
@@ -4714,6 +4729,128 @@ class _Power {
         const runs = (c.runIds || [c.num]).map(Number);
         if (runs.length > 1 && !whole) return null;
         return this._removeCircuitsKeepFeeds(layer, [{ num: c.num, runs }]).touched;
+    }
+
+    // A circuit drawn NEW on a custom screen keeps every plugged circuit on
+    // its tail (sticky multi numbers, the owner's ruling): a Clear Circuit
+    // leaves its tail free, and the next circuit drawn used to re-pack the
+    // multi onto it - 1, 3, 4 on tails 1, 3, 4 read 1, 3, 4, 5 on tails
+    // 1-4 (QA 1.6.0-beta.4, round 3). `before` is _customSeatSnapshot,
+    // taken before the first cabinet went on. The newcomer joins the multi
+    // of a neighbour it can sit beside: the lowest free tail of that box
+    // between the tails of the circuits either side of it, the stores
+    // written again around it (_rebuildSocaStores). Past the last circuit,
+    // beside a full box, it opens a multi of its own. When the write would
+    // move any other circuit, or nothing fits in order, the stores are put
+    // back and the multi deals as it always did. Unrecorded: the caller's
+    // entry carries it. Returns the layers written ([] for none).
+    _customSeatSnapshot(layer) {
+        if (!layer || !this.usesCustomCircuits(layer)) return null;
+        this._circuitTailCache = null;
+        const nm = this._powerNaming(layer);
+        const recs = [...nm.socas.values()].map(r => ({
+            index: r.index, distroId: r.distroId || null, number: Number(r.number),
+            circuits: (r.circuits || []).map(Number),
+            positions: Array.isArray(r.positions) ? r.positions.slice() : null }));
+        return { nums: this.screenCircuits(layer).map(c => Number(c.num)), recs };
+    }
+
+    _seatNewCustomCircuit(layer, num, before) {
+        const n = Number(num);
+        if (!before || !layer || before.nums.includes(n)) return [];
+        this._circuitTailCache = null;
+        const nums = this.screenCircuits(layer).map(c => Number(c.num));
+        const k = nums.indexOf(n) + 1;
+        if (!k || nums.length !== before.nums.length + 1) return [];
+        const prev = k > 1 ? nums[k - 2] : null;
+        const next = k < nums.length ? nums[k] : null;
+        const size = this.socaBoxSize(layer);
+        const assign = layer.powerSocaDistro || {};
+        // The multis as they were: the push wrote no store, so the old
+        // segments are the stored splits over the old count.
+        const olds = this._socaSegments(layer, before.nums.length).map(seg => {
+            const circ = before.nums.slice(seg.start - 1, seg.end);
+            const rec = before.recs.find(r => r.index === seg.index);
+            const tails = new Map();
+            if (rec && rec.positions && rec.positions.length === circ.length) {
+                circ.forEach((c, i) => tails.set(c, rec.positions[i]));
+            }
+            return { s: seg, circ, keep: circ.slice(), fed: !!assign[seg.index],
+                     distroId: assign[seg.index] || null,
+                     number: rec ? Number(rec.number) : NaN, tails };
+        });
+        const plugged = (o) => o && o.fed && o.tails.size === o.circ.length;
+        const ofCircuit = (c) => olds.find(o => o.circ.includes(c)) || null;
+        // Tails of the box held by every other multi on it, any screen.
+        const takenOn = (o) => {
+            const taken = new Set(o.tails.values());
+            for (const l of ((this.project && this.project.layers) || [])) {
+                if ((l.type || 'screen') !== 'screen') continue;
+                for (const r of this._powerNaming(l).socas.values()) {
+                    if (l === layer && r.index === o.s.index) continue;
+                    if (r.distroId !== o.distroId || Number(r.number) !== o.number) continue;
+                    (r.positions || []).forEach(p => taken.add(p));
+                }
+            }
+            return taken;
+        };
+        const seat = (o) => {
+            if (!plugged(o)) return null;
+            const lo = prev != null && o.circ.includes(prev) ? o.tails.get(prev) : 0;
+            const hi = next != null && o.circ.includes(next) ? o.tails.get(next) : size + 1;
+            const taken = takenOn(o);
+            for (let t = lo + 1; t < hi; t++) if (!taken.has(t)) return t;
+            return null;
+        };
+        const op = prev != null ? ofCircuit(prev) : null;
+        const on = next != null ? ofCircuit(next) : null;
+        let target = null, tail = null;
+        if (op && (tail = seat(op)) != null) target = op;
+        else if (on && on !== op && (tail = seat(on)) != null) target = on;
+        // Past the last circuit, beside a plugged multi with no tail left
+        // in order: the newcomer opens a multi of its own, unplugged,
+        // rather than dealing a seventh tail or re-packing the box.
+        const alone = !target && plugged(op) && next == null;
+        if (!target && !alone) return [];
+        // Every circuit's box and tail before, the newcomer's after: the
+        // write stands only when it delivers exactly that.
+        const factsOf = (recs) => {
+            const out = new Map();
+            recs.forEach(r => (r.circuits || []).forEach((c, i) => out.set(Number(c), r.distroId
+                ? `${r.distroId}:${Number(r.number)}:${(r.positions || [])[i]}` : '-')));
+            return out;
+        };
+        const want = factsOf(before.recs);
+        if (target) want.set(n, `${target.distroId}:${target.number}:${tail}`);
+        else want.set(n, '-');
+        const release = this._holdPowerRecords();
+        const touched = new Set([layer]);
+        // Every other screen on the box holds the tails it shows first.
+        if (target) {
+            this._materializeSocaBox(target.distroId, target.number, layer, target.s.index)
+                .forEach(l => touched.add(l));
+        }
+        const FIELDS = ['powerSocaDistro', 'powerSocaLengths', 'powerSocaPhasePos',
+                        'powerSocaPhaseOffset', 'powerSocaNames', 'powerSocaNumber'];
+        const snap = {};
+        FIELDS.forEach(f => { snap[f] = { ...(layer[f] || {}) }; });
+        if (target) {
+            const at = target.keep.indexOf(target === op ? prev : next);
+            target.keep.splice(target === op ? at + 1 : at, 0, n);
+            target.tails.set(n, tail);
+        } else {
+            olds.push({ s: null, circ: [], keep: [n], fed: false, distroId: null,
+                        number: NaN, tails: new Map() });
+        }
+        this._rebuildSocaStores(layer, olds, snap);
+        this._circuitTailCache = null;
+        const got = factsOf([...this._powerNaming(layer).socas.values()]);
+        if ([...want].some(([c, v]) => got.get(c) !== v)) {
+            release();
+            this._circuitTailCache = null;
+            return [];
+        }
+        return [...touched];
     }
 
     // Share wall circuits `refs` as ONE circuit through a splitter - the
