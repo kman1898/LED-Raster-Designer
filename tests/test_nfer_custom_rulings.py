@@ -332,7 +332,6 @@ def test_taking_over_a_3fer_keeps_its_three_runs(page):
 
     h0 = len(history(page))
     alt_click(page, pt(page, wall, 0, 4))
-    page.keyboard.press('Escape')
     landed(page)
     out = circuits(page, wall)
     c2 = next(c for c in out if c['num'] == 2)
@@ -361,12 +360,31 @@ def test_taking_over_a_3fer_keeps_its_three_runs(page):
     assert circuits(page, wall) == before, 'one undo puts the auto 3fer back'
 
 
+def test_a_take_over_ended_unchanged_goes_back_to_auto(page):
+    """The owner, 2026-11-03: a redraw that ends with the circuit's
+    cabinets unchanged never stays a frozen override. Esc on the taken-over
+    3fer with nothing redrawn: the 3fer is the automatic one again, as its
+    own history step."""
+    (wall,) = make(page, [{'name': 'Wall', 'columns': 10}])
+    before = circuits(page, wall)
+    h0 = len(history(page))
+    alt_click(page, pt(page, wall, 0, 4))
+    landed(page)
+    assert page.evaluate("(id) => window.app.isRunOverridden("
+                         "window.__nf.layer(id), 'power', 2)", wall)
+    page.keyboard.press('Escape')
+    landed(page)
+    assert not page.evaluate("(id) => window.app.isRunOverridden("
+                             "window.__nf.layer(id), 'power', 2)", wall)
+    assert circuits(page, wall) == before
+    assert history(page)[h0:] == ['Override Circuit', 'Return Circuit To Auto'], history(page)
+
+
 def test_taking_over_a_plain_circuit_stays_one_run(page):
     """The lone last column is a plain circuit; taken over, it is still
     one run and carries no tag."""
     (wall,) = make(page, [{'name': 'Wall', 'columns': 10}])
     alt_click(page, pt(page, wall, 2, 9))
-    page.keyboard.press('Escape')
     landed(page)
     c4 = next(c for c in circuits(page, wall) if c['num'] == 4)
     assert c4['runs'] == [5] and c4['runIds'] is None, c4
@@ -712,8 +730,8 @@ def test_sweep_over_a_taken_over_circuit_deals_only_real_runs(page):
     deal on their own - 2fer + plain each side, the plain runs pinned.
     It used to deal circuit 2's NUMBER as run 2 - [[1, 2], [2, 3]]."""
     (wall,) = make(page, [{'name': 'Wall', 'columns': 10}], maxWays=3)
+    # taken over and left open: ended unchanged it would go back to auto
     alt_click(page, pt(page, wall, 0, 4))
-    page.keyboard.press('Escape')
     landed(page)
     page.evaluate("() => window.app.resetHistory('Taken over')")
     alt_sweep(page, pt(page, wall, 2, 0), pt(page, wall, 2, 6))
@@ -854,8 +872,8 @@ def test_a_taken_over_circuit_never_lends_its_load_to_an_auto_run(page):
     figure with its own 2.2 A."""
     (wall,) = make(page, [{'name': 'Wall', 'columns': 10,
                            'blank': [[3, 9], [4, 9]]}])
+    # taken over and left open: ended unchanged it would go back to auto
     alt_click(page, pt(page, wall, 0, 9))
-    page.keyboard.press('Escape')
     landed(page)
     out = page.evaluate("""(id) => {
         const app = window.app, l = window.__nf.layer(id);

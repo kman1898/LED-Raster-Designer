@@ -311,8 +311,10 @@ def alt_click(pg, row, col):
 @pytest.mark.parametrize('field', FIELDS)
 def test_escape_ends_an_alt_click_redraw(page, field):
     """Alt+click a circuit, then Escape: nothing is open or lit any more,
-    and the Escape itself changes no circuit and adds no history step. The
-    take-over the Alt+click made keeps its own one step, as before."""
+    and no circuit changed. The take-over the Alt+click made keeps its own
+    one step; ended with nothing redrawn it goes back to automatic (the
+    owner, 2026-11-03: an unchanged redraw never stays a frozen override),
+    one more step."""
     pg, errors = page
     setup(pg, VX)
     base = pg.evaluate(POWER_JS)
@@ -337,12 +339,11 @@ def test_escape_ends_an_alt_click_redraw(page, field):
     assert done['editing'] is None, done
     assert done['lit'] == [], done
     assert done['sweep'] is None, done
-    # Escape changed nothing on the screen's circuits and recorded nothing
+    # Escape changed nothing on the screen's circuits; the unchanged
+    # take-over went back to automatic as its own step
     assert done['circuits'] == taken['circuits'] == base['circuits']
-    assert done['overrides'] == taken['overrides']
-    assert done['paths'] == taken['paths']
-    assert done['history'] == taken['history'], done['history']
-    assert done['historyIndex'] == taken['historyIndex']
+    assert done['overrides'] == [], done
+    assert done['history'] == taken['history'] + ['Return Circuit To Auto'], done['history']
     assert not errors, errors
 
 
