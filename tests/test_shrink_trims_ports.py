@@ -549,3 +549,79 @@ def test_a_screen_locked_when_opened_is_repaired_when_unlocked(page, tmp_path):
     page.evaluate("() => window.app.undo()")
     page.wait_for_timeout(500)
     assert st(page, lid)['overrides'] == [12, 13, 14]
+
+
+# ── no gaps in the custom numbers (the owner, 2026-11-03) ─────────────────
+
+def test_a_saved_custom_show_with_a_hole_opens_numbered_without_gaps(page, tmp_path):
+    """"on custom there should be no gaps like automatic": a custom drawing
+    saved with nothing on port 3 opens as 1..N - the ports after it move up
+    with their names and their cards."""
+    lid = reset(page, custom=True, labels={'4': 'FOUR', '60': 'LAST'},
+                pins=[[3, 7], [59, 9]])
+    project = json.loads(json.dumps(page.evaluate("() => window.app.project")))
+    project['name'] = 'GapSavedCustom'
+    layer = next(x for x in project['layers'] if x['id'] == lid)
+    four = layer['customPortPaths']['4']
+    del layer['customPortPaths']['3']
+    _open_file(page, tmp_path, project, 'GapSavedCustom')
+    s = st(page, lid)
+    assert s['pathKeys'] == list(range(1, 60))
+    paths = page.evaluate("(id) => window.__shr.layer(id).customPortPaths", lid)
+    assert paths['3'] == four
+    assert s['labels'] == {'3': 'FOUR', '59': 'LAST'}
+    assert s['pins'] == [[2, 7], [58, 9]]
+    assert server_pins(page) == [[2, 7], [58, 9]]
+    assert server_layer(page, lid)['customPortPaths']['3'] == four
+    notes = page.evaluate("() => window.__notes")
+    assert any('port P3 had nothing drawn on it' in n and '1-59' in n for n in notes), notes
+
+
+def test_an_unused_drawing_opens_without_gaps_round_a_live_override(page, tmp_path):
+    """An automatic screen's unused drawing with a hole closes up when the
+    show opens, stepping round the live override, which keeps its number
+    and its path."""
+    lid = reset(page, custom=True)
+    page.evaluate("""(id) => { const app = window.app, l = window.__shr.layer(id);
+        l.flowPattern = 'tl-h'; app.updateLayers([l]); }""", lid)
+    page.wait_for_timeout(300)
+    page.evaluate("(id) => { window.app.overrideRun(window.__shr.layer(id), 'data', 30); "
+                  "window.app.endOverrideEdit(); }", lid)
+    page.wait_for_timeout(300)
+    project = json.loads(json.dumps(page.evaluate("() => window.app.project")))
+    project['name'] = 'GapSavedUnused'
+    layer = next(x for x in project['layers'] if x['id'] == lid)
+    thirty = layer['customPortPaths']['30']
+    del layer['customPortPaths']['5']
+    _open_file(page, tmp_path, project, 'GapSavedUnused')
+    s = st(page, lid)
+    assert s['overrides'] == [30]
+    assert s['pathKeys'] == list(range(1, 60))
+    paths = page.evaluate("(id) => window.__shr.layer(id).customPortPaths", lid)
+    assert paths['30'] == thirty, 'the live override moved'
+    # turned custom, the drawing runs 1-59 with no hole
+    page.evaluate("(id) => { const app = window.app; app.selectLayer(window.__shr.layer(id)); "
+                  "app.toggleCustomFlowMode(true); }", lid)
+    page.wait_for_timeout(300)
+    p = ports(page, lid)
+    assert sorted(p) == list(range(1, 60))
+
+
+def test_turning_custom_on_closes_the_drawings_gaps(page):
+    lid = reset(page, custom=True, labels={'7': 'SEVEN'})
+    page.evaluate("""(id) => { const app = window.app, l = window.__shr.layer(id);
+        l.flowPattern = 'tl-h';
+        delete l.customPortPaths[5];
+        l.customPortPaths[6] = [];
+        app.updateLayers([l]); app.resetHistory('Gap Baseline'); }""", lid)
+    page.wait_for_timeout(300)
+    seven = page.evaluate("(id) => window.__shr.layer(id).customPortPaths[7]", lid)
+    page.evaluate("(id) => { const app = window.app; app.selectLayer(window.__shr.layer(id)); "
+                  "app.toggleCustomFlowMode(true); }", lid)
+    page.wait_for_timeout(400)
+    s = st(page, lid)
+    assert s['historyAction'] == 'Custom Mode Toggle'
+    assert s['pathKeys'] == list(range(1, 59))
+    assert page.evaluate("(id) => window.__shr.layer(id).customPortPaths[5]", lid) == seven
+    assert s['labels'] == {'5': 'SEVEN'}
+    assert sorted(ports(page, lid)) == list(range(1, 59))

@@ -386,6 +386,12 @@ class _MergeRuns {
                 if (out.includes(n)) return;
                 paths[shift(n)] = old[k];
             });
+            // Overrides kept from an automatic spell (unused while custom)
+            // follow their paths, so automatic mode gets them back intact.
+            const kept = this.getOverrideNums(owner, 'data');
+            if (kept.length) {
+                owner.customPortOverrides = kept.filter(n => !out.includes(n)).map(shift);
+            }
         } else {
             const ovr = this.getOverrideNums(owner, 'data');
             // The unused drawing closes up only where no moved number lands
@@ -497,6 +503,9 @@ class _MergeRuns {
         };
         const pending = this._portRepairPending || new Set();
         const plans = [];
+        // The screens getting the open's repair: their gaps close after the
+        // trim (_customGapNumbers, _closeDormantGaps).
+        const opened = [];
         screens.forEach(owner => {
             const old = owner.customPortPaths;
             if (!old || typeof old !== 'object') return;
@@ -504,6 +513,10 @@ class _MergeRuns {
             // The open's repair: on the open itself, or on a screen that
             // was locked then and is not any more.
             const opening = load || pending.has(String(owner.id));
+            if (opening && !this._layerLocked(owner)) {
+                opened.push(owner);
+                pending.delete(String(owner.id));
+            }
             const custom = this.isCustomFlow(owner);
             const ovr = custom ? [] : this.getOverrideNums(owner, 'data');
             const live = n => custom || ovr.includes(n);
@@ -529,16 +542,14 @@ class _MergeRuns {
                     if (!gone.includes(n) && !(Array.isArray(path) && path.length)) gone.push(n);
                 });
             }
-            if (!cut && !gone.length) {
-                pending.delete(String(owner.id));
-                return;
-            }
             if (this._layerLocked(owner)) {
                 if (opening) pending.add(String(owner.id));
-                sendClientLog('ports_off_wall_locked', { layerId: owner.id, cut, ports: gone });
+                if (cut || gone.length) {
+                    sendClientLog('ports_off_wall_locked', { layerId: owner.id, cut, ports: gone });
+                }
                 return;
             }
-            pending.delete(String(owner.id));
+            if (!cut && !gone.length) return;
             plans.push({ owner, trimmed, gone: gone.sort((a, b) => a - b),
                 dormantGone, cut, live, opening });
         });
@@ -550,12 +561,16 @@ class _MergeRuns {
                 this._toast(notes.join(' '), false, 8000);
             }
         };
-        if (!plans.length) {
+        // The gaps an opened show's custom drawing has: worked out once the
+        // trim below has run, read here only to know whether to look.
+        const mayGap = opened.some(o => this.isCustomFlow(o)
+            ? this._customGapNumbers(o).length > 0 : this._closeDormantGaps(o, true));
+        if (!plans.length && !mayGap) {
             sayAll(power.notes);
             return power.layers;
         }
 
-        const closing = plans.some(p => p.gone.length);
+        const closing = plans.some(p => p.gone.length) || mayGap;
         const pullBefore = (closing && typeof this._pullLiveRowKeys === 'function')
             ? this._pullLiveRowKeys() : null;
         const taken = new Set(Array.isArray(this.history) ? this.history : []);
@@ -580,6 +595,24 @@ class _MergeRuns {
                 load: !!load, opening: !!opening,
             });
         });
+        // No gaps after an open (the owner, 2026-11-03): a custom screen's
+        // ports close up to 1..N, the unused drawing of an automatic one
+        // round its live overrides.
+        const gapped = [];
+        const touched = [];
+        opened.forEach(owner => {
+            if (this.isCustomFlow(owner)) {
+                const gaps = this._customGapNumbers(owner);
+                if (!gaps.length) return;
+                this._closeUpPorts(owner, gaps);
+                gapped.push({ owner, gaps });
+                touched.push(owner);
+                sendClientLog('custom_gaps_closed', { layerId: owner.id, gaps, on: 'open' });
+            } else if (this._closeDormantGaps(owner)) {
+                touched.push(owner);
+                sendClientLog('custom_gaps_closed', { layerId: owner.id, on: 'open', unused: true });
+            }
+        });
         if (pullBefore && typeof this._dropPullEditsGoneWith === 'function') {
             this._dropPullEditsGoneWith(pullBefore);
         }
@@ -591,6 +624,10 @@ class _MergeRuns {
             chain = chain.then(moved => this._closeUpPortPins(owner, gone)
                 .then(m => moved || m, () => moved));
         });
+        gapped.forEach(({ owner, gaps }) => {
+            chain = chain.then(moved => this._closeUpPortPins(owner, gaps)
+                .then(m => moved || m, () => moved));
+        });
         chain.then(moved => { if (moved) this._followPinsIntoHistory(pinsBefore, taken); });
 
         const said = plans.filter(p => p.gone.length);
@@ -599,10 +636,111 @@ class _MergeRuns {
             return `${owner.name || 'Screen'}: port${one ? '' : 's'} ${this._portNumbersText(gone)} `
                 + (opening ? 'had no cabinets on the wall' : 'had only cabinets that came off the wall')
                 + `, so ${one ? 'it is' : 'they are'} gone and the ports after moved up.`;
-        }).concat(power.notes));
+        }).concat(gapped.map(({ owner, gaps }) => this._customGapNote(owner, gaps)))
+            .concat(power.notes));
         const out = plans.map(p => p.owner);
+        touched.forEach(l => { if (!out.includes(l)) out.push(l); });
         power.layers.forEach(l => { if (!out.includes(l)) out.push(l); });
         return out;
+    }
+
+    // ── No gaps in the custom numbers (the owner, 2026-11-03) ─────────────
+    //
+    // "on custom there should be no gaps like automatic": a custom screen's
+    // ports run 1..N. A number with nothing drawn on it - missing from the
+    // drawing, or an empty path - is a gap, and the ports after it close up
+    // the way a removed port's do (_closeUpPorts: names, the active port,
+    // and the cards through _closeUpPortPins all follow). Run when a show is
+    // opened (trimPortsOffWall's repair) and when custom mode is turned on
+    // (_closeCustomGapsOnToggle), so gaps an older file already had go too.
+    //
+    // The numbers with nothing drawn on a custom screen, ascending: every
+    // gap below its highest drawn port, and any empty path above it.
+    _customGapNumbers(owner) {
+        const paths = (owner && owner.customPortPaths) || {};
+        const nums = Object.keys(paths).map(k => parseInt(k, 10))
+            .filter(n => Number.isFinite(n) && n >= 1);
+        const drawn = nums.filter(n => Array.isArray(paths[n]) && paths[n].length > 0);
+        if (!drawn.length) return nums.sort((a, b) => a - b);
+        const max = Math.max(...drawn);
+        const gaps = [];
+        for (let n = 1; n < max; n++) if (!drawn.includes(n)) gaps.push(n);
+        nums.forEach(n => { if (n > max) gaps.push(n); });
+        return gaps.sort((a, b) => a - b);
+    }
+
+    // The unused drawing an automatic screen keeps from a custom spell,
+    // closed up so custom mode turned on later shows no gap. Its paths take
+    // the lowest numbers in order, stepping round every live override, so
+    // a live port never moves and is never written over; an empty one goes.
+    // The names and cards follow the automatic ports there, not this
+    // drawing, so they stay. True when it changed; `dryRun` only says
+    // whether it would.
+    _closeDormantGaps(owner, dryRun = false) {
+        if (!owner || this.isCustomFlow(owner)) return false;
+        const paths = owner.customPortPaths;
+        if (!paths || typeof paths !== 'object') return false;
+        const ovr = this.getOverrideNums(owner, 'data');
+        const dormant = Object.keys(paths).map(k => parseInt(k, 10))
+            .filter(n => Number.isFinite(n) && n >= 1 && !ovr.includes(n))
+            .sort((a, b) => a - b);
+        const out = {};
+        let slot = 1;
+        let moved = false;
+        Object.keys(paths).forEach(k => {
+            const n = parseInt(k, 10);
+            if (!Number.isFinite(n) || ovr.includes(n)) out[k] = paths[k];
+        });
+        dormant.forEach(n => {
+            if (!(Array.isArray(paths[n]) && paths[n].length)) { moved = true; return; }
+            while (ovr.includes(slot)) slot++;
+            if (slot !== n) moved = true;
+            out[slot] = paths[n];
+            slot++;
+        });
+        if (!moved || dryRun) return moved;
+        owner.customPortPaths = out;
+        return true;
+    }
+
+    // Turning custom mode on (toggleCustomFlowMode) closes the drawing's
+    // gaps on every screen it turned, inside the toggle's own step; the
+    // cards follow on the server and into that step (_followPinsIntoHistory).
+    _closeCustomGapsOnToggle(layers) {
+        const closing = (layers || []).map(owner => ({ owner, gaps: this._customGapNumbers(owner) }))
+            .filter(c => c.gaps.length);
+        if (!closing.length) return;
+        const pullBefore = typeof this._pullLiveRowKeys === 'function' ? this._pullLiveRowKeys() : null;
+        const taken = new Set(Array.isArray(this.history) ? this.history : []);
+        const pinsBefore = JSON.stringify(this.project.port_assignments || null, this._snapshotReplacer);
+        closing.forEach(({ owner, gaps }) => {
+            this._closeUpPorts(owner, gaps);
+            sendClientLog('custom_gaps_closed', { layerId: owner.id, gaps, on: 'custom_on' });
+        });
+        if (pullBefore && typeof this._dropPullEditsGoneWith === 'function') {
+            this._dropPullEditsGoneWith(pullBefore);
+        }
+        let chain = Promise.resolve(false);
+        closing.forEach(({ owner, gaps }) => {
+            chain = chain.then(moved => this._closeUpPortPins(owner, gaps)
+                .then(m => moved || m, () => moved));
+        });
+        chain.then(moved => { if (moved) this._followPinsIntoHistory(pinsBefore, taken); });
+        if (typeof this._toast === 'function') {
+            this._toast(closing.map(({ owner, gaps }) => this._customGapNote(owner, gaps)).join(' '),
+                false, 8000);
+        }
+    }
+
+    // "Screen1: port P45 had nothing drawn on it, so the ports after it
+    // moved up and run 1-46 with no gaps."
+    _customGapNote(owner, gaps) {
+        const one = gaps.length === 1;
+        const paths = (owner && owner.customPortPaths) || {};
+        const n = Object.keys(paths).filter(k => Array.isArray(paths[k]) && paths[k].length).length;
+        return `${(owner && owner.name) || 'Screen'}: port${one ? '' : 's'} ${this._portNumbersText(gaps)} `
+            + `had nothing drawn on ${one ? 'it' : 'them'}, so the ports after moved up`
+            + (n ? ` and run 1-${n} with no gaps.` : '.');
     }
 
     // Does one of `layers` still wait for the open's repair (it was locked

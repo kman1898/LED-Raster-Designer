@@ -782,3 +782,30 @@ def test_picked_ports_offer_only_the_redraw_of_all_of_them(page):
     page.evaluate("() => { window.app._portPicks = null; }")
     alt_drag(page, (0, 88), (2, 88))
     assert _redraw_entries(page, 2, 88) == ['Redraw ports P56-P58 as one']
+
+
+def test_a_click_on_an_earlier_step_cuts_back_on_a_custom_screen_too(page):
+    """The owner, 2026-11-03: "custom should do the same as automatic if
+    there are ports after the one i am clicking". Drawing a port on a
+    custom screen, a click on an earlier cabinet of its path cuts the path
+    back to end there, in one undo step; the cabinets cut off are free to
+    draw again. A click on the last cabinet still does nothing."""
+    lid = reset(page, custom=True)
+    page.evaluate("""(id) => { const app = window.app, l = window.__mrg.layer(id);
+        l.customPortIndex = 51; app.updateCustomFlowUI(); app.resetHistory('Cut Baseline'); }""", lid)
+    assert ports(page, lid)[51] == [[0, c] for c in range(80, 88)]
+    base = st(page, lid)
+    draw(page, [[0, 82]])
+    assert ports(page, lid)[51] == [[0, 80], [0, 81], [0, 82]]
+    after = st(page, lid)
+    assert after['historyAction'] == 'Custom Path Edit'
+    assert after['historyIndex'] == base['historyIndex'] + 1
+    assert notes(page)[-1] == ('Port P51 now ends at R1C83. '
+                               'The 5 cabinets after it can be drawn again, in any order.'), notes(page)
+    # the last cabinet: nothing
+    draw(page, [[0, 82]])
+    assert st(page, lid)['historyIndex'] == after['historyIndex']
+    # the cabinets cut off are free: drawn again, in a new order
+    draw(page, [[0, 87], [0, 86], [0, 85]])
+    assert ports(page, lid)[51] == [[0, 80], [0, 81], [0, 82], [0, 87], [0, 86], [0, 85]]
+    assert errs(page) == []

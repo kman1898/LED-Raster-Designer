@@ -442,8 +442,8 @@ class _CustomRuns {
      * step records which screen the cable ran onto.
      *
      * `opts.click`: the step came from a click on the canvas, which may cut
-     * a path being redrawn back to a step it already has (see below). An
-     * arrow key that walks back onto a step leaves the path as it is.
+     * the path back to a step it already has (see below). An arrow key that
+     * walks back onto a step leaves the path as it is.
      */
     addPanelToCustomPath(panel, panelLayer = null, opts = null) {
         if (!this.currentLayer || !panel || panel.hidden) return;
@@ -472,16 +472,18 @@ class _CustomRuns {
         const at = owner.customPortPaths[portNum].findIndex(e => e
             && this.getScopedPanelKey(this.getPathEntryLayerId(owner, e), e) === key);
         if (at >= 0) {
-            // A step already on the path. While a port is being REDRAWN
-            // (one port taken over, or several redrawn as one) the click
-            // cuts the path back to that step, and the cabinets after it
-            // are free to be drawn again in a new order - the redraw holds
-            // them (_overrideHeldPanels, _mergeHeldPanels). Before this the
-            // click did nothing, and on an automatic screen a redraw that
-            // kept its cabinets had no cabinet it could take (QA, 1.6.0).
-            // Elsewhere (whole-screen custom) it still does nothing.
-            if (opts && opts.click && this._portRedrawOpen(owner)
-                    && at < owner.customPortPaths[portNum].length - 1) {
+            // A step already on the path, with steps after it: the click
+            // cuts the path back to end there, and the cabinets after it
+            // are free to be drawn again in a new order. On an automatic
+            // screen the redraw holds them (_overrideHeldPanels,
+            // _mergeHeldPanels); on a custom screen a cabinet off every path
+            // is simply free. Before this the click did nothing, and on an
+            // automatic screen a redraw that kept its cabinets had no
+            // cabinet it could take (QA, 1.6.0). The owner, 2026-11-03:
+            // "custom should do the same as automatic if there are ports
+            // after the one i am clicking". A click on the last step still
+            // does nothing.
+            if (opts && opts.click && at < owner.customPortPaths[portNum].length - 1) {
                 this._cutPortPathBack(owner, portNum, at, source, panel);
             }
             return;
@@ -521,13 +523,6 @@ class _CustomRuns {
         // Several ports redrawn as one: drawing the last freed cabinet keeps
         // the drawing (app-merge-runs.js).
         if (typeof this._mergeRedrawAfterStep === 'function') this._mergeRedrawAfterStep(owner);
-    }
-
-    // Is a data port of `owner` open for REDRAWING: one taken over on an
-    // automatic screen, or several being redrawn as one?
-    _portRedrawOpen(owner) {
-        if (this._isOverrideEditing(owner, 'data')) return true;
-        return typeof this._mergeRedrawOn === 'function' && this._mergeRedrawOn(owner);
     }
 
     // Cut the open port's path back so it ends at step `at`. One undo step.
