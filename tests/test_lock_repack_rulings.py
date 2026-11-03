@@ -239,7 +239,15 @@ def test_merging_a_split_back_refuses_a_locked_group_member(page):
     B packs at 80%. Merging back keeps the head's identity and drops SR,
     which would put B at 100%: refused."""
     a, b = walls(page, columns=8)
-    out = run(page, """([a]) => window.app.splitSocaAfter(window.__nf.layer(a), 1, 1)""", [a])
+    # A is held by the half-locked group, so Split Multi itself refuses it:
+    # the split is laid on as a file would carry it (the split's own store
+    # moves, _splitSocaApply).
+    out = run(page, """([a]) => {
+        const app = window.app, l = window.__nf.layer(a);
+        const done = !!app._splitSocaApply(l, 1, 1);
+        app.updateLayers([l]);
+        return done;
+    }""", [a])
     assert out, 'the split under test did not happen'
     page.evaluate("""([a]) => {
         const app = window.app;

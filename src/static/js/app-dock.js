@@ -4158,10 +4158,16 @@ class _HardwareDock {
         // The pull-sheet rows as they print now, so an edit on a row this
         // clear takes away goes with it (_dropPullEditsGoneWith).
         const pullBefore = this._pullLiveRowKeys();
+        // Nor does a locked screen sharing a box with a multi it clears:
+        // the clear frees tails, and a locked member dealt after it would
+        // slide onto them. Refused whole then, the screen named
+        // (_lockedPowerTrial); otherwise the locked screen is not written.
+        const shared = this._lockedPowerTrial();
         strip();
         // The clear renumbers both buckets it touches, so every label
         // on the show can move - same cache drop the setters make.
         this._circuitTailCache = null;
+        if (shared()) return;
         this._dropPullEditsGoneWith(pullBefore);
         this.updateLayers([...new Set(jobs.map(j => j.layer))], true,
                           action);
@@ -4220,6 +4226,11 @@ class _HardwareDock {
                 layer, this._socaClearSplitPoints(layer, [idx]));
         }, [layer])) return;
         const pullBefore = this._pullLiveRowKeys();
+        // A locked screen sharing the box keeps its tails: the circuit
+        // coming off frees one, and a locked member dealt after it would
+        // slide onto it. Refused whole then, the screen named
+        // (_lockedPowerTrial); otherwise the locked screen is not written.
+        const shared = this._lockedPowerTrial();
         if (rec && rec.circuits.length > 1) {
             const r = this._socaReleaseCircuit(layer, idx, circuitNum);
             if (!r) return;
@@ -4231,6 +4242,7 @@ class _HardwareDock {
             }
             this._wipeSplitterManualFor(layer, runIds);
             this._circuitTailCache = null;
+            if (shared()) return;
             this._dropPullEditsGoneWith(pullBefore);
             this.updateLayers(r.touched, true, 'Unplug Circuit');
             this._restateNaming();
@@ -4253,6 +4265,7 @@ class _HardwareDock {
         this._resegmentSocaStores(
             layer, this._socaClearSplitPoints(layer, [idx]));
         this._circuitTailCache = null;
+        if (shared()) return;
         this._dropPullEditsGoneWith(pullBefore);
         this.updateLayers([layer], true, 'Unplug Circuit');
         this._restateNaming();

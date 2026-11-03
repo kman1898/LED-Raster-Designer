@@ -80,7 +80,9 @@ class _Selection {
         // the group's packing % (circuitCapacity). The edit is checked once
         // it is written; when it moves a locked screen's %, every screen it
         // reached is put back and the locked screen is named, so the
-        // caller's commit records nothing.
+        // caller's commit records nothing. The same for a locked screen
+        // whose circuits the edit would move on a multi box it shares with
+        // a screen the edit reached (the list marked why: 'shared').
         const repack = this._repackEditTrial ? this._repackEditTrial(layers) : null;
         layers.forEach(fn);
         let refused = hold ? hold.release() : [];
@@ -91,7 +93,9 @@ class _Selection {
         if (repacked.length) refused = repacked;
         // Called with nothing refused too: a commit that reaches the funnel
         // ends the attempt and lets a waiting snap-back repaint run.
-        if (this._reportLockedEdit) this._reportLockedEdit(refused, repacked.length ? 'repack' : null);
+        if (this._reportLockedEdit) {
+            this._reportLockedEdit(refused, repacked.length ? (repacked.why || 'repack') : null);
+        }
     }
 
     setSelectedLayersByIds(ids, primaryId = null) {

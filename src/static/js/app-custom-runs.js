@@ -529,7 +529,12 @@ class _CustomRuns {
             }
             return;
         }
+        // A cabinet that grows a circuit on a multi box shared with a
+        // locked screen is not added when it would move that screen's
+        // tails (_lockedPowerTrial).
+        const shared = this._lockedPowerTrial();
         owner.powerCustomPaths[circuitNum].push(this.makePathEntry(owner, source, panel));
+        if (shared()) return;
         this.saveState('Power Custom Path Edit');
         this.saveClientSideProperties();
         // v0.8.2: PUT to server so per-panel circuit assignments persist.
@@ -1013,6 +1018,11 @@ class _CustomRuns {
         }
         if (!isPower && typeof this._mirrorRefused === 'function'
                 && this._mirrorRefused(owner)) return false;
+        // A power fill changes the owner's circuits, so a multi box it
+        // shares with a locked screen deals again: the fill is put back
+        // whole when that would move the locked screen's tails, the screen
+        // named (_lockedPowerTrial).
+        const shared = isPower ? this._lockedPowerTrial() : null;
         if (isPower) this.ensureCustomPowerState(owner);
         else this.ensureCustomFlowState(owner);
         const refill = !!(opts && opts.refill);
@@ -1221,6 +1231,7 @@ class _CustomRuns {
                 cut.merges.forEach(g => manual.merge.push(g.slice()));
             }, null, { silent: true });
         }
+        if (shared && shared()) return false;
         const lastNum = chunks[chunks.length - 1].num;
         owner[idxKey] = lastNum;
         if (this._overrideEditing && this._overrideEditing.kind === kind

@@ -374,8 +374,13 @@ class _RunOverrides {
         }
         const pathsKey = kind === 'power' ? 'powerCustomPaths' : 'customPortPaths';
         const ovrKey = kind === 'power' ? 'powerCustomOverrides' : 'customPortOverrides';
+        // The automatic walk re-flows the freed cabinets, so a power run let
+        // go can move a locked screen's circuits on a multi box it shares:
+        // put back then, the screen named (_lockedPowerTrial).
+        const shared = kind === 'power' ? this._lockedPowerTrial() : null;
         owner[ovrKey] = this.getOverrideNums(owner, kind).filter(n => n !== num);
         if (owner[pathsKey]) delete owner[pathsKey][num];
+        if (shared && shared()) return;
         const s = this._overrideEditing;
         if (s && s.layerId === owner.id && s.kind === kind && s.num === num) {
             this._overrideEditing = null;
