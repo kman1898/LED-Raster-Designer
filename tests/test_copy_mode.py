@@ -503,7 +503,7 @@ def test_a_mirror_screen_cannot_be_placed_on_its_own(client):
         assert resp.status_code == 409, (route, resp.get_data(as_text=True))
         # the way back is the new one: unplug the card from the copy
         assert resp.get_json()['error'] == (
-            "SR mirrors SL - its ports follow SL's and cannot be placed on "
+            "SR mirrors SL. Its ports follow SL's and cannot be placed on "
             "their own. Place SL's ports, or unplug the card from SR to stop "
             "mirroring.")
 
@@ -623,8 +623,10 @@ def test_no_socket_takes_a_hand_placed_run_on_a_mirror_box(client):
 
 @pytest.mark.parametrize('mode,boxes,needle', [
     ('copy', 2, 'OPT 3 on '),
-    ('independent', 4, 'is in Independent mode - set it to Copy mode'),
-    ('backup', 4, 'is in Backup mode - set it to Copy mode'),
+    ('independent', 4, 'is in Independent mode. Set it to Copy mode to '
+                       'feed a mirror screen.'),
+    ('backup', 4, 'is in Backup mode. Set it to Copy mode to feed a mirror '
+                  'screen.'),
 ])
 def test_a_mirror_with_nowhere_to_land_says_what_is_missing(client, mode,
                                                            boxes, needle):
@@ -659,7 +661,8 @@ def test_mx40_pro_backup_box_tells_the_mirror_to_set_it_to_mirror(client):
     set_mirror(client, b, a)
     res = resolve(client, screens)
     msg = next(i for i in res['issues'] if i['kind'] == 'mirror-unfed')
-    assert 'is set to Backup - set it to Mirror' in msg['message']
+    assert 'is set to Backup. Set it to Mirror to feed a mirror screen.' \
+        in msg['message']
     opt3 = card_of(client, cid)['cvts'][1]['id']
     _ok(client.put(f'/api/processors/{pid}/cvts/{opt3}',
                    json={'copyRole': 'mirror'}))

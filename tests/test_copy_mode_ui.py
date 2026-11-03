@@ -229,7 +229,7 @@ def test_the_mirrors_data_map_is_read_only_and_says_why(page):
     pg.wait_for_timeout(200)
     toasts = pg.evaluate(TOASTS_JS)
     assert any(t['err'] and t['msg'] == (
-        "SR mirrors SL - its data port map follows SL's and cannot be "
+        "SR mirrors SL. Its data port map follows SL's and cannot be "
         "changed on its own. Change it on SL, or unplug the card from SR "
         "to stop mirroring.") for t in toasts), toasts
     after = pg.evaluate("""(id) => window.app.project.layers

@@ -1056,7 +1056,8 @@ def _mode_phrase(label):
 
 def _mirror_missing(card, port):
     """Why socket `port` of this card has no copy a mirror screen can land
-    on, as a clause naming what is missing."""
+    on, as a clause naming what is missing - and, where a setting fixes it,
+    a sentence after it saying which (the caller ends it with a period)."""
     title = _card_title(card)
     kind = card.get('copyTrunks')
     if kind not in ('mirror', 'per-box'):
@@ -1065,7 +1066,7 @@ def _mirror_missing(card, port):
                       if m.get('copyTrunks') in ('mirror', 'per-box')]
         now = _mode_words(card)
         if copy_modes:
-            return (f'{title} is in {now or "a mode with no copies"} - set '
+            return (f'{title} is in {now or "a mode with no copies"}. Set '
                     f'it to {" or ".join(copy_modes)} to feed a mirror '
                     f'screen')
         return f'{title} has no copy outputs to feed a mirror screen'
@@ -1080,7 +1081,7 @@ def _mirror_missing(card, port):
                 f'{entry["copiesTitle"]})')
     if entry.get('role') != 'mirror':
         return (f'the box on {entry["trunkTitle"]} of {title} is set to '
-                f'Backup - set it to Mirror to feed a mirror screen')
+                f'Backup. Set it to Mirror to feed a mirror screen')
     return (f'the box on {entry["trunkTitle"]} of {title} has no socket '
             f'copying that port')
 
@@ -1304,7 +1305,7 @@ def mirror_set_refusal(project, layer, source_id):
         return f'{name} cannot mirror itself.'
     src_name = source.get('name') or f'Screen {source.get("id")}'
     if source.get('dataMirrorOf') not in (None, ''):
-        return (f'{src_name} mirrors another screen itself - set {name} to '
+        return (f'{src_name} mirrors another screen itself. Set {name} to '
                 f'mirror the screen {src_name} copies.')
     copied_by = [l for l in layers if str(l.get('dataMirrorOf'))
                  == str(layer.get('id')) and l is not layer]
@@ -1321,7 +1322,7 @@ def mirror_set_refusal(project, layer, source_id):
                  None)
     if rival is not None:
         return (f'{rival.get("name") or "Another screen"} already mirrors '
-                f'{src_name} - a screen has one mirror, on its copy '
+                f'{src_name}. A screen has one mirror, on its copy '
                 f'outputs.')
     from scr_project import crossing_groups
     for group, members in crossing_groups(project):
@@ -1352,7 +1353,7 @@ def mirror_refusal(screens, layer_id, processors=None, state=None):
     names = {s['layerId']: s['name'] for s in cleaned}
     name, source = names.get(str(layer_id)), names.get(src, src)
     word = mirror_unit_word(processors, state, src)
-    return (f'{name} mirrors {source} - its ports follow {source}\'s and '
+    return (f'{name} mirrors {source}. Its ports follow {source}\'s and '
             f'cannot be placed on their own. Place {source}\'s ports, or '
             f'unplug the {word} from {name} to stop mirroring.')
 

@@ -192,7 +192,7 @@ class _MirrorScreens {
         const src = this.mirrorSourceOf(layer);
         const name = layer.name || `Screen ${layer.id}`;
         const from = src ? (src.name || `Screen ${src.id}`) : 'another screen';
-        return `${name} mirrors ${from} - its data port map follows ${from}'s `
+        return `${name} mirrors ${from}. Its data port map follows ${from}'s `
             + 'and cannot be changed on its own. Change it on '
             + `${from}, or unplug the ${this._mirrorUnitWord(layer)} from `
             + `${name} to stop mirroring.`;
