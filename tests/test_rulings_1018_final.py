@@ -366,8 +366,10 @@ def test_an_l2130_feed_is_held_to_24_a_unless_the_main_is_100_percent_rated(page
     assert out['worst'] == pytest.approx(i * math.sqrt(3), abs=1e-6)       # 24.98 A
     assert 24 < out['worst'] < 30
     assert out['rule']['limitA'] == pytest.approx(24) and out['rule']['pct'] == 0.8, out['rule']
-    want = f"Q 1: feed leg at {out['worst']:.2f} A / 24 A (80% of 30 A), OVER"
-    assert want == 'Q 1: feed leg at 24.98 A / 24 A (80% of 30 A), OVER'
+    # The box is named the way its multi derives it, "Q1" (distroBoxName,
+    # QA 1.6.0-beta.4), never the distro's name and the number with a space.
+    want = f"Q1: feed leg at {out['worst']:.2f} A / 24 A (80% of 30 A), OVER"
+    assert want == 'Q1: feed leg at 24.98 A / 24 A (80% of 30 A), OVER'
     assert want in out['warnings'], out['warnings']
     assert out['clash'] is True
     # Main 100% rated: the feed keeps its 30 A, and 24.98 A is inside it

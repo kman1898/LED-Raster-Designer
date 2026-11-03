@@ -297,26 +297,34 @@ def test_printer_mode_draws_the_same_lines(page):
 
 def test_a_tall_tag_stays_inside_the_screen(page):
     """Handed the screen's top and bottom, a wrapped pill shifts inside
-    them; without them (or with room) it sits centred on y as always."""
+    them; without them (or with room) it sits centred on y as always.
+    Inside means its ink: the rim is stroked on the pill's edge, half of
+    it outside the box, so a pill slid to an edge stops that half short
+    of it (QA 1.6.0, test_power_tag_placement's rim rulings)."""
     free = _draw(page, LONG, 30)
     pill = free['rects'][0]
     assert pill['y'] == pytest.approx(100 - pill['h'] / 2)
+    # Half the rim: the tag's text is 85% of the label size, the rim a
+    # tenth of that (canvas-power _tagRim).
+    half = max(1, max(8, 30 * 0.85) * 0.1) / 2
 
-    # Top edge just under the pill's natural top: it moves down to it.
+    # Top edge just under the pill's natural top: it moves down to it,
+    # its rim inside.
     top = pill['y'] + 5
     clamped = _draw(page, LONG, 30, {'top': top, 'bottom': 1000})
     cp = clamped['rects'][0]
-    assert cp['y'] == pytest.approx(top), (pill, cp)
+    assert cp['y'] - half == pytest.approx(top), (pill, cp)
     assert cp['h'] == pytest.approx(pill['h'])
     # The text moved with the pill, still centred in it.
     ys = [t['y'] for t in clamped['texts']]
     assert sum(ys) / len(ys) == pytest.approx(cp['y'] + cp['h'] / 2)
 
-    # Bottom edge above the pill's natural bottom: it moves up to it.
+    # Bottom edge above the pill's natural bottom: it moves up to it,
+    # its rim inside.
     bottom = pill['y'] + pill['h'] - 5
     clamped = _draw(page, LONG, 30, {'top': -1000, 'bottom': bottom})
     cp = clamped['rects'][0]
-    assert cp['y'] + cp['h'] == pytest.approx(bottom), (pill, cp)
+    assert cp['y'] + cp['h'] + half == pytest.approx(bottom), (pill, cp)
 
     # Plenty of room: untouched.
     roomy = _draw(page, LONG, 30, {'top': -1000, 'bottom': 1000})

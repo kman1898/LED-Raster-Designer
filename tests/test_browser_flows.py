@@ -283,19 +283,24 @@ def test_advanced_guide_switches_views(page):
     settled = ("() => ['done', 'failed', 'idle'].includes("
                "document.getElementById('qs-callout').getAttribute('data-qs-state'))")
     reached_data = False
-    for _ in range(14):
-        page.wait_for_function(settled, timeout=20000)
-        title = page.locator('#qs-callout h3').text_content() or ''
-        if 'Data view' in title:
-            reached_data = True
-            break
-        page.locator('#qs-next').click()
-        page.wait_for_timeout(200)
-    assert reached_data, "never reached the Data view step"
-    active = page.evaluate(
-        "document.querySelector('[data-mode=\"data-flow\"]').classList.contains('active')")
-    assert active, "Data view step did not switch the app to the Data view"
-    page.evaluate("window.QuickStart.end()")
+    try:
+        for _ in range(14):
+            page.wait_for_function(settled, timeout=20000)
+            title = page.locator('#qs-callout h3').text_content() or ''
+            if 'Data view' in title:
+                reached_data = True
+                break
+            page.locator('#qs-next').click()
+            page.wait_for_timeout(200)
+        assert reached_data, "never reached the Data view step"
+        active = page.evaluate(
+            "document.querySelector('[data-mode=\"data-flow\"]').classList.contains('active')")
+        assert active, "Data view step did not switch the app to the Data view"
+    finally:
+        # A failure here must not leave the guide's click catcher over the
+        # page for every later test in this module (8162ef7: one failure
+        # read as sixteen).
+        page.evaluate("window.QuickStart.end()")
     page.wait_for_function(
         "() => !window.QuickStart.state().visible && !window.QuickStart.state().running",
         timeout=20000)
