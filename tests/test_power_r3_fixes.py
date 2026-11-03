@@ -236,6 +236,10 @@ def test_a_circuit_drawn_after_a_clear_leaves_the_freed_tail_free(page):
     pg.evaluate("() => { for (let i = 0; i < 5; i++) window.app.undo(); }")
     _settle(pg)
     assert _labels(pg, 'W1') == [[1, 'SR9-1'], [3, 'SR9-3'], [4, 'SR9-4']]
+    # the undo's layer writes land before the next test opens its project
+    _wait_server(pg, lambda p: '5' not in (_srv_layer('W1', p).get('powerCustomPaths') or {}))
+    pg.wait_for_timeout(300)
+    _settle(pg)
 
 
 def test_a_cleared_circuit_drawn_again_takes_its_own_tail_back(page):
@@ -513,3 +517,31 @@ def test_the_pull_sheet_tiles_hold_their_tables(page):
         .map(td => td.textContent.length))""")
     assert longest > 30, longest
     pg.locator('#pull-sheet-close').click()
+
+
+# ── A map pill never sits on a run line ──────────────────────────────────
+
+PLACE_JS = """([prefer, run, segs, discs]) => {
+    const r = window.canvasRenderer;
+    const own = { x: 100, y: 100, r: 20 };
+    const all = [own].concat(discs.map(([x, y]) => ({ x, y, r: 20 })));
+    const bounds = { left: 0, top: 0, right: 600, bottom: 400 };
+    const t = r.placeCableTag("150'", own.x, own.y, own.r, 20, bounds, all, own, [],
+                              { prefer, run, line: { x: 100, y: 100 }, segs });
+    return { side: t.opts.side, rect: { x: t.rect.x, y: t.rect.y, w: t.rect.w, h: t.rect.h }, clear: t.clear };
+}"""
+
+
+def test_a_tag_beside_its_disc_stands_off_its_run_line(page):
+    """Port 2's disc with discs right over and under it (its 2R return and
+    the port above): its "150'" hangs beside it, on the side its run
+    leaves by - and sat on that run's line and arrow. It now stands just
+    above the line, still beside its disc."""
+    pg = page
+    line = [[100, 100, 500, 100]]
+    out = pg.evaluate(PLACE_JS, ['above', 'right', line, [[100, 50], [100, 150]]])
+    assert out['side'] == 'right' and out['clear'], out
+    r = out['rect']
+    assert r['y'] + r['h'] < 100 and r['y'] > 60, out
+    assert r['x'] < 100 + 20 + 20, out          # still tight to the disc
+
