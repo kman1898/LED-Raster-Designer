@@ -699,7 +699,7 @@ def test_the_issues_strip_warns_offers_and_hides_when_empty(dock_page):
     clash = [r for r in st['rows'] if 'claimed twice' in r['text']]
     assert clash and not clash[0]['mild'], (
         f'the twice-claimed tail must warn red: {st}')
-    assert 'PD 1 circuit 1' in clash[0]['text'], st
+    assert 'PD1 circuit 1' in clash[0]['text'], st
     assert 'WALL A' in clash[0]['text'] and 'WALL B' in clash[0]['text'], st
     page.evaluate(RESET_POWER_JS, ids)
     landed(page)
@@ -2544,7 +2544,7 @@ def test_a_dock_power_chip_menu_offers_only_that_chips_action(dock_page):
     state = page.evaluate(MENU_ITEMS_JS)
     assert state['items'] == ['hw-clear'], (
         f'a dock slot chip offers more than its own action: {state}')
-    assert 'PD 1' in item['label'], item
+    assert 'PD1' in item['label'], item
     assert 'port' not in item['label'].lower(), (
         f'a power chip is wearing data vocabulary: {item}')
     close_menu(page)
@@ -3168,7 +3168,7 @@ def test_a_tail_pip_drags_one_circuit_onto_its_tail(dock_page):
                    ghost: (document.getElementById('hw-dock-ghost')
                            || {}).textContent,
                    target: window.app._dockDropTarget})"""))
-    assert mid['ghost'] == 'PD 1 circuit 3', mid
+    assert mid['ghost'] == 'PD1 circuit 3', mid
     assert mid['target']['kind'] == 'run', mid
     out = page.evaluate(POWER_FULL_STATE_JS, ids['aId'])
     assert out['splits'] == [1, 2], (
@@ -3243,7 +3243,7 @@ def test_a_held_pip_refuses_and_the_same_seat_is_a_no_op(dock_page):
     drag(page, sx, sy, tgt['x'], tgt['y'])
     said = page.evaluate(
         "() => document.getElementById('status-message').textContent")
-    assert 'already on PD 1 circuit 3' in said, said
+    assert 'already on PD1 circuit 3' in said, said
     assert page.evaluate(HIST_LEN_JS) == before, (
         'a refusal and a no-op must write no history entry')
     page.evaluate(RESET_POWER_JS, ids)

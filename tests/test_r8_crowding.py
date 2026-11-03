@@ -137,7 +137,7 @@ def test_an_overfull_l2130_box_reads_an_l2130(seeded):
         return { checks: app.distroChecks(d).map(w => w.text),
                  strip: (app._dockPowerWarnings || []).map(w => w.text),
                  titles: [...document.querySelectorAll('[title*="OVERFLOW"]')].map(e => e.title) };""")
-    said = ('PD 1 has more circuits than the three an L21-30 208V holds. '
+    said = ('PD1 has more circuits than the three an L21-30 208V holds. '
             'WALL A is hidden and still holds it.')
     assert said in out['checks'], out['checks']
     assert out['strip'].count(said) == 1, out['strip']
@@ -166,7 +166,7 @@ def test_the_pin_refusal_names_a_hidden_holder(seeded):
         return { touched: t.length, same: app.historyIndex === n, pin: (B.powerSocaNumber || {})[1] ?? null,
                  status: document.getElementById('status-message').textContent };""")
     assert out['touched'] == 0 and out['same'] and out['pin'] is None, out
-    assert out['status'] == ('PD 3 already carries its one circuit, and a TRUE1 takes no more. '
+    assert out['status'] == ('PD3 already carries its one circuit, and a TRUE1 takes no more. '
                              'WALL A is hidden and still holds it.'), out
 
 

@@ -448,8 +448,8 @@ def test_the_ratings_added_up_past_the_service_warn(page):
     assert s['ratingSum'] == 800 and s['ratingsOver'], s
     assert s['chips'] == ['SL 400 A', 'SR 200 A', 'FOH 200 A'], s
     assert s['sum'] == 'ratings 800 A on 600 A' and s['sumOver'], s
-    assert {'text': 'HOUSE service: its distros are rated 800 A together '
-                    '(SL 400 A, SR 200 A, FOH 200 A) on a 600 A service', 'mild': True} in out['strip'], out['strip']
+    assert {'text': 'HOUSE service (600 A): its distros are rated 800 A together '
+                    '(SL 400 A, SR 200 A, FOH 200 A)', 'mild': True} in out['strip'], out['strip']
     assert not s['over'], 'the ratings warning is not a load OVER'
     # 400 + 200 on 600 is within it
     pg.evaluate("() => window.app.setDistroService('d3', null)")

@@ -2908,7 +2908,42 @@ class _ScreenInfo {
         const powerRandomColorsCheckbox = document.getElementById('power-random-colors');
         const powerColorCodedViewCheckbox = document.getElementById('power-color-coded-view');
 
-        if (powerVoltageSelect && powerVoltageCustomInput) {
+        // Screens selected together that disagree on a figure read "-" in
+        // its box, as every other Screen Info field does (getCommon) -
+        // never the current screen's figure as if it were everyone's (QA
+        // 1.6.0-beta.4: 20 A and 15 A screens read 20 A). A select shows it
+        // on a disabled "-" option that exists only while the figure is
+        // mixed; picking a real option writes every selected screen.
+        const markMixedSelect = (select, mixed) => {
+            if (!select) return;
+            let opt = select.querySelector('option[data-mixed]');
+            if (!mixed) {
+                if (opt) opt.remove();
+                return;
+            }
+            if (!opt) {
+                opt = document.createElement('option');
+                opt.dataset.mixed = '1';
+                opt.value = '';
+                opt.disabled = true;
+                opt.textContent = '-';
+                select.insertBefore(opt, select.firstChild);
+                // A pick answers it: every selected screen now agrees.
+                select.addEventListener('change', () => opt.remove(), { once: true });
+            }
+            select.value = '';
+        };
+        const voltageCommon = getCommon(l => String(l.powerVoltage ?? 110));
+        const amperageCommon = getCommon(l => String(l.powerAmperage ?? 15));
+        markMixedSelect(powerVoltageSelect, voltageCommon.mixed);
+        markMixedSelect(powerAmperageSelect, amperageCommon.mixed);
+        if (voltageCommon.mixed && powerVoltageCustomInput) {
+            powerVoltageCustomInput.style.display = 'none';
+        }
+        if (amperageCommon.mixed && powerAmperageCustomInput) {
+            powerAmperageCustomInput.style.display = 'none';
+        }
+        if (powerVoltageSelect && powerVoltageCustomInput && !voltageCommon.mixed) {
             const presets = ['110', '208', '220', '230', '240'];
             const currentVoltage = String(primary.powerVoltage ?? 110);
             if (presets.includes(currentVoltage)) {
@@ -2925,7 +2960,7 @@ class _ScreenInfo {
                 powerVoltageCustomInput.value = primary.powerVoltage ?? primary.powerVoltageCustom ?? 110;
             }
         }
-        if (powerAmperageSelect && powerAmperageCustomInput) {
+        if (powerAmperageSelect && powerAmperageCustomInput && !amperageCommon.mixed) {
             const presets = ['15', '16', '20'];
             const currentAmp = String(primary.powerAmperage ?? 15);
             if (presets.includes(currentAmp)) {
@@ -2938,7 +2973,7 @@ class _ScreenInfo {
             powerAmperageCustomInput.value = primary.powerAmperageCustom ?? primary.powerAmperage ?? 15;
         }
         if (powerPanelWattsInput) {
-            powerPanelWattsInput.value = primary.panelWatts ?? 200;
+            setTextInput('power-panel-watts', getCommon(l => l.panelWatts ?? 200));
         }
         if (powerLineWidthInput) {
             powerLineWidthInput.value = primary.powerLineWidth ?? 8;

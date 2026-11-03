@@ -1618,7 +1618,7 @@ def test_an_occupied_box_chip_is_read_only_and_reads_its_members(page):
     pg.wait_for_timeout(500)
     two = pg.evaluate(TYPECHIP_JS, [d, 2])
     assert two['text'] == 'Multi 208' and two['clash'] and two['boxClash'], two
-    assert two['stripTyped'] == ['PD 2 is typed Multi 208 but holds L21-30 '
+    assert two['stripTyped'] == ['PD2 is typed Multi 208 but holds L21-30 '
                                  'circuits.'], two
     # the strip's fix retypes it to follow the circuits, one entry
     n = pg.evaluate(HIST_LEN_JS)
@@ -1679,10 +1679,10 @@ def test_a_typed_spare_box_drags_as_its_plug(page):
     t = mid['target']
     assert t['kind'] == 'run' and t['nums'] == [1, 2, 3], mid
     assert mid['lit'] == [1, 2, 3], mid
-    assert t['plug']['ok'] and t['plug']['boxName'] == 'PD 1', mid
+    assert t['plug']['ok'] and t['plug']['boxName'] == 'PD1', mid
     assert t['plug']['badge'] == 'L21-30', mid
     assert mid['pill']['cls'] == '', mid
-    assert mid['pill']['text'].startswith('PD 1 → circuits 1–3 · '), mid
+    assert mid['pill']['text'].startswith('PD1 → circuits 1–3 · '), mid
     st = pg.evaluate(POWER_STATE_JS, ids['bId'])
     assert st['distro'] == {'1': d} and st['num'] == {'1': 1}, st
     assert pg.evaluate(HIST_LEN_JS) == n + 1
@@ -1724,7 +1724,7 @@ def test_a_typed_spare_box_drags_as_its_plug(page):
                mid_check=lambda p: p.evaluate(MID_JS, ids['aId']))
     assert mid['target']['nums'] == [1, 2, 3, 4], mid
     assert mid['lit'] == [1, 2, 3, 4], mid
-    assert mid['pill']['text'].startswith('PD 1 → circuits 1–4 · '), mid
+    assert mid['pill']['text'].startswith('PD1 → circuits 1–4 · '), mid
     st = pg.evaluate(POWER_STATE_JS, ids['aId'])
     first = next(s for s in st['plan'] if s['distroId'] == d)
     assert first['circuits'] == [1, 2, 3, 4] and first['number'] == 1, st

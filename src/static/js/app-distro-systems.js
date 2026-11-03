@@ -753,7 +753,7 @@ class _DistroSystems {
                     + `${sys.vll}V (ANSI E1.24)` };
             }
             return { ok: false, why: `${layer.name} runs at ${v}V, and `
-                + `${this.distroLabel(d)} ${box.number} (${type.name}) gives ${box.volts}V. `
+                + `${this.distroBoxName(d, box.number)} (${type.name}) gives ${box.volts}V. `
                 + `Set the screen to ${box.volts}V.` };
         }
         if (box.kind === 'multi') {
@@ -1134,7 +1134,7 @@ class _DistroSystems {
             };
             for (const c of circuits) {
                 if (!c.box) {
-                    say(`past:${c.s.number}`, `${name} ${c.s.number} is not on ${name}'s face: `
+                    say(`past:${c.s.number}`, `${this.distroBoxName(d, c.s.number)} is not on ${name}'s face: `
                         + `it has ${face.boxes.length} output${face.boxes.length === 1 ? '' : 's'}.`);
                     continue;
                 }
@@ -1145,7 +1145,7 @@ class _DistroSystems {
                 if (c.box.kind === 'direct' && c.s.legs.length > c.box.size) {
                     const conn = c.box.conn.short;
                     const cr = crowded.find(r => r.number === c.box.number);
-                    const where = (cr && cr.where) || c.s.name || `${name} ${c.box.number}`;
+                    const where = (cr && cr.where) || c.s.name || this.distroBoxName(d, c.box.number);
                     // Other multis on the same output (a hidden screen's
                     // among them, which keeps its slot): the line says the
                     // output's whole count, as the pull sheet and the
@@ -1259,7 +1259,8 @@ class _DistroSystems {
     //
     // [{ number, where, label, type, size, circuits, members: [{ layer,
     // soca, legs, hidden }] }] - `where` is the tray's name for the box
-    // ("PD 4"), `label` the name the multis wear on paper ("PD4").
+    // and `label` the name the multis wear on paper ("PD4" both, unless
+    // the paper has to tell two same-named boxes apart).
     _boxOverflows(d) {
         if (!d || typeof this._distroMultiNumbers !== 'function') return [];
         const layers = (this.project && this.project.layers) || [];
@@ -1286,8 +1287,8 @@ class _DistroSystems {
             const named = paper ? null : members.filter(m => !m.hidden).concat(members.filter(m => m.hidden))
                 .map(m => this.getSocaPlan(m.layer).find(s => s.soca === m.soca))
                 .find(s => s && s.name);
-            out.push({ number: n, where: `${this.distroLabel(d)} ${n}`,
-                       label: paper || (named && named.name) || `${this.distroLabel(d)} ${n}`,
+            out.push({ number: n, where: this.distroBoxName(d, n),
+                       label: paper || (named && named.name) || this.distroBoxName(d, n),
                        type: info.type, size, circuits, members });
         }
         return out.sort((a, b) => a.number - b.number);
@@ -1378,7 +1379,7 @@ class _DistroSystems {
                 const paper = labels ? labels.get(`${d.id}|${r.number}`) : null;
                 const named = r.members.find(m => !m.hidden && m.name)
                     || r.members.find(m => m.name);
-                return { ...r, where: paper || (named && named.name) || `${this.distroLabel(d)} ${r.number}` };
+                return { ...r, where: paper || (named && named.name) || this.distroBoxName(d, r.number) };
             })
             .sort((a, b) => a.number - b.number);
     }
@@ -1574,7 +1575,7 @@ class _DistroSystems {
             }
         }
         if (s.legs.length + others <= box.size) return null;
-        const where = `${this.distroLabel(d)} ${n}`;
+        const where = this.distroBoxName(d, n);
         const an = this._aAn(box.conn.short);
         // The output already full because of a hidden screen's multi (it
         // keeps its slot, round 6) names that screen, as the tray does.
@@ -1762,7 +1763,7 @@ class _DistroSystems {
             + 'per leg to the input\'s own figure.';
         const none = document.createElement('option');
         none.value = '';
-        none.textContent = '—';
+        none.textContent = '';
         input.appendChild(none);
         // Only the inputs that can feed this system - except the one the
         // distro already has, which stays listed and selected even when it

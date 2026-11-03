@@ -185,9 +185,19 @@ class _CrossLayerPaths {
             if (locked.length) {
                 locked.forEach(l => skipped.set(l.id, l));
             } else {
-                delete own[num];
-                this._forgetRunCable(layer, kind, num);
-                touched.push(layer);
+                // A power circuit comes off its multi with every other
+                // circuit kept on its feed (_clearDrawnCircuitKeepFeeds);
+                // deleting the path alone slid the next circuit onto the
+                // freed slot.
+                const fed = kind === 'power'
+                    ? this._clearDrawnCircuitKeepFeeds(layer, num) : null;
+                if (fed) {
+                    fed.forEach(l => { if (!touched.includes(l)) touched.push(l); });
+                } else {
+                    delete own[num];
+                    this._forgetRunCable(layer, kind, num);
+                    touched.push(layer);
+                }
             }
         }
         this.getPathScopeLayers(layer).forEach(peer => {
@@ -225,9 +235,15 @@ class _CrossLayerPaths {
             .forEach(l => locked.set(l.id, l)));
         if (locked.size) return { touched: [], skipped: [...locked.values()] };
         const pullBefore = this._pullLiveRowKeys();
-        // The group first, while the store still reads the custom id space.
+        // The circuit off its multi first, while it still reads as ONE
+        // circuit, every other circuit kept on its feed - wiping the
+        // group first made each leg a circuit of its own and moved every
+        // later circuit a place along.
+        const fed = this._clearDrawnCircuitKeepFeeds(owner, head, true) || [];
+        // The group, while the store still reads the custom id space.
         this._wipeSplitterManualFor(owner, legs);
         const touched = new Map([[owner.id, owner]]);
+        fed.forEach(l => touched.set(l.id, l));
         const skipped = new Map();
         legs.forEach(n => {
             const r = this.clearCustomRun(owner, 'power', n, { pullBefore });

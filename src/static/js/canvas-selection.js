@@ -427,13 +427,18 @@ Object.assign(CanvasRenderer.prototype, {
         // a port over two cabinet sizes, "1,230 / 4,160 W" for a circuit
         // over two wattages (app-custom-runs.js customRunFill).
         const capText = capped ? (fill.text || `${usedText}/${fill.count}`) : '';
+        // A run past its limit says "over", as the readout under the
+        // controls does (app-custom-runs.js), never "full": 14/11 is not a
+        // full circuit (QA 1.6.0-beta.4).
+        const isOver = capped && !!fill.over;
+        const state = isOver ? ' · over' : (isFull ? ' · full' : '');
         const committedText = capped
-            ? `${capText} on ${noun}${isFull ? ' · full' : ''}`
+            ? `${capText} on ${noun}${state}`
             : `${committed} on ${noun}`;
-        this._lastActiveBadge = { label, pill: committedText, full: isFull, selected };
+        this._lastActiveBadge = { label, pill: committedText, full: isFull, over: isOver, selected };
         this._activeBadgeShown = true;
         this._syncCustomRunReadout({
-            label, pill: committedText, full: isFull, selected,
+            label, pill: committedText, full: isFull, over: isOver, selected,
             committed, kind: noun === 'circuit' ? 'power' : 'data',
         });
     },
@@ -455,7 +460,8 @@ Object.assign(CanvasRenderer.prototype, {
         const selEl = el.querySelector('.cr-selected');
         if (labelEl && labelEl.textContent !== state.label) labelEl.textContent = state.label;
         if (pillEl && pillEl.textContent !== state.pill) pillEl.textContent = state.pill;
-        el.classList.toggle('cr-full', !!state.full);
+        el.classList.toggle('cr-full', !!state.full && !state.over);
+        el.classList.toggle('cr-over', !!state.over);
         el.classList.toggle('cr-empty', !state.full && !(state.committed > 0));
         el.classList.toggle('cr-power', state.kind === 'power');
         el.classList.toggle('cr-data', state.kind !== 'power');

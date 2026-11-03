@@ -283,7 +283,7 @@ def test_the_store_round_trips_through_the_project(page):
 def test_the_box_header_flips_into_the_sheet(page):
     """The raised ≡ on the box header flips the chips into the sheet: six
     rows, tail · circuit · screen · ft · connector, WALL on every tail,
-    the connector blank reading "follows Multi 208 (TRUE1)" - a Multi 208
+    the connector blank reading "TRUE1 (follows Multi 208)" - a Multi 208
     feeding a TRUE1 screen. The flip is per box in localStorage, and the
     chip grid is gone while the sheet is up."""
     pg, ids = page
@@ -301,7 +301,7 @@ def test_the_box_header_flips_into_the_sheet(page):
     assert s['heads'] == ['no.', 'circuit', 'screen', 'cable', 'connector'], s['heads']
     assert all(r['who'] == 'WALL' and not r['free'] for r in s['rows']), s
     assert all(r['ft'] == '' and r['connector'] == '' for r in s['rows']), s
-    assert all(r['blank'] == 'follows Multi 208 (TRUE1)' for r in s['rows']), s
+    assert all(r['blank'] == 'TRUE1 (follows Multi 208)' for r in s['rows']), s
     # the breakouts' connectors, then every distro face connector's cable
     # (2026-10-21: a cable off a direct output can be any of them)
     assert s['rows'][0]['options'] == ['', 'true1', 'powercon', 'edison', 'l620', 'powerconxx',

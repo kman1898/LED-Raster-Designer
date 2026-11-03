@@ -645,7 +645,7 @@ def test_dock_wears_the_clash(page):
     assert len(reds) == 3, f'one strip row per claimed tail: {out["strip"]}'
     assert all(not r['mild'] for r in reds), 'a clash is a red question'
     for t, r in zip((1, 2, 3), reds):
-        assert f'C2 3 circuit {t} is claimed twice' in r['text'], r
+        assert f'C2-3 circuit {t} is claimed twice' in r['text'], r
         assert f'ON SL STRIP C2-3-{t}' in r['text'] \
             and f'CEN SL STRIP C2-3-{t}' in r['text'], r
 
