@@ -974,3 +974,52 @@ def test_a_half_column_numbers_from_the_start_corner(page, pattern, order):
     lines = [(c, 17 if c == 4 else 8) for c in cols]
     assert got == _expect_from_corner(pattern, lines, 85, by_stack=order == 'across')
     assert got[0][0] == [0 if pattern.startswith('t') else 84, cols[0]]
+
+
+# ── Grouped screens that overlap in Pixel Map (QA, 1.6.0) ────────────────
+#
+# A duplicate keeps its Pixel Map offset, so a screen duplicated and grouped
+# with its original overlaps it. On a rectangle processor the port's rect
+# took the overlap once and one port carried both screens: 48 cabinets of
+# 16,384 px (786,432) on a 659,722 px port. A port is never charged less
+# than its cabinets' own pixels.
+
+def test_grouped_screens_that_overlap_never_overload_a_port(page):
+    got = page.evaluate("""() => {
+        const h = window.__cpm;
+        const a = h.screen({ id: 1, name: 'A', columns: 8, rows: 3,
+                             cabinet_width: 128, cabinet_height: 128, group_id: 'g1' });
+        const b = h.screen({ id: 2, name: 'B', columns: 8, rows: 3,
+                             cabinet_width: 128, cabinet_height: 128, group_id: 'g1',
+                             offset_x: 50, offset_y: 50 });
+        return h.withProject([a, b], app => {
+            app.project.groups = [{ id: 'g1', name: 'Group 1', layer_ids: [1, 2] }];
+            const m = app._dockBuildDataMap();
+            const by = new Map();
+            [a, b].forEach(l => l.panels.forEach(p => {
+                const v = m.get(p);
+                if (!v) return;
+                const k = v.ownerId + ':' + v.portNum;
+                if (!by.has(k)) by.set(k, []);
+                by.get(k).push(p);
+            }));
+            const cap = app.calculatePortCapacity(a.bitDepth, a.frameRate, a.processorType, false);
+            return { cap, ports: [...by].map(([k, ps]) => ({ k, n: ps.length,
+                own: ps.reduce((s, p) => s + p.width * p.height, 0),
+                load: window.canvasRenderer.getPortPixelLoad(a, ps) })) };
+        });
+    }""")
+    assert sum(p['n'] for p in got['ports']) == 48
+    assert len(got['ports']) >= 2, got
+    for p in got['ports']:
+        assert p['own'] <= got['cap'], p
+        assert p['load'] >= p['own'], p
+
+
+def test_overlapping_cabinets_are_charged_their_own_pixels(page):
+    got = page.evaluate("""() => {
+        const layer = { processorType: 'novastar-armor' };
+        const ps = [0, 1].map(i => ({ x: 0, y: 0, width: 128, height: 128 }));
+        return window.canvasRenderer.getPortPixelLoad(layer, ps);
+    }""")
+    assert got == 2 * 128 * 128
