@@ -1009,7 +1009,17 @@ def add_cvt(processor_id, card_id):
         card['cvts'].remove(cvt)
         return jsonify({'error': "copyRole must be 'mirror' or 'backup'"}), 400
     backup_id = None
-    if trunk is None and data.get('pair') is not False \
+    # A box that lands on a BACKUP trunk is a backup already: with every
+    # primary trunk taken, the next box resolves onto the first free backup
+    # OPT and backs up what is there (a CVT4K-S on OPT 5-6 of an enhanced
+    # card behind two CVT10s). Its default pair would be a backup of a
+    # backup - a box no strip of the tray drew, which the user could neither
+    # see nor remove (beta.4 QA) - so a box that landed there gets none.
+    landed = next((b for b in (_resolved_card(card_id) or {}).get('cvts')
+                   or [] if b.get('id') == cvt['id']), {})
+    on_backup = bool(landed.get('backupOf') or landed.get('duplicateOf')
+                     or landed.get('copyRole') == 'backup')
+    if trunk is None and not on_backup and data.get('pair') is not False \
             and catalog.default_backup_pair(card):
         ok_backup, _why = catalog.can_add_cvt(card, device_id, inputs)
         if ok_backup:

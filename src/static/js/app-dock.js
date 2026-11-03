@@ -1494,6 +1494,15 @@ class _HardwareDock {
                 ? this._dockBuildLoopPair(proc, card, cvt, slices)
                 : this._dockBuildBox(proc, card, cvt));
         });
+        // EVERY BOX IS ON THE TRAY. A box none of the strips above drew -
+        // one delivering no socket, a backup bound to a box that is itself
+        // a backup (a file saved before beta.5, beta.4 QA) - draws on its
+        // own, so it can be seen and its ⚙ can remove it.
+        cvts.forEach(cvt => {
+            if (unitBody.querySelector(
+                `[data-hwpop="box-${CSS.escape(cvt.id)}"]`)) return;
+            unitBody.appendChild(this._dockBuildBox(proc, card, cvt));
+        });
         // ...and the empty slot after the last box: where the next one goes
         if (boxFits.length) unitBody.appendChild(this._dockAddBoxSlot(proc, card, boxFits));
         return unit;
@@ -1790,7 +1799,10 @@ class _HardwareDock {
         // (a CVT10 behind a CVT4K-S's 9-14: chips 1-6, "ports 9-14").
         const locals = shown.map(
             p => (p.loopOf ? (p.loopOf.local || p.number) : (p.localNumber || p.number)));
-        const span = `${Math.min(...locals)}-${Math.max(...locals)}`;
+        // "ports 1-10", "port 1" for one, nothing for a box delivering none
+        const lo = Math.min(...locals), hi = Math.max(...locals);
+        const spanText = !locals.length ? ''
+            : lo === hi ? `port ${lo}` : `ports ${lo}-${hi}`;
         // "(backup)" is the backup PROCESSOR's word now (2026-09-25): a
         // loop's far box says what it is on its row ("· loop end"), and
         // only a copy box still wears a tag.
@@ -1828,7 +1840,7 @@ class _HardwareDock {
             // a loop row's strip header already prints the model; a
             // continued row prints the box's name, having no field for it
             row ? (row.cont ? this._dockBoxLabel(cvt) : '') : cvt.deviceName + tag,
-            `ports ${span}`,
+            spanText,
             'Drag the whole box onto a screen: the screen\'s ports fill '
             + 'onto this box\'s sockets in order from the first '
             + 'unassigned.',
