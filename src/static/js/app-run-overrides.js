@@ -191,9 +191,19 @@ class _RunOverrides {
         (paths[num] || []).forEach(e => {
             if (e) keys.add(this.getScopedPanelKey(this.getPathEntryLayerId(owner, e), e));
         });
-        if (prev && prev.layerId === owner.id) prev.keys.forEach(k => keys.add(k));
-        else if (prev) this._endOverrideHold(prev);
-        this._overrideHeld = { editing: this._overrideEditing, layerId: owner.id, keys };
+        // `before`: which cabinets rode which port when the redraw opened,
+        // for the names and cards to follow should a number be handed back
+        // at the end (_repairEmptyOverrides). A hold carried on keeps the
+        // reading its redraw opened with.
+        let before = null;
+        if (prev && prev.layerId === owner.id) {
+            prev.keys.forEach(k => keys.add(k));
+            before = prev.before || null;
+        } else if (prev) this._endOverrideHold(prev);
+        if (!before && typeof this._portCabinetKeys === 'function') {
+            before = this._portCabinetKeys(owner);
+        }
+        this._overrideHeld = { editing: this._overrideEditing, layerId: owner.id, keys, before };
     }
 
     // Let the hold go (the redraw ended, or one on another screen opened).
@@ -206,11 +216,16 @@ class _RunOverrides {
         if (!owner) return;
         const drawn = this._overridePathKeys(owner);
         const left = [...h.keys].filter(k => !drawn.has(k));
-        if (!left.length) return;
+        // A number the redraw left with nothing on it goes back to the walk
+        // (no phantom ports, _repairEmptyOverrides).
+        const repaired = typeof this._repairEmptyOverrides === 'function'
+            ? this._repairEmptyOverrides(owner, h.before) : '';
+        if (!left.length && !repaired) return;
         sendClientLog('override_hold_released', { layerId: owner.id, left: left.length });
         this.updatePortCapacityDisplay();
         if (typeof this.updateUI === 'function') this.updateUI();
-        const note = this._leftoverPortsNote(owner, left);
+        const note = [repaired, left.length ? this._leftoverPortsNote(owner, left) : '']
+            .filter(Boolean).join(' ');
         if (note && typeof this._toast === 'function') this._toast(note, false, 6000);
     }
 
@@ -456,11 +471,14 @@ class _RunOverrides {
             this._showLockedError([owner]);
             return;
         }
+        // The hold of the redraw open until now, read while it is still
+        // live: before the active index moves, which ends it (QA, 1.6.0: a
+        // second port picked up on the same screen lost the cabinets the
+        // first had let go, and the walk took them).
+        const prevHold = this._overrideHoldLive();
         owner[idxKey] = num;
         const wholeCustom = kind === 'power'
             ? this.isCustomPower(owner) : this.isCustomFlow(owner);
-        // The hold of the redraw open until now, read while it is still live.
-        const prevHold = this._overrideHoldLive();
         this._overrideEditing = wholeCustom
             ? null : { layerId: owner.id, kind, num };
         // A data port on an automatic screen holds its cabinets while it is

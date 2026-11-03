@@ -565,8 +565,30 @@ def _clean_screens(screens):
             # after the mirror was set - mirror_mismatch, read off the
             # project's layers by the route), or None.
             'mirrorMismatch': scr.get('mirrorMismatch') or None,
+            # The ports with no cabinet on them (0-based), sent by the
+            # client where a number is held empty - a port being redrawn
+            # that has nothing drawn yet. Nothing lands on one: it is never
+            # unplaced, so a fill or a drop skips it (QA, 1.6.0: a card
+            # filled onto such a number drove no cabinets).
+            'emptyPorts': _clean_indices(scr.get('emptyPorts')),
         })
     return out
+
+
+def _clean_indices(values):
+    if not isinstance(values, list):
+        return []
+    out = set()
+    for v in values:
+        if isinstance(v, bool):
+            continue
+        try:
+            n = int(v)
+        except (TypeError, ValueError):
+            continue
+        if n >= 0:
+            out.add(n)
+    return sorted(out)
 
 
 def _clean_rects(values):
@@ -774,7 +796,9 @@ def resolve(processors, screens, state=None, _legacy_auto=False):
                                        and not _has_socket(card,
                                                            spot['port'])),
             })
-        unplaced = [p['index'] for p in ports if p['cardId'] is None]
+        empty = set(scr.get('emptyPorts') or [])
+        unplaced = [p['index'] for p in ports
+                    if p['cardId'] is None and p['index'] not in empty]
         used_cards = []
         for p in ports:
             if p['cardId'] and p['cardId'] not in used_cards:
@@ -2010,6 +2034,44 @@ def merge_pins(state, layer_id, removed):
         if pin['index'] in gone:
             continue
         pins.append(dict(pin, index=shift(pin['index'])))
+    pins.sort(key=lambda p: (p['layerId'], p['index']))
+    state['pins'] = pins
+    return state
+
+
+def remap_pins(state, layer_id, moves):
+    """A screen's ports renumbered under their cabinets: `moves` maps a
+    port's old 0-based index to its new one, or to None where its cabinets
+    are gone (that pin is released). The client works the moves out from
+    which cabinets ride which port before and after (app-merge-runs.js
+    _portMovesByCabinet), so every pinned socket keeps driving the same
+    cabinets. A pin with no move stays where it is. Should two pins meet
+    on one index, the one that was already there keeps it and the other
+    is released. Other screens' pins are untouched."""
+    moves = {int(k): (None if v is None else int(v))
+             for k, v in (moves or {}).items()}
+    layer_id = str(layer_id)
+    others, mine = [], []
+    for pin in _clean_pins(state.get('pins')):
+        if pin['layerId'] != layer_id:
+            others.append(pin)
+            continue
+        if pin['index'] not in moves:
+            mine.append((0, pin['index'], pin))
+            continue
+        to = moves[pin['index']]
+        if to is None or to < 0:
+            continue
+        mine.append((0 if to == pin['index'] else 1, pin['index'],
+                     dict(pin, index=to)))
+    seen = set()
+    kept = []
+    for _rank, _old, pin in sorted(mine, key=lambda t: (t[0], t[1])):
+        if pin['index'] in seen:
+            continue
+        seen.add(pin['index'])
+        kept.append(pin)
+    pins = others + kept
     pins.sort(key=lambda p: (p['layerId'], p['index']))
     state['pins'] = pins
     return state

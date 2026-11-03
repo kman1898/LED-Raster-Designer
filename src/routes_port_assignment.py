@@ -444,6 +444,31 @@ def merge_ports():
     return _saved(_store(state))
 
 
+@port_assignment_bp.route('/api/port-assignments/remap', methods=['POST'])
+def remap_ports():
+    """A screen's ports renumbered under their cabinets (port_assignment.
+    remap_pins): each pin moves with its cabinets to the port number they
+    ride now, and one whose cabinets are gone is released. `moves` is
+    [[oldIndex, newIndex or null], ...], worked out by the client, which
+    owns which cabinets ride which port."""
+    data = request.json or {}
+    layer_id = data.get('layerId')
+    if layer_id is None:
+        return jsonify({'error': 'layerId is required'}), 400
+    moves = {}
+    try:
+        for pair in data.get('moves') or []:
+            old, new = pair
+            moves[int(old)] = None if new is None else int(new)
+    except (TypeError, ValueError):
+        return jsonify({'error': 'moves must be [old, new] port indices'}), 400
+    _retire()
+    state = assignment.remap_pins(_working(), layer_id, moves)
+    log_event('port_assignment_remap', {'layer': layer_id,
+                                        'moves': sorted(moves.items())})
+    return _saved(_store(state))
+
+
 @port_assignment_bp.route('/api/port-assignments/move-block', methods=['POST'])
 def move_block():
     data = request.json or {}

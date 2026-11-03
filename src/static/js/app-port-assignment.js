@@ -133,6 +133,12 @@ class _PortAssignment {
                 if (paired && paired.has(String(l.id))) {
                     scr.mirrorShape = this._mirrorShape(l);
                 }
+                // The numbers with no cabinet on them (a port being
+                // redrawn, nothing drawn yet): the server never lands a
+                // card on one (port_assignment emptyPorts). Sent only where
+                // there are any.
+                const empty = ports > 0 ? this._emptyPortIndices(l, ports) : [];
+                if (empty.length) scr.emptyPorts = empty;
                 if (capped && ports > 0) {
                     Object.assign(scr, this._linkCapFields(l, ports));
                 }
@@ -144,6 +150,26 @@ class _PortAssignment {
             // A screen needing no ports has nothing to assign and would only
             // draw an empty row. Text layers are already gone above.
             .filter(s => s.ports > 0);
+    }
+
+    // The 0-based indices among `layer`'s first `ports` that carry no
+    // cabinet: an automatic screen's overrides with nothing drawn on them,
+    // a custom screen's numbers with nothing drawn. Cheap where neither
+    // can happen (no override, not custom).
+    _emptyPortIndices(layer, ports) {
+        if (!layer || typeof this.isCustomFlow !== 'function') return [];
+        if (!this.isCustomFlow(layer)) {
+            return (typeof this._emptyOverrideNums === 'function' ? this._emptyOverrideNums(layer) : [])
+                .filter(n => n <= ports).map(n => n - 1);
+        }
+        const paths = layer.customPortPaths || {};
+        const out = [];
+        for (let n = 1; n <= ports; n++) {
+            const hits = this.getResolvedPathPanels(layer, paths[n] || [], 'data')
+                .filter(h => !h.panel.blank);
+            if (!hits.length) out.push(n - 1);
+        }
+        return out;
     }
 
     // Whether any resolved box carries a link cap (resolve_card's

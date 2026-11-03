@@ -625,3 +625,108 @@ def test_turning_custom_on_closes_the_drawings_gaps(page):
     assert page.evaluate("(id) => window.__shr.layer(id).customPortPaths[5]", lid) == seven
     assert s['labels'] == {'5': 'SEVEN'}
     assert sorted(ports(page, lid)) == list(range(1, 59))
+
+
+# ── No phantom ports (QA, 1.6.0) ──────────────────────────────────────────
+#
+# Every port number has cabinets. A single redraw that ends with its number
+# held empty (Redraw port, Clear Port, Esc) hands the number back to the
+# walk instead of leaving a phantom a card could be filled onto, and the
+# names and cards follow the cabinets.
+
+def _redraw(page, lid, num):
+    page.evaluate("(a) => window.app.overrideRun(window.__shr.layer(a[0]), 'data', a[1])",
+                  [lid, num])
+    page.wait_for_timeout(300)
+
+
+def _clear_port(page):
+    page.evaluate("() => document.getElementById('custom-clear-port').click()")
+    page.wait_for_timeout(300)
+
+
+def _esc(page):
+    page.mouse.move(700, 450)
+    page.keyboard.press('Escape')
+    page.wait_for_timeout(700)
+
+
+def test_a_redraw_cleared_and_ended_hands_its_number_back(page):
+    pins = [[i, 100 + i] for i in range(14)]
+    lid = reset(page, pins=pins)
+    before = ports(page, lid)
+    _redraw(page, lid, 3)
+    _clear_port(page)
+    assert st(page, lid)['overrides'] == [3], 'the open redraw keeps its number'
+    _esc(page)
+    s = st(page, lid)
+    assert s['overrides'] == []
+    p = ports(page, lid)
+    assert sorted(p) == list(range(1, 61)), 'the numbers have a hole'
+    assert p == before, 'the cabinets went back where they were'
+    assert s['pins'] == pins and server_pins(page) == pins
+    assert s['historyAction'] == 'Return Port To Auto'
+    notes = page.evaluate("() => window.__notes")
+    assert any('nothing was drawn on port P3, so it went back to automatic' in n
+               for n in notes), notes
+
+
+def test_the_names_and_cards_follow_the_cabinets_when_a_redraw_ends(page):
+    """P2 is cleared, P3 picked up (the cleared cabinets stay held) and
+    redrawn onto P2's cabinets. At the end P2 is handed back: the walk gives
+    it P3's old cabinets, so the two ports swap numbers, and the pins and
+    names swap with them."""
+    pins = [[i, 100 + i] for i in range(14)]
+    lid = reset(page, pins=pins, labels={'2': 'TWO', '3': 'THREE'})
+    before = ports(page, lid)
+    _redraw(page, lid, 2)
+    _clear_port(page)
+    _redraw(page, lid, 3)
+    _clear_port(page)
+    page.evaluate("""(id) => { const app = window.app;
+        for (let c = 8; c < 16; c++) { const l = window.__shr.layer(id);
+            app.addPanelToCustomPath(l.panels.find(p => p.row === 0 && p.col === c), l,
+                                     { click: true }); } }""", lid)
+    page.wait_for_timeout(400)
+    errs = page.evaluate("() => window.__errs")
+    assert errs == [], errs
+    _esc(page)
+    s = st(page, lid)
+    p = ports(page, lid)
+    assert sorted(p) == list(range(1, 61))
+    assert p[3] == before[2] and p[2] == before[3]
+    assert s['overrides'] == [3]
+    want = [[0, 100], [1, 102], [2, 101]] + pins[3:]
+    assert s['pins'] == want and server_pins(page) == want
+    assert s['labels'] == {'2': 'THREE', '3': 'TWO'}
+
+
+def test_nothing_lands_on_a_number_held_empty(page):
+    lid = reset(page)
+    _redraw(page, lid, 3)
+    _clear_port(page)
+    page.wait_for_timeout(300)
+    out = page.evaluate("""async (id) => { const app = window.app;
+        const screens = app._assignmentScreens();
+        const scr = screens.find(s => s.layerId === String(id));
+        const body = await (await fetch('/api/port-assignments/resolve', { method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ screens }) })).json();
+        const res = body.resolution.screens.find(s => s.layerId === String(id));
+        return { empty: scr.emptyPorts, unplaced: res.unplaced }; }""", lid)
+    assert out['empty'] == [2]
+    assert 2 not in out['unplaced'] and 3 in out['unplaced']
+    _esc(page)
+
+
+def test_an_empty_override_outside_a_redraw_closes_up_at_the_next_edit(page):
+    lid = reset(page, pins=[[1, 5], [2, 6], [3, 7]])
+    page.evaluate("""(id) => { const app = window.app, l = window.__shr.layer(id);
+        l.customPortOverrides = [3]; l.customPortPaths = { 3: [] };
+        app.updateLayers([l]); }""", lid)
+    page.wait_for_timeout(500)
+    s = st(page, lid)
+    assert s['overrides'] == []
+    assert sorted(ports(page, lid)) == list(range(1, 61))
+    # the phantom's pin is released and the next one closes up onto it
+    assert s['pins'] == [[1, 5], [2, 7]]

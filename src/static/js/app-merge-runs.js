@@ -450,6 +450,198 @@ class _MergeRuns {
             .then(() => true);
     }
 
+    // ── Ports that follow their cabinets (QA, 1.6.0) ──────────────────────
+    //
+    // Where a screen's port numbers change under its cabinets (a redraw
+    // that ends with a number held empty, an old show's numbering), the
+    // cards and the typed names follow the CABINETS, so every pinned
+    // socket keeps driving what it drove. One reading of which cabinets
+    // ride which port is taken before the change and one after;
+    // _portMovesByCabinet pairs them up.
+    //
+    // `owner`'s ports as Map(port number -> Set of scoped cabinet keys),
+    // the dark cabinets left out: custom from its drawing, automatic from
+    // the walk (the overrides folded in).
+    _portCabinetKeys(owner) {
+        const out = new Map();
+        if (!owner) return out;
+        const add = (n, layerId, panel) => {
+            if (!panel || panel.hidden || panel.blank) return;
+            if (!out.has(n)) out.set(n, new Set());
+            out.get(n).add(this.getScopedPanelKey(layerId, panel));
+        };
+        if (this.isCustomFlow(owner)) {
+            const paths = owner.customPortPaths || {};
+            Object.keys(paths).forEach(k => {
+                const n = parseInt(k, 10);
+                if (!Number.isFinite(n)) return;
+                this.getResolvedPathPanels(owner, paths[k] || [], 'data')
+                    .forEach(h => add(n, h.layer ? h.layer.id : owner.id, h.panel));
+            });
+            return out;
+        }
+        (this.calculatePortAssignments(owner) || []).forEach(item => {
+            if (!item || !item.port) return;
+            const lid = (item.layerId === undefined || item.layerId === null)
+                ? owner.id : item.layerId;
+            add(item.port, lid, item.panel);
+        });
+        return out;
+    }
+
+    // Map(old number -> new number, or null where its cabinets ride no port
+    // now) for every port of `before`, read against `after` (both from
+    // _portCabinetKeys). A port goes where most of its cabinets went; two
+    // old ports landing on one number leave it to the one that already had
+    // that number, else to the one with more cabinets there, else the
+    // lower one, and the other gets null (the cards release it).
+    _portMovesByCabinet(before, after) {
+        const at = new Map();
+        after.forEach((keys, n) => keys.forEach(k => at.set(k, n)));
+        const pick = new Map();
+        before.forEach((keys, n) => {
+            const tally = new Map();
+            keys.forEach(k => {
+                const to = at.get(k);
+                if (to !== undefined) tally.set(to, (tally.get(to) || 0) + 1);
+            });
+            let best = null;
+            tally.forEach((c, to) => {
+                if (!best || c > best.c || (c === best.c && to < best.to)) best = { to, c };
+            });
+            pick.set(n, best);
+        });
+        const claim = new Map();
+        pick.forEach((best, n) => {
+            if (!best) return;
+            const prev = claim.get(best.to);
+            let wins = !prev;
+            if (prev) {
+                const mine = n === best.to;
+                const theirs = prev.n === best.to;
+                if (mine !== theirs) wins = mine;
+                else if (best.c !== prev.c) wins = best.c > prev.c;
+                else wins = n < prev.n;
+            }
+            if (wins) claim.set(best.to, { n, c: best.c });
+        });
+        const moves = new Map();
+        pick.forEach((best, n) => {
+            const won = best && claim.get(best.to) && claim.get(best.to).n === n;
+            moves.set(n, won ? best.to : null);
+        });
+        return moves;
+    }
+
+    // Let the typed names and the cards follow `moves` (_portMovesByCabinet)
+    // on `owner`. A name or pin on a number `moves` does not know stays put
+    // unless a moved port lands on it. The names change at once; the cards
+    // follow on the server (/remap) and the promise resolves true when pins
+    // were sent.
+    _followPortsByCabinet(owner, moves) {
+        const targets = new Set();
+        moves.forEach(to => { if (to !== null) targets.add(to); });
+        const where = n => (moves.has(n) ? moves.get(n) : (targets.has(n) ? null : n));
+        ['portLabelOverridesPrimary', 'portLabelOverridesReturn'].forEach(key => {
+            const labels = owner[key];
+            if (!labels || typeof labels !== 'object') return;
+            const moved = {};
+            Object.keys(labels).forEach(k => {
+                const n = parseInt(k, 10);
+                if (!Number.isFinite(n)) { moved[k] = labels[k]; return; }
+                const to = where(n);
+                if (to !== null) moved[to] = labels[k];
+            });
+            owner[key] = moved;
+        });
+        const pins = (this.project && this.project.port_assignments
+            && this.project.port_assignments.pins) || [];
+        const sent = [];
+        pins.forEach(p => {
+            if (!p || String(p.layerId) !== String(owner.id)) return;
+            const n = (parseInt(p.index, 10) || 0) + 1;
+            const to = where(n);
+            if (to !== n) sent.push([n - 1, to === null ? null : to - 1]);
+        });
+        if (!sent.length || typeof this._assignmentRequest !== 'function') {
+            return Promise.resolve(false);
+        }
+        return this._assignmentRequest('/api/port-assignments/remap', 'POST',
+            { layerId: owner.id, moves: sent }, null, null).then(() => true);
+    }
+
+    // The data overrides of `owner` with nothing on them: no cabinet that
+    // carries data on their path.
+    _emptyOverrideNums(owner) {
+        if (!owner || this.isCustomFlow(owner)) return [];
+        const runs = new Set(this._ownOverrideRuns(owner, 'data').map(o => o.num));
+        return this.getOverrideNums(owner, 'data').filter(n => !runs.has(n));
+    }
+
+    // Is a port of `owner` open for redrawing (a single redraw, its hold,
+    // or several ports redrawn as one)? Then a number with nothing drawn on
+    // it yet is the redraw's own, and it is left be.
+    _portRedrawOpenOn(owner) {
+        if (!owner) return false;
+        const ed = this._overrideEditing;
+        if (ed && ed.kind === 'data' && ed.layerId === owner.id) return true;
+        const h = this._overrideHeld;
+        if (h && h.layerId === owner.id && this._overrideHoldLive()) return true;
+        return typeof this._mergeRedrawOn === 'function' && this._mergeRedrawOn(owner);
+    }
+
+    // NO PHANTOM PORTS (QA, 1.6.0): every port number has cabinets on it.
+    // A single redraw that ends with a number held empty (Redraw port P44,
+    // Clear Port, Esc) hands that number back to the walk, the way "Port
+    // P44 back to auto" does, and any number left with no cabinet closes
+    // up (_closeUpPorts). `before` is which cabinets rode which port when
+    // the redraw opened (_beginOverrideHold): the names and the cards
+    // follow the cabinets from there (_followPortsByCabinet), so a socket
+    // never ends up on a number with nothing on it. ONE undo step, the
+    // pins in it. Returns the sentence for the toast, or ''.
+    _repairEmptyOverrides(owner, before) {
+        const empty = this._emptyOverrideNums(owner);
+        if (!empty.length || this._layerLocked(owner) || this._portRedrawOpenOn(owner)) return '';
+        if (typeof this.mirrorSourceOf === 'function' && this.mirrorSourceOf(owner)) return '';
+        const taken = new Set(Array.isArray(this.history) ? this.history : []);
+        const pinsBefore = JSON.stringify(this.project.port_assignments || null,
+            this._snapshotReplacer);
+        const ref = before instanceof Map ? before : this._portCabinetKeys(owner);
+        const labels = {
+            portLabelOverridesPrimary: owner.portLabelOverridesPrimary,
+            portLabelOverridesReturn: owner.portLabelOverridesReturn,
+        };
+        owner.customPortOverrides = this.getOverrideNums(owner, 'data')
+            .filter(n => !empty.includes(n));
+        if (owner.customPortPaths) empty.forEach(n => { delete owner.customPortPaths[n]; });
+        // A number still without a cabinet (the overrides after it held
+        // their numbers, with no automatic port between) closes up.
+        const mid = this._portCabinetKeys(owner);
+        const top = Math.max(0, ...mid.keys());
+        const holes = [];
+        for (let n = 1; n < top; n++) if (!mid.has(n)) holes.push(n);
+        if (holes.length) this._closeUpPorts(owner, holes);
+        // The names follow the cabinets, not the close-up's shift.
+        Object.assign(owner, labels);
+        const moves = this._portMovesByCabinet(ref, this._portCabinetKeys(owner));
+        const pinned = this._followPortsByCabinet(owner, moves);
+        sendClientLog('empty_overrides_repaired', {
+            layerId: owner.id, ports: empty, holes,
+            moved: [...moves].filter(([n, to]) => to !== n),
+        });
+        this.saveState('Return Port To Auto');
+        this.saveClientSideProperties();
+        this.updateLayers(this._pathPersistLayers(owner));
+        pinned.then(moved => { if (moved) this._followPinsIntoHistory(pinsBefore, taken); },
+            () => {});
+        this.updatePortCapacityDisplay();
+        this.updateCustomFlowUI();
+        this.updatePortLabelEditor();
+        const one = empty.length === 1;
+        return `${owner.name || 'Screen'}: nothing was drawn on port${one ? '' : 's'} `
+            + `${this._portNumbersText(empty)}, so ${one ? 'it' : 'they'} went back to automatic.`;
+    }
+
     // ── A wall that shrinks (the owner, 2026-11-02) ───────────────────────
     //
     // A show drawn 90 cabinets wide and cut to 85 kept columns 85-89 on its
@@ -536,7 +728,12 @@ class _MergeRuns {
             // spell: its numbers the trim emptied close up with it.
             const dormantGone = Object.keys(trimmed).map(k => parseInt(k, 10))
                 .filter(n => Number.isFinite(n) && !live(n) && trimmed[n].length === 0);
-            if (opening) {
+            // An override with nothing drawn on it is a phantom port: gone
+            // on the open, and at any commit while no redraw is open on
+            // the screen (QA, 1.6.0: one made live came back at the next
+            // fill). While one is open the empty number is the redraw's.
+            const emptied = gone.length;
+            if (opening || !this._portRedrawOpenOn(owner)) {
                 ovr.forEach(n => {
                     const path = trimmed[n] || old[n];
                     if (!gone.includes(n) && !(Array.isArray(path) && path.length)) gone.push(n);
@@ -551,7 +748,7 @@ class _MergeRuns {
             }
             if (!cut && !gone.length) return;
             plans.push({ owner, trimmed, gone: gone.sort((a, b) => a - b),
-                dormantGone, cut, live, opening });
+                dormantGone, cut, live, opening, emptyOnly: emptied === 0 });
         });
         this._portRepairPending = pending;
         const power = (typeof this._trimCircuitsOffWall === 'function')
@@ -631,11 +828,16 @@ class _MergeRuns {
         chain.then(moved => { if (moved) this._followPinsIntoHistory(pinsBefore, taken); });
 
         const said = plans.filter(p => p.gone.length);
-        sayAll(said.map(({ owner, gone, opening }) => {
+        sayAll(said.map(({ owner, gone, opening, emptyOnly }) => {
             const one = gone.length === 1;
+            // "the ports after moved up" only where a port came after.
+            const ports = this._portCabinetKeys(owner);
+            const after = ports.size && Math.max(...ports.keys()) >= gone[0];
             return `${owner.name || 'Screen'}: port${one ? '' : 's'} ${this._portNumbersText(gone)} `
-                + (opening ? 'had no cabinets on the wall' : 'had only cabinets that came off the wall')
-                + `, so ${one ? 'it is' : 'they are'} gone and the ports after moved up.`;
+                + ((opening || emptyOnly) ? 'had no cabinets on the wall'
+                    : 'had only cabinets that came off the wall')
+                + `, so ${one ? 'it is' : 'they are'} gone`
+                + (after ? ' and the ports after moved up.' : '.');
         }).concat(gapped.map(({ owner, gaps }) => this._customGapNote(owner, gaps)))
             .concat(power.notes));
         const out = plans.map(p => p.owner);

@@ -2423,3 +2423,49 @@ def test_the_card_summary_carries_the_servers_word(mixed_lines):
     by_card = {c['cardId']: c for c in res['cards']}
     assert by_card[mx_card]['platforms'] == ['novastar-coex-1g']
     assert by_card[h_card]['platforms'] == ['novastar-armor']
+
+
+# ── No phantom ports (QA, 1.6.0) ──────────────────────────────────────────
+
+def test_a_fill_skips_a_port_with_no_cabinets(one_card):
+    """A screen port the client says has no cabinet on it (a number held
+    empty by an open redraw) is never unplaced, so a fill lands round it:
+    a card socket never drives a number with nothing on it."""
+    client, _pid, card = one_card
+    sc = [{'layerId': 'Main', 'name': 'Main', 'ports': 6, 'emptyPorts': [2]}]
+    resp = client.post('/api/port-assignments/resolve', json={'screens': sc})
+    assert by_name(resp.get_json()['resolution'], 'Main')['unplaced'] == [0, 1, 3, 4, 5]
+    res = attach(client, 'Main', card, sc)
+    ports = by_name(res, 'Main')['ports']
+    assert [p['port'] for p in ports] == [1, 2, None, 3, 4, 5]
+    assert by_name(res, 'Main')['unplaced'] == []
+    assert 'overflow' not in kinds(res)
+
+
+def test_remap_pins_follows_the_moves_and_releases_the_gone():
+    pin = lambda layer, index, port: {'layerId': layer, 'index': index,
+                                      'cardId': 'c1', 'port': port}
+    state = {'pins': [pin('1', 0, 1), pin('1', 1, 2), pin('1', 2, 3),
+                      pin('1', 3, 4), pin('2', 1, 9)]}
+    assignment.remap_pins(state, 1, {1: 2, 2: 1, 3: None})
+    assert [(p['layerId'], p['index'], p['port']) for p in state['pins']] == [
+        ('1', 0, 1), ('1', 1, 3), ('1', 2, 2), ('2', 1, 9)]
+    # a move onto a pin that stays is refused: the one already there keeps it
+    state = {'pins': [pin('1', 0, 1), pin('1', 1, 2)]}
+    assignment.remap_pins(state, 1, {1: 0})
+    assert [(p['index'], p['port']) for p in state['pins']] == [(0, 1)]
+
+
+def test_the_remap_route_moves_the_pins(one_card):
+    client, _pid, card = one_card
+    sc = screens(('Main', 4))
+    attach(client, 'Main', card, sc)
+    resp = client.post('/api/port-assignments/remap',
+                       json={'layerId': 'Main', 'moves': [[1, 2], [2, 1], [3, None]],
+                             'screens': sc})
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    ports = by_name(resp.get_json()['resolution'], 'Main')['ports']
+    assert [p['port'] for p in ports] == [1, 3, 2, None]
+    bad = client.post('/api/port-assignments/remap',
+                      json={'layerId': 'Main', 'moves': [['x', 1]]})
+    assert bad.status_code == 400
