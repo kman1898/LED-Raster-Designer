@@ -530,6 +530,22 @@ FIXES
   and the panels sharing a 2fer or 3fer don't change, only the numbers.
   A column cut differently on a vertical pattern numbers the same way
   with Across.
+- FIX: Making a screen smaller, by its columns or rows, by Size by Wall
+  Dimensions or through its group, takes the panels that came off the
+  wall out of every port you drew. A port left with no panels is removed
+  and the ports after it move up to close the gap, with their names and
+  their card sockets. Before, the drawn ports kept the missing panels, so
+  a port could sit wholly off the wall and leave a hole in the numbers.
+  A show saved that way is fixed when you open it.
+- FIX: Redraw ports as one counts only the panels on the wall, and when
+  the picked ports hold more panels than one port takes, it says so
+  before freeing anything, like Ports 46-47 hold 10 panels together, and
+  one port takes 8 panels at 659,722 px/port. Before, it freed them all
+  and stopped you partway through drawing with Port 46 is full.
+- FIX: In the Data view, Alt+drag across runs picks every port the drag
+  crosses for Redraw ports as one, the way Alt+drag picks circuits in
+  Power. Shift+click and Shift+drag still pick, and Alt+click still
+  redraws one port.
 
 v1.5.3 - October 21, 2026
 ----------------------------

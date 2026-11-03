@@ -7,15 +7,19 @@ keyboard events:
 
 * PICK - Shift+click a run picks it (and lights it); Shift+click again
   un-picks it. Shift+drag a box from a run picks every port it touches.
+  Alt+drag across runs picks every port it crosses, the way Alt+drag
+  sweeps circuits in Power; a plain Alt+click still takes one port over.
 * MENU - with 2+ picked, right-click reads "Redraw ports 56-59 as one", or
   a list where the numbers are not consecutive.
 * REDRAW - the picked ports' cabinets are freed and one new path is drawn on
   the lowest number; drawing every freed cabinet (or Enter) keeps it.
 * NUMBERS - the other picked numbers go and every later port closes up, on
   an automatic screen and on a custom one; the pins follow.
-* RULES - the port's capacity refuses a cabinet out loud, Esc puts
-  everything back with no change, one undo takes the whole thing back, and
-  a locked screen is refused with the locked error.
+* RULES - picks that hold more than one port takes are refused before
+  anything is freed (only cabinets on the wall count), a cabinet another
+  port carries is refused out loud, Esc puts everything back with no
+  change, one undo takes the whole thing back, and a locked screen is
+  refused with the locked error.
 
 The wall is synthetic (the show's shape, none of its data): 90 x 5 cabinets
 of 192 x 384 on NovaStar Legacy at 8-bit 60 Hz - eight cabinets to a port -
@@ -429,36 +433,197 @@ def test_pins_follow_the_ports(page):
 
 # ── the usual rules ───────────────────────────────────────────────────────
 
-def test_capacity_and_other_ports_cabinets_are_refused_out_loud(page):
+def test_picks_past_one_port_are_refused_before_anything_is_freed(page):
+    """Ports 51 and 52 hold sixteen cabinets and a port takes eight: the
+    redraw is refused up front, with the "is full" toast's own figures,
+    and nothing changes."""
     lid = reset(page)
-    # ports 51 and 52: rows 0 and 1, columns 80-87 - sixteen cabinets freed
-    p = ports(page, lid)
-    assert p[51] == [[0, c] for c in range(80, 88)]
-    assert p[52] == [[1, c] for c in range(80, 88)]
+    base_ports = ports(page, lid)
+    base = st(page, lid)
+    assert base_ports[51] == [[0, c] for c in range(80, 88)]
+    assert base_ports[52] == [[1, c] for c in range(80, 88)]
     shift_click(page, 0, 80)
     shift_click(page, 1, 80)
-    redraw_as_one(page, 0, 80)
-    draw(page, [[0, c] for c in range(80, 88)])
-    assert ports(page, lid)[51] == [[0, c] for c in range(80, 88)]
-    assert errs(page) == []
-    # a ninth cabinet is past the port
-    draw(page, [[1, 80]])
+    assert menu_item(page, 0, 80) == 'Redraw ports 51-52 as one'
+    page.click('[data-action="ovr-merge"]')
+    page.wait_for_timeout(300)
     e = errs(page)
-    assert e and 'is full' in e[-1] and 'Esc puts the ports back' in e[-1], e
-    assert len(ports(page, lid)[51]) == 8
+    assert e and e[-1] == ('Ports 51-52 hold 16 panels together, and one port takes '
+                           '8 panels at 659,722 px/port. Pick fewer ports to redraw as one.'), e
+    after = st(page, lid)
+    assert after['session'] is None
+    assert ports(page, lid) == base_ports
+    assert after['overrides'] == base['overrides']
+    assert (after['historyIndex'], after['historyLength']) == \
+        (base['historyIndex'], base['historyLength'])
+
+
+def test_the_rectangle_around_the_picks_is_what_a_port_pays_for(page):
+    """On Armor a port pays for the rectangle around its cabinets, the way
+    its badge and the "is full" toast weigh it. Ports 56 and 59 are four
+    cabinets in a 2 x 4 rectangle, eight cabinets' worth, which fits.
+    Ports 51 and 57 are ten cabinets, two past the port, and refused."""
+    lid = reset(page)
+    base_ports = ports(page, lid)
+    shift_click(page, 0, 88)
+    shift_click(page, 3, 88)
+    assert menu_item(page, 0, 88) == 'Redraw ports 56, 59 as one'
+    page.click('[data-action="ovr-merge"]')
+    page.wait_for_function("() => window.app._mergeRedraw && window.app._mergeRedraw.ready")
+    assert errs(page) == []
+    page.keyboard.press('Escape')
+    page.wait_for_timeout(400)
+    assert ports(page, lid) == base_ports
+    shift_click(page, 0, 80)
+    shift_click(page, 1, 88)
+    assert st(page, lid)['picks'] == [51, 57]
+    assert menu_item(page, 0, 80) == 'Redraw ports 51, 57 as one'
+    page.click('[data-action="ovr-merge"]')
+    page.wait_for_timeout(300)
+    e = errs(page)
+    assert e and e[-1].startswith('Ports 51, 57 hold 10 panels together, and one port takes 8 panels'), e
+    assert st(page, lid)['session'] is None
+    assert ports(page, lid) == base_ports
+
+
+def test_only_cabinets_on_the_wall_are_freed(page):
+    """Until the server's echo rebuilds a shrunk screen, its old cabinets
+    are still in the client's copy: the redraw counts only the ones inside
+    the screen's rows and columns."""
+    lid = reset(page)
+    counts = page.evaluate("""(id) => {
+        const app = window.app, l = window.__mrg.layer(id);
+        const before = app._mergePickedCabinets(l, [51, 56]).length;
+        l.columns = 85;   // the field typed, the echo not back yet
+        const after = app._mergePickedCabinets(l, [51, 56]).map(h => [h.panel.row, h.panel.col]);
+        l.columns = 90;
+        return { before, after };
+    }""", lid)
+    assert counts['before'] == 10
+    assert counts['after'] == [[0, c] for c in range(80, 85)]
+
+
+def test_another_ports_cabinet_is_refused_and_enter_keeps_the_drawing(page):
+    lid = reset(page)
+    shift_click(page, 0, 88)
+    shift_click(page, 1, 88)
+    redraw_as_one(page, 0, 88)
+    draw(page, [[0, 88], [0, 89], [1, 89]])
+    assert ports(page, lid)[56] == [[0, 88], [0, 89], [1, 89]]
+    assert errs(page) == []
     # a cabinet another port carries is refused and named
-    draw(page, [[2, 80]])
+    draw(page, [[2, 88]])
     e = errs(page)
     assert e and 'already wired' in e[-1], e
     assert st(page, lid)['session'] is not None, 'a refusal ended the redraw'
-    # Enter keeps the eight; the other eight go back to the walk
+    # Enter keeps the three; the fourth goes back to the walk
     page.keyboard.press('Enter')
     page.wait_for_timeout(300)
     after = st(page, lid)
     assert after['session'] is None
     assert after['historyAction'] == 'Redraw Ports As One'
-    assert ports(page, lid)[51] == [[0, c] for c in range(80, 88)]
-    assert sum(len(v) for v in ports(page, lid).values()) == 450
+    p = ports(page, lid)
+    assert p[56] == [[0, 88], [0, 89], [1, 89]]
+    assert sorted(p) == list(range(1, 61))
+    assert sum(len(v) for v in p.values()) == 450
+
+
+# ── Alt+drag picks, as Alt+drag sweeps circuits in Power ──────────────────
+
+def alt_drag(page, a, b, steps=6):
+    x1, y1 = cab(page, *a)
+    x2, y2 = cab(page, *b)
+    page.keyboard.down('Alt')
+    page.mouse.move(x1, y1)
+    page.mouse.down()
+    page.mouse.move(x1 + 6, y1 + 6, steps=2)
+    page.mouse.move(x2, y2, steps=steps)
+    page.mouse.up()
+    page.keyboard.up('Alt')
+    page.wait_for_timeout(150)
+
+
+def alt_click(page, row, col):
+    x, y = cab(page, row, col)
+    page.keyboard.down('Alt')
+    page.mouse.move(x, y)
+    page.mouse.down()
+    page.mouse.up()
+    page.keyboard.up('Alt')
+    page.wait_for_timeout(200)
+
+
+def test_alt_drag_picks_every_port_it_crosses(page):
+    lid = reset(page)
+    base_ports = ports(page, lid)
+    alt_drag(page, (0, 88), (3, 89))
+    s = st(page, lid)
+    assert s['picks'] == [56, 57, 58, 59]
+    # a pick, not a take-over: nothing was redrawn and nothing changed
+    assert s['overrides'] == []
+    assert page.evaluate("() => window.app._overrideEditing") is None
+    assert ports(page, lid) == base_ports
+    assert s['historyAction'] == 'Merge Test Baseline'
+    lit = page.evaluate("""(id) => [56, 59, 60].map(n => window.canvasRenderer._runUnderlayLit(
+        window.__mrg.layer(id), n))""", lid)
+    assert lit == [True, True, False]
+    assert menu_item(page, 1, 88) == 'Redraw ports 56-59 as one'
+    page.evaluate("() => window.app.hideContextMenu()")
+
+
+def test_alt_drag_adds_to_the_shift_picks_and_skips_no_port(page):
+    lid = reset(page)
+    shift_click(page, 4, 88)
+    alt_drag(page, (0, 88), (1, 88))
+    assert st(page, lid)['picks'] == [56, 57, 60]
+    # one fast move down a column still picks every port it crossed
+    page.evaluate("() => { window.app._portPicks = null; }")
+    alt_drag(page, (0, 80), (4, 80), steps=1)
+    assert st(page, lid)['picks'] == [51, 52, 53, 54, 55]
+
+
+def test_alt_click_still_takes_one_port_over(page):
+    lid = reset(page)
+    alt_click(page, 0, 88)
+    s = st(page, lid)
+    assert s['overrides'] == [56]
+    assert s['picks'] == []
+    assert page.evaluate("() => window.app._overrideEditing") == \
+        {'layerId': lid, 'kind': 'data', 'num': 56}
+    assert s['historyAction'] == 'Override Port'
+    page.keyboard.press('Escape')
+    page.wait_for_timeout(150)
+
+
+def test_held_alt_still_lights_the_run_under_the_cursor(page):
+    lid = reset(page)
+    x, y = cab(page, 2, 88)
+    page.keyboard.down('Alt')
+    page.mouse.move(x - 3, y - 3)
+    page.mouse.move(x, y)
+    page.wait_for_timeout(100)
+    hover = page.evaluate("() => window.app._overrideHover")
+    page.keyboard.up('Alt')
+    assert hover == {'layerId': lid, 'num': 58, 'kind': 'data'}
+
+
+def test_esc_mid_sweep_drops_the_picks(page):
+    lid = reset(page)
+    x1, y1 = cab(page, 0, 88)
+    x2, y2 = cab(page, 2, 88)
+    page.keyboard.down('Alt')
+    page.mouse.move(x1, y1)
+    page.mouse.down()
+    page.mouse.move(x2, y2, steps=6)
+    assert st(page, lid)['picks'] == [56, 57, 58]
+    page.keyboard.press('Escape')
+    page.mouse.move(x2, y2 + 60, steps=3)
+    page.mouse.up()
+    page.keyboard.up('Alt')
+    page.wait_for_timeout(150)
+    s = st(page, lid)
+    assert s['picks'] == []
+    assert s['overrides'] == [], 'the release after Esc took a port over'
 
 
 def test_esc_puts_everything_back(page):

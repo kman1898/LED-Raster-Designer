@@ -1,7 +1,10 @@
 // app-merge-runs: several data ports picked on the wall and redrawn as ONE
 // for LEDRasterApp. Owns the port picks (Shift+click a run, Shift+drag a
-// box), the "Redraw ports 51-54 as one" menu entry, and the redraw session
-// that follows it: open, drawn, kept (Enter) or put back (Esc).
+// box, Alt+drag across runs), the "Redraw ports 51-54 as one" menu entry,
+// and the redraw session that follows it: open, drawn, kept (Enter) or put
+// back (Esc). Also owns closing the port numbers up when ports go away
+// (_closeUpPorts), the one path the redraw and a shrinking wall share
+// (trimPortsOffWall).
 import { LEDRasterApp } from './app-core.js';
 import { sendClientLog } from './helpers.js';
 
@@ -14,7 +17,11 @@ class _MergeRuns {
     //
     //   picking    Shift+click a run in the Data view picks it, Shift+click
     //              again un-picks it; Shift+drag a box from a run picks
-    //              every port the box touches. Picked runs wear the run
+    //              every port the box touches. Alt+drag across runs picks
+    //              every port it crosses, the way Alt+drag sweeps circuits
+    //              in Power (canvas-input's armed Alt+press; released
+    //              inside the click threshold it is still the Alt+click
+    //              that redraws one port). Picked runs wear the run
     //              underlay. One screen's ports at a time: a pick on another
     //              screen starts over there. A plain click or Esc drops them.
     //   redraw     with 2+ picked, right-click offers "Redraw ports 51-54
@@ -23,6 +30,10 @@ class _MergeRuns {
     //              drawn on the first number, with every rule the single
     //              redraw has: the port's capacity, a cabinet another port
     //              holds refused out loud, the run lit until it is done.
+    //              Only cabinets on the wall count (a cabinet a shrink left
+    //              on a path is no cabinet), and picks that together hold
+    //              more than one port takes are refused before anything is
+    //              freed, with the "is full" toast's own figures.
     //   numbers    the new port keeps the lowest picked number; the others
     //              go and every later port closes up (54 ports become 51),
     //              on automatic and custom screens alike. Pins follow: the
@@ -77,6 +88,24 @@ class _MergeRuns {
         nums.forEach(n => { if (!next.includes(n)) next.push(n); });
         this._portPicks = { layerId: anchor.layerId, nums: next };
         this._portPicksChanged('box');
+    }
+
+    // Alt+drag: the sweep adds every port of the anchor's screen it crosses
+    // (a sweep adds, it never un-picks). `anchor` is { ownerId, num }, the
+    // run the Alt+press came down on, the shape the Power sweep arms with;
+    // `nums` the ports under the cursor since the last move. A port of
+    // another screen never joins: the sweep never jumps walls.
+    sweepPortPicks(anchor, nums) {
+        if (!anchor || !anchor.num) return;
+        const p = this._portPicks;
+        const next = (p && p.layerId === anchor.ownerId) ? p.nums.slice() : [];
+        const before = next.length;
+        [anchor.num].concat(nums || []).forEach(n => {
+            if (Number.isFinite(n) && n >= 1 && !next.includes(n)) next.push(n);
+        });
+        if (p && p.layerId === anchor.ownerId && next.length === before) return;
+        this._portPicks = { layerId: anchor.ownerId, nums: next };
+        this._portPicksChanged('sweep');
     }
 
     clearPortPicks() {
@@ -159,16 +188,59 @@ class _MergeRuns {
     }
 
     // The cabinets `owner`'s ports `nums` carry right now: [{layer, panel}].
+    // Real cabinets on the wall only: a step a shrink left past the edge
+    // names no cabinet, and until the server's echo rebuilds a shrunk
+    // screen its old panels are still in the client's copy, so a cabinet
+    // past the screen's rows or columns is left out here as well.
     _mergePickedCabinets(owner, nums) {
         const map = this._dockBuildDataMap();
         const out = [];
         (this.project.layers || []).forEach(l => (l.panels || []).forEach(panel => {
             const run = map.get(panel);
-            if (run && run.ownerId === owner.id && nums.includes(run.portNum)) {
+            if (run && run.ownerId === owner.id && nums.includes(run.portNum)
+                    && this._panelOnWall(l, panel)) {
                 out.push({ layer: l, panel });
             }
         }));
         return out;
+    }
+
+    // Is `panel` (or a path step, anything with row and col) inside
+    // `layer`'s grid? A screen's cabinets are rows x columns; anything past
+    // that came off the wall.
+    _panelOnWall(layer, panel) {
+        if (!layer || !panel) return false;
+        const rows = Number(layer.rows), cols = Number(layer.columns);
+        if (!Number.isFinite(rows) || !Number.isFinite(cols)) return true;
+        const r = Number(panel.row), c = Number(panel.col);
+        return r >= 0 && c >= 0 && r < rows && c < cols;
+    }
+
+    // Picks that together hold more than ONE port takes cannot be redrawn
+    // as one: the message saying so, or null when they fit. The figures are
+    // the "is full" toast's (customRunCapacity / customRunLoad, the port's
+    // own badge): the limit of a port carrying all of them, against their
+    // load, which on a rectangle processor is the rectangle around them.
+    _mergeCapacityRefusal(owner, picks, freed) {
+        if (!freed.length) return null;
+        const cap = this.customRunCapacity(owner, 'data', freed.map(h => h.panel));
+        if (!cap.known) return null;
+        const load = this.customRunLoad(owner, 'data', freed);
+        if (load <= cap.limit + 1e-6) return null;
+        const sized = this._customRunSizing(owner, 'data', freed.map(h => h.layer), cap);
+        const ports = `Ports ${this._portNumbersText(picks)}`;
+        const n = freed.length;
+        const px = v => Math.round(v).toLocaleString('en-US');
+        if (!sized.mixed && n > sized.count) {
+            return `${ports} hold ${n} panels together, and one port takes ${sized.describe}. `
+                + 'Pick fewer ports to redraw as one.';
+        }
+        if (!sized.mixed) {
+            return `${ports} hold ${n} panels, but one port pays for the whole rectangle around `
+                + `them: ${px(load)} px, and one port takes ${cap.at}. Pick fewer ports to redraw as one.`;
+        }
+        return `${ports} carry ${px(load)} px together, and one port takes ${cap.at}. `
+            + 'Pick fewer ports to redraw as one.';
     }
 
     // Open the session: renumber the screen, free the picked cabinets, pin
@@ -190,6 +262,15 @@ class _MergeRuns {
             return false;
         }
         if (typeof this._mirrorRefused === 'function' && this._mirrorRefused(owner)) return false;
+        // More than one port takes: refused before anything is freed.
+        const full = this._mergeCapacityRefusal(owner, picks, freed);
+        if (full) {
+            if (typeof this._toast === 'function') this._toast(full, true, 8000);
+            sendClientLog('merge_runs_refused', {
+                layerId: owner.id, why: 'capacity', picks, cabinets: freed.length,
+            });
+            return false;
+        }
         if (this._overrideEditing) this.endOverrideEdit();
         this._flushPendingSaveState();
         const baseEntry = (this.history && this.history[this.historyIndex]) || null;
@@ -198,53 +279,19 @@ class _MergeRuns {
 
         const first = picks[0];
         const removed = picks.slice(1);
-        const shift = n => n - removed.filter(r => r < n).length;
         const custom = this.isCustomFlow(owner);
-        this.ensureCustomFlowState(owner);
-        const old = owner.customPortPaths || {};
-        const paths = {};
-        if (custom) {
-            // Every path is the screen's own: the picked ones go, the rest
-            // close up, and the first number starts empty.
-            Object.keys(old).forEach(k => {
-                const n = parseInt(k, 10);
-                if (!Number.isFinite(n)) { paths[k] = old[k]; return; }
-                if (picks.includes(n)) return;
-                paths[shift(n)] = old[k];
-            });
-        } else {
-            // Only the overrides are live; a drawing left from an earlier
-            // custom spell stays where it was, unused.
+        // The removed numbers go and the ports after them close up (the
+        // path a shrinking wall takes too); the first number then starts
+        // empty, and on an automatic screen it is an override, so the walk
+        // leaves its number to the drawing.
+        this._closeUpPorts(owner, removed);
+        owner.customPortPaths[first] = [];
+        if (!custom) {
             const ovr = this.getOverrideNums(owner, 'data');
-            Object.keys(old).forEach(k => {
-                const n = parseInt(k, 10);
-                if (Number.isFinite(n) && (ovr.includes(n) || picks.includes(n))) return;
-                paths[k] = old[k];
-            });
-            const next = [first];
-            ovr.forEach(n => {
-                if (picks.includes(n)) return;
-                paths[shift(n)] = old[n];
-                next.push(shift(n));
-            });
-            owner.customPortOverrides = next.sort((a, b) => a - b);
+            if (!ovr.includes(first)) ovr.push(first);
+            owner.customPortOverrides = ovr.sort((a, b) => a - b);
         }
-        paths[first] = [];
-        owner.customPortPaths = paths;
         owner.customPortIndex = first;
-        // A port's typed name follows its number.
-        ['portLabelOverridesPrimary', 'portLabelOverridesReturn'].forEach(key => {
-            const labels = owner[key];
-            if (!labels || typeof labels !== 'object') return;
-            const out = {};
-            Object.keys(labels).forEach(k => {
-                const n = parseInt(k, 10);
-                if (!Number.isFinite(n)) { out[k] = labels[k]; return; }
-                if (removed.includes(n)) return;
-                out[shift(n)] = labels[k];
-            });
-            owner[key] = out;
-        });
         if (this.customSelection) this.customSelection.clear();
         this._portPicks = null;
         this._mergeRedraw = {
@@ -284,16 +331,225 @@ class _MergeRuns {
             }
             if (window.canvasRenderer) window.canvasRenderer.render();
         };
-        const pins = (this.project.port_assignments && this.project.port_assignments.pins) || [];
-        const pinned = pins.some(p => p && String(p.layerId) === String(owner.id));
-        if (pinned && typeof this._assignmentRequest === 'function') {
-            this._assignmentRequest('/api/port-assignments/merge', 'POST',
-                { layerId: owner.id, removed: removed.map(n => n - 1) }, null, null)
-                .then(open, open);
-        } else {
-            open();
-        }
+        this._closeUpPortPins(owner, removed).then(open, open);
         return true;
+    }
+
+    // ── Closing the port numbers up ───────────────────────────────────────
+    //
+    // Ports that go away take their numbers with them, and every later
+    // port of the screen closes up by the ports removed below it. ONE path
+    // for every caller: Redraw-as-one (its removed numbers) and a wall that
+    // shrank (the ports left with no cabinet, trimPortsOffWall).
+    //   custom     every path is the screen's own: the removed ones go and
+    //              the rest renumber.
+    //   automatic  only the overrides are live: a removed one goes, the rest
+    //              renumber, and the walk fills the numbers between. A
+    //              drawing left from an earlier custom spell stays where it
+    //              was, unused; one on a removed number goes.
+    // A port's typed name follows its number, and the active port follows
+    // its port. The cards follow on the server (_closeUpPortPins).
+    // Returns the numbers removed, ascending.
+    _closeUpPorts(owner, gone) {
+        const out = [...new Set((gone || []).map(n => parseInt(n, 10))
+            .filter(n => Number.isFinite(n) && n >= 1))].sort((a, b) => a - b);
+        if (!owner || out.length === 0) return out;
+        const shift = n => n - out.filter(r => r < n).length;
+        this.ensureCustomFlowState(owner);
+        const old = owner.customPortPaths || {};
+        const paths = {};
+        if (this.isCustomFlow(owner)) {
+            Object.keys(old).forEach(k => {
+                const n = parseInt(k, 10);
+                if (!Number.isFinite(n)) { paths[k] = old[k]; return; }
+                if (out.includes(n)) return;
+                paths[shift(n)] = old[k];
+            });
+        } else {
+            const ovr = this.getOverrideNums(owner, 'data');
+            Object.keys(old).forEach(k => {
+                const n = parseInt(k, 10);
+                if (Number.isFinite(n) && (ovr.includes(n) || out.includes(n))) return;
+                paths[k] = old[k];
+            });
+            const next = [];
+            ovr.forEach(n => {
+                if (out.includes(n)) return;
+                paths[shift(n)] = old[n];
+                next.push(shift(n));
+            });
+            owner.customPortOverrides = next.sort((a, b) => a - b);
+        }
+        owner.customPortPaths = paths;
+        owner.customPortIndex = Math.max(1, shift(parseInt(owner.customPortIndex, 10) || 1));
+        ['portLabelOverridesPrimary', 'portLabelOverridesReturn'].forEach(key => {
+            const labels = owner[key];
+            if (!labels || typeof labels !== 'object') return;
+            const moved = {};
+            Object.keys(labels).forEach(k => {
+                const n = parseInt(k, 10);
+                if (!Number.isFinite(n)) { moved[k] = labels[k]; return; }
+                if (out.includes(n)) return;
+                moved[shift(n)] = labels[k];
+            });
+            owner[key] = moved;
+        });
+        return out;
+    }
+
+    // The cards in step with _closeUpPorts: the removed ports' pins are
+    // released and every later pin rides its port to the new number
+    // (port_assignment.merge_pins via /merge). A promise that settles once
+    // the server has answered, at once for a screen with nothing pinned;
+    // it resolves true when pins were sent.
+    _closeUpPortPins(owner, removed) {
+        const pins = (this.project && this.project.port_assignments
+            && this.project.port_assignments.pins) || [];
+        const pinned = !!owner && pins.some(p => p && String(p.layerId) === String(owner.id));
+        if (!pinned || !(removed || []).length || typeof this._assignmentRequest !== 'function') {
+            return Promise.resolve(false);
+        }
+        return this._assignmentRequest('/api/port-assignments/merge', 'POST',
+            { layerId: owner.id, removed: removed.map(n => n - 1) }, null, null)
+            .then(() => true);
+    }
+
+    // ── A wall that shrinks (the owner, 2026-11-02) ───────────────────────
+    //
+    // A show drawn 90 cabinets wide and cut to 85 kept columns 85-89 on its
+    // drawn ports: cabinets that no longer exist, a port standing wholly on
+    // them, its number a hole in the run. The ruling: when a wall shrinks
+    // (columns or rows, typed, by Size by Wall Dimensions, or through its
+    // group), every drawn data port drops the cabinets that fell off; a
+    // port left with none is removed and the ports after it close up the
+    // way Redraw-as-one closes them (_closeUpPorts, the cards through
+    // _closeUpPortPins). A show saved in that state is repaired the same
+    // way when it is opened (`load`), where an override with nothing drawn
+    // goes too: outside an open redraw it is only a number held empty.
+    //
+    // Off the wall means past the grid of the screen a step names (its own,
+    // or a group peer's). Every layer commit runs through updateLayers,
+    // which calls this, so the trim rides the shrink's own PUT and undo
+    // step. A screen whose steps are all on the wall is not touched, so
+    // the pass changes nothing the second time. A locked screen stays as
+    // it is (logged), and a mirror's map is its source's.
+    //
+    // Power is NOT trimmed here: circuit numbers keep their own sticky
+    // rules, and a circuit's steps past the edge are a separate question.
+    //
+    // Returns the screens it changed.
+    trimPortsOffWall({ load = false } = {}) {
+        // A show being opened is trimmed once, on the server's copy (the
+        // load passes `load`); a layer save before then leaves it be.
+        if (load) this._projectOpening = false;
+        else if (this._projectOpening) return [];
+        if (!this.project || !Array.isArray(this.project.layers)) return [];
+        const screens = this.project.layers
+            .filter(l => l && (l.type || 'screen') === 'screen');
+        const byId = new Map(screens.map(l => [String(l.id), l]));
+        const onWall = (owner, e) => {
+            if (!e || typeof e !== 'object') return true;
+            const target = byId.get(String(this.getPathEntryLayerId(owner, e)));
+            // A step naming a screen that is gone is the server's prune.
+            return !target || this._panelOnWall(target, e);
+        };
+        const plans = [];
+        screens.forEach(owner => {
+            const old = owner.customPortPaths;
+            if (!old || typeof old !== 'object') return;
+            if (typeof this.mirrorSourceOf === 'function' && this.mirrorSourceOf(owner)) return;
+            const custom = this.isCustomFlow(owner);
+            const ovr = custom ? [] : this.getOverrideNums(owner, 'data');
+            const live = n => custom || ovr.includes(n);
+            const trimmed = {};
+            let cut = 0;
+            Object.keys(old).forEach(k => {
+                const path = old[k];
+                if (!Array.isArray(path)) return;
+                const kept = path.filter(e => onWall(owner, e));
+                if (kept.length === path.length) return;
+                trimmed[k] = kept;
+                cut += path.length - kept.length;
+            });
+            const gone = Object.keys(trimmed).map(k => parseInt(k, 10))
+                .filter(n => Number.isFinite(n) && live(n) && trimmed[n].length === 0);
+            if (load) {
+                ovr.forEach(n => {
+                    const path = trimmed[n] || old[n];
+                    if (!gone.includes(n) && !(Array.isArray(path) && path.length)) gone.push(n);
+                });
+            }
+            if (!cut && !gone.length) return;
+            if (this._layerLocked(owner)) {
+                sendClientLog('ports_off_wall_locked', { layerId: owner.id, cut, ports: gone });
+                return;
+            }
+            plans.push({ owner, trimmed, gone: gone.sort((a, b) => a - b), cut, live });
+        });
+        if (!plans.length) return [];
+
+        const closing = plans.some(p => p.gone.length);
+        const pullBefore = (closing && typeof this._pullLiveRowKeys === 'function')
+            ? this._pullLiveRowKeys() : null;
+        const taken = new Set(Array.isArray(this.history) ? this.history : []);
+        const pinsBefore = JSON.stringify(this.project.port_assignments || null,
+            this._snapshotReplacer);
+        plans.forEach(({ owner, trimmed, gone, cut, live }) => {
+            const paths = owner.customPortPaths;
+            Object.keys(trimmed).forEach(k => {
+                const n = parseInt(k, 10);
+                // A drawing left from a custom spell that lost everything
+                // simply goes; a live port that did is closed up below.
+                if (trimmed[k].length || (Number.isFinite(n) && live(n))) paths[k] = trimmed[k];
+                else delete paths[k];
+            });
+            this._closeUpPorts(owner, gone);
+            const ed = this._overrideEditing;
+            if (gone.length && ed && ed.kind === 'data' && ed.layerId === owner.id) {
+                this._overrideEditing = null;
+            }
+            sendClientLog('ports_off_wall_trimmed', {
+                layerId: owner.id, cut, removed: gone, load: !!load,
+            });
+        });
+        if (pullBefore && typeof this._dropPullEditsGoneWith === 'function') {
+            this._dropPullEditsGoneWith(pullBefore);
+        }
+
+        // The cards follow, one screen after another; every undo step taken
+        // since (the shrink's own, or a load's first) carries the moved pins.
+        let chain = Promise.resolve(false);
+        plans.filter(p => p.gone.length).forEach(({ owner, gone }) => {
+            chain = chain.then(moved => this._closeUpPortPins(owner, gone)
+                .then(m => moved || m, () => moved));
+        });
+        chain.then(moved => { if (moved) this._followPinsIntoHistory(pinsBefore, taken); });
+
+        const said = plans.filter(p => p.gone.length);
+        if (said.length && typeof this._toast === 'function') {
+            this._toast(said.map(({ owner, gone }) => {
+                const one = gone.length === 1;
+                return `${owner.name || 'Screen'}: port${one ? '' : 's'} ${this._portNumbersText(gone)} `
+                    + (load ? 'had no cabinets on the wall' : 'had only cabinets that came off the wall')
+                    + `, so ${one ? 'it is' : 'they are'} gone and the ports after moved up.`;
+            }).join(' '), false, 8000);
+        }
+        return plans.map(p => p.owner);
+    }
+
+    // Pins the server moved after undo steps were already taken: each step
+    // taken since (not among `taken`, the steps there were before) that
+    // still holds the pins as they were (`before`, serialized the way a
+    // step is) takes the pins as they are now.
+    _followPinsIntoHistory(before, taken) {
+        if (!Array.isArray(this.history) || !this.project) return;
+        const now = JSON.stringify(this.project.port_assignments || null, this._snapshotReplacer);
+        if (now === before) return;
+        this.history.forEach(entry => {
+            if (!entry || !entry.project || taken.has(entry)) return;
+            if (JSON.stringify(entry.project.port_assignments || null, this._snapshotReplacer) !== before) return;
+            entry.project.port_assignments = JSON.parse(now);
+        });
     }
 
     // The open session, or null. One that undo has walked back past its
