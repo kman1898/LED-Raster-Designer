@@ -321,6 +321,15 @@ def test_whats_new_never_carries_on_from_an_entry_it_did_not_reach(page):
     picked = [keys[0], keys[-1]]
     assert picked[-1] == 'serviceDistro', picked
     page.evaluate("""() => {
+        window.__warns = [];
+        if (!window.__warnWrapped) {
+            window.__warnWrapped = true;
+            const w = console.warn;
+            console.warn = function (...a) {
+                try { window.__warns.push(a.map(x => x && x.message ? x.message : String(x)).join(' ').slice(0, 300)); } catch (e) {}
+                return w.apply(this, a);
+            };
+        }
         const st = window.QuickStart.steps();
         window.__qsTitle = st.cabinetSize.title;
         st.cabinetSize.title += ' (changed)';
@@ -338,7 +347,7 @@ def test_whats_new_never_carries_on_from_an_entry_it_did_not_reach(page):
         assert st['state'] == 'done', st      # Cable stock needs no distro
         page.locator('#qs-next').click()
         st = _wait_step(page, 1, timeout=300)
-        assert st['state'] == 'done' and not st['fail'], st
+        assert st['state'] == 'done' and not st['fail'], (st, page.evaluate("window.__warns"))
     finally:
         _end(page)
         page.evaluate("""() => { const st = window.QuickStart.steps();
