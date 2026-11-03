@@ -94,6 +94,10 @@ class _PortAssignment {
         // cabinets cover, so where any processor has one every screen sends
         // its portRects (and its ULL, which lowers an SX40's canvas).
         const canvas = this._canvasInPlay();
+        // The screens of a mirror (either end) send their shape, which the
+        // server checks the match on (app-mirror-screens _mirrorShape).
+        const paired = typeof this._mirrorPairIds === 'function'
+            ? this._mirrorPairIds() : null;
         let owners = null;
         const ownerOf = (panel) => {
             if (!owners) {
@@ -125,6 +129,9 @@ class _PortAssignment {
                 if (l.dataMirrorOf !== undefined && l.dataMirrorOf !== null
                         && l.dataMirrorOf !== '') {
                     scr.mirrorOf = String(l.dataMirrorOf);
+                }
+                if (paired && paired.has(String(l.id))) {
+                    scr.mirrorShape = this._mirrorShape(l);
                 }
                 if (capped && ports > 0) {
                     Object.assign(scr, this._linkCapFields(l, ports));
@@ -369,6 +376,8 @@ class _PortAssignment {
         if (typeof this._canvasKeepBase === 'function') this._canvasKeepBase();
         this._indexAssignmentLabels();
         this.renderPortAssignmentPanel();
+        // A mirror an edit just broke is said once (app-mirror-screens).
+        if (typeof this._noteMirrorBreaks === 'function') this._noteMirrorBreaks();
         // The Processors panel only needs redrawing when what is ON its ports
         // changed, which is why this is compared rather than simply redrawn.
         // That panel is rebuilt wholesale, so redrawing it on every resolve

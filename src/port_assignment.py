@@ -1186,7 +1186,70 @@ def _cabinet_marks(layer):
     return out
 
 
-def mirror_mismatch(source, mirror):
+_MIRROR_HALVES = ('halfFirstColumn', 'halfLastColumn', 'halfFirstRow',
+                  'halfLastRow')
+
+
+def _crosses_screens(layer):
+    """Whether a run drawn on `layer` crosses onto another screen's
+    cabinets (a customPortPaths entry naming another layer)."""
+    paths = (layer or {}).get('customPortPaths')
+    for entries in (paths.values() if isinstance(paths, dict) else []):
+        for e in entries or []:
+            if isinstance(e, dict) and e.get('layerId') not in (None, '') \
+                    and str(e.get('layerId')) != str(layer.get('id')):
+                return True
+    return False
+
+
+def mirror_shape(layer):
+    """What mirror_mismatch compares, off a layer: columns x rows, the
+    pixels per cabinet, the half-tile edges, the cabinets that walk
+    differently (_cabinet_marks) and whether a custom run crosses onto
+    another screen. The client sends the same thing (`mirrorShape`, for a
+    screen that is a mirror or is mirrored - app-mirror-screens
+    _mirrorShape) with every resolve, so a resize is checked against the
+    screens as the person sees them, not a layer PUT still on its way."""
+    a = layer or {}
+    return {
+        'columns': _num(a.get('columns')),
+        'rows': _num(a.get('rows')),
+        'cabinet_width': _num(a.get('cabinet_width')),
+        'cabinet_height': _num(a.get('cabinet_height')),
+        'halves': tuple(bool(a.get(k)) for k in _MIRROR_HALVES),
+        'marks': _cabinet_marks(a),
+        'crossRuns': _crosses_screens(a),
+    }
+
+
+def clean_mirror_shape(value):
+    """A payload's `mirrorShape` as mirror_shape returns one, or None where
+    it is missing or not that shape (the stored layer is read instead)."""
+    if not isinstance(value, dict):
+        return None
+    halves = value.get('halves')
+    marks = value.get('marks')
+    if not isinstance(halves, list) or len(halves) != len(_MIRROR_HALVES) \
+            or not isinstance(marks, list):
+        return None
+    out = set()
+    for m in marks:
+        if not isinstance(m, list) or len(m) != 5:
+            return None
+        row, col, blank, hidden, half = m
+        out.add((row, col, bool(blank), bool(hidden), half or 'none'))
+    return {
+        'columns': _num(value.get('columns')),
+        'rows': _num(value.get('rows')),
+        'cabinet_width': _num(value.get('cabinetWidth')),
+        'cabinet_height': _num(value.get('cabinetHeight')),
+        'halves': tuple(bool(h) for h in halves),
+        'marks': out,
+        'crossRuns': bool(value.get('crossRuns')),
+    }
+
+
+def mirror_mismatch(source, mirror, shapes=None):
     """Why `mirror` (a layer) cannot copy `source` cabinet for cabinet, or
     None. Owner, 2026-11-01, the match rule: the same columns x rows, the
     same pixels per cabinet (cabinet_width x cabinet_height px), and the
@@ -1194,40 +1257,33 @@ def mirror_mismatch(source, mirror):
     differently (blank, hidden, half tiles) sit in the same places, or the
     copied port map would land on cabinets that are not there. The panel's
     physical size is NOT part of it: "they could be differing panel types
-    but be the same pixel density per panel." """
-    a = source or {}
-    b = mirror or {}
-    a_name = a.get('name') or f'Screen {a.get("id")}'
-    b_name = b.get('name') or f'Screen {b.get("id")}'
-    tail = 'a mirror screen must match the screen it copies.'
-    if (_num(a.get('columns')), _num(a.get('rows'))) \
-            != (_num(b.get('columns')), _num(b.get('rows'))):
-        return (f'{b_name} is {_num(b.get("columns"))} x '
-                f'{_num(b.get("rows"))} cabinets and {a_name} is '
-                f'{_num(a.get("columns"))} x {_num(a.get("rows"))} - {tail}')
-    if (_num(a.get('cabinet_width')), _num(a.get('cabinet_height'))) \
-            != (_num(b.get('cabinet_width')), _num(b.get('cabinet_height'))):
-        return (f'{b_name}\'s cabinets are {_num(b.get("cabinet_width"))} x '
-                f'{_num(b.get("cabinet_height"))} px and {a_name}\'s are '
-                f'{_num(a.get("cabinet_width"))} x '
-                f'{_num(a.get("cabinet_height"))} px - {tail}')
-    halves = ('halfFirstColumn', 'halfLastColumn', 'halfFirstRow',
-              'halfLastRow')
-    if any(bool(a.get(k)) != bool(b.get(k)) for k in halves) \
-            or _cabinet_marks(a) != _cabinet_marks(b):
+    but be the same pixel density per panel."
+
+    `shapes` is (source shape, mirror shape) where the client sent them
+    (clean_mirror_shape); a None in it reads that layer's own."""
+    a_shape, b_shape = shapes or (None, None)
+    a = a_shape or mirror_shape(source)
+    b = b_shape or mirror_shape(mirror)
+    a_name = (source or {}).get('name') or f'Screen {(source or {}).get("id")}'
+    b_name = (mirror or {}).get('name') or f'Screen {(mirror or {}).get("id")}'
+    tail = 'A mirror screen must match the screen it copies.'
+    if (a['columns'], a['rows']) != (b['columns'], b['rows']):
+        return (f'{b_name} is {b["columns"]} x {b["rows"]} cabinets and '
+                f'{a_name} is {a["columns"]} x {a["rows"]}. {tail}')
+    if (a['cabinet_width'], a['cabinet_height']) \
+            != (b['cabinet_width'], b['cabinet_height']):
+        return (f'{b_name}\'s cabinets are {b["cabinet_width"]} x '
+                f'{b["cabinet_height"]} px and {a_name}\'s are '
+                f'{a["cabinet_width"]} x {a["cabinet_height"]} px. {tail}')
+    if a['halves'] != b['halves'] or a['marks'] != b['marks']:
         return (f'{b_name} and {a_name} have different blank, hidden or '
                 f'half cabinets, so their ports would not run in the same '
-                f'order - {tail}')
+                f'order. {tail}')
     # A run drawn across onto another screen's cabinets is not a map the
     # mirror can copy cabinet for cabinet.
-    for entries in ((a.get('customPortPaths') or {}).values()
-                    if isinstance(a.get('customPortPaths'), dict) else []):
-        for e in entries or []:
-            if isinstance(e, dict) and e.get('layerId') not in (None, '') \
-                    and str(e.get('layerId')) != str(a.get('id')):
-                return (f'{a_name}\'s custom runs cross onto another '
-                        f'screen - a mirror screen copies a screen whose '
-                        f'runs stay on it.')
+    if a['crossRuns']:
+        return (f'{a_name}\'s custom runs cross onto another screen. A '
+                f'mirror screen copies a screen whose runs stay on it.')
     return None
 
 

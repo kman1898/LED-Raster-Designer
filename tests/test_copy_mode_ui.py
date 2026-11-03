@@ -179,7 +179,7 @@ def test_a_mismatched_second_screen_is_refused_with_the_reason(page):
     assert out['pill'] == {'ok': True, 'text': 'Copy of SL'}
     toasts = pg.evaluate(TOASTS_JS)
     assert any(t['err'] and t['msg'] == (
-        'WIDE is 5 x 3 cabinets and SL is 4 x 3 - a mirror screen must '
+        'WIDE is 5 x 3 cabinets and SL is 4 x 3. A mirror screen must '
         'match the screen it copies.') for t in toasts), toasts
     assert out['mirrorOf'] is None
     # refused means nothing changed: WIDE took no ports of its own either
@@ -283,6 +283,129 @@ def test_the_pull_sheet_and_the_box_show_the_mirrors_runs(page):
     assert out['sr'] == [out['title'], out['title']], out
     assert out['sl'][0] != out['title']
     assert out['taken']['taken'] == 2, out
+    assert errors == []
+
+
+# The mirror's state as the tray reads it: the mismatch issue (if any) and
+# where SR's ports landed.
+MIRROR_STATE_JS = """(ids) => {
+    const app = window.app;
+    const issue = (app._assignment.issues || [])
+        .find(i => i.kind === 'mirror-mismatch'
+            && i.layerId === String(ids.sr));
+    const scr = app._assignment.screens
+        .find(s => s.layerId === String(ids.sr));
+    return {issue: issue ? issue.message : null,
+            ports: scr ? scr.ports.map(p => p.cardId ? p.port : null) : null,
+            strip: (document.getElementById('hw-dock-issues') || {})
+                .innerText || ''};
+}"""
+
+
+def _type_field(pg, layer_id, field, value):
+    """Type a Screen Info field of one screen, as a person does: select
+    it, the Pixel Map tab, the field, the value, Enter; back to Data."""
+    pg.evaluate(SELECT_JS, layer_id)
+    pg.locator('[data-mode="pixel-map"]').click()
+    pg.wait_for_timeout(200)
+    box = pg.locator(field)
+    box.scroll_into_view_if_needed()
+    box.click(click_count=3)
+    pg.keyboard.type(str(value))
+    pg.keyboard.press('Enter')
+    pg.wait_for_timeout(300)
+    pg.locator('[data-mode="data-flow"]').click()
+
+
+def _wait_mirror(pg, ids, broken):
+    pg.wait_for_function("""([ids, broken]) => {
+        const i = (window.app._assignment.issues || []).some(x =>
+            x.kind === 'mirror-mismatch' && x.layerId === String(ids.sr));
+        return i === broken;
+    }""", arg=[ids, broken], timeout=8000)
+    pg.wait_for_timeout(300)
+    return pg.evaluate(MIRROR_STATE_JS, ids)
+
+
+@pytest.mark.parametrize('layer,field,value,back,said', [
+    ('sr', '#screen-columns', 5, 4,
+     'SR is 5 x 3 cabinets and SL is 4 x 3. A mirror screen must match '
+     'the screen it copies. SR is not mirroring until they match again.'),
+    ('sl', '#cabinet-width', 300, 256,
+     "SR's cabinets are 256 x 256 px and SL's are 300 x 256 px. A mirror "
+     "screen must match the screen it copies. SR is not mirroring until "
+     "they match again."),
+])
+def test_a_resize_after_the_mirror_is_made_is_checked(page, layer, field,
+                                                      value, back, said):
+    """1.6.0 QA: a mirror was checked only when it was made. A resize of
+    either screen that kept the port count (SR to 5 columns still needs 2
+    ports) was taken silently, the copy kept its runs, and putting the
+    size back could leave the old warning standing. Now the resize breaks
+    the mirror out loud - an error naming both screens and why - the tray
+    holds the warning and SR's ports come off the copy outputs; the size
+    put back mirrors again and the warning goes, with nothing said."""
+    pg, ids, errors = page
+    ok = pg.evaluate(MIRROR_STATE_JS, ids)
+    assert ok['issue'] is None and ok['ports'] == [17, 18], ok
+    pg.evaluate(TOASTS_JS)
+    _type_field(pg, ids[layer], field, value)
+    out = _wait_mirror(pg, ids, True)
+    assert out['issue'] == said, out
+    assert out['ports'] == [None, None], out
+    assert said in out['strip'], out
+    toasts = pg.evaluate(TOASTS_JS)
+    assert [t['msg'] for t in toasts if t['err']] == [said], toasts
+    _type_field(pg, ids[layer], field, back)
+    out = _wait_mirror(pg, ids, False)
+    assert out['issue'] is None and out['ports'] == [17, 18], out
+    assert 'not mirroring' not in out['strip'], out
+    assert [t for t in pg.evaluate(TOASTS_JS) if t['err']] == []
+    assert errors == []
+
+
+def test_a_blank_cabinet_on_one_end_breaks_the_mirror(page):
+    """A cabinet made blank on the mirror alone (the port count unchanged)
+    walks its ports differently, and is checked as the resize is."""
+    pg, ids, errors = page
+    pg.evaluate(TOASTS_JS)
+    blank = """async ([id, on]) => {
+        const app = window.app;
+        const layer = app.project.layers.find(l => l.id === id);
+        app.selectLayer(layer);
+        const p = layer.panels.find(x => x.row === 0 && x.col === 3);
+        await app.setPanelsBlankBulk([p], on);
+    }"""
+    pg.evaluate(blank, [ids['sr'], True])
+    out = _wait_mirror(pg, ids, True)
+    assert out['issue'].startswith('SR and SL have different blank, hidden '
+                                   'or half cabinets'), out
+    assert any(t['err'] for t in pg.evaluate(TOASTS_JS))
+    pg.evaluate(blank, [ids['sr'], False])
+    out = _wait_mirror(pg, ids, False)
+    assert out['ports'] == [17, 18], out
+    assert errors == []
+
+
+def test_an_edit_that_cannot_break_a_mirror_asks_the_server_nothing(page):
+    """The shape rides only with the screens of a mirror, and only its
+    match inputs are in it: a colour change on the mirror re-resolves
+    nothing."""
+    pg, ids, errors = page
+    calls = []
+    hook = lambda r: calls.append(r.url) if 'port-assignments' in r.url else None
+    pg.on('request', hook)
+    try:
+        pg.evaluate("""(id) => {
+            const app = window.app;
+            const l = app.project.layers.find(x => x.id === id);
+            l.primaryColor = '#123456';
+            app.updateUI();
+        }""", ids['sr'])
+        pg.wait_for_timeout(600)
+    finally:
+        pg.remove_listener('request', hook)
+    assert calls == []
     assert errors == []
 
 

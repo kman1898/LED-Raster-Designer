@@ -83,6 +83,78 @@ class _MirrorScreens {
         return src;
     }
 
+    // The ids of every screen that is a mirror or is mirrored, as strings.
+    _mirrorPairIds() {
+        const ids = new Set();
+        ((this.project && this.project.layers) || []).forEach(l => {
+            if (l.dataMirrorOf === undefined || l.dataMirrorOf === null
+                    || l.dataMirrorOf === '') return;
+            ids.add(String(l.id));
+            ids.add(String(l.dataMirrorOf));
+        });
+        return ids;
+    }
+
+    // What the server's match rule compares (port_assignment.mirror_shape):
+    // columns x rows, the pixels per cabinet, the half-tile edges, the
+    // cabinets that walk differently (blank, hidden, half tiles, by row and
+    // column) and whether a custom run crosses onto another screen. Sent
+    // with the resolve for the screens of a mirror only (_assignmentScreens),
+    // so it is also in the panel's key: a resize of either screen re-runs
+    // the check (1.6.0 QA - it ran only when the mirror was made, and a
+    // later resize was taken silently), and no other edit asks the server
+    // anything new.
+    _mirrorShape(layer) {
+        const marks = [];
+        (layer.panels || []).forEach(p => {
+            if (!p) return;
+            const half = p.halfTile || 'none';
+            if (!p.blank && !p.hidden && half === 'none') return;
+            marks.push([p.row, p.col, !!p.blank, !!p.hidden, half]);
+        });
+        marks.sort((x, y) => (x[0] - y[0]) || (x[1] - y[1]));
+        const paths = layer.customPortPaths;
+        const crossRuns = !!paths && typeof paths === 'object'
+            && Object.values(paths).some(entries => (entries || []).some(e =>
+                e && e.layerId !== undefined && e.layerId !== null
+                && e.layerId !== '' && String(e.layerId) !== String(layer.id)));
+        return {
+            columns: layer.columns, rows: layer.rows,
+            cabinetWidth: layer.cabinet_width, cabinetHeight: layer.cabinet_height,
+            halves: ['halfFirstColumn', 'halfLastColumn', 'halfFirstRow',
+                     'halfLastRow'].map(k => !!layer[k]),
+            marks,
+            crossRuns,
+        };
+    }
+
+    // A mirror that an edit broke (its screens stopped matching) is said
+    // once, out loud, in the server's words: which screens and why. The
+    // resolution's 'mirror-mismatch' issue is the standing warning in the
+    // tray, and it goes when the screens match again. Nothing is said for
+    // the first resolution of a project (a file opened, an undo or redo):
+    // that is not an edit breaking it, and the tray already shows it.
+    _noteMirrorBreaks() {
+        const issues = ((this._assignment && this._assignment.issues) || [])
+            .filter(i => i && i.kind === 'mirror-mismatch');
+        const now = new Set(issues.map(i => String(i.layerId)));
+        const before = this._mirrorBrokenIds;
+        const sameProject = this._mirrorBrokenProject === this.project;
+        this._mirrorBrokenIds = now;
+        this._mirrorBrokenProject = this.project;
+        if (!before || !sameProject) return [];
+        const fresh = issues.filter(i => !before.has(String(i.layerId)));
+        if (!fresh.length) return [];
+        if (typeof this._toast === 'function') {
+            this._toast(fresh.map(i => i.message).join(' '), true, 8000);
+        }
+        sendClientLog('mirror_screen_mismatched', {
+            layerIds: fresh.map(i => i.layerId),
+            messages: fresh.map(i => i.message),
+        });
+        return fresh;
+    }
+
     // Copy the source's data map onto every mirror (MIRROR_DATA_FIELDS),
     // and PUT the mirrors that changed. Called from saveState, so the
     // snapshot, the save and the canvas all carry the copied map. Returns

@@ -684,7 +684,7 @@ def test_a_size_pixel_or_port_order_mismatch_is_refused(client, change,
     body = set_mirror(client, b, a, 409)
     assert body['error'].startswith(needle), body['error']
     assert body['error'].endswith(
-        'a mirror screen must match the screen it copies.')
+        'A mirror screen must match the screen it copies.')
     assert 'dataMirrorOf' not in _layer(client, b)
 
 
@@ -742,6 +742,44 @@ def test_a_resize_after_the_mirror_is_set_is_flagged_not_followed(client):
     assert flag[0]['message'].startswith('SR is 4 x 3 cabinets and SL is '
                                          '6 x 3')
     assert scr_of(res, b)['unplaced'] == [0, 1, 2]
+
+
+def _shape(columns=4, rows=3, px=128, marks=()):
+    return {'columns': columns, 'rows': rows, 'cabinetWidth': px,
+            'cabinetHeight': px, 'halves': [False] * 4,
+            'marks': [list(m) for m in marks], 'crossRuns': False}
+
+
+def test_the_clients_shape_is_checked_not_the_stored_layer(client):
+    """1.6.0 QA: a resize that kept the port count was never checked. The
+    client now sends each mirror screen's shape (`mirrorShape`) with the
+    resolve, and that is what the match rule reads - the layer PUT of the
+    resize may not have landed yet."""
+    pid, cid, a, b, screens = mirror_rig(client)
+    set_mirror(client, b, a)
+    sent = [dict(screens[0], mirrorShape=_shape()),
+            dict(screens[1], mirrorShape=_shape(columns=5))]
+    res = resolve(client, sent)
+    flag = [i for i in res['issues'] if i['kind'] == 'mirror-mismatch']
+    assert [f['message'] for f in flag] == [
+        'SR is 5 x 3 cabinets and SL is 4 x 3. A mirror screen must match '
+        'the screen it copies. SR is not mirroring until they match again.']
+    assert scr_of(res, b)['unplaced'] == [0, 1, 2]
+    # a blank cabinet on one end only, the sizes equal
+    sent[1]['mirrorShape'] = _shape(marks=[(0, 3, True, True, 'none')])
+    flag = [i for i in resolve(client, sent)['issues']
+            if i['kind'] == 'mirror-mismatch']
+    assert flag and 'different blank, hidden or half' in flag[0]['message']
+    # matching shapes: mirrored again, the warning gone
+    sent[1]['mirrorShape'] = _shape()
+    res = resolve(client, sent)
+    assert not [i for i in res['issues'] if i['kind'] == 'mirror-mismatch']
+    assert [p['port'] for p in scr_of(res, b)['ports']] == [17, 18, 19]
+    # a shape that is not one is ignored: the stored layers decide
+    sent[1]['mirrorShape'] = {'columns': 9}
+    assert assignment.clean_mirror_shape(sent[1]['mirrorShape']) is None
+    res = resolve(client, sent)
+    assert not [i for i in res['issues'] if i['kind'] == 'mirror-mismatch']
 
 
 def test_a_one_to_one_partner_in_copy_mode_backs_up_the_mirror(client):
