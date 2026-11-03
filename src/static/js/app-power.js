@@ -5465,10 +5465,15 @@ class _Power {
     // the amps - a custom screen's, or a file's older group past them, the
     // soca `over` convention flags); a split-pinned run is its own circuit
     // and a boundary.
+    // `apart(a, b)` (run indices, optional) says another circuit sits
+    // between two runs: the automatic walk passes it so a 2fer / 3fer never
+    // jumps over a redrawn circuit (the owner's ruling, 2026-11-03 - see
+    // calculatePowerAssignments' `apart`). The run stays a circuit of its
+    // own and the next circuit starts there.
     // Returns { circuits, runs, runIds } index-aligned: circuits[i] is the
     // concatenated panels, runs[i] the per-branch panel counts, runIds[i]
     // the run ordinals ganged into that circuit.
-    _packPowerRuns(runs, wattsPerCircuit, maxWays, manual) {
+    _packPowerRuns(runs, wattsPerCircuit, maxWays, manual, apart = null) {
         const N = runs.length;
         const groupOf = new Map();
         ((manual && manual.merge) || []).forEach(g =>
@@ -5493,6 +5498,7 @@ class _Power {
                     if (members.length >= maxWays) break;
                     if (groupOf.has(nid) || splitSet.has(nid)) break;
                     if (load + runs[j].load > wattsPerCircuit) break;
+                    if (apart && apart(members[members.length - 1] - 1, j)) break;
                     members.push(nid);
                     load += runs[j].load;
                 }
@@ -5975,6 +5981,35 @@ class _Power {
                 units.push(unit);
             }
             const anyCut = units.some(u => u.pieces);
+            // SIDE BY SIDE ONLY (the owner's ruling, 2026-11-03). Once a
+            // circuit is redrawn, the cabinets it took are out of the walk,
+            // and two runs either side of it read as neighbours: a column
+            // left over before a redrawn 2fer was ganged with the column
+            // after it, a 2fer whose cable jumped the other circuit and
+            // whose disc landed on that circuit's. "All circuits cabling
+            // should move to the left": the automatic circuits after a
+            // redraw pack from the first free line, side by side, and a
+            // share or a daisy never reaches over a line a redrawn circuit
+            // holds. `claimedLines` are the lines (rows, or columns on a
+            // vertical-first pattern) with a cabinet on an override;
+            // `apart(a, b)` is true when one lies between units a and b
+            // (indices into `units`). A blank or hidden line is no circuit
+            // and parts nothing. Empty without overrides: every walk below
+            // is the one it always was.
+            const lineOf = (p) => (isHorizontalFirst ? rowOfPanel(p) : colOfPanel(p));
+            const claimedLines = new Set();
+            if (claimed.size) {
+                (plan ? plan.ordered.map(c => c.panel) : layer.panels).forEach(p => {
+                    if (p && !p.hidden && !p.blank && claimed.has(p)) claimedLines.add(lineOf(p));
+                });
+            }
+            const unitsApart = (a, b) => {
+                if (!claimedLines.size || a === b) return false;
+                const lo = Math.min(units[a].idx, units[b].idx);
+                const hi = Math.max(units[a].idx, units[b].idx);
+                for (let k = lo + 1; k < hi; k++) if (claimedLines.has(k)) return true;
+                return false;
+            };
             // STACKS. Read across the lines instead of along them: inside
             // every unbroken stretch of cut units, each unit's first piece,
             // then each unit's second, and so on; anything that is not a
@@ -6045,8 +6080,10 @@ class _Power {
                 const sigOf = () => this._keptShareSig(
                     layer, pattern, runs, splitters.maxWays, manual, layerOfPanel);
                 const kept = this._keptShares(layer, runs.length, sigOf);
+                const apart = claimedLines.size
+                    ? (a, b) => unitsApart(runs[a].at[0], runs[b].at[0]) : null;
                 const packed = kept ? this._packKeptRuns(runs, kept) : this._packPowerRuns(
-                    runs, wattsPerCircuit, splitters.maxWays, manual);
+                    runs, wattsPerCircuit, splitters.maxWays, manual, apart);
                 if (this._keptShareProbe) {
                     this._keptShareProbe.set(layer, { sig: sigOf(), runIds: packed.runIds });
                 }
@@ -6072,13 +6109,13 @@ class _Power {
             // pieces is a circuit of its own (a piece joining the next unit
             // would wrap onto the next row).
             const items = [];
-            let current = { unitIndices: [], load: 0, at: null };
+            let current = { unitIndices: [], load: 0, at: null, last: null };
             const flush = () => {
                 if (current.unitIndices.length > 0) {
                     circuits.push(walkOf(current.unitIndices));
                     items.push({ at: current.at, piece: false });
                 }
-                current = { unitIndices: [], load: 0, at: null };
+                current = { unitIndices: [], load: 0, at: null, last: null };
             };
             units.forEach((u, k) => {
                 if (u.pieces) {
@@ -6090,7 +6127,10 @@ class _Power {
                     return;
                 }
                 if (current.load > 0 && current.load + u.load > wattsPerCircuit) flush();
+                // never a daisy over a redrawn circuit's line (unitsApart)
+                if (current.last !== null && unitsApart(current.last, k)) flush();
                 if (current.unitIndices.length === 0) current.at = [k, 0];
+                current.last = k;
                 current.unitIndices.push(u.idx);
                 current.load += u.load;
             });

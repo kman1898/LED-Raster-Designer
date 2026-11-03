@@ -457,6 +457,9 @@ class _RunOverrides {
             ? this.isCustomPower(owner) : this.isCustomFlow(owner);
         // The hold of the redraw open until now, read while it is still live.
         const prevHold = this._overrideHoldLive();
+        // The power redraw open until now ends here when this is another
+        // circuit (_dropUnchangedRedraw, below).
+        const prevEdit = this._overrideEditing;
         this._overrideEditing = wholeCustom
             ? null : { layerId: owner.id, kind, num };
         // A data port on an automatic screen holds its cabinets while it is
@@ -475,6 +478,10 @@ class _RunOverrides {
             this.saveState(label);
             this.saveClientSideProperties();
             this.updateLayers(this._pathPersistLayers(owner));
+        }
+        if (prevEdit && prevEdit.kind === 'power'
+                && !(kind === 'power' && prevEdit.layerId === owner.id && prevEdit.num === num)) {
+            this._dropUnchangedRedraw(prevEdit);
         }
         if (kind === 'power') {
             this.updatePowerCapacityDisplay();
@@ -497,7 +504,8 @@ class _RunOverrides {
             return;
         }
         if (!this._overrideEditing) return;
-        const wasPower = this._overrideEditing.kind === 'power';
+        const ended = this._overrideEditing;
+        const wasPower = ended.kind === 'power';
         const hold = this._overrideHoldLive();
         this._overrideEditing = null;
         // The cabinets the redraw held and left undrawn go back to the
@@ -505,12 +513,131 @@ class _RunOverrides {
         if (hold) this._endOverrideHold(hold);
         if (wasPower) {
             if (this.powerCustomSelection) this.powerCustomSelection.clear();
+            // a redraw that changed nothing goes back to the walk
+            this._dropUnchangedRedraw(ended);
             this.updateCustomPowerUI();
         } else {
             if (this.customSelection) this.customSelection.clear();
             this.updateCustomFlowUI();
         }
         if (window.canvasRenderer) window.canvasRenderer.render();
+    }
+
+    // -- A circuit redrawn without a change (the owner's ruling, 2026-11-03)
+    //
+    // Taking a circuit over seeds its path with the cabinets it carries
+    // (overrideRun), so a redraw that ends with exactly those - nothing
+    // drawn, or Apply Pattern laying the same runs back down - used to
+    // stay an override all the same, frozen where it was. A later redraw
+    // that shrank the circuit before it then could not slide it left
+    // (calculatePowerAssignments' `apart`): "i redrew ports so s1-1 is a
+    // twofer and s1-2 is a single column. so column 4-5 should become a
+    // twofer" - and the frozen one held 5-6. A power redraw that ends
+    // unchanged goes back to the walk: Esc, a tab switch, or a redraw of
+    // another circuit (_activateRunForEdit) ends it.
+    //
+    // "Unchanged" is the walk's own answer (_powerOverrideIsWalk): the
+    // circuit the automatic walk puts under that number without the
+    // override - the same cabinets in the same order and the same runs.
+    // Letting it go then changes no circuit, so nothing else moves; it
+    // just stops holding its place. A show saved before this rule has its
+    // unchanged redraws let go as it opens (dropUnchangedRedrawsOnOpen).
+
+    // Is `owner`'s taken-over circuit `num` exactly what the automatic
+    // walk gives that number? `pristine` asks the walk with no circuit
+    // taken over at all - the walk the redraw was made on when it came
+    // first (the open's repair of an older show).
+    _powerOverrideIsWalk(owner, num, { pristine = false } = {}) {
+        if (!owner || !this.isRunOverridden(owner, 'power', num)) return false;
+        const own = this._ownOverrideRuns(owner, 'power').find(o => o.num === num);
+        if (!own) return false;
+        const had = owner.powerCustomOverrides;
+        let res;
+        try {
+            owner.powerCustomOverrides = pristine
+                ? [] : this.getOverrideNums(owner, 'power').filter(n => n !== num);
+            res = this.calculatePowerAssignments(owner) || {};
+        } finally {
+            owner.powerCustomOverrides = had;
+        }
+        if (res.error || !Array.isArray(res.circuits)) return false;
+        const idx = Array.isArray(res.nums) ? res.nums.indexOf(num) : num - 1;
+        const walk = idx >= 0 ? res.circuits[idx] : null;
+        if (!Array.isArray(walk) || walk.length !== own.hits.length) return false;
+        if (walk.some((p, i) => p !== own.hits[i].panel)) return false;
+        const runs = (res.runs && res.runs[idx]) || [walk.length];
+        const counts = this._overrideRunCounts(own.hits);
+        return runs.length === counts.length && runs.every((n, i) => n === counts[i]);
+    }
+
+    // Let go of `owner`'s taken-over circuit `num`: the override and its
+    // path go and the walk feeds the cabinets again. Model only.
+    _releasePowerOverride(owner, num) {
+        owner.powerCustomOverrides = this.getOverrideNums(owner, 'power').filter(n => n !== num);
+        if (owner.powerCustomPaths) delete owner.powerCustomPaths[num];
+        const s = this._overrideEditing;
+        if (s && s.kind === 'power' && s.layerId === owner.id && s.num === num) {
+            this._overrideEditing = null;
+        }
+    }
+
+    // The power redraw `ended` ({ layerId, kind, num }, the editing state
+    // that just closed): back to the walk when it changed nothing, as one
+    // undo step. True when it was let go.
+    _dropUnchangedRedraw(ended) {
+        if (!ended || ended.kind !== 'power' || !this.project) return false;
+        const owner = (this.project.layers || []).find(l => l && l.id === ended.layerId);
+        if (!owner || this._layerLocked(owner) || this.isCustomPower(owner)) return false;
+        if (!this._powerOverrideIsWalk(owner, ended.num)) return false;
+        this._releasePowerOverride(owner, ended.num);
+        sendClientLog('override_unchanged_released', { layerId: owner.id, num: ended.num });
+        this.saveState('Return Circuit To Auto');
+        this.saveClientSideProperties();
+        this.updateLayers(this._pathPersistLayers(owner));
+        this.updatePowerCapacityDisplay();
+        return true;
+    }
+
+    // The open's repair: every taken-over circuit that is the walk's own
+    // circuit is let go, on every screen that is not locked. `older` (a
+    // show saved before this rule) also lets go of one that is the walk
+    // with no circuit taken over - a redraw made first that changed
+    // nothing, frozen there before a later one shrank the circuit ahead
+    // of it. Returns { layers: the screens changed, notes: the toast's
+    // sentences }.
+    dropUnchangedRedrawsOnOpen(older) {
+        const out = { layers: [], notes: [] };
+        if (!this.project || !Array.isArray(this.project.layers)) return out;
+        this.project.layers.forEach(owner => {
+            if (!owner || (owner.type || 'screen') !== 'screen') return;
+            if (this.isCustomPower(owner) || this._layerLocked(owner)) return;
+            const letGo = [];
+            this.getOverrideNums(owner, 'power').forEach(num => {
+                const same = this._powerOverrideIsWalk(owner, num)
+                    || (older && this._powerOverrideIsWalk(owner, num, { pristine: true }));
+                if (!same) return;
+                this._releasePowerOverride(owner, num);
+                letGo.push(num);
+            });
+            if (!letGo.length) return;
+            out.layers.push(owner);
+            const labels = letGo.map(n => this.getPowerCircuitLabel(owner, n));
+            const one = labels.length === 1;
+            out.notes.push(`${owner.name || 'Screen'}: circuit${one ? '' : 's'} ${labels.join(', ')} `
+                + `${one ? 'was' : 'were'} redrawn without a change and ${one ? 'is' : 'are'} automatic again.`);
+            sendClientLog('override_unchanged_released_on_open',
+                { layerId: owner.id, nums: letGo, older: !!older });
+        });
+        return out;
+    }
+
+    // Was `project` saved before an unchanged redraw went back to the walk
+    // (after 1.6.0-beta.4)? Read off the file's own stamp, before the load
+    // stamps it.
+    redrawsPredateRelease(project = this.project) {
+        if (this.projectPredatesVersion('1.6.0', project)) return true;
+        const m = /^\s*v?1\.6\.0-beta\.(\d+)/.exec(String((project && project.app_version) || ''));
+        return !!m && Number(m[1]) <= 4;
     }
 
     // Hand one overridden run back to the automatic walk: the override and

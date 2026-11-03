@@ -230,6 +230,11 @@ class _ProjectIo {
             // stamp below, and again on the server's copy.
             const olderShares = this.olderShowKeepsShares(this.project);
             if (olderShares) this.keepOlderShowShares();
+            // A show saved before an unchanged redraw went back to
+            // the walk (app-run-overrides dropUnchangedRedrawsOnOpen),
+            // read off the same stamp.
+            const olderRedraws = typeof this.redrawsPredateRelease === 'function'
+                && this.redrawsPredateRelease(this.project);
             // The migrations above have run against the file's
             // own stamp; from here the project is this build's.
             // Stamped BEFORE the PUT below, because a load never
@@ -309,6 +314,15 @@ class _ProjectIo {
                     // the server's copy, so the cards follow.
                     if (typeof this.trimPortsOffWall === 'function') {
                         this.trimPortsOffWall({ load: true });
+                    }
+                    // A circuit redrawn without a change goes back to
+                    // the walk, so the circuits after a shrunk one
+                    // slide left (app-run-overrides).
+                    if (typeof this.dropUnchangedRedrawsOnOpen === 'function') {
+                        const freed = this.dropUnchangedRedrawsOnOpen(olderRedraws);
+                        if (freed.notes.length && typeof this._toast === 'function') {
+                            this._toast(freed.notes.join(' '), false, 8000);
+                        }
                     }
                     // Sync the canvas's pixel/show raster backing fields from the
                     // loaded project so Show Look picks up the file's values
