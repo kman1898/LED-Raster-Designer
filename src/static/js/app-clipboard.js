@@ -485,21 +485,10 @@ class _Clipboard {
             ? this.selectedWholeGroupFor(layer) : null;
         if (wall) return this.duplicateGroup(wall.id);
 
-        // Smart name incrementing
-        const getNextName = (baseName) => {
-            // Check if name ends with a number
-            const match = baseName.match(/^(.*?)(\d+)$/);
-            
-            if (match) {
-                // Name ends with number (e.g., "Screen1" or "Nvidia12")
-                const base = match[1];
-                const num = parseInt(match[2]);
-                return `${base}${num + 1}`;
-            } else {
-                // Name doesn't end with number (e.g., "Nvidia")
-                return `${baseName} 1`;
-            }
-        };
+        // Smart name incrementing ("Screen1" -> "Screen2", "Nvidia" ->
+        // "Nvidia 1"), stepping past every name already in use
+        // (app-screen-groups.js _nextDuplicateName).
+        const getNextName = (baseName) => this._nextDuplicateName(baseName);
 
         if ((layer.type || 'screen') === 'image') {
             const duplicateData = {
@@ -638,17 +627,8 @@ class _Clipboard {
     pasteLayer() {
         if (!this.clipboard) return;
 
-        // Smart name incrementing (same logic as duplicate)
-        const getNextName = (baseName) => {
-            const match = baseName.match(/^(.*?)(\d+)$/);
-            if (match) {
-                const base = match[1];
-                const num = parseInt(match[2]);
-                return `${base}${num + 1}`;
-            } else {
-                return `${baseName} 1`;
-            }
-        };
+        // Smart name incrementing (same as duplicate: never a name in use)
+        const getNextName = (baseName) => this._nextDuplicateName(baseName);
 
         if ((this.clipboard.type || 'screen') === 'image') {
             const pasteData = {

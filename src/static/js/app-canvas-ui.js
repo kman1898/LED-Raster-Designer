@@ -61,7 +61,7 @@ class _CanvasUi {
             </div>
             <div class="canvas-group-body"></div>
             <div class="canvas-group-footer">
-                <button class="btn btn-secondary canvas-add-btn" title="Add a layer to this canvas">+ Add</button>
+                <button class="btn btn-secondary canvas-add-btn" title="Add a screen, image or text label to this canvas">+ Add</button>
             </div>
         `;
         this._wireCanvasGroupEl(wrap, canvas);
@@ -934,6 +934,41 @@ class _CanvasUi {
         this.setActiveCanvas(targetCid, opts);
     }
 
+    /**
+     * The screen a show opens with selected: the first one on the canvas it
+     * was saved on. Selecting a screen activates its canvas, so picking
+     * layers[0] opened a multi-canvas show on whichever canvas that screen
+     * sat on - and, before the project PUT, asked the server to activate a
+     * canvas only the incoming show has (a 404). A saved canvas with no
+     * screens opens with none selected. A project with no canvases, or one
+     * whose saved canvas is missing, keeps the old first-screen pick.
+     * Returns the screen selected, or null.
+     */
+    _selectOpeningScreen() {
+        const layers = (this.project && Array.isArray(this.project.layers)) ? this.project.layers : [];
+        let pick = null;
+        if (layers.length) {
+            const canvas = this._activeCanvas();
+            if (!canvas || canvas.id !== this.project.active_canvas_id) {
+                pick = layers[0];
+            } else {
+                const isShowView = !!(window.canvasRenderer && window.canvasRenderer.isShowLookView
+                    && window.canvasRenderer.isShowLookView());
+                const cidOf = (l) => (isShowView && l.show_canvas_id) ? l.show_canvas_id : l.canvas_id;
+                pick = layers.find(l => cidOf(l) === canvas.id) || null;
+            }
+        }
+        if (pick) {
+            this.selectLayer(pick);
+        } else {
+            this.currentLayer = null;
+            this.selectedLayerIds = new Set();
+            this.lastSelectedLayerId = null;
+            this.selectionAnchorLayerId = null;
+        }
+        return pick;
+    }
+
     reorderCanvasBeforeTarget(draggedId, targetId) {
         if (!this.project || !this.project.canvases) return;
         const ids = this.project.canvases.map(c => c.id);
@@ -1107,7 +1142,7 @@ class _CanvasUi {
         // No "cannot be undone": undo restores a deleted canvas and its
         // screens (the Delete Canvas history entry is a full snapshot).
         let msg = layerCount > 0
-            ? `Delete canvas '${canvas.name}' and its ${layerCount} layer${plural(layerCount)}?`
+            ? `Delete canvas '${canvas.name}' and its ${layerCount} screen${plural(layerCount)}?`
             : `Delete canvas '${canvas.name}'?`;
         if (kept.length === 0) return msg;
         const targets = [...new Set(kept.map(l => l.show_canvas_id))];

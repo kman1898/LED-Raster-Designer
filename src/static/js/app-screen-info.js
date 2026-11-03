@@ -1325,7 +1325,7 @@ class _ScreenInfo {
             if (ids.length === 0) return;
         }
         if (this.project.layers.length === 1) {
-            alert('Cannot delete the last layer');
+            alert('Cannot delete the last screen');
             return;
         }
         
@@ -2463,8 +2463,38 @@ class _ScreenInfo {
             `${ft(wM)} &times; ${ft(hM)} ft &nbsp;&middot;&nbsp; ${wPx} &times; ${hPx} px`;
     }
 
+    // Screen Info with no screen behind it (a project left empty by the
+    // start-up picker's Cancel, or a selection toggled down to nothing):
+    // its fields read blank and take no typing, rather than show the last
+    // screen's figures and drop whatever is typed into them. Only the
+    // controls this switch turned off are turned back on, so a field
+    // disabled for its own reason stays as it was.
+    _screenInfoNoScreen(on) {
+        const panel = document.querySelector('#left-sidebar .tab-panel[data-tab="pixel-map"]');
+        const content = panel && panel.querySelector('.panel-content');
+        if (!content) return;
+        if (!on && !panel.classList.contains('lrd-no-screen')) return;
+        panel.classList.toggle('lrd-no-screen', !!on);
+        content.querySelectorAll('input, select, textarea, button').forEach(el => {
+            if (on) {
+                if (el.disabled) return;
+                el.disabled = true;
+                el.dataset.lrdNoScreen = '1';
+                const type = String(el.type || '').toLowerCase();
+                if (el.tagName === 'INPUT' && (type === 'text' || type === 'number')) {
+                    el.value = '';
+                    el.placeholder = '';
+                }
+            } else if (el.dataset.lrdNoScreen) {
+                delete el.dataset.lrdNoScreen;
+                el.disabled = false;
+            }
+        });
+    }
+
     loadLayerToInputs() {
         const layers = this.getSelectedLayers();
+        this._screenInfoNoScreen(layers.length === 0);
         if (layers.length === 0) return;
         const primary = this.currentLayer || layers[0];
         // Every read below goes through `primary`, never this.currentLayer:

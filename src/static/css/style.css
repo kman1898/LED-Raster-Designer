@@ -28,6 +28,19 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 .toolbar-actions { flex: 0 0 auto; }
 .toolbar-project { flex: 0 1 auto; }
 #toolbar h1 { font-size: 16px; color: #4A90E2; }
+/* Narrow windows (1.6 QA): below 1120 px the title text gives way to the
+   logo, and the toolbar and the canvas strip wrap onto a second row rather
+   than run on under the Screens panel. The default 1600-wide layout never
+   reaches either query. */
+#toolbar h1 { white-space: nowrap; }
+@media (max-width: 1119px) {
+    #toolbar { height: auto; min-height: 50px; flex-wrap: wrap; row-gap: 6px; padding-top: 6px; padding-bottom: 6px; }
+    #toolbar h1 .lrd-app-title { display: none; }
+    #toolbar h1 .lrd-logo-mark { margin-right: 0 !important; }
+    #project-name { min-width: 120px; }
+    #canvas-controls { flex-wrap: wrap; row-gap: 6px; }
+    #canvas-controls .magnet-toggle { margin-left: 0 !important; }
+}
 #project-name { color: #e0e0e0; font-size: 13px; background: transparent; border: 1px solid transparent; padding: 4px 8px; border-radius: 4px; min-width: 200px; }
 #project-name:hover { background: #1a1a1a; border-color: #3a3a3a; }
 #project-name:focus { background: #1a1a1a; border-color: #4A90E2; outline: none; }
@@ -183,6 +196,11 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
     cursor: pointer;
 }
 .info-row input[type="checkbox"] { width: 18px; height: 18px; }
+/* The Processing select carries the longest processor names
+   ("NovaStar COEX A10s/A8s (1G)"): a tighter arrow gutter, with the Port
+   Capacity box's narrower sides, keeps the whole name readable closed. */
+#processor-type { padding-left: 5px !important; padding-right: 16px !important;
+    background-position: right 5px center !important; }
 .info-row select, .info-select { 
     width: 100%; 
     background: #1a1a1a url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' fill='white'%3E%3Cpath d='M0 0l6 8 6-8H0z'/%3E%3C/svg%3E") no-repeat right 8px center; 

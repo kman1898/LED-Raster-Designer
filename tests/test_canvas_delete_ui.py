@@ -156,7 +156,7 @@ def test_confirm_names_the_one_canvas_the_kept_screens_move_to(page):
     ])
     assert len(out['asked']) == 1, out
     msg = out['asked'][0]
-    assert msg.startswith("Delete canvas 'Canvas 1' and its 1 layer?"), msg
+    assert msg.startswith("Delete canvas 'Canvas 1' and its 1 screen?"), msg
     assert "1 screen shown on 'Canvas 2' will move to that canvas instead." in msg, msg
     assert 'overlap' not in msg, msg
     assert out['canvases'] == ['c1', 'c2'], 'No must not delete'
@@ -208,7 +208,7 @@ def test_confirm_does_not_claim_the_delete_cannot_be_undone(page):
         {'name': 'S2', 'canvas': 'c1', 'x': 600, 'y': 0},
     ])
     msg = out['asked'][0]
-    assert msg == "Delete canvas 'Canvas 1' and its 2 layers?", msg
+    assert msg == "Delete canvas 'Canvas 1' and its 2 screens?", msg
     assert 'cannot be undone' not in msg.lower(), msg
 
 

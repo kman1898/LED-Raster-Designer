@@ -145,6 +145,13 @@ class _Presets {
         this._pickerTargetIds = replace ? [...(opts.layerIds || [])] : [];
         this._setPickerChrome(mode, replace ? (opts.title || 'Change cabinet') : null);
         list.innerHTML = '<div style="padding: 12px; color: #888; font-size: 12px;">Loading…</div>';
+        // Every open starts on the whole library: the last open's search
+        // and manufacturer filter would otherwise greet File > New's pick
+        // with a list cut down to a panel nobody asked for this time.
+        const searchEl = document.getElementById('panel-catalog-search');
+        const mfrSel = document.getElementById('panel-catalog-mfr');
+        if (searchEl) searchEl.value = '';
+        if (mfrSel) mfrSel.value = '';
         modal.style.display = 'block';
         // Selection model: { type: 'preset'|'panel', key }; the "nothing
         // selected" row is the preset key '__default__', and with no such
@@ -1696,7 +1703,7 @@ class _Presets {
     // ── Save-as-Preset Modal ──
     openPresetSaveModal() {
         if (!this.currentLayer || (this.currentLayer.type || 'screen') !== 'screen') {
-            alert('Select a screen layer first to save as a preset.');
+            alert('Select a screen first to save as a preset.');
             return;
         }
         const modal = document.getElementById('preset-save-modal');
@@ -1706,7 +1713,7 @@ class _Presets {
         if (!modal || !nameInput) return;
         nameInput.value = this.currentLayer.name || '';
         warning.textContent = '';
-        if (sublabel) sublabel.textContent = `Saving settings from "${this.currentLayer.name || 'current layer'}".`;
+        if (sublabel) sublabel.textContent = `Saving settings from "${this.currentLayer.name || 'current screen'}".`;
         modal.style.display = 'block';
         setTimeout(() => nameInput.focus(), 50);
         this._presetSaveExistingNames = null;
@@ -1801,7 +1808,7 @@ class _Presets {
         }
         const data = this.serializeLayerAsPreset(this.currentLayer);
         if (!data) {
-            warning.textContent = 'No layer selected.';
+            warning.textContent = 'No screen selected.';
             return;
         }
         this.savePresetToServer(name, data).then(() => {

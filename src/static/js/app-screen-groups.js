@@ -415,12 +415,24 @@ class _ScreenGroups {
         return `Group ${maxN + 1}`;
     }
 
-    // The smart increment duplicateLayer uses, so a duplicated group reads
+    // The smart increment Duplicate and Paste use, so a duplicated group reads
     // like a duplicated screen ("Main Wall" -> "Main Wall 1", "Wall2" -> "Wall3").
-    _nextDuplicateName(baseName) {
-        const match = String(baseName || '').match(/^(.*?)(\d+)$/);
-        if (match) return `${match[1]}${parseInt(match[2], 10) + 1}`;
-        return `${baseName || 'Copy'} 1`;
+    // The name is never one already in use: `taken` is the names to step past
+    // (the project's screen names when left out), compared case-blind, and
+    // the number keeps climbing until it is free - Screen1 duplicated beside
+    // a Screen2 is Screen3, not a second Screen2.
+    _nextDuplicateName(baseName, taken) {
+        const used = new Set();
+        const names = taken || (((this.project || {}).layers) || []).map(l => l && l.name);
+        for (const n of names) if (n != null) used.add(String(n).trim().toLowerCase());
+        const step = (name) => {
+            const match = String(name || '').match(/^(.*?)(\d+)$/);
+            if (match) return `${match[1]}${parseInt(match[2], 10) + 1}`;
+            return `${name || 'Copy'} 1`;
+        };
+        let next = step(baseName);
+        while (used.has(next.trim().toLowerCase())) next = step(next);
+        return next;
     }
 
     // Take a layer out of whatever group holds it, writing both sides.
@@ -1126,7 +1138,7 @@ class _ScreenGroups {
         const remaining = (this.project.layers || []).filter(l => !memberIds.has(l.id));
         if (remaining.length === 0) {
             // Same guard deleteLayer applies: a project keeps at least one layer.
-            alert('Cannot delete the last layer');
+            alert('Cannot delete the last screen');
             return false;
         }
         // A pull-sheet edit on a row that goes with the wall goes too
@@ -1165,10 +1177,13 @@ class _ScreenGroups {
         let nextLayerId = (this.project.layers || [])
             .reduce((max, l) => Math.max(max, Number(l.id) || 0), 0) + 1;
         const newGroupId = this._nextGroupId();
+        // each copy's name steps past the ones the copies before it took
+        const takenNames = (this.project.layers || []).map(l => l && l.name);
         const clones = members.map(src => {
             const clone = JSON.parse(JSON.stringify(src));
             clone.id = nextLayerId++;
-            clone.name = this._nextDuplicateName(src.name);
+            clone.name = this._nextDuplicateName(src.name, takenNames);
+            takenNames.push(clone.name);
             clone.group_id = newGroupId;
             // The same 50px nudge duplicateLayer applies, so the copy is
             // visibly its own wall instead of hiding under the original. Every
@@ -1194,7 +1209,7 @@ class _ScreenGroups {
         if (!Array.isArray(this.project.groups)) this.project.groups = [];
         const copy = {
             id: newGroupId,
-            name: this._nextDuplicateName(group.name),
+            name: this._nextDuplicateName(group.name, (this.project.groups || []).map(g => g && g.name)),
             layer_ids: clones.map(c => c.id),
         };
         // The routing switch describes the wall, and the copy is the same
@@ -1830,7 +1845,7 @@ class _ScreenGroups {
         const lockBadge = allLocked
             ? '<span class="screen-group-lock-badge" title="Locked">🔒</span>' : '';
         wrap.innerHTML = `
-            <div class="screen-group-row" title="One screen built from ${memberCount} layers">
+            <div class="screen-group-row" title="A group built from ${memberCount} screens">
                 <div class="layer-header">
                     <div class="screen-group-title">
                         <button class="screen-group-toggle" aria-expanded="${expanded ? 'true' : 'false'}"

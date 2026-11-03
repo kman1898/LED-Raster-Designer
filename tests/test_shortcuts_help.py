@@ -57,8 +57,8 @@ GROUP_HEADINGS = [
 GESTURE_PHRASES = [
     # Everywhere
     'Undo / redo',
-    'Copy / paste the selected layer',
-    'Duplicate the current layer',
+    'Copy / paste the selected screen',
+    'Duplicate the current screen',
     'Select every screen on the canvas',
     'Delete / Backspace',
     'Open Preferences',
@@ -192,7 +192,7 @@ HANDLER_MARKERS = [
     # Select All rides the same dispatcher but is not a File menu item.
     ('mod+KeyA', 'app-menubar.js', 'Select every screen on the canvas'),
     ('deleteCurrentLayer', 'canvas-input.js', 'Delete / Backspace'),
-    ('duplicateLayer', 'canvas-input.js', 'Duplicate the current layer'),
+    ('duplicateLayer', 'canvas-input.js', 'Duplicate the current screen'),
     ('_toggleLayerSelectionFromCanvas', 'canvas-input.js',
      'Toggle it in or out of the selection'),
     ('selectLayersInRect', 'canvas-input.js', 'Marquee-select screens'),

@@ -14,6 +14,18 @@ from app import _assign_canvas_id, _build_panels, _find_canvas, _rebuild_layer_g
 
 layers_bp = Blueprint('layers', __name__)
 
+
+def _next_free_screen_name():
+    """Add Screen's default name, ScreenN, stepping past any name in use
+    (case-blind): with Screen1 deleted out of two, the next add is Screen3,
+    not a second Screen2."""
+    taken = {str(l.get('name') or '').strip().lower()
+             for l in app.current_project.get('layers', [])}
+    n = len(app.current_project.get('layers', [])) + 1
+    while f'screen{n}' in taken:
+        n += 1
+    return f'Screen{n}'
+
 @layers_bp.route('/api/layer/add', methods=['POST'])
 def add_layer():
     data = request.json or {}
@@ -23,7 +35,7 @@ def add_layer():
     # paths (which send full data) are unaffected.
     _seed_data_with_canvas_defaults(data)
     layer = create_layer(
-        name=data.get('name', f'Screen{len(app.current_project["layers"]) + 1}'),
+        name=data.get('name') or _next_free_screen_name(),
         columns=data.get('columns', 8),
         rows=data.get('rows', 5),
         cabinet_width=data.get('cabinet_width', 128),
