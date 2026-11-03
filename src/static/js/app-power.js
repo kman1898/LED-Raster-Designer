@@ -5108,18 +5108,75 @@ class _Power {
         return horizontal ? 'across' : 'down';
     }
 
-    // Does the Circuit numbers switch do anything on this screen? Only on
-    // an automatic Organized screen whose walk cuts a row (or a column)
+    // True when the circuits cut from long lines are to be numbered stack
+    // by stack, i.e. when the Circuit numbers switch points ACROSS the
+    // lines rather than along them: Down on a horizontal-first pattern,
+    // Across on a vertical-first one. Never with Maximize Power Use, which
+    // packs every circuit full and cuts no line. The automatic walk
+    // (calculatePowerAssignments) and the custom Apply Pattern
+    // (_chunkPicksByCapacity, _chunkPicksIntoShares) both ask here, the
+    // way the data side asks portNumbersStack.
+    powerNumbersStack(layer, isHorizontalFirst) {
+        if (!layer || layer.powerMaximize) return false;
+        const order = this.powerNumberOrder(layer, isHorizontalFirst);
+        return isHorizontalFirst ? order === 'down' : order === 'across';
+    }
+
+    // Does the Circuit numbers switch do anything on this screen? On an
+    // automatic Organized screen, where its walk cuts a row (or a column)
     // into several circuits; a group member routed on its owner reads the
     // owner's walk. Returns that walking screen, or null.
+    //
+    // A CUSTOM screen (the owner's ruling, 2026-11-02: custom power follows
+    // Down like data) has the switch wherever Apply Pattern would cut a
+    // line, asked the way the data side asks (portNumberOrderMatters):
+    // in a horizontal and a vertical pattern, since Apply Pattern can be
+    // either, and not with Maximize Power Use (the fill packs full there).
+    // It returns the screen the custom circuits are written to
+    // (powerPathOwner), whose field the fill reads. Like data, the switch
+    // decides how the NEXT Apply Pattern numbers; circuits already drawn
+    // keep their numbers.
     powerNumberOrderApplies(layer) {
         if (!layer || (layer.type || 'screen') !== 'screen') return null;
+        if (this.isCustomPower(layer)) {
+            const owner = this.powerPathOwner(layer);
+            return this._customPowerNumbersMatter(owner) ? owner : null;
+        }
         const plan = (typeof this.getAutoRoutePlan === 'function')
             ? this.getAutoRoutePlan(layer, 'power') : null;
         const walker = (plan && !plan.isOwner && plan.owner) ? plan.owner : layer;
         if (walker.powerMaximize || !walker.powerOrganized) return null;
         if (this.usesCustomCircuits(walker)) return null;
         return this.calculatePowerAssignments(walker).cut ? walker : null;
+    }
+
+    // Would a custom Apply Pattern on this screen cut a line into several
+    // circuits? The automatic Organized walk is asked in tl-h and tl-v on
+    // the screen (or its wall), the way the fill cuts its lines, and every
+    // field it was asked with is put back exactly afterwards.
+    _customPowerNumbersMatter(owner) {
+        if (!owner || owner.powerMaximize) return false;
+        const plan = (typeof this.getAutoRoutePlan === 'function')
+            ? this.getAutoRoutePlan(owner, 'power') : null;
+        const walker = (plan && !plan.isOwner && plan.owner) ? plan.owner : owner;
+        const fields = ['lastPowerFlowPattern', 'powerOrganized', 'powerMaximize'];
+        const kept = fields.map(k => [k, Object.prototype.hasOwnProperty.call(walker, k), walker[k]]);
+        const flow = walker.powerFlowPattern;
+        try {
+            walker.powerFlowPattern = 'custom';
+            walker.powerOrganized = true;
+            walker.powerMaximize = false;
+            return ['tl-h', 'tl-v'].some(pattern => {
+                walker.lastPowerFlowPattern = pattern;
+                return !!this.calculatePowerAssignments(walker).cut;
+            });
+        } finally {
+            walker.powerFlowPattern = flow;
+            kept.forEach(([k, had, v]) => {
+                if (had) walker[k] = v;
+                else delete walker[k];
+            });
+        }
     }
 
     // The Circuit numbers row under Organized: shown only where it does
@@ -5307,9 +5364,7 @@ class _Power {
             // horizontal-first pattern, Across on a vertical-first one,
             // where the lines are columns. `items` in walk order; returns
             // the indices in circuit-number order. Only the numbers move.
-            const numberByStacks = isHorizontalFirst
-                ? this.powerNumberOrder(layer, true) === 'down'
-                : this.powerNumberOrder(layer, false) === 'across';
+            const numberByStacks = this.powerNumbersStack(layer, isHorizontalFirst);
             const numberOrder = (items) => (numberByStacks
                 ? stackOrder(items) : items.map((_, i) => i));
 

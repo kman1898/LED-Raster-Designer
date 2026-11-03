@@ -742,3 +742,208 @@ def test_a_half_row_shares_as_before_and_numbers_by_its_stack(page):
     assert [c[0] for c in down['circuits'][:5]] == [[r, 0] for r in range(5)]
     # the half row's second circuit starts at column 44, under the third stack
     assert [c[0] for c in down['circuits'][9:14]] == [[r, 44] for r in range(5)]
+
+
+# ── 6. custom power follows the switch ──────────────────────────────────
+#
+# The owner's ruling, 2026-11-02: custom power follows Down like data. A
+# custom power screen shows the Circuit numbers switch wherever Apply
+# Pattern would cut a line, and Apply Pattern numbers the circuits it cuts
+# by stacks when Down is picked (Across on a vertical pattern), through
+# the same _stackSplitRuns the data fill and the automatic walk use. Which
+# cabinets share a 2fer or 3fer never changes, only the numbers, and the
+# circuits already drawn keep theirs, as on the data side.
+
+CUSTOM_JS = """
+window.__pn.withApp = function (S, fn) {
+    const app = window.app, r = window.canvasRenderer;
+    const keys = ['project', 'currentLayer', 'selectedLayerIds', 'powerCustomSelection',
+        'history', 'historyIndex', 'updateLayers', 'renderLayers', 'loadLayerToInputs',
+        'saveClientSideProperties', '_toast', '_overrideEditing', '_circuitTailCache'];
+    const saved = {};
+    keys.forEach(k => { saved[k] = app[k]; });
+    const view = r.viewMode;
+    app.updateLayers = () => {};
+    app.renderLayers = () => {};
+    app.loadLayerToInputs = () => {};
+    app.saveClientSideProperties = () => {};
+    app._toast = () => {};
+    S.canvas_id = 'c1';
+    app.project = {
+        layers: [S], groups: [], rack: [],
+        canvases: [{ id: 'c1', name: 'Canvas 1', workspace_x: 0, workspace_y: 0,
+            show_workspace_x: 0, show_workspace_y: 0,
+            raster_width: 32768, raster_height: 32768,
+            show_raster_width: 32768, show_raster_height: 32768,
+            color: '#ff0000', visible: true }],
+        active_canvas_id: 'c1',
+    };
+    app.currentLayer = S;
+    app.selectedLayerIds = new Set([S.id]);
+    app.powerCustomSelection = new Set();
+    app.history = []; app.historyIndex = -1;
+    app._overrideEditing = null;
+    app._circuitTailCache = null;
+    r.viewMode = 'power';
+    try { return fn(app); } finally {
+        keys.forEach(k => { app[k] = saved[k]; });
+        r.viewMode = view;
+        r.render();
+    }
+};
+// Custom Apply Pattern on S: every cabinet `pick` keeps (all by default)
+// selected, then `pattern` pressed. The drawn circuits by number, the
+// shares the fill wrote, and the circuit left active.
+window.__pn.fill = function (S, pattern, pick) {
+    S.powerFlowPattern = 'custom';
+    S.powerCustomPaths = {};
+    S.powerCustomIndex = 1;
+    S.powerCustomOverrides = [];
+    return this.withApp(S, app => {
+        S.panels.forEach(p => {
+            if (!pick || pick(p)) app.powerCustomSelection.add(app.getScopedPanelKey(S.id, p));
+        });
+        app.applyPowerPatternToSelection(pattern);
+        const paths = S.powerCustomPaths || {};
+        const nums = Object.keys(paths).map(Number).sort((a, b) => a - b);
+        const manual = S.powerSplitters && S.powerSplitters.manual;
+        return {
+            nums,
+            drawn: nums.map(n => paths[n].map(e => [e.row, e.col])),
+            merges: manual ? manual.merge : [],
+            active: S.powerCustomIndex,
+        };
+    });
+};
+// (a string that ends on a function would be called by page.evaluate)
+true;
+"""
+
+
+def custom_fill(page, screen_js, pattern, pick='null'):
+    page.evaluate(CUSTOM_JS)
+    return page.evaluate("() => window.__pn.fill(%s, '%s', %s)" % (screen_js, pattern, pick))
+
+
+@pytest.mark.parametrize('pattern', ['tl-h', 'tr-h', 'bl-h', 'br-h'])
+def test_custom_down_numbers_a_half_row_by_its_stack(page, pattern):
+    """Apply Pattern over the owner's 85 x 5 shape on Down: circuits 1-4
+    the first stack, 5 the half row's first circuit, 6-9, 10-13, 14 the
+    half row's second circuit, 15-18; the automatic walk's own Down map."""
+    screen = HALF_BOTTOM % (4, pattern, ", powerNumberOrder: 'down'")
+    out = custom_fill(page, screen, pattern)
+    assert out['nums'] == list(range(1, 19)), out['nums']
+    assert out['active'] == 18
+    got = out['drawn']
+    assert got == expect_by_stacks(pattern, bottom_lines(pattern), 85)
+    assert got == half(page, pattern)['circuits'], 'the automatic Down map'
+    if pattern == 'tl-h':
+        assert got[:5] == [run(r, range(22)) for r in range(4)] + [run(4, range(44))]
+        assert got[5:9] == [run(r, range(22, 44)) for r in range(4)]
+        assert got[13] == run(4, range(44, 85)), 'circuit 14 starts under the third stack'
+        assert got[14:] == [run(r, range(66, 85)) for r in range(4)]
+
+
+@pytest.mark.parametrize('pattern', ['tl-h', 'br-h'])
+def test_custom_across_and_a_screen_never_switched_number_along_the_rows(page, pattern):
+    expect = expect_by_stacks(pattern, bottom_lines(pattern), 85, by_stack=False)
+    across = custom_fill(page, HALF_BOTTOM % (4, pattern, ", powerNumberOrder: 'across'"), pattern)
+    assert across['drawn'] == expect
+    assert across['drawn'] == half(page, pattern, order='across')['circuits']
+    unset = custom_fill(page, HALF_BOTTOM % (4, pattern, ''), pattern)
+    assert unset['drawn'] == expect, 'a horizontal fill on a screen never switched is Across'
+
+
+@pytest.mark.parametrize('pattern', ['tl-v', 'br-v'])
+def test_custom_vertical_fill_follows_across_and_down(page, pattern):
+    """The vertical mirror: Across stacks a half column's circuit into the
+    band it starts in, Down numbers down each column."""
+    cols = list(range(5)) if 'l-' in pattern else list(range(4, -1, -1))
+    lines = [(c, 44 if c == 4 else 22) for c in cols]
+    across = custom_fill(page, HALF_RIGHT % (pattern, 'across'), pattern)['drawn']
+    assert across == expect_by_stacks(pattern, lines, 85)
+    assert across == cells(page, HALF_RIGHT % (pattern, 'across'))['circuits']
+    down = custom_fill(page, HALF_RIGHT % (pattern, 'down'), pattern)['drawn']
+    assert down == expect_by_stacks(pattern, lines, 85, by_stack=False)
+
+
+def test_custom_sharing_fill_keeps_its_2fers_and_numbers_down(page):
+    """Splitters on, maxWays 3: rows 1-3 selected whole (85 wide, cut
+    22 + 22 + 22 + 19, pieces that never share) and rows 4-5 ten wide
+    (1,500 W each, one 2fer). Down numbers the cut pieces down the stacks;
+    the 2fer is the same two runs on the same two numbers either way."""
+    screen = """window.__pn.repro({ columns: 85, powerNumberOrder: '%s',
+        powerSplitters: { enabled: true, maxWays: 3, manual: { merge: [], split: [] } } })"""
+    pick = "(p => p.row < 3 || p.col < 10)"
+    down = custom_fill(page, screen % 'down', 'tl-h', pick)
+    across = custom_fill(page, screen % 'across', 'tl-h', pick)
+    for out in (down, across):
+        assert out['nums'] == list(range(1, 15)), out['nums']
+        assert out['merges'] == [[13, 14]], out['merges']
+        assert out['drawn'][12:] == [run(3, range(10)), run(4, range(10))]
+    assert sorted(map(json.dumps, down['drawn'])) == sorted(map(json.dumps, across['drawn']))
+    assert across['drawn'][:4] == [run(0, range(s, min(s + 22, 85))) for s in (0, 22, 44, 66)]
+    assert down['drawn'][:3] == [run(r, range(22)) for r in range(3)]
+    assert down['drawn'][3:6] == [run(r, range(22, 44)) for r in range(3)]
+    assert down['drawn'][9:12] == [run(r, range(66, 85)) for r in range(3)]
+
+
+def test_switch_shows_on_custom_power_screens(page):
+    page.evaluate(CUSTOM_JS)
+    out = page.evaluate("""() => {
+        const pn = window.__pn;
+        const drawn = { 1: [{ row: 0, col: 0 }, { row: 0, col: 1 }] };
+        const cases = {
+            drawn: { powerCustomPaths: drawn },
+            drawnDown: { powerCustomPaths: drawn, powerNumberOrder: 'down' },
+            remembersVertical: { powerCustomPaths: drawn, lastPowerFlowPattern: 'tl-v' },
+            empty: {},
+            maximize: { powerCustomPaths: drawn, powerMaximize: true, powerOrganized: false },
+            narrow: { powerCustomPaths: drawn, columns: 10 },
+        };
+        const res = {};
+        Object.keys(cases).forEach(k => {
+            const S = pn.repro(Object.assign({ columns: 85, halfRow: 4 }, cases[k],
+                { powerFlowPattern: 'custom', powerCustomIndex: 1 }));
+            res[k] = pn.withApp(S, app => {
+                const before = JSON.stringify(S);
+                app.syncPowerNumberOrder(S);
+                const row = document.getElementById('power-number-order-row');
+                return {
+                    shown: row.style.display !== 'none',
+                    lit: ['across', 'down'].filter(o =>
+                        document.getElementById('power-number-' + o).classList.contains('active')),
+                    untouched: JSON.stringify(S) === before,
+                };
+            });
+        });
+        return res;
+    }""")
+    for k in ('drawn', 'drawnDown', 'remembersVertical', 'empty'):
+        assert out[k]['shown'] is True, (k, out[k])
+    assert out['drawn']['lit'] == ['across']
+    assert out['drawnDown']['lit'] == ['down']
+    assert out['remembersVertical']['lit'] == ['down'], 'unset follows the remembered flow'
+    assert out['maximize']['shown'] is False
+    assert out['narrow']['shown'] is False, 'nothing is cut on a 10-wide wall'
+    assert all(v['untouched'] for v in out.values()), out
+
+
+def test_switching_keeps_the_circuits_already_drawn(page):
+    """Like the data side, the switch decides how the NEXT Apply Pattern
+    numbers; circuits drawn by hand or by an earlier fill keep theirs."""
+    page.evaluate(CUSTOM_JS)
+    out = page.evaluate("""() => {
+        const pn = window.__pn;
+        const S = pn.repro({ columns: 85, halfRow: 4, powerNumberOrder: 'down' });
+        const first = pn.fill(S, 'tl-h');
+        S.powerNumberOrder = 'across';
+        return pn.withApp(S, app => {
+            const after = Object.keys(S.powerCustomPaths).map(Number).sort((a, b) => a - b)
+                .map(n => S.powerCustomPaths[n].map(e => [e.row, e.col]));
+            return { first: first.drawn, after,
+                     circuits: app.screenCircuits(S).map(c => c.panels.map(p => [p.row, p.col])) };
+        });
+    }""")
+    assert out['after'] == out['first']
+    assert out['circuits'] == out['first']
