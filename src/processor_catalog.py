@@ -4961,4 +4961,28 @@ def resolve_all(processors):
     resolved = [resolve_processor(p) for p in (processors or [])]
     _apply_backup_mapping(processors, resolved)
     _apply_backup_unit(processors, resolved)
+    _count_backup_ports(resolved)
     return resolved
+
+
+def _count_backup_ports(resolved):
+    """How many of each card's and each processor's ports are consumed as
+    returns (`backsUp`, set by _apply_backup_mapping for every shape: a 1:1
+    backup card, a port shape's back half or evens, a loop or backup box).
+    In place: `backupCount` on every resolved card and processor.
+
+    The owner's ruling (2026-11-03): the processor's capacity reads usable
+    ports with the backups beside them - "40 / 40 ports · 40 backup" for
+    two 40-port cards paired 1:1, never "80 / 80 ports". `defined` and
+    `ceiling` stay the socket counts the rest of the tree is built on; the
+    readout subtracts this from both."""
+    for rproc in resolved:
+        total = 0
+        for slot in rproc.get('slots') or []:
+            rcard = slot.get('card')
+            if not rcard:
+                continue
+            count = sum(1 for p in rcard.get('ports') or [] if p.get('backsUp'))
+            rcard['backupCount'] = count
+            total += count
+        rproc['backupCount'] = total

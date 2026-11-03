@@ -261,6 +261,31 @@ def test_the_card_gear_is_headed_card_n_with_its_model_under(page):
         'heading': 'Card 2', 'model': MODEL, 'redundancy': 'Redundancy: backs up Card 1'}
 
 
+CAPACITY_JS = """() => {
+    const pop = document.getElementById('hw-gear-popover');
+    return pop ? [...pop.querySelectorAll('div')].map(d => d.textContent)
+        .filter(t => /^\\d+ (\\/ \\d+ ports( · \\d+ backup)?|backup ports)$/.test(t))
+        : null;
+}"""
+
+
+def test_the_capacity_rows_count_usable_ports_with_the_backups_beside(page):
+    """Owner, 2026-11-03: "40 / 40 ports · 40 backup", never "80 / 80
+    ports". Three 16-port cards, Card 2 Card 1's 1:1 backup: the
+    processor reads 32 usable of 32 with 16 backup; Card 1 reads its own
+    16; Card 2 is nothing but returns."""
+    pg, ids, _errors = page
+    assert pg.evaluate(OPEN_GEAR_JS, f"proc-{ids['pid']}")
+    quiet(pg)
+    assert pg.evaluate(CAPACITY_JS) == ['32 / 32 ports · 16 backup']
+    assert pg.evaluate(OPEN_GEAR_JS, f"card-{ids['c1']}")
+    quiet(pg)
+    assert pg.evaluate(CAPACITY_JS) == ['16 / 16 ports']
+    assert pg.evaluate(OPEN_GEAR_JS, f"card-{ids['c2']}")
+    quiet(pg)
+    assert pg.evaluate(CAPACITY_JS) == ['16 backup ports']
+
+
 @pytest.fixture(scope="module")
 def sheets(page):
     pg, _ids, errors = page

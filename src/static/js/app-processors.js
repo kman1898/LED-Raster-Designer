@@ -395,22 +395,34 @@ class _Processors {
         return this.deriveReturnLabel(primary);
     }
 
-    _buildCapacityRow(used, ceiling, known, reason) {
+    // USABLE PORTS, THE BACKUPS BESIDE THEM (owner, 2026-11-03): "40 / 40
+    // ports · 40 backup" for two 40-port cards paired 1:1, never "80 / 80
+    // ports". `backup` is the ports consumed as returns (the server's
+    // backupCount - a 1:1 backup card, a port shape's returns, a loop or
+    // backup box), taken off both sides; the capacity check reads the
+    // usable counts. A card that is nothing but returns reads "16 backup
+    // ports".
+    _buildCapacityRow(used, ceiling, known, reason, backup = 0) {
         const row = document.createElement('div');
         row.style.fontSize = '11px';
         row.style.fontFamily = 'monospace';
+        const spare = backup > 0 ? ` · ${backup} backup` : '';
         if (!known) {
             // A device whose count the sources never settled stays selectable
             // and says so. Substituting a sibling's number here would silently
             // cap a wall, which is the one failure this panel must not have.
             row.style.color = '#c8a04a';
-            row.textContent = `${used} ports / ceiling unknown`;
+            row.textContent = `${used - backup} ports / ceiling unknown${spare}`;
             if (reason) row.title = reason;
             return row;
         }
-        const over = used > ceiling;
+        const usable = used - backup;
+        const reach = ceiling - backup;
+        const over = usable > reach;
         row.style.color = over ? '#d05a52' : 'var(--ps-dim, #c0c0c0)';
-        row.textContent = `${used} / ${ceiling} ports`;
+        row.textContent = backup > 0 && usable === 0 && reach === 0
+            ? `${backup} backup ports`
+            : `${usable} / ${reach} ports${spare}`;
         if (over) row.textContent += ' · over capacity';
         return row;
     }
@@ -462,7 +474,8 @@ class _Processors {
         cap.style.justifyContent = 'space-between';
         cap.style.gap = '8px';
         cap.appendChild(this._buildCapacityRow(
-            proc.defined, proc.ceiling, proc.ceilingKnown, proc.note));
+            proc.defined, proc.ceiling, proc.ceilingKnown, proc.note,
+            proc.backupCount || 0));
         if (proc.maxCards !== null && proc.maxCards !== undefined
                 && proc.form === 'chassis') {
             const cards = document.createElement('div');
@@ -1398,7 +1411,8 @@ class _Processors {
         if (redundancy) wrap.appendChild(redundancy);
 
         const cap = this._buildCapacityRow(
-            card.defined, card.ceiling, card.ceilingKnown, card.ceilingReason);
+            card.defined, card.ceiling, card.ceilingKnown, card.ceilingReason,
+            card.backupCount || 0);
         cap.style.marginTop = '6px';
         wrap.appendChild(cap);
 
