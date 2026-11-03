@@ -197,7 +197,7 @@ class _Processors {
                 this._applyProcessorState(data);
                 if (applied && pullBefore) this._dropPullEditsGoneWith(pullBefore);
                 if (applied && action) this.saveState(action);
-                // What the edit had to say - "Removed box XD B - 3
+                // What the edit had to say - "Removed box XD B: 3
                 // ports of LEFT are unplaced again" - read where a refusal
                 // would read, but not in a refusal's color: the edit did
                 // exactly what it was told.

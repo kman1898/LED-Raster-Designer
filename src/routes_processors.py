@@ -652,8 +652,14 @@ def delete_processor(processor_id):
     removed = [card.get('id') for _slot, card in _cards_of(proc)]
     _processors_mut().remove(proc)
     _prune_backup_refs(removed)
-    log_event('processor_delete', {'id': processor_id})
-    return _state()
+    # Every port pinned to the machine's cards comes off with it: those
+    # screen ports read unplaced again, the way a removed box's do, instead
+    # of each one waiting on a "Release pin" (owner, beta.3: 48 of them).
+    dropped = _drop_card_pins(removed)
+    log_event('processor_delete', {'id': processor_id,
+                                   'droppedPins': _pin_log(dropped)})
+    return _state(extra=_pins_released(
+        f'Removed {_proc_title(proc)}', dropped))
 
 
 @processors_bp.route('/api/processors/<processor_id>/slots/<int:index>', methods=['PUT'])
@@ -684,11 +690,18 @@ def set_slot_card(processor_id, index):
     data = request.json or {}
     device_id = data.get('deviceId')
     outgoing = (slot.get('card') or {}).get('id')
+    # What the outgoing card is called, read while it is still in its slot.
+    outgoing_title = catalog.card_display_name(slot['card'], proc) \
+        if outgoing else ''
     if not device_id:
         slot['card'] = None
         _prune_backup_refs([outgoing] if outgoing else [])
-        log_event('processor_slot_clear', {'id': processor_id, 'slot': index})
-        return _state()
+        # The card's pins go with it, as a removed processor's do.
+        dropped = _drop_card_pins([outgoing] if outgoing else [])
+        log_event('processor_slot_clear', {'id': processor_id, 'slot': index,
+                                           'droppedPins': _pin_log(dropped)})
+        return _state(extra=_pins_released(
+            f'Removed {outgoing_title}', dropped))
     # A QD-S goes on an SQ200's OUT port and nowhere else, and an SQ200's
     # outputs take nothing but a QD-S: where either side is a unit whose
     # outputs are named (the catalog's slot names, a card's unitWord), the
@@ -709,9 +722,14 @@ def set_slot_card(processor_id, index):
     # The outgoing card's redundancy links go with it - the new card in the
     # slot is different metal with a different id and (maybe) another count.
     _prune_backup_refs([outgoing] if outgoing else [])
+    # ...and so do its pins: they named the outgoing card's id, which the
+    # new card does not answer to.
+    dropped = _drop_card_pins([outgoing] if outgoing else [])
     log_event('processor_slot_card', {'id': processor_id, 'slot': index,
-                                      'device': device_id})
-    return _state()
+                                      'device': device_id,
+                                      'droppedPins': _pin_log(dropped)})
+    return _state(extra=_pins_released(
+        f'Replaced {outgoing_title}', dropped))
 
 
 def _check_ethernet_ports(card, device, value, proc=None):
@@ -1261,23 +1279,47 @@ def delete_cvt(processor_id, cvt_id):
         dropped = assignment.prune_pins_off_sockets(
             app.current_project, card.get('id'), _port_numbers(card.get('id')))
     log_event('processor_cvt_delete', {
-        'id': cvt_id, 'box': box_title,
-        'droppedPins': [{'layerId': p['layerId'], 'index': p['index'],
-                         'port': p['port']} for p in dropped]})
-    extra = None
-    if dropped:
-        extra = {
-            'note': _box_removed_note(box_title, dropped),
-            # The pruned state rides the reply so the client's project copy
-            # (and the undo snapshot it takes off it) carries the pins as
-            # the server now holds them, not the ones it had a moment ago.
-            'portAssignments': app.current_project.get(assignment.STATE_KEY),
-        }
-    return _state(extra=extra)
+        'id': cvt_id, 'box': box_title, 'droppedPins': _pin_log(dropped)})
+    return _state(extra=_pins_released(f'Removed box {box_title}', dropped))
 
 
-def _box_removed_note(box_title, dropped):
-    """'Removed box XD B - 3 ports of LEFT are unplaced again':
+def _drop_card_pins(card_ids):
+    """Drop every pin on the cards `card_ids` names - cards that are gone
+    (a processor removed, a slot emptied or re-carded). In place; returns
+    the pins dropped. A pin left on a dead card kept its screen port
+    reading "pinned to a card that is no longer in this project" until
+    somebody pressed Release pin on it, one port at a time."""
+    dropped = []
+    for card_id in card_ids:
+        if card_id:
+            dropped += assignment.prune_pins_off_sockets(
+                app.current_project, card_id, ())
+    return dropped
+
+
+def _pin_log(dropped):
+    return [{'layerId': p['layerId'], 'index': p['index'],
+             'cardId': p['cardId'], 'port': p['port']} for p in dropped]
+
+
+def _pins_released(what, dropped):
+    """The reply's `extra` for an edit that dropped pins, None for one that
+    dropped none. The note says what went and which screen ports it let
+    go of; the pruned state rides the reply so the client's project copy
+    (and the undo snapshot it takes off it) carries the pins as the server
+    now holds them, not the ones it had a moment ago. Undo (the
+    whole-project PUT of the prior snapshot) puts hardware and pins back
+    together."""
+    if not dropped:
+        return None
+    return {
+        'note': _pins_released_note(what, dropped),
+        'portAssignments': app.current_project.get(assignment.STATE_KEY),
+    }
+
+
+def _pins_released_note(what, dropped):
+    """'Removed box XD B: 3 ports of LEFT are unplaced again':
     one clause per screen, in the order their pins came off, each screen
     called by the name on its layer."""
     names = {str(l.get('id')): (l.get('name') or f'Screen {l.get("id")}')
@@ -1290,7 +1332,7 @@ def _box_removed_note(box_title, dropped):
              f'{names.get(layer_id, f"Screen {layer_id}")}'
              for layer_id, n in counts.items()]
     verb = 'is' if len(dropped) == 1 else 'are'
-    return f'Removed box {box_title} - {_and_list(parts)} {verb} unplaced again'
+    return f'{what}: {_and_list(parts)} {verb} unplaced again'
 
 
 def _and_list(names):

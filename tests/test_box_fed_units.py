@@ -20,7 +20,7 @@ the summaries. Now:
   them a box's; with box B removed it has thirty, and 11-20 are nowhere.
 * REMOVING A BOX TAKES ITS SOCKETS AND ITS PINS. The pins that pointed
   into the box come off (port_assignment.prune_pins_off_sockets), the
-  reply carries a note naming them - "Removed box XD B - 3 ports
+  reply carries a note naming them - "Removed box XD B: 3 ports
   of LEFT are unplaced again" - and the pruned pin state, and the tray
   toasts the note. The other boxes hold their trunks (hold_box_trunks):
   C stays 21-30, it does not slide down onto B's trunk.
@@ -206,7 +206,7 @@ def test_removing_box_b_takes_its_ten_sockets_and_the_pins_on_them(client):
     assert resp.status_code == 200, resp.get_data(as_text=True)
     body = resp.get_json()
     assert body['note'] == \
-        'Removed box XD B - 3 ports of LEFT are unplaced again'
+        'Removed box XD B: 3 ports of LEFT are unplaced again'
     assert sorted((p['layerId'], p['port'])
                   for p in body['portAssignments']['pins']) == \
         [(center, 21), (center, 22)]
@@ -293,7 +293,7 @@ def test_the_helios_8k_the_same(client):
     assert resp.status_code == 200, resp.get_data(as_text=True)
     body = resp.get_json()
     assert body['note'].startswith('Removed box ')
-    assert body['note'].endswith(' - 6 ports of WALL are unplaced again'), body
+    assert body['note'].endswith(': 6 ports of WALL are unplaced again'), body
     assert body['portAssignments']['pins'] == []
     assert socket_numbers(body['resolved'][0]['slots'][0]['card']) == []
     res = resolve(client, sc)
@@ -522,7 +522,7 @@ def test_the_tray_after_remove_box_shows_the_trunk_empty_and_toasts(sx_page):
     page.wait_for_timeout(1200)
 
     toasts = page.evaluate(TOASTS_JS)
-    assert 'Removed box XD B - 3 ports of WALL are unplaced again' \
+    assert 'Removed box XD B: 3 ports of WALL are unplaced again' \
         in toasts, toasts
     after = page.evaluate(TRAY_JS, card)
     assert after['loose'] == [], (
