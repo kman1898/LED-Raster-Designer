@@ -915,7 +915,11 @@ class _DockCableSheets {
         } else {
             const tag = box.copyRole === 'mirror' ? ' (mirror)'
                 : (box.duplicateOf && !box.backupOf && !this.boxLoopMixed(box) ? ' (copy)' : '');
-            head.appendChild(text('hw-dock-cable-fiber-cap', `Fiber · ${titleOf(box)}${tag}`));
+            // a backup of the unit's own ports alone: which ones
+            const hit = this._fiberAllBoxes().find(b => b.box.id === box.id);
+            const loop = this.boxLoopText(box, hit ? hit.card.cvts : [], titleOf);
+            head.appendChild(text('hw-dock-cable-fiber-cap',
+                `Fiber · ${titleOf(box)}${tag}${loop ? ` (${loop})` : ''}`));
         }
         const members = pair ? [...pair.nears, ...pair.fars] : [box];
         members.forEach(m => {

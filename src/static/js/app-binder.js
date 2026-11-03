@@ -6323,9 +6323,10 @@ class _Binder {
         const n = parseInt(socket, 10);
         const port = (card.ports || []).find(p => p.number === n) || null;
         // The box that DELIVERS the port (its cvtId), never a backup box
-        // listed before it that carries the same number again.
-        const box = (port && port.cvtId && (card.cvts || []).find(c => c.id === port.cvtId))
-            || (card.cvts || []).find(c => (c.ports || []).some(p => p.number === n)) || null;
+        // carrying the same number again - none for the unit's own port.
+        const box = (port
+            ? (port.cvtId && (card.cvts || []).find(c => c.id === port.cvtId))
+            : (card.cvts || []).find(c => (c.ports || []).some(p => p.number === n))) || null;
         return { proc, card, procTitle, cardTitle, box, port, slotNamed,
                  unitTitle: unit.title, named: unit.named };
     }

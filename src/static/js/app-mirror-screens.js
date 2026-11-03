@@ -419,10 +419,11 @@ class _MirrorScreens {
     }
 
     // Add one box to `card` through the processor routes, asking Mirror or
-    // Backup first where the box lands on a copy OPT of a per-box card.
-    addBoxWithRole(proc, card, body, action = 'Add Breakout Box') {
+    // Backup first where the box lands on a copy OPT of a per-box card -
+    // the next free OPT, or the one picked (`onCopy`, the body's trunk).
+    addBoxWithRole(proc, card, body, action = 'Add Breakout Box', onCopy = false) {
         const url = `/api/processors/${proc.id}/cards/${card.id}/cvts`;
-        if (!card.nextBoxOnCopy) {
+        if (!card.nextBoxOnCopy && !(onCopy && card.copyTrunks === 'per-box')) {
             return this._processorRequest(url, 'POST', body, action);
         }
         return this.askCopyRole(card).then(role => {

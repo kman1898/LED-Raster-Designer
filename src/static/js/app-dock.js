@@ -1318,11 +1318,9 @@ class _HardwareDock {
         // box removed its trunk simply draws empty, and the card's ⚙ is
         // where a box goes back on.
         const cvts = card.cvts || [];
-        const covered = new Set();
-        cvts.forEach(cvt => {
-            (cvt.ports || []).forEach(p => covered.add(p.number));
-        });
-        const loose = (card.ports || []).filter(p => !covered.has(p.number));
+        // The ports no box DELIVERS (cvtId): a backup box on a copy OPT
+        // carrying the unit's own port again does not take it off the card.
+        const loose = (card.ports || []).filter(p => !p.cvtId);
         // The fact the tray's two-track span is decided by: the size of
         // the LARGEST block of chips this card draws - each breakout box
         // is one block (its own span of ports, below), and the loose ports
@@ -1423,6 +1421,24 @@ class _HardwareDock {
             unitBody.appendChild(
                 this._dockBuildPortGrid(proc, card, loose, '', cardOwner));
         }
+        // THE UNIT'S OWN PORTS BACKED UP ON A COPY OPT (owner, 2026-11-02:
+        // "you could use 16 ports on processor and then opt 3/4 for 16
+        // ports of backup/copy"): the backup box's sockets behind them are
+        // their loop end, drawn as loop rows right under the unit's own
+        // ports, each socket numbered with the port it backs up.
+        const shared = new Set();
+        const ownSlices = this.boxLoopSlices(null, cvts);
+        if (loose.length && ownSlices.length) {
+            const own = document.createElement('div');
+            own.className = 'hw-dock-loop-own';
+            own.dataset.lrdLoopOwn = card.id;
+            ownSlices.forEach(s => {
+                own.appendChild(this._dockBuildBox(proc, card, s.box,
+                    { far: true, ports: s.ports, cont: shared.has(s.box.id) ? card.id : null }));
+                shared.add(s.box.id);
+            });
+            unitBody.appendChild(own);
+        }
         // A LOOP pair - an SX40's XD on trunk B (or D), the far end of the
         // A-to-B (C-to-D) loop, or a NovaStar same-card `backupOf` box -
         // draws as ONE strip holding both boxes (owner, 2026-09-25, "option
@@ -1448,12 +1464,11 @@ class _HardwareDock {
         // behind two primaries rows in both strips; its name, ≡ and ⚙
         // ride the first, the second reads its name only (`cont`).
         const mixed = cvts.filter(c => !fars.has(c.id) && this.boxLoopMixed(c));
-        const shared = new Set();
         cvts.forEach(cvt => {
             if (!(cvt.ports || []).length || fars.has(cvt.id)
                     || mixed.includes(cvt)) return;
             const slices = (farOf.has(cvt.id)
-                ? [{ box: farOf.get(cvt.id), ports: farOf.get(cvt.id).ports || [] }] : [])
+                ? [{ box: farOf.get(cvt.id), ports: this.boxLoopPorts(farOf.get(cvt.id), cvt.id) }] : [])
                 .concat(this.boxLoopSlices(cvt, mixed).map(s => {
                     const cont = shared.has(s.box.id);
                     shared.add(s.box.id);
@@ -1545,7 +1560,7 @@ class _HardwareDock {
             : `Add a breakout box to this ${word}.`;
         slot.addEventListener('click', (e) => {
             e.stopPropagation();
-            if (fits.length === 1) {
+            if (fits.length === 1 && !this._dockCopyPlacements(card, fits).length) {
                 this._dockAddBox(card.id, fits[0].id, fits[0].addInputs);
                 return;
             }
@@ -1581,23 +1596,80 @@ class _HardwareDock {
                 () => this._dockAddBox(cardId, d.id, d.addInputs));
             wrap.appendChild(item);
         });
+        // ...and each straight onto a free copy OPT (copyTrunksOpen), its
+        // primary OPT left to the unit's own ports (owner, 2026-11-02: "you
+        // could use 16 ports on processor and then opt 3/4 for 16 ports of
+        // backup/copy").
+        this._dockCopyPlacements(found.card, fits).forEach(c => {
+            const item = document.createElement('button');
+            item.type = 'button';
+            item.className = 'btn hw-dock-addbox-item';
+            item.textContent = `${c.fit.name} on ${c.title}`;
+            item.title = `Put a ${c.fit.name} on ${c.title}, the copy of `
+                + `${c.copies}: it backs up or mirrors what ${c.copies} `
+                + 'carries, the unit\'s own ports where no box is on it.';
+            item.dataset.lrdField = `dock-addbox-${cardId}-${c.fit.pickKey || c.fit.id}-opt${c.trunk}`;
+            item.addEventListener('click',
+                () => this._dockAddBox(cardId, c.fit.id, c.inputs, c.trunk));
+            wrap.appendChild(item);
+        });
         return wrap;
+    }
+
+    // Where each fitting box may go straight onto a free copy OPT: the
+    // first run of free copy OPTs it takes in full, else - a box with one
+    // documented input - one of them on its own: [{ fit, trunk, inputs,
+    // title, copies }]. None on a card offering no copy OPT.
+    _dockCopyPlacements(card, fits) {
+        const open = (card && card.copyTrunksOpen) || [];
+        if (!open.length) return [];
+        const titles = card.trunkTitles || [];
+        const span = (t, n) => {
+            const a = titles[t] || `${t + 1}`;
+            const m = /^(.*?)(\d+)$/.exec(titles[t + n - 1] || '');
+            return n > 1 && m && a.startsWith(m[1]) ? `${a}-${m[2]}` : a;
+        };
+        const copies = (t) => {
+            const hit = (card.copyTrunkList || []).find(c => c.trunkIndex === t);
+            return hit ? hit.copiesTitle : 'its primary';
+        };
+        const out = [];
+        const seen = new Set();
+        (fits || []).forEach(fit => {
+            if (seen.has(fit.id)) return;
+            const full = fit.addInputs || fit.trunksIn || 1;
+            const t = open.find(s => [...Array(full).keys()].every(k => open.includes(s + k)));
+            if (t !== undefined) {
+                seen.add(fit.id);
+                out.push({ fit, trunk: t, inputs: fit.addInputs || null,
+                           title: span(t, full), copies: copies(t) });
+            } else if (fit.singleInput && full > 1) {
+                seen.add(fit.id);
+                out.push({ fit: Object.assign({}, fit, {
+                               name: `${fit.name.replace(/ \(1 .*\)$/, '')} (1 ${this._boxInputWord(fit)})` }),
+                           trunk: open[0], inputs: 1, title: span(open[0], 1),
+                           copies: copies(open[0]) });
+            }
+        });
+        return out;
     }
 
     // `inputs` rides a fit that goes on short of its nameplate - a CVT4K-S
     // on the one OPT left (_cardBoxFits' addInputs); absent is all of them.
-    _dockAddBox(cardId, deviceId, inputs) {
+    // `trunk`: the copy OPT the box goes straight onto (_dockCopyPlacements).
+    _dockAddBox(cardId, deviceId, inputs, trunk = null) {
         const found = this._dockFindCard(cardId);
         if (!found) return;
         if (typeof this._hwPopoverClose === 'function') this._hwPopoverClose();
         // the ⚙'s picker keeps the last pick per card; this is the same pick
         (this._procCvtPick = this._procCvtPick || {})[cardId] =
             inputs ? `${deviceId}:${inputs}` : deviceId;
+        const body = this._boxFitBody({ id: deviceId, addInputs: inputs });
+        if (trunk != null) body.trunk = trunk;
         // A box landing on a copy OPT of a card that picks per box asks
         // Mirror or Backup first (app-mirror-screens.js addBoxWithRole).
-        this.addBoxWithRole(found.proc, found.card,
-            this._boxFitBody({ id: deviceId, addInputs: inputs }),
-            'Add Breakout Box');
+        this.addBoxWithRole(found.proc, found.card, body,
+            'Add Breakout Box', trunk != null);
     }
 
     // AN ADD THAT BRINGS A CARD WITH NO PORTS OPENS ITS BOX PICKER (owner,
@@ -1807,10 +1879,10 @@ class _HardwareDock {
     // up, and its own number on its box (boxLoopPorts' `loopOf`).
     _dockLoopSocketText(card, port) {
         const lo = port.loopOf;
-        const main = (card.cvts || []).find(b => b.id === lo.boxId);
+        const main = lo.boxId ? (card.cvts || []).find(b => b.id === lo.boxId) : null;
         const own = (card.cvts || []).find(b => b.id !== lo.boxId
             && (b.backsUpPorts || []).some(m => m.number === port.number));
-        return `, the backup of port ${lo.local}`
+        return `, the backup of ${lo.boxId ? '' : 'own '}port ${lo.local}`
             + (main ? ` on ${this._dockBoxLabel(main)}` : '')
             + (own ? `, socket ${lo.socket} of ${this._dockBoxLabel(own)}` : '');
     }

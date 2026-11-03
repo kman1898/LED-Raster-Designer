@@ -507,6 +507,13 @@ FIXES
 - FIX: A backup box never adds ports to its card. An enhanced H_4xfiber
   in Backup with CVT4K-S boxes on OPT 1-2 and 3-4 and CVT10s on OPT 5 and
   6 read 36 ports; it reads 32 now.
+- FIX: On a NovaPro UHD or UHD Jr, or an MX40 Pro in 20-port mode, a box
+  can go on OPT 3 or 4 with nothing on OPT 1 or 2: + Box offers each box
+  on the free copy OPTs. Set to Backup it backs up the processor's own
+  Ethernet ports, shown as loop rows under them in the Data tray, and set
+  to Mirror it feeds a mirror of them. The processor keeps its own port
+  count. Some ports on a box and some on the processor's own Ethernet
+  are backed up port by port the same way.
 - FIX: The binder's Overview page draws your screens much bigger. Its
   tables now share one short band across the top, with a long Contents
   list split into two or more columns, and the drawing fills the whole
