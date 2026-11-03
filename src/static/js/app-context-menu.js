@@ -35,7 +35,7 @@ class _ContextMenu {
         // _prepareClearMenu). The label and the title are written at open
         // time because they name the thing under the cursor; an impossible
         // clear stays on the menu, disabled, with the reason as its title.
-        const clear = (typeof this._prepareClearMenu === 'function')
+        let clear = (typeof this._prepareClearMenu === 'function')
             ? this._prepareClearMenu(x, y) : null;
         this._clearMenuAction = clear;
         // The way back from a drop-implied split, offered only where a
@@ -80,7 +80,16 @@ class _ContextMenu {
         // With several ports picked the redraw is of all of them: the
         // single "Redraw port" is not offered beside it (the owner,
         // 2026-11-03: "it should only allow redraw of all selected").
-        if (mergeRuns && ovr && ovr.redraw) ovr = Object.assign({}, ovr, { redraw: null });
+        // Nor is any other item that names one port: back to auto and the
+        // clear act on every picked port (_pickedPortsMenus).
+        if (mergeRuns) {
+            const picked = this._pickedPortsMenus();
+            ovr = picked.backToAuto ? { redraw: null, backToAuto: picked.backToAuto } : null;
+            if (clear) {
+                clear = picked.clear;
+                this._clearMenuAction = clear;
+            }
+        }
         this._overrideMenuActions = ovr;
         this._mergeRunsMenuAction = mergeRuns;
         // Distro outputs, the click path (2026-08-31): on a screen in the

@@ -197,6 +197,79 @@ class _MergeRuns {
         };
     }
 
+    // With several ports picked the menu acts on all of them (the owner,
+    // 2026-11-03: "it should only allow redraw of all selected"): no item
+    // names one port. `backToAuto` hands every picked port that is redrawn
+    // back to the walk, `clear` takes every picked port that is on a card
+    // off it, each ONE undo step; null where none of the picks has one.
+    // Read only while _prepareMergeRunsMenu is armed (the picks' screen).
+    _pickedPortsMenus() {
+        const p = this._portPicks;
+        const owner = p && (this.project.layers || []).find(l => l.id === p.layerId);
+        if (!owner) return { backToAuto: null, clear: null };
+        const nums = this.portPicksFor(owner);
+        const redrawn = nums.filter(n => this.isRunOverridden(owner, 'data', n));
+        const backToAuto = redrawn.length ? {
+            label: `${redrawn.length > 1 ? 'Ports' : 'Port'} ${this._portNumbersText(redrawn)} back to auto`,
+            title: 'Drop the hand-drawn runs; automatic routing takes their '
+                + 'cabinets back. Undo puts the drawings back.',
+            run: () => this._returnPicksToAuto(owner, redrawn),
+        } : null;
+        const scr = ((this._assignment && this._assignment.screens) || [])
+            .find(s => s.layerId === String(owner.id));
+        const on = ((scr && scr.ports) || []).filter(q => q.cardId && nums.includes(q.number));
+        const word = this.showUnitWord() === 'card' ? 'a sending card' : `a ${this.showUnitWord()}`;
+        const clearLabel = `Clear ${on.length > 1 || !on.length ? 'ports' : 'port'} `
+            + this._portNumbersText(on.length ? on.map(q => q.number) : nums);
+        const clear = on.length ? {
+            label: clearLabel,
+            title: 'Take these ports off their sockets; they stay unattached until '
+                + 'you place them again. Names and templates are untouched, '
+                + 'and undo puts them back.',
+            run: () => {
+                sendClientLog('dock_clear', { kind: 'runs', layerId: scr.layerId,
+                    indices: on.map(q => q.index) });
+                let chain = Promise.resolve();
+                on.forEach((q, i) => {
+                    chain = chain.then(() => this._assignmentRequest(
+                        '/api/port-assignments/unpin', 'POST',
+                        { layerId: scr.layerId, index: q.index }, null,
+                        i === on.length - 1 ? 'Release Ports' : null));
+                });
+                return chain;
+            },
+        } : { label: clearLabel, disabled: true,
+              title: `None of these ports is attached to ${word}, so there is nothing to clear.` };
+        return { backToAuto, clear };
+    }
+
+    // Every port of `nums` on `owner` back to the walk, ONE undo step
+    // (returnRunToAuto, for several).
+    _returnPicksToAuto(owner, nums) {
+        if (!owner || !nums.length) return;
+        const locked = typeof this._runLockedLayers === 'function'
+            ? [...new Set(nums.flatMap(n => this._runLockedLayers(owner, 'data', n)))] : [];
+        if (locked.length) {
+            this._showLockedError(locked);
+            return;
+        }
+        owner.customPortOverrides = this.getOverrideNums(owner, 'data').filter(n => !nums.includes(n));
+        if (owner.customPortPaths) nums.forEach(n => { delete owner.customPortPaths[n]; });
+        const s = this._overrideEditing;
+        if (s && s.layerId === owner.id && s.kind === 'data' && nums.includes(s.num)) {
+            this._overrideEditing = null;
+        }
+        this.clearPortPicks();
+        this.saveState('Return Ports To Auto');
+        this.saveClientSideProperties();
+        this.updateLayers(this._pathPersistLayers(owner));
+        this.updatePortCapacityDisplay();
+        this.updateCustomFlowUI();
+        this.updatePortLabelEditor();
+        sendClientLog('return_runs_to_auto', { layerId: owner.id, nums });
+        if (window.canvasRenderer) window.canvasRenderer.render();
+    }
+
     // The cabinets `owner`'s ports `nums` carry right now: [{layer, panel}].
     // Real cabinets on the wall only: a step a shrink left past the edge
     // names no cabinet, and until the server's echo rebuilds a shrunk

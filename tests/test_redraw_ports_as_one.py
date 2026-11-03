@@ -809,3 +809,41 @@ def test_a_click_on_an_earlier_step_cuts_back_on_a_custom_screen_too(page):
     draw(page, [[0, 87], [0, 86], [0, 85]])
     assert ports(page, lid)[51] == [[0, 80], [0, 81], [0, 82], [0, 87], [0, 86], [0, 85]]
     assert errs(page) == []
+
+
+def _menu_entries(page, row, col):
+    """Right-click the cabinet: every port entry the menu shows."""
+    x, y = cab(page, row, col)
+    page.mouse.click(x, y, button='right')
+    page.wait_for_timeout(200)
+    return page.evaluate("""() => ['ovr-redraw', 'ovr-merge', 'ovr-auto', 'hw-clear'].map(a => {
+        const el = document.querySelector(`[data-action="${a}"]`);
+        return (el && el.style.display !== 'none') ? el.textContent : null;
+    }).filter(Boolean)""")
+
+
+def test_picked_ports_offer_no_item_for_one_port(page):
+    """QA, 1.6.0: with two or more ports picked, "Port P56 back to auto"
+    and "Clear port P56" were still offered for the port under the cursor.
+    Every item acts on all the picks and names them."""
+    lid = reset(page)
+    page.evaluate("""(id) => { const app = window.app;
+        [56, 57].forEach(n => { app.overrideRun(window.__mrg.layer(id), 'data', n);
+                                app.endOverrideEdit(); }); }""", lid)
+    page.wait_for_timeout(400)
+    page.evaluate("() => window.app.resetHistory('Picks Baseline')")
+    shift_click(page, 0, 88)
+    shift_click(page, 1, 88)
+    shown = _menu_entries(page, 0, 88)
+    assert shown == ['Redraw ports P56-P57 as one', 'Ports P56-P57 back to auto',
+                     'Clear ports P56-P57'], shown
+    page.click('[data-action="ovr-auto"]')
+    page.wait_for_timeout(400)
+    s = st(page, lid)
+    assert s['overrides'] == []
+    assert s['historyAction'] == 'Return Ports To Auto' and s['historyIndex'] == 1
+    # one port picked: the single items as before
+    page.evaluate("() => window.app.hideContextMenu()")
+    shift_click(page, 0, 88)
+    assert _menu_entries(page, 0, 88) == ['Redraw port P56', 'Clear port P56']
+    page.evaluate("() => window.app.hideContextMenu()")
