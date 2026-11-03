@@ -150,15 +150,24 @@ def test_four_single_input_boxes_on_a_uhd_jr_are_1_8_9_16_and_their_copies(clien
 
 
 def test_a_vx1000_takes_one_and_gets_8_of_its_10(client):
-    """The VX1000's one OPT carries 10, and a single-input CVT4K-S delivers
-    its own 8 of them: min(8, 10)."""
+    """Each VX1000 OPT carries its 10, and a single-input CVT4K-S delivers
+    its own 8 of them: min(8, 10). Since OPT 2 became a trunk (its sheet's
+    "OPT | 2 | 10G optical fiber ports", owner 2026-11-02) a second one
+    goes on OPT 2 as the first box's backup, and the unit stays 10 ports."""
     pid, cid = _unit(client, VX1000)
-    _refused(_add(client, pid, cid))          # 2 OPT does not fit 1 trunk
     _ok(_add(client, pid, cid, inputs=1), 201)
     card = _res_card(client, cid)
     (box,) = card['cvts']
     assert (box['trunksIn'], box['portCount'], _span(box)) == (1, 8, (1, 8))
-    assert (card['trunksUsed'], card['trunksFree']) == (1, 0)
+    assert (card['trunksUsed'], card['trunksFree']) == (1, 1)
+    _ok(_add(client, pid, cid, inputs=1), 201)
+    card = _res_card(client, cid)
+    first, second = card['cvts']
+    assert (second['trunksIn'], second['portCount'], _span(second)) == (1, 8, (1, 8))
+    assert (second['copyRole'], second['backupOf']) == ('backup', first['id'])
+    assert (card['trunksUsed'], card['trunksFree']) == (2, 0)
+    assert card['ceiling'] == 10
+    assert 'All 2 trunks' in _refused(_add(client, pid, cid, inputs=1))
 
 
 def test_the_enhanced_h_card_gives_8_not_10_on_one_input(client):

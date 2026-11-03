@@ -10,6 +10,10 @@ COPY_SOURCES checks the words):
     each set to Copy or Backup for the whole unit (VX Pro Series User
     Manual, Table 5-7 OPT working mode) - two modes, Backup the default,
     like the H_4xfiber's. A file saved before reads Backup.
+  * VX1000 (not the Pro): OPT 2 the same way. Its own sheet reads "OPT | 2
+    | 10G optical fiber ports" and "OPT 2: For output only, with copy and
+    backup modes" (VX1000 Specifications V1.6.0 p.7), and the owner turned
+    it on (2026-11-02): Copy or Backup for the unit, Backup the default.
   * MCTRL660 Pro: "OPT2 is the backup input or output port of OPT1"
     (Specifications V1.4.1 p.4) - backup only.
   * MCTRL R5 ("copy channel" on its sheet, "backup" on its product page)
@@ -46,6 +50,7 @@ VX400P = 'novastar-vx400-pro'
 VX600P = 'novastar-vx600-pro'
 VX1000P = 'novastar-vx1000-pro'
 VX2000P = 'novastar-vx2000-pro'
+VX1000 = 'novastar-vx1000'
 M660P = 'novastar-mctrl660-pro'
 R5 = 'novastar-mctrl-r5'
 M4K = 'novastar-mctrl4k'
@@ -55,6 +60,8 @@ CVT10 = 'novastar-cvt10'
 CVT4K = 'novastar-cvt4k-s'
 
 VX_PROS = (VX400P, VX600P, VX1000P, VX2000P)
+# the units with a Copy / Backup mode for the whole unit
+VX_MODES = VX_PROS + (VX1000,)
 PER_BOX = (R5, M4K)
 MIRROR_ONLY = (MX30, MX20)
 
@@ -140,6 +147,8 @@ SHAPES = [
     (VX400P, 'backup', 'copy', CVT10, {}, 1, ONE_COPY, 4),
     (VX600P, 'backup', 'copy', CVT10, {}, 1, ONE_COPY, 6),
     (VX1000P, 'backup', 'copy', CVT10, {}, 1, ONE_COPY, 10),
+    (VX1000, 'backup', 'copy', CVT10, {}, 1, ONE_COPY, 10),
+    (VX1000, 'backup', 'copy', CVT4K, {'inputs': 1}, 1, ONE_COPY, 10),
     (VX2000P, 'backup', 'copy', CVT10, {}, 2, TWO_COPIES, 20),
     (VX2000P, 'backup', 'copy', CVT4K, {}, 1, WIDE_COPY, 20),
     (VX2000P, 'backup', 'copy', CVT4K, {'inputs': 1}, 2, TWO_COPIES, 20),
@@ -158,7 +167,7 @@ WITH_MODES_IDS = [i for i, s in zip(IDS, SHAPES) if s[2]]
 # ── the catalog ───────────────────────────────────────────────────────────
 
 def test_each_unit_reads_its_own_copy_kind_and_keeps_its_count():
-    for unit in VX_PROS:
+    for unit in VX_MODES:
         device = catalog.get_device(unit)
         assert device['ports']['defaultMode'] == 'backup', unit
         assert catalog.copy_trunks(device) == 'backup', unit
@@ -174,7 +183,7 @@ def test_each_unit_reads_its_own_copy_kind_and_keeps_its_count():
         device = catalog.get_device(unit)
         assert [m['id'] for m in device['ports']['modes']] == ['default']
         assert catalog.copy_trunks(device, 'default') == kind, unit
-    for unit in VX_PROS + (M660P,) + PER_BOX + MIRROR_ONLY:
+    for unit in VX_MODES + (M660P,) + PER_BOX + MIRROR_ONLY:
         device = catalog.get_device(unit)
         # every OPT still carries the unit's own copper: no box adds a port,
         # and no box brings a second one with it
@@ -184,10 +193,12 @@ def test_each_unit_reads_its_own_copy_kind_and_keeps_its_count():
 
 
 def test_the_units_with_no_box_on_their_copy_opt_are_unchanged():
-    """VX400 (no OPT rate stated), VX600 and VX1000 (OPT 2 not counted as a
-    trunk) carry no copy trunks: nothing can go on the OPT that copies."""
+    """VX400 (no OPT rate stated) and VX600 (OPT 2 not counted as a trunk)
+    carry no copy trunks: nothing can go on the OPT that copies. The VX1000
+    left this list on 2026-11-02, when its own sheet's 10G OPT 2 was turned
+    on."""
     assert 'trunks' not in catalog.get_device('novastar-vx400')
-    for unit in ('novastar-vx400', 'novastar-vx600', 'novastar-vx1000'):
+    for unit in ('novastar-vx400', 'novastar-vx600'):
         device = catalog.get_device(unit)
         assert (device.get('trunks') or 0) <= 1, unit
         assert not any(m.get('copyTrunks')
@@ -322,6 +333,7 @@ def test_a_per_box_mirror_stays_a_mirror_and_backup_binds_again(
 
 @pytest.mark.parametrize('unit,mode,role', [
     (VX400P, 'backup', 'backup'), (VX400P, 'copy', 'mirror'),
+    (VX1000, 'backup', 'backup'), (VX1000, 'copy', 'mirror'),
     (VX2000P, 'backup', 'backup'), (VX2000P, 'copy', 'mirror'),
     (M660P, None, 'backup'), (MX30, None, 'mirror'), (MX20, None, 'mirror'),
 ])
@@ -466,6 +478,8 @@ TRAY_CASES = [
     (VX400P, 'copy', 'backup', CVT10, 2, 1, 0, 4),
     (VX600P, 'copy', 'backup', CVT10, 2, 1, 0, 6),
     (VX1000P, 'copy', 'backup', CVT10, 2, 1, 0, 10),
+    (VX1000, 'copy', 'backup', CVT10, 2, 1, 0, 10),
+    (VX1000, 'backup', 'copy', CVT10, 2, 0, 1, 10),
     (VX2000P, 'copy', 'backup', CVT10, 4, 2, 0, 20),
     (VX2000P, 'backup', 'copy', CVT10, 4, 0, 2, 20),
     (M660P, None, None, CVT10, 2, 1, 0, 6),
@@ -474,9 +488,9 @@ TRAY_CASES = [
     (MX30, None, None, CVT10, 2, 0, 1, 10),
     (MX20, None, None, CVT10, 2, 0, 1, 6),
 ]
-TRAY_IDS = ['vx400-pro', 'vx600-pro', 'vx1000-pro', 'vx2000-pro',
-            'vx2000-pro-copy', 'mctrl660-pro', 'mctrl-r5', 'mctrl4k', 'mx30',
-            'mx20']
+TRAY_IDS = ['vx400-pro', 'vx600-pro', 'vx1000-pro', 'vx1000', 'vx1000-copy',
+            'vx2000-pro', 'vx2000-pro-copy', 'mctrl660-pro', 'mctrl-r5',
+            'mctrl4k', 'mx30', 'mx20']
 
 
 @pytest.mark.parametrize(

@@ -274,11 +274,11 @@ def canonical_mode(device, mode_id):
 def copy_trunks(device, mode_id=None):
     """What the copy trunks of one device's chosen mode carry, where the
     catalog's mode says: 'mirror' (the copies feed a mirror screen - the
-    H_4xfiber and its enhanced card in Copy mode, a VX Pro in Copy, the
-    MX30 and MX20, whose sheets say "copy channel" only), 'backup' (they
-    back up the primaries - both cards and the VX Pros in Backup mode, the
-    MCTRL660 Pro), 'per-box' (each box on one is set Mirror or Backup - the
-    MX40 Pro in 20-port mode, owner 2026-10-30: "Either, you pick"; the
+    H_4xfiber and its enhanced card in Copy mode, a VX Pro or the VX1000
+    in Copy, the MX30 and MX20, whose sheets say "copy channel" only),
+    'backup' (they back up the primaries - both cards, the VX Pros and the
+    VX1000 in Backup mode, the MCTRL660 Pro), 'per-box' (each box on one
+    is set Mirror or Backup - the MX40 Pro in 20-port mode, owner 2026-10-30: "Either, you pick"; the
     NovaPro UHD and UHD Jr, the MCTRL R5 and MCTRL4K, whose own documents
     say both), else None. Every entry quotes its source in modesNote or
     copyTrunksNote. A copy trunk is a trunk past the mode's blocks of
@@ -882,9 +882,10 @@ def default_backup_pair(card):
         # The trunks copy the card's own copper: a box there is another place
         # to plug into ports the card already delivers, not a backup unit.
         # The NovaPro UHDs' OPT 3/4 are copy/hot backup channels a box there
-        # may be set to (copyTrunks 'per-box'), and the VX Pros, MCTRL660
-        # Pro, R5 and 4K back up the same way, but a box on a primary OPT
-        # still comes alone: no ruling makes it bring a second box.
+        # may be set to (copyTrunks 'per-box'), and the VX Pros, VX1000,
+        # MCTRL660 Pro, R5 and 4K back up the same way, but a box on a
+        # primary OPT still comes alone: no ruling makes it bring a second
+        # box.
         return False
     # IN COPY MODE THE COPY TRUNKS ARE NOT BACKUPS (NovaStar, 2026-10-30:
     # "OPT 3 copies the output on OPT 1") - they feed a mirror screen, so a
@@ -3762,9 +3763,9 @@ def resolve_card(card, proc):
     # the OPT it copies, whichever came first - the boxes or the mode (a
     # card starts in Independent, where a box comes alone, so boxes put on
     # before Backup carried no link and drew as a "(copy)" box of free
-    # sockets). The VX Pros in Backup and the MCTRL660 Pro bind the same
-    # way. On a per-box mode (copyTrunks 'per-box': the MX40 Pro's
-    # 20-port, the NovaPro UHD and UHD Jr, the MCTRL R5 and MCTRL4K, each
+    # sockets). The VX Pros and the VX1000 in Backup and the MCTRL660 Pro
+    # bind the same way. On a per-box mode (copyTrunks 'per-box': the MX40
+    # Pro's 20-port, the NovaPro UHD and UHD Jr, the MCTRL R5 and MCTRL4K, each
     # catalog entry quoting its own sources in copyTrunksNote) the box set
     # to Backup - the default - binds the same way, and one set to Mirror
     # feeds a mirror instead. Only where the primary box takes exactly the same
