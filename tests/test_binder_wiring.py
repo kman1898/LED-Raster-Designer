@@ -84,7 +84,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from test_binder import (  # noqa: E402
-    SEED_JS, _SHOW_JSON, W, H, SCALE, DA, SCRATCH_FIXTURE,
+    SEED_JS, _SHOW_JSON, W, H, SCALE, MAP_SCALE, DA, SCRATCH_FIXTURE,
     BOX_WORD, MAP_ZOOM_CAP, TITLE_BLOCK, _generic_breakout, _title_block,
 )
 
@@ -293,8 +293,8 @@ def _check_runs(half, out=None):
 # label registry is the only thing that knows where they are - the same
 # startLabelProbe() / endLabelProbe() pair tests/test_map_label_collisions.py
 # reads - and it records them in the BITMAP'S OWN PIXELS. The bitmap is laid
-# at the half's `map.area` at SCALE offscreen pixels to the page unit, so a
-# box converts with  page = area + pixel / SCALE.
+# at the half's `map.area` at MAP_SCALE offscreen pixels to the page unit, so
+# a box converts with  page = area + pixel / MAP_SCALE.
 
 def _wall(half):
     m = half['map']
@@ -310,10 +310,10 @@ def _labels(half):
     never reaches the paper cannot be covered, so it is not lettering here.
     """
     a = half['map']['area']
-    w, h = a['w'] * SCALE, a['h'] * SCALE
+    w, h = a['w'] * MAP_SCALE, a['h'] * MAP_SCALE
     return [{'kind': b['kind'], 'text': b['text'],
-             'x': a['x'] + b['x'] / SCALE, 'y': a['y'] + b['y'] / SCALE,
-             'w': b['w'] / SCALE, 'h': b['h'] / SCALE}
+             'x': a['x'] + b['x'] / MAP_SCALE, 'y': a['y'] + b['y'] / MAP_SCALE,
+             'w': b['w'] / MAP_SCALE, 'h': b['h'] / MAP_SCALE}
             for b in half['labels']
             if b['kind'] != 'wallEdge' and b['x'] + b['w'] > 0 and b['y'] + b['h'] > 0
             and b['x'] < w and b['y'] < h]
@@ -680,8 +680,11 @@ PROBE_JS = """([opts, title]) => {
     const marks = [];
     const render = r.render;
     r.startLabelProbe();
+    // one mark per half: the render each map is read off. A split map's
+    // two stage passes (app-binder.js _bSplitMapPair) run with the probe
+    // put aside, so they leave no mark and add no boxes.
     r.render = function (...a) {
-        marks.push(r.labelProbe ? r.labelProbe.length : 0);
+        if (r.labelProbe) marks.push(r.labelProbe.length);
         return render.apply(this, a);
     };
     let res = null, boxes = [];

@@ -125,7 +125,11 @@ SHEETS = {
     'archd': (7200, 4800, [2592, 1728]),
 }
 W, H, PT = SHEETS['tabloid']
+# The book canvas paints a Tabloid sheet at 2x (400 px/in); its maps'
+# bitmaps print at 300 px/in (app-binder.js MAP_DPI): 1.5 bitmap pixels to
+# the page unit.
 SCALE = 2
+MAP_SCALE = 1.5
 # The frame: the border PAD in, the title block TB_W wide inside it on the
 # right, the drawing area DA_PAD in from both.
 PAD, TB_W, DA_PAD = 50, 480, 30
@@ -783,7 +787,9 @@ def test_the_pdf_route_receives_one_display_list_per_sheet(page):
                      texts: body.pages.map(p => p.ops.filter(o => o.op === 'text').length),
                      imageIds: body.pages.map(p => Object.keys(p.images)),
                      imageOps: body.pages.map(p => p.ops.filter(o => o.op === 'image').map(o => o.id)),
-                     png: body.pages.every(p => Object.values(p.images).every(d => d.startsWith('data:image/png;base64,'))),
+                     imageRects: body.pages.map(p => p.ops.filter(o => o.op === 'image').map(o => [o.x, o.y, o.w, o.h])),
+                     imageKinds: body.pages.map(p => p.ops.filter(o => o.op === 'image')
+                         .map(o => p.images[o.id].slice(0, p.images[o.id].indexOf(',') + 1))),
                      bitmaps: body.pages.some(p => 'dataUrl' in p || 'data' in p),
                      firstOps: body.pages[0].ops.slice(0, 3),
                      saved: seen.saved, plan: plan.length,
@@ -815,14 +821,18 @@ def test_the_pdf_route_receives_one_display_list_per_sheet(page):
     assert out['firstOps'][0] == {'op': 'rect', 'x': 0, 'y': 0, 'w': W, 'h': H, 'fill': '#ffffff'}
     assert out['firstOps'][1] == {'op': 'rect', 'x': PAD, 'y': PAD, 'w': W - PAD * 2, 'h': H - PAD * 2, 'stroke': '#111111', 'width': 3}
     # only the map sheets, the wiring sheets and the overview (its raster)
-    # carry images - one each, the op naming the bitmap the record holds, as
-    # a PNG; a wiring sheet is one side, so one wall
-    for kind, ids_, ops_ in zip(out['kindsByPage'], out['imageIds'], out['imageOps']):
+    # carry images - one map each, the ops naming the bitmaps the record
+    # holds: one PNG, or the split pair (app-binder.js _bLayMapBitmap) - a
+    # JPEG of the fills, then a PNG over it at the very same rect; a wiring
+    # sheet is one side, so one wall
+    PNG, JPEG = 'data:image/png;base64,', 'data:image/jpeg;base64,'
+    for kind, ids_, ops_, kinds_, rects in zip(out['kindsByPage'], out['imageIds'], out['imageOps'],
+                                               out['imageKinds'], out['imageRects']):
         if kind in ('overview', 'power', 'data', 'wiring'):
-            assert len(ids_) == 1 and ops_ == ids_, (kind, ids_, ops_)
+            assert ops_ == ids_ and kinds_ in ([PNG], [JPEG, PNG]), (kind, ids_, ops_, kinds_)
+            assert len(set(map(tuple, rects))) == 1, (kind, rects)
         else:
             assert ids_ == [] and ops_ == [], (kind, ids_, ops_)
-    assert out['png']
     assert out['saved'] == {'filename': 'Two Positions - binder rev 1.0.pdf', 'mime': 'application/pdf', 'size': 9}
 
 

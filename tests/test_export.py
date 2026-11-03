@@ -324,6 +324,117 @@ def test_pdf_from_pages_replays_every_op_kind_on_a_page_in_points(client):
     assert PdfReader(io.BytesIO(resp.data)).metadata.title == 'Show'
 
 
+def _jpeg_data(size=(40, 20), mode='RGB', colour=(30, 120, 220)):
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new(mode, size, colour if mode == 'RGB' else (0, 0, 0, 0)).save(buf, format='JPEG', quality=85)
+    return buf.getvalue()
+
+
+def _data_url(kind, raw):
+    return f'data:image/{kind};base64,' + base64.b64encode(raw).decode()
+
+
+def _overlay_png(size=(40, 20)):
+    from PIL import Image, ImageDraw
+    img = Image.new('RGBA', size, (0, 0, 0, 0))
+    ImageDraw.Draw(img).line([(0, 0), (size[0] - 1, size[1] - 1)], fill=(17, 17, 17, 255), width=3)
+    buf = io.BytesIO()
+    img.save(buf, format='PNG')
+    return _data_url('png', buf.getvalue())
+
+
+def _page_xobjects(page):
+    return [x.get_object() for x in page['/Resources']['/XObject'].values()]
+
+
+def _filters(xobject):
+    """An image's filter chain as a list (reportlab may put ASCII85 in front)."""
+    f = xobject.get('/Filter')
+    return [str(v) for v in f] if isinstance(f, list) else [str(f)]
+
+
+def test_pdf_from_pages_embeds_a_jpeg_as_it_came(client):
+    """A map's cabinet fills come as a JPEG data URL (app-binder.js
+    _bLayMapBitmap): it lands as a DCTDecode image whose stream IS the
+    JPEG that was sent - not re-encoded - at the op's rect."""
+    raw = _jpeg_data()
+    resp = client.post('/api/export/pdf-from-pages', json={'project_name': 'Show', 'pages': [_page(
+        [{'op': 'image', 'id': 'fills', 'x': 300, 'y': 700, 'w': 800, 'h': 400}],
+        {'fills': _data_url('jpeg', raw)})]})
+    assert resp.status_code == 200, resp.get_json()
+    [img] = _page_xobjects(_pdf_pages(resp.data)[0])
+    assert img['/Subtype'] == '/Image' and _filters(img)[-1] == '/DCTDecode', dict(img)
+    assert (img['/Width'], img['/Height']) == (40, 20) and img['/ColorSpace'] == '/DeviceRGB'
+    assert img.get_data() == raw, 'the JPEG is embedded byte for byte'
+    assert '/SMask' not in img
+
+
+def test_pdf_from_pages_lays_a_split_map_jpeg_first_then_its_png_over_it(client):
+    """A split map is two image ops at one rect: the opaque JPEG of the
+    fills, then the transparent PNG of everything drawn over them. Both
+    reach the page, in that order, at the same place and size - the PNG
+    keeps its alpha as a soft mask."""
+    ops = [{'op': 'rect', 'x': 0, 'y': 0, 'w': 2200, 'h': 1700, 'fill': '#ffffff'},
+           {'op': 'image', 'id': 'img1', 'x': 300, 'y': 700, 'w': 800, 'h': 400},
+           {'op': 'image', 'id': 'img2', 'x': 300, 'y': 700, 'w': 800, 'h': 400},
+           _text('S1-1', x=500, y=900)]
+    resp = client.post('/api/export/pdf-from-pages', json={'project_name': 'Show', 'pages': [_page(
+        ops, {'img1': _data_url('jpeg', _jpeg_data()), 'img2': _overlay_png()})]})
+    assert resp.status_code == 200, resp.get_json()
+    page = _pdf_pages(resp.data)[0]
+    xo = page['/Resources']['/XObject']
+    kinds = {name: _filters(x.get_object())[-1] for name, x in xo.items()}
+    jpeg = [n for n, f in kinds.items() if f == '/DCTDecode']
+    png = [n for n, f in kinds.items() if f == '/FlateDecode']
+    assert len(jpeg) == 1 and len(png) == 1, kinds
+    assert '/SMask' in xo[png[0]].get_object(), 'the overlay keeps its transparency'
+    content = page.get_contents().get_data().decode('latin-1')
+    # each image is drawn under its own cm: the same matrix twice, the
+    # JPEG's Do before the PNG's
+    import re
+    draws = re.findall(r'([-\d. ]+) cm\s+(/\S+) Do', content)
+    assert [d[1] for d in draws] == [jpeg[0], png[0]], draws
+    assert draws[0][0].split() == draws[1][0].split(), draws
+    # 800 x 400 page px at 72/200 pt each
+    assert [float(v) for v in draws[0][0].split()[:4]] == [288.0, 0.0, 0.0, 144.0], draws
+    assert 'S1-1' in page.extract_text()
+
+
+def test_pdf_from_pages_rejects_a_bitmap_that_will_not_decode_with_400_json(client):
+    """Every bitmap is decoded before the page is laid, so one that is not
+    what its data URL says - a cut-off JPEG, a PNG sent as a JPEG, a CMYK
+    JPEG, a GIF, broken base64 - is a 400 naming the image, never a 500 and
+    never a half-built PDF."""
+    from PIL import Image
+    good = _jpeg_data()
+    cmyk = io.BytesIO()
+    Image.new('CMYK', (8, 8), (0, 0, 0, 0)).save(cmyk, format='JPEG')
+    gif = io.BytesIO()
+    Image.new('P', (8, 8)).save(gif, format='GIF')
+    png_bytes = base64.b64decode(_make_test_image_data().split(',', 1)[1])
+    bad = {
+        'cut off': _data_url('jpeg', good[:len(good) // 2]),
+        'png as jpeg': _data_url('jpeg', png_bytes),
+        'jpeg as png': _data_url('png', good),
+        'cmyk': _data_url('jpeg', cmyk.getvalue()),
+        'gif': _data_url('gif', gif.getvalue()),
+        'base64': 'data:image/jpeg;base64,@@@notbase64@@@',
+        'no prefix': base64.b64encode(good).decode(),
+    }
+    for what, data in bad.items():
+        resp = client.post('/api/export/pdf-from-pages', json={'project_name': 'Show', 'pages': [
+            _page([_text('ok')]),
+            _page([{'op': 'image', 'id': 'fills', 'x': 0, 'y': 0, 'w': 10, 'h': 10}], {'fills': data})]})
+        assert resp.status_code == 400, (what, resp.status_code, resp.data[:200])
+        err = resp.get_json()
+        assert err and err['error'] == "page 2: image 'fills' is not a PNG or JPEG data URL", (what, err)
+    # the good one goes through
+    ok = client.post('/api/export/pdf-from-pages', json={'project_name': 'Show', 'pages': [
+        _page([{'op': 'image', 'id': 'fills', 'x': 0, 'y': 0, 'w': 10, 'h': 10}], {'fills': _data_url('jpeg', good)})]})
+    assert ok.status_code == 200 and ok.data[:5] == b'%PDF-'
+
+
 def test_pdf_from_pages_sizes_every_page_on_its_own(client):
     """Each page is its own size in points: the letter floor, and a page
     that grew (letter wide, 978.48 pt tall - 2718 page px)."""

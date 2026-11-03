@@ -1458,7 +1458,7 @@ class _BinderWiring {
         // and the bitmap is laid at `area` at S of them to the page unit,
         // so the boxes come back in page units. _bMap is re-entrant on the
         // probe, so starting one here simply lends it the same array.
-        const S = (book.scale || 2) * ((book.fill && book.fill.s) || 1);
+        const S = this._bMapScale(book) * ((book.fill && book.fill.s) || 1);
         // Re-entrant, exactly as _bMap's own probe is: a caller already
         // probing this render (the label-collision suite is one) keeps its
         // array and we read the stretch this map added to it.
@@ -1483,13 +1483,18 @@ class _BinderWiring {
         const radii = new WeakMap();
         const seen = [];
         const layout = r._layoutCircleLabel, lines = r._fillWrappedLabel;
+        // a split map's stage passes paint the discs again (_bSplitMapPair):
+        // only the whole render's are this sheet's
+        const app = this;
         // put back exactly what was there: an own property is restored, an
         // inherited one is uncovered
         const own = [Object.getOwnPropertyDescriptor(r, '_layoutCircleLabel'),
                      Object.getOwnPropertyDescriptor(r, '_fillWrappedLabel')];
         r._layoutCircleLabel = function (...a) {
             const out = layout.apply(this, a);
-            if (out && Array.isArray(out.lines) && Number.isFinite(out.radius)) radii.set(out.lines, out.radius);
+            if (!app._binderQuietPass && out && Array.isArray(out.lines) && Number.isFinite(out.radius)) {
+                radii.set(out.lines, out.radius);
+            }
             return out;
         };
         r._fillWrappedLabel = function (ls, x, y) {

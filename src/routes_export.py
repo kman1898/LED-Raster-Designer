@@ -678,16 +678,42 @@ def export_pdf_from_images():
 _PAGE_OPS = ('rect', 'line', 'text', 'image')
 
 
+# An image op's bitmap is a data URL of one of these, and decodes as it says.
+# PNG: a whole map, the overview's raster, the logo. JPEG: a map's cabinet
+# fills, sent as the lower half of a split map (app-binder.js
+# _bLayMapBitmap) - the map's own rect drawn twice, the opaque JPEG first
+# and its transparent PNG overlay (borders, runs, discs, tags, names) on
+# top. The page's op order says which is which; nothing here pairs them.
+_PAGE_IMAGE_TYPES = {'data:image/png;base64,': 'PNG', 'data:image/jpeg;base64,': 'JPEG'}
+
+
 def _page_image_reader(data, ImageReader):
-    """PROTOTYPE (wip/binder-size): an image op's bitmap - a data URL or
-    raw bytes (a multipart part) - as a reportlab reader. A JPEG is handed
-    over as its own bytes so reportlab embeds it as is (DCTDecode) rather
-    than inflating it to raw RGB and deflating it again."""
-    if isinstance(data, str):
-        data = base64.b64decode(data.split(',', 1)[1] if ',' in data else data)
-    if data[:2] == bytes((0xFF, 0xD8)):
-        return ImageReader(io.BytesIO(data))
-    return ImageReader(Image.open(io.BytesIO(data)))
+    """An image op's bitmap - a PNG or JPEG data URL - as a reportlab
+    reader, decoded whole here so a bitmap that will not decode is the
+    caller's 400 rather than a 500 half way through the PDF (drawImage
+    decodes it anyway, to name the XObject, and reuses this decode). A JPEG
+    is handed over as its own bytes, so reportlab embeds it as is
+    (DCTDecode) instead of inflating it to raw RGB and deflating that.
+    Raises ValueError on anything else."""
+    kind = next((k for p, k in _PAGE_IMAGE_TYPES.items()
+                 if isinstance(data, str) and data.startswith(p)), None)
+    if kind is None:
+        raise ValueError('not a PNG or JPEG data URL')
+    raw = base64.b64decode(data[data.index(',') + 1:], validate=True)
+    if kind == 'JPEG':
+        # reportlab's JPEG path reads the colour space off the component
+        # count, and anything but grey or RGB it takes for CMYK
+        with Image.open(io.BytesIO(raw)) as probe:
+            if probe.format != 'JPEG' or probe.mode not in ('RGB', 'L'):
+                raise ValueError('not an RGB JPEG')
+        reader = ImageReader(io.BytesIO(raw))
+    else:
+        img = Image.open(io.BytesIO(raw))
+        if img.format != 'PNG':
+            raise ValueError('not a PNG')
+        reader = ImageReader(img)
+    reader.getRGBData()
+    return reader
 
 
 def _pdf_page_replay(c, page, ImageReader, pdfmetrics, HexColor):
@@ -793,7 +819,7 @@ def _pdf_page_replay(c, page, ImageReader, pdfmetrics, HexColor):
         elif kind == 'image':
             iid = op.get('id')
             data = images.get(iid) if isinstance(iid, str) else None
-            if not isinstance(data, (str, bytes)):
+            if not isinstance(data, str):
                 raise ValueError(f'image {iid!r} has no bitmap')
             x, y = num(op.get('x'), 'x') * s, num(op.get('y'), 'y') * sy
             w, h = num(op.get('w'), 'w') * s, num(op.get('h'), 'h') * sy
@@ -801,7 +827,7 @@ def _pdf_page_replay(c, page, ImageReader, pdfmetrics, HexColor):
                 try:
                     readers[iid] = _page_image_reader(data, ImageReader)
                 except Exception:
-                    raise ValueError(f'image {iid!r} is not a PNG data URL')
+                    raise ValueError(f'image {iid!r} is not a PNG or JPEG data URL')
             c.drawImage(readers[iid], x, ph - y - h, width=w, height=h, mask='auto')
 
 
@@ -810,9 +836,10 @@ def export_pdf_from_pages():
     """Create a multi-page PDF from client-laid pages sent as DISPLAY LISTS
     (the binder, app-binder.js): every page is { name, width, height,
     page_size, ops, images } - rects, lines and text as vector ops in page
-    pixels, the bitmaps (the maps, the cover's raster) by id - so the text
-    in the PDF is real text, set in Helvetica, and only the maps are
-    images. pdf-from-images beside this keeps every other export."""
+    pixels, the bitmaps (the maps, the cover's raster) by id as PNG or
+    JPEG data URLs (_PAGE_IMAGE_TYPES) - so the text in the PDF is real
+    text, set in Helvetica, and only the maps are images. pdf-from-images
+    beside this keeps every other export."""
     try:
         from reportlab.pdfgen import canvas as pdf_canvas
         from reportlab.lib.utils import ImageReader
@@ -821,23 +848,7 @@ def export_pdf_from_pages():
     except ImportError:
         return jsonify({'error': 'PDF export requires reportlab library'}), 500
 
-    if request.mimetype == 'multipart/form-data':
-        # PROTOTYPE: the display lists as a JSON 'manifest' part, every
-        # bitmap its own binary part named in the page's images as
-        # {"part": name}
-        try:
-            data = json.loads(request.form.get('manifest') or '')
-        except ValueError:
-            data = None
-        if isinstance(data, dict):
-            for pg in data.get('pages') or []:
-                imgs = pg.get('images') if isinstance(pg, dict) else None
-                if isinstance(imgs, dict):
-                    for k, v in list(imgs.items()):
-                        if isinstance(v, dict) and v.get('part') in request.files:
-                            imgs[k] = request.files[v['part']].read()
-    else:
-        data = request.get_json(silent=True)
+    data = request.get_json(silent=True)
     if not isinstance(data, dict):
         return jsonify({'error': 'Expected a JSON object with pages'}), 400
     project_name = data.get('project_name') or 'Project'
