@@ -489,6 +489,21 @@ class _Processors {
             cap.appendChild(cards);
         }
         wrap.appendChild(cap);
+        // PORTS NO BACKUP COVERS (owner, 2026-11-03): beside the capacity
+        // and the backup settings, each box whose backup carries fewer of
+        // its ports than it has, by the server's coverage (unbackedPorts).
+        const unbacked = this.unbackedPortsText(proc);
+        if (unbacked) {
+            const line = document.createElement('div');
+            line.className = 'hw-pop-unbacked';
+            line.dataset.lrdField = `processor-unbacked-${proc.id}`;
+            line.style.fontSize = '11px';
+            line.style.color = '#c8a04a';
+            line.style.marginTop = '2px';
+            line.style.lineHeight = '1.4';
+            line.textContent = unbacked;
+            wrap.appendChild(line);
+        }
 
         if (proc.redundancySupported) {
             // THE ONE HOME FOR REDUNDANCY - and one calm surface. The
@@ -1105,6 +1120,38 @@ class _Processors {
             if (pick) row.appendChild(pick);
         }
         return row;
+    }
+
+    // "ports 9-10 have no backup" / "port 9 has no backup": one box's
+    // uncovered ports in its own numbers, as runs; '' when there are none.
+    boxUnbackedText(box) {
+        const nums = [...new Set((box && box.unbackedPorts) || [])]
+            .sort((a, b) => a - b);
+        if (!nums.length) return '';
+        const runs = [];
+        nums.forEach(n => {
+            const last = runs[runs.length - 1];
+            if (last && n === last[1] + 1) last[1] = n;
+            else runs.push([n, n]);
+        });
+        const text = runs.map(([a, b]) => (a === b ? `${a}` : `${a}-${b}`))
+            .join(', ');
+        return nums.length === 1 ? `port ${text} has no backup`
+            : `ports ${text} have no backup`;
+    }
+
+    // The processor gear's line: every box on the unit with ports no
+    // backup covers, "CVT10 A ports 9-10 have no backup. CVT10 B ...".
+    unbackedPortsText(proc) {
+        const parts = [];
+        (proc.slots || []).forEach(s => ((s.card && s.card.cvts) || [])
+            .forEach(box => {
+                const said = this.boxUnbackedText(box);
+                if (said) {
+                    parts.push(`${box.displayTitle || box.name || box.deviceName} ${said}.`);
+                }
+            }));
+        return parts.join(' ');
     }
 
     // The card's 1:1 partner pick. Every other card in the project is

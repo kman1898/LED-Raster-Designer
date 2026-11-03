@@ -4962,7 +4962,34 @@ def resolve_all(processors):
     _apply_backup_mapping(processors, resolved)
     _apply_backup_unit(processors, resolved)
     _count_backup_ports(resolved)
+    _note_unbacked_ports(resolved)
     return resolved
+
+
+def _note_unbacked_ports(resolved):
+    """The ports of a backed-up box that no backup covers. In place:
+    `unbackedPorts` (the box's own numbers) on every resolved box, `[]`
+    where every port has a return or the box is backed by nothing.
+
+    Owner, 2026-11-03: a CVT4K-S backing up two CVT10s carries 8 ports per
+    input, so ports 9-10 of each CVT10 have no backup - and nothing said
+    so. Read off the actual coverage, never a number: a box some backup
+    covers (`backedUpBy`, or any of its ports `backedBy`) lists every
+    primary port of its own that has no `backedBy`, so any box with more
+    ports than its backup carries reads right. The tray's box header and
+    the processor's gear both say it."""
+    for rproc in resolved:
+        for slot in rproc.get('slots') or []:
+            rcard = slot.get('card')
+            for box in (rcard or {}).get('cvts') or []:
+                own = [p for p in box.get('ports') or []
+                       if p.get('cvtId') == box.get('id')
+                       and not p.get('backsUp') and not p.get('mirrorOf')]
+                backed = bool(box.get('backedUpBy')) \
+                    or any(p.get('backedBy') for p in own)
+                box['unbackedPorts'] = sorted(
+                    p.get('localNumber') or p['number'] for p in own
+                    if not p.get('backedBy')) if backed else []
 
 
 def _count_backup_ports(resolved):
