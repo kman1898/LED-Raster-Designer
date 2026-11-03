@@ -188,7 +188,7 @@ def test_the_refusals_say_why_and_store_nothing(client):
     _ok(_link(client, pid, c, 'p1', {'cable': tac['id']}))
     assert _links(client, c)['p1']['strands'] == [3, 4]
     d = _add_box(client, pid, cid)[-1]
-    assert 'no 2 free strands' in _refused(_link(client, pid, d, 'p1', {'cable': tac['id']}))
+    assert 'TAC A is full' in _refused(_link(client, pid, d, 'p1', {'cable': tac['id']}))
 
 
 def test_a_refused_first_link_leaves_no_cable_behind(client):

@@ -137,7 +137,7 @@ def test_a_quad_feeds_four_bidi_links_on_two_cvt4k_boxes_on_two_cards(client):
     assert _links(client, ra) == {'p1': {'cable': quad['id'], 'strands': [3]},
                                   'p2': {'cable': quad['id'], 'strands': [4]}}
     why = _refused(_link(client, pid, rb, 'p1', {'cable': quad['id']}))
-    assert why == 'QUAD 1 has no 1 free strand left.', why
+    assert why == 'QUAD 1 is full: every strand is in use.', why
     # a strand another box holds is refused by name
     why = _refused(_link(client, pid, rb, 'p1', {'cable': quad['id'], 'strands': [3]}))
     assert 'strand 3 Green is already used by' in why and 'a strand carries one link' in why, why
@@ -150,7 +150,7 @@ def test_a_duo_feeds_two_bidi_links_on_different_boxes(client):
     _ok(_link(client, pid, pb, 'p1', {'cable': duo['id']}))
     assert _links(client, pa)['p1'] == {'cable': duo['id'], 'strands': [1]}
     assert _links(client, pb)['p1'] == {'cable': duo['id'], 'strands': [2]}
-    assert 'no 1 free strand' in _refused(_link(client, pid, pb, 'p2', {'cable': duo['id']}))
+    assert 'is full' in _refused(_link(client, pid, pb, 'p2', {'cable': duo['id']}))
 
 
 def test_a_quad_feeds_two_cvt4k_boxes_on_one_opt_each(client):
@@ -178,7 +178,7 @@ def test_a_duo_fills_one_xd_input_and_no_second_xd_takes_it(client):
     duo = _new(client, 'opticalcon-duo', xds[0], 'p1')
     assert _links(client, xds[0]) == {'p1': {'cable': duo['id'], 'strands': [1, 2]}}
     why = _refused(_link(client, sx, xds[1], 'p1', {'cable': duo['id']}))
-    assert why == f"{duo['name']} has no 2 free strands left.", why
+    assert why == f"{duo['name']} is full: every strand is in use.", why
     why = _refused(_link(client, sx, xds[1], 'p1', {'cable': duo['id'], 'strands': [2]}))
     assert 'needs 2 strands' in why, why
     assert _links(client, xds[1]) is None
@@ -190,7 +190,7 @@ def test_a_quad_feeds_two_xd_inputs_on_different_xds(client):
     _ok(_link(client, sx, xds[1], 'p1', {'cable': quad['id']}))
     assert _links(client, xds[0]) == {'p1': {'cable': quad['id'], 'strands': [1, 2]}}
     assert _links(client, xds[1]) == {'p1': {'cable': quad['id'], 'strands': [3, 4]}}
-    assert 'no 2 free strands' in _refused(_link(client, sx, xds[2], 'p1', {'cable': quad['id']}))
+    assert 'is full' in _refused(_link(client, sx, xds[2], 'p1', {'cable': quad['id']}))
 
 
 def test_backup_inputs_take_a_shared_opticalcon(client):
@@ -205,7 +205,7 @@ def test_backup_inputs_take_a_shared_opticalcon(client):
                                       'b1': {'cable': quad['id'], 'strands': [3, 4]}}
     duo = _new(client, 'opticalcon-duo', xds[1], 'p1')
     why = _refused(_link(client, sx, xds[2], 'b1', {'cable': duo['id']}))
-    assert 'no 2 free strands' in why, why
+    assert 'is full' in why, why
     # a CVT4K-S on BiDi behind an H9 with a backup unit: OPT 3 and OPT 4
     st = _ok(client.post('/api/processors', json={'deviceId': 'novastar-h9'}), 201)
     pid = st['processors'][-1]['id']
@@ -282,7 +282,7 @@ def test_a_1_4_0_file_with_owner_box_ids_loads_with_every_link(client):
     # 1.4.0 (no link yet) is any box's now
     _ok(_link(client, pid, rb, 'p1', {'cable': 'fib902'}))
     assert _links(client, rb)['p1'] == {'cable': 'fib902', 'strands': [3]}
-    assert 'no 1 free strand' in _refused(_link(client, pid, rb, 'p2', {'cable': 'fib901'}))
+    assert 'is full' in _refused(_link(client, pid, rb, 'p2', {'cable': 'fib901'}))
     _ok(_link(client, pid, pa, 'p2', {'cable': 'fib903'}))
     assert _links(client, pa)['p2'] == {'cable': 'fib903', 'strands': [1]}
 
@@ -359,7 +359,7 @@ def test_a_quad_on_bidi_feeds_four_cvts_one_strand_each(client):
     fifth = next(s for s in next(p for p in st['processors'] if p['id'] == pid)['slots']
                  if s['index'] == 1)['card']['cvts'][0]['id']
     _ok(client.put(f'/api/processors/{pid}/cvts/{fifth}/fiber', json={'bidi': True}))
-    assert 'free strand' in _refused(_link(client, pid, fifth, 'p1', {'cable': quad['id']}))
+    assert 'is full' in _refused(_link(client, pid, fifth, 'p1', {'cable': quad['id']}))
 
 
 def test_a_quad_on_bidi_reaches_four_two_opt_cvts_by_their_first_link(client):
@@ -371,7 +371,7 @@ def test_a_quad_on_bidi_reaches_four_two_opt_cvts_by_their_first_link(client):
     for box in (b, c, d):
         _ok(_link(client, pid, box, 'p1', {'cable': quad['id']}))
     assert [_links(client, x)['p1']['strands'] for x in (a, b, c, d)] == [[1], [2], [3], [4]]
-    assert 'free strand' in _refused(_link(client, pid, a, 'p2', {'cable': quad['id']}))
+    assert 'is full' in _refused(_link(client, pid, a, 'p2', {'cable': quad['id']}))
 
 
 def _h9_with_boxes(client, device, count, bidi):
@@ -415,10 +415,10 @@ def test_without_bidi_a_quad_feeds_two_cvt10s_and_a_duo_one(client, device):
     quad = _new(client, 'opticalcon-quad', boxes[0], 'p1')
     _ok(_link(client, pid, boxes[1], 'p1', {'cable': quad['id']}))
     assert [_links(client, b)['p1']['strands'] for b in boxes[:2]] == [[1, 2], [3, 4]]
-    assert 'free strands' in _refused(_link(client, pid, boxes[2], 'p1', {'cable': quad['id']}))
+    assert 'is full' in _refused(_link(client, pid, boxes[2], 'p1', {'cable': quad['id']}))
     duo = _new(client, 'opticalcon-duo', boxes[2], 'p1')
     assert _links(client, boxes[2])['p1'] == {'cable': duo['id'], 'strands': [1, 2]}
-    assert 'free strands' in _refused(_link(client, pid, boxes[3], 'p1', {'cable': duo['id']}))
+    assert 'is full' in _refused(_link(client, pid, boxes[3], 'p1', {'cable': duo['id']}))
 
 
 @pytest.mark.parametrize('device', ['novastar-cvt10'])
@@ -459,7 +459,7 @@ def test_a_duo_on_bidi_splits_across_two_boxes(client, device, inputs):
     _ok(_link(client, pid, boxes[1], 'p1', {'cable': duo['id']}))
     assert [_links(client, b)['p1'] for b in boxes[:2]] == [
         {'cable': duo['id'], 'strands': [1]}, {'cable': duo['id'], 'strands': [2]}]
-    assert 'free strand' in _refused(_link(client, pid, boxes[2], 'p1', {'cable': duo['id']}))
+    assert 'is full' in _refused(_link(client, pid, boxes[2], 'p1', {'cable': duo['id']}))
 
 
 def test_a_cvt10_pro_runs_duplex_only_like_an_xd(client):
@@ -475,7 +475,7 @@ def test_a_cvt10_pro_runs_duplex_only_like_an_xd(client):
     quad = _new(client, 'opticalcon-quad', pro, 'p1')
     _ok(_link(client, pid, pro2, 'p1', {'cable': quad['id']}))
     assert [_links(client, b)['p1']['strands'] for b in (pro, pro2)] == [[1, 2], [3, 4]]
-    assert 'free strands' in _refused(_link(client, pid, pro3, 'p1', {'cable': quad['id']}))
+    assert 'is full' in _refused(_link(client, pid, pro3, 'p1', {'cable': quad['id']}))
     _cpid, (cvt10,) = _h9_with_boxes(client, 'novastar-cvt10', 1, bidi=True)
     assert _res_box(client, cvt10)['bidiAllowed'] is True
     assert _raw_box(client, cvt10)['bidi'] is True

@@ -295,14 +295,14 @@ GEAR_JS = """async ([pid, cid]) => {
     };
     let pop = open(`card-${cid}`);
     const rows = [...pop.querySelectorAll('div')].map(d => d.textContent);
-    const cap = rows.find(t => / ports( - over capacity)?$/.test(t)
+    const cap = rows.find(t => / ports( · \\d+ backup)?( · over capacity)?$/.test(t)
                           && /^\\d+ \\/ \\d+/.test(t));
     const gaps = [...pop.querySelectorAll('.hw-pop-gap')]
         .map(d => d.textContent);
     pop = open(`proc-${pid}`);
     const chip = pop.querySelector('[data-mode="halves"]');
     const prows = [...pop.querySelectorAll('div')].map(d => d.textContent);
-    const pcap = prows.find(t => /^\\d+ \\/ \\d+ ports$/.test(t));
+    const pcap = prows.find(t => /^\\d+ \\/ \\d+ ports( · \\d+ backup)?$/.test(t));
     app._hwPopoverClose();
     const strip = [...document.querySelectorAll('.hw-dock-issue')]
         .map(r => r.textContent);
@@ -353,8 +353,10 @@ def test_the_gear_follows_the_boxes_and_says_the_gap(page):
     for n in (1, 2, 3, 4):
         boxes = pg.evaluate(BOX_JS, [pid, cid, 'add', None])
         gear = pg.evaluate(GEAR_JS, [pid, cid])
-        assert gear['cap'] == f'{10 * n} / {10 * n} ports', gear
-        assert gear['pcap'] == f'{10 * n} / {10 * n} ports', gear
+        # in halves, half the sockets are returns: usable ports with the
+        # backups beside them (owner, 2026-11-03)
+        assert gear['cap'] == f'{5 * n} / {5 * n} ports · {5 * n} backup', gear
+        assert gear['pcap'] == f'{5 * n} / {5 * n} ports · {5 * n} backup', gear
     assert gear['tip'].startswith(
         'Ports 21-40 carry the returns of 1-20.'), gear
     # OPT 2's box off: the hole is said in the gear and on the strip, and
@@ -362,7 +364,7 @@ def test_the_gear_follows_the_boxes_and_says_the_gap(page):
     pg.evaluate(BOX_JS, [pid, cid, 'del', boxes[1]])
     pg.wait_for_timeout(300)
     gear = pg.evaluate(GEAR_JS, [pid, cid])
-    assert gear['cap'] == '30 / 30 ports', gear
+    assert gear['cap'] == '15 / 15 ports · 15 backup', gear
     assert gear['gaps'] == ['OPT 2 has no box - ports 11-20 are missing.']
     assert gear['tip'] == 'Ports 26-40 carry the returns of 1-10, 21-25.', gear
     assert any(t.endswith(': OPT 2 has no box - ports 11-20 are missing.')

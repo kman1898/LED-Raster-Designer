@@ -2550,12 +2550,30 @@ def test_the_novastar_pair_is_freely_overridable(client):
     card = first_card(only(state))
     assert len(card['cvts']) == 2
     assert all(c['backupOf'] is None for c in card['cvts'])
-    # Rebuilt, then the PRIMARY deleted: the backup link goes with it.
+    # With both primary OPTs taken, the next box lands on OPT 3 and IS a
+    # backup - of OPT 1's box, because Backup mode says OPT 3 backs up OPT
+    # 1 (resolve_card) - so it takes no pair of its own: a pair there was a
+    # backup of a backup that no strip of the tray drew (beta.4 QA).
     state = client.post(f'/api/processors/{pid}/cards/{card_id}/cvts',
                         json={'deviceId': 'novastar-cvt10'}).get_json()
     card = first_card(only(state))
-    primary_id = card['cvts'][2]['id']
-    assert card['cvts'][3]['backupOf'] == primary_id
+    assert len(card['cvts']) == 3
+    by_trunk = {c['trunkTitle']: c for c in card['cvts']}
+    assert by_trunk['OPT 3']['backupOf'] == by_trunk['OPT 1']['id']
+    raw = next(s['card'] for s in state['processors'][0]['slots']
+               if s['card'])
+    assert all(not c.get('backupOf') for c in raw['cvts']), (
+        'the add stored a pair link on a box that landed on a backup OPT')
+    # Rebuilt from empty, then the PRIMARY deleted: the backup link goes
+    # with it.
+    for box in card['cvts']:
+        client.delete(f'/api/processors/{pid}/cvts/{box["id"]}')
+    state = client.post(f'/api/processors/{pid}/cards/{card_id}/cvts',
+                        json={'deviceId': 'novastar-cvt10'}).get_json()
+    card = first_card(only(state))
+    assert len(card['cvts']) == 2
+    primary_id = card['cvts'][0]['id']
+    assert card['cvts'][1]['backupOf'] == primary_id
     state = client.delete(
         f'/api/processors/{pid}/cvts/{primary_id}').get_json()
     card = first_card(only(state))
@@ -2565,11 +2583,6 @@ def test_the_novastar_pair_is_freely_overridable(client):
                if s['card'])
     assert all(not c.get('backupOf') for c in raw['cvts']), (
         'a stored link outlived the box it named')
-    # The box left on OPT 4 is the backup of OPT 2's box because Backup
-    # mode says OPT 4 backs up OPT 2 (resolve_card), not because of any
-    # link the add made - it reads off the trunks, stored nowhere.
-    by_trunk = {c['trunkTitle']: c for c in card['cvts']}
-    assert by_trunk['OPT 4']['backupOf'] == by_trunk['OPT 2']['id']
 
 
 def test_a_pair_that_does_not_fit_degrades_to_one_box(client):
@@ -3095,24 +3108,24 @@ def test_the_reporting_left_the_retired_hosts_for_the_strip():
 
 def test_the_dock_wires_the_shared_fold_machinery():
     """One mechanism, not a copy: the dock's sections go through
-    _wireSectionCollapse on every rebuild, keyed per card/box id, and the
-    gear's Remove takes the deleted machine's keys with it - every other
-    way a processor leaves (undo, a project loading over this one) merely
-    orphans a key, which nothing can inherit because ids never recur
-    within a project."""
+    _wireSectionCollapse on every rebuild, keyed per card/box id. Ids DO
+    recur - undo of an add rewinds the counter and every show numbers from
+    1 - so a key goes with its record whichever way the record leaves:
+    every tree the page adopts forgets the keys of cards and boxes not in
+    it, and another show opening forgets them all (_forgetHardwareViews;
+    behavior in test_hardware_view_memory)."""
     source = js_source('app-dock.js')
     assert 'this._wireSectionCollapse(body)' in source
     assert 'head.dataset.lrdSec = secId' in source
     assert "body.className = 'lrd-sec-body'" in source
     assert 'hwdock-card-${card.id}' in source
     assert 'hwdock-box-${cvt.id}' in source
-    # The remove lives in the gear popovers' content, so the key cleanup
-    # lives with it in the processors module.
+    sheets = js_source('app-dock-cable-sheets.js')
+    assert 'ledRasterPanelCollapsed_hwdock-(card|box)-' in sheets, (
+        'the fold keys of gone cards and boxes are not forgotten')
     procs = js_source('app-processors.js')
-    assert 'ledRasterPanelCollapsed_hwdock-card-' in procs, (
-        'the deleted card key is not cleaned up')
-    assert 'ledRasterPanelCollapsed_hwdock-box-' in procs, (
-        'the deleted box key is not cleaned up')
+    assert 'this._forgetHardwareViews(data.resolved)' in procs, (
+        'an adopted tree does not forget the gone records\' keys')
 
 
 FOLD_SEED_JS = """async () => {
@@ -4292,7 +4305,7 @@ def test_the_bar_draws_the_partner_row_only_where_the_vendor_does_not_fix(
     }""", ids)
     assert out['underBar'], 'the partner pick does not sit under the bar'
     assert out['partnerTexts'][0] == 'backed up by…', out
-    assert any('BK - 6 ports' in t for t in out['partnerTexts']), out
+    assert any('BK · 6 ports' in t for t in out['partnerTexts']), out
     assert not out['levelSelect'], 'the level select is back'
     assert not out['modeSelect'], 'the four-way mode select is back'
     assert not out['switchBox'], 'the checkbox switch is back'

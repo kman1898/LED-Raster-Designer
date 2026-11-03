@@ -1421,23 +1421,42 @@ def test_releasing_a_whole_screen_releases_every_one_of_its_pins(one_card):
     assert resp.get_json()['state']['pins'] == []
 
 
-def test_a_pin_to_a_card_that_is_gone_is_reported_not_dropped(one_card):
-    """Pulling a card out from under a pin is a real edit someone makes. The
-    pin is kept and reported rather than deleted, because the alternative is
-    the app throwing away a decision it was told to hold."""
+def test_a_pin_goes_with_the_card_pulled_out_from_under_it(one_card):
+    """Pulling a card out from under a pin is a real edit someone makes, and
+    the pins on it go with it (owner, beta.3: a removed H9 left 48 pins,
+    each one waiting on a Release pin). The reply says which screen ports
+    are unplaced again; undo puts card and pins back together
+    (test_processor_remove_pins)."""
     client, pid, card = one_card
     client.post('/api/port-assignments/pin', json={
         'layerId': 'Main', 'index': 0, 'cardId': card, 'port': 4,
         'screens': screens(('Main', 2))})
     resp = client.put(f'/api/processors/{pid}/slots/0', json={'deviceId': None})
     assert resp.status_code == 200
+    assert resp.get_json()['note'] == \
+        'Removed Card 1: 1 port of Screen Main is unplaced again'
+
+    res = resolve(client, ('Main', 2))
+    assert 'pin-card-gone' not in kinds(res)
+    assert stored_state(client)['pins'] == []
+
+
+def test_a_pin_to_a_card_that_is_not_in_the_file_is_reported_not_dropped(
+        one_card):
+    """A pin can still name a card the project does not have - a hand-edited
+    file, one put together from two shows. That pin is kept and reported
+    rather than deleted, because the alternative is the app throwing away a
+    decision it was told to hold."""
+    client, _pid, _card = one_card
+    import app as app_module
+    app_module.current_project[assignment.STATE_KEY]['pins'].append(
+        {'layerId': 'Main', 'index': 0, 'cardId': 'cardNope', 'port': 4})
 
     res = resolve(client, ('Main', 2))
     gone = issue(res, 'pin-card-gone')
     assert gone['layerId'] == 'Main' and gone['port'] == 4
     assert gone['offers'][0]['action'] == 'release'
-    stored = client.get('/api/project').get_json()[assignment.STATE_KEY]
-    assert stored['pins'], 'the pin was silently discarded'
+    assert stored_state(client)['pins'], 'the pin was silently discarded'
 
 
 def test_a_pin_is_refused_onto_a_card_that_is_not_in_the_project(one_card):

@@ -309,7 +309,9 @@ class _MirrorScreens {
     // words when the drop is released.
     _copyDropPlan(unit, layerId) {
         if (!unit || unit.type !== 'card' || !unit.cardId) return null;
-        if (!this._cardFeedsMirror(unit.cardId)) return null;
+        if (!this._cardFeedsMirror(unit.cardId)) {
+            return this._copyDropHint(unit, layerId);
+        }
         const screens = (this._assignment && this._assignment.screens) || [];
         const target = screens.find(s => s.layerId === String(layerId));
         if (!target) return null;
@@ -358,6 +360,51 @@ class _MirrorScreens {
         for (let n = 1; n <= (target.required || 0); n++) nums.push(n);
         return { ok: true, sourceId: source.layerId, sourceName: source.name,
                  nums, text: `Copy of ${source.name}` };
+    }
+
+    // A FULL CARD THAT COULD FEED A MIRROR, SAID WITH THE WAY TO DO IT
+    // (beta.4 QA: a copy box on Backup - an MCTRL R5's, a VX600 Pro in
+    // Backup - refused the second screen with only "has no free ports").
+    // A card whose copy output is set to back up rather than to copy, with
+    // a screen already on it and no free port left, dropped on a screen
+    // with no ports: the drop could only be a mirror, so the refusal says
+    // how to make one - the unit's Copy mode where its mode is the switch
+    // (copyTrunks 'backup' with a 'mirror' mode beside it), else the box
+    // on the copy output set to Mirror (or a box put there). Null in every
+    // other case, and the drop goes on as any card drop.
+    _copyDropHint(unit, layerId) {
+        const found = typeof this._dockFindCard === 'function'
+            ? this._dockFindCard(unit.cardId) : null;
+        const card = found && found.card;
+        if (!card) return null;
+        const copyMode = (card.modes || []).find(m => m.copyTrunks === 'mirror');
+        let how = '';
+        if (card.copyTrunks === 'backup' && copyMode) {
+            how = `switch ${unit.title} to ${copyMode.label || 'Copy'} mode`;
+        } else if (card.copyTrunks === 'per-box') {
+            const entry = (card.copyTrunkList || [])[0];
+            if (!entry) return null;
+            how = entry.boxId
+                ? `set the box on ${entry.trunkTitle} to Mirror`
+                : `put a box on ${entry.trunkTitle} and set it to Mirror`;
+        } else {
+            return null;
+        }
+        const summary = ((this._assignment && this._assignment.cards) || [])
+            .find(c => c.cardId === unit.cardId);
+        if (!summary || summary.free !== 0) return null;
+        const screens = (this._assignment && this._assignment.screens) || [];
+        const target = screens.find(s => s.layerId === String(layerId));
+        if (!target) return null;
+        const own = (s) => (s.ports || []).filter(p => p.cardId
+            && p.source !== 'mirror');
+        if (own(target).length) return null;
+        const source = screens.find(s => s.layerId !== target.layerId
+            && own(s).some(p => p.cardId === unit.cardId));
+        if (!source) return null;
+        return { ok: false,
+                 message: `${unit.title} has no free ports. To make `
+                    + `${target.name} a copy of ${source.name}, ${how}.` };
     }
 
     // Why the copies of these card sockets give a mirror nowhere to plug

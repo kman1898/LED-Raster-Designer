@@ -406,6 +406,12 @@ class _ProjectIo {
         this.lastSelectedLayerId = null;
         this.selectionAnchorLayerId = null;
         localStorage.removeItem('ledRasterClientProps');
+        // Another show numbers its hardware from 1 again: card1 there is
+        // not card1 here, so no card's or box's cable sheet or fold is
+        // carried across (app-dock-cable-sheets.js _forgetHardwareViews).
+        if (typeof this._forgetHardwareViews === 'function') {
+            this._forgetHardwareViews(null, true);
+        }
         this.resetHistory('Initial State');
         // The project about to be adopted is another show: the multi numbers
         // the outgoing one held (app-naming) must not reach it while it

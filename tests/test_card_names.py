@@ -226,10 +226,26 @@ def test_the_processor_gear_rows_and_partner_pick_read_card_n(page):
     quiet(pg)
     bar = pg.evaluate(BAR_JS, ids['pid'])
     assert bar['rows'] == ['Slot 1 · Card 1', 'Slot 2 · Card 2', 'Slot 4 · Card 4'], bar
-    opts = pg.evaluate(PICKER_JS, ids['c4'])
-    assert opts == ['backed up by…', 'Card 1 in H9 - 16 ports',
-                    'Card 2 in H9 - 16 ports (backs up Card 1)'], opts
+    # Card 1's pick reads its partner and the free card by Card N, with
+    # the house separator (no spaced hyphen)
+    opts = pg.evaluate(PICKER_JS, ids['c1'])
+    assert opts == ['backed up by…', 'Card 2 in H9 · 16 ports',
+                    'Card 4 in H9 · 16 ports'], opts
     assert not any(MODEL in o for o in opts), opts
+    # Card 4 is offered neither Card 2 (it backs up Card 1) nor Card 1 (a
+    # main with a backup of its own): the server refuses both, and the
+    # pick used to offer them and draw a 400 (beta.4 QA).
+    assert pg.evaluate(PICKER_JS, ids['c4']) == ['backed up by…']
+    # Card 2 is Card 1's backup: no pick of its own, it says whose
+    # (owner, beta.4: no backup of a backup).
+    assert pg.evaluate(PICKER_JS, ids['c2']) is None
+    fact = pg.evaluate("""(cid) => {
+        const pop = document.getElementById('hw-gear-popover');
+        const el = pop && pop.querySelector(
+            `[data-lrd-field="processor-card-backupfor-${cid}"]`);
+        return el ? el.textContent : null;
+    }""", ids['c2'])
+    assert fact == 'backs up Card 1', fact
 
 
 def test_the_card_gear_is_headed_card_n_with_its_model_under(page):
@@ -243,6 +259,31 @@ def test_the_card_gear_is_headed_card_n_with_its_model_under(page):
     quiet(pg)
     assert pg.evaluate(CARD_GEAR_JS) == {
         'heading': 'Card 2', 'model': MODEL, 'redundancy': 'Redundancy: backs up Card 1'}
+
+
+CAPACITY_JS = """() => {
+    const pop = document.getElementById('hw-gear-popover');
+    return pop ? [...pop.querySelectorAll('div')].map(d => d.textContent)
+        .filter(t => /^\\d+ (\\/ \\d+ ports( · \\d+ backup)?|backup ports)$/.test(t))
+        : null;
+}"""
+
+
+def test_the_capacity_rows_count_usable_ports_with_the_backups_beside(page):
+    """Owner, 2026-11-03: "40 / 40 ports · 40 backup", never "80 / 80
+    ports". Three 16-port cards, Card 2 Card 1's 1:1 backup: the
+    processor reads 32 usable of 32 with 16 backup; Card 1 reads its own
+    16; Card 2 is nothing but returns."""
+    pg, ids, _errors = page
+    assert pg.evaluate(OPEN_GEAR_JS, f"proc-{ids['pid']}")
+    quiet(pg)
+    assert pg.evaluate(CAPACITY_JS) == ['32 / 32 ports · 16 backup']
+    assert pg.evaluate(OPEN_GEAR_JS, f"card-{ids['c1']}")
+    quiet(pg)
+    assert pg.evaluate(CAPACITY_JS) == ['16 / 16 ports']
+    assert pg.evaluate(OPEN_GEAR_JS, f"card-{ids['c2']}")
+    quiet(pg)
+    assert pg.evaluate(CAPACITY_JS) == ['16 backup ports']
 
 
 @pytest.fixture(scope="module")
@@ -304,3 +345,34 @@ def test_the_pull_page_hardware_lists_every_card_with_its_model(sheets):
             if w.startswith('H9 Card '):
                 rows.append((w, t[i + 1] if i + 1 < len(t) else None))
     assert rows == [('H9 Card 1', MODEL), ('H9 Card 2', MODEL), ('H9 Card 4', MODEL)], rows
+
+
+def test_a_named_card_goes_by_its_name_alone_in_the_tray(page):
+    """Beta.4 QA (a real show): the card in slot 2, named "Card 3", read
+    "Card 2 (backs up Card 1)" in its header beside a field reading "Card
+    3" - one card, two names. A named card's header reads the slot it sits
+    in, the gear rows' word, and the name is the field's alone. Runs last:
+    it names a card and puts the name back."""
+    pg, ids, _errors = page
+    pg.evaluate("""async (ids) => {
+        await fetch(`/api/processors/${ids.pid}/cards/${ids.c2}`, {method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({name: 'Card 3'})});
+        await window.app.refreshProcessors();
+    }""", ids)
+    try:
+        quiet(pg)
+        out = pg.evaluate("""(cid) => {
+            const head = document.querySelector(`[data-hwdock="card-${cid}"]`);
+            return {label: head.querySelector('.hw-dock-unit-name').textContent,
+                    field: head.querySelector('input.hw-dock-name').value};
+        }""", ids['c2'])
+        assert out == {'label': 'Slot 2 (backs up Card 1)', 'field': 'Card 3'}, out
+        assert pg.evaluate(TRAY_JS, ids)['labels'][0] == 'Card 1'
+    finally:
+        pg.evaluate("""async (ids) => {
+            await fetch(`/api/processors/${ids.pid}/cards/${ids.c2}`, {method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({name: ''})});
+            await window.app.refreshProcessors();
+        }""", ids)

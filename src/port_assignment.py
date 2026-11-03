@@ -705,6 +705,7 @@ def resolve(processors, screens, state=None, _legacy_auto=False):
         }
 
     known = {s['layerId'] for s in screens}
+    required = {s['layerId']: s['ports'] for s in screens}
     mirrors = mirror_sources(screens)
 
     # ── pass 1: pins ──────────────────────────────────────────────────────
@@ -743,6 +744,13 @@ def resolve(processors, screens, state=None, _legacy_auto=False):
                 'offers': [{'action': 'release', 'layerId': pin['layerId'],
                             'index': pin['index'], 'label': 'Release pin'}],
             })
+            continue
+        if pin['index'] >= required.get(pin['layerId'], 0):
+            # The screen has no such port any more (it shrank: 8 ports
+            # with 10 pins). The pin is kept - the port comes back with
+            # the cabinets - but it lights no socket, so every n/N reads
+            # what the tiles show (beta.4 QA: "XD A 10/10" over two free
+            # tiles).
             continue
         claim(card['cardId'], pin['port'], pin['layerId'], pin['index'], 'pin')
 

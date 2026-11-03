@@ -98,6 +98,12 @@ class _Processors {
         }
         this._processorsResolved = data.resolved;
         this._processorsRaw = JSON.stringify(data.processors || []);
+        // A card's or box's cable sheet and fold go with the record, so a
+        // record that comes later under the same id starts closed
+        // (app-dock-cable-sheets.js _forgetHardwareViews).
+        if (typeof this._forgetHardwareViews === 'function') {
+            this._forgetHardwareViews(data.resolved);
+        }
         // The connectors a data cable can be typed as, served with the
         // tree (catalog DATA_CABLE_CONNECTORS) so the sheet's select and
         // the server's refusals name one list.
@@ -197,7 +203,7 @@ class _Processors {
                 this._applyProcessorState(data);
                 if (applied && pullBefore) this._dropPullEditsGoneWith(pullBefore);
                 if (applied && action) this.saveState(action);
-                // What the edit had to say - "Removed box XD B - 3
+                // What the edit had to say - "Removed box XD B: 3
                 // ports of LEFT are unplaced again" - read where a refusal
                 // would read, but not in a refusal's color: the edit did
                 // exactly what it was told.
@@ -389,23 +395,35 @@ class _Processors {
         return this.deriveReturnLabel(primary);
     }
 
-    _buildCapacityRow(used, ceiling, known, reason) {
+    // USABLE PORTS, THE BACKUPS BESIDE THEM (owner, 2026-11-03): "40 / 40
+    // ports · 40 backup" for two 40-port cards paired 1:1, never "80 / 80
+    // ports". `backup` is the ports consumed as returns (the server's
+    // backupCount - a 1:1 backup card, a port shape's returns, a loop or
+    // backup box), taken off both sides; the capacity check reads the
+    // usable counts. A card that is nothing but returns reads "16 backup
+    // ports".
+    _buildCapacityRow(used, ceiling, known, reason, backup = 0) {
         const row = document.createElement('div');
         row.style.fontSize = '11px';
         row.style.fontFamily = 'monospace';
+        const spare = backup > 0 ? ` · ${backup} backup` : '';
         if (!known) {
             // A device whose count the sources never settled stays selectable
             // and says so. Substituting a sibling's number here would silently
             // cap a wall, which is the one failure this panel must not have.
             row.style.color = '#c8a04a';
-            row.textContent = `${used} ports / ceiling unknown`;
+            row.textContent = `${used - backup} ports / ceiling unknown${spare}`;
             if (reason) row.title = reason;
             return row;
         }
-        const over = used > ceiling;
+        const usable = used - backup;
+        const reach = ceiling - backup;
+        const over = usable > reach;
         row.style.color = over ? '#d05a52' : 'var(--ps-dim, #c0c0c0)';
-        row.textContent = `${used} / ${ceiling} ports`;
-        if (over) row.textContent += ' - over capacity';
+        row.textContent = backup > 0 && usable === 0 && reach === 0
+            ? `${backup} backup ports`
+            : `${usable} / ${reach} ports${spare}`;
+        if (over) row.textContent += ' · over capacity';
         return row;
     }
 
@@ -456,7 +474,8 @@ class _Processors {
         cap.style.justifyContent = 'space-between';
         cap.style.gap = '8px';
         cap.appendChild(this._buildCapacityRow(
-            proc.defined, proc.ceiling, proc.ceilingKnown, proc.note));
+            proc.defined, proc.ceiling, proc.ceilingKnown, proc.note,
+            proc.backupCount || 0));
         if (proc.maxCards !== null && proc.maxCards !== undefined
                 && proc.form === 'chassis') {
             const cards = document.createElement('div');
@@ -529,32 +548,15 @@ class _Processors {
             'Remove processor',
             `Remove this processor. Its ${this.unitWordFor(proc) === 'processor' ? '' : `${this.unitWordFor(proc)}s, `}boxes and every port on them `
             + 'go with it; undo puts it back.',
+            // The machine's cards' and boxes' folds and cable sheets go
+            // with it when the reply's tree is adopted
+            // (_forgetHardwareViews): their ids DO come back - undo of an
+            // add rewinds the counter, and every show numbers from 1 - so
+            // a key left behind would open or fold whatever later takes
+            // the same id.
             () => this._processorRequest(
                 `/api/processors/${proc.id}`, 'DELETE', undefined,
-                'Remove Processor')
-                .then(() => {
-                    // The machine is gone and its id never comes back, so
-                    // its fold keys go with it - the dock's card and box
-                    // sections fold under their own ids, which die with the
-                    // machine too. The other ways a processor leaves (undo
-                    // of an add, another project loading over this one)
-                    // just orphan their keys, harmlessly: no later
-                    // processor in this project can inherit one.
-                    try {
-                        (proc.slots || []).forEach(slot => {
-                            const card = slot.card;
-                            if (!card) return;
-                            localStorage.removeItem(
-                                'ledRasterPanelCollapsed_hwdock-card-'
-                                + card.id);
-                            (card.cvts || []).forEach(cvt => {
-                                localStorage.removeItem(
-                                    'ledRasterPanelCollapsed_hwdock-box-'
-                                    + cvt.id);
-                            });
-                        });
-                    } catch (_) { /* blocked storage never held the keys */ }
-                })));
+                'Remove Processor')));
         return wrap;
     }
 
@@ -884,6 +886,13 @@ class _Processors {
         if (shown === 'unit') {
             // One row: the partner. A standalone unit is its one card, so
             // it picks that card's 1:1 partner - the second sending card.
+            // A unit that IS another's backup says whose instead: a backup
+            // takes no backup of its own.
+            if (cards[0].backupFor) {
+                block.appendChild(this._buildRedRow('backup',
+                    this._buildBacksUpFact(proc, cards[0])));
+                return block;
+            }
             const pick = this._buildCardBackupPick(proc, cards[0]);
             if (pick) block.appendChild(this._buildRedRow('mirrored by', pick));
             return block;
@@ -900,9 +909,13 @@ class _Processors {
                 block.appendChild(this._buildMixedCardRow(proc, card, legend));
                 return;
             }
-            let control = shown === 'card'
-                ? this._buildCardBackupPick(proc, card)
-                : this._buildCardShapeChips(proc, card);
+            // Per card, a card that is another card's 1:1 backup offers no
+            // partner pick (owner, beta.4: no backup of a backup) - it says
+            // whose it is, "backs up Card 1".
+            let control = shown !== 'card'
+                ? this._buildCardShapeChips(proc, card)
+                : card.backupFor ? this._buildBacksUpFact(proc, card)
+                : this._buildCardBackupPick(proc, card);
             if (!control) {
                 // A card the sheet says cannot pair states so in the
                 // control's place; nothing is drawn that could not act.
@@ -1013,6 +1026,34 @@ class _Processors {
     // gesture writes ONLY this card, through the card's own route, one
     // request and one undo step each, and says redundancyMixed so the
     // bar stays at Mixed even where the write leaves the cards agreeing.
+    // "backs up Card 1": the Per card row of a card that is another
+    // card's 1:1 backup (owner, beta.4), gold like the Mixed row's fact,
+    // offering nothing. The main by the name it goes by (cardShortName:
+    // its typed name, else Card N) where it is in this processor, else by
+    // its unit ("Card 1 in H9"), else the server's title.
+    _buildBacksUpFact(proc, card) {
+        const fact = document.createElement('span');
+        fact.className = 'hw-pop-red-backupfor';
+        fact.style.fontSize = '11px';
+        fact.style.color = '#c8a04a';
+        fact.dataset.lrdField = `processor-card-backupfor-${card.id}`;
+        const mainId = card.backupFor.cardId;
+        const mainSlot = (proc.slots || [])
+            .find(s => s.card && s.card.id === mainId);
+        const elsewhere = mainSlot ? null : this._otherCards(card.id)
+            .find(x => x.card.id === mainId);
+        const main = mainSlot
+            ? (this.cardShortName(proc, mainSlot.card)
+               || this._backupUnitTitle(proc, mainSlot.card))
+            : elsewhere ? this._backupUnitTitle(elsewhere.proc, elsewhere.card)
+            : card.backupFor.title;
+        fact.textContent = `backs up ${main}`;
+        fact.title = `This ${this.unitWordFor(proc, card)} is ${main}’s 1:1 `
+            + 'backup: its ports carry those returns. Clear the pick on '
+            + `${main}’s row to free it.`;
+        return fact;
+    }
+
     // A card consumed as another card's 1:1 backup is that card's return
     // end: it says whose, gold, and offers nothing.
     _buildMixedCardRow(proc, card, legend) {
@@ -1087,17 +1128,21 @@ class _Processors {
         blank.selected = !card.backupCardId;
         partner.appendChild(blank);
         this._otherCards(card.id).forEach(({ proc: p, card: c }) => {
+            // A card already doing a job the pick would give it twice is
+            // not offered (the server refuses both, _check_backup_card): one
+            // that backs up another card, and a main with a backup of its
+            // own. The current partner always stays, so the pick reads it.
+            if (c.id !== card.backupCardId
+                    && ((c.backupFor && c.backupFor.cardId !== card.id)
+                        || (c.backupCardId && c.redundancyShape
+                            && c.redundancyShape.mode === '1to1'))) return;
             const opt = document.createElement('option');
             opt.value = c.id;
             const title = this._backupUnitTitle(p, c);
             // The card's reach - on a box-fed card, what its boxes give
             // ("Follow the boxes", 2026-10-04).
             const count = c.ceilingKnown ? `${c.ceiling}` : '?';
-            let note = '';
-            if (c.backupFor && c.id !== card.backupCardId) {
-                note = ` (backs up ${c.backupFor.title})`;
-            }
-            opt.textContent = `${title} - ${count} ports${note}`;
+            opt.textContent = `${title} · ${count} ports`;
             if (c.id === card.backupCardId) opt.selected = true;
             partner.appendChild(opt);
         });
@@ -1340,7 +1385,7 @@ class _Processors {
             if (conflict) {
                 const blank = document.createElement('option');
                 blank.value = '';
-                blank.textContent = 'sources disagree - pick one';
+                blank.textContent = 'sources disagree, pick one';
                 blank.selected = !card.mode;
                 select.appendChild(blank);
             }
@@ -1348,7 +1393,7 @@ class _Processors {
                 const opt = document.createElement('option');
                 opt.value = m.id;
                 opt.textContent = m.count === null
-                    ? m.label : `${m.label} - ${m.count} ports`;
+                    ? m.label : `${m.label} · ${m.count} ports`;
                 if (m.id === card.mode) opt.selected = true;
                 select.appendChild(opt);
             });
@@ -1366,7 +1411,8 @@ class _Processors {
         if (redundancy) wrap.appendChild(redundancy);
 
         const cap = this._buildCapacityRow(
-            card.defined, card.ceiling, card.ceilingKnown, card.ceilingReason);
+            card.defined, card.ceiling, card.ceilingKnown, card.ceilingReason,
+            card.backupCount || 0);
         cap.style.marginTop = '6px';
         wrap.appendChild(cap);
 
@@ -1731,15 +1777,11 @@ class _Processors {
             'Remove box',
             'Remove this breakout box. Its sockets go with it; undo puts '
             + 'it back.',
+            // Its fold and cable sheet go when the reply's tree is
+            // adopted (_forgetHardwareViews).
             () => this._processorRequest(
                 `/api/processors/${proc.id}/cvts/${cvt.id}`, 'DELETE',
-                undefined, 'Remove Breakout Box')
-                .then(() => {
-                    try {
-                        localStorage.removeItem(
-                            `ledRasterPanelCollapsed_hwdock-box-${cvt.id}`);
-                    } catch (_) { /* blocked storage never held the key */ }
-                })));
+                undefined, 'Remove Breakout Box')));
         return wrap;
     }
 
