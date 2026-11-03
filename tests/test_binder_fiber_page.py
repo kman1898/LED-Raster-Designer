@@ -339,6 +339,20 @@ def test_the_sheet_draws_every_link_whole_and_strikes_nothing(page):
         assert not bad, '\n' + '\n'.join(bad)
 
 
+def test_the_strands_stand_centered_in_their_plugs(page):
+    # Matt 2026-11-03: "the colors arent center justified in the fiber
+    # drawing". Each plug's strand block (swatch and name) sits on the plug's
+    # middle, not against its left edge.
+    pg, _ids = page
+    sheet = pg.evaluate(PAINT_JS, _opts())[0]
+    plugs = sheet['fiber']['plugs']
+    assert plugs, sheet['fiber']
+    for p in plugs:
+        mid, block = (p['a'] + p['b']) / 2, (p['left'] + p['right']) / 2
+        assert abs(mid - block) < 0.5, p
+        assert p['left'] >= p['a'] and p['right'] <= p['b'], p
+
+
 def test_the_title_block_on_or_off(page):
     """On, the sheet wears the title block and names itself FIBER in it;
     off, there is no block, the drawing gets the whole width and is drawn

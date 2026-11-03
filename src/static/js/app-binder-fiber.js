@@ -638,7 +638,7 @@ class _BinderFiber {
                                    drawX: L.cols.map((c, i) => this._bLogXY(book, da.x + i * (L.geo.w + DRAW_GAP), top)[0]),
                                    tableX: L.tables ? this._bLogXY(book, tableX, tableY)[0] : null,
                                    tableY: L.tables ? this._bLogXY(book, tableX, tableY)[1] : null,
-                                   under: !!L.under };
+                                   under: !!L.under, plugs: book.log.fiberPlugs || [] };
             }
         }));
     }
@@ -803,9 +803,17 @@ class _BinderFiber {
         this._bwRound(ctx, a, ry + 5, b - a, h - 10, 8, '#ffffff', RULE, 2);
         const lead = list.some(x => x.swatch) ? SW + 8 : 0;
         const top = ry + (h - list.length * LH) / 2;
+        // the block's width is its widest line, and the block sits on the
+        // plug's middle; its lines stay left-aligned so the swatches line up
+        const indent = x => (x.muted && !x.swatch ? 0 : lead);
+        const blockW = Math.min(b - a - PAD * 2, Math.max(...list.map(x =>
+            indent(x) + this._bfW(book, x.text, x.muted ? DZ.small : DZ.strand))));
+        const tx = (a + b) / 2 - blockW / 2;
+        if (book.log && book.page && book.page.painting) {
+            (book.log.fiberPlugs = book.log.fiberPlugs || []).push({ a, b, left: tx, right: tx + blockW });
+        }
         list.forEach((x, i) => {
             const base = top + i * LH + LH / 2 + DZ.strand * 0.36;
-            const tx = a + PAD;
             if (x.swatch) {
                 const sy = top + i * LH + (LH - SW) / 2;
                 ctx.fillStyle = x.swatch.base || '#777777';
@@ -818,7 +826,7 @@ class _BinderFiber {
                 ctx.lineWidth = 1.5;
                 ctx.strokeRect(tx, sy, SW, SW);
             }
-            this._bText(book, x.text, tx + (x.muted && !x.swatch ? 0 : lead), base,
+            this._bText(book, x.text, tx + indent(x), base,
                         { size: x.muted ? DZ.small : DZ.strand, color: x.muted ? MUTED : INK,
                           maxWidth: b - a - PAD * 2 - lead, shrink: true });
         });
