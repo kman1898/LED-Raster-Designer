@@ -389,6 +389,43 @@ class _DockCableSheets {
         } catch (_) { /* no storage: the flip lasts the render */ }
     }
 
+    // A NEW CARD OR BOX STARTS WITH ITS SHEET DOWN AND ITS SECTION UNFOLDED
+    // (owner, beta.4: a new MX 4x10G and CVT10 came up with their cable
+    // sheets open "as if leftover from another system"). Both memories are
+    // keyed by the record's id, and ids are not forever: every show numbers
+    // its hardware from 1, and undo rewinds the counter, so an add undone
+    // and made again hands out the same id. So the memory goes with the
+    // record: _applyProcessorState calls this with every tree it adopts,
+    // and a key whose card or box is not in that tree goes - a removed
+    // record, an add undone. `all` (another show opening, File > New)
+    // forgets every card's and box's; a plain page reload keeps them.
+    _forgetHardwareViews(resolved, all = false) {
+        const live = new Set();
+        if (!all) {
+            (resolved || []).forEach(p => (p.slots || []).forEach(s => {
+                if (!s.card) return;
+                live.add(`card:${s.card.id}`);
+                (s.card.cvts || []).forEach(c => live.add(`cvt:${c.id}`));
+            }));
+        }
+        const patterns = [
+            [/^lrd_data_cable_sheet_(card|cvt)_(.+)$/, m => `${m[1]}:${m[2]}`],
+            [/^ledRasterPanelCollapsed_hwdock-(card|box)-(.+)$/,
+             m => `${m[1] === 'box' ? 'cvt' : 'card'}:${m[2]}`],
+        ];
+        try {
+            const gone = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                const k = localStorage.key(i);
+                for (const [re, owner] of patterns) {
+                    const m = re.exec(k || '');
+                    if (m && !live.has(owner(m))) gone.push(k);
+                }
+            }
+            gone.forEach(k => localStorage.removeItem(k));
+        } catch (_) { /* no storage: nothing was remembered */ }
+    }
+
     _dockBuildDataCableSheetButton(owner) {
         const open = this._dataCableSheetOpen(owner);
         const btn = document.createElement('button');

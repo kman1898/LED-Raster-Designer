@@ -98,6 +98,12 @@ class _Processors {
         }
         this._processorsResolved = data.resolved;
         this._processorsRaw = JSON.stringify(data.processors || []);
+        // A card's or box's cable sheet and fold go with the record, so a
+        // record that comes later under the same id starts closed
+        // (app-dock-cable-sheets.js _forgetHardwareViews).
+        if (typeof this._forgetHardwareViews === 'function') {
+            this._forgetHardwareViews(data.resolved);
+        }
         // The connectors a data cable can be typed as, served with the
         // tree (catalog DATA_CABLE_CONNECTORS) so the sheet's select and
         // the server's refusals name one list.
@@ -529,32 +535,15 @@ class _Processors {
             'Remove processor',
             `Remove this processor. Its ${this.unitWordFor(proc) === 'processor' ? '' : `${this.unitWordFor(proc)}s, `}boxes and every port on them `
             + 'go with it; undo puts it back.',
+            // The machine's cards' and boxes' folds and cable sheets go
+            // with it when the reply's tree is adopted
+            // (_forgetHardwareViews): their ids DO come back - undo of an
+            // add rewinds the counter, and every show numbers from 1 - so
+            // a key left behind would open or fold whatever later takes
+            // the same id.
             () => this._processorRequest(
                 `/api/processors/${proc.id}`, 'DELETE', undefined,
-                'Remove Processor')
-                .then(() => {
-                    // The machine is gone and its id never comes back, so
-                    // its fold keys go with it - the dock's card and box
-                    // sections fold under their own ids, which die with the
-                    // machine too. The other ways a processor leaves (undo
-                    // of an add, another project loading over this one)
-                    // just orphan their keys, harmlessly: no later
-                    // processor in this project can inherit one.
-                    try {
-                        (proc.slots || []).forEach(slot => {
-                            const card = slot.card;
-                            if (!card) return;
-                            localStorage.removeItem(
-                                'ledRasterPanelCollapsed_hwdock-card-'
-                                + card.id);
-                            (card.cvts || []).forEach(cvt => {
-                                localStorage.removeItem(
-                                    'ledRasterPanelCollapsed_hwdock-box-'
-                                    + cvt.id);
-                            });
-                        });
-                    } catch (_) { /* blocked storage never held the keys */ }
-                })));
+                'Remove Processor')));
         return wrap;
     }
 
@@ -1731,15 +1720,11 @@ class _Processors {
             'Remove box',
             'Remove this breakout box. Its sockets go with it; undo puts '
             + 'it back.',
+            // Its fold and cable sheet go when the reply's tree is
+            // adopted (_forgetHardwareViews).
             () => this._processorRequest(
                 `/api/processors/${proc.id}/cvts/${cvt.id}`, 'DELETE',
-                undefined, 'Remove Breakout Box')
-                .then(() => {
-                    try {
-                        localStorage.removeItem(
-                            `ledRasterPanelCollapsed_hwdock-box-${cvt.id}`);
-                    } catch (_) { /* blocked storage never held the key */ }
-                })));
+                undefined, 'Remove Breakout Box')));
         return wrap;
     }
 

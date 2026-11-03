@@ -3095,24 +3095,24 @@ def test_the_reporting_left_the_retired_hosts_for_the_strip():
 
 def test_the_dock_wires_the_shared_fold_machinery():
     """One mechanism, not a copy: the dock's sections go through
-    _wireSectionCollapse on every rebuild, keyed per card/box id, and the
-    gear's Remove takes the deleted machine's keys with it - every other
-    way a processor leaves (undo, a project loading over this one) merely
-    orphans a key, which nothing can inherit because ids never recur
-    within a project."""
+    _wireSectionCollapse on every rebuild, keyed per card/box id. Ids DO
+    recur - undo of an add rewinds the counter and every show numbers from
+    1 - so a key goes with its record whichever way the record leaves:
+    every tree the page adopts forgets the keys of cards and boxes not in
+    it, and another show opening forgets them all (_forgetHardwareViews;
+    behavior in test_hardware_view_memory)."""
     source = js_source('app-dock.js')
     assert 'this._wireSectionCollapse(body)' in source
     assert 'head.dataset.lrdSec = secId' in source
     assert "body.className = 'lrd-sec-body'" in source
     assert 'hwdock-card-${card.id}' in source
     assert 'hwdock-box-${cvt.id}' in source
-    # The remove lives in the gear popovers' content, so the key cleanup
-    # lives with it in the processors module.
+    sheets = js_source('app-dock-cable-sheets.js')
+    assert 'ledRasterPanelCollapsed_hwdock-(card|box)-' in sheets, (
+        'the fold keys of gone cards and boxes are not forgotten')
     procs = js_source('app-processors.js')
-    assert 'ledRasterPanelCollapsed_hwdock-card-' in procs, (
-        'the deleted card key is not cleaned up')
-    assert 'ledRasterPanelCollapsed_hwdock-box-' in procs, (
-        'the deleted box key is not cleaned up')
+    assert 'this._forgetHardwareViews(data.resolved)' in procs, (
+        'an adopted tree does not forget the gone records\' keys')
 
 
 FOLD_SEED_JS = """async () => {
