@@ -380,7 +380,9 @@ class _Distros {
     // then every record the change can reach is already put back
     // (_holdPowerRecords), the screens are named, and the caller returns
     // without its commit or its history entry. False keeps the change.
-    _repackTrial(near) {
+    // `say(screens)`, when given, says the refusal in place of the plain
+    // 'repack' error (a wall that shrank names what the lock kept).
+    _repackTrial(near, say = null) {
         if (typeof this.circuitCapacity !== 'function') return () => false;
         const locked = this._repackLockedScreens(near);
         if (!locked.length) return () => false;
@@ -394,7 +396,8 @@ class _Distros {
             const repacked = locked.filter(l => before.get(l) !== after.get(l));
             if (!repacked.length) return false;
             release();
-            this._showLockedError(repacked, 'repack');
+            if (typeof say === 'function') say(repacked);
+            else this._showLockedError(repacked, 'repack');
             return true;
         };
     }

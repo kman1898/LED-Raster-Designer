@@ -384,10 +384,12 @@ class _ScreenInfo {
         if (down) down.classList.toggle('active', order === 'down');
     }
 
-    // Circuits required for ONE member. Mirrors getLayerPortsRequired exactly:
-    // the automatic assignment's circuit count, overridden by the highest
-    // circuit the user drew in custom mode, and zero for a member whose
-    // cabinets are fed by a peer's crossing circuit.
+    // Circuits required for ONE member. Mirrors getLayerPortsRequired, but
+    // in custom mode counts the circuits the user drew rather than the
+    // highest number (a hole in the numbers is no circuit): the automatic
+    // assignment's circuit count, overridden by the drawn circuits in
+    // custom mode, and zero for a member whose cabinets are fed by a peer's
+    // crossing circuit.
     //
     // `autoCircuits` defaults to the cached _powerCircuitsRequired because the
     // two callers that want this figure (the power label editor and the canvas
@@ -404,17 +406,19 @@ class _ScreenInfo {
                 .map(c => parseInt(c, 10))
                 .filter(c => (paths[c] || []).length > 0);
             if (customCircuits.length > 0) {
-                // Splitter merges collapse drawn circuits into shared ones:
-                // each merge group of the drawn set is ONE circuit, so the
-                // highest-number convention gives back (group size - 1) per
-                // group. Routed through the same validated-read helper the
-                // engine and screenCircuits use; with no merges this is
-                // exactly the old Math.max figure.
-                const max = Math.max(...customCircuits);
+                // The circuits DRAWN, not the highest number: a hole a
+                // removed circuit leaves (Clear Circuit, or a wall that
+                // shrank under it - app-power _trimCircuitsOffWall) is no
+                // circuit, and the owner's ruling (2026-11-02) is that it
+                // does not count. Splitter merges collapse drawn circuits
+                // into shared ones: each merge group of the drawn set is
+                // ONE circuit, so it gives back (group size - 1). Routed
+                // through the same validated-read helper the engine and
+                // screenCircuits use, so this is screenCircuits' length.
                 const groups = (typeof this.appliedSplitterGroups === 'function')
                     ? this.appliedSplitterGroups(layer, customCircuits).merge : [];
                 const reduction = groups.reduce((t, g) => t + (g.length - 1), 0);
-                return Math.max(1, max - reduction);
+                return Math.max(1, customCircuits.length - reduction);
             }
             // Same rule as the ports twin above, and the same reasoning for
             // partial coverage: only a member whose every cabinet is on a

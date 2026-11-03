@@ -346,7 +346,13 @@ class _CrossLayerPaths {
     // locked screens' circuits, so the error says why: "B is locked, and
     // this would repack its circuits. Unlock it to change it." An action
     // on the locked screen itself keeps the plain wording.
-    _showLockedError(layers, why = null) {
+    //
+    // `why` 'shared': a change on another screen would move the locked
+    // screens' circuits on a multi box they share with it ("B is locked,
+    // and this would move its circuits on a shared multi."). `lead`, when
+    // given, is a sentence said first, naming what the lock kept (a wall
+    // that shrank, app-power _trimCircuitsOffWall).
+    _showLockedError(layers, why = null, lead = '') {
         if (!layers || layers.length === 0 || typeof this._toast !== 'function') return;
         const names = this._lockedErrorNames(layers);
         if (names.length === 0) return;
@@ -354,11 +360,15 @@ class _CrossLayerPaths {
         const list = one ? names[0]
             : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
         const repack = why === 'repack';
-        const msg = one
+        const shared = why === 'shared';
+        const said = one
             ? (repack ? `${list} is locked, and this would repack its circuits. Unlock it to change it.`
-                : `${list} is locked. Unlock it to change it.`)
+                : shared ? `${list} is locked, and this would move its circuits on a shared multi. Unlock it to change it.`
+                    : `${list} is locked. Unlock it to change it.`)
             : (repack ? `${list} are locked, and this would repack their circuits. Unlock them to change them.`
-                : `${list} are locked. Unlock them to change them.`);
+                : shared ? `${list} are locked, and this would move their circuits on a shared multi. Unlock them to change them.`
+                    : `${list} are locked. Unlock them to change them.`);
+        const msg = lead ? `${lead} ${said}` : said;
         // One gesture, one error: a verb guarded at its entry and again in
         // the setter it calls would otherwise say the same thing twice in
         // the same turn. An action that runs on across awaits (a chain of

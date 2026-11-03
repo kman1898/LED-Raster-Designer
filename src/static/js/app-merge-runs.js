@@ -434,8 +434,11 @@ class _MergeRuns {
     // the pass changes nothing the second time. A locked screen stays as
     // it is (logged), and a mirror's map is its source's.
     //
-    // Power is NOT trimmed here: circuit numbers keep their own sticky
-    // rules, and a circuit's steps past the edge are a separate question.
+    // Power rides the same pass (app-power.js _trimCircuitsOffWall, the
+    // owner's ruling of the same day: trim, and leave the hole): the drawn
+    // circuits drop the cabinets that fell off, a circuit left with none
+    // goes and the others keep their numbers. Its sentences join this
+    // toast; the data ports are not touched by it.
     //
     // Returns the screens it changed.
     trimPortsOffWall({ load = false } = {}) {
@@ -486,7 +489,17 @@ class _MergeRuns {
             }
             plans.push({ owner, trimmed, gone: gone.sort((a, b) => a - b), cut, live });
         });
-        if (!plans.length) return [];
+        const power = (typeof this._trimCircuitsOffWall === 'function')
+            ? this._trimCircuitsOffWall({ load, onWall }) : { layers: [], notes: [] };
+        const sayAll = (notes) => {
+            if (notes.length && typeof this._toast === 'function') {
+                this._toast(notes.join(' '), false, 8000);
+            }
+        };
+        if (!plans.length) {
+            sayAll(power.notes);
+            return power.layers;
+        }
 
         const closing = plans.some(p => p.gone.length);
         const pullBefore = (closing && typeof this._pullLiveRowKeys === 'function')
@@ -526,15 +539,15 @@ class _MergeRuns {
         chain.then(moved => { if (moved) this._followPinsIntoHistory(pinsBefore, taken); });
 
         const said = plans.filter(p => p.gone.length);
-        if (said.length && typeof this._toast === 'function') {
-            this._toast(said.map(({ owner, gone }) => {
-                const one = gone.length === 1;
-                return `${owner.name || 'Screen'}: port${one ? '' : 's'} ${this._portNumbersText(gone)} `
-                    + (load ? 'had no cabinets on the wall' : 'had only cabinets that came off the wall')
-                    + `, so ${one ? 'it is' : 'they are'} gone and the ports after moved up.`;
-            }).join(' '), false, 8000);
-        }
-        return plans.map(p => p.owner);
+        sayAll(said.map(({ owner, gone }) => {
+            const one = gone.length === 1;
+            return `${owner.name || 'Screen'}: port${one ? '' : 's'} ${this._portNumbersText(gone)} `
+                + (load ? 'had no cabinets on the wall' : 'had only cabinets that came off the wall')
+                + `, so ${one ? 'it is' : 'they are'} gone and the ports after moved up.`;
+        }).concat(power.notes));
+        const out = plans.map(p => p.owner);
+        power.layers.forEach(l => { if (!out.includes(l)) out.push(l); });
+        return out;
     }
 
     // Pins the server moved after undo steps were already taken: each step
