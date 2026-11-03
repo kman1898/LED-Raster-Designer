@@ -1329,10 +1329,15 @@ Object.assign(CanvasRenderer.prototype, {
     // Both maps call it through placeTagHeads, which picks the side for
     // the whole screen first (2026-10-30) and hands it in as `prefer`.
     // `place.stack` ({ w, h, gap }, _stackReserve)
-    // is a pill that will stack under this one (a head's 2fer / 3fer): the
-    // column is judged whole, and hung ABOVE the disc the tag stands that
-    // pill higher, so the stack reads tag, pill, disc top to bottom - under
-    // the disc it reads disc, tag, pill. An above / under pill is centred
+    // is a pill that will stack with this one (a head's 2fer / 3fer): the
+    // column is judged whole, and the splitter pill is always the one next
+    // to the disc (the owner's ruling, 2026-11-03: "2fer" lines up with
+    // every other splitter pill on the screen, the cable pill on the far
+    // side). Hung ABOVE the disc the tag stands that pill higher, so the
+    // stack reads tag, pill, disc top to bottom; hung UNDER it the tag
+    // stands that pill lower, so it reads disc, pill, tag (it read disc,
+    // tag, pill until then, and an under-the-disc 2fer with a cable sat a
+    // pill lower than the 2fers without one). An above / under pill is centred
     // on the disc's x. With `place` given, a candidate that the screen's
     // edge has slid back onto its OWN disc counts as covering it - a head
     // on the wall's top row whose tag cannot stand over it moves on rather
@@ -1368,7 +1373,7 @@ Object.assign(CanvasRenderer.prototype, {
         const lift = stack ? stack.h + stack.gap : 0;
         const anchor = (side) => side === 'right' ? { x: cx + radius, y: cy }
             : side === 'left' ? { x: cx - radius, y: cy }
-            : side === 'below' ? { x: cx, y: cy + radius }
+            : side === 'below' ? { x: cx, y: cy + radius + lift }
             : { x: cx, y: cy - radius - lift };
         const candidate = (side) => {
             const a = anchor(side);
@@ -1376,9 +1381,16 @@ Object.assign(CanvasRenderer.prototype, {
                            left: bounds.left, right: bounds.right };
             const rect = this.cableTagRect(text, a.x, a.y, labelSize, opts);
             // the column the cost is read over: the pill, and the one
-            // stacked centred under it when there is one
+            // stacked centred with it when there is one - over it when the
+            // pill hangs under the disc (the splitter next to the disc),
+            // under it everywhere else
             let cover = rect;
-            if (stack) {
+            if (stack && side === 'below') {
+                const sx = rect.x + rect.w / 2 - stack.w / 2;
+                const sy = rect.y - stack.gap - stack.h;
+                const x0 = Math.min(rect.x, sx), x1 = Math.max(rect.x + rect.w, sx + stack.w);
+                cover = { x: x0, y: sy, w: x1 - x0, h: rect.y + rect.h - sy, gap: rect.gap, rim: rect.rim };
+            } else if (stack) {
                 const sx = rect.x + rect.w / 2 - stack.w / 2;
                 const sy = rect.y + rect.h + stack.gap;
                 const x0 = Math.min(rect.x, sx), x1 = Math.max(rect.x + rect.w, sx + stack.w);
@@ -1588,6 +1600,10 @@ Object.assign(CanvasRenderer.prototype, {
     // return shape: the anchor and opts drawCableTag takes (a 'right' hang
     // whose gap is the quarter label cableTagRect adds, so the pill lands
     // exactly on `rect`).
+    // A base hung UNDER its disc (base.side 'below') was pushed down by
+    // placeCableTag to leave the slot between it and the disc: the pill
+    // tries that slot (over the base) first, so the splitter pill sits
+    // next to the disc there too.
     placeStackedTag(text, base, labelSize, bounds, discs, own, taken) {
         const tag = this.cableTagLayout(text, labelSize);
         const gap = this._stackReserve(text, labelSize).gap;
@@ -1600,10 +1616,11 @@ Object.assign(CanvasRenderer.prototype, {
         const cost = this._tagCover(bounds, discs, own, taken, true);
         const below = candidate(base.y + base.h + gap);
         const above = candidate(base.y - gap - tag.height);
-        const kb = cost(below.rect);
-        if (kb <= 1e-6) return below;
-        const ka = cost(above.rect);
-        return ka < kb ? above : below;
+        const [first, second] = base.side === 'below' ? [above, below] : [below, above];
+        const k1 = cost(first.rect);
+        if (k1 <= 1e-6) return first;
+        const k2 = cost(second.rect);
+        return k2 < k1 ? second : first;
     },
 
     // The side the owner ruled for a head's cable tags (2026-09-25; power
