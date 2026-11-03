@@ -921,7 +921,12 @@ class _PortRouting {
     // the stack its first cabinet sits under: the last stack starting at
     // or before it on the wall. Without positions every run's stack is its
     // `seg`. scr_project.py split_run_stacks is the same rule.
+    //
+    // `_numberRunsByPlace` (set only for the length of one reading, by
+    // _followOldStackNumbering) gives the numbering builds before 1.6.0
+    // beta 4 had: every run's stack is its place along its line.
     _splitRunStacks(infos) {
+        if (this._numberRunsByPlace) return infos.map(i => i.seg);
         if (infos.length === 0 || !infos.every(i => Number.isFinite(i.pos))) return infos.map(i => i.seg);
         const byLine = new Map();
         infos.forEach(i => {

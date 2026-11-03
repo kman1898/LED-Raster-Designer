@@ -230,6 +230,14 @@ class _ProjectIo {
             // stamp below, and again on the server's copy.
             const olderShares = this.olderShowKeepsShares(this.project);
             if (olderShares) this.keepOlderShowShares();
+            // A show saved before the column-first Down numbering
+            // (1.6.0 beta 4): its card pins and port names move
+            // with their cabinets to the new numbers, here, so
+            // the PUT below carries them (app-merge-runs.js
+            // _followOldStackNumbering).
+            const stackNotes = (typeof this.predatesStackNumbering === 'function'
+                && this.predatesStackNumbering(this.project))
+                ? this._followOldStackNumbering() : [];
             // The migrations above have run against the file's
             // own stamp; from here the project is this build's.
             // Stamped BEFORE the PUT below, because a load never
@@ -324,6 +332,9 @@ class _ProjectIo {
                     // are synced for every layer, not just the selected one.
                     this.updateLayers(this.project.layers, false, recent ? 'Recent File Load Sync' : 'File Load Sync');
                     this.resetHistory('Initial State');
+                    if (stackNotes.length && typeof this._toast === 'function') {
+                        this._toast(stackNotes.join(' '), false, 12000);
+                    }
                     document.getElementById('status-message').textContent =
                         recent ? 'Project loaded from recent files' : 'Project loaded';
                     setTimeout(() => {

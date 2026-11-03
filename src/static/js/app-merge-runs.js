@@ -537,8 +537,10 @@ class _MergeRuns {
     // on `owner`. A name or pin on a number `moves` does not know stays put
     // unless a moved port lands on it. The names change at once; the cards
     // follow on the server (/remap) and the promise resolves true when pins
-    // were sent.
-    _followPortsByCabinet(owner, moves) {
+    // were sent. `local`: the project is not on the server yet (a show
+    // being opened), so the pins are moved here, by the same rule as
+    // port_assignment.remap_pins, and travel with the project's own PUT.
+    _followPortsByCabinet(owner, moves, { local = false } = {}) {
         const targets = new Set();
         moves.forEach(to => { if (to !== null) targets.add(to); });
         const where = n => (moves.has(n) ? moves.get(n) : (targets.has(n) ? null : n));
@@ -563,11 +565,104 @@ class _MergeRuns {
             const to = where(n);
             if (to !== n) sent.push([n - 1, to === null ? null : to - 1]);
         });
+        if (local) {
+            if (!sent.length) return Promise.resolve(false);
+            const move = new Map(sent);
+            const ranked = [];
+            const others = [];
+            pins.forEach(p => {
+                if (!p || String(p.layerId) !== String(owner.id)) { others.push(p); return; }
+                const i = parseInt(p.index, 10) || 0;
+                if (!move.has(i)) { ranked.push([0, i, p]); return; }
+                const to = move.get(i);
+                if (to === null) return;
+                ranked.push([to === i ? 0 : 1, i, { ...p, index: to }]);
+            });
+            ranked.sort((a, b) => (a[0] - b[0]) || (a[1] - b[1]));
+            const seen = new Set();
+            const kept = [];
+            ranked.forEach(([, , p]) => {
+                if (seen.has(p.index)) return;
+                seen.add(p.index);
+                kept.push(p);
+            });
+            kept.sort((a, b) => a.index - b.index);
+            this.project.port_assignments.pins = others.concat(kept);
+            return Promise.resolve(true);
+        }
         if (!sent.length || typeof this._assignmentRequest !== 'function') {
             return Promise.resolve(false);
         }
         return this._assignmentRequest('/api/port-assignments/remap', 'POST',
             { layerId: owner.id, moves: sent }, null, null).then(() => true);
+    }
+
+    // ── A show saved before the column-first Down numbering (QA, 1.6.0) ──
+    //
+    // 1.6.0 beta 4 changed the numbers Port numbers on Down (Across on a
+    // vertical pattern) gives a line cut differently from the stacks, like
+    // a bottom row of half-height cabinets (_splitRunStacks): its runs
+    // were numbered by their place along the line (5, 10, 15, ...) and now
+    // join the stack they start under (5, 14, 23, ...). The cabinets did
+    // not move, only the numbers, but the cards are pinned by number: an
+    // older show opened as it was saved had its card sockets silently
+    // driving other cabinets. So on open, each automatic screen of such a
+    // show is read both ways and the card pins and typed port names move
+    // with their cabinets to the new numbers (_followPortsByCabinet,
+    // locally: this runs before the project's own PUT, which carries
+    // them). Returns the sentences for the toast.
+
+    // Was `project` written by a build from before 1.6.0 beta 4 (or one
+    // that did not stamp)? The beta matters here, so this is not
+    // projectPredatesVersion, which reads major.minor.patch only.
+    predatesStackNumbering(project) {
+        const m = /^\s*v?(\d+)\.(\d+)(?:\.(\d+))?(?:-beta\.(\d+))?/
+            .exec(String((project && project.app_version) || ''));
+        if (!m) return true;
+        const saved = [Number(m[1]), Number(m[2]), Number(m[3] || 0)];
+        const bar = [1, 6, 0];
+        for (let i = 0; i < 3; i += 1) {
+            if (saved[i] !== bar[i]) return saved[i] < bar[i];
+        }
+        return m[4] !== undefined && Number(m[4]) < 4;
+    }
+
+    _followOldStackNumbering() {
+        const layers = ((this.project && this.project.layers) || []).filter(l => l
+            && (l.type || 'screen') === 'screen' && !this.isCustomFlow(l)
+            && (l.portNumberOrder === 'down' || l.portNumberOrder === 'across')
+            && (l.portMappingMode || 'organized') === 'organized'
+            && !(typeof this.mirrorSourceOf === 'function' && this.mirrorSourceOf(l)));
+        if (!this.project.port_assignments) this.project.port_assignments = {};
+        const notes = [];
+        layers.forEach(l => {
+            let old;
+            this._numberRunsByPlace = true;
+            try {
+                old = this._portCabinetKeys(l);
+            } finally {
+                this._numberRunsByPlace = false;
+            }
+            const moves = this._portMovesByCabinet(old, this._portCabinetKeys(l));
+            const moved = [...moves].filter(([n, to]) => to !== n);
+            if (!moved.length) return;
+            const held = () => JSON.stringify([((this.project.port_assignments.pins) || [])
+                .filter(p => p && String(p.layerId) === String(l.id)),
+                l.portLabelOverridesPrimary || {}, l.portLabelOverridesReturn || {}]);
+            const was = held();
+            this._followPortsByCabinet(l, moves, { local: true });
+            const followed = held() !== was;
+            sendClientLog('old_stack_numbering_followed', { layerId: l.id, moved, followed });
+            // Nothing pinned or named on the ports that moved: nothing to say.
+            if (!followed) return;
+            const shown = moved.filter(([, to]) => to !== null).slice(0, 3)
+                .map(([n, to]) => `${this._portNumberText(n)} is now ${this._portNumberText(to)}`);
+            notes.push(`${l.name || 'Screen'}: this show was saved before Port numbers on `
+                + `${l.portNumberOrder === 'down' ? 'Down' : 'Across'} changed, so some ports have `
+                + `new numbers (${shown.join(', ')}${moved.length > 3 ? ', ...' : ''}). `
+                + 'Their card ports and names moved with their cabinets.');
+        });
+        return notes;
     }
 
     // The data overrides of `owner` with nothing on them: no cabinet that

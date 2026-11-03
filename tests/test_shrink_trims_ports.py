@@ -730,3 +730,77 @@ def test_an_empty_override_outside_a_redraw_closes_up_at_the_next_edit(page):
     assert sorted(ports(page, lid)) == list(range(1, 61))
     # the phantom's pin is released and the next one closes up onto it
     assert s['pins'] == [[1, 5], [2, 7]]
+
+
+# ── A show saved before the column-first Down numbering (QA, 1.6.0) ─────
+#
+# 1.6.0 beta 4 renumbered Port numbers on Down where a row is cut
+# differently from the rows above it: the owner's 85 x 5 wall with a bottom
+# row of half-height cabinets, 8 to a port above and 17 to a port in the
+# half row. Its bottom-row runs were P5, P10, P15, P20, P25 (by place along
+# the line) and are now P5, P14, P23, P32, P41 (each under the stack it
+# starts in). The cards are pinned by number, so an older show's pins and
+# port names move with their cabinets when it is opened.
+
+def _old_down_show(page, lid, name, version):
+    return page.evaluate("""([id, name, version]) => {
+        const p = JSON.parse(JSON.stringify(window.app.project));
+        p.name = name;
+        p.app_version = version;
+        const l = p.layers.find(x => x.id === id);
+        l.columns = 85;
+        l.portNumberOrder = 'down';
+        l.panels = l.panels.filter(q => q.col < 85);
+        l.panels.filter(q => q.row === 4).forEach(q => { q.height = 192; q.halfTile = 'height'; });
+        return p;
+    }""", [lid, name, version])
+
+
+def _port_of(p, cell):
+    return next(n for n, cells in p.items() if list(cell) in cells)
+
+
+# old numbers: P10 = bottom row cols 17-33, P15 = cols 34-50, P20 = cols
+# 51-67, P6 = row 0 cols 8-15 (the same in both), P11 = row 0 cols 16-23
+OLD_PINS = [[9, 14], [14, 7], [19, 16], [5, 3], [10, 21]]
+OLD_LABELS = {'10': 'BOTTOM 2', '11': 'TOP 3'}
+
+
+def test_an_older_down_show_keeps_its_cards_on_their_cabinets(page, tmp_path):
+    lid = reset(page, pins=OLD_PINS, labels=OLD_LABELS)
+    project = _old_down_show(page, lid, 'OldDown', '1.6.0-beta.3')
+    _open_file(page, tmp_path, project, 'OldDown')
+    p = ports(page, lid)
+    assert sorted(p) == list(range(1, 50))
+    # the bottom row's runs carry the new numbers
+    assert [_port_of(p, (4, c)) for c in (0, 17, 34, 51, 68)] == [5, 14, 23, 32, 41]
+    assert _port_of(p, (0, 8)) == 6 and _port_of(p, (0, 16)) == 10
+    s = st(page, lid)
+    pin_of = {i + 1: port for i, port in s['pins']}
+    assert pin_of[_port_of(p, (4, 17))] == 14
+    assert pin_of[_port_of(p, (4, 34))] == 7
+    assert pin_of[_port_of(p, (4, 51))] == 16
+    assert pin_of[_port_of(p, (0, 8))] == 3
+    assert pin_of[_port_of(p, (0, 16))] == 21
+    assert sorted(s['pins']) == sorted(server_pins(page))
+    assert s['labels'] == {'14': 'BOTTOM 2', '10': 'TOP 3'}
+    notes = page.evaluate("() => window.__notes")
+    assert any('saved before Port numbers on Down changed' in n and 'P10 is now P14' in n
+               for n in notes), notes
+
+
+def test_a_down_show_saved_by_this_numbering_is_left_as_it_is(page, tmp_path):
+    lid = reset(page, pins=OLD_PINS, labels=OLD_LABELS)
+    project = _old_down_show(page, lid, 'NewDown', '1.6.0-beta.4')
+    _open_file(page, tmp_path, project, 'NewDown')
+    s = st(page, lid)
+    assert sorted(s['pins']) == sorted(OLD_PINS)
+    assert s['labels'] == OLD_LABELS
+    notes = page.evaluate("() => window.__notes")
+    assert not any('Port numbers on Down' in n for n in notes), notes
+
+
+def test_predates_stack_numbering_reads_the_beta(page):
+    got = page.evaluate("""() => ['1.6.0-beta.3', '1.6.0-beta.4', '1.6.0-beta.10', '1.6.0',
+        '1.5.4', '1.6.1', '', null].map(v => window.app.predatesStackNumbering({ app_version: v }))""")
+    assert got == [True, False, False, False, True, False, True, True]
