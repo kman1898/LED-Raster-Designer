@@ -121,6 +121,10 @@ class _PixelSelect {
         if (!enabled) {
             this.customSelectMode = false;
             this.customSelection.clear();
+        } else if (typeof this._closeCustomGapsOnToggle === 'function') {
+            // Custom ports run 1..N with no gaps (the owner, 2026-11-03):
+            // a drawing kept from an earlier spell closes up as it comes back.
+            this._closeCustomGapsOnToggle(change);
         }
         this.saveState('Custom Mode Toggle');
         this.saveClientSideProperties();

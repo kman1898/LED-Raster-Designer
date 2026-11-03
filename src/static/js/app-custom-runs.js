@@ -3,7 +3,7 @@
 // key, stepping across member boundaries, and the pattern fill that lays
 // a selection out as numbered runs cut at capacity.
 import { LEDRasterApp } from './app-core.js';
-import { isZFlowPattern, isVerticalFlowPattern } from './helpers.js';
+import { isZFlowPattern, isVerticalFlowPattern, sendClientLog } from './helpers.js';
 
 // Float sums of derated watts land a hair over an exact multiple; a circuit
 // that is precisely full is full, not over. See customRunCapacity.
@@ -296,10 +296,19 @@ class _CustomRuns {
         const pathsKey = kind === 'power' ? 'powerCustomPaths' : 'customPortPaths';
         const scope = typeof this.getPathScopeLayers === 'function'
             ? this.getPathScopeLayers(owner) : [owner];
+        // Only the runs in use hold cabinets: every path of a custom
+        // screen, the taken-over runs of an automatic one. A drawing an
+        // automatic screen kept from an earlier custom spell is not in use,
+        // and counting it read "full" on a port that still had room (QA,
+        // 1.6.0) - the same rule _findPathOwner reads.
         const taken = new Set();
         for (const l of scope) {
-            for (const path of Object.values((l && l[pathsKey]) || {})) {
-                for (const e of path || []) {
+            if (!l) continue;
+            const paths = l[pathsKey] || {};
+            const custom = kind === 'power' ? this.isCustomPower(l) : this.isCustomFlow(l);
+            const nums = custom ? Object.keys(paths) : this.getOverrideNums(l, kind);
+            for (const n of nums) {
+                for (const e of paths[n] || []) {
                     if (e) taken.add(this.getScopedPanelKey(this.getPathEntryLayerId(l, e), e));
                 }
             }
@@ -347,10 +356,13 @@ class _CustomRuns {
         return Number.isInteger(r) ? `${r}` : r.toFixed(1);
     }
 
+    // A data port is named by its screen port number, "P15", the way the
+    // tray and every other redraw message name it (QA, 1.6.0: the socket's
+    // label beside a screen number read "Filled ports 1 to P15").
     _customRunLabel(owner, kind, num) {
         return kind === 'power'
             ? this.getPowerCircuitLabel(owner, this._customCircuitHead(owner, num))
-            : this.getPortLabelText(owner, num, 'primary');
+            : this._portNumberText(num);
     }
 
     // The refusal the click gets. Tab and ] are named because the run does
@@ -428,8 +440,12 @@ class _CustomRuns {
      * The PORT stays on currentLayer even when the user clicked a peer's
      * cabinet - a port is one physical output on one processor, and only the
      * step records which screen the cable ran onto.
+     *
+     * `opts.click`: the step came from a click on the canvas, which may cut
+     * the path back to a step it already has (see below). An arrow key that
+     * walks back onto a step leaves the path as it is.
      */
-    addPanelToCustomPath(panel, panelLayer = null) {
+    addPanelToCustomPath(panel, panelLayer = null, opts = null) {
         if (!this.currentLayer || !panel || panel.hidden) return;
         if (!this.isCustomFlowEditing(this.currentLayer)) return;
         if (this.customSelection.size > 0) return;
@@ -453,9 +469,25 @@ class _CustomRuns {
         // are two different cabinets, and a bare `${row},${col}` compare would
         // refuse to add the second one.
         const key = this.getScopedPanelKey(source.id, panel);
-        const exists = owner.customPortPaths[portNum].some(e => e
+        const at = owner.customPortPaths[portNum].findIndex(e => e
             && this.getScopedPanelKey(this.getPathEntryLayerId(owner, e), e) === key);
-        if (exists) return;
+        if (at >= 0) {
+            // A step already on the path, with steps after it: the click
+            // cuts the path back to end there, and the cabinets after it
+            // are free to be drawn again in a new order. On an automatic
+            // screen the redraw holds them (_overrideHeldPanels,
+            // _mergeHeldPanels); on a custom screen a cabinet off every path
+            // is simply free. Before this the click did nothing, and on an
+            // automatic screen a redraw that kept its cabinets had no
+            // cabinet it could take (QA, 1.6.0). The owner, 2026-11-03:
+            // "custom should do the same as automatic if there are ports
+            // after the one i am clicking". A click on the last step still
+            // does nothing.
+            if (opts && opts.click && at < owner.customPortPaths[portNum].length - 1) {
+                this._cutPortPathBack(owner, portNum, at, source, panel);
+            }
+            return;
+        }
         // Reject if the panel already belongs to a different port, user
         // must clear the existing assignment first. Avoids silent
         // double-mapping that the user has to undo manually.
@@ -491,6 +523,35 @@ class _CustomRuns {
         // Several ports redrawn as one: drawing the last freed cabinet keeps
         // the drawing (app-merge-runs.js).
         if (typeof this._mergeRedrawAfterStep === 'function') this._mergeRedrawAfterStep(owner);
+    }
+
+    // Cut the open port's path back so it ends at step `at`. One undo step.
+    _cutPortPathBack(owner, portNum, at, source, panel) {
+        const path = owner.customPortPaths[portNum];
+        const cut = path.length - at - 1;
+        // A single redraw holds every cabinet cut off, the ones it did not
+        // start with included, so the walk cannot take them back mid-draw.
+        const hold = this._overrideHoldLive();
+        if (hold && hold.layerId === owner.id) {
+            path.slice(at + 1).forEach(e => {
+                if (e) hold.keys.add(this.getScopedPanelKey(this.getPathEntryLayerId(owner, e), e));
+            });
+        }
+        owner.customPortPaths[portNum] = path.slice(0, at + 1);
+        this.saveState('Custom Path Edit');
+        this.saveClientSideProperties();
+        this.updateLayers(this._pathPersistLayers(owner));
+        sendClientLog('port_path_cut_back', { layerId: owner.id, num: portNum, at, cut });
+        this.updatePortLabelEditor();
+        this._syncCustomFillReadout('data');
+        if (window.canvasRenderer) window.canvasRenderer.render();
+        if (typeof this._toast === 'function') {
+            this._toast(`Port ${this._customRunLabel(owner, 'data', portNum)} now ends at `
+                + `${this._describePathPanel(owner, source, panel)}. `
+                + (cut === 1 ? 'The cabinet after it' : `The ${cut} cabinets after it`)
+                + ' can be drawn again, in any order.',
+                false, 5000);
+        }
     }
 
     addPanelToCustomPowerPath(panel, panelLayer = null) {

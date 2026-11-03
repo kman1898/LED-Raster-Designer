@@ -1545,6 +1545,13 @@ class _ScreenInfo {
             // marker rides the PUT).
             this._putLayer(layer.id, { locked });
         });
+        // A screen locked when its show was opened missed the open's port
+        // repair (app-merge-runs.js trimPortsOffWall); unlocked, it gets it
+        // now, inside this step and its PUT.
+        if (!locked && typeof this.portRepairPending === 'function'
+                && this.portRepairPending(layers)) {
+            this.updateLayers(layers);
+        }
         if (typeof sendClientLog === 'function') {
             sendClientLog('layer_lock_batch', { locked, layerIds: layers.map(l => l.id) });
         }

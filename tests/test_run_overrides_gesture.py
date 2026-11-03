@@ -451,3 +451,165 @@ def test_an_old_custom_drawing_does_not_block_a_data_redraw(page):
     page.wait_for_timeout(300)
     assert ok, page.evaluate("() => window.__errs")
     assert page.evaluate("() => window.__errs") == []
+
+
+# ── a single redraw holds its cabinets (QA, 1.6.0) ────────────────────────
+#
+# Taken over on an automatic screen, a port kept its cabinets but every
+# other cabinet was the walk's: a click on another port's was refused, a
+# click on its own did nothing, and Clear Port gave its cabinets straight
+# back to the walk. The port now holds what it carried while it is open,
+# a click on one of its steps cuts the path back to it, and the cabinets
+# cut off are drawn again in any order.
+
+def _alt_click(page, row, col):
+    x, y = world_to_client(page, *cabinet_center(row, col))
+    page.keyboard.down('Alt')
+    page.mouse.click(x, y)
+    page.keyboard.up('Alt')
+    page.wait_for_timeout(300)
+
+
+def _click(page, row, col):
+    x, y = world_to_client(page, *cabinet_center(row, col))
+    page.mouse.click(x, y)
+    page.wait_for_timeout(150)
+
+
+def _watch_toasts(page):
+    page.evaluate("""() => { window.__errs = []; window.__notes = [];
+        if (window.app.__ovrgToastWrapped) return;
+        const real = window.app._toast.bind(window.app);
+        window.app._toast = (m, err, ms) => {
+            (err ? window.__errs : window.__notes).push(m); return real(m, err, ms); };
+        window.app.__ovrgToastWrapped = true; }""")
+
+
+def _wired(page, layer_id):
+    return {(r['row'], r['col']): r['port'] for r in data_map(page, layer_id)}
+
+
+def test_a_click_on_its_own_step_cuts_back_and_the_cabinets_stay_free(page):
+    lid = reset(page)
+    base = data_map(page, lid)
+    target = port_of_cabinet(base, 2, 1)
+    _alt_click(page, 2, 1)
+    _watch_toasts(page)
+    seeded = [tuple(c) for c in app_state(page, lid)['path']]
+    assert len(seeded) == 8
+    _click(page, *seeded[0])
+    st = app_state(page, lid)
+    assert st['path'] == [list(seeded[0])]
+    assert st['historyAction'] == 'Custom Path Edit'
+    # the cabinets cut off are the port's still: not re-walked, ringed
+    wired = _wired(page, lid)
+    assert all(c not in wired for c in seeded[1:]), wired
+    others = {(r['row'], r['col']): r['port'] for r in base if r['port'] != target}
+    assert {c: p for c, p in wired.items() if c not in seeded} == others
+    ringed = page.evaluate("""(id) => window.app.mergeFreedPanels(window.__ovrg.layer(id))
+        .map(p => [p.row, p.col]).sort()""", lid)
+    assert sorted(tuple(c) for c in ringed) == sorted(seeded[1:])
+    # drawn again in a new order, every click accepted
+    redrawn = [seeded[0]] + list(reversed(seeded[1:]))
+    for c in redrawn[1:]:
+        _click(page, *c)
+    st = app_state(page, lid)
+    assert [tuple(c) for c in st['path']] == redrawn
+    assert page.evaluate("() => window.__errs") == []
+    page.keyboard.press('Escape')
+    page.wait_for_timeout(200)
+    st = app_state(page, lid)
+    assert st['editing'] is None and st['overrides'] == [target]
+    wired = _wired(page, lid)
+    assert {c: p for c, p in wired.items() if c not in seeded} == others
+    assert all(wired[c] == target for c in seeded)
+    # another port's cabinet is still refused while a redraw is open
+    _alt_click(page, 2, 1)
+    _click(page, 4, 0)
+    assert page.evaluate("() => window.__errs") and 'already wired' in page.evaluate(
+        "() => window.__errs")[-1]
+    page.keyboard.press('Escape')
+
+
+def test_clear_port_keeps_the_cabinets_and_esc_says_where_leftovers_went(page):
+    lid = reset(page)
+    base = data_map(page, lid)
+    target = port_of_cabinet(base, 2, 1)
+    _alt_click(page, 2, 1)
+    _watch_toasts(page)
+    seeded = [tuple(c) for c in app_state(page, lid)['path']]
+    # the Clear Port button of the custom controls (the panel may sit
+    # below the fold of this viewport)
+    page.evaluate("() => document.getElementById('custom-clear-port').click()")
+    page.wait_for_timeout(300)
+    assert app_state(page, lid)['path'] == []
+    assert all(c not in _wired(page, lid) for c in seeded), 'the walk took them back'
+    for c in seeded[:3]:
+        _click(page, *c)
+    assert [tuple(c) for c in app_state(page, lid)['path']] == seeded[:3]
+    assert page.evaluate("() => window.__errs") == []
+    page.keyboard.press('Escape')
+    page.wait_for_timeout(300)
+    wired = _wired(page, lid)
+    went = sorted({wired[c] for c in seeded[3:]})
+    assert all(wired[c] == target for c in seeded[:3])
+    if len(went) == 1:
+        where = 'port P%d' % went[0]
+    elif went == list(range(went[0], went[-1] + 1)):
+        where = 'ports P%d-P%d' % (went[0], went[-1])
+    else:
+        where = 'ports ' + ', '.join('P%d' % n for n in went)
+    assert page.evaluate("() => window.__notes")[-1] == \
+        '5 cabinets left over went to %s.' % where, page.evaluate("() => window.__notes")
+
+
+def test_esc_ends_the_redraw_with_a_side_panel_field_focused(page):
+    lid = reset(page)
+    _alt_click(page, 2, 1)
+    assert app_state(page, lid)['editing'] is not None
+    page.locator('#screen-name-size').click()
+    assert page.evaluate("() => document.activeElement.id") == 'screen-name-size'
+    page.keyboard.press('Escape')
+    page.wait_for_timeout(200)
+    assert app_state(page, lid)['editing'] is None
+
+
+def test_redraw_on_a_mirror_screen_is_refused_out_loud(page):
+    lid = reset(page)
+    mid = page.evaluate("""async (src) => {
+        const app = window.app;
+        const res = await fetch('/api/layer/add', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ name: 'OvrMirror', columns: 4, rows: 6,
+                cabinet_width: 256, cabinet_height: 256, offset_x: 0, offset_y: 1700 }),
+        });
+        const id = (await res.json()).id;
+        app.project = await (await fetch('/api/project')).json();
+        app.dedupeProjectLayers('run_override_gesture_mirror');
+        const m = window.__ovrg.layer(id);
+        m.processorType = 'novastar-coex-1g';
+        m.dataMirrorOf = src;
+        return id;
+    }""", lid)
+    _watch_toasts(page)
+    page.evaluate("(id) => window.app.overrideRun(window.__ovrg.layer(id), 'data', 1)", mid)
+    errs = page.evaluate("() => window.__errs")
+    assert errs and 'OvrGesture' in errs[-1], errs
+    assert page.evaluate("(id) => window.app.getOverrideNums(window.__ovrg.layer(id), 'data')", mid) == []
+    assert page.evaluate("() => window.app._overrideEditing") is None
+
+
+def test_the_fill_readout_ignores_an_unused_old_drawing(page):
+    """On a rectangle processor "full" means no free cabinet would still be
+    accepted. A drawing an automatic screen kept from an earlier custom
+    spell is not in use, and counting its cabinets as taken read "full" on
+    a port with room to spare."""
+    lid = reset(page)
+    grows = page.evaluate("""(id) => {
+        const app = window.app, l = window.__ovrg.layer(id);
+        l.processorType = 'novastar-armor';
+        l.customPortPaths = { 9: l.panels.map(p => ({ row: p.row, col: p.col })) };
+        const hits = [{ layer: l, panel: l.panels.find(p => p.row === 0 && p.col === 0) }];
+        return app._customRunCanGrow(l, 'data', hits);
+    }""", lid)
+    assert grows is True

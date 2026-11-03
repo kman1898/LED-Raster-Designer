@@ -1305,7 +1305,7 @@ Object.assign(CanvasRenderer.prototype, {
                             if (window.app.customSelection.size > 0) {
                                 window.app.clearCustomSelection();
                             } else {
-                                window.app.addPanelToCustomPath(clickedPanel.panel, clickedLayer);
+                                window.app.addPanelToCustomPath(clickedPanel.panel, clickedLayer, { click: true });
                             }
                         } else if (!window.app.isCustomFlowEditing(window.app.currentLayer) && !window.app.isCustomPowerEditing(window.app.currentLayer)) {
                             window.app.togglePanelSelection(clickedPanel.panel);
@@ -1898,7 +1898,20 @@ Object.assign(CanvasRenderer.prototype, {
         // here, which counted a focused CHECKBOX as typing and swallowed
         // Cmd+J after a tick of #power-custom-toggle (end-to-end pass,
         // 2026-09-23). The finding and the rule live on the predicate.
-        const isTyping = window.isTypingTarget(document.activeElement);
+        let isTyping = window.isTypingTarget(document.activeElement);
+
+        // Esc ends an open redraw (one port taken over, or several redrawn
+        // as one) even from a field: a box in the side panel clicked while
+        // drawing kept the focus, Escape was that field's own and the
+        // redraw could not be left (QA, 1.6.0). The field lets go first,
+        // its blur committing it as a click elsewhere would; a field whose
+        // own Esc handler took the key (preventDefault) keeps it.
+        if (e.code === 'Escape' && isTyping && !e.defaultPrevented && window.app
+                && (window.app._mergeRedraw || window.app._overrideEditing)) {
+            const el = document.activeElement;
+            if (el && typeof el.blur === 'function') el.blur();
+            isTyping = window.isTypingTarget(document.activeElement);
+        }
 
         // A focused slider or radio answers the arrow keys itself (a range
         // steps, a radio group moves), so the custom-mode draw yields to
