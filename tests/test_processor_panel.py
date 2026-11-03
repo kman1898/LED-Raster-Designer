@@ -230,12 +230,16 @@ NOVASTAR_10G_TRUNKS = [
     ('novastar-mx30', 2, 10, 'copy'),
     ('novastar-mx20', 2, 6, 'copy'),
     ('novastar-vx400-pro', 2, 4, 'copy'),
-    # VX600 / VX1000 non-Pro: OPT 1 is a documented 10G output copying the
-    # copper; OPT 2 copies too but its sheet names NO rate for it, so it is
-    # not a trunk - one ruling from Matt away from 2.
+    # VX600 non-Pro: OPT 1 is a documented 10G output copying the copper;
+    # OPT 2 copies too but its sheet names NO rate for it, so it is not a
+    # trunk - one ruling from Matt away from 2.
     ('novastar-vx600', 1, 6, 'copy'),
     ('novastar-vx600-pro', 2, 6, 'copy'),
-    ('novastar-vx1000', 1, 10, 'copy'),
+    # VX1000 non-Pro: its own sheet's table row is "OPT | 2 | 10G optical
+    # fiber ports" with "OPT 2: For output only, with copy and backup modes"
+    # (Specifications V1.6.0 p.7), and the owner turned OPT 2 on
+    # (2026-11-02), so both OPTs are trunks, as on the Pro.
+    ('novastar-vx1000', 2, 10, 'copy'),
     ('novastar-vx1000-pro', 2, 10, 'copy'),
     ('novastar-vx2000-pro', 4, 10, 'copy'),
     ('novastar-mctrl4k', 4, 8, 'copy'),
@@ -456,8 +460,9 @@ def test_the_vx_pairs_are_split_and_each_side_keeps_its_own_sheet():
     """VX400/600/1000 and their Pros are different processors (Matt), so six
     entries, each carrying only its own sheet's fields. The split must not
     leak figures across a pair: the Pros document 2x 10G OPT and 650k per
-    port; the non-Pros document no per-port figure, and their second OPT -
-    or, on the VX400, both OPTs - carries no stated rate."""
+    port; the non-Pros document no per-port figure. The VX600's second OPT
+    and both of the VX400's carry no stated rate; the VX1000's own sheet
+    states 2x 10G (V1.6.0 p.7), so it has two trunks like its Pro."""
     for plain_id, pro_id in (('novastar-vx400', 'novastar-vx400-pro'),
                              ('novastar-vx600', 'novastar-vx600-pro'),
                              ('novastar-vx1000', 'novastar-vx1000-pro')):
@@ -472,13 +477,19 @@ def test_the_vx_pairs_are_split_and_each_side_keeps_its_own_sheet():
             'the pair disagrees on the one figure the sheets agree on')
     assert 'trunks' not in catalog.get_device('novastar-vx400'), (
         'the VX400 grew trunks; its sheet states no optical rate at all')
+    assert catalog.get_device('novastar-vx600')['trunks'] == 1, (
+        'the VX600 grew a second trunk; its sheet names no rate for OPT 2')
+    assert catalog.get_device('novastar-vx1000')['trunks'] == 2
 
 
 def test_a_single_trunk_vx_delivers_its_whole_copper_once(client):
-    """VX1000: OPT 1 is the documented 10G output and it copies all ten
+    """VX600: OPT 1 is the documented 10G output and it copies all six
     Ethernet ports, so ONE box takes the whole unit out on fiber - and there
-    is no second trunk for another. The card stays ten ports throughout."""
-    state = add_processor(client, 'novastar-vx1000')
+    is no second trunk for another (its sheet names no rate for OPT 2). The
+    card stays six ports throughout. The VX1000 was the case here until its
+    own sheet's "OPT | 2 | 10G optical fiber ports" turned OPT 2 on
+    (2026-11-02, tests/test_copy_backup_all.py)."""
+    state = add_processor(client, 'novastar-vx600')
     pid = only(state)['id']
     card_id = first_card(only(state))['id']
     state = client.post(f'/api/processors/{pid}/cards/{card_id}/cvts',
@@ -486,8 +497,8 @@ def test_a_single_trunk_vx_delivers_its_whole_copper_once(client):
                               'pair': False}).get_json()
     card = first_card(only(state))
     box = card['cvts'][0]
-    assert (box['firstPort'], box['portCount']) == (1, 10)
-    assert card['ceiling'] == 10 and card['defined'] == 10
+    assert (box['firstPort'], box['portCount']) == (1, 6)
+    assert card['ceiling'] == 6 and card['defined'] == 6
     assert card['trunksCopyOwnPorts'] is True
     resp = client.post(f'/api/processors/{pid}/cards/{card_id}/cvts',
                        json={'deviceId': 'novastar-cvt10'})

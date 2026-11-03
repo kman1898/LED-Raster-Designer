@@ -185,13 +185,20 @@
       "form": "all-in-one",
       "family": "novastar-vx",
       "connector": "rj45",
-      "trunks": 1,
+      "trunks": 2,
       "trunkWord": "OPT",
       "portsPerTrunk": 10,
       "trunkRate": "10G",
       "trunkDelivery": "copy",
-      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 10}]},
-      "note": "Max 6.5 million px; its sheet states no per-port figure. OPT 1 is a documented 10G output copying the ten Ethernet ports. OPT 2 also copies/backs them up but its sheet names no rate for it, so it is not counted as a trunk."
+      "ports": {
+        "defaultMode": "backup",
+        "modes": [
+          {"id": "copy", "label": "Copy", "count": 10, "copyTrunks": "mirror"},
+          {"id": "backup", "label": "Backup", "count": 10, "copyTrunks": "backup", "aliases": ["default"]}
+        ]
+      },
+      "modesNote": "VX1000 All-in-One Controller Specifications V1.6.0 (2024-07-08) p.7, Optical Fiber Ports: \"OPT | 2 | 10G optical fiber ports\", \"OPT 2: For output only, with copy and backup modes\", \"OPT 2 copies or backs up the output on 10 Ethernet ports.\" p.2, Features: \"OPT 1 copies the output on 10 Ethernet ports.\" Owner's ruling 2026-11-02: Copy or Backup for the whole unit, like the VX Pros. Copy: the box on OPT 2 feeds a mirror screen. Backup: it backs up the box on OPT 1. A file saved before the modes reads Backup.",
+      "note": "Max 6.5 million px; its sheet states no per-port figure. 2x 10G OPT carrying the unit's own ten ports: OPT 1 copies them and OPT 2 copies or backs them up (OPT 1 can be a video input instead). The port count is 10 in every mode, and a box adds none."
     },
     {
       "id": "novastar-vx1000-pro",

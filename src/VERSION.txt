@@ -502,6 +502,11 @@ FIXES
   a breakout box on OPT 2 (OPT 3 or 4 on the VX2000 Pro) is the backup of
   the box it copies and shows in the Data tray as one loop with it. In
   Copy, that box feeds a mirror screen. Files saved before open in Backup.
+- FIX: The VX1000 takes a breakout box on OPT 2 as well as OPT 1, and has
+  the same OPT mode, Copy or Backup. In Backup, the default, the box on
+  OPT 2 is the backup of the box on OPT 1 and shows in the Data tray as one
+  loop with it. In Copy, it feeds a mirror screen. The VX1000 keeps its 10
+  ports, and files saved before open in Backup.
 - FIX: A breakout box on OPT 2 of an MCTRL660 Pro is the backup of the
   box on OPT 1. On an MCTRL R5 (OPT 2) or an MCTRL4K (OPT 3 or 4), each
   copy box can be set to Backup, the default, or Mirror, like the NovaPro
