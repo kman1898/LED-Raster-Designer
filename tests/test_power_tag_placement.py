@@ -125,6 +125,15 @@ BUILD_JS = """async ([walls, pattern, rot]) => {
                     1: [{ row: 0, col: 0 }, { row: 1, col: 0 }, { row: 2, col: 0 }],
                     2: [{ row: 0, col: 1 }, { row: 1, col: 1 }, { row: 2, col: 1 }],
                     3: [{ row: 1, col: 2 }, { row: 1, col: 3 }] } },
+        // PEDGE (QA 1.6.0): three hand-drawn circuits, each one row run
+        // right from column 0, on cabinets 40 wide and 80 tall, so a pill
+        // centred on its disc is slid against the wall's left edge.
+        PEDGE: { id: 11, name: 'PEDGE', columns: 4, rows: 3, offset_x: 0, offset_y: 0,
+                 cabinet_width: 40, cabinet_height: 80, powerFlowPattern: 'custom', powerCustomIndex: 4,
+                 powerSplitters: { enabled: false, maxWays: 3, manual: { merge: [], split: [] } },
+                 powerCircuitCables: { 1: { ft: 10 }, 2: { ft: 10 }, 3: { ft: 10 } },
+                 powerCustomPaths: Object.fromEntries([1, 2, 3].map(n =>
+                     [n, [0, 1, 2, 3].map(col => ({ row: n - 1, col }))])) },
     };
     const layers = walls.map(n => screen(all[n]));
     const j = (method, url, body) => fetch(url, {method, headers: {'Content-Type': 'application/json'},
@@ -609,4 +618,46 @@ def test_a_data_screen_hangs_its_tags_on_one_side(page):
         assert not bad, '\n'.join([''] + bad)
     finally:
         pg.evaluate(BUILD_JS, [['WALL'], 'tl-h', 0])
+    assert errors == []
+
+
+# The width of a pill's rim (canvas-power _tagRim): the tag's text is 85%
+# of the label size, the rim a tenth of that; half of it is stroked
+# outside the pill's box.
+def _rim(label_size=14):
+    return max(1, max(8, label_size * 0.85) * 0.1)
+
+
+def test_a_tag_slid_to_the_wall_edge_keeps_its_rim_inside(page):
+    """PEDGE: a pill centred under its disc on cabinets 40 wide slides
+    against the wall's left edge - and stops its rim's width short of it,
+    so no ink prints past the wall (QA 1.6.0)."""
+    pg, errors = page
+    try:
+        boxes = _probe(pg, ['PEDGE'], 'custom')
+        tags = _kind(boxes, 'tag')
+        assert tags, boxes
+        left, right = 120, 120 + 4 * 40
+        half = _rim() / 2
+        for t in tags:
+            assert t['x'] - half >= left - 0.01 and t['x'] + t['w'] + half <= right + 0.01, (t, left, right)
+        # the fixture: at least one pill is pressed against the edge
+        assert min(t['x'] for t in tags) - half <= left + 0.5, tags
+    finally:
+        pg.evaluate(BUILD_JS, [['WALL'], 'tl-h', 0])
+    assert errors == []
+
+
+def test_a_stacked_pill_clears_its_tags_rim(page):
+    """A 2fer / 3fer stacked under its cable tag: the two rims, each half
+    outside its pill's box, used to touch - the 2fer read as printed into
+    its TRUE1 (QA 1.6.0). The gap between the boxes now holds both rims
+    and a hair."""
+    pg, errors = page
+    boxes = _probe(pg, ['WALL'], 'tl-v')
+    stacked = [(t, p) for _, t, p in _heads(boxes) if p]
+    assert len(stacked) == 2, stacked
+    for t, p in stacked:
+        gap = p['y'] - (t['y'] + t['h'])
+        assert gap >= _rim() + 1 - 0.01, (t['text'], p['text'], gap)
     assert errors == []

@@ -467,7 +467,7 @@ def test_the_binder_numbers_and_pull_quantities_have_separators(page):
     pull quantities printed "1517"."""
     pg, _errors = page
     out = pg.evaluate(BINDER_JS)
-    assert out['nums'] == ['1,724.4', '1,724.4', '1,517', '12.5', '-1,234.56', '—'], out
+    assert out['nums'] == ['1,724.4', '1,724.4', '1,517', '12.5', '-1,234.56', ''], out
     # the cables-this-screen table, the pull lines and the pull blocks
     assert out['qtys'] == ['1,517', '1,517', '1,517'], out
 

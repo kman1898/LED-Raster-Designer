@@ -455,7 +455,13 @@ def _ports_table(page):
             continue
         cells = {xs.get(round(o['x'], 1)): o['t'] for o in line}
         assert None not in cells, ('every cell stands under its heading', line)
-        assert set(cells) >= set(per_half) | {'PANELS'}, ('a row fills its primary half', line)
+        assert {'PORT', 'PANELS'} <= set(cells), ('a row names its port and its panels', line)
+        # an empty cell is blank (owner, 2026-11-03: no em dash), so it
+        # draws no text: read it as ''
+        for k in per_half:
+            cells.setdefault(k, '')
+            if 'B PORT' in cells:
+                cells.setdefault('B ' + k, '')
         sections[-1]['groups'][-1]['rows'].append(cells)
         prev = 'row'
     for sec in sections:
@@ -499,11 +505,11 @@ def test_a_backup_box_is_the_backup_half_on_live_show_b(shows):
     sr = _ports_table(pages['SR - MAIN - Data - Front View'])
     _assert_backup_half(
         sr, 'SR A', 'SR B', "SR A · 4 channel snake · 150'", "SR B · 4 channel snake · 100'",
-        ["+10'", '—', "+25'", "+25'"], ["+10'", '—', "+10'", "+75'"], ['84', '84', '84', '56'])
+        ["+10'", '', "+25'", "+25'"], ["+10'", '', "+10'", "+75'"], ['84', '84', '84', '56'])
     sl = _ports_table(pages['SL - MAIN - Data - Front View'])
     _assert_backup_half(
         sl, 'SL A', 'SL B', "SL A · 4 channel snake · 100'", "SL B · 4 channel snake · 150'",
-        ["+10'", '—', "+25'", "+25'"], ["+10'", '—', "+10'", "+100'"], ['84', '84', '84', '56'])
+        ["+10'", '', "+25'", "+25'"], ["+10'", '', "+10'", "+100'"], ['84', '84', '84', '56'])
     # the loose return: SR - Return's one port, a cable at each end
     ret = _ports_table(pages['SR - Return - Data - Front View'])
     assert [s['band'][0].split(' · ')[0] for s in ret] == ['CVT4K-S SR A'], ret
@@ -602,7 +608,7 @@ def test_a_backup_box_is_the_backup_half(seeded):
     assert len(sections) == 1, sections
     _assert_backup_half(
         sections, 'SR A', 'SR B', "SR A · 4 channel snake · 150'", "SR B · 4 channel snake · 100'",
-        ["+10'", '—', "+25'", "+25'"], ["+10'", '—', "+10'", "+75'"], ['84', '84', '84', '56'])
+        ["+10'", '', "+25'", "+25'"], ["+10'", '', "+10'", "+75'"], ['84', '84', '84', '56'])
     rows = _all_rows(sections)
     assert sum(int(r['PANELS']) for r in rows) == 28 * 11
     assert 'PX' not in [o['t'] for o in page['texts']]
@@ -616,7 +622,7 @@ def test_a_same_unit_pairing_is_one_section(seeded):
     sections = _ports_table(seeded['SOLO - Data - Front View'])
     assert len(sections) == 1 and sections[0]['backup'] == [], sections
     rows = _all_rows(sections)
-    assert rows and all(r['PANELS'] != '—' for r in rows), rows
+    assert rows and all(r['PANELS'] != '' for r in rows), rows
     # every port has its return - on the same card, SOLO's other half
     assert all('SOLO' in r.get('B OUTPUT', '') for r in rows), rows
     assert sum(int(r['PANELS']) for r in rows) == 10 * 5
@@ -769,12 +775,12 @@ def test_output_stays_on_every_row_where_one_port_is_named_by_hand(variants):
 
 
 def test_output_stays_where_nothing_is_placed(variants):
-    """LOOSE is on no processor: every OUTPUT is "—", which repeats nothing,
+    """LOOSE is on no processor: every OUTPUT is blank, which repeats nothing,
     so the column stays - one half, no backup."""
     page = _sheet(variants['tabloid'], 'LOOSE - Data - Front View')
     assert [o['t'] for o in _heads_line(page)] == ['PORT', 'OUTPUT', 'HOME RUN', 'PANELS']
     rows = _all_rows(_ports_table(page))
-    assert rows and all(r['OUTPUT'] == '—' for r in rows), rows
+    assert rows and all(r['OUTPUT'] == '' for r in rows), rows
 
 
 def test_every_column_stands_centred_under_its_heading(seeded, variants):
@@ -789,6 +795,12 @@ def test_every_column_stands_centred_under_its_heading(seeded, variants):
             assert h['align'] == want, (page['title'], h)
             cells = [o for o in page['texts'] if abs(o['x'] - h['x']) < 0.5 and o['y'] > h['y'] + 1
                      and o['size'] == page_cell_size(page)]
+            # LOOSE is on no processor and has no cables: its OUTPUT and
+            # HOME RUN cells are blank (no em dash since 1.6.0), so those
+            # columns draw their headings alone
+            if page['title'].startswith('LOOSE') and h['t'] in ('OUTPUT', 'HOME RUN'):
+                assert not cells, (page['title'], h, cells)
+                continue
             assert cells, (page['title'], h)
             assert all(o['align'] == want for o in cells), (page['title'], h, cells)
 

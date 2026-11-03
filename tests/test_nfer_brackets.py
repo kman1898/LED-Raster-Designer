@@ -258,7 +258,9 @@ def _stack_faults(view):
             gx, gy = _gap(p, t)
             if gx > -HAIR:
                 bad.append('%s is beside its tag %s, not over or under it' % (p['text'], t['text']))
-            if not (-HAIR <= gy < 6):
+            # (the gap holds both pills' rims and a hair - 1.6.0 QA: the
+            # rims touched - about 2.3 map units, so it grows with zoom)
+            if not (-HAIR <= gy < 3.5 * max(1.0, view['zoom'])):
                 bad.append('%s stands %.1f px off its tag %s' % (p['text'], gy, t['text']))
         # covers nothing, and stays inside its wall
         for o in discs + tags + [q for q in pills if q is not p]:

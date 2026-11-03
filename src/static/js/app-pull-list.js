@@ -982,8 +982,9 @@ class _PullList {
             // port label like SR-1 keeps its own text, as it always has.
             const token = m ? (m[1].match(/\S*$/) || [''])[0] : '';
             if (!m || /\d/.test(token) || /[-–]$/.test(m[1])) { plain.push(n); continue; }
-            const prefix = m[1].trim();
-            add(`p\u0000${prefix}`, n, parseInt(m[2], 10), null);
+            // the prefix exactly as typed: "Screen1" and "Screen 2" are two
+            // names, not a run (QA 1.6.0 read them "Screen 1-2")
+            add(`p\u0000${m[1]}`, n, parseInt(m[2], 10), null);
         }
         const out = [];
         for (const [key, g] of groups) {
@@ -998,7 +999,7 @@ class _PullList {
             }
             // no two names here follow on: each is a name, not a run
             if (!runs.some(([a, b]) => b > a)) { out.push(...g.names); continue; }
-            const prefix = key.slice(2);
+            const prefix = key.slice(2).trim();
             const text = runs.map(([a, b]) => (a === b ? `${a}` : `${a}-${b}`)).join(', ');
             out.push(prefix ? `${prefix} ${text}` : text);
         }

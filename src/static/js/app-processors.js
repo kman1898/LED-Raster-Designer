@@ -2151,19 +2151,19 @@ class _Processors {
     // the pull list share this: a snake reads "SR Primary 150'" (its name
     // and its home run; "SR Primary · no length" without one), plus
     // " +25'" when the socket carries an extension; a loose cable reads
-    // as its text ("50' Cat6"); nothing reads '—'. A socket a port is
+    // as its text ("50' Cat6"); nothing reads blank. A socket a port is
     // placed on (`at`, { cardId, port }) with no home run typed reads as
     // the pull list writes it, "etherCON no length" (owner, 2026-10-22):
-    // '—' is only for a truly empty cell.
+    // a blank is only for a truly empty cell (no em dash, owner 2026-11-03).
     runText(cable, at = null) {
         if (!cable) {
             const owner = at && at.cardId != null && typeof this._dataPortOwner === 'function'
                 ? this._dataPortOwner(at.cardId, at.port) : null;
-            if (!owner || typeof this.pullDataConnectorWord !== 'function') return '—';
+            if (!owner || typeof this.pullDataConnectorWord !== 'function') return '';
             const rec = (owner.rec.portCables || {})[String(at.port)];
             return `${this.pullDataConnectorWord(this.dataPortConnectorId(owner, rec && rec.connector))} no length`;
         }
-        if (cable.kind !== 'snake') return cable.text || '—';
+        if (cable.kind !== 'snake') return cable.text || '';
         const s = cable.snake || {};
         const ft = this.parseCableLength(s.ft);
         let text = (s.name || 'snake')

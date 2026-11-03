@@ -1259,6 +1259,11 @@ Object.assign(CanvasRenderer.prototype, {
         // other". More than the pill's own corner radius, so the two
         // rounded rims never look joined.
         const gap = labelSize * (stacked ? 0.6 : 0.25);
+        // the rim is stroked on the pill's edge, half of it outside the
+        // rect: a pill slid against the screen's edge stops that half
+        // short of it, so no ink lands past the wall (QA 1.6.0: "10'
+        // TRUE1" on a wall's last column printed over its border)
+        const rim = this._tagRim(tag) / 2;
         let left, top;
         if (side === 'left') left = x - gap - tag.width;
         else if (side === 'right') left = x + gap;
@@ -1267,14 +1272,20 @@ Object.assign(CanvasRenderer.prototype, {
         else if (side === 'above') top = y - gap - tag.height;
         else top = y - tag.height / 2;
         if (opts && Number.isFinite(opts.top) && Number.isFinite(opts.bottom)) {
-            if (top + tag.height > opts.bottom) top = opts.bottom - tag.height;
-            if (top < opts.top) top = opts.top;
+            if (top + tag.height + rim > opts.bottom) top = opts.bottom - tag.height - rim;
+            if (top - rim < opts.top) top = opts.top + rim;
         }
         if (stacked && opts && Number.isFinite(opts.left) && Number.isFinite(opts.right)) {
-            if (left + tag.width > opts.right) left = opts.right - tag.width;
-            if (left < opts.left) left = opts.left;
+            if (left + tag.width + rim > opts.right) left = opts.right - tag.width - rim;
+            if (left - rim < opts.left) left = opts.left + rim;
         }
-        return { x: left, y: top, w: tag.width, h: tag.height, side, layout: tag, gap };
+        return { x: left, y: top, w: tag.width, h: tag.height, side, layout: tag, gap, rim };
+    },
+
+    // The width of a pill's rim (drawCableTag strokes it on the pill's
+    // edge, half inside, half out), from the layout it was measured with.
+    _tagRim(layout) {
+        return Math.max(1, layout.size * 0.1);
     },
 
     // Where a cable tag goes so it covers no OTHER label of its screen -
@@ -1371,7 +1382,7 @@ Object.assign(CanvasRenderer.prototype, {
                 const sx = rect.x + rect.w / 2 - stack.w / 2;
                 const sy = rect.y + rect.h + stack.gap;
                 const x0 = Math.min(rect.x, sx), x1 = Math.max(rect.x + rect.w, sx + stack.w);
-                cover = { x: x0, y: rect.y, w: x1 - x0, h: sy + stack.h - rect.y, gap: rect.gap };
+                cover = { x: x0, y: rect.y, w: x1 - x0, h: sy + stack.h - rect.y, gap: rect.gap, rim: rect.rim };
             }
             return { x: a.x, y: a.y, opts, rect, cover };
         };
@@ -1495,10 +1506,14 @@ Object.assign(CanvasRenderer.prototype, {
 
     // The room a head's second pill (its 2fer / 3fer) takes under the
     // first: its width and height and the hair between the two - what
-    // placeCableTag reserves and placeStackedTag then fills.
+    // placeCableTag reserves and placeStackedTag then fills. The hair is
+    // between the RIMS: each pill's rim is stroked half outside its rect,
+    // and a gap of the hair alone left the two rims touching, a 2fer
+    // reading as printed into its TRUE1 (QA 1.6.0).
     _stackReserve(text, labelSize) {
         const tag = this.cableTagLayout(text, labelSize);
-        return { w: tag.width, h: tag.height, gap: Math.max(1, labelSize * 0.08) };
+        const rims = this._tagRim(tag);
+        return { w: tag.width, h: tag.height, gap: Math.max(1, labelSize * 0.08) + rims };
     },
 
     // What a pill at a candidate rect would cover, as a function of the
@@ -1518,8 +1533,12 @@ Object.assign(CanvasRenderer.prototype, {
     // as one; it goes to the other side instead.
     _tagCover(bounds, discs, own, taken, withOwn) {
         const eps = 1e-6;
-        const inside = (rc) => rc.x >= bounds.left - eps && rc.x + rc.w <= bounds.right + eps
-            && rc.y >= bounds.top - eps && rc.y + rc.h <= bounds.bottom + eps;
+        // (with its rim, half of which is stroked outside the rect)
+        const inside = (rc) => {
+            const r = rc.rim || 0;
+            return rc.x - r >= bounds.left - eps && rc.x + rc.w + r <= bounds.right + eps
+                && rc.y - r >= bounds.top - eps && rc.y + rc.h + r <= bounds.bottom + eps;
+        };
         const meets = (rc, d) => {
             const qx = Math.max(rc.x, Math.min(d.x, rc.x + rc.w));
             const qy = Math.max(rc.y, Math.min(d.y, rc.y + rc.h));
@@ -1574,7 +1593,7 @@ Object.assign(CanvasRenderer.prototype, {
         const gap = this._stackReserve(text, labelSize).gap;
         const left = base.x + base.w / 2 - tag.width / 2;
         const candidate = (top) => {
-            const rect = { x: left, y: top, w: tag.width, h: tag.height };
+            const rect = { x: left, y: top, w: tag.width, h: tag.height, rim: this._tagRim(tag) / 2 };
             return { x: rect.x - labelSize * 0.25, y: rect.y + rect.h / 2,
                      opts: { side: 'right' }, rect };
         };
@@ -1688,7 +1707,7 @@ Object.assign(CanvasRenderer.prototype, {
         }
         this.ctx.fillStyle = c.fill;
         this.ctx.fill();
-        this.ctx.lineWidth = Math.max(1, size * 0.1);
+        this.ctx.lineWidth = this._tagRim(tag);
         this.ctx.strokeStyle = c.rim;
         this.ctx.stroke();
         this.ctx.fillStyle = c.ink;

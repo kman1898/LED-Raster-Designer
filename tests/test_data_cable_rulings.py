@@ -519,7 +519,7 @@ def test_the_qd_s_input_fiber_goes_where_the_qd_s_is(page):
 def test_a_placed_port_with_no_length_says_so_on_the_binder(page):
     """CENTER's socket with no cable typed (owner, 2026-10-22): the data
     sheet's Ports HOME RUN says "Cat6 no length" as CABLES THIS SCREEN
-    does, never "—"; the processor sheet's Snakes & home runs lists it,
+    does, never a blank; the processor sheet's Snakes & home runs lists it,
     marked no length, as its Pull list does."""
     pg, ids = page
     out = pg.evaluate("""async (ids) => {""" + HELPERS_JS + """
@@ -544,7 +544,7 @@ def test_a_placed_port_with_no_length_says_so_on_the_binder(page):
         await rebuild();
         return res;
     }""", ids)
-    assert out['run'] in ('Cat6 no length', 'etherCON no length') and out['none'] == '—', out
+    assert out['run'] in ('Cat6 no length', 'etherCON no length') and out['none'] == '', out
     ports = [r for t in out['tables'] if t['title'] == 'Ports' for r in t['rows']]
     assert [r for r in ports if 'Cat6 no length' in r], ports
     runs = [r for t in out['tables'] if t['title'] == 'Snakes & home runs' for r in t['rows']]

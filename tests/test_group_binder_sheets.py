@@ -494,15 +494,15 @@ def test_the_pull_sheet_follows_each_side(page):
     texts = _screens_table(out['sheets'][pull[0]]['texts'])
     i, li, ri = texts.index('WALL'), texts.index('WALL-L'), texts.index('WALL-R')
     wall, lrow, rrow = texts[i:i + 6], texts[li:li + 6], texts[ri:ri + 6]
-    assert wall[1] == '—' and wall[2] == '—' and wall[3] != '—' and wall[4] == '—', wall
-    assert lrow[2] == '12' and lrow[3] == '—' and lrow[4] != '—', lrow
-    assert rrow[2] == '12' and rrow[3] == '—' and rrow[4] != '—', rrow
+    assert wall[1] == '' and wall[2] == '' and wall[3] != '' and wall[4] == '', wall
+    assert lrow[2] == '12' and lrow[3] == '' and lrow[4] != '', lrow
+    assert rrow[2] == '12' and rrow[3] == '' and rrow[4] != '', rrow
     # the other way round: one data line, a power line per member
     out = _run(pg, ids, {'power': 'screens', 'data-flow': 'group'}, titles=pull)
     texts = _screens_table(out['sheets'][pull[0]]['texts'])
     i, li = texts.index('WALL'), texts.index('WALL-L')
-    assert texts[i + 3] == '—' and texts[i + 4] != '—', texts[i:i + 6]
-    assert texts[li + 3] != '—' and texts[li + 4] == '—', texts[li:li + 6]
+    assert texts[i + 3] == '' and texts[i + 4] != '', texts[i:i + 6]
+    assert texts[li + 3] != '' and texts[li + 4] == '', texts[li:li + 6]
     assert not errors, errors
 
 
