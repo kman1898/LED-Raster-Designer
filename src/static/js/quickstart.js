@@ -461,6 +461,16 @@
         var m = $('#preferences-modal');
         if (m) m.style.display = 'none';
     }
+    // Preferences on `tab`, opened only when it is not up on that tab
+    // already: on a step that shares it with the one before (S.keep), the
+    // window stays exactly as the earlier step left it.
+    function openPrefsTab(tab) {
+        var a = A();
+        if (!a) return;
+        if (held('prefs:' + tab) && prefsOpen() && a._prefsTab === tab) return;
+        a.openPreferencesModal();
+        a.showPreferencesTab(tab);
+    }
     function closeFlag() {
         var a = A();
         if (!a || !a._dockFlagOpen) return;
@@ -4700,14 +4710,15 @@
         // path Save takes for them; the dialog closes on the way out.
         cableStock: {
             since: '1.5.3',
+            // Preferences on Cable stock stays up into the next step, A
+            // list for each kind of cable (owner, 2026-11-04).
+            window: 'prefs:stock',
             target: '#pref-cable-stock-all-ft', place: 'bottom', title: 'Cable stock',
             avoid: ['#pref-cable-stock-all-ft', '#preferences-save'],
             body: 'In Preferences, Cable stock, type the lengths this show has on hand: 25, 50, 100. Each run is then written as the stock pieces that make it, and a preset keeps the list for the next show.',
             before: function () {
                 switchView('power');
-                var a = A();
-                a.openPreferencesModal();
-                a.showPreferencesTab('stock');
+                openPrefsTab('stock');
             },
             act: function (t) {
                 return t.type('#pref-cable-stock-all-ft', '25, 50, 100').then(function () {
@@ -4770,14 +4781,25 @@
         // way the Cable stock step presses it.
         cableStockPerKind: {
             since: '1.6.0',
+            // Right after Cable stock, in the Preferences it left up; the
+            // stock pieces step after it types into the tray, so this
+            // step's after() closes Preferences.
+            window: 'prefs:stock',
             target: '#pref-cable-stock-per-kind', place: 'bottom', title: 'A list for each kind of cable',
             avoid: ['#pref-cable-stock-per-kind', '#pref-cable-stock-multi-ft', '#pref-cable-stock-feeder-ft', '#preferences-save'],
             body: 'Tick A list for each kind of cable and each kind gets its own lengths. Here the multis keep 25, 50 and 100, and the power in cables come in 50 and 100.',
             before: function () {
                 switchView('power');
+                openPrefsTab('stock');
+                // Held up from Cable stock, the dialog was never opened
+                // again, and the Save that step pressed spent the lists it
+                // opened with (applyCableStockPreferences). They are the
+                // fields as they stand, the show's lists since that Save:
+                // what an open of the dialog would read now.
                 var a = A();
-                a.openPreferencesModal();
-                a.showPreferencesTab('stock');
+                if (a._prefsCableStockAtOpen === undefined && a.readCableStockUI) {
+                    a._prefsCableStockAtOpen = JSON.stringify(a.readCableStockUI());
+                }
             },
             act: function (t) {
                 return t.click('#pref-cable-stock-per-kind').then(function () {
@@ -6234,8 +6256,8 @@
                     'addDistro', 'nameDistro',
                     'distroPhase', 'distroRating', 'distroMain', 'distroPreset', 'distroRows',
                     'dropMulti', 'clearCircuit', 'clearMultiByMenu', 'dropMultiAgain',
-                    'multiCableSheet', 'powerJumpers', 'jumperNames', 'pullPanels', 'cableUnit', 'cableStock', 'cableStockPieces',
-                    'cableStockPerKind', 'powerCableTags',
+                    'multiCableSheet', 'powerJumpers', 'jumperNames', 'pullPanels', 'cableUnit', 'cableStock', 'cableStockPerKind',
+                    'cableStockPieces', 'powerCableTags',
                     'powerColumns', 'splitters', 'takeOver', 'customPower', 'customDraw', 'sweepShare', 'balance',
                     'addService', 'serviceRating', 'serviceDistro', 'feederLength',
                     'addBeach', 'screenBeach', 'addScreen', 'beachByMenu', 'crossScreens', 'groupScreens', 'groupNames',
