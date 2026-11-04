@@ -712,14 +712,14 @@ def test_the_binder_maps_every_strand_and_summarises_each_box(page):
                  sx: maps(ids.sxId).length };
     }""", ids)
     bands, fiber = out['bands'], out['fiber']
-    assert bands[0] == 'CVT10-S A · OPT 1 · 8 ports · OPT 1 TAC A (TAC 24 · Single mode) 1-2', bands
-    assert fiber[1] == 'OPT 1 TAC A (TAC 24 · Single mode) 4, 13', fiber
-    assert fiber[4] == 'OPT 1 TAC A (TAC 24 · Single mode) 9-10', fiber
-    assert fiber[5] == 'OPT 1 TAC B (TAC 6 · Single mode) 1-2', fiber
-    assert bands[5].endswith(' · OPT 1 TAC B (TAC 6 · Single mode) 1-2'), bands
+    assert bands[0] == 'CVT10-S A · OPT 1 · 8 ports · OPT 1 TAC A (TAC 24) 1-2', bands
+    assert fiber[1] == 'OPT 1 TAC A (TAC 24) 4, 13', fiber
+    assert fiber[4] == 'OPT 1 TAC A (TAC 24) 9-10', fiber
+    assert fiber[5] == 'OPT 1 TAC B (TAC 6) 1-2', fiber
+    assert bands[5].endswith(' · OPT 1 TAC B (TAC 6) 1-2'), bands
     assert len(out['maps']) == 1 and out['sx'] == 0
     m = out['maps'][0]
-    assert m['title'] == "Strand map · TAC A · TAC 24 · ST · 1000'", m['title']
+    assert m['title'] == "Strand map · TAC A · TAC 24 · ST · Single mode · 1000'", m['title']
     assert m['note'] == 'Also on BK RACK', m
     rows = m['rows']
     assert len(rows) == 24
@@ -749,9 +749,8 @@ def test_the_binder_maps_every_strand_and_summarises_each_box(page):
     size = {t['text']: t['size'] for t in procs}
     # the Breakout boxes table's FIBER: the input, then each strand a line,
     # swatched (2026-10-17) - logged as the one cell it drew
-    for text in ('OPT 1 TAC A (TAC 24 · Single mode) 1 Blue 2 Orange',
-                 'OPT 1 TAC A (TAC 24 · Single mode) 4 Brown 13 Blue/Black',
-                 'OPT 1 TAC B (TAC 6 · Single mode) 1 Blue 2 Orange', 'Also on BK RACK'):
+    for text in ('OPT 1 TAC A (TAC 24) 1 Blue 2 Orange', 'OPT 1 TAC A (TAC 24) 4 Brown 13 Blue/Black',
+                 'OPT 1 TAC B (TAC 6) 1 Blue 2 Orange', 'Also on BK RACK'):
         assert size.get(text) == 24, (text, sorted((k, size[k]) for k in size if 'TAC' in k or 'Blue' in k or 'OPT' in k))
     # the loop's far box wraps at its " · ", each line whole at the cell's
     # size (a list cell is logged as the one text it drew)
@@ -769,7 +768,7 @@ def test_the_binder_maps_every_strand_and_summarises_each_box(page):
     # strand a line (2026-10-17) - every piece whole at the cell's size
     texts = [t['text'] for t in data]
     at = texts.index('CVT10-S A · OPT 1 · 8 ports')
-    assert texts[at:at + 5] == ['CVT10-S A · OPT 1 · 8 ports', 'OPT 1', 'TAC A (TAC 24 · Single mode)', '1 Blue', '2 Orange'], \
+    assert texts[at:at + 5] == ['CVT10-S A · OPT 1 · 8 ports', 'OPT 1', 'TAC A (TAC 24)', '1 Blue', '2 Orange'], \
         texts[at:at + 6]
     assert {t['size'] for t in data[at:at + 5]} == {24}, data[at:at + 5]
     assert ids['errors'] == []

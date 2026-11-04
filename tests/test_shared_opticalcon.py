@@ -671,14 +671,15 @@ def test_the_select_offers_another_boxs_opticalcon_while_it_has_free_strands(pag
     rows = settled(pg, lambda: _rows(pg, pb), lambda rs: [r['value'] for r in rs] == [ids['q1'], ids['q1']])
     assert [r['value'] for r in rows] == [ids['q1'], ids['q1']], rows
     assert [r['chips'] for r in rows] == [['3 Green'], ['4 Brown']], rows
-    rows = settled(pg, lambda: _rows(pg, rb), lambda rs: rs and "QUAD 1 · 500'" not in rs[0]['options'])
-    assert "QUAD 1 · 500'" not in rows[0]['options'] and "QUAD 2 · 1000'" in rows[0]['options'], rows
+    quad1, quad2 = "QUAD 1 · 500' · Single mode", "QUAD 2 · 1000' · Single mode"
+    rows = settled(pg, lambda: _rows(pg, rb), lambda rs: rs and quad1 not in rs[0]['options'])
+    assert quad1 not in rows[0]['options'] and quad2 in rows[0]['options'], rows
     pg.locator(f'[data-lrd-field="fiber-link-cable-{rb}-p1"]').select_option(ids['q2'])
     got = settled(pg, lambda: (_box_links(_served(pg), rb) or {}).get('p1'), bool, 8000)
     assert got == {'cable': ids['q2'], 'strands': [3]}, got
     rows = _rows(pg, ids['pa'])
     assert [r['value'] for r in rows] == [ids['q1'], ids['q1']], rows
-    assert "QUAD 1 · 500'" in rows[0]['options']
+    assert quad1 in rows[0]['options']
     assert pid and ids['errors'] == []
 
 
