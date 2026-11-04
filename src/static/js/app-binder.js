@@ -1,6 +1,6 @@
 // app-binder: the binder packet - a DRAWING SET. The show's power and data
 // maps, the pull tables and the hardware, laid out on numbered SHEETS the
-// way a Vectorworks drawing set reads (2026-09-08, on a client packet he
+// way a drawing set reads (2026-09-08, on a client packet he
 // held up: "this is a great example to base our binder off of"): every
 // sheet a landscape page of one size - Tabloid 17 x 11 by default ("17x11
 // i think is great . nice middle gound. but maybe have option for all
@@ -30,12 +30,20 @@
 //        its ports land on, circuit to breakout, port to socket, one side
 //        on a whole page) - a screen with only one side has only that
 //        side's two sheets
-//   3.n  the PULL sheets - positions side by side, each position's
+//   3.n  the FIBER page (app-binder-fiber.js) - every processor to its
+//        breakout boxes, only where the show uses fiber and the Fiber
+//        tick is on, never for one screen (owner, 2026-11-04: "the fiber
+//        patch sheet also needs to come before the pull sheets")
+//   4.n  the PULL sheets - positions side by side, each position's
 //        sections flowing across the sheet in columns
-//   4.n  hardware - the services, then the distros side by side, then
+//   5.n  hardware - the services, then the distros side by side, then
 //        the processors with the show's pull list beside them where it fits
-// A sheet whose tables do not fit continues on the next number of its
-// series, "(cont.)"; the map never splits.
+// The overview and the screens keep 1 and 2 whatever prints; the series
+// after them number in the order they print (_bPage, SUBJECT), so a set
+// without the Fiber page reads pull 3.n and hardware 4.n, and one without
+// pull sheets numbers its hardware straight after the sheets before it -
+// never a hole. A sheet whose tables do not fit continues on the next
+// number of its series, "(cont.)"; the map never splits.
 //
 // Every sheet is painted onto the book canvas (the tests and any preview
 // read its pixels) and RECORDED as a display list - rects, lines, text and
@@ -278,8 +286,15 @@ const PERSPECTIVE_KEYS = ['data_flow_perspective', 'power_perspective'];
 const SCREEN_ORDERS = ['alpha', 'layers', 'layers-up', 'data', 'power'];
 // The logo is stored no larger than this on its long side.
 const LOGO_MAX_PX = 1200;
-const SERIES = { overview: 1, power: 2, data: 2, wiring: 2, pull: 3,
-                 service: 4, distro: 4, processor: 4, totals: 4, fiber: 4 };
+// Each sheet kind's SUBJECT, the series it numbers in. The overview and
+// the screens hold series 1 and 2 (SERIES) whatever prints; every subject
+// after them takes the next number as its first sheet prints - the Fiber
+// page, the pull sheets, the hardware: 3, 4, 5 with all three, pull 3 and
+// hardware 4 without the Fiber page - so the numbers never leave a hole.
+const SUBJECT = { overview: 'overview', power: 'screens', data: 'screens', wiring: 'screens',
+                  fiber: 'fiber', pull: 'pull',
+                  service: 'hardware', distro: 'hardware', processor: 'hardware', totals: 'hardware' };
+const SERIES = { overview: 1, screens: 2 };
 
 class _Binder {
 
@@ -1262,7 +1277,7 @@ class _Binder {
             scale: sheet.w * sheet.h > SCALE_PX_BUDGET ? 1 : 2,
             dry: !!run.dry, total: run.total || 0, only: run.only, plan: run.plan || null,
             log: run.log || null, bitmaps: !!run.bitmaps,
-            series: {}, views: 0,
+            series: {}, seriesOf: {}, views: 0,
             pages: [], records: [], canvas, realCtx, measureCtx, ctx: null, page: null,
         };
         book.groups = this._bGroupPlans(opts);
@@ -1286,8 +1301,10 @@ class _Binder {
         // the pull list's position order, a position's own screens in the
         // project's screen order (_bOrderScreens) - each screen's POWER
         // sheet and its POWER WIRING sheet, its DATA sheet and its DATA
-        // WIRING sheet; 3 the pull sheets, positions side by side; 4 the hardware - the distros, the processors, the show's
-        // pull list.
+        // WIRING sheet; 3 the Fiber page where it prints; then the pull
+        // sheets, positions side by side; then the hardware - the
+        // services, the distros, the processors, the show's pull list
+        // (3 and 4 without the Fiber page: _bPage numbers them in order).
         if (opts.cover) this._bOverviewPage(book);
         // grouped by system: a map, then the sheet that wires it - the
         // wall wired to its breakouts or its devices, that one side on a
@@ -1330,6 +1347,13 @@ class _Binder {
             if (opts.sides.power && (this._bHasPower(layer, scr) || this._bCannotFit(layer))) emit(layer, pos, 'power');
             if (opts.sides.data && this._bHasData(layer, scr)) emit(layer, pos, 'data');
         }
+        // THE FIBER PAGE (owner, 2026-11-03: "just a fiber page if fiber
+        // is used. So it can all be shown together processor to
+        // breakout"): the show's, right after the screens and before the
+        // pull sheets (owner, 2026-11-04: "the fiber patch sheet also
+        // needs to come before the pull sheets"), only where fiber is
+        // used and only when asked (opts.fiber - the dialog's Fiber tick).
+        if (opts.fiber === true && !scopeLayer) this._bFiberSheets(book);
         if (opts.pull) this._bPullSheets(book, positions);
         const hardware = [];
         if (opts.hardware) {
@@ -1352,11 +1376,6 @@ class _Binder {
         }
         if (opts.pull) hardware.push(this._bTotalsGroup(book));
         this._bHardwareSheets(book, hardware);
-        // THE FIBER PAGE (owner, 2026-11-03: "just a fiber page if fiber
-        // is used. So it can all be shown together processor to
-        // breakout"): the show's, after the hardware, only where fiber is
-        // used and only when asked (opts.fiber - the dialog's Fiber tick).
-        if (opts.fiber === true && !scopeLayer) this._bFiberSheets(book);
         return this._binderFinish(book);
     }
 
@@ -2065,7 +2084,13 @@ class _Binder {
     _bPage(book, spec, body) {
         this._bClosePage(book);
         const index = book.pages.length;
-        const series = SERIES[spec.kind] || 5;
+        // the series: the overview's and the screens' fixed, every later
+        // subject's the next number on from the highest yet (SUBJECT)
+        const subject = SUBJECT[spec.kind] || spec.kind;
+        let series = SERIES[subject] || book.seriesOf[subject];
+        if (!series) {
+            series = book.seriesOf[subject] = Math.max(SERIES.screens, ...Object.values(book.seriesOf)) + 1;
+        }
         book.series[series] = (book.series[series] || 0) + 1;
         // the sheet title in caps, as the block and the contents print it
         const page = { index, number: `${series}.${book.series[series]}`, painting: false, ...spec,

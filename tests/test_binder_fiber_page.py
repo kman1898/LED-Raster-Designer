@@ -6,8 +6,13 @@ breakout").
 Pinned here, on synthetic shows only:
 
   - the page prints only where a link of the show is on a fiber cable, once,
-    after the processor pages, and only when the dialog's Fiber tick asks
-    for it - never in a single screen's set;
+    right after the screens and before the pull sheets (owner, 2026-11-04:
+    "the fiber patch sheet also needs to come before the pull sheets"), and
+    only when the dialog's Fiber tick asks for it - never in a single
+    screen's set;
+  - the sheets number in the order they print: with the page, 1.1, 2.n
+    screens, 3.n Fiber, 4.n pull, 5.n hardware; without it, pull 3.n and
+    hardware 4.n - never a hole - and the Overview's CONTENTS lists the same;
   - it can never disagree with the rest of the binder: every link it draws
     is a row of the processor page's Fiber connections table (the output,
     the breakout, the strands at either end), its strand maps put each
@@ -51,6 +56,9 @@ def _opts(**kw):
     opts.update(kw)
     return opts
 
+
+SCREEN_KINDS = ('power', 'data', 'wiring')
+HARDWARE_KINDS = ('service', 'distro', 'processor', 'totals')
 
 PLAN_JS = """(opts) => window.app.planBinder(opts).map(p => ({
     number: p.number, kind: p.kind, title: p.title, scale: p.scale, fiber: p.fiber || null}))"""
@@ -143,15 +151,17 @@ def page(e2e_server, pw_browser):
 
 # ── the page is there only with fiber ────────────────────────────────────
 
-def test_the_page_prints_only_with_fiber_once_after_the_processors(page):
+def test_the_page_prints_only_with_fiber_once_after_the_screens(page):
     pg, ids = page
     plan = pg.evaluate(PLAN_JS, _opts())
     kinds = [p['kind'] for p in plan]
     assert kinds.count('fiber') == 1, kinds
     at = kinds.index('fiber')
-    assert at > max(i for i, k in enumerate(kinds) if k == 'processor'), kinds
+    # right behind the last screen sheet, ahead of every pull and hardware one
+    assert at == 1 + max(i for i, k in enumerate(kinds) if k in SCREEN_KINDS), kinds
+    assert at < kinds.index('pull') < kinds.index('processor'), kinds
     fiber = plan[at]
-    assert fiber['number'].startswith('4.') and fiber['title'] == 'Fiber', fiber
+    assert fiber['number'] == '3.1' and fiber['title'] == 'Fiber', fiber
     # every processor that feeds a breakout box is drawn, in tray order;
     # the DUAL H9 has boxes but nothing picked, so no link to draw
     drawn = [t for col in fiber['fiber']['procs'] for t in col]
@@ -174,6 +184,76 @@ def test_the_page_prints_only_with_fiber_once_after_the_processors(page):
     }""", _opts())
     assert out['uses'] is False and 'fiber' not in out['kinds'], out
     assert pg.evaluate("window.app.binderUsesFiber()") is True
+    assert ids['errors'] == []
+
+
+def _subject(kind):
+    if kind in SCREEN_KINDS:
+        return 'screens'
+    return 'hardware' if kind in HARDWARE_KINDS else kind
+
+
+def _series(plan):
+    """[(subject, series)] in print order, each series' sheets checked to run
+    n.1, n.2 ... with no hole."""
+    runs = []
+    for p in plan:
+        major, minor = p['number'].split('.')
+        subject = _subject(p['kind'])
+        if not runs or runs[-1][0] != subject:
+            runs.append((subject, major, []))
+        assert runs[-1][1] == major, (p, plan)
+        runs[-1][2].append(int(minor))
+    for subject, major, minors in runs:
+        assert minors == list(range(1, len(minors) + 1)), (subject, major, minors)
+    return [(subject, major) for subject, major, _m in runs]
+
+
+# The Overview's CONTENTS, every (number, title) row as the sheet prints it,
+# in the order it prints them - from its first CONTENTS heading on (it may
+# run in columns, "CONTENTS 1", "CONTENTS 2"), each sheet number followed by
+# its title - and the plan's own (number, title) to hold them to.
+CONTENTS_JS = r"""(opts) => {
+    const app = window.app;
+    const plan = app.planBinder(opts).map(p => [p.number, p.sheetTitle]);
+    const texts = app.renderBinderPage(opts, 0).texts;
+    const c = texts.findIndex(t => /^CONTENTS( \d+)?$/.test(t));
+    const listed = [];
+    if (c >= 0) {
+        for (let i = c; i < texts.length - 1; i++) {
+            if (/^\d+\.\d+$/.test(texts[i])) listed.push([texts[i], texts[i + 1]]);
+        }
+    }
+    return {plan, listed};
+}"""
+
+
+def test_the_sheets_number_in_print_order_fiber_3_pull_4_hardware_5_and_no_gap_without_it(page):
+    """With the Fiber page: 1.1 the Overview, 2.n the screens, 3.n Fiber,
+    4.n pull, 5.n hardware. Without it (the tick off) pull stays 3.n and the
+    hardware 4.n, as before the page moved; with the pull sheets off the
+    hardware follows the Fiber page as 4.n. The CONTENTS lists the same
+    numbers in the same order."""
+    pg, ids = page
+    with_fiber = pg.evaluate(PLAN_JS, _opts())
+    assert _series(with_fiber) == [('overview', '1'), ('screens', '2'), ('fiber', '3'),
+                                   ('pull', '4'), ('hardware', '5')],         [(p['kind'], p['number']) for p in with_fiber]
+    without = pg.evaluate(PLAN_JS, _opts(fiber=False))
+    assert _series(without) == [('overview', '1'), ('screens', '2'), ('pull', '3'),
+                                ('hardware', '4')], [(p['kind'], p['number']) for p in without]
+    # the same sheets either way, the Fiber page aside
+    assert [(p['kind'], p['title']) for p in without] ==         [(p['kind'], p['title']) for p in with_fiber if p['kind'] != 'fiber']
+    no_pull = pg.evaluate(PLAN_JS, _opts(pull=False))
+    assert _series(no_pull) == [('overview', '1'), ('screens', '2'), ('fiber', '3'),
+                                ('hardware', '4')], [(p['kind'], p['number']) for p in no_pull]
+    # the Overview's contents: every sheet, in this order, by these numbers
+    for opts, plan in ((_opts(), with_fiber), (_opts(fiber=False), without)):
+        out = pg.evaluate(CONTENTS_JS, opts)
+        assert out['listed'] == out['plan'], out
+        assert [n for n, _t in out['listed']] == [p['number'] for p in plan], out
+    listed = pg.evaluate(CONTENTS_JS, _opts())['listed']
+    assert [row for row in listed if row[1] == 'FIBER'] == [['3.1', 'FIBER']], listed
+    assert listed.index(['3.1', 'FIBER']) == [p['kind'] for p in with_fiber].index('fiber'), listed
     assert ids['errors'] == []
 
 

@@ -4,7 +4,8 @@
 // all be shown together processor to breakout").
 //
 // ONE PAGE PER SHOW, IN ADDITION. It prints only where a link of the show
-// is on a fiber cable, after the hardware sheets (series 4), and runs onto
+// is on a fiber cable, right after the screens and before the pull sheets
+// (series 3, app-binder.js SUBJECT), and runs onto
 // a second sheet only when it must. The processor pages keep their Fiber
 // connections tables and strand maps and the box sheets their fiber rows:
 // this page gathers them, it replaces none of them.
