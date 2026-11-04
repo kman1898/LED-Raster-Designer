@@ -157,13 +157,67 @@ class _RunOverrides {
     // redrawing: the cabinets on its path now.
     // `prev` is the hold live before the open: the same circuit reopened
     // keeps what it held, so a cabinet cut off stays free.
+    // `before`: which cabinets rode which circuit when the redraw opened,
+    // for the typed labels to follow should the number be handed back at
+    // the end (_dropUnchangedRedraw), the way a data port's names do
+    // (_beginOverrideHold). A hold carried on keeps the reading it opened
+    // with.
     _beginPowerHold(owner, num, prev) {
         const keys = new Set();
         ((owner.powerCustomPaths || {})[num] || []).forEach(e => {
             if (e) keys.add(this.getScopedPanelKey(this.getPathEntryLayerId(owner, e), e));
         });
-        if (prev && prev.layerId === owner.id && prev.num === num) prev.keys.forEach(k => keys.add(k));
-        this._powerHeld = { editing: this._overrideEditing, layerId: owner.id, num, keys };
+        let before = null;
+        if (prev && prev.layerId === owner.id && prev.num === num) {
+            prev.keys.forEach(k => keys.add(k));
+            before = prev.before || null;
+        }
+        if (!before) before = this._circuitCabinetKeys(owner);
+        this._powerHeld = { editing: this._overrideEditing, layerId: owner.id, num, keys, before };
+    }
+
+    // `owner`'s circuits as Map(circuit number -> Set of scoped cabinet
+    // keys), the power side of _portCabinetKeys: what _portMovesByCabinet
+    // reads to pair the circuits up across a renumber.
+    _circuitCabinetKeys(owner) {
+        const out = new Map();
+        if (!owner) return out;
+        this._circuitTailCache = null;
+        this.screenCircuits(owner).forEach(c => {
+            if (!c || !Number.isFinite(c.num)) return;
+            const keys = new Set();
+            (c.panels || []).forEach((p, i) => {
+                if (!p) return;
+                const at = (c.layers && c.layers[i]) || owner;
+                keys.add(this.getScopedPanelKey(at.id, p));
+            });
+            if (keys.size) out.set(c.num, keys);
+        });
+        return out;
+    }
+
+    // Let `owner`'s typed circuit labels (powerLabelOverrides) follow
+    // `moves` (_portMovesByCabinet), by the rule the data ports' names
+    // follow theirs (_followPortsByCabinet): a label on a number `moves`
+    // does not know stays put unless a moved circuit lands on it, and one
+    // whose cabinets ride no circuit now (or lost its number to another)
+    // goes. Model only. True when a label moved.
+    _followCircuitLabelsByCabinet(owner, moves) {
+        const labels = owner && owner.powerLabelOverrides;
+        if (!labels || typeof labels !== 'object' || !Object.keys(labels).length) return false;
+        const targets = new Set();
+        moves.forEach(to => { if (to !== null) targets.add(to); });
+        const where = n => (moves.has(n) ? moves.get(n) : (targets.has(n) ? null : n));
+        const moved = {};
+        Object.keys(labels).forEach(k => {
+            const n = parseInt(k, 10);
+            if (!Number.isFinite(n)) { moved[k] = labels[k]; return; }
+            const to = where(n);
+            if (to !== null) moved[to] = labels[k];
+        });
+        if (JSON.stringify(moved) === JSON.stringify(labels)) return false;
+        owner.powerLabelOverrides = moved;
+        return true;
     }
 
     // The hold `h` has ended (its redraw closed): the cabinets it held and
@@ -611,7 +665,7 @@ class _RunOverrides {
         }
         if (prevEdit && prevEdit.kind === 'power'
                 && !(kind === 'power' && prevEdit.layerId === owner.id && prevEdit.num === num)) {
-            this._dropUnchangedRedraw(prevEdit);
+            this._dropUnchangedRedraw(prevEdit, prevPowerHold);
         }
         if (prevPowerHold && !samePowerRun) this._endPowerHold(prevPowerHold);
         if (kind === 'power') {
@@ -654,7 +708,7 @@ class _RunOverrides {
             if (this.powerCustomSelection) this.powerCustomSelection.clear();
             // a redraw that changed nothing, or left nothing drawn, goes
             // back to the walk
-            this._dropUnchangedRedraw(ended);
+            this._dropUnchangedRedraw(ended, powerHold);
             // the cabinets it held and did not draw go back to the walk
             if (powerHold) this._endPowerHold(powerHold);
             this.updateCustomPowerUI();
@@ -732,7 +786,13 @@ class _RunOverrides {
     // its circuit (Clear Circuit, then Esc) hands the number back to the
     // walk the same way, and the toast says so. Before this the circuit
     // stayed taken over with an empty path, and only Undo got it back.
-    _dropUnchangedRedraw(ended) {
+    //
+    // The typed labels follow the cabinets there too, the way a data
+    // port's names do when its number is handed back (_repairEmptyOverrides,
+    // the owner 2026-11-04: power labels "should match how we do data for
+    // now"): read against `hold.before`, which cabinets rode which circuit
+    // when the redraw opened (_beginPowerHold), in the same undo step.
+    _dropUnchangedRedraw(ended, hold = null) {
         if (!ended || ended.kind !== 'power' || !this.project) return false;
         const owner = (this.project.layers || []).find(l => l && l.id === ended.layerId);
         if (!owner || this._layerLocked(owner) || this.isCustomPower(owner)) return false;
@@ -742,9 +802,18 @@ class _RunOverrides {
         // Letting go renumbers the circuits after it when the walk takes the
         // cabinets back: each cable stays with its cabinets (2026-11-04).
         const carry = this._cableCarryBegin([owner]);
+        const ref = !empty ? null
+            : ((hold && hold.layerId === owner.id && hold.num === ended.num
+                && hold.before instanceof Map) ? hold.before : this._circuitCabinetKeys(owner));
         this._releasePowerOverride(owner, ended.num);
+        let moves = null;
+        if (ref) {
+            moves = this._portMovesByCabinet(ref, this._circuitCabinetKeys(owner));
+            this._followCircuitLabelsByCabinet(owner, moves);
+        }
         sendClientLog(empty ? 'override_empty_released' : 'override_unchanged_released',
-            { layerId: owner.id, num: ended.num });
+            { layerId: owner.id, num: ended.num,
+              moved: moves ? [...moves].filter(([n, to]) => to !== n) : [] });
         this._cableCarryApply(carry);
         this.saveState('Return Circuit To Auto');
         this.saveClientSideProperties();
