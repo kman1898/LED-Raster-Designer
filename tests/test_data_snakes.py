@@ -1653,7 +1653,7 @@ BOX_SHEET_JS = """(id) => {
                     reason=str(private_fixture_missing(SCRATCH_FIXTURE)))
 def test_the_backup_boxs_sheet_reads_like_the_primarys(e2e_server, pw_browser):
     """On the frozen file, box SR B's snake row and its four member rows
-    read "SR - MAIN" - exactly what box SR A's read - with the "p1 return"
+    read "SR - MAIN" - exactly what box SR A's read - with the "P1 return"
     detail on the row's title; the table is never wider than the sheet,
     and the HOME RUN cell (the last one - four columns) sits on it, on
     both boxes. Runs in its own
@@ -1713,14 +1713,15 @@ def test_the_backup_boxs_sheet_reads_like_the_primarys(e2e_server, pw_browser):
             assert a['rows'][0]['kind'] == 'snake' and a['rows'][0]['who'] == 'SR - MAIN', a['rows'][0]
             assert [r['who'] for r in a['rows'][1:5]] == ['SR - MAIN'] * 4, a['rows']
             assert [r['kind'] for r in a['rows'][1:5]] == ['member'] * 4, a['rows']
-            # the backup reads the same - the "p1 return" detail rides the titles
+            # the backup reads the same - the "P1 return" detail rides the titles
+            # (a port is P1, as the tray and the map say it, since 2026-11-03)
             assert b['rows'][0]['kind'] == 'snake' and b['rows'][0]['who'] == 'SR - MAIN', b['rows'][0]
             assert [r['who'] for r in b['rows'][1:5]] == ['SR - MAIN'] * 4, b['rows']
-            assert 'p1 return' in b['rows'][0]['rowTitle'] and 'p4 return' in b['rows'][0]['rowTitle'], b['rows'][0]
+            assert 'P1 return' in b['rows'][0]['rowTitle'] and 'P4 return' in b['rows'][0]['rowTitle'], b['rows'][0]
             assert b['rows'][0]['whoTitle'] == b['rows'][0]['rowTitle'], b['rows'][0]
             for n, r in enumerate(b['rows'][1:5], start=1):
-                assert r['rowTitle'] == f'SR - MAIN p{n} return', (n, r)
-                assert r['whoTitle'] == f'SR - MAIN p{n} return', (n, r)
+                assert r['rowTitle'] == f'SR - MAIN P{n} return', (n, r)
+                assert r['whoTitle'] == f'SR - MAIN P{n} return', (n, r)
             # a primary row says nothing more than its cell, so no row title
             assert all(r['rowTitle'] == '' for r in a['rows'][:5]), a['rows']
             # the geometry: never a table wider than its sheet, every HOME

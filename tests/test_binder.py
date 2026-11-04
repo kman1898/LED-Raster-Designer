@@ -3105,8 +3105,17 @@ def test_smoke_live_show_b(page):
                          {**json.loads(_SHOW_JSON), 'sheet': 'letter'})
     k = [t for t, _s in letter].index('SR - MAIN - Power - Front View')
     assert letter[k] == ['SR - MAIN - Power - Front View', 1] and letter[k + 1][0] == 'SR - MAIN - Power Wiring', letter
+    # H9 continues on Letter, as it always has. Since every binder table
+    # keeps one type size (QA beta.5, 2026-11-03) its continuation fills its
+    # own sheet - the snakes beside H9's pull list - and the show's pull
+    # list takes the next whole; before, the continuation shared its sheet
+    # with the show's list ("Processor - H9 (cont.) · Pull list"). Four
+    # hardware sheets either way.
     assert [t for t, _s in letter if t.endswith('(cont.)')] == [
-        'SR - MAIN - Data - Front View (cont.)', 'SL - MAIN - Data - Front View (cont.)'], letter
+        'SR - MAIN - Data - Front View (cont.)', 'SL - MAIN - Data - Front View (cont.)',
+        'Processor - H9 (cont.)'], letter
+    assert [t for t, _s in letter][-4:] == [
+        'Distros - SR, SL', 'Processor - H9', 'Processor - H9 (cont.)', 'Pull list - all positions'], letter
     main = _render(pg, SHOW, 'SR - MAIN - Power - Front View')
     texts = main['texts']
     _title_block(texts, 'SR - MAIN · POWER · FRONT VIEW', '2.1', show=project['name'])
