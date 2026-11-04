@@ -640,20 +640,30 @@ class _Presets {
         const w = Number(layer.panel_weight) || 20;
         const kg = (layer.weight_unit || 'kg') === 'lb' ? w / 2.20462 : w;
         const key = [layer.panel_width_mm, layer.panel_height_mm, layer.cabinet_width, layer.cabinet_height,
-                     kg.toFixed(4)].join('|');
+                     kg.toFixed(4), Number(layer.panelWatts) || 0].join('|');
         if (!this._panelNamesCache) this._panelNamesCache = new Map();
         if (this._panelNamesCache.has(key)) return this._panelNamesCache.get(key);
         const num = (v) => (v === null || v === undefined || v === '' ? NaN : Number(v));
         const same = (a, b) => num(a) > 0 && num(a) === num(b);
+        const watts = num(layer.panelWatts);
+        const wattsSame = (F) => watts > 0 && num(F.watts_max) > 0 && Math.abs(num(F.watts_max) - watts) <= 0.05;
         const found = [];
+        // The weight AND the watts must not point at different models:
+        // a screen whose weight finds one model while its watts are
+        // exactly another same-size model's (a Yes Tech MG10 1.9 at
+        // 112.2 W carrying UniLumin UpadIV1.9 Pro's 6.4 kg) names neither -
+        // a wrong brand on the pull sheet is worse than its size.
+        let wattsOther = false;
         for (const mfr of Object.keys(this._panelCatalog)) {
             for (const F of this._panelCatalog[mfr] || []) {
                 if (!same(F.width_mm, layer.panel_width_mm) || !same(F.height_mm, layer.panel_height_mm)
                         || !same(F.pixels_w, layer.cabinet_width) || !same(F.pixels_h, layer.cabinet_height)) continue;
-                if (!(num(F.weight_kg) > 0) || Math.abs(num(F.weight_kg) - kg) > 0.006) continue;
-                found.push({ mfr, F });
+                const byWeight = num(F.weight_kg) > 0 && Math.abs(num(F.weight_kg) - kg) <= 0.006;
+                if (byWeight) found.push({ mfr, F });
+                else if (wattsSame(F)) wattsOther = true;
             }
         }
+        if (wattsOther && found.some(({ F }) => !wattsSame(F))) found.length = 0;
         const answer = { full: null, height: null, width: null };
         const labels = new Set(found.map(({ mfr, F }) => this._catalogModelLabel(mfr, F)));
         if (labels.size === 1) {

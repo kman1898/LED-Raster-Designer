@@ -222,6 +222,30 @@ def test_a_square_cabinets_halves_are_one_type_and_the_library_names_its_half(se
                             'width': '300 × 337.5 mm half panel'}, got['typed']
 
 
+def test_weight_and_watts_pointing_at_different_models_name_neither(seeded):
+    # Bug (Boston binder, 2026-11-04): a Yes Tech MG10 1.9 (1000nits) screen
+    # - 112.2 W, the MG10's own watts - saved with no panel and 6.4 kg,
+    # UniLumin UpadIV1.9 Pro's weight, was printed "UniLumin UpadIV1.9 Pro".
+    # Weight and watts that point at two models name neither: its size.
+    pg, _, _ = seeded
+    got = pg.evaluate("""() => {
+        const app = window.app;
+        const cab = {panel_width_mm: 500, panel_height_mm: 500, cabinet_width: 256, cabinet_height: 256,
+                     weight_unit: 'kg'};
+        return {
+            mixed: app.pullPanelTypes({...cab, panel_weight: 6.4, panelWatts: 112.2}).none,
+            unilumin: app.pullPanelTypes({...cab, panel_weight: 6.4, panelWatts: 119.9}).none,
+            // watts no other same-size model has (a derated figure) keep the weight's name
+            derated: app.pullPanelTypes({...cab, panel_weight: 6.4, panelWatts: 95}).none,
+            noWatts: app.pullPanelTypes({...cab, panel_weight: 6.4}).none,
+        };
+    }""")
+    assert got['mixed'] == '500 × 500 mm panel', got
+    assert got['unilumin'] == 'UniLumin UpadIV1.9 Pro', got
+    assert got['derated'] == 'UniLumin UpadIV1.9 Pro', got
+    assert got['noWatts'] == 'UniLumin UpadIV1.9 Pro', got
+
+
 def test_the_size_is_mm_in_a_feet_show_and_a_meters_one(seeded):
     """The owner, 2026-10-22: the size fallback is always mm."""
     pg, ids, _ = seeded
