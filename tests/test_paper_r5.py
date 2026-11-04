@@ -261,7 +261,7 @@ def test_an_empty_distro_is_off_the_service_sheet_and_the_overview(page):
         total = next(r for t in svc_tables for r in t['rows'] if r[0] == 'total')
         assert total[1] == '800 A', total
         svc = next(dict(k['pairs']) for k in b['kv'] if k['title'] == 'Service')
-        assert svc['Distros'] == 'ratings 800 A on 600 A · past the service', svc
+        assert svc['Distros'] == 'ratings 800 A on 600 A', svc
         totals = next(dict(k['pairs']) for k in b['kv'] if k['title'] == 'Show totals')
         assert totals['Distros'] == '2', totals
         # a feeder set brings it back, everywhere at once
@@ -271,7 +271,7 @@ def test_an_empty_distro_is_off_the_service_sheet_and_the_overview(page):
         totals = next(dict(k['pairs']) for k in b['kv'] if k['title'] == 'Show totals')
         assert totals['Distros'] == '3', totals
         svc = next(dict(k['pairs']) for k in b['kv'] if k['title'] == 'Service')
-        assert svc['Distros'] == 'ratings 900 A on 600 A · past the service', svc
+        assert svc['Distros'] == 'ratings 900 A on 600 A', svc
     finally:
         _reset(pg)
     assert errors == [], errors

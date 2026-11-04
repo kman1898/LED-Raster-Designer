@@ -13,8 +13,9 @@ rulings, 2026-10-20).
     entry.
   * The checks, on the card and in the binder: each leg's load (its
     distros' leg loads added) against the service, at 80% of the rating on a
-    US system unless the service is 100% rated; the distros' ratings added
-    up past the service; and the imbalance across all its distros together.
+    US system unless the service is 100% rated, and the imbalance across all
+    its distros together. The ratings of the distros connected to it, added
+    up, are a plain fact beside the service's own (2026-11-03).
   * The binder: a distro on a service names it in its SERVICE block ("Fed
     from"); a Service sheet lists each service's distros with their ratings,
     the leg totals, the limit, the imbalance and any OVER or ratings
@@ -438,24 +439,33 @@ def test_leg_totals_against_the_80_percent_rule_and_100_percent_rated(page):
     assert not errors, errors
 
 
-def test_the_ratings_added_up_past_the_service_warn(page):
+def test_the_ratings_added_up_are_a_fact_not_a_warning(page):
+    """The owner, 2026-11-03: "We should be skipping distros, but anything
+    that is connected should be accounted for. But also a 400 and 200 amp
+    distro connected to a 400 amp service that are only using 300 amps
+    isn't a big deal since it's still under the 400 amp at 80% amount."
+    SL 400, SR 200 and FOH 200 on a 600 A service, a circuit on each: the
+    card reads "ratings 800 A on 600 A" as a plain fact - not amber - and
+    the strip says nothing about it (it used to warn "HOUSE service (600
+    A): its distros are rated 800 A together ..."). FOH with nothing on it
+    is skipped: 600 A on 600 A, as the binder's Service sheet reads."""
     pg, errors = page
     d = [dict(US('d1', 'SL', 400), serviceId='s1'), dict(US('d2', 'SR', 200), serviceId='s1'),
          dict(US('d3', 'FOH', 200), serviceId='s1')]
-    setup(pg, distros=d, services=[SVC(rating=600)], assign=[['WALL A', 0, 0, 'd1']])
+    setup(pg, distros=d, services=[SVC(rating=600)],
+          assign=[['WALL A', 0, 0, 'd1'], ['WALL A', 1, 1, 'd2'], ['WALL A', 2, 2, 'd3']])
     out = read(pg)
     s = out['services']['s1']
-    assert s['ratingSum'] == 800 and s['ratingsOver'], s
+    assert s['ratingSum'] == 800, s
     assert s['chips'] == ['SL 400 A', 'SR 200 A', 'FOH 200 A'], s
-    assert s['sum'] == 'ratings 800 A on 600 A' and s['sumOver'], s
-    assert {'text': 'HOUSE service (600 A): its distros are rated 800 A together '
-                    '(SL 400 A, SR 200 A, FOH 200 A)', 'mild': True} in out['strip'], out['strip']
-    assert not s['over'], 'the ratings warning is not a load OVER'
-    # 400 + 200 on 600 is within it
-    pg.evaluate("() => window.app.setDistroService('d3', null)")
+    assert s['sum'] == 'ratings 800 A on 600 A' and not s['sumOver'], s
+    assert not any('rated' in w['text'] for w in out['strip']), out['strip']
+    assert not s['over'], 'the load is under the limit'
+    # FOH with nothing connected: skipped, as the binder skips it
+    setup(pg, distros=d, services=[SVC(rating=600)],
+          assign=[['WALL A', 0, 0, 'd1'], ['WALL A', 1, 1, 'd2']])
     s = read(pg)['services']['s1']
-    assert s['sum'] == 'ratings 600 A on 600 A' and not s['sumOver'] and not s['ratingsOver'], s
-    assert not any('rated' in w['text'] for w in read(pg)['strip'] if 'HOUSE' in w['text'])
+    assert s['ratingSum'] == 600 and s['sum'] == 'ratings 600 A on 600 A', s
     assert not errors, errors
 
 
@@ -682,7 +692,7 @@ def test_the_binder_names_the_service_and_prints_a_service_sheet(page):
     assert len(service) == 1, service
     s = service[0]
     assert s['Rating'] == '400 A · 120/208V 3φ', s
-    assert s['Distros'] == 'ratings 600 A on 400 A · past the service', s
+    assert s['Distros'] == 'ratings 600 A on 400 A', s
     assert s['Load'].startswith('X 330.0 · Y 330.0 · Z 330.0 A · 3φ '), s['Load']
     assert s['Load'].endswith('· limit 320 A (80% of 400 A) · OVER on X, Y, Z'), s['Load']
     assert s['Imbalance'] == '0.0%', s

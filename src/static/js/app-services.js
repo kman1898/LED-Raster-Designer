@@ -642,7 +642,10 @@ class _Services {
         // distro powered thru another draws thru that distro's rating, not
         // beside it: its load counts on the service above, its rating does
         // not (QA 1.6.0-beta.4, "800 A on 400 A" for SL with SR thru it).
-        const ratingSum = rows.filter(r => !r.thru)
+        // A distro with nothing connected is skipped, as the binder's
+        // Service sheet skips it; anything connected counts (the owner,
+        // 2026-11-03: the tray read 430 A where the binder read 400 A).
+        const ratingSum = rows.filter(r => !r.thru && this._distroConnected(r.distro))
             .reduce((t, r) => t + (Number(r.distro.ratingA) || 0), 0);
         return {
             id: s.id, name: s.name || s.id, label: this.serviceLabel(s),
@@ -694,14 +697,28 @@ class _Services {
                     + (note ? ` (${note}, continuous)` : ` (${Math.round(load.pct)}%)`) + ', OVER',
             });
         }
-        if (load.ratingsOver) {
-            this._dockPowerWarnings.push({
-                mild: true,
-                text: `${name} (${+load.ratingA.toFixed(1)} A): its distros are rated `
-                    + `${+load.ratingSum.toFixed(1)} A together `
-                    + `(${load.distros.filter(r => !r.thru).map(r => `${this.distroLabel(r.distro)} ${+(Number(r.distro.ratingA) || 0).toFixed(1)} A`).join(', ')})`,
-            });
+        // The distros' ratings added up past the service are no warning
+        // (the owner, 2026-11-03: "a 400 and 200 amp distro connected to a
+        // 400 amp service that are only using 300 amps isn't a big deal"):
+        // the load against the service's limit, above, is what is checked.
+        // The sum stays a plain fact on the card (_dockServiceFeeds).
+    }
+
+    // Is anything connected to distro `d`: a multi or circuit on it (any
+    // screen), another distro powered thru it, or its power in set. The
+    // binder's _bDistroPrints without its hidden-screen rule (a hidden
+    // screen is off the paperwork, still on the distro).
+    _distroConnected(d) {
+        if (!d) return false;
+        const id = String(d.id);
+        if (d.feeder && typeof d.feeder === 'object') return true;
+        if (this.getDistros().some(x => x && x.feeder && typeof x.feeder === 'object'
+                && x.feeder.from != null && String(x.feeder.from) === id
+                && String(x.id) !== id)) return true;
+        for (const members of this._distroMultiNumbers(d.id).values()) {
+            if ((members || []).length) return true;
         }
+        return false;
     }
 
     _dockBuildService(s, load) {
@@ -798,7 +815,8 @@ class _Services {
     }
 
     // The FEEDS line: one chip per distro on the service with its rating,
-    // then the ratings added up against the service - amber past it.
+    // then the ratings of the connected ones added up beside the
+    // service's own.
     _dockServiceFeeds(s, load) {
         const row = document.createElement('div');
         row.className = 'hw-dock-svc-feeds';
@@ -827,13 +845,13 @@ class _Services {
             }
             row.appendChild(chip);
         });
+        // A plain fact, never amber: the ratings past the service are no
+        // problem while the load is under its limit (owner, 2026-11-03).
         const sum = document.createElement('span');
-        sum.className = 'hw-dock-svc-sum' + (load.ratingsOver ? ' hw-dock-svc-sum-over' : '');
+        sum.className = 'hw-dock-svc-sum';
         sum.textContent = `ratings ${+load.ratingSum.toFixed(1)} A on ${+load.ratingA.toFixed(1)} A`;
-        sum.title = load.ratingsOver
-            ? 'The distros\' ratings add up past the service. Their load is what is checked '
-                + 'against it, leg by leg; this says that, run full, they would be past it.'
-            : 'The distros\' ratings added up, within the service.';
+        sum.title = 'The ratings of the distros connected here, added up. The load is what is '
+            + 'held to the service\'s limit, leg by leg.';
         row.appendChild(sum);
         return row;
     }
