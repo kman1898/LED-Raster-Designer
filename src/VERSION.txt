@@ -886,6 +886,15 @@ FIXES
   bar, Save Screen as Preset selects the name it fills in, and after a
   guide Preferences opens on the tab you had.
 - FIX: Circuit ranges in drag hints and tooltips use a plain hyphen.
+- FIX: Every binder table prints its cells at one size and its headings
+  at one size. Text too long for its column wraps at its words, or the
+  table takes the room the sheet has, instead of shrinking or being cut.
+  A pull sheet with wide tables holds three positions at full size.
+- FIX: The Fiber page names the screen each breakout box feeds, and wraps
+  a box's list of screens instead of cutting it short.
+- FIX: The pull sheet never joins multis with a hyphen, which reads like a
+  circuit: two read SR1, SR2 and more read VX UPSTG 1 … 3. Its overflow
+  notice reads right for one position or several.
 
 v1.5.3 - October 21, 2026
 ----------------------------
