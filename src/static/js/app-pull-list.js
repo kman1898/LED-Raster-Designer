@@ -1034,7 +1034,10 @@ class _PullList {
             // of those distros never folds with one: "DISTRO 1, DISTRO 2"
             // and "DISTRO 1 … 4" (QA 1.6.0-beta.4: two distros read
             // "DISTRO 1-2", a multi's name).
-            if (g.names.every(n => dashNamed.has(n) || multis.has(n))) {
+            // A run with any multi in it folds this way too: a hyphen after
+            // a multi's name reads as one of its circuits ("SR1 and SR2 are
+            // different multis, so SR1-2 and SR2-1 are not the same thing").
+            if (g.names.some(n => dashNamed.has(n) || multis.has(n))) {
                 for (const [a, b] of runs) {
                     const at = (k) => g.names[g.nums.indexOf(k)];
                     if (b - a >= 2) out.push(`${at(a)} … ${b}`);

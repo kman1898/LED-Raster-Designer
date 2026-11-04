@@ -159,8 +159,10 @@ def test_lone_names_stay_whole_and_only_runs_fold(seeded):
         (['CVT10'], 'CVT10'),
         (['SR1'], 'SR1'),
         (['SR 13x5', 'SR 13x6'], 'SR 13x5, SR 13x6'),
-        (['SR1', 'SR2', 'SR3', 'SR4'], 'SR 1-4'),
-        (['SR1', 'SR2', 'SR5'], 'SR 1-2, 5'),
+        # SR1 and SR2 are multis here, so a run with them in it never folds
+        # with a hyphen, which would read as a multi's circuit (Matt).
+        (['SR1', 'SR2', 'SR3', 'SR4'], 'SR1 … 4'),
+        (['SR1', 'SR2', 'SR5'], 'SR1, SR2, SR5'),
         (['SR1', 'SR5'], 'SR1, SR5'),
         # SR1 and SR2 are the seeded show's two multis: a run of multis
         # reads as distro names do, never a range like a circuit's (QA beta.5)

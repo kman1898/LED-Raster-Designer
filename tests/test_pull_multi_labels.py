@@ -103,3 +103,12 @@ def test_two_multis_read_both_names(page):
     assert out['names'] == ['PD UPSTG1', 'PD UPSTG2'], out
     assert out['breakout'] == ['PD UPSTG1, PD UPSTG2'], out
     assert out['multi'] == ['PD UPSTG1, PD UPSTG2'], out
+
+
+def test_a_run_with_a_multi_in_it_never_folds_with_a_hyphen(page):
+    """Multis PD UPSTG2 and PD UPSTG3 beside a plain name PD UPSTG4 (not a
+    multi) read "PD UPSTG2 … 4", never "PD UPSTG 2-4"."""
+    page.evaluate(LIST_JS, 15)
+    out = page.evaluate("() => window.app._pullCompressNames(['PD UPSTG2', 'PD UPSTG3', 'PD UPSTG4'])")
+    assert out == 'PD UPSTG2 … 4', out
+    assert not re.search(r'\d-\d', out), out
