@@ -143,6 +143,23 @@ class _Power {
         return out;
     }
 
+    // Is drawn number `num` a gap the circuits after it close up over? A
+    // custom screen's number with nothing drawn on it, below its highest
+    // drawn run, whose tail no multi on a distro holds (_customPlaceRuns).
+    // It names no place of its own (_predictedCircuitSlot).
+    _customGapIsNoPlace(owner, num) {
+        const n = parseInt(num, 10);
+        if (!owner || !Number.isFinite(n) || !this.isCustomPower(owner) || !this.usesCustomCircuits(owner)) {
+            return false;
+        }
+        const paths = owner.powerCustomPaths || {};
+        if ((paths[n] || []).length > 0) return false;
+        const drawn = Object.keys(paths).map(k => parseInt(k, 10))
+            .filter(k => Number.isFinite(k) && (paths[k] || []).length > 0);
+        if (!drawn.length || n > Math.max(...drawn)) return false;
+        return !this._customPlaceRuns(owner).includes(n);
+    }
+
     // The drawn number circuit `shown` is written under: the first run of
     // the circuit in that place (a held gap is a place, _customPlaceRuns),
     // or past the last circuit the next free number, one after the

@@ -1098,10 +1098,24 @@ class _Naming {
     // the next number in its bucket and the same name ladder _namingFor
     // walks (hand-typed, distro-derived, template), so the label is the
     // label the wall prints, not a guess at it.
+    //
+    // A gap a Clear Circuit left on a custom screen, where no multi on a
+    // distro holds its tail, is no place: the circuits after it close up
+    // over it (2026-10-22), so the place it would take is the next
+    // circuit's. Named there, it read the same as that circuit (Clear
+    // Circuit on S1-2 of four: the badge read S1-2 beside circuit 3's
+    // S1-2). The owner, 2026-11-04: "If they have not been attached to a
+    // multi, they cannot be the same number." Such a gap is named as the
+    // next circuit after the last drawn one (S1-4 there), a name no other
+    // circuit holds. The active circuit stays on the gap (Next and Prev
+    // step from it, 2026-10-22); a cabinet drawn on it seats it back in
+    // its place, and the circuits after it move up a name again.
     _predictedCircuitSlot(layer, nm, circuitNum) {
         const n = Math.max(1, parseInt(circuitNum, 10) || 1);
         const drawn = [...nm.slots.keys()];
-        const ordinal = drawn.filter(k => k < n).length + 1;
+        const ordinal = this._customGapIsNoPlace(layer, n)
+            ? drawn.length + 1
+            : drawn.filter(k => k < n).length + 1;
         const segs = this._socaSegments(layer, drawn.length + 1);
         const seg = segs.find(s => ordinal >= s.start && ordinal <= s.end)
             || segs[segs.length - 1];

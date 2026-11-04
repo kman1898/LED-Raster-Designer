@@ -968,6 +968,10 @@ FIXES
 - FIX: Clear Circuit while you redraw a circuit no longer gives the next
   circuit the same name. Every other circuit keeps its label while you
   draw the redrawn one again.
+- FIX: In Custom mode, Clear Circuit on a circuit that isn't plugged into
+  a distro no longer leaves two circuits with the same name. The circuits
+  after it still close up, and the cleared circuit reads the next name
+  after the last one until you draw on it again.
 - FIX: Turning Custom on with one port left says the port moved up to
   port 1 instead of "run 1-1", and a port with nothing drawn and nothing
   after it is said to be gone.
