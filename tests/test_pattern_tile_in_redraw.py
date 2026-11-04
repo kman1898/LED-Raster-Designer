@@ -376,6 +376,68 @@ def test_a_tile_during_a_redraw_on_an_automatic_screen_fills_only_the_redraw(pag
     assert page.evaluate("() => window.app._overrideEditing") is None, 'the redraw stayed open'
 
 
+def test_a_power_tile_during_a_circuit_redraw_fills_only_that_circuit(page):
+    """The power tiles had the same hole on an automatic screen: with a
+    circuit taken over for redrawing and nothing selected, the tile fell
+    through to the screen's pattern and re-walked every circuit. A 10 x 4
+    wall of 150 W panels on 208 V / 20 A (3,328 W a circuit) is two rows
+    a circuit; circuit 2 (rows 2-3) taken over, the tl-v tile lays its own
+    cabinets column by column and nothing else moves."""
+    reset(page)
+    got = page.evaluate("""async () => {
+        const app = window.app;
+        const made = await (await fetch('/api/layer/add', { method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ name: 'PowerWall', columns: 10, rows: 4,
+                cabinet_width: 192, cabinet_height: 384, offset_x: 0, offset_y: 2400 }) })).json();
+        app.project = await (await fetch('/api/project')).json();
+        app.dedupeProjectLayers('pattern_tile_power');
+        const live = () => app.project.layers.find(x => x.id === made.id);
+        const l = live();
+        app.setScreenVoltage(l, 208);
+        Object.assign(l, { processorType: 'novastar-coex-1g', bitDepth: 8, frameRate: 60,
+            flowPattern: 'tl-h', customPortPaths: {}, customPortIndex: 1, customPortOverrides: [],
+            powerAmperage: 20, powerAmperageCustom: 20, panelWatts: 150,
+            powerOrganized: true, powerMaximize: false, powerFlowPattern: 'tl-h',
+            powerCustomPath: false, powerCustomPaths: {}, powerCustomIndex: 1,
+            powerCustomOverrides: [], powerSplitters: { enabled: false, maxWays: 3,
+                manual: { merge: [], split: [] } } });
+        app.currentLayer = l;
+        app.selectedLayerIds = new Set([l.id]);
+        window.canvasRenderer.viewMode = 'power';
+        app.updateLayers([l]);
+        await app._layerSavesSettled();
+        app.currentLayer = live();
+        app.resetHistory('Power Baseline');
+        const read = () => {
+            const res = app.calculatePowerAssignments(live()) || {};
+            return (res.circuits || []).map((c, i) => [Array.isArray(res.nums) ? res.nums[i] : i + 1,
+                c.map(p => [p.row, p.col])]);
+        };
+        const before = read();
+        app.overrideRun(live(), 'power', 2);
+        const open = !!(app._overrideEditing && app._overrideEditing.kind === 'power');
+        document.querySelector('.power-flow-pattern-btn[data-pattern="tl-v"]').click();
+        await new Promise(r => setTimeout(r, 300));
+        await app._layerSavesSettled();
+        return { before, after: read(), open, pattern: live().powerFlowPattern,
+                 editing: app._overrideEditing, errs: window.__ptr.errs.slice() };
+    }""")
+    assert got['open'], 'the circuit redraw did not open'
+    before = {n: cells for n, cells in got['before']}
+    after = {n: cells for n, cells in got['after']}
+    assert before[2] == [[2, c] for c in range(10)] + [[3, c] for c in range(9, -1, -1)]
+    # only circuit 2 changed, to the tile's pattern over its own cabinets
+    assert {n: v for n, v in after.items() if n != 2} == {n: v for n, v in before.items() if n != 2}
+    want = []
+    for i, c in enumerate(range(10)):
+        want += [[2, c], [3, c]] if i % 2 == 0 else [[3, c], [2, c]]
+    assert after[2] == want
+    assert got['pattern'] == 'tl-h', "the tile changed the screen's pattern"
+    assert got['editing'] is None, 'the redraw stayed open'
+    assert got['errs'] == [], got['errs']
+
+
 # ── the redraw opened over ports still drawn ─────────────────────────────
 
 
