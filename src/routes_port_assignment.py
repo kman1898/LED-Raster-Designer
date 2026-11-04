@@ -124,6 +124,9 @@ def _screens():
     layers = {str(l.get('id')): l
               for l in app.current_project.get('layers') or []
               if isinstance(l, dict)}
+    canvas_names = {c.get('id'): (c.get('name') or '').strip()
+                    for c in app.current_project.get('canvases') or []
+                    if isinstance(c, dict)}
     stored = {k: l.get('dataMirrorOf') for k, l in layers.items()
               if l.get('dataMirrorOf') not in (None, '')}
     # A mirror this very request let go of (_clear_mirror) is no mirror,
@@ -141,6 +144,12 @@ def _screens():
             out.append(scr)
             continue
         key = str(scr.get('layerId', scr.get('id')))
+        # The canvas the screen sits on, by name, where the client sent
+        # none: a canvas refusal names it (port_assignment.canvas_spans).
+        if not isinstance(scr.get('canvas'), str) and key in layers:
+            name = canvas_names.get(layers[key].get('canvas_id'))
+            if name:
+                scr = dict(scr, canvas=name)
         if key in cleared:
             scr = {k: v for k, v in scr.items() if k != 'mirrorOf'}
         elif 'mirrorOf' not in scr and key in stored:

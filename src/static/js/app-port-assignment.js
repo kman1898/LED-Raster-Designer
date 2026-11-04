@@ -243,7 +243,10 @@ class _PortAssignment {
                 if (typeof this.renderPortAssignmentPanel === 'function') {
                     this.renderPortAssignmentPanel();
                 }
-                if (typeof this._dockSay === 'function') this._dockSay(why);
+                // A canvas refusal (ULL lowering an SX40's canvas) is said
+                // in the red toast as well, wherever the user is.
+                if (data.canvas) this._canvasRefusalSay(why);
+                else if (typeof this._dockSay === 'function') this._dockSay(why);
                 sendClientLog('link_cap_setting_refused', { error: why });
                 return false;
             })
@@ -317,8 +320,11 @@ class _PortAssignment {
                     this.renderPortAssignmentPanel();
                     // A link-cap refusal also speaks where the drop was
                     // made: nothing landed, and the strip may be folded.
-                    if ((data.linkCap || data.canvas || data.mirror
-                            || data.cardMix)
+                    // A canvas refusal also gets the red toast (owner,
+                    // 2026-11-04): the dock may be folded away.
+                    if (data.canvas) {
+                        this._canvasRefusalSay(data.error);
+                    } else if ((data.linkCap || data.mirror || data.cardMix)
                             && typeof this._dockSay === 'function') {
                         this._dockSay(data.error);
                     }
@@ -712,7 +718,23 @@ class _PortAssignment {
             });
             rects.push(box);
         }
-        return { portRects: rects, lowLatency: !!layer.lowLatency };
+        const out = { portRects: rects, lowLatency: !!layer.lowLatency };
+        // The canvas the screen sits on, by name: a canvas refusal names
+        // the screens that make up the span, and their canvases where
+        // they sit on more than one (port_assignment.canvas_spans).
+        const canvasName = this._canvasNameOfLayer(layer);
+        if (canvasName) out.canvas = canvasName;
+        return out;
+    }
+
+    // The name of the canvas `layer` sits on, or null.
+    _canvasNameOfLayer(layer) {
+        const cid = layer && layer.canvas_id;
+        if (!cid) return null;
+        const c = ((this.project && this.project.canvases) || [])
+            .find(x => x && x.id === cid);
+        const name = c && typeof c.name === 'string' ? c.name.trim() : '';
+        return name || null;
     }
 
     // A cabinet's Pixel Map rect, turned with its screen's rotation the way
@@ -797,12 +819,29 @@ class _PortAssignment {
             + `${num(spec.maxH)} px tall.`;
     }
 
+    // processor_catalog.canvas_span_screens's twin: the screens that make
+    // up a span ([[name, canvas], ...] in screen order), said - "A and B",
+    // or "A (Canvas 2) and B (Canvas 1)" where they sit on more than one
+    // canvas. [text, plural]; ['its screens', true] where none are known.
+    canvasSpanScreens(screens) {
+        const pairs = (screens || [])
+            .filter(s => s && s[0] !== null && s[0] !== undefined && s[0] !== '')
+            .map(s => [String(s[0]), s[1] || null]);
+        if (!pairs.length) return ['its screens', true];
+        const canvases = new Set(pairs.map(p => p[1]).filter(Boolean));
+        const named = pairs.map(([n, c]) => (canvases.size > 1 && c ? `${n} (${c})` : n));
+        const text = named.length === 1 ? named[0]
+            : `${named.slice(0, -1).join(', ')} and ${named[named.length - 1]}`;
+        return [text, named.length > 1];
+    }
+
     // processor_catalog.canvas_fit's twin, on the device's canvas record:
     // null where the span fits, else the sentence that refuses it.
-    canvasFit(spec, width, height, ull, title, present) {
+    canvasFit(spec, width, height, ull, title, present, screens) {
         if (!spec || this.canvasFits(spec, width, height, ull)) return null;
-        const verb = present ? 'span' : 'would span';
-        return `${title || 'This processor'} can't take this: its screens `
+        const [what, plural] = this.canvasSpanScreens(screens);
+        const verb = present ? (plural ? 'span' : 'spans') : 'would span';
+        return `${title || 'This processor'} can't take this: ${what} `
             + `${verb} ${this.canvasExtent(width)} × ${this.canvasExtent(height)} px. `
             + this.canvasLimitText(spec, ull);
     }
@@ -821,11 +860,12 @@ class _PortAssignment {
             const proc = procOf.get(String(pin.cardId));
             const scr = byLayer.get(String(pin.layerId));
             if (!proc || !scr || !Array.isArray(scr.portRects)) return;
-            const rec = recs.get(proc.id) || { box: null, ull: false };
+            const rec = recs.get(proc.id) || { box: null, ull: false, layers: new Set() };
             recs.set(proc.id, rec);
             if (scr.lowLatency) rec.ull = true;
             const r = scr.portRects[Number(pin.index)];
             if (!r) return;
+            rec.layers.add(String(pin.layerId));
             rec.box = rec.box ? [Math.min(rec.box[0], r[0]), Math.min(rec.box[1], r[1]),
                                  Math.max(rec.box[2], r[2]), Math.max(rec.box[3], r[3])]
                 : r.slice();
@@ -839,7 +879,13 @@ class _PortAssignment {
             const title = name && name !== model ? `${model} ${name}` : model;
             const width = this.canvasExtent(rec.box[2] - rec.box[0]);
             const height = this.canvasExtent(rec.box[3] - rec.box[1]);
-            out.set(p.id, { proc: p, title, width, height, ull: rec.ull,
+            // The screens that make up the span, in screen order, each with
+            // its canvas: the refusal names them (canvasSpanScreens).
+            const named = [];
+            byLayer.forEach((s, id) => {
+                if (rec.layers.has(id)) named.push([s.name, s.canvas || null]);
+            });
+            out.set(p.id, { proc: p, title, width, height, ull: rec.ull, screens: named,
                             fits: this.canvasFits(p.canvas, width, height, rec.ull) });
         });
         return out;
@@ -853,9 +899,25 @@ class _PortAssignment {
             const was = before.get(id);
             if (was && !was.fits && rec.width <= was.width && rec.height <= was.height
                     && (was.ull || !rec.ull)) continue;
-            return this.canvasFit(rec.proc.canvas, rec.width, rec.height, rec.ull, rec.title);
+            return this.canvasFit(rec.proc.canvas, rec.width, rec.height, rec.ull, rec.title,
+                                  false, rec.screens);
         }
         return null;
+    }
+
+    // A canvas refusal said where it is always seen (owner, 2026-11-04:
+    // "Yes, red error toast"): the status line the dock speaks on, and
+    // the red error toast a locked screen gets, with the hardware dock
+    // open or folded away. One canvas toast stands at a time - a refusal
+    // said again (a retried drag, a chain of requests refused alike)
+    // replaces the one still showing rather than stacking copies.
+    _canvasRefusalSay(why) {
+        if (!why) return;
+        if (typeof this._dockSay === 'function') this._dockSay(why);
+        if (typeof this._toast !== 'function') return;
+        const prev = this._canvasToastEl;
+        if (prev && prev.isConnected) prev.remove();
+        this._canvasToastEl = this._toast(why, true, 7000) || null;
     }
 
     // ── the edit guard ────────────────────────────────────────────────────
@@ -1129,7 +1191,7 @@ class _PortAssignment {
         if (typeof this.renderPortAssignmentPanel === 'function') {
             this.renderPortAssignmentPanel();
         }
-        if (typeof this._dockSay === 'function') this._dockSay(why);
+        this._canvasRefusalSay(why);
         if (typeof this.loadLayerToInputs === 'function' && this.currentLayer) {
             try { this.loadLayerToInputs(); } catch (_) { /* inputs only */ }
         }
