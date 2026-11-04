@@ -17,7 +17,8 @@ quotes a source for their copy OPTs:
     serves as the copy/hot backup for OPT 1"), per box Mirror or Backup the
     same way (owner, 2026-11-02);
   * 4K-Prime (Specifications V1.0.0, "OPT 3 serves as the copy/hot backup
-    for OPT 1"), on the UHD Jr's shape with no OPT rate stated.
+    for OPT 1"), on the UHD Jr's shape; 10G by the owner's ruling
+    (2026-11-04), the sheet stating no rate.
 
 A box on a copy OPT that backs up is the loop partner of the box on the OPT
 it copies, whatever order the boxes and the mode came in, but only where the

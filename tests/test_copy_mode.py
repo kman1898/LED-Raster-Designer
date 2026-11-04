@@ -223,8 +223,8 @@ def test_only_the_named_products_carry_the_new_rules():
     # sheet's "copy/hot backup" channel (copyTrunksNote), and the same day
     # every other NovaStar unit whose own documents name a copy or backup
     # OPT (tests/test_copy_backup_all.py holds each quote).
-    # The 4K-Prime joined on 2026-11-04 on its own sheet's "copy/hot
-    # backup" lines.
+    # The 4K-Prime joined on 2026-11-04, quoting its own sheet's
+    # "copy/hot backup" lines.
     assert copy_devices == sorted([H4, H4E, MX40, 'novastar-novapro-uhd',
                                    'novastar-novapro-uhd-jr',
                                    'novastar-4k-prime'] + list(COPY_SOURCES))

@@ -249,6 +249,11 @@ NOVASTAR_10G_TRUNKS = [
     ('novastar-mctrl-r5', 2, 8, 'copy'),
     ('novastar-novapro-uhd', 4, 8, 'copy'),
     ('novastar-novapro-uhd-jr', 4, 8, 'copy'),
+    # 4K-Prime: its sheet (Specifications V1.0.0, Output table) maps the
+    # carriage, "OPT 1 transmits data of Ethernet ports 1-8", OPT 2 9-16,
+    # OPT 3/4 their copy/hot backup, and states no rate. The 10G is the
+    # owner's own ruling: "It's 10G, I know it" (2026-11-04).
+    ('novastar-4k-prime', 4, 8, 'copy'),
     ('novastar-card-h-16xrj45-2xfiber', 2, 8, 'copy'),
     ('novastar-card-h-4xfiber', 4, 8, 'distinct'),
     # Eight OPTs: "8x 10G OPT Ports" (H15 Video Wall Splicer
@@ -273,36 +278,6 @@ NOVASTAR_40G_TRUNKS = [
 ]
 
 
-# Trunks with NO documented rate: the sheet maps every OPT to the ports it
-# carries and names no line rate. The 4K-Prime (4K-Prime All-in-One
-# Controller Specifications V1.0.0, Output table): "OPT 1 transmits data of
-# Ethernet ports 1-8", OPT 2 9-16, OPT 3/4 their copy/hot backup. The owner
-# put it on the UHD Jr's OPT shape; no rate is taken from the UHD Jr, so
-# can_add_cvt refuses no box on rate here, the CVT8-5G included.
-NOVASTAR_UNRATED_TRUNKS = [
-    # device, trunks, ports per trunk, delivery
-    ('novastar-4k-prime', 4, 8, 'copy'),
-]
-
-
-@pytest.mark.parametrize('device_id,trunks,per_trunk,delivery',
-                         NOVASTAR_UNRATED_TRUNKS)
-def test_an_unrated_opt_device_refuses_no_box_on_rate(device_id, trunks,
-                                                      per_trunk, delivery):
-    device = catalog.get_device(device_id)
-    assert device['trunks'] == trunks, device_id
-    assert device['portsPerTrunk'] == per_trunk, device_id
-    assert device.get('trunkDelivery', 'distinct') == delivery, device_id
-    assert 'trunkRate' not in device, (
-        f'{device_id} grew a trunk rate its own sheet does not state')
-    card = catalog.new_card(device_id, 'sweep', fixed=True)
-    assert card.get('trunkRate') is None
-    for box in ('novastar-cvt10', 'novastar-cvt10-pro', 'novastar-cvt4k-s',
-                'novastar-cvt8-5g'):
-        ok, why = catalog.can_add_cvt(card, box)
-        assert ok, f'{device_id} refused {box} on a rate nobody wrote: {why}'
-
-
 @pytest.mark.parametrize('device_id,trunks,per_trunk,delivery',
                          NOVASTAR_10G_TRUNKS)
 def test_a_documented_10g_opt_device_accepts_a_box(device_id, trunks,
@@ -319,6 +294,25 @@ def test_a_documented_10g_opt_device_accepts_a_box(device_id, trunks,
     ok, why = catalog.can_add_cvt(card, 'novastar-cvt8-5g')
     assert not ok, f'{device_id} took a CVT8-5G onto a 10G trunk'
     assert '40G' in why and '10G' in why, why
+
+
+def test_the_4k_prime_takes_the_10g_boxes_and_refuses_the_40g_one():
+    """The owner's ruling, "It's 10G, I know it" (2026-11-04), is the
+    4K-Prime's rate, quoted in its note beside the sheet that states none.
+    Rated like the UHD Jr, it takes every box of the 10G line and refuses
+    the CVT8-5G with both rates in the reason."""
+    device = catalog.get_device('novastar-4k-prime')
+    assert device['trunkRate'] == '10G'
+    assert "It's 10G, I know it" in device['note']
+    assert 'no OPT line rate' in device['note']
+    card = catalog.new_card('novastar-4k-prime', 'sweep', fixed=True)
+    for box in ('novastar-cvt10', 'novastar-cvt10-pro', 'novastar-cvt4k-s'):
+        ok, why = catalog.can_add_cvt(card, box)
+        assert ok, f'the 4K-Prime refused {box}: {why}'
+    ok, why = catalog.can_add_cvt(card, 'novastar-cvt8-5g')
+    assert not ok, 'the 4K-Prime took a CVT8-5G onto a 10G trunk'
+    assert why == ('CVT8-5G hangs off a 40G trunk and the trunks on '
+                   '4K-Prime are 10G - the rates must match.'), why
 
 
 def _mx40(boxes=0, halves=False):
@@ -404,12 +398,9 @@ def test_no_novastar_device_carries_trunks_the_sweep_did_not_grant():
     a documented OPT rate AND documented carriage behind it - the KU20 (10G,
     carriage unstated), the CX40 Pro (40G, carriage unstated), the VX400 (no
     rate stated), the NovaPro HD (1G per Matt) and every copper-only sender
-    must stay boxless until a sheet or a ruling from Matt says otherwise.
-    The one unrated exception is the 4K-Prime, whose sheet maps its OPTs
-    port for port and which the owner put on the UHD Jr's OPT shape."""
+    must stay boxless until a sheet or a ruling from Matt says otherwise."""
     pinned = {device_id for device_id, *_ in
-              NOVASTAR_10G_TRUNKS + NOVASTAR_40G_TRUNKS
-              + NOVASTAR_UNRATED_TRUNKS}
+              NOVASTAR_10G_TRUNKS + NOVASTAR_40G_TRUNKS}
     actual = {d['id'] for d in catalog.load_catalog()['devices']
               if d.get('vendor') == 'NovaStar' and d.get('trunks')}
     assert actual == pinned, (
