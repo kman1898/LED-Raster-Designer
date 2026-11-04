@@ -836,6 +836,27 @@ FIXES
 - FIX: In a narrow window the canvas controls scroll instead of pushing
   the hardware tray off the window, and a Processing name too long for
   its box wraps onto a second line.
+- FIX: Opening a show from Recent or File > Open, and New, ask before
+  unsaved changes are lost: Save, Don't Save or Cancel.
+- FIX: Export clicked right after typing a new Rev exports, with the new
+  Rev.
+- FIX: The start page shows on every launch, also after quitting in the
+  middle of a guide.
+- FIX: With the browser's storage full, Save still lists the show in
+  Recent Files, or says why it couldn't.
+- FIX: Esc closes the File, Edit, View and Help menus, and in the panel
+  picker it's the same as Cancel.
+- FIX: Every question and message is the app's own dialog or notice,
+  never the browser's.
+- FIX: Ctrl+J and Duplicate copy every selected screen.
+- FIX: The processor picker in the Data tray reads whole in a narrow
+  window, and the dates and screen counts in Recent Files are easier to
+  read.
+- FIX: The pull sheet no longer carries a note that wasn't meant for
+  you, and its labels fold return runs as 1-10, 1R-10R.
+- FIX: Binder cells keep one type size, and a breakout box's name is
+  never cut short.
+- FIX: A box with one socket says port 1.
 
 v1.5.3 - October 21, 2026
 ----------------------------
