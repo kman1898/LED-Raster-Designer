@@ -199,6 +199,22 @@ class _Fiber {
             this.boxFiberMode(box), titleOf(clash.box), clash.mode);
     }
 
+    // The same for a link request's body (setFiberLink): the cable it
+    // names - or, for a backup link sent with no cable, its primary's,
+    // the cable the server would follow. '' for copper, an extension, a
+    // clear, or a cable no box of the other mode is on.
+    fiberLinkBodyModeRefusal(box, key, body) {
+        const b = body || {};
+        if ('copper' in b || ('extension' in b && !('cable' in b))) return '';
+        let id = b.cable;
+        if (!('cable' in b) && String(key || '').startsWith('b')) {
+            id = (((box && box.fiberLinks) || {})[`p${key.slice(1)}`] || {}).cable;
+        }
+        if (!id || typeof id !== 'string') return '';
+        const cable = this.getFiberCable(id);
+        return cable ? this.fiberLinkModeRefusal(box, cable) : '';
+    }
+
     // The pull sheet's words, and the binder's: "TAC 12 · ST", "MTP 24",
     // "opticalCON QUAD" - the kind and its strand count, a TAC's ends - and
     // the mode of its fiber where its boxes state one: "TAC 12 · ST ·
@@ -220,7 +236,7 @@ class _Fiber {
         const parts = [cable.name || this.fiberKindWord(cable.kind)];
         if (this.fiberCableIsStranded(cable)) parts.push(String(cable.strands));
         const ft = this.parseCableLength(cable.ft);
-        if (ft !== null) parts.push(this.pullLengthText(ft));
+        if (ft !== null) parts.push(this.pullLengthText(ft, this.fiberStockKind(cable)));
         if (cable.kind === 'tac' && String(cable.connector || '').trim()) {
             parts.push(String(cable.connector).trim());
         }
@@ -673,6 +689,15 @@ class _Fiber {
     setFiberLink(box, key, body, action = 'Set Fiber Link') {
         const url = this._fiberBoxUrl(box);
         if (!url) return Promise.resolve();
+        // A cable of the other mode is refused here, in the server's words
+        // (check_fiber_link), and never sent: the reason reads where a
+        // refusal reads and the picker snaps back to what is stored.
+        const why = this.fiberLinkBodyModeRefusal(box, key, body);
+        if (why) {
+            if (typeof this._toast === 'function') this._toast(why, true, 6000);
+            if (typeof this.renderProcessorPanel === 'function') this.renderProcessorPanel();
+            return Promise.resolve();
+        }
         return this._processorRequest(`${url}/fiber-links/${key}`, 'PUT', body, action);
     }
 

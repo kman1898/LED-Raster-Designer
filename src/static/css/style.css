@@ -1809,6 +1809,10 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
     flex: 0 0 auto; font-size: 10px; font-family: monospace;
     white-space: nowrap;
 }
+.hw-dock-fiber-mode {
+    flex: 0 0 auto; font-size: 10px; font-family: monospace;
+    white-space: nowrap;
+}
 .hw-dock-grid { margin-top: 4px; }
 /* A redundant pair reads as ONE group everywhere "X backs up Y" is drawn -
    the SX40's fixed A/B and C/D boxes, a designated 1:1 backup unit - so the

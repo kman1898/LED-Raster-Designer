@@ -253,6 +253,25 @@ columns, and past that it carries on to the next sheet. The Fiber tick
 in the Export dialog and in Preferences > Binder turns the page off. The
 processor pages keep their own Fiber connections tables.
 
+SINGLE MODE AND MULTIMODE BOXES
+
+NovaStar makes the CVT10, CVT10 Pro and CVT4K in two versions, single
+mode and multimode, and the box picker now lists both: the CVT10-S,
+CVT10 Pro-S and CVT4K-S first, then the CVT10-M, CVT10 Pro-M and
+CVT4K-M. A multimode box works exactly like its single mode twin, with
+the same ports, OPTs, backup and copy, and only its fiber is different.
+Each box says Single mode or Multimode on its header in the tray, behind
+its gear and on its sheet, and the pull sheet, the binder and the box's
+sheet name the mode on every fiber cable, like TAC 12 · ST · Single mode.
+
+A single mode box and a multimode box can't share a TAC, an MTP or an
+opticalCON. Picking a cable that a box of the other mode is on is
+refused, and the message says which box is on it. Preferences > Cable
+stock has a Single mode fiber list and a Multimode fiber list of their
+own, so the pull sheet makes each fiber run from the lengths of its own
+mode. A show saved with a CVT10 or CVT10 Pro opens with the CVT10-S or
+CVT10 Pro-S, and its fiber cables read Single mode.
+
 OPENING AN OLDER SHOW
 
 Some counts will change when you open a show from an earlier version.
