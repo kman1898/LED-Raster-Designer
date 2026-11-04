@@ -890,7 +890,7 @@ class _PhaseBalance {
     <table class="phasing-scheme-table" style="width:100%; border-collapse:collapse; margin-bottom:10px;">
       <tr style="border-bottom:1px solid #3a3a3a;">
         <th style="text-align:left; padding:6px 8px; font-size:10px; color:#8a949f; text-transform:uppercase;">Scheme</th>
-        <th style="text-align:left; padding:6px 8px; font-size:10px; color:#8a949f; text-transform:uppercase;">Circuits 1–6</th>
+        <th style="text-align:left; padding:6px 8px; font-size:10px; color:#8a949f; text-transform:uppercase;">Circuits 1-6</th>
         <th style="text-align:left; padding:6px 8px; font-size:10px; color:#8a949f; text-transform:uppercase;">Where it is documented</th>
       </tr>
       ${schemes.map(sc => `

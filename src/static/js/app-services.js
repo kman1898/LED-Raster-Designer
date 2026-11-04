@@ -842,6 +842,16 @@ class _Services {
                 chip.dataset.lrdSvcThru = thru.id;
                 chip.title = `${this.distroLabel(d)} is powered thru ${this.distroLabel(thru)}: its load counts `
                     + 'on this service, not on that distro\'s legs.';
+            } else if (!this._distroConnected(d)) {
+                // Still on the service (it can be plugged into), but a
+                // service counts only the distros with something connected
+                // (the owner, 2026-11-03), as the sum beside it and the
+                // binder's Service sheet do: muted, and saying why.
+                chip.classList.add('hw-dock-svc-chip-idle');
+                chip.dataset.lrdSvcIdle = '1';
+                chip.textContent += ' · nothing connected';
+                chip.title = `Nothing is connected to ${this.distroLabel(d)}, so this service `
+                    + 'does not count it.';
             }
             row.appendChild(chip);
         });

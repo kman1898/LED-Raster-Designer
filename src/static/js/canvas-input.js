@@ -1299,7 +1299,7 @@ Object.assign(CanvasRenderer.prototype, {
                                 // makePathEntry can stamp the right layerId;
                                 // it is omitted again when that layer is the
                                 // owner, which is every pre-group project.
-                                window.app.addPanelToCustomPowerPath(clickedPanel.panel, clickedLayer);
+                                window.app.addPanelToCustomPowerPath(clickedPanel.panel, clickedLayer, { click: true });
                             }
                         } else if (!isPower && window.app.isCustomFlowEditing(window.app.currentLayer) && reachable) {
                             if (window.app.customSelection.size > 0) {

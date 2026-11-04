@@ -30,6 +30,29 @@ def _stamp_app_version(project):
     project['app_version'] = get_current_version()
 
 
+# ── Unsaved changes across a reload (1.6.0) ──
+#
+# The page reads "unsaved" off its undo history, and a reload starts a new
+# history from the project as the server holds it: edits made before the
+# reload read as saved, and New, Open or a Recent file then dropped them
+# without asking. The page tells the server whenever the answer changes
+# (POST /api/project/unsaved) and reads it back with the project (the
+# X-Project-Unsaved header on GET /api/project). It lives here, beside the
+# project and never in it, so no file or undo snapshot carries it. A new
+# project starts saved; a show opened, or a project saved to a file, is
+# marked saved by the page that did it; a server restart starts saved with
+# the fresh project it builds.
+_unsaved = {'value': False}
+
+
+def project_unsaved():
+    return _unsaved['value']
+
+
+def set_project_unsaved(value):
+    _unsaved['value'] = bool(value)
+
+
 @project_bp.route('/api/project', methods=['GET'])
 def get_project():
     log_event('get_project')
@@ -38,7 +61,19 @@ def get_project():
     # entry point that was missed (2026-09-22: a GET never hands back a
     # screen without a breakout its voltage allows).
     app.normalize_power_breakouts(app.current_project, at='get_project')
-    return jsonify(app.current_project)
+    response = jsonify(app.current_project)
+    response.headers['X-Project-Unsaved'] = '1' if project_unsaved() else '0'
+    return response
+
+
+@project_bp.route('/api/project/unsaved', methods=['POST'])
+def post_project_unsaved():
+    data = request.get_json(silent=True) or {}
+    value = data.get('unsaved') is True
+    if value != project_unsaved():
+        log_event('project_unsaved_changed', {'unsaved': value})
+    set_project_unsaved(value)
+    return jsonify({'unsaved': value})
 
 
 @project_bp.route('/api/server-session', methods=['GET'])
@@ -70,6 +105,7 @@ def new_project():
     # Add default layer to new projects
     app.initialize_default_layer()
     _stamp_app_version(app.current_project)
+    set_project_unsaved(False)
     log_event('new_project')
     socketio.emit('project_cleared')
     return jsonify(app.current_project)

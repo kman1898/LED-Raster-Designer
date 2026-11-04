@@ -1357,17 +1357,20 @@ class _Presets {
     }
 
     // Take the startup screen out, on the server and here. Resolves true
-    // when it went.
+    // when it went. The project it leaves stays pristine on the server
+    // (`keep_pristine`, routes_layers delete_layer): it is still the one
+    // the launch made, and a reload over it opens like a launch, with a
+    // startup screen the start page's X takes out again.
     _dropStartupScreen(id) {
         const settled = typeof this._layerSavesSettled === 'function'
             ? this._layerSavesSettled() : Promise.resolve();
-        return settled.then(() => fetch(`/api/layer/${id}`, { method: 'DELETE' })).then(res => {
+        return settled.then(() => fetch(`/api/layer/${id}?keep_pristine=1`, { method: 'DELETE' })).then(res => {
             if (!res.ok) throw new Error(`DELETE /api/layer/${id} answered ${res.status}`);
             return res.json();
-        }).then(() => {
+        }).then((answer) => {
             this.project.layers = (this.project.layers || []).filter(l => l.id !== id);
-            // The server's flag went with the delete; this copy follows.
-            this.project.is_pristine = false;
+            // This copy follows the server's flag.
+            this.project.is_pristine = !!(answer && answer.is_pristine === true);
             if (this.currentLayer && this.currentLayer.id === id) this.currentLayer = null;
             if (this.selectedLayerIds) this.selectedLayerIds = new Set([...this.selectedLayerIds].filter(x => x !== id));
             return true;
@@ -1768,7 +1771,9 @@ class _Presets {
         warning.textContent = '';
         if (sublabel) sublabel.textContent = `Saving settings from "${this.currentLayer.name || 'current screen'}".`;
         modal.style.display = 'block';
-        setTimeout(() => nameInput.focus(), 50);
+        // The screen's name is offered selected, so typing replaces it
+        // (it appended to it, QA 1.6.0).
+        setTimeout(() => { nameInput.focus(); nameInput.select(); }, 50);
         this._presetSaveExistingNames = null;
         this._renderPresetSaveExistingList([]);
         this.updatePresetSaveConfirmButton();

@@ -681,7 +681,17 @@ def delete_layer(layer_id):
         log_event('port_cables_forgotten', {
             'at': 'delete_layer', 'layerId': layer_id,
             'sockets': [f'{c}:{n}' for c, n in sorted(released)]})
-    app.current_project['is_pristine'] = False
+    # `keep_pristine`: the start page's X and the startup picker's Cancel
+    # take the launch's untouched startup screen out (app-presets.js
+    # _dropStartupScreen). The project left behind is still the one the
+    # launch made, so it stays pristine while it is empty; a reload then
+    # puts a startup screen back (app.index) and opens like a launch. Any
+    # other delete, or one that leaves a screen standing, clears the flag.
+    # A request marker, never stored.
+    keep_pristine = (str(request.args.get('keep_pristine', '')).lower() in ('1', 'true', 'yes')
+                     and app.current_project.get('is_pristine') is True
+                     and not app.current_project['layers'])
+    app.current_project['is_pristine'] = keep_pristine
     log_event('delete_layer', {'id': layer_id, 'name': deleted_name, 'remaining_layers': len(app.current_project['layers'])})
     socketio.emit('layer_deleted', {'id': layer_id})
     return jsonify(app.current_project)

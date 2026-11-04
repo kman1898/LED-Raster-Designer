@@ -107,7 +107,96 @@ class _RunOverrides {
         }
         // One port open for redrawing holds its cabinets the same way.
         if (kind !== 'power') this._overrideHeldPanels(scope).forEach(p => claimed.add(p));
+        // And one circuit open for redrawing (_powerHoldLive).
+        else this._powerHeldPanels(scope).forEach(p => claimed.add(p));
         return claimed;
+    }
+
+    // ── The cabinets a power redraw holds (1.6.0 QA, beta.5) ──────────────
+    //
+    // The owner, 2026-11-03: "clicking an earlier cabinet of the run being
+    // drawn cuts it back", on power as on data ("i redrew ports so s1-1 is
+    // a twofer and s1-2 is a single column, so column 4-5 should become a
+    // twofer"). A circuit taken over on an AUTOMATIC screen holds the
+    // cabinets it carried when the redraw opened, the way a data port does
+    // (_overrideHoldLive): while it is open the walk leaves them alone, so
+    // a cabinet cut off the path (a click on an earlier step, Clear
+    // Circuit) stays free for this circuit to take again. Without it the
+    // walk took the cut cabinets straight back as the next circuit, and
+    // every click on them was refused as "already wired". When the redraw
+    // ends the held cabinets left undrawn go back to the walk, and the
+    // automatic circuits after it slide left onto them.
+    //
+    // Session state, never saved, and alive only while that very editing
+    // state is: undo, a reset or another circuit picked up ends it.
+    _powerHoldLive() {
+        const h = this._powerHeld;
+        if (!h) return null;
+        const ed = this._overrideEditing;
+        const owner = ed && h.editing === ed && this.project
+            ? (this.project.layers || []).find(l => l.id === ed.layerId) : null;
+        if (!owner || ed.kind !== 'power' || !this._isOverrideEditing(owner, 'power')) {
+            if (!this._canvasMeasuring) this._powerHeld = null;
+            return null;
+        }
+        return h;
+    }
+
+    _powerHeldPanels(scope) {
+        const h = this._powerHoldLive();
+        if (!h || h.keys.size === 0) return [];
+        if (!(scope || []).some(m => m && m.id === h.layerId)) return [];
+        const out = [];
+        scope.forEach(m => (m && m.panels || []).forEach(p => {
+            if (h.keys.has(this.getScopedPanelKey(m.id, p))) out.push(p);
+        }));
+        return out;
+    }
+
+    // Raise the hold for circuit `num` of `owner`, just opened for
+    // redrawing: the cabinets on its path now.
+    // `prev` is the hold live before the open: the same circuit reopened
+    // keeps what it held, so a cabinet cut off stays free.
+    _beginPowerHold(owner, num, prev) {
+        const keys = new Set();
+        ((owner.powerCustomPaths || {})[num] || []).forEach(e => {
+            if (e) keys.add(this.getScopedPanelKey(this.getPathEntryLayerId(owner, e), e));
+        });
+        if (prev && prev.layerId === owner.id && prev.num === num) prev.keys.forEach(k => keys.add(k));
+        this._powerHeld = { editing: this._overrideEditing, layerId: owner.id, num, keys };
+    }
+
+    // The hold `h` has ended (its redraw closed): the cabinets it held and
+    // left undrawn are the walk's again. Says where they went.
+    _endPowerHold(h) {
+        if (!h || !this.project) return;
+        if (h === this._powerHeld) this._powerHeld = null;
+        const owner = (this.project.layers || []).find(l => l.id === h.layerId);
+        if (!owner) return;
+        const drawn = new Set();
+        this.getOverrideNums(owner, 'power').forEach(n => ((owner.powerCustomPaths || {})[n] || [])
+            .forEach(e => { if (e) drawn.add(this.getScopedPanelKey(this.getPathEntryLayerId(owner, e), e)); }));
+        const left = [...h.keys].filter(k => !drawn.has(k));
+        // A circuit let go whole (_dropUnchangedRedraw) says so itself.
+        if (!left.length || this.isCustomPower(owner)
+                || !this.isRunOverridden(owner, 'power', h.num)) return;
+        const want = new Set(left);
+        const res = this.calculatePowerAssignments(owner) || {};
+        const nums = new Set();
+        (res.circuits || []).forEach((panels, i) => (panels || []).forEach((p, j) => {
+            const at = (res.layers && res.layers[i] && res.layers[i][j]) || owner;
+            if (want.has(this.getScopedPanelKey(at.id, p))) {
+                nums.add(Array.isArray(res.nums) ? res.nums[i] : i + 1);
+            }
+        }));
+        sendClientLog('power_hold_released', { layerId: owner.id, num: h.num, left: left.length });
+        const n = left.length;
+        const cabs = `${n} cabinet${n === 1 ? '' : 's'} left over`;
+        const labels = [...nums].sort((a, b) => a - b).map(x => this.getPowerCircuitLabel(owner, x));
+        const note = labels.length
+            ? `${cabs} went to circuit${labels.length === 1 ? '' : 's'} ${labels.join(', ')}.`
+            : `${cabs} went back to the automatic circuits.`;
+        if (typeof this._toast === 'function') this._toast(note, false, 6000);
     }
 
     // ── The cabinets a single redraw holds (QA, 1.6.0) ────────────────────
@@ -476,6 +565,7 @@ class _RunOverrides {
         // second port picked up on the same screen lost the cabinets the
         // first had let go, and the walk took them).
         const prevHold = this._overrideHoldLive();
+        const prevPowerHold = this._powerHoldLive();
         owner[idxKey] = num;
         const wholeCustom = kind === 'power'
             ? this.isCustomPower(owner) : this.isCustomFlow(owner);
@@ -493,6 +583,12 @@ class _RunOverrides {
         } else if (prevHold) {
             this._endOverrideHold(prevHold);
         }
+        // A circuit on an automatic screen holds its cabinets the same way
+        // (_beginPowerHold); the hold of another circuit ends below.
+        const samePowerRun = !!(prevPowerHold && kind === 'power'
+            && prevPowerHold.layerId === owner.id && prevPowerHold.num === num);
+        if (kind === 'power' && !wholeCustom) this._beginPowerHold(owner, num, prevPowerHold);
+        else this._powerHeld = null;
         const label = undoLabel || (idxChanged
             ? (kind === 'power' ? 'Power Custom Circuit Change' : 'Custom Port Change')
             : null);
@@ -505,6 +601,7 @@ class _RunOverrides {
                 && !(kind === 'power' && prevEdit.layerId === owner.id && prevEdit.num === num)) {
             this._dropUnchangedRedraw(prevEdit);
         }
+        if (prevPowerHold && !samePowerRun) this._endPowerHold(prevPowerHold);
         if (kind === 'power') {
             this.updatePowerCapacityDisplay();
             this.updateCustomPowerUI();
@@ -529,14 +626,18 @@ class _RunOverrides {
         const ended = this._overrideEditing;
         const wasPower = ended.kind === 'power';
         const hold = this._overrideHoldLive();
+        const powerHold = this._powerHoldLive();
         this._overrideEditing = null;
         // The cabinets the redraw held and left undrawn go back to the
         // walk, and the toast says where they went.
         if (hold) this._endOverrideHold(hold);
         if (wasPower) {
             if (this.powerCustomSelection) this.powerCustomSelection.clear();
-            // a redraw that changed nothing goes back to the walk
+            // a redraw that changed nothing, or left nothing drawn, goes
+            // back to the walk
             this._dropUnchangedRedraw(ended);
+            // the cabinets it held and did not draw go back to the walk
+            if (powerHold) this._endPowerHold(powerHold);
             this.updateCustomPowerUI();
         } else {
             if (this.customSelection) this.customSelection.clear();
@@ -606,18 +707,37 @@ class _RunOverrides {
     // The power redraw `ended` ({ layerId, kind, num }, the editing state
     // that just closed): back to the walk when it changed nothing, as one
     // undo step. True when it was let go.
+    //
+    // NO PHANTOM CIRCUITS (1.6.0 QA, beta.5), the data ports' rule
+    // (_repairEmptyOverrides): a redraw that ends with nothing drawn on
+    // its circuit (Clear Circuit, then Esc) hands the number back to the
+    // walk the same way, and the toast says so. Before this the circuit
+    // stayed taken over with an empty path, and only Undo got it back.
     _dropUnchangedRedraw(ended) {
         if (!ended || ended.kind !== 'power' || !this.project) return false;
         const owner = (this.project.layers || []).find(l => l && l.id === ended.layerId);
         if (!owner || this._layerLocked(owner) || this.isCustomPower(owner)) return false;
-        if (!this._powerOverrideIsWalk(owner, ended.num)) return false;
+        const empty = this._powerOverrideIsEmpty(owner, ended.num);
+        if (!empty && !this._powerOverrideIsWalk(owner, ended.num)) return false;
+        const label = this.getPowerCircuitLabel(owner, ended.num);
         this._releasePowerOverride(owner, ended.num);
-        sendClientLog('override_unchanged_released', { layerId: owner.id, num: ended.num });
+        sendClientLog(empty ? 'override_empty_released' : 'override_unchanged_released',
+            { layerId: owner.id, num: ended.num });
         this.saveState('Return Circuit To Auto');
         this.saveClientSideProperties();
         this.updateLayers(this._pathPersistLayers(owner));
         this.updatePowerCapacityDisplay();
+        if (empty && typeof this._toast === 'function') {
+            this._toast(`${owner.name || 'Screen'}: nothing was drawn on circuit ${label}, `
+                + 'so it went back to automatic.', false, 6000);
+        }
         return true;
+    }
+
+    // Is `owner`'s taken-over circuit `num` one with no cabinet on it?
+    _powerOverrideIsEmpty(owner, num) {
+        if (!owner || !this.isRunOverridden(owner, 'power', num)) return false;
+        return !this._ownOverrideRuns(owner, 'power').some(o => o.num === num);
     }
 
     // The open's repair: every taken-over circuit that is the walk's own
@@ -634,21 +754,36 @@ class _RunOverrides {
             if (!owner || (owner.type || 'screen') !== 'screen') return;
             if (this.isCustomPower(owner) || this._layerLocked(owner)) return;
             const letGo = [];
+            const emptied = [];
+            // Labels read before anything is let go (they follow the walk).
+            const labelOf = new Map(this.getOverrideNums(owner, 'power')
+                .map(n => [n, this.getPowerCircuitLabel(owner, n)]));
             this.getOverrideNums(owner, 'power').forEach(num => {
+                // A circuit taken over with nothing drawn on it (no phantom
+                // circuits, _dropUnchangedRedraw) goes back too.
+                if (this._powerOverrideIsEmpty(owner, num)) {
+                    this._releasePowerOverride(owner, num);
+                    emptied.push(num);
+                    return;
+                }
                 const same = this._powerOverrideIsWalk(owner, num)
                     || (older && this._powerOverrideIsWalk(owner, num, { pristine: true }));
                 if (!same) return;
                 this._releasePowerOverride(owner, num);
                 letGo.push(num);
             });
-            if (!letGo.length) return;
+            if (!letGo.length && !emptied.length) return;
             out.layers.push(owner);
-            const labels = letGo.map(n => this.getPowerCircuitLabel(owner, n));
-            const one = labels.length === 1;
-            out.notes.push(`${owner.name || 'Screen'}: circuit${one ? '' : 's'} ${labels.join(', ')} `
-                + `${one ? 'was' : 'were'} redrawn without a change and ${one ? 'is' : 'are'} automatic again.`);
+            const sentence = (nums, what) => {
+                const labels = nums.map(n => labelOf.get(n));
+                const one = labels.length === 1;
+                return `${owner.name || 'Screen'}: circuit${one ? '' : 's'} ${labels.join(', ')} `
+                    + `${what(one)} and ${one ? 'is' : 'are'} automatic again.`;
+            };
+            if (letGo.length) out.notes.push(sentence(letGo, one => `${one ? 'was' : 'were'} redrawn without a change`));
+            if (emptied.length) out.notes.push(sentence(emptied, one => `had nothing drawn on ${one ? 'it' : 'them'}`));
             sendClientLog('override_unchanged_released_on_open',
-                { layerId: owner.id, nums: letGo, older: !!older });
+                { layerId: owner.id, nums: letGo, emptied, older: !!older });
         });
         return out;
     }

@@ -550,6 +550,64 @@ class _DistroSystems {
         return this._normalizeOutputRows(d.outputRows, sys);
     }
 
+    // ── No multi off the face (the owner, 2026-11-03) ─────────────────────
+    //
+    // "You can't have multis without them added to the distro." A distro
+    // with no rows (a show saved before 1.5, or one plugged by demand)
+    // with multis in use had a face of nothing: + Add output then made a
+    // face of ONE Socapex, and every multi past it read "not on VX's
+    // face". The rows that cover every multi in use, numbered as the
+    // multis are (1 up to the highest in use, a gap a spare of its
+    // neighbour's kind), each run of one kind a row: what the editor
+    // shows and builds on, and what an older show opens with.
+    // Null when the distro has rows, no system, or no multi in use.
+    _inUseFaceRows(d) {
+        const sys = d ? this.distroSystem(d) : null;
+        if (!sys || this.distroRows(d).length) return null;
+        const used = [...this._distroMultiNumbers(d.id).entries()]
+            .filter(([n, members]) => Number.isFinite(n) && n >= 1 && (members || []).length)
+            .map(([n]) => n);
+        if (!used.length) return null;
+        const top = Math.max(...used);
+        // The multi box types the old demand-driven boxes are, as rows.
+        const asRow = (typeId) => (typeId === 'l2130' ? { connector: 'l2130', coupling: 'll' }
+            : typeId === 'soca120' ? { connector: 'soca', coupling: 'ln' }
+                : { connector: 'soca', coupling: 'll' });
+        const rows = [];
+        for (let n = 1; n <= top; n++) {
+            const resolved = this.distroBoxType(d, n);
+            const want = asRow(resolved && resolved.type ? resolved.type.id : null);
+            const last = rows[rows.length - 1];
+            if (last && last.connector === want.connector && last.coupling === want.coupling) {
+                last.count += 1;
+            } else {
+                rows.push({ id: `r${rows.length + 1}`, connector: want.connector, count: 1,
+                            coupling: want.coupling, breakerA: DEFAULT_BREAKER[sys.region],
+                            connectorA: null, pairedWith: null });
+            }
+        }
+        const clean = this._normalizeOutputRows(rows, sys);
+        return clean.length ? clean : null;
+    }
+
+    // The open's repair: every distro with multis in use and no rows gets
+    // the rows that cover them (_inUseFaceRows). Model only; returns the
+    // distros changed, for the caller to send.
+    fillFacesInUseOnOpen() {
+        const changed = [];
+        (this.getDistros() || []).forEach(d => {
+            const rows = this._inUseFaceRows(d);
+            if (!rows) return;
+            d.outputRows = rows;
+            changed.push(d);
+        });
+        if (changed.length) {
+            this._circuitTailCache = null;
+            sendClientLog('distro_faces_filled_on_open', { distros: changed.map(d => d.id) });
+        }
+        return changed;
+    }
+
     // The coupling a row's circuits run at, as volts.
     _rowVolts(sys, r) {
         return r.coupling === 'll' ? sys.vll : sys.vln;
@@ -1927,7 +1985,11 @@ class _DistroSystems {
         capRow.appendChild(sub);
         sec.appendChild(capRow);
         if (!sys) { wrap.appendChild(sec); return; }
-        const rows = this.distroRows(d);
+        // No rows with multis in use: the rows that cover them are shown,
+        // and every edit (+ Add output first) builds on them, so no multi
+        // in use is left off the face (_inUseFaceRows).
+        const stored = this.distroRows(d);
+        const rows = stored.length ? stored : (this._inUseFaceRows(d) || []);
         const commit = (next) => patch({ outputRows: next });
         const total = (r) => r.count * this.distroConnector(r.connector).circuits;
         rows.forEach((r, i) => {

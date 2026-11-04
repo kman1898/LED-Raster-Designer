@@ -569,7 +569,48 @@ class _CustomRuns {
         }
     }
 
-    addPanelToCustomPowerPath(panel, panelLayer = null) {
+    // Cut the open circuit's path back so it ends at step `at`, the power
+    // twin of _cutPortPathBack. One undo step. The cabinets cut off stay
+    // with the redraw on an automatic screen (_powerHoldLive), so they can
+    // be drawn again; on a custom screen they are simply free.
+    _cutPowerPathBack(owner, circuitNum, at, source, panel) {
+        const path = owner.powerCustomPaths[circuitNum];
+        const cut = path.length - at - 1;
+        // Cutting can move a locked screen's circuits on a multi box it
+        // shares: put back then, the screen named (_lockedPowerTrial).
+        const hold = typeof this._powerHoldLive === 'function' ? this._powerHoldLive() : null;
+        const added = [];
+        if (hold && hold.layerId === owner.id) {
+            path.slice(at + 1).forEach(e => {
+                const k = e && this.getScopedPanelKey(this.getPathEntryLayerId(owner, e), e);
+                if (k && !hold.keys.has(k)) { hold.keys.add(k); added.push(k); }
+            });
+        }
+        const shared = this._lockedPowerTrial();
+        owner.powerCustomPaths[circuitNum] = path.slice(0, at + 1);
+        if (shared()) {
+            added.forEach(k => hold.keys.delete(k));
+            return;
+        }
+        this.saveState('Power Custom Path Edit');
+        this.saveClientSideProperties();
+        this.updateLayers(this._pathPersistLayers(owner));
+        sendClientLog('power_path_cut_back', { layerId: owner.id, num: circuitNum, at, cut });
+        this._syncCustomFillReadout('power');
+        if (window.canvasRenderer) window.canvasRenderer.render();
+        if (typeof this._toast === 'function') {
+            this._toast(`Circuit ${this.getPowerCircuitLabel(owner, circuitNum)} now ends at `
+                + `${this._describePathPanel(owner, source, panel)}. `
+                + (cut === 1 ? 'The cabinet after it' : `The ${cut} cabinets after it`)
+                + ' can be drawn again, in any order.',
+                false, 5000);
+        }
+    }
+
+    // `opts.click`: the step came from a click on the canvas, which may cut
+    // the path back to a step it already has, as a data port's does
+    // (addPanelToCustomPath). An arrow key onto a step leaves it as it is.
+    addPanelToCustomPowerPath(panel, panelLayer = null, opts = null) {
         if (!this.currentLayer || !panel || panel.hidden) return;
         if (!this.isCustomPowerEditing(this.currentLayer)) return;
         if (this.powerCustomSelection.size > 0) return;
@@ -587,9 +628,18 @@ class _CustomRuns {
         const circuitNum = owner.powerCustomIndex || 1;
         if (!owner.powerCustomPaths[circuitNum]) owner.powerCustomPaths[circuitNum] = [];
         const key = this.getScopedPanelKey(source.id, panel);
-        const exists = owner.powerCustomPaths[circuitNum].some(e => e
+        const at = owner.powerCustomPaths[circuitNum].findIndex(e => e
             && this.getScopedPanelKey(this.getPathEntryLayerId(owner, e), e) === key);
-        if (exists) return;
+        if (at >= 0) {
+            // A step already on the path with steps after it: a click cuts
+            // the path back to end there (the owner, 2026-11-03, on power
+            // as on data). Before this the click did nothing. A click on
+            // the last step still does nothing.
+            if (opts && opts.click && at < owner.powerCustomPaths[circuitNum].length - 1) {
+                this._cutPowerPathBack(owner, circuitNum, at, source, panel);
+            }
+            return;
+        }
         const conflict = this._findPanelOwnerCircuit(owner, panel, circuitNum, source);
         if (conflict) {
             if (typeof this._toast === 'function') {

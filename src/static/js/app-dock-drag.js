@@ -729,7 +729,7 @@ class _DockDrag {
             ok: true, glyph, socaIndex: s.soca, nums, number, boxName,
             amps: s.amps, badge: type.badge, warn,
             text: `${boxName} → circuit${nums.length === 1 ? '' : 's'} `
-                + `${this._fmtTails(nums).replace(/-/g, '–')} · `
+                + `${this._fmtTails(nums)} · `
                 + `${Math.round(s.amps)} A`,
         };
     }
@@ -853,7 +853,7 @@ class _DockDrag {
             socaIndex: (!direct || s.legs.length === 1) ? s.soca : null,
             nums, number: box.number, boxName, amps, badge: type.badge, warn: null,
             text: `${boxName} → circuit${nums.length === 1 ? '' : 's'} `
-                + `${this._fmtTails(nums).replace(/-/g, '–')} · ${Math.round(amps)} A`,
+                + `${this._fmtTails(nums)} · ${Math.round(amps)} A`,
         };
     }
 
@@ -934,7 +934,7 @@ class _DockDrag {
             nums, number: plan.number, boxName, amps, badge: type.badge,
             warn: null,
             text: `${boxName} → circuit${nums.length === 1 ? '' : 's'} `
-                + `${this._fmtTails(nums).replace(/-/g, '–')} · `
+                + `${this._fmtTails(nums)} · `
                 + `${Math.round(amps)} A`,
         };
     }
@@ -1243,6 +1243,7 @@ class _DockDrag {
 
     _dockPerformDrop(payload, target) {
         sendClientLog('dock_drop', { payload, target });
+        this._dockSayClear();
         if (target && target.kind === 'reorder') {
             if (payload.type === 'processor') {
                 return this._dockReorderProcessors(payload.processorId,

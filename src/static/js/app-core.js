@@ -83,6 +83,12 @@ export class LEDRasterApp {
                 console.error('WebSocket init failed; continuing without live updates:', e);
             }
             this.loadProject();
+            // A reload or a closing window says "unsaved" one last time,
+            // so a debounced edit still waiting is counted too.
+            window.addEventListener('pagehide', () => {
+                if (typeof this._flushPendingSaveState === 'function') this._flushPendingSaveState();
+                if (typeof this._noteUnsavedState === 'function') this._noteUnsavedState({ beacon: true });
+            });
             // Reads /api/version once: a beta build names itself in the
             // title and header (app-project-io.js _showBuildVersion).
             if (typeof this.appVersion === 'function') this.appVersion();
@@ -1033,7 +1039,13 @@ export class LEDRasterApp {
 
     loadProject() {
         fetch('/api/project')
-            .then(res => res.json())
+            .then(res => {
+                // Unsaved edits made before this page loaded (the server
+                // keeps the answer: app-project-io markProjectClean).
+                this._unsavedCarried = res.headers.get('X-Project-Unsaved') === '1';
+                this._serverUnsaved = this._unsavedCarried;
+                return res.json();
+            })
             .then(data => {
                 this.project = data;
                 this.dedupeProjectLayers('load_project');
@@ -1073,6 +1085,10 @@ export class LEDRasterApp {
                 // is dropped after this (see the socket handler); a later one
                 // is a reconnect and does not re-apply preferences.
                 this._initialLoadComplete = true;
+                // The carried answer was used by the reset above (or the
+                // project is the pristine startup one, which never asks).
+                this._unsavedCarried = false;
+                if (typeof this._noteUnsavedState === 'function') this._noteUnsavedState();
                 // The page paints from the loaded project itself. This used
                 // to ride on the first connect's project_data, which landed a
                 // moment later and ran updateUI; that copy is now dropped, and

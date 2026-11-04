@@ -370,6 +370,9 @@ def test_automatic_circuits_skip_the_overridden_number(page):
         const l = window.__ovr.layer(id);
         window.app.overrideRun(l, 'power', num);
         l.powerCustomPaths[num] = l.powerCustomPaths[num].slice(0, 1);
+        // the redraw ends: the cabinets it held go back to the walk
+        // (while it is open they stay with it, _powerHoldLive)
+        window.app.endOverrideEdit();
     }""", [lid, target])
     after = power_map(page, lid)
     nums = [c['num'] for c in after['circuits']]

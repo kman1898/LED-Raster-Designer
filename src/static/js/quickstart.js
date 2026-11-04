@@ -2503,6 +2503,9 @@
             tray: captureTray(),
             panels: capturePanels(),
             layout: window.LRD_LAYOUT ? window.LRD_LAYOUT.rings() : null,
+            // the Preferences tab the person had: the guide's steps open
+            // other tabs, and the window reopened on the guide's last one
+            prefsTab: a._prefsTab || null,
             prefs: null
         };
         return capturePrefs().then(function (p) {
@@ -2632,6 +2635,9 @@
         }).then(function () {
             a.history = w.history;
             a.historyIndex = w.historyIndex;
+            a._prefsTab = w.prefsTab || null;
+            // The person's own "unsaved" again, on the server too.
+            if (typeof a._noteUnsavedState === 'function') a._noteUnsavedState();
             try {
                 SHEET_PREFIXES.forEach(function (p) { lsKeys(p).forEach(function (e) { localStorage.removeItem(e.k); }); });
                 w.sheets.forEach(function (e) { localStorage.setItem(e.k, e.v); });

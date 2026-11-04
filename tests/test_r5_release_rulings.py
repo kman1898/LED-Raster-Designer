@@ -110,7 +110,10 @@ def test_the_guide_points_at_the_usable_amps():
 
 def test_wording_outside_the_guards():
     export = _read(JS, 'app-export-io.js')
-    assert export.count("'Export canceled, nothing was saved.'") == 2
+    # the multi-file export's own cancel, and the picker's: Export, unless
+    # the file is the project (File > Save), which says Save
+    assert export.count("'Export canceled, nothing was saved.'") == 1
+    assert "${opts && opts.save ? 'Save' : 'Export'} canceled, nothing was saved." in export
     assert 'Export cancelled' not in export
     presets = _read(JS, 'app-presets.js')
     assert 'Only the cabinet changes: pixels, millimeters, weight, watts.' in presets
