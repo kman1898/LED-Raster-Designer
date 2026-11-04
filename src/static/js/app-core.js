@@ -82,10 +82,15 @@ export class LEDRasterApp {
             } catch (e) {
                 console.error('WebSocket init failed; continuing without live updates:', e);
             }
+            // A reload of this browser tab keeps its place; anything else
+            // is a launch (app-start-page.js).
+            if (typeof this._takeReloadPlace === 'function') this._takeReloadPlace();
             this.loadProject();
             // A reload or a closing window says "unsaved" one last time,
-            // so a debounced edit still waiting is counted too.
+            // so a debounced edit still waiting is counted too, and notes
+            // the tab and any start page still up for a reload to read.
             window.addEventListener('pagehide', () => {
+                if (typeof this._saveReloadPlace === 'function') this._saveReloadPlace();
                 if (typeof this._flushPendingSaveState === 'function') this._flushPendingSaveState();
                 if (typeof this._noteUnsavedState === 'function') this._noteUnsavedState({ beacon: true });
             });
@@ -636,6 +641,9 @@ export class LEDRasterApp {
         try {
             const response = await fetch('/api/server-session');
             const data = await response.json();
+            // A reload counts only on the server that wrote its record
+            // (app-start-page.js _takeReloadPlace).
+            this._serverSessionId = data && data.session_id ? data.session_id : null;
             const savedSessionId = localStorage.getItem('ledRasterServerSession');
 
             if (savedSessionId !== data.session_id) {
@@ -1099,8 +1107,12 @@ export class LEDRasterApp {
                 // A launch is a fresh project (the app never reopens a
                 // show at boot): ask for the first screen's panel once the
                 // guide and the What's New window are out of the way
-                // (app-presets.js maybeOpenStartupPicker).
-                if (typeof this.maybeOpenStartupPicker === 'function') this.maybeOpenStartupPicker('launch');
+                // (app-presets.js maybeOpenStartupPicker). A reload of
+                // this browser tab goes back to its tab instead and asks
+                // only if the start page was still up (app-start-page.js
+                // resumeOrLaunch).
+                if (typeof this.resumeOrLaunch === 'function') this.resumeOrLaunch();
+                else if (typeof this.maybeOpenStartupPicker === 'function') this.maybeOpenStartupPicker('launch');
 
                 // Default to Fit view on load. Retry while layout settles: on
                 // a slow first paint the canvas wrapper can still be 0-height
