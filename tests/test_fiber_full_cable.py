@@ -122,7 +122,8 @@ def test_the_sheet_lists_a_full_tac_as_full_and_cannot_pick_it(page):
     opts = page.locator(f'[data-lrd-field="fiber-link-cable-{third}-p1"]').evaluate(
         "s => [...s.options].filter(o => o.value === '%s')"
         ".map(o => [o.textContent, o.disabled])" % ids['tac'])
-    assert opts == [['TAC A · 4 · full', True]], opts
+    # the CVT10-S boxes' TAC reads their mode (owner, 2026-11-04)
+    assert opts == [['TAC A · 4 · Single mode · full', True]], opts
     # a box that already holds strands on it still picks it freely
     first = ids['boxes'][0]
     page.locator(f'[data-lrd-field="data-cable-sheet-{first}"]').first.click()
@@ -130,4 +131,4 @@ def test_the_sheet_lists_a_full_tac_as_full_and_cannot_pick_it(page):
     opts = page.locator(f'[data-lrd-field="fiber-link-cable-{first}-p1"]').evaluate(
         "s => [...s.options].filter(o => o.value === '%s')"
         ".map(o => [o.textContent, o.disabled])" % ids['tac'])
-    assert opts == [['TAC A · 4', False]], opts
+    assert opts == [['TAC A · 4 · Single mode', False]], opts

@@ -470,7 +470,7 @@ def test_a_cvt10_pro_runs_duplex_only_like_an_xd(client):
     pid, (pro, pro2, pro3) = _h9_with_boxes(client, 'novastar-cvt10-pro', 3, bidi=False)
     assert _res_box(client, pro)['bidiAllowed'] is False
     why = _refused(client.put(f'/api/processors/{pid}/cvts/{pro}/fiber', json={'bidi': True}))
-    assert why == 'CVT10 Pro runs duplex only, a pair per link like an XD, so it has no BiDi.', why
+    assert why == 'CVT10 Pro-S runs duplex only, a pair per link like an XD, so it has no BiDi.', why
     assert not _raw_box(client, pro).get('bidi')
     quad = _new(client, 'opticalcon-quad', pro, 'p1')
     _ok(_link(client, pid, pro2, 'p1', {'cable': quad['id']}))
@@ -660,8 +660,9 @@ def test_the_select_offers_another_boxs_opticalcon_while_it_has_free_strands(pag
     rows = _rows(pg, pb)
     assert [r['role'] for r in rows] == ['OPT1', 'OPT2'], rows
     for r in rows:
-        assert "QUAD 1 · 500'" in r['options'] and "QUAD 2 · 1000'" in r['options'], r
-        assert "QUAD 3 · 300'" not in r['options'], r          # full: XD A and XD B hold all four
+        # a CVT4K-S's cables read their mode (owner, 2026-11-04)
+        assert "QUAD 1 · 500' · Single mode" in r['options'] and "QUAD 2 · 1000' · Single mode" in r['options'], r
+        assert not [o for o in r['options'] if o.startswith("QUAD 3 · 300'")], r          # full: XD A and XD B hold all four
     for key, want in (('p1', [3]), ('p2', [4])):
         pg.locator(f'[data-lrd-field="fiber-link-cable-{pb}-{key}"]').select_option(ids['q1'])
         got = settled(pg, lambda key=key: (_box_links(_served(pg), pb) or {}).get(key),
@@ -699,11 +700,11 @@ def test_the_binder_prints_each_links_strands_on_a_shared_quad(page):
     }""", ids), lambda o: len(o['h5']) == 8 and o['h5'][6][1] == 'QUAD 2')
     t = out['t']
     assert out['h5'] == [
-        ['SC1 · OPT 1', 'QUAD 1 (opticalCON QUAD)', '1 Blue', f"OPT1 on {t['pa']}", '1 Blue · crosses inside'],
+        ['SC1 · OPT 1', 'QUAD 1 (opticalCON QUAD · Single mode)', '1 Blue', f"OPT1 on {t['pa']}", '1 Blue · crosses inside'],
         ['SC1 · OPT 2', 'QUAD 1', '2 Orange', f"OPT2 on {t['pa']}", '2 Orange · crosses inside'],
         ['SC1 · OPT 3', 'QUAD 1', '3 Green', f"OPT1 on {t['pb']}", '3 Green · crosses inside'],
         ['SC1 · OPT 4', 'QUAD 1', '4 Brown', f"OPT2 on {t['pb']}", '4 Brown · crosses inside'],
-        ['SC2 · OPT 1', 'QUAD 2 (opticalCON QUAD)', '1 Blue', f"OPT1 on {t['ra']}", '1 Blue · crosses inside'],
+        ['SC2 · OPT 1', 'QUAD 2 (opticalCON QUAD · Single mode)', '1 Blue', f"OPT1 on {t['ra']}", '1 Blue · crosses inside'],
         ['SC2 · OPT 2', 'QUAD 2', '2 Orange', f"OPT2 on {t['ra']}", '2 Orange · crosses inside'],
         ['SC2 · OPT 3', 'QUAD 2', '3 Green', f"OPT1 on {t['rb']}", '3 Green · crosses inside'],
         ['SC2 · OPT 4', 'no fiber picked', '', f"OPT2 on {t['rb']}", ''],
@@ -715,10 +716,10 @@ def test_the_binder_prints_each_links_strands_on_a_shared_quad(page):
         ['trunk C', 'no fiber picked', '', 'X1 on XD C', ''],
     ], out['sx']
     maps = {m['title']: m['rows'] for m in out['maps']}
-    assert maps["Strand map · QUAD 1 · opticalCON QUAD · 500'"] == [
+    assert maps["Strand map · QUAD 1 · opticalCON QUAD · Single mode · 500'"] == [
         ['1 Blue', f"{t['pa']} · OPT1", '1-8'], ['2 Orange', f"{t['pa']} · OPT2", '9-16'],
         ['3 Green', f"{t['pb']} · OPT1", '1-8'], ['4 Brown', f"{t['pb']} · OPT2", '9-16']], maps
-    assert maps["Strand map · QUAD 2 · opticalCON QUAD · 1000'"] == [
+    assert maps["Strand map · QUAD 2 · opticalCON QUAD · Single mode · 1000'"] == [
         ['1 Blue', f"{t['ra']} · OPT1", '1-8'], ['2 Orange', f"{t['ra']} · OPT2", '9-16'],
         ['3 Green', f"{t['rb']} · OPT1", '1-8'], ['4 Brown', 'spare', '']], maps
     assert [m['rows'] for m in out['sxMaps']] == [[
@@ -737,9 +738,11 @@ def test_the_pull_sheet_counts_a_shared_opticalcon_once(page):
         app._circuitTailCache = null;
         const list = JSON.parse(JSON.stringify(app.buildPullList()));
         return list.totals.map(r => [r.type, r.length, r.qty, r.label, r.notes]);
-    }"""), lambda rows: len([r for r in rows if r[0] == 'opticalCON QUAD']) == 3)
-    quads = sorted(r for r in out if r[0] == 'opticalCON QUAD')
-    assert quads == [['opticalCON QUAD', "1000'", 1, 'QUAD 2', ''],
-                     ['opticalCON QUAD', "300'", 1, 'QUAD 3', ''],
-                     ['opticalCON QUAD', "500'", 1, 'QUAD 1', '']], out
+    }"""), lambda rows: len([r for r in rows if r[0].startswith('opticalCON QUAD')]) == 3)
+    # QUAD 1 and 2 feed CVT4K-S boxes and read their mode; QUAD 3, on the
+    # XDs, states none (no mode is inferred)
+    quads = sorted(r for r in out if r[0].startswith('opticalCON QUAD'))
+    assert quads == [['opticalCON QUAD', "300'", 1, 'QUAD 3', ''],
+                     ['opticalCON QUAD · Single mode', "1000'", 1, 'QUAD 2', ''],
+                     ['opticalCON QUAD · Single mode', "500'", 1, 'QUAD 1', '']], out
     assert ids['errors'] == []

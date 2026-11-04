@@ -1779,7 +1779,7 @@ class _Processors {
         const mode = this.boxFiberMode(cvt);
         if (mode) {
             const modeLine = document.createElement('div');
-            modeLine.dataset.lrdField = `processor-cvt-fiber-mode-${cvt.id}`;
+            modeLine.dataset.lrdField = `processor-cvt-mode-${cvt.id}`;
             modeLine.style.fontSize = '11px';
             modeLine.style.color = 'var(--ps-dim, #c0c0c0)';
             modeLine.style.marginTop = '4px';
