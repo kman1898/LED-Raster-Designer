@@ -1900,6 +1900,8 @@
     var S = {
         name: null, list: [], idx: -1,
         running: false, pendingEnd: null,
+        // The restore a guide's end is making, until it lands (show waits).
+        ending: null,
         // The window keys held open through the step change under way
         // (sharedWindows), or null: set as Next or Back leaves a step,
         // cleared once the step entered has set itself up.
@@ -2883,6 +2885,11 @@
     function show(name, custom) {
         var tour = custom || TOURS[name];
         if (!tour) return Promise.resolve();
+        // A guide started while the last one is still putting the person's
+        // world back waits for it: started at once, its scratch show was
+        // overwritten by that restore, and it captured the scratch show as
+        // the world to put back, so leaving it lost the person's project.
+        if (S.ending) return S.ending.then(function () { return show(name, custom); });
         if (!els) build();
         // The ghost cursor starts from the middle of the window, not from
         // the corner it is born in, so the first act's travel reads as a
@@ -2956,9 +2963,14 @@
         S.entries = null;
         S.entryAt = null;
         var chain = saved ? sleep(ms(300)).then(function () { return restoreWorld(saved); }) : Promise.resolve();
-        return chain.catch(function (e) {
+        var ending = chain.catch(function (e) {
             console.warn('QuickStart: restore failed', e);
-        }).then(function () { S.running = false; });
+        }).then(function () {
+            S.running = false;
+            if (S.ending === ending) S.ending = null;
+        });
+        S.ending = ending;
+        return ending;
     }
 
     // ── the step library ─────────────────────────────────────────────────

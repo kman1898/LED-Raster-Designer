@@ -397,6 +397,41 @@ def test_the_scratch_show_has_one_canvas(page):
     assert page.evaluate("() => window.app.project.canvases.map(c => c.id)") == before
 
 
+def test_a_guide_started_while_the_last_one_ends_waits_for_it(page):
+    """A guide started the moment the last one is left (its restore of the
+    person's project still on its way) waits for that restore: it runs on
+    its own scratch show, and leaving it puts the person's project back.
+    Started at once, the restore landed over the new scratch show and the
+    new guide captured the scratch show as the world to put back, so the
+    person's project was lost when it ended."""
+    page.evaluate("""async () => {
+        const p = await (await fetch('/api/project')).json();
+        p.name = 'Own Show';
+        await fetch('/api/project', {method: 'PUT', headers: {'Content-Type': 'application/json'},
+                                     body: JSON.stringify(p)});
+        window.app.project = await (await fetch('/api/project')).json();
+    }""")
+    own = page.evaluate("() => window.app.project.layers.map(l => l.name)")
+    page.evaluate("(s) => window.QuickStart.setSpeed(s)", 3)
+    page.evaluate("() => { window.QuickStart.startTour('quick'); }")
+    _wait_step(page, 0)
+    # Left, and the next guide asked for in the same moment.
+    page.evaluate("() => { window.QuickStart.end(); window.QuickStart.startTour('quick'); }")
+    page.wait_for_function("() => window.QuickStart.state().visible && window.QuickStart.state().index === 0",
+                           timeout=30000)
+    st = _wait_step(page, 0)
+    assert st['state'] in ('done', 'idle'), st
+    inside = page.evaluate("""async () => ({
+        local: window.app.project.layers.map(l => l.name),
+        server: (await (await fetch('/api/project')).json()).layers.map(l => l.name)})""")
+    assert inside == {'local': ['DEMO WALL'], 'server': ['DEMO WALL']}, inside
+    _end(page)
+    page.wait_for_function("() => !window.QuickStart.state().visible && !window.QuickStart.state().running",
+                           timeout=30000)
+    back = page.evaluate("() => ({name: window.app.project.name, layers: window.app.project.layers.map(l => l.name)})")
+    assert back == {'name': 'Own Show', 'layers': own}, back
+
+
 # The Advanced steps that failed in the 1.6.0 QA pass under a hand on the
 # mouse, a second click on Next, or Matt's Preferences, in guide order, as
 # runs of consecutive steps (each run entered by Go to).

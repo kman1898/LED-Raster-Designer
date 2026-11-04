@@ -121,6 +121,43 @@ def _no_os_dialogs():
 # state, and a test that failed half-way left the dock folded for every test
 # after it in that worker.
 
+def open_app(page, url=None, timeout_ms=60000):
+    """Load the app (reload it, with no url) and wait for the real ready
+    signal: window.app is the app (every ESM mixin installed) and its
+    first project load is done.
+
+    A fixed sleep after goto() was the old wait. Two things it missed:
+    the first load can land after it (2 of 60 loads under a CPU burner
+    were not done 2 s after DOMContentLoaded), and a page whose module
+    graph failed - one app-*.js that did not arrive - never builds an app
+    at all, so window.app stays the <div id="app"> element and the next
+    read said only "app.dedupeProjectLayers is not a function", once per
+    test of the module. The modules run before DOMContentLoaded, so a page
+    with no app by then never gets one: that stops here, naming what
+    failed to load."""
+    trouble = []
+    on_failed = lambda r: trouble.append(f'{r.url} failed: {r.failure}')
+    on_resp = lambda r: r.status >= 400 and trouble.append(f'{r.url} answered {r.status}')
+    on_error = lambda e: trouble.append(f'page error: {e}')
+    page.on('requestfailed', on_failed)
+    page.on('response', on_resp)
+    page.on('pageerror', on_error)
+    try:
+        if url is None:
+            page.reload(wait_until='domcontentloaded', timeout=timeout_ms)
+        else:
+            page.goto(url, wait_until='domcontentloaded', timeout=timeout_ms)
+        built = page.evaluate(
+            "() => !!(window.app && typeof window.app.dedupeProjectLayers === 'function')")
+        assert built, ('the app never started (its modules run before DOMContentLoaded, '
+                       'so window.app is still the <div id="app">): ' + '; '.join(trouble or ['nothing reported']))
+        page.wait_for_function("() => window.app._initialLoadComplete === true", timeout=timeout_ms)
+    finally:
+        page.remove_listener('requestfailed', on_failed)
+        page.remove_listener('response', on_resp)
+        page.remove_listener('pageerror', on_error)
+
+
 def settled(page, read, ok, timeout_ms=5000):
     """read() until ok(value) holds or TIMEOUT_MS passes; return the last
     value, so the caller's own assert still says what was wrong."""

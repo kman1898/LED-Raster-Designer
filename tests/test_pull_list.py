@@ -1249,8 +1249,10 @@ def test_smoke_live_show_b(page):
     # said once with its home run, the 100' before the 150'. Rows sort by
     # type, so the Barrel row reads before the Extensions. The multis go by
     # their boxes' own names, SR2 and SR4 (no two follow on, so nothing
-    # folds). The distro's row, its feeder, the panels and the CVTs are the
-    # position's, not the screen's.
+    # folds). The breakouts carry the multis' names SR1-SR4, a run of
+    # multis: it folds by its ends, "SR1 … 4", never with a hyphen, which
+    # would read as a multi's circuit (2026-11-03). The distro's row, its
+    # feeder, the panels and the CVTs are the position's, not the screen's.
     assert scr['SR - MAIN'] == [
         ('Data Jump', "6'", 304, 'SR - MAIN', ''),
         ('etherCON Barrel', 'EA', 6, 'SR A-1, SR A-3, SR A-4, SR B-1, SR B-3, SR B-4', ''),
@@ -1263,7 +1265,7 @@ def test_smoke_live_show_b(page):
         ('Multi', "125'", 2, 'SR1, SR3', ''),
         ('TRUE1', "6'", 8, 'SR1-2, SR1-5, SR2-3, SR2-6, SR3-2, SR3-5, SR4-2, SR4-6', ''),
         ('TRUE1', "10'", 6, 'SR1-1, SR1-6, SR2-2, SR3-1, SR3-6, SR4-1', ''),
-        ('TRUE1 Breakout', 'EA', 4, 'SR 1-4', ''),
+        ('TRUE1 Breakout', 'EA', 4, 'SR1 … 4', ''),
         ('TRUE1 Power Jump', "6'", 286, 'SR - MAIN', ''),
     ]
     # SR - Return: box SR5 at 125', its cables as typed; the auto wall packs
@@ -1308,7 +1310,7 @@ def test_smoke_live_show_b(page):
         ('Multi', "125'", 2, 'SL1, SL3', ''),
         ('TRUE1', "6'", 8, 'SL1-2, SL1-5, SL2-3, SL2-6, SL3-2, SL3-5, SL4-2, SL4-6', ''),
         ('TRUE1', "10'", 6, 'SL1-1, SL1-6, SL2-2, SL3-1, SL3-6, SL4-1', ''),
-        ('TRUE1 Breakout', 'EA', 4, 'SL 1-4', ''),
+        ('TRUE1 Breakout', 'EA', 4, 'SL1 … 4', ''),
         ('TRUE1 Power Jump', "6'", 286, 'SL - MAIN', ''),
     ]
     # A position is its screens' rows merged by (type, length), labels in
@@ -1341,7 +1343,7 @@ def test_smoke_live_show_b(page):
         ('TRUE1', "10'", 8, 'SR1-1, SR1-6, SR2-2, SR3-1, SR3-6, SR4-1, SR5-2, SR5-5', ''),
         ('TRUE1', "25'", 2, 'SR5-1, SR5-6', ''),
         ('TRUE1 2fer', 'EA', 5, 'SR5-1 … 5-5', ''),
-        ('TRUE1 Breakout', 'EA', 5, 'SR 1-5', ''),
+        ('TRUE1 Breakout', 'EA', 5, 'SR1 … 5', ''),
         ('TRUE1 Power Jump', "6'", 341, 'SR - MAIN, SR - Return', ''),
     ]
     assert by['SL'] == [
@@ -1364,7 +1366,7 @@ def test_smoke_live_show_b(page):
         ('TRUE1', "10'", 8, 'SL1-1, SL1-6, SL2-2, SL3-1, SL3-6, SL4-1, SL5-2, SL5-5', ''),
         ('TRUE1', "25'", 2, 'SL5-1, SL5-6', ''),
         ('TRUE1 2fer', 'EA', 5, 'SL5-1 … 5-5', ''),
-        ('TRUE1 Breakout', 'EA', 5, 'SL 1-5', ''),
+        ('TRUE1 Breakout', 'EA', 5, 'SL1 … 5', ''),
         ('TRUE1 Power Jump', "6'", 341, 'SL - MAIN, SL - Return', ''),
     ]
     # the totals: every position's rows merged by (type, length), labels
@@ -1394,7 +1396,7 @@ def test_smoke_live_show_b(page):
         ('TRUE1', "10'", 16, 'SR1-1 … SL5-5 (16)', ''),
         ('TRUE1', "25'", 4, 'SR5-1, SR5-6, SL5-1, SL5-6', ''),
         ('TRUE1 2fer', 'EA', 10, 'SR5-1 … 5-5, SL5-1 … 5-5', ''),
-        ('TRUE1 Breakout', 'EA', 10, 'SR 1-5, SL 1-5', ''),
+        ('TRUE1 Breakout', 'EA', 10, 'SR1 … 5, SL1 … 5', ''),
         ('TRUE1 Power Jump', "6'", 682, 'SR - MAIN, SR - Return, SL - MAIN, SL - Return', ''),
     ]
     # one barrel per extension, nowhere else: six on each MAIN - three on

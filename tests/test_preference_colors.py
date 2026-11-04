@@ -311,6 +311,36 @@ def _toast_text(pg):
     return pg.evaluate("() => { const h = document.getElementById('app-toast-host'); return h ? h.textContent : ''; }")
 
 
+def _watch_toasts(pg):
+    """Record every toast as it is put up (its text, and whether it is the
+    red error kind), so a short-lived toast is seen however long the test
+    waits before it looks."""
+    pg.evaluate("""() => {
+        window.__toastsSeen = [];
+        if (window.__toastWatch) window.__toastWatch.disconnect();
+        // a new host and the toast in it can come as two records: one each
+        const taken = new WeakSet();
+        const take = (el) => {
+            if (taken.has(el)) return;
+            taken.add(el);
+            window.__toastsSeen.push({ text: el.textContent,
+                error: /#a8324b|rgb\\(168, 50, 75\\)/.test(el.style.background) });
+        };
+        window.__toastWatch = new MutationObserver((muts) => {
+            for (const m of muts) for (const n of m.addedNodes) {
+                if (n.nodeType !== 1) continue;
+                if (n.id === 'app-toast-host') [...n.children].forEach(take);
+                else if (n.parentElement && n.parentElement.id === 'app-toast-host') take(n);
+            }
+        });
+        window.__toastWatch.observe(document.body, { childList: true, subtree: true });
+    }""")
+
+
+def _toasts_seen(pg):
+    return pg.evaluate("() => window.__toastsSeen || []")
+
+
 def _clear_toasts(pg):
     pg.evaluate("() => { const h = document.getElementById('app-toast-host'); if (h) h.textContent = ''; }")
 
@@ -716,15 +746,21 @@ def test_a_failed_push_after_add_is_logged_not_thrown(page):
             route.continue_()
     pg.route('**/api/layer/*', _abort_puts)
     before = pg.evaluate(IDS_JS)
+    # The toast lives 2.4 s, and _added waits for every fetch out - one can
+    # be a panel catalog refresh to a dead port that takes ~3 s to fail on
+    # Windows - so the toast is caught as it is made, not read afterwards.
+    _watch_toasts(pg)
     try:
         pg.evaluate("() => window.app.addLayer()")
         _added(pg, before)
     finally:
         pg.unroute('**/api/layer/*')
-    toast = settled(pg, lambda: _toast_text(pg), lambda t: 'not saved' in t)
+    toasts = settled(pg, lambda: _toasts_seen(pg), lambda ts: any('not saved' in t['text'] for t in ts))
+    pg.evaluate("() => window.__toastWatch.disconnect()")
     rejections = pg.evaluate("() => window.__rejections")
     assert rejections == [], rejections
-    assert 'not saved' in toast, toast
+    shown = [t for t in toasts if 'not saved' in t['text']]
+    assert len(shown) == 1 and shown[0]['error'], toasts
     live = pg.evaluate(CLIENT_NEW_JS, before)
     assert 'error' not in live, live
     _delete(pg, live['id'])
