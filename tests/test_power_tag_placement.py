@@ -44,6 +44,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
+from conftest import open_app  # noqa: E402
+
 # A hair, in bitmap pixels.
 HAIR = 1.0
 
@@ -182,9 +184,11 @@ def page(e2e_server, pw_browser):
     pg = context.new_page()
     errors = []
     pg.on('pageerror', lambda e: errors.append(str(e)))
-    pg.goto(e2e_server, wait_until='domcontentloaded')
-    pg.wait_for_timeout(2000)
+    # The app and its first project load, not a fixed 2 s: under load
+    # the first load can land after the sleep (conftest.open_app).
+    open_app(pg, e2e_server)
     pg.locator('[data-mode="power"]').click()
+    pg.wait_for_function("() => window.canvasRenderer.viewMode === 'power'")
     pg.wait_for_timeout(400)
     yield pg, errors
     context.close()

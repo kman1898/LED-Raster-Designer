@@ -558,9 +558,12 @@ def _start(page, tour, speed=DRIVE_SPEED):
 
 def _skip(page):
     """Skip, and wait until the guide says the person's world is back.
-    Skip puts it back over the network (preferences, project, processors)
-    before the panels and the tray; a fixed 1.5 s was outrun by a busy
-    server (a PUT answered 2.5 s late leaves the panels unfolded then)."""
+    Skip puts it back over the network (preferences, then the project)
+    and only then the panels and the tray, so the restore takes as long
+    as those round trips: 0.2 to 0.9 s under a CPU burner (2026-11-04),
+    against the fixed 1.5 s this used to sleep. end() keeps the guide
+    running until the restore is done, so a restore that went wrong still
+    fails the reads after this."""
     page.locator('#qs-skip').click()
     page.wait_for_function(
         "() => !window.QuickStart.state().visible && !window.QuickStart.state().running",
