@@ -74,6 +74,10 @@ const LEAD = 14;
 const PILL_H = 36;
 const PILL_PAD = 16;
 const RUN = 22;
+// A box's name over its note: the room the name and the box's pad take,
+// and a line of the note.
+const BOX_HEAD = 52;
+const NOTE_LH = 22;
 // The extension's dot, its dash.
 const DOT = 7;
 const DASH = [10, 6];
@@ -137,6 +141,12 @@ class _BinderFiber {
     // The breakout box's second line: the box a loop's far box loops from
     // ("loop of XD A"), a port-by-port backup's mains, else the screens its
     // ports feed. '' for a card cabled on links of its own (a QD-S).
+    // THE SCREENS WHOSE CABINETS ITS PORTS RUN TO (QA beta.5, 2026-11-03:
+    // on a grouped wall routed as one, every port is the group's, so the
+    // port's screen read the group's first member - "WALL SL" under
+    // the boxes feeding WALL SR): each port's run is read cabinet by
+    // cabinet, as the data sheets list a member's ports (_bItemLayers), so
+    // a port crossing two members names both.
     _bfBoxNote(box) {
         if (!box || box.linkHost) return '';
         const pair = typeof this.fiberLoopPair === 'function' ? this.fiberLoopPair(box) : null;
@@ -145,11 +155,25 @@ class _BinderFiber {
         const card = hit && hit.card;
         if (card && this.boxLoopMixed(box)) return this.boxLoopText(box, card.cvts || [], b => this._bBoxTitle(b));
         if (!card || typeof this._portOccupants !== 'function') return '';
+        const layers = (this.project && this.project.layers) || [];
+        const runs = new Map();      // layer id -> its port runs, read once
+        const runsOf = (layer) => {
+            if (!runs.has(layer.id)) {
+                runs.set(layer.id, typeof this._pullPortRuns === 'function' ? this._pullPortRuns(layer) : []);
+            }
+            return runs.get(layer.id);
+        };
         const names = [];
+        const add = (name) => {
+            const n = String(name || '').trim();
+            if (n && !names.includes(n)) names.push(n);
+        };
         for (const port of box.ports || []) {
             for (const o of this._portOccupants(card.id, port.number)) {
-                const name = String((o && o.name) || '').trim();
-                if (name && !names.includes(name)) names.push(name);
+                const carrier = o && layers.find(l => String(l.id) === String(o.layerId));
+                const run = carrier ? runsOf(carrier).find(r => r.num === o.number) : null;
+                if (!run) { add(o && o.name); continue; }
+                this._bItemLayers(carrier, run.panels, run.layers).forEach(l => add(l.name));
             }
         }
         return names.join(', ');
@@ -320,14 +344,14 @@ class _BinderFiber {
         const need = (s, i, dflt) => { const w = shares(s); return w && w[i] > 0 ? w[i] : dflt; };
         const blocks = specs.map(s => {
             const lines = this._bTableLines(book, {
-                title: s.title, width, shrink: true, rows: s.rows,
+                title: s.title, width, rows: s.rows,
                 // each column's share its content's whole width
                 // (_bfTableNatural), so a pair and a breakout stay on one
                 // line wherever the table is that wide
-                cols: [{ title: 'at the processor', w: need(s, 0, 1.2), list: 3, parts: true, headShrink: true },
-                       { title: 'output', w: need(s, 1, 0.7), list: 2, headShrink: true },
-                       { title: 'breakout', w: need(s, 2, 1), list: 2, words: 'on', headShrink: true },
-                       { title: 'at the breakout', w: need(s, 3, 1.2), list: 3, parts: true, headShrink: true }],
+                cols: [{ title: 'at the processor', w: need(s, 0, 1.2), list: 3, parts: true },
+                       { title: 'output', w: need(s, 1, 0.7), list: 2 },
+                       { title: 'breakout', w: need(s, 2, 1), list: 2, words: 'on' },
+                       { title: 'at the breakout', w: need(s, 3, 1.2), list: 3, parts: true }],
             });
             if (s.spare) lines.push(...this._bfNoteLines(book, s.spare, width));
             return { lines };
@@ -430,8 +454,7 @@ class _BinderFiber {
                             max(rows, r => { const e = this._bfExtLabel(r); return e ? this._bfW(book, e.text, DZ.ext, e.warn ? 700 : 400) + 24 : 0; }));
         const XW = Math.max(60, max(rows, r => this._bfW(book, r.link.title, DZ.tab)) + PAD * 2);
         // (a box is as wide as its name, its note a little past it at
-        // most - a long list of screens wraps or is cut, never widens the
-        // drawing)
+        // most - a long list of screens wraps, never widens the drawing)
         const boxNat = max(rows, r => {
             const t = this._bfW(book, this._bBoxTitle(r.link.box), DZ.box, 700);
             return Math.max(t, Math.min(this._bfW(book, this._bfBoxNote(r.link.box), DZ.note), Math.max(t, 140) * 1.3));
@@ -446,18 +469,44 @@ class _BinderFiber {
         x.Q0 = x.E1; x.Q1 = x.Q0 + GW;
         x.X0 = x.Q1 + LEAD; x.X1 = x.X0 + XW;
         x.B0 = x.X1; x.B1 = x.B0 + BW;
-        // a processor's rows, each its plug's lines; the block as tall as
-        // its words need, its rows spread to meet it
+        // a processor's rows, each its plug's lines; a box's rows as tall
+        // as its name and every line of its note (QA beta.5, 2026-11-03:
+        // "WALL, TOWER 1, …" cut to one line on a page mostly empty);
+        // the block as tall as its words need, its rows spread to meet it
         const groups = procs.map(p => {
             const name = this._bWrap(book, p.backup ? `${p.title} and ${p.backup}` : p.title, DZ.name, 700, PW - PAD * 2, 3);
             const red = p.redundancy ? this._bWrap(book, p.redundancy, DZ.small, 400, PW - PAD * 2, 2) : [];
             const words = name.length * 32 + (p.model ? 30 : 0) + red.length * 25 + PAD * 2 + 8;
             const hs = p.rows.map(r => Math.max(MIN_LINES, this._bfPlug(r, 'p').length, this._bfPlug(r, 'b').length) * LH + ROW_PAD);
+            this._bfBoxSegments(p.rows).forEach(({ box, from, to }) => {
+                const note = this._bfBoxNote(box);
+                const need = BOX_HEAD + (note ? this._bfBoxNoteLines(book, note, BW - PAD * 2).length : 0) * NOTE_LH;
+                const have = hs.slice(from, to + 1).reduce((a, b) => a + b, 0);
+                if (have < need) for (let i = from; i <= to; i++) hs[i] += (need - have) / (to - from + 1);
+            });
             const sum = hs.reduce((a, b) => a + b, 0);
             const grow = sum < words ? (words - sum) / hs.length : 0;
             return { p, rows: p.rows, hs: hs.map(h => h + grow), h: Math.max(sum, words), name, red };
         });
         return { x, w: x.B1, groups };
+    }
+
+    // A processor's rows by the box they land on, a run of rows each, in
+    // order: [{ box, from, to }] - the boxes the drawing outlines.
+    _bfBoxSegments(rows) {
+        const segs = [];
+        rows.forEach((r, i) => {
+            const box = r.link.box;
+            const last = segs[segs.length - 1];
+            if (last && last.box === box) { last.to = i; return; }
+            segs.push({ box, from: i, to: i });
+        });
+        return segs;
+    }
+
+    // A box's note on its lines, at its words, every line kept.
+    _bfBoxNoteLines(book, note, room) {
+        return this._bWrap(book, note, DZ.note, 400, room, Infinity);
     }
 
     // The groups split into k columns of whole processors, in order, the
@@ -740,13 +789,7 @@ class _BinderFiber {
         });
         // the breakout boxes: a box over its rows, a loop's two boxes
         // outlined together
-        const segs = [];
-        g.rows.forEach((r, i) => {
-            const box = r.link.box;
-            const last = segs[segs.length - 1];
-            if (last && last.box === box) { last.to = i; return; }
-            segs.push({ box, from: i, to: i });
-        });
+        const segs = this._bfBoxSegments(g.rows);
         const outlines = [];
         segs.forEach((s, j) => {
             const prev = segs[j - 1];
@@ -765,18 +808,17 @@ class _BinderFiber {
             o.forEach((s, k) => {
                 const sa = ys[s.from], sb = ys[s.to];
                 if (k) { ctx.fillStyle = FAINT; ctx.fillRect(bx + 12, sa.y - 1, bw - 24, 2); }
-                // the name, and under it the note on the lines the box
-                // has room for
+                // the name, and under it the note, every line of it (the
+                // rows were made tall enough, _bfGeometry)
                 const mid = (sa.y + sb.y + sb.h) / 2;
                 const room = bw - PAD * 2;
                 const note = this._bfBoxNote(s.box);
-                const fit = Math.max(1, Math.floor((sb.y + sb.h - sa.y - 52) / 22));
-                const lines = note ? this._bWrap(book, note, DZ.note, 400, room, fit) : [];
-                let ty = mid - (26 + lines.length * 22) / 2 + 21;
+                const lines = note ? this._bfBoxNoteLines(book, note, room) : [];
+                let ty = mid - (26 + lines.length * NOTE_LH) / 2 + 21;
                 this._bText(book, this._bBoxTitle(s.box), bx + PAD, ty,
                             { size: DZ.box, weight: 700, maxWidth: room, shrink: true });
                 for (const t of lines) {
-                    ty += 22;
+                    ty += NOTE_LH;
                     this._bText(book, t, bx + PAD, ty + 2, { size: DZ.note, color: MUTED, maxWidth: room, shrink: true });
                 }
             });

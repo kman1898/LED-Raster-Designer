@@ -739,9 +739,12 @@ def build_workbook(pull_list, meta=None, template_path=TEMPLATE_PATH):
 
     if overflow_positions:
         names = ', '.join(p['name'] for p in overflow_positions)
+        # one position "is", two or more "are" (QA beta.5: "WALL went to
+        # the Overflow tab and are not in TOTALS")
+        verb = 'is' if len(overflow_positions) == 1 else 'are'
         warnings.append(
             f'The sheet holds {MAX_POSITIONS} positions; {names} went to the Overflow tab '
-            f'and are not in TOTALS or Spares.')
+            f'and {verb} not in TOTALS or Spares.')
     if any(i >= room for p in placed for i in range(len(p['rows']))):
         warnings.append(
             f'A position has more than {room} rows; the rest went to the Overflow tab '
