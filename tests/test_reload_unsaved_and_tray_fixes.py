@@ -6,8 +6,10 @@
     answer is kept on the server beside the project (never in it) and
     read back on load; a show a guide's recovery brought back reads
     unsaved across a reload too.
-  - A reload over the empty project the start page's X left opens like a
-    launch: a startup screen the X takes out again (it kept a Screen1).
+  - A launch over the empty project the start page's X left opens like
+    any launch: a startup screen the X takes out again (it kept a
+    Screen1). A reload of the same tab is not a launch since 2026-11-04
+    (test_reload_keeps_place.py).
   - A distro with multis in use and no output rows: its rows cover every
     multi in use (an older show opens with them filled in, the editor
     shows and builds on them), so + Add output never leaves a multi off
@@ -103,14 +105,17 @@ def test_unsaved_edits_survive_a_reload_and_new_open_recent_ask(e2e_server, pw_b
         _set_columns(pg, 9)
         assert _unsaved(pg) is True
         _settle_unsaved(pg, e2e_server, '1')
-        # the reload: the start page over the edited show, still unsaved
+        # the reload: the edited show, still unsaved (and no start page
+        # over it since 2026-11-04, test_reload_keeps_place.py)
         _reload(pg)
-        _wait_start(pg)
+        pg.wait_for_timeout(2500)
+        assert not _start_up(pg)
         assert pg.evaluate("() => [window.app.project.name, window.app.project.layers[0].columns]") \
             == ['Reload Show', 9]
         assert _unsaved(pg) is True
-        # New on the start page asks first; Cancel keeps the edits
-        pg.locator('#start-page-new').click()
+        # File > New asks first (the start page's New over a show is File
+        # > New); Cancel keeps the edits
+        _menu(pg, 'new')
         _asked(pg)
         _cancel(pg)
         assert pg.evaluate("() => window.app.project.layers[0].columns") == 9
@@ -193,9 +198,12 @@ def test_a_show_a_guide_brought_back_stays_unsaved_across_a_reload(e2e_server, p
             context.close()
 
 
-# ── a reload over the emptied launch project ──────────────────────────────
+# ── a launch over the emptied launch project ──────────────────────────────
+# A reload of the same tab keeps the project empty and shows no start page
+# (owner, 2026-11-04: tests/test_reload_keeps_place.py). A launch opens a
+# new browser tab, and that still opens as every launch does.
 
-def test_a_reload_over_the_emptied_project_opens_like_a_launch(e2e_server, pw_browser):
+def test_a_launch_over_the_emptied_project_opens_like_any_launch(e2e_server, pw_browser):
     _new_pristine_project(e2e_server)
     context = None
     try:
@@ -204,7 +212,12 @@ def test_a_reload_over_the_emptied_project_opens_like_a_launch(e2e_server, pw_br
         pg.locator('#start-page-close').click()
         pg.wait_for_function("() => window.app.project.layers.length === 0", timeout=10000)
         for _ in range(2):
-            _reload(pg)
+            pg.close()
+            pg = context.new_page()
+            pg.on('pageerror', lambda e: problems.append('pageerror: ' + str(e)))
+            Dialogs().route(pg)
+            pg.goto(e2e_server, wait_until='domcontentloaded')
+            pg.wait_for_function("() => !!(window.app && window.app._initialLoadComplete)", timeout=20000)
             _wait_start(pg)
             # a startup screen under the page, as at launch
             assert pg.evaluate("() => [window.app.project.layers.length,"
