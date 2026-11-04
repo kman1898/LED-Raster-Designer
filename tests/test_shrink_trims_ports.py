@@ -16,10 +16,14 @@ ruling, pinned here in a real browser:
 
 The walls are synthetic: 90 x 5 cabinets of 192 x 384 on NovaStar Armor at
 8-bit 60 Hz, eight cabinets to a port, walked tl-h, Organized, numbered
-Across. Every row cuts into eleven ports of eight and a leftover of two
-(columns 88-89), so row r holds ports 12r+1 .. 12r+12 and the leftovers are
-ports 12, 24, 36, 48 and 60. Cut to 85 columns, each row keeps ten ports of
-eight and a port of five (columns 80-84); the leftovers are gone.
+Across. A custom wall is drawn the way the show was: every row cut into
+eleven ports of eight and a leftover of two (columns 88-89), so row r
+holds ports 12r+1 .. 12r+12 and the leftovers are ports 12, 24, 36, 48 and
+60. Cut to 85 columns, each row keeps ten ports of eight and a port of
+five (columns 80-84); the leftovers are gone. (The automatic walk now
+stacks the leftovers of rows 0-3 into one port, the owner's ruling of
+2026-11-04, so an automatic wall has 57 ports: row 0's twelfth port is
+that stack, and every later number is three lower by row 4.)
 """
 
 import json
@@ -97,12 +101,20 @@ window.__shr = {
         layer.portLabelOverridesPrimary = {};
         layer.portLabelOverridesReturn = {};
         if (opts.custom) {
-            // Whole-screen custom, drawn the way the automatic walk had it.
-            const items = app.calculatePortAssignments(layer) || [];
+            // Whole-screen custom, drawn the way the show was: each row cut
+            // into runs of 8 from the left and its leftover of 2, numbered
+            // along the rows.
             const paths = {};
-            items.forEach(it => {
-                (paths[it.port] = paths[it.port] || []).push({ row: it.panel.row, col: it.panel.col });
-            });
+            let n = 0;
+            for (let row = 0; row < layer.rows; row++) {
+                for (let c = 0; c < layer.columns; c += 8) {
+                    n += 1;
+                    paths[n] = [];
+                    for (let col = c; col < Math.min(c + 8, layer.columns); col++) {
+                        paths[n].push({ row, col });
+                    }
+                }
+            }
             layer.lastFlowPattern = 'tl-h';
             layer.flowPattern = 'custom';
             layer.customPortPaths = paths;
@@ -698,7 +710,7 @@ def test_a_redraw_cleared_and_ended_hands_its_number_back(page):
     s = st(page, lid)
     assert s['overrides'] == []
     p = ports(page, lid)
-    assert sorted(p) == list(range(1, 61)), 'the numbers have a hole'
+    assert sorted(p) == list(range(1, 58)), 'the numbers have a hole'
     assert p == before, 'the cabinets went back where they were'
     assert s['pins'] == pins and server_pins(page) == pins
     assert s['historyAction'] == 'Return Port To Auto'
@@ -729,7 +741,7 @@ def test_the_names_and_cards_follow_the_cabinets_when_a_redraw_ends(page):
     _esc(page)
     s = st(page, lid)
     p = ports(page, lid)
-    assert sorted(p) == list(range(1, 61))
+    assert sorted(p) == list(range(1, 58))
     assert p[3] == before[2] and p[2] == before[3]
     assert s['overrides'] == [3]
     want = [[0, 100], [1, 102], [2, 101]] + pins[3:]
@@ -763,7 +775,7 @@ def test_an_empty_override_outside_a_redraw_closes_up_at_the_next_edit(page):
     page.wait_for_timeout(500)
     s = st(page, lid)
     assert s['overrides'] == []
-    assert sorted(ports(page, lid)) == list(range(1, 61))
+    assert sorted(ports(page, lid)) == list(range(1, 58))
     # the phantom's pin is released and the next one closes up onto it
     assert s['pins'] == [[1, 5], [2, 7]]
 
@@ -871,14 +883,14 @@ def _draw(page, lid, cells):
 
 
 def test_a_shrunk_screen_lets_go_of_the_pins_past_its_last_port(page):
-    """90 columns hold 60 ports, 85 hold 55: the pins on P56 and P60 are
-    released with the shrink, so the sockets the tray already showed free
-    are free (another screen taking them never meets a clash when this one
-    grows back). Undo puts them back with the columns; redo lets go
-    again."""
-    pins = [[10, 1], [54, 2], [55, 3], [59, 4]]
+    """90 columns hold 57 ports (the leftovers of rows 0-3 stacked into
+    one), 85 hold 55: the pins on P56 and P57 are released with the
+    shrink, so the sockets the tray already showed free are free (another
+    screen taking them never meets a clash when this one grows back).
+    Undo puts them back with the columns; redo lets go again."""
+    pins = [[10, 1], [54, 2], [55, 3], [56, 4]]
     lid = reset(page, pins=pins)
-    assert st(page, lid)['required'] == 60
+    assert st(page, lid)['required'] == 57
     type_columns(page, 85)
     _settled(page)
     s = st(page, lid)
@@ -900,7 +912,7 @@ def test_a_shrunk_screen_lets_go_of_the_pins_past_its_last_port(page):
 
 
 def test_a_grown_screen_keeps_every_pin(page):
-    pins = [[10, 1], [59, 4]]
+    pins = [[10, 1], [56, 4]]
     lid = reset(page, pins=pins)
     type_columns(page, 92)
     _settled(page)
@@ -967,8 +979,11 @@ def test_custom_ports_start_at_the_first_free_number(page):
 
 
 def test_custom_on_keeps_the_pins_of_ports_drawn(page):
-    """A drawing that comes back whole keeps every pin on its numbers."""
-    pins = [[0, 1], [11, 2], [59, 3]]
+    """A drawing that comes back whole keeps every pin on its numbers. (The
+    pins sit on numbers the automatic wall has as well: it is 57 ports, the
+    drawing 60, and the automatic commit lets go of a pin past its last
+    port.)"""
+    pins = [[0, 1], [11, 2], [56, 3]]
     lid = reset(page, custom=True, pins=pins)
     page.evaluate("""(id) => { const app = window.app, l = window.__shr.layer(id);
         l.flowPattern = 'tl-h'; app.updateLayers([l]); app.resetHistory('Auto Baseline'); }""", lid)

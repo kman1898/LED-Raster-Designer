@@ -662,10 +662,12 @@ def test_armor_max_capacity_is_selectable(page):
     # A 20-wide row reserves 4000x200 = 800,000 px against a 659,722 px port,
     # so Organized cannot fit a whole row. Since v1.5.4 it cuts the row into
     # ports of whole cabinets (16 fit: 3200x200 = 640,000 px) and the last
-    # takes the remainder; no port carries on onto the next row.
+    # takes the remainder; no port snakes on from mid-row. Since the owner's
+    # ruling of 2026-11-04 the two rows' remainders of 4 stack into one port
+    # (800x400 = 320,000 px), numbered after row 0's run.
     assert not org['error'], f"Organized errored on an over-wide row: {org['errorInfo']}"
-    assert [p['panels'] for p in org['ports']] == [16, 4, 16, 4]
-    assert [p['rectArea'] for p in org['ports']] == [640000, 160000, 640000, 160000]
+    assert [p['panels'] for p in org['ports']] == [16, 8, 16]
+    assert [p['rectArea'] for p in org['ports']] == [640000, 320000, 640000]
     assert_rect_fits(org, 'armor 2x20 organized')
     # Max Capacity splits mid-row and succeeds.
     assert not mx['error'], f"max-capacity unexpectedly errored: {mx['errorInfo']}"

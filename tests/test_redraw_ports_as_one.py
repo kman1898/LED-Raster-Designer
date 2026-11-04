@@ -24,8 +24,13 @@ keyboard events:
 The wall is synthetic (the show's shape, none of its data): 90 x 5 cabinets
 of 192 x 384 on NovaStar Legacy at 8-bit 60 Hz - eight cabinets to a port -
 walked tl-h, Organized, numbered Down. Each row cuts into eleven ports of
-eight and a leftover of two (columns 88-89); numbered down the stacks, the
-leftovers of rows 0-4 are ports 56-60 and the wall has 60 ports.
+eight and a leftover at the end; numbered down the stacks, the leftovers
+of rows 0-4 are ports 56-60 and the wall has 60 ports. The last cabinet of
+rows 1 and 3 (column 89) is hidden, so those rows' leftovers are one
+cabinet (column 88) and rows 0, 2 and 4 keep two: Organized stacks the
+leftovers of consecutive rows only where they sit in the same columns
+(the owner's ruling, 2026-11-04), and here no two do, so each stays a
+port of its own to be redrawn as one.
 """
 
 import os
@@ -82,6 +87,8 @@ window.__mrg = {
                 name: 'MergeWall',
                 columns: 90, rows: 5, cabinet_width: 192, cabinet_height: 384,
                 offset_x: 0, offset_y: 0,
+                // rows 1 and 3 end one cabinet short (see the docstring)
+                hiddenPanels: [{ row: 1, col: 89 }, { row: 3, col: 89 }],
             }),
         });
         app.project = await (await fetch('/api/project')).json();
@@ -266,7 +273,7 @@ def draw(page, cells):
     page.wait_for_timeout(200)
 
 
-LEFTOVERS = [[0, 88], [0, 89], [1, 89], [1, 88], [2, 88], [2, 89], [3, 89], [3, 88]]
+LEFTOVERS = [[0, 88], [0, 89], [1, 88], [2, 88], [2, 89], [3, 88]]
 
 
 def test_the_wall_is_what_the_rulings_describe(page):
@@ -274,7 +281,8 @@ def test_the_wall_is_what_the_rulings_describe(page):
     p = ports(page, lid)
     assert len(p) == 60 and st(page, lid)['required'] == 60
     assert all(len(p[n]) == 8 for n in range(1, 56))
-    assert [p[n] for n in range(56, 61)] == [[[r, 88], [r, 89]] for r in range(5)]
+    assert [p[n] for n in range(56, 61)] == [[[0, 88], [0, 89]], [[1, 88]], [[2, 88], [2, 89]],
+                                             [[3, 88]], [[4, 88], [4, 89]]]
 
 
 # ── picking ───────────────────────────────────────────────────────────────
@@ -284,7 +292,7 @@ def test_shift_click_picks_and_unpicks_runs(page):
     layer_before = page.evaluate(
         "(id) => window.__mrg.layer(id).screenNameOffsetXDataFlow || 0", lid)
     shift_click(page, 0, 88)
-    shift_click(page, 1, 89)
+    shift_click(page, 1, 88)
     assert st(page, lid)['picks'] == [56, 57]
     lit = page.evaluate("""(id) => [56, 57, 58].map(n => window.canvasRenderer._runUnderlayLit(
         window.__mrg.layer(id), n))""", lid)
@@ -386,13 +394,13 @@ def test_numbers_close_up_on_a_custom_screen(page):
     shift_click(page, 3, 88)
     assert redraw_as_one(page, 0, 88) == 'Redraw ports P56, P58, P59 as one'
     # on a custom screen the freed cabinets are simply unwired
-    draw(page, [[0, 88], [0, 89], [2, 88], [2, 89], [3, 88], [3, 89]])
+    draw(page, [[0, 88], [0, 89], [2, 88], [2, 89], [3, 88]])
     after = st(page, lid)
     assert after['session'] is None
     p = ports(page, lid)
-    assert p[56] == [[0, 88], [0, 89], [2, 88], [2, 89], [3, 88], [3, 89]]
+    assert p[56] == [[0, 88], [0, 89], [2, 88], [2, 89], [3, 88]]
     # 57 (row 1's leftover) keeps its number; 60 closes up to 58
-    assert p[57] == [[1, 88], [1, 89]]
+    assert p[57] == [[1, 88]]
     assert p[58] == [[4, 88], [4, 89]]
     assert sorted(p) == list(range(1, 59))
     assert after['required'] == 58
@@ -460,9 +468,9 @@ def test_picks_past_one_port_are_refused_before_anything_is_freed(page):
 
 def test_the_rectangle_around_the_picks_is_what_a_port_pays_for(page):
     """On Armor a port pays for the rectangle around its cabinets, the way
-    its badge and the "is full" toast weigh it. Ports 56 and 59 are four
+    its badge and the "is full" toast weigh it. Ports 56 and 59 are three
     cabinets in a 2 x 4 rectangle, eight cabinets' worth, which fits.
-    Ports 51 and 57 are ten cabinets, two past the port, and refused."""
+    Ports 51 and 57 are nine cabinets, one past the port, and refused."""
     lid = reset(page)
     base_ports = ports(page, lid)
     shift_click(page, 0, 88)
@@ -481,7 +489,7 @@ def test_the_rectangle_around_the_picks_is_what_a_port_pays_for(page):
     page.click('[data-action="ovr-merge"]')
     page.wait_for_timeout(300)
     e = errs(page)
-    assert e and e[-1].startswith('Ports P51, P57 hold 10 panels together, and one port takes 8 panels'), e
+    assert e and e[-1].startswith('Ports P51, P57 hold 9 panels together, and one port takes 8 panels'), e
     assert st(page, lid)['session'] is None
     assert ports(page, lid) == base_ports
 
@@ -508,24 +516,24 @@ def test_another_ports_cabinet_is_refused_and_enter_keeps_the_drawing(page):
     shift_click(page, 0, 88)
     shift_click(page, 1, 88)
     redraw_as_one(page, 0, 88)
-    draw(page, [[0, 88], [0, 89], [1, 89]])
-    assert ports(page, lid)[56] == [[0, 88], [0, 89], [1, 89]]
+    draw(page, [[0, 88], [0, 89]])
+    assert ports(page, lid)[56] == [[0, 88], [0, 89]]
     assert errs(page) == []
     # a cabinet another port carries is refused and named
     draw(page, [[2, 88]])
     e = errs(page)
     assert e and 'already wired' in e[-1], e
     assert st(page, lid)['session'] is not None, 'a refusal ended the redraw'
-    # Enter keeps the three; the fourth goes back to the walk
+    # Enter keeps the two; the third goes back to the walk
     page.keyboard.press('Enter')
     page.wait_for_timeout(300)
     after = st(page, lid)
     assert after['session'] is None
     assert after['historyAction'] == 'Redraw Ports As One'
     p = ports(page, lid)
-    assert p[56] == [[0, 88], [0, 89], [1, 89]]
+    assert p[56] == [[0, 88], [0, 89]]
     assert sorted(p) == list(range(1, 61))
-    assert sum(len(v) for v in p.values()) == 450
+    assert sum(len(v) for v in p.values()) == 448
 
 
 # ── Alt+drag picks, as Alt+drag sweeps circuits in Power ──────────────────
@@ -556,7 +564,7 @@ def alt_click(page, row, col):
 def test_alt_drag_picks_every_port_it_crosses(page):
     lid = reset(page)
     base_ports = ports(page, lid)
-    alt_drag(page, (0, 88), (3, 89))
+    alt_drag(page, (0, 88), (3, 88))
     s = st(page, lid)
     assert s['picks'] == [56, 57, 58, 59]
     # a pick, not a take-over: nothing was redrawn and nothing changed
@@ -718,7 +726,7 @@ def test_enter_on_a_half_drawn_redraw_says_where_the_leftovers_went(page):
     page.wait_for_timeout(300)
     assert st(page, lid)['session'] is None
     p = ports(page, lid)
-    took = sorted({n for n, cells in p.items() for c in cells if c in ([1, 88], [1, 89])})
+    took = sorted({n for n, cells in p.items() for c in cells if c == [1, 88]})
     assert took, p
     if len(took) == 1:
         where = 'port P%d' % took[0]
@@ -727,7 +735,7 @@ def test_enter_on_a_half_drawn_redraw_says_where_the_leftovers_went(page):
     else:
         where = 'ports ' + ', '.join('P%d' % n for n in took)
     assert notes(page)[-1] == ('Ports P56-P57 are now port P56. '
-                               '2 cabinets left over went to %s.' % where), notes(page)
+                               '1 cabinet left over went to %s.' % where), notes(page)
     assert errs(page) == []
 
 
@@ -739,17 +747,17 @@ def test_a_click_on_a_drawn_step_cuts_the_redraw_back(page):
     shift_click(page, 0, 88)
     shift_click(page, 1, 88)
     redraw_as_one(page, 0, 88)
-    draw(page, [[0, 88], [0, 89], [1, 89]])
+    draw(page, [[0, 88], [0, 89]])
     draw(page, [[0, 88]])
     assert ports(page, lid)[56] == [[0, 88]]
     assert st(page, lid)['session'] is not None
     ringed = page.evaluate("""(id) => window.app.mergeFreedPanels(window.__mrg.layer(id))
         .map(p => [p.row, p.col]).sort()""", lid)
-    assert ringed == [[0, 89], [1, 88], [1, 89]]
+    assert ringed == [[0, 89], [1, 88]]
     assert notes(page)[-1].startswith('Port P56 now ends at R1C89.'), notes(page)
-    draw(page, [[1, 88], [1, 89], [0, 89]])
+    draw(page, [[1, 88], [0, 89]])
     assert st(page, lid)['session'] is None, 'drawing every freed cabinet did not keep it'
-    assert ports(page, lid)[56] == [[0, 88], [1, 88], [1, 89], [0, 89]]
+    assert ports(page, lid)[56] == [[0, 88], [1, 88], [0, 89]]
     assert errs(page) == []
 
 
@@ -777,7 +785,7 @@ def test_picked_ports_offer_only_the_redraw_of_all_of_them(page):
     assert _redraw_entries(page, 0, 88) == ['Redraw port P56']
     shift_click(page, 1, 88)
     assert _redraw_entries(page, 0, 88) == ['Redraw ports P56-P57 as one']
-    assert _redraw_entries(page, 1, 89) == ['Redraw ports P56-P57 as one']
+    assert _redraw_entries(page, 1, 88) == ['Redraw ports P56-P57 as one']
     # the Alt+drag sweep's picks too
     page.evaluate("() => { window.app._portPicks = null; }")
     alt_drag(page, (0, 88), (2, 88))

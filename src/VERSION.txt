@@ -986,6 +986,14 @@ FIXES
   on its canvas that fits it, left to right and then top to bottom,
   instead of landing on top of the screen at the corner. On an empty
   canvas it still starts at the corner.
+- FIX: Picking a pattern while redrawing ports fills only the ports being
+  redrawn and no longer re-lays the whole screen. Redraw ports as one
+  also frees the right ports when a save lands while its menu is open.
+- FIX: Organized data fills the leftover ports at the end of each row as
+  fully as the port allows, stacking them across rows, so an 84 panel
+  row at 8 a port leaves one port of 8 for every two rows, not a port of
+  4 for each. Columns stack the same way. Hand drawn ports in a saved
+  show stay as drawn.
 
 v1.5.3 - October 21, 2026
 ----------------------------

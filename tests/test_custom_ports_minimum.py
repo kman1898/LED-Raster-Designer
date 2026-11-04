@@ -19,8 +19,15 @@ port:
   packs whole rows (or columns); a row longer than one port used to be a
   capacity error and 0 ports. It is now cut into ports of whole cabinets
   along the row, read from the pattern's start side (the way the custom
-  Apply Pattern fill has always cut a long line), and no port carries on
-  onto the next row. A row that fits maps exactly as before.
+  Apply Pattern fill has always cut a long line), and no port snakes on
+  from mid-row onto the next row. A row that fits maps exactly as before.
+
+* 2026-11-04, the same walls: Organized fills its ports "as much as
+  possible per the math". The leftovers at the end of consecutive cut
+  rows, in the same columns, stack into one port while it carries them:
+  the 2-wide leftovers of rows 0-3 are one port of 8 and row 4's is its
+  own, so the 90 x 5 wall is 57 ports, no longer 60
+  (test_organized_leftover_stacking.py pins the rule itself).
 
 Run locally:
     python -m pytest tests/test_custom_ports_minimum.py -v --browser chromium
@@ -203,6 +210,23 @@ window.__cpm = {
 """
 
 
+def _wide_cut(rows_in_order, cols, snake=True):
+    """The 90-wide wall's ports in walk order (Across): each line's eleven
+    runs of 8 from the start side, the leftovers of the first four lines
+    stacked into one port after the first line's runs (each line after
+    the first running back on a snake), the last line's leftover alone."""
+    runs = {r: [[[r, c] for c in cols[i:i + 8]] for i in range(0, 88, 8)] for r in rows_in_order}
+    stack = []
+    for i, r in enumerate(rows_in_order[:4]):
+        left = cols[88:]
+        stack.extend([r, c] for c in (left if (i % 2 == 0 or not snake) else left[::-1]))
+    out = runs[rows_in_order[0]] + [stack]
+    for r in rows_in_order[1:]:
+        out += runs[r]
+    out.append([[rows_in_order[-1], c] for c in cols[88:]])
+    return out
+
+
 def _port_map(page, opts):
     return page.evaluate("""(opts) => {
         const h = window.__cpm;
@@ -217,23 +241,22 @@ def _port_map(page, opts):
 @pytest.mark.parametrize("pattern,forward", [('tl-h', True), ('tr-h', False),
                                              ('bl-h', True), ('br-h', False)])
 def test_organized_splits_a_long_row_into_ports_of_eight(page, pattern, forward):
-    """90 wide at 8 a port: each row is 11 ports of 8 and one of 2, 12 a
-    row, 60 for the wall, each read from the pattern's start side, and no
-    port carries on onto the next row."""
+    """90 wide at 8 a port: each row is 11 ports of 8 read from the
+    pattern's start side, and the 2-wide leftovers of the first four rows
+    (in walk order) stack into one port of 8, the last row's alone: 57
+    ports. Only the stacked port spans rows."""
     got = _port_map(page, {'flowPattern': pattern})
     assert got['error'] is None, got['error']
-    assert got['auto'] == 60
+    assert got['auto'] == 57
     ports = got['ports']
-    assert len(ports) == 60
-    assert [len(p['cells']) for p in ports] == ([8] * 11 + [2]) * 5
+    assert len(ports) == 57
     for p in ports:
         assert p['rect'] <= got['capacity'], p
-        assert len({r for r, _ in p['cells']}) == 1, f"port {p['port']} spans rows"
     rows_in_order = [0, 1, 2, 3, 4] if pattern.startswith('t') else [4, 3, 2, 1, 0]
     cols = list(range(90)) if forward else list(range(89, -1, -1))
-    for i, row in enumerate(rows_in_order):
-        run = [c for p in ports[i * 12:(i + 1) * 12] for c in p['cells']]
-        assert run == [[row, c] for c in cols], f"row {row} read out of order"
+    assert [p['cells'] for p in ports] == _wide_cut(rows_in_order, cols)
+    spanning = [p for p in ports if len({r for r, _ in p['cells']}) > 1]
+    assert [len(p['cells']) for p in spanning] == [8]
 
 
 def test_vertical_first_on_the_same_wall_is_whole_columns(page):
@@ -250,15 +273,19 @@ def test_vertical_first_on_the_same_wall_is_whole_columns(page):
 def test_a_long_column_splits_the_same_way(page):
     """Vertical-first with columns longer than a port: 5 wide x 90 tall of
     384 x 192 cabinets. 659,722 px over 384 x 192 = 8 a port, so each
-    column is 11 ports of 8 and one of 2. Numbered Down (column by
-    column), port 1..12 are column 0 from the top."""
+    column is 11 ports of 8 and a leftover of 2; columns 0-3's leftovers
+    stack across the columns into one port. Numbered Down (column by
+    column), ports 1..11 are column 0 from the top and port 12 the
+    stacked leftovers."""
     got = _port_map(page, {'columns': 5, 'rows': 90, 'cabinet_width': 384,
                            'cabinet_height': 192, 'flowPattern': 'tl-v',
                            'portNumberOrder': 'down'})
     assert got['error'] is None
-    assert [len(p['cells']) for p in got['ports']] == ([8] * 11 + [2]) * 5
-    first = [c for p in got['ports'][:12] for c in p['cells']]
-    assert first == [[r, 0] for r in range(90)]
+    assert [len(p['cells']) for p in got['ports']] == [8] * 56 + [2]
+    first = [c for p in got['ports'][:11] for c in p['cells']]
+    assert first == [[r, 0] for r in range(88)]
+    assert got['ports'][11]['cells'] == [[88, 0], [89, 0], [89, 1], [88, 1],
+                                          [88, 2], [89, 2], [89, 3], [88, 3]]
 
 
 def test_rows_that_fit_map_exactly_as_before(page):
@@ -366,7 +393,7 @@ def test_owner_wall_with_twenty_ports_drawn_reads_the_minimum(page):
         # The drawn ports are still what the cards and labels count.
         assert r['drawn'] == 20 and r['portsRequiredField'] == 20, (mode, r)
         assert r['stillCustom'] == 'custom'
-    assert got['organized']['minimum'] == 60
+    assert got['organized']['minimum'] == 57
     assert got['max-capacity']['minimum'] == 58
 
 
@@ -374,9 +401,11 @@ def test_the_owner_shape_per_pattern_figures(page):
     """What every automatic walk gives on the 90 x 5 Armor wall of full
     192 x 384 cabinets, recorded as found. 8 cabinets a port (9 would
     reserve 663,552 px), so 450 / 8 rounds up to 57 at best. Organized cuts
-    each row 8 x 11 + 2; vertical-first is a whole column of 5 a port.
-    Max Capacity on a snake lets a row's last 2 carry on round the turn,
-    which the Z cannot, so the snake packs tighter."""
+    each row 8 x 11 + 2 and stacks four rows' leftovers into one port,
+    which reaches the 57 on the snake and the Z alike; vertical-first is a
+    whole column of 5 a port. Max Capacity on a snake lets a row's last 2
+    carry on round the turn, which the Z cannot, so the snake packs
+    tighter there."""
     got = page.evaluate("""() => {
         const h = window.__cpm, out = {};
         ['organized', 'max-capacity'].forEach(mode => {
@@ -389,7 +418,7 @@ def test_the_owner_shape_per_pattern_figures(page):
         return out;
     }""")
     assert got == {
-        'organized tl-h': 60, 'organized tl-h-z': 60,
+        'organized tl-h': 57, 'organized tl-h-z': 57,
         'organized tl-v': 90, 'organized tl-v-z': 90,
         'max-capacity tl-h': 58, 'max-capacity tl-h-z': 60,
         'max-capacity tl-v': 90, 'max-capacity tl-v-z': 90,
@@ -399,8 +428,10 @@ def test_the_owner_shape_per_pattern_figures(page):
 def test_a_half_height_last_row_cuts_at_its_own_size(page):
     """The same wall with its last row half tiles (192 x 192), the shape of
     the owner's show: 17 half tiles fit a port, so that row is 17 x 5 + 5,
-    6 ports, and the wall is 4 x 12 + 6 = 54 in Organized. Max Capacity
-    reads 52 on the snake."""
+    6 ports. The full rows are 4 x 11 and their four leftovers one stacked
+    port (the half row's 5 sit in other columns and stay apart), so the
+    wall is 44 + 1 + 6 = 51 in Organized. Max Capacity reads 52 on the
+    snake."""
     got = page.evaluate("""() => {
         const h = window.__cpm, out = {};
         ['organized', 'max-capacity'].forEach(mode => {
@@ -414,7 +445,7 @@ def test_a_half_height_last_row_cuts_at_its_own_size(page):
         });
         return out;
     }""")
-    assert got['organized'] == {'auto': 54, 'err': None, 'last': [17, 17, 17, 17, 17, 5]}
+    assert got['organized'] == {'auto': 51, 'err': None, 'last': [17, 17, 17, 17, 17, 5]}
     assert got['max-capacity']['auto'] == 52 and got['max-capacity']['err'] is None
 
 
@@ -441,7 +472,7 @@ def test_a_fully_drawn_custom_wall_reads_the_minimum_too(page):
         return out;
     }""")
     assert got['organized']['drawn'] == 90
-    assert got['organized']['shown'] == '60'
+    assert got['organized']['shown'] == '57'
     assert got['max-capacity']['drawn'] == 90
     assert got['max-capacity']['shown'] == str(got['max-capacity']['best'])
     assert got['max-capacity']['best'] < 90
@@ -477,13 +508,14 @@ def test_the_minimum_leaves_the_screens_own_walk_alone(page):
     }""")
     assert got['before'] == got['after']
     assert got['pattern'] == 'custom'
-    assert got['best'] == 60
+    assert got['best'] == 57
 
 
 def test_custom_apply_pattern_organized_splits_the_same_way(page):
     """The custom Apply Pattern fill in Organized cuts the owner's 90-wide
-    rows the way the automatic walk now does: 60 ports, 8 x 11 and 2 a row,
-    every row from the left."""
+    rows the way the automatic walk now does: 57 ports, 8 x 11 a row from
+    the left, four rows' leftovers stacked into one port and the last
+    row's alone."""
     got = page.evaluate("""() => {
         const h = window.__cpm;
         const s = h.screen({});
@@ -501,7 +533,7 @@ def test_custom_apply_pattern_organized_splits_the_same_way(page):
         });
     }""")
     assert got['selected'] == 450
-    assert [len(p) for p in got['drawn']] == ([8] * 11 + [2]) * 5
+    assert got['drawn'] == _wide_cut([0, 1, 2, 3, 4], list(range(90)))
     assert got['drawn'] == got['walked']
 
 
@@ -524,14 +556,16 @@ def _run(row, cols):
 
 def test_down_numbers_the_owner_wall_down_the_stacks(page):
     got = _port_map(page, {'portNumberOrder': 'down'})
-    assert got['error'] is None and got['auto'] == 60
+    assert got['error'] is None and got['auto'] == 57
     cells = _cells(got['ports'])
     for r in range(5):
         assert cells[r] == _run(r, range(8)), f"port {r + 1}"
     assert cells[5] == _run(0, range(8, 16))
     assert cells[6] == _run(1, range(8, 16))
-    # The last stack is the 2-cabinet remainder of every row.
-    assert cells[55:] == [_run(r, [88, 89]) for r in range(5)]
+    # The last stack is the 2-cabinet remainder of every row: rows 0-3's
+    # stacked into one port, numbered by its first cabinet, then row 4's.
+    assert cells[55:] == [_run(0, [88, 89]) + _run(1, [89, 88]) + _run(2, [88, 89])
+                          + _run(3, [89, 88]), _run(4, [88, 89])]
     # The same runs as Across, only numbered differently.
     across = _cells(_port_map(page, {})['ports'])
     assert sorted(map(str, cells)) == sorted(map(str, across))
@@ -542,7 +576,9 @@ def test_across_and_a_show_without_the_field_number_along_the_rows(page):
     across = _cells(_port_map(page, {'portNumberOrder': 'across'})['ports'])
     assert missing == across
     assert across[0] == _run(0, range(8)) and across[1] == _run(0, range(8, 16))
-    assert across[11] == _run(0, [88, 89]) and across[12] == _run(1, range(8))
+    # the stacked leftover comes where its first cabinet does, end of row 0
+    assert across[11][:2] == _run(0, [88, 89]) and len(across[11]) == 8
+    assert across[12] == _run(1, range(8))
     got = page.evaluate("""() => window.app.portNumberOrderOf(window.__cpm.screen({}))""")
     assert got == 'across'
 
@@ -708,10 +744,10 @@ def test_custom_apply_pattern_follows_the_switch(page):
             };
         });
     }""")
-    assert got['nums'] == list(range(1, 61))
+    assert got['nums'] == list(range(1, 58))
     assert got['drawn'] == got['walked']
     assert got['drawn'][1] == [[1, c] for c in range(8)]
-    assert got['active'] == 60
+    assert got['active'] == 57
 
 
 def test_the_scr_export_numbers_down_too(page):

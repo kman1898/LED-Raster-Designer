@@ -636,6 +636,52 @@ def stack_split_runs(runs):
     return out
 
 
+def stack_line_leftovers(runs, cells_of, along_of, join):
+    """The leftover at the end of each cut line stacks with the leftovers
+    of the lines after it (app-port-routing.js _stackLineLeftovers; the
+    owner's ruling, 2026-11-04). The last run of every line cut into two or
+    more, where the next line's last run sits in exactly the same columns
+    (rows, vertical first), is one port with it while `join(acc, next, n)`
+    says the port carries line n of the stack; None ends the stack. The
+    stacked run keeps the top line's 'split'. Edits `runs` in place and
+    returns how many runs were folded into others."""
+    cuts = {}
+    last = {}
+    for i, run in enumerate(runs):
+        info = run.get('split') if run else None
+        if not info:
+            continue
+        cuts[info['line']] = cuts.get(info['line'], 0) + 1
+        last[info['line']] = i
+    lines = sorted(line for line in last if cuts[line] > 1)
+
+    def span(run):
+        return tuple(sorted(along_of(c) for c in cells_of(run)))
+
+    folded = set()
+    k = 0
+    while k < len(lines):
+        at = last[lines[k]]
+        want = span(runs[at])
+        acc = runs[at]
+        n = 1
+        while k + n < len(lines) and lines[k + n] == lines[k] + n:
+            nxt_at = last[lines[k + n]]
+            if span(runs[nxt_at]) != want:
+                break
+            joined = join(acc, runs[nxt_at], n)
+            if joined is None:
+                break
+            acc = joined
+            folded.add(nxt_at)
+            n += 1
+        runs[at] = acc
+        k += n
+    if folded:
+        runs[:] = [r for i, r in enumerate(runs) if i not in folded]
+    return len(folded)
+
+
 # ── the port walk (app-export-io.js calculatePortAssignments) ────────────
 
 def calculate_port_assignments(layer, canvas_height=0, warnings=None):
@@ -657,6 +703,11 @@ def calculate_port_assignments(layer, canvas_height=0, warnings=None):
     port_capacity = calculate_port_capacity(
         bit_depth, frame_rate, processor_type, bool(layer.get('lowLatency')))
     pattern = layer.get('flowPattern') or 'tl-h'
+    if pattern == 'custom':
+        # The automatic pattern a custom screen remembers, as the app
+        # walks it (_portNumberPattern).
+        last = layer.get('lastFlowPattern')
+        pattern = last if last and last != 'custom' else 'tl-h'
     rect_constraint = uses_rectangle_constraint(processor_type)
     is_organized = mapping_mode == 'organized'
     is_horizontal_first = '-h' in str(pattern)
@@ -886,8 +937,9 @@ def calculate_port_assignments(layer, canvas_height=0, warnings=None):
             # (the owner's ruling, 2026-11-01): the port in hand closes, the
             # line is cut into ports of as many whole cabinets as fit, read
             # from the pattern's start side, and the last takes the
-            # remainder. None of them carries on onto the next line. Only a
-            # single cabinet bigger than a port is still an error.
+            # remainder. None of them snakes on from mid-line; the
+            # remainders alone stack after the walk (stack_line_leftovers).
+            # Only a single cabinet bigger than a port is still an error.
             if single_unit_load > capacity_for_units([unit_idx]):
                 if current['unitIndices']:
                     current['load'] = bounding_rect_load(current['unitIndices'])
@@ -914,6 +966,28 @@ def calculate_port_assignments(layer, canvas_height=0, warnings=None):
             ports = []
         elif current['load'] > 0 or current['unitIndices']:
             ports.append(current)
+        # The leftovers of consecutive cut lines in the same columns stack
+        # into one port while it carries them (stack_line_leftovers, the
+        # owner's ruling of 2026-11-04).
+        along_key = 'col' if is_horizontal_first else 'row'
+        snakes = not is_z_flow_pattern(pattern)
+
+        def join_leftovers(acc, nxt, n):
+            rect = acc['rect']
+            for p in nxt['panels']:
+                rect = _union_rect(rect, p)
+            load = _rect_area(rect) if rect_constraint else acc['load'] + nxt['load']
+            if load > capacity_for_rect(port_capacity, rect):
+                return None
+            back = snakes and n % 2 == 1
+            return {'panels': acc['panels'] + (nxt['panels'][::-1] if back else nxt['panels']),
+                    'rect': rect, 'load': load,
+                    'unitIndices': acc['unitIndices'] + nxt['unitIndices'],
+                    'split': acc['split']}
+
+        if ports:
+            stack_line_leftovers(ports, lambda run: run['panels'],
+                                 lambda p: _int(p.get(along_key)), join_leftovers)
         # The Port numbers switch: the runs cut from long lines keep their
         # cabinets and only change number (port_numbers_stack).
         if ports and port_numbers_stack(layer, is_horizontal_first):

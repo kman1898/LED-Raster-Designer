@@ -5,7 +5,7 @@
 // rows a figure is published for. Moved verbatim out of app-export-io.js and
 // attached to the prototype via the carrier class.
 import { LEDRasterApp } from './app-core.js';
-import { sendClientLog, isVerticalFlowPattern } from './helpers.js';
+import { sendClientLog, isVerticalFlowPattern, isZFlowPattern } from './helpers.js';
 
 class _PortRouting {
     // Does this cabinet carry NO data? Hidden, or the legacy `blank` flag -
@@ -171,7 +171,12 @@ class _PortRouting {
         const mappingMode = layer.portMappingMode || 'organized';
         const portCapacity = this.calculatePortCapacity(
             bitDepth, frameRate, processorType, !!layer.lowLatency);
-        const pattern = (opts && opts.pattern) || layer.flowPattern || 'tl-h';
+        // A custom screen walks the automatic pattern it remembers
+        // (_portNumberPattern): 'custom' has no corner or direction, and
+        // read as one it walked whole columns, so the automatic figure a
+        // custom screen fell back on (getLayerPortsRequired) counted a
+        // port a column on a wall whose pattern runs along the rows.
+        const pattern = (opts && opts.pattern) || this._portNumberPattern(layer);
         const usesRectangle = this.usesRectangleConstraint(processorType);
         // v0.11.0: honour the layer's Port Mapping mode on EVERY processor.
         // Rectangle-constraint processors (NovaStar Armor) used to be forced
@@ -609,9 +614,11 @@ class _PortRouting {
                 // to do 8 panels and then start a new port". The port in hand
                 // closes first, then the line is cut along its length into
                 // ports of as many whole cabinets as fit, and the last takes
-                // the remainder. None of those ports carries on onto the next
-                // line. Rows that fit are untouched, so every wall that mapped
-                // before maps exactly as it did.
+                // the remainder. No port snakes on from mid-line onto the
+                // next line; the remainders alone stack, below the walk
+                // (_stackLineLeftovers, the owner's ruling of 2026-11-04).
+                // Rows that fit are untouched, so every wall whose rows fit
+                // maps exactly as it did.
                 if (singleUnitLoad > capacityForUnits([unitIdx])) {
                     if (current.unitIndices.length > 0) {
                         current.load = calcBoundingRectLoad(current.unitIndices);
@@ -659,6 +666,31 @@ class _PortRouting {
 
             if (layer._capacityError) return [];
             if (current.load > 0 || current.unitIndices.length > 0) ports.push(current);
+            // v1.6.0: the leftover at the end of each cut line stacks with
+            // the leftovers of the lines after it (the owner's ruling,
+            // 2026-11-04: fill the ports "as much as possible per the
+            // math"). _stackLineLeftovers holds the rule; the capacity test
+            // is this walk's own.
+            const snakes = !isZFlowPattern(pattern);
+            this._stackLineLeftovers(ports, {
+                cellsOf: run => run.panels,
+                alongOf: isHorizontalFirst ? colOfPanel : rowOfPanel,
+                join: (acc, next, n) => {
+                    let rect = acc.rect;
+                    next.panels.forEach(p => { rect = unionRect(rect, p); });
+                    const load = usesRectangle ? rectArea(rect) : acc.load + next.load;
+                    if (load > capacityForRect(portCapacity, rect)) return null;
+                    // One cable through the block: each line after the
+                    // first runs back on a snake, from the start side on a Z.
+                    const back = snakes && n % 2 === 1;
+                    return {
+                        panels: acc.panels.concat(back ? next.panels.slice().reverse() : next.panels),
+                        rect, load,
+                        unitIndices: acc.unitIndices.concat(next.unitIndices),
+                        split: acc.split,
+                    };
+                },
+            });
             // `opts.stats.split` tells the Port numbers control whether it
             // has anything to number (updatePortNumberOrderControl).
             if (opts && opts.stats) opts.stats.split = ports.some(p => !!p.split);
@@ -986,6 +1018,66 @@ class _PortRouting {
             stackStarts.forEach((start, k) => { if (start <= i.pos) stack = k; });
             return stack;
         });
+    }
+
+    // The leftovers stack (the owner's ruling, 2026-11-04, on an 84-wide
+    // COEX wall at 8 cabinets a port: Organized fills its ports "as much as
+    // possible per the math"). Organized cuts a line too long for one port
+    // into runs of whole cabinets from the start side, and the last run of
+    // each cut line is what is left over (4 cabinets of 84 at 8 a port).
+    // Where the next line's leftover sits in the same columns (rows, on a
+    // vertical pattern) the two are one port when the port carries both,
+    // and so on down the lines for as many as it carries: 4 wide stacks two
+    // lines, 2 wide four, 3 wide two. The stacked port is a clean rectangle
+    // of whole lines' ends, one cable through it (`join` reads the lines
+    // back and forth on a snake); a full run never takes part and no run
+    // snakes on from mid-line. A half-height line stacks only where the
+    // port's own test passes for it (pixels, or the Armor / 1G rectangle),
+    // and only with a leftover in exactly the same columns.
+    //
+    // `runs` in flow order, a cut run carrying `split` { line, seg, pos };
+    // `cellsOf(run)` its cabinets, `alongOf(cell)` where one sits along its
+    // line, `join(acc, next, n)` the run of `acc` with line `n` of the
+    // stack (`next`) added, or null when the port cannot carry it. The
+    // stacked run keeps the top line's `split`, so the Port numbers switch
+    // numbers it by its first cabinet. Edits `runs` in place; the count of
+    // runs folded into others. The automatic walk and the custom Apply
+    // Pattern fill both stack here, so the two cannot drift apart;
+    // scr_project.py stack_line_leftovers is the same rule.
+    _stackLineLeftovers(runs, { cellsOf, alongOf, join }) {
+        const cuts = new Map();
+        const last = new Map();
+        runs.forEach((run, i) => {
+            const info = run && run.split;
+            if (!info) return;
+            cuts.set(info.line, (cuts.get(info.line) || 0) + 1);
+            last.set(info.line, i);
+        });
+        const lines = [...last.keys()].filter(l => cuts.get(l) > 1).sort((a, b) => a - b);
+        const span = run => cellsOf(run).map(alongOf).sort((a, b) => a - b).join(',');
+        const folded = new Set();
+        for (let k = 0; k < lines.length;) {
+            const at = last.get(lines[k]);
+            const want = span(runs[at]);
+            let acc = runs[at];
+            let n = 1;
+            while (k + n < lines.length && lines[k + n] === lines[k] + n) {
+                const nextAt = last.get(lines[k + n]);
+                if (span(runs[nextAt]) !== want) break;
+                const joined = join(acc, runs[nextAt], n);
+                if (!joined) break;
+                acc = joined;
+                folded.add(nextAt);
+                n += 1;
+            }
+            runs[at] = acc;
+            k += n;
+        }
+        if (folded.size) {
+            const kept = runs.filter((_, i) => !folded.has(i));
+            runs.splice(0, runs.length, ...kept);
+        }
+        return folded.size;
     }
 
     // Fold this layer's overridden ports into an automatic assignment, in the

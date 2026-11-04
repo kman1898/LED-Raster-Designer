@@ -1119,6 +1119,7 @@ class _Wiring {
                 // through here used to set flowPattern on the selection and
                 // its group - the screen silently left custom mode while
                 // the box stayed ticked (2026-10-16).
+                this._logPatternTile('data', pattern);
                 if (this.applyPatternTileInCustom('data', pattern)) {
                     this._dropPatternTileFocus(btn, e);
                     return;
@@ -1156,6 +1157,7 @@ class _Wiring {
             btn.addEventListener('click', (e) => {
                 const pattern = btn.getAttribute('data-pattern');
                 // Same rule as the data tiles above.
+                this._logPatternTile('power', pattern);
                 if (this.applyPatternTileInCustom('power', pattern)) {
                     this._dropPatternTileFocus(btn, e);
                     return;
