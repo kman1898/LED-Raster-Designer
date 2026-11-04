@@ -705,6 +705,9 @@ class _CanvasUi {
             // The routing switch describes the wall, and this is the same wall
             // arriving somewhere else (or again) - so it keeps its answer.
             if ('routeDataAsOne' in group) snapshot.routeDataAsOne = group.routeDataAsOne;
+            // A move keeps the wall's power answer; a duplicate is a new
+            // group and walks as one (decidePowerPerMemberOnOpen).
+            if ('powerPerMember' in group) snapshot.powerPerMember = group.powerPerMember;
             out.push(snapshot);
         });
         return out;
@@ -741,6 +744,7 @@ class _CanvasUi {
                 if (!group) {
                     group = { id: snapshot.id, name: snapshot.name, layer_ids: [] };
                     if ('routeDataAsOne' in snapshot) group.routeDataAsOne = snapshot.routeDataAsOne;
+                    if ('powerPerMember' in snapshot) group.powerPerMember = snapshot.powerPerMember;
                     this.project.groups.push(group);
                 }
                 group.layer_ids = members.map(m => m.id);
@@ -760,6 +764,7 @@ class _CanvasUi {
                 layer_ids: pairs.map(p => p.clone.id),
             };
             if ('routeDataAsOne' in snapshot) group.routeDataAsOne = snapshot.routeDataAsOne;
+            group.powerPerMember = false;
             this.project.groups.push(group);
             pairs.forEach(p => { p.clone.group_id = group.id; });
             this.remapCopiedLayerPaths(pairs);

@@ -504,6 +504,10 @@ FIXES
   XD A and B on an SX40, shows the cable sheet and gear buttons on its
   header. They open the primary box's sheet and settings. Before, you
   had to open the pair to reach them.
+- FIX: A box's cable list shows its backup ports' cables with the box
+  folded too, not only when it is open.
+- NEW: A processor's ≡ opens the cable list of every box on it at once,
+  folded or open.
 - FIX: Data cable tags show only the length, like 25'. With the connector
   on every tag, a wall of narrow columns had tags wider than a column, so
   they zig-zagged over and under the ports. They now sit in one row. The
@@ -917,6 +921,14 @@ FIXES
 - FIX: The processor tray counts primary ports only where backups ride
   along on their own: a looped XD pair with 9 primaries reads 9/10, not
   18/20.
+- FIX: A circuit drawn or redrawn on a grouped wall runs across its
+  screens the way it does on one screen, even when the screens sit on
+  different processor canvases. The wall's automatic circuits are
+  numbered as one, so the last column of one screen and the first column
+  of the next share a 2fer. A wall like this in an older show keeps its
+  circuits screen by screen when it is locked, or when a screen after the
+  first has circuits of its own plugged into a distro, labeled, cabled or
+  redrawn.
 - FIX: Clearing a distro's multis also forgets a cable length left on a
   circuit number the screen no longer has, so it can't come back on the
   next circuit to take that number.
