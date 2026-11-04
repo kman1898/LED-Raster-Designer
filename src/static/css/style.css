@@ -2699,6 +2699,10 @@ button.hw-dock-typechip:focus-visible { outline: 1px solid var(--ps-accent, #ef3
     background: var(--ps-dark, #1a1a1a); color: var(--ps-text, #e6e6e6);
     white-space: nowrap; line-height: 1.5;
 }
+/* a distro on the service with nothing connected: listed, not counted */
+.hw-dock-svc-chip.hw-dock-svc-chip-idle {
+    color: var(--ps-faint, #969696); border-style: dashed; background: transparent;
+}
 .hw-dock-svc-sum { white-space: nowrap; color: var(--ps-faint, #969696); }
 .hw-dock-svc-empty { color: var(--ps-faint, #969696); font-style: italic; }
 #hw-gear-popover .hw-pop-svc-row { justify-content: space-between; }

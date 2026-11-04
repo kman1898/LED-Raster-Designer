@@ -96,7 +96,8 @@ class _ProjectIo {
                 return new Blob([projectData], { type: 'application/json' });
             },
             `${this.project.name}.json`,
-            'application/json'
+            'application/json',
+            { save: true }
         );
         // Recent Files lists the show only once its file is written: a
         // cancelled or failed save leaves the list as it was. The path,
@@ -128,17 +129,72 @@ class _ProjectIo {
     // sets window.__lrdAskUnsaved = true, the rule the start page, the
     // guide and the startup picker keep: a test that opens one show after
     // another would otherwise stop at the question.
+    //
+    // A reload starts a new history, so the answer is also kept on the
+    // server (routes_project.py, POST /api/project/unsaved) whenever it
+    // changes, and the page load reads it back (loadProject): a show
+    // reloaded with unsaved edits has no saved entry in its new history
+    // (_unsavedCarried below), and reads unsaved until it is saved.
     markProjectClean() {
-        this._cleanHistoryEntry = Array.isArray(this.history)
-            ? (this.history[this.historyIndex] || null) : null;
+        if (this._unsavedCarried === true) {
+            // The load's own reset, over edits made before the reload.
+            this._unsavedCarried = false;
+            this._cleanHistoryEntry = null;
+        } else {
+            this._cleanHistoryEntry = Array.isArray(this.history)
+                ? (this.history[this.historyIndex] || null) : null;
+        }
+        this._noteUnsavedState();
+    }
+
+    _unsavedNow() {
+        if (!this.project) return false;
+        if (typeof this._isPristineStartupProject === 'function' && this._isPristineStartupProject()) return false;
+        if (!Array.isArray(this.history) || this.historyIndex < 0) return false;
+        return this.history[this.historyIndex] !== this._cleanHistoryEntry;
     }
 
     projectHasUnsavedChanges() {
-        if (!this.project) return false;
-        if (typeof this._isPristineStartupProject === 'function' && this._isPristineStartupProject()) return false;
         if (typeof this._flushPendingSaveState === 'function') this._flushPendingSaveState();
-        if (!Array.isArray(this.history) || this.historyIndex < 0) return false;
-        return this.history[this.historyIndex] !== this._cleanHistoryEntry;
+        return this._unsavedNow();
+    }
+
+    // Tell the server when the answer changed (history steps, undo, redo,
+    // a save, an open, a new project, the page going away). Nothing is
+    // said before the page's first load has read the server's answer: a
+    // step taken then would overwrite it with the boot's empty history.
+    // The posts go one at a time, each saying the answer as it stands
+    // when its turn comes, so two quick changes (a reset's step and its
+    // mark) can never land in the wrong order. Leaving the page says it
+    // at once (sendBeacon) when it differs from the last one sent.
+    _noteUnsavedState({ beacon = false } = {}) {
+        if (!this._initialLoadComplete) return;
+        if (beacon) {
+            const unsaved = this._unsavedNow();
+            if (unsaved === this._serverUnsaved || !navigator.sendBeacon) return;
+            this._serverUnsaved = unsaved;
+            navigator.sendBeacon('/api/project/unsaved',
+                new Blob([JSON.stringify({ unsaved })], { type: 'application/json' }));
+            return;
+        }
+        if (this._unsavedPostQueued) return;
+        this._unsavedPostQueued = true;
+        this._unsavedPost = (this._unsavedPost || Promise.resolve()).then(() => {
+            this._unsavedPostQueued = false;
+            const unsaved = this._unsavedNow();
+            if (unsaved === this._serverUnsaved) return null;
+            this._serverUnsaved = unsaved;
+            return fetch('/api/project/unsaved', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ unsaved }),
+            }).then(res => {
+                if (!res.ok) throw new Error(`answered ${res.status}`);
+            });
+        }).catch(error => {
+            // Not known to the server: the next change says it again.
+            this._serverUnsaved = undefined;
+            sendClientLog('project_unsaved_post_failed', { error: String(error && error.message || error) });
+        });
     }
 
     // Resolves true when the project may be replaced: nothing unsaved,
@@ -401,6 +457,13 @@ class _ProjectIo {
                         if (freed.notes.length && typeof this._toast === 'function') {
                             this._toast(freed.notes.join(' '), false, 8000);
                         }
+                    }
+                    // A distro with multis in use and no output rows
+                    // opens with the rows that cover them: no multi is
+                    // ever off its distro's face (app-distro-systems).
+                    if (typeof this.fillFacesInUseOnOpen === 'function'
+                            && this.fillFacesInUseOnOpen().length) {
+                        this._persistDistros();
                     }
                     // Sync the canvas's pixel/show raster backing fields from the
                     // loaded project so Show Look picks up the file's values

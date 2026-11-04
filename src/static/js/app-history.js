@@ -124,7 +124,8 @@ class _History {
             selectedLayers: this.selectedLayerIds ? [...this.selectedLayerIds] : [],
             currentLayerId: this.currentLayer ? this.currentLayer.id : null
         });
-
+        // The server keeps "unsaved" across a reload (app-project-io).
+        if (typeof this._noteUnsavedState === 'function') this._noteUnsavedState();
     }
 
     /**
@@ -222,6 +223,7 @@ class _History {
             // funnel's response would faithfully hand the un-undone drag
             // back for adoption. See _syncRestoredProject.
             this._syncRestoredProject(state, 'Undo');
+            if (typeof this._noteUnsavedState === 'function') this._noteUnsavedState();
         } else {
         }
     }
@@ -437,6 +439,7 @@ class _History {
             
             // Same sequenced sync-and-adopt as undo - see _syncRestoredProject.
             this._syncRestoredProject(state, 'Redo');
+            if (typeof this._noteUnsavedState === 'function') this._noteUnsavedState();
         } else {
         }
     }

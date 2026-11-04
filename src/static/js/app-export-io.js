@@ -977,8 +977,9 @@ class _ExportIo {
     // { saved, cancelled, path, how }. `path` is the file's absolute path
     // when the host's own dialog chose it, else null (the browser's picker
     // and a download never say where the file went). `how` is 'native',
-    // 'picker' or 'download'.
-    async saveBlobWithPicker(blobOrFn, filename, mimeType) {
+    // 'picker' or 'download'. `opts.save`: the file is the project itself
+    // (File > Save), and a cancel says "Save canceled", not "Export".
+    async saveBlobWithPicker(blobOrFn, filename, mimeType, opts = {}) {
         await this.ensureHostCapability();
         // Sanitize so a project name with "/" or other illegal chars doesn't
         // get rejected by showSaveFilePicker / OS file APIs.
@@ -1037,7 +1038,7 @@ class _ExportIo {
                 // The user said no. Stop - saving anyway ignores them.
                 sendClientLog('save_blob_native_dialog_cancelled', { filename });
                 if (typeof this._toast === 'function') {
-                    this._toast('Export canceled, nothing was saved.', false, 4000);
+                    this._toast(`${opts && opts.save ? 'Save' : 'Export'} canceled, nothing was saved.`, false, 4000);
                 }
                 return { saved: false, cancelled: true, path: null, how: 'native' };
             }

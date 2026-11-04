@@ -4427,10 +4427,25 @@ class _HardwareDock {
         const el = document.getElementById('status-message');
         if (!el) return;
         el.textContent = text;
+        this._dockSaid = text;
         clearTimeout(this._dockSayTimer);
         this._dockSayTimer = setTimeout(() => {
             el.textContent = 'Ready';
         }, 6000);
+    }
+
+    // The next drop starts with the strip clear: a refusal said before it
+    // is not about this drop, and it stood over a drop that went through
+    // until its timer ran out (QA 1.6.0). Only the dock's own sentence
+    // goes; anything else the strip says since is left.
+    _dockSayClear() {
+        const el = document.getElementById('status-message');
+        if (!el || !this._dockSaid) return;
+        if (el.textContent === this._dockSaid) {
+            clearTimeout(this._dockSayTimer);
+            el.textContent = 'Ready';
+        }
+        this._dockSaid = null;
     }
 }
 

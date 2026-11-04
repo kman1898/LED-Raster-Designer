@@ -65,7 +65,7 @@ def test_the_snapshot_is_a_copy_not_a_handle():
     mutations it exists to undo, and every one of these tests would pass
     while guarding nothing."""
     snapshot = _snapshot_project()
-    project, _next_id, prefs = snapshot
+    project, _next_id, prefs, _unsaved = snapshot
     assert project is not app_module.current_project
     if prefs is not None:
         assert prefs is not app_module.server_preferences

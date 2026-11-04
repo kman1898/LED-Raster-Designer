@@ -357,14 +357,21 @@ def _snapshot_project():
     # and every binder sheet after it printed that engineer's initials in
     # its revision row and his name in the overview's contents
     # (2026-09-11). Snapshotting the project alone left that behind.
+    # And the page's "unsaved" answer the server keeps beside the project
+    # (routes_project.py): a module that leaves an edited show behind
+    # must not hand the next one a page that reads unsaved.
+    import routes_project
     return (copy.deepcopy(app_module.current_project),
             app_module.next_layer_id,
-            copy.deepcopy(getattr(app_module, 'server_preferences', None)))
+            copy.deepcopy(getattr(app_module, 'server_preferences', None)),
+            routes_project.project_unsaved())
 
 
 def _restore_project(snapshot):
-    project, next_id, prefs = snapshot
+    project, next_id, prefs, unsaved = snapshot
     app_module.current_project, app_module.next_layer_id = project, next_id
+    import routes_project
+    routes_project.set_project_unsaved(unsaved)
     # save_preferences REASSIGNS app.server_preferences rather than mutating
     # it, so putting the old dict back is what restores it.
     if prefs is not None:

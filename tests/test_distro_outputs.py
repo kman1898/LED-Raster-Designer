@@ -442,7 +442,7 @@ def test_drag_preview_lights_exactly_what_the_drop_assigns(page):
     # read the same
     assert t['plug']['ok'] and t['plug']['boxName'] == 'PD1', mid
     assert mid['pill'] and mid['pill']['cls'] == '', mid
-    assert mid['pill']['text'] == 'PD1 → circuits 1–6 · 46 A', mid
+    assert mid['pill']['text'] == 'PD1 → circuits 1-6 · 46 A', mid
     # the release: the same multi, the same number, one entry
     st = pg.evaluate(POWER_STATE_JS, ids['aId'])
     assert st['distro'] == {'1': d}, st
@@ -460,7 +460,7 @@ def test_drag_preview_lights_exactly_what_the_drop_assigns(page):
     mid = drag(pg, sx, sy, tgt['x'], tgt['y'],
                mid_check=lambda p: p.evaluate(MID_JS, ids['aId']))
     assert mid['lit'] == [7, 8, 9, 10, 11, 12], mid
-    assert mid['pill']['text'] == 'PD2 → circuits 7–12 · 46 A', mid
+    assert mid['pill']['text'] == 'PD2 → circuits 7-12 · 46 A', mid
     st = pg.evaluate(POWER_STATE_JS, ids['aId'])
     assert st['distro'] == {'1': d, '2': d}, st
     second = next(s for s in st['plan'] if s['soca'] == 2)
@@ -523,7 +523,7 @@ def test_a_mismatched_connector_is_refused_with_the_fix(page):
     mid = drag(pg, sx, sy, tgt['x'], tgt['y'],
                mid_check=lambda p: p.evaluate(MID_JS, ids['bId']))
     assert mid['lit'] == [1, 2, 3], mid
-    assert mid['pill']['text'].startswith('PD1 → circuits 1–3 ·'), mid
+    assert mid['pill']['text'].startswith('PD1 → circuits 1-3 ·'), mid
     assert pg.evaluate(POWER_STATE_JS, ids['bId'])['distro'] == {'1': d}
     assert pg.evaluate(HIST_JS, 1) == ['Assign Multi Distro']
     # a Multi 208 onto a 120V screen on its DEFAULT breakout (nothing
@@ -667,7 +667,7 @@ def test_the_pill_warns_amber_past_the_rating_and_still_lands(page):
                mid_check=lambda p: p.evaluate(MID_JS, ids['aId']))
     assert mid['lit'] == [1, 2, 3, 4, 5, 6], mid
     assert mid['pill']['cls'] == 'hw-dock-pill-warn', mid
-    assert mid['pill']['text'].startswith('PD1 → circuits 1–6 · 46 A. '
+    assert mid['pill']['text'].startswith('PD1 → circuits 1-6 · 46 A. '
                                           'PD legs to '), mid
     # read against the main's continuous limit: 80% of 5 A on a US distro
     assert ' A of 4 A' in mid['pill']['text'], mid
@@ -1684,7 +1684,7 @@ def test_a_typed_spare_box_drags_as_its_plug(page):
     assert t['plug']['ok'] and t['plug']['boxName'] == 'PD1', mid
     assert t['plug']['badge'] == 'L21-30', mid
     assert mid['pill']['cls'] == '', mid
-    assert mid['pill']['text'].startswith('PD1 → circuits 1–3 · '), mid
+    assert mid['pill']['text'].startswith('PD1 → circuits 1-3 · '), mid
     st = pg.evaluate(POWER_STATE_JS, ids['bId'])
     assert st['distro'] == {'1': d} and st['num'] == {'1': 1}, st
     assert pg.evaluate(HIST_LEN_JS) == n + 1
@@ -1726,7 +1726,7 @@ def test_a_typed_spare_box_drags_as_its_plug(page):
                mid_check=lambda p: p.evaluate(MID_JS, ids['aId']))
     assert mid['target']['nums'] == [1, 2, 3, 4], mid
     assert mid['lit'] == [1, 2, 3, 4], mid
-    assert mid['pill']['text'].startswith('PD1 → circuits 1–4 · '), mid
+    assert mid['pill']['text'].startswith('PD1 → circuits 1-4 · '), mid
     st = pg.evaluate(POWER_STATE_JS, ids['aId'])
     first = next(s for s in st['plan'] if s['distroId'] == d)
     assert first['circuits'] == [1, 2, 3, 4] and first['number'] == 1, st
