@@ -820,16 +820,17 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 }
 .recent-file-date {
     font-size: 11px;
-    /* QA round 3: #666 on the menu's grey could hardly be read. The start
-       page's Recent detail colour, and the row's own text on hover. */
-    color: var(--ps-faint, #969696);
+    /* QA round 3: #666 on the menu's grey could hardly be read. The
+       secondary text colour (6:1 on the submenu), and the row's own text
+       on hover. */
+    color: var(--ps-dim, #c0c0c0);
     flex-shrink: 0;
 }
-.menu-option:hover .recent-file-date { color: inherit; }
+#recent-files-list .menu-option:hover .recent-file-date { color: inherit; }
 .recent-files-empty {
     padding: 6px 14px;
     font-size: 12px;
-    color: var(--ps-faint, #969696);
+    color: var(--ps-dim, #c0c0c0);
     font-style: italic;
 }
 
@@ -1890,7 +1891,9 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
    it carries the issues, and each section header carries its thing's name
    inline plus a ⚙ opening its configuration popover. */
 #hardware-dock .hw-dock-head {
-    display: flex; align-items: center; gap: 8px;
+    /* wraps in a narrow window rather than running the flag pill over
+       the processor picker (QA round 3, 800 px) */
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
     border-bottom: 1px solid #131313;
 }
 .hw-dock-ctl { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }

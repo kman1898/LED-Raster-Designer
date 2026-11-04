@@ -322,6 +322,10 @@ def _served(pg):
 def _save(pg):
     pg.locator('#preferences-save').click()
     pg.wait_for_timeout(600)
+    # A changed cable unit offers the open show the same unit (the app's
+    # own dialog since 1.6.0): No, as the browser's dialog left it.
+    if pg.locator('#cable-unit-offer-modal').count():
+        answer_app_dialog(pg, accept=False)
 
 
 # ── the dialog ────────────────────────────────────────────────────────────
