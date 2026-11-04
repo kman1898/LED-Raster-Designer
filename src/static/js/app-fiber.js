@@ -36,6 +36,14 @@ export const FIBER_COLORS = [
     ['Violet', '#7A3F9E'], ['Rose', '#E09BA8'], ['Aqua', '#5EBFC2'],
 ];
 
+// SINGLE MODE AND MULTIMODE (owner, 2026-11-04: "if the M variants are
+// selected then the fiber will be multimode yes"): a box's mode is its
+// catalog entry's fiberMode (the resolved box's `fiberMode`), stated only on
+// the NovaStar models whose sheets name both versions (CVT10-S / -M, CVT10
+// Pro-S / -M, CVT4K-S / -M). A cable's mode is its boxes'. The words are the
+// owner's; the server's twin is processor_catalog.FIBER_MODES.
+export const FIBER_MODE_WORDS = { single: 'Single mode', multi: 'Multimode' };
+
 // What the New TAC / New MTP step offers; any count may be typed.
 export const FIBER_STRAND_SUGGESTIONS = [4, 6, 8, 12, 24, 48];
 // A TAC's ends, offered; free text is taken too. An MTP names none.
@@ -127,27 +135,122 @@ class _Fiber {
                  'opticalcon-quad': 'opticalCON QUAD' }[kind] || 'Fiber';
     }
 
+    // ---- single mode and multimode ------------------------------------------
+
+    // 'Single mode' / 'Multimode' ('single mode' / 'multimode' mid
+    // sentence); '' for a mode nobody stated.
+    fiberModeWord(mode, lower = false) {
+        const word = FIBER_MODE_WORDS[mode] || '';
+        return lower ? word.toLowerCase() : word;
+    }
+
+    // A box's mode as the catalog states it: 'single', 'multi' or null.
+    boxFiberMode(box) {
+        const mode = box && box.fiberMode;
+        return FIBER_MODE_WORDS[mode] ? mode : null;
+    }
+
+    // The mode of the fiber a cable carries: its boxes' stated mode, else
+    // null. A cable never carries both (the server refuses it), so the
+    // first box in tray order with a mode says it - processor_catalog
+    // fiber_cable_mode.
+    fiberCableMode(cable) {
+        const id = cable && cable.id;
+        if (!id) return null;
+        for (const { box } of this._fiberAllBoxes()) {
+            const mode = this.boxFiberMode(box);
+            if (mode && Object.values(box.fiberLinks || {}).some(l => l && l.cable === id)) return mode;
+        }
+        return null;
+    }
+
+    // The first other box on `cable` whose stated mode is not `box`'s:
+    // { box, mode }, else null. A box with no mode clashes with nothing
+    // (processor_catalog fiber_cable_mode_clash).
+    fiberModeClash(box, cable) {
+        const mine = this.boxFiberMode(box);
+        const id = cable && cable.id;
+        if (!mine || !id) return null;
+        for (const { box: other } of this._fiberAllBoxes()) {
+            if (other.id === box.id) continue;
+            const theirs = this.boxFiberMode(other);
+            if (!theirs || theirs === mine) continue;
+            if (Object.values(other.fiberLinks || {}).some(l => l && l.cable === id)) {
+                return { box: other, mode: theirs };
+            }
+        }
+        return null;
+    }
+
+    // The refusal, word for word the server's (processor_catalog
+    // fiber_mode_refusal; a test pins the two together).
+    fiberModeRefusalText(cableName, title, mode, otherTitle, otherMode) {
+        return `${cableName} carries ${this.fiberModeWord(otherMode, true)} fiber to ${otherTitle}, `
+            + `and ${title} is a ${this.fiberModeWord(mode, true)} box. Single mode and multimode `
+            + 'never share a fiber cable.';
+    }
+
+    // Why `box` cannot take a link on `cable` for its mode, '' where it can.
+    fiberLinkModeRefusal(box, cable) {
+        const clash = this.fiberModeClash(box, cable);
+        if (!clash) return '';
+        const titleOf = (b) => b.displayTitle || b.name || b.deviceName || 'a box';
+        return this.fiberModeRefusalText(cable.name || 'That cable', titleOf(box),
+            this.boxFiberMode(box), titleOf(clash.box), clash.mode);
+    }
+
+    // The same for a link request's body (setFiberLink): the cable it
+    // names - or, for a backup link sent with no cable, its primary's,
+    // the cable the server would follow. '' for copper, an extension, a
+    // clear, or a cable no box of the other mode is on.
+    fiberLinkBodyModeRefusal(box, key, body) {
+        const b = body || {};
+        if ('copper' in b || ('extension' in b && !('cable' in b))) return '';
+        let id = b.cable;
+        if (!('cable' in b) && String(key || '').startsWith('b')) {
+            id = (((box && box.fiberLinks) || {})[`p${key.slice(1)}`] || {}).cable;
+        }
+        if (!id || typeof id !== 'string') return '';
+        const cable = this.getFiberCable(id);
+        return cable ? this.fiberLinkModeRefusal(box, cable) : '';
+    }
+
     // The pull sheet's words, and the binder's: "TAC 12 · ST", "MTP 24",
-    // "opticalCON QUAD" - the kind and its strand count, a TAC's ends.
+    // "opticalCON QUAD" - the kind and its strand count, a TAC's ends - and
+    // the mode of its fiber where its boxes state one: "TAC 12 · ST ·
+    // Single mode" (processor_catalog fiber_cable_type_text).
     fiberCableTypeText(cable) {
         if (!cable) return '';
-        if (!this.fiberCableIsStranded(cable)) return this.fiberKindWord(cable.kind);
+        const word = this.fiberModeWord(this.fiberCableMode(cable));
+        const tail = word ? ` · ${word}` : '';
+        if (!this.fiberCableIsStranded(cable)) return this.fiberKindWord(cable.kind) + tail;
         const conn = cable.kind === 'tac' ? String(cable.connector || '').trim() : '';
-        return `${this.fiberKindWord(cable.kind)} ${cable.strands}` + (conn ? ` · ${conn}` : '');
+        return `${this.fiberKindWord(cable.kind)} ${cable.strands}` + (conn ? ` · ${conn}` : '') + tail;
     }
 
     // The cable as a picker lists it: "TAC A · 12 · 1000' · ST", "MTP A ·
-    // 12 · 300'", "QUAD 1 · 50'".
+    // 12 · 300'", "QUAD 1 · 50'" - and its mode where its boxes state one,
+    // "TAC A · 12 · 1000' · ST · Single mode".
     fiberCableOptionText(cable) {
         if (!cable) return '';
         const parts = [cable.name || this.fiberKindWord(cable.kind)];
         if (this.fiberCableIsStranded(cable)) parts.push(String(cable.strands));
         const ft = this.parseCableLength(cable.ft);
-        if (ft !== null) parts.push(this.pullLengthText(ft));
+        if (ft !== null) parts.push(this.pullLengthText(ft, this.fiberStockKind(cable)));
         if (cable.kind === 'tac' && String(cable.connector || '').trim()) {
             parts.push(String(cable.connector).trim());
         }
+        const word = this.fiberModeWord(this.fiberCableMode(cable));
+        if (word) parts.push(word);
         return parts.join(' · ');
+    }
+
+    // Which list of the show's cable stock a fiber cable is pulled from:
+    // 'fiberSingle' or 'fiberMulti' by the mode of its fiber, null where
+    // its boxes state none (it is written as typed, as before).
+    fiberStockKind(cable) {
+        const mode = this.fiberCableMode(cable);
+        return mode === 'single' ? 'fiberSingle' : (mode === 'multi' ? 'fiberMulti' : null);
     }
 
     // ---- extensions at the box end ----------------------------------------
@@ -586,6 +689,15 @@ class _Fiber {
     setFiberLink(box, key, body, action = 'Set Fiber Link') {
         const url = this._fiberBoxUrl(box);
         if (!url) return Promise.resolve();
+        // A cable of the other mode is refused here, in the server's words
+        // (check_fiber_link), and never sent: the reason reads where a
+        // refusal reads and the picker snaps back to what is stored.
+        const why = this.fiberLinkBodyModeRefusal(box, key, body);
+        if (why) {
+            if (typeof this._toast === 'function') this._toast(why, true, 6000);
+            if (typeof this.renderProcessorPanel === 'function') this.renderProcessorPanel();
+            return Promise.resolve();
+        }
         return this._processorRequest(`${url}/fiber-links/${key}`, 'PUT', body, action);
     }
 

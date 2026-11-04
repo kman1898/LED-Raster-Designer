@@ -401,8 +401,8 @@ def test_a_box_at_its_beach_pulls_its_ports_rows_and_two_boxes_list_once(page):
     # delivers (WALL-A -> SR Beach); box B delivers nothing and is not listed
     no = _by_name(out['noLocation']['positions'])
     assert [p['name'] for p in out['noLocation']['positions']] == ['SR Beach', 'CENTER']
-    assert [r for r in _rows(no['SR Beach']['rows']) if r[0] == 'CVT10'] == [('CVT10', 'EA', 1, 'A', '')]
-    assert not [r for r in _rows(no['CENTER']['rows']) if r[0] == 'CVT10']
+    assert [r for r in _rows(no['SR Beach']['rows']) if r[0] == 'CVT10-S'] == [('CVT10-S', 'EA', 1, 'A', '')]
+    assert not [r for r in _rows(no['CENTER']['rows']) if r[0] == 'CVT10-S']
     assert out['knownBefore'] == [], 'a project with no beaches knows no location'
     # the beaches: two, in the order they were made, one spelling each
     sl_id, sr_id = out['sl'], out['sr']
@@ -420,12 +420,12 @@ def test_a_box_at_its_beach_pulls_its_ports_rows_and_two_boxes_list_once(page):
     # the beach's own
     assert pos['SR Beach']['memberIds'] == [ids['a'], ids['b']] and pos['SR Beach']['location'] == 'SR Beach'
     assert _rows(sl['rows']) == [
-        ('12 Tac Fiber', "250'", 1, 'CVT10 A', ''),
+        ('12 Tac Fiber', "250'", 1, 'CVT10-S A', ''),
         ('Cat6', "50'", 1, out['centerLabel'], ''),
         ('Cat6 Barrel', 'EA', 1, out['aLabel'], ''),
         ('Cat6 Extension', "10'", 1, out['aLabel'], f"ext · {out['snakeName']}"),
         ('Cat6 Snake', "100'", 1, 'SR-1, SR-2', f"{out['snakeName']} · 2 channel"),
-        ('CVT10', 'EA', 2, 'A, B', ''),
+        ('CVT10-S', 'EA', 2, 'A, B', ''),
         ('Data Jump', "1'", 9, 'WALL-A', ''),
         ('Data Jump', "1.5'", 4, 'CENTER', ''),
         ('Data Jump', "2'", 2, 'WALL-A', ''),
@@ -461,7 +461,7 @@ def test_a_box_at_its_beach_pulls_its_ports_rows_and_two_boxes_list_once(page):
     ]
     # the processor's hardware list carries both boxes' gear rows
     hw = {(h['kind'],): _rows(h['rows']) for h in out['located']['hardware'] if h['kind'] == 'processor'}
-    assert ('CVT10', 'EA', 2, 'A, B', '') in hw[('processor',)]
+    assert ('CVT10-S', 'EA', 2, 'A, B', '') in hw[('processor',)]
     # every location the project knows: the beach names, in beach order
     assert out['known'] == ['SL Beach', 'SR Beach']
     assert ids['errors'] == []

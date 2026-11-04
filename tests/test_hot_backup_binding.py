@@ -613,7 +613,7 @@ PAPER_JS = """async (ids) => {
         .rows.filter(r => r.cells).map(r => r.cells);
     return {
         ports: scr.ports.map(p => [p.box, p.backup && p.backup.box]),
-        boxes: list.totals.filter(r => r.type === 'CVT10').map(r => r.qty),
+        boxes: list.totals.filter(r => r.type === 'CVT10-S').map(r => r.qty),
         runs: list.totals.filter(r => /^(Cat6|etherCON)$/.test(r.type))
             .map(r => [r.length, r.qty]),
         redundancy: app._bRedundancyText(proc),
@@ -643,7 +643,7 @@ def test_the_paper_lists_the_loop_box_and_its_backup_runs(e2e_server,
         context.close()
     # every placed port has its backup end, on the OPT 3 box
     assert out['ports'], out
-    assert all(a == 'CVT10 A' and b == 'CVT10 C' for a, b in out['ports']), out
+    assert all(a == 'CVT10-S A' and b == 'CVT10-S C' for a, b in out['ports']), out
     # both boxes the screen reaches are pulled: the primary and its loop
     assert out['boxes'] == [2], out
     # primary runs and backup runs, the backup socket's typed 75'
@@ -651,8 +651,8 @@ def test_the_paper_lists_the_loop_box_and_its_backup_runs(e2e_server,
     assert sum(q for _l, q in out['runs']) == 2 * n, out
     assert ["75'", 1] in out['runs'], out
     assert out['redundancy'] == 'Backup boxes', out
-    assert any('CVT10 C backs up CVT10 A' in c for c in out['unitBackup']), out
+    assert any('CVT10-S C backs up CVT10-S A' in c for c in out['unitBackup']), out
     # the processor sheet: the backup box's own sockets by its own numbers,
     # the 75' on CVT10 C 1, and no 40' left over on the unit's own socket
-    assert ['CVT10 C 1', "75'"] in out['homeRuns'], out
+    assert ['CVT10-S C 1', "75'"] in out['homeRuns'], out
     assert not [r for r in out['homeRuns'] if r[1] == "40'"], out

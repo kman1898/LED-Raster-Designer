@@ -431,6 +431,16 @@ class _PullList {
             ? pieces.map(p => this.cableLengthText(p)) : null };
     }
 
+    // A fiber cable's length cell (pullCableLength): pulled from the
+    // show's single mode or multimode fiber list by the mode its boxes
+    // state (owner, 2026-11-04; app-fiber.js fiberStockKind), else as
+    // typed - a cable on boxes that state no mode, or a show with no
+    // fiber list.
+    _pullFiberCableLength(cable, ft) {
+        const kind = typeof this.fiberStockKind === 'function' ? this.fiberStockKind(cable) : null;
+        return kind ? this.pullCableLength(ft, kind) : { text: this.pullLengthText(ft), pieces: null };
+    }
+
     // Which stock a box's home run is pulled from (2026-10-21, a list per
     // cable kind): a DIRECT output's one cable 'direct', an L21-30 box's
     // 'l2130', a Harting box's 'harting', every other box's a multi's.
@@ -1495,8 +1505,10 @@ class _PullList {
                     } else {
                         const ft = this.parseCableLength(l.cable.ft);
                         const has = Number.isFinite(ft) && ft > 0;
-                        r = { type: this.fiberCableTypeText(l.cable), length: this.pullLengthText(ft),
+                        const len = this._pullFiberCableLength(l.cable, ft);
+                        r = { type: this.fiberCableTypeText(l.cable), length: len.text,
                               qty: 1, label: l.cable.name || '', notes: has ? '' : 'no length', side: 'data' };
+                        if (len.pieces) r._pieces = len.pieces.slice();
                     }
                     place(r);
                 }
@@ -2013,7 +2025,7 @@ class _PullList {
                     const r = l.copper ? row(...this._pullCopperCells(l), at) : (() => {
                         const ft = this.parseCableLength(l.cable.ft);
                         const has = Number.isFinite(ft) && ft > 0;
-                        return row(this.fiberCableTypeText(l.cable), this.pullLengthText(ft), 1,
+                        return row(this.fiberCableTypeText(l.cable), this._pullFiberCableLength(l.cable, ft), 1,
                                    l.cable.name || '', has ? '' : 'no length', at);
                     })();
                     saidOnce.set(key, r);

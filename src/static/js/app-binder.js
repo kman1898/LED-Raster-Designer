@@ -8888,7 +8888,7 @@ class _Binder {
         const ft = this.parseCableLength(cable.ft);
         return [`Strand map · ${cable.name || this.fiberKindWord(cable.kind)}`,
                 this.fiberCableTypeText(cable),
-                Number.isFinite(ft) && ft > 0 ? this.pullLengthText(ft) : 'no length']
+                Number.isFinite(ft) && ft > 0 ? this.pullLengthText(ft, this.fiberStockKind(cable)) : 'no length']
             .filter(Boolean).join(' · ');
     }
 

@@ -1956,6 +1956,11 @@ class _HardwareDock {
                 },
             },
         });
+        // Its fiber's mode, where the catalog states one (owner,
+        // 2026-11-04: "it should show Multi mode or single mode depending
+        // on which is selected"): "Single mode" / "Multimode" beside the
+        // model, on every row of the box but a continued one.
+        if (!(row && row.cont)) this._dockPlaceBoxModeTag(boxHead, cvt);
         // The box's ports no backup covers (owner, 2026-11-03): said on
         // its header, where its ports are (boxUnbackedText).
         const unbacked = !(row && (row.far || row.cont))
@@ -1998,6 +2003,28 @@ class _HardwareDock {
         }
         if (row && row.far) box.dataset.lrdLoopFar = cvt.id;
         return box;
+    }
+
+    // A box's fiber mode as a header tag - "Single mode" or "Multimode"
+    // (app-fiber.js fiberModeWord) - set right after the model text, or
+    // after the name where a row prints no model; nothing for a box whose
+    // catalog entry states no mode (none is inferred).
+    _dockPlaceBoxModeTag(head, box) {
+        const mode = typeof this.boxFiberMode === 'function' ? this.boxFiberMode(box) : null;
+        if (!mode) return null;
+        const tag = document.createElement('span');
+        tag.className = 'hw-dock-fiber-mode';
+        tag.dataset.lrdField = `box-fiber-mode-${box.id}`;
+        tag.dataset.fiberMode = mode;
+        tag.textContent = this.fiberModeWord(mode);
+        tag.title = `${box.deviceName || 'This box'} is a ${this.fiberModeWord(mode, true)} box: `
+            + `its fiber is ${this.fiberModeWord(mode, true)}. Single mode and multimode `
+            + 'never share a fiber cable.';
+        const after = head.querySelector('.hw-dock-unit-name, .hw-dock-name');
+        if (after) after.after(tag);
+        else head.insertBefore(tag, head.querySelector(
+            '.hw-dock-unit-use, .hw-dock-headbar, .hw-dock-unit-info') || null);
+        return tag;
     }
 
     // A port-by-port backup socket's hover: the port it backs up
@@ -2085,6 +2112,8 @@ class _HardwareDock {
             '.hw-dock-unit-use, .hw-dock-headbar, .hw-dock-unit-info');
         head.insertBefore(names, before || null);
         head.insertBefore(tag, before || null);
+        // the strip prints the near box's model, so its mode stands there
+        this._dockPlaceBoxModeTag(head, near);
         // Folded, the rows' ≡ and ⚙ are out of reach, so the header
         // carries them (owner, 2026-11-02): ONE pair, the near box's, since
         // a loop is one thing ("if backups then just the primary since

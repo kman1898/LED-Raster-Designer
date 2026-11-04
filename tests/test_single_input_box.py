@@ -109,7 +109,9 @@ def test_only_the_cvt4k_s_documents_one_input():
     """The no-assumptions rule: the option is the CVT4K-S's, read off its
     catalog entry, and no other box grows one."""
     with_it = [d['id'] for d in catalog.devices('cvt') if d.get('singleInput')]
-    assert with_it == [CVT4K], with_it
+    # and its multimode twin, the CVT4K-M, which behaves exactly as it
+    # does but for its fiber (owner, 2026-11-04)
+    assert with_it == [CVT4K, 'novastar-cvt4k-m'], with_it
     box = catalog.get_device(CVT4K)
     assert box['singleInput'] == {'ports': 8}
     assert catalog.trunks_in(box) == 2, 'trunks_in keeps the nameplate'
@@ -394,7 +396,7 @@ def test_the_box_fits_offer_a_cvt4k_s_on_the_one_trunk_left(page):
         .map(d => [d.id, d.name, d.addInputs || null, d.pickKey || null])""",
                        ids['card'])
     assert ['novastar-cvt4k-s', 'CVT4K-S (1 OPT)', 1, 'novastar-cvt4k-s:1'] in fits, fits
-    assert ['novastar-cvt10', 'CVT10', None, None] in fits, fits
+    assert ['novastar-cvt10', 'CVT10-S', None, None] in fits, fits
     # the gear's picker lists it under its own key
     assert pg.evaluate(OPEN_GEAR_JS, f"card-{ids['card']}")
     pg.wait_for_timeout(200)

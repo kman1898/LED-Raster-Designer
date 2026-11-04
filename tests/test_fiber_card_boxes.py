@@ -437,7 +437,7 @@ def test_a_fiber_card_picked_into_a_slot_opens_its_box_picker(page,
     if card_device == 'novastar-card-mx-1x40g':
         assert st['items'] == ['CVT8-5G'], st
     else:
-        assert 'CVT10' in st['items'], st
+        assert 'CVT10-S' in st['items'], st
     # closing it leaves the card with no ports - and no chip in the tray
     pg.keyboard.press('Escape')
     pg.wait_for_timeout(300)
