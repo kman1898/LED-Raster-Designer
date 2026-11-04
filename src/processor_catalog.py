@@ -2153,6 +2153,77 @@ BIDI_VENDORS = ('NovaStar', 'Megapixel')
 _FIBER_NAME_PREFIX = {'tac': 'TAC ', 'mtp': 'MTP ',
                       'opticalcon-duo': 'DUO ', 'opticalcon-quad': 'QUAD '}
 
+# SINGLE MODE AND MULTIMODE (owner, 2026-11-04: "We need to add single mode
+# and multi mode for the fiber. so 10-s and 10-m same with the pro models
+# and 4k ones. if the M variants are selected then the fiber will be
+# multimode yes"). A box's mode is its catalog entry's `fiberMode`, set only
+# on the NovaStar models whose sheets name both versions (CVT10-S / -M,
+# CVT10 Pro-S / -M, CVT4K-S / -M); every other box states none and none is
+# inferred. The words are the owner's: "Single mode" and "Multimode". The
+# JS twin is app-fiber.js FIBER_MODE_WORDS.
+FIBER_MODES = {'single': 'Single mode', 'multi': 'Multimode'}
+
+
+def box_fiber_mode(cvt_device):
+    """'single' or 'multi' where the box's catalog entry says which, else
+    None."""
+    mode = (cvt_device or {}).get('fiberMode')
+    return mode if mode in FIBER_MODES else None
+
+
+def fiber_mode_word(mode, lower=False):
+    """'Single mode' / 'Multimode' ('single mode' / 'multimode' mid
+    sentence); '' for a mode nobody stated."""
+    word = FIBER_MODES.get(mode, '')
+    return word.lower() if lower else word
+
+
+def fiber_mode_refusal(cable_name, title, mode, other_title, other_mode):
+    """Why a box of one mode cannot take a cable a box of the other mode is
+    on, said plainly. The JS twin is app-fiber.js fiberModeRefusalText; a
+    test pins that the two read the same."""
+    return (f'{cable_name} carries {fiber_mode_word(other_mode, True)} fiber '
+            f'to {other_title}, and {title} is a '
+            f'{fiber_mode_word(mode, True)} box. Single mode and multimode '
+            f'never share a fiber cable.')
+
+
+def fiber_cable_mode_clash(boxes, box_id, cable_id):
+    """The first box (in tree order) whose link is on `cable_id` and whose
+    mode is the other one from `box_id`'s - (entry, mode) - else None. A
+    box with no stated mode clashes with nothing, and nothing clashes with
+    it: no mode is inferred."""
+    entry = boxes.get(box_id)
+    if entry is None:
+        return None
+    mine = box_fiber_mode(get_device(entry['res'].get('deviceId')))
+    if not mine:
+        return None
+    for bid, other in sorted(boxes.items(), key=lambda kv: kv[1]['order']):
+        if bid == box_id:
+            continue
+        theirs = box_fiber_mode(get_device(other['res'].get('deviceId')))
+        if not theirs or theirs == mine:
+            continue
+        if any(link.get('cable') == cable_id
+               for link in resolved_fiber_links(other['raw']).values()):
+            return other, theirs
+    return None
+
+
+def fiber_cable_mode(boxes, cable_id):
+    """The mode of the fiber a cable carries: the stated mode of the boxes
+    whose links take it, else None (no box with a mode on it). Boxes of
+    both modes never share a cable (check_fiber_link refuses it), so the
+    first stated mode in tree order is the cable's."""
+    for _bid, entry in sorted(boxes.items(), key=lambda kv: kv[1]['order']):
+        mode = box_fiber_mode(get_device(entry['res'].get('deviceId')))
+        if mode and any(link.get('cable') == cable_id
+                        for link in resolved_fiber_links(entry['raw'])
+                        .values()):
+            return mode
+    return None
+
 
 def fiber_bidi_allowed(cvt_device):
     """Whether this box can run BiDi: its vendor is one BiDi is offered for,
@@ -2281,19 +2352,22 @@ def fiber_cable_strand_count(cable):
         else 0
 
 
-def fiber_cable_type_text(cable):
+def fiber_cable_type_text(cable, mode=None):
     """The pull sheet's words for a cable: "TAC 12 · ST", "MTP 24",
-    "opticalCON QUAD"."""
+    "opticalCON QUAD" - and the mode of the fiber where the boxes on it
+    state one (fiber_cable_mode): "TAC 12 · ST · Single mode"."""
     kind = (cable or {}).get('kind')
+    word = fiber_mode_word(mode)
+    tail = f' · {word}' if word else ''
     if kind == 'opticalcon-duo':
-        return 'opticalCON DUO'
+        return 'opticalCON DUO' + tail
     if kind == 'opticalcon-quad':
-        return 'opticalCON QUAD'
+        return 'opticalCON QUAD' + tail
     word = 'MTP' if kind == 'mtp' else 'TAC'
     text = f'{word} {fiber_cable_strand_count(cable)}'
     conn = ((cable or {}).get('connector') or '').strip() \
         if kind == 'tac' else ''
-    return f'{text} · {conn}' if conn else text
+    return (f'{text} · {conn}' if conn else text) + tail
 
 
 # A FIBER EXTENSION (owner, 2026-11-02: "MTP cant run direct to X1 for
@@ -2641,6 +2715,17 @@ def check_fiber_link(boxes, cables, box_id, key, cable_id, strands,
     if cable is None:
         return 'That fiber cable is not in this project.'
     name = cable.get('name') or 'That cable'
+    # SINGLE MODE AND MULTIMODE NEVER SHARE ONE CABLE: a multimode box (a
+    # CVT10-M) and a single mode box (a CVT10-S) cannot both take strands
+    # of one TAC, MTP or opticalCON, whichever is the backup. Refused, the
+    # way a rate that does not match is (can_add_cvt), and only where both
+    # boxes state a mode - none is inferred.
+    clash = fiber_cable_mode_clash(boxes, box_id, cable_id)
+    if clash:
+        other, other_mode = clash
+        return fiber_mode_refusal(
+            name, title, box_fiber_mode(device), fiber_box_title(other),
+            other_mode)
     if strands is None:
         return None
     if need is None:
@@ -3967,6 +4052,11 @@ def resolve_card(card, proc):
             'copperLinks': bool(cvt_device.get('copperLinks')),
             'bidi': bool(cvt.get('bidi')),
             'bidiAllowed': fiber_bidi_allowed(cvt_device),
+            # 'single' or 'multi' where the catalog says which fiber the
+            # box takes (a CVT10-S, a CVT10-M), else None: the tray, its
+            # sheet, the pull list and the binder say it, and a cable never
+            # carries both (check_fiber_link).
+            'fiberMode': box_fiber_mode(cvt_device),
             # Whether the main's backup unit feeds this box on its backup
             # input (_apply_backup_unit) - the rows X2, OPT 2, OPT 3-4.
             'backupInputs': False,

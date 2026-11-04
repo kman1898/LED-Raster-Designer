@@ -651,7 +651,7 @@ def test_the_box_picker_pulls_its_rows_to_its_beach(page):
     out = pg.evaluate(LIST_JS)
     pos = {p['name']: p for p in out['positions']}
     assert [p['name'] for p in out['positions']] == ['SR', 'SL', 'Video Village', 'SPARE']
-    assert ('CVT10', 'EA', 1, 'A', '') in _rows(pos['Video Village']['rows'])
+    assert ('CVT10-S', 'EA', 1, 'A', '') in _rows(pos['Video Village']['rows'])
     assert pos['Video Village']['key'] == f'beach:{vv}' and pos['Video Village']['memberIds'] == []
     # undo the pick: the box is back on SR (the resolved tree follows a round-trip)
     pg.evaluate('() => window.app.undo()')

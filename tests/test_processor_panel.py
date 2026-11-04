@@ -1221,7 +1221,7 @@ def test_the_same_card_falls_eight_short_on_cvt4k_s_and_says_so(client):
         'eight ports vanished with nothing said about it')
     assert card['shortfall']['delivered'] == 32
     assert card['shortfall']['ceiling'] == 40
-    assert 'CVT10' in card['shortfall']['reachesWith']
+    assert 'CVT10-S' in card['shortfall']['reachesWith']
     assert 'CVT4K-S' not in card['shortfall']['reachesWith'], (
         'the box that fell short was named as the fix')
 
@@ -1298,7 +1298,7 @@ def test_box_owned_ports_number_off_the_boxs_own_face_whoever_names_them(
         'the second box must read its own 1-8, not the card-wide 9-16')
     # The disambiguators: each box's resolved display name carries its
     # trunk letter, and each port says which local number it wears.
-    assert [c['displayTitle'] for c in card['cvts']] == ['CVT10 A', 'CVT10 B']
+    assert [c['displayTitle'] for c in card['cvts']] == ['CVT10-S A', 'CVT10-S B']
     assert [p['localNumber'] for p in card['ports'][:16]] == \
         list(range(1, 9)) * 2
 

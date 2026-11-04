@@ -17,9 +17,12 @@
 //     (routes_project new_project), and the pristine startup show takes it
 //     here, the way it takes the cable unit.
 import { LEDRasterApp } from './app-core.js';
-import { CABLE_UNITS, CABLE_STOCK_ALL, CABLE_STOCK_KINDS } from './app-cable-units.js';
+import { CABLE_UNITS, CABLE_STOCK_ALL, CABLE_STOCK_KINDS, CABLE_STOCK_FIBER } from './app-cable-units.js';
 
-const STOCK_LISTS = [CABLE_STOCK_ALL, ...CABLE_STOCK_KINDS];
+// The fiber lists (single mode, multimode) ride along: their rows show
+// whatever the per-kind switch says (data-cable-stock-fiber, not
+// data-cable-stock-list), because a fiber is never pulled from a copper list.
+const STOCK_LISTS = [CABLE_STOCK_ALL, ...CABLE_STOCK_KINDS, ...CABLE_STOCK_FIBER];
 
 class _CableStock {
 

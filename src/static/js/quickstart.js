@@ -3987,7 +3987,7 @@
             place: 'top', title: 'Add a breakout box',
             avoid: [function () { var c = card(); return c ? '[data-lrd-field="processor-cvt-add-' + c.id + '"]' : null; },
                     function () { var c = card(); var p = c && $('[data-lrd-field="processor-cvt-add-' + c.id + '"]'); return p ? p.nextElementSibling : null; }],
-            body: 'Behind the &#9881; over the processor&rsquo;s ports the picker lists only the boxes that fit its trunks. Pick a CVT10 and press +: the box appears in the tray with its ten sockets, numbered as its face reads.',
+            body: 'Behind the &#9881; over the processor&rsquo;s ports the picker lists only the boxes that fit its trunks. Pick a CVT10-S and press +: the box appears in the tray with its ten sockets, numbered as its face reads.',
             before: function () { switchView('data-flow'); closePopover(); },
             act: function (t) {
                 var c = card();
@@ -4036,6 +4036,42 @@
                     + (span ? ', ' + span + ' on its face' : '') + '; the picker offered ' + mem.offered + ' boxes that fit this unit.';
             },
             after: function () { closePopover(); }
+        },
+        // Single mode or multimode (1.6.0; owner, 2026-11-04: "We need to add
+        // single mode and multi mode for the fiber ... if the M variants are
+        // selected then the fiber will be multimode yes"). The CVT10 the
+        // step above added is the CVT10-S; its tray header says Single mode
+        // (app-dock.js _dockPlaceBoxModeTag). Nothing changes: the hand goes
+        // to the tag, and the check reads the picker's order off the same
+        // list the gear builds (_cardBoxFits).
+        fiberMode: {
+            since: '1.6.0',
+            target: function () { var b = box(); return b ? '[data-lrd-field="box-fiber-mode-' + b.id + '"]' : '#hardware-dock-body .hw-dock-fiber-mode'; },
+            place: 'top', title: 'Single mode or multimode',
+            body: 'NovaStar makes the CVT10, CVT10 Pro and CVT4K in single mode and multimode, and the picker lists the single mode boxes first. Each box says which on its header, and the two never share a fiber cable.',
+            before: function () { switchView('data-flow'); closePopover(); closeSheet(); },
+            act: function (t) {
+                var b = box();
+                if (!b) throw new Error('no breakout box on the processor');
+                var sel = '[data-lrd-field="box-fiber-mode-' + b.id + '"]';
+                return t.wait(function () { return $(sel); }, 6000).then(function (tag) {
+                    if (!tag) throw new Error('the box\'s header shows no fiber mode');
+                    return t.moveTo(tag);
+                }).then(function () { return t.pause(PACE.rest); });
+            },
+            check: function () {
+                var b = box(), c = card(), a = A();
+                if (!b || !c || a.boxFiberMode(b) !== 'single') return null;
+                if (!$('[data-lrd-field="box-fiber-mode-' + b.id + '"]')) return null;
+                var fits = a._cardBoxFits(c).filter(function (d) { return d.fiberMode; });
+                var singles = fits.filter(function (d) { return d.fiberMode === 'single'; }).map(function (d) { return d.name; });
+                var multis = fits.filter(function (d) { return d.fiberMode === 'multi'; }).map(function (d) { return d.name; });
+                var order = fits.map(function (d) { return d.fiberMode; }).join(' ');
+                if (!singles.length || !multis.length || order !== singles.map(function () { return 'single'; })
+                        .concat(multis.map(function () { return 'multi'; })).join(' ')) return null;
+                return (b.displayTitle || b.deviceName) + ' takes single mode fiber. The picker lists '
+                    + singles.join(', ') + ', then ' + multis.join(', ') + '.';
+            }
         },
         // Fiber to the box (2026-09-25: "after we get it all working we need
         // to add to advanced guide"): the CVT10 the step above added gets a
@@ -6189,7 +6225,7 @@
                     'nameProcessor', 'redundancy', 'backupProcessor', 'mixedRedundancy', 'cardNames', 'dropProcessor', 'releasePort', 'attachmentFlag', 'pinPort',
                     'clearPortByMenu', 'clearCard', 'dropProcessorAgain',
                     'snakePorts', 'cableSheet', 'snakeHomeRun', 'loosePortLength', 'dataJumpers', 'dataCableTags',
-                    'overrideRun', 'addBreakoutBox', 'boxFiber', 'fiberStrands', 'fiberExtension', 'panelWatts', 'panelInput', 'breakoutType',
+                    'overrideRun', 'addBreakoutBox', 'fiberMode', 'boxFiber', 'fiberStrands', 'fiberExtension', 'panelWatts', 'panelInput', 'breakoutType',
                     'addDistro', 'nameDistro',
                     'distroPhase', 'distroRating', 'distroMain', 'distroPreset', 'distroRows',
                     'dropMulti', 'clearCircuit', 'clearMultiByMenu', 'dropMultiAgain',

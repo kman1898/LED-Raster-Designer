@@ -6788,10 +6788,7 @@ class _Binder {
             }
             const cable = l.cable;
             let what = cable.name || this.fiberCableTypeText(cable);
-            if (cable.name && !typed.has(cable.id)) {
-                what += ` (${this.fiberCableIsStranded(cable)
-                    ? `${this.fiberKindWord(cable.kind)} ${cable.strands}` : this.fiberKindWord(cable.kind)})`;
-            }
+            if (cable.name && !typed.has(cable.id)) what += ` (${this.fiberCableShortKind(cable)})`;
             typed.add(cable.id);
             // in strand order, as the box's one-line summary lists them
             const set = [...new Set(((l.link && l.link.strands) || []).map(Number))]
@@ -8888,7 +8885,7 @@ class _Binder {
         const ft = this.parseCableLength(cable.ft);
         return [`Strand map · ${cable.name || this.fiberKindWord(cable.kind)}`,
                 this.fiberCableTypeText(cable),
-                Number.isFinite(ft) && ft > 0 ? this.pullLengthText(ft) : 'no length']
+                Number.isFinite(ft) && ft > 0 ? this.pullLengthText(ft, this.fiberStockKind(cable)) : 'no length']
             .filter(Boolean).join(' · ');
     }
 

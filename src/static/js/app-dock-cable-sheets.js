@@ -441,13 +441,15 @@ class _DockCableSheets {
         const live = new Set();
         if (!all) {
             (resolved || []).forEach(p => (p.slots || []).forEach(s => {
+                // the processor's own cable list (_dockBuildProcCableSheet)
+                live.add(`proc:${p.id}`);
                 if (!s.card) return;
                 live.add(`card:${s.card.id}`);
                 (s.card.cvts || []).forEach(c => live.add(`cvt:${c.id}`));
             }));
         }
         const patterns = [
-            [/^lrd_data_cable_sheet_(card|cvt)_(.+)$/, m => `${m[1]}:${m[2]}`],
+            [/^lrd_data_cable_sheet_(card|cvt|proc)_(.+)$/, m => `${m[1]}:${m[2]}`],
             [/^ledRasterPanelCollapsed_hwdock-(card|box)-(.+)$/,
              m => `${m[1] === 'box' ? 'cvt' : 'card'}:${m[2]}`],
         ];
@@ -669,7 +671,24 @@ class _DockCableSheets {
         // of one says the rest out loud: "+ 5, 6 on BOX B" under the name.
         // The number and the rows cannot disagree, because everything the
         // number counts is named on the row one way or the other.
+        // A row of ANOTHER box (`sheetOwner` - a loop's far box on its
+        // primary's folded sheet, _dockSheetPorts) is that box's own row:
+        // its keys, its ticks, its stored entry. `sheetCaption` names the
+        // box above its first row.
+        const sheetOwner = owner;
         ports.forEach(port => {
+            const owner = port.sheetOwner || sheetOwner;
+            if (port.sheetCaption) {
+                const cap = document.createElement('tr');
+                cap.className = 'hw-dock-cable-caption';
+                cap.dataset.lrdCableCaption = owner.id;
+                const td = document.createElement('td');
+                td.colSpan = 4;
+                td.className = 'hw-dock-cable-dim';
+                td.textContent = port.sheetCaption;
+                cap.appendChild(td);
+                table.appendChild(cap);
+            }
             const n = port.number;
             const spoken = port.localNumber || n;
             // A box backing up its own outputs: the backup output's row
@@ -813,6 +832,10 @@ class _DockCableSheets {
             tr.appendChild(runCell(snake ? 'ext' : '', ft));
             table.appendChild(tr);
         });
+        // The fills below write the sheet's own record only, as they always
+        // have: another box's rows are typed one by one, or filled from
+        // that box's own sheet.
+        const ownPorts = ports.filter(p => !p.sheetOwner);
 
         // With ticked: Snake / Unsnake. Quick fill: all 100' / none. On
         // TOP of the sheet, before the rows ("move snake and quick fill
@@ -893,7 +916,7 @@ class _DockCableSheets {
             `Every ticked port on this ${this.unitWordForCard(owner.cardId)} or box gets the typed length: `
             + 'a loose port as its home run, a snaked port as its extension. '
             + 'One undo step.',
-            (ft) => this.fillTickedPortCables(owner, ft, ports).then(after));
+            (ft) => this.fillTickedPortCables(owner, ft, ownPorts).then(after));
         const sp = document.createElement('span');
         sp.style.flex = '1';
         quick.appendChild(sp);
@@ -904,11 +927,11 @@ class _DockCableSheets {
         fills.appendChild(button(`all ${this.cableLengthText(fillFt)}`, `data-cable-fill-${owner.id}-${fillFt}`,
             `Every loose port here gets a ${this.cableLengthWords(fillFt)} home run; snakes keep `
             + 'theirs. One undo step.',
-            () => this.fillPortCables(owner, fillFt, ports).then(after)));
+            () => this.fillPortCables(owner, fillFt, ownPorts).then(after)));
         fills.appendChild(button('none', `data-cable-fill-${owner.id}-none`,
             'Every loose port here forgets its cable; snakes keep theirs. '
             + 'One undo step.',
-            () => this.fillPortCables(owner, null, ports).then(after)));
+            () => this.fillPortCables(owner, null, ownPorts).then(after)));
         // ...and a length of the user's own, the loose ports' fill with
         // the typed length ("this should just be for extensions for
         // individual ports or circuits", 2026-09-24): snakes keep theirs,
@@ -916,7 +939,7 @@ class _DockCableSheets {
         this._cableQuickAny(fills, `data-cable-fill-any-${owner.id}`, 'all',
             'Every loose port here gets the typed length as its home run; '
             + 'snakes keep theirs. One undo step.',
-            (ft) => this.fillPortCables(owner, ft, ports).then(after));
+            (ft) => this.fillPortCables(owner, ft, ownPorts).then(after));
         // A box's fiber is the sheet's FIRST block, above the quick fills
         // and the ports (2026-09-25) - a fact of the box, not of a port, so
         // the fills below it never reach it.
@@ -1010,6 +1033,20 @@ class _DockCableSheets {
                 `Fiber · ${titleOf(box)}${tag}${loop ? ` (${loop})` : ''}`));
         }
         const members = pair ? [...pair.nears, ...pair.fars] : [box];
+        // The fiber's mode where the boxes state one (owner, 2026-11-04):
+        // "Single mode" / "Multimode" after the caption - each box's own
+        // where a pair's boxes differ.
+        const modes = members.map(m => this.boxFiberMode(m));
+        if (modes.some(Boolean)) {
+            const same = modes.every(md => md === modes[0]);
+            const words = same ? this.fiberModeWord(modes[0])
+                : members.map((m, i) => (modes[i] ? `${titleOf(m)} ${this.fiberModeWord(modes[i])}` : ''))
+                    .filter(Boolean).join(', ');
+            const tag = text('hw-dock-fiber-mode', words);
+            tag.dataset.lrdField = `fiber-mode-${box.id}`;
+            tag.title = 'The fiber this box takes. Single mode and multimode never share a fiber cable.';
+            head.appendChild(tag);
+        }
         members.forEach(m => {
             if (!m.bidiAllowed) return;
             const lab = document.createElement('label');

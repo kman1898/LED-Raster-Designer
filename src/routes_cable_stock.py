@@ -17,12 +17,17 @@ its own; a file that is not JSON is moved aside
 overwritten.
 
 A stock is { perKind, ft: {all, multi, data, circuit, l2130, harting,
-direct, feeder}, m: {...} }: one shared list, or a list per kind of cable,
+direct, feeder, fiberSingle, fiberMulti}, m: {...} }: one shared list, or a list per kind of cable,
 in feet and in meters. Each list is lengths, ascending, once each. The
 L21-30, Harting, direct-output and feeder lists came on 2026-10-21; a preset
 saved before then has none, and reads the L21-30 and Harting lists from its
 multi list and the direct-output list from its circuit list (FALLBACK), the
 lists those cables were pulled from then.
+
+FIBER (owner, 2026-11-04: single mode and multimode NovaStar boxes): two
+more lists, fiberSingle and fiberMulti - a TAC, MTP or opticalCON is pulled
+from the list of its boxes' mode. They are their own lists whatever perKind
+says, and a stock saved before them has none: its fiber is written as typed.
 """
 import json
 import os
@@ -48,9 +53,10 @@ MAX_LENGTH = 100000       # past any cable a show pulls
 MAX_BODY = 16 * 1024
 
 # Mirrors app-cable-units.js CABLE_UNITS / CABLE_STOCK_ALL / CABLE_STOCK_KINDS
-# / CABLE_STOCK_FALLBACK.
+# / CABLE_STOCK_FIBER / CABLE_STOCK_FALLBACK.
 UNITS = ('ft', 'm')
-LISTS = ('all', 'multi', 'data', 'circuit', 'l2130', 'harting', 'direct', 'feeder')
+LISTS = ('all', 'multi', 'data', 'circuit', 'l2130', 'harting', 'direct', 'feeder',
+         'fiberSingle', 'fiberMulti')
 FALLBACK = {'l2130': 'multi', 'harting': 'multi', 'direct': 'circuit'}
 
 _lock = threading.Lock()

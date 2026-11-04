@@ -57,7 +57,7 @@ def test_a_box_landing_on_a_backup_trunk_gets_no_pair(client):
                             json={'deviceId': CVT4KS}))
     boxes = _boxes(state, cid)
     assert [b['displayTitle'] for b in boxes] == [
-        'CVT10 A', 'CVT10 B', 'CVT4K-S C-D', 'CVT4K-S E-F'], boxes
+        'CVT10-S A', 'CVT10-S B', 'CVT4K-S C-D', 'CVT4K-S E-F'], boxes
     # the new box is a backup by where it landed, and nothing backs it up
     assert boxes[-1]['copyRole'] == 'backup'
     assert not any(b.get('backupOf') == boxes[-1]['id'] for b in boxes)

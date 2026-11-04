@@ -360,7 +360,7 @@ def test_a_card_whose_boxes_cannot_reach_its_ceiling_says_so_here_too(client):
     assert by_name(res, 'Main')['unplaced'] == list(range(32, 40))
     short = issue(res, 'card-short-of-its-ceiling')
     assert short['delivered'] == 32 and short['capacity'] == 40
-    assert 'CVT10' in short['message']
+    assert 'CVT10-S' in short['message']
 
 
 def test_a_half_patched_card_is_not_flagged_on_the_dock_strip(client):

@@ -140,7 +140,9 @@ def test_shared_window_runs_are_the_known_ones(page):
         keys = page.evaluate("(v) => window.QuickStart.newSteps(v, null)", after)
         assert _runs(page, keys) == want, after
     keys = page.evaluate("() => window.QuickStart.newSteps('1.5.2', null)")
-    assert keys[10:12] == ['jumperNames', 'pullPanels'], keys
+    # the owner's steps 11 and 12, one place on since the Single mode or
+    # multimode step (1.6.0) came in ahead of them
+    assert keys[11:13] == ['jumperNames', 'pullPanels'], keys
     assert page.evaluate("() => window.QuickStart.windowsOf('jumperNames')") == ['export:pull-sheet']
 
 
@@ -312,7 +314,7 @@ def test_whats_new_keeps_shared_windows_up(page, after):
     missing = _run_pairs(WHATS_NEW_RUNS[after]) - held
     assert not missing, f"no window was up to hold for {sorted(missing)}"
     if after == '1.5.2':
-        assert ('jumperNames', 'pullPanels') in held and keys.index('jumperNames') == 10
+        assert ('jumperNames', 'pullPanels') in held and keys.index('jumperNames') == 11
     assert not problems, "\n".join(problems)
 
 
