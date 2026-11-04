@@ -1409,9 +1409,37 @@ class _HardwareDock {
         // for it. The loose grid the sheet stands in for stays inside the
         // fold.
         const cardSheetUp = !!loose.length && this._dataCableSheetOpen(cardOwner);
+        // The unit's own ports backed up on a copy OPT (drawn below as loop
+        // rows): which row of each backup box carries its ≡ is settled
+        // here, before the sheet, since a folded card's sheet lists those
+        // backup rows too (_dockSheetPorts) - folded, the card's ≡ is the
+        // only way to them.
+        const shared = new Set();
+        const ownRows = !loose.length ? [] : this.boxLoopSlices(null, cvts).map(s => {
+            // a straddling box has its own row: here it is its name only
+            const cont = shared.has(s.box.id) || this.boxStraddles(s.box);
+            shared.add(s.box.id);
+            return { ...s, cont };
+        });
+        let cardFolded = false;
+        try {
+            cardFolded = localStorage.getItem(
+                `ledRasterPanelCollapsed_hwdock-card-${card.id}`) === '1';
+        } catch (_) { /* no storage */ }
+        const ownSheetOut = cardSheetUp && cardFolded
+            && ownRows.some(s => !s.cont);
         if (cardSheetUp) {
             unit.classList.add('hw-dock-sheet-up');
-            unit.appendChild(this._dockBuildDataCableSheet(cardOwner, loose));
+            unit.appendChild(this._dockBuildDataCableSheet(cardOwner, ownSheetOut
+                ? this._dockSheetPorts(proc, card, null, ownRows, loose) : loose));
+            // a flip of the fold redraws, so the backup rows come and go
+            if (ownRows.some(s => !s.cont)) {
+                new MutationObserver((_, obs) => {
+                    if (unit.classList.contains('lrd-sec-collapsed') === cardFolded) return;
+                    obs.disconnect();
+                    if (unit.isConnected) this.renderHardwareDock();
+                }).observe(unit, { attributes: true, attributeFilter: ['class'] });
+            }
         } else if (card.linkHost && this._dataCableSheetOpen(cardOwner)) {
             // A link-host card's sheet: its Fiber section alone, above
             // its boxes (which keep drawing - the sheet names no port).
@@ -1441,18 +1469,15 @@ class _HardwareDock {
         // ports of backup/copy"): the backup box's sockets behind them are
         // their loop end, drawn as loop rows right under the unit's own
         // ports, each socket numbered with the port it backs up.
-        const shared = new Set();
-        const ownSlices = this.boxLoopSlices(null, cvts);
-        if (loose.length && ownSlices.length) {
+        // (Their rows' `cont` was settled above, with `shared`.)
+        if (ownRows.length) {
             const own = document.createElement('div');
             own.className = 'hw-dock-loop-own';
             own.dataset.lrdLoopOwn = card.id;
-            ownSlices.forEach(s => {
-                // a straddling box has its own row: here it is its name only
-                const cont = shared.has(s.box.id) || this.boxStraddles(s.box);
+            ownRows.forEach(s => {
                 own.appendChild(this._dockBuildBox(proc, card, s.box,
-                    { far: true, ports: s.ports, cont: cont ? card.id : null }));
-                shared.add(s.box.id);
+                    { far: true, ports: s.ports, cont: s.cont ? card.id : null,
+                      sheetOut: ownSheetOut }));
             });
             unitBody.appendChild(own);
         }
@@ -2030,10 +2055,14 @@ class _HardwareDock {
         const foldKey = `ledRasterPanelCollapsed_hwdock-box-${near.id}`;
         let folded = false;
         try { folded = localStorage.getItem(foldKey) === '1'; } catch (_) { /* no storage */ }
+        // Folded, that one ≡ is the only way to the backup rows too, so its
+        // sheet lists them under the primary's (owner, 2026-11-04: "it only
+        // shows the primary"): the same rows the open strip's own ≡ list.
         const sheetOut = folded && this._dataCableSheetOpen(nearOwner);
         if (sheetOut) {
             strip.appendChild(this._dockBuildDataCableSheet(
-                nearOwner, this.boxSheetPorts(near)));
+                nearOwner, this._dockSheetPorts(proc, card, near, slices,
+                                                this.boxSheetPorts(near))));
         }
         if (this._dataCableSheetOpen(nearOwner)) {
             new MutationObserver((_, obs) => {
@@ -2046,9 +2075,34 @@ class _HardwareDock {
                                            `hwdock-box-${near.id}`);
         body.appendChild(this._dockBuildBox(proc, card, near,
                                             { far: false, sheetOut }));
+        // ...where the folded sheet carries their rows, the hidden rows draw
+        // no second sheet of their own
         slices.forEach(s => body.appendChild(this._dockBuildBox(proc, card, s.box,
-            { far: true, ports: s.ports, cont: s.cont ? near.id : null })));
+            { far: true, ports: s.ports, cont: s.cont ? near.id : null, sheetOut })));
         return strip;
+    }
+
+    // THE ROWS A FOLDED SECTION'S ONE ≡ LISTS: its primary's (`primary`:
+    // boxSheetPorts of the strip's near box, or a card's loose ports),
+    // then, for each backup row in it that has a ≡ of its own when open
+    // (a loop's far box, a port-by-port backup's first row - never a
+    // `cont` row, whose ≡ is elsewhere, nor the near box's own loop,
+    // already in boxSheetPorts), that box's own sheet rows, under its
+    // name. A row of another box carries `sheetOwner`, so its keys, ticks
+    // and stored entry are that box's, exactly as on its own sheet.
+    _dockSheetPorts(proc, card, near, slices, primary) {
+        const out = [...(primary || [])];
+        const seen = new Set(near ? [near.id] : []);
+        (slices || []).forEach(s => {
+            if (s.cont || seen.has(s.box.id)) return;
+            seen.add(s.box.id);
+            const owner = { kind: 'cvt', id: s.box.id, procId: proc.id,
+                            cardId: card.id, rec: s.box };
+            const caption = `${this._dockBoxLabel(s.box)} · loop end`;
+            this.boxSheetPorts(s.box).forEach((p, i) => out.push({
+                ...p, sheetOwner: owner, sheetCaption: i ? null : caption }));
+        });
+        return out;
     }
 
     // A folded strip's header controls: the box's own ≡ and ⚙, the same

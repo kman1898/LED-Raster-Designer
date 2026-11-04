@@ -502,6 +502,8 @@ FIXES
   XD A and B on an SX40, shows the cable sheet and gear buttons on its
   header. They open the primary box's sheet and settings. Before, you
   had to open the pair to reach them.
+- FIX: A box's cable list shows its backup ports' cables with the box
+  folded too, not only when it is open.
 - FIX: Data cable tags show only the length, like 25'. With the connector
   on every tag, a wall of narrow columns had tags wider than a column, so
   they zig-zagged over and under the ports. They now sit in one row. The

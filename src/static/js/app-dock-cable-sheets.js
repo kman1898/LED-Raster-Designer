@@ -669,7 +669,24 @@ class _DockCableSheets {
         // of one says the rest out loud: "+ 5, 6 on BOX B" under the name.
         // The number and the rows cannot disagree, because everything the
         // number counts is named on the row one way or the other.
+        // A row of ANOTHER box (`sheetOwner` - a loop's far box on its
+        // primary's folded sheet, _dockSheetPorts) is that box's own row:
+        // its keys, its ticks, its stored entry. `sheetCaption` names the
+        // box above its first row.
+        const sheetOwner = owner;
         ports.forEach(port => {
+            const owner = port.sheetOwner || sheetOwner;
+            if (port.sheetCaption) {
+                const cap = document.createElement('tr');
+                cap.className = 'hw-dock-cable-caption';
+                cap.dataset.lrdCableCaption = owner.id;
+                const td = document.createElement('td');
+                td.colSpan = 4;
+                td.className = 'hw-dock-cable-dim';
+                td.textContent = port.sheetCaption;
+                cap.appendChild(td);
+                table.appendChild(cap);
+            }
             const n = port.number;
             const spoken = port.localNumber || n;
             // A box backing up its own outputs: the backup output's row
@@ -813,6 +830,10 @@ class _DockCableSheets {
             tr.appendChild(runCell(snake ? 'ext' : '', ft));
             table.appendChild(tr);
         });
+        // The fills below write the sheet's own record only, as they always
+        // have: another box's rows are typed one by one, or filled from
+        // that box's own sheet.
+        const ownPorts = ports.filter(p => !p.sheetOwner);
 
         // With ticked: Snake / Unsnake. Quick fill: all 100' / none. On
         // TOP of the sheet, before the rows ("move snake and quick fill
@@ -893,7 +914,7 @@ class _DockCableSheets {
             `Every ticked port on this ${this.unitWordForCard(owner.cardId)} or box gets the typed length: `
             + 'a loose port as its home run, a snaked port as its extension. '
             + 'One undo step.',
-            (ft) => this.fillTickedPortCables(owner, ft, ports).then(after));
+            (ft) => this.fillTickedPortCables(owner, ft, ownPorts).then(after));
         const sp = document.createElement('span');
         sp.style.flex = '1';
         quick.appendChild(sp);
@@ -904,11 +925,11 @@ class _DockCableSheets {
         fills.appendChild(button(`all ${this.cableLengthText(fillFt)}`, `data-cable-fill-${owner.id}-${fillFt}`,
             `Every loose port here gets a ${this.cableLengthWords(fillFt)} home run; snakes keep `
             + 'theirs. One undo step.',
-            () => this.fillPortCables(owner, fillFt, ports).then(after)));
+            () => this.fillPortCables(owner, fillFt, ownPorts).then(after)));
         fills.appendChild(button('none', `data-cable-fill-${owner.id}-none`,
             'Every loose port here forgets its cable; snakes keep theirs. '
             + 'One undo step.',
-            () => this.fillPortCables(owner, null, ports).then(after)));
+            () => this.fillPortCables(owner, null, ownPorts).then(after)));
         // ...and a length of the user's own, the loose ports' fill with
         // the typed length ("this should just be for extensions for
         // individual ports or circuits", 2026-09-24): snakes keep theirs,
@@ -916,7 +937,7 @@ class _DockCableSheets {
         this._cableQuickAny(fills, `data-cable-fill-any-${owner.id}`, 'all',
             'Every loose port here gets the typed length as its home run; '
             + 'snakes keep theirs. One undo step.',
-            (ft) => this.fillPortCables(owner, ft, ports).then(after));
+            (ft) => this.fillPortCables(owner, ft, ownPorts).then(after));
         // A box's fiber is the sheet's FIRST block, above the quick fills
         // and the ports (2026-09-25) - a fact of the box, not of a port, so
         // the fills below it never reach it.
