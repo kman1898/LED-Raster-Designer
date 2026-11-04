@@ -1321,9 +1321,10 @@ def test_a_whole_distro_drag_passes_the_plug_gate(page):
     """Dragging the distro's own handle onto a screen runs the plug gate
     for the type each unassigned multi would land as, all or nothing: a
     distro whose OUTPUTS list leaves that type out refuses on the strip
-    with nothing assigned and no history entry; a 208V L6-20 screen lands
-    on a Multi 208 like a TRUE1 one; and the legacy distro (no list)
-    still lands both multis of a 208V True1 screen."""
+    with nothing assigned and no history entry; a screen whose breakout
+    no output type names (L6-20) is refused naming the breakout, as its
+    chip drops are; and the legacy distro (no list) still lands both
+    multis of a 208V True1 screen."""
     pg, ids = page
     pg.evaluate(RESET_JS, ids)
     pg.wait_for_timeout(300)
@@ -1347,9 +1348,8 @@ def test_a_whole_distro_drag_passes_the_plug_gate(page):
     assert pg.evaluate(STATUS_JS) == \
         'PD does not offer Multi 208. Tick Multi 208 under its ⚙ Outputs first.'
     assert pg.evaluate(HIST_LEN_JS) == n, 'a refused drop earned an entry'
-    # an L6-20 screen: its breakout is a six-circuit multi box on
-    # line-to-line outlets, so a Multi 208 feeds it like TRUE1 (QA
-    # 1.6.0-beta.4: every drop was refused and nothing could plug it in)
+    # an L6-20 screen: no multi feeds the breakout - it takes an L6-20
+    # cable off a distro's L6-20 output (the owner's ruling, 2026-11-03)
     pg.evaluate(RESET_JS, ids)
     out = pg.evaluate("""(ids) => {
         const app = window.app;
@@ -1358,14 +1358,22 @@ def test_a_whole_distro_drag_passes_the_plug_gate(page):
         app.updateLayers([a]);
         app._restateNaming();
         const dd = app.getDistros().find(x => x.id === ids.distroId);
-        return app.getSocaPlan(a).map(s => app._distroDropRefusal({ distroId: dd.id }, a, s));
+        const s = app.getSocaPlan(a)[0];
+        return {
+            refusal: app._distroDropRefusal({ distroId: dd.id }, a, s),
+            expect: `WALL A is set to ${app._breakoutShortName(
+                app.getPowerBreakout(a))}: its circuits take an L6-20 cable off a distro's `
+                + 'L6-20 output. Drag an L6-20 output onto a circuit.',
+        };
     }""", ids)
-    assert out == [None, None], out
+    assert out['refusal'] == out['expect'], out
     pg.wait_for_timeout(300)
+    n = pg.evaluate(HIST_LEN_JS)
     sx, sy = chip_center(pg, f'distro-{d}')
     drag(pg, sx, sy, tgt['x'], tgt['y'])
-    pg.wait_for_timeout(300)
-    assert pg.evaluate(POWER_STATE_JS, ids['aId'])['distro'] == {'1': d, '2': d}
+    assert pg.evaluate(POWER_STATE_JS, ids['aId'])['distro'] == {}
+    assert pg.evaluate(STATUS_JS) == out['expect']
+    assert pg.evaluate(HIST_LEN_JS) == n
     # the gate says yes for the legacy distro and a 208V True1 screen, and
     # the drop lands both multis
     pg.evaluate(RESET_JS, ids)

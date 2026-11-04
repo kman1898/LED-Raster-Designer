@@ -267,7 +267,7 @@ def test_a_cleared_circuit_drawn_again_takes_its_own_tail_back(page):
     assert not got[-1][1].startswith('SR'), got
 
 
-# ── An L6-20 breakout plugs into a line-to-line multi ─────────────────────
+# ── An L6-20 breakout plugs into an L6-20 output, and only that ─────────
 
 def _cab_point(pg, name, row, col):
     return pg.evaluate("""([n, r, c]) => {
@@ -278,47 +278,47 @@ def _cab_point(pg, name, row, col):
     }""", [name, row, col])
 
 
-def _menu_add_from(pg, name, distro_label):
-    """Right-click a cabinet of `name`, Add … from…, pick `distro_label`."""
-    x, y = _cab_point(pg, name, 0, 0)
-    pg.mouse.click(x, y, button='right')
-    item = pg.locator('.context-menu .menu-option:visible').filter(has_text='from…').first
-    item.wait_for()
-    label = item.inner_text().strip()
-    item.hover()
-    pick = pg.locator('.context-menu .menu-option:visible').filter(has_text=distro_label).last
-    pick.wait_for()
-    pick.click()
-    _settle(pg)
-    return label
+L620_DISTROS = {'distros': [
+    {'id': 'd1', 'name': 'PD', 'ratingA': 200, 'system': '120/208',
+     'outputRows': [{'id': 'r1', 'connector': 'true1', 'count': 2, 'coupling': 'll', 'breakerA': 20},
+                    {'id': 'r2', 'connector': 'soca', 'count': 1, 'coupling': 'll', 'breakerA': 20},
+                    {'id': 'r3', 'connector': 'l620', 'count': 6, 'coupling': 'll', 'breakerA': 20}]},
+    {'id': 'd2', 'name': 'SR', 'ratingA': 400, 'system': '120/208', 'voltage': 208, 'phase': 3}]}
 
 
-def test_an_l6_20_screen_plugs_into_a_line_to_line_multi(page):
-    """A 208V screen on Multi → L6-20: its breakout is a six-circuit multi
-    box whose outlets are line-to-line, so the Socapex 208V rows of a
-    face distro and a Multi 208 feed it like TRUE1. Every drop used to
-    be refused, and the screen had no Add … from… item at all."""
+def test_an_l6_20_screen_takes_only_a_distros_l6_20_outputs(page):
+    """The owner's ruling, 2026-11-03: "L620 breakout should only be
+    connected to an L620 cable, which would come off of the distro at
+    L620". A 208V screen on Multi → L6-20: a Multi 208, a Socapex 208V
+    and a TRUE1 output all refuse it, saying where it plugs in; each
+    circuit dropped on the distro's L6-20 outputs lands on one, and the
+    pull list carries one L6-20 cable per circuit."""
     pg = page
-    _open(pg, [{'powerBreakoutType': 'soca-l620', 'powerPanelInput': 'true1'},
-               {'powerBreakoutType': 'soca-l620', 'powerPanelInput': 'powercon'}])
-    pg.evaluate("() => window.canvasRenderer.fitToView()")
-    gates = pg.evaluate("""() => {
-        const app = window.app;
-        return ['W1', 'W2'].map(n => { const l = window.__pu.layer(n);
-            return app._distroDropRefusal({ distroId: 'd1' }, l, app.getSocaPlan(l)[0]); });
-    }""")
-    assert gates == [None, None], gates
-    assert _menu_add_from(pg, 'W1', 'PD').startswith('Add ')
-    assert _menu_add_from(pg, 'W2', 'SR') == 'Add Multi 208 from…'
-    got = {n: [(s['distro'], s['circuits']) for s in _socas(pg, n)] for n in ('W1', 'W2')}
-    assert got == {'W1': [('d1', [1, 2, 3, 4, 5])], 'W2': [('d2', [1, 2, 3, 4, 5])]}, got
-    srv = _wait_server(pg, lambda p: (_srv_layer('W2', p).get('powerSocaDistro') or {}) == {'1': 'd2'}
-                       and (_srv_layer('W1', p).get('powerSocaDistro') or {}) == {'1': 'd1'})
-    assert _srv_layer('W1', srv)['powerBreakoutType'] == 'soca-l620'
-    # the pull list carries the L6-20 breakout box and its cables
-    rows = pg.evaluate("() => JSON.stringify(window.app.buildPullList())")
-    assert 'L6-20 Breakout' in rows and 'L6-20 → TRUE1 cable' in rows \
-        and 'L6-20 → powerCON cable' in rows
+    _open(pg, [{'columns': 3, 'powerBreakoutType': 'soca-l620', 'powerPanelInput': 'true1'}],
+          L620_DISTROS)
+    out = pg.evaluate("""() => { const app = window.app, l = window.__pu.layer('W1');
+        const s = app.getSocaPlan(l)[0];
+        const gate = (row) => app._plugGate({ distroId: 'd1', output: 'face:' + row }, l);
+        return { sr: app._distroDropRefusal({ distroId: 'd2' }, l, s),
+                 pd: app._distroDropRefusal({ distroId: 'd1' }, l, s),
+                 true1: gate('r1').message || null, soca: gate('r2').message || null,
+                 l620: gate('r3').ok }; }""")
+    said = "W1 is set to Multi → L6-20: its circuits take an L6-20 cable off a distro's L6-20 output"
+    assert all(out[k].startswith(said) for k in ('sr', 'pd', 'true1', 'soca')), out
+    assert out['l620'] is True, out
+    for _ in range(3):
+        pg.evaluate("""() => { const app = window.app, l = window.__pu.layer('W1');
+            app._dockDropPlug({ type: 'plug', distroId: 'd1', output: 'face:r3', title: 'PD L6-20' },
+                              { kind: 'screen', layerId: l.id }); }""")
+        _settle(pg)
+    got = [(s['distro'], s['number'], s['circuits']) for s in _socas(pg, 'W1')]
+    assert got == [('d1', 4, [1]), ('d1', 5, [2]), ('d1', 6, [3])], got
+    srv = _wait_server(pg, lambda p: len(_srv_layer('W1', p).get('powerSocaDistro') or {}) == 3)
+    assert set((_srv_layer('W1', srv).get('powerSocaDistro') or {}).values()) == {'d1'}
+    rows = pg.evaluate("""() => window.app.buildPullList().positions
+        .flatMap(p => p.rows).map(r => [r.type, r.qty])""")
+    assert ['L6-20 → TRUE1', 3] in rows, rows
+    assert not any(t.startswith('Multi') for t, _ in rows), rows
 
 
 # ── Sharing a free tail never renumbers the box's own multi ──────────────
@@ -478,10 +478,10 @@ def test_menus_offer_only_what_they_can_do(page):
 def test_names_and_messages_read_plainly(page):
     """Two distros on one pull row read "DISTRO 1, DISTRO 2", never the
     multi's name "DISTRO 1-2"; SR1, SR2 still fold to "SR 1-2". The
-    service warning says "service" once with the default name."""
+    service's OVER says "service" once with the default name."""
     pg = page
     _open(pg, [{'columns': 3, 'powerSocaDistro': {'1': 'd2'}}], dict(FACE, services=[
-        {'id': 's1', 'name': 'SERVICE 1', 'ratingA': 100, 'system': '120/208'}]))
+        {'id': 's1', 'name': 'SERVICE 1', 'ratingA': 5, 'system': '120/208'}]))
     pg.evaluate("""() => { const app = window.app;
         app.project.distros.forEach(d => { d.serviceId = 's1'; }); app.renderHardwareDock(); }""")
     folds = pg.evaluate("""() => [['DISTRO 1', 'DISTRO 2'], ['DISTRO 1', 'DISTRO 2', 'DISTRO 3'], ['SR1', 'SR2']]
@@ -490,7 +490,7 @@ def test_names_and_messages_read_plainly(page):
     warn = pg.evaluate("""() => { const app = window.app; app._dockPowerWarnings = [];
         const s = app.getServices()[0]; app._dockServiceWarnings(s, app.getServiceLoads().find(x => x.id === s.id));
         return app._dockPowerWarnings.map(w => w.text); }""")
-    assert warn and warn[0].startswith('SERVICE 1 (100 A): its distros are rated 630 A together'), warn
+    assert warn and warn[0].startswith('SERVICE 1: ') and warn[0].endswith('OVER'), warn
     assert not any('service service' in w.lower() or 'SERVICE 1 service' in w for w in warn), warn
 
 

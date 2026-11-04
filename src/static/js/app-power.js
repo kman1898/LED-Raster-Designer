@@ -2107,13 +2107,12 @@ class _Power {
     // Multi 120 on a screen up to 120V with a True1, powerCON or Edison
     // breakout, an L21-30 on a 208V screen's L21-30 box. The voltage
     // matters because True1 and powerCON breakouts now exist at both
-    // voltages. The L6-20 breakout is a six-circuit multi box whose
-    // outlets are line-to-line (L6-20 is line-to-line only), so a Multi
-    // 208 feeds it beside True1 and powerCON (QA 1.6.0-beta.4: the
-    // breakout was offered on a 208V screen that nothing could then
-    // plug in). A breakout no type names is a mismatch like any other,
-    // refused with the fix said out loud, never silently re-typed; a
-    // screen at a blank voltage matches by breakout alone. `faces` are the breakout
+    // voltages. No multi type feeds the L6-20 breakout: it takes an L6-20
+    // cable off a distro's L6-20 output, one circuit each (the owner's
+    // ruling, 2026-11-03 - faceBoxEligible). A breakout no type names is
+    // a mismatch like any other, refused with the fix said out loud,
+    // never silently re-typed; a screen at a blank voltage matches by
+    // breakout alone. `faces` are the breakout
     // connectors the popover row shows beside the type; `badge` is the
     // bracket's text sub-pill.
     //
@@ -2137,7 +2136,7 @@ class _Power {
         return [
             { id: 'soca208', name: 'Multi 208', sub: 'TRUE1 / powerCON',
               glyph: 'soca', faces: ['true1', 'powercon'], volts: [208],
-              breakouts: ['soca-true1', 'soca-powercon', 'soca-l620'], badge: 'MULTI 208' },
+              breakouts: ['soca-true1', 'soca-powercon'], badge: 'MULTI 208' },
             { id: 'soca120', name: 'Multi 120', sub: 'Edison / TRUE1 / powerCON',
               glyph: 'soca', faces: ['edison', 'true1', 'powercon'], volts: [110, 120],
               breakouts: ['soca-edison', 'soca-true1', 'soca-powercon'], badge: 'MULTI 120' },

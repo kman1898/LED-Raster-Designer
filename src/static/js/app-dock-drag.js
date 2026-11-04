@@ -810,6 +810,8 @@ class _DockDrag {
         if (sysMsg) return { ok: false, glyph, message: sysMsg };
         const voltsMsg = this._voltageMismatchMessage(type, layer);
         if (voltsMsg) return { ok: false, glyph, message: voltsMsg };
+        const l620 = this._l620Refusal(layer, null);
+        if (l620) return { ok: false, glyph, message: `${l620}.` };
         const bt = this.getPowerBreakout(layer);
         if (!type.breakouts.includes(bt.id)) {
             return { ok: false, glyph,
@@ -1731,6 +1733,8 @@ class _DockDrag {
         const bt = this.getPowerBreakout(layer);
         const type = this.outputTypeForBreakout(bt, layer.powerVoltage);
         if (!type) {
+            const l620 = this._l620Refusal(layer, null);
+            if (l620) return `${l620}.`;
             return `${layer.name} is set to ${this._breakoutShortName(bt)}. `
                 + 'Change its breakout first.';
         }
