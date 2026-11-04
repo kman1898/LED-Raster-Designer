@@ -863,6 +863,9 @@ FIXES
   bottom of a short window.
 - FIX: The guides keep a window open from one step to the next when both
   steps use it, instead of closing it and opening it again.
+- FIX: A guide started right after leaving another one waits for your
+  project to come back first. Started at once, it ran on your project
+  instead of its scratch show, and leaving it lost your project.
 - FIX: In a narrow window the canvas controls scroll instead of pushing
   the hardware tray off the window, and a Processing name too long for
   its box wraps onto a second line.
