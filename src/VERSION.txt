@@ -504,6 +504,10 @@ FIXES
   XD A and B on an SX40, shows the cable sheet and gear buttons on its
   header. They open the primary box's sheet and settings. Before, you
   had to open the pair to reach them.
+- FIX: A box's cable list shows its backup ports' cables with the box
+  folded too, not only when it is open.
+- NEW: A processor's ≡ opens the cable list of every box on it at once,
+  folded or open.
 - FIX: Data cable tags show only the length, like 25'. With the connector
   on every tag, a wall of narrow columns had tags wider than a column, so
   they zig-zagged over and under the ports. They now sit in one row. The
@@ -837,6 +841,8 @@ FIXES
   makes a step fail. Your Preferences come back when the guide ends.
 - FIX: The guide's box stays inside the window, so Next is never off the
   bottom of a short window.
+- FIX: The guides keep a window open from one step to the next when both
+  steps use it, instead of closing it and opening it again.
 - FIX: In a narrow window the canvas controls scroll instead of pushing
   the hardware tray off the window, and a Processing name too long for
   its box wraps onto a second line.
@@ -912,6 +918,9 @@ FIXES
   in a red message, even with the hardware tray folded away, and names
   the screens that make up the span, with their canvases when they sit on
   more than one.
+- FIX: The processor tray counts primary ports only where backups ride
+  along on their own: a looped XD pair with 9 primaries reads 9/10, not
+  18/20.
 - FIX: A circuit drawn or redrawn on a grouped wall runs across its
   screens the way it does on one screen, even when the screens sit on
   different processor canvases. The wall's automatic circuits are

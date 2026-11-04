@@ -521,6 +521,15 @@ select, .info-select {
   font-family:var(--font-ps); color:var(--ps-text) !important;
 }
 .hw-dock-proc-model { color:var(--ps-dim); font-weight:500; }
+/* the processor's cable list, under its strip: one section per box, each
+   under the box's name as its strip reads */
+.hw-dock-proc-sheet { margin:4px 0 2px; }
+.hw-dock-proc-sheet-head {
+  font-size:11px; font-weight:600; color:var(--ps-text); padding:4px 4px 0;
+}
+.hw-dock-proc-sheet-sec + .hw-dock-proc-sheet-sec {
+  border-top:1px solid #2a2a2a; margin-top:4px;
+}
 
 /* ---- units and boxes: framed tiles on the tray, headers as mini
    titlebars. Grounds stay DARK below the chips' #0d0d0d/#1e1e1e rungs so
@@ -853,6 +862,8 @@ select, .info-select {
 .hw-dock-cablebtn-on { color:#f0d48a; border-color:#c8a04a; }
 /* the data side's ≡ announces in the data cable's blue, not power's gold */
 .hw-dock-cablebtn-data.hw-dock-cablebtn-on { color:#cfeaff; border-color:#8fd0ff; }
+/* the processor's ≡ (its cable list of every box on it) reads the same */
+.hw-dock-cablebtn-proc.hw-dock-cablebtn-on { color:#cfeaff; border-color:#8fd0ff; }
 .hw-dock-cablebtn:focus-visible { outline:1px solid var(--ps-accent); outline-offset:1px; }
 
 /* ---- gear popover: a Preferences card that floats ---- */

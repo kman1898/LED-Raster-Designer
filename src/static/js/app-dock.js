@@ -1157,6 +1157,12 @@ class _HardwareDock {
             const procPills = [this._dockRedundancyPill(proc, null),
                                this._dockBackupProcPill(proc),
                                this._dockAddUnitButton(proc)].filter(Boolean);
+            // The processor's ≡: one cable list of every box on it, and its
+            // own ports, folded or open (_dockProcSheetSections).
+            const sheetSections = this._dockProcSheetSections(proc);
+            if (sheetSections.length) {
+                procPills.push(this._dockBuildProcCableSheetButton(proc));
+            }
             this._dockHeadAugment(title, {
                 controls: procPills,
                 gear: {
@@ -1198,6 +1204,12 @@ class _HardwareDock {
                 warn.style.margin = '2px 6px 4px';
                 warn.textContent = span.message;
                 wrap.appendChild(warn);
+            }
+            // ...open, it stands under the processor's strip, above its
+            // cards, outside every fold
+            if (sheetSections.length
+                    && this._dataCableSheetOpen({ kind: 'proc', id: proc.id })) {
+                wrap.appendChild(this._dockBuildProcCableSheet(proc, sheetSections));
             }
             (proc.slots || []).forEach(slot => {
                 if (!slot.card) return;
@@ -1253,10 +1265,12 @@ class _HardwareDock {
         const unit = document.createElement('div');
         unit.className = 'hw-dock-unit';
 
-        // Every socket taken, primary or return, over the sockets there
-        // (socketsTaken - owner, 2026-09-24: "11 primary and 11 redundant
-        // ... it's 22/40").
-        const count = this.socketsTaken(card.id);
+        // Primaries placed over the sockets that can carry a primary: the
+        // backups that ride along on their own are left out (owner,
+        // 2026-11-04: "the backups are automatic, so we don't need to
+        // count the backups" - an SX40 looped A to B, C to D reads 18/20,
+        // not 36/40). trayPrimaryCount; the binder keeps socketsTaken.
+        const count = this.trayPrimaryCount(card);
         // A unit consumed as a 1:1 backup wears the tag its box-level
         // cousin wears - dragging it is pointless (every port is refused as
         // a return end) but hiding it would hide where the returns land.
@@ -1318,7 +1332,8 @@ class _HardwareDock {
             count && count.of
                 ? { frac: count.taken / count.of,
                     over: count.taken > count.of,
-                    text: `${count.taken}/${count.of}` }
+                    text: `${count.taken}/${count.of}`,
+                    title: this.trayCountTitle(count) }
                 : null);
         // The card's NAME edits inline where it reads; everything else the
         // panel's card block carried lives behind the ⚙. The redundancy
@@ -1409,9 +1424,32 @@ class _HardwareDock {
         // for it. The loose grid the sheet stands in for stays inside the
         // fold.
         const cardSheetUp = !!loose.length && this._dataCableSheetOpen(cardOwner);
+        // The unit's own ports backed up on a copy OPT (drawn below as loop
+        // rows): which row of each backup box carries its ≡ is settled
+        // here, before the sheet, since a folded card's sheet lists those
+        // backup rows too (_dockSheetPorts) - folded, the card's ≡ is the
+        // only way to them.
+        const layout = this._dockCardLayout(card);
+        const ownRows = layout.own;
+        let cardFolded = false;
+        try {
+            cardFolded = localStorage.getItem(
+                `ledRasterPanelCollapsed_hwdock-card-${card.id}`) === '1';
+        } catch (_) { /* no storage */ }
+        const ownSheetOut = cardSheetUp && cardFolded
+            && ownRows.some(s => !s.cont);
         if (cardSheetUp) {
             unit.classList.add('hw-dock-sheet-up');
-            unit.appendChild(this._dockBuildDataCableSheet(cardOwner, loose));
+            unit.appendChild(this._dockBuildDataCableSheet(cardOwner, ownSheetOut
+                ? this._dockSheetPorts(proc, card, null, ownRows, loose) : loose));
+            // a flip of the fold redraws, so the backup rows come and go
+            if (ownRows.some(s => !s.cont)) {
+                new MutationObserver((_, obs) => {
+                    if (unit.classList.contains('lrd-sec-collapsed') === cardFolded) return;
+                    obs.disconnect();
+                    if (unit.isConnected) this.renderHardwareDock();
+                }).observe(unit, { attributes: true, attributeFilter: ['class'] });
+            }
         } else if (card.linkHost && this._dataCableSheetOpen(cardOwner)) {
             // A link-host card's sheet: its Fiber section alone, above
             // its boxes (which keep drawing - the sheet names no port).
@@ -1441,21 +1479,58 @@ class _HardwareDock {
         // ports of backup/copy"): the backup box's sockets behind them are
         // their loop end, drawn as loop rows right under the unit's own
         // ports, each socket numbered with the port it backs up.
-        const shared = new Set();
-        const ownSlices = this.boxLoopSlices(null, cvts);
-        if (loose.length && ownSlices.length) {
+        // (Their rows' `cont` was settled above, in _dockCardLayout.)
+        if (ownRows.length) {
             const own = document.createElement('div');
             own.className = 'hw-dock-loop-own';
             own.dataset.lrdLoopOwn = card.id;
-            ownSlices.forEach(s => {
-                // a straddling box has its own row: here it is its name only
-                const cont = shared.has(s.box.id) || this.boxStraddles(s.box);
+            ownRows.forEach(s => {
                 own.appendChild(this._dockBuildBox(proc, card, s.box,
-                    { far: true, ports: s.ports, cont: cont ? card.id : null }));
-                shared.add(s.box.id);
+                    { far: true, ports: s.ports, cont: s.cont ? card.id : null,
+                      sheetOut: ownSheetOut }));
             });
             unitBody.appendChild(own);
         }
+        // The loop strips and the lone boxes, in the card's order
+        // (_dockCardLayout: which box draws where).
+        layout.strips.forEach(({ box: cvt, slices }) => {
+            unitBody.appendChild(slices.length
+                ? this._dockBuildLoopPair(proc, card, cvt, slices)
+                : this._dockBuildBox(proc, card, cvt));
+        });
+        // EVERY BOX IS ON THE TRAY. A box none of the strips above drew -
+        // one delivering no socket, a backup bound to a box that is itself
+        // a backup (a file saved before beta.5, beta.4 QA) - draws on its
+        // own, so it can be seen and its ⚙ can remove it.
+        layout.strays.forEach(cvt => {
+            unitBody.appendChild(this._dockBuildBox(proc, card, cvt));
+        });
+        // ...and the empty slot after the last box: where the next one goes
+        if (boxFits.length) unitBody.appendChild(this._dockAddBoxSlot(proc, card, boxFits));
+        return unit;
+    }
+
+    // WHICH BOX DRAWS WHERE on a card, in the tray's order - the one
+    // reading the card's strips (_dockBuildCard) and the processor's cable
+    // list (_dockProcSheetSections) both take, so the two never disagree:
+    //   `loose`: the ports no box delivers (cvtId);
+    //   `own`: the loop rows backing those up on a copy OPT [{ box, ports,
+    //     cont }] (only where the card has loose ports);
+    //   `strips`: [{ box, slices }] - a loop strip where `slices` has rows,
+    //     else a lone box;
+    //   `strays`: the boxes none of those draws with a ⚙ of its own.
+    // A slice's `cont`: the same backup box's row after its first, its
+    // name only (its ≡, ⚙ and sheet are on the first).
+    _dockCardLayout(card) {
+        const cvts = card.cvts || [];
+        const loose = (card.ports || []).filter(p => !p.cvtId);
+        const shared = new Set();
+        const own = !loose.length ? [] : this.boxLoopSlices(null, cvts).map(s => {
+            // a straddling box has its own row: here it is its name only
+            const cont = shared.has(s.box.id) || this.boxStraddles(s.box);
+            shared.add(s.box.id);
+            return { ...s, cont };
+        });
         // A LOOP pair - an SX40's XD on trunk B (or D), the far end of the
         // A-to-B (C-to-D) loop, or a NovaStar same-card `backupOf` box -
         // draws as ONE strip holding both boxes (owner, 2026-09-25, "option
@@ -1487,6 +1562,7 @@ class _HardwareDock {
         const mixed = cvts.filter(c => !fars.has(c.id) && c.copyRole === 'backup'
             && this.boxLoopMixed(c));
         const backers = cvts.filter(c => mixed.includes(c) || this.boxStraddles(c));
+        const strips = [];
         cvts.forEach(cvt => {
             if (!(cvt.ports || []).length || fars.has(cvt.id)
                     || mixed.includes(cvt)) return;
@@ -1497,22 +1573,13 @@ class _HardwareDock {
                     shared.add(s.box.id);
                     return { ...s, mixed: true, cont };
                 }));
-            unitBody.appendChild(slices.length
-                ? this._dockBuildLoopPair(proc, card, cvt, slices)
-                : this._dockBuildBox(proc, card, cvt));
+            strips.push({ box: cvt, slices });
         });
-        // EVERY BOX IS ON THE TRAY. A box none of the strips above drew -
-        // one delivering no socket, a backup bound to a box that is itself
-        // a backup (a file saved before beta.5, beta.4 QA) - draws on its
-        // own, so it can be seen and its ⚙ can remove it.
-        cvts.forEach(cvt => {
-            if (unitBody.querySelector(
-                `[data-hwpop="box-${CSS.escape(cvt.id)}"]`)) return;
-            unitBody.appendChild(this._dockBuildBox(proc, card, cvt));
+        const drawn = new Set(strips.map(s => s.box.id));
+        own.concat(...strips.map(s => s.slices)).forEach(s => {
+            if (!s.cont) drawn.add(s.box.id);
         });
-        // ...and the empty slot after the last box: where the next one goes
-        if (boxFits.length) unitBody.appendChild(this._dockAddBoxSlot(proc, card, boxFits));
-        return unit;
+        return { loose, own, strips, strays: cvts.filter(c => !drawn.has(c.id)) };
     }
 
     // The card row's "+ Box": a click lists the boxes that fit, and a pick
@@ -1830,10 +1897,16 @@ class _HardwareDock {
             || cvt.name || cvt.deviceName) + tag;
         // The folded box's glance is occupancy in sockets - "8/10" and
         // a fill line - because "this box is done" is a count of taken
-        // sockets: its primaries AND the returns landing on it (box B
-        // of an SX40 pair counts the returns of A's mains), the same
-        // server count the card's glance reads (socketsTaken).
-        const boxCount = this.socketsTaken(card.id, cvt.id);
+        // sockets: its primaries over the sockets that can carry one, the
+        // count the card's glance reads (trayPrimaryCount, owner
+        // 2026-11-04). A box that only carries backups that ride along on
+        // their own (an SX40's XD B, a copy OPT box set to Backup) has no
+        // primary socket and draws no count; its loop strip's header and
+        // its primary's row say how full the loop is. A far row backing
+        // up one primary box counts the sockets it holds (`row.ports`).
+        const boxCount = this.trayPrimaryCount(card, cvt,
+            row && row.far && row.ports ? row.ports : undefined);
+        const boxWhere = row && !row.far ? row.where : '';
         const boxHead = this._dockBuildHandle(
             {
                 type: 'box', cardId: card.id, boxId: cvt.id,
@@ -1849,9 +1922,10 @@ class _HardwareDock {
             'Drag the whole box onto a screen: the screen\'s ports fill '
             + 'onto this box\'s sockets in order from the first '
             + 'unassigned.',
-            boxCount
+            boxCount && boxCount.of
                 ? { frac: boxCount.taken / boxCount.of, over: false,
-                    text: `${boxCount.taken}/${boxCount.of}` }
+                    text: `${boxCount.taken}/${boxCount.of}`,
+                    title: this.trayCountTitle(boxCount, boxWhere) }
                 : null);
         // The box's name edits inline; unnamed, the placeholder speaks
         // the RESOLVED title (trunk letter included), so "XD A"
@@ -1958,25 +2032,21 @@ class _HardwareDock {
         const strip = document.createElement('div');
         strip.className = 'hw-dock-loop';
         const nums = this.boxMainPorts(near).map(p => p.number);
-        // A box looping onto its OWN sockets (a straddling box - its
-        // inputs across a main OPT and its copy) is named once, by its
-        // sockets: "A-B 1-8 ↔ 9-16", never "A-B ↔ A-B".
         const range = (ports) => this.fiberStrandRangeText(ports.map(p => p.localNumber));
-        const self = slices.some(s => s.box === near);
-        const a = this._dockBoxLabel(near, true)
-            + (self ? ` ${range(this.boxMainPorts(near))}` : '');
-        const b = slices.map(s => (s.box === near ? range(s.ports)
-            : this._dockBoxLabel(s.box, true))).join(', ');
         const farNames = slices.map(s => (s.box === near ? `its own sockets ${range(s.ports)}`
             : this._dockBoxLabel(s.box))).join(' and ');
-        // A slice counts its own sockets: lit where the port it backs up
-        // carries something, the way the whole far box's count reads.
-        const counts = [this.socketsTaken(card.id, near.id)]
-            .concat(slices.map(s => (s.mixed
-                ? { taken: s.ports.filter(p => this._portOccupants(card.id, p.number).length).length,
-                    of: s.ports.length }
-                : this.socketsTaken(card.id, s.box.id))))
-            .filter(Boolean);
+        // The strip counts PRIMARIES over the sockets that can carry one,
+        // one box's worth (owner, 2026-11-04: "we're drawing in the
+        // primaries and the backups are automatic, so we don't need to
+        // count the backups"): nine primaries on a looped XD pair read
+        // 9/10, never 18/20. The near box counts whole; each far row
+        // counts only the sockets it holds that are not automatic backups
+        // (none, on every loop the app draws today) - a box's own back
+        // sockets (`self`) are the near box's already.
+        const counts = [this.trayPrimaryCount(card, near)]
+            .concat(slices.filter(s => s.box !== near)
+                .map(s => this.trayPrimaryCount(card, s.box, s.ports)))
+            .filter(c => c && c.of != null);
         const taken = counts.reduce((t, c) => t + c.taken, 0);
         const of = counts.reduce((t, c) => t + c.of, 0);
         const head = this._dockBuildHandle(
@@ -1993,11 +2063,12 @@ class _HardwareDock {
             + 'are one loop. Drag this header onto a screen to fill '
             + `${this._dockBoxLabel(near)}; its returns come home on `
             + `${farNames}.`,
-            of ? { frac: taken / of, over: false, text: `${taken}/${of}` }
+            of ? { frac: taken / of, over: false, text: `${taken}/${of}`,
+                   title: this.trayCountTitle({ taken, of }, farNames) }
                 : null);
         const names = document.createElement('span');
         names.className = 'hw-dock-loop-names';
-        names.textContent = `${a} ↔ ${b}`;
+        names.textContent = this._dockLoopNames(near, slices);
         const tag = document.createElement('span');
         tag.className = 'hw-dock-redpill hw-dock-looptag';
         tag.textContent = 'loop';
@@ -2030,10 +2101,14 @@ class _HardwareDock {
         const foldKey = `ledRasterPanelCollapsed_hwdock-box-${near.id}`;
         let folded = false;
         try { folded = localStorage.getItem(foldKey) === '1'; } catch (_) { /* no storage */ }
+        // Folded, that one ≡ is the only way to the backup rows too, so its
+        // sheet lists them under the primary's (owner, 2026-11-04: "it only
+        // shows the primary"): the same rows the open strip's own ≡ list.
         const sheetOut = folded && this._dataCableSheetOpen(nearOwner);
         if (sheetOut) {
             strip.appendChild(this._dockBuildDataCableSheet(
-                nearOwner, this.boxSheetPorts(near)));
+                nearOwner, this._dockSheetPorts(proc, card, near, slices,
+                                                this.boxSheetPorts(near))));
         }
         if (this._dataCableSheetOpen(nearOwner)) {
             new MutationObserver((_, obs) => {
@@ -2045,10 +2120,148 @@ class _HardwareDock {
         const body = this._dockSectionBody(strip, head,
                                            `hwdock-box-${near.id}`);
         body.appendChild(this._dockBuildBox(proc, card, near,
-                                            { far: false, sheetOut }));
+                                            { far: false, sheetOut, where: farNames }));
+        // ...where the folded sheet carries their rows, the hidden rows draw
+        // no second sheet of their own
         slices.forEach(s => body.appendChild(this._dockBuildBox(proc, card, s.box,
-            { far: true, ports: s.ports, cont: s.cont ? near.id : null })));
+            { far: true, ports: s.ports, cont: s.cont ? near.id : null, sheetOut })));
         return strip;
+    }
+
+    // A loop strip's two ends as its header names them: "A ↔ B", the
+    // model left to the header. A box looping onto its OWN sockets (a
+    // straddling box - its inputs across a main OPT and its copy) is
+    // named once, by its sockets: "A-B 1-8 ↔ 9-16", never "A-B ↔ A-B".
+    _dockLoopNames(near, slices) {
+        const range = (ports) => this.fiberStrandRangeText(ports.map(p => p.localNumber));
+        const self = slices.some(s => s.box === near);
+        const a = this._dockBoxLabel(near, true)
+            + (self ? ` ${range(this.boxMainPorts(near))}` : '');
+        const b = slices.map(s => (s.box === near ? range(s.ports)
+            : this._dockBoxLabel(s.box, true))).join(', ');
+        return `${a} ↔ ${b}`;
+    }
+
+    // THE ROWS A FOLDED SECTION'S ONE ≡ LISTS: its primary's (`primary`:
+    // boxSheetPorts of the strip's near box, or a card's loose ports),
+    // then, for each backup row in it that has a ≡ of its own when open
+    // (a loop's far box, a port-by-port backup's first row - never a
+    // `cont` row, whose ≡ is elsewhere, nor the near box's own loop,
+    // already in boxSheetPorts), that box's own sheet rows, under its
+    // name. A row of another box carries `sheetOwner`, so its keys, ticks
+    // and stored entry are that box's, exactly as on its own sheet.
+    _dockSheetPorts(proc, card, near, slices, primary) {
+        const out = [...(primary || [])];
+        const seen = new Set(near ? [near.id] : []);
+        (slices || []).forEach(s => {
+            if (s.cont || seen.has(s.box.id)) return;
+            seen.add(s.box.id);
+            const owner = { kind: 'cvt', id: s.box.id, procId: proc.id,
+                            cardId: card.id, rec: s.box };
+            const caption = `${this._dockBoxLabel(s.box)} · loop end`;
+            this.boxSheetPorts(s.box).forEach((p, i) => out.push({
+                ...p, sheetOwner: owner, sheetCaption: i ? null : caption }));
+        });
+        return out;
+    }
+
+    // THE PROCESSOR'S CABLE LIST (owner, 2026-11-04: "when the whole
+    // processor is collapsed we should have an extension drop down that
+    // opens all boxes connected in the same way"). Its sections, in the
+    // tray's order (_dockCardLayout): each card's own ports, each loop
+    // strip, each lone box - [{ owner, heading, ports }], `ports` being
+    // what that section's own ≡ lists with the section folded
+    // (_dockSheetPorts), primaries and backups both, and `heading` the
+    // section as the tray names it ("XD A ↔ B").
+    _dockProcSheetSections(proc) {
+        const out = [];
+        (proc.slots || []).forEach(slot => {
+            const card = slot.card;
+            if (!card) return;
+            const layout = this._dockCardLayout(card);
+            const at = (kind, rec) => ({ kind, id: rec.id, procId: proc.id,
+                                         cardId: card.id, rec });
+            if (layout.loose.length) {
+                out.push({
+                    owner: at('card', card),
+                    heading: this._dockCardSheetHeading(proc, card),
+                    ports: this._dockSheetPorts(proc, card, null, layout.own,
+                                                layout.loose),
+                });
+            }
+            layout.strips.forEach(({ box, slices }) => out.push({
+                owner: at('cvt', box),
+                heading: slices.length
+                    ? `${box.deviceName} ${this._dockLoopNames(box, slices)}`
+                    : this._dockBoxLabel(box),
+                ports: this._dockSheetPorts(proc, card, box, slices,
+                                            this.boxSheetPorts(box)),
+            }));
+            layout.strays.forEach(box => out.push({
+                owner: at('cvt', box),
+                heading: this._dockBoxLabel(box),
+                ports: this.boxSheetPorts(box),
+            }));
+        });
+        return out;
+    }
+
+    // A card's section in the processor's list, named as its tray header
+    // reads: its slot or model ("Card 2", "VX1000"), then its typed name.
+    _dockCardSheetHeading(proc, card) {
+        const typed = this.cardTypedName(proc, card);
+        const slot = typed
+            ? (this.cardSlotTitle(proc, card).replace(/^Card /, 'Slot ') || '')
+            : this.cardSlotTitle(proc, card);
+        const model = slot || (card.unitTitle
+            ? `${card.unitTitle} · ${card.deviceName}` : card.deviceName);
+        const tag = card.backupFor ? ` (backs up ${card.backupFor.title})` : '';
+        return [model + tag, typed].filter(Boolean).join(' ');
+    }
+
+    // The processor's ≡: the box ≡'s own button (same look, same flip,
+    // remembered per processor the same way), under a class of its own so
+    // nothing reading "the first box or card ≡" in the tray finds it.
+    _dockBuildProcCableSheetButton(proc) {
+        const btn = this._dockBuildDataCableSheetButton({ kind: 'proc', id: proc.id });
+        btn.classList.replace('hw-dock-cablebtn-data', 'hw-dock-cablebtn-proc');
+        btn.title = btn.classList.contains('hw-dock-cablebtn-on')
+            ? 'Cable list of every box on this processor. Click to close it.'
+            : 'Cable list of every box on this processor, primaries and '
+                + 'backups, folded or open. Click to open it.';
+        return btn;
+    }
+
+    // The list itself: each section under its heading, built by the box
+    // sheet's own builder (_dockBuildDataCableSheet) from the same rows,
+    // so the two cannot drift; a length typed here is the same stored
+    // entry the box's own sheet types. Every data-lrd-* key in it is
+    // prefixed with the processor's, so a field has ONE key on the page
+    // while the box's own sheet is open too (focus restore and the guides
+    // find a field by its key).
+    _dockBuildProcCableSheet(proc, sections) {
+        const wrap = document.createElement('div');
+        wrap.className = 'hw-dock-proc-sheet';
+        wrap.dataset.lrdProcSheet = proc.id;
+        const ns = `proclist-${proc.id}-`;
+        sections.forEach(s => {
+            const sec = document.createElement('div');
+            sec.className = 'hw-dock-proc-sheet-sec';
+            const head = document.createElement('div');
+            head.className = 'hw-dock-proc-sheet-head';
+            head.textContent = s.heading;
+            sec.appendChild(head);
+            const sheet = this._dockBuildDataCableSheet(s.owner, s.ports);
+            [sheet, ...sheet.querySelectorAll('*')].forEach(el => {
+                Object.keys(el.dataset || {}).forEach(k => {
+                    if (/^lrd[A-Z]/.test(k)) el.dataset[k] = ns + el.dataset[k];
+                });
+            });
+            sec.dataset.lrdProcSheetSec = `${s.owner.kind}:${s.owner.id}`;
+            sec.appendChild(sheet);
+            wrap.appendChild(sec);
+        });
+        return wrap;
     }
 
     // A folded strip's header controls: the box's own ≡ and ⚙, the same
