@@ -557,3 +557,26 @@ def test_the_pull_sheet_pulls_each_fiber_from_its_own_modes_stock(page):
     assert prefs['off'] == [True, True] and prefs['on'] == [True, True], prefs
     assert (prefs['single'], prefs['multi']) == ([500, 1000], [300]), prefs
     assert ids['errors'] == []
+
+
+def test_the_binders_short_band_brackets_the_mode_as_sm_or_mm(page):
+    """Owner, 2026-11-04: the binder processor pages' short band reads
+    "(TAC 24 SM)" / "(TAC 24 MM)" - the mode in short beside the cable's
+    kind, joined with a space as the band joins its words - on the one-line
+    band and on the grouped band / Breakout boxes table alike. A box with
+    no stated mode reads as before (tests/test_fiber_extensions.py,
+    tests/test_shared_opticalcon.py: "(MTP 12)", "(opticalCON QUAD)")."""
+    pg, ids = page
+    out = pg.evaluate("""(ids) => {
+        const app = window.app;
+        const box = (id) => app._dockFindCvt(id).cvt;
+        const sub = (id) => (app._bBoxInputGroups(box(id)) || []).map(g => g.sub || g.text);
+        return { s: app._bBoxFiberText(box(ids.s)), m: app._bBoxFiberText(box(ids.m)),
+                 band: app._bBoxBandText(box(ids.s)), sSub: sub(ids.s), mSub: sub(ids.m) };
+    }""", ids)
+    assert out['s'] == 'OPT 1 TAC A (TAC 12 SM) 1-2', out
+    assert out['m'] == 'OPT 1 TAC B (TAC 12 MM) 1-2', out
+    assert out['band'].startswith('CVT10-S A · ') and out['band'].endswith(' · OPT 1 TAC A (TAC 12 SM) 1-2'), out
+    assert out['sSub'] == ['TAC A (TAC 12 SM)'], out
+    assert out['mSub'] == ['TAC B (TAC 12 MM)'], out
+    assert ids['errors'] == []

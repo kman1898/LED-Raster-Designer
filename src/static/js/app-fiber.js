@@ -43,6 +43,8 @@ export const FIBER_COLORS = [
 // Pro-S / -M, CVT4K-S / -M). A cable's mode is its boxes'. The words are the
 // owner's; the server's twin is processor_catalog.FIBER_MODES.
 export const FIBER_MODE_WORDS = { single: 'Single mode', multi: 'Multimode' };
+// The same in short, where the binder's band brackets a cable's kind.
+export const FIBER_MODE_SHORT = { single: 'SM', multi: 'MM' };
 
 // What the New TAC / New MTP step offers; any count may be typed.
 export const FIBER_STRAND_SUGGESTIONS = [4, 6, 8, 12, 24, 48];
@@ -243,6 +245,19 @@ class _Fiber {
         const word = this.fiberModeWord(this.fiberCableMode(cable));
         if (word) parts.push(word);
         return parts.join(' · ');
+    }
+
+    // A cable's kind as the binder's short band brackets it after the
+    // cable's name: "TAC 24", "opticalCON QUAD" - and its mode in short
+    // where its boxes state one (owner, 2026-11-04: "(TAC 24 SM)" /
+    // "(TAC 24 MM)"), joined with a space as the band joins its words.
+    fiberCableShortKind(cable) {
+        if (!cable) return '';
+        const kind = this.fiberCableIsStranded(cable)
+            ? `${this.fiberKindWord(cable.kind)} ${cable.strands}`
+            : this.fiberKindWord(cable.kind);
+        const mode = this.fiberCableMode(cable);
+        return mode ? `${kind} ${FIBER_MODE_SHORT[mode]}` : kind;
     }
 
     // Which list of the show's cable stock a fiber cable is pulled from:
@@ -643,12 +658,7 @@ class _Fiber {
                     .filter(Boolean).join(' ') + (over ? ` (${over})` : '') };
             }
             let what = cable.name || this.fiberCableTypeText(cable);
-            if (cable.name && !typed.has(cable.id)) {
-                const kind = this.fiberCableIsStranded(cable)
-                    ? `${this.fiberKindWord(cable.kind)} ${cable.strands}`
-                    : this.fiberKindWord(cable.kind);
-                what += ` (${kind})`;
-            }
+            if (cable.name && !typed.has(cable.id)) what += ` (${this.fiberCableShortKind(cable)})`;
             typed.add(cable.id);
             const head = `${this.fiberPortRunText(titles)} ${what}`;
             const list = [...new Set(strands.map(Number))].filter(Number.isFinite).sort((a, b) => a - b);
