@@ -451,6 +451,8 @@ FIXES
   of its cards could show the old setting again a moment later, even
   though the change was saved. The newest change now always stays on
   screen.
+- FIX: The not all attached list updates the moment ports are released,
+  instead of showing them attached until the next release.
 - NEW: NovaStar 4K-Prime in the processor list: 16 ports, OPT 1/2 carry
   ports 1-8 and 9-16, OPT 3/4 copy or back them up.
 - FIX: The enhanced H_4xfiber has all eight of its OPTs. OPT 1 to 4 carry
