@@ -5416,6 +5416,47 @@
                 return g ? g.name + ': two screens that move and route as one wall.' : null;
             }
         },
+        // The Names switch is per group, per tab (2026-11-04): it acts on
+        // the selected group, so picking one member of the wall shows it,
+        // and Screens on Pixel Map gives this wall its screens' names back
+        // on that tab alone. Other groups and the other tabs keep theirs.
+        groupNames: {
+            since: '1.6.0',
+            target: '#name-display-row-pixel-map', place: 'right', title: 'Name each group',
+            avoid: ['#name-display-row-pixel-map'],
+            body: 'Names sets how the selected group is named on this tab: Screens, Group or Both. Each group keeps its own choice on every tab.',
+            before: function () {
+                closePrefs(); hideMenus(); closePopover(); switchView('pixel-map');
+                var a = A(), w = wall();
+                if (w && a.getGroupOfLayer(w)) a.selectLayer(w);
+                if (a.refreshNameDisplayButtons) a.refreshNameDisplayButtons();
+            },
+            act: function (t) {
+                var a = A();
+                var group = function () { var w = wall(); return w ? a.getGroupOfLayer(w) : null; };
+                return t.wait(function () {
+                    var row = $('#name-display-row-pixel-map');
+                    return group() && row && row.style.display !== 'none' ? row : null;
+                }).then(function (row) {
+                    if (!row) throw new Error('Names is not shown for the group');
+                    t.mem.group = group().id;
+                    return t.click('.name-display-btn[data-name-view="pixel-map"][data-name-display="screens"]');
+                }).then(function () {
+                    return t.wait(function () {
+                        var g = a.resolveGroup(t.mem.group);
+                        return g && a.groupNameDisplayFor('pixel-map', g) === 'screens';
+                    });
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the group did not take Screens');
+                    return t.pause(PACE.acted);
+                });
+            },
+            check: function (mem) {
+                var a = A(), g = mem && a.resolveGroup(mem.group);
+                if (!g || a.groupNameDisplayFor('pixel-map', g) !== 'screens') return null;
+                return g.name + ' now names each screen on Pixel Map; the other tabs and groups keep their own.';
+            }
+        },
         exportBinder: {
             exportStep: true,
             target: '#btn-export', place: 'bottom', title: 'Export the binder',
@@ -6083,7 +6124,7 @@
                     'cableStockPerKind', 'powerCableTags',
                     'powerColumns', 'splitters', 'takeOver', 'customPower', 'customDraw', 'sweepShare', 'balance',
                     'addService', 'serviceRating', 'serviceDistro', 'feederLength',
-                    'addBeach', 'screenBeach', 'addScreen', 'beachByMenu', 'crossScreens', 'groupScreens',
+                    'addBeach', 'screenBeach', 'addScreen', 'beachByMenu', 'crossScreens', 'groupScreens', 'groupNames',
                     'exportBinder', 'screenOrder', 'wiringTick', 'fiberPage', 'titleBlock', 'fileExports', 'preferences',
                     'mirrorScreen', 'portPlug', 'portNumbers', 'portsMinimum', 'powerZPattern', 'circuitNumbers',
                     'redrawAsOne', 'sweepPorts', 'helpMenu', 'outroAdvanced']

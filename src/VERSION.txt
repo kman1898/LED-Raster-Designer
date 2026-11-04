@@ -253,6 +253,14 @@ columns, and past that it carries on to the next sheet. The Fiber tick
 in the Export dialog and in Preferences > Binder turns the page off. The
 processor pages keep their own Fiber connections tables.
 
+NAMES FOR EACH GROUP
+
+Names (Screens, Group or Both) is set per group now: select a group and
+pick how its names show on each tab. With several groups selected, one
+click sets them all, and the binder's Data and Power sheets follow each
+group's own choice. A show from an earlier version opens with every
+group named the way it was.
+
 OPENING AN OLDER SHOW
 
 Some counts will change when you open a show from an earlier version.

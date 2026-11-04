@@ -456,7 +456,7 @@
                              Screen Name control; each copy drives its own
                              tab's value (data-name-view) on the selected
                              group(s), and hides with no group selected. -->
-                        <div class="info-row name-display-row" data-tooltip="Names, How the selected group's screens are named on this tab. Screens draws each screen's own name, Group draws one name across the whole group, Both draws the group name plus every screen's. Sets the selected group, or every selected group at once; each group keeps its own choice on each tab. Shows only while a grouped screen is selected; ungrouped screens always keep their own name.">
+                        <div id="name-display-row-pixel-map" class="info-row name-display-row" data-tooltip="Names, How the selected group's screens are named on this tab. Screens draws each screen's own name, Group draws one name across the whole group, Both draws the group name plus every screen's. Sets the selected group, or every selected group at once; each group keeps its own choice on each tab. Shows only while a grouped screen is selected; ungrouped screens always keep their own name.">
                             <label>Names</label>
                             <div style="display: flex; gap: 4px;">
                                 <button type="button" class="btn btn-secondary name-display-btn" data-name-view="pixel-map" data-name-display="screens" style="flex: 1; padding: 4px 6px; font-size: 11px;">Screens</button>
@@ -551,7 +551,7 @@
                             <label for="show-label-name-cabinet">Screen Name</label>
                         </div>
 
-                        <div class="info-row name-display-row" data-tooltip="Names, How the selected group's screens are named on this tab. Screens draws each screen's own name, Group draws one name across the whole group, Both draws the group name plus every screen's. Sets the selected group, or every selected group at once; each group keeps its own choice on each tab. Shows only while a grouped screen is selected; ungrouped screens always keep their own name.">
+                        <div id="name-display-row-cabinet-id" class="info-row name-display-row" data-tooltip="Names, How the selected group's screens are named on this tab. Screens draws each screen's own name, Group draws one name across the whole group, Both draws the group name plus every screen's. Sets the selected group, or every selected group at once; each group keeps its own choice on each tab. Shows only while a grouped screen is selected; ungrouped screens always keep their own name.">
                             <label>Names</label>
                             <div style="display: flex; gap: 4px;">
                                 <button type="button" class="btn btn-secondary name-display-btn" data-name-view="cabinet-id" data-name-display="screens" style="flex: 1; padding: 4px 6px; font-size: 11px;">Screens</button>
@@ -665,7 +665,7 @@
                             <label>Show Offset Y</label>
                             <input type="text" id="show-offset-y" value="0">
                         </div>
-                        <div class="info-row name-display-row" data-tooltip="Names, How the selected group's screens are named on this tab. Screens draws each screen's own name, Group draws one name across the whole group, Both draws the group name plus every screen's. Sets the selected group, or every selected group at once; each group keeps its own choice on each tab. Shows only while a grouped screen is selected; ungrouped screens always keep their own name.">
+                        <div id="name-display-row-show-look" class="info-row name-display-row" data-tooltip="Names, How the selected group's screens are named on this tab. Screens draws each screen's own name, Group draws one name across the whole group, Both draws the group name plus every screen's. Sets the selected group, or every selected group at once; each group keeps its own choice on each tab. Shows only while a grouped screen is selected; ungrouped screens always keep their own name.">
                             <label>Names</label>
                             <div style="display: flex; gap: 4px;">
                                 <button type="button" class="btn btn-secondary name-display-btn" data-name-view="show-look" data-name-display="screens" style="flex: 1; padding: 4px 6px; font-size: 11px;">Screens</button>
@@ -702,7 +702,7 @@
                             <label for="show-label-name-data">Screen Name</label>
                         </div>
 
-                        <div class="info-row name-display-row" data-tooltip="Names, How the selected group's screens are named on this tab. Screens draws each screen's own name, Group draws one name across the whole group, Both draws the group name plus every screen's. Sets the selected group, or every selected group at once; each group keeps its own choice on each tab. Shows only while a grouped screen is selected; ungrouped screens always keep their own name. The binder's Data sheets follow each group's choice: Group prints one sheet for the group, Screens a sheet per screen, Both asks at export.">
+                        <div id="name-display-row-data-flow" class="info-row name-display-row" data-tooltip="Names, How the selected group's screens are named on this tab. Screens draws each screen's own name, Group draws one name across the whole group, Both draws the group name plus every screen's. Sets the selected group, or every selected group at once; each group keeps its own choice on each tab. Shows only while a grouped screen is selected; ungrouped screens always keep their own name. The binder's Data sheets follow each group's choice: Group prints one sheet for the group, Screens a sheet per screen, Both asks at export.">
                             <label>Names</label>
                             <div style="display: flex; gap: 4px;">
                                 <button type="button" class="btn btn-secondary name-display-btn" data-name-view="data-flow" data-name-display="screens" style="flex: 1; padding: 4px 6px; font-size: 11px;">Screens</button>
@@ -1257,7 +1257,7 @@
                             <label for="show-label-name-power">Screen Name</label>
                         </div>
 
-                        <div class="info-row name-display-row" data-tooltip="Names, How the selected group's screens are named on this tab. Screens draws each screen's own name, Group draws one name across the whole group, Both draws the group name plus every screen's. Sets the selected group, or every selected group at once; each group keeps its own choice on each tab. Shows only while a grouped screen is selected; ungrouped screens always keep their own name. The binder's Power sheets follow each group's choice: Group prints one sheet for the group, Screens a sheet per screen, Both asks at export.">
+                        <div id="name-display-row-power" class="info-row name-display-row" data-tooltip="Names, How the selected group's screens are named on this tab. Screens draws each screen's own name, Group draws one name across the whole group, Both draws the group name plus every screen's. Sets the selected group, or every selected group at once; each group keeps its own choice on each tab. Shows only while a grouped screen is selected; ungrouped screens always keep their own name. The binder's Power sheets follow each group's choice: Group prints one sheet for the group, Screens a sheet per screen, Both asks at export.">
                             <label>Names</label>
                             <div style="display: flex; gap: 4px;">
                                 <button type="button" class="btn btn-secondary name-display-btn" data-name-view="power" data-name-display="screens" style="flex: 1; padding: 4px 6px; font-size: 11px;">Screens</button>
