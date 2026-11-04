@@ -119,6 +119,7 @@ SETTLED_CEILINGS = [
     ('novastar-novapro-uhd', 16),
     ('novastar-novapro-uhd-jr', 16),
     ('novastar-novapro-hd', 4),
+    ('novastar-4k-prime', 16),
     ('novastar-card-h-20xrj45', 20),
     ('novastar-card-h-16xrj45-2xfiber', 16),
     ('novastar-card-h-4xfiber', 32),
@@ -189,7 +190,8 @@ def test_the_novapro_uhds_opts_copy_their_own_copper():
     Ethernet 1-8 / 9-16, OPT 3/4 are their copy/hot backup - which is exactly
     what copy delivery with four trunks at 8 per trunk produces. No documented
     OPT mode adds a port, so unlike the MX40 Pro there is no mode switch."""
-    for device_id in ('novastar-novapro-uhd', 'novastar-novapro-uhd-jr'):
+    for device_id in ('novastar-novapro-uhd', 'novastar-novapro-uhd-jr',
+                      'novastar-4k-prime'):
         device = catalog.get_device(device_id)
         assert device['form'] == 'all-in-one', device_id
         assert device['trunkDelivery'] == 'copy', (
@@ -247,6 +249,11 @@ NOVASTAR_10G_TRUNKS = [
     ('novastar-mctrl-r5', 2, 8, 'copy'),
     ('novastar-novapro-uhd', 4, 8, 'copy'),
     ('novastar-novapro-uhd-jr', 4, 8, 'copy'),
+    # 4K-Prime: its sheet (Specifications V1.0.0, Output table) maps the
+    # carriage, "OPT 1 transmits data of Ethernet ports 1-8", OPT 2 9-16,
+    # OPT 3/4 their copy/hot backup, and states no rate. The 10G is the
+    # owner's own ruling: "It's 10G, I know it" (2026-11-04).
+    ('novastar-4k-prime', 4, 8, 'copy'),
     ('novastar-card-h-16xrj45-2xfiber', 2, 8, 'copy'),
     ('novastar-card-h-4xfiber', 4, 8, 'distinct'),
     # Eight OPTs: "8x 10G OPT Ports" (H15 Video Wall Splicer
@@ -287,6 +294,25 @@ def test_a_documented_10g_opt_device_accepts_a_box(device_id, trunks,
     ok, why = catalog.can_add_cvt(card, 'novastar-cvt8-5g')
     assert not ok, f'{device_id} took a CVT8-5G onto a 10G trunk'
     assert '40G' in why and '10G' in why, why
+
+
+def test_the_4k_prime_takes_the_10g_boxes_and_refuses_the_40g_one():
+    """The owner's ruling, "It's 10G, I know it" (2026-11-04), is the
+    4K-Prime's rate, quoted in its note beside the sheet that states none.
+    Rated like the UHD Jr, it takes every box of the 10G line and refuses
+    the CVT8-5G with both rates in the reason."""
+    device = catalog.get_device('novastar-4k-prime')
+    assert device['trunkRate'] == '10G'
+    assert "It's 10G, I know it" in device['note']
+    assert 'no OPT line rate' in device['note']
+    card = catalog.new_card('novastar-4k-prime', 'sweep', fixed=True)
+    for box in ('novastar-cvt10', 'novastar-cvt10-pro', 'novastar-cvt4k-s'):
+        ok, why = catalog.can_add_cvt(card, box)
+        assert ok, f'the 4K-Prime refused {box}: {why}'
+    ok, why = catalog.can_add_cvt(card, 'novastar-cvt8-5g')
+    assert not ok, 'the 4K-Prime took a CVT8-5G onto a 10G trunk'
+    assert why == ('CVT8-5G hangs off a 40G trunk and the trunks on '
+                   '4K-Prime are 10G - the rates must match.'), why
 
 
 def _mx40(boxes=0, halves=False):

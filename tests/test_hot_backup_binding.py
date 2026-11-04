@@ -15,7 +15,10 @@ quotes a source for their copy OPTs:
   * NovaPro UHD (Specifications V1.2.0, "OPT 3 is the copy/hot backup
     channel for OPT 1") and NovaPro UHD Jr (Specifications V1.5.1, "OPT 3
     serves as the copy/hot backup for OPT 1"), per box Mirror or Backup the
-    same way (owner, 2026-11-02).
+    same way (owner, 2026-11-02);
+  * 4K-Prime (Specifications V1.0.0, "OPT 3 serves as the copy/hot backup
+    for OPT 1"), on the UHD Jr's shape; 10G by the owner's ruling
+    (2026-11-04), the sheet stating no rate.
 
 A box on a copy OPT that backs up is the loop partner of the box on the OPT
 it copies, whatever order the boxes and the mode came in, but only where the
@@ -45,6 +48,7 @@ H4E = 'novastar-card-h-4xfiber-enhanced'
 MX40 = 'novastar-mx40-pro'
 UHD = 'novastar-novapro-uhd'
 UHD_JR = 'novastar-novapro-uhd-jr'
+PRIME = 'novastar-4k-prime'
 CVT10 = 'novastar-cvt10'
 CVT4K = 'novastar-cvt4k-s'
 
@@ -141,7 +145,7 @@ SHAPES = [
       ('OPT 3', 'backup', 'OPT 1'), ('OPT 4', 'backup', 'OPT 2')], 20),
 ] + [
     (unit, None, None, box, body, n, shape, 16)
-    for unit in (UHD, UHD_JR)
+    for unit in (UHD, UHD_JR, PRIME)
     for box, body, n, shape in [
         (CVT10, {}, 2,
          [('OPT 1', None, None), ('OPT 2', None, None),
@@ -175,7 +179,9 @@ def test_the_uhds_quote_their_own_sheets_for_the_per_box_copy_opts():
     for unit, words in ((UHD, 'OPT 3 is the copy/hot backup channel for '
                               'OPT 1'),
                         (UHD_JR, 'OPT 3 serves as the copy/hot backup for '
-                                 'OPT 1')):
+                                 'OPT 1'),
+                        (PRIME, 'OPT 3 serves as the copy/hot backup for '
+                                'OPT 1')):
         device = catalog.get_device(unit)
         assert catalog.copy_trunks(device, 'default') == 'per-box', unit
         assert words in device['copyTrunksNote'], unit
@@ -185,6 +191,30 @@ def test_the_uhds_quote_their_own_sheets_for_the_per_box_copy_opts():
     assert catalog.copy_trunks(catalog.get_device(H4E), 'backup') == 'backup'
     assert catalog.copy_trunks(catalog.get_device(MX40), '20-port') \
         == 'per-box'
+
+
+def test_the_4k_primes_opt_1_2_carry_ethernet_1_8_and_9_16(client):
+    """4K-Prime sheet, Output table: "OPT 1 transmits data of Ethernet
+    ports 1-8", "OPT 2 transmits data of Ethernet ports 9-16", OPT 3/4
+    their copy/hot backup. A box on OPT 1 and OPT 2 delivers 1-8 and 9-16
+    of the unit's own sixteen; the boxes on OPT 3/4 arrive as Backup, bound
+    to them, and the count never moves off 16."""
+    pid, cid = rig(client, PRIME)
+    card = card_of(client, cid)
+    assert (card['ceiling'], card['defined']) == (16, 16)
+    assert card['trunksCopyOwnPorts'] is True
+    for _ in range(4):
+        add_box(client, pid, cid, CVT10)
+    card = card_of(client, cid)
+    got = sorted((b['trunkTitle'], b['firstPort'], b['portCount'],
+                  b['copyRole'], b['copyRoleChoice']) for b in card['cvts'])
+    assert got == [('OPT 1', 1, 8, None, False), ('OPT 2', 9, 8, None, False),
+                   ('OPT 3', 1, 8, 'backup', True),
+                   ('OPT 4', 9, 8, 'backup', True)], got
+    assert pairs(card) == [('OPT 1', None, None), ('OPT 2', None, None),
+                           ('OPT 3', 'backup', 'OPT 1'),
+                           ('OPT 4', 'backup', 'OPT 2')]
+    _counts_hold(card, 16)
 
 
 # ── the order the boxes and the mode came in ──────────────────────────────
@@ -228,7 +258,7 @@ def test_a_normal_add_ends_bound(client, unit, mode, other, box, body, n,
     alone, the copy boxes added after, as Backup."""
     pid, cid = rig(client, unit, mode)
     paired = catalog.default_backup_pair(raw_card(client, cid))
-    assert paired == (unit not in (UHD, UHD_JR))
+    assert paired == (unit not in (UHD, UHD_JR, PRIME))
     for _ in range(n if paired else n * 2):
         add_box(client, pid, cid, box, **body)
     card = card_of(client, cid)
@@ -326,7 +356,8 @@ def test_a_per_box_mirror_stays_a_mirror_and_backup_binds_again(
     (MX40, '20-port', [CVT10] * 2, CVT4K),
     (UHD_JR, None, [CVT10] * 2, CVT4K),
     (UHD, None, [CVT10] * 2, CVT4K),
-], ids=['h4e', 'mx40', 'uhd-jr', 'uhd'])
+    (PRIME, None, [CVT10] * 2, CVT4K),
+], ids=['h4e', 'mx40', 'uhd-jr', 'uhd', '4k-prime'])
 def test_a_copy_box_taking_other_opts_than_its_primaries_is_not_bound(
         client, unit, mode, firsts, copy_box):
     """A CVT4K-S on two copy OPTs behind two single-OPT boxes copies two
@@ -501,8 +532,9 @@ def _loop_links(card):
             for p in card['ports'] if p.get('backedBy')}
 
 
-def test_a_loop_box_is_what_backs_the_ports_up(client):
-    pid, cid = rig(client, UHD_JR)
+@pytest.mark.parametrize('unit', [UHD_JR, PRIME], ids=['uhd-jr', '4k-prime'])
+def test_a_loop_box_is_what_backs_the_ports_up(client, unit):
+    pid, cid = rig(client, unit)
     _fill(client, pid, cid, CVT10, {}, 2)
     links = _loop_links(card_of(client, cid))
     assert links == {**{n: ('OPT 3', n, True) for n in range(1, 9)},

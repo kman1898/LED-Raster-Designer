@@ -107,12 +107,13 @@ PLATFORM_LABELS = {
 
 # platform -> the catalog families whose ports may carry it. The Legacy row
 # is the ruling by name - "VX, MCTRL, NovaPro, MSD, H", every non-COEX
-# NovaStar line (the MSD300 files under novastar-mctrl) - and the COEX rows
-# are "CX only map to 5G" with the 1G COEX all-in-ones keeping the 1G COEX
-# setting to themselves.
+# NovaStar line (the MSD300 files under novastar-mctrl, and the 4K-Prime,
+# a V-Can all-in-one for the legacy receiving cards, under novastar-prime)
+# - and the COEX rows are "CX only map to 5G" with the 1G COEX all-in-ones
+# keeping the 1G COEX setting to themselves.
 PLATFORM_FAMILIES = {
     'novastar-armor': {'novastar-vx', 'novastar-mctrl', 'novastar-novapro',
-                       'novastar-h'},
+                       'novastar-h', 'novastar-prime'},
     'novastar-coex-1g': {'novastar-mx'},
     'novastar-5g': {'novastar-cx'},
     # ASSUMPTION (pending user confirmation): every Brompton unit is one family,
@@ -145,6 +146,7 @@ _FAMILY_GEAR = {
     'novastar-mctrl': 'NovaStar legacy gear',
     'novastar-novapro': 'NovaStar legacy gear',
     'novastar-h': 'NovaStar legacy gear',
+    'novastar-prime': 'NovaStar legacy gear',
     'brompton': 'Brompton gear',
     'megapixel': 'Megapixel gear',
 }
