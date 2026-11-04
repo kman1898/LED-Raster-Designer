@@ -1618,7 +1618,9 @@ class _Binder {
             const mode = { power: null, data: null }, asks = { power: false, data: false };
             for (const side of ['power', 'data']) {
                 if (!routed[side]) continue;
-                const tab = this.groupNameDisplayFor(side === 'power' ? 'power' : 'data-flow');
+                // The group's OWN value for that tab (per group since
+                // 2026-11-04), through the one reader the canvas uses.
+                const tab = this.groupNameDisplayFor(side === 'power' ? 'power' : 'data-flow', g);
                 asks[side] = tab === 'both';
                 const asked = (answers[g.id] || {})[side];
                 mode[side] = tab === 'both' ? (asked === 'screens' ? 'screens' : 'group') : tab;
@@ -5090,7 +5092,6 @@ class _Binder {
         let G = gutter || MAP_GUTTER;
         const S = this._bMapScale(book) * ((book.fill && book.fill.s) || 1);
         const canvases = (this.project && Array.isArray(this.project.canvases)) ? this.project.canvases : [];
-        const hadBy = !!this.project && Object.prototype.hasOwnProperty.call(this.project, 'groupNameDisplayByView');
         const saved = {
             canvas: r.canvas, ctx: r.ctx, exportMode: r.exportMode, transparent: r.exportTransparentBg,
             printer: r.printerMode, viewMode: r.viewMode, zoom: r.zoom, panX: r.panX, panY: r.panY,
@@ -5099,7 +5100,7 @@ class _Binder {
             active: this.project ? this.project.active_canvas_id : null,
             canvasVis: canvases.map(c => [c, c.visible]),
             layerVis: (this.project.layers || []).map(l => [l, l.visible]),
-            nameBy: hadBy ? this.project.groupNameDisplayByView : undefined,
+            nameForce: this._nameDisplayForce,
         };
         let inner = {
             x: area.x + G.left, y: area.y + G.top,
@@ -5121,9 +5122,12 @@ class _Binder {
             const on = new Set(subject.members);
             (this.project.layers || []).forEach(l => { if (!on.has(l)) l.visible = false; });
             subject.members.forEach(l => { l.visible = true; });
+            // A group's sheet draws the wall by its group name and a
+            // member's sheet by the screen's own, whatever the group's
+            // Names value: pinned on the one reader (groupNameDisplayFor)
+            // for this view while the map draws, the project untouched.
             if (subject.kind !== 'layer') {
-                this.project.groupNameDisplayByView = { ...(saved.nameBy || {}),
-                    [view]: subject.kind === 'group' ? 'group' : 'screens' };
+                this._nameDisplayForce = { [view]: subject.kind === 'group' ? 'group' : 'screens' };
             }
             const ws = r._canvasWorkspace(canvas);
             const mirrored = !!(canvas && r._isCanvasMirrored(canvas));
@@ -5320,10 +5324,7 @@ class _Binder {
             saved.layerVis.forEach(([l, v]) => { l.visible = v; });
             if (!hadVis) this._labelVisibility = null;
             if (this.project) this.project.active_canvas_id = saved.active;
-            if (this.project && subject.kind !== 'layer') {
-                if (hadBy) this.project.groupNameDisplayByView = saved.nameBy;
-                else delete this.project.groupNameDisplayByView;
-            }
+            if (subject.kind !== 'layer') this._nameDisplayForce = saved.nameForce;
             r.canvas = saved.canvas;
             r.ctx = saved.ctx;
             r.exportMode = saved.exportMode;

@@ -326,6 +326,22 @@
         A()._setDataCableSheetOpen(o, false);
         if (mode() === 'data-flow') A().renderHardwareDock();
     }
+    // The processor's own ≡ (app-dock.js _dockBuildProcCableSheetButton):
+    // a class of its own, hw-dock-cablebtn-proc, so sheetButton() and the
+    // box and card steps (hw-dock-cablebtn-data) never find it, and its
+    // list (data-lrd-proc-sheet) carries every field key prefixed, so the
+    // box sheet's [data-lrd-...="..."] selectors never match inside it.
+    function procListButton() {
+        var p = proc();
+        return p ? $('#hardware-dock-body .hw-dock-cablebtn-proc[data-lrd-field="data-cable-sheet-' + p.id + '"]') : null;
+    }
+    function procList() { var p = proc(); return p ? $('[data-lrd-proc-sheet="' + p.id + '"]') : null; }
+    function closeProcList() {
+        var p = proc();
+        if (!p || !A()._setDataCableSheetOpen) return;
+        A()._setDataCableSheetOpen({ kind: 'proc', id: p.id }, false);
+        if (mode() === 'data-flow') A().renderHardwareDock();
+    }
     // The box's Primary 1 link and its cable, or null.
     function boxLink() {
         var b = box(), a = A();
@@ -462,6 +478,16 @@
         if (held('prefs')) return;
         var m = $('#preferences-modal');
         if (m) m.style.display = 'none';
+    }
+    // Preferences on `tab`, opened only when it is not up on that tab
+    // already: on a step that shares it with the one before (S.keep), the
+    // window stays exactly as the earlier step left it.
+    function openPrefsTab(tab) {
+        var a = A();
+        if (!a) return;
+        if (held('prefs:' + tab) && prefsOpen() && a._prefsTab === tab) return;
+        a.openPreferencesModal();
+        a.showPreferencesTab(tab);
     }
     function closeFlag() {
         var a = A();
@@ -4206,6 +4232,45 @@
             },
             after: function () { closeBoxSheet(); }
         },
+        // The processor's ≡ (1.6.0, app-dock.js _dockBuildProcCableSheet):
+        // one cable list of every box on the processor, and the card's own
+        // ports, a section each, folded or open, built by the box sheet's
+        // own builder from the same rows. A length typed in it is the box
+        // sheet's stored entry. It lives in the tray, not in a window the
+        // runner holds, so it names no `window`; the steps around it are
+        // the box sheet's and close their own.
+        procCableList: {
+            since: '1.6.0',
+            target: function () { var p = proc(); return p ? '#hardware-dock-body .hw-dock-cablebtn-proc[data-lrd-field="data-cable-sheet-' + p.id + '"]' : '#hardware-dock-body .hw-dock-cablebtn-proc'; },
+            place: 'top', title: 'Every box in one list',
+            body: 'The &#8801; on the processor&rsquo;s own header opens one cable list of every box on it, a section per box, folded or open. A length typed here is the one the box&rsquo;s own list holds.',
+            before: function () { switchView('data-flow'); closePopover(); closeBoxSheet(); closeProcList(); },
+            act: function (t) {
+                var b = box();
+                if (!b) throw new Error('no breakout box on the processor');
+                return t.wait(procListButton).then(function (btn) {
+                    if (!btn) throw new Error('the processor has no list button');
+                    return t.click(btn);
+                }).then(function () {
+                    return t.wait(function () {
+                        var l = procList();
+                        return l && l.querySelector('[data-lrd-proc-sheet-sec="cvt:' + b.id + '"]') ? l : null;
+                    }, 4000);
+                }).then(function (l) {
+                    if (!l) throw new Error('the list did not open with the box in it');
+                    return t.spot(l).then(function () { return t.pause(PACE.opened); });
+                });
+            },
+            check: function () {
+                var p = proc(), b = box(), l = procList();
+                if (!p || !b || !l || !l.querySelector('[data-lrd-proc-sheet-sec="cvt:' + b.id + '"]')) return null;
+                var n = l.querySelectorAll('[data-lrd-proc-sheet-sec^="cvt:"]').length;
+                return 'One list holds every box’s cables on ' + (p.name || 'this processor')
+                    + (n > 1 ? ' (' + n + ' boxes)' : '')
+                    + '; a length typed here is the same one the box’s own list shows.';
+            },
+            after: function () { closeProcList(); }
+        },
         // Jumpers, link by link (1.3.4, app-jumpers.js): the screen's own
         // vertical and horizontal lengths on the Data sidebar, and the same
         // pair on the Power sidebar.
@@ -4744,14 +4809,15 @@
         // path Save takes for them; the dialog closes on the way out.
         cableStock: {
             since: '1.5.3',
+            // Preferences on Cable stock stays up into the next step, A
+            // list for each kind of cable (owner, 2026-11-04).
+            window: 'prefs:stock',
             target: '#pref-cable-stock-all-ft', place: 'bottom', title: 'Cable stock',
             avoid: ['#pref-cable-stock-all-ft', '#preferences-save'],
             body: 'In Preferences, Cable stock, type the lengths this show has on hand: 25, 50, 100. Each run is then written as the stock pieces that make it, and a preset keeps the list for the next show.',
             before: function () {
                 switchView('power');
-                var a = A();
-                a.openPreferencesModal();
-                a.showPreferencesTab('stock');
+                openPrefsTab('stock');
             },
             act: function (t) {
                 return t.type('#pref-cable-stock-all-ft', '25, 50, 100').then(function () {
@@ -4814,14 +4880,25 @@
         // way the Cable stock step presses it.
         cableStockPerKind: {
             since: '1.6.0',
+            // Right after Cable stock, in the Preferences it left up; the
+            // stock pieces step after it types into the tray, so this
+            // step's after() closes Preferences.
+            window: 'prefs:stock',
             target: '#pref-cable-stock-per-kind', place: 'bottom', title: 'A list for each kind of cable',
             avoid: ['#pref-cable-stock-per-kind', '#pref-cable-stock-multi-ft', '#pref-cable-stock-feeder-ft', '#preferences-save'],
             body: 'Tick A list for each kind of cable and each kind gets its own lengths. Here the multis keep 25, 50 and 100, and the power in cables come in 50 and 100.',
             before: function () {
                 switchView('power');
+                openPrefsTab('stock');
+                // Held up from Cable stock, the dialog was never opened
+                // again, and the Save that step pressed spent the lists it
+                // opened with (applyCableStockPreferences). They are the
+                // fields as they stand, the show's lists since that Save:
+                // what an open of the dialog would read now.
                 var a = A();
-                a.openPreferencesModal();
-                a.showPreferencesTab('stock');
+                if (a._prefsCableStockAtOpen === undefined && a.readCableStockUI) {
+                    a._prefsCableStockAtOpen = JSON.stringify(a.readCableStockUI());
+                }
             },
             act: function (t) {
                 return t.click('#pref-cable-stock-per-kind').then(function () {
@@ -5573,6 +5650,47 @@
                 return g ? g.name + ': two screens that move and route as one wall.' : null;
             }
         },
+        // The Names switch is per group, per tab (2026-11-04): it acts on
+        // the selected group, so picking one member of the wall shows it,
+        // and Screens on Pixel Map gives this wall its screens' names back
+        // on that tab alone. Other groups and the other tabs keep theirs.
+        groupNames: {
+            since: '1.6.0',
+            target: '#name-display-row-pixel-map', place: 'right', title: 'Name each group',
+            avoid: ['#name-display-row-pixel-map'],
+            body: 'Names sets how the selected group is named on this tab: Screens, Group or Both. Each group keeps its own choice on every tab.',
+            before: function () {
+                closePrefs(); hideMenus(); closePopover(); switchView('pixel-map');
+                var a = A(), w = wall();
+                if (w && a.getGroupOfLayer(w)) a.selectLayer(w);
+                if (a.refreshNameDisplayButtons) a.refreshNameDisplayButtons();
+            },
+            act: function (t) {
+                var a = A();
+                var group = function () { var w = wall(); return w ? a.getGroupOfLayer(w) : null; };
+                return t.wait(function () {
+                    var row = $('#name-display-row-pixel-map');
+                    return group() && row && row.style.display !== 'none' ? row : null;
+                }).then(function (row) {
+                    if (!row) throw new Error('Names is not shown for the group');
+                    t.mem.group = group().id;
+                    return t.click('.name-display-btn[data-name-view="pixel-map"][data-name-display="screens"]');
+                }).then(function () {
+                    return t.wait(function () {
+                        var g = a.resolveGroup(t.mem.group);
+                        return g && a.groupNameDisplayFor('pixel-map', g) === 'screens';
+                    });
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the group did not take Screens');
+                    return t.pause(PACE.acted);
+                });
+            },
+            check: function (mem) {
+                var a = A(), g = mem && a.resolveGroup(mem.group);
+                if (!g || a.groupNameDisplayFor('pixel-map', g) !== 'screens') return null;
+                return g.name + ' now names each screen on Pixel Map; the other tabs and groups keep their own.';
+            }
+        },
         exportBinder: {
             window: 'export:binder',
             target: '#btn-export', place: 'bottom', title: 'Export the binder',
@@ -6247,15 +6365,15 @@
                     'nameProcessor', 'redundancy', 'backupProcessor', 'mixedRedundancy', 'cardNames', 'dropProcessor', 'releasePort', 'attachmentFlag', 'pinPort',
                     'clearPortByMenu', 'clearCard', 'dropProcessorAgain',
                     'snakePorts', 'cableSheet', 'snakeHomeRun', 'loosePortLength', 'dataJumpers', 'dataCableTags',
-                    'overrideRun', 'addBreakoutBox', 'fiberMode', 'boxFiber', 'fiberStrands', 'fiberExtension', 'panelWatts', 'panelInput', 'breakoutType',
+                    'overrideRun', 'addBreakoutBox', 'fiberMode', 'boxFiber', 'fiberStrands', 'fiberExtension', 'procCableList', 'panelWatts', 'panelInput', 'breakoutType',
                     'addDistro', 'nameDistro',
                     'distroPhase', 'distroRating', 'distroMain', 'distroPreset', 'distroRows',
                     'dropMulti', 'clearCircuit', 'clearMultiByMenu', 'dropMultiAgain',
-                    'multiCableSheet', 'powerJumpers', 'jumperNames', 'pullPanels', 'cableUnit', 'cableStock', 'cableStockPieces',
-                    'cableStockPerKind', 'powerCableTags',
+                    'multiCableSheet', 'powerJumpers', 'jumperNames', 'pullPanels', 'cableUnit', 'cableStock', 'cableStockPerKind',
+                    'cableStockPieces', 'powerCableTags',
                     'powerColumns', 'splitters', 'takeOver', 'customPower', 'customDraw', 'sweepShare', 'balance',
                     'addService', 'serviceRating', 'serviceDistro', 'feederLength',
-                    'addBeach', 'screenBeach', 'addScreen', 'beachByMenu', 'crossScreens', 'groupScreens',
+                    'addBeach', 'screenBeach', 'addScreen', 'beachByMenu', 'crossScreens', 'groupScreens', 'groupNames',
                     'exportBinder', 'screenOrder', 'wiringTick', 'fiberPage', 'titleBlock', 'fileExports', 'preferences',
                     'mirrorScreen', 'portPlug', 'portNumbers', 'portsMinimum', 'powerZPattern', 'circuitNumbers',
                     'redrawAsOne', 'sweepPorts', 'helpMenu', 'outroAdvanced']

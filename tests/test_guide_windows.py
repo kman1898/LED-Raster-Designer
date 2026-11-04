@@ -85,15 +85,23 @@ ADVANCED_RUNS = [
     ['distroPhase', 'distroRating', 'distroMain',
      'distroPreset', 'distroRows'],                          # gear:distro
     ['jumperNames', 'pullPanels'],                           # export:pull-sheet
+    ['cableStock', 'cableStockPerKind'],                     # prefs:stock
     ['exportBinder', 'screenOrder', 'wiringTick',
      'fiberPage', 'titleBlock'],                             # export:binder
 ]
 QUICK_RUNS = []
 # The What's New lists for every 1.5 version a person can come from.
+# Cable stock (1.5.3) and A list for each kind of cable (1.6.0) sit side by
+# side in Preferences on Cable stock (owner, 2026-11-04), so every list from
+# before 1.5.3 holds Preferences open between them; from 1.5.3 Cable stock
+# is not new and A list for each kind of cable runs alone.
 WHATS_NEW_RUNS = {
-    '1.5.0': [['sameAsLast', 'avgPower'], ['jumperNames', 'pullPanels']],
-    '1.5.1': [['sameAsLast', 'avgPower'], ['jumperNames', 'pullPanels']],
-    '1.5.2': [['sameAsLast', 'avgPower'], ['jumperNames', 'pullPanels']],
+    '1.5.0': [['sameAsLast', 'avgPower'], ['jumperNames', 'pullPanels'],
+              ['cableStock', 'cableStockPerKind']],
+    '1.5.1': [['sameAsLast', 'avgPower'], ['jumperNames', 'pullPanels'],
+              ['cableStock', 'cableStockPerKind']],
+    '1.5.2': [['sameAsLast', 'avgPower'], ['jumperNames', 'pullPanels'],
+              ['cableStock', 'cableStockPerKind']],
     '1.5.3': [['sameAsLast', 'avgPower'], ['jumperNames', 'pullPanels']],
 }
 
@@ -133,17 +141,27 @@ def _tour_keys(page, name):
 def test_shared_window_runs_are_the_known_ones(page):
     """The runs, per guide: Advanced, Quick Start, and What's New from every
     1.5 version. The owner's two reports are among them: What's New from
-    1.5.2 steps 11 and 12 share the Export dialog on the pull sheet."""
+    1.5.2 steps 11 and 12 share the Export dialog on the pull sheet (13
+    and 14 since Single mode or multimode and Every box in one list, both
+    1.6.0 steps, came in before them)."""
     assert _runs(page, _tour_keys(page, 'advanced')) == ADVANCED_RUNS
     assert _runs(page, _tour_keys(page, 'quick')) == QUICK_RUNS
     for after, want in WHATS_NEW_RUNS.items():
         keys = page.evaluate("(v) => window.QuickStart.newSteps(v, null)", after)
         assert _runs(page, keys) == want, after
     keys = page.evaluate("() => window.QuickStart.newSteps('1.5.2', null)")
-    # the owner's steps 11 and 12, one place on since the Single mode or
-    # multimode step (1.6.0) came in ahead of them
-    assert keys[11:13] == ['jumperNames', 'pullPanels'], keys
+    # the owner's steps 11 and 12, two places on since Single mode or
+    # multimode and Every box in one list (both 1.6.0) came in ahead of them
+    assert keys[12:14] == ['jumperNames', 'pullPanels'], keys
+    assert 'fiberMode' in keys[:12] and 'procCableList' in keys[:12], keys
     assert page.evaluate("() => window.QuickStart.windowsOf('jumperNames')") == ['export:pull-sheet']
+    # Cable stock, then A list for each kind of cable, then the stock
+    # pieces typed into the tray (owner, 2026-11-04)
+    i = keys.index('cableStock')
+    assert keys[i:i + 3] == ['cableStock', 'cableStockPerKind', 'cableStockPieces'], keys
+    for k in ('cableStock', 'cableStockPerKind'):
+        assert page.evaluate("(k) => window.QuickStart.windowsOf(k)", k) == ['prefs:stock'], k
+    assert page.evaluate("() => window.QuickStart.windowsOf('cableStockPieces')") == []
 
 
 # ── watching a window across a step change ───────────────────────────────
@@ -294,8 +312,11 @@ def test_whats_new_keeps_shared_windows_up(page, after):
     """What's New from 1.5.2 and from 1.5.3, every step by Next, each from
     its own entry snapshot: every step takes, and the shared windows stay
     up through the snapshot restore between the steps. The acceptance
-    case: from 1.5.2, steps 11 and 12 keep the Export dialog on the pull
-    sheet up, the same element, never hidden."""
+    cases, from 1.5.2: steps 11 and 12 keep the Export dialog on the pull
+    sheet up, the same element, never hidden; and Cable stock and A list
+    for each kind of cable keep Preferences on Cable stock up the same way
+    (owner, 2026-11-04), closed before the stock pieces step types into
+    the tray."""
     keys = page.evaluate("(v) => window.QuickStart.newSteps(v, null)", after)
     page.evaluate("(s) => window.QuickStart.setSpeed(s)", SPEED)
     page.evaluate("(k) => { window.QuickStart.startSteps(k); }", keys)
@@ -308,13 +329,19 @@ def test_whats_new_keeps_shared_windows_up(page, after):
         problems += p
         if watched:
             held.add((keys[i], keys[i + 1]))
+        if keys[i + 1] == 'cableStockPieces' and page.evaluate(
+                "() => document.getElementById('preferences-modal').style.display === 'block'"):
+            problems.append('Preferences was still up over the tray in A run made of stock pieces')
         qs = page.evaluate("window.QuickStart.state()")
         if qs['jumpedVia'] != 'snapshot':
             problems.append(f"step {i + 2} ({keys[i + 1]}) did not start from its snapshot: {qs}")
     missing = _run_pairs(WHATS_NEW_RUNS[after]) - held
     assert not missing, f"no window was up to hold for {sorted(missing)}"
     if after == '1.5.2':
-        assert ('jumperNames', 'pullPanels') in held and keys.index('jumperNames') == 11
+        assert ('jumperNames', 'pullPanels') in held and keys.index('jumperNames') == 12
+        assert ('cableStock', 'cableStockPerKind') in held, sorted(held)
+        assert keys.index('cableStockPerKind') == keys.index('cableStock') + 1, keys
+        assert keys.index('cableStockPieces') == keys.index('cableStockPerKind') + 1, keys
     assert not problems, "\n".join(problems)
 
 

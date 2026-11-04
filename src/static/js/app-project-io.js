@@ -389,6 +389,11 @@ class _ProjectIo {
             // the PUT so the server (and the first undo snapshot)
             // get the corrected mode.
             this.normalizeArmorPortMapping(this.project);
+            // An old show's Names value (show-wide, per tab) given to
+            // each of its groups, so every wall opens named the way it
+            // was (app-core.js migrateGroupNameDisplay; the server does
+            // the same on the PUT below).
+            this.migrateGroupNameDisplay();
 
             // v0.8.7.2.1: ONLY trust root-level raster fields for
             // legacy (pre-v0.8, no canvases array) files. Multi-

@@ -670,7 +670,7 @@ Object.assign(CanvasRenderer.prototype, {
         // In 'both' every member draws its own name and the group's
         // consolidated label moves to a separate pass hosted by the last
         // member, carrying the group's name as the wall's headline.
-        const nameMode = this._groupNameMode();
+        const nameMode = this._groupNameMode(layer);
         const plan = nameMode === 'screens' ? null : this._groupLabelPlan(layer);
         const memberNamePass = !!plan && nameMode === 'both' && !groupLabelPass;
         // No headline is drawn in 'screens', so no ghost of one may be left
