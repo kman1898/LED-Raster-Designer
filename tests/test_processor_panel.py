@@ -119,6 +119,7 @@ SETTLED_CEILINGS = [
     ('novastar-novapro-uhd', 16),
     ('novastar-novapro-uhd-jr', 16),
     ('novastar-novapro-hd', 4),
+    ('novastar-4k-prime', 16),
     ('novastar-card-h-20xrj45', 20),
     ('novastar-card-h-16xrj45-2xfiber', 16),
     ('novastar-card-h-4xfiber', 32),
@@ -454,6 +455,36 @@ def test_the_novapro_hds_fiber_takes_no_box(client):
     resp = client.post(f'/api/processors/{pid}/cards/{card_id}/cvts',
                        json={'deviceId': 'novastar-cvt10'})
     assert resp.status_code == 400, 'a box went onto the 1G fiber'
+
+
+def test_the_4k_primes_fiber_takes_no_box_without_a_stated_rate(client):
+    """The 4K-Prime's sheet (4K-Prime All-in-One Controller Specifications
+    V1.0.0) maps its four OPTs exactly - OPT 1/2 transmit Ethernet 1-8 /
+    9-16, OPT 3/4 their copy/hot backup - and states no line rate for
+    them. That is the VX400's case: under the 10G rule a fiber output whose
+    sheet names no rate gets no trunks, however much it looks like the UHD
+    Jr's, so it is sixteen copper ports and every box is refused."""
+    device = catalog.get_device('novastar-4k-prime')
+    assert device['name'] == '4K-Prime'
+    assert device['family'] == 'novastar-prime'
+    assert device['form'] == 'all-in-one'
+    assert device['connector'] == 'ethercon'
+    for field in ('trunks', 'trunkRate', 'portsPerTrunk', 'trunkDelivery'):
+        assert field not in device, (
+            f'the 4K-Prime grew {field}; its sheet states no OPT rate')
+    assert 'NO optical rate' in device['note'], (
+        'the note lost the reason no box hangs off this device')
+    for words in ('10,400,000', '650,000', '320,000', '16K', '8K'):
+        assert words in device['note'], words
+    state = add_processor(client, 'novastar-4k-prime')
+    proc = only(state)
+    assert proc['ceiling'] == 16
+    assert [p['number'] for p in first_card(proc)['ports']] ==         list(range(1, 17))
+    pid, card_id = proc['id'], first_card(proc)['id']
+    for box in ('novastar-cvt10', 'novastar-cvt4k-s', 'novastar-cvt8-5g'):
+        resp = client.post(f'/api/processors/{pid}/cards/{card_id}/cvts',
+                           json={'deviceId': box})
+        assert resp.status_code == 400, f'{box} went onto unrated fiber'
 
 
 def test_the_vx_pairs_are_split_and_each_side_keeps_its_own_sheet():

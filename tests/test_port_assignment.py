@@ -2219,6 +2219,7 @@ def test_the_matrix_covers_every_ported_device():
         'novastar-mctrl': {'novastar-armor'},
         'novastar-novapro': {'novastar-armor'},
         'novastar-h': {'novastar-armor'},
+        'novastar-prime': {'novastar-armor'},
         'brompton': {'brompton'},
         'megapixel': {'megapixel-1g', 'megapixel-2.5g'},
     }
@@ -2237,6 +2238,36 @@ def test_the_matrix_covers_every_ported_device():
                              by_family.get(device.get('family')))
         assert got == want, (
             f'{device["id"]}: accepts {got}, the matrix says {want}')
+
+
+def test_the_4k_prime_takes_legacy_screens_and_only_legacy_screens(client):
+    """The 4K-Prime is a NovaStar sender for the legacy receiving cards,
+    run from V-Can (4K-Prime All-in-One Controller Specifications V1.0.0):
+    not a NovaPro and not COEX. Its own family sits in the Legacy row with
+    the UHD Jr's, so a NovaStar (Legacy) screen lands on it and every other
+    setting is refused with both sides named, the way the UHD Jr refuses."""
+    assert assignment.accepted_platforms('novastar-4k-prime') ==         {'novastar-armor'}
+    assert assignment.accepted_platforms('novastar-4k-prime') ==         assignment.accepted_platforms('novastar-novapro-uhd-jr')
+    state = add_processor(client, 'novastar-4k-prime')
+    card = card_ids(state)[0]
+    sc = pscreens(('LEG', 2, 'novastar-armor'),
+                  ('CX1', 2, 'novastar-coex-1g'),
+                  ('CX5', 2, 'novastar-5g'),
+                  ('BR', 2, 'brompton'),
+                  ('MP', 2, 'megapixel-1g'))
+    for name, setting, gear in (
+            ('CX1', 'NovaStar COEX A10s/A8s (1G)', 'NovaStar legacy gear'),
+            ('CX5', 'NovaStar COEX CX40 (5G)', 'NovaStar legacy gear'),
+            ('BR', 'Brompton', 'NovaStar legacy gear'),
+            ('MP', 'Megapixel HELIOS (1G)', 'NovaStar legacy gear')):
+        resp = client.post('/api/port-assignments/place-overflow',
+                           json={'layerId': name, 'cardId': card,
+                                 'screens': sc})
+        assert resp.status_code == 409, resp.get_data(as_text=True)
+        assert resp.get_json()['error'] == (
+            f'{name} is programmed {setting}; 4K-Prime is {gear}.')
+    res = attach(client, 'LEG', card, sc)
+    assert spots(res, 'LEG') == [(card, 1), (card, 2)]
 
 
 def test_a_card_drop_lands_only_on_its_own_lines_gear(mixed_lines):

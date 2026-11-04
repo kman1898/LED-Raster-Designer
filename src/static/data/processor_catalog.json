@@ -427,6 +427,17 @@
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 4}]},
       "note": "4x Gigabit Ethernet LED outputs; max 3840 px wide, 1920 px high - its sheets publish no total or per-port pixel figure, so none is claimed. It also has 4 optical fiber outputs no document maps to any port; they are 1G per Matt and useless with the CVT line, which is why no box hangs off this device."
     },
+    {
+      "id": "novastar-4k-prime",
+      "vendor": "NovaStar",
+      "name": "4K-Prime",
+      "kind": "processor",
+      "form": "all-in-one",
+      "family": "novastar-prime",
+      "connector": "ethercon",
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 16}]},
+      "note": "4K-Prime All-in-One Controller Specifications V1.0.0: 16x Neutrik Gigabit Ethernet out, max 10,400,000 px, max 16K wide and 8K high; per port 650,000 px on an 8-bit source, 320,000 on 10/12-bit. Up to 4 units load one large screen. Its 4 OPTs carry the copper it already has (OPT 1/2 transmit Ethernet 1-8 / 9-16, OPT 3/4 are their copy/hot backup), but the sheet states NO optical rate, so under the 10G rule no box hangs off it."
+    },
 
     {
       "id": "novastar-h2",

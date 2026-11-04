@@ -98,8 +98,9 @@ def test_the_catalog_states_each_units_data_outputs():
     for i in ('novastar-mx40-pro', 'novastar-mx30', 'novastar-mx20', 'novastar-cx40-pro',
               'novastar-cx80-pro', 'novastar-mctrl4k', 'novastar-mctrl660-pro',
               'novastar-mctrl-r5', 'novastar-novapro-uhd', 'novastar-novapro-uhd-jr',
-              'novastar-novapro-hd', 'novastar-cvt4k-s', 'novastar-cvt10-pro',
-              'brompton-sx40', 'brompton-s8', 'brompton-s4', 'brompton-m2', 'brompton-t1',
+              'novastar-novapro-hd', 'novastar-4k-prime', 'novastar-cvt4k-s',
+              'novastar-cvt10-pro', 'brompton-sx40', 'brompton-s8', 'brompton-s4',
+              'brompton-m2', 'brompton-t1',
               'brompton-xd', 'brompton-xd-t', 'megapixel-rs12'):
         assert word(i) == 'ethercon', i
     for i in ('novastar-ku20', 'novastar-vx400', 'novastar-vx400-pro', 'novastar-vx600',
