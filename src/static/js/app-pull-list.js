@@ -945,6 +945,11 @@ class _PullList {
     // 1R-10R"). A list still
     // longer than eight pieces after folding (a wall's worth of circuit
     // labels) is said as its ends and a count.
+    // A run of MULTIS folds as a run of digit-ending distros does - two
+    // read "PD UPSTG 1, PD UPSTG 2", three or more "PD UPSTG 1 … 3" -
+    // never "PD UPSTG 1-3", which is how circuit 3 of multi PD UPSTG 1 is
+    // named (QA beta.5, 2026-11-03: a TRUE1 Breakout row read "PD UPSTG
+    // 1-3" over TRUE1 rows where "PD UPSTG 1-3" is that circuit).
     _pullCompressNames(names) {
         const list = (names || []).filter(Boolean).map(String);
         if (!list.length) return '';
@@ -961,6 +966,7 @@ class _PullList {
         const dashNamed = new Set((typeof this.getDistros === 'function' ? this.getDistros() : [])
             .map(d => (typeof this.distroLabel === 'function' ? this.distroLabel(d) : d && d.name))
             .filter(n => /\d$/.test(String(n || ''))).map(String));
+        const multis = this._pullMultiLabels();
         // key -> { names, nums, text(runs) }, in first-seen order
         const groups = new Map();
         const plain = [];
@@ -1028,7 +1034,7 @@ class _PullList {
             // of those distros never folds with one: "DISTRO 1, DISTRO 2"
             // and "DISTRO 1 … 4" (QA 1.6.0-beta.4: two distros read
             // "DISTRO 1-2", a multi's name).
-            if (g.names.every(n => dashNamed.has(n))) {
+            if (g.names.every(n => dashNamed.has(n) || multis.has(n))) {
                 for (const [a, b] of runs) {
                     const at = (k) => g.names[g.nums.indexOf(k)];
                     if (b - a >= 2) out.push(`${at(a)} … ${b}`);
@@ -1042,6 +1048,18 @@ class _PullList {
         const pieces = [...out, ...plain];
         if (pieces.length > 8) return `${list[0]} … ${list[list.length - 1]} (${list.length})`;
         return pieces.join(', ');
+    }
+
+    // Every multi's label on paper (distroBoxLabels), read once a tick -
+    // _pullCompressNames asks for every row it folds; a list build drops
+    // it first, so an edit made in the same tick is read.
+    _pullMultiLabels() {
+        if (!this._pullMultiLabelCache) {
+            this._pullMultiLabelCache = new Set(typeof this.distroBoxLabels === 'function'
+                ? this.distroBoxLabels().values() : []);
+            Promise.resolve().then(() => { this._pullMultiLabelCache = null; });
+        }
+        return this._pullMultiLabelCache;
     }
 
     // ---- positions ---------------------------------------------------------
@@ -1270,6 +1288,7 @@ class _PullList {
         // The tail cache is a per-tick memo keyed by layer object; a build
         // that follows an edit in the same tick must not read stale names.
         this._circuitTailCache = null;
+        this._pullMultiLabelCache = null;
         const boxLabels = this.distroBoxLabels();
         // Multi boxes holding more circuits than their fan (round 7), read
         // once for the whole list (_boxOverflows, the tray's own reading).

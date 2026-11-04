@@ -1513,7 +1513,7 @@ def test_the_packer_lays_blocks_whole_splits_only_the_tall_and_repeats_the_heads
 
 
 def test_a_sheet_whose_tables_do_not_fit_continues_on_the_next_number(page):
-    """A position stuffed past a Tabloid's four pull columns continues on
+    """A position stuffed past a Tabloid's pull columns continues on
     the next number of its series, "(cont.)", the table's title and
     heading repeated at the top of the continuation under the position's
     name again; the next position joins it there; the sheets after take
@@ -1546,8 +1546,10 @@ def test_a_sheet_whose_tables_do_not_fit_continues_on_the_next_number(page):
     i = titles.index('Pull - SR Beach')
     assert titles[i:i + 3] == ['Pull - SR Beach', 'Pull - SR Beach (cont.), CENTER', DISTRO], titles
     assert [p[1] for p in plan[i:i + 3]] == ['3.1', '3.2', '4.1'], plan
-    assert plan[i][4] == 'tables' and plan[i][5] == 4, plan[i]
-    assert plan[i + 1][3] == 'PULL · SR BEACH (CONT.), CENTER' and plan[i + 1][4] == 'tables' and plan[i + 1][5] == 2
+    # (three columns: the Screens table's every heading at its full size
+    # needs a column wider than four to a Tabloid give - QA beta.5)
+    assert plan[i][4] == 'tables' and plan[i][5] == 3, plan[i]
+    assert plan[i + 1][3] == 'PULL · SR BEACH (CONT.), CENTER' and plan[i + 1][4] == 'tables' and plan[i + 1][5] == 3
     assert [p[1] for p in plan if p[0] in ('distro', 'processor', 'totals')] == ['4.1', '4.2']
     # the continuation: its title block says (CONT.) and 3.2; under the
     # position's name again, the first thing is the stuffed table's title
@@ -1662,20 +1664,21 @@ def test_the_pull_sheet_spreads_across_the_page_and_cuts_no_heading(page, n):
     space out to the right"): a sheet with three or more sections uses more
     than half the drawing width, and no heading is cut - the Screens
     table's CIRCUITS and PORTS read "CIRCU…" and "POR…" in the old narrow
-    column, PANELS in small type. Where the sheet has the room (one
-    position, two) every section title and column heading prints at its
-    full size; four positions still share a Tabloid, each in its narrow
-    column, the Screens headings set smaller there but whole."""
+    column, PANELS in small type. Every section title and column heading
+    prints at its full size (QA beta.5, 2026-11-03: one type size for
+    every heading): four positions no longer squeeze onto one Tabloid with
+    the Screens headings set smaller - the sheet takes the three whose
+    columns hold every heading whole, the fourth goes on the next."""
     pg, ids = page
     out = pg.evaluate("(a) => (%s)(a)" % PULL_SPREAD_JS, [json.loads(_SHOW_JSON), n])
     texts = [o['t'] for o in out['ops']]
     sections = [s for s in PULL_SECTIONS if s in texts]
     assert len(sections) >= 3, texts
-    assert len(out['names']) == n, out['names']
+    assert len(out['names']) == min(n, 3), out['names']
     if n == 1:
         assert out['title'] == 'Pull - SR Beach' and out['cols'] >= 2, (out['title'], out['cols'])
     if n == 4:
-        assert out['cols'] == 4, out['cols']
+        assert out['cols'] == 3, out['cols']
     # the drawing's extent at its scale, and the text itself, reach past
     # the middle of the drawing area
     used = out['extent']['w'] * out['scale']
@@ -1689,14 +1692,13 @@ def test_the_pull_sheet_spreads_across_the_page_and_cuts_no_heading(page, n):
         sizes = [o['size'] for o in out['ops'] if o['t'] == h and o['weight'] == 700]
         if h in PULL_SECTION_AND_HEADING:
             sizes = [s for s in sizes if abs(s - title_size) >= 0.05]
-        assert len(sizes) >= n, (h, texts)
-        if n < 4:
-            assert all(abs(s - 21 * sc) < 0.05 for s in sizes), (h, sizes, sc)
+        assert len(sizes) >= min(n, 3), (h, texts)
+        assert all(abs(s - 21 * sc) < 0.05 for s in sizes), (h, sizes, sc)
     for h in sections:
         sizes = [o['size'] for o in out['ops'] if o['t'] == h and o['weight'] == 700]
         if h in PULL_SECTION_AND_HEADING:
             sizes = [s for s in sizes if abs(s - title_size) < 0.05]
-            assert len(sizes) >= n, (h, sizes, sc)
+            assert len(sizes) >= min(n, 3), (h, sizes, sc)
             continue
         assert sizes and all(abs(s - 25 * sc) < 0.05 for s in sizes), (h, sizes, sc)
     assert ids['errors'] == []

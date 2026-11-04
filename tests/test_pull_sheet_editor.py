@@ -348,7 +348,7 @@ def test_a_qty_override_rides_into_the_wrapper_the_workbook_and_the_binder(page)
     engine = pg.evaluate(LIST_JS)
     assert ('TRUE1', "10'", 2, 'SR1-1, SR1-2', '') in _rows(engine['positions'][0]['rows'])
     # an untouched total is the engine's own, folded labels and all
-    assert _totals(sheet)[('TRUE1 Breakout', 'EA')] == (2, 'SR 1-2', '')
+    assert _totals(sheet)[('TRUE1 Breakout', 'EA')] == (2, 'SR1, SR2', '')
     assert _totals(sheet)[('Data Jump', "6'")] == (11, 'WALL-B', '')
     # the TOTALS block redrew without rebuilding the edited row
     tot = pg.locator('#pull-sheet-totals tr').evaluate_all(
@@ -444,7 +444,7 @@ def test_a_hidden_row_leaves_every_paper_and_comes_back_from_the_fold(page):
     assert _pos(pg, ids['sr']).locator('details.pull-hidden').count() == 0
     assert pg.evaluate(STORE_JS) is None or 'g1' not in pg.evaluate(STORE_JS)['positions'] \
         or not any(r['key'] == 'TRUE1 Breakout|EA' for r in pg.evaluate(STORE_JS)['positions']['g1']['rows'])
-    assert _totals(pg.evaluate(SHEET_JS))[('TRUE1 Breakout', 'EA')] == (2, 'SR 1-2', '')
+    assert _totals(pg.evaluate(SHEET_JS))[('TRUE1 Breakout', 'EA')] == (2, 'SR1, SR2', '')
     _close(pg)
 
 

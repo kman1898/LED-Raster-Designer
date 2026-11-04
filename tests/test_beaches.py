@@ -559,7 +559,7 @@ def test_the_distro_picker_pulls_the_power_rows_to_its_beach(page):
     assert [p['name'] for p in out['positions']] == ['SR', 'SL', 'SPARE']
     sl_rows = _rows(pos['SL']['rows'])
     for row in [('Distro', 'EA', 1, 'SR', ''), ('Multi', "100'", 1, 'SR2', ''), ('Multi', "125'", 1, 'SR1', ''),
-                ('TRUE1 Breakout', 'EA', 2, 'SR 1-2', '')]:
+                ('TRUE1 Breakout', 'EA', 2, 'SR1, SR2', '')]:
         assert row in sl_rows, (row, sl_rows)
     # the walls' power jumpers beside CENTER's and LEFT's own, at SL - one
     # row per length (2026-09-25): WALL-A's 1' / 2', CENTER's 3', LEFT's

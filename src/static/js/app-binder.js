@@ -152,6 +152,11 @@ const BAND_H = 46;
 const WRAP_WHOLE = 12;                // a wrap layout never splits a block this short (lines)
 const WRAP_GAIN = 1.1;                // wrap wins only with a wall this much larger than side's or stack's
 const TH_H = 40;
+// A heading too wide for its column wraps at its words, a line this far
+// under the last - never shrunk ("AT THE" over "PROCESSOR").
+const TH_LINE = 24;
+// How far past its width a table grows to keep a band on one line.
+const BAND_GROW = 1.1;
 const H4_H = 46;
 const BLOCK_GAP = 22;
 // The tables' column: 3.5 in wide, a gap between columns; a view's bubble
@@ -167,7 +172,7 @@ const SWATCH = 24;
 const GROUP_GAP = 10;
 const GROUP_PAD = 6;
 const SWATCH_W = 32;
-const DATA_COL_W = 1020;              // the widest the Ports table grows, its columns sized to their content
+const DATA_COL_W = 1020;              // the Ports table's widest before it grows to keep a cell on one line (growTo), its columns sized to their content
 const COL_GAP = 30;
 const BUBBLE_H = 96;
 // The map keeps at least this share of the drawing area whatever the
@@ -2637,14 +2642,19 @@ class _Binder {
         // column is still "PANELS".
         // (`minSize`: a heading that must never be cut - LENGTH in a crowded
         // table - may go smaller than that)
-        if (opts.shrink && opts.maxWidth) {
+        // Text measured to fit a column is drawn whole in it: a column
+        // painted a hair narrower than it was measured (its width summed
+        // in another order) no longer shrinks a heading a pixel (QA
+        // beta.5: CIRCUITS at 20 px under 21).
+        const room = opts.maxWidth ? opts.maxWidth + 0.5 : 0;
+        if (opts.shrink && room) {
             const floor = opts.minSize || 14;
-            while (size > floor && ctx.measureText(t).width > opts.maxWidth) {
+            while (size > floor && ctx.measureText(t).width > room) {
                 size -= opts.minSize ? 0.5 : 1;
                 ctx.font = this._bFont(size, opts.weight);
             }
         }
-        if (opts.maxWidth) t = this._bFit(ctx, t, opts.maxWidth);
+        if (room) t = this._bFit(ctx, t, room);
         ctx.fillStyle = opts.color || INK;
         ctx.textAlign = opts.align || 'left';
         ctx.textBaseline = opts.baseline || 'alphabetic';
@@ -2666,53 +2676,15 @@ class _Binder {
         if (opts.upper) t = this._bCaps(t);
         let size = opts.size || SZ.cell;
         ctx.font = this._bFont(size, opts.weight);
-        if (opts.shrink && opts.maxWidth) {
-            while (size > 14 && ctx.measureText(t).width > opts.maxWidth) {
+        const room = opts.maxWidth ? opts.maxWidth + 0.5 : 0;
+        if (opts.shrink && room) {
+            while (size > 14 && ctx.measureText(t).width > room) {
                 size -= 1;
                 ctx.font = this._bFont(size, opts.weight);
             }
         }
-        if (opts.maxWidth) t = this._bFit(ctx, t, opts.maxWidth);
+        if (room) t = this._bFit(ctx, t, room);
         return ctx.measureText(t).width;
-    }
-
-    // Does `text` fit `maxWidth` at `size`, shrinking as _bText would?
-    _bTextFits(book, text, size, weight, maxWidth) {
-        const ctx = book.ctx;
-        let s = size;
-        ctx.font = this._bFont(s, weight);
-        while (s > 14 && ctx.measureText(text).width > maxWidth) {
-            s -= 1;
-            ctx.font = this._bFont(s, weight);
-        }
-        return ctx.measureText(text).width <= maxWidth;
-    }
-
-    // A cell that says two things - the data sheet's HOME RUN, "SR Primary
-    // 150' / SR Backup 150'" - is drawn on ONE line where it fits after
-    // shrinking, else as two lines inside the same row (the primary over
-    // the backup), each shrinking on its own, so a run is never cut to
-    // "…". THE SEPARATOR STAYS ON THE FIRST LINE: two ends stacked with
-    // the " / " dropped read as one thing said twice, which is what the
-    // live show A binder's HOME RUN column did (2026-09-09). Logged as one text,
-    // the whole cell, so a reader of the sheet's texts still sees one
-    // entry per cell.
-    _bTextTwoLines(book, text, x, y, o) {
-        const opts = o || {};
-        const parts = String(text).split(' / ');
-        if (parts.length !== 2
-                || this._bTextFits(book, text, opts.size || SZ.cell, opts.weight, opts.maxWidth)) {
-            return this._bText(book, text, x, y, opts);
-        }
-        const size = 16;
-        const drawn = [`${parts[0]} /`, parts[1]].map((p, k) => this._bText(book, p, x, y - 12 + k * 17,
-            { ...opts, size, shrink: true, log: false }));
-        const t = drawn.join(' ');
-        if (book.log && book.page && book.page.painting) {
-            book.log.texts.push(t);
-            if (book.log.textInfo) book.log.textInfo.push({ text: t, size, weight: opts.weight || 400 });
-        }
-        return t;
     }
 
     // Where a base-layout point lands on the page through the sheet's
@@ -2732,25 +2704,47 @@ class _Binder {
         return { x, y, w: round(r.w * s), h: round(r.h * s) };
     }
 
-    // A band's text on its lines (_bTableLines): one while it holds 18 px
-    // in `maxWidth`, else its " · " pieces packed onto lines that fit at
-    // the cell size - at most three, the last holding the rest.
-    _bBandLines(book, text, maxWidth) {
+    // A band's text on its lines (_bTableLines): one where it fits at the
+    // cell size, else its " · " pieces packed onto lines that fit, a piece
+    // no line holds going on at its words - as many lines as it takes, at
+    // the table's one size (QA beta.5, 2026-11-03: a snake's heading was
+    // shrunk to 19 px where the next one's was 20, and a band shrank to
+    // 18 before it wrapped).
+    _bBandLines(book, text, maxWidth, weight = 700) {
         const t = String(text == null ? '' : text);
         const ctxM = book.measureCtx;
-        const width = (str, size) => { ctxM.font = this._bFont(size, 700); return ctxM.measureText(str).width; };
-        if (!t || width(t, 18) <= maxWidth) return [t];
-        const pieces = t.split(/(?<= ·) /);
-        if (pieces.length < 2) return [t];
+        const width = (str) => { ctxM.font = this._bFont(SZ.cell, weight); return ctxM.measureText(str).width; };
+        if (!t || width(t) <= maxWidth) return [t];
         const out = [];
         let cur = '';
-        for (const p of pieces) {
-            const next = cur ? `${cur} ${p}` : p;
-            if (cur && width(next, SZ.cell) > maxWidth) { out.push(cur); cur = p; }
-            else cur = next;
+        for (const piece of t.split(/(?<= ·) /)) {
+            const next = cur ? `${cur} ${piece}` : piece;
+            if (!cur || width(next) <= maxWidth) { cur = next; continue; }
+            out.push(cur);
+            cur = piece;
         }
         if (cur) out.push(cur);
-        return out.length <= 3 ? out : [...out.slice(0, 2), out.slice(2).join(' ')];
+        return out.flatMap(line => (width(line) <= maxWidth ? [line]
+            : this._bCellLines(book, line, SZ.cell, weight, maxWidth, Infinity, true)));
+    }
+
+    // A band's stack (a box and its fiber, a snake's heading) laid into
+    // `maxWidth` at the cell size: each text line on as many lines as it
+    // takes (_bBandLines), { text, bold } - the stack's first line bold,
+    // its own continuation too - and each input group's label wrapped at
+    // its words where the group would not fit beside its strands
+    // (_bFitGroups). What _bBandStack draws and _bStackLayout measures.
+    _bWrapStack(book, list, maxWidth) {
+        const groups = this._bFitGroups(book.measureCtx, (list || []).filter(t => t && typeof t === 'object' && t.group)
+            .map(t => t.group), maxWidth, SZ.cell);
+        let gi = 0;
+        const out = [];
+        (list || []).forEach((t, k) => {
+            if (t && typeof t === 'object' && t.group) { out.push({ group: groups[gi++] }); return; }
+            const bold = k === 0;
+            for (const line of this._bBandLines(book, t, maxWidth, bold ? 700 : 400)) out.push({ text: line, bold });
+        });
+        return out;
     }
 
     // Words onto lines no wider than maxWidth, at most maxLines - the
@@ -2826,10 +2820,19 @@ class _Binder {
         }
         // never break before a " · " - its dot stays with the word it
         // follows - nor between a number and its unit ("30 m", "400 A"),
-        // so a length in stock pieces ("50 m+20 m") stays whole
+        // so a length in stock pieces ("50 m+20 m") stays whole, nor
+        // either side of a "×" ("16 × 16", "28× 2fer"), nor between a
+        // name and its number ("Sending" / "Card 1", never "Sending Card" /
+        // "1")
         if (words) {
-            return s.split(/(?<= )(?<!\d )(?!· )|(?<=\d )(?!· )(?!(?:m|ft|A|V|W|kW|kVA)(?!\w))/)
-                .filter(Boolean);
+            const out = [];
+            for (const w of s.split(/(?<= )(?<!\d )(?<!× )(?!· )|(?<=\d )(?!· )(?!× )(?!(?:m|ft|A|V|W|kW|kVA)(?!\w))/)) {
+                if (!w) continue;
+                const last = out.length - 1;
+                if (last >= 0 && /^\d+$/.test(w.trim()) && /[A-Za-z] $/.test(out[last])) out[last] += w;
+                else out.push(w);
+            }
+            return out;
         }
         const out = [];
         let cur = '';
@@ -2886,12 +2889,6 @@ class _Binder {
             if (cur.length) rows.push(cur);
             return rows.map(join);
         }
-        const fitsSmall = (t) => {
-            ctxM.font = this._bFont(Math.min(size, 14), weight);
-            const ok = ctxM.measureText(t).width <= maxWidth;
-            ctxM.font = font;
-            return ok;
-        };
         // a member's words, a range "A … B" held as one, and a name's
         // number held to its word: "backs up Card 1" wraps as "backs up" /
         // "Card 1", never "backs up Card" / "1" (since QA round 3 retired
@@ -2904,8 +2901,9 @@ class _Binder {
                 else if (last >= 0 && /^\d+$/.test(w.trim()) && /[A-Za-z] $/.test(out[last])) out[last] += w;
                 else out.push(w);
             }
-            // a range no line holds even shrunk breaks after its "…"
-            return out.flatMap(w => (/ … /.test(w) && !fitsSmall(w.trim())
+            // a range no line holds breaks after its "…" (nothing in a
+            // table shrinks to fit, _bColWidths)
+            return out.flatMap(w => (/ … /.test(w) && !fits(w.trim())
                 ? w.split(/(?<=… )/).filter(Boolean) : [w]));
         };
         // every member as its lines, packed in order: members that fit a
@@ -2951,22 +2949,27 @@ class _Binder {
         return lines.map(l => join(l.text));
     }
 
-    // A PLAIN CELL that will not fit its column on one line - after the
-    // little shrink a `shrink` table allows - onto lines at its words,
-    // each line shrinking on its own before it is cut, so nothing that
-    // could wrap is cut (owner, 2026-10-22: "Edison → po…" in a distro's
-    // TYPE, SCREENS narrowed by NAME, circuit names - "prefer wrapping to
-    // cutting"). null where the cell stands on one line as it always did,
-    // is one word, or says two things (" / ") that a `shrink` table puts
-    // on two lines already (_bTextTwoLines).
-    _bPlainLines(book, text, weight, maxWidth, shrink) {
+    // A PLAIN CELL that will not fit its column on one line, onto lines at
+    // its words, so nothing that could wrap is cut (owner, 2026-10-22:
+    // "Edison → po…" in a distro's TYPE, SCREENS narrowed by NAME, circuit
+    // names - "prefer wrapping to cutting") - at the table's one size,
+    // never shrunk first (QA beta.5, 2026-11-03: "Sending Card 1" printed
+    // at 5 pt in a column of 8.6). A cell that says two things - the data
+    // sheet's HOME RUN, "SR Primary 150' / SR Backup 150'" - breaks at its
+    // " / " first, THE SEPARATOR STAYING ON THE FIRST LINE: two ends
+    // stacked with the " / " dropped read as one thing said twice (the
+    // live show A binder's HOME RUN column, 2026-09-09). null where the
+    // cell stands on one line, or is one word.
+    _bPlainLines(book, text, weight, maxWidth) {
         const s = String(text == null ? '' : text).trim();
         if (!s || !/\s/.test(s)) return null;
         const ctxM = book.measureCtx;
-        ctxM.font = this._bFont(shrink ? 14 : SZ.cell, weight);
+        ctxM.font = this._bFont(SZ.cell, weight);
         if (ctxM.measureText(s).width <= maxWidth) return null;
-        if (shrink && s.split(' / ').length === 2) return null;
-        const lines = this._bCellLines(book, s, SZ.cell, weight, maxWidth, Infinity, true);
+        const parts = s.split(' / ');
+        const lines = parts.length === 2
+            ? [`${parts[0]} /`, parts[1]].flatMap(p => this._bCellLines(book, p, SZ.cell, weight, maxWidth, Infinity, true))
+            : this._bCellLines(book, s, SZ.cell, weight, maxWidth, Infinity, true);
         return lines.length > 1 ? lines : null;
     }
 
@@ -2980,10 +2983,7 @@ class _Binder {
     // its list wraps and says how many more - unless the table asks for
     // its lists `whole` and the width holds every one of them on one line
     // (the pull sheet's columns, sized to their content), when a list
-    // column asks for its widest list. A `small` table (the pull sheet's
-    // Screens, four positions to a Tabloid) that cannot hold its headings
-    // and cells at full size asks for them at the smallest size they
-    // shrink to (_bText's 14), so they shrink rather than cut ("CIRCU…").
+    // column asks for its widest list.
     //
     // A column that BORROWS (`borrow`: the cable tables' LENGTH, its old
     // heading "len" the value) is laid out as it was under its old heading,
@@ -2996,32 +2996,76 @@ class _Binder {
     // the heading shrinks to fit (`minSize`, _bText) - smaller,
     // never cut (owner, 2026-10-18: "LEN" → "LENGTH", widened as needed so
     // it is not truncated).
+    //
+    // ONE TYPE SIZE (QA beta.5, 2026-11-03: a box's band printed at 11.3 pt
+    // beside one at 9.4, "Sending Card 1" at 5 pt, AT THE PROCESSOR at 5
+    // pt under a 7.6 pt heading row): nothing in a table shrinks to fit
+    // its column any more. A cell or a heading that does not fit WRAPS at
+    // its words, and where the table cannot give every column its
+    // content on one line, the room goes first to what cannot wrap - a
+    // heading's widest word, a cell's widest word, a strand with its
+    // swatch, an input's narrowest group (_bColNeeds' `least`) - then to
+    // the cells (each list member, each plain cell on one line), and only
+    // then to the headings on one line: a heading wrapping onto a second
+    // line costs one line, a cell wrapping costs one in every row
+    // (_bShareWidths).
     _bColWidths(book, cols, rows, width, padX, o = {}) {
         if (cols.some(c => c.borrow)) return this._bBorrowWidths(book, cols, rows, width, padX, o);
         const fr = cols.reduce((s, c) => s + (c.w || 1), 0) || 1;
         const px = cols.map(c => (c.w || 1) / fr * width);
         const sum = (a) => a.reduce((x, y) => x + y, 0);
-        const full = cols.map(c => ({ ...c, headShrink: false }));
         let need = this._bColNeeds(book, cols, rows, padX);
-        // headings shrink only where the table cannot hold them whole
-        if (cols.some(c => c.headShrink)) {
-            const whole = this._bColNeeds(book, full, rows, padX);
-            if (sum(whole) <= width) need = whole;
-        }
         if (o.whole) {
-            const lists = this._bColNeeds(book, full, rows, padX, true);
+            const lists = this._bColNeeds(book, cols, rows, padX, true);
             if (sum(lists) <= width) need = lists;
         }
-        if (o.small && sum(need) > width) {
-            need = this._bColNeeds(book, cols.map(c => ({ ...c, headShrink: true })), rows, padX, false, true);
+        // (an input column's groups wrap their labels before a cell wraps)
+        const least = this._bColNeeds(book, cols, rows, padX, false, true);
+        const heads = this._bColNeeds(book, cols, [], padX, false, true);
+        const cells = this._bColNeeds(book, cols.map(c => ({ ...c, title: '' })), rows, padX)
+            .map((n, i) => (cols[i].inputs ? least[i] : Math.max(n, heads[i])));
+        return this._bShareWidths(px, [least, cells, need]);
+    }
+
+    // The columns' widths from their shares `px`. Where the width holds
+    // every column's need (the last of `tiers`), each column that wants
+    // more than its share takes it from the columns with room past theirs,
+    // exactly as it always was. Where it does not, the columns short of a
+    // tier are lifted to it tier by tier - every column to its first tier
+    // (what it cannot do without: `least`, what wraps no further) before
+    // any to its second, and so on - each lift taken from the columns'
+    // room above their highest tier first, then above the next one down,
+    // never below the tier being lifted to; past that a first tier wider
+    // than the table is left short (the one case where something still
+    // shrinks).
+    _bShareWidths(px, tiers) {
+        const sum = (a) => a.reduce((x, y) => x + y, 0);
+        const need = tiers[tiers.length - 1];
+        if (sum(need) <= sum(px) + 0.5) {
+            const want = px.map((p, i) => Math.max(0, need[i] - p));
+            const give = px.map((p, i) => Math.max(0, p - need[i]));
+            const wantAll = sum(want), giveAll = sum(give);
+            if (wantAll <= 0.5 || giveAll <= 0.5) return px.slice();
+            const move = Math.min(wantAll, giveAll);
+            return px.map((p, i) => p + move * (want[i] / wantAll) - move * (give[i] / giveAll));
         }
-        const want = px.map((p, i) => Math.max(0, need[i] - p));
-        const give = px.map((p, i) => Math.max(0, p - need[i]));
-        const wantAll = want.reduce((a, b) => a + b, 0);
-        const giveAll = give.reduce((a, b) => a + b, 0);
-        if (wantAll <= 0.5 || giveAll <= 0.5) return px;
-        const move = Math.min(wantAll, giveAll);
-        return px.map((p, i) => p + move * (want[i] / wantAll) - move * (give[i] / giveAll));
+        // each tier at least the one under it
+        const lv = [];
+        tiers.forEach((t, k) => lv.push(t.map((v, i) => Math.max(v, k ? lv[k - 1][i] : 0))));
+        const W = px.slice();
+        for (let r = 0; r < lv.length; r++) {
+            for (let d = lv.length - 1; d >= r; d--) {
+                const want = W.map((w, i) => Math.max(0, lv[r][i] - w));
+                const wantAll = sum(want);
+                if (wantAll <= 0.01) break;
+                const give = W.map((w, i) => Math.max(0, w - lv[d][i]));
+                const giveAll = sum(give);
+                if (giveAll <= 0.01) continue;
+                const m = Math.min(wantAll, giveAll);
+                for (let i = 0; i < W.length; i++) W[i] += m * want[i] / wantAll - m * give[i] / giveAll;
+            }
+        }
+        return W;
     }
 
     // The columns as they were before a borrowing column's heading grew
@@ -3050,7 +3094,8 @@ class _Binder {
             if (!c.borrow) return;
             const head = (size) => {
                 ctxM.font = this._bFont(size, 700);
-                return ctxM.measureText(this._bCaps(c.title || '')).width + padX * 2;
+                // (rounded up: a hair short of it shrank LENGTH to 20.5 px)
+                return Math.ceil(ctxM.measureText(this._bCaps(c.title || '')).width) + padX * 2;
             };
             const take = (want, from) => {
                 const spare = from.map(j => Math.max(0, W[j] - needWas[j]));
@@ -3068,14 +3113,16 @@ class _Binder {
                 if (want > 0.5) take(want, from);
             }
             // and past that, from the columns that WRAP (CABLE at its
-            // words, LABEL at its members), down to their widest word or
-            // member: a heading shrunk to 10 px on a Letter pull page is
-            // not readable (owner, 2026-10-22: "widen or wrap"); a cell
-            // that wraps loses nothing
+            // words, LABEL at its members, a plain cell at its words),
+            // down to their widest word: a heading shrunk to 10 px on a
+            // Letter pull page is not readable (owner, 2026-10-22: "widen
+            // or wrap"); a cell that wraps loses nothing, and a heading
+            // keeps the others' size (QA beta.5: LENGTH at 20.5 px)
             const want = head(SZ.th) - W[i];
             if (want > 0.5) {
-                const pieces = this._bColNeeds(book, was.map(d => ({ ...d, asksWhole: false })), rows, padX);
-                const from = cols.map((d, j) => (j !== i && d.list && !d.parts && !d.inputs ? j : -1)).filter(j => j >= 0);
+                const pieces = this._bColNeeds(book, was, rows, padX, false, true);
+                const from = cols.map((d, j) => (j !== i && !d.tick && !d.parts && !d.inputs && !d.swatch ? j : -1))
+                    .filter(j => j >= 0);
                 const spare = from.map(j => Math.max(0, W[j] - pieces[j]));
                 const all = spare.reduce((a, b) => a + b, 0);
                 const got = Math.min(want, all);
@@ -3090,16 +3137,20 @@ class _Binder {
 
     // What each column needs so nothing in it is cut: its heading, its
     // widest cell - or, in a column that wraps, its widest piece (its
-    // widest whole list where `whole`); a cell that is not a list at the
-    // smallest size it shrinks to where `small`.
-    _bColNeeds(book, cols, rows, padX, whole = false, small = false) {
+    // widest whole list where `whole`). `least`: the narrowest it can be
+    // with nothing shrunk or cut, everything that wraps wrapped - its
+    // heading's widest word, a plain cell's widest word, an input's
+    // narrowest group (_bGroupLeastW).
+    _bColNeeds(book, cols, rows, padX, whole = false, least = false) {
         const ctxM = book.measureCtx;
+        const widest = (text) => this._bCellPieces(String(text), true)
+            .reduce((m, p) => Math.max(m, ctxM.measureText(p.trim()).width), 0);
         return cols.map((c, i) => {
             if (c.tick) return 24 + padX * 2;
-            // a `headShrink` heading asks only for its room at the smallest
-            // size a heading shrinks to before it is cut (_bText's 14)
-            ctxM.font = this._bFont(c.headShrink ? 14 : SZ.th, 700);
-            let n = c.title ? ctxM.measureText(this._bCaps(c.title)).width + padX * 2 : 0;
+            // a heading wraps at its words (_bTableLines), never shrinks
+            ctxM.font = this._bFont(SZ.th, 700);
+            let n = !c.title ? 0
+                : (least ? widest(this._bCaps(c.title)) : ctxM.measureText(this._bCaps(c.title)).width) + padX * 2;
             ctxM.font = this._bFont(SZ.cell, 400);
             for (const r of rows) {
                 if (r.band !== undefined) continue;
@@ -3112,8 +3163,12 @@ class _Binder {
                 const groups = c.inputs && r.inputs && r.inputs[i];
                 if (groups && groups.length) {
                     // an input column asks for its widest group whole:
-                    // the column's label width, then the widest strand
-                    n = Math.max(n, this._bInputsNeed(book, rows, i) + padX * 2);
+                    // the column's label width, then the widest strand -
+                    // at least, each group's label wrapped at its words
+                    n = Math.max(n, (least ? groups.reduce((m, g) => Math.max(m,
+                        this._bGroupLeastW(ctxM, g, SZ.cell)), 0) + GROUP_PAD * 2
+                        : this._bInputsNeed(book, rows, i)) + padX * 2);
+                    ctxM.font = this._bFont(SZ.cell, 400);
                     continue;
                 }
                 const parts = c.parts && r.parts && r.parts[i];
@@ -3123,6 +3178,10 @@ class _Binder {
                         n = Math.max(n, ctxM.measureText(p.text).width + padX * 2
                             + (p.swatch ? SWATCH_W : 0));
                     }
+                } else if (c.list && least) {
+                    // a list member too wide for a line wraps at its words
+                    // (_bCellLines), a range "A … B" breaking after its "…"
+                    n = Math.max(n, widest(cell) + padX * 2);
                 } else if (c.list && (whole || c.asksWhole)) {
                     // (`asksWhole`: a list column that asks for its cell on
                     // one line, the way a plain column does, and wraps only
@@ -3133,11 +3192,12 @@ class _Binder {
                     for (const piece of this._bCellPieces(cell, c.words)) {
                         n = Math.max(n, ctxM.measureText(piece.trim()).width + padX * 2);
                     }
+                } else if (least && !c.swatch) {
+                    // a plain cell wraps at its words (_bPlainLines)
+                    n = Math.max(n, widest(cell) + padX * 2);
                 } else {
-                    if (small) ctxM.font = this._bFont(14, 400);
                     n = Math.max(n, ctxM.measureText(String(cell)).width + padX * 2
                         + (c.swatch && r.swatch ? SWATCH_W : 0));
-                    if (small) ctxM.font = this._bFont(SZ.cell, 400);
                 }
             }
             return n;
@@ -3163,14 +3223,12 @@ class _Binder {
     // row carries them - `parts: { [col]: [{ text, swatch? }, ...] }`, the
     // cell's text being those texts joined with " · " - wrapping between
     // strands as a list does; a row without them reads as a list cell.
-    // A `words` list column wraps between words rather than at " · "; a
-    // `headShrink` column's heading shrinks before the column asks its
-    // neighbours for room (_bColNeeds).
+    // A `words` list column wraps between words rather than at " · ".
     // `titleShrink` lets a long title shrink a little rather than be cut.
     // `whole` (the pull sheet's tables) gives a list column the room for
-    // its widest list on one line wherever the width holds them all, and a
-    // `shrink` table's headings and cells the room to shrink rather than
-    // cut where it cannot hold them at full size (_bColWidths).
+    // its widest list on one line wherever the width holds them all.
+    // Nothing in a table shrinks (_bColWidths): a heading, a cell, a band
+    // too wide for its room wraps at its words.
     // `width` is the column the block is measured in (COL_W unless the
     // sheet's columns are another size) - a row that has to wrap knows its
     // height there, and a wider column at paint time simply wraps looser.
@@ -3194,16 +3252,48 @@ class _Binder {
         const cols = spec.cols || [];
         const padX = 12;
         let mW = spec.width || COL_W;
-        let W;
+        let W, grown = 0;
         if (spec.fit) {
             const need = this._bFitColWidths(book, spec, padX);
             const total = need.reduce((a, b) => a + b, 0);
-            W = total <= mW ? need
-                : this._bColWidths(book, cols.map((c, i) => ({ ...c, w: need[i] })), spec.rows || [], mW, padX);
+            // `growTo`: how far past `width` the table may grow before it
+            // wraps - a cell that used to shrink to stay inside `width`
+            // takes the room instead, where the sheet has it
+            mW = Math.max(mW, Math.min(total, spec.growTo || 0));
+            if (total <= mW) W = need;
+            else {
+                // past that every column keeps what it cannot do without,
+                // its cells and its bands wrapped (`least`), and the rest
+                // of the room goes where it keeps most on one line - a
+                // band too, which wraps at its " · " rather than shrinking
+                // (QA beta.5: SNAKE A's heading at 19 px, B's at 20)
+                const least = this._bFitColWidths(book, spec, padX, true).map((n, i) => Math.min(n, need[i]));
+                const low = least.reduce((a, b) => a + b, 0);
+                const room = Math.max(0, mW - low), want = total - low;
+                W = low <= mW ? least.map((n, i) => n + (want > 0 ? room * (need[i] - n) / want : 0))
+                    : least.map(n => n * mW / low);
+            }
             mW = Math.min(total, mW);
         } else {
-            W = this._bColWidths(book, cols, spec.rows || [], mW, padX,
-                                 { whole: !!spec.whole, small: !!spec.whole && !!spec.shrink });
+            // a table whose cells and headings cannot stand in `width` even
+            // wrapped as far as they go grows to hold them (`minW`, read by
+            // the sheet's columns, _bBlockMinW) rather than shrink them
+            const least = this._bColNeeds(book, cols, spec.rows || [], padX, false, true)
+                .reduce((a, b) => a + b, 0);
+            if (least > mW + 0.5) grown = mW = Math.ceil(least);
+            // ...and a band - a multi and its run, a unit - a little too
+            // long for the table (up to BAND_GROW of its width) stands on
+            // one line, the table growing to hold it, rather than wrap: it
+            // used to shrink to 18 px; wrapped, a Letter power sheet's six
+            // bands each took a second line and the map lost its room. A
+            // band longer than that wraps - a table grown far wider sets
+            // every sheet's type smaller.
+            const ctxB = book.measureCtx;
+            ctxB.font = this._bFont(SZ.cell, 700);
+            const band = (spec.rows || []).reduce((m, r) => (typeof r.band === 'string' && r.band
+                ? Math.max(m, ctxB.measureText(r.band).width + (r.sub ? 22 : 0) + padX * 2) : m), 0);
+            if (band > mW + 0.5 && band <= mW * BAND_GROW) grown = mW = Math.ceil(band);
+            W = this._bColWidths(book, cols, spec.rows || [], mW, padX, { whole: !!spec.whole });
         }
         // a fitted table is drawn at its own width in a wider column
         const tableW = (w) => (spec.fit ? Math.min(w, mW) : w);
@@ -3297,26 +3387,40 @@ class _Binder {
                 }
             } });
         }
-        const th = { h: TH_H, head: true, draw: (ctx, x, y, cw) => {
+        // A HEADING NEVER CUT AND NEVER SHRUNK (QA beta.5, 2026-11-03: AT
+        // THE PROCESSOR at 5 pt beside OUTPUT at 7.6): one too wide for its
+        // column wraps at its words, the heading row as tall as its
+        // tallest, every heading standing on the row's foot. Only a single
+        // word no column can hold still goes smaller (LENGTH in a crowded
+        // table, `borrow` - "smaller, never cut", 2026-10-18).
+        const headOf = (c, hw) => this._bCellLines(book, this._bCaps(c.title || ''), SZ.th, 700, hw, Infinity, true);
+        const heads = cols.map((c, i) => (c.tick ? [''] : headOf(c, W[i] - padX * 2)));
+        const headN = Math.max(1, ...heads.map(l => l.length));
+        const thH = TH_H + (headN - 1) * TH_LINE;
+        const th = { h: thH, head: true, draw: (ctx, x, y, cw) => {
             const w = tableW(cw);
             const L = layout(w);
-            rules(ctx, L, x, y, TH_H);
+            rules(ctx, L, x, y, thH);
             cols.forEach((c, i) => {
                 if (c.tick) return;
                 const ax = anchor(L[i], x);
-                // a heading never cut (2026-10-22, the pull pages'
-                // SCREENS at four positions to a sheet): where it will not
-                // fit at the size a heading shrinks to, it goes smaller
                 const hw = L[i].w - padX * 2;
-                book.measureCtx.font = this._bFont(14, 700);
-                const tight = book.measureCtx.measureText(this._bCaps(c.title || '')).width > hw;
-                this._bText(book, c.title || '', ax, y + 28,
-                            { size: SZ.th, weight: 700, upper: true, align: L[i].align,
-                              maxWidth: hw, shrink: true,
-                              ...(c.borrow || tight ? { minSize: 8 } : {}) });
+                // (wider than it was measured, it may need fewer lines)
+                let ls = Math.abs(hw - (W[i] - padX * 2)) < 0.5 ? heads[i] : headOf(c, hw);
+                if (ls.length > headN) ls = [...ls.slice(0, headN - 1), ls.slice(headN - 1).join(' ')];
+                const o = { size: SZ.th, weight: 700, align: L[i].align, maxWidth: hw, shrink: true,
+                            ...(c.borrow ? { minSize: 8 } : {}) };
+                const top = y + 28 + (headN - ls.length) * TH_LINE;
+                if (ls.length === 1) { this._bText(book, ls[0], ax, top, o); return; }
+                const drawn = ls.map((t, k) => this._bText(book, t, ax, top + k * TH_LINE, { ...o, log: false }));
+                // logged as ONE text, the whole heading, as a wrapped cell is
+                if (book.log && book.page && book.page.painting) {
+                    book.log.texts.push(drawn.join(' '));
+                    if (book.log.textInfo) book.log.textInfo.push({ text: drawn.join(' '), size: SZ.th, weight: 700 });
+                }
             });
             ctx.fillStyle = RULE;
-            ctx.fillRect(x, y + TH_H - 4, w, 4);
+            ctx.fillRect(x, y + thH - 4, w, 4);
         } };
         // `bandsLead`: the band over a run of rows - the unit and its fiber,
         // the multi and its run - reads ABOVE the column headings, which
@@ -3329,7 +3433,26 @@ class _Binder {
         const topBand = (r) => r.band !== undefined && !r.sub;
         const underBand = { ...th, head: false, band: true };
         if (!lead || !(spec.rows || []).length || !topBand(spec.rows[0])) lines.push(th);
-        for (const r of spec.rows || []) {
+        // An input column's groups, each label wrapped at its words where
+        // its group would not fit the column beside its strands
+        // (_bFitGroups) - every row's together, so the strands stand in one
+        // column down the table as they always did.
+        const rows = (spec.rows || []).slice();
+        cols.forEach((c, i) => {
+            if (!c.inputs) return;
+            const at = [];
+            rows.forEach((r, k) => { if (r.inputs && r.inputs[i] && r.inputs[i].length) at.push(k); });
+            if (!at.length) return;
+            const fitted = this._bFitGroups(book.measureCtx, at.flatMap(k => rows[k].inputs[i]),
+                                            W[i] - padX * 2, SZ.cell);
+            let n = 0;
+            for (const k of at) {
+                const mine = fitted.slice(n, n + rows[k].inputs[i].length);
+                n += mine.length;
+                rows[k] = { ...rows[k], inputs: { ...rows[k].inputs, [i]: mine } };
+            }
+        });
+        for (const r of rows) {
             if (r.halves || r.lines) {
                 // A sub-band in halves (each half's snake) keeps the
                 // sub-band's look: set in, no fill, a thin rule. A band of
@@ -3337,9 +3460,17 @@ class _Binder {
                 // its fiber strand by strand, on a sheet with no halves).
                 const sub = !!r.sub;
                 const ind = sub ? 22 : 0;
+                // each stack wrapped into the room it is measured in - the
+                // whole width, or its half's columns - at the one size
+                // (_bWrapStack); a wider column at paint time only has room
+                // to spare
+                const stackL = r.lines ? this._bWrapStack(book, r.lines, mW - ind - padX * 2) : null;
+                const stackH = (r.halves || []).map((half, j) => (groups[j]
+                    ? this._bWrapStack(book, half, W.slice(groups[j].from, groups[j].to + 1)
+                        .reduce((a, b) => a + b, 0) - ind - padX * 2) : half));
                 // a group stands on its lines and its gap (_bStackLayout)
                 const tall = (list) => { const L = this._bStackLayout(list); return (L.lines - 1) * LIST_H + L.extra; };
-                const h = BAND_H + (r.lines ? tall(r.lines) : r.halves.reduce((m, half) => Math.max(m, tall(half)), 0));
+                const h = BAND_H + (stackL ? tall(stackL) : stackH.reduce((m, half) => Math.max(m, tall(half)), 0));
                 lines.push({ h, band: true, draw: (ctx, x, y, cw) => {
                     const w = tableW(cw);
                     const L = layout(w);
@@ -3351,8 +3482,8 @@ class _Binder {
                         ctx.fillRect(x, y, w, h - 4);
                     }
                     rules(ctx, L, x, y, h);
-                    if (r.lines) this._bBandStack(book, r.lines, x + ind + padX, y + 31, w - ind - padX * 2);
-                    (r.halves || []).forEach((half, j) => {
+                    if (stackL) this._bBandStack(book, stackL, x + ind + padX, y + 31, w - ind - padX * 2);
+                    stackH.forEach((half, j) => {
                         const g = groups[j];
                         if (!g) return;
                         const sp = spanOf(L, g);
@@ -3372,11 +3503,11 @@ class _Binder {
                 // unit and which is the loom hanging off it.
                 const sub = !!r.sub;
                 const ind = sub ? 22 : 0;
-                // A band too long for one line at 18 px (2026-10-23: "… FOR
-                // VIDEO1 · Socapex 208V TRUE1 breakout · no…" with a long
-                // distro name) wraps at its " · " - the dot staying on the
-                // line before - onto a second line, and a third if it
-                // must, each shrinking on its own, rather than being cut.
+                // A band too long for one line (2026-10-23: "… FOR VIDEO1 ·
+                // Socapex 208V TRUE1 breakout · no…" with a long distro
+                // name) wraps at its " · " - the dot staying on the line
+                // before - onto as many lines as it takes, at the cell
+                // size, rather than being cut or shrunk (_bBandLines).
                 const bandText = String(r.band == null ? '' : r.band);
                 const bandLines = this._bBandLines(book, bandText, mW - ind - padX * 2);
                 const bandH = BAND_H + (bandLines.length - 1) * LIST_H;
@@ -3420,7 +3551,7 @@ class _Binder {
                     ? this._bCellLines(book, r.cells[i], SZ.cell, weight,
                                        W[i] - padX * 2, c.list === true ? LIST_LINES : c.list, c.words)
                     : plainAt(i) && (r.cells || [])[i]
-                        ? this._bPlainLines(book, r.cells[i], weight, W[i] - padX * 2, !!spec.shrink)
+                        ? this._bPlainLines(book, r.cells[i], weight, W[i] - padX * 2)
                         : null));
             const rowLines = wrapped.reduce((m, ls, i) => (i === inputsAt ? m : Math.max(m, ls ? ls.length : 1)), 1);
             const inLay = inputsAt >= 0 ? this._bInputsLayout(r.inputs[inputsAt]) : null;
@@ -3436,10 +3567,10 @@ class _Binder {
                 (r.cells || []).forEach((cell, i) => {
                     if (!L[i]) return;
                     if (i === inputsAt) {
-                        const head = this._bInputsHead(book, spec.rows, i);
+                        const head = this._bInputsHead(book, rows, i);
                         this._bInputsCell(book, ctx, r.inputs[inputsAt], inLay, x + L[i].x + padX, y0,
                                           L[i].w - padX * 2, head, weight,
-                                          this._bInputsWide(book, spec.rows, i, head));
+                                          this._bInputsWide(book, rows, i, head));
                         return;
                     }
                     const y = inLay ? y0 + Math.max(0, (h - ROW_H - (cellLines(i) - 1) * LIST_H) / 2) : y0;
@@ -3466,7 +3597,7 @@ class _Binder {
                         : cols[i].list ? (sameW ? wrapped[i]
                             : this._bCellLines(book, cell, SZ.cell, weight, maxWidth, rowLines,
                                                cols[i].words, true))
-                            : this._bPlainLines(book, cell, weight, maxWidth, !!spec.shrink);
+                            : this._bPlainLines(book, cell, weight, maxWidth);
                     // never past the row's measured height: in a column
                     // narrower than it was measured in, what would wrap
                     // below the last line joins it, shrunk to fit
@@ -3487,11 +3618,6 @@ class _Binder {
                         }
                         return;
                     }
-                    // A table that carries whole names in its cells (the
-                    // data sheet's PRIMARY / BACKUP) shrinks a long one a
-                    // little before it is cut, the way a heading does; a
-                    // cell saying two things ("A / B" - HOME RUN with a
-                    // backup end) goes to two lines rather than being cut.
                     if (cols[i].swatch && (r.swatch || cell != null && cell !== '')) {
                         // the strand's cell tinted its own colour and its
                         // name bold; the name stays, so a black-and-white
@@ -3506,7 +3632,7 @@ class _Binder {
                         // cell
                         const lead = r.swatch ? SWATCH_W : 0;
                         const o = { size: SZ.cell, weight: r.swatch ? 700 : weight, align: 'left',
-                                    maxWidth: maxWidth - lead, shrink: !!spec.shrink };
+                                    maxWidth: maxWidth - lead, shrink: true };
                         const sx = Math.max(x + L[i].x + padX, ax - Math.min(maxWidth, strandBlockW(i)) / 2);
                         if (r.swatch) this._bSwatch(ctx, r.swatch, sx, y + 27);
                         this._bText(book, cell, sx + lead, y + 27, o);
@@ -3518,8 +3644,7 @@ class _Binder {
                     // a cell that would otherwise be cut)
                     const o = { size: SZ.cell, weight, align: L[i].align,
                                 maxWidth, shrink: true };
-                    if (spec.shrink) this._bTextTwoLines(book, cell, ax, y + 27, o);
-                    else this._bText(book, cell, ax, y + 27, o);
+                    this._bText(book, cell, ax, y + 27, o);
                 });
                 if (!r.bold) { ctx.fillStyle = FAINT; ctx.fillRect(x, y0 + h - 2, w, 2); }
             } });
@@ -3529,6 +3654,7 @@ class _Binder {
         // only under its bands
         if (lead) lines.contHeads = [...lines.filter(l => l.head && l !== th), th];
         if (spec.fit) lines.naturalW = mW;
+        if (grown) lines.minW = grown;
         return lines;
     }
 
@@ -3538,10 +3664,13 @@ class _Binder {
     // fiber groups, a snake's heading), a table without groups at least
     // as wide as its widest band; a band's extra spread evenly over the
     // columns under it, so a band is never shrunk to fit its columns.
-    _bFitColWidths(book, spec, padX) {
+    // `least`: the narrowest each can be, its cells and its bands wrapped
+    // as far as they go (_bColNeeds' least, a band's widest word, an input
+    // group's _bGroupLeastW) - what the table keeps past its `width`.
+    _bFitColWidths(book, spec, padX, least = false) {
         const cols = spec.cols || [];
         const groups = spec.groups || [];
-        const need = this._bColNeeds(book, cols, spec.rows || [], padX).map(n => Math.ceil(n));
+        const need = this._bColNeeds(book, cols, spec.rows || [], padX, false, least).map(n => Math.ceil(n));
         const ctxM = book.measureCtx;
         // a band's stack as _bBandStack draws it: its first line bold, an
         // input group its label column and widest strand in its outline
@@ -3550,10 +3679,15 @@ class _Binder {
             (list || []).forEach((t, k) => {
                 if (t && typeof t === 'object') return;
                 ctxM.font = this._bFont(SZ.cell, k ? 400 : 700);
-                w = Math.max(w, ctxM.measureText(String(t == null ? '' : t)).width);
+                const text = String(t == null ? '' : t);
+                w = Math.max(w, least
+                    ? this._bCellPieces(text, true).reduce((m, p) => Math.max(m, ctxM.measureText(p.trim()).width), 0)
+                    : ctxM.measureText(text).width);
             });
             const gs = (list || []).filter(t => t && typeof t === 'object' && t.group).map(t => t.group);
-            if (gs.length) {
+            if (gs.length && least) {
+                w = Math.max(w, ...gs.map(g => this._bGroupLeastW(ctxM, g, SZ.cell) + GROUP_PAD * 2));
+            } else if (gs.length) {
                 const head = this._bGroupsHead(ctxM, gs, SZ.cell);
                 w = Math.max(w, this._bGroupsWide(ctxM, gs, SZ.cell, head) + GROUP_PAD * 2);
             }
@@ -3610,12 +3744,13 @@ class _Binder {
     }
 
     // A band's lines stacked from `baseline`, LIST_H apart: a text line as
-    // it always read (the first bold, each shrinking alone before it is
-    // cut), and an input group ({ group } - _bBoxBandLines) on as many lines
-    // as it needs, a GROUP_GAP ahead of it: its strands a line each, its
-    // label - the input over its cable - centred beside them, the lot in a
-    // thin outline (_bDrawGroup). Every group's strands stand in one column
-    // and the groups shrink together where the widest will not fit.
+    // it always read (the first bold; { text, bold } where _bWrapStack has
+    // wrapped it), and an input group ({ group } - _bBoxBandLines) on as
+    // many lines as it needs, a GROUP_GAP ahead of it: its strands a line
+    // each, its label - the input over its cable - centred beside them, the
+    // lot in a thin outline (_bDrawGroup). Every group's strands stand in
+    // one column. A stack _bWrapStack laid into `maxWidth` fits it at the
+    // cell size; only one that was not shrinks, the groups together.
     _bBandStack(book, lines, x, baseline, maxWidth) {
         const ctx = book.ctx;
         const groups = lines.filter(t => t && typeof t === 'object' && t.group).map(t => t.group);
@@ -3631,8 +3766,10 @@ class _Binder {
         const lay = this._bStackLayout(lines);
         lines.forEach((t, k) => {
             const y = baseline + lay.y[k];
-            if (!t || typeof t !== 'object') {
-                this._bText(book, t, x, y, { size: SZ.cell, weight: k ? 400 : 700, shrink: true, maxWidth });
+            if (!t || typeof t !== 'object' || !t.group) {
+                const line = t && typeof t === 'object';
+                this._bText(book, line ? t.text : t, x, y,
+                            { size: SZ.cell, weight: (line ? t.bold : !k) ? 700 : 400, shrink: true, maxWidth });
                 return;
             }
             this._bDrawGroup(book, ctx, t.group, x + GROUP_PAD, y, head, maxWidth - GROUP_PAD * 2, size, 400);
@@ -3664,9 +3801,65 @@ class _Binder {
         let w = 0;
         for (const g of groups) {
             if (!(g.strands && g.strands.length)) continue;
-            for (const t of [g.head, g.sub]) if (t) w = Math.max(w, ctx.measureText(t).width + gap);
+            for (const t of this._bGroupLabel(g)) w = Math.max(w, ctx.measureText(t).width + gap);
         }
         return w;
+    }
+
+    // A group's label, a line each: the input over its cable, or those
+    // wrapped at their words (`labels`, _bFitGroups).
+    _bGroupLabel(g) {
+        return g.labels || [g.head, g.sub].filter(Boolean);
+    }
+
+    // The narrowest a group of strands can be with nothing shrunk or cut:
+    // its label's widest word, the gap, its widest strand - a group of
+    // words alone its words, which never wrap.
+    _bGroupLeastW(ctx, g, size) {
+        ctx.font = this._bFont(size, 400);
+        if (!(g.strands && g.strands.length)) return ctx.measureText(String(g.text || '')).width;
+        const sw = SWATCH_W * size / SZ.cell;
+        const word = this._bGroupLabel(g).flatMap(t => this._bCellPieces(t, true))
+            .reduce((m, p) => Math.max(m, ctx.measureText(p.trim()).width), 0);
+        const strand = g.strands.reduce((m, st) => Math.max(m, (st.swatch ? sw : 0) + ctx.measureText(st.text).width), 0);
+        return word + ctx.measureText('  ').width + strand;
+    }
+
+    // A set of groups that share one label column (a band's inputs, an
+    // input column's) laid into `maxWidth`, the outline's pad included:
+    // where the widest label and the widest strand will not stand side by
+    // side, every label too wide for the room the strands leave wraps at
+    // its words (QA beta.5, 2026-11-03: "QUAD 2 (opticalCON QUAD)" was
+    // shrunk to 20 px beside a box at 24, and its strand cut to "2 …").
+    // The groups as they were where they fit.
+    _bFitGroups(ctx, groups, maxWidth, size) {
+        const strung = groups.filter(g => g.strands && g.strands.length);
+        if (!strung.length) return groups;
+        const head = this._bGroupsHead(ctx, strung, size);
+        if (this._bGroupsWide(ctx, strung, size, head) + GROUP_PAD * 2 <= maxWidth) return groups;
+        ctx.font = this._bFont(size, 400);
+        const sw = SWATCH_W * size / SZ.cell;
+        const gap = ctx.measureText('  ').width;
+        const strand = Math.max(...strung.flatMap(g => g.strands.map(st => (st.swatch ? sw : 0) + ctx.measureText(st.text).width)));
+        const pieces = (t) => this._bCellPieces(t, true);
+        const word = Math.max(...strung.flatMap(g => this._bGroupLabel(g).flatMap(pieces).map(p => ctx.measureText(p.trim()).width)));
+        const room = Math.max(word, maxWidth - GROUP_PAD * 2 - gap - strand);
+        const wrap = (t) => {
+            const out = [];
+            let cur = '';
+            for (const p of pieces(t)) {
+                const next = (cur + p);
+                if (cur && ctx.measureText(next.trim()).width > room) { out.push(cur.trim()); cur = p; } else cur = next;
+            }
+            if (cur.trim()) out.push(cur.trim());
+            return out;
+        };
+        return groups.map(g => {
+            if (!(g.strands && g.strands.length)) return g;
+            const label = this._bGroupLabel(g);
+            if (label.every(t => ctx.measureText(t).width <= room)) return g;
+            return { ...g, labels: label.flatMap(wrap) };
+        });
     }
 
     // The widest group: the label column, then its widest strand - a group
@@ -3701,7 +3894,7 @@ class _Binder {
                                 boxW || Math.min(maxWidth, ctx.measureText(String(g.text || '')).width), size);
             return drawn;
         }
-        const label = [g.head, g.sub].filter(Boolean);
+        const label = this._bGroupLabel(g);
         const mid = (top + bottom) / 2;
         label.forEach((t, k) => {
             const y = mid + (k - (label.length - 1) / 2) * LIST_H;
@@ -3976,7 +4169,7 @@ class _Binder {
         const rest = [];
         const queue = blocks.filter(b => b && (b.lines || []).length)
             .map(b => ({ lines: b.lines.slice(), contHeads: b.contHeads || b.lines.contHeads || null,
-                         minW: (b && b.minW) || 0 }));
+                         minW: this._bBlockMinW(b) }));
         while (queue.length) {
             const block = queue[0];
             // the lines a continuation starts with: a table's own list
@@ -4047,12 +4240,19 @@ class _Binder {
     // names); every column on the sheet is then that wide.
     _bLayout(book, blocks) {
         const da = book.geo.da;
-        const colW = Math.max(COL_W, ...blocks.map(b => (b && b.minW) || 0));
+        const colW = Math.max(COL_W, ...blocks.map(b => this._bBlockMinW(b)));
         const across = Math.max(1, Math.floor((da.w + COL_GAP) / (colW + COL_GAP)));
         const wide = (da.w - (across - 1) * COL_GAP) / across;
         const pack = this._bPack(blocks, da.h, across);
         return { kind: 'tables', cols: across, colW: wide, top: da.y, pack,
                  colX: (i) => da.x + i * (wide + COL_GAP), mapArea: null };
+    }
+
+    // The column a block asks for: its own `minW` (the Ports table, Fiber
+    // connections), or the width its table grew to rather than shrink a
+    // cell (_bTableLines' `minW`).
+    _bBlockMinW(b) {
+        return Math.max((b && b.minW) || 0, (b && b.lines && b.lines.minW) || 0);
     }
 
     // The fill scale for a drawing of `extent` (base page units) in the
@@ -4112,7 +4312,7 @@ class _Binder {
     // maps a page point into them. `mapArea` is page units.
     _bMapLayout(book, spec, blocks) {
         const da = book.geo.da;
-        const colW = Math.max(COL_W, ...blocks.map(b => (b && b.minW) || 0));
+        const colW = Math.max(COL_W, ...blocks.map(b => this._bBlockMinW(b)));
         const across = Math.max(1, Math.floor((da.w + COL_GAP) / (colW + COL_GAP)));
         // (spec.keyH: the height a bracket key under the wall needs where
         // the map's own room could not hold it - _bMapSheets)
@@ -4154,11 +4354,15 @@ class _Binder {
         // the height a sliver, and a half per cent rule froze the type at
         // 1.09 beside a small tall wall with half the sheet empty.
         const FREE = 0.98;
+        // (from the hundredth at or under the top, never over it: rounded
+        // up, a stack's 1.1557 became 1.16 and its table columns came out
+        // narrower than the widths they were measured at - every cell in
+        // them a pixel smaller, QA beta.5)
         const grow = (sMax, zoomOf) => {
             const top = clamp(sMax);
             const z1 = zoomOf(1);
             if (!(z1 > 0)) return top;
-            for (let v = Math.round(top * 100); v > 100; v--) {
+            for (let v = Math.floor(top * 100); v > 100; v--) {
                 if (zoomOf(v / 100) >= z1 * FREE) return v / 100;
             }
             return 1;
@@ -4400,7 +4604,7 @@ class _Binder {
             .map(g => ({ ...g, cont: false }));
         while (queue.length) {
             const colW = Math.max(spec.colW || COL_W,
-                                  ...queue.map(g => Math.max(0, ...g.blocks.map(b => (b && b.minW) || 0))));
+                                  ...queue.map(g => Math.max(0, ...g.blocks.map(b => this._bBlockMinW(b)))));
             const across = Math.max(1, Math.floor((da.w + COL_GAP) / (colW + COL_GAP)));
             const placed = [];          // { group, cols, first }
             let used = 0, continues = false;
@@ -6606,10 +6810,10 @@ class _Binder {
     }
 
     // How many lines a group stands on: its strands, and never fewer than
-    // its label's (the input over its cable).
+    // its label's (the input over its cable, wrapped where it must be).
     _bGroupLines(g) {
         if (!(g.strands && g.strands.length)) return 1;
-        return Math.max(g.strands.length, g.sub ? 2 : 1);
+        return Math.max(g.strands.length, g.labels ? g.labels.length : (g.sub ? 2 : 1));
     }
 
     // THE BAND OVER A BOX'S PORTS (the data sheet): the box on the first
@@ -6973,9 +7177,16 @@ class _Binder {
                                     ...(repeats ? [] : [{ title: 'output' }]),
                                     { title: 'home run', align: 'center' }];
         const n = repeats ? 2 : 3;      // columns a half
+        // Past DATA_COL_W the table grows rather than shrink a cell or a
+        // snake's heading to stay inside it (QA beta.5, 2026-11-03: "etherCON
+        // no length" at 7.2 pt in a table of 8.6, two snakes' headings at
+        // 19 and 20 px), as far as the sheet's drawing area; past that it
+        // wraps at its words.
+        const da = book.geo && book.geo.da;
         const ports = this._bTableLines(book, {
             title: 'Ports',
             width: DATA_COL_W,
+            growTo: da ? Math.floor(da.w) : 0,
             fit: true,
             groups: split ? [{ title: 'primary', from: 0, to: n - 1 }, { title: 'backup', from: n, to: 2 * n - 1 }] : [],
             bandsLead: true,
@@ -6983,9 +7194,8 @@ class _Binder {
                    { title: 'panels', align: 'center', rule: split }],
             rows: repeats ? rows.map(r => (r.cells ? { ...r, cells: r.cells.filter((c, i) => !outAt.includes(i)) } : r))
                 : rows,
-            shrink: true,
         });
-        // the sheet's columns widen to the table, never past DATA_COL_W
+        // the sheet's columns widen to the table
         const portsW = Math.ceil(ports.naturalW);
         blocks.push(portsW > COL_W ? { minW: portsW, lines: ports } : { lines: ports });
         blocks.push({ lines: this._bCableTable(book, subject, 'data') });
@@ -7498,13 +7708,15 @@ class _Binder {
 
     // A pull table as a block that can be laid out at any width: its lines
     // at the pull sheet's base column (`lines`), `make(w)` for its lines in
-    // a column w wide, and the widths the sheet chooses between besides
+    // a column w wide, and the widths the sheet chooses between: `wTight`,
     // PULL_COL_W (four positions to a Tabloid, as the sheet has always
-    // held: the Screens table's headings set smaller there rather than
-    // cut) - `wMin`, the narrowest that cuts and shrinks nothing (every
-    // heading in full), and `wNat`, its natural width, every list on one
-    // line too - each kept between PULL_COL_W and PULL_COL_MAX (a longer
-    // list wraps as it did).
+    // held) or wider where the table cannot hold every heading and cell at
+    // its one size there, wrapped as far as it goes (QA beta.5,
+    // 2026-11-03: the Screens table's PANELS, CIRCUITS and PORTS were set
+    // at 14 px under the others' 21) - `wMin`, the narrowest that wraps
+    // nothing but its lists (every heading and cell in full), and `wNat`,
+    // its natural width, every list on one line too - each kept between
+    // PULL_COL_W and PULL_COL_MAX (a longer list wraps as it did).
     _bPullBlock(book, spec) {
         const padX = 12;
         const s = { ...spec, whole: true };
@@ -7516,10 +7728,10 @@ class _Binder {
         const sum = (a) => a.reduce((x, y) => x + y, 0);
         const clamp = (v) => Math.min(PULL_COL_MAX, Math.max(PULL_COL_W, Math.ceil(v)));
         // every heading in full - LENGTH's too (_bColWidths)
-        const full = s.cols.map(c => ({ ...c, headShrink: false }));
-        const wMin = clamp(sum(this._bColNeeds(book, full, s.rows, padX)));
-        const wNat = Math.max(wMin, clamp(sum(this._bColNeeds(book, full, s.rows, padX, true))));
-        return { lines: make(PULL_COL_W), make, wTight: PULL_COL_W, wMin, wNat };
+        const wTight = clamp(sum(this._bColNeeds(book, s.cols, s.rows, padX, false, true)));
+        const wMin = Math.max(wTight, clamp(sum(this._bColNeeds(book, s.cols, s.rows, padX))));
+        const wNat = Math.max(wMin, clamp(sum(this._bColNeeds(book, s.cols, s.rows, padX, true))));
+        return { lines: make(wTight), make, wTight, wMin, wNat };
     }
 
     // Every way a position's blocks, whole and in order, go into columns
@@ -7800,11 +8012,9 @@ class _Binder {
             rows: screens,
             // Seven columns: the sheet gives the table the width its
             // headings and cells need whole (_bPullBlock - "CIRCU…" in the
-            // old narrow column, 2026-10-18); in a column narrower than
-            // that the headings take the room their neighbours spare
-            // (_bColWidths) and the cells shrink a little rather than cut
-            // ("28× 2fer").
-            shrink: true,
+            // old narrow column, 2026-10-18), and never less than holds
+            // every heading at its size (its `wTight`); a cell wraps
+            // rather than shrinking.
         }));
         return blocks;
     }
@@ -7897,7 +8107,6 @@ class _Binder {
             title: this._bPlural(load.distros.length, 'distro'),
             cols: [{ title: 'distro', w: 1.1, list: 2 }, { title: 'rating', w: 0.7, align: 'right' }, ...legCols],
             rows: rows.length ? rows : [{ cells: ['none', '', ...legCols.map(() => '')] }],
-            shrink: true,
         }) });
         const rule = this.distroMainLimit(s);
         const pairs = [['Rating', `${this.serviceSizeText(s)}${rule.main100 ? ' · 100% rated' : ''}`]];
@@ -8014,8 +8223,8 @@ class _Binder {
         const blocks = [];
         blocks.push({ lines: this._bTableLines(book, {
             title: counts,
-            // TYPE and HOME RUN hold "Multi 208" and "no length" whole; the
-            // cells shrink a little before they cut. NAME prints a box's
+            // TYPE and HOME RUN hold "Multi 208" and "no length" whole
+            // where there is room, else wrap at their words. NAME prints a box's
             // name whole ("DISTRO 1-1", "SR DISTRO B" - owner, 2026-10-21):
             // its width taken from SCREENS, and a name longer than that
             // wraps at its spaces rather than being cut.
@@ -8024,7 +8233,6 @@ class _Binder {
                    { title: 'screens', w: 1.1 }, { title: 'circuits', w: 0.8, align: 'right' },
                    { title: 'amps', w: 0.7, align: 'right' }],
             rows: boxes.length ? boxes : [{ cells: ['none', '', '', '', '', ''] }],
-            shrink: true,
         }) });
         const pairs = [['Rating', this._bDistroRatingText(d)]];
         // The service it is fed from (2026-10-20, app-services.js).
@@ -8269,7 +8477,6 @@ class _Binder {
                        { title: 'ports', w: 0.65, align: 'right' }, { title: 'mirrors', w: 1.2 }],
                 rows: unit.boxes.map(b => ({ cells: [b.deviceName, b.trunkTitle || '',
                                                      String(b.portCount || ''), b.displayTitle || b.deviceName] })),
-                shrink: true,
             }) });
         }
         // the backup inputs it feeds are in the main's Fiber connections,
@@ -8454,8 +8661,14 @@ class _Binder {
             // groups name every input the box takes, and the box's count
             // is on its data sheet's band. The CARD / PROCESSOR column is
             // wide enough that its heading prints at the others' size.
+            // Measured in the column the sheet gives it, as Fiber
+            // connections is (_bSheetWideBlock): measured in COL_W, its
+            // CARD shrank to 14 px and a strand was cut to "2 …" (QA
+            // beta.5, 2026-11-03).
             const unitWord = this.unitWordFor(proc, cards[0].card);
-            blocks.push({ lines: this._bTableLines(book, {
+            // (it never widens the sheet: its FIBER groups wrap their
+            // labels before a column of the processor's page is lost)
+            blocks.push(this._bSheetWideBlock(book, {
                 title: 'Breakout boxes',
                 // FIBER wraps at its " · " - a box with a backup link reads
                 // "TAC A 9-10" over "X2 TAC B 1-2" - rather than being
@@ -8472,8 +8685,7 @@ class _Binder {
                        { title: 'fiber', w: boxRows.some(r => r.inputs || (r.parts && r.parts[3])) ? 2.4 : 1.7,
                          list: 2, parts: true, inputs: true }],
                 rows: boxRows,
-                shrink: true,
-            }) });
+            }, false));
         }
         // FIBER CONNECTIONS: output by output, the cable and its strands at
         // either end (the TAC pair flipped at the box) - the rack built from
@@ -8664,7 +8876,7 @@ class _Binder {
             out.push({ title, note: also.length ? `Also on ${also.join(', ')}` : '',
                        cols: [{ title: 'strand', w: 1.1, swatch: true }, { title: 'link', w: 2 },
                               { title: 'box ports', w: 0.8 }],
-                       rows, shrink: true });
+                       rows });
         }
         return out;
     }
@@ -8915,14 +9127,14 @@ class _Binder {
             titleShrink: true,
             // CABLE wraps between its words, the strands between strands
             // (each swatched), BREAKOUT between its words - nothing is cut.
-            // A heading may shrink rather than widen the table past the
-            // sheet's column (headShrink): on a narrow sheet "AT THE
+            // A heading wraps at its words rather than widen the table
+            // past the sheet's column: on a narrow sheet "AT THE
             // PROCESSOR" is the widest thing in its column.
-            cols: [{ title: 'output', w: 0.55, list: 2, headShrink: true },
-                   { title: 'cable', w: 1.1, list: 4, words: true, headShrink: true },
-                   { title: 'at the processor', w: 1.45, list: 3, parts: true, headShrink: true },
-                   { title: 'breakout', w: 1.15, list: 3, words: 'on', headShrink: true },
-                   { title: 'at the breakout', w: 1.2, list: 3, parts: true, headShrink: true }],
+            cols: [{ title: 'output', w: 0.55, list: 2 },
+                   { title: 'cable', w: 1.1, list: 4, words: true },
+                   { title: 'at the processor', w: 1.45, list: 3, parts: true },
+                   { title: 'breakout', w: 1.15, list: 3, words: 'on' },
+                   { title: 'at the breakout', w: 1.2, list: 3, parts: true }],
             rows,
         };
     }
@@ -8935,9 +9147,23 @@ class _Binder {
     // columns (minW), the way the Ports table does. null without one.
     _bFiberConnectionsBlock(book, proc, title) {
         const spec = this._bFiberConnections(proc, title);
-        if (!spec) return null;
-        const need = book && book.measureCtx
-            ? this._bColNeeds(book, spec.cols, spec.rows, 12).reduce((a, b) => a + b, 0) : 0;
+        return spec ? this._bSheetWideBlock(book, spec) : null;
+    }
+
+    // A table as a block measured in the column the sheet will give it -
+    // as many across the sheet as COL_W's, wider where its content needs
+    // it, up to DATA_COL_W (_bFiberConnectionsBlock) - so what wraps is
+    // wrapped where it is painted, and nothing shrinks. A heading asks
+    // only for its widest word: it wraps before it widens the sheet's
+    // columns. `grow` false: never wider than the sheet's column - what
+    // does not fit there wraps.
+    _bSheetWideBlock(book, spec, grow = true) {
+        let need = 0;
+        if (grow && book && book.measureCtx) {
+            const cells = this._bColNeeds(book, spec.cols.map(c => ({ ...c, title: '' })), spec.rows, 12);
+            const heads = this._bColNeeds(book, spec.cols, [], 12, false, true);
+            need = cells.reduce((a, n, i) => a + Math.max(n, heads[i]), 0);
+        }
         const da = book && book.geo && book.geo.da;
         const across = da ? Math.max(1, Math.floor((da.w + COL_GAP) / (COL_W + COL_GAP))) : 1;
         const fit = da ? Math.floor((da.w + COL_GAP) / across - COL_GAP) : COL_W;

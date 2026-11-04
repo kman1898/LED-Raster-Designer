@@ -162,7 +162,9 @@ def test_lone_names_stay_whole_and_only_runs_fold(seeded):
         (['SR1', 'SR2', 'SR3', 'SR4'], 'SR 1-4'),
         (['SR1', 'SR2', 'SR5'], 'SR 1-2, 5'),
         (['SR1', 'SR5'], 'SR1, SR5'),
-        (['CVT10', 'SR1', 'SR2'], 'CVT10, SR 1-2'),
+        # SR1 and SR2 are the seeded show's two multis: a run of multis
+        # reads as distro names do, never a range like a circuit's (QA beta.5)
+        (['CVT10', 'SR1', 'SR2'], 'CVT10, SR1, SR2'),
         ([f'DISTRO 1-{n}' for n in range(1, 8)], 'DISTRO 1-1 … 1-7'),
         (['DISTRO 1-1', 'DISTRO 1-2'], 'DISTRO 1-1, DISTRO 1-2'),
         (['SR1-1', 'SR1-2'], 'SR1-1, SR1-2'),
