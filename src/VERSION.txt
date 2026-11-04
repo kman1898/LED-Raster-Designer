@@ -857,6 +857,35 @@ FIXES
 - FIX: Binder cells keep one type size, and a breakout box's name is
   never cut short.
 - FIX: A box with one socket says port 1.
+- FIX: A screen that gets smaller lets go of the card ports past its last
+  port, so another screen can take those sockets and growing the first
+  screen back never brings a clash. Undo puts them back.
+- FIX: Turning custom runs on lets go of the card ports on numbers with
+  nothing drawn, so a port you draw later never lands on a socket by
+  itself, and custom ports start at the first free number.
+- FIX: Clicking an earlier cabinet of a power circuit being redrawn cuts
+  it back, as on data. Clear Circuit no longer refuses the circuit's own
+  cabinets, and a redraw left with nothing drawn goes back to automatic.
+- FIX: Edits not yet saved are still known after the page reloads, so New,
+  Open and a Recent file ask before they go.
+- FIX: A distro with multis in use always shows an output for every multi.
+  An older show opens with them filled in, and + Add output adds to them.
+- FIX: A distro on a service with nothing connected is listed muted and
+  says nothing connected, since the service doesn't count it.
+- FIX: Redraw port on a locked screen always says the screen is locked.
+- FIX: A run's menu names the screen port, like Clear port P6.
+- FIX: A card with nothing free to back it up says so instead of opening
+  an empty list.
+- FIX: The side panels' collapse tabs sit halfway down the canvas, clear
+  of a tall hardware tray.
+- FIX: The Pull Sheet window's tiles wrap when the window is narrow, so
+  TOTALS is never cut off.
+- FIX: Cancelling the save dialog says Save canceled, not Export canceled.
+- FIX: Reloading over an empty project opens like a launch.
+- FIX: A drop that goes through clears an earlier refusal from the status
+  bar, Save Screen as Preset selects the name it fills in, and after a
+  guide Preferences opens on the tab you had.
+- FIX: Circuit ranges in drag hints and tooltips use a plain hyphen.
 
 v1.5.3 - October 21, 2026
 ----------------------------
