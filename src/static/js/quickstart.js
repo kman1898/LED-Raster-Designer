@@ -6001,10 +6001,14 @@
         },
         // Redraw several ports as one (1.6.0, app-merge-runs.js; the owner,
         // 2026-11-02: "redraw all of those as one port"). LEFTOVERS is six
-        // 512 x 256 cabinets wide on NovaStar Legacy, five to a port, so
-        // every row is a port of five and a leftover of one; numbered Down,
-        // the four leftovers are ports 5-8. Shift+drag picks them, the menu
-        // redraws them as one, and four clicks draw it: 8 ports become 5.
+        // 512 x 256 cabinets wide on NovaStar Legacy, five to a port, drawn
+        // by hand the way a show drawn before 2026-11-04 was: every row a
+        // port of five and a leftover of one; numbered Down, the four
+        // leftovers are ports 5-8. (Organized now stacks those leftovers
+        // into one port by itself, the owner's ruling of 2026-11-04, so an
+        // automatic screen would have nothing to redraw.) Shift+drag picks
+        // them, the menu redraws them as one, and four clicks draw it: 8
+        // ports become 5.
         redrawAsOne: {
             since: '1.6.0',
             target: '#main-canvas', place: 'top', title: 'Redraw several ports as one',
@@ -6030,9 +6034,18 @@
                 }).then(function (layer) {
                     practiceScreen(layer);
                     layer.processorType = 'novastar-armor';
-                    layer.flowPattern = 'tl-h';
                     layer.portMappingMode = 'organized';
                     layer.portNumberOrder = 'down';
+                    var paths = {};
+                    [0, 1, 2, 3].forEach(function (row) {
+                        paths[row + 1] = [0, 1, 2, 3, 4].map(function (col) { return { row: row, col: col }; });
+                        paths[row + 5] = [{ row: row, col: 5 }];
+                    });
+                    layer.lastFlowPattern = 'tl-h';
+                    layer.flowPattern = 'custom';
+                    layer.customPortPaths = paths;
+                    layer.customPortIndex = 8;
+                    layer.customPortOverrides = [];
                     a.upsertProjectLayer(layer);
                     a.updateLayers([layer]);
                     t.mem.layer = layer.id;
@@ -6091,9 +6104,9 @@
                 var a = A();
                 var l = (a.project.layers || []).find(function (x) { return x.id === mem.layer; });
                 if (!l || a._mergeRedraw || (mem.picks || []).join() !== '5,6,7,8') return null;
-                var five = (a.calculatePortAssignments(l) || []).filter(function (x) { return x.port === 5; });
+                var five = (l.customPortPaths || {})[5] || [];
                 var n = a.getLayerPortsRequired(l);
-                if (five.length !== 4 || !five.every(function (x) { return x.panel.col === 5; }) || n !== 5) return null;
+                if (five.length !== 4 || !five.every(function (e) { return e && e.col === 5; }) || n !== 5) return null;
                 return (mem.label || 'Redraw ports 5-8 as one') + ': port 5 runs down the last column, and LEFTOVERS needs '
                     + n + ' ports instead of ' + mem.before + '.';
             }
