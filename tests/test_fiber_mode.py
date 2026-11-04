@@ -549,9 +549,11 @@ def test_the_pull_sheet_pulls_each_fiber_from_its_own_modes_stock(page):
         const read = app.readCableStockUI();
         const fields = [document.getElementById('pref-cable-stock-fiberSingle-ft').value,
                         document.getElementById('pref-cable-stock-fiberMulti-ft').value];
-        document.getElementById('preferences-modal').style.display = 'none';
         return { off, on, fields, single: read.ft.fiberSingle, multi: read.ft.fiberMulti };
     }""")
+    pg.wait_for_timeout(200)
+    pg.screenshot(path=_shot('cable-stock.png'))
+    pg.evaluate("() => { document.getElementById('preferences-modal').style.display = 'none'; }")
     assert prefs['off'] == [True, True] and prefs['on'] == [True, True], prefs
     assert (prefs['single'], prefs['multi']) == ([500, 1000], [300]), prefs
     assert ids['errors'] == []
