@@ -406,3 +406,179 @@ def test_a_locked_member_is_still_refused_with_its_message(page):
     assert pg.evaluate("() => window.app.getOverrideNums(window.__gw.L('W1'), 'power')") == []
     assert any('is locked' in t for t in _toasts(pg)), _toasts(pg)
     assert errors == []
+
+
+# ── Older shows: one wall, or per member (the owner's option C) ──────────
+#
+# A show saved before this build walked a wall across processor canvases
+# per member. As it opens, each group with no stored answer is decided
+# once and the answer stored on the group (`powerPerMember`): it walks as
+# one, unless a member after the first has its own circuits wired up
+# (feeds, labels, cables, redraws, custom paths) or the group is locked.
+# A group made in this build always walks as one. The answer is never read
+# again off the members, so the wall does not flip later.
+
+OPEN_JS = r"""async ({ edit, text }) => {
+    const app = window.app, g = window.__gw;
+    await app._layerSavesSettled();
+    let project;
+    if (text) project = JSON.parse(text);
+    else {
+        project = Object.assign({ name: 'Older wall', cableUnit: 'ft', app_version: '1.6.0-beta.5',
+            distros: [{ id: 'd1', name: 'PD', ratingA: 400, system: '120/208', voltage: 208, phase: 3 }] },
+            g.wall());
+        // an older show's groups carry no answer
+        project.groups.forEach(x => { delete x.powerPerMember; });
+        const L = n => project.layers.find(l => l.name === n);
+        if (edit === 'feeds') Object.assign(L('W2'), { powerSocaDistro: { '1': 'd1' }, powerSocaNumber: { '1': 3 } });
+        if (edit === 'labels') L('W3').powerLabelOverrides = { '1': 'LEFT A' };
+        if (edit === 'paths') Object.assign(L('W2'), {
+            powerCustomOverrides: [1], powerCustomPaths: { '1': [{ row: 0, col: 0 }] } });
+        if (edit === 'locked') project.layers.forEach(l => { l.locked = true; });
+        if (edit === 'loose') { project.groups = []; project.layers.forEach(l => { l.group_id = null; }); }
+    }
+    await app._openProjectData(project, { source: 'file' });
+    window.canvasRenderer.render();
+    return true;
+}"""
+
+
+def _open_show(pg, edit=None, text=None):
+    pg.evaluate(OPEN_JS, {'edit': edit, 'text': text})
+    pg.wait_for_function("() => window.app._initialLoadComplete && !window.app._projectOpening")
+    _settle(pg)
+
+
+def _flag(pg):
+    return pg.evaluate("() => (window.app.project.groups || []).map(g => g.powerPerMember)")
+
+
+def _server_flag():
+    import app as app_module
+    return [g.get('powerPerMember') for g in (app_module.current_project.get('groups') or [])]
+
+
+def _per_member(circuits):
+    """Every member walks its own circuits (each starts at W*:0)."""
+    return all(circuits[n] and circuits[n][0]['cols'][0] == f'{n}:0' for n in ('W1', 'W2', 'W3'))
+
+
+def _as_one(circuits):
+    return (len(circuits['W1']) == 6 and circuits['W2'] == [] and circuits['W3'] == []
+            and circuits['W1'][1]['cols'] == ['W1:2', 'W2:0'])
+
+
+@pytest.mark.parametrize('edit', ['feeds', 'labels', 'paths'])
+def test_an_older_wall_with_its_own_circuits_wired_on_a_later_member_keeps_them(page, edit):
+    """W2 on a distro, W3 with a typed circuit label, or W2 with a redraw:
+    the wall keeps its per-member circuits, and the answer is stored on
+    the group, on the server too."""
+    pg, errors = page
+    _open_show(pg, edit)
+    assert _flag(pg) == [True]
+    assert _server_flag() == [True]
+    c = _circuits(pg)
+    assert _per_member(c), c
+    assert errors == []
+
+
+def test_an_older_wall_with_nothing_wired_on_later_members_walks_as_one(page):
+    pg, errors = page
+    _open_show(pg)
+    assert _flag(pg) == [False]
+    assert _server_flag() == [False]
+    c = _circuits(pg)
+    assert _as_one(c), c
+    assert errors == []
+
+
+def test_an_older_locked_wall_never_changes_on_open(page):
+    pg, errors = page
+    _open_show(pg, 'locked')
+    assert _flag(pg) == [True]
+    c = _circuits(pg)
+    assert _per_member(c), c
+    assert [x['label'] for x in c['W2']] == ['S1-1', 'S1-2', 'S1-3'], c
+    assert errors == []
+
+
+def _select_all(pg):
+    pg.evaluate("""() => { const app = window.app;
+        app.selectedLayerIds = new Set(app.project.layers.map(l => l.id));
+        app.currentLayer = app.project.layers[0]; }""")
+
+
+def test_a_new_group_walks_as_one_and_undo_takes_it_back(page):
+    """Three loose screens, W2 on a distro: grouped now, they walk as one
+    (a new group always does). Undo ungroups them, redo groups them as one
+    again."""
+    pg, errors = page
+    _open_show(pg, 'loose')
+    pg.evaluate("""() => { const l = window.__gw.L('W2');
+        l.powerSocaDistro = { '1': 'd1' }; }""")
+    _select_all(pg)
+    pg.evaluate("async () => { await window.app.groupSelectedLayers(); }")
+    _settle(pg)
+    assert _flag(pg) == [False]
+    assert _server_flag() == [False]
+    assert _as_one(_circuits(pg))
+    _undo(pg)
+    assert pg.evaluate("() => (window.app.project.groups || []).length") == 0
+    assert _per_member(_circuits(pg))
+    pg.evaluate("() => window.app.redo()")
+    _settle(pg)
+    assert _flag(pg) == [False]
+    assert _as_one(_circuits(pg))
+    assert errors == []
+
+
+def test_the_answer_is_saved_and_never_read_again_off_the_members(page):
+    """Saved and opened again, each wall keeps its stored answer, even
+    when what decided it has changed since: the per-member wall with its
+    feed taken off stays per member, the one-wall show with a feed added
+    on W2 stays one wall. Nothing flips under the user."""
+    pg, errors = page
+    _open_show(pg, 'feeds')
+    text = pg.evaluate("() => window.app.serializeProjectForFile()")
+    import json
+    saved = json.loads(text)
+    assert [g.get('powerPerMember') for g in saved['groups']] == [True]
+    for l in saved['layers']:
+        l['powerSocaDistro'] = {}
+        l['powerSocaNumber'] = {}
+    _open_show(pg, text=json.dumps(saved))
+    assert _flag(pg) == [True]
+    assert _per_member(_circuits(pg))
+
+    _open_show(pg)
+    saved = json.loads(pg.evaluate("() => window.app.serializeProjectForFile()"))
+    assert [g.get('powerPerMember') for g in saved['groups']] == [False]
+    next(l for l in saved['layers'] if l['name'] == 'W2')['powerSocaDistro'] = {'1': 'd1'}
+    _open_show(pg, text=json.dumps(saved))
+    assert _flag(pg) == [False]
+    assert _as_one(_circuits(pg))
+    assert errors == []
+
+
+def test_ungroup_and_group_again_is_a_new_group_and_undo_restores_the_old(page):
+    """The per-member wall ungrouped and grouped again walks as one (a new
+    group). Undo, twice, gives back the old group with its stored answer
+    and its per-member circuits."""
+    pg, errors = page
+    _open_show(pg, 'feeds')
+    assert _flag(pg) == [True]
+    _select_all(pg)
+    pg.evaluate("async () => { await window.app.ungroupSelectedLayers(); }")
+    _settle(pg)
+    _select_all(pg)
+    pg.evaluate("async () => { await window.app.groupSelectedLayers(); }")
+    _settle(pg)
+    assert _flag(pg) == [False]
+    assert _as_one(_circuits(pg))
+    _undo(pg)
+    assert _flag(pg) == []
+    _undo(pg)
+    assert _flag(pg) == [True]
+    assert _per_member(_circuits(pg))
+    assert _server_flag() == [True]
+    assert errors == []
