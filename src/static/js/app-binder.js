@@ -7897,8 +7897,9 @@ class _Binder {
         }) });
         const rule = this.distroMainLimit(s);
         const pairs = [['Rating', `${this.serviceSizeText(s)}${rule.main100 ? ' · 100% rated' : ''}`]];
-        pairs.push(['Distros', `ratings ${this._bNum(load.ratingSum, 0)} A on ${this._bNum(load.ratingA, 0)} A`
-            + (load.ratingsOver ? ' · past the service' : '')]);
+        // a plain fact: ratings past the service are no problem while the
+        // load is under its limit (owner, 2026-11-03)
+        pairs.push(['Distros', `ratings ${this._bNum(load.ratingSum, 0)} A on ${this._bNum(load.ratingA, 0)} A`]);
         if (load.distros.length) {
             pairs.push(['Load', this._bDistroLoadText(s, load)]);
             if (load.legs) pairs.push(['Imbalance', `${this._bNum(load.imbalancePct, 1)}%`]);

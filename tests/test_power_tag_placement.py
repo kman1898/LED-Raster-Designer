@@ -678,3 +678,45 @@ def test_a_stacked_pill_clears_its_tags_rim(page):
         gap = p['y'] - (t['y'] + t['h'])
         assert gap >= _rim() + 1 - 0.01, (t['text'], p['text'], gap)
     assert errors == []
+
+
+# A 2fer / 3fer pill with NO length tag sits where the screen's other heads
+# sit (the owner's ruling, 2026-11-03, on a return wall: three heads hung
+# their TRUE1 tag and 2fer pill left of the disc, the fourth - a lone
+# "2fer · OVER" - stood over its disc across its upper leg's run line: "It
+# needs to go to the left like the others"). The heads here are placed
+# through placeTagHeads directly, in the page frame: four discs down the
+# wall's right edge, so the tagged heads can only hang left; the lone
+# pill's own leg runs right over its disc, where the ruled side (above)
+# would put it.
+LONE_JS = """([direction]) => {
+    const r = window.canvasRenderer;
+    const bounds = { left: 0, top: 0, right: 600, bottom: 600 };
+    const disc = (y) => ({ x: 560, y, r: 40 });
+    // three tagged heads packed down the edge (no room over or under
+    // them), a fourth disc that is no head, then the lone pill's head
+    const ds = [disc(60), disc(150), disc(240), disc(330), disc(500)];
+    const head = (d, text) => ({ text, nfer: text ? '2fer' : '2fer · OVER', own: d,
+        prefer: 'above', run: direction, line: { x: d.x, y: d.y },
+        segs: [[0, d.y - 70, d.x, d.y - 70]] });
+    const heads = [head(ds[0], "25' TRUE1"), head(ds[1], "10' TRUE1"),
+                   head(ds[2], "6' TRUE1"), head(ds[4], null)];
+    const out = r.placeTagHeads(heads, 20, bounds, ds, [], null);
+    return out.map(o => ({ tag: o.tag && o.tag.opts.side, pill: o.pill && o.pill.opts.side,
+                           rect: o.pill && { x: o.pill.rect.x, y: o.pill.rect.y,
+                                             w: o.pill.rect.w, h: o.pill.rect.h } }));
+}"""
+
+
+@pytest.mark.parametrize('direction', ['left', 'up', 'down'])
+def test_a_lone_splitter_pill_sits_where_the_other_heads_sit(page, direction):
+    pg, errors = page
+    out = pg.evaluate(LONE_JS, [direction])
+    assert [o['tag'] for o in out[:3]] == ['left'] * 3, out
+    lone = out[3]
+    assert lone['tag'] is None and lone['pill'] == 'left', out
+    r = lone['rect']
+    # beside its disc, and off its leg's line (y 430)
+    assert r['x'] + r['w'] <= 560 - 40 + 0.01, out
+    assert not (r['y'] <= 430 <= r['y'] + r['h']), out
+    assert errors == []

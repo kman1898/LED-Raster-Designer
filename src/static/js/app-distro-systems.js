@@ -701,10 +701,7 @@ class _DistroSystems {
         let breakouts = [];
         if (conn.kind === 'multi') {
             if (conn.id === 'l2130') breakouts = ['l2130-true1', 'l2130-powercon'];
-            // A line-to-line multi feeds the L6-20 breakout too: L6-20 is
-            // line-to-line only (the connector table above), and its
-            // breakout is a six-circuit multi box like TRUE1's.
-            else if (box.coupling === 'll') breakouts = ['soca-true1', 'soca-powercon', 'soca-l620'];
+            else if (box.coupling === 'll') breakouts = ['soca-true1', 'soca-powercon'];
             else breakouts = ['soca-edison', 'soca-true1', 'soca-powercon'];
         }
         return {
@@ -759,6 +756,12 @@ class _DistroSystems {
                 + `${this.distroBoxName(d, box.number)} (${type.name}) gives ${box.volts}V. `
                 + `Set the screen to ${box.volts}V.` };
         }
+        // An L6-20 breakout takes an L6-20 cable off the distro's L6-20
+        // output and nothing else (the owner's ruling, 2026-11-03: "L620
+        // breakout should only be connected to an L620 cable, which would
+        // come off of the distro at L620").
+        const l620 = this._l620Refusal(layer, box.conn && box.conn.id);
+        if (l620) return { ok: false, why: l620 };
         if (box.kind === 'multi') {
             const bt = this.getPowerBreakout(layer);
             if (!type.breakouts.includes(bt.id)) {
@@ -769,6 +772,17 @@ class _DistroSystems {
             }
         }
         return { ok: true };
+    }
+
+    // Why a screen on the L6-20 breakout cannot take an output of
+    // connector `connId` - every output but an L6-20 one - or null. Said
+    // the same on every surface that plugs a screen in.
+    _l620Refusal(layer, connId) {
+        if (!layer || connId === 'l620') return null;
+        const bt = this.getPowerBreakout(layer);
+        if (!bt || bt.id !== 'soca-l620') return null;
+        return `${layer.name} is set to ${this._breakoutShortName(bt)}: its circuits take `
+            + "an L6-20 cable off a distro's L6-20 output. Drag an L6-20 output onto a circuit";
     }
 
     // The number an AUTO multi (no pin) takes on a face distro: the first

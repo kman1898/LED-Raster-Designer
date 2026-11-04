@@ -1568,7 +1568,39 @@ Object.assign(CanvasRenderer.prototype, {
             const kept = Object.assign({}, best.side, memo || {});
             this._tagSideMemo.set(memoKey, kept);
         }
-        return layOut(best, this.placeCableTag, taken).out;
+        const out = layOut(best, this.placeCableTag, taken).out;
+        this._lonePillsBesideTheOthers(heads, out, labelSize, bounds, discs, taken);
+        return out;
+    },
+
+    // A 2fer / 3fer pill with no length tag over it sits where the
+    // screen's other heads sit (the owner's ruling, 2026-11-03, on a
+    // return wall whose tagged heads all hung left of their discs while
+    // the one lone "2fer · OVER" stood over its disc, across its upper
+    // leg's run line: "It needs to go to the left like the others").
+    // Where the tagged heads mostly hang beside their discs, a lone pill
+    // that landed elsewhere is tried on that side, and moves when it is
+    // clear there - off its own run's line too (_placeCableTag). `out`
+    // and `taken` are updated in place.
+    _lonePillsBesideTheOthers(heads, out, labelSize, bounds, discs, taken) {
+        const sides = out.filter(o => o && o.tag && o.tag.opts).map(o => o.tag.opts.side);
+        if (!sides.length) return;
+        const count = (s) => sides.filter(x => x === s).length;
+        const side = ['left', 'right', 'above', 'below']
+            .reduce((a, b) => (count(b) > count(a) ? b : a), 'left');
+        if ((side !== 'left' && side !== 'right') || count(side) * 2 <= sides.length) return;
+        heads.forEach((h, i) => {
+            const o = out[i];
+            if (h.text || !h.nfer || !o || !o.pill || o.pill.opts.side === side) return;
+            const others = taken.filter(r => r !== o.pill.rect);
+            const moved = this._placeCableTag(h.nfer, h.own.x, h.own.y, h.own.r, labelSize,
+                bounds, discs, h.own, others,
+                { prefer: side, run: h.run, line: h.line, segs: h.segs });
+            if (!moved.clear || moved.opts.side !== side) return;
+            const at = taken.indexOf(o.pill.rect);
+            if (at >= 0) taken[at] = moved.rect;
+            o.pill = moved;
+        });
     },
 
     // The key a grouped wall's tag side is remembered under for the frame

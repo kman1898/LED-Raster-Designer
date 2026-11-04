@@ -2655,7 +2655,6 @@ button.hw-dock-typechip:focus-visible { outline: 1px solid var(--ps-accent, #ef3
     white-space: nowrap; line-height: 1.5;
 }
 .hw-dock-svc-sum { white-space: nowrap; color: var(--ps-faint, #969696); }
-.hw-dock-svc-sum-over { color: #d8a13c; }
 .hw-dock-svc-empty { color: var(--ps-faint, #969696); font-style: italic; }
 #hw-gear-popover .hw-pop-svc-row { justify-content: space-between; }
 #hw-gear-popover .hw-pop-svc-name { font-size: 11px; }
