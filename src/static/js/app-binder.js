@@ -155,6 +155,8 @@ const TH_H = 40;
 // A heading too wide for its column wraps at its words, a line this far
 // under the last - never shrunk ("AT THE" over "PROCESSOR").
 const TH_LINE = 24;
+// How far past its width a table grows to keep a band on one line.
+const BAND_GROW = 1.1;
 const H4_H = 46;
 const BLOCK_GAP = 22;
 // The tables' column: 3.5 in wide, a gap between columns; a view's bubble
@@ -3017,26 +3019,29 @@ class _Binder {
             const lists = this._bColNeeds(book, cols, rows, padX, true);
             if (sum(lists) <= width) need = lists;
         }
+        // (an input column's groups wrap their labels before a cell wraps)
+        const least = this._bColNeeds(book, cols, rows, padX, false, true);
         const heads = this._bColNeeds(book, cols, [], padX, false, true);
         const cells = this._bColNeeds(book, cols.map(c => ({ ...c, title: '' })), rows, padX)
-            .map((n, i) => Math.max(n, heads[i]));
-        return this._bShareWidths(px, [this._bColNeeds(book, cols, rows, padX, false, true), cells, need]);
+            .map((n, i) => (cols[i].inputs ? least[i] : Math.max(n, heads[i])));
+        return this._bShareWidths(px, [least, cells, need]);
     }
 
     // The columns' widths from their shares `px`. Where the width holds
     // every column's need (the last of `tiers`), each column that wants
     // more than its share takes it from the columns with room past theirs,
-    // exactly as it always was. Where it does not, the width is dealt out
-    // tier by tier: every column given its first tier (what it cannot do
-    // without: `least`, what wraps no further) before any is given its
-    // second, and so on, each tier's shortfall shared in proportion; a
-    // first tier wider than the table is scaled to it (the one case
-    // where something still shrinks).
+    // exactly as it always was. Where it does not, the columns short of a
+    // tier are lifted to it tier by tier - every column to its first tier
+    // (what it cannot do without: `least`, what wraps no further) before
+    // any to its second, and so on - each lift taken from the columns'
+    // room above their highest tier first, then above the next one down,
+    // never below the tier being lifted to; past that a first tier wider
+    // than the table is left short (the one case where something still
+    // shrinks).
     _bShareWidths(px, tiers) {
         const sum = (a) => a.reduce((x, y) => x + y, 0);
         const need = tiers[tiers.length - 1];
-        const width = sum(px);
-        if (sum(need) <= width + 0.5) {
+        if (sum(need) <= sum(px) + 0.5) {
             const want = px.map((p, i) => Math.max(0, need[i] - p));
             const give = px.map((p, i) => Math.max(0, p - need[i]));
             const wantAll = sum(want), giveAll = sum(give);
@@ -3044,15 +3049,21 @@ class _Binder {
             const move = Math.min(wantAll, giveAll);
             return px.map((p, i) => p + move * (want[i] / wantAll) - move * (give[i] / giveAll));
         }
-        const W = px.map(() => 0);
-        let left = width;
-        for (const tier of tiers) {
-            const want = W.map((w, i) => Math.max(0, Math.min(tier[i], need[i]) - w));
-            const all = sum(want);
-            const m = Math.min(left, all);
-            if (m <= 0) continue;
-            want.forEach((d, i) => { W[i] += m * d / all; });
-            left -= m;
+        // each tier at least the one under it
+        const lv = [];
+        tiers.forEach((t, k) => lv.push(t.map((v, i) => Math.max(v, k ? lv[k - 1][i] : 0))));
+        const W = px.slice();
+        for (let r = 0; r < lv.length; r++) {
+            for (let d = lv.length - 1; d >= r; d--) {
+                const want = W.map((w, i) => Math.max(0, lv[r][i] - w));
+                const wantAll = sum(want);
+                if (wantAll <= 0.01) break;
+                const give = W.map((w, i) => Math.max(0, w - lv[d][i]));
+                const giveAll = sum(give);
+                if (giveAll <= 0.01) continue;
+                const m = Math.min(wantAll, giveAll);
+                for (let i = 0; i < W.length; i++) W[i] += m * want[i] / wantAll - m * give[i] / giveAll;
+            }
         }
         return W;
     }
@@ -3270,6 +3281,18 @@ class _Binder {
             const least = this._bColNeeds(book, cols, spec.rows || [], padX, false, true)
                 .reduce((a, b) => a + b, 0);
             if (least > mW + 0.5) grown = mW = Math.ceil(least);
+            // ...and a band - a multi and its run, a unit - a little too
+            // long for the table (up to BAND_GROW of its width) stands on
+            // one line, the table growing to hold it, rather than wrap: it
+            // used to shrink to 18 px; wrapped, a Letter power sheet's six
+            // bands each took a second line and the map lost its room. A
+            // band longer than that wraps - a table grown far wider sets
+            // every sheet's type smaller.
+            const ctxB = book.measureCtx;
+            ctxB.font = this._bFont(SZ.cell, 700);
+            const band = (spec.rows || []).reduce((m, r) => (typeof r.band === 'string' && r.band
+                ? Math.max(m, ctxB.measureText(r.band).width + (r.sub ? 22 : 0) + padX * 2) : m), 0);
+            if (band > mW + 0.5 && band <= mW * BAND_GROW) grown = mW = Math.ceil(band);
             W = this._bColWidths(book, cols, spec.rows || [], mW, padX, { whole: !!spec.whole });
         }
         // a fitted table is drawn at its own width in a wider column

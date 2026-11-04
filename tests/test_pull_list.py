@@ -517,7 +517,7 @@ def test_positions_are_the_groups_and_the_rows_read_in_the_sheets_vocabulary(pag
         ('Power in', '', 1, 'SR', 'no length'),
         ('TRUE1', "6'", 1, 'SR2-1', ''),
         ('TRUE1', "10'", 2, 'SR1-1, SR1-2', ''),
-        ('TRUE1 Breakout', 'EA', 2, 'SR 1-2', ''),
+        ('TRUE1 Breakout', 'EA', 2, 'SR1, SR2', ''),
         ('TRUE1 Power Jump', "1'", 9, 'WALL-A', ''),
         ('TRUE1 Power Jump', "2'", 1, 'WALL-A', ''),
         ('TRUE1 Power Jump', "6'", 10, 'WALL-B', ''),
@@ -598,7 +598,7 @@ def test_the_per_screen_readings_the_packet_will_print(page):
         ('Distro', 'EA', 1, 'SR', ''),
         ('Multi', "100'", 1, 'SR2', ''), ('Multi', "125'", 1, 'SR1', ''),
         ('Power in', '', 1, 'SR', 'no length'),
-        ('TRUE1 Breakout', 'EA', 2, 'SR 1-2', '')]
+        ('TRUE1 Breakout', 'EA', 2, 'SR1, SR2', '')]
     proc_rows = next(v for (k, n), v in kinds.items() if k == 'processor')
     assert proc_rows == [('Cat6', "50'", 1, ids['centerPortLabel'], ''),
                          ('Cat6 Snake', "100'", 1, 'SR-1, SR-2', 'SNAKE A · 2 channel'),
