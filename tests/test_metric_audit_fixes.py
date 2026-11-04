@@ -70,7 +70,7 @@ def _guard(server_project_guard):
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1600, 'height': 950})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     errors = []
     pg.on('pageerror', lambda e: errors.append(str(e)))
@@ -455,7 +455,7 @@ def test_undo_waits_for_a_cable_unit_post_still_in_flight(page):
 def test_run_load_readouts_print_en_us_figures_in_a_german_browser(e2e_server, pw_browser):
     context = pw_browser.new_context(locale='de-DE')
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     try:
         pg.goto(e2e_server, wait_until='domcontentloaded')

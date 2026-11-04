@@ -50,7 +50,7 @@ def page(e2e_server, pw_browser):
     """A fresh screen: nothing saved, guides off, on the Data view so the
     tray is in layout."""
     ctx = pw_browser.new_context(viewport=VIEWPORT)
-    ctx.add_init_script("try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+    ctx.add_init_script("try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = ctx.new_page()
     errors = []
     pg.on('pageerror', lambda e: errors.append(str(e)))
@@ -174,7 +174,7 @@ def test_a_damaged_saved_arrangement_falls_back_to_the_default(e2e_server, pw_br
     raw = BAD_SAVES[case]
     raw = raw if isinstance(raw, str) else json.dumps(raw)
     ctx = pw_browser.new_context(viewport=VIEWPORT)
-    ctx.add_init_script("(() => { try { localStorage.setItem('lrd_quickstart_disabled', '1'); "
+    ctx.add_init_script("(() => { try { localStorage.setItem('lrd_quickstart_first_run_done', '1'); "
                         "localStorage.setItem('lrd_layout', %s); } catch (e) {} })();" % json.dumps(raw))
     pg = ctx.new_page()
     errors = []

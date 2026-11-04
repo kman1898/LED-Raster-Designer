@@ -301,7 +301,7 @@ def test_the_tray_draws_the_bound_box_as_its_primarys_loop_end(
         e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1700, 'height': 1100})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     context.add_init_script(FETCH_COUNT_JS)
     page = context.new_page()
     try:
