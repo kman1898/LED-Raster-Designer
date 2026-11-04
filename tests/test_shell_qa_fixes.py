@@ -47,7 +47,7 @@ def _guard(server_project_guard):
     """Leave the shared server project the way this module found it."""
 
 
-NO_GUIDE = "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}"
+NO_GUIDE = "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}"
 WITH_PICKER = NO_GUIDE + "window.__lrdStartupPicker = true;"
 
 

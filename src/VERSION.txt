@@ -976,7 +976,8 @@ FIXES
   Open file and Recent.
 - FIX: The Quick Start guide opens on the first run only. Every launch
   after that opens on the start page, so the two no longer take turns,
-  and you don't have to tick "Don't show on startup" to stop it.
+  and the guide's Don't show on startup box is gone. Help still opens
+  the guides any time.
 - FIX: A screen you add with + Add > Screen goes to the first free spot
   on its canvas that fits it, left to right and then top to bottom,
   instead of landing on top of the screen at the corner. On an empty

@@ -47,7 +47,7 @@ def page(flows_server, flows_browser):
     """One long-lived page; tests assert deltas rather than absolute state."""
     context = flows_browser.new_context()
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}"
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}"
     )
     pg = context.new_page()
     pg.goto(flows_server, wait_until='domcontentloaded')

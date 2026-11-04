@@ -45,7 +45,7 @@ def _restore_server_project(server_project_guard):
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1700, 'height': 950})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}"
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}"
     )
     pg = context.new_page()
     pg.goto(e2e_server, wait_until='domcontentloaded')
@@ -898,7 +898,7 @@ def test_whats_new_launches_from_help_menu(e2e_server, pw_browser, browser_name,
     def body(browser):
         context = browser.new_context(viewport={'width': 1700, 'height': 950})
         context.add_init_script(
-            "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+            "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
         pg = context.new_page()
         try:
             pg.goto(e2e_server, wait_until='domcontentloaded')
@@ -945,7 +945,7 @@ CALLOUT_JS = """() => {
 # remembered folded under the very id the demo mints (folds persist per
 # section id in localStorage, so the demo's SL 1 would come up folded).
 TRAY_INIT_JS = """try {
-    localStorage.setItem('lrd_quickstart_disabled', '1');
+    localStorage.setItem('lrd_quickstart_first_run_done', '1');
     localStorage.setItem('ledRasterSidebarCollapsed_dock', '1');
     localStorage.setItem('lrd_dock_h', '100');
     localStorage.setItem('ledRasterPanelCollapsed_hwdock-multi-d1-1', '1');
@@ -1061,7 +1061,7 @@ def test_a_folded_tray_and_a_small_window_do_not_break_the_tour(e2e_server, pw_b
 # display:none under its fold - and the callout sat in the middle of the
 # window, because its spot in the right sidebar was not there.
 PANELS_INIT_JS = """try {
-    localStorage.setItem('lrd_quickstart_disabled', '1');
+    localStorage.setItem('lrd_quickstart_first_run_done', '1');
     localStorage.setItem('ledRasterSidebarCollapsed_left', '1');
     localStorage.setItem('ledRasterSidebarCollapsed_right', '1');
     localStorage.setItem('ledRasterPanelCollapsed_pixel-map--screen-info', '1');

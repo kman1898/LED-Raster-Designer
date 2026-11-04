@@ -45,7 +45,7 @@ def _guard(server_project_guard):
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1500, 'height': 900})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}"
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}"
     )
     pg = context.new_page()
     pg.goto(e2e_server, wait_until='domcontentloaded')

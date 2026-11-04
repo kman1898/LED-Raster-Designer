@@ -36,7 +36,7 @@ def _open(e2e_server, pw_browser, answer):
     """A fresh profile (no cached catalog) whose refresh request gets ANSWER:
     a dict to send as JSON, or None for a failed request."""
     ctx = pw_browser.new_context(viewport={'width': 1500, 'height': 900})
-    ctx.add_init_script("try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+    ctx.add_init_script("try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     page = ctx.new_page()
     errors = []
     page.on('pageerror', lambda e: errors.append(str(e)))

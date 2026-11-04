@@ -29,7 +29,7 @@ def _guard(server_project_guard):
 @pytest.fixture(scope="module")
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1600, 'height': 950})
-    context.add_init_script("try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+    context.add_init_script("try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     body = json.dumps({'ok': False, 'cancelled': True})
     for name in ('save-file', 'open-file', 'select-directory'):
         context.route(f'**/api/native-dialog/{name}',

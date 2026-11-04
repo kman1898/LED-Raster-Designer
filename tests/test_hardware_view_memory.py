@@ -59,7 +59,7 @@ HW_JS = """() => (window.app._processorsResolved || []).map(p => ({
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1600, 'height': 1000})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     pg.goto(e2e_server, wait_until='domcontentloaded')
     pg.wait_for_function("() => window.app && window.app._initialLoadComplete === true")

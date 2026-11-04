@@ -8,8 +8,8 @@
  * result note under the body confirms it. The user's own project is
  * snapshotted when a tour starts and put back when it ends.
  *
- *   - Quick Start: short first-run tour, auto-shows once, skippable, with a
- *     "Don't show on startup" checkbox. Reopen from Help -> Quick Start Guide.
+ *   - Quick Start: short first-run tour, auto-shows on the first run only,
+ *     skippable. Reopen from Help -> Quick Start Guide.
  *   - Advanced Guide: the whole show, built step by step in front of you.
  *   - What's New: only the Advanced Guide steps added since a version (each
  *     step's `since`), each started from its own entry snapshot. The What's
@@ -28,7 +28,6 @@
 (function () {
     'use strict';
 
-    var LS_KEY = 'lrd_quickstart_disabled'; // '1' = don't auto-show on launch
     // '1' once the first-run guide has had its launch, '0' before
     // (maybeAutoShow).
     var FIRST_RUN_KEY = 'lrd_quickstart_first_run_done';
@@ -881,8 +880,6 @@
             + 'border:1px solid #555;border-radius:7px;padding:8px;font:600 12.5px inherit;cursor:pointer;}'
             + '#qs-callout .qs-cta:hover{background:#474747;}'
             + '#qs-callout .qs-row{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 10px;}'
-            + '#qs-callout .qs-chk{display:flex;align-items:center;gap:7px;font-size:11.5px;color:#b6b6b6;cursor:pointer;user-select:none;white-space:nowrap;}'
-            + '#qs-callout .qs-chk input{width:14px;height:14px;accent-color:#e22330;cursor:pointer;}'
             + '#qs-callout .qs-btns{display:flex;gap:6px;margin-left:auto;}'
             + '#qs-callout button{font:600 12.5px -apple-system,"Segoe UI",sans-serif;border-radius:7px;padding:7px 11px;cursor:pointer;border:1px solid #4a4a4a;}'
             + '#qs-callout .qs-skip{background:transparent;color:#9a9a9a;border-color:transparent;padding:7px 6px;}'
@@ -937,8 +934,6 @@
         document.addEventListener('keydown', onKey, true);
     }
 
-    function disabled() { try { return localStorage.getItem(LS_KEY) === '1'; } catch (e) { return false; } }
-    function setDisabled(v) { try { v ? localStorage.setItem(LS_KEY, '1') : localStorage.removeItem(LS_KEY); } catch (e) {} }
 
     function setCursor(x, y) {
         cur.x = x; cur.y = y;
@@ -1967,7 +1962,6 @@
             + '" inputmode="numeric" title="Type a step number and press Enter"></label></div>'
             + (offerFull ? '<button class="qs-cta" id="qs-full">Take the full walkthrough &rsaquo;</button>' : '')
             + '<div class="qs-row">'
-            + '  <label class="qs-chk"><input type="checkbox" id="qs-nolaunch"' + (disabled() ? ' checked' : '') + '> Don&rsquo;t show on startup</label>'
             + '  <div class="qs-btns">'
             + '    <button class="qs-skip" id="qs-skip">Skip</button>'
             + (S.idx > 0 ? '    <button class="qs-back" id="qs-back">Back</button>' : '')
@@ -1986,7 +1980,6 @@
         if (back) back.onclick = function () { if (!S.running) goBack(); };
         var rep = els.callout.querySelector('#qs-replay');
         if (rep) rep.onclick = function () { if (!S.running) replay(); };
-        els.callout.querySelector('#qs-nolaunch').onchange = function () { setDisabled(this.checked); };
         var full = els.callout.querySelector('#qs-full');
         if (full) full.onclick = function () { end().then(function () { show('advanced'); }); };
         var jump = els.callout.querySelector('#qs-jump');
@@ -6300,11 +6293,14 @@
 
     // FIRST RUN ONLY (the owner, 2026-11-04): the first-run guide shows on
     // the first launch, and every launch after it opens on the start page.
-    // Nothing used to record a first run: only "Don't show on startup" kept
-    // the guide away, so it came back every launch, and a launch quit in
-    // the middle of it opened on the start page next (the guide's recovery
-    // skips it), so the two took turns. The first run is marked as the
-    // guide opens.
+    // Nothing used to record a first run: only an opt-out box in the
+    // guide's callout kept it away, so it came back every launch, and a
+    // launch quit in the middle of it opened on the start page next (the
+    // guide's recovery skips it), so the two took turns. The first run is
+    // marked as the guide opens. The opt-out box is gone (owner,
+    // 2026-11-04: "Remove it"): after the first run the guide opens only
+    // from Help. The key it wrote (lrd_quickstart_disabled) is never read;
+    // an older browser that still holds it is treated like any other.
     //
     // The mark is '0' while the first run is still to come, '1' after.
     // A browser that ran the app before the mark existed has none, and a
@@ -6317,7 +6313,6 @@
     if (lsGet(FIRST_RUN_KEY) == null) lsPut(FIRST_RUN_KEY, lsGet('lrd_whatsnew_seen') != null ? '1' : '0');
 
     function maybeAutoShow() {
-        if (disabled()) { autoPending = false; return; }
         // Never auto-show inside an automated browser (Playwright/Selenium set
         // navigator.webdriver). The tour's click-catcher would otherwise block
         // E2E tests. Real users are unaffected; they can still open it manually.

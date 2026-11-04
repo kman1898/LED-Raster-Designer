@@ -873,7 +873,7 @@ def test_the_tray_draws_each_backup_socket_in_its_primarys_loop(
     kind = catalog.get_device(unit)['kind']
     context = pw_browser.new_context(viewport={'width': 1700, 'height': 1100})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     context.add_init_script(FETCH_COUNT_JS)
     page = context.new_page()
     try:
@@ -1001,7 +1001,7 @@ def test_each_sourced_units_tray_offers_the_copy_opt_and_draws_the_loop(
     loop rows under the unit's own ports, a mirror as a box of its own."""
     context = pw_browser.new_context(viewport={'width': 1700, 'height': 1100})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     context.add_init_script(FETCH_COUNT_JS)
     page = context.new_page()
     try:
@@ -1047,7 +1047,7 @@ def test_the_tray_draws_the_own_ports_backup_as_loop_rows(e2e_server,
     ports, right under them."""
     context = pw_browser.new_context(viewport={'width': 1700, 'height': 1100})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     context.add_init_script(FETCH_COUNT_JS)
     page = context.new_page()
     try:
@@ -1111,7 +1111,7 @@ def test_the_tray_draws_a_vx1000_straddle_as_its_own_loop(e2e_server,
     sockets 1-8, its loop row its sockets 9-16, the backup of 1-8."""
     context = pw_browser.new_context(viewport={'width': 1700, 'height': 1100})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     context.add_init_script(FETCH_COUNT_JS)
     page = context.new_page()
     try:
@@ -1257,7 +1257,7 @@ def test_each_backup_output_of_a_self_backing_box_is_its_own_cable(
     backup output's field writes that output only."""
     context = pw_browser.new_context(viewport={'width': 1700, 'height': 1100})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     context.add_init_script(FETCH_COUNT_JS)
     page = context.new_page()
     try:

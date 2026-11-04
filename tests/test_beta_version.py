@@ -95,7 +95,7 @@ pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
 def test_the_page_names_a_beta_build(e2e_server, pw_browser):
     ctx = pw_browser.new_context()
-    ctx.add_init_script("try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+    ctx.add_init_script("try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = ctx.new_page()
     pg.route('**/api/version', lambda route: route.fulfill(
         status=200, content_type='application/json', body=json.dumps({'version': '1.5.3-beta.1'})))

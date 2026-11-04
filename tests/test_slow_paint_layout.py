@@ -23,7 +23,7 @@ SLOW_CSS = """
 """
 
 INIT_JS = """(() => {
-    try { localStorage.setItem('lrd_quickstart_disabled', '1'); } catch (e) {}
+    try { localStorage.setItem('lrd_quickstart_first_run_done', '1'); } catch (e) {}
     const realSetInterval = window.setInterval;
     window.setInterval = function (fn, ms, ...rest) {
         if (ms === 1200) return 0;   // the resize strips' safety sweep

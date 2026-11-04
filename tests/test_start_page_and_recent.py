@@ -40,7 +40,7 @@ def _guard(server_project_guard):
     """Leave the shared server project the way this module found them."""
 
 
-QUIET = "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}"
+QUIET = "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}"
 START_PAGE = QUIET + "window.__lrdStartPage = true;"
 BOTH = START_PAGE + "window.__lrdStartupPicker = true;"
 # The client log, as sendClientLog beacons it, kept on the page.
