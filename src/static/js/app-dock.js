@@ -1987,6 +1987,10 @@ class _HardwareDock {
         // counts only the sockets it holds that are not automatic backups
         // (none, on every loop the app draws today) - a box's own back
         // sockets (`self`) are the near box's already.
+        // The strip's model: the near box's, else the first far box's (a
+        // box with no device name of its own), else just "Box".
+        const farBox = (slices.find(s => s.box && s.box !== near) || {}).box;
+        const model = near.deviceName || (farBox && farBox.deviceName) || 'Box';
         const counts = [this.trayPrimaryCount(card, near)]
             .concat(slices.filter(s => s.box !== near)
                 .map(s => this.trayPrimaryCount(card, s.box, s.ports)))
@@ -2001,7 +2005,7 @@ class _HardwareDock {
                 beyondTrunks: !!near.beyondTrunks,
             },
             `loop-${near.id}`,
-            near.deviceName || far.deviceName || 'Box',
+            model,
             '',
             `${this._dockBoxLabel(near)} and ${farNames} `
             + 'are one loop. Drag this header onto a screen to fill '
