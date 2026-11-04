@@ -914,6 +914,9 @@ FIXES
   in a red message, even with the hardware tray folded away, and names
   the screens that make up the span, with their canvases when they sit on
   more than one.
+- FIX: The processor tray counts primary ports only where backups ride
+  along on their own: a looped XD pair with 9 primaries reads 9/10, not
+  18/20.
 
 v1.5.3 - October 21, 2026
 ----------------------------
