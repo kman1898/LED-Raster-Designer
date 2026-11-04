@@ -948,6 +948,9 @@ FIXES
   circuits screen by screen when it is locked, or when a screen after the
   first has circuits of its own plugged into a distro, labeled, cabled or
   redrawn.
+- FIX: Clearing a distro's multis also forgets a cable length left on a
+  circuit number the screen no longer has, so it can't come back on the
+  next circuit to take that number.
 
 v1.5.3 - October 21, 2026
 ----------------------------

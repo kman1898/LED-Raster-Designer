@@ -4452,6 +4452,11 @@ class _HardwareDock {
                 this._resegmentSocaStores(
                     layer, this._socaClearSplitPoints(layer, socas));
             }
+            // A cable left under a circuit number nothing feeds now goes
+            // too, not only the cleared circuits' own (2026-11-04).
+            for (const layer of byLayer.keys()) {
+                this._forgetUnfedCircuitCables(layer);
+            }
         };
         // A locked screen the clear would REPACK - one grouped with a
         // screen it clears, whose packing % the group shares - stays
