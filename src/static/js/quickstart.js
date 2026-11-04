@@ -55,11 +55,22 @@
     var speed = 1;
     // While Go to applies the steps between here and the target, every
     // pace is zero: the hand does not travel, rest or type a character at
-    // a time, it just does the thing. Polls for the app to respond (T.wait)
-    // keep their real limit - see real() - or a jump would fail on a slow
-    // save where a played step would have waited.
+    // a time, it just does the thing.
+    // Polls for the app to respond (T.wait, a step's check) are never
+    // scaled: they are how long a slow machine may take, not a pace. A
+    // limit halved by the speed timed out on a CPU-starved run and the
+    // step "did not take" a quarter second before it would have (1.6.0
+    // QA, Clear the whole processor).
     function ms(n) { return S.jumping ? 0 : Math.max(0, Math.round(n / speed)); }
-    function real(n) { return S.jumping ? n : ms(n); }
+
+    // How long the engine waits on the app, in real milliseconds whatever
+    // the speed. A step reports "did not take" only once its check has
+    // been asked again and again for CHECK_LIMIT after the app settled
+    // (Matt, 2026-11-03: every guide step passes first time, every time).
+    var CHECK_LIMIT = 10000;   // a step's check, asked every CHECK_EVERY ms
+    var CHECK_EVERY = 100;
+    var SETTLE_LIMIT = 15000;  // the app's queued saves, PUTs and their echoes
+    var ACT_LIMIT = 120000;    // an act that never ends fails, so the guide cannot hang
 
     // The pace of the ghost hand at speed 1: the pace a person works at,
     // not a script's (Matt, 2026-09-15: "make sure all the animations are
@@ -106,7 +117,9 @@
     // Latency change how many cabinets a port carries: a 10-bit, 50 Hz or
     // Low Latency preference cut the practice screens into other ports and
     // the steps that count them did not take (1.6.0 QA). The guide's
-    // screens are always 8-bit, 60 Hz, Low Latency off.
+    // screens are always 8-bit, 60 Hz, Low Latency off. (The guide runs
+    // on the shipped Preferences - guidePreferences - so this holds even
+    // where that switch could not be made.)
     var PRACTICE_PROCESSING = { bitDepth: 8, frameRate: 60, lowLatency: false };
     function practiceScreen(layer) {
         A().initializeLayerDefaults(layer);
@@ -879,6 +892,58 @@
         });
     }
 
+    // ── the input shield ─────────────────────────────────────────────────
+    // While a step runs (its act, the wait on the app, its check) the
+    // person's own mouse and keys never reach the app. The overlay passes
+    // through during an act, so without this a hand resting on the mouse
+    // moved the tray's drag (it follows every document mousemove) off its
+    // target, and a second click on Next fell through the callout and shut
+    // the popover or dialog the act had opened (1.6.0 QA: a dozen drag
+    // steps and a dozen popover steps). Only real input is swallowed: the
+    // guide's own gestures are dispatched events (isTrusted false) and go
+    // through. Back, Next and the replay button do nothing while a step
+    // runs; Skip and Escape end the guide once the step settles.
+    // Registered on the window, capturing, when this file loads - before
+    // the app's own window listeners - so nothing of the app's sees the
+    // event first.
+    var SHIELD_EVENTS = [
+        'pointerdown', 'pointerup', 'pointermove', 'pointerover', 'pointerout',
+        'pointerenter', 'pointerleave', 'pointercancel',
+        'mousedown', 'mouseup', 'mousemove', 'mouseover', 'mouseout', 'mouseenter', 'mouseleave',
+        'click', 'dblclick', 'auxclick', 'contextmenu', 'wheel',
+        'touchstart', 'touchmove', 'touchend', 'touchcancel', 'dragstart',
+        'keydown', 'keyup', 'keypress'
+    ];
+    function shielding() { return !!(S && S.visible && S.running); }
+    function hitsEl(el, x, y) {
+        if (!el) return false;
+        var r = el.getBoundingClientRect();
+        return r.width > 0 && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+    }
+    var SHIELD_KEYS = { keydown: 1, keyup: 1, keypress: 1 };
+    function onShield(e) {
+        if (!e.isTrusted || !S || !S.visible) return;
+        if (!S.running) {
+            // A settled step: the callout is the person's (its buttons, the
+            // Go to box), and Enter and Escape go to onKey. Nothing else
+            // reaches the app: the overlay is only the click's target, and
+            // a key went straight to the app (Delete on the selected demo
+            // wall broke the next step).
+            if (els && e.target && e.target.nodeType === 1 && els.callout.contains(e.target)) return;
+            if (SHIELD_KEYS[e.type] && (e.key === 'Enter' || e.key === 'Escape')) return;
+            e.stopImmediatePropagation();
+            if (e.cancelable) e.preventDefault();
+            return;
+        }
+        if (e.type === 'keydown' && e.key === 'Escape' && !e.repeat) end();
+        else if (e.type === 'click' && els && hitsEl(els.callout.querySelector('#qs-skip'), e.clientX, e.clientY)) end();
+        e.stopImmediatePropagation();
+        if (e.cancelable) e.preventDefault();
+    }
+    SHIELD_EVENTS.forEach(function (type) {
+        window.addEventListener(type, onShield, { capture: true, passive: false });
+    });
+
     // ── placement ────────────────────────────────────────────────────────
     var spotRect = null;   // the rectangle the spotlight rings right now
 
@@ -1374,9 +1439,11 @@
     var T = {
         pause: function (n) { return sleep(ms(n)); },
         // Poll a predicate until it returns something truthy (that value is
-        // resolved) or the timeout passes (null).
+        // resolved) or the timeout passes (null). The timeout is real time
+        // at every speed. A wait that runs out is not the step's verdict:
+        // the step's check is polled after the act (pollCheck).
         wait: function (fn, timeout) {
-            var limit = real(timeout == null ? 4000 : timeout);
+            var limit = timeout == null ? 4000 : timeout;
             var t0 = Date.now();
             return new Promise(function (res) {
                 (function poll() {
@@ -1735,7 +1802,10 @@
     // ── the engine ───────────────────────────────────────────────────────
     var S = {
         name: null, list: [], idx: -1,
-        running: false, pendingNext: false, pendingEnd: null,
+        running: false, pendingEnd: null,
+        // Each step's UI at its entry (the view tab), beside S.snaps: Back
+        // and the replay button put it back with the project.
+        ui: [],
         snaps: [], saved: null, token: 0, visible: false, spotEl: null,
         // How the last Go to ahead landed: 'snapshot' (one restore of the
         // shipped entry snapshot) or 'apply' (the steps between were run).
@@ -1749,7 +1819,16 @@
         entries: null, entryAt: null
     };
 
-    function setState(v) { if (els) els.callout.setAttribute('data-qs-state', v); }
+    // Next, Back and the replay button are disabled while the step runs;
+    // the input shield swallows the click anyway (onShield).
+    function setState(v) {
+        if (!els) return;
+        els.callout.setAttribute('data-qs-state', v);
+        ['#qs-next', '#qs-back', '#qs-replay'].forEach(function (sel) {
+            var b = els.callout.querySelector(sel);
+            if (b) b.disabled = v === 'running';
+        });
+    }
     function showResult(note, err, kind) {
         if (!els) return;
         var box = els.callout.querySelector('.qs-result');
@@ -1788,7 +1867,9 @@
             + '</div>';
         els.callout.querySelector('#qs-skip').onclick = function () { end(); };
         els.callout.querySelector('#qs-next').onclick = function () {
-            if (S.running) { S.pendingNext = true; return; }
+            // A step that is still running takes no Next: a second click
+            // waits for nothing and skips nothing.
+            if (S.running) return;
             last ? end() : go(S.idx + 1);
         };
         var back = els.callout.querySelector('#qs-back');
@@ -1976,7 +2057,8 @@
             return applyEntry(k);
         }).catch(function (e) {
             // The step still plays; if its entry state is not there its
-            // check says so.
+            // check says so. The show's state is unknown from here on.
+            S.entryAt = null;
             console.warn('QuickStart: entry state failed', e);
         });
     }
@@ -2023,7 +2105,9 @@
             passthrough(false);
             if (step.after) { try { step.after(null); } catch (e) { console.warn('QuickStart after()', e); } }
         };
-        return Promise.resolve().then(function () {
+        // From a known state and to a polled verdict, as a played step.
+        resetModes();
+        return appSettled().then(function () {
             if (step.before) return step.before();
         }).then(function () {
             ensureCalloutHome();
@@ -2031,8 +2115,16 @@
             if (!step.act) return 'idle';
             T.mem = {};
             passthrough(true);
-            return Promise.resolve().then(function () { return step.act(T); }).then(function () {
-                return step.check ? step.check(T.mem) : 'Done.';
+            var failed = null;
+            return appSettled().then(function () { return actOf(step); }).catch(function (e) {
+                failed = e;
+            }).then(function () {
+                return appSettled();
+            }).then(function () {
+                return pollCheck(step, T.mem, null);
+            }).then(function (note) {
+                if (!note && failed) throw failed;
+                return note;
             });
         }).then(function (note) {
             leave();
@@ -2089,6 +2181,91 @@
         if (step && step.after) { try { step.after(next); } catch (e) { console.warn('QuickStart after()', e); } }
     }
 
+    // ── waiting on the app ───────────────────────────────────────────────
+    // `p`, or `onLimit` (a value, or an Error to reject with) once `limit`
+    // real milliseconds have passed.
+    function withLimit(p, limit, onLimit) {
+        var timer = null;
+        var cap = new Promise(function (res, rej) {
+            timer = setTimeout(function () { onLimit instanceof Error ? rej(onLimit) : res(onLimit); }, limit);
+        });
+        return Promise.race([Promise.resolve(p), cap]).then(function (v) { clearTimeout(timer); return v; },
+                                                            function (e) { clearTimeout(timer); throw e; });
+    }
+    // Two frames, so what the app just drew is on the page - or 100 ms,
+    // where frames are not running (a hidden window).
+    function painted() {
+        return withLimit(new Promise(function (res) {
+            requestAnimationFrame(function () { requestAnimationFrame(function () { res(); }); });
+        }), 100, null);
+    }
+    // Until the app has done what the step asked of it: a debounced undo
+    // step landed, every screen PUT and restore PUT answered (their socket
+    // echoes follow them), the pull sheet's queue drained, and a frame
+    // drawn. Never longer than SETTLE_LIMIT.
+    function appSettled() {
+        var a = A();
+        if (!a) return Promise.resolve();
+        try { if (a._flushPendingSaveState) a._flushPendingSaveState(); } catch (e) {}
+        var p = null;
+        try { p = a._layerSavesSettled ? a._layerSavesSettled() : null; } catch (e) { p = null; }
+        return withLimit(Promise.resolve(p).catch(function () {}), SETTLE_LIMIT, null).then(painted);
+    }
+    // The step's act, held to ACT_LIMIT: an act that never ends is a step
+    // that failed, never a guide that hangs with the input shield up.
+    function actOf(step) {
+        return withLimit(Promise.resolve().then(function () { return step.act(T); }), ACT_LIMIT,
+                         new Error('the step did not finish'));
+    }
+    // A step's check asked every CHECK_EVERY ms until it returns its note
+    // or CHECK_LIMIT passes (null: the step did not take). Asked once was
+    // asked too soon on a busy machine: the check that failed at the end
+    // of the act passed a quarter second later (1.6.0 QA). Stops early when
+    // the guide is ending (Skip or Escape while the step ran).
+    function pollCheck(step, mem, token) {
+        if (!step.check) return Promise.resolve('Done.');
+        var t0 = Date.now();
+        return new Promise(function (res) {
+            (function poll() {
+                var note = null, err = null;
+                try { note = step.check(mem); } catch (e) { err = e; }
+                if (note) return res(note);
+                var over = Date.now() - t0 >= CHECK_LIMIT;
+                if (over || S.pendingEnd || !S.visible || (token != null && token !== S.token)) {
+                    if (err) console.warn('QuickStart check()', err);
+                    return res(null);
+                }
+                setTimeout(poll, CHECK_EVERY);
+            })();
+        });
+    }
+
+    // Whatever a step can leave ARMED, put down: the right-click menu and
+    // the menu bar's menus, the hardware gear popover, a tray sweep, port
+    // picks and an unfinished redraw as one, an override edit, the canvas
+    // add and menu pop-ups. Dialogs, sheets and the export window are the
+    // steps' own business (their before and after hooks), so a step that
+    // follows on in the same dialog finds it still up.
+    function resetModes() {
+        var a = A(), r = R();
+        if (!a) return;
+        try { a.hideContextMenu(); } catch (e) {}
+        hideMenus();
+        closePopover();
+        try { if (a._traySweepClear) a._traySweepClear(false); } catch (e) {}
+        a._sweepSelection = null;
+        if (r) { r._sweepPending = null; if (r._removeSweepHud) { try { r._removeSweepHud(); } catch (e) {} } }
+        // Ports picked for a redraw as one, and an unfinished one: the
+        // step's own snapshot (or the state the step before it handed on)
+        // is what stands, so they are just dropped.
+        a._portPicks = null;
+        a._mergeRedraw = null;
+        if (r) r._portPickPending = null;
+        if (a._overrideEditing && a.endOverrideEdit) { try { a.endOverrideEdit(); } catch (e) {} }
+        if (a.updateOverrideHover) { try { a.updateOverrideHover(false, 0, 0); } catch (e) {} }
+        $$('.canvas-add-popup, .canvas-menu-popup').forEach(function (el) { el.remove(); });
+    }
+
     // Enter step i: before(), the callout, the entry snapshot (Back and
     // Replay restore it), then after a beat the act and its check.
     function go(i, opts) {
@@ -2100,6 +2277,14 @@
         S.spotEl = null;
         S.running = true;
         setState('running');
+        // Every step starts from a known state: nothing armed that a step
+        // before it (or this step's own first try) left behind - a redraw
+        // or a port pick, an override edit, a sweep - and no menu or
+        // popover up. A redraw left armed by a step that failed made the
+        // next two steps fail, and the replay button never got it back
+        // (1.6.0 QA).
+        resetModes();
+        var ui = opts.restore ? S.ui[i] : null;
         var chain = Promise.resolve();
         var entered = false;
         if (opts.restore) {
@@ -2111,6 +2296,11 @@
             chain = chain.then(function () { return enterStep(i); });
         }
         return chain.then(function () {
+            return appSettled();
+        }).then(function () {
+            // Back and the replay button put the step's view tab back with
+            // its project; before() then sets what the step itself needs.
+            if (ui && ui.mode && ui.mode !== mode()) switchView(ui.mode);
             if (step.before) { try { return step.before(); } catch (e) { console.warn('QuickStart before()', e); } }
         }).then(function () {
             return step.before ? sleep(ms(260)) : null;
@@ -2125,38 +2315,44 @@
             // and the right sidebar open so the callout has its spot.
             ensureCalloutHome();
             revealStep(step);
-            S.running = false;
             render();
             S.snaps[i] = snapshot();
-            if (!step.act) { hideCursor(); return afterStep(); }
+            S.ui[i] = { mode: mode() };
+            if (!step.act) { S.running = false; setState('idle'); hideCursor(); return afterStep(); }
             return runAct(step);
         });
     }
 
     function runAct(step) {
         S.running = true;
-        S.pendingNext = false;
         T.mem = {};
         setState('running');
         passthrough(true);
         showCursor();
         var token = ++S.token;
         var err = null;
-        return sleep(ms(500)).then(function () {
+        return appSettled().then(function () {
+            return sleep(ms(500));
+        }).then(function () {
             // The canvas may have re-framed a beat after the callout was
             // placed (a view switch resizes it); ring the target where it is
             // now and move the box only if it has come to cover it - once,
             // before the cursor starts, so the act itself never shoves it.
             settle();
-            return Promise.resolve().then(function () { return step.act(T); });
+            return actOf(step);
         }).catch(function (e) {
             err = e;
             console.warn('QuickStart: step "' + step.title + '" failed:', e);
         }).then(function () {
+            if (token !== S.token) return null;   // the tour ended under us
+            badge('');
+            press(false);
+            // The verdict waits for the app (its saves, their echoes, a
+            // frame) and then asks the check until it answers or
+            // CHECK_LIMIT passes: never once, at the instant the act ends.
+            return appSettled().then(function () { return pollCheck(step, T.mem, token); });
+        }).then(function (note) {
             if (token !== S.token) return;   // the tour ended under us
-            var note = null;
-            try { note = step.check ? step.check(T.mem) : 'Done.'; }
-            catch (e) { console.warn('QuickStart check()', e); }
             S.running = false;
             passthrough(false);
             badge('');
@@ -2164,18 +2360,23 @@
             showResult(note, err);
             settle();
             setState(note ? 'done' : 'failed');
-            // The step took: the show holds the next Advanced step's entry.
-            if (S.entries) S.entryAt = note ? S.entries[S.idx] + 1 : null;
+            // The step took on its own entry state: the show holds the next
+            // Advanced step's entry. A step that took on an entry that was
+            // NOT reached (applyEntry stopped on the way, the step played
+            // anyway) proves nothing about the show: the next What's New
+            // step must not carry on from it. It did, and "Put the distro
+            // on the service" then found no distro (1.6.0 QA: the apply
+            // fallback failed 3 runs in 4).
+            if (S.entries) {
+                var k = S.entries[S.idx];
+                S.entryAt = note && S.entryAt === k ? k + 1 : null;
+            }
             return afterStep();
         });
     }
 
     function afterStep() {
         if (S.pendingEnd) { var e = S.pendingEnd; S.pendingEnd = null; return end().then(e.resolve); }
-        if (S.pendingNext) {
-            S.pendingNext = false;
-            return S.idx === S.list.length - 1 ? end() : go(S.idx + 1);
-        }
     }
 
     function goBack() {
@@ -2265,6 +2466,28 @@
             a._serverPreferences = JSON.parse(JSON.stringify(p.server));
         });
     }
+    // The guide runs on the SHIPPED Preferences, never the person's. A new
+    // screen (initializeLayerDefaults), service (addService), distro
+    // (addDistro), a screen's breakout on the server and a new show's
+    // cable stock all start from Preferences, and the guide's walls,
+    // service and distros are new: a 10-bit, 50 Hz, 30 Hz or Low Latency
+    // preference cut the practice screens into other ports, and a 230/400
+    // distro system gave the guide's service a system its 120/208 distro
+    // could not join (1.6.0 QA). One switch covers every object the guide
+    // makes, by hand or through the app's own buttons. The person's own
+    // were captured with the world (capturePrefs) and go back first thing
+    // when the guide ends (restoreWorld) or after a reload (recoverStash).
+    function guidePreferences() {
+        var a = A();
+        // Only what can be put back is switched: no captured copy, no switch.
+        var held = S.saved && S.saved.prefs;
+        if (!held || !held.server || typeof held.server !== 'object') return Promise.resolve();
+        var shipped = a.getPreferencesDefaults();
+        a._serverPreferences = JSON.parse(JSON.stringify(shipped));
+        return j('PUT', '/api/preferences', shipped).catch(function (e) {
+            console.warn('QuickStart: the shipped preferences were not set', e);
+        });
+    }
 
     function captureWorld() {
         var a = A(), r = R();
@@ -2311,8 +2534,11 @@
         var w = readStash();
         if (!w) return Promise.resolve(false);
         var a = A();
-        return restoreProject(w.project, 'Tour Recovery').then(function () {
-            return restorePrefs(w.prefs);
+        // The person's Preferences first: the guide ran on the shipped
+        // ones (guidePreferences), and their project comes back under
+        // their own.
+        return restorePrefs(w.prefs).then(function () {
+            return restoreProject(w.project, 'Tour Recovery');
         }).then(function () {
             try {
                 SHEET_PREFIXES.forEach(function (p) { lsKeys(p).forEach(function (e) { localStorage.removeItem(e.k); }); });
@@ -2341,25 +2567,14 @@
         });
     }
 
-    // Everything transient a step may have left standing.
+    // Everything transient a step may have left standing: its armed modes
+    // (resetModes) and every dialog, sheet and window.
     function closeTransients() {
-        var a = A(), r = R();
+        var a = A();
         if (!a) return;
-        try { a.hideContextMenu(); } catch (e) {}
-        closePopover();
-        if (a._traySweepClear) a._traySweepClear(false);
-        a._sweepSelection = null;
-        if (r) { r._sweepPending = null; if (r._removeSweepHud) r._removeSweepHud(); }
-        // Ports picked for a redraw as one, and an unfinished one: the
-        // step's own snapshot is what comes back, so they are just dropped.
-        a._portPicks = null;
-        a._mergeRedraw = null;
-        if (r) r._portPickPending = null;
-        if (a._overrideEditing && a.endOverrideEdit) { try { a.endOverrideEdit(); } catch (e) {} }
-        if (a.updateOverrideHover) { try { a.updateOverrideHover(false, 0, 0); } catch (e) {} }
+        resetModes();
         a._dockFlagOpen = false;
         var bal = $('#balance-modal'); if (bal) bal.remove();
-        $$('.canvas-add-popup, .canvas-menu-popup').forEach(function (el) { el.remove(); });
         closePrefs();
         var pp = $('#preset-picker-modal'); if (pp) pp.style.display = 'none';
         if (typeof a.closeStartPage === 'function') a.closeStartPage();
@@ -2409,8 +2624,11 @@
     function restoreWorld(w) {
         var a = A(), r = R();
         closeTransients();
-        return restoreProject(w.project, 'Tutorial Exit').then(function () {
-            return restorePrefs(w.prefs);
+        // The person's Preferences first: the guide ran on the shipped
+        // ones (guidePreferences), and their project comes back under
+        // their own.
+        return restorePrefs(w.prefs).then(function () {
+            return restoreProject(w.project, 'Tutorial Exit');
         }).then(function () {
             a.history = w.history;
             a.historyIndex = w.historyIndex;
@@ -2468,10 +2686,23 @@
             // raster wider than 1080p; a 5K raster holds the whole show.
             proj.raster_width = 5120; proj.raster_height = 2880;
             proj.show_raster_width = 5120; proj.show_raster_height = 2880;
-            (proj.canvases || []).forEach(function (c) {
-                c.raster_width = 5120; c.raster_height = 2880;
-                c.show_raster_width = 5120; c.show_raster_height = 2880;
-            });
+            // ONE canvas, the scratch show's own. The person's canvases
+            // stayed in the scratch show until 1.6.0 QA: on a show with
+            // four, the demo walls sat inside canvases stacked over each
+            // other and "Cabinets across screens" dragged on one of the
+            // person's canvases instead of the walls.
+            var c1 = (proj.canvases || [])[0] || {};
+            proj.canvases = [{
+                id: c1.id || 'c1', name: 'Canvas 1', color: c1.color || '#4A90E2',
+                workspace_x: 0, workspace_y: 0,
+                raster_width: 5120, raster_height: 2880,
+                show_raster_width: 5120, show_raster_height: 2880,
+                data_flow_perspective: 'front', power_perspective: 'front',
+                visible: true
+            }];
+            proj.active_canvas_id = proj.canvases[0].id;
+            proj.data_flow_perspective = 'front';
+            proj.power_perspective = 'front';
             return j('PUT', '/api/project', proj);
         }).then(function () {
             return j('POST', '/api/layer/add', Object.assign({
@@ -2537,6 +2768,7 @@
             return s;
         });
         S.snaps = [];
+        S.ui = [];
         S.idx = -1;
         S.home = null;
         S.jumpedVia = null;
@@ -2554,6 +2786,8 @@
         S.running = true;
         var seeded = (S.saved ? Promise.resolve(S.saved) : captureWorld()).then(function (w) {
             S.saved = w;
+            return guidePreferences();
+        }).then(function () {
             return buildScratch(tour.seed || {});
         });
         return seeded.catch(function (e) {
@@ -2587,6 +2821,7 @@
         S.idx = -1;
         S.list = [];
         S.snaps = [];
+        S.ui = [];
         S.keys = [];
         S.entries = null;
         S.entryAt = null;
@@ -3732,18 +3967,30 @@
             before: function () { switchView('data-flow'); closePopover(); openBoxSheet(); },
             act: function (t) {
                 var b = box();
-                var move = function (i, to) {
+                // The pick is the chip swapped for a select in place, not
+                // app state: a tray rebuild (a late save's echo restates
+                // the tray) puts the chip back and the pick is gone. The
+                // Go to that lands here restores the show, and its echoes
+                // rebuilt the tray just after the click: "the strand pick
+                // did not open" (1.6.0 QA, 1 run in 4 under a loaded
+                // machine). So the hand clicks the chip again, up to three
+                // times, until the strand has moved.
+                var move = function (i, to, tries) {
+                    tries = tries || 1;
                     var chip = '[data-lrd-field="fiber-strand-' + b.id + '-p1-' + i + '"]';
                     var pick = '[data-lrd-field="fiber-strand-pick-' + b.id + '-p1-' + i + '"]';
-                    return t.wait(function () { return $(chip); }).then(function () {
-                        return t.click(chip);
+                    var moved = function () { var bl = boxLink(); return bl && bl.link.strands[i] === to; };
+                    return t.wait(function () { return $(chip) || $(pick); }).then(function () {
+                        return $(pick) ? null : t.click(chip);
                     }).then(function () {
-                        return t.wait(function () { return $(pick); });
+                        return t.wait(function () { return $(pick); }, 1500);
                     }).then(function (el) {
-                        if (!el) throw new Error('the strand pick did not open');
-                        return t.select(pick, String(to));
-                    }).then(function () {
-                        return t.wait(function () { var bl = boxLink(); return bl && bl.link.strands[i] === to; }, 6000);
+                        if (!el) return null;
+                        return t.select(pick, String(to)).then(function () { return t.wait(moved, 3000); });
+                    }).then(function (ok) {
+                        if (ok || moved()) return true;
+                        if (tries >= 3) throw new Error('the strand pick did not open');
+                        return move(i, to, tries + 1);
                     });
                 };
                 return move(0, 3).then(function () { return move(1, 4); })

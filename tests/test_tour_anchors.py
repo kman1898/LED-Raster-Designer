@@ -543,8 +543,8 @@ def _wait_step(page, index, timeout=90):
     return st
 
 
-# The drive runs the shipped gestures three times faster (every wait in
-# quickstart.js scales with setSpeed); the pace itself is a person's.
+# The drive runs the shipped gestures three times faster (every pace in
+# quickstart.js scales with setSpeed; the waits on the app do not).
 DRIVE_SPEED = 3
 
 
@@ -725,10 +725,10 @@ def test_exit_puts_the_users_project_back(page):
 
 
 def test_escape_mid_act_does_not_corrupt(page):
-    """Escape while an act runs is not the tour's to take (the app's own
-    Escape cancels drags, sweeps and popovers): the tour either ignores it
-    and finishes the step, or exits cleanly - and either way the user's
-    project is back once the tour ends."""
+    """Escape while an act runs never reaches the app (the input shield
+    swallows it, so the app's own Escape cannot cancel the act's drag or
+    popover): the guide finishes the step and then exits cleanly, and the
+    user's project is back once the tour ends."""
     page.evaluate(SEED_JS)
     page.wait_for_timeout(600)
     before = page.evaluate(WORLD_JS)
@@ -744,11 +744,15 @@ def test_escape_mid_act_does_not_corrupt(page):
         time.sleep(0.05)
     assert st['state'] == 'running', st
     page.keyboard.press('Escape')
-    st = _wait_step(page, 1)
-    if st['visible']:
-        # ignored: the step finished as if nothing happened
-        assert st['state'] == 'done' and not st['fail'], st
-        _end(page)
+    # The step settles, then the guide ends (Escape queued the exit).
+    deadline = time.time() + 60
+    while time.time() < deadline:
+        st = page.evaluate(STATE_JS)
+        if not st['qs']['visible'] and not st['qs']['running']:
+            break
+        assert st['qs']['index'] in (1, -1), st
+        time.sleep(0.1)
+    assert not st['qs']['visible'], st
     page.wait_for_timeout(1200)
     after = page.evaluate(WORLD_JS)
     assert after['project'] == before['project']
