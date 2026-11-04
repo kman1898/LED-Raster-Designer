@@ -299,7 +299,7 @@ def test_drag_a_distro_s_header_bar_onto_the_service_card(page):
     assert 'hw-dock-svc-drop' in lit and 'hw-dock-svc-drop-no' not in lit, lit
     out = read(pg)
     assert out['serviceIds'] == {'d1': 's1', 'd2': None}, out['serviceIds']
-    assert out['services']['s1']['chips'] == ['SL 400 A'], out['services']['s1']
+    assert out['services']['s1']['chips'] == ['SL 400 A · nothing connected'], out['services']['s1']
     assert pg.evaluate(HIST_JS)[-1] == 'Put Distro on Service'
     assert pg.evaluate(STATUS_JS) == 'SL is on HOUSE · 400 A · 120/208V 3φ.'
     assert 'hw-dock-svc-drop' not in pg.evaluate(
@@ -538,7 +538,7 @@ def test_every_service_change_is_one_undo_step(page):
     # Undo of the removal brings the service back WITH its distro on it.
     undo(pg)
     out = read(pg)
-    assert out['serviceIds']['d1'] == 's1' and out['services']['s1']['chips'] == ['SL 400 A'], out
+    assert out['serviceIds']['d1'] == 's1' and out['services']['s1']['chips'] == ['SL 400 A · nothing connected'], out
     assert not errors, errors
 
 
@@ -598,7 +598,7 @@ def test_a_service_saves_and_loads_back(page, e2e_server, pw_browser, tmp_path):
         assert again['stored'] == before['stored'], again['stored']
         assert again['services']['s1']['chips'] == ['SL 400 A', 'SR 200 A'], again['services']['s1']
         assert again['services']['s1']['use'] == '330.0/400 A', again['services']['s1']
-        assert again['services']['s2']['chips'] == ['GEN 100 A'], again['services']['s2']
+        assert again['services']['s2']['chips'] == ['GEN 100 A · nothing connected'], again['services']['s2']
         assert not errors2, errors2
     finally:
         context.close()

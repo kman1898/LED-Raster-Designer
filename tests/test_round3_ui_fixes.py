@@ -172,7 +172,12 @@ def test_recent_open_and_new_ask_before_unsaved_changes_go(e2e_server, pw_browse
         pg.evaluate("() => { window.app.loadRecentFile(1); }")   # Mine.json, listed by the Save
         _unsaved_dialog(pg)
         _press(pg, "Don't Save")
-        pg.wait_for_function("() => window.app.project.layers[0].columns === 12", timeout=10000)
+        # the open shows the file at once and adopts the server's copy when
+        # its PUT answers: an edit typed before that lands is replaced by
+        # it, so the edit below waits for the open to finish
+        pg.wait_for_function("() => window.app.project.layers[0].columns === 12"
+                             " && document.getElementById('status-message').textContent.includes('Project loaded')",
+                             timeout=10000)
         with open(show, encoding='utf-8') as fh:
             assert json.load(fh)['layers'][0]['columns'] == 6, "Don't Save wrote the show"
         # undo back to the saved state reads as saved again
