@@ -1222,6 +1222,11 @@ class _ScreenGroups {
         // The routing switch describes the wall, and the copy is the same
         // wall again - so it cables the way the original does.
         if ('routeDataAsOne' in group) copy.routeDataAsOne = group.routeDataAsOne;
+        // And it is named the way the original is, tab by tab (the Names
+        // switch, per group since 2026-11-04).
+        if (group.nameDisplayByView && typeof group.nameDisplayByView === 'object') {
+            copy.nameDisplayByView = { ...group.nameDisplayByView };
+        }
         this.project.groups.push(copy);
         this.currentLayer = clones[0];
         this.selectedLayerIds = new Set(clones.map(c => c.id));

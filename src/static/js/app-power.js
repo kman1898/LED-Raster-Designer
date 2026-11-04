@@ -283,6 +283,12 @@ class _Power {
         if (typeof this.updateGroupRouteControl === 'function') {
             this.updateGroupRouteControl();
         }
+        // The Names switch acts on the selected group(s), so it follows the
+        // selection the same way: hidden with no group selected, lit on the
+        // selected group's own value (app-core.js refreshNameDisplayButtons).
+        if (typeof this.refreshNameDisplayButtons === 'function') {
+            this.refreshNameDisplayButtons();
+        }
         // ...and the mirror's read-only data map (app-mirror-screens.js):
         // the map controls dim while the shown screen is a mirror.
         if (typeof this.updateMirrorDataLock === 'function') {

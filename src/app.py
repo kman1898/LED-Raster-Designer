@@ -1698,32 +1698,69 @@ NAME_DISPLAY_VIEWS = ('pixel-map', 'cabinet-id', 'data-flow', 'power', 'show-loo
 NAME_DISPLAY_VALUES = ('screens', 'group', 'both')
 
 
-def _migrate_group_name_display(project):
-    """The NAMES switch went per tab (owner, 2026-10-01: "Yes, per tab").
+def _show_name_display(project, view):
+    """A tab's show-wide NAMES value: ``groupNameDisplayByView`` where it
+    has one, else the single ``groupNameDisplay``, else 'group'. What a
+    group with no value of its own reads (app-core.js groupNameDisplayFor).
+    """
+    by = project.get('groupNameDisplayByView')
+    if isinstance(by, dict) and by.get(view) in NAME_DISPLAY_VALUES:
+        return by[view]
+    old = project.get('groupNameDisplay')
+    return old if old in NAME_DISPLAY_VALUES else 'group'
 
-    Before, one project field - ``groupNameDisplay`` - named every tab's
+
+def _migrate_group_name_display(project):
+    """The NAMES switch went per tab (owner, 2026-10-01: "Yes, per tab"),
+    then per GROUP, per tab (2026-11-04: "individually change screens,
+    group or both per group").
+
+    First, one project field - ``groupNameDisplay`` - named every tab's
     convention. A file that carries it gets ``groupNameDisplayByView`` with
-    every tab that has no valid value of its own set to that value, so an
-    old show opens with each tab where the one switch was. The old field is
-    left in place (the client reads it as the fallback, and an older build
-    still reads it). A project without the old field is untouched - a new
-    project pins neither field. Idempotent. Returns True when it wrote.
+    every tab that has no valid value of its own set to that value. Then,
+    when the show has a show-wide value at all (either field), every group
+    is given ``nameDisplayByView`` with each tab that has no valid value of
+    its own set to the tab's show-wide value, so an old show opens with
+    every wall named the way it was. The old fields are left in place (the
+    client reads them as the fallback, and an older build still reads
+    them). A project with neither field is untouched - a new project pins
+    nothing, and its groups read 'group', the default, either way.
+    Idempotent. Returns True when it wrote. app-core.js
+    migrateGroupNameDisplay is the client's copy.
     """
     if not isinstance(project, dict):
         return False
-    old = project.get('groupNameDisplay')
-    if old not in NAME_DISPLAY_VALUES:
-        return False
-    by = project.get('groupNameDisplayByView')
-    if not isinstance(by, dict):
-        by = {}
     changed = False
-    for view in NAME_DISPLAY_VIEWS:
-        if by.get(view) not in NAME_DISPLAY_VALUES:
-            by[view] = old
-            changed = True
-    if changed or project.get('groupNameDisplayByView') is not by:
-        project['groupNameDisplayByView'] = by
+    old = project.get('groupNameDisplay')
+    by = project.get('groupNameDisplayByView')
+    if old in NAME_DISPLAY_VALUES:
+        if not isinstance(by, dict):
+            by = {}
+        for view in NAME_DISPLAY_VIEWS:
+            if by.get(view) not in NAME_DISPLAY_VALUES:
+                by[view] = old
+                changed = True
+        if changed or project.get('groupNameDisplayByView') is not by:
+            project['groupNameDisplayByView'] = by
+    show_wide = old in NAME_DISPLAY_VALUES or (
+        isinstance(by, dict)
+        and any(by.get(view) in NAME_DISPLAY_VALUES for view in NAME_DISPLAY_VIEWS))
+    groups = project.get('groups')
+    if not show_wide or not isinstance(groups, list):
+        return changed
+    for group in groups:
+        if not isinstance(group, dict):
+            continue
+        own = group.get('nameDisplayByView')
+        if not isinstance(own, dict):
+            own = {}
+        missing = [v for v in NAME_DISPLAY_VIEWS if own.get(v) not in NAME_DISPLAY_VALUES]
+        if not missing:
+            continue
+        for view in missing:
+            own[view] = _show_name_display(project, view)
+        group['nameDisplayByView'] = own
+        changed = True
     return changed
 
 

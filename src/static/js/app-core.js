@@ -3,8 +3,10 @@
 import { evaluateMathExpression, sendClientLog, setupColorPickerWithHex, isTypingTarget, installEnterEndsEdit } from './helpers.js';
 
 // The tabs the NAMES switch keeps a value for, by the canvas's view mode
-// (setupNameDisplayToggles; owner, 2026-10-01: "Yes, per tab").
+// (setupNameDisplayToggles; owner, 2026-10-01: "Yes, per tab"; per group
+// since 2026-11-04), and the values it takes.
 export const NAME_DISPLAY_VIEWS = ['pixel-map', 'cabinet-id', 'data-flow', 'power', 'show-look'];
+export const NAME_DISPLAY_VALUES = ['screens', 'group', 'both'];
 
 export class LEDRasterApp {
     constructor() {
@@ -1049,6 +1051,9 @@ export class LEDRasterApp {
             .then(data => {
                 this.project = data;
                 this.dedupeProjectLayers('load_project');
+                // The server migrated the Names values as the show opened;
+                // the same pass here is a no-op then, idempotent either way.
+                this.migrateGroupNameDisplay();
                 if (data && data.raster_width && data.raster_height) {
                     this.syncRasterFromProject();
                     this.saveRasterSize();
@@ -1926,19 +1931,26 @@ export class LEDRasterApp {
 
     /**
      * Wire the NAMES switch (Screens / Group / Both) for grouped screens.
-     * PER TAB (owner, 2026-10-01: "Yes, per tab"): Pixel Map, Cabinet ID,
-     * Data, Power and Show Look each keep their own value in
-     * project.groupNameDisplayByView, keyed by the canvas's view mode. It
-     * still names a drawing convention for every grouped wall - not any
-     * single layer's toggle - but one tab's convention, and the binder's
-     * Power and Data sheets follow their own tab's (a wall named by its
-     * group on Power prints one Power sheet; set to Screens on Data it
-     * prints a Data sheet per member). The switch beside each tab's Screen
-     * Name control drives that tab's value only (data-name-view). Before
-     * this it was ONE field, project.groupNameDisplay: an old show starts
-     * every tab on that value (groupNameDisplayFor reads it as the
-     * fallback, and the first change copies it onto every tab). 'group' is
-     * the default and the pre-switch behaviour.
+     * PER GROUP, PER TAB (owner, 2026-11-04: "depending on which group is
+     * selected, I need to be able to individually change screens, group or
+     * both per group"): each group keeps its own value for each of Pixel
+     * Map, Cabinet ID, Data, Power and Show Look in
+     * group.nameDisplayByView, keyed by the canvas's view mode. The switch
+     * acts on the SELECTION: a selected member or the whole group sets that
+     * group, several groups selected are set together, and with no group in
+     * the selection the row hides (refreshNameDisplayButtons). The binder's
+     * Power and Data sheets follow each group's own value (a wall named by
+     * its group on Power prints one Power sheet; set to Screens on Data it
+     * prints a Data sheet per member).
+     *
+     * Before this the value was per tab for the whole show,
+     * project.groupNameDisplayByView (2026-10-01), and before that ONE
+     * field, project.groupNameDisplay. Both stay where they are (an older
+     * build still reads them) and are now the show-wide value: what a
+     * group with no value of its own reads (groupNameDisplayFor), so a new
+     * group starts on it, and what an old show's groups are given as it
+     * opens (migrateGroupNameDisplay). 'group' is the default and the
+     * pre-switch behaviour.
      */
     setupNameDisplayToggles() {
         document.querySelectorAll('.name-display-btn').forEach(btn => {
@@ -1946,25 +1958,56 @@ export class LEDRasterApp {
                 const value = btn.getAttribute('data-name-display');
                 const view = btn.getAttribute('data-name-view');
                 if (!value || !this.project || !NAME_DISPLAY_VIEWS.includes(view)) return;
-                if (this.groupNameDisplayFor(view) === value) return;
-                this.migrateGroupNameDisplay();
-                this.project.groupNameDisplayByView[view] = value;
+                if (!NAME_DISPLAY_VALUES.includes(value)) return;
+                const groups = this.nameDisplayGroups();
+                if (!groups.length) return;
+                if (groups.every(g => this.groupNameDisplayFor(view, g) === value)) return;
+                // Each group keeps a whole record from here: every tab as it
+                // reads now, the clicked one set.
+                groups.forEach(g => {
+                    const next = {};
+                    for (const v of NAME_DISPLAY_VIEWS) next[v] = this.groupNameDisplayFor(v, g);
+                    next[view] = value;
+                    g.nameDisplayByView = next;
+                });
                 this.refreshNameDisplayButtons();
                 this.saveProject();
                 this.saveState('Change Name Display');
                 if (window.canvasRenderer) window.canvasRenderer.render();
                 if (typeof sendClientLog === 'function') {
-                    sendClientLog('name_display_change', { value, view });
+                    sendClientLog('name_display_change',
+                        { value, view, groups: groups.map(g => g.id) });
                 }
             });
         });
         this.refreshNameDisplayButtons();
     }
 
-    // One tab's Names value: its own where it has one, else the single
-    // project field every tab shared before 2026-10-01, else 'group'.
-    groupNameDisplayFor(view) {
-        const ok = (m) => m === 'screens' || m === 'both' || m === 'group';
+    // The groups the Names switch acts on: every group the selection
+    // touches (a member picked out of a wall counts), first-seen order.
+    nameDisplayGroups() {
+        if (!this.project || typeof this.getSelectedGroupIds !== 'function') return [];
+        return this.getSelectedGroupIds()
+            .map(id => (typeof this.resolveGroup === 'function') ? this.resolveGroup(id) : null)
+            .filter(Boolean);
+    }
+
+    // THE one reader of the Names value: the canvas, the binder and the
+    // switch's own buttons all ask here. With a group (or its id): that
+    // group's own value for the tab where it has one. Without one, or for
+    // a group that has none: the show-wide value, the tab's own
+    // (project.groupNameDisplayByView), else the single project field every
+    // tab shared before 2026-10-01, else 'group'. A binder sheet drawing a
+    // group or one member pins the answer for its view while it draws
+    // (_nameDisplayForce, app-binder.js).
+    groupNameDisplayFor(view, group = null) {
+        const ok = (m) => NAME_DISPLAY_VALUES.includes(m);
+        const force = this._nameDisplayForce;
+        if (force && ok(force[view])) return force[view];
+        const g = (group && typeof this.resolveGroup === 'function') ? this.resolveGroup(group) : group;
+        const own = g && g.nameDisplayByView && typeof g.nameDisplayByView === 'object'
+            ? g.nameDisplayByView[view] : null;
+        if (ok(own)) return own;
         const p = this.project || {};
         const by = (p.groupNameDisplayByView && typeof p.groupNameDisplayByView === 'object')
             ? p.groupNameDisplayByView : {};
@@ -1972,27 +2015,63 @@ export class LEDRasterApp {
         return ok(p.groupNameDisplay) ? p.groupNameDisplay : 'group';
     }
 
-    // Every tab given its own stored value, each from what it reads now -
-    // so an old show's single value lands on all five, and a tab already
-    // set keeps its own. Idempotent; the old field is left where it was
-    // (an older build still reads it). The server does the same on load
-    // (routes_project.restore_project).
+    // An old show opening. A file carrying the single groupNameDisplay
+    // gets it on every tab of groupNameDisplayByView that has no value of
+    // its own; then, when the show has a show-wide value at all, every
+    // group is given each tab's value where it has none of its own, so
+    // nothing visible changes. A show with neither field is left alone: its
+    // groups read 'group', the default, either way. Idempotent; the old
+    // fields are left where they were (an older build still reads them).
+    // The server does the same on load (app._migrate_group_name_display,
+    // from routes_project.restore_project).
     migrateGroupNameDisplay() {
-        if (!this.project) return;
-        const by = (this.project.groupNameDisplayByView
-            && typeof this.project.groupNameDisplayByView === 'object')
-            ? this.project.groupNameDisplayByView : {};
-        const next = {};
-        for (const v of NAME_DISPLAY_VIEWS) next[v] = this.groupNameDisplayFor(v);
-        this.project.groupNameDisplayByView = { ...by, ...next };
+        const p = this.project;
+        if (!p) return false;
+        const ok = (m) => NAME_DISPLAY_VALUES.includes(m);
+        const isMap = (o) => !!o && typeof o === 'object' && !Array.isArray(o);
+        let changed = false;
+        let by = isMap(p.groupNameDisplayByView) ? p.groupNameDisplayByView : null;
+        if (ok(p.groupNameDisplay)) {
+            if (!by) by = {};
+            for (const v of NAME_DISPLAY_VIEWS) {
+                if (!ok(by[v])) { by[v] = p.groupNameDisplay; changed = true; }
+            }
+            if (p.groupNameDisplayByView !== by) p.groupNameDisplayByView = by;
+        }
+        const showWide = ok(p.groupNameDisplay)
+            || (!!by && NAME_DISPLAY_VIEWS.some(v => ok(by[v])));
+        if (!showWide || !Array.isArray(p.groups)) return changed;
+        for (const g of p.groups) {
+            if (!isMap(g)) continue;
+            const own = isMap(g.nameDisplayByView) ? g.nameDisplayByView : {};
+            const missing = NAME_DISPLAY_VIEWS.filter(v => !ok(own[v]));
+            if (!missing.length) continue;
+            for (const v of missing) own[v] = this.groupNameDisplayFor(v);
+            g.nameDisplayByView = own;
+            changed = true;
+        }
+        return changed;
     }
 
+    // The buttons follow the selection: the row hidden with no group in
+    // it, the group's value lit for one group (or several that agree), none
+    // lit when the selected groups differ (data-mixed on the row).
     refreshNameDisplayButtons() {
         if (!this.project) return;
+        const groups = this.nameDisplayGroups();
+        const rows = new Map();
         document.querySelectorAll('.name-display-btn').forEach(btn => {
             const view = btn.getAttribute('data-name-view');
-            btn.classList.toggle('active',
-                btn.getAttribute('data-name-display') === this.groupNameDisplayFor(view));
+            const values = new Set(groups.map(g => this.groupNameDisplayFor(view, g)));
+            const shown = values.size === 1 ? [...values][0] : null;
+            btn.classList.toggle('active', btn.getAttribute('data-name-display') === shown);
+            const row = btn.closest('.name-display-row');
+            if (row) rows.set(row, values.size > 1);
+        });
+        rows.forEach((mixed, row) => {
+            row.style.display = groups.length ? '' : 'none';
+            if (mixed) row.setAttribute('data-mixed', '1');
+            else row.removeAttribute('data-mixed');
         });
     }
 
