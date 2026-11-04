@@ -2171,8 +2171,9 @@ class _DistroSystems {
         save.title = 'Save this distro\'s system, input, rating and rows as a preset '
             + 'everyone connected can pick.';
         save.disabled = !rows.length;
-        save.addEventListener('click', () => {
-            const name = window.prompt('Name this preset', d.name || '');
+        save.addEventListener('click', async () => {
+            const name = await this.appPrompt('Name this preset', d.name || '',
+                { id: 'distro-preset-name-modal', title: 'Save preset', okLabel: 'Save' });
             if (!name || !name.trim()) return;
             this.saveDistroPreset(d.id, name).then(list => {
                 relist(list);
@@ -2207,12 +2208,13 @@ class _DistroSystems {
             dr.style.display = custom && custom.length ? '' : 'none';
         };
         fillDelete(this._customDistroPresets || []);
-        del.addEventListener('change', () => {
+        del.addEventListener('change', async () => {
             const name = del.value;
             del.value = '';
             if (!name) return;
-            if (!window.confirm(`Delete the preset "${name}"? `
-                    + 'Distros already set from it keep their outputs.')) return;
+            if (!(await this.appConfirm(`Delete the preset "${name}"? `
+                    + 'Distros already set from it keep their outputs.',
+                    { id: 'distro-preset-delete-modal', title: 'Delete preset', okLabel: 'Delete', danger: true }))) return;
             this.deleteDistroPreset(name).then(list => {
                 relist(list);
                 this._dockSay && this._dockSay(`Deleted preset "${name}".`);

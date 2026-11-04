@@ -265,12 +265,13 @@ class _Presets {
                     delBtn.textContent = '🗑';
                     delBtn.title = `Delete preset "${row.pickerKey}"`;
                     delBtn.style.cssText = 'background: transparent; color: #c55; font-size: 14px; padding: 2px 8px; border: 1px solid #444;';
-                    delBtn.addEventListener('click', (e) => {
+                    delBtn.addEventListener('click', async (e) => {
                         e.stopPropagation();
-                        if (!confirm(`Delete preset "${row.pickerKey}"?`)) return;
+                        if (!(await this.appConfirm(`Delete preset "${row.pickerKey}"?`,
+                            { id: 'preset-delete-modal', title: 'Delete preset', okLabel: 'Delete', danger: true }))) return;
                         this.deletePresetOnServer(row.pickerKey).then(() => {
                             this._renderPresetPickerLeftColumn();
-                        }).catch(err => alert('Failed to delete preset: ' + (err && err.error || 'unknown')));
+                        }).catch(err => this._toast('The preset was not deleted: ' + (err && err.error || 'unknown error'), true, 6000));
                     });
                     item.appendChild(delBtn);
                 }
@@ -1272,6 +1273,15 @@ class _Presets {
     // opens the picker directly. A test of the start page sets
     // window.__lrdStartPage = true; with only __lrdStartupPicker set, a
     // launch opens the picker as before.
+    //
+    // The start page shows on EVERY launch (QA round 3, 2026-11-03), not
+    // only over the pristine startup project: a relaunch after quitting in
+    // the middle of a guide puts the person's own project back (the
+    // guide's stash, quickstart.js recoverStash), and that project is not
+    // the pristine one when the guide was started over a show. It showed
+    // no start page. Over such a project the page's X keeps it, and New
+    // is File > New (startPageNew), which asks about unsaved changes. The
+    // picker alone still opens only over the pristine startup project.
     maybeOpenStartupPicker(reason) {
         const startPage = reason === 'launch' && typeof this._startPageAllowed === 'function'
             && this._startPageAllowed();
@@ -1279,7 +1289,7 @@ class _Presets {
         if (reason !== 'launch' && typeof this.closeStartPage === 'function') this.closeStartPage();
         if (!startPage && typeof navigator !== 'undefined' && navigator.webdriver
                 && window.__lrdStartupPicker !== true) return false;
-        if (!this._isPristineStartupProject()) return false;
+        if (!startPage && !this._isPristineStartupProject()) return false;
         const token = this._startupPickerToken = (this._startupPickerToken || 0) + 1;
         let idle = 0;
         const tick = () => {
@@ -1291,14 +1301,18 @@ class _Presets {
             if (this._launchUiBusy()) idle = 0;
             else idle += 1;
             if (idle < 2) { setTimeout(tick, 300); return; }
-            // The project moved on meanwhile (a show opened, a screen
-            // added): no picker.
-            if (!this._isPristineStartupProject()) return;
-            this._startupTargetId = this.project.layers[0].id;
+            const pristine = this._isPristineStartupProject();
             if (startPage) {
+                // Over the startup screen, or over whatever the launch
+                // brought back (no startup screen to replace then).
+                this._startupTargetId = pristine ? this.project.layers[0].id : null;
                 this.openStartPage(reason);
                 return;
             }
+            // The project moved on meanwhile (a show opened, a screen
+            // added): no picker.
+            if (!pristine) return;
+            this._startupTargetId = this.project.layers[0].id;
             sendClientLog('startup_picker_open', { reason: reason || null, layerId: this._startupTargetId });
             this.openPresetPicker({ mode: 'startup' });
         };
@@ -1472,7 +1486,7 @@ class _Presets {
                 if (data) data._presetName = sel.key;
                 deliver(data);
             }).catch(err => {
-                alert('Failed to load preset: ' + (err && err.error || 'unknown'));
+                this._toast('The preset did not load: ' + (err && err.error || 'unknown error'), true, 6000);
                 // Add Screen still makes a screen, of the last screen's
                 // panel; an existing screen is left exactly as it was, and
                 // the startup picker asks again.
@@ -1637,23 +1651,29 @@ class _Presets {
     // panel that's missing from the catalog. Zero-server: GitHub hosts the
     // upload (drag-drop into the issue comment), we read it on our normal
     // triage workflow, no API keys / S3 / email gateway needed.
-    openPanelSpecCorrection() {
+    async openPanelSpecCorrection() {
         const sel = this._pickerSelection || {};
         const hasSelection = sel.type === 'panel' && sel.panel;
 
-        // Branch: correction (existing panel) vs. new panel (missing one).
-        // confirm() returns true=OK ("Fix existing"), false=Cancel ("Add new").
+        // Branch: correction (existing panel) vs. new panel (missing one),
+        // asked in the app's own dialog with a button for each (and Cancel).
         // If the user already selected a panel in the catalog, default to fix.
         let mode;
         if (hasSelection) {
             mode = 'fix';
         } else {
-            const choice = window.confirm(
-                'Submit which kind of correction?\n\n' +
-                '  OK   = "Fix specs on an existing panel"\n' +
-                '  Cancel = "Add a panel that\'s missing from the catalog"'
-            );
-            mode = choice ? 'fix' : 'add';
+            mode = await this.appAsk({
+                id: 'panel-correction-kind-modal',
+                title: 'Submit a correction',
+                message: 'Which kind of correction?',
+                buttons: [
+                    { label: 'Fix specs on a panel', value: 'fix', primary: true },
+                    { label: 'Add a missing panel', value: 'add' },
+                    { label: 'Cancel', value: null },
+                ],
+                cancel: null,
+            });
+            if (!mode) return;
         }
 
         let panelRef = '';
@@ -1673,14 +1693,14 @@ class _Presets {
             const ask = (mode === 'fix')
                 ? 'Which panel has bad specs? (e.g. "Absen JP8 Pro")\n\nTip: select the panel in the catalog first to pre-fill this.'
                 : 'What panel is missing? Manufacturer + model name (e.g. "Absen NEW-X 1.5")';
-            panelRef = window.prompt(ask, '') || '';
+            panelRef = (await this.appPrompt(ask, '', { id: 'panel-correction-name-modal', title: 'Submit a correction' })) || '';
             if (!panelRef) return;
         }
 
         const notesPrompt = (mode === 'fix')
             ? `What's wrong with "${panelRef}"?\n\nDescribe the discrepancy. After you click OK we'll open a GitHub issue, drag any spec sheet PDF or a photo of the panel back into the comment box there to attach it.`
             : `Tell us about "${panelRef}", paste any specs you have (cabinet mm, pixels, weight, max watts).\n\nAfter you click OK we'll open a GitHub issue, drag the official spec sheet PDF or a photo of the panel back into the comment box to attach it.`;
-        const notes = window.prompt(notesPrompt, '');
+        const notes = await this.appPrompt(notesPrompt, '', { id: 'panel-correction-notes-modal', title: 'Submit a correction' });
         if (notes === null) return;  // cancelled
 
         const versionEl = document.querySelector('h1 span');
@@ -1723,10 +1743,11 @@ class _Presets {
         // Make sure the user knows the GitHub tab is the actual submission,
         // we've had submissions get lost because the user filled out the
         // app-side prompts and assumed that was enough.
-        const ok = confirm(
-            'This will open GitHub in a new tab with your submission pre-filled.\n\n' +
-            'IMPORTANT: You must be signed in to GitHub and click the green "Submit new issue" button there for it to actually reach us.\n\n' +
-            'Continue?'
+        const ok = await this.appConfirm(
+            'This opens GitHub in a new tab with your submission filled in.\n\n' +
+            'You must be signed in to GitHub and click the green "Submit new issue" button there for it to reach us.\n\n' +
+            'Continue?',
+            { id: 'panel-correction-open-modal', title: 'Submit a correction', okLabel: 'Continue' }
         );
         if (!ok) return;
         window.open(url, '_blank', 'noopener');
@@ -1735,7 +1756,7 @@ class _Presets {
     // ── Save-as-Preset Modal ──
     openPresetSaveModal() {
         if (!this.currentLayer || (this.currentLayer.type || 'screen') !== 'screen') {
-            alert('Select a screen first to save as a preset.');
+            this._toast('Select a screen first to save as a preset.', true);
             return;
         }
         const modal = document.getElementById('preset-save-modal');
@@ -1825,7 +1846,7 @@ class _Presets {
         }
     }
 
-    confirmPresetSave() {
+    async confirmPresetSave() {
         const nameInput = document.getElementById('preset-save-name');
         const warning = document.getElementById('preset-save-warning');
         if (!nameInput) return;
@@ -1836,7 +1857,8 @@ class _Presets {
         }
         const existing = this._presetSaveExistingNames || [];
         if (existing.includes(name)) {
-            if (!confirm(`A preset named "${name}" already exists. Overwrite it?`)) return;
+            if (!(await this.appConfirm(`A preset named "${name}" already exists. Overwrite it?`,
+                { id: 'preset-overwrite-modal', title: 'Save preset', okLabel: 'Overwrite' }))) return;
         }
         const data = this.serializeLayerAsPreset(this.currentLayer);
         if (!data) {

@@ -590,8 +590,12 @@ class _Preferences {
         // back to its shipped value - in the dialog only: Save writes them,
         // Cancel discards the reset like any other edit.
         if (resetBtn) {
-            resetBtn.addEventListener('click', () => {
-                if (!window.confirm('Put every preference back to its default?')) return;
+            // The question is the app's own dialog (app-dialogs.js), not
+            // the browser's confirm().
+            resetBtn.addEventListener('click', async () => {
+                const yes = await this.appConfirm('Put every preference back to its default?',
+                    { id: 'preferences-reset-modal', title: 'Reset Defaults', okLabel: 'Reset' });
+                if (!yes) return;
                 const defaults = this.getPreferencesDefaults();
                 this._prefsPendingLogo = '';
                 this.fillPreferencesUI(defaults);

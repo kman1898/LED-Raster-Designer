@@ -1768,7 +1768,7 @@ class _Processors {
         // ruling: "all cvt's are 1-10 or 1-16") - so the line says how many
         // sockets work, never where the card's internal ordinals fall.
         info.textContent = cvt.portCount
-            ? `ports 1-${cvt.portCount}` : 'no ports delivered';
+            ? (cvt.portCount === 1 ? 'port 1' : `ports 1-${cvt.portCount}`) : 'no ports delivered';
         // How many trunks it eats is as much a fact about the box as how many
         // ports come out of it, and it is the one that decides what else will
         // go on the card.

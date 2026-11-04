@@ -51,7 +51,7 @@
     function say(msg, isError) {
         var app = window.app;
         if (app && typeof app._toast === 'function') app._toast(msg, !!isError, 6000);
-        else alert(msg);
+        else if (window.console) console.warn(msg);
     }
 
     // ── Check API ───────────────────────────────────────────────────

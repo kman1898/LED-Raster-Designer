@@ -9,6 +9,7 @@ other):
 """
 
 import pytest
+from app_dialogs import answer_app_dialog  # noqa: E402
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -322,6 +323,10 @@ def _served(pg):
 def _save(pg):
     pg.locator('#preferences-save').click()
     pg.wait_for_timeout(600)
+    # A changed cable unit offers the open show the same unit (the app's
+    # own dialog since 1.6.0): No, as the browser's dialog left it.
+    if pg.locator('#cable-unit-offer-modal').count():
+        answer_app_dialog(pg, accept=False)
 
 
 # ── the dialog ────────────────────────────────────────────────────────────
@@ -949,22 +954,20 @@ def test_reset_defaults_asks_first_and_lands_on_save(page):
     _tab(pg, 'wall')
     _set(pg, 'pref-columns', '11')
 
-    def say_no(dialog):
-        asked.append(dialog.message)
-        dialog.dismiss()
-    pg.once('dialog', say_no)
+    def say_no():
+        asked.append(answer_app_dialog(pg, accept=False))
     pg.locator('#preferences-reset').click()
+    say_no()
     pg.wait_for_timeout(300)
     assert asked == ['Put every preference back to its default?'], asked
     assert _read(pg, 'pref-columns') == '11'
     _tab(pg, 'distros')
     assert _read(pg, 'pref-distro-rating') == '200'
 
-    def say_yes(dialog):
-        asked.append(dialog.message)
-        dialog.accept()
-    pg.once('dialog', say_yes)
+    def say_yes():
+        asked.append(answer_app_dialog(pg))
     pg.locator('#preferences-reset').click()
+    say_yes()
     pg.wait_for_timeout(300)
     assert len(asked) == 2
     assert _read(pg, 'pref-distro-rating') == '400'
@@ -981,8 +984,8 @@ def test_reset_defaults_asks_first_and_lands_on_save(page):
     pg.wait_for_timeout(300)
     assert _served(pg)['distroRatingA'] == 200, 'Cancel after a Yes keeps the stored values'
     _open(pg)
-    pg.once('dialog', say_yes)
     pg.locator('#preferences-reset').click()
+    say_yes()
     pg.wait_for_timeout(300)
     _save(pg)
     served = _served(pg)

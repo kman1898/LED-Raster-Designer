@@ -1145,7 +1145,7 @@ class _ScreenGroups {
         const remaining = (this.project.layers || []).filter(l => !memberIds.has(l.id));
         if (remaining.length === 0) {
             // Same guard deleteLayer applies: a project keeps at least one layer.
-            alert('Cannot delete the last screen');
+            this._toast('The last screen cannot be deleted.', true);
             return false;
         }
         // A pull-sheet edit on a row that goes with the wall goes too
@@ -2051,7 +2051,8 @@ class _ScreenGroups {
             const count = this.getGroupMembers(group).length;
             const msg = `Delete "${group.name}" and the ${count} screens `
                 + `it is built from?`;
-            if (window.confirm(msg)) this.deleteGroup(group.id);
+            this.appConfirm(msg, { id: 'group-delete-modal', title: 'Delete group', okLabel: 'Delete', danger: true })
+                .then(yes => { if (yes) this.deleteGroup(group.id); });
         }
     }
 }

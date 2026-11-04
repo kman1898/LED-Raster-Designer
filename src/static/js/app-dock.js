@@ -1807,9 +1807,7 @@ class _HardwareDock {
         const locals = shown.map(
             p => (p.loopOf ? (p.loopOf.local || p.number) : (p.localNumber || p.number)));
         // "ports 1-10", "port 1" for one, nothing for a box delivering none
-        const lo = Math.min(...locals), hi = Math.max(...locals);
-        const spanText = !locals.length ? ''
-            : lo === hi ? `port ${lo}` : `ports ${lo}-${hi}`;
+        const spanText = locals.length ? this._dockPortSpanText(locals) : '';
         // "(backup)" is the backup PROCESSOR's word now (2026-09-25): a
         // loop's far box says what it is on its row ("· loop end"), and
         // only a copy box still wears a tag.
@@ -3835,6 +3833,13 @@ class _HardwareDock {
             this._dockRunPanelsCache.set(layer, byPort);
         }
         return byPort.get(num) || [];
+    }
+
+    // A box row's ports as its header says them: "ports 1-10", and one
+    // socket "port 1", never "ports 1-1" (QA round 3, 2026-11-03).
+    _dockPortSpanText(numbers) {
+        const lo = Math.min(...numbers), hi = Math.max(...numbers);
+        return lo === hi ? `port ${lo}` : `ports ${lo}-${hi}`;
     }
 
     // A unit's title strip, which is also the unit's drag handle. The grip

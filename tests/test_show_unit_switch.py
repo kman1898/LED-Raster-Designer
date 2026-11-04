@@ -35,6 +35,7 @@ sys.path.insert(0, HERE)
 pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
 from conftest import settled  # noqa: E402
+from app_dialogs import auto_answer_app_dialogs  # noqa: E402
 
 SIDEBAR_SELECTS = ('#data-jump-unit', '#power-jump-unit')
 EXPORT_SELECTS = ('#export-pull-sheet-cable-unit', '#export-binder-cable-unit')
@@ -54,16 +55,14 @@ def page(e2e_server, pw_browser):
     pg = context.new_page()
     errors = []
     pg.on('pageerror', lambda e: errors.append(str(e)))
-    # Every dialog is answered from `answer` and recorded in `asked`.
+    # Every question (the app's own dialog, app-dialogs.js) is answered
+    # from `answer` and recorded in `asked`.
     state = {'asked': [], 'answer': False}
 
-    def on_dialog(dialog):
-        state['asked'].append(dialog.message)
-        if state['answer']:
-            dialog.accept()
-        else:
-            dialog.dismiss()
-    pg.on('dialog', on_dialog)
+    def on_question(message):
+        state['asked'].append(message)
+        return bool(state['answer'])
+    auto_answer_app_dialogs(pg, on_question)
     pg.goto(e2e_server, wait_until='domcontentloaded')
     pg.wait_for_function("() => window.app && window.app._initialLoadComplete"
                          " && window.app.project && window.app.project.layers"

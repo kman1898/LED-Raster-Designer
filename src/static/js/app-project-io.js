@@ -103,12 +103,79 @@ class _ProjectIo {
         // when the host's dialog chose it, is what the entry keeps
         // (addToRecentFiles, which never throws).
         if (!result || !result.saved) return result;
+        this.markProjectClean();
         this.addToRecentFiles(project, { path: result.path || null });
         document.getElementById('status-message').textContent = 'Project saved to file';
         setTimeout(() => {
             document.getElementById('status-message').textContent = 'Ready';
         }, 2000);
         return result;
+    }
+
+    // ── Unsaved changes (QA round 3, 2026-11-03) ──
+    //
+    // New, Open and a Recent file each replace the project, and opening a
+    // show from Recent dropped unsaved work without a word. All of them
+    // now ask first, in the app's own dialog: Save, Don't Save, Cancel.
+    //
+    // "Unsaved" is read off the undo history: the entry in force when the
+    // project was last saved to a file, opened, made new or loaded with
+    // the page (resetHistory 'Initial State') is marked, and any other
+    // entry in force means an edit since. Undo back to the mark reads as
+    // saved again. The pristine startup project never asks.
+    //
+    // Automated browsers (navigator.webdriver) are not asked unless a test
+    // sets window.__lrdAskUnsaved = true, the rule the start page, the
+    // guide and the startup picker keep: a test that opens one show after
+    // another would otherwise stop at the question.
+    markProjectClean() {
+        this._cleanHistoryEntry = Array.isArray(this.history)
+            ? (this.history[this.historyIndex] || null) : null;
+    }
+
+    projectHasUnsavedChanges() {
+        if (!this.project) return false;
+        if (typeof this._isPristineStartupProject === 'function' && this._isPristineStartupProject()) return false;
+        if (typeof this._flushPendingSaveState === 'function') this._flushPendingSaveState();
+        if (!Array.isArray(this.history) || this.historyIndex < 0) return false;
+        return this.history[this.historyIndex] !== this._cleanHistoryEntry;
+    }
+
+    // Resolves true when the project may be replaced: nothing unsaved,
+    // Don't Save, or Save and the file was written. Cancel, Esc, or a Save
+    // whose dialog was cancelled resolve false and nothing changes.
+    // `what` finishes the question: 'open' or 'new'.
+    async confirmUnsavedChanges(what) {
+        if (typeof navigator !== 'undefined' && navigator.webdriver
+                && !(typeof window !== 'undefined' && window.__lrdAskUnsaved === true)) return true;
+        if (!this.projectHasUnsavedChanges()) return true;
+        const name = (this.project && this.project.name) || 'this project';
+        const doing = what === 'new' ? 'starting a new project' : 'opening another show';
+        sendClientLog('unsaved_changes_asked', { what: what || null });
+        const answer = await this.appAsk({
+            id: 'unsaved-changes-modal',
+            title: 'Save changes?',
+            message: `Save the changes to ${name} before ${doing}? If you don't save, your changes are lost.`,
+            buttons: [
+                { label: 'Save', value: 'save', primary: true },
+                { label: "Don't Save", value: 'discard' },
+                { label: 'Cancel', value: 'cancel' },
+            ],
+            cancel: 'cancel',
+        });
+        sendClientLog('unsaved_changes_answered', { what: what || null, answer });
+        if (answer === 'discard') return true;
+        if (answer !== 'save') return false;
+        const saved = await this.saveProjectToFile();
+        return !!(saved && saved.saved);
+    }
+
+    // File > New and the toolbar's New: asks about unsaved changes, then
+    // makes the new project.
+    async requestNewProject() {
+        if (!(await this.confirmUnsavedChanges('new'))) return false;
+        this.createNewProject();
+        return true;
     }
 
     // File > Open. On the host the OS Open dialog picks the file and the
@@ -118,6 +185,7 @@ class _ProjectIo {
     // is not known then, and Recent keeps a copy of the show instead.
     // Either way the show opens through _openProjectData.
     async loadProjectFromFile() {
+        if (!(await this.confirmUnsavedChanges('open'))) return false;
         sendClientLog('open_file_dialog_requested');
         // A client already known to be remote goes straight to the
         // browser's chooser, inside the click that asked for it.
@@ -173,7 +241,8 @@ class _ProjectIo {
             return false;
         }
         sendClientLog('open_project_path_error', { path, source, message: read.error });
-        alert(`Could not read ${path}: ${read.error}`);
+        this.appAlert(`The show could not be read: ${read.error}`,
+            { id: 'open-error-modal', title: 'Could not open', detail: path });
         return false;
     }
 
@@ -184,7 +253,8 @@ class _ProjectIo {
             projectData = JSON.parse(text);
         } catch (error) {
             sendClientLog('load_project_file_error', { message: error.message, source: opts.source || 'file' });
-            alert('Error loading project file: ' + error.message);
+            this.appAlert('This file is not a show the app can open: ' + error.message,
+                { id: 'open-error-modal', title: 'Could not open' });
             return Promise.resolve(false);
         }
         return this._openProjectData(projectData, opts);
@@ -404,7 +474,8 @@ class _ProjectIo {
         } catch (error) {
             this._projectOpening = false;
             sendClientLog('load_project_file_error', { message: error.message, source });
-            alert((recent ? 'Error loading recent file: ' : 'Error loading project file: ') + error.message);
+            this.appAlert((recent ? 'The recent show did not open: ' : 'The show did not open: ') + error.message,
+                { id: 'open-error-modal', title: 'Could not open' });
             return Promise.resolve(false);
         }
     }

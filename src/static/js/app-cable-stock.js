@@ -301,14 +301,15 @@ class _CableStock {
         }
         const save = document.getElementById('pref-cable-stock-save-preset');
         if (save) {
-            save.addEventListener('click', () => {
+            save.addEventListener('click', async () => {
                 const bad = this._cableStockUnreadable();
                 if (bad.length) {
                     this._sayCableStockStatus('Type each list as lengths with commas between, like 25, 50, 100.');
                     bad[0].focus();
                     return;
                 }
-                const name = window.prompt('Name this preset', (sel && sel.value) || '');
+                const name = await this.appPrompt('Name this preset', (sel && sel.value) || '',
+                    { id: 'cable-stock-preset-name-modal', title: 'Save preset', okLabel: 'Save' });
                 if (!name || !name.trim()) return;
                 this.saveCableStockPreset(name, this.readCableStockUI()).then(() => {
                     this._fillCableStockPresetPickers(name.trim().replace(/\s+/g, ' '), undefined);
@@ -318,11 +319,12 @@ class _CableStock {
         }
         const del = document.getElementById('pref-cable-stock-delete');
         if (del) {
-            del.addEventListener('click', () => {
+            del.addEventListener('click', async () => {
                 const name = sel && sel.value;
                 if (!name) return;
-                if (!window.confirm(`Delete the preset "${name}"? `
-                        + 'Shows already using its lengths keep them.')) return;
+                if (!(await this.appConfirm(`Delete the preset "${name}"? `
+                        + 'Shows already using its lengths keep them.',
+                        { id: 'cable-stock-preset-delete-modal', title: 'Delete preset', okLabel: 'Delete', danger: true }))) return;
                 this.deleteCableStockPreset(name).then(() => {
                     this._fillCableStockPresetPickers('', undefined);
                     this._sayCableStockStatus(`Deleted preset "${name}".`);

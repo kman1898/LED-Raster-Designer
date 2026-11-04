@@ -623,9 +623,13 @@ class _PortAssignment {
             (data) => {
                 if (confirmed || !data.conflict) return false;
                 sendClientLog('port_assignment_place_conflict', data.conflict);
-                if (window.confirm(`${data.error}\n\nPlace it here anyway?`)) {
-                    this._placePort(spot, true);
-                } else {
+                // Asked in the app's own dialog (app-dialogs.js).
+                this.appConfirm(`${data.error}\n\nPlace it here anyway?`,
+                    { id: 'port-place-conflict-modal', title: 'Port in use', okLabel: 'Place it' }).then(yes => {
+                    if (yes) {
+                        this._placePort(spot, true);
+                        return;
+                    }
                     // Backed out. Clear whatever the last move left on the
                     // panel: a note still reading "X is now on SR-7" beside a
                     // numbering that did not change looks like an answer to
@@ -633,7 +637,7 @@ class _PortAssignment {
                     this._assignmentError = null;
                     this._assignmentNote = null;
                     this.renderPortAssignmentPanel();
-                }
+                });
                 return true;
             }, 'Place Port');
     }

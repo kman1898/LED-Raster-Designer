@@ -22,6 +22,7 @@ import os
 import sys
 
 import pytest
+from app_dialogs import answer_app_dialog  # noqa: E402
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
@@ -203,8 +204,9 @@ def test_a_new_screens_untouched_jumpers_follow_the_unit_and_are_not_counted(pag
     pg.locator('#power-jump-v').dispatch_event('change')
     pg.wait_for_function("() => window.app.typedCableLengthCount() === 1")
     asked = []
-    pg.once('dialog', lambda d: (asked.append(d.message), d.accept()))
-    assert ev(pg, "return app.setCableUnit('m');") is True
+    pg.evaluate("() => { window.__unitAnswer = window.app.setCableUnit('m'); }")
+    asked.append(answer_app_dialog(pg))
+    assert pg.evaluate("() => window.__unitAnswer") is True
     assert asked and '1 cable length already typed' in asked[0], asked
     out = ev(pg, """const l = app.currentLayer;
         return { reads: app.screenJumperLengths(l), shown: document.getElementById('data-jump-v').value };""")

@@ -351,6 +351,29 @@ function installEnterEndsEdit(doc) {
     });
 }
 
+// A press on a dialog's action button commits the field being typed in
+// first. Owner QA, 2026-11-03: Export clicked straight after typing a new
+// Rev did nothing. The field's blur on mouse-down committed the Rev, the
+// new REVISIONS row it logs grew the dialog, and the button moved out from
+// under the pointer before the mouse came up, so the click never landed.
+// Here mouse-down on the button keeps the focus where it is (nothing moves
+// yet), and the click lets go of the field first, so its change commits
+// (as a blur always did) before the button's own handler reads it. Call
+// it before the button's click handler is added.
+function commitEditOnPress(button) {
+    if (!button || button.__lrdCommitOnPress) return;
+    button.__lrdCommitOnPress = true;
+    button.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return;
+        const el = document.activeElement;
+        if (el !== button && isSingleLineField(el) && !el.readOnly) e.preventDefault();
+    });
+    button.addEventListener('click', () => {
+        const el = document.activeElement;
+        if (el && el !== button && isSingleLineField(el)) el.blur();
+    }, true);
+}
+
 // The data flow patterns (the owner's rulings, 2026-11-01). A code is
 // `<corner>-<h|v>` for a SNAKE, where every row (horizontal first) or
 // column (vertical first) runs back the opposite way, and the same code
@@ -373,7 +396,7 @@ function isVerticalFlowPattern(pattern) {
     return String(pattern || '').split('-')[1] === 'v';
 }
 
-export { evaluateMathExpression, isMacOS, sendClientLog, registerGlobalClientLogging, setupColorPickerWithHex, normalizeHex, refreshAllColorSwatches, isTypingTarget, installEnterEndsEdit,
+export { evaluateMathExpression, isMacOS, sendClientLog, registerGlobalClientLogging, setupColorPickerWithHex, normalizeHex, refreshAllColorSwatches, isTypingTarget, installEnterEndsEdit, commitEditOnPress,
     FLOW_SNAKE_PATTERNS, FLOW_Z_PATTERNS, FLOW_AUTO_PATTERNS, isZFlowPattern, isVerticalFlowPattern };
 
 // Classic (non-module) scripts call these by name at runtime

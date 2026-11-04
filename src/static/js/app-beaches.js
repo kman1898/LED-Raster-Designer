@@ -156,7 +156,7 @@ class _Beaches {
                 onPick(chosen || null);
                 return;
             }
-            const name = (window.prompt('New beach name:') || '').trim();
+            const name = ((await this.appPrompt('New beach name:', '', { id: 'beach-name-modal', title: 'New beach' })) || '').trim();
             if (!name) {
                 select.value = select.dataset.beachValue || '';
                 return;
@@ -239,7 +239,7 @@ class _Beaches {
     // blank or nothing is selected.
     async putSelectionOnNewBeach() {
         if (!this.getSelectedScreenLayers().length) return null;
-        const name = (window.prompt('New beach name:') || '').trim();
+        const name = ((await this.appPrompt('New beach name:', '', { id: 'beach-name-modal', title: 'New beach' })) || '').trim();
         if (!name) return null;
         const beach = await this.createBeach(name, null);
         if (!beach) return null;
@@ -353,9 +353,9 @@ class _Beaches {
         head.innerHTML = '<span class="beaches-title">Beaches</span>'
             + '<button type="button" class="btn btn-secondary beaches-add" '
             + 'title="Make a beach: a position the pull sheet lists and the order the binder runs the screens in">+ Add beach</button>';
-        head.querySelector('.beaches-add').addEventListener('click', (e) => {
+        head.querySelector('.beaches-add').addEventListener('click', async (e) => {
             e.stopPropagation();
-            const name = (window.prompt('New beach name:') || '').trim();
+            const name = ((await this.appPrompt('New beach name:', '', { id: 'beach-name-modal', title: 'New beach' })) || '').trim();
             if (name) this.createBeach(name);
         });
         host.appendChild(head);

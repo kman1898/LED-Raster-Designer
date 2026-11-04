@@ -91,6 +91,7 @@ import sys
 import pytest
 
 from conftest import settled  # noqa: E402
+from app_dialogs import answer_app_dialog  # noqa: E402
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
@@ -1157,17 +1158,18 @@ def test_dropping_on_an_occupied_socket_asks_first(dock_page):
 
     # card port 1 is WALL A p1's pinned seat; aiming it at run 3 is a conflict
     seen = []
-    page.once('dialog', lambda d: (seen.append(d.message), d.dismiss()))
     sx, sy = dock_tile_center(page, f'port-{ids["cardId"]}-1')
     tgt = panel_point(page, ids['aId'], {'port': 3})
     drag(page, sx, sy, tgt['x'], tgt['y'])
+    seen.append(answer_app_dialog(page, accept=False))
     assert seen and 'already on' in seen[0], (
         f'no conflict question was asked: {seen}')
     assert page.evaluate(PINS_JS) == seed, (
         'declining the question still moved something')
 
-    page.once('dialog', lambda d: d.accept())
     drag(page, sx, sy, tgt['x'], tgt['y'])
+    answer_app_dialog(page)
+    page.wait_for_timeout(600)
     pins = page.evaluate(PINS_JS)
     placed = [p for p in pins if p['index'] == 2
               and p['layerId'] == str(ids['aId'])]

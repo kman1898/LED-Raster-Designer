@@ -509,20 +509,24 @@ class _CableUnits {
     // not change or the show already reads it (a pristine startup show
     // follows the Preferences on its own). Yes switches the show through
     // the export dialog's own path, without asking again; No leaves it.
-    // Returns true when the show's unit changed.
-    offerPreferredCableUnitToShow(previous) {
+    // Resolves true when the show's unit changed. The question is the
+    // app's own dialog (app-dialogs.js).
+    async offerPreferredCableUnitToShow(previous) {
         if (!this.project) return false;
         const to = this.preferredCableUnit();
         if (to === this.normalizeCableUnit(previous) || to === this.cableUnit()) return false;
         const count = this.typedCableLengthCount();
-        if (!window.confirm(this.cableUnitPreferenceQuestion(to, count))) return false;
+        const yes = await this.appConfirm(this.cableUnitPreferenceQuestion(to, count),
+            { id: 'cable-unit-offer-modal', title: 'Cable lengths' });
+        if (!yes) return false;
         return this.setCableUnit(to, false);
     }
 
     // Set the show's unit: one history entry, one project POST, every
     // label and paper redrawn. A show that holds typed lengths asks first
     // (`ask` false skips it - a caller that already asked). Returns true
-    // when the unit changed.
+    // when the unit changed; when it has to ask (the app's own dialog,
+    // app-dialogs.js), a Promise of that answer.
     setCableUnit(unit, ask = true) {
         if (!this.project) return false;
         const to = this.normalizeCableUnit(unit);
@@ -535,10 +539,19 @@ class _CableUnits {
             return false;
         }
         const count = this.typedCableLengthCount();
-        if (ask && count > 0 && !window.confirm(this.cableUnitChangeQuestion(to, count))) {
-            this.syncCableUnitControls();
-            return false;
+        if (ask && count > 0) {
+            return this.appConfirm(this.cableUnitChangeQuestion(to, count),
+                { id: 'cable-unit-change-modal', title: 'Cable lengths' }).then(yes => {
+                if (yes) return this._switchCableUnit(to);
+                this.syncCableUnitControls();
+                return false;
+            });
         }
+        return this._switchCableUnit(to);
+    }
+
+    // setCableUnit's change itself, once nothing is left to ask.
+    _switchCableUnit(to) {
         const from = this.cableUnit();
         this.project.cableUnit = to;
         // The pull sheet's edits are keyed by the row's printed length

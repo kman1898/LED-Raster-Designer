@@ -50,6 +50,7 @@ import pull_sheet  # noqa: E402
 openpyxl = pytest.importorskip('openpyxl', reason='openpyxl not installed')
 
 from test_pull_list import SEED_JS, LIST_JS, _rows  # noqa: E402
+from app_dialogs import answer_app_dialog  # noqa: E402
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -567,8 +568,8 @@ def test_the_box_gear_has_a_beach_picker_with_the_projects_beaches(page):
     assert _open_gear(pg, f'box-{box_b}'), 'the box gear did not open again'
     pg.wait_for_timeout(300)
     assert _beach_picker(pg, key)['value'] == sr_id
-    pg.once('dialog', lambda d: d.accept('Dimmer Beach'))
     pg.locator(f'[data-lrd-field="{key}"]').select_option('__new_beach__')
+    answer_app_dialog(pg, text='Dimmer Beach')
     pg.wait_for_timeout(1200)
     st = pg.evaluate("""() => {
         const app = window.app;

@@ -502,7 +502,7 @@ class _Clipboard {
                 ..._carryImageShadow(layer),
                 ..._carryShow(layer, 50, 50),
             };
-            fetch('/api/layer/add-image', {
+            return fetch('/api/layer/add-image', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(duplicateData)
@@ -514,7 +514,6 @@ class _Clipboard {
                 this.updateUI();
                 this.saveState('Duplicate Image Layer');
             });
-            return;
         }
 
         if ((layer.type || 'screen') === 'text') {
@@ -562,7 +561,7 @@ class _Clipboard {
                 fontUnderline: !!layer.fontUnderline,
                 ..._carryShow(layer, 50, 50),
             };
-            fetch('/api/layer/add-text', {
+            return fetch('/api/layer/add-text', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(duplicateData)
@@ -576,7 +575,6 @@ class _Clipboard {
                 this.updateUI();
                 this.saveState('Duplicate Text Layer');
             });
-            return;
         }
 
         // v0.11.0 (step 6): Duplicate makes a NEW, UNGROUPED screen - that is
@@ -590,7 +588,7 @@ class _Clipboard {
         const { body, clientProps } = this._screenCopyPayload(
             layer, getNextName(layer.name), 50, 50);
 
-        fetch('/api/layer/add', {
+        return fetch('/api/layer/add', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body)
@@ -611,6 +609,53 @@ class _Clipboard {
         });
     }
     
+    // Duplicate with more than one screen selected (QA round 3,
+    // 2026-11-03: Ctrl+J with two loose screens selected copied only the
+    // current one). Every selected screen is copied: a whole selected wall
+    // once, as a wall (duplicateGroup), and every other screen on its own
+    // (duplicateLayer). One copy at a time, so each name steps past the
+    // names the copies before it took, the way Paste names a copy; the
+    // copies are selected when the last one lands. With one screen (or one
+    // whole wall) selected it is duplicateLayer, as before. Ctrl+J, Edit >
+    // Duplicate and the right-click menu's Duplicate all come here.
+    async duplicateSelection() {
+        const picked = typeof this.getSelectedLayers === 'function'
+            ? (this.getSelectedLayers() || []).filter(Boolean) : [];
+        const plan = [];
+        const walls = new Set();
+        for (const layer of picked) {
+            const wall = typeof this.selectedWholeGroupFor === 'function'
+                ? this.selectedWholeGroupFor(layer) : null;
+            if (wall) {
+                if (walls.has(wall.id)) continue;
+                walls.add(wall.id);
+                plan.push({ wall: wall.id });
+            } else {
+                plan.push({ layer });
+            }
+        }
+        if (plan.length < 2) {
+            if (this.currentLayer) return this.duplicateLayer(this.currentLayer);
+            return undefined;
+        }
+        const before = new Set((this.project.layers || []).map(l => l.id));
+        sendClientLog('duplicate_selection', { screens: picked.length, copies: plan.length });
+        for (const step of plan) {
+            try {
+                if (step.wall) await this.duplicateGroup(step.wall);
+                else await this.duplicateLayer(step.layer);
+            } catch (e) {
+                sendClientLog('duplicate_selection_failed', { error: String(e && e.message || e) });
+                break;
+            }
+        }
+        const made = (this.project.layers || []).filter(l => !before.has(l.id)).map(l => l.id);
+        if (made.length && typeof this.setSelectedLayersByIds === 'function') {
+            this.setSelectedLayersByIds(made, made[made.length - 1]);
+        }
+        return made;
+    }
+
     // ===== COPY/PASTE =====
     
     copyLayer() {

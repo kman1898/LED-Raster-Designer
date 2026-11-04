@@ -8,6 +8,10 @@
 // page and leaves an empty project, as the startup picker's Cancel does.
 // File > New skips the page and goes straight to the picker.
 //
+// Every launch shows it (QA round 3), over a project a guide's recovery
+// brought back too. With no startup screen under it, New is File > New
+// (it asks about unsaved changes first) and X just closes the page.
+//
 // The launch opens it through maybeOpenStartupPicker('launch'), so it
 // waits for the first-run guide and the What's New window like the picker
 // did. It stands over the launch's startup screen (_startupTargetId) until
@@ -132,6 +136,11 @@ class _StartPage {
     startPageNew() {
         this.closeStartPage();
         sendClientLog('start_page_new', { layerId: this._startupTargetId == null ? null : this._startupTargetId });
+        if (this._startupTargetId == null) {
+            // Over a project the launch brought back: File > New.
+            this.requestNewProject();
+            return;
+        }
         if (!this._startupScreenStands(this._startupTargetId)) {
             // The project moved on under the page: nothing to pick for.
             sendClientLog('startup_picker_stale', { action: 'start_page_new', layerId: this._startupTargetId == null ? null : this._startupTargetId });
@@ -147,10 +156,12 @@ class _StartPage {
         this.loadProjectFromFile();
     }
 
-    // X or Esc: an empty project, the startup picker's Cancel result.
+    // X or Esc: an empty project, the startup picker's Cancel result. Over
+    // a project the launch brought back, the page just closes.
     dismissStartPage() {
         if (!this.closeStartPage()) return;
-        sendClientLog('start_page_closed', {});
+        sendClientLog('start_page_closed', { kept: this._startupTargetId == null });
+        if (this._startupTargetId == null) return;
         this._startEmpty();
     }
 }

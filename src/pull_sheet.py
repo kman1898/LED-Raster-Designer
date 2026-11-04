@@ -413,6 +413,23 @@ TEMPLATE_DASH_TEXTS = {
 TOTALS = 'TOTALS'
 SPARES = 'Spares'
 
+# Words in the template that are its author's note to himself, not the
+# app's (QA round 3, 2026-11-03: the TOTALS reconciliation note ended
+# "Tell me and I'll extend it."). The copy drops them; the shipped
+# template is left as it is, as with the dashes above.
+TEMPLATE_NOTE_TEXTS = {
+    " Tell me and I'll extend it.": '',
+}
+
+
+def note_spelling(text):
+    """`text` with each TEMPLATE_NOTE_TEXTS phrase in it rewritten."""
+    if not isinstance(text, str):
+        return text
+    for old, new in TEMPLATE_NOTE_TEXTS.items():
+        text = text.replace(old, new)
+    return text
+
 # A pull list holds every piece of gear: cables, distros, boxes and cards
 # (owner, 2026-11-02). The template names its first column "Cable Type"
 # and itself a "CABLE PULL SHEET"; the copy the app hands out says Gear
@@ -499,7 +516,7 @@ def _true1_workbook(wb):
         for row in wb[TOTALS].iter_rows():
             for cell in row:
                 if isinstance(cell.value, str) and not cell.value.startswith('='):
-                    cell.value = dash_spelling(cell.value)
+                    cell.value = note_spelling(dash_spelling(cell.value))
 
 
 def _sort_keys(row):

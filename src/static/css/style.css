@@ -830,13 +830,17 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 }
 .recent-file-date {
     font-size: 11px;
-    color: #666;
+    /* QA round 3: #666 on the menu's grey could hardly be read. The
+       secondary text colour (6:1 on the submenu), and the row's own text
+       on hover. */
+    color: var(--ps-dim, #c0c0c0);
     flex-shrink: 0;
 }
+#recent-files-list .menu-option:hover .recent-file-date { color: inherit; }
 .recent-files-empty {
     padding: 6px 14px;
     font-size: 12px;
-    color: #666;
+    color: var(--ps-dim, #c0c0c0);
     font-style: italic;
 }
 
@@ -957,6 +961,43 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
     overflow-wrap: anywhere;
 }
 .recent-missing-buttons { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 16px 0; }
+
+/* The app's own question dialog, in place of alert / confirm / prompt
+   (app-dialogs.js). Above every other dialog: it is asked over them. */
+.modal.app-ask-modal { z-index: 10500; }
+.app-ask-content {
+    box-sizing: border-box;
+    width: 460px;
+    max-width: calc(100vw - 32px);
+    margin: 18vh auto 40px;
+    padding: 0 0 14px;
+    background: var(--ps-panel, #2e2e2e);
+    border: 1px solid var(--ps-dark, #131313);
+    border-radius: 4px;
+    color: var(--ps-text, #f0f0f0);
+}
+.app-ask-content > h2 { margin: 0; padding: 10px 16px; font-size: 15px; }
+.app-ask-text { margin: 14px 16px 6px; font-size: 13px; line-height: 1.45; white-space: pre-line; }
+.app-ask-detail {
+    margin: 0 16px;
+    font-size: 11px;
+    color: var(--ps-faint, #969696);
+    overflow-wrap: anywhere;
+}
+.app-ask-input {
+    box-sizing: border-box;
+    width: calc(100% - 32px);
+    margin: 6px 16px 0;
+    padding: 5px 8px;
+    background: var(--ps-inset, #1c1c1c);
+    border: 1px solid var(--ps-dark, #131313);
+    border-radius: 3px;
+    color: var(--ps-text, #f0f0f0);
+    font: inherit;
+    font-size: 13px;
+}
+.app-ask-buttons { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; padding: 14px 16px 0; }
+.app-ask-buttons .app-ask-danger { background: #a8324b; border-color: #a8324b; color: #fff; }
 
 .prefs-grid {
     display: flex;
@@ -1860,12 +1901,16 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
    it carries the issues, and each section header carries its thing's name
    inline plus a ⚙ opening its configuration popover. */
 #hardware-dock .hw-dock-head {
-    display: flex; align-items: center; gap: 8px;
+    /* wraps in a narrow window rather than running the flag pill over
+       the processor picker (QA round 3, 800 px) */
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
     border-bottom: 1px solid #131313;
 }
 .hw-dock-ctl { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
 .hw-dock-ctl.view-hidden { display: none; }
-#processor-add-device { max-width: 220px; min-width: 0; font-size: 11px; }
+/* min-width: the picker keeps its "Add a processor…" whole in a narrow
+   window (QA round 3: it read "Add a proce" at 800 px). */
+#processor-add-device { max-width: 220px; min-width: 122px; font-size: 11px; }
 #processor-add-btn, #power-distro-add { padding: 2px 10px; font-size: 11px; }
 .hw-dock-head-sp { flex: 1 1 auto; }
 /* The attachment flag pill (app-dock.js _renderDockFlag): red while any
