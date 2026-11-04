@@ -1285,6 +1285,13 @@ class _Presets {
     // no start page. Over such a project the page's X keeps it, and New
     // is File > New (startPageNew), which asks about unsaved changes. The
     // picker alone still opens only over the pristine startup project.
+    //
+    // A reload is not a launch (owner, 2026-11-04): a reload of the page
+    // in the same browser tab comes back on the tab the person was on and
+    // calls this only when the start page (or the picker) was still
+    // waiting for a choice as the page went, with the reason it had then
+    // (app-start-page.js resumeOrLaunch). A launch opens a new browser
+    // tab and still comes here every time.
     maybeOpenStartupPicker(reason) {
         const startPage = reason === 'launch' && typeof this._startPageAllowed === 'function'
             && this._startPageAllowed();
@@ -1294,6 +1301,9 @@ class _Presets {
                 && window.__lrdStartupPicker !== true) return false;
         if (!startPage && !this._isPristineStartupProject()) return false;
         const token = this._startupPickerToken = (this._startupPickerToken || 0) + 1;
+        // Still to show, for a reload made while it waits (app-start-page
+        // _launchChoicePending).
+        this._startupWaiting = reason === 'launch' ? 'launch' : 'new';
         let idle = 0;
         const tick = () => {
             if (token !== this._startupPickerToken) return;
@@ -1304,6 +1314,7 @@ class _Presets {
             if (this._launchUiBusy()) idle = 0;
             else idle += 1;
             if (idle < 2) { setTimeout(tick, 300); return; }
+            this._startupWaiting = null;
             const pristine = this._isPristineStartupProject();
             if (startPage) {
                 // Over the startup screen, or over whatever the launch
@@ -1362,8 +1373,10 @@ class _Presets {
     // Take the startup screen out, on the server and here. Resolves true
     // when it went. The project it leaves stays pristine on the server
     // (`keep_pristine`, routes_layers delete_layer): it is still the one
-    // the launch made, and a reload over it opens like a launch, with a
-    // startup screen the start page's X takes out again.
+    // the launch made, and a launch over it opens like any launch, with a
+    // startup screen the start page's X takes out again. A reload of the
+    // tab takes that startup screen out by itself and shows no start page
+    // (app-start-page.js resumeOrLaunch).
     _dropStartupScreen(id) {
         const settled = typeof this._layerSavesSettled === 'function'
             ? this._layerSavesSettled() : Promise.resolve();

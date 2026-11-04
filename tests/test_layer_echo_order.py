@@ -53,7 +53,7 @@ TWO_EDITS_JS = """async () => {
 
 def test_a_late_echo_never_puts_an_older_copy_back(e2e_server, pw_browser):
     ctx = pw_browser.new_context()
-    ctx.add_init_script("try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+    ctx.add_init_script("try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     ctx.add_init_script(DELAY_LAYER_UPDATED)
     pg = ctx.new_page()
     try:
@@ -95,7 +95,7 @@ OWN_ECHO_JS = """async () => {
 
 def test_the_pages_own_echo_does_not_rebuild_the_tray(e2e_server, pw_browser):
     ctx = pw_browser.new_context()
-    ctx.add_init_script("try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+    ctx.add_init_script("try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     ctx.add_init_script(DELAY_LAYER_UPDATED)
     pg = ctx.new_page()
     try:

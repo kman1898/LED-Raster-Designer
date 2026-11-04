@@ -251,10 +251,36 @@ class _Naming {
     // shows S3-1 but when i draw it changes to 1-1"). An unrouted custom
     // screen has no multis, so it takes no multi numbers and shifts no
     // other screen's - its first drawn circuit opens its first box.
+    //
+    // A redraw in progress keeps its circuit's place (1.6.0 QA, beta.6). An
+    // automatic screen's circuit taken over by Redraw circuit and emptied by
+    // Clear Circuit is out of the plan until a cabinet is drawn on it (or
+    // Esc hands it back to the walk), so the circuit after it was named by
+    // the place the redrawn one still held: Redraw S1-2, Clear Circuit, and
+    // circuit 3 read S1-2 beside the redraw's own S1-2 badge until Esc. The
+    // circuit being redrawn is counted where it stands, so every other
+    // circuit keeps its name while it is drawn again.
     _labelCircuits(layer) {
         if (!layer || typeof this.screenCircuits !== 'function') return [];
         if (this.isCustomPower(layer) && !this.usesCustomCircuits(layer)) return [];
-        return this.screenCircuits(layer) || [];
+        return this._withHeldRedraw(layer, this.screenCircuits(layer) || []);
+    }
+
+    // `circuits` with the circuit an open power redraw holds empty on
+    // `layer` put back in its place (an entry with no cabinets).
+    _withHeldRedraw(layer, circuits) {
+        const ed = this._overrideEditing;
+        if (!ed || ed.kind !== 'power' || ed.layerId !== layer.id) return circuits;
+        if (this.isCustomPower(layer)) return circuits;
+        const num = Number(ed.num);
+        if (!Number.isFinite(num) || circuits.some(c => Number(c.num) === num)) return circuits;
+        if (typeof this.isRunOverridden !== 'function' || !this.isRunOverridden(layer, 'power', num)) {
+            return circuits;
+        }
+        const at = circuits.findIndex(c => Number(c.num) > num);
+        const held = { num, panels: [], layers: [], held: true };
+        return at < 0 ? circuits.concat([held])
+            : circuits.slice(0, at).concat([held], circuits.slice(at));
     }
 
     // Cached by layer object for the current render burst and dropped on the
@@ -1072,10 +1098,24 @@ class _Naming {
     // the next number in its bucket and the same name ladder _namingFor
     // walks (hand-typed, distro-derived, template), so the label is the
     // label the wall prints, not a guess at it.
+    //
+    // A gap a Clear Circuit left on a custom screen, where no multi on a
+    // distro holds its tail, is no place: the circuits after it close up
+    // over it (2026-10-22), so the place it would take is the next
+    // circuit's. Named there, it read the same as that circuit (Clear
+    // Circuit on S1-2 of four: the badge read S1-2 beside circuit 3's
+    // S1-2). The owner, 2026-11-04: "If they have not been attached to a
+    // multi, they cannot be the same number." Such a gap is named as the
+    // next circuit after the last drawn one (S1-4 there), a name no other
+    // circuit holds. The active circuit stays on the gap (Next and Prev
+    // step from it, 2026-10-22); a cabinet drawn on it seats it back in
+    // its place, and the circuits after it move up a name again.
     _predictedCircuitSlot(layer, nm, circuitNum) {
         const n = Math.max(1, parseInt(circuitNum, 10) || 1);
         const drawn = [...nm.slots.keys()];
-        const ordinal = drawn.filter(k => k < n).length + 1;
+        const ordinal = this._customGapIsNoPlace(layer, n)
+            ? drawn.length + 1
+            : drawn.filter(k => k < n).length + 1;
         const segs = this._socaSegments(layer, drawn.length + 1);
         const seg = segs.find(s => ordinal >= s.start && ordinal <= s.end)
             || segs[segs.length - 1];

@@ -684,8 +684,10 @@ def delete_layer(layer_id):
     # `keep_pristine`: the start page's X and the startup picker's Cancel
     # take the launch's untouched startup screen out (app-presets.js
     # _dropStartupScreen). The project left behind is still the one the
-    # launch made, so it stays pristine while it is empty; a reload then
-    # puts a startup screen back (app.index) and opens like a launch. Any
+    # launch made, so it stays pristine while it is empty; the next page
+    # load puts a startup screen back (app.index), which a launch opens
+    # like any launch and a reload of the same tab takes out again
+    # (app-start-page.js resumeOrLaunch). Any
     # other delete, or one that leaves a screen standing, clears the flag.
     # A request marker, never stored.
     keep_pristine = (str(request.args.get('keep_pristine', '')).lower() in ('1', 'true', 'yes')

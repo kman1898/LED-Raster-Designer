@@ -77,6 +77,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
+from conftest import open_app  # noqa: E402
+
 
 @pytest.fixture(scope="module", autouse=True)
 def _guard(server_project_guard):
@@ -287,13 +289,13 @@ MENU_JS = """() => {
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1700, 'height': 950})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
-    pg.goto(e2e_server, wait_until='domcontentloaded')
-    pg.wait_for_timeout(2000)
+    open_app(pg, e2e_server)
     ids = pg.evaluate(SEED_JS)
     pg.wait_for_timeout(1200)
     pg.locator('[data-mode="power"]').click()
+    pg.wait_for_function("() => window.canvasRenderer.viewMode === 'power'")
     pg.wait_for_timeout(600)
     yield pg, ids
     context.close()
@@ -316,12 +318,20 @@ def drag(page, sx, sy, ex, ey, mid_check=None):
 
 
 def chip_center(page, key):
-    page.evaluate(
+    """The chip's middle, found and measured in ONE read in the page. The
+    tray redraws itself (innerHTML) as the server's echoes land, so a
+    handle found by one call could be detached by the next: Playwright's
+    bounding_box() then answers None for a chip that is on screen (seen
+    under load, 2026-11-04). A redraw puts the new chip where the old one
+    was, so the point holds for the drag."""
+    box = page.evaluate(
         """(key) => {
             const el = document.querySelector(`[data-hwdock="${key}"]`);
-            if (el) el.scrollIntoView({ block: 'nearest' });
+            if (!el) return null;
+            el.scrollIntoView({ block: 'nearest' });
+            const r = el.getBoundingClientRect();
+            return r.width && r.height ? {x: r.x, y: r.y, width: r.width, height: r.height} : null;
         }""", key)
-    box = page.locator(f'[data-hwdock="{key}"]').bounding_box()
     assert box, f'no dock chip {key}'
     return box['x'] + box['width'] / 2, box['y'] + box['height'] / 2
 

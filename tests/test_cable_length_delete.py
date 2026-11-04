@@ -134,7 +134,7 @@ def _quiet(page):
 def _open(pw_browser, e2e_server):
     context = pw_browser.new_context(viewport={'width': 1800, 'height': 1200})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     context.add_init_script(FETCH_COUNT_JS)
     page = context.new_page()
     seen = {'page': [], 'console': [], 'logged': []}

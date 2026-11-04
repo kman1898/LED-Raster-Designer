@@ -233,7 +233,7 @@ def page(e2e_server, pw_browser):
             status=200, content_type='application/json',
             body='{"ok": false, "cancelled": true, "unavailable": false}'))
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     context.add_init_script(FETCH_COUNT_JS)
     pg = context.new_page()
     errors = []

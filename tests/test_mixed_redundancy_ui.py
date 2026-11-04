@@ -55,7 +55,7 @@ def _guard(server_project_guard):
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1600, 'height': 950})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     context.add_init_script(FETCH_COUNT_JS)
     pg = context.new_page()
     errors = []
@@ -438,7 +438,7 @@ def mixed_show(e2e_server, pw_browser):
     and every binder sheet, each rendered once."""
     context = pw_browser.new_context(viewport={'width': 1700, 'height': 950})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     errors = []
     pg.on('pageerror', lambda e: errors.append(str(e)))

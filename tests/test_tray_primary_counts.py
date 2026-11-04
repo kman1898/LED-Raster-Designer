@@ -214,7 +214,7 @@ def tray(e2e_server, pw_browser):
             status=200, content_type='application/json',
             body='{"ok": false, "cancelled": true, "unavailable": false}'))
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     errors = []
     pg.on('pageerror', lambda e: errors.append(str(e)))
@@ -402,6 +402,44 @@ def test_the_binder_gear_and_readouts_do_not_follow_the_tray(tray):
     procs = [t for t in before['LOOPS']['tables'] if t['title'] == 'Processor']
     assert procs and any('22 / 40' in cell for row in procs[0]['rows']
                          for cell in row), procs
+    assert not errors, errors
+
+
+def test_a_loop_strip_whose_near_box_has_no_model_draws(tray):
+    """A loop pair whose near box carries no deviceName still draws its
+    strip: the header falls back to the far box's model, then to "Box"
+    (the strip's builder once read a `far` that no longer existed and
+    threw, taking the whole tray with it)."""
+    page, ids, errors = tray
+    out = page.evaluate("""([procId, nearId, farId]) => {
+        const app = window.app;
+        const proc = app._processorsResolved.find(p => p.id === procId);
+        const boxes = proc.slots.flatMap(s => (s.card && s.card.cvts) || []);
+        const near = boxes.find(b => b.id === nearId);
+        const far = boxes.find(b => b.id === farId);
+        const saved = [near.deviceName, far.deviceName];
+        const read = () => {
+            let thrown = null;
+            try { app.renderHardwareDock(); } catch (e) { thrown = String(e); }
+            const head = document.querySelector(`[data-lrd-sec="hwdock-box-${nearId}"]`);
+            const name = head && head.querySelector('.hw-dock-unit-name');
+            return { thrown, strip: !!(head && head.parentElement.classList.contains('hw-dock-loop')),
+                     model: name ? name.textContent : null };
+        };
+        try {
+            near.deviceName = '';
+            const farOnly = read();
+            far.deviceName = '';
+            const neither = read();
+            return { saved, farOnly, neither };
+        } finally {
+            [near.deviceName, far.deviceName] = saved;
+            app.renderHardwareDock();
+        }
+    }""", [ids['units']['ODD']['procId'], box(ids, 'ODD', 0), box(ids, 'ODD', 1)])
+    assert out['saved'][1], out
+    assert out['farOnly'] == {'thrown': None, 'strip': True, 'model': out['saved'][1]}, out
+    assert out['neither'] == {'thrown': None, 'strip': True, 'model': 'Box'}, out
     assert not errors, errors
 
 

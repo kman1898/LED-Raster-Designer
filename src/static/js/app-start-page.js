@@ -18,8 +18,33 @@
 // a choice is made; a show that opens takes its place (_openProjectData
 // closes it). Automated browsers never see it unless a test sets
 // window.__lrdStartPage = true before the page loads.
+//
+// A reload is not a launch (owner, 2026-11-04). Reloading the page while
+// a show is open brought the start page up over it and dropped the person
+// back on Pixel Map. Now a reload brings back just the tab they were on
+// (selection, canvas, zoom and pan start fresh as before) and shows the
+// start page only if it was on screen, no choice made yet, when the page
+// went: the page itself, the panel picker its New opened, or a launch's
+// page still waiting behind the first-run guide or What's New. A picker
+// File > New opened comes back as that picker. A project the page's X (or
+// the picker's Cancel) left empty stays empty: the server puts a startup
+// screen back on every page load (app.index), and the reload takes it
+// out again.
+//
+// How a reload is told from a launch: the launcher opens the app in a new
+// browser tab every launch (launcher_settings open_url: `open -a`,
+// webbrowser.open), so the place is kept in sessionStorage, which a
+// reload keeps and a new tab never has. It is written as the page goes
+// (pagehide) and read once at boot, and it counts only when the browser
+// calls the load a reload (or Back/Forward to the page) and the server is
+// the same one that wrote it (a tab reloaded after the app was quit and
+// started again is a launch). Storage that cannot be read or written, a
+// navigation of any other kind, or no record at all is a launch.
 import { LEDRasterApp } from './app-core.js';
 import { sendClientLog } from './helpers.js';
+
+// The per-tab record a reload reads back (_saveReloadPlace).
+const RELOAD_PLACE_KEY = 'lrdReloadPlace';
 
 class _StartPage {
     // Is the launch's start page wanted in this browser? Real browsers,
@@ -115,6 +140,9 @@ class _StartPage {
         const modal = this._buildStartPage();
         this.renderStartPageRecent();
         modal.style.display = 'block';
+        // A guide's step shows the page too; only the launch's counts
+        // toward a reload (_launchChoicePending).
+        this._startPageReason = reason || null;
         sendClientLog('start_page_open', {
             reason: reason || null,
             recent: typeof this.getRecentFiles === 'function' ? this.getRecentFiles().length : 0
@@ -128,19 +156,25 @@ class _StartPage {
         const modal = document.getElementById('start-page-modal');
         if (!modal || modal.style.display !== 'block') return false;
         modal.style.display = 'none';
+        this._startPageReason = null;
         return true;
     }
 
     // New project: the panel picker for the startup screen; its Cancel
     // comes back here (cancelPresetPicker).
-    startPageNew() {
-        this.closeStartPage();
+    async startPageNew() {
         sendClientLog('start_page_new', { layerId: this._startupTargetId == null ? null : this._startupTargetId });
         if (this._startupTargetId == null) {
-            // Over a project the launch brought back: File > New.
-            this.requestNewProject();
-            return;
+            // Over a project the launch brought back: File > New. The page
+            // stays up behind "Save changes?", so Cancel lands back on it,
+            // as Open file… and a Recent file do (1.6.0 QA, beta.6: it
+            // closed first, and Cancel left no start page at all). The new
+            // project's picker closes it (maybeOpenStartupPicker('new')).
+            const made = await this.requestNewProject();
+            if (made) this.closeStartPage();
+            return made;
         }
+        this.closeStartPage();
         if (!this._startupScreenStands(this._startupTargetId)) {
             // The project moved on under the page: nothing to pick for.
             sendClientLog('startup_picker_stale', { action: 'start_page_new', layerId: this._startupTargetId == null ? null : this._startupTargetId });
@@ -163,6 +197,140 @@ class _StartPage {
         sendClientLog('start_page_closed', { kept: this._startupTargetId == null });
         if (this._startupTargetId == null) return;
         this._startEmpty();
+    }
+
+    // ── A reload keeps the place (owner, 2026-11-04) ──
+
+    // How the browser says this page was loaded: 'reload', 'back_forward',
+    // 'navigate', or null when it does not say.
+    _navigationType() {
+        try {
+            const entry = performance.getEntriesByType('navigation')[0];
+            if (entry && entry.type) return entry.type;
+        } catch (_) { /* no Navigation Timing */ }
+        try {
+            const t = performance.navigation ? performance.navigation.type : null;
+            if (t === 1) return 'reload';
+            if (t === 2) return 'back_forward';
+            if (t === 0) return 'navigate';
+        } catch (_) { /* nothing to ask */ }
+        return null;
+    }
+
+    // Is a guide holding the window? Its tab and its project are not the
+    // person's (the guide's own recovery puts theirs back after a reload).
+    _guideHoldsWindow() {
+        const q = typeof window !== 'undefined' ? window.QuickStart : null;
+        try {
+            const st = q && typeof q.state === 'function' ? q.state() : null;
+            return !!(st && (st.visible || st.running));
+        } catch (_) { return false; }
+    }
+
+    // The choice a launch or File > New asked for and nobody has made yet:
+    // 'launch' (the start page, or the picker its New opened, or a launch
+    // still waiting to show it), 'new' (File > New's picker), or null.
+    _launchChoicePending() {
+        if (this._startupWaiting === 'launch' || this._startupWaiting === 'new') return this._startupWaiting;
+        if (this.startPageOpen() && this._startPageReason !== 'guide') return 'launch';
+        const picker = document.getElementById('preset-picker-modal');
+        if (picker && picker.style.display && picker.style.display !== 'none'
+                && this._pickerMode === 'startup') {
+            return this._pickerFromStartPage === true ? 'launch' : 'new';
+        }
+        return null;
+    }
+
+    // Boot: read (and drop) the record this tab's last page left, and keep
+    // it when this load is a reload of that same server's page. Called once
+    // the server session is known, before the project loads. Anything
+    // unreadable is a launch.
+    _takeReloadPlace() {
+        let raw = null;
+        try {
+            raw = window.sessionStorage.getItem(RELOAD_PLACE_KEY);
+            window.sessionStorage.removeItem(RELOAD_PLACE_KEY);
+        } catch (_) { raw = null; }
+        this._reloadPlace = null;
+        this._reloadPlaceTaken = true;
+        if (!raw) return null;
+        let place = null;
+        try { place = JSON.parse(raw); } catch (_) { place = null; }
+        if (!place || typeof place !== 'object') return null;
+        const nav = this._navigationType();
+        if (nav !== null && nav !== 'reload' && nav !== 'back_forward') return null;
+        if (!this._serverSessionId || place.server !== this._serverSessionId) return null;
+        this._reloadPlace = {
+            tab: typeof place.tab === 'string' ? place.tab : null,
+            pending: place.pending === 'launch' || place.pending === 'new' ? place.pending : null,
+            empty: place.empty === true,
+        };
+        return this._reloadPlace;
+    }
+
+    // pagehide: write down where this page is, for a reload to read back.
+    _saveReloadPlace() {
+        if (!this._reloadPlaceTaken) return;   // the old record is still unread
+        let place;
+        if (!this._reloadPlaceSettled) {
+            // Gone before the boot finished: what the boot was about to do.
+            place = this._reloadPlace
+                ? Object.assign({}, this._reloadPlace)
+                : { tab: null, pending: 'launch', empty: false };
+        } else {
+            const guide = this._guideHoldsWindow();
+            const active = document.querySelector('#view-tabs .view-tab.active[data-mode]');
+            const p = this.project;
+            place = {
+                tab: guide || !active ? null : active.getAttribute('data-mode'),
+                pending: this._launchChoicePending(),
+                empty: !guide && !!p && p.is_pristine === true
+                    && Array.isArray(p.layers) && p.layers.length === 0,
+            };
+        }
+        place.server = this._serverSessionId || null;
+        try {
+            window.sessionStorage.setItem(RELOAD_PLACE_KEY, JSON.stringify(place));
+        } catch (_) { /* no storage: the next load is a launch */ }
+    }
+
+    // The tab a reload came back to, when this project still has it.
+    _restoreReloadTab(mode) {
+        if (!mode) return false;
+        const tab = [...document.querySelectorAll('#view-tabs .view-tab[data-mode]')]
+            .find(t => t.getAttribute('data-mode') === mode);
+        if (!tab || tab.classList.contains('active')) return false;
+        if (tab.disabled || tab.hidden || tab.classList.contains('view-hidden')) return false;
+        const style = window.getComputedStyle(tab);
+        if (style.display === 'none' || style.visibility === 'hidden') return false;
+        tab.click();
+        return true;
+    }
+
+    // Boot, once the project has loaded: a reload goes back to its tab and
+    // shows only the choice that was still open; a launch asks as always
+    // (maybeOpenStartupPicker('launch')).
+    resumeOrLaunch() {
+        const place = this._reloadPlace;
+        this._reloadPlace = null;
+        this._reloadPlaceSettled = true;
+        if (!place) {
+            if (typeof this.maybeOpenStartupPicker === 'function') this.maybeOpenStartupPicker('launch');
+            return false;
+        }
+        const tabRestored = this._restoreReloadTab(place.tab);
+        sendClientLog('reload_resume', {
+            tab: place.tab, tabRestored, pending: place.pending, empty: place.empty,
+        });
+        if (place.pending) {
+            if (typeof this.maybeOpenStartupPicker === 'function') this.maybeOpenStartupPicker(place.pending);
+        } else if (place.empty && this._isPristineStartupProject()) {
+            // The page load put a startup screen back in the project the
+            // page's X left empty: take it out again.
+            this._startupTargetId = this.project.layers[0].id;
+            this._startEmpty();
+        }
+        return true;
     }
 }
 

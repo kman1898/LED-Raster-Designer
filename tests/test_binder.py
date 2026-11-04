@@ -81,7 +81,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-from conftest import private_fixture, private_fixture_missing  # noqa: E402
+from conftest import open_app, private_fixture, private_fixture_missing  # noqa: E402
 SCRATCH_FIXTURE = private_fixture('live-show-b.json', 'LRD_PULL_SMOKE_JSON')
 
 BOX_WORD = re.compile(r'\b(box|boxes)\b', re.I)
@@ -444,12 +444,11 @@ PLAN = [
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1700, 'height': 950})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     errors = []
     pg.on('pageerror', lambda e: errors.append(str(e)))
-    pg.goto(e2e_server, wait_until='domcontentloaded')
-    pg.wait_for_timeout(2000)
+    open_app(pg, e2e_server)
     pg.locator('[data-mode="power"]').click()
     pg.wait_for_timeout(500)
     ids = pg.evaluate(SEED_JS)
@@ -3105,8 +3104,17 @@ def test_smoke_live_show_b(page):
                          {**json.loads(_SHOW_JSON), 'sheet': 'letter'})
     k = [t for t, _s in letter].index('SR - MAIN - Power - Front View')
     assert letter[k] == ['SR - MAIN - Power - Front View', 1] and letter[k + 1][0] == 'SR - MAIN - Power Wiring', letter
+    # H9 continues on Letter, as it always has. Since every binder table
+    # keeps one type size (QA beta.5, 2026-11-03) its continuation fills its
+    # own sheet - the snakes beside H9's pull list - and the show's pull
+    # list takes the next whole; before, the continuation shared its sheet
+    # with the show's list ("Processor - H9 (cont.) · Pull list"). Four
+    # hardware sheets either way.
     assert [t for t, _s in letter if t.endswith('(cont.)')] == [
-        'SR - MAIN - Data - Front View (cont.)', 'SL - MAIN - Data - Front View (cont.)'], letter
+        'SR - MAIN - Data - Front View (cont.)', 'SL - MAIN - Data - Front View (cont.)',
+        'Processor - H9 (cont.)'], letter
+    assert [t for t, _s in letter][-4:] == [
+        'Distros - SR, SL', 'Processor - H9', 'Processor - H9 (cont.)', 'Pull list - all positions'], letter
     main = _render(pg, SHOW, 'SR - MAIN - Power - Front View')
     texts = main['texts']
     _title_block(texts, 'SR - MAIN · POWER · FRONT VIEW', '2.1', show=project['name'])

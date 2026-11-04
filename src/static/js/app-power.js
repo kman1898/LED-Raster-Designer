@@ -143,6 +143,23 @@ class _Power {
         return out;
     }
 
+    // Is drawn number `num` a gap the circuits after it close up over? A
+    // custom screen's number with nothing drawn on it, below its highest
+    // drawn run, whose tail no multi on a distro holds (_customPlaceRuns).
+    // It names no place of its own (_predictedCircuitSlot).
+    _customGapIsNoPlace(owner, num) {
+        const n = parseInt(num, 10);
+        if (!owner || !Number.isFinite(n) || !this.isCustomPower(owner) || !this.usesCustomCircuits(owner)) {
+            return false;
+        }
+        const paths = owner.powerCustomPaths || {};
+        if ((paths[n] || []).length > 0) return false;
+        const drawn = Object.keys(paths).map(k => parseInt(k, 10))
+            .filter(k => Number.isFinite(k) && (paths[k] || []).length > 0);
+        if (!drawn.length || n > Math.max(...drawn)) return false;
+        return !this._customPlaceRuns(owner).includes(n);
+    }
+
     // The drawn number circuit `shown` is written under: the first run of
     // the circuit in that place (a held gap is a place, _customPlaceRuns),
     // or past the last circuit the next free number, one after the
@@ -3395,6 +3412,9 @@ class _Power {
             };
             const blocked = [];
             const list = [];
+            // Packing renumbers the circuits: each cable stays with its
+            // cabinets (_cableCarryBegin, owner 2026-11-04).
+            const carry = this._cableCarryBegin([...walls.values()].flat());
             // Packing changes the circuits, so a box shared with a locked
             // screen deals again: refused whole when that would move the
             // locked screen's tails (_lockedPowerTrial).
@@ -3419,7 +3439,11 @@ class _Power {
                 this.refreshSplitterPanel();
                 return;
             }
-            this.updateLayers(list, true, 'Change Splitter Packing');
+            this._cableCarryApply(carry);
+            if (carry.changed.length) this.saveClientSideProperties();
+            this.updateLayers([...new Set([...list, ...carry.changed])], true,
+                'Change Splitter Packing');
+            this._cableCarrySay(carry);
             this._rebuildAfterGesture(() => {
                 this.refreshSplitterPanel();
                 this.refreshSocaRuns();
@@ -5457,6 +5481,168 @@ class _Power {
             changed = true;
         });
         return changed;
+    }
+
+    // ---- a circuit's cable follows its cabinets ------------------------------
+    //
+    // The owner, 2026-11-04: "I have an extension on circuit six, but then
+    // after balancing it goes to circuit five. The extension needs to follow
+    // that move." Ruled the same day: when the automatic plan renumbers its
+    // circuits (a redraw ends and the circuits after it slide left, Organized
+    // or Max Capacity, 2fer packing, the Circuit numbers switch), a circuit's
+    // cable (powerCircuitCables, its length and its connector pick) stays
+    // with the circuit's FIRST cabinet, the one it plugs into:
+    //   - that cabinet still starts a circuit: the cable goes to it;
+    //   - it no longer starts one: the cable goes to the circuit that now
+    //     holds that cabinet, and a toast says so;
+    //   - two cables land on one circuit: one is kept and a toast names the
+    //     screen and the circuit. The one kept is the cable plugged into
+    //     that circuit's own first cabinet; with none, the one whose cabinet
+    //     comes first along the circuit (nearest the plug), then the lower
+    //     old number. A cable plugged into the circuit's first cabinet is
+    //     the one still physically in place, so it is the right one to keep;
+    //     any other ran to a cabinet that is now mid-circuit.
+    // Labels and label overrides keyed by number are not moved here.
+    //
+    // Use: carry = _cableCarryBegin(layers) BEFORE the change, then
+    // _cableCarryApply(carry) after it and before the gesture's history
+    // entry, so one undo puts the cables back with the change.
+
+    // The screens whose plans a change to `layers` can move: themselves,
+    // their group, and every screen their drawn paths reach.
+    _cableCarryScope(layers) {
+        const out = new Set();
+        (layers || []).forEach(l => {
+            if (!l || (l.type || 'screen') !== 'screen') return;
+            out.add(l);
+            if (l.group_id && typeof this.groupMembersOf === 'function') {
+                (this.groupMembersOf(l) || []).forEach(m => m && out.add(m));
+            }
+            if (typeof this.getPathScopeLayers === 'function') {
+                (this.getPathScopeLayers(l) || []).forEach(m => m && out.add(m));
+            }
+        });
+        return [...out].filter(l => (l.type || 'screen') === 'screen');
+    }
+
+    // Where every cable on those screens is plugged in now: per screen,
+    // circuit number -> its first cabinet, its label and the cable's text.
+    _cableCarryBegin(layers) {
+        this._circuitTailCache = null;
+        const snap = [];
+        this._cableCarryScope(layers).forEach(layer => {
+            const store = layer.powerCircuitCables;
+            if (!store || !Object.keys(store).length) return;
+            const heads = new Map();
+            this.screenCircuits(layer).forEach(c => {
+                const head = c.panels && c.panels[0];
+                if (!head || store[c.num] === undefined) return;
+                const cable = this.powerCircuitCable(layer, c.num);
+                heads.set(c.num, {
+                    head, label: this.getPowerCircuitLabel(layer, c.num),
+                    text: cable ? cable.text : null,
+                });
+            });
+            if (heads.size) snap.push({ layer, heads });
+        });
+        return { snap, notes: [], changed: [] };
+    }
+
+    // Move the cables the snapshot saw onto the circuits their first
+    // cabinets are on now. Returns the carry with `changed` (the screens
+    // written) and `notes` (what the toast says) filled in. Model only: the
+    // caller records and persists. A locked screen is never written.
+    _cableCarryApply(carry) {
+        if (!carry || carry.applied) return carry;
+        carry.applied = true;
+        this._circuitTailCache = null;
+        for (const { layer, heads } of carry.snap) {
+            if (this._layerLocked(layer)) continue;
+            const store = layer.powerCircuitCables || {};
+            const starts = new Map();
+            const holds = new Map();
+            const at = new Map();
+            this.screenCircuits(layer).forEach(c => (c.panels || []).forEach((p, i) => {
+                if (i === 0) starts.set(p, c.num);
+                if (!holds.has(p)) { holds.set(p, c.num); at.set(p, i); }
+            }));
+            const claims = new Map();   // new number -> [{old, h, rec, starts, at}]
+            const gone = [];
+            for (const [old, h] of heads) {
+                const rec = store[old];
+                if (rec === undefined) continue;
+                let num = starts.get(h.head);
+                const begins = num !== undefined;
+                if (!begins) num = holds.get(h.head);
+                if (num === undefined) { gone.push({ old, h }); continue; }
+                const list = claims.get(num) || [];
+                list.push({ old, h, rec, begins, at: at.get(h.head) || 0 });
+                claims.set(num, list);
+            }
+            const same = !gone.length && [...claims].every(([num, list]) =>
+                list.length === 1 && list[0].old === num && list[0].begins);
+            if (same) continue;
+            this._circuitTailCache = null;
+            const name = layer.name || 'Screen';
+            const labelOf = (num) => this.getPowerCircuitLabel(layer, num);
+            const next = {};
+            // A cable the snapshot did not see (on a number no circuit had)
+            // stays where it is, unless a carried cable takes that number.
+            Object.keys(store).forEach(k => {
+                if (!heads.has(parseInt(k, 10))) next[k] = store[k];
+            });
+            for (const [num, list] of claims) {
+                list.sort((a, b) => (Number(b.begins) - Number(a.begins))
+                    || (a.at - b.at) || (a.old - b.old));
+                const keep = list[0];
+                next[num] = keep.rec;
+                if (!keep.begins) {
+                    carry.notes.push(`${name}: the ${keep.h.text || 'cable'} on circuit `
+                        + `${keep.h.label} moved to circuit ${labelOf(num)}. Its first `
+                        + `cabinet no longer starts a circuit, and ${labelOf(num)} now holds it.`);
+                }
+                list.slice(1).forEach(lost => {
+                    carry.notes.push(`${name}: two cables landed on circuit ${labelOf(num)}. `
+                        + `The ${keep.h.text || 'cable'} from ${keep.h.label} stays, `
+                        + (keep.begins ? 'since it plugs into the circuit’s first cabinet'
+                            : 'since its cabinet comes first on the circuit')
+                        + `, and the ${lost.h.text || 'cable'} from ${lost.h.label} was removed.`);
+                });
+            }
+            gone.forEach(g => carry.notes.push(`${name}: circuit ${g.h.label}’s first `
+                + `cabinet is on no circuit now, so its ${g.h.text || 'cable'} was removed.`));
+            Object.keys(store).forEach(k => { delete store[k]; });
+            Object.assign(store, next);
+            layer.powerCircuitCables = store;
+            carry.changed.push(layer);
+        }
+        if (carry.changed.length && typeof sendClientLog === 'function') {
+            sendClientLog('circuit_cables_carried', {
+                layers: carry.changed.map(l => l.id), notes: carry.notes.length,
+            });
+        }
+        return carry;
+    }
+
+    // Say what a carry could not do quietly, once, after its gesture landed.
+    _cableCarrySay(carry) {
+        if (!carry || !carry.notes || !carry.notes.length || carry.said) return;
+        carry.said = true;
+        if (typeof this._toast === 'function') this._toast(carry.notes.join(' '), true, 9000);
+    }
+
+    // A carry whose change records no history entry of its own (a redraw
+    // ending, which is session state): its own entry and PUT, only when a
+    // cable really moved.
+    _cableCarryCommit(carry, action) {
+        this._cableCarryApply(carry);
+        if (!carry || !carry.changed.length || carry.committed) return false;
+        carry.committed = true;
+        this.saveState(action);
+        this.saveClientSideProperties();
+        this.updateLayers(carry.changed);
+        this._cableCarrySay(carry);
+        return true;
     }
 
     // Drop the manual share (merge) groups and split pins covering the

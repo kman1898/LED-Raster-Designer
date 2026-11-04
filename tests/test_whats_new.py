@@ -200,7 +200,7 @@ def test_logic_uses_its_own_storage_key():
     src = _read(LOGIC_JS)
     assert "lrd_whatsnew_seen" in src
     # It must not touch the tour's key except to read whether the tour runs.
-    assert "localStorage.setItem('lrd_quickstart_disabled'" not in src
+    assert "localStorage.setItem('lrd_quickstart_first_run_done'" not in src
 
 
 # ── browser: gating matrix + modal behavior ──────────────────────────────
@@ -217,7 +217,7 @@ def _guard(server_project_guard):
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context()
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}"
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}"
     )
     pg = context.new_page()
     pg.goto(e2e_server, wait_until='domcontentloaded')
@@ -779,7 +779,7 @@ def guide_page(e2e_server, pw_browser):
     shipped snapshots frame."""
     context = pw_browser.new_context(viewport={'width': 1600, 'height': 950})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     pg.goto(e2e_server, wait_until='domcontentloaded')
     pg.wait_for_function(

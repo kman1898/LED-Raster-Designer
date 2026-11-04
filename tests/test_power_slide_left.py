@@ -64,7 +64,7 @@ def _settle(pg):
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1440, 'height': 900})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     context.add_init_script(FETCH_COUNT_JS)
     pg = context.new_page()
     errors = []
@@ -409,4 +409,134 @@ def test_an_older_show_with_an_empty_taken_over_circuit_opens_automatic(page):
     assert s['overrides'] == [] and s['serverOverrides'] == [], s
     assert cols_of(s) == {1: [0, 1], 2: [2, 3], 3: [4, 5], 4: [6, 7]}, s
     assert any('had nothing drawn on it' in t for t in toasts(pg)), toasts(pg)
+    assert errors == []
+
+
+# Every label the Wall's frame draws, as {circuit number: [labels]}: the
+# discs on the wall and the redraw's own badge.
+WALL_LABELS_JS = """() => {
+    const a = window.app, r = window.canvasRenderer;
+    const real = a.getPowerCircuitLabel;
+    const out = {};
+    a.getPowerCircuitLabel = function (layer, n) {
+        const v = real.call(this, layer, n);
+        if (layer && layer.name === 'Wall') (out[n] = out[n] || []).push(v);
+        return v;
+    };
+    try { a._circuitTailCache = null; r.render(); } finally { a.getPowerCircuitLabel = real; }
+    return out;
+}"""
+
+
+def _wall_labels(pg):
+    """{num: label} for the frame, each circuit read one way only."""
+    drawn = pg.evaluate(WALL_LABELS_JS)
+    out = {}
+    for n, labels in drawn.items():
+        assert len(set(labels)) == 1, (n, labels)
+        out[int(n)] = labels[0]
+    return out
+
+
+def test_clear_circuit_in_a_redraw_leaves_every_other_circuit_its_name(page):
+    """Redraw S1-2 and Clear Circuit: circuit 3 kept reading S1-2 beside
+    the redraw's own S1-2 badge (two S1-2 labels) until Esc. The circuit
+    being redrawn keeps its place, so the others keep their names while
+    it is empty, while it is drawn again, and after Esc."""
+    pg, errors = page
+    open_show(pg, {}, '1.6.0')
+    _fit(pg)
+    before = _wall_labels(pg)
+    assert before == {1: 'S1-1', 2: 'S1-2', 3: 'S1-3', 4: 'S1-4'}, before
+    _click(pg, 2, 1, alt=True)
+    pg.locator('#power-custom-clear-circuit').click()
+    _settle(pg)
+    assert read(pg)['editing']['num'] == 2
+    held = _wall_labels(pg)
+    assert held == before, held
+    assert len(set(held.values())) == len(held), held
+    # one cabinet drawn on it again: still one name each
+    _click(pg, 2, 0)
+    assert _wall_labels(pg) == before
+    pg.locator('#main-canvas').hover()
+    pg.keyboard.press('Escape')
+    _settle(pg)
+    assert read(pg)['editing'] is None
+    # the redraw kept its one cabinet, so the walk after it has one more
+    # circuit: still a name each, in order
+    after = _wall_labels(pg)
+    assert after == {n: f'S1-{n}' for n in range(1, len(after) + 1)}, after
+    assert errors == []
+
+
+# The Wall in plain Custom mode, drawn as `paths` with circuit `idx` active.
+CUSTOM_JS = """([paths, idx]) => { const a = window.app;
+    const l = a.project.layers.find(x => x.name === 'Wall');
+    a.selectLayer(l);
+    Object.assign(l, { powerCustomPath: true, powerFlowPattern: 'custom', powerCustomOverrides: [],
+                       powerCustomPaths: paths, powerCustomIndex: idx });
+    l._powerCircuits = null;
+    a.updateLayers([l]);
+    a.resetHistory('Custom Baseline');
+    a.updateCustomPowerUI();
+    window.canvasRenderer.render(); }"""
+
+FOUR = {'1': col_path(0, 1), '2': col_path(2, 3), '3': col_path(4, 5), '4': col_path(6, 7)}
+
+
+def _custom_wall(pg, paths, idx):
+    open_show(pg, {}, '1.6.0')
+    pg.evaluate(CUSTOM_JS, [paths, idx])
+    _settle(pg)
+    _fit(pg)
+
+
+def _wall_state(pg):
+    return pg.evaluate("""() => { const l = window.app.project.layers.find(x => x.name === 'Wall');
+        return { idx: l.powerCustomIndex,
+                 drawn: Object.keys(l.powerCustomPaths || {}).filter(k => (l.powerCustomPaths[k] || []).length)
+                     .map(Number) }; }""")
+
+
+def test_a_cleared_custom_circuit_off_a_multi_never_shares_a_name(page):
+    """Plain Custom mode, no distro: Clear Circuit on S1-2 of four. The
+    drawn circuits close up over the gap (3 reads S1-2, 4 reads S1-3), and
+    the active circuit's badge read S1-2 too. The owner, 2026-11-04: "If
+    they have not been attached to a multi, they cannot be the same
+    number." The badge reads the next circuit after the last drawn one,
+    S1-4. The active circuit stays on the gap (Next and Prev step from
+    it), and a cabinet drawn there seats it back in its place: still one
+    name each."""
+    pg, errors = page
+    _custom_wall(pg, FOUR, 2)
+    assert _wall_labels(pg) == {1: 'S1-1', 2: 'S1-2', 3: 'S1-3', 4: 'S1-4'}
+    pg.locator('#power-custom-clear-circuit').click()
+    _settle(pg)
+    labels = _wall_labels(pg)
+    assert len(set(labels.values())) == len(labels), labels
+    assert _wall_state(pg) == {'idx': 2, 'drawn': [1, 3, 4]}
+    assert labels == {1: 'S1-1', 2: 'S1-4', 3: 'S1-2', 4: 'S1-3'}, labels
+    # a cabinet drawn on it: back in its place, one name each
+    _click(pg, 2, 0)
+    assert _wall_state(pg) == {'idx': 2, 'drawn': [1, 2, 3, 4]}
+    assert _wall_labels(pg) == {1: 'S1-1', 2: 'S1-2', 3: 'S1-3', 4: 'S1-4'}
+    assert errors == []
+
+
+def test_a_cleared_circuit_on_a_plugged_multi_keeps_its_tail(page):
+    """On a distro the multi keeps its tails where the clear left them
+    (sticky multi numbers): circuit 3 stays SL1-3, the cleared circuit
+    reads its own free tail SL1-2, and it stays the active circuit."""
+    pg, errors = page
+    _custom_wall(pg, FOUR, 2)
+    pg.evaluate("""() => { const a = window.app; const l = a.project.layers.find(x => x.name === 'Wall');
+        const d = a.addDistro({ name: 'SL' });
+        l.powerSocaDistro = { 1: (d && d.id) || a.getDistros()[0].id };
+        a.updateLayers([l]); a._circuitTailCache = null; window.canvasRenderer.render(); }""")
+    _settle(pg)
+    assert _wall_labels(pg) == {1: 'SL1-1', 2: 'SL1-2', 3: 'SL1-3', 4: 'SL1-4'}
+    pg.locator('#power-custom-clear-circuit').click()
+    _settle(pg)
+    assert _wall_state(pg) == {'idx': 2, 'drawn': [1, 3, 4]}
+    assert _wall_labels(pg) == {1: 'SL1-1', 2: 'SL1-2', 3: 'SL1-3', 4: 'SL1-4'}
     assert errors == []

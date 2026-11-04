@@ -871,6 +871,9 @@ FIXES
   bottom of a short window.
 - FIX: The guides keep a window open from one step to the next when both
   steps use it, instead of closing it and opening it again.
+- FIX: A guide started right after leaving another one waits for your
+  project to come back first. Started at once, it ran on your project
+  instead of its scratch show, and leaving it lost your project.
 - FIX: In a narrow window the canvas controls scroll instead of pushing
   the hardware tray off the window, and a Processing name too long for
   its box wraps onto a second line.
@@ -928,7 +931,9 @@ FIXES
 - FIX: The Pull Sheet window's tiles wrap when the window is narrow, so
   TOTALS is never cut off.
 - FIX: Canceling the save dialog says Save canceled, not Export canceled.
-- FIX: Reloading over an empty project opens like a launch.
+- FIX: Reloading the page keeps you on the tab you were on and no longer
+  brings up the start page over an open show. A project you left empty
+  stays empty.
 - FIX: A drop that goes through clears an earlier refusal from the status
   bar, Save Screen as Preset selects the name it fills in, and after a
   guide Preferences opens on the tab you had.
@@ -960,6 +965,35 @@ FIXES
 - FIX: Clearing a distro's multis also forgets a cable length left on a
   circuit number the screen no longer has, so it can't come back on the
   next circuit to take that number.
+- FIX: A circuit's cable length stays with its cabinets when the circuits
+  renumber: a redraw ends, Return to automatic, Organized or Max
+  Capacity, 2fer packing, or the Circuit numbers switch. When two cables
+  land on one circuit, the one plugged into its first cabinet stays and a
+  message names the screen and the circuit.
+- FIX: A redrawn circuit left with nothing drawn goes back to automatic
+  and the circuits after it close up, and their typed labels now move
+  with their cabinets, the way data port names do.
+- FIX: Clear Circuit while you redraw a circuit no longer gives the next
+  circuit the same name. Every other circuit keeps its label while you
+  draw the redrawn one again.
+- FIX: In Custom mode, Clear Circuit on a circuit that isn't plugged into
+  a distro no longer leaves two circuits with the same name. The circuits
+  after it still close up, and the cleared circuit reads the next name
+  after the last one until you draw on it again.
+- FIX: Turning Custom on with one port left says the port moved up to
+  port 1 instead of "run 1-1", and a port with nothing drawn and nothing
+  after it is said to be gone.
+- FIX: New on the start page with unsaved changes keeps the start page
+  open while it asks to save them, so Cancel goes back to it, the same as
+  Open file and Recent.
+- FIX: The Quick Start guide opens on the first run only. Every launch
+  after that opens on the start page, so the two no longer take turns,
+  and the guide's Don't show on startup box is gone. Help still opens
+  the guides any time.
+- FIX: A screen you add with + Add > Screen goes to the first free spot
+  on its canvas that fits it, left to right and then top to bottom,
+  instead of landing on top of the screen at the corner. On an empty
+  canvas it still starts at the corner.
 
 v1.5.3 - October 21, 2026
 ----------------------------

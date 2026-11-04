@@ -32,6 +32,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 pw = pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
+from conftest import open_app  # noqa: E402
+
 
 @pytest.fixture(scope="module", autouse=True)
 def _restore_server_project(server_project_guard):
@@ -43,7 +45,7 @@ def _restore_server_project(server_project_guard):
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1700, 'height': 950})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}"
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}"
     )
     pg = context.new_page()
     pg.goto(e2e_server, wait_until='domcontentloaded')
@@ -554,6 +556,20 @@ def _start(page, tour, speed=DRIVE_SPEED):
     return _wait_step(page, 0)
 
 
+def _skip(page):
+    """Skip, and wait until the guide says the person's world is back.
+    Skip puts it back over the network (preferences, then the project)
+    and only then the panels and the tray, so the restore takes as long
+    as those round trips: 0.2 to 0.9 s under a CPU burner (2026-11-04),
+    against the fixed 1.5 s this used to sleep. end() keeps the guide
+    running until the restore is done, so a restore that went wrong still
+    fails the reads after this."""
+    page.locator('#qs-skip').click()
+    page.wait_for_function(
+        "() => !window.QuickStart.state().visible && !window.QuickStart.state().running",
+        timeout=30000)
+
+
 def _end(page):
     page.evaluate("() => window.QuickStart.end()")
     page.wait_for_timeout(300)
@@ -708,8 +724,7 @@ def test_exit_puts_the_users_project_back(page):
     _drive_to(page, 'advanced', i)
     mid = page.evaluate(WORLD_JS)
     assert 'DEMO WALL' in mid['layers'], mid['layers']
-    page.locator('#qs-skip').click()
-    page.wait_for_timeout(1500)
+    _skip(page)
 
     after = page.evaluate(WORLD_JS)
     assert after['project'] == before['project'], 'the project did not come back deep-equal'
@@ -783,8 +798,7 @@ def test_tour_leaves_preferences_alone(page):
         i = _step_index(page, 'advanced', 'Border and title block')
         st = _drive_to(page, 'advanced', i)
         assert st['state'] == 'done' and not st['fail'], st
-        page.locator('#qs-skip').click()
-        page.wait_for_timeout(1500)
+        _skip(page)
         prefs = page.evaluate(PREFS_JS, None)
         assert prefs.get('binderTitleBlock') is False, prefs.get('binderTitleBlock')
         assert page.evaluate("window.app.getPreferences().binderTitleBlock") is False
@@ -884,7 +898,7 @@ def test_whats_new_launches_from_help_menu(e2e_server, pw_browser, browser_name,
     def body(browser):
         context = browser.new_context(viewport={'width': 1700, 'height': 950})
         context.add_init_script(
-            "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+            "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
         pg = context.new_page()
         try:
             pg.goto(e2e_server, wait_until='domcontentloaded')
@@ -931,7 +945,7 @@ CALLOUT_JS = """() => {
 # remembered folded under the very id the demo mints (folds persist per
 # section id in localStorage, so the demo's SL 1 would come up folded).
 TRAY_INIT_JS = """try {
-    localStorage.setItem('lrd_quickstart_disabled', '1');
+    localStorage.setItem('lrd_quickstart_first_run_done', '1');
     localStorage.setItem('ledRasterSidebarCollapsed_dock', '1');
     localStorage.setItem('lrd_dock_h', '100');
     localStorage.setItem('ledRasterPanelCollapsed_hwdock-multi-d1-1', '1');
@@ -1031,8 +1045,7 @@ def test_a_folded_tray_and_a_small_window_do_not_break_the_tour(e2e_server, pw_b
         jumpy = [f"step {s + 1} ({titles[s]!r}) moved {len(q) - 1} times: {q}"
                  for s, q in sorted(moves.items()) if len(q) > 2]
         assert not jumpy, '\n'.join(jumpy)
-        pg.locator('#qs-skip').click()
-        pg.wait_for_timeout(1500)
+        _skip(pg)
         assert not pg.evaluate("window.QuickStart.state().visible")
         after = pg.evaluate(TRAY_STATE_JS)
         assert after['collapsed'], after
@@ -1048,7 +1061,7 @@ def test_a_folded_tray_and_a_small_window_do_not_break_the_tour(e2e_server, pw_b
 # display:none under its fold - and the callout sat in the middle of the
 # window, because its spot in the right sidebar was not there.
 PANELS_INIT_JS = """try {
-    localStorage.setItem('lrd_quickstart_disabled', '1');
+    localStorage.setItem('lrd_quickstart_first_run_done', '1');
     localStorage.setItem('ledRasterSidebarCollapsed_left', '1');
     localStorage.setItem('ledRasterSidebarCollapsed_right', '1');
     localStorage.setItem('ledRasterPanelCollapsed_pixel-map--screen-info', '1');
@@ -1084,8 +1097,7 @@ def test_folded_sidebars_and_a_folded_section_do_not_break_the_tour(e2e_server, 
     context.add_init_script(PANELS_INIT_JS)
     pg = context.new_page()
     try:
-        pg.goto(e2e_server, wait_until='domcontentloaded')
-        pg.wait_for_timeout(2000)
+        open_app(pg, e2e_server)
         before = pg.evaluate(PANELS_STATE_JS)
         assert before['left'] and before['right'] and before['screenInfoFolded'], before
         assert before['cabinetWidth'][2:] == [0, 0], before
@@ -1111,8 +1123,7 @@ def test_folded_sidebars_and_a_folded_section_do_not_break_the_tour(e2e_server, 
                 assert mid['cabinetWidth'][2] > 100 and mid['cabinetWidth'][0] > 0, mid
                 assert box['inSidebar'] and not box['centred'], box
         assert not problems, '\n'.join(problems)
-        pg.locator('#qs-skip').click()
-        pg.wait_for_timeout(1500)
+        _skip(pg)
         assert not pg.evaluate("window.QuickStart.state().visible")
         after = pg.evaluate(PANELS_STATE_JS)
         assert after['left'] and after['right'] and after['screenInfoFolded'], after

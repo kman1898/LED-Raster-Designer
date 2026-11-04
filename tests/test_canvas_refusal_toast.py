@@ -55,7 +55,7 @@ def page(e2e_server, pw_browser):
             body='{"ok": false, "cancelled": true, "unavailable": false}'))
     # The hardware dock starts FOLDED, as the owner's was.
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');"
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');"
         "localStorage.setItem('ledRasterSidebarCollapsed_dock','1');}catch(e){}")
     pg = context.new_page()
     errors = []

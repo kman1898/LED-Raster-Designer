@@ -371,9 +371,9 @@
 
     // ── auto-show ────────────────────────────────────────────────────────
 
-    // The Quick Start guide auto-shows on launch unless the user disabled
-    // it. If its overlay is up, or is still on its way (guide enabled but
-    // not built yet; it can take a few seconds while the app initializes),
+    // The Quick Start guide auto-shows on the first run only. If its overlay
+    // is up, or is still on its way (the guide still deciding, which can
+    // take a few seconds while the app initializes),
     // hold the window until the guide is gone so the two never stack. Give
     // up quietly after ~2 min without stamping, so the window simply tries
     // again next launch.
@@ -382,14 +382,20 @@
         if (tries > 240) { autoPending = false; return; }
         var overlay = document.getElementById('qs-catch');
         var tourUp = !!overlay && overlay.style.display !== 'none';
-        var tourEnabled = true;
-        try {
-            tourEnabled = localStorage.getItem('lrd_quickstart_disabled') !== '1';
-        } catch (e) {}
-        // Guide enabled but its overlay never built: it may still be waiting
-        // for the app to finish loading. Give it ~12s to appear before
-        // concluding it is not coming (it gives up on its own after ~6s).
-        var tourPending = tourEnabled && !overlay && tries < 24;
+        // Is the guide on its way? It says so itself (quickstart.js
+        // autoPending: true until it has shown or decided not to); with no
+        // guide script, only a first run could bring one.
+        var q = window.QuickStart;
+        var tourComing = false;
+        if (q && typeof q.autoPending === 'function') {
+            tourComing = !!q.autoPending();
+        } else {
+            try { tourComing = localStorage.getItem('lrd_quickstart_first_run_done') !== '1'; } catch (e) {}
+        }
+        // On its way but its overlay not built yet: give it ~12s to appear
+        // before concluding it is not coming (it gives up on its own after
+        // ~6s).
+        var tourPending = tourComing && !overlay && tries < 24;
         if (!tourUp && !tourPending && tries >= 4) { cb(); return; }
         setTimeout(function () { whenTourClear(cb, tries + 1); }, 500);
     }

@@ -1211,14 +1211,21 @@ class _MergeRuns {
     }
 
     // "Screen1: port P45 had nothing drawn on it, so the ports after it
-    // moved up and run 1-46 with no gaps."
+    // moved up and run 1-46 with no gaps." Read once the ports closed up.
+    // One port left reads "moved up to port 1", never a "1-1" range; with no port
+    // after the gaps nothing moved up, and the note says the numbers went
+    // (the trim's own wording).
     _customGapNote(owner, gaps) {
         const one = gaps.length === 1;
         const paths = (owner && owner.customPortPaths) || {};
         const n = Object.keys(paths).filter(k => Array.isArray(paths[k]) && paths[k].length).length;
-        return `${(owner && owner.name) || 'Screen'}: port${one ? '' : 's'} ${this._portNumbersText(gaps)} `
-            + `had nothing drawn on ${one ? 'it' : 'them'}, so the ports after moved up`
-            + (n ? ` and run 1-${n} with no gaps.` : '.');
+        // A port came after a gap when the first gap is now a drawn port.
+        const moved = n > 0 && Math.min(...gaps) <= n;
+        const head = `${(owner && owner.name) || 'Screen'}: port${one ? '' : 's'} ${this._portNumbersText(gaps)} `
+            + `had nothing drawn on ${one ? 'it' : 'them'}, so `;
+        if (!moved) return head + `${one ? 'it is' : 'they are'} gone.`;
+        return head + (n === 1 ? 'the port after moved up to port 1.'
+            : `the ports after moved up and run 1-${n} with no gaps.`);
     }
 
     // Does one of `layers` still wait for the open's repair (it was locked

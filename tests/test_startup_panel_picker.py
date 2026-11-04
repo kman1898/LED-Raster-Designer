@@ -48,7 +48,7 @@ def _guard(server_project_guard):
 
 
 ENABLE_PICKER = (
-    "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}"
+    "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}"
     "window.__lrdStartupPicker = true;"
 )
 
@@ -191,7 +191,7 @@ def test_old_saved_panel_preferences_are_harmless(e2e_server, pw_browser):
     reads them, the dialog opens and saves without them, and a screen
     made in an empty project takes the server's cabinet, not theirs."""
     context, pg, problems = _open_page(pw_browser, e2e_server,
-                                       init="try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+                                       init="try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     try:
         before = pg.evaluate("async () => (await fetch('/api/preferences')).json()")
         old = dict(before or {}, panelWidth=999, panelHeight=777, panelWidthMM=1234,
@@ -323,7 +323,7 @@ def test_a_preset_with_a_panel_names_it_on_the_new_screen(e2e_server, pw_browser
     name = 'Startup Picker Test Preset'
     try:
         context, pg, problems = _open_page(pw_browser, e2e_server,
-                                           init="try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+                                           init="try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
         pg.evaluate("""async (name) => {
             const app = window.app;
             const l = app.project.layers.find(x => (x.type || 'screen') === 'screen');
