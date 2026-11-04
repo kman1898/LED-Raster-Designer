@@ -1000,6 +1000,13 @@ class _CustomRuns {
     //                            ports").
     //   nothing selected         nothing happens ("if the group is not
     //                            selected, then it should do nothing")
+    //   no cabinets, a redraw    the redraw's own cabinets are filled into
+    //   open (any of the above)  its port and the redraw closes, nothing
+    //                            else on the screen moves (QA, 1.6.0: a tile
+    //                            pressed during Redraw Ports As One refilled
+    //                            the whole screen from P1, undid the ports
+    //                            just redrawn and wired cabinets left unwired
+    //                            on purpose; _fillRedrawSession)
     //
     // The whole-screen branch borrows the cabinet selection to drive the
     // fill and ALWAYS hands it back as it found it - on success and on a
@@ -1007,8 +1014,9 @@ class _CustomRuns {
     // refusal, where they swallowed every later cabinet click
     // (addPanelToCustomPath returns while a selection is pending).
     //
-    // An overridden run open for redrawing on an AUTOMATIC screen keeps its
-    // old split: with cabinets selected the tile fills them, with none it
+    // An overridden run open for redrawing on an AUTOMATIC screen: with
+    // cabinets selected the tile fills them; with none, the cabinets the
+    // redraw holds are filled into it (the row above); with none held it
     // falls through and sets the screen's automatic pattern, because that
     // screen is not in custom mode.
     applyPatternTileInCustom(kind, pattern) {
@@ -1020,6 +1028,13 @@ class _CustomRuns {
         const selection = isPower ? this.powerCustomSelection : this.customSelection;
         if (selection && selection.size > 0) {
             this._applyPatternFill(kind, pattern);
+            return true;
+        }
+        // A redraw open with cabinets held: the tile fills those, and only
+        // those, into the redraw's port (_fillRedrawSession).
+        const session = this._patternTileSession(kind, isPower ? this.powerPathOwner(owner) : owner);
+        if (session) {
+            this._fillRedrawSession(session, pattern, selection);
             return true;
         }
         const custom = isPower ? this.isCustomPower(owner) : this.isCustomFlow(owner);
@@ -1053,6 +1068,122 @@ class _CustomRuns {
         }
         if (window.canvasRenderer) window.canvasRenderer.render();
         return true;
+    }
+
+    // The redraw open on `owner` for this side that holds cabinets, or null:
+    //   merge   Redraw Ports As One (data, custom or automatic screen): the
+    //           cabinets of the ports it freed, into its one port;
+    //   redraw  one port (data) or circuit (power) taken over on an
+    //           automatic screen: the cabinets it held when it opened.
+    // `keys` are scoped cabinet keys, `ready` false while a merge is still
+    // opening (its cards are being renumbered on the server).
+    _patternTileSession(kind, owner) {
+        if (!owner) return null;
+        if (kind !== 'power' && typeof this._mergeRedrawLive === 'function') {
+            const m = this._mergeRedrawLive();
+            if (m && m.layerId === owner.id) {
+                return { kind, type: 'merge', layerId: owner.id, num: m.num,
+                         keys: [...(m.held || [])], ready: !!m.ready };
+            }
+        }
+        const ed = this._overrideEditing;
+        if (!ed || ed.kind !== kind || ed.layerId !== owner.id) return null;
+        const hold = kind === 'power'
+            ? (typeof this._powerHoldLive === 'function' ? this._powerHoldLive() : null)
+            : (typeof this._overrideHoldLive === 'function' ? this._overrideHoldLive() : null);
+        if (!hold || hold.layerId !== owner.id || !hold.keys || hold.keys.size === 0) return null;
+        return { kind, type: 'redraw', layerId: owner.id, num: ed.num, keys: [...hold.keys], ready: true };
+    }
+
+    // A tile pressed with no cabinets selected while a redraw holds some
+    // (applyPatternTileInCustom): the redraw's cabinets are laid out in the
+    // pattern on its own port (a merge's one port; a redraw's port and,
+    // should they not fit, the taken-over ports after it, the way a marquee
+    // fill steps on), and the redraw then closes the way a marquee and a
+    // tile close it: Redraw Ports As One keeps its drawing as ONE undo step
+    // (finishMergeRedraw), a single redraw ends (endOverrideEdit). A held
+    // cabinet already drawn onto ANOTHER run is left where it is. No other
+    // cabinet is touched: no other port's run, and no cabinet left unwired
+    // outside the redraw. A merge still opening takes no fill.
+    _fillRedrawSession(session, pattern, selection) {
+        const isPower = session.kind === 'power';
+        const owner = (this.project.layers || []).find(l => l.id === session.layerId);
+        if (!owner || !selection || !session.ready) {
+            sendClientLog('pattern_tile_session_skipped', {
+                kind: session.kind, pattern, type: session.type, ready: !!session.ready,
+            });
+            return false;
+        }
+        const pathsKey = isPower ? 'powerCustomPaths' : 'customPortPaths';
+        const paths = owner[pathsKey] || {};
+        // The runs that are live: every drawn run on a custom screen, the
+        // taken-over ones on an automatic screen (a drawing left from an
+        // earlier custom spell feeds nothing there).
+        const custom = isPower ? this.isCustomPower(owner) : this.isCustomFlow(owner);
+        const live = custom ? Object.keys(paths)
+            : this.getOverrideNums(owner, session.kind).map(String);
+        const elsewhere = new Set();
+        live.forEach(n => {
+            if (Number(n) === Number(session.num)) return;
+            (paths[n] || []).forEach(e => {
+                if (e) elsewhere.add(this.getScopedPanelKey(this.getPathEntryLayerId(owner, e), e));
+            });
+        });
+        const keys = session.keys.filter(k => !elsewhere.has(k));
+        if (keys.length === 0) return false;
+        const before = new Set(selection);
+        let ok = false;
+        try {
+            selection.clear();
+            keys.forEach(k => selection.add(k));
+            ok = this._applyPatternFill(session.kind, pattern, { startNum: session.num });
+        } finally {
+            selection.clear();
+            before.forEach(k => selection.add(k));
+        }
+        if (ok) {
+            if (session.type === 'merge') {
+                // Every held cabinet drawn closes it already
+                // (_mergeRedrawAfterStep); one left on another run does not.
+                if (this._mergeRedrawLive()) this.finishMergeRedraw();
+            } else if (this._overrideEditing) {
+                this.endOverrideEdit();
+            }
+        }
+        sendClientLog('pattern_tile_session_filled', {
+            kind: session.kind, pattern, type: session.type, layerId: owner.id,
+            num: session.num, cabinets: keys.length, ok,
+        });
+        if (isPower) this.updateCustomPowerUI();
+        else {
+            this.updateCustomFlowUI();
+            this.updatePortLabelEditor();
+        }
+        if (window.canvasRenderer) window.canvasRenderer.render();
+        return ok;
+    }
+
+    // What a pattern tile press is about to do, for the client log: which
+    // tile, the view, and whether a redraw was open (the owner's log of
+    // 2026-11-04 showed only an anonymous click before a whole-screen
+    // refill).
+    _logPatternTile(kind, pattern) {
+        const shown = this.currentLayer;
+        const owner = kind === 'power' && shown && typeof this.powerPathOwner === 'function'
+            ? this.powerPathOwner(shown) : shown;
+        const session = this._patternTileSession(kind, owner);
+        const selection = kind === 'power' ? this.powerCustomSelection : this.customSelection;
+        const custom = !!owner && (kind === 'power' ? this.isCustomPower(owner) : this.isCustomFlow(owner));
+        sendClientLog('pattern_tile', {
+            kind, pattern,
+            view: (window.canvasRenderer && window.canvasRenderer.viewMode) || null,
+            layerId: owner ? owner.id : null,
+            custom,
+            selected: selection ? selection.size : 0,
+            session: session ? session.type : null,
+            sessionNum: session ? session.num : null,
+            sessionReady: session ? session.ready : null,
+        });
     }
 
     // The screens an AUTOMATIC pattern tile writes: the selected screens and
@@ -1234,7 +1365,8 @@ class _CustomRuns {
         // A frozen number is stepped over - at the start as between runs -
         // and its locked screens are named.
         const steppedOver = (nums) => nums.forEach(n => meet(this._runLockedLayers(owner, kind, n)));
-        let startNum = refill ? 1 : (owner[idxKey] || 1);
+        // `opts.startNum`: a redraw's own port (_fillRedrawSession).
+        let startNum = refill ? 1 : ((opts && opts.startNum) || owner[idxKey] || 1);
         const startSkipped = [];
         while (startNum !== null && frozen.has(startNum)) {
             startSkipped.push(startNum);
@@ -1831,8 +1963,10 @@ class _CustomRuns {
         // Data: the last run cut from a long line is SEALED - no later line
         // joins it, because an Organized port never carries on onto the next
         // row (the owner, 2026-11-01), the same rule as the automatic walk's
-        // cut (calculatePortAssignments splitUnit). Power keeps its rule: a
-        // whole line that fits may still join the remainder.
+        // cut (calculatePortAssignments splitUnit). Only another cut
+        // line's remainder in the same columns may share its port, after
+        // the walk (_stackLineLeftovers). Power keeps its rule: a whole
+        // line that fits may still join the remainder.
         let sealed = false;
         for (const line of lines) {
             linePos += 1;
@@ -1891,6 +2025,34 @@ class _CustomRuns {
             sealed = kind !== 'power';
         }
         chunks.push(cur);
+        // Data: the leftovers of consecutive cut lines in the same columns
+        // stack into one port while it carries them, as the automatic walk
+        // stacks them (_stackLineLeftovers, the owner's ruling of
+        // 2026-11-04). The runs keep the numbers handed out, in order; the
+        // ones a fold leaves unused are dropped from the end. Power keeps
+        // its rule.
+        const posOf = opts && opts.posOf;
+        if (kind !== 'power' && typeof posOf === 'function'
+                && chunks.every(c => c.picks.every(p => Number.isFinite(posOf(p))))) {
+            const nums = chunks.map(c => c.num);
+            const folded = this._stackLineLeftovers(chunks, {
+                cellsOf: c => c.picks,
+                alongOf: posOf,
+                join: (acc, next, n) => {
+                    const back = bounce === 1 && n % 2 === 1;
+                    const picks = acc.picks.concat(back ? next.picks.slice().reverse() : next.picks);
+                    if (loadFor(picks) > limitFor(picks) + eps) return null;
+                    return { num: acc.num, picks, load: loadFor(picks), split: acc.split };
+                },
+            });
+            if (folded > 0) {
+                chunks.forEach((c, i) => { c.num = nums[i]; });
+                const top = nums[chunks.length - 1];
+                for (let i = skipped.length - 1; i >= 0; i--) {
+                    if (skipped[i] > top) skipped.splice(i, 1);
+                }
+            }
+        }
         const horizontal = !(opts && opts.vertical);
         const stacks = kind === 'power'
             ? this.powerNumbersStack(owner, horizontal)

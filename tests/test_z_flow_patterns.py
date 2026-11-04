@@ -159,17 +159,26 @@ def test_max_capacity_cuts_the_z_walk_where_the_port_fills(page):
 @pytest.mark.parametrize("snake", ['tl-h', 'tr-h', 'bl-h', 'br-h'])
 def test_the_owner_wall_splits_the_same_on_a_z(page, snake):
     """90 x 5 Armor at 8 a port: every cut run reads from the start side on
-    a snake already, so its Z twin gives the same 60 ports, 8 x 11 + 2 a
-    row, every run in a row going the same way."""
+    a snake already, so its Z twin gives the same 57 ports, 8 x 11 a row
+    and four rows' 2-wide leftovers stacked into one port (2026-11-04),
+    every run in a row going the same way. Only the stacked port differs:
+    the snake runs its second and fourth rows back, the Z reads every row
+    from the start side."""
     z = _port_map(page, {'flowPattern': snake + '-z'})
     s = _port_map(page, {'flowPattern': snake})
-    assert z['error'] is None and z['auto'] == 60
-    assert [len(p) for p in _cells(z)] == ([8] * 11 + [2]) * 5
-    assert _cells(z) == _cells(s)
+    assert z['error'] is None and z['auto'] == 57
+    zc, sc = _cells(z), _cells(s)
+    assert len(zc) == len(sc) == 57
+    stacked = [i for i, p in enumerate(zc) if len({r for r, _ in p}) > 1]
+    assert len(stacked) == 1
+    k = stacked[0]
+    assert zc[:k] + zc[k + 1:] == sc[:k] + sc[k + 1:]
+    assert sorted(map(tuple, zc[k])) == sorted(map(tuple, sc[k]))
     left = snake.startswith('tl') or snake.startswith('bl')
-    for p in _cells(z):
-        cols = [c for _, c in p]
-        assert cols == sorted(cols, reverse=not left), p
+    for p in zc:
+        for row in {r for r, _ in p}:
+            cols = [c for r, c in p if r == row]
+            assert cols == sorted(cols, reverse=not left), p
 
 
 def test_down_numbering_on_a_z(page):
@@ -186,8 +195,11 @@ def test_a_tall_z_column_splits_down_the_column(page):
     tall = {'columns': 5, 'rows': 90, 'cabinet_width': 384, 'cabinet_height': 192,
             'flowPattern': 'tl-v-z'}
     got = _cells(_port_map(page, tall))
-    assert [len(p) for p in got] == ([8] * 11 + [2]) * 5
-    assert [c for p in got[:12] for c in p] == [[r, 0] for r in range(90)]
+    # columns 0-3's 2-tall leftovers stack across them (2026-11-04), each
+    # column read from the top on a Z
+    assert [len(p) for p in got] == [8] * 56 + [2]
+    assert [c for p in got[:11] for c in p] == [[r, 0] for r in range(88)]
+    assert got[11] == [[r, c] for c in range(4) for r in (88, 89)]
     across = _cells(_port_map(page, dict(tall, portNumberOrder='across')))
     assert across[1] == [[r, 1] for r in range(8)]
 
@@ -233,7 +245,7 @@ def test_apply_pattern_on_the_owner_wall_with_a_z_and_down(page):
                      walked: h.portMap(app, auto).ports.map(p => p.cells) };
         });
     }""")
-    assert len(got['drawn']) == 60
+    assert len(got['drawn']) == 57
     assert got['drawn'] == got['walked']
 
 

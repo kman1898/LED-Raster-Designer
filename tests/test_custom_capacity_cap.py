@@ -421,9 +421,11 @@ def test_a_row_longer_than_a_circuit_is_cut_and_its_remainder_stands_alone(page)
 
 def test_data_serpentine_cuts_at_the_pixel_derived_port_cap(page):
     """The data twin: 256 px cabinets on a 525,000 px Brompton port pack 8.
-    A 12-wide row is longer than a port, so each row is cut at 8 and its
-    remaining 4 stand on a port of their own - port 2 does NOT snake back
-    along row 1, because row 1 (12) would not fit on it whole."""
+    A 12-wide row is longer than a port, so each row is cut at 8 from the
+    left. Port 2 does NOT snake on along row 1 from mid-row: it takes the
+    leftover 4 of row 0 and, stacked under them, the leftover 4 of row 1
+    (the owner's ruling, 2026-11-04: the leftovers fill their port as far
+    as the math allows), and port 3 is row 1 from the left."""
     reset(page, columns=12, rows=2, cab=256, view='data-flow')
     out = page.evaluate("""() => {
         const app = window.app, cap = window.__cap;
@@ -442,16 +444,15 @@ def test_data_serpentine_cuts_at_the_pixel_derived_port_cap(page):
     assert out['selected'] == 24, out['selected']
     assert out['cap']['count'] == 8 and out['cap']['limit'] == 525000, out['cap']
     paths = out['paths']
-    assert [len(paths[str(n)]) for n in (1, 2, 3, 4)] == [8, 4, 8, 4], paths
+    assert sorted(paths) == ['1', '2', '3'], paths
     assert paths['1'] == [[0, c] for c in range(8)], paths['1']
-    # Port 2 is the rest of row 0, read on in the pattern's direction, and
-    # nothing else: row 1 does not fit on it whole.
-    assert paths['2'] == [[0, 8], [0, 9], [0, 10], [0, 11]], paths['2']
-    # Port 3 starts row 1 from the left - the start side - and port 4 takes
-    # the rest of it.
+    # Port 2 is the rest of row 0, read on in the pattern's direction, then
+    # the rest of row 1 under it, back the other way.
+    assert paths['2'] == [[0, 8], [0, 9], [0, 10], [0, 11],
+                          [1, 11], [1, 10], [1, 9], [1, 8]], paths['2']
+    # Port 3 starts row 1 from the left - the start side.
     assert paths['3'] == [[1, c] for c in range(8)], paths['3']
-    assert paths['4'] == [[1, 8], [1, 9], [1, 10], [1, 11]], paths['4']
-    assert out['active'] == 4, out['active']
+    assert out['active'] == 3, out['active']
     assert out['hist'] == ['Initial State', 'Custom Pattern Apply'], out['hist']
     assert len(out['toasts']) == 1 and out['toasts'][0].startswith('Filled ports '), out['toasts']
     assert 'whole rows, up to 8 panels each at 525,000 px/port' in out['toasts'][0], out['toasts'][0]
@@ -573,8 +574,8 @@ def test_max_capacity_data_packs_ports_of_8_8_8_across_the_row_break(page):
 
 def test_flipping_the_mode_back_to_organized_gives_whole_rows_again(page):
     """Same screen, Max Capacity then Organized: the second fill is the
-    whole-row result the organized tests pin (8, 4, 8, 4), and its toast
-    names whole rows."""
+    whole-row result the organized tests pin (each row cut from the left,
+    the leftovers stacked), and its toast names whole rows."""
     reset(page, columns=12, rows=2, cab=256, view='data-flow')
     packed = page.evaluate("""() => {
         const app = window.app, cap = window.__cap;
@@ -598,11 +599,11 @@ def test_flipping_the_mode_back_to_organized_gives_whole_rows_again(page):
         return { paths: cap.paths('customPortPaths'), toasts: cap.toasts.slice() };
     }""")
     paths = out['paths']
-    assert [len(paths[str(n)]) for n in (1, 2, 3, 4)] == [8, 4, 8, 4], paths
+    assert sorted(paths) == ['1', '2', '3'], paths
     assert paths['1'] == [[0, c] for c in range(8)], paths['1']
-    assert paths['2'] == [[0, 8], [0, 9], [0, 10], [0, 11]], paths['2']
+    assert paths['2'] == [[0, 8], [0, 9], [0, 10], [0, 11],
+                          [1, 11], [1, 10], [1, 9], [1, 8]], paths['2']
     assert paths['3'] == [[1, c] for c in range(8)], paths['3']
-    assert paths['4'] == [[1, 8], [1, 9], [1, 10], [1, 11]], paths['4']
     assert '(whole rows, up to 8 panels each at 525,000 px/port)' in out['toasts'][0], out['toasts']
     assert 'packed full' not in out['toasts'][0], out['toasts'][0]
 

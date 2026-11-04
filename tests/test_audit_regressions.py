@@ -1127,7 +1127,11 @@ def test_legacy_organized_splits_a_row_wider_than_one_port(page, dims):
     ruling (2026-11-01): fill the port with as many whole cabinets as fit
     and start the next port in the same row. 40 fit a port here, so a row
     of 60 is 40 + 20, of 100 is 40 + 40 + 20, of 45 is 40 + 5, and no port
-    carries on onto the next row.
+    snakes on from mid-row. The owner's ruling of 2026-11-04: the row-end
+    leftovers in the same columns stack into one port while it carries
+    them, so the two 20s of the 60 x 2 wall are one port of 40 and the six
+    5s of the 45 x 6 wall one port of 30. Numbered along the rows, a
+    stacked port comes where its first cabinet does.
     """
     cols, rows = dims
     got = page.evaluate("""(d) => {
@@ -1147,12 +1151,18 @@ def test_legacy_organized_splits_a_row_wider_than_one_port(page, dims):
                      err: s._capacityError ? s._capacityError.unitType : null };
         });
     }""", [cols, rows])
-    per_row = [40] * (cols // 40) + ([cols % 40] if cols % 40 else [])
+    left = cols % 40
+    stack = min(rows, 40 // left) if left else 0
+    sizes = []
+    for r in range(rows):
+        sizes += [40] * (cols // 40)
+        if left and r % stack == 0:
+            sizes.append(left * min(stack, rows - r))
     assert got['err'] is None, f"Organized still refuses the long row: {got}"
     assert got['n'] == cols * rows
-    assert got['sizes'] == per_row * rows
-    assert got['auto'] == len(per_row) * rows
-    assert set(got['rowsPerPort']) == {1}
+    assert got['sizes'] == sizes
+    assert got['auto'] == len(sizes)
+    assert set(got['rowsPerPort']) == ({1, min(stack, rows)} if stack else {1})
 
 
 def test_a_screen_with_no_fill_colours_no_longer_blanks_the_canvas(page):

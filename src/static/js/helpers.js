@@ -158,10 +158,16 @@ function registerGlobalClientLogging() {
     document.addEventListener('click', (event) => {
         const button = event.target ? event.target.closest('button') : null;
         if (!button) return;
-        sendClientLog('ui_click', {
+        // A button with no id and no text (the pattern tiles are icons)
+        // names itself by its data attribute and its tooltip, so the log
+        // says which one was pressed.
+        const data = button.getAttribute('data-pattern') || button.getAttribute('data-action') || '';
+        const entry = {
             id: button.id || '',
-            text: (button.textContent || '').trim()
-        });
+            text: (button.textContent || '').trim() || button.getAttribute('aria-label') || button.title || ''
+        };
+        if (data) entry.data = data;
+        sendClientLog('ui_click', entry);
     });
 }
 

@@ -243,9 +243,19 @@ class _MergeRuns {
         return { backToAuto, clear };
     }
 
+    // The project's own copy of `layer` (same id), or `layer` itself when
+    // the project holds none: a menu armed on one copy acts on the copy the
+    // page holds when it is picked (beginMergeRedraw says why).
+    _liveLayer(layer) {
+        if (!layer || !this.project) return layer;
+        const live = (this.project.layers || []).find(l => l && l.id === layer.id);
+        return live || layer;
+    }
+
     // Every port of `nums` on `owner` back to the walk, ONE undo step
     // (returnRunToAuto, for several).
     _returnPicksToAuto(owner, nums) {
+        owner = this._liveLayer(owner);
         if (!owner || !nums.length) return;
         const locked = typeof this._runLockedLayers === 'function'
             ? [...new Set(nums.flatMap(n => this._runLockedLayers(owner, 'data', n)))] : [];
@@ -329,6 +339,16 @@ class _MergeRuns {
     // Open the session: renumber the screen, free the picked cabinets, pin
     // the cards in step, and open the first number for drawing.
     beginMergeRedraw(owner, nums) {
+        // The screen as the page holds it NOW. The menu that calls this was
+        // armed on the copy held when it opened (_prepareMergeRunsMenu), and
+        // a save's reply or an echo landing while the menu was open puts a
+        // fresh copy in that one's place (updateLayers, applyServerLayer).
+        // Freeing the old copy's ports left the live screen's drawn, so the
+        // session opened over ports still wired and a fill of the freed
+        // cabinets was refused as "already wired to other ports" (QA,
+        // 1.6.0: about one try in nine, a save still out from the redraw
+        // just kept).
+        owner = this._liveLayer(owner);
         if (!owner || this._mergeRedrawLive()) return false;
         const picks = [...new Set((nums || []).map(n => parseInt(n, 10))
             .filter(n => Number.isFinite(n) && n >= 1))].sort((a, b) => a - b);
