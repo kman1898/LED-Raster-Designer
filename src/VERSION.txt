@@ -965,6 +965,22 @@ FIXES
 - FIX: A redrawn circuit left with nothing drawn goes back to automatic
   and the circuits after it close up, and their typed labels now move
   with their cabinets, the way data port names do.
+- FIX: Clear Circuit while you redraw a circuit no longer gives the next
+  circuit the same name. Every other circuit keeps its label while you
+  draw the redrawn one again.
+- FIX: Turning Custom on with one port left says the port moved up to
+  port 1 instead of "run 1-1", and a port with nothing drawn and nothing
+  after it is said to be gone.
+- FIX: New on the start page with unsaved changes keeps the start page
+  open while it asks to save them, so Cancel goes back to it, the same as
+  Open file and Recent.
+- FIX: The Quick Start guide opens on the first run only. Every launch
+  after that opens on the start page, so the two no longer take turns,
+  and you don't have to tick "Don't show on startup" to stop it.
+- FIX: A screen you add with + Add > Screen goes to the first free spot
+  on its canvas that fits it, left to right and then top to bottom,
+  instead of landing on top of the screen at the corner. On an empty
+  canvas it still starts at the corner.
 
 v1.5.3 - October 21, 2026
 ----------------------------

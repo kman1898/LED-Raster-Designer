@@ -2152,13 +2152,14 @@ export class LEDRasterApp {
             };
         }
 
+        const spot = this._newScreenSpot(serverProps, presetData);
         return fetch('/api/layer/add', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 name: this.getNextScreenName(),
-                offset_x: 0,
-                offset_y: 0,
+                offset_x: spot.x,
+                offset_y: spot.y,
                 ...serverProps
             })
         })
@@ -2250,6 +2251,72 @@ export class LEDRasterApp {
                 this._toast('The screen was not added. Check the connection and try again.', true);
             }
         });
+    }
+
+    // Where a new screen lands (the owner, 2026-11-04): the FIRST FREE SPOT
+    // on the active canvas, the first gap big enough for it, scanning left
+    // to right, then top to bottom. An empty canvas is 0,0, and it never
+    // overlaps a screen on that canvas. It landed at 0,0 every time, on top
+    // of the screen already there.
+    //
+    // Its size is the one the server will build (create_layer): columns x
+    // rows of the cabinet the data names, else the cabinet of the canvas's
+    // newest screen (_seed_data_with_canvas_defaults), else 128 px; a
+    // preset's 90 / 270 rotation turns its footprint. Coordinates are the
+    // canvas raster's pixels (offset_x / offset_y, Pixel Map), the screens
+    // there read as drawn (getLayerFootprintBounds).
+    //
+    // The scan steps through the left and top edges a free spot can start
+    // at: 0 and every screen's right edge across, 0 and every screen's
+    // bottom edge down. The first free spot of a pixel-by-pixel scan always
+    // sits on one of them (slid any further up or left it would meet a
+    // screen or the canvas edge), so this finds the same spot, exactly, in
+    // a few hundred looks. Stepping by the new screen's size or by its
+    // cabinet would miss a gap whose edges are off that grid. A screen that
+    // fits nowhere on the canvas starts a row under the lowest screen.
+    _newScreenSpot(serverProps, presetData) {
+        const p = this.project || {};
+        const r = window.canvasRenderer;
+        const activeId = p.active_canvas_id || null;
+        const screens = (p.layers || []).filter(l => l && (l.type || 'screen') === 'screen'
+            && (l.canvas_id || null) === activeId);
+        if (!screens.length || !r || typeof r.getLayerFootprintBounds !== 'function') return { x: 0, y: 0 };
+        const size = (v) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : null; };
+        const donor = screens.reduce((a, b) => ((Number(b.id) || 0) > (Number(a.id) || 0) ? b : a));
+        const props = serverProps || {};
+        const cw = size(props.cabinet_width) || size(donor.cabinet_width) || 128;
+        const ch = size(props.cabinet_height) || size(donor.cabinet_height) || 128;
+        const w = (Number(props.columns) || 0) * cw;
+        const h = (Number(props.rows) || 0) * ch;
+        const deg = ((((Number(presetData && presetData.rotation) || 0) % 360) + 360) % 360);
+        const swap = deg === 90 || deg === 270;
+        const fw = swap ? h : w;
+        const fh = swap ? w : h;
+        // A turned screen's footprint sits off its stored offset by this
+        // (getLayerFootprintOffset).
+        const dx = swap ? (w - h) / 2 : 0;
+        const dy = swap ? (h - w) / 2 : 0;
+        const boxes = screens.map(l => {
+            const b = r.getLayerFootprintBounds(l);
+            return { x1: b.x, y1: b.y, x2: b.x + b.width, y2: b.y + b.height };
+        });
+        const canvas = (p.canvases || []).find(c => c && c.id === activeId) || {};
+        const rasterW = size(canvas.raster_width) || size(p.raster_width) || Infinity;
+        const rasterH = size(canvas.raster_height) || size(p.raster_height) || Infinity;
+        const hits = (x, y) => boxes.some(b => x < b.x2 && x + fw > b.x1 && y < b.y2 && y + fh > b.y1);
+        const edges = (vals) => [...new Set([0, ...vals])].filter(v => Number.isFinite(v) && v >= 0)
+            .sort((a, b) => a - b);
+        const xs = edges(boxes.map(b => b.x2));
+        const ys = edges(boxes.map(b => b.y2));
+        for (const y of ys) {
+            if (y + fh > rasterH) break;
+            for (const x of xs) {
+                if (x + fw > rasterW) break;
+                if (!hits(x, y)) return { x: x - dx, y: y - dy };
+            }
+        }
+        const below = Math.max(0, ...boxes.map(b => b.y2));
+        return { x: 0 - dx, y: below - dy };
     }
 
     applyNewScreenPowerPreferences(layer, presetData) {

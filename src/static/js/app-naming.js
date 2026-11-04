@@ -251,10 +251,36 @@ class _Naming {
     // shows S3-1 but when i draw it changes to 1-1"). An unrouted custom
     // screen has no multis, so it takes no multi numbers and shifts no
     // other screen's - its first drawn circuit opens its first box.
+    //
+    // A redraw in progress keeps its circuit's place (1.6.0 QA, beta.6). An
+    // automatic screen's circuit taken over by Redraw circuit and emptied by
+    // Clear Circuit is out of the plan until a cabinet is drawn on it (or
+    // Esc hands it back to the walk), so the circuit after it was named by
+    // the place the redrawn one still held: Redraw S1-2, Clear Circuit, and
+    // circuit 3 read S1-2 beside the redraw's own S1-2 badge until Esc. The
+    // circuit being redrawn is counted where it stands, so every other
+    // circuit keeps its name while it is drawn again.
     _labelCircuits(layer) {
         if (!layer || typeof this.screenCircuits !== 'function') return [];
         if (this.isCustomPower(layer) && !this.usesCustomCircuits(layer)) return [];
-        return this.screenCircuits(layer) || [];
+        return this._withHeldRedraw(layer, this.screenCircuits(layer) || []);
+    }
+
+    // `circuits` with the circuit an open power redraw holds empty on
+    // `layer` put back in its place (an entry with no cabinets).
+    _withHeldRedraw(layer, circuits) {
+        const ed = this._overrideEditing;
+        if (!ed || ed.kind !== 'power' || ed.layerId !== layer.id) return circuits;
+        if (this.isCustomPower(layer)) return circuits;
+        const num = Number(ed.num);
+        if (!Number.isFinite(num) || circuits.some(c => Number(c.num) === num)) return circuits;
+        if (typeof this.isRunOverridden !== 'function' || !this.isRunOverridden(layer, 'power', num)) {
+            return circuits;
+        }
+        const at = circuits.findIndex(c => Number(c.num) > num);
+        const held = { num, panels: [], layers: [], held: true };
+        return at < 0 ? circuits.concat([held])
+            : circuits.slice(0, at).concat([held], circuits.slice(at));
     }
 
     // Cached by layer object for the current render burst and dropped on the

@@ -162,14 +162,19 @@ class _StartPage {
 
     // New project: the panel picker for the startup screen; its Cancel
     // comes back here (cancelPresetPicker).
-    startPageNew() {
-        this.closeStartPage();
+    async startPageNew() {
         sendClientLog('start_page_new', { layerId: this._startupTargetId == null ? null : this._startupTargetId });
         if (this._startupTargetId == null) {
-            // Over a project the launch brought back: File > New.
-            this.requestNewProject();
-            return;
+            // Over a project the launch brought back: File > New. The page
+            // stays up behind "Save changes?", so Cancel lands back on it,
+            // as Open file… and a Recent file do (1.6.0 QA, beta.6: it
+            // closed first, and Cancel left no start page at all). The new
+            // project's picker closes it (maybeOpenStartupPicker('new')).
+            const made = await this.requestNewProject();
+            if (made) this.closeStartPage();
+            return made;
         }
+        this.closeStartPage();
         if (!this._startupScreenStands(this._startupTargetId)) {
             // The project moved on under the page: nothing to pick for.
             sendClientLog('startup_picker_stale', { action: 'start_page_new', layerId: this._startupTargetId == null ? null : this._startupTargetId });

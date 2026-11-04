@@ -384,7 +384,11 @@
         var tourUp = !!overlay && overlay.style.display !== 'none';
         var tourEnabled = true;
         try {
-            tourEnabled = localStorage.getItem('lrd_quickstart_disabled') !== '1';
+            // The guide shows on the first run only (quickstart.js
+            // maybeAutoShow): once that is behind this browser it is not
+            // coming, and the window does not wait for it.
+            tourEnabled = localStorage.getItem('lrd_quickstart_disabled') !== '1'
+                && localStorage.getItem('lrd_quickstart_first_run_done') !== '1';
         } catch (e) {}
         // Guide enabled but its overlay never built: it may still be waiting
         // for the app to finish loading. Give it ~12s to appear before

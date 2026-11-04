@@ -627,6 +627,42 @@ def test_turning_custom_on_closes_the_drawings_gaps(page):
     assert sorted(ports(page, lid)) == list(range(1, 59))
 
 
+def _custom_on_with(page, lid, keep):
+    """The drawing cut to `keep` ({number: the port's path from the reset,
+    or None for an empty path}), then Custom turned on. The toast's notes."""
+    page.evaluate("""([id, keep]) => { const app = window.app, l = window.__shr.layer(id);
+        const was = l.customPortPaths, out = {};
+        Object.keys(keep).forEach(k => { out[k] = keep[k] === null ? [] : was[keep[k]]; });
+        l.flowPattern = 'tl-h';
+        l.customPortPaths = out;
+        app.updateLayers([l]); app.resetHistory('Gap Baseline'); window.__notes = []; }""", [lid, keep])
+    page.wait_for_timeout(300)
+    page.evaluate("(id) => { const app = window.app; app.selectLayer(window.__shr.layer(id)); "
+                  "app.toggleCustomFlowMode(true); }", lid)
+    page.wait_for_timeout(400)
+    return page.evaluate("() => window.__notes")
+
+
+def test_turning_custom_on_with_one_port_names_no_range(page):
+    """One port left after the gap closes reads "moved up to port 1", never
+    "run 1-1"; a gap with no port after it says the number went."""
+    lid = reset(page, custom=True)
+    notes = _custom_on_with(page, lid, {'1': None, '2': '2'})
+    assert sorted(ports(page, lid)) == [1]
+    assert notes == ['ShrinkWall: port P1 had nothing drawn on it, so the port after '
+                     'moved up to port 1.'], notes
+    lid = reset(page, custom=True)
+    notes = _custom_on_with(page, lid, {'1': '1', '2': None})
+    assert sorted(ports(page, lid)) == [1]
+    assert notes == ['ShrinkWall: port P2 had nothing drawn on it, so it is gone.'], notes
+    # two or more ports still read as their range
+    lid = reset(page, custom=True)
+    notes = _custom_on_with(page, lid, {'1': None, '2': '2', '3': '3'})
+    assert notes == ['ShrinkWall: port P1 had nothing drawn on it, so the ports after '
+                     'moved up and run 1-2 with no gaps.'], notes
+    assert not any('1-1' in n or '–' in n or '—' in n for n in notes)
+
+
 # ── No phantom ports (QA, 1.6.0) ──────────────────────────────────────────
 #
 # Every port number has cabinets. A single redraw that ends with its number
