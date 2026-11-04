@@ -44,7 +44,7 @@ def _guard(server_project_guard):
 
 
 # Every rig on one project, each on its own processor and its own wall(s):
-#   LOOPS  SX40, A to B and C to D: 6 primaries on A, 5 on C (the owner's
+#   LOOPS  SX40, A to B and C to D: one wall, 6 primaries on A, 5 on C (the owner's
 #          "12/20" and "10/20" rows, and his 22/40 header)
 #   ODD    SX40, A to B and C to D: 9 primaries on A ("18/20")
 #   PAIRA  SX40, A to B only: 12 primaries, A 1-10 then C 1-2
@@ -84,8 +84,9 @@ SEED_JS = """async () => {
         await send(`/api/layer/${r.id}`, 'PUT', {processorType: platform});
         walls[name] = r.id;
     };
-    for (const n of ['L1', 'L2', 'O1', 'P1', 'X1']) await wall(n, 'brompton');
-    for (const n of ['M1', 'S1', 'N1', 'W1', 'C1', 'Z1']) await wall(n, 'novastar-armor');
+    for (const n of ['L1', 'O1', 'P1', 'X1']) await wall(n, 'brompton');
+    for (const n of ['M1', 'S1', 'N1', 'W1', 'Z1']) await wall(n, 'novastar-coex-1g');
+    await wall('C1', 'novastar-armor');
     const units = {};
     const unit = async (name, deviceId, body) => {
         const added = await send('/api/processors', 'POST', {deviceId});
@@ -135,7 +136,8 @@ SEED_JS = """async () => {
         }
     };
     await place('L1', units.LOOPS.cardId, {lastIndex: 5});
-    await place('L2', units.LOOPS.cardId, {firstPort: 21, lastPort: 30, lastIndex: 4});
+    // the same wall's next five ports onto C (one wall: one canvas span)
+    await place('L1', units.LOOPS.cardId, {firstPort: 21, lastPort: 30, lastIndex: 10});
     await place('O1', units.ODD.cardId, {lastIndex: 8});
     await place('P1', units.PAIRA.cardId, {lastIndex: 11});
     await place('X1', units.PLAIN.cardId, {lastIndex: 10});
@@ -253,7 +255,7 @@ def test_the_owners_sx40_reads_its_primaries_over_twenty(tray):
     """6 on A and 5 on C with both loops: the header read 22/40 and reads
     11/20; the strips read 6/10 and 5/10 (were 12/20 and 10/20)."""
     page, ids, _ = tray
-    assert ids['need']['L1'] >= 6 and ids['need']['L2'] >= 5, ids['need']
+    assert ids['need']['L1'] >= 11, ids['need']
     head = card_glance(page, ids, 'LOOPS')
     assert_bar(head, 11, 20)
     assert head['title'] == ('11 of 20 primary ports used; the 20 backup '
