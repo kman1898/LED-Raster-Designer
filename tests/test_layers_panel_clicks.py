@@ -54,7 +54,11 @@ def _src(*parts):
 def test_the_row_click_handler_only_skips_a_name_being_edited():
     rows = _src('src', 'static', 'js', 'app-layers-panel.js')
     assert "import './app-layers-panel.js';" in _src('src', 'static', 'js', 'main.js')
-    assert "if (onName && (!e.target.readOnly || e.detail >= 2)) return;" in rows
+    # A name being edited keeps the click; the second click of a
+    # double-click opens the rename itself (tests/test_rename_click_order.py,
+    # the Firefox order, 2026-11-04).
+    assert "if (onName && !e.target.readOnly) return;" in rows
+    assert "if (onName && e.detail >= 2) {" in rows
     # The old blanket exclusion must not come back.
     assert "!e.target.classList.contains('layer-name-input')" not in rows
     assert "e.key === 'Escape' && !nameInput.readOnly" in rows
