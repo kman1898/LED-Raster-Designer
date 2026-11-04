@@ -1695,36 +1695,46 @@ class _Wiring {
 
         if (powerMaximizeCheckbox) {
             powerMaximizeCheckbox.addEventListener('change', () => {
+                // The circuits renumber: each cable stays with its cabinets
+                // (_cableCarryBegin, owner 2026-11-04).
+                const carry = this._cableCarryBegin(this.getSelectedLayers());
                 this.applyToSelectedLayers(layer => {
                     layer.powerMaximize = powerMaximizeCheckbox.checked;
                     if (powerMaximizeCheckbox.checked) {
                         layer.powerOrganized = false;
                     }
                 });
+                this._cableCarryApply(carry);
                 this.saveClientSideProperties();
                 this.updatePowerCapacityDisplay();
                 if (powerOrganizedCheckbox && powerMaximizeCheckbox.checked) {
                     powerOrganizedCheckbox.checked = false;
                 }
-                this.updateLayers(this.getSelectedLayers(), true, 'Change Power Mode');
+                this.updateLayers([...new Set([...this.getSelectedLayers(), ...carry.changed])],
+                    true, 'Change Power Mode');
+                this._cableCarrySay(carry);
                 window.canvasRenderer.render();
             });
         }
 
         if (powerOrganizedCheckbox) {
             powerOrganizedCheckbox.addEventListener('change', () => {
+                const carry = this._cableCarryBegin(this.getSelectedLayers());
                 this.applyToSelectedLayers(layer => {
                     layer.powerOrganized = powerOrganizedCheckbox.checked;
                     if (powerOrganizedCheckbox.checked) {
                         layer.powerMaximize = false;
                     }
                 });
+                this._cableCarryApply(carry);
                 this.saveClientSideProperties();
                 this.updatePowerCapacityDisplay();
                 if (powerMaximizeCheckbox && powerOrganizedCheckbox.checked) {
                     powerMaximizeCheckbox.checked = false;
                 }
-                this.updateLayers(this.getSelectedLayers(), true, 'Change Power Mode');
+                this.updateLayers([...new Set([...this.getSelectedLayers(), ...carry.changed])],
+                    true, 'Change Power Mode');
+                this._cableCarrySay(carry);
                 window.canvasRenderer.render();
             });
         }
@@ -1734,13 +1744,18 @@ class _Wiring {
         document.querySelectorAll('#power-number-order-row [data-order]').forEach(btn => {
             btn.addEventListener('click', () => {
                 const order = btn.getAttribute('data-order');
+                // Only the numbers move: each cable stays with its cabinets.
+                const carry = this._cableCarryBegin(this.getSelectedLayers());
                 this.applyToSelectedLayers(layer => {
                     layer.powerNumberOrder = order;
                 });
                 this._circuitTailCache = null;
+                this._cableCarryApply(carry);
                 this.saveClientSideProperties();
                 this.updatePowerCapacityDisplay();
-                this.updateLayers(this.getSelectedLayers(), true, 'Change Circuit Numbers');
+                this.updateLayers([...new Set([...this.getSelectedLayers(), ...carry.changed])],
+                    true, 'Change Circuit Numbers');
+                this._cableCarrySay(carry);
                 window.canvasRenderer.render();
             });
         });
