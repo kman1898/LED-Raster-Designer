@@ -163,12 +163,15 @@ def _sx40(client, name):
     return proc['id'], proc['slots'][0]['card']['id']
 
 
-def _screen(layer, x, ports=12, width=3840, height=1536, ull=False):
+def _screen(layer, x, ports=12, width=3840, height=1536, ull=False,
+            name=None, canvas=None):
     """A screen as the client sends it where a canvas is in play: its ports
     and the Pixel Map rect each one's cabinets cover - here one column
-    strip per port, left to right, from x."""
+    strip per port, left to right, from x - and, where given, the name of
+    the canvas it sits on."""
     step = width / ports
-    return {'layerId': layer, 'name': layer, 'ports': ports,
+    extra = {'canvas': canvas} if canvas is not None else {}
+    return {**extra, 'layerId': layer, 'name': name or layer, 'ports': ports,
             'platform': 'brompton', 'lowLatency': ull,
             'portRects': [[x + i * step, 0, x + (i + 1) * step, height]
                           for i in range(ports)]}
@@ -217,7 +220,7 @@ def test_one_sx40_on_screen_1_and_screen_2_is_refused(client):
     _pid, card = _sx40(client, 'S1')
     _ok(_fill(client, 'S1', card, screens))
     why = _refused(_fill(client, 'S2', card, screens))
-    assert why == ("SX40 S1 can't take this: its screens would span "
+    assert why == ("SX40 S1 can't take this: S1 and S2 would span "
                    "6048 × 1536 px. " + SX_LIMIT)
     assert len(_pins(client)) == 12
     why = _refused(client.post('/api/port-assignments/place', json={
@@ -238,7 +241,7 @@ def test_a_move_block_past_the_canvas_is_refused(client):
     _ok(_fill(client, 'A', card, screens))
     why = _refused(client.post('/api/port-assignments/move-block', json={
         'layerId': 'B', 'cardId': card, 'screens': screens}))
-    assert why.startswith("SX40 can't take this: its screens would "
+    assert why.startswith("SX40 can't take this: A and B would "
                           "span 4920 × 1536 px.")
     assert len(_pins(client)) == 10
 
@@ -258,7 +261,7 @@ def test_a_resize_or_move_of_a_mapped_screen_is_refused(client):
         json={'before': now, 'screens': after})
     moved = [now[0], _screen('B', 2400, ports=10, width=1920)]
     why = _refused(check(moved))
-    assert why == ("SX40 S1 can't take this: its screens would span "
+    assert why == ("SX40 S1 can't take this: A and B would span "
                    "4320 × 1536 px. " + SX_LIMIT)
     wider = [now[0], _screen('B', 2000, ports=10, width=2304)]
     assert '4304 × 1536 px' in _refused(check(wider))
@@ -284,8 +287,8 @@ def test_a_show_already_past_the_canvas_is_flagged_and_left_alone(client):
     still refused."""
     a, b = (str(_ok(client.post('/api/layer/add', json={'name': n}))['id'])
             for n in ('A', 'B'))
-    screens = [_screen(a, 0, ports=10, width=1920),
-               _screen(b, 2480, ports=10, width=1920)]
+    screens = [_screen(a, 0, ports=10, width=1920, name='A'),
+               _screen(b, 2480, ports=10, width=1920, name='B')]
     project = client.get('/api/project').get_json()
     project['processors'] = [{
         'id': 'procS', 'deviceId': SX, 'name': 'OLD', 'mode': None,
@@ -305,8 +308,8 @@ def test_a_show_already_past_the_canvas_is_flagged_and_left_alone(client):
     res = _resolution(client, screens)
     flag = res['canvas']['procS']
     assert (flag['width'], flag['height'], flag['fits']) == (4400, 1536, False)
-    assert flag['message'] == ("SX40 OLD can't take this: its "
-                               "screens span 4400 × 1536 px. " + SX_LIMIT)
+    assert flag['message'] == ("SX40 OLD can't take this: A and B "
+                               "span 4400 × 1536 px. " + SX_LIMIT)
     assert _pins(client) == before, 'a read changed an over-limit show'
     # releasing a port leaves it no worse
     _ok(client.post('/api/port-assignments/unpin', json={
@@ -349,8 +352,82 @@ def test_an_sq200_is_held_to_65535(client):
                _screen('B', 60000, ports=2, width=6000, height=100)]
     _ok(_fill(client, 'A', card, screens))
     assert _refused(_fill(client, 'B', card, screens)) == (
-        "SQ200 SQ can't take this: its screens would span 66000 × "
+        "SQ200 SQ can't take this: A and B would span 66000 × "
         "100 px. An SQ200's canvas is up to 65,535 px wide or tall.")
+
+
+def test_the_refusal_sentence_names_the_screens_of_the_span():
+    """Owner, 2026-11-04 ("Keep it, explain it"): the span is measured
+    across canvases, so the refusal names the screens that make it up,
+    and each one's canvas where they sit on more than one."""
+    sx = catalog.get_device(SX)
+    fit = lambda screens, present=False: catalog.canvas_fit(  # noqa: E731
+        sx, 6912, 1344, title='SX40 WINGS', present=present, screens=screens)
+    assert fit([['Wing L', 'Lower'], ['Wing R', 'Upper']]) == (
+        "SX40 WINGS can't take this: Wing L (Lower) and Wing R (Upper) "
+        "would span 6912 × 1344 px. " + SX_LIMIT)
+    # one canvas: the screens, no canvases
+    assert fit([['Wing L', 'Upper'], ['Wing R', 'Upper']]) == (
+        "SX40 WINGS can't take this: Wing L and Wing R would span "
+        "6912 × 1344 px. " + SX_LIMIT)
+    # three screens, one with no canvas known: only the known are named
+    assert fit([['A', 'Upper'], ['B', None], ['C', 'Lower']]).startswith(
+        "SX40 WINGS can't take this: A (Upper), B and C (Lower) would span")
+    # one screen, said in the present for a show already past it
+    assert fit([['Wing L', 'Lower']], present=True).startswith(
+        "SX40 WINGS can't take this: Wing L spans 6912 × 1344 px.")
+    assert fit([['A', None], ['B', None]], present=True).startswith(
+        "SX40 WINGS can't take this: A and B span 6912 × 1344 px.")
+    # none known: the old wording
+    assert fit(None).startswith(
+        "SX40 WINGS can't take this: its screens would span")
+    for text in (fit([['Wing L', 'Lower'], ['Wing R', 'Upper']]),
+                 fit([['A', 'Upper'], ['B', None], ['C', 'Lower']])):
+        assert chr(0x2014) not in text and chr(0x2013) not in text \
+            and ' - ' not in text
+
+
+def test_a_mapping_across_two_canvases_names_both_canvases(client):
+    """Two screens on two canvases, one SX40: the screens' canvases come
+    off the project where the client sends none, the client's own win
+    where it sends them, and once both sit on one canvas the canvases
+    drop out of the sentence. The pin, the place and the edit check
+    (/link-check) all say it the same way."""
+    upper = _ok(client.post('/api/canvas', json={'name': 'Upper'}))['active_canvas_id']
+    lower = _ok(client.post('/api/canvas', json={'name': 'Lower'}))['active_canvas_id']
+    left = str(_ok(client.post('/api/layer/add', json={
+        'name': 'Wing L', 'canvas_id': lower}))['id'])
+    right = str(_ok(client.post('/api/layer/add', json={
+        'name': 'Wing R', 'canvas_id': upper}))['id'])
+    screens = [_screen(left, 0, width=3456, height=1344, name='Wing L'),
+               _screen(right, 3456, width=3456, height=1344, name='Wing R')]
+    _pid, card = _sx40(client, 'WINGS')
+    _ok(_fill(client, left, card, screens))
+    why = _refused(_fill(client, right, card, screens))
+    assert why == ("SX40 WINGS can't take this: Wing L (Lower) and Wing R "
+                   "(Upper) would span 6912 × 1344 px. " + SX_LIMIT)
+    # the canvases the client sends are the ones said
+    sent = [dict(screens[0], canvas='Two'), dict(screens[1], canvas='One')]
+    assert "Wing L (Two) and Wing R (One) would span 6912" in _refused(
+        _fill(client, right, card, sent))
+    # one port of Wing R inside the canvas lands, then the edit check
+    _ok(client.post('/api/port-assignments/place', json={
+        'layerId': right, 'index': 0, 'cardId': card, 'port': 13,
+        'screens': screens}))
+    moved = [screens[0], _screen(right, 4500, width=3456, height=1344,
+                                 name='Wing R')]
+    why = _refused(client.post('/api/port-assignments/link-check',
+                               json={'before': screens, 'screens': moved}))
+    assert why == ("SX40 WINGS can't take this: Wing L (Lower) and Wing R "
+                   "(Upper) would span 4788 × 1344 px. " + SX_LIMIT)
+    # Wing L moved onto Upper: one canvas, no canvases in the sentence
+    _ok(client.put(f'/api/layer/{left}/canvas',
+                   json={'canvas_id': upper, 'mode': 'move'}))
+    why = _refused(client.post('/api/port-assignments/place', json={
+        'layerId': right, 'index': 11, 'cardId': card, 'port': 14,
+        'screens': screens}))
+    assert why == ("SX40 WINGS can't take this: Wing L and Wing R would "
+                   "span 6912 × 1344 px. " + SX_LIMIT)
 
 
 # ── C. the app: the edit guard, the tray and the binder ──────────────────
@@ -450,6 +527,27 @@ def test_the_js_and_python_canvas_fits_agree(page):
                               present=True)]
           for spec, w, h, u in cases]
     assert js == py
+    # the screens that make up the span, said the same on both sides
+    spec = catalog.canvas_spec(catalog.get_device(SX))
+    named = [[], [['Left', None]], [['Left', 'Canvas 1']],
+             [['Left', 'Canvas 2'], ['Right', 'Canvas 1']],
+             [['Left', 'Canvas 1'], ['Right', 'Canvas 1']],
+             [['A', 'Main'], ['B', None], ['C', 'Side']],
+             [['A', 'One'], ['B', 'One'], ['C', 'One']]]
+    js = pg.evaluate("""([spec, named]) => named.map(s => [
+        window.app.canvasFit(spec, 6912, 1344, false, 'SX40 X', false, s),
+        window.app.canvasFit(spec, 6912, 1344, false, 'SX40 X', true, s)])""",
+                     [spec, named])
+    py = [[catalog.canvas_fit({'canvas': spec}, 6912, 1344, title='SX40 X',
+                              screens=s),
+           catalog.canvas_fit({'canvas': spec}, 6912, 1344, title='SX40 X',
+                              present=True, screens=s)]
+          for s in named]
+    assert js == py
+    assert py[1] == ["SX40 X can't take this: Left would span 6912 × 1344 "
+                     "px. " + SX_LIMIT,
+                     "SX40 X can't take this: Left spans 6912 × 1344 px. "
+                     + SX_LIMIT]
 
 
 def test_the_client_sends_each_ports_rect_and_the_span_fits(page):
@@ -484,7 +582,7 @@ def test_a_cabinet_size_edit_past_the_canvas_is_refused_in_screen_info(page):
     assert out['index'] == before['index'], out
     assert pg.evaluate("(id) => window.app.project.layers.find(l => l.id === id).cabinet_height",
                        ids['a']) == 384
-    assert out['status'] == ("SX40 S1 can't take this: its screens "
+    assert out['status'] == ("SX40 S1 can't take this: A and B "
                              "would span 3920 × 2400 px. " + SX_LIMIT), out
     assert pg.evaluate("() => document.getElementById('cabinet-height').value") == '384'
     pg.wait_for_timeout(400)
@@ -610,8 +708,8 @@ def test_a_mapping_past_the_canvas_is_refused_in_the_tray(page):
                 status: document.getElementById('status-message').textContent};
     }""", ids['card'])
     assert out['after'] == out['pins'], out
-    assert out['status'].startswith("SX40 S1 can't take this: its "
-                                    "screens would span 4384 × 1536 px."), out
+    assert out['status'].startswith("SX40 S1 can't take this: A, B and C "
+                                    "would span 4384 × 1536 px."), out
     assert ids['errors'] == []
 
 
@@ -638,7 +736,7 @@ def test_an_over_limit_show_is_flagged_in_the_tray_and_the_binder(page):
     }""", ids['b'])
     span = settled(pg, lambda: pg.evaluate(SPAN_JS, ids['sx']),
                    lambda s: s and not s['fits'])
-    message = ("SX40 S1 can't take this: its screens span 4520 × "
+    message = ("SX40 S1 can't take this: A and B span 4520 × "
                "1536 px. " + SX_LIMIT)
     assert span and span['message'] == message, span
     flag = pg.locator(f'[data-lrd-field="processor-canvas-{ids["sx"]}"]')
@@ -739,8 +837,8 @@ def test_the_owners_grouped_wall_fits_one_sx40_a_screen(page):
                                     ['SX40 S2', 3840, 1536, True],
                                     ['SX40 S3', 3840, 1536, True]], out
     assert out['after'] == out['released'] < out['placed'], out
-    assert out['status'].startswith("SX40 S1 can't take this: its "
-                                    "screens would span 6048 × 1536 px."), out
+    assert out['status'].startswith("SX40 S1 can't take this: S1 and S2 "
+                                    "would span 6048 × 1536 px."), out
     assert ids['errors'] == []
 
 

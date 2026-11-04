@@ -471,18 +471,39 @@ def canvas_limit_text(spec, ull=False):
             f'{spec["maxH"]:,} px tall.')
 
 
-def canvas_fit(device, width, height, ull=False, title=None, present=False):
+def canvas_span_screens(screens):
+    """The screens that make up a span, said: "A and B", or, where they sit
+    on more than one canvas, "A (Canvas 2) and B (Canvas 1)" - the span is
+    measured across canvases (one processor input takes them all), and the
+    canvases are what make that surprising (owner, 2026-11-04). `screens`
+    is [(name, canvas name or None), ...] in screen order. Returns (text,
+    plural); ('its screens', True) where none are known."""
+    pairs = [(str(n), c) for n, c in (screens or []) if n not in (None, '')]
+    if not pairs:
+        return 'its screens', True
+    canvases = {c for _n, c in pairs if c}
+    named = [f'{n} ({c})' if len(canvases) > 1 and c else n for n, c in pairs]
+    text = named[0] if len(named) == 1 \
+        else ', '.join(named[:-1]) + ' and ' + named[-1]
+    return text, len(named) > 1
+
+
+def canvas_fit(device, width, height, ull=False, title=None, present=False,
+               screens=None):
     """None where a span of width x height px fits the device's canvas, else
-    the sentence that refuses it: "SX40 S1 can't take this: its
-    screens would span 4352 × 2160 px. An SX40's canvas is ...". `present`
-    words it for a show already past the canvas ("its screens span").
-    `ull` is the processor's Ultra Low Latency (any screen it drives)."""
+    the sentence that refuses it: "SX40 S1 can't take this: A and B would
+    span 4352 × 2160 px. An SX40's canvas is ...". `screens` names the
+    screens that make up the span (canvas_span_screens; "its screens" where
+    none are given). `present` words it for a show already past the canvas
+    ("A and B span"). `ull` is the processor's Ultra Low Latency (any
+    screen it drives)."""
     spec = canvas_spec(device)
     if not spec or canvas_fits(spec, width, height, ull):
         return None
     who = title or (device or {}).get('name') or 'This processor'
-    verb = 'span' if present else 'would span'
-    return (f'{who} can\'t take this: its screens {verb} '
+    what, plural = canvas_span_screens(screens)
+    verb = ('span' if plural else 'spans') if present else 'would span'
+    return (f'{who} can\'t take this: {what} {verb} '
             f'{canvas_extent(width)} × {canvas_extent(height)} px. '
             f'{canvas_limit_text(spec, ull)}')
 

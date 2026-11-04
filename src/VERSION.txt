@@ -897,6 +897,10 @@ FIXES
 - FIX: The pull sheet never joins multis with a hyphen, which reads like a
   circuit: two read SR1, SR2 and more read VX UPSTG 1 … 3. Its overflow
   notice reads right for one position or several.
+- FIX: A move or mapping a processor's canvas can't take always says why
+  in a red message, even with the hardware tray folded away, and names
+  the screens that make up the span, with their canvases when they sit on
+  more than one.
 
 v1.5.3 - October 21, 2026
 ----------------------------

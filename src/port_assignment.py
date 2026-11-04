@@ -557,6 +557,13 @@ def _clean_screens(screens):
             # (canvas_spans). Absent is "not measured": such a screen adds
             # nothing to a span and is refused nothing.
             'portRects': _clean_rects(scr.get('portRects')),
+            # The name of the canvas the screen sits on, sent with its
+            # portRects (the route fills it from the project where the
+            # client left it out): a canvas refusal names the screens that
+            # make up the span, and their canvases where there are two or
+            # more (canvas_spans).
+            'canvas': ((scr['canvas'].strip() or None)
+                       if isinstance(scr.get('canvas'), str) else None),
             # MIRROR A SCREEN (owner, 2026-10-30): the layer this screen
             # copies, or None. Its port map is that screen's, so its ports
             # land on the copies of that screen's sockets (_mirror_pass) and
@@ -1939,11 +1946,13 @@ def canvas_spans(processors, screens, state):
         if proc_id is None or rects is None:
             continue
         rect = rects[pin['index']] if 0 <= pin['index'] < len(rects) else None
-        rec = boxes.setdefault(proc_id, {'box': None, 'ull': False})
+        rec = boxes.setdefault(proc_id, {'box': None, 'ull': False,
+                                         'layers': set()})
         if scr['lowLatency']:
             rec['ull'] = True
         if rect is None:
             continue
+        rec['layers'].add(scr['layerId'])
         box = rec['box']
         rec['box'] = rect if box is None else (
             min(box[0], rect[0]), min(box[1], rect[1]),
@@ -1958,11 +1967,15 @@ def canvas_spans(processors, screens, state):
         title = _proc_title(proc, device)
         width = catalog.canvas_extent(x1 - x0)
         height = catalog.canvas_extent(y1 - y0)
+        # The screens that make up the span, in screen order, each with
+        # its canvas (the message names them - catalog.canvas_span_screens).
+        named = [[s['name'], s['canvas']] for s in screens_by_id.values()
+                 if s['layerId'] in rec['layers']]
         message = catalog.canvas_fit(device, width, height, rec['ull'],
-                                     title=title, present=True)
+                                     title=title, present=True, screens=named)
         out[proc_id] = {'title': title, 'width': width, 'height': height,
                         'ull': rec['ull'], 'fits': message is None,
-                        'message': message}
+                        'message': message, 'screens': named}
     return out
 
 
@@ -1987,7 +2000,8 @@ def canvas_refusal(processors, screens_before, state_before,
             continue
         device = catalog.get_device(raw[proc_id].get('deviceId'))
         return catalog.canvas_fit(device, rec['width'], rec['height'],
-                                  rec['ull'], title=rec['title'])
+                                  rec['ull'], title=rec['title'],
+                                  screens=rec['screens'])
     return None
 
 

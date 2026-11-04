@@ -971,6 +971,9 @@ class _Presets {
             t.style.opacity = '0';
             setTimeout(() => t.remove(), 220);
         }, lifetime);
+        // The toast itself, for a caller that replaces its own rather than
+        // stacking copies (app-port-assignment _canvasRefusalSay).
+        return t;
     }
 
     // A panel is "verified" if its `source` flags it as cross-checked against
