@@ -190,7 +190,8 @@ def test_the_novapro_uhds_opts_copy_their_own_copper():
     Ethernet 1-8 / 9-16, OPT 3/4 are their copy/hot backup - which is exactly
     what copy delivery with four trunks at 8 per trunk produces. No documented
     OPT mode adds a port, so unlike the MX40 Pro there is no mode switch."""
-    for device_id in ('novastar-novapro-uhd', 'novastar-novapro-uhd-jr'):
+    for device_id in ('novastar-novapro-uhd', 'novastar-novapro-uhd-jr',
+                      'novastar-4k-prime'):
         device = catalog.get_device(device_id)
         assert device['form'] == 'all-in-one', device_id
         assert device['trunkDelivery'] == 'copy', (
@@ -270,6 +271,36 @@ NOVASTAR_40G_TRUNKS = [
     ('novastar-cx80-pro', 2, 8, 'copy'),
     ('novastar-card-mx-1x40g', 1, 8, 'distinct'),
 ]
+
+
+# Trunks with NO documented rate: the sheet maps every OPT to the ports it
+# carries and names no line rate. The 4K-Prime (4K-Prime All-in-One
+# Controller Specifications V1.0.0, Output table): "OPT 1 transmits data of
+# Ethernet ports 1-8", OPT 2 9-16, OPT 3/4 their copy/hot backup. The owner
+# put it on the UHD Jr's OPT shape; no rate is taken from the UHD Jr, so
+# can_add_cvt refuses no box on rate here, the CVT8-5G included.
+NOVASTAR_UNRATED_TRUNKS = [
+    # device, trunks, ports per trunk, delivery
+    ('novastar-4k-prime', 4, 8, 'copy'),
+]
+
+
+@pytest.mark.parametrize('device_id,trunks,per_trunk,delivery',
+                         NOVASTAR_UNRATED_TRUNKS)
+def test_an_unrated_opt_device_refuses_no_box_on_rate(device_id, trunks,
+                                                      per_trunk, delivery):
+    device = catalog.get_device(device_id)
+    assert device['trunks'] == trunks, device_id
+    assert device['portsPerTrunk'] == per_trunk, device_id
+    assert device.get('trunkDelivery', 'distinct') == delivery, device_id
+    assert 'trunkRate' not in device, (
+        f'{device_id} grew a trunk rate its own sheet does not state')
+    card = catalog.new_card(device_id, 'sweep', fixed=True)
+    assert card.get('trunkRate') is None
+    for box in ('novastar-cvt10', 'novastar-cvt10-pro', 'novastar-cvt4k-s',
+                'novastar-cvt8-5g'):
+        ok, why = catalog.can_add_cvt(card, box)
+        assert ok, f'{device_id} refused {box} on a rate nobody wrote: {why}'
 
 
 @pytest.mark.parametrize('device_id,trunks,per_trunk,delivery',
@@ -373,9 +404,12 @@ def test_no_novastar_device_carries_trunks_the_sweep_did_not_grant():
     a documented OPT rate AND documented carriage behind it - the KU20 (10G,
     carriage unstated), the CX40 Pro (40G, carriage unstated), the VX400 (no
     rate stated), the NovaPro HD (1G per Matt) and every copper-only sender
-    must stay boxless until a sheet or a ruling from Matt says otherwise."""
+    must stay boxless until a sheet or a ruling from Matt says otherwise.
+    The one unrated exception is the 4K-Prime, whose sheet maps its OPTs
+    port for port and which the owner put on the UHD Jr's OPT shape."""
     pinned = {device_id for device_id, *_ in
-              NOVASTAR_10G_TRUNKS + NOVASTAR_40G_TRUNKS}
+              NOVASTAR_10G_TRUNKS + NOVASTAR_40G_TRUNKS
+              + NOVASTAR_UNRATED_TRUNKS}
     actual = {d['id'] for d in catalog.load_catalog()['devices']
               if d.get('vendor') == 'NovaStar' and d.get('trunks')}
     assert actual == pinned, (
@@ -455,36 +489,6 @@ def test_the_novapro_hds_fiber_takes_no_box(client):
     resp = client.post(f'/api/processors/{pid}/cards/{card_id}/cvts',
                        json={'deviceId': 'novastar-cvt10'})
     assert resp.status_code == 400, 'a box went onto the 1G fiber'
-
-
-def test_the_4k_primes_fiber_takes_no_box_without_a_stated_rate(client):
-    """The 4K-Prime's sheet (4K-Prime All-in-One Controller Specifications
-    V1.0.0) maps its four OPTs exactly - OPT 1/2 transmit Ethernet 1-8 /
-    9-16, OPT 3/4 their copy/hot backup - and states no line rate for
-    them. That is the VX400's case: under the 10G rule a fiber output whose
-    sheet names no rate gets no trunks, however much it looks like the UHD
-    Jr's, so it is sixteen copper ports and every box is refused."""
-    device = catalog.get_device('novastar-4k-prime')
-    assert device['name'] == '4K-Prime'
-    assert device['family'] == 'novastar-prime'
-    assert device['form'] == 'all-in-one'
-    assert device['connector'] == 'ethercon'
-    for field in ('trunks', 'trunkRate', 'portsPerTrunk', 'trunkDelivery'):
-        assert field not in device, (
-            f'the 4K-Prime grew {field}; its sheet states no OPT rate')
-    assert 'NO optical rate' in device['note'], (
-        'the note lost the reason no box hangs off this device')
-    for words in ('10,400,000', '650,000', '320,000', '16K', '8K'):
-        assert words in device['note'], words
-    state = add_processor(client, 'novastar-4k-prime')
-    proc = only(state)
-    assert proc['ceiling'] == 16
-    assert [p['number'] for p in first_card(proc)['ports']] ==         list(range(1, 17))
-    pid, card_id = proc['id'], first_card(proc)['id']
-    for box in ('novastar-cvt10', 'novastar-cvt4k-s', 'novastar-cvt8-5g'):
-        resp = client.post(f'/api/processors/{pid}/cards/{card_id}/cvts',
-                           json={'deviceId': box})
-        assert resp.status_code == 400, f'{box} went onto unrated fiber'
 
 
 def test_the_vx_pairs_are_split_and_each_side_keeps_its_own_sheet():
