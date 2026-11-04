@@ -954,6 +954,11 @@ FIXES
 - FIX: Clearing a distro's multis also forgets a cable length left on a
   circuit number the screen no longer has, so it can't come back on the
   next circuit to take that number.
+- FIX: A circuit's cable length stays with its cabinets when the circuits
+  renumber: a redraw ends, Return to automatic, Organized or Max
+  Capacity, 2fer packing, or the Circuit numbers switch. When two cables
+  land on one circuit, the one plugged into its first cabinet stays and a
+  message names the screen and the circuit.
 
 v1.5.3 - October 21, 2026
 ----------------------------
