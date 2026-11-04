@@ -965,6 +965,12 @@ FIXES
 - FIX: Turning Custom on with one port left says the port moved up to
   port 1 instead of "run 1-1", and a port with nothing drawn and nothing
   after it is said to be gone.
+- FIX: New on the start page with unsaved changes keeps the start page
+  open while it asks to save them, so Cancel goes back to it, the same as
+  Open file and Recent.
+- FIX: The Quick Start guide opens on the first run only. Every launch
+  after that opens on the start page, so the two no longer take turns,
+  and you don't have to tick "Don't show on startup" to stop it.
 
 v1.5.3 - October 21, 2026
 ----------------------------

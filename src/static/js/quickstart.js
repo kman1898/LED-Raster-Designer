@@ -29,6 +29,9 @@
     'use strict';
 
     var LS_KEY = 'lrd_quickstart_disabled'; // '1' = don't auto-show on launch
+    // '1' once the first-run guide has had its launch, '0' before
+    // (maybeAutoShow).
+    var FIRST_RUN_KEY = 'lrd_quickstart_first_run_done';
 
     // ── small helpers ────────────────────────────────────────────────────
     function A() { return window.app; }
@@ -6283,12 +6286,31 @@
     var autoPending = true;
     window.QuickStart.autoPending = function () { return autoPending; };
 
+    // FIRST RUN ONLY (the owner, 2026-11-04): the first-run guide shows on
+    // the first launch, and every launch after it opens on the start page.
+    // Nothing used to record a first run: only "Don't show on startup" kept
+    // the guide away, so it came back every launch, and a launch quit in
+    // the middle of it opened on the start page next (the guide's recovery
+    // skips it), so the two took turns. The first run is marked as the
+    // guide opens.
+    //
+    // The mark is '0' while the first run is still to come, '1' after.
+    // A browser that ran the app before the mark existed has none, and a
+    // What's New stamp (whatsnew.js writes one every launch, silently on
+    // the first), so its first run is behind it. Settled here, as the page
+    // loads: whatsnew.js loads after this file and writes its stamp only
+    // once a fetch answers, so a first launch has none yet. A first launch
+    // whose guide never got to open keeps '0' and shows it next time.
+    function firstRunDone() { return lsGet(FIRST_RUN_KEY) === '1'; }
+    if (lsGet(FIRST_RUN_KEY) == null) lsPut(FIRST_RUN_KEY, lsGet('lrd_whatsnew_seen') != null ? '1' : '0');
+
     function maybeAutoShow() {
         if (disabled()) { autoPending = false; return; }
         // Never auto-show inside an automated browser (Playwright/Selenium set
         // navigator.webdriver). The tour's click-catcher would otherwise block
         // E2E tests. Real users are unaffected; they can still open it manually.
         if (navigator.webdriver) { autoPending = false; return; }
+        if (firstRunDone()) { autoPending = false; return; }
         var tries = 0;
         var t = setInterval(function () {
             tries++;
@@ -6296,7 +6318,7 @@
                     && window.app && window.app.project && window.canvasRenderer) {
                 clearInterval(t);
                 setTimeout(function () {
-                    try { show('quick'); } finally { autoPending = false; }
+                    try { lsPut(FIRST_RUN_KEY, '1'); show('quick'); } finally { autoPending = false; }
                 }, 400);
             } else if (tries > 40) {
                 clearInterval(t);
