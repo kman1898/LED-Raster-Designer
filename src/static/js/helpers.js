@@ -81,14 +81,28 @@ function clientLogField(el) {
     return el.id || el.getAttribute('data-lrd-field') || '';
 }
 
+// An error the browser hid from the page: "Script error." with no file, no
+// line, no column and no error object. A browser gives a page that bare
+// form only for a throw in a script from ANOTHER origin, which in this app
+// means a browser extension's content script or a script the browser put
+// in the page itself. Every script of the app is served from the page's
+// own origin, so a throw in the app's code always arrives with its file,
+// line and stack. The opaque one is still logged, tagged so nobody chases
+// it as the app's. 2026-11-04 (Backspace in a box's port cable lengths,
+// owner's Mac) had this form, and the same gesture in Chromium, through
+// every one of the app's own key, input and change handlers on the path,
+// threw nothing (tests/test_cable_length_delete.py); 2026-09-25 (typing
+// processor names) had it too.
+function isOpaqueScriptError(event) {
+    if (!event || event.error) return false;
+    if (event.filename || event.lineno || event.colno) return false;
+    return /^Script error\.?$/.test(String(event.message || '').trim());
+}
+
 function registerGlobalClientLogging() {
     // The last thing the person did, for an error that arrives with no
-    // file or line. WebKit hands the page a bare "Script error." for a
-    // throw in a script it treats as foreign (the desktop window's own
-    // injected script), and on 2026-09-25 the owner's log held a run of
-    // them while he typed processor names - which the app itself could
-    // not reproduce in Chromium or WebKit. Recording the last key and
-    // field beside each error is the evidence the next one needs.
+    // file or line (isOpaqueScriptError). Recording the last key and field
+    // beside each error is the evidence the next one needs.
     let lastInput = null;
     const noteInput = (event) => {
         lastInput = {
@@ -103,7 +117,13 @@ function registerGlobalClientLogging() {
     document.addEventListener('focusout', noteInput, true);
     document.addEventListener('mousedown', noteInput, true);
     window.addEventListener('error', (event) => {
+        const opaque = isOpaqueScriptError(event);
         sendClientLog('client_error', {
+            ...(opaque ? {
+                opaque: true,
+                actionable: false,
+                origin: 'outside the app (a browser extension or the browser itself); the browser hides its details',
+            } : {}),
             message: event.message,
             filename: event.filename,
             lineno: event.lineno,
