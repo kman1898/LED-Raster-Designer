@@ -81,7 +81,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-from conftest import private_fixture, private_fixture_missing  # noqa: E402
+from conftest import open_app, private_fixture, private_fixture_missing  # noqa: E402
 SCRATCH_FIXTURE = private_fixture('live-show-b.json', 'LRD_PULL_SMOKE_JSON')
 
 BOX_WORD = re.compile(r'\b(box|boxes)\b', re.I)
@@ -448,8 +448,7 @@ def page(e2e_server, pw_browser):
     pg = context.new_page()
     errors = []
     pg.on('pageerror', lambda e: errors.append(str(e)))
-    pg.goto(e2e_server, wait_until='domcontentloaded')
-    pg.wait_for_timeout(2000)
+    open_app(pg, e2e_server)
     pg.locator('[data-mode="power"]').click()
     pg.wait_for_timeout(500)
     ids = pg.evaluate(SEED_JS)
