@@ -2,7 +2,7 @@
 (QA beta.5, 2026-11-03): a TRUE1 Breakout row read "PD UPSTG 1-3" for
 multis 1 to 3, over TRUE1 rows where "PD UPSTG 1-3" is multi 1's circuit
 3. Multis fold the way the ruling for digit-ending distro names does: two
-read "PD UPSTG 1, PD UPSTG 2", three or more "PD UPSTG 1 … 3".
+read "PD UPSTG1, PD UPSTG2", three or more "PD UPSTG1 … 3".
 
 And the pull sheet's overflow notice says "is" for one position and "are"
 for several ("WALL went to the Overflow tab and are not in TOTALS").
@@ -12,6 +12,7 @@ Run locally (each session takes its own free port):
 """
 
 import os
+import re
 import sys
 
 import pytest
@@ -87,15 +88,18 @@ LIST_JS = """async (cols) => {
 
 
 def test_three_multis_read_first_to_last(page):
+    """PD UPSTG1, PD UPSTG2, PD UPSTG3 (the names the distro gives them)
+    read "PD UPSTG1 … 3" on their Multi and Breakout rows - never "PD UPSTG
+    1-3", which reads as a circuit of multi PD UPSTG1."""
     out = page.evaluate(LIST_JS, 15)
-    assert out['names'] == ['PD UPSTG 1', 'PD UPSTG 2', 'PD UPSTG 3'], out
-    assert out['breakout'] == ['PD UPSTG 1 … 3'], out
-    assert out['multi'] == ['PD UPSTG 1 … 3'], out
-    assert not [t for t in out['breakout'] + out['multi'] if 'PD UPSTG 1-' in t], out
+    assert out['names'] == ['PD UPSTG1', 'PD UPSTG2', 'PD UPSTG3'], out
+    assert out['breakout'] == ['PD UPSTG1 … 3'], out
+    assert out['multi'] == ['PD UPSTG1 … 3'], out
+    assert not [t for t in out['breakout'] + out['multi'] if re.search(r'\d-\d', t)], out
 
 
 def test_two_multis_read_both_names(page):
     out = page.evaluate(LIST_JS, 12)
-    assert out['names'] == ['PD UPSTG 1', 'PD UPSTG 2'], out
-    assert out['breakout'] == ['PD UPSTG 1, PD UPSTG 2'], out
-    assert out['multi'] == ['PD UPSTG 1, PD UPSTG 2'], out
+    assert out['names'] == ['PD UPSTG1', 'PD UPSTG2'], out
+    assert out['breakout'] == ['PD UPSTG1, PD UPSTG2'], out
+    assert out['multi'] == ['PD UPSTG1, PD UPSTG2'], out

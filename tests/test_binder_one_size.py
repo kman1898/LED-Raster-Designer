@@ -166,11 +166,12 @@ WATCH_JS = """(opts) => {
     return {sheets: plan.map(p => `${p.number} ${p.title}`), texts: out};
 }"""
 
-# One sheet's record: its text ops as the PDF prints them.
-OPS_JS = """([opts, kind]) => {
+# One sheet's record: its text ops as the PDF prints them - the first sheet
+# of that kind whose title starts so.
+OPS_JS = """([opts, kind, title]) => {
     const app = window.app;
     const plan = app.planBinder(opts);
-    const i = plan.findIndex(p => p.kind === kind);
+    const i = plan.findIndex(p => p.kind === kind && p.title.startsWith(title));
     if (i < 0) return null;
     return app.renderBinderPage(opts, i).record.ops.filter(o => o.op === 'text' && String(o.text).trim())
         .map(o => ({t: o.text, size: o.size, weight: o.weight}));
@@ -204,7 +205,7 @@ def test_the_ports_table_bands_print_at_the_cells_size(page):
     cable, its strands - and every snake's heading in both halves print at
     the size of the table's port cells."""
     pg, ids = page
-    ops = pg.evaluate(OPS_JS, [OPTS, 'data'])
+    ops = pg.evaluate(OPS_JS, [OPTS, 'data', 'UPSTAGE WALL'])
     cell = _size(ops, 'MAIN A-1')
     band = [o for o in ops if o['t'].startswith(('CVT4K-S MAIN A', 'CVT4K-S BACKUP A', 'SNAKE '))
             or 'QUAD' in o['t'] or o['t'] in ('OPT1', '1 Blue', '2 Orange')]
@@ -222,7 +223,7 @@ def test_the_processor_page_prints_its_cells_and_headings_at_one_size(page):
     BREAKOUT at OUTPUT's size, wrapped where the column is narrow - never
     shrunk."""
     pg, ids = page
-    ops = pg.evaluate(OPS_JS, [OPTS, 'processor'])
+    ops = pg.evaluate(OPS_JS, [OPTS, 'processor', 'Processor'])
     cell = _size(ops, 'H_4xfiber')
     head = _size(ops, 'OUTPUT')
     cards = [o for o in ops if o['t'].startswith(('Sending', 'Card 1', 'Card 2'))]
