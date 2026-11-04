@@ -835,6 +835,8 @@ FIXES
   makes a step fail. Your Preferences come back when the guide ends.
 - FIX: The guide's box stays inside the window, so Next is never off the
   bottom of a short window.
+- FIX: The guides keep a window open from one step to the next when both
+  steps use it, instead of closing it and opening it again.
 - FIX: In a narrow window the canvas controls scroll instead of pushing
   the hardware tray off the window, and a Processing name too long for
   its box wraps onto a second line.
