@@ -1821,6 +1821,15 @@
         return n ? n - 1 : 0;
     }
 
+    // The id of the box on a card's copy OPT that copies its first OPT
+    // (the resolved copyTrunkList), or null: the box a mirror drop drags.
+    function mirrorCopyBox(card) {
+        var entry = ((card && card.copyTrunkList) || []).find(function (t) {
+            return t && t.copiesTrunk === 0 && t.boxId && t.role === 'mirror';
+        });
+        return entry ? entry.boxId : null;
+    }
+
     function cabinetPointRaw(layer, which) {
         var a = A(), r = R();
         if (!layer || !r) return null;
@@ -5759,14 +5768,16 @@
             },
             after: function () { closePrefs(); }
         },
-        // Mirror a screen by dragging (owner, 2026-11-01: "Mirroring is
-        // driven by the card's existing Copy setting plus dragging, NOT by a
-        // Screen Info picker"). NovaStar's H_4xfiber in Copy mode: "OPT 3
-        // copies the output on OPT 1, while OPT 4 copies the output on OPT
-        // 2". The guide's own MX40 Pro stays as the steps before left it, so
-        // an H9 with an H_4xfiber in Copy and four CVT10s, and two matched
-        // IMAG screens with IMAG L already on the card, are put in for you;
-        // the card's drag onto IMAG R is made for real.
+        // Mirror a screen by dragging its copy box (owner, 2026-11-01:
+        // "Mirroring is driven by the card's existing Copy setting plus
+        // dragging, NOT by a Screen Info picker"; 2026-11-04: "breakout is
+        // the only way mirror works aka copy"). NovaStar's H_4xfiber in
+        // Copy mode: "OPT 3 copies the output on OPT 1, while OPT 4 copies
+        // the output on OPT 2". The guide's own MX40 Pro stays as the steps
+        // before left it, so an H9 with an H_4xfiber in Copy and four
+        // CVT10s, and two matched IMAG screens with IMAG L already on the
+        // box on OPT 1, are put in for you; the drag of the box on OPT 3
+        // onto IMAG R is made for real.
         mirrorScreen: {
             since: '1.6.0',
             target: function () {
@@ -5778,10 +5789,12 @@
                         return false;
                     });
                 });
-                return hit ? '[data-hwdock="card-' + hit.id + '"]' : '[data-hwdock^="card-"]';
+                var copy = hit ? mirrorCopyBox(hit) : null;
+                return copy ? '[data-hwdock="box-' + copy + '"]'
+                    : (hit ? '[data-hwdock="card-' + hit.id + '"]' : '[data-hwdock^="card-"]');
             },
             place: 'top', title: 'Mirror a screen',
-            body: 'An H_4xfiber in Copy mode sends OPT 1 and 2 out again on OPT 3 and 4, and IMAG L is already on it. Drag the card onto IMAG R and IMAG R becomes its copy, with its runs off the copy boxes.',
+            body: 'An H_4xfiber in Copy mode sends OPT 1 and 2 out again on OPT 3 and 4, and IMAG L is already on the box on OPT 1. Drag the box on OPT 3 onto IMAG R and IMAG R becomes its copy, with its runs off that box.',
             before: function () { closePrefs(); hideMenus(); closePopover(); switchView('data-flow'); },
             act: function (t) {
                 var a = A(), w = wall(), pid = null, cid = null, left = null, right = null;
@@ -5828,11 +5841,17 @@
                     frameLayers([a.project.layers.find(function (l) { return l.id === t.mem.left; }),
                                  a.project.layers.find(function (l) { return l.id === t.mem.right; })]);
                     a.saveState('Add Layer');
-                    return t.wait(function () { return $('[data-hwdock="card-' + cid + '"]'); });
-                }).then(function (handle) {
-                    if (!handle) throw new Error('the H_4xfiber is not in the tray');
+                    return t.wait(function () {
+                        var found = a._dockFindCard ? a._dockFindCard(cid) : null;
+                        var copy = found ? mirrorCopyBox(found.card) : null;
+                        return copy ? $('[data-hwdock="box-' + copy + '"] .hw-dock-grip') : null;
+                    });
+                }).then(function (grip) {
+                    if (!grip) throw new Error('the copy box on OPT 3 is not in the tray');
+                    var copy = mirrorCopyBox(a._dockFindCard(cid).card);
+                    t.mem.box = copy;
                     var r = a.project.layers.find(function (l) { return l.id === t.mem.right; });
-                    return t.drag('[data-hwdock="card-' + cid + '"]', t.cabinetPoint(r, { index: lastCabinet(r) }));
+                    return t.drag('[data-hwdock="box-' + copy + '"] .hw-dock-grip', t.cabinetPoint(r, { index: lastCabinet(r) }));
                 }).then(function () {
                     return t.wait(function () {
                         var scr = ((a._assignment && a._assignment.screens) || []).find(function (s) { return s.layerId === String(t.mem.right); });
@@ -5850,6 +5869,7 @@
                 var box = found ? (found.card.cvts || []).find(function (b) {
                     return (b.ports || []).some(function (p) { return p.number === scr.ports[0].port; });
                 }) : null;
+                if (!box || box.id !== mem.box) return null;
                 return 'IMAG R mirrors IMAG L: its ' + scr.ports.length + (scr.ports.length === 1 ? ' port comes' : ' ports come')
                     + ' off ' + (box ? (box.displayTitle + ' on ' + box.trunkTitle) : 'the copy box') + '.';
             },

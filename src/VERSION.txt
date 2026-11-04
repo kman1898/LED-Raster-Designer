@@ -986,6 +986,12 @@ FIXES
   on its canvas that fits it, left to right and then top to bottom,
   instead of landing on top of the screen at the corner. On an empty
   canvas it still starts at the corner.
+- FIX: Dropping a Mirror box on a screen makes that screen the mirror in
+  one step, with its runs on that box, and one undo takes it back. A drop
+  that can't work says why before you let go: the screens don't match,
+  nothing is on the box it copies yet, or the screen is locked. A Backup
+  box dropped on a screen already on its primary box says its backup is
+  already there.
 
 v1.5.3 - October 21, 2026
 ----------------------------

@@ -821,8 +821,8 @@ class _MirrorScreens {
         bar.setAttribute('aria-label', 'Copy');
         bar.dataset.lrdField = `processor-cvt-copyrole-${cvt.id}`;
         [['mirror', 'Mirror', 'Feeds a mirror screen: with the first screen '
-            + 'on the processor, drag the processor onto a matching second '
-            + 'screen to make it the copy.'],
+            + 'on the box this one copies, drag this box onto a matching '
+            + 'second screen to make it the copy.'],
          ['backup', 'Backup', 'Backs up the output this box copies.']]
             .forEach(([role, text, tip]) => {
                 // a box straddling a main OPT and its copy picks for its
