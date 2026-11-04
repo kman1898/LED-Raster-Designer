@@ -429,11 +429,20 @@ def test_the_processor_picker_is_whole_at_800_px(e2e_server, pw_browser):
             const ctx = document.createElement('canvas').getContext('2d');
             const cs = getComputedStyle(s);
             ctx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
-            return { text, need: ctx.measureText(text).width, have: s.clientWidth };
+            // The select draws its own arrow (appearance: none) inside its
+            // right padding, so the text's room is the client box less the
+            // padding the stylesheet actually gives it, read here rather
+            // than guessed: a flat allowance failed on the Linux runner's
+            // wider font while the text sat whole on screen.
+            const pad = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+            return { text, need: ctx.measureText(text).width, pad,
+                     have: s.clientWidth, appearance: cs.appearance };
         }""")
         assert fit['text'] == 'Add a processor…', fit
-        # the text plus the select's padding and arrow
-        assert fit['need'] + 24 <= fit['have'], fit
+        assert fit['appearance'] == 'none', fit
+        # the arrow lives in the right padding: the text plus both paddings
+        assert fit['pad'] >= 16, fit
+        assert fit['need'] + fit['pad'] <= fit['have'], fit
     finally:
         context.close()
 

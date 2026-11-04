@@ -322,7 +322,14 @@ def test_the_cards_table_names_each_card_and_its_backup_in_the_apps_words(sheets
         assert name in texts, name
     joined = ' '.join(texts)
     assert 'backed up by Card 2' in joined, 'card 1 does not name its partner'
-    assert 'backs up Card 1' in texts, 'card 2 does not say whose backup it is'
+    # The BACKUP cell is printed at the table's one type size since QA
+    # round 3 (no shrink onto one line), so a cell wider than its column
+    # wraps at its words: the row reads in order, across its lines.
+    assert f'Card 2 {MODEL} 16 / 16 backs up Card 1 4 Card 4' in joined, (
+        'card 2 does not say whose backup it is')
+    # a wrap never splits a card's name from its number
+    split = [t for t in texts if t == 'Card' or t.endswith(' Card')]
+    assert not split, f'a card name is split across lines: {split}'
     assert any('no partner' in t for t in texts), 'card 4 does not say it has no partner'
 
 

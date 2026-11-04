@@ -2892,12 +2892,16 @@ class _Binder {
             ctxM.font = font;
             return ok;
         };
-        // a member's words, a range "A … B" held as one
+        // a member's words, a range "A … B" held as one, and a name's
+        // number held to its word: "backs up Card 1" wraps as "backs up" /
+        // "Card 1", never "backs up Card" / "1" (since QA round 3 retired
+        // the shrink onto one line, a card's BACKUP cell wraps here)
         const wordsOf = (p) => {
             const out = [];
             for (const w of this._bCellPieces(p, true)) {
                 const last = out.length - 1;
                 if (last >= 0 && (w.trim() === '…' || out[last].trim().endsWith('…'))) out[last] += w;
+                else if (last >= 0 && /^\d+$/.test(w.trim()) && /[A-Za-z] $/.test(out[last])) out[last] += w;
                 else out.push(w);
             }
             // a range no line holds even shrunk breaks after its "…"

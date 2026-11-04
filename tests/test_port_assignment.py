@@ -1745,11 +1745,19 @@ def test_both_surfaces_place_a_port_through_the_one_request():
 
 def test_a_placement_asks_before_it_lands_on_somebody():
     """The refusal is a question, not a failure. Retrying it automatically
-    would put the app back to rearranging things nobody agreed to."""
+    would put the app back to rearranging things nobody agreed to.
+
+    Since QA round 3 (2026-11-03) the question is the app's own dialog
+    (app-dialogs appConfirm), never the browser's confirm(). The dialog
+    showing and a No clearing the panel's note are driven for real in
+    test_port_tiles (test_a_conflicting_placement_asks_in_the_apps_dialog)."""
     body = function_body(js('app-port-assignment.js'),
                          '_placePort(spot, confirmed) {')
     assert 'if (confirmed || !data.conflict) return false;' in body
-    assert 'window.confirm(' in body
+    assert 'this.appConfirm(' in body
+    assert "id: 'port-place-conflict-modal'" in body
+    assert 'confirm(' not in body.replace('this.appConfirm(', ''), (
+        'a native confirm() is back in _placePort')
     assert 'this._placePort(spot, true);' in body
 
 

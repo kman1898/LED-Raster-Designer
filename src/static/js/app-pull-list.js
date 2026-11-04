@@ -969,9 +969,14 @@ class _PullList {
             if (!g.names.includes(name)) { g.names.push(name); g.nums.push(num); }
             groups.set(key, g);
         };
+        // A port number's return end, spelt by the one rule that spells
+        // it (app-naming deriveReturnLabel): 1 back as 1R.
+        const back = (k) => this.deriveReturnLabel(String(k));
         for (const n of list) {
-            const ret = n.match(/^(\d+)R$/);
-            if (ret) {
+            // a bare port number's return: what deriveReturnLabel makes of
+            // that number, never a pattern of its own
+            const ret = n.match(/^(\d+)\D+$/);
+            if (ret && back(parseInt(ret[1], 10)) === n) {
                 add('r\u0000', n, parseInt(ret[1], 10), null);
                 continue;
             }
@@ -1004,7 +1009,7 @@ class _PullList {
             const runs = runsOf(g.nums);
             if (key.startsWith('r')) {
                 // returns: a run that follows on is its ends, "1R-10R"
-                out.push(runs.map(([a, b]) => (a === b ? `${a}R` : `${a}R-${b}R`)).join(', '));
+                out.push(runs.map(([a, b]) => (a === b ? back(a) : `${back(a)}-${back(b)}`)).join(', '));
                 continue;
             }
             if (key.startsWith('d')) {
