@@ -1315,7 +1315,7 @@ def test_smoke_live_show_b(page):
     # screen order, plus what the position alone carries: a row for each
     # panel type on its screens (both walls are Absen VN 8.3, 308 + 66
     # cabinets), five boxes in use on SR (SR1-SR4 on the MAIN, SR5 on the
-    # Return), its gear row a "Distro", listed once, with its Feeder (no
+    # Return), its gear row a "Distro", listed once, with its Power in (no
     # length typed in this save); both CVTs by the names their ⚙ carry. A
     # plain home run and an extension of one length are two rows - two
     # different cables - so SL's 100' loose run on SL A-5 is an etherCON
@@ -1333,10 +1333,10 @@ def test_smoke_live_show_b(page):
         ('etherCON Extension', "75'", 1, 'SR B-4', 'ext · SR B'),
         ('etherCON Snake', "100'", 1, 'SR B-1 … B-4', 'SR B · 4 channel'),
         ('etherCON Snake', "150'", 1, 'SR A-1 … A-4', 'SR A · 4 channel'),
-        ('Power in', '', 1, 'SR', 'no length'),
         ('H9', 'EA', 1, '', ''),
         ('Multi', "100'", 2, 'SR2, SR4', ''),
         ('Multi', "125'", 3, 'SR1, SR3, SR5', ''),
+        ('Power in', '', 1, 'SR', 'no length'),
         ('TRUE1', "6'", 9, 'SR1-2 … SR5-3 (9)', ''),
         ('TRUE1', "10'", 8, 'SR1-1, SR1-6, SR2-2, SR3-1, SR3-6, SR4-1, SR5-2, SR5-5', ''),
         ('TRUE1', "25'", 2, 'SR5-1, SR5-6', ''),
@@ -1357,9 +1357,9 @@ def test_smoke_live_show_b(page):
         ('etherCON Extension', "100'", 1, 'SL B-4', 'ext · SL B'),
         ('etherCON Snake', "100'", 1, 'SL A-1 … A-4', 'SL A · 4 channel'),
         ('etherCON Snake', "150'", 1, 'SL B-1 … B-4', 'SL B · 4 channel'),
-        ('Power in', '', 1, 'SL', 'no length'),
         ('Multi', "100'", 2, 'SL2, SL4', ''),
         ('Multi', "125'", 3, 'SL1, SL3, SL5', ''),
+        ('Power in', '', 1, 'SL', 'no length'),
         ('TRUE1', "6'", 9, 'SL1-2 … SL5-3 (9)', ''),
         ('TRUE1', "10'", 8, 'SL1-1, SL1-6, SL2-2, SL3-1, SL3-6, SL4-1, SL5-2, SL5-5', ''),
         ('TRUE1', "25'", 2, 'SL5-1, SL5-6', ''),
@@ -1386,10 +1386,10 @@ def test_smoke_live_show_b(page):
         ('etherCON Snake', "100'", 1, 'SL A-1 … A-4', 'SL A · 4 channel'),
         ('etherCON Snake', "150'", 1, 'SR A-1 … A-4', 'SR A · 4 channel'),
         ('etherCON Snake', "150'", 1, 'SL B-1 … B-4', 'SL B · 4 channel'),
-        ('Power in', '', 2, 'SR, SL', 'no length'),
         ('H9', 'EA', 1, '', ''),
         ('Multi', "100'", 4, 'SR2, SR4, SL2, SL4', ''),
         ('Multi', "125'", 6, 'SR1, SR3, SR5, SL1, SL3, SL5', ''),
+        ('Power in', '', 2, 'SR, SL', 'no length'),
         ('TRUE1', "6'", 18, 'SR1-2 … SL5-3 (18)', ''),
         ('TRUE1', "10'", 16, 'SR1-1 … SL5-5 (16)', ''),
         ('TRUE1', "25'", 4, 'SR5-1, SR5-6, SL5-1, SL5-6', ''),
