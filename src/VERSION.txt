@@ -263,6 +263,7 @@ the same ports, OPTs, backup and copy, and only its fiber is different.
 Each box says Single mode or Multimode on its header in the tray, behind
 its gear and on its sheet, and the pull sheet, the binder and the box's
 sheet name the mode on every fiber cable, like TAC 12 · ST · Single mode.
+The processor pages give it in short, like TAC A (TAC 12 SM) or (TAC 12 MM).
 
 A single mode box and a multimode box can't share a TAC, an MTP or an
 opticalCON. Picking a cable that a box of the other mode is on is
