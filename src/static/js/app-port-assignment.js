@@ -57,6 +57,9 @@ class _PortAssignment {
         this._occupancyRaw = '';
         this._assignmentError = null;
         this._assignmentNote = null;
+        // The newest reply applied, by the server's number
+        // (_assignmentReplyFresh).
+        this._assignmentStamp = null;
         this.refreshPortAssignment();
     }
 
@@ -243,7 +246,10 @@ class _PortAssignment {
                 if (typeof this.renderPortAssignmentPanel === 'function') {
                     this.renderPortAssignmentPanel();
                 }
-                if (typeof this._dockSay === 'function') this._dockSay(why);
+                // A canvas refusal (ULL lowering an SX40's canvas) is said
+                // in the red toast as well, wherever the user is.
+                if (data.canvas) this._canvasRefusalSay(why);
+                else if (typeof this._dockSay === 'function') this._dockSay(why);
                 sendClientLog('link_cap_setting_refused', { error: why });
                 return false;
             })
@@ -317,8 +323,11 @@ class _PortAssignment {
                     this.renderPortAssignmentPanel();
                     // A link-cap refusal also speaks where the drop was
                     // made: nothing landed, and the strip may be folded.
-                    if ((data.linkCap || data.canvas || data.mirror
-                            || data.cardMix)
+                    // A canvas refusal also gets the red toast (owner,
+                    // 2026-11-04): the dock may be folded away.
+                    if (data.canvas) {
+                        this._canvasRefusalSay(data.error);
+                    } else if ((data.linkCap || data.mirror || data.cardMix)
                             && typeof this._dockSay === 'function') {
                         this._dockSay(data.error);
                     }
@@ -340,7 +349,16 @@ class _PortAssignment {
                         && typeof this._dropClearedMirrors === 'function') {
                     this._dropClearedMirrors(data.mirrorsCleared);
                 }
-                if (data.resolution) this._assignment = data.resolution;
+                // AN OLDER ANSWER NEVER PUTS OLDER PINS BACK. The server
+                // numbers every reply before it reads the pins
+                // (routes_port_assignment _stamps), and a reply older than
+                // the newest applied one leaves the resolution and the
+                // stored pins alone: a resolve sent beside a release
+                // chain's next unpin and answered after the chain's last
+                // reply kept the released ports on the not all attached
+                // list until the next release (owner, 2026-11-04).
+                const fresh = this._assignmentReplyFresh(data.assignmentStamp);
+                if (fresh && data.resolution) this._assignment = data.resolution;
                 // Undo audit: the server holds the read-must-not-create-the-
                 // key line (_working/_store in routes_port_assignment.py),
                 // and an unconditional store here once defeated it from the
@@ -353,8 +371,13 @@ class _PortAssignment {
                 // auto-drawn ports were just frozen into pins, and the
                 // client's copy (which has no key at all) has to carry
                 // them or the next snapshot hands the server a project it
-                // must freeze all over again.
+                // must freeze all over again. An older reply stores
+                // nothing, except a mutating one on a project that has no
+                // key yet: the newer reply was a read, which never creates
+                // it, and this edit's pins still have to reach the project.
                 if (data.state && this.project
+                        && (fresh || (action
+                            && this.project.port_assignments === undefined))
                         && (action || data.migrated
                             || this.project.port_assignments !== undefined)) {
                     this.project.port_assignments = data.state;
@@ -387,6 +410,22 @@ class _PortAssignment {
             })
             .catch(err => sendClientLog('port_assignment_request_failed',
                                         { url, method, error: String(err) }));
+    }
+
+    // Whether a reply is at least as new as the newest one applied: true
+    // (and it becomes the newest) unless the same server numbered it lower.
+    // A reply with no number is taken as it always was. A new `boot` is a
+    // restarted server, whose numbers start again.
+    _assignmentReplyFresh(stamp) {
+        if (!stamp || typeof stamp.n !== 'number') return true;
+        const last = this._assignmentStamp;
+        if (last && last.boot === stamp.boot && stamp.n < last.n) {
+            sendClientLog('port_assignment_stale_dropped',
+                          { n: stamp.n, newest: last.n });
+            return false;
+        }
+        this._assignmentStamp = { boot: stamp.boot, n: stamp.n };
+        return true;
     }
 
     // Everything that has to happen when a new resolution lands, in one place
@@ -652,9 +691,10 @@ class _PortAssignment {
     // holding a primary OR carrying a placed primary's return (owner,
     // 2026-09-24: "11 primary and 11 redundant ... it's 22/40"), counted
     // where the socket lives - port_assignment._taken_sockets says which
-    // card that is in every redundancy shape. The tray's card and box
-    // headers and the binder's Cards table all read this, so the three
-    // cannot print three numbers. `boxId` narrows it to one breakout box.
+    // card that is in every redundancy shape. The binder's Cards table
+    // reads this; the tray reads trayPrimaryCount below, which starts
+    // from it and takes the automatic backups off. `boxId` narrows it to
+    // one breakout box.
     socketsTaken(cardId, boxId) {
         const summary = ((this._assignment && this._assignment.cards) || [])
             .find(c => c.cardId === cardId);
@@ -668,6 +708,94 @@ class _PortAssignment {
         return { taken,
                  of: summary.capacityKnown && summary.capacity > 0
                      ? summary.capacity : null };
+    }
+
+    // Whether one resolved port is a backup socket that fills on its own:
+    // it carries the return of a main (`backsUp`) by a shape nobody picks
+    // port by port - an SX40's XD B or D, a sequential card's evens, a
+    // halves card's back half, a 1:1 partner's sockets, the far QD-S of
+    // an SQ200 - or it is a backup box's socket for a port it backs up
+    // (`box.backsUpPorts`: a box on a copy OPT set to Backup, a one-to-one
+    // backupOf pair included). A return the user picked by hand (the
+    // main's card in per-port manual) is not automatic and stays counted.
+    // `shapes`: cardId -> that card's resolved redundancyShape.
+    _trayAutoBackup(port, box, shapes) {
+        if (port.backsUp) {
+            const shape = shapes.get(port.backsUp.cardId);
+            return !(shape && shape.mode === 'manual' && !shape.forced);
+        }
+        if (!box || !(box.backsUpPorts || []).length) return false;
+        // a straddling box's own ports are its primaries, whatever it backs up
+        if (this.boxStraddles(box) && (box.portNumbers || []).includes(port.number)) {
+            return false;
+        }
+        return box.backsUpPorts.some(m => m.number === port.number);
+    }
+
+    // THE TRAY'S n/N FOR A CARD OR A BOX (owner, 2026-11-04, off a beta.5
+    // screenshot: "on this screen we're drawing in the primaries and the
+    // backups are automatic, so we don't need to count the backups"):
+    // primaries placed over the sockets that can carry a primary. It is
+    // socketsTaken with every automatic backup socket in its scope taken
+    // off both sides, read socket by socket off the resolved ports, so an
+    // odd or uneven split reads exactly (an SX40 at 36/40 with A to B, C
+    // to D looped reads 18/20; nine primaries on a looped XD pair read
+    // 9/10). A socket counts as taken on the same rule socketsTaken's
+    // server count uses: anybody on it (_portOccupants, which carries a
+    // placed main's return onto its backup socket). Returns { taken, of,
+    // backups } (`backups`: the automatic backup sockets left out), `of`
+    // null where nobody settled the count, or null where nothing is known
+    // yet. A unit or box that is all backups reads of 0 and draws no
+    // count. `ports` narrows a box to some of its sockets (a loop strip's
+    // far row that backs up one primary box): those are counted directly.
+    // Only the tray reads this; the binder, the gear, the warnings and
+    // the pull list keep counting every socket taken (socketsTaken).
+    trayPrimaryCount(card, box, ports) {
+        if (!card) return null;
+        const shapes = new Map();
+        (this._processorsResolved || []).forEach(p => (p.slots || []).forEach(s => {
+            if (s && s.card) shapes.set(s.card.id, s.card.redundancyShape || null);
+        }));
+        const lit = (n) => this._portOccupants(card.id, n).length > 0;
+        if (ports) {
+            const mains = ports.filter(p => !this._trayAutoBackup(p, box, shapes));
+            return { taken: mains.filter(p => lit(p.number)).length,
+                     of: mains.length, backups: ports.length - mains.length };
+        }
+        const base = this.socketsTaken(card.id, box ? box.id : undefined);
+        if (!base) return null;
+        // The sockets the base counts: a box's whole list (boxSockets), or
+        // the card's sockets plus its mirror sockets (_card_summary).
+        const scope = box ? (box.ports || [])
+            : (card.ports || []).filter(p => !p.beyondCeiling || p.mirrorOf);
+        const backups = scope.filter(p => this._trayAutoBackup(p, box, shapes));
+        // a return lit beyond the ceiling counted in the base's taken too
+        const litBackups = (box ? backups : (card.ports || [])
+            .filter(p => this._trayAutoBackup(p, null, shapes)))
+            .filter(p => lit(p.number)).length;
+        return { taken: Math.max(0, base.taken - litBackups),
+                 of: base.of == null ? null : Math.max(0, base.of - backups.length),
+                 backups: backups.length };
+    }
+
+    // The tray count's tooltip, in words: "9 of 10 primary ports used;
+    // backups ride on XD CL B", or "9 of 10 ports used" where nothing
+    // rides along. `where` names the box the backups ride on, else the
+    // backup sockets of this unit or box are said by number.
+    trayCountTitle(count, where) {
+        if (!count || !count.of) return '';
+        if (where) {
+            return `${count.taken} of ${count.of} primary ports used; `
+                + `backups ride on ${where}.`;
+        }
+        if (count.backups) {
+            return `${count.taken} of ${count.of} primary ports used; `
+                + (count.backups === 1
+                    ? 'the 1 backup socket fills on its own and is not counted here.'
+                    : `the ${count.backups} backup sockets fill on their own `
+                        + 'and are not counted here.');
+        }
+        return `${count.taken} of ${count.of} ports used.`;
     }
 
     // ── THE PROCESSING CANVAS ─────────────────────────────────────────────
@@ -712,7 +840,23 @@ class _PortAssignment {
             });
             rects.push(box);
         }
-        return { portRects: rects, lowLatency: !!layer.lowLatency };
+        const out = { portRects: rects, lowLatency: !!layer.lowLatency };
+        // The canvas the screen sits on, by name: a canvas refusal names
+        // the screens that make up the span, and their canvases where
+        // they sit on more than one (port_assignment.canvas_spans).
+        const canvasName = this._canvasNameOfLayer(layer);
+        if (canvasName) out.canvas = canvasName;
+        return out;
+    }
+
+    // The name of the canvas `layer` sits on, or null.
+    _canvasNameOfLayer(layer) {
+        const cid = layer && layer.canvas_id;
+        if (!cid) return null;
+        const c = ((this.project && this.project.canvases) || [])
+            .find(x => x && x.id === cid);
+        const name = c && typeof c.name === 'string' ? c.name.trim() : '';
+        return name || null;
     }
 
     // A cabinet's Pixel Map rect, turned with its screen's rotation the way
@@ -797,12 +941,29 @@ class _PortAssignment {
             + `${num(spec.maxH)} px tall.`;
     }
 
+    // processor_catalog.canvas_span_screens's twin: the screens that make
+    // up a span ([[name, canvas], ...] in screen order), said - "A and B",
+    // or "A (Canvas 2) and B (Canvas 1)" where they sit on more than one
+    // canvas. [text, plural]; ['its screens', true] where none are known.
+    canvasSpanScreens(screens) {
+        const pairs = (screens || [])
+            .filter(s => s && s[0] !== null && s[0] !== undefined && s[0] !== '')
+            .map(s => [String(s[0]), s[1] || null]);
+        if (!pairs.length) return ['its screens', true];
+        const canvases = new Set(pairs.map(p => p[1]).filter(Boolean));
+        const named = pairs.map(([n, c]) => (canvases.size > 1 && c ? `${n} (${c})` : n));
+        const text = named.length === 1 ? named[0]
+            : `${named.slice(0, -1).join(', ')} and ${named[named.length - 1]}`;
+        return [text, named.length > 1];
+    }
+
     // processor_catalog.canvas_fit's twin, on the device's canvas record:
     // null where the span fits, else the sentence that refuses it.
-    canvasFit(spec, width, height, ull, title, present) {
+    canvasFit(spec, width, height, ull, title, present, screens) {
         if (!spec || this.canvasFits(spec, width, height, ull)) return null;
-        const verb = present ? 'span' : 'would span';
-        return `${title || 'This processor'} can't take this: its screens `
+        const [what, plural] = this.canvasSpanScreens(screens);
+        const verb = present ? (plural ? 'span' : 'spans') : 'would span';
+        return `${title || 'This processor'} can't take this: ${what} `
             + `${verb} ${this.canvasExtent(width)} × ${this.canvasExtent(height)} px. `
             + this.canvasLimitText(spec, ull);
     }
@@ -821,11 +982,12 @@ class _PortAssignment {
             const proc = procOf.get(String(pin.cardId));
             const scr = byLayer.get(String(pin.layerId));
             if (!proc || !scr || !Array.isArray(scr.portRects)) return;
-            const rec = recs.get(proc.id) || { box: null, ull: false };
+            const rec = recs.get(proc.id) || { box: null, ull: false, layers: new Set() };
             recs.set(proc.id, rec);
             if (scr.lowLatency) rec.ull = true;
             const r = scr.portRects[Number(pin.index)];
             if (!r) return;
+            rec.layers.add(String(pin.layerId));
             rec.box = rec.box ? [Math.min(rec.box[0], r[0]), Math.min(rec.box[1], r[1]),
                                  Math.max(rec.box[2], r[2]), Math.max(rec.box[3], r[3])]
                 : r.slice();
@@ -839,7 +1001,13 @@ class _PortAssignment {
             const title = name && name !== model ? `${model} ${name}` : model;
             const width = this.canvasExtent(rec.box[2] - rec.box[0]);
             const height = this.canvasExtent(rec.box[3] - rec.box[1]);
-            out.set(p.id, { proc: p, title, width, height, ull: rec.ull,
+            // The screens that make up the span, in screen order, each with
+            // its canvas: the refusal names them (canvasSpanScreens).
+            const named = [];
+            byLayer.forEach((s, id) => {
+                if (rec.layers.has(id)) named.push([s.name, s.canvas || null]);
+            });
+            out.set(p.id, { proc: p, title, width, height, ull: rec.ull, screens: named,
                             fits: this.canvasFits(p.canvas, width, height, rec.ull) });
         });
         return out;
@@ -853,9 +1021,25 @@ class _PortAssignment {
             const was = before.get(id);
             if (was && !was.fits && rec.width <= was.width && rec.height <= was.height
                     && (was.ull || !rec.ull)) continue;
-            return this.canvasFit(rec.proc.canvas, rec.width, rec.height, rec.ull, rec.title);
+            return this.canvasFit(rec.proc.canvas, rec.width, rec.height, rec.ull, rec.title,
+                                  false, rec.screens);
         }
         return null;
+    }
+
+    // A canvas refusal said where it is always seen (owner, 2026-11-04:
+    // "Yes, red error toast"): the status line the dock speaks on, and
+    // the red error toast a locked screen gets, with the hardware dock
+    // open or folded away. One canvas toast stands at a time - a refusal
+    // said again (a retried drag, a chain of requests refused alike)
+    // replaces the one still showing rather than stacking copies.
+    _canvasRefusalSay(why) {
+        if (!why) return;
+        if (typeof this._dockSay === 'function') this._dockSay(why);
+        if (typeof this._toast !== 'function') return;
+        const prev = this._canvasToastEl;
+        if (prev && prev.isConnected) prev.remove();
+        this._canvasToastEl = this._toast(why, true, 7000) || null;
     }
 
     // ── the edit guard ────────────────────────────────────────────────────
@@ -1129,7 +1313,7 @@ class _PortAssignment {
         if (typeof this.renderPortAssignmentPanel === 'function') {
             this.renderPortAssignmentPanel();
         }
-        if (typeof this._dockSay === 'function') this._dockSay(why);
+        this._canvasRefusalSay(why);
         if (typeof this.loadLayerToInputs === 'function' && this.currentLayer) {
             try { this.loadLayerToInputs(); } catch (_) { /* inputs only */ }
         }

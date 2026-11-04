@@ -192,12 +192,15 @@
     function socaRow(d) {
         return (d && A().distroRows ? A().distroRows(d) : []).find(function (r) { return r.connector === 'soca' && !r.pairedWith; }) || null;
     }
+    // The ⚙ popovers as a step's window (windowsOf): the guide's own
+    // processor's, and its distro's.
+    function procGearWindow() { var p = proc(); return p ? 'gear:proc-' + p.id : null; }
+    function distroGearWindow() { var d = distro(); return d ? 'gear:distro-' + d.id : null; }
     // Open the distro's gear popover and ring it: the opening every gear
-    // step makes before its one change.
+    // step makes before its one change (the press skipped when the step
+    // before left it up for this one).
     function openDistroGear(t, d) {
-        return t.click('[data-hwpop="distro-' + d.id + '"]').then(function () {
-            return t.wait(popover);
-        }).then(function (pop) {
+        return openGear(t, 'distro-' + d.id).then(function (pop) {
             if (!pop) throw new Error('the distro\'s gear popover did not open');
             return t.spot(pop).then(function () { return t.pause(900); });
         });
@@ -334,6 +337,68 @@
         var a = A();
         return bl.link.strands.map(function (n) { return a.fiberStrandName(n, bl.cable); }).join(' and ');
     }
+    // ── a window shared from one step to the next ────────────────────────
+    // A step's `window` names the windows it works in: a key, a list of
+    // keys, or a function returning either (read live, so a key can carry
+    // the id of the hardware the guide put in). 'export:<format>' is the
+    // Export dialog on that format, 'prefs:<tab>' Preferences on that tab,
+    // 'pull-sheet' the pull sheet editor, 'gear:<id>' the ⚙ popover of the
+    // header whose data-hwpop is <id>, 'picker:<mode>' the panel library.
+    // On Next and Back, a window both steps name stays up (S.keep, which
+    // every close below reads): the step left does not close it, the step
+    // entered does not open it again, and a restore between the two
+    // refills it in place (refreshHeld). Matt, 2026-11-04, What's New
+    // steps 11 to 15: each step "collapses the window and then reopens the
+    // exact same window". A step jumped to, replayed or run on its own
+    // keeps nothing and sets its window up from scratch, as before.
+    function windowsOf(step) {
+        var w = step && step.window;
+        if (typeof w === 'function') { try { w = w(); } catch (e) { w = null; } }
+        if (!w) return [];
+        return (Array.isArray(w) ? w : [w]).filter(function (k) { return typeof k === 'string' && !!k; });
+    }
+    // The windows both steps name, in the order the step left names them.
+    function sharedWindows(from, to) {
+        var b = windowsOf(to);
+        return windowsOf(from).filter(function (k) { return b.indexOf(k) >= 0; });
+    }
+    // Whether a window of this kind ('export', 'prefs', 'gear:proc-1') is
+    // held open through the step change under way.
+    function held(kind) {
+        var keep = S.keep;
+        if (!keep || !keep.length) return false;
+        return keep.some(function (k) { return k === kind || k.indexOf(kind + ':') === 0; });
+    }
+    function prefsOpen() { var m = $('#preferences-modal'); return !!m && m.style.display === 'block'; }
+    // A held window after the show under it was restored (Back, or the
+    // entry snapshot a What's New step starts from): its fields read the
+    // restored show, the way they would on a fresh open, without the
+    // window ever leaving the screen. Each refill is the app's own open,
+    // run on a window already up: it sets display to what it already is.
+    function refreshHeld() {
+        var a = A();
+        (S.keep || []).forEach(function (k) {
+            try {
+                if (k.indexOf('export:') === 0) {
+                    if (exportOpen()) a.openExportModal(k.slice('export:'.length));
+                } else if (k.indexOf('prefs:') === 0) {
+                    if (prefsOpen()) { a.openPreferencesModal(); a.showPreferencesTab(k.slice('prefs:'.length)); }
+                } else if (k === 'pull-sheet') {
+                    if (pullSheetOpen() && a.renderPullSheetEditor) a.renderPullSheetEditor();
+                } else if (k.indexOf('gear:') === 0) {
+                    if (a._hwPopoverRefresh) a._hwPopoverRefresh();
+                }
+            } catch (e) { console.warn('QuickStart: a shared window was not refilled', e); }
+        });
+    }
+    // The ⚙ popover of header `id` open, the gear pressed only when it is
+    // not up already: on a step that shares it with the one before, the
+    // popover is there and a press would toggle it shut.
+    function openGear(t, id) {
+        var a = A();
+        if (a && a._hwPopover && a._hwPopover.id === id && popover()) return Promise.resolve(popover());
+        return t.click('[data-hwpop="' + id + '"]').then(function () { return t.wait(popover); });
+    }
     function exportOpen() { var m = $('#export-modal'); return !!m && m.style.display === 'block'; }
     function openExport() {
         var a = A();
@@ -342,19 +407,37 @@
             a.openExportModal('binder');
         }
     }
-    function closeExport() { var m = $('#export-modal'); if (m) m.style.display = 'none'; }
-    function closeExportUnless(next) { if (!next || !next.exportStep) closeExport(); }
+    function closeExport() {
+        if (held('export')) return;
+        var m = $('#export-modal'); if (m) m.style.display = 'none';
+    }
     // The screen chooser (app-presets.js openPresetPicker), closed with its
     // library search cleared so the next person to open it sees every panel.
     // AVG_ROW is the library row the average power step reads: a panel
     // whose sheet gives both a max and an average.
     var AVG_ROW = '#panel-catalog-list .panel-catalog-row[data-name="Black Pearl BP2V2"]';
     function pickerOpen() { var m = $('#preset-picker-modal'); return !!m && m.style.display === 'block'; }
+    // The library up as Add Screen opens it (not File > New's chooser).
+    function addPickerOpen() { var a = A(); return pickerOpen() && !!a && (a._pickerMode || 'add') === 'add'; }
+    // Add Screen pressed, the library opened: skipped when the step
+    // before left it up for this one (window 'picker:add').
+    function openAddPicker(t) {
+        if (addPickerOpen()) return Promise.resolve();
+        return t.hover('#layers-list .canvas-add-btn').then(function (p) {
+            press(true); ripple(p.x, p.y);
+            return t.pause(200);
+        }).then(function () {
+            press(false);
+            A().openPresetPicker();
+        });
+    }
     // The start page a launch opens on (app-start-page.js).
     function startPageUp() { var m = $('#start-page-modal'); return !!m && m.style.display === 'block'; }
     function closePicker() {
         var s = $('#panel-catalog-search'), a = A();
         if (s && s.value) { s.value = ''; s.dispatchEvent(new Event('input', { bubbles: true })); }
+        // Held for the next step: the search is cleared, the window stays.
+        if (held('picker')) return;
         if (a && typeof a.closePresetPicker === 'function') a.closePresetPicker();
         else { var m = $('#preset-picker-modal'); if (m) m.style.display = 'none'; }
     }
@@ -364,6 +447,7 @@
     var PANEL_ROW = '#pull-sheet-board tr.pull-row[data-side="panel"]';
     function pullSheetOpen() { var m = $('#pull-sheet-modal'); return !!m && m.style.display === 'block'; }
     function closePullSheet() {
+        if (held('pull-sheet')) return;
         var a = A(), m = $('#pull-sheet-modal');
         if (a) a._pullSheetReturnToExport = false;
         if (m) m.style.display = 'none';
@@ -373,6 +457,7 @@
         $$('#menu-bar .menu-item.active').forEach(function (i) { i.classList.remove('active'); });
     }
     function closePrefs() {
+        if (held('prefs')) return;
         var m = $('#preferences-modal');
         if (m) m.style.display = 'none';
     }
@@ -383,7 +468,12 @@
         if (typeof a._renderDockFlag === 'function') a._renderDockFlag(mode() || '');
         if (typeof a.settleLayout === 'function') a.settleLayout();
     }
-    function closePopover() { var a = A(); if (a && a._hwPopoverClose) a._hwPopoverClose(); }
+    function closePopover() {
+        var a = A();
+        if (!a || !a._hwPopoverClose) return;
+        if (a._hwPopover && held('gear:' + a._hwPopover.id)) return;
+        a._hwPopoverClose();
+    }
     function dockDropPoint() {
         // Anywhere inside the tray is the release (app-dock.js _dockHitTest
         // tests the tray's rectangle, not the element): the header bar's
@@ -828,6 +918,13 @@
         document.body.appendChild(cursor);
         document.body.appendChild(call);
         c.addEventListener('click', function (e) { e.stopPropagation(); });
+        // A press on the callout (Next, Back, the Go to box) is the
+        // guide's, never the app's click-away: the gear popover closes on
+        // any document mousedown outside it, and Next would shut the
+        // popover the next step shares.
+        ['mousedown', 'pointerdown', 'touchstart'].forEach(function (type) {
+            call.addEventListener(type, function (e) { e.stopPropagation(); });
+        });
         var fast = document.createElement('div'); fast.id = 'qs-fast';
         document.body.appendChild(fast);
         els = { catch: c, spot: spot, callout: call, cursor: cursor, fast: fast };
@@ -1803,6 +1900,14 @@
     var S = {
         name: null, list: [], idx: -1,
         running: false, pendingEnd: null,
+        // The window keys held open through the step change under way
+        // (sharedWindows), or null: set as Next or Back leaves a step,
+        // cleared once the step entered has set itself up.
+        keep: null,
+        // Where the step on screen is: 'enter' (leaving the last, its
+        // restore, its before), 'act', or 'settled'. The tests read it to
+        // tell a window the act closed from one the change closed.
+        phase: null,
         // Each step's UI at its entry (the view tab), beside S.snaps: Back
         // and the replay button put it back with the project.
         ui: [],
@@ -1870,7 +1975,7 @@
             // A step that is still running takes no Next: a second click
             // waits for nothing and skips nothing.
             if (S.running) return;
-            last ? end() : go(S.idx + 1);
+            last ? end() : go(S.idx + 1, { carry: true });
         };
         var back = els.callout.querySelector('#qs-back');
         if (back) back.onclick = function () { if (!S.running) goBack(); };
@@ -2069,6 +2174,9 @@
     function applyEntry(k) {
         var adv = TOURS.advanced.steps;
         var from = S.entryAt != null && S.entryAt <= k ? S.entryAt : null;
+        // The steps applied behind the shade open and close their own
+        // windows: nothing is held through them.
+        S.keep = null;
         S.jumping = true;
         S.fast = true;
         document.body.classList.add('qs-jumping');
@@ -2272,6 +2380,13 @@
         opts = opts || {};
         if (i < 0 || i >= S.list.length || S.running) return Promise.resolve();
         var step = S.list[i];
+        // Next and Back (opts.carry) hold the windows the step left and
+        // the step entered both work in: nothing below closes them, and
+        // the step's own before() finds them up (windowsOf).
+        var from = S.idx >= 0 && S.idx < S.list.length ? S.list[S.idx] : null;
+        S.keep = opts.carry && from && from !== step ? sharedWindows(from, step) : null;
+        if (S.keep && !S.keep.length) S.keep = null;
+        S.phase = 'enter';
         leaveCurrent(step);
         S.idx = i;
         S.spotEl = null;
@@ -2298,6 +2413,8 @@
         return chain.then(function () {
             return appSettled();
         }).then(function () {
+            // A held window reads the show the restore put back.
+            if (S.keep && (opts.restore || entered)) refreshHeld();
             // Back and the replay button put the step's view tab back with
             // its project; before() then sets what the step itself needs.
             if (ui && ui.mode && ui.mode !== mode()) switchView(ui.mode);
@@ -2305,6 +2422,9 @@
         }).then(function () {
             return step.before ? sleep(ms(260)) : null;
         }).then(function () {
+            // The step is set up: from here its act, and the next change,
+            // close what they close.
+            S.keep = null;
             // A show restored from the shipped file is framed the way the
             // steps before this one would have left it: the walls in the
             // view the step just switched to (buildScratch frames the same
@@ -2318,7 +2438,7 @@
             render();
             S.snaps[i] = snapshot();
             S.ui[i] = { mode: mode() };
-            if (!step.act) { S.running = false; setState('idle'); hideCursor(); return afterStep(); }
+            if (!step.act) { S.running = false; S.phase = 'settled'; setState('idle'); hideCursor(); return afterStep(); }
             return runAct(step);
         });
     }
@@ -2339,6 +2459,7 @@
             // now and move the box only if it has come to cover it - once,
             // before the cursor starts, so the act itself never shoves it.
             settle();
+            S.phase = 'act';
             return actOf(step);
         }).catch(function (e) {
             err = e;
@@ -2359,6 +2480,7 @@
             press(false);
             showResult(note, err);
             settle();
+            S.phase = 'settled';
             setState(note ? 'done' : 'failed');
             // The step took on its own entry state: the show holds the next
             // Advanced step's entry. A step that took on an entry that was
@@ -2382,7 +2504,7 @@
     function goBack() {
         if (S.idx <= 0) return;
         var i = S.idx - 1;
-        return go(i, { restore: S.snaps[i] });
+        return go(i, { restore: S.snaps[i], carry: true });
     }
     function replay() {
         return go(S.idx, { restore: S.snaps[S.idx] });
@@ -2406,7 +2528,7 @@
                 else jump.blur();
                 return;
             }
-            S.idx === S.list.length - 1 ? end() : go(S.idx + 1);
+            S.idx === S.list.length - 1 ? end() : go(S.idx + 1, { carry: true });
             return;
         }
         if (e.key !== 'Escape') return;
@@ -2814,6 +2936,8 @@
             return p.promise;
         }
         S.token++;
+        S.keep = null;
+        S.phase = null;
         leaveCurrent(null);
         S.visible = false;
         S.running = true;   // no re-entry while the world goes back
@@ -2982,15 +3106,10 @@
             target: function () { return pickerOpen() ? '#preset-picker-summary' : '#layers-list .canvas-add-btn'; },
             place: 'top', title: 'Add Screen copies the last panel',
             body: 'Add Screen with nothing picked makes a screen of the last screen&rsquo;s panel. The line at the foot says which panel that is.',
+            window: 'picker:add',
             before: function () { switchView('pixel-map'); },
             act: function (t) {
-                var a = A();
-                return t.hover('#layers-list .canvas-add-btn').then(function (p) {
-                    press(true); ripple(p.x, p.y);
-                    return t.pause(200);
-                }).then(function () {
-                    press(false);
-                    a.openPresetPicker();
+                return openAddPicker(t).then(function () {
                     return t.wait(function () {
                         var s = $('#preset-picker-summary');
                         return pickerOpen() && s && /will use/.test(s.textContent) ? s : null;
@@ -3018,15 +3137,10 @@
             place: 'left', title: 'Average power in the library',
             avoid: ['#panel-catalog-search'],
             body: 'The panel library shows a panel&rsquo;s average power beside its max where the spec sheet gives one. Power is still planned on the max.',
+            window: 'picker:add',
             before: function () { switchView('pixel-map'); },
             act: function (t) {
-                var a = A();
-                return t.hover('#layers-list .canvas-add-btn').then(function (p) {
-                    press(true); ripple(p.x, p.y);
-                    return t.pause(200);
-                }).then(function () {
-                    press(false);
-                    a.openPresetPicker();
+                return openAddPicker(t).then(function () {
                     return t.wait(function () { return pickerOpen() && $('#panel-catalog-list .panel-catalog-row'); }, 6000);
                 }).then(function (row) {
                     if (!row) throw new Error('the panel library did not load');
@@ -3617,12 +3731,11 @@
             target: function () { var p = proc(); return p ? '[data-hwpop="proc-' + p.id + '"]' : '#hardware-dock-body .hw-dock-gear'; },
             place: 'top', title: 'Redundancy, one bar',
             body: 'Behind the processor&rsquo;s &#9881; one bar under REDUNDANCY sets it. Per port pairs the sockets, 1 backed by 2, and the header wears a gold pill that reads the shape.',
+            window: procGearWindow,
             before: function () { switchView('data-flow'); },
             act: function (t) {
                 var p = proc();
-                return t.click('[data-hwpop="proc-' + p.id + '"]').then(function () {
-                    return t.wait(function () { var pop = $('#hw-gear-popover'); return pop && pop.style.display === 'block' ? pop : null; });
-                }).then(function (pop) {
+                return openGear(t, 'proc-' + p.id).then(function (pop) {
                     if (!pop) throw new Error('the gear popover did not open');
                     // The bar as it stands, read before anything moves.
                     return t.spot(pop).then(function () { return t.pause(1000); });
@@ -3653,12 +3766,11 @@
             target: function () { var p = proc(); return p ? '[data-hwpop="proc-' + p.id + '"]' : '#hardware-dock-body .hw-dock-gear'; },
             place: 'top', title: 'A backup processor',
             body: 'Under REDUNDANCY, switch BACKUP PROCESSOR on: a second unit of this model mirrors this one on the boxes&rsquo; backup inputs. Name it here; everything else follows the main.',
+            window: procGearWindow,
             before: function () { switchView('data-flow'); },
             act: function (t) {
                 var p = proc();
-                return t.click('[data-hwpop="proc-' + p.id + '"]').then(function () {
-                    return t.wait(function () { var pop = $('#hw-gear-popover'); return pop && pop.style.display === 'block' ? pop : null; });
-                }).then(function (pop) {
+                return openGear(t, 'proc-' + p.id).then(function (pop) {
                     if (!pop) throw new Error('the gear popover did not open');
                     var seg = $('[data-lrd-field="processor-backup-' + p.id + '"] [data-level="on"]');
                     if (!seg) throw new Error('no backup processor switch on this unit');
@@ -4096,7 +4208,7 @@
         // TRUE1 here, so the TRUE1 name is the one its rows print.
         jumperNames: {
             since: '1.6.0',
-            exportStep: true,
+            window: 'export:pull-sheet',
             target: '#export-pull-sheet-power-jump-name-true1', place: 'left', title: 'A name for each jumper',
             avoid: ['#export-pull-sheet-power-jump-name-true1', '#export-pull-sheet-power-jump-name-powercon'],
             body: 'The pull sheet names TRUE1 and powerCON jumpers apart. Type what your shop calls them in the Export dialog; Preferences holds the names a new show starts with.',
@@ -4135,6 +4247,7 @@
             target: function () { return pullSheetOpen() ? PANEL_ROW : '#export-pull-sheet-edit-rows'; },
             place: 'left', title: 'Panels on the pull sheet',
             avoid: ['#export-pull-sheet-edit-rows'],
+            window: ['export:pull-sheet', 'pull-sheet'],
             body: 'Edit rows opens the pull sheet. Each screen gets a row for every panel type it hangs, half tiles on rows of their own, and a blank cabinet isn&rsquo;t counted.',
             before: function () {
                 closePullSheet();
@@ -4270,6 +4383,7 @@
             since: '1.5.0',
             target: function () { var d = distro(); return d ? '[data-hwpop="distro-' + d.id + '"]' : '#hardware-dock-body .hw-dock-gear'; },
             place: 'top', title: 'The distro&rsquo;s input',
+            window: distroGearWindow,
             avoid: [function () { var d = distro(); return d ? '[data-lrd-field="distro-input-' + d.id + '"]' : null; }],
             body: 'Behind the distro&rsquo;s &#9881;, Input lists only what can power its System: cams by their amps, L21-30, CEE or Powerlock. Pick 200 A and Rating fills in 200 A per leg.',
             before: function () { switchView('power'); closePopover(); },
@@ -4318,6 +4432,7 @@
             since: '1.5.0',
             target: function () { var d = distro(); return d ? '[data-hwpop="distro-' + d.id + '"]' : '#hardware-dock-body .hw-dock-gear'; },
             place: 'top', title: 'The 80% limit',
+            window: distroGearWindow,
             avoid: [function () { var d = distro(); return d ? '[data-lrd-field="distro-main100-' + d.id + '"]' : null; }],
             body: 'A US distro is held to 80% of its rating, so 200 A reads as 160 A. Main 100% rated lifts that; over the limit the header shows a red OVER, and Accept overload turns it amber.',
             before: function () { switchView('power'); closePopover(); },
@@ -4364,6 +4479,7 @@
             since: '1.5.0',
             target: function () { var d = distro(); return d ? '[data-hwpop="distro-' + d.id + '"]' : '#hardware-dock-body .hw-dock-gear'; },
             place: 'top', title: 'The distro\'s system',
+            window: distroGearWindow,
             avoid: [function () { var d = distro(); return d ? '[data-lrd-field="distro-system-' + d.id + '"]' : null; }],
             body: 'System is the service the distro runs on, US or EU, and the header wears it. Pick 120V 1&phi; and the LEGS line and Balance leave; back on 120/208V 3&phi; they return, with the phasing row under it.',
             before: function () { switchView('power'); closePopover(); },
@@ -4371,12 +4487,7 @@
                 var d = distro();
                 var system = '[data-lrd-field="distro-system-' + d.id + '"]';
                 t.mem.start = distroInfo(d);
-                return t.click('[data-hwpop="distro-' + d.id + '"]').then(function () {
-                    return t.wait(popover);
-                }).then(function (pop) {
-                    if (!pop) throw new Error('the distro\'s gear popover did not open');
-                    return t.spot(pop).then(function () { return t.pause(900); });
-                }).then(function () {
+                return openDistroGear(t, d).then(function () {
                     return t.select(system, '120');
                 }).then(function () {
                     return t.wait(function () { var q = distro(); return q && Number(q.phase) === 1 && /1φ/.test(distroInfo(q)); });
@@ -5133,6 +5244,7 @@
             since: '1.5.0',
             target: function () { var d = distro(); return d ? '[data-hwpop="distro-' + d.id + '"]' : '#hardware-dock-body .hw-dock-gear'; },
             place: 'top', title: 'Start from a preset',
+            window: distroGearWindow,
             avoid: [function () { var d = distro(); return d ? '[data-lrd-field="distro-preset-' + d.id + '"]' : null; }],
             body: 'Start from a preset&hellip; sets System, Input, Rating and the output rows in one step. It fills in Type too, the name the pull sheet lists the distro by.',
             before: function () { switchView('power'); closePopover(); },
@@ -5168,6 +5280,7 @@
             since: '1.5.0',
             target: function () { var d = distro(); return d ? '[data-hwpop="distro-' + d.id + '"]' : '#hardware-dock-body .hw-dock-gear'; },
             place: 'top', title: 'Output rows',
+            window: distroGearWindow,
             avoid: [function () {
                 var d = distro(), r = d ? socaRow(d) : null;
                 return r ? '[data-lrd-field="distro-row-count-' + d.id + '-' + r.id + '"]' : null;
@@ -5458,15 +5571,16 @@
             }
         },
         exportBinder: {
-            exportStep: true,
+            window: 'export:binder',
             target: '#btn-export', place: 'bottom', title: 'Export the binder',
             avoid: ['#btn-export', '#export-format'],
             body: 'Export saves maps as PNG, PSD, PDF or XML, the pull sheet, or the Binder: a drawing set with a wiring sheet behind every map.',
             before: function () { closeExport(); },
             act: function (t) {
-                return t.click('#btn-export').then(function () {
+                var open = exportOpen() ? Promise.resolve() : t.click('#btn-export').then(function () {
                     return t.wait(exportOpen);
-                }).then(function () {
+                });
+                return open.then(function () {
                     var mc = $('#export-modal .modal-content');
                     return t.spot(mc).then(function () { return t.pause(PACE.opened); })
                         .then(function () { return t.select('#export-format', 'binder'); });
@@ -5478,10 +5592,10 @@
                 return exportOpen() && f && f.value === 'binder' && sec && sec.style.display !== 'none'
                     ? 'Binder (PDF): numbered sheets with a title block, on Tabloid by default.' : null;
             },
-            after: closeExportUnless
+            after: closeExport
         },
         screenOrder: {
-            exportStep: true,
+            window: 'export:binder',
             target: '#export-binder-screen-order', place: 'right', title: 'Screen order',
             body: 'Beaches come first, in the Beaches panel&rsquo;s order; this sorts the screens within one, and the contents follow.',
             before: openExport,
@@ -5501,10 +5615,10 @@
                 var label = sel && sel.selectedOptions[0] ? sel.selectedOptions[0].textContent.trim() : mem.pick;
                 return 'Screens run ' + label.toLowerCase() + ' within each beach; saved with the project.';
             },
-            after: closeExportUnless
+            after: closeExport
         },
         wiringTick: {
-            exportStep: true,
+            window: 'export:binder',
             target: '#export-binder-wiring', place: 'left', title: 'The wiring sheets',
             body: 'One Wiring tick puts a Power Wiring sheet after each Power map and a Data Wiring sheet after each Data map.',
             before: openExport,
@@ -5520,7 +5634,7 @@
                 var box = $('#export-binder-wiring');
                 return box && box.checked && !mem.mid ? 'Wiring is on: every circuit to its breakout, every port to its socket.' : null;
             },
-            after: closeExportUnless
+            after: closeExport
         },
         // The Fiber page (1.6.0, app-binder-fiber.js): one sheet after the
         // processors for a show that uses fiber - the guide's breakout box
@@ -5530,7 +5644,7 @@
         // and on, and the set is planned until the page is in it.
         fiberPage: {
             since: '1.6.0',
-            exportStep: true,
+            window: 'export:binder',
             target: '#export-binder-fiber-label', place: 'left', title: 'The Fiber page',
             body: 'A show with fiber gets a Fiber page after the processors: each processor to its breakout boxes, a row per link with its strands at both ends, then the strand maps and the fiber cables to pull.',
             before: openExport,
@@ -5558,10 +5672,10 @@
                 return box && box.checked && !mem.mid && mem.number
                     ? 'Fiber is on: the Fiber page prints as sheet ' + mem.number + ', after the processors.' : null;
             },
-            after: closeExportUnless
+            after: closeExport
         },
         titleBlock: {
-            exportStep: true,
+            window: 'export:binder',
             target: '#export-binder-title-block', place: 'left', title: 'Border and title block',
             body: 'Off, the drawing takes the whole sheet inside a small margin; on, every sheet wears its border and the title block column.',
             before: openExport,
@@ -5583,7 +5697,7 @@
                     ? 'Border and title block are back on for every sheet; remembered as a preference.'
                     : 'Border and title block are off again: the drawing takes the whole sheet; remembered as a preference.';
             },
-            after: closeExportUnless
+            after: closeExport
         },
         // Every export in the File menu (1.5.2, app-menubar.js): Export
         // SVG, Export PDF and Export Resolume XML open the Export dialog
@@ -6150,6 +6264,8 @@
         startTour: function (name) { return TOURS[name] ? show(name) : Promise.resolve(); },
         tours: toursAsLists,
         steps: function () { return STEPS; },
+        // The windows step `key` works in, read now (its `window`).
+        windowsOf: function (key) { return windowsOf(STEPS[key]); },
         end: end,
         setSpeed: function (n) { speed = Math.max(0.25, Number(n) || 1); },
         // Go to step n (1-based); {apply: true} runs the steps between
@@ -6161,7 +6277,7 @@
         signature: signature,
         state: function () {
             return { tour: S.name, index: S.idx, running: S.running, visible: S.visible,
-                     jumpedVia: S.jumpedVia, steps: S.keys.slice() };
+                     jumpedVia: S.jumpedVia, steps: S.keys.slice(), phase: S.phase };
         }
     };
 

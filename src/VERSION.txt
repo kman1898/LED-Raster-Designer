@@ -459,6 +459,8 @@ FIXES
   of its cards could show the old setting again a moment later, even
   though the change was saved. The newest change now always stays on
   screen.
+- FIX: The not all attached list updates the moment ports are released,
+  instead of showing them attached until the next release.
 - NEW: NovaStar 4K-Prime in the processor list: 16 ports, OPT 1/2 carry
   ports 1-8 and 9-16, OPT 3/4 copy or back them up.
 - FIX: The enhanced H_4xfiber has all eight of its OPTs. OPT 1 to 4 carry
@@ -843,6 +845,8 @@ FIXES
   makes a step fail. Your Preferences come back when the guide ends.
 - FIX: The guide's box stays inside the window, so Next is never off the
   bottom of a short window.
+- FIX: The guides keep a window open from one step to the next when both
+  steps use it, instead of closing it and opening it again.
 - FIX: In a narrow window the canvas controls scroll instead of pushing
   the hardware tray off the window, and a Processing name too long for
   its box wraps onto a second line.
@@ -859,6 +863,15 @@ FIXES
 - FIX: Every question and message is the app's own dialog or notice,
   never the browser's.
 - FIX: Ctrl+J and Duplicate copy every selected screen.
+- FIX: Renaming a screen by double-clicking its name works in Firefox, and
+  dragging inside a name being edited selects its text instead of moving
+  the screen. Canvas, group and beach names rename the same way, and a
+  drag inside a canvas or beach name being edited selects text too.
+- FIX: Canvases drag to a new place in the list, to the end too, and from
+  anywhere on their header.
+- FIX: The raster size shows the canvas of the screen you select,
+  wherever you select it from, a group's header in the Screens list or a
+  cabinet on another selected screen in Pixel Map too.
 - FIX: The processor picker in the Data tray reads whole in a narrow
   window, and the dates and screen counts in Recent Files are easier to
   read.
@@ -905,6 +918,13 @@ FIXES
 - FIX: The pull sheet never joins multis with a hyphen, which reads like a
   circuit: two read SR1, SR2 and more read VX UPSTG 1 … 3. Its overflow
   notice reads right for one position or several.
+- FIX: A move or mapping a processor's canvas can't take always says why
+  in a red message, even with the hardware tray folded away, and names
+  the screens that make up the span, with their canvases when they sit on
+  more than one.
+- FIX: The processor tray counts primary ports only where backups ride
+  along on their own: a looped XD pair with 9 primaries reads 9/10, not
+  18/20.
 
 v1.5.3 - October 21, 2026
 ----------------------------
