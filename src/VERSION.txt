@@ -959,6 +959,9 @@ FIXES
   Capacity, 2fer packing, or the Circuit numbers switch. When two cables
   land on one circuit, the one plugged into its first cabinet stays and a
   message names the screen and the circuit.
+- FIX: Clear Circuit while you redraw a circuit no longer gives the next
+  circuit the same name. Every other circuit keeps its label while you
+  draw the redrawn one again.
 
 v1.5.3 - October 21, 2026
 ----------------------------
