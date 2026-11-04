@@ -920,7 +920,9 @@ FIXES
 - FIX: The Pull Sheet window's tiles wrap when the window is narrow, so
   TOTALS is never cut off.
 - FIX: Canceling the save dialog says Save canceled, not Export canceled.
-- FIX: Reloading over an empty project opens like a launch.
+- FIX: Reloading the page keeps you on the tab you were on and no longer
+  brings up the start page over an open show. A project you left empty
+  stays empty.
 - FIX: A drop that goes through clears an earlier refusal from the status
   bar, Save Screen as Preset selects the name it fills in, and after a
   guide Preferences opens on the tab you had.
