@@ -241,6 +241,18 @@ the extension at the breakout end, and the strand map notes it beside
 the link. An extension goes when its link, its TAC or MTP, or its box
 does. Shows without extensions open exactly as before.
 
+A FIBER PAGE IN THE BINDER
+
+A show that uses fiber now gets a Fiber page after the processors. It
+draws every processor out to its breakout boxes on one sheet, a row per
+link: the output, the strand colors at the processor, the cable, any
+fan-out or patch, the strand colors at the box and the box itself.
+Beside the drawing are a strand map for each cable and the fiber cables
+to pull. When there's a lot of fiber the drawing splits into two
+columns, and past that it carries on to the next sheet. The Fiber tick
+in the Export dialog and in Preferences > Binder turns the page off. The
+processor pages keep their own Fiber connections tables.
+
 OPENING AN OLDER SHOW
 
 Some counts will change when you open a show from an earlier version.
@@ -740,6 +752,90 @@ FIXES
   PLUGS IN AT switch in a port's editor has the same buttons as the gear
   popover.
 - FIX: The What's New window's 1.6 heading names what the window lists.
+- FIX: A binder for a big show is a fraction of the size. Maps
+  print at 300 dpi and each one is saved whichever way is smaller, so a
+  binder that came out at about 250 MB is now about 13 MB.
+- FIX: Removing a processor, emptying a slot or swapping a
+  card releases every port pinned to it and says which screen ports are
+  unplaced again. Undo puts the pins back.
+- FIX: No phantom ports. A redraw that ends with its number
+  left empty hands the number back, the card and the port name follow
+  their cabinets, and nothing lands on an empty number.
+- FIX: A show saved before the column-first Down numbering
+  opens with its card pins and port names moved to the new numbers with
+  their cabinets.
+- FIX: Grouped screens that overlap no longer overload one
+  port. A port on a rectangle processor is never charged less than its
+  cabinets' own pixels.
+- FIX: Automatic circuits slide left after a redraw, so two
+  columns that can share a circuit become a 2fer again. A redraw you end
+  without changing anything goes back to automatic.
+- FIX: Drawing a new custom circuit after a Clear Circuit no
+  longer moves the other circuits onto the freed socket. The new circuit
+  takes the next free socket and the freed one stays free.
+- FIX: Sharing a free socket on a multi no longer renumbers
+  the screen that already owns that multi.
+- FIX: A screen on Multi > L6-20 plugs only into a distro's
+  L6-20 outputs, with an L6-20 cable for each circuit. Other outputs
+  refuse it and say why.
+- FIX: A service counts only the distros connected to it, so
+  the tray and the binder agree. Distro ratings that add up past the
+  service are a fact, not a warning; the load against 80% of the service
+  is what's checked.
+- FIX: A CVT4K-S that backs up its own outputs lists each backup output
+  as its own cable with its own length, and says it backs up outputs 1-8
+  on 9-16.
+- FIX: A processor's capacity reads usable ports with the backups beside
+  them, like 40 / 40 ports · 40 backup, and a backup box's ports count as
+  backup.
+- FIX: When a backup box carries fewer ports than the box it backs up,
+  the tray and the processor settings say which ports have no backup.
+- FIX: Per card, a card that backs up another reads "backs up Card 1"
+  instead of offering its own backup picker, and no partner list offers
+  a card that's already a backup.
+- FIX: A new card, breakout box or distro starts with its cable sheet
+  closed and its section open, even when it reuses a number from an
+  undone add or another show.
+- FIX: Every breakout box shows in the tray, and a box added onto a
+  backup output no longer gets a backup of its own.
+- FIX: A full TAC or MTP shows as full in a box's link picker and can't
+  be picked.
+- FIX: Dropping a full card on a second screen says how to make that
+  screen a copy when the card's copy output is set to Backup.
+- FIX: A card you name goes by that name alone in the tray.
+- FIX: A screen that shrank no longer counts its old pins as taken, so a
+  box's count matches its free tiles.
+- FIX: With several ports picked, Back to auto and Clear act on all of
+  them and name them.
+- FIX: A grouped screen's Power settings show the whole group's circuits
+  and amps whichever member is selected.
+- FIX: Turning custom circuits on no longer leaves the screen's old multi
+  load on the distro.
+- FIX: After a Clear Circuit, the Active Circuit field reads the same
+  number as the circuit labels.
+- FIX: A 2fer or 3fer pill sits beside its disc on the same side as the
+  screen's other pills, never on a run line, and a cable tag beside its
+  disc stays off its own run line.
+- FIX: Pull sheet tables wrap long gear names instead of running past
+  their box.
+- FIX: Power warnings and menus read plainly: the L21-30 warning names
+  the L21-30 leg, a service and a distro are named once, two distros
+  read DISTRO 1, DISTRO 2, the binder says 22 circuits over 16 A (80% of
+  20 A), the cable sheet's default plug reads TRUE1 (default), Merge back
+  and Unplug multi are offered only where they work, and processor and
+  box messages no longer use a spaced hyphen as a dash.
+- FIX: The guides never fail from timing or a hand on the mouse. Each
+  step waits for the app to finish and checks its result again for up to
+  ten seconds. While a step plays your mouse and keys can't disturb it,
+  and a second click on Next waits for the step.
+- FIX: The guides run on the shipped Preferences and on a canvas of their
+  own, so your Preferences or a show with several canvases no longer
+  makes a step fail. Your Preferences come back when the guide ends.
+- FIX: The guide's box stays inside the window, so Next is never off the
+  bottom of a short window.
+- FIX: In a narrow window the canvas controls scroll instead of pushing
+  the hardware tray off the window, and a Processing name too long for
+  its box wraps onto a second line.
 
 v1.5.3 - October 21, 2026
 ----------------------------
