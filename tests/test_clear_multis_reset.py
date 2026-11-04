@@ -1,7 +1,7 @@
 """Clear multis is a reset; a circuit's cable stays with its cabinets.
 
 The owner, 2026-11-04: "when clearing multi on distros it doesnt reset the
-naming on the screens" - asked what the names should become, "so default
+naming on the screens". Asked what the names should become, "so default
 they are 1-say 10. they just go back to their original numbers". And: "when
 using balance, let's say I have an extension on circuit six, but then after
 balancing it goes to circuit five. The extension needs to follow that
@@ -438,14 +438,23 @@ def test_balance_reset_carries_the_cable_from_socket_6_to_5(page):
     # the tray's cable sheet: socket 5 holds A's circuit 5 with its 25'
     sheet = pg.evaluate("""() => {
         const app = window.app;
+        app._circuitTailCache = null;
+        const n = app._powerNaming(window.__cm.layer('A')).socas.get(1).number;
+        app._setCableSheetOpen('d1', n, true);
         app.renderHardwareDock();
         const inp = document.querySelector('[data-lrd-field="power-cable-ft-1-5"]');
         if (!inp) return null;
         const tr = inp.closest('tr');
         return [tr.children[0].textContent, tr.children[1].textContent, inp.value];
     }""")
-    if sheet is not None:
-        assert sheet[1:] == ['SL1-5', '25'], sheet
+    assert sheet == ['5', 'SL1-5', '25'], sheet
+    pg.evaluate("""() => {
+        const app = window.app;
+        app._circuitTailCache = null;
+        const n = app._powerNaming(window.__cm.layer('A')).socas.get(1).number;
+        app._setCableSheetOpen('d1', n, false);
+        app.renderHardwareDock();
+    }""")
     srv = _wait_server(pg, lambda p: ((_srv_layer('A', p) or {}).get('powerSocaPhasePos') or {}) == {})
     assert (_srv_layer('A', srv) or {}).get('powerCircuitCables') == {'5': {'ft': 25, 'connector': None}}
 

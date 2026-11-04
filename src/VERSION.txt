@@ -917,6 +917,9 @@ FIXES
 - FIX: The processor tray counts primary ports only where backups ride
   along on their own: a looped XD pair with 9 primaries reads 9/10, not
   18/20.
+- FIX: Clearing a distro's multis also forgets a cable length left on a
+  circuit number the screen no longer has, so it can't come back on the
+  next circuit to take that number.
 
 v1.5.3 - October 21, 2026
 ----------------------------
