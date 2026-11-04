@@ -464,7 +464,6 @@ def test_a_new_show_takes_the_preference_unit_and_its_lengths(page):
     pg.evaluate("() => { window.app.openPreferencesModal(); window.app.showPreferencesTab('pull'); }")
     pg.select_option('#pref-cable-unit', 'ft')
     pg.click('#preferences-save')
-    answer_app_dialog(pg, accept=False)
     pg.wait_for_timeout(500)
     pg.evaluate("() => window.app.createNewProject()")
     pg.wait_for_timeout(1500)
