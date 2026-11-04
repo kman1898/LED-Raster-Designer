@@ -141,14 +141,17 @@ def _tour_keys(page, name):
 def test_shared_window_runs_are_the_known_ones(page):
     """The runs, per guide: Advanced, Quick Start, and What's New from every
     1.5 version. The owner's two reports are among them: What's New from
-    1.5.2 steps 11 and 12 share the Export dialog on the pull sheet."""
+    1.5.2 steps 11 and 12 share the Export dialog on the pull sheet (12
+    and 13 since Every box in one list, a 1.6.0 step, came in before
+    them)."""
     assert _runs(page, _tour_keys(page, 'advanced')) == ADVANCED_RUNS
     assert _runs(page, _tour_keys(page, 'quick')) == QUICK_RUNS
     for after, want in WHATS_NEW_RUNS.items():
         keys = page.evaluate("(v) => window.QuickStart.newSteps(v, null)", after)
         assert _runs(page, keys) == want, after
     keys = page.evaluate("() => window.QuickStart.newSteps('1.5.2', null)")
-    assert keys[10:12] == ['jumperNames', 'pullPanels'], keys
+    assert keys[11:13] == ['jumperNames', 'pullPanels'], keys
+    assert 'procCableList' in keys[:11], keys
     assert page.evaluate("() => window.QuickStart.windowsOf('jumperNames')") == ['export:pull-sheet']
     # Cable stock, then A list for each kind of cable, then the stock
     # pieces typed into the tray (owner, 2026-11-04)
@@ -333,7 +336,7 @@ def test_whats_new_keeps_shared_windows_up(page, after):
     missing = _run_pairs(WHATS_NEW_RUNS[after]) - held
     assert not missing, f"no window was up to hold for {sorted(missing)}"
     if after == '1.5.2':
-        assert ('jumperNames', 'pullPanels') in held and keys.index('jumperNames') == 10
+        assert ('jumperNames', 'pullPanels') in held and keys.index('jumperNames') == 11
         assert ('cableStock', 'cableStockPerKind') in held, sorted(held)
         assert keys.index('cableStockPerKind') == keys.index('cableStock') + 1, keys
         assert keys.index('cableStockPieces') == keys.index('cableStockPerKind') + 1, keys
