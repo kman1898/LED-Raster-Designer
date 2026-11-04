@@ -2373,11 +2373,9 @@ def place_port(processors, screens, state, layer_id, index, card_id, port,
     # socket is fed.
     mirror_role = (card.get('mirrorRoles') or {}).get(port)
     if mirror_role:
-        primary = _port_title(card, mirror_role['port'])
-        return None, (f'{_port_title(card, port)} copies {primary} for a '
-                      f'mirror screen. Set a screen to mirror the one on '
-                      f'{primary} in Screen Info, and its run lands '
-                      f'here.'), None
+        return None, mirror_box_refusal(
+            card, [port], resolve(processors, screens, state)['screens'],
+            socket=_port_title(card, port)), None
     if not _has_socket(card, port):
         if card.get('boxFed'):
             # A box-fed device has no port outside a box (the 2026-09-24
@@ -2532,12 +2530,10 @@ def move_block(processors, screens, state, layer_id, card_id=None,
     # A window that is a MIRROR box's span (every socket in it copies a
     # primary) takes no run of its own: said, not searched.
     if card_id and lo is not None and hi is not None:
-        roles = by_id[card_id].get('mirrorRoles') or {}
-        if all(n in roles for n in range(lo, hi + 1)):
-            return None, (f'That box copies {_card_title(by_id[card_id])}\'s '
-                          f'primary sockets for a mirror screen. Set a '
-                          f'screen to mirror one on those sockets in Screen '
-                          f'Info, and its run lands here.')
+        refusal = mirror_box_refusal(by_id[card_id], range(lo, hi + 1),
+                                     resolution['screens'])
+        if refusal:
+            return None, refusal
 
     for position, cid in enumerate(search):
         card = by_id[cid]
@@ -2560,6 +2556,43 @@ def move_block(processors, screens, state, layer_id, card_id=None,
                       f'or place the ports by hand.')
     return None, (f'No {_show_unit_word(cards)} has {size} consecutive free ports. Free up a run, '
                   f'or place the ports by hand.')
+
+
+def mirror_box_refusal(card, numbers, screens, socket=None):
+    """Why a run is refused onto these sockets of `card` because every one
+    of them is a MIRROR socket (a box on a copy OPT set to Mirror, or the
+    copy OPTs of a card in Copy mode - mirrorRoles), or None. A mirror box
+    takes no run of its own: it carries the copy of the screen on the
+    sockets it copies, and a screen becomes that copy by dragging the box
+    onto it (owner, 2026-11-04: "breakout is the only way mirror works aka
+    copy" - the tray's drop, app-mirror-screens.js _mirrorBoxDropPlan). So
+    the refusal names the box, what it copies, and the gesture: drag it onto
+    the screen that should copy the screen there, or put a screen on the
+    copied box first. `socket` names one socket in place of the box."""
+    roles = card.get('mirrorRoles') or {}
+    numbers = [int(n) for n in numbers]
+    if not numbers or not all(n in roles for n in numbers):
+        return None
+    box = roles[numbers[0]].get('boxTitle') or 'That box'
+    primaries = sorted({int(roles[n]['port']) for n in numbers})
+    titles = card.get('boxTitles') or {}
+    boxes = []
+    for n in primaries:
+        title = titles.get(n)
+        if title and title not in boxes:
+            boxes.append(title)
+    copied = (' and '.join(boxes) if boxes else
+              f'{_card_title(card)} ports {primaries[0]}-{primaries[-1]}')
+    wanted = set(primaries)
+    on = [s for s in screens or [] if not s.get('mirrorOf') and any(
+        p.get('cardId') == card['cardId'] and p.get('port') in wanted
+        and p.get('source') != 'mirror' for p in s.get('ports') or [])]
+    lead = f'{socket or box} copies {copied} for a mirror screen.'
+    if not on:
+        return (f'{lead} Put a screen on {copied} first, then drag {box} '
+                f'onto the screen that should copy it.')
+    return (f'{lead} Drag {box} onto the screen that should copy '
+            f'{on[0]["name"]}.')
 
 
 def _pin_block(state, layer_id, card_id, start, size):
@@ -2612,13 +2645,12 @@ def place_overflow(processors, screens, state, layer_id, card_id,
     if not platform_allows(card, current.get('platform')):
         return None, _platform_refusal(current['name'],
                                        current['platform'], card)
-    mroles = card.get('mirrorRoles') or {}
-    if first_port is not None and last_port is not None and all(
-            n in mroles for n in range(int(first_port), int(last_port) + 1)):
-        return None, (f'That box copies {_card_title(card)}\'s primary '
-                      f'sockets for a mirror screen. Set a screen to mirror '
-                      f'one on those sockets in Screen Info, and its run '
-                      f'lands here.')
+    if first_port is not None and last_port is not None:
+        refusal = mirror_box_refusal(
+            card, range(int(first_port), int(last_port) + 1),
+            resolution['screens'])
+        if refusal:
+            return None, refusal
     if not current['unplaced']:
         return None, (f'Every port of {current["name"]} is already on a '
                       f'processor. Clear it first.')

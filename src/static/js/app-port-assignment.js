@@ -612,6 +612,20 @@ class _PortAssignment {
     // numbering changed" goes through a button somebody pressed.
     _takeOffer(offer) {
         sendClientLog('port_assignment_offer_taken', offer);
+        // A dock drop's refusal is said where the drop was made, as well
+        // as on the tray's line: the pill said ok, nothing landed, and the
+        // tray may be folded or scrolled off (owner, 2026-11-04 - a drop
+        // that "did nothing"). Every refusal, not only the flagged kinds.
+        const said = offer.fromDock ? (data) => {
+            if (data && data.error && !data.canvas
+                    && typeof this._dockSay === 'function') {
+                this._dockSay(data.error);
+            }
+            sendClientLog('port_assignment_drop_refused',
+                          { action: offer.action, layerId: offer.layerId,
+                            error: data && data.error });
+            return false;
+        } : null;
         if (offer.action === 'move-block') {
             return this._assignmentRequest(
                 '/api/port-assignments/move-block', 'POST',
@@ -621,7 +635,7 @@ class _PortAssignment {
                   // card ports; panel offers never carry a window.
                   firstPort: offer.firstPort || undefined,
                   lastPort: offer.lastPort || undefined },
-                null, 'Move Port Block');
+                said, 'Move Port Block');
         } else if (offer.action === 'place-overflow') {
             return this._assignmentRequest(
                 '/api/port-assignments/place-overflow',
@@ -635,7 +649,7 @@ class _PortAssignment {
                           // takes the unplaced ports up to it, no further.
                           lastIndex: offer.lastIndex != null
                               ? offer.lastIndex : undefined },
-                null, 'Fill Ports In Order');
+                said, 'Fill Ports In Order');
         } else if (offer.action === 'release') {
             return this._assignmentRequest(
                 '/api/port-assignments/unpin', 'POST',
