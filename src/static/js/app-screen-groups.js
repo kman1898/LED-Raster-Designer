@@ -35,7 +35,7 @@
 // disagrees with itself repairs to - none of that logic is repeated here.
 import { LEDRasterApp } from './app-core.js';
 import { sendClientLog } from './helpers.js';
-import { stripScreenFeeds } from './app-clipboard.js';
+import { stripScreenFeeds, SCREEN_FEED_KEYS } from './app-clipboard.js';
 
 // What the greyed "Route <group> as one screen" switch says when the
 // members' cabinet sizes differ (updateGroupRouteControl).
@@ -613,6 +613,9 @@ class _ScreenGroups {
             id: this._nextGroupId(),
             name: this._nextGroupName(),
             layer_ids: screens.map(l => l.id),
+            // A group made now walks its circuits as one wall, across
+            // processor canvases too (decidePowerPerMemberOnOpen).
+            powerPerMember: false,
         };
         if (!Array.isArray(this.project.groups)) this.project.groups = [];
         this.project.groups.push(group);
@@ -852,6 +855,81 @@ class _ScreenGroups {
         group.routeDataAsOne = group.routeDataAsOne === false;
         await this._commitGroupChange('Toggle Group Data Routing');
         return true;
+    }
+
+    // ── Power across processor canvases: one wall, or per member ────────
+    //
+    // A grouped wall walks its automatic circuits as one, even when its
+    // members sit on different processor canvases (_autoCrossMembers). A
+    // show saved before that walked such a wall per member, and the members
+    // after the first may have their own circuits wired up. The owner's
+    // ruling (2026-11-04, option C): such a wall walks as one, EXCEPT when a
+    // member after the first carries distro feeds (multis or outputs on a
+    // distro), typed circuit labels, cables or lengths, or redraws or custom
+    // power paths, or when the group is locked. Those keep their per-member
+    // circuits.
+    //
+    // The answer is STORED on the group, `powerPerMember`, decided once:
+    // when a show opens (for a group that has no answer yet) or when the
+    // group forms (false: a new group always walks as one). It is never
+    // read live off the members, because then the wall would flip the
+    // moment someone typed a label or plugged a multi, renumbering every
+    // circuit under the user. For the same reason a per-member wall that
+    // later loses every reason stays per-member. Ungroup and group again
+    // makes a new group, which walks as one. Undo carries the field with
+    // the group, like any other group field.
+    //
+    // true:  the processor-raster rule holds for power too (per member when
+    //        the members sit on different processor canvases).
+    // false: one wall. A group on one processor canvas is one wall either
+    //        way; its flag changes nothing.
+    decidePowerPerMemberOnOpen(project = this.project) {
+        const decided = [];
+        const groups = (project && Array.isArray(project.groups)) ? project.groups : [];
+        groups.forEach(group => {
+            if (!group || typeof group.powerPerMember === 'boolean') return;
+            const why = this._powerPerMemberReasons(group);
+            group.powerPerMember = why.length > 0;
+            decided.push({ id: group.id, perMember: group.powerPerMember, why });
+        });
+        if (decided.some(d => d.perMember) && typeof sendClientLog === 'function') {
+            sendClientLog('group_power_per_member', { groups: decided.filter(d => d.perMember) });
+        }
+        return decided;
+    }
+
+    // Why an undecided group keeps per-member circuits: [] when it walks as
+    // one. Only a wall whose members sit on more than one processor canvas
+    // can be per member at all.
+    _powerPerMemberReasons(group) {
+        const members = this.getGroupMembers(group).filter(l => l
+            && (l.type || 'screen') === 'screen'
+            && Array.isArray(l.panels) && l.panels.length > 0
+            && l.visible !== false);
+        if (members.length < 2) return [];
+        const rasters = new Set(members.map(l => l.canvas_id || null));
+        if (rasters.size < 2) return [];
+        const why = [];
+        if (members.some(l => this._layerLocked(l))) why.push('locked');
+        const filled = v => {
+            if (v === null || v === undefined || v === false || v === '' || v === 0) return false;
+            if (Array.isArray(v)) return v.some(filled);
+            if (typeof v === 'object') return Object.values(v).some(filled);
+            return true;
+        };
+        members.slice(1).forEach(m => {
+            const own = [];
+            if (SCREEN_FEED_KEYS.some(k => filled(m[k]))) own.push('feeds');
+            if (filled(m.powerLabelOverrides)) own.push('labels');
+            if (filled(m.powerCustomOverrides)) own.push('redraws');
+            // a path step is {row, col}: R1C1 is all zeros, so count steps
+            const paths = m.powerCustomPaths && typeof m.powerCustomPaths === 'object'
+                ? Object.values(m.powerCustomPaths) : [];
+            if (m.powerCustomPath === true
+                    || paths.some(p => Array.isArray(p) && p.length > 0)) own.push('paths');
+            if (own.length) why.push(`${m.id}:${own.join('+')}`);
+        });
+        return why;
     }
 
     // Whether the members COULD route as one screen for data - the walk's own
@@ -1227,6 +1305,9 @@ class _ScreenGroups {
         if (group.nameDisplayByView && typeof group.nameDisplayByView === 'object') {
             copy.nameDisplayByView = { ...group.nameDisplayByView };
         }
+        // The copy is a new group and carries no feeds (stripScreenFeeds),
+        // so it walks its circuits as one wall, as every new group does.
+        copy.powerPerMember = false;
         this.project.groups.push(copy);
         this.currentLayer = clones[0];
         this.selectedLayerIds = new Set(clones.map(c => c.id));

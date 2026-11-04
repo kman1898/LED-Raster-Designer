@@ -46,7 +46,7 @@ def test_two_cvt10s_behind_one_cvt4k_s_leave_9_and_10_unbacked(client):
                         json={'deviceId': device_id, 'pair': False}))
     st = _ok(client.post(f'/api/processors/{pid}/cards/{cid}/cvts',
                          json={'deviceId': CVT4KS}))
-    assert _boxes(st) == {'CVT10 A': [9, 10], 'CVT10 B': [9, 10],
+    assert _boxes(st) == {'CVT10-S A': [9, 10], 'CVT10-S B': [9, 10],
                           'CVT4K-S C-D': [], 'CVT4K-S E-F': []}
 
 
@@ -58,7 +58,7 @@ def test_a_full_pair_and_an_unbacked_box_say_nothing(client):
                          json={'deviceId': CVT10, 'pair': False}))
     # A backed by its pair in full; B backed by nothing at all (not "no
     # backup on 1-10": a box nobody backs up is not a shortfall)
-    assert _boxes(st) == {'CVT10 A': [], 'CVT10 E': [], 'CVT10 B': []}
+    assert _boxes(st) == {'CVT10-S A': [], 'CVT10-S E': [], 'CVT10-S B': []}
 
 
 # ── the tray and the gear ─────────────────────────────────────────────────
@@ -125,8 +125,8 @@ def test_the_box_header_and_the_processor_gear_say_it(page):
         const el = document.querySelector(`[data-lrd-field="processor-unbacked-${pid}"]`);
         return el ? el.textContent : null;
     }""", ids['pid'])
-    assert line == ('CVT10 A ports 9-10 have no backup. '
-                    'CVT10 B ports 9-10 have no backup.'), line
+    assert line == ('CVT10-S A ports 9-10 have no backup. '
+                    'CVT10-S B ports 9-10 have no backup.'), line
     # ...beside the capacity line, which counts the backup box's sockets
     # as backup however the resolver marks them (owner, 2026-11-03)
     cap = page.evaluate("""() => [...document.querySelectorAll('#hw-gear-popover div')]

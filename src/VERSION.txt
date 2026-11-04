@@ -261,6 +261,26 @@ click sets them all, and the binder's Data and Power sheets follow each
 group's own choice. A show from an earlier version opens with every
 group named the way it was.
 
+SINGLE MODE AND MULTIMODE BOXES
+
+NovaStar makes the CVT10, CVT10 Pro and CVT4K in two versions, single
+mode and multimode, and the box picker now lists both: the CVT10-S,
+CVT10 Pro-S and CVT4K-S first, then the CVT10-M, CVT10 Pro-M and
+CVT4K-M. A multimode box works exactly like its single mode twin, with
+the same ports, OPTs, backup and copy, and only its fiber is different.
+Each box says Single mode or Multimode on its header in the tray, behind
+its gear and on its sheet, and the pull sheet, the binder and the box's
+sheet name the mode on every fiber cable, like TAC 12 · ST · Single mode.
+The processor pages give it in short, like TAC A (TAC 12 SM) or (TAC 12 MM).
+
+A single mode box and a multimode box can't share a TAC, an MTP or an
+opticalCON. Picking a cable that a box of the other mode is on is
+refused, and the message says which box is on it. Preferences > Cable
+stock has a Single mode fiber list and a Multimode fiber list of their
+own, so the pull sheet makes each fiber run from the lengths of its own
+mode. A show saved with a CVT10 or CVT10 Pro opens with the CVT10-S or
+CVT10 Pro-S, and its fiber cables read Single mode.
+
 OPENING AN OLDER SHOW
 
 Some counts will change when you open a show from an earlier version.
@@ -929,6 +949,17 @@ FIXES
 - FIX: The processor tray counts primary ports only where backups ride
   along on their own: a looped XD pair with 9 primaries reads 9/10, not
   18/20.
+- FIX: A circuit drawn or redrawn on a grouped wall runs across its
+  screens the way it does on one screen, even when the screens sit on
+  different processor canvases. The wall's automatic circuits are
+  numbered as one, so the last column of one screen and the first column
+  of the next share a 2fer. A wall like this in an older show keeps its
+  circuits screen by screen when it is locked, or when a screen after the
+  first has circuits of its own plugged into a distro, labeled, cabled or
+  redrawn.
+- FIX: Clearing a distro's multis also forgets a cable length left on a
+  circuit number the screen no longer has, so it can't come back on the
+  next circuit to take that number.
 
 v1.5.3 - October 21, 2026
 ----------------------------

@@ -65,9 +65,11 @@ def test_a_stock_is_cleaned_and_a_junk_one_refused():
     # list and the direct-output list from its circuit list
     assert s == {'perKind': True,
                  'ft': {'all': [], 'multi': [25, 50, 100], 'data': [], 'circuit': [],
-                        'l2130': [25, 50, 100], 'harting': [25, 50, 100], 'direct': [], 'feeder': []},
+                        'l2130': [25, 50, 100], 'harting': [25, 50, 100], 'direct': [], 'feeder': [],
+                        'fiberSingle': [], 'fiberMulti': []},
                  'm': {'all': [7.62], 'multi': [], 'data': [], 'circuit': [],
-                       'l2130': [], 'harting': [], 'direct': [], 'feeder': []}}
+                       'l2130': [], 'harting': [], 'direct': [], 'feeder': [],
+                       'fiberSingle': [], 'fiberMulti': []}}
     # a list present, even empty, is that kind's own
     s = rcs.normalize_stock({'perKind': True, 'ft': {'multi': [50], 'circuit': [10], 'l2130': [],
                                                      'direct': [5], 'feeder': [100]}})

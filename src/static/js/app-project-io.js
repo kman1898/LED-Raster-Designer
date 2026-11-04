@@ -369,6 +369,14 @@ class _ProjectIo {
             // read off the same stamp.
             const olderRedraws = typeof this.redrawsPredateRelease === 'function'
                 && this.redrawsPredateRelease(this.project);
+            // A group with no stored answer (a show saved before
+            // grouped walls walked power as one across processor
+            // canvases) is decided here, once, before the PUT so the
+            // server and the first undo snapshot hold the answer
+            // (app-screen-groups decidePowerPerMemberOnOpen).
+            if (typeof this.decidePowerPerMemberOnOpen === 'function') {
+                this.decidePowerPerMemberOnOpen(this.project);
+            }
             // The migrations above have run against the file's
             // own stamp; from here the project is this build's.
             // Stamped BEFORE the PUT below, because a load never

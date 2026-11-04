@@ -246,6 +246,9 @@ def duplicate_canvas(canvas_id):
             # its name - it is the same wall, on a copy of the canvas.
             'name': group.get('name') or 'Group',
             'layer_ids': cloned_ids,
+            # a new group: its copies carry no feeds, so it walks power as
+            # one wall (decidePowerPerMemberOnOpen, app-screen-groups.js)
+            'powerPerMember': False,
         }
         # The same wall again, so it is named the way the source is on every
         # tab (the NAMES switch, per group since 2026-11-04).

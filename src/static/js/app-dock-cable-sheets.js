@@ -1033,6 +1033,20 @@ class _DockCableSheets {
                 `Fiber · ${titleOf(box)}${tag}${loop ? ` (${loop})` : ''}`));
         }
         const members = pair ? [...pair.nears, ...pair.fars] : [box];
+        // The fiber's mode where the boxes state one (owner, 2026-11-04):
+        // "Single mode" / "Multimode" after the caption - each box's own
+        // where a pair's boxes differ.
+        const modes = members.map(m => this.boxFiberMode(m));
+        if (modes.some(Boolean)) {
+            const same = modes.every(md => md === modes[0]);
+            const words = same ? this.fiberModeWord(modes[0])
+                : members.map((m, i) => (modes[i] ? `${titleOf(m)} ${this.fiberModeWord(modes[i])}` : ''))
+                    .filter(Boolean).join(', ');
+            const tag = text('hw-dock-fiber-mode', words);
+            tag.dataset.lrdField = `fiber-mode-${box.id}`;
+            tag.title = 'The fiber this box takes. Single mode and multimode never share a fiber cable.';
+            head.appendChild(tag);
+        }
         members.forEach(m => {
             if (!m.bidiAllowed) return;
             const lab = document.createElement('label');

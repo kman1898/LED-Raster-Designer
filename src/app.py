@@ -1394,6 +1394,9 @@ def _create_group(project, layer_ids, name=None):
         'id': _next_group_id(project),
         'name': name or f'Group {len(project["groups"]) + 1}',
         'layer_ids': members,
+        # A group made now walks its circuits as one wall, across processor
+        # canvases too (decidePowerPerMemberOnOpen, app-screen-groups.js).
+        'powerPerMember': False,
     }
     project['groups'].append(group)
     for lid in members:

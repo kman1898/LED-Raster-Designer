@@ -725,8 +725,31 @@ class _ScreenInfo {
         // share a show canvas while sitting on different rasters have no honest
         // combined port load and no honest H. Same refusal _crossMemberLoadPanels
         // makes for a hand-drawn crossing port's load badge.
+        //
+        // DATA ONLY. A circuit is a power cable: its load is watts and
+        // nothing in it is measured down a processor's raster, so a wall
+        // whose sections sit on three processors is still one wall to
+        // power. With power held to one raster too, such a group walked
+        // its circuits per member (each member S1-1 again), the last
+        // column of one member could never pair with the first of the
+        // next, and a redraw that ran onto the next member found every
+        // cabinet there wired to that member's own circuits and was
+        // refused (the owner, 1.6.0-beta.5: "I can't do drawings across
+        // grouped screens"). Grouped screens "are one screen when they
+        // are grouped"; a custom group already drew as one across
+        // processors (_customPowerWall), and now the automatic walk does.
+        //
+        // Except a group stored `powerPerMember: true`: an older show's wall
+        // across processors whose members had their own circuits wired up
+        // (feeds, labels, cables, redraws) or that was locked, decided once
+        // as the show opened (decidePowerPerMemberOnOpen, app-screen-groups).
+        // It keeps the per-member circuits it was saved with.
         const raster = scope[0].canvas_id || null;
-        if (!scope.every(l => (l.canvas_id || null) === raster)) return null;
+        const ownGroup = kind === 'power' && typeof this.getGroupOfLayer === 'function'
+            ? this.getGroupOfLayer(layer) : null;
+        const perMember = !!(ownGroup && ownGroup.powerPerMember === true);
+        if ((kind !== 'power' || perMember)
+                && !scope.every(l => (l.canvas_id || null) === raster)) return null;
 
         // Compare the panel SPEC, never the half-tile flags.
         const w = Number(scope[0].cabinet_width) || 0;

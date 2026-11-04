@@ -704,11 +704,14 @@ def test_the_enhanced_cards_cvt4k_still_reads_1_8_and_9_16(client):
 
 
 def test_only_the_cvt4k_locks_its_outputs_to_its_inputs():
+    # the CVT4K-S and its multimode twin, the CVT4K-M, which behaves
+    # exactly like it but for its fiber (owner, 2026-11-04)
     locked = [d['id'] for d in (catalog.devices().values()
                                 if isinstance(catalog.devices(), dict)
                                 else catalog.devices())
               if catalog.input_outputs(d)]
-    assert locked == [CVT4K]
+    assert locked == [CVT4K, 'novastar-cvt4k-m']
+    assert catalog.input_outputs(catalog.get_device('novastar-cvt4k-m')) == 8
     assert catalog.input_outputs(catalog.get_device(CVT4K)) == 8
 
 
@@ -1056,7 +1059,7 @@ def test_the_tray_draws_the_own_ports_backup_as_loop_rows(e2e_server,
         page.wait_for_function(QUIET_JS)
         ids = page.evaluate(SEED_JS, [UHD_JR, 'unit', None, []])
         offered = page.evaluate(OFFER_JS, ids['card'])
-        assert {'CVT10 on OPT 3', 'CVT4K-S on OPT 3-4'} <= set(offered), \
+        assert {'CVT10-S on OPT 3', 'CVT4K-S on OPT 3-4'} <= set(offered), \
             offered
         page.evaluate("""async ([proc, card]) => {
             await fetch(`/api/processors/${proc}/cards/${card}/cvts`, {

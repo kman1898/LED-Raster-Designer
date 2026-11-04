@@ -5429,6 +5429,36 @@ class _Power {
         return changed;
     }
 
+    // Every circuit cable on `layer` that no fed circuit carries once a
+    // clear has run: the cleared circuits' own, and any left under a
+    // circuit number the screen's plan no longer has. The clear wipes its
+    // multis' circuits by the numbers they hold NOW (_wipeSocaProgramming),
+    // so a cable typed on circuit 6 before the wall renumbered to five
+    // circuits, or one on a taken-over circuit with nothing drawn, outlived
+    // the clear and came back on whatever circuit took that number next
+    // (the owner's log, 2026-11-04: Clear Distro left a 10' cable on two
+    // screens, each on a number no circuit had). No distro, no extension
+    // (2026-10-20), and a
+    // length never reappears on a later feed (2026-10-17). Unrecorded: the
+    // clear's one entry carries it. True when it wrote.
+    _forgetUnfedCircuitCables(layer) {
+        const store = layer && layer.powerCircuitCables;
+        if (!store || !Object.keys(store).length) return false;
+        this._circuitTailCache = null;
+        const fed = new Set();
+        for (const rec of this._powerNaming(layer).socas.values()) {
+            if (!rec.distroId) continue;
+            rec.circuits.forEach(num => fed.add(String(num)));
+        }
+        let changed = false;
+        Object.keys(store).forEach(key => {
+            if (fed.has(String(parseInt(key, 10)))) return;
+            delete store[key];
+            changed = true;
+        });
+        return changed;
+    }
+
     // Drop the manual share (merge) groups and split pins covering the
     // given run ids, so a cleared scope re-packs naturally instead of
     // keeping hand-ganged circuits nobody is feeding any more. Unrecorded
