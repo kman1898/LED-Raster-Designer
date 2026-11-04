@@ -1923,12 +1923,24 @@ class _ScreenGroups {
         // names. The edit cue is the `.editing` CLASS, never an inline style -
         // theme.css sets the field background/border with !important, so an
         // inline cue is painted over and the field never looks editable.
-        nameInput.addEventListener('dblclick', (e) => {
-            e.stopPropagation();
+        // The second click opens the edit as well as the dblclick: the list
+        // can be rebuilt between the two clicks (the rename just ended on
+        // another group re-renders it once saved), and Firefox sends no
+        // dblclick when the two clicks land on different elements.
+        // Whichever comes first opens it; the other finds it open.
+        const startRename = () => {
+            if (!nameInput.readOnly) return;
             nameInput.readOnly = false;
             nameInput.classList.add('editing');
             nameInput.focus();
             nameInput.select();
+        };
+        nameInput.addEventListener('click', (e) => {
+            if (nameInput.readOnly && e.detail >= 2) startRename();
+        });
+        nameInput.addEventListener('dblclick', (e) => {
+            e.stopPropagation();
+            startRename();
         });
         const commitName = () => {
             if (nameInput.readOnly) return;

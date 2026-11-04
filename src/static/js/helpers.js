@@ -396,8 +396,22 @@ function isVerticalFlowPattern(pattern) {
     return String(pattern || '').split('-')[1] === 'v';
 }
 
+// A name being edited in a list row must not sit under anything draggable.
+// WebKit (Safari, and the Mac app's window) starts the ROW's drag when the
+// mouse is pressed and dragged inside a text field whose ancestor is
+// draggable, so a drag meant to select part of the name moved the screen
+// instead (owner's report, 1.6.0 beta.5). Turns `draggable` off on every
+// element given that has it on and returns the undo, which turns those
+// back on. The rows are rebuilt whole by their list, so an edit that ends
+// with the rebuild (no blur, no undo) leaves only detached nodes off.
+function holdDragOff(...els) {
+    const held = els.filter(el => el && el.draggable === true);
+    held.forEach(el => { el.draggable = false; });
+    return () => held.forEach(el => { el.draggable = true; });
+}
+
 export { evaluateMathExpression, isMacOS, sendClientLog, registerGlobalClientLogging, setupColorPickerWithHex, normalizeHex, refreshAllColorSwatches, isTypingTarget, installEnterEndsEdit, commitEditOnPress,
-    FLOW_SNAKE_PATTERNS, FLOW_Z_PATTERNS, FLOW_AUTO_PATTERNS, isZFlowPattern, isVerticalFlowPattern };
+    FLOW_SNAKE_PATTERNS, FLOW_Z_PATTERNS, FLOW_AUTO_PATTERNS, isZFlowPattern, isVerticalFlowPattern, holdDragOff };
 
 // Classic (non-module) scripts call these by name at runtime
 // (canvas.js -> sendClientLog, color_picker.js -> normalizeHex,

@@ -853,6 +853,15 @@ FIXES
 - FIX: Every question and message is the app's own dialog or notice,
   never the browser's.
 - FIX: Ctrl+J and Duplicate copy every selected screen.
+- FIX: Renaming a screen by double-clicking its name works in Firefox, and
+  dragging inside a name being edited selects its text instead of moving
+  the screen. Canvas, group and beach names rename the same way, and a
+  drag inside a canvas or beach name being edited selects text too.
+- FIX: Canvases drag to a new place in the list, to the end too, and from
+  anywhere on their header.
+- FIX: The raster size shows the canvas of the screen you select,
+  wherever you select it from, a group's header in the Screens list or a
+  cabinet on another selected screen in Pixel Map too.
 - FIX: The processor picker in the Data tray reads whole in a narrow
   window, and the dates and screen counts in Recent Files are easier to
   read.

@@ -31,7 +31,7 @@
 // other organising things (canvases, groups) are already renamed by
 // double-click and reordered by drag, so the idiom is the panel's own.
 import { LEDRasterApp } from './app-core.js';
-import { sendClientLog } from './helpers.js';
+import { sendClientLog, holdDragOff } from './helpers.js';
 
 // The picker's "make one" entry. Never a beach id (ids are b<N>).
 const NEW_BEACH = '__new_beach__';
@@ -393,17 +393,43 @@ class _Beaches {
         const nameInput = row.querySelector('.beach-name-input');
         const removeBtn = row.querySelector('.beach-remove');
 
-        nameInput.addEventListener('dblclick', (e) => {
-            e.stopPropagation();
+        // The second click opens the edit as well as the dblclick: the line
+        // is rebuilt when the server answers a rename, so ending one beach's
+        // rename and double-clicking the next can put a new field under the
+        // second click, and Firefox sends no dblclick when the two clicks
+        // land on different elements. Whichever comes first opens it; the
+        // other finds it open.
+        //
+        // The read-only name is draggable and its dragstart reaches the
+        // row's, as on the canvas headers (WebKit may start no ancestor
+        // drag from a press on a text field). While it is edited neither the
+        // field nor the row is draggable, so a drag in the field selects
+        // text instead of moving the beach (helpers.js holdDragOff).
+        nameInput.draggable = true;
+        let releaseDrag = null;
+        const startRename = () => {
+            if (!nameInput.readOnly) return;
             nameInput.readOnly = false;
+            releaseDrag = holdDragOff(nameInput, row);
             nameInput.classList.add('editing');
             nameInput.focus();
             nameInput.select();
+        };
+        nameInput.addEventListener('click', (e) => {
+            if (nameInput.readOnly && e.detail >= 2) startRename();
         });
-        const commitName = () => {
-            if (nameInput.readOnly) return;
+        nameInput.addEventListener('dblclick', (e) => {
+            e.stopPropagation();
+            startRename();
+        });
+        const endEdit = () => {
             nameInput.readOnly = true;
             nameInput.classList.remove('editing');
+            if (releaseDrag) { releaseDrag(); releaseDrag = null; }
+        };
+        const commitName = () => {
+            if (nameInput.readOnly) return;
+            endEdit();
             const newName = nameInput.value.trim();
             if (newName && newName !== beach.name) {
                 this.renameBeach(beach.id, newName);
@@ -416,8 +442,7 @@ class _Beaches {
             if (e.key === 'Enter') { e.preventDefault(); nameInput.blur(); }
             else if (e.key === 'Escape') {
                 nameInput.value = beach.name || '';
-                nameInput.readOnly = true;
-                nameInput.classList.remove('editing');
+                endEdit();
                 nameInput.blur();
             }
             if (!nameInput.readOnly) e.stopPropagation();

@@ -214,10 +214,23 @@ Object.assign(CanvasRenderer.prototype, {
                     // the selection before its cabinets could be picked.
                     const reachGesture = this._isCustomPathGesture(layer)
                         || this._isPixelMapCabinetGesture(layer);
+                    // A press on a screen that is already selected keeps the
+                    // selection through the canvas switch: whatever the
+                    // gesture turns out to be narrows it itself (selectLayer
+                    // below, or mouse-up's click), and on Pixel Map a click
+                    // on the current screen's cabinet is a cabinet click
+                    // that keeps every selected screen. Since a cabinet
+                    // picked on another selected screen activates that
+                    // screen's canvas (mouse-up), the current screen can sit
+                    // on a canvas that is not active, and pressing its
+                    // cabinet must not cull the others.
                     if (!reachGesture && layer.canvas_id
                         && window.app.project.active_canvas_id !== layer.canvas_id
                         && typeof window.app.setActiveCanvas === 'function') {
-                        window.app.setActiveCanvas(layer.canvas_id);
+                        const pressedSelected = !!(window.app.selectedLayerIds
+                            && window.app.selectedLayerIds.has(layer.id));
+                        window.app.setActiveCanvas(layer.canvas_id,
+                            pressedSelected ? { preserveSelection: true } : {});
                     }
                     if ((!window.app.currentLayer || window.app.currentLayer.id !== layer.id)
                         && !reachGesture
@@ -1424,6 +1437,15 @@ Object.assign(CanvasRenderer.prototype, {
                             window.app.togglePixelMapPanelSelection(clickedPanel.panel, clickedLayer);
                         } else {
                             window.app.selectOnlyPixelMapPanel(clickedPanel.panel, clickedLayer);
+                        }
+                        // A cabinet picked on another selected screen keeps
+                        // the selection (mouse-down's reachGesture) but the
+                        // canvas it sits on becomes the active one, so the
+                        // toolbar's Raster W x H shows the canvas of the
+                        // screen just clicked (owner's report, 1.6.0 beta.5).
+                        // preserveSelection: nothing is dropped.
+                        if (typeof window.app._activateCanvasForLayer === 'function') {
+                            window.app._activateCanvasForLayer(clickedLayer, { preserveSelection: true });
                         }
                     } else if (!additive) {
                         window.app.clearPixelMapSelection();

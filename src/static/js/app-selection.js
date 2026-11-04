@@ -112,6 +112,14 @@ class _Selection {
             this.lastSelectedLayerId = this.currentLayer.id;
             this.selectionAnchorLayerId = this.currentLayer.id;
         }
+        // The primary screen's canvas becomes the active one, as for every
+        // other way of selecting: a click on a group's header on another
+        // canvas left the toolbar's Raster W x H on the canvas before it
+        // (owner's report, 1.6.0 beta.5). preserveSelection: the ids given
+        // are the selection, whatever canvases they sit on.
+        if (typeof this._activateCanvasForLayer === 'function') {
+            this._activateCanvasForLayer(this.currentLayer, { preserveSelection: true });
+        }
         this._screenSelectionChanged();
         this.renderLayers();
         this.loadLayerToInputs();
