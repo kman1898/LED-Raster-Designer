@@ -3811,7 +3811,10 @@ def test_a_loop_pair_folds_as_one_strip_that_names_both_boxes(dock_page):
         assert st['aShown'] and st['bShown'] and not st['collapsed'], st
         for row in st['perBox']:
             assert row and row['gear'] and row['sheet'] and row['drag'], st
-            assert row['use'] and '/' in row['use'], st
+        # the near row counts its primaries; the far one carries only the
+        # automatic backups, so it draws no count (owner, 2026-11-04)
+        assert st['perBox'][0]['use'] and '/' in st['perBox'][0]['use'], st
+        assert st['perBox'][1]['use'] is None, st
 
         # folded, the strip hides both rows and its header names both
         fold_arrow(page, f'hwdock-box-{made["cvtA"]}')

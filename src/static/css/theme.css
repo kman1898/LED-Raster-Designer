@@ -406,6 +406,10 @@ select, .info-select {
   box-shadow:inset 0 3px 0 0 var(--ps-accent), 0 1px 3px rgba(0,0,0,0.45) !important; }
 .layer-item.drag-over-bottom {
   box-shadow:inset 0 -3px 0 0 var(--ps-accent), 0 1px 3px rgba(0,0,0,0.45) !important; }
+/* A canvas dragged over another lands before it (upper half) or after it
+   (lower half), app-canvas-ui.js dropsAfter; the line shows which. */
+.canvas-group.drag-before { box-shadow:inset 0 3px 0 0 var(--ps-accent) !important; }
+.canvas-group.drag-after { box-shadow:inset 0 -3px 0 0 var(--ps-accent) !important; }
 
 /* ---- layer state cues (primary / hidden / disabled arrows) ---- */
 /* v0.11.0: same bug class as the drag indicator above. The .layer-item tile

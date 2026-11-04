@@ -1,7 +1,7 @@
 // app-canvas-ui: feature methods for LEDRasterApp (verbatim from the old
 // monolithic app.js), attached to the prototype via the carrier class.
 import { LEDRasterApp } from './app-core.js';
-import { sendClientLog } from './helpers.js';
+import { sendClientLog, holdDragOff } from './helpers.js';
 
 class _CanvasUi {
     regroupLayersByCanvas(container) {
@@ -86,15 +86,41 @@ class _CanvasUi {
             this.setActiveCanvas(canvas.id);
         });
 
-        // Double-click name to rename inline.
-        nameInput.addEventListener('dblclick', (e) => {
-            e.stopPropagation();
+        // Double-click name to rename inline. The second click opens the
+        // edit as well as the dblclick: the list can be rebuilt between the
+        // two clicks (the rename just ended on another canvas re-renders it
+        // when the server answers), and Firefox sends no dblclick when the
+        // two clicks land on different elements. Whichever comes first
+        // opens it; the other finds it open.
+        //
+        // The read-only name fills most of the header, so it is draggable
+        // itself and its dragstart reaches the header's (below), as on the
+        // screen rows. WebKit may not start an ancestor's drag from a press
+        // on a text field, even a read-only one, which would leave only the
+        // small handle to grab (owner's report, Mac app, 1.6.0 beta.5:
+        // canvases would not reorder; WebKit cannot be run on the test PC).
+        // While the name is edited neither the field nor the header is
+        // draggable, so a drag in the field selects text (helpers.js
+        // holdDragOff).
+        nameInput.draggable = true;
+        let releaseDrag = null;
+        const startRename = () => {
+            if (!nameInput.readOnly) return;
             nameInput.readOnly = false;
+            releaseDrag = holdDragOff(nameInput, header);
             nameInput.focus();
             nameInput.select();
+        };
+        nameInput.addEventListener('click', (e) => {
+            if (nameInput.readOnly && e.detail >= 2) startRename();
+        });
+        nameInput.addEventListener('dblclick', (e) => {
+            e.stopPropagation();
+            startRename();
         });
         const commitName = () => {
             nameInput.readOnly = true;
+            if (releaseDrag) { releaseDrag(); releaseDrag = null; }
             const newName = nameInput.value.trim();
             if (newName && newName !== canvas.name) {
                 this.updateCanvas(canvas.id, { name: newName });
@@ -127,8 +153,9 @@ class _CanvasUi {
         // -- Drag & drop --
         // Drag canvas header => reorder canvases.
         header.addEventListener('dragstart', (e) => {
-            // If the drag originated from the name input (when readonly was true
-            // and user grabbed the field), still treat as canvas reorder.
+            // A drag from the read-only name field is a canvas reorder too
+            // (it bubbles here). One from a name being edited is not.
+            if (!nameInput.readOnly) { e.preventDefault(); return; }
             e.dataTransfer.effectAllowed = 'move';
             e.dataTransfer.setData('application/x-canvas-id', canvas.id);
             e.dataTransfer.setData('text/plain', `canvas:${canvas.id}`);
@@ -138,7 +165,19 @@ class _CanvasUi {
         header.addEventListener('dragend', () => {
             wrap.classList.remove('dragging');
             this._dragCanvasId = null;
+            document.querySelectorAll('.canvas-group.drag-before, .canvas-group.drag-after')
+                .forEach(el => el.classList.remove('drag-before', 'drag-after'));
         });
+
+        // Where a canvas dropped on this one goes: before it on the upper
+        // half of this canvas's block, after it on the lower half (the screen
+        // rows' midpoint rule). Dropping always meant "before", so a canvas
+        // could never reach the end of the list, and with two canvases
+        // dragging the first onto the second changed nothing.
+        const dropsAfter = (e) => {
+            const r = wrap.getBoundingClientRect();
+            return e.clientY >= r.top + r.height / 2;
+        };
 
         // Drop target: canvas header accepts canvas-reorder OR layer drop.
         wrap.addEventListener('dragover', (e) => {
@@ -149,19 +188,26 @@ class _CanvasUi {
             e.preventDefault();
             e.dataTransfer.dropEffect = (isLayer && (e.metaKey || e.altKey)) ? 'copy' : 'move';
             wrap.classList.add('drag-target');
+            if (isCanvas && this._dragCanvasId !== canvas.id) {
+                const after = dropsAfter(e);
+                wrap.classList.toggle('drag-before', !after);
+                wrap.classList.toggle('drag-after', after);
+            }
         });
         wrap.addEventListener('dragleave', (e) => {
             // Only clear the highlight when leaving the wrap entirely.
-            if (!wrap.contains(e.relatedTarget)) wrap.classList.remove('drag-target');
+            if (!wrap.contains(e.relatedTarget)) {
+                wrap.classList.remove('drag-target', 'drag-before', 'drag-after');
+            }
         });
         wrap.addEventListener('drop', (e) => {
-            wrap.classList.remove('drag-target');
+            wrap.classList.remove('drag-target', 'drag-before', 'drag-after');
             // Canvas reorder?
             const draggedCanvasId = this._dragCanvasId
                 || e.dataTransfer.getData('application/x-canvas-id');
             if (draggedCanvasId && draggedCanvasId !== canvas.id) {
                 e.preventDefault();
-                this.reorderCanvasBeforeTarget(draggedCanvasId, canvas.id);
+                this.reorderCanvasBeforeTarget(draggedCanvasId, canvas.id, dropsAfter(e));
                 return;
             }
             // Cross-canvas layer drop?
@@ -969,14 +1015,19 @@ class _CanvasUi {
         return pick;
     }
 
-    reorderCanvasBeforeTarget(draggedId, targetId) {
+    // `draggedId` goes just before `targetId`, or just after it when
+    // `insertAfter` (a drop on the lower half of the target). A move that
+    // leaves the order as it is sends nothing and records no undo step.
+    reorderCanvasBeforeTarget(draggedId, targetId, insertAfter = false) {
         if (!this.project || !this.project.canvases) return;
-        const ids = this.project.canvases.map(c => c.id);
+        const before = this.project.canvases.map(c => c.id);
+        const ids = before.slice();
         const from = ids.indexOf(draggedId);
         const to = ids.indexOf(targetId);
         if (from < 0 || to < 0 || from === to) return;
         ids.splice(from, 1);
-        ids.splice(ids.indexOf(targetId), 0, draggedId);
+        ids.splice(ids.indexOf(targetId) + (insertAfter ? 1 : 0), 0, draggedId);
+        if (ids.every((id, i) => id === before[i])) return;
         return fetch('/api/canvas/reorder', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

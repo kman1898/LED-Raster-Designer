@@ -3317,10 +3317,10 @@ def test_the_arrow_folds_a_card_and_nothing_leaves_the_dom(panel_page):
 
 def test_the_glance_reads_the_occupancy_and_never_renumbers(panel_page):
     """The header's glance, read off the assignment summary and nothing
-    else: sockets taken (primaries and their returns) over capacity, on
-    the same header that carries the model
-    text and the inline name. The redundant SX40 reads /40 - redundancy is
-    a patching plan, never a renumbering, so the socket count stands (the
+    else: primaries over the sockets that can carry one (owner,
+    2026-11-04), on the same header that carries the model
+    text and the inline name. The redundant SX40 reads /20 - its looped
+    B and D carry the backups on their own - and never renumbers (the
     'redundant' flag of the retired summary line lives in the gear's
     checkbox now). The used side is the occupancy's answer, never a
     one-to-one assumption: the live screen sits on the first machine's
@@ -3353,15 +3353,17 @@ def test_the_glance_reads_the_occupancy_and_never_renumbers(panel_page):
     }""", ids)
     assert summary['sx'], 'the assignment resolved no summary for the SX40'
     sx_glance = fold_state(panel_page, card_sec(ids, 'sxCard'))['glanceText']
-    # n is every socket TAKEN - primaries and the returns they put on
-    # the partner box (owner, 2026-09-24: "11 primary and 11 redundant
-    # ... it's 22/40"): the redundant SX40 reads twice its primaries.
-    assert sx_glance == (f"{summary['sx']['taken']}/"
-                         f"{summary['sx']['capacity']}"), (
-        f'the glance is not the assignment summary\'s own count: '
+    # The tray counts PRIMARIES over the sockets that can carry one
+    # (owner, 2026-11-04: "the backups are automatic, so we don't need to
+    # count the backups"): the redundant SX40's B and D carry its returns
+    # on their own, so it reads its primaries over 20, while the server's
+    # summary (the binder's count) still counts every socket taken.
+    assert sx_glance == (f"{summary['sx']['used']}/"
+                         f"{summary['sx']['capacity'] - summary['sx']['backing']}"), (
+        f'the glance is not the summary\'s primaries over primary sockets: '
         f'{sx_glance} vs {summary["sx"]}')
-    assert sx_glance.endswith('/40'), (
-        f'redundancy renumbered the sockets out of the glance: {sx_glance}')
+    assert sx_glance.endswith('/20'), (
+        f'the glance counted the automatic backups: {sx_glance}')
     assert summary['sx']['used'] > 0, (
         'the live screen never landed on the first machine, so this test '
         'proves nothing')
@@ -3417,7 +3419,8 @@ def test_the_glance_follows_the_occupancy_as_screens_arrive(panel_page):
             f'the new screen took no ports: {before} -> {after}')
         glance = fold_state(panel_page,
                             card_sec(ids, 'sxCard'))['glanceText']
-        assert glance == f"{after['taken']}/{after['capacity']}", (
+        assert glance == (f"{after['used']}/"
+                          f"{after['capacity'] - after['backing']}"), (
             f'the glance did not follow the occupancy: {glance} vs {after}')
     finally:
         # the added layer would haunt every later seed's occupancy

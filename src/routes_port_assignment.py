@@ -29,6 +29,9 @@ auto-drawn ports get frozen into pins (port_assignment.retire_auto) - the
 project funnel could only stamp the hardware-less cases. Every route runs
 the freeze first, so a legacy project's first edit and first read agree.
 """
+import itertools
+import uuid
+
 from flask import Blueprint, g, request, jsonify
 
 import app
@@ -37,6 +40,23 @@ import processor_catalog as catalog
 from app import log_event, socketio
 
 port_assignment_bp = Blueprint('port_assignment', __name__)
+
+# THE ORDER OF THE ASSIGNMENT'S ANSWERS. Every reply that carries a
+# resolution takes the next number BEFORE it reads the stored pins, so a
+# reply with a higher number was read from pins at least as new. The page
+# keeps the newest it has applied and drops an older answer that arrives
+# after it (app-port-assignment _assignmentRequest). A card's Release Ports
+# is a chain of unpins, and a released socket that had a port cable
+# re-reads the processor tree, which re-resolves the assignment while the
+# chain's next unpin is already on its way: a resolve read before that
+# unpin and answered after the chain's last reply put the released ports
+# back on the not all attached list (owner, 2026-11-04). `boot` changes
+# with the server, so a restarted server's numbers starting over are not
+# taken for stale ones. itertools.count's next() is one atomic step, so two
+# request threads never take the same number (app.processor_state_stamp,
+# the processor tree's twin).
+_STAMP_BOOT = uuid.uuid4().hex[:12]
+_stamps = itertools.count(1)
 
 
 def _retire():
@@ -177,11 +197,16 @@ def _mirror_refused(layer_id):
     return None
 
 
-def _payload(state=None):
-    state = state if state is not None else _state()
+def _payload():
+    # The number is taken first and the pins read after it, never the other
+    # way round (see _stamps): a reply never pairs a newer number with pins
+    # read before it.
+    stamp = {'boot': _STAMP_BOOT, 'n': next(_stamps)}
+    state = _state()
     return {
         'state': state,
         'resolution': assignment.resolve(_processors(), _screens(), state),
+        'assignmentStamp': stamp,
     }
 
 
@@ -215,10 +240,14 @@ def _saved(state, status=200, extra=None):
     """Every mutating route answers with the whole resolved assignment. A
     caller that only got back what it sent could not tell a stored edit from a
     dropped one, which is the failure mode this codebase's allow-lists keep
-    producing."""
+    producing.
+
+    `state` is what the route just stored. The reply reads the stored pins
+    again after taking its number (_payload), so an edit another request
+    stored in between is in it and the number tells the page the truth."""
     app.current_project['is_pristine'] = False
     socketio.emit('project_updated', app.current_project)
-    body = _payload(state)
+    body = _payload()
     if g.get('port_cables_forgotten'):
         # The tree changed with the pins (a released socket's cable went),
         # so it rides the reply the way the processor routes send it: the
