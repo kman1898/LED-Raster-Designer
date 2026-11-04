@@ -1253,10 +1253,12 @@ class _HardwareDock {
         const unit = document.createElement('div');
         unit.className = 'hw-dock-unit';
 
-        // Every socket taken, primary or return, over the sockets there
-        // (socketsTaken - owner, 2026-09-24: "11 primary and 11 redundant
-        // ... it's 22/40").
-        const count = this.socketsTaken(card.id);
+        // Primaries placed over the sockets that can carry a primary: the
+        // backups that ride along on their own are left out (owner,
+        // 2026-11-04: "the backups are automatic, so we don't need to
+        // count the backups" - an SX40 looped A to B, C to D reads 18/20,
+        // not 36/40). trayPrimaryCount; the binder keeps socketsTaken.
+        const count = this.trayPrimaryCount(card);
         // A unit consumed as a 1:1 backup wears the tag its box-level
         // cousin wears - dragging it is pointless (every port is refused as
         // a return end) but hiding it would hide where the returns land.
@@ -1318,7 +1320,8 @@ class _HardwareDock {
             count && count.of
                 ? { frac: count.taken / count.of,
                     over: count.taken > count.of,
-                    text: `${count.taken}/${count.of}` }
+                    text: `${count.taken}/${count.of}`,
+                    title: this.trayCountTitle(count) }
                 : null);
         // The card's NAME edits inline where it reads; everything else the
         // panel's card block carried lives behind the ⚙. The redundancy
@@ -1830,10 +1833,16 @@ class _HardwareDock {
             || cvt.name || cvt.deviceName) + tag;
         // The folded box's glance is occupancy in sockets - "8/10" and
         // a fill line - because "this box is done" is a count of taken
-        // sockets: its primaries AND the returns landing on it (box B
-        // of an SX40 pair counts the returns of A's mains), the same
-        // server count the card's glance reads (socketsTaken).
-        const boxCount = this.socketsTaken(card.id, cvt.id);
+        // sockets: its primaries over the sockets that can carry one, the
+        // count the card's glance reads (trayPrimaryCount, owner
+        // 2026-11-04). A box that only carries backups that ride along on
+        // their own (an SX40's XD B, a copy OPT box set to Backup) has no
+        // primary socket and draws no count; its loop strip's header and
+        // its primary's row say how full the loop is. A far row backing
+        // up one primary box counts the sockets it holds (`row.ports`).
+        const boxCount = this.trayPrimaryCount(card, cvt,
+            row && row.far && row.ports ? row.ports : undefined);
+        const boxWhere = row && !row.far ? row.where : '';
         const boxHead = this._dockBuildHandle(
             {
                 type: 'box', cardId: card.id, boxId: cvt.id,
@@ -1849,9 +1858,10 @@ class _HardwareDock {
             'Drag the whole box onto a screen: the screen\'s ports fill '
             + 'onto this box\'s sockets in order from the first '
             + 'unassigned.',
-            boxCount
+            boxCount && boxCount.of
                 ? { frac: boxCount.taken / boxCount.of, over: false,
-                    text: `${boxCount.taken}/${boxCount.of}` }
+                    text: `${boxCount.taken}/${boxCount.of}`,
+                    title: this.trayCountTitle(boxCount, boxWhere) }
                 : null);
         // The box's name edits inline; unnamed, the placeholder speaks
         // the RESOLVED title (trunk letter included), so "XD A"
@@ -1969,14 +1979,18 @@ class _HardwareDock {
             : this._dockBoxLabel(s.box, true))).join(', ');
         const farNames = slices.map(s => (s.box === near ? `its own sockets ${range(s.ports)}`
             : this._dockBoxLabel(s.box))).join(' and ');
-        // A slice counts its own sockets: lit where the port it backs up
-        // carries something, the way the whole far box's count reads.
-        const counts = [this.socketsTaken(card.id, near.id)]
-            .concat(slices.map(s => (s.mixed
-                ? { taken: s.ports.filter(p => this._portOccupants(card.id, p.number).length).length,
-                    of: s.ports.length }
-                : this.socketsTaken(card.id, s.box.id))))
-            .filter(Boolean);
+        // The strip counts PRIMARIES over the sockets that can carry one,
+        // one box's worth (owner, 2026-11-04: "we're drawing in the
+        // primaries and the backups are automatic, so we don't need to
+        // count the backups"): nine primaries on a looped XD pair read
+        // 9/10, never 18/20. The near box counts whole; each far row
+        // counts only the sockets it holds that are not automatic backups
+        // (none, on every loop the app draws today) - a box's own back
+        // sockets (`self`) are the near box's already.
+        const counts = [this.trayPrimaryCount(card, near)]
+            .concat(slices.filter(s => s.box !== near)
+                .map(s => this.trayPrimaryCount(card, s.box, s.ports)))
+            .filter(c => c && c.of != null);
         const taken = counts.reduce((t, c) => t + c.taken, 0);
         const of = counts.reduce((t, c) => t + c.of, 0);
         const head = this._dockBuildHandle(
@@ -1993,7 +2007,8 @@ class _HardwareDock {
             + 'are one loop. Drag this header onto a screen to fill '
             + `${this._dockBoxLabel(near)}; its returns come home on `
             + `${farNames}.`,
-            of ? { frac: taken / of, over: false, text: `${taken}/${of}` }
+            of ? { frac: taken / of, over: false, text: `${taken}/${of}`,
+                   title: this.trayCountTitle({ taken, of }, farNames) }
                 : null);
         const names = document.createElement('span');
         names.className = 'hw-dock-loop-names';
@@ -2045,7 +2060,7 @@ class _HardwareDock {
         const body = this._dockSectionBody(strip, head,
                                            `hwdock-box-${near.id}`);
         body.appendChild(this._dockBuildBox(proc, card, near,
-                                            { far: false, sheetOut }));
+                                            { far: false, sheetOut, where: farNames }));
         slices.forEach(s => body.appendChild(this._dockBuildBox(proc, card, s.box,
             { far: true, ports: s.ports, cont: s.cont ? near.id : null })));
         return strip;

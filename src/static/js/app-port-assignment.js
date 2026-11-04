@@ -658,9 +658,10 @@ class _PortAssignment {
     // holding a primary OR carrying a placed primary's return (owner,
     // 2026-09-24: "11 primary and 11 redundant ... it's 22/40"), counted
     // where the socket lives - port_assignment._taken_sockets says which
-    // card that is in every redundancy shape. The tray's card and box
-    // headers and the binder's Cards table all read this, so the three
-    // cannot print three numbers. `boxId` narrows it to one breakout box.
+    // card that is in every redundancy shape. The binder's Cards table
+    // reads this; the tray reads trayPrimaryCount below, which starts
+    // from it and takes the automatic backups off. `boxId` narrows it to
+    // one breakout box.
     socketsTaken(cardId, boxId) {
         const summary = ((this._assignment && this._assignment.cards) || [])
             .find(c => c.cardId === cardId);
@@ -674,6 +675,94 @@ class _PortAssignment {
         return { taken,
                  of: summary.capacityKnown && summary.capacity > 0
                      ? summary.capacity : null };
+    }
+
+    // Whether one resolved port is a backup socket that fills on its own:
+    // it carries the return of a main (`backsUp`) by a shape nobody picks
+    // port by port - an SX40's XD B or D, a sequential card's evens, a
+    // halves card's back half, a 1:1 partner's sockets, the far QD-S of
+    // an SQ200 - or it is a backup box's socket for a port it backs up
+    // (`box.backsUpPorts`: a box on a copy OPT set to Backup, a one-to-one
+    // backupOf pair included). A return the user picked by hand (the
+    // main's card in per-port manual) is not automatic and stays counted.
+    // `shapes`: cardId -> that card's resolved redundancyShape.
+    _trayAutoBackup(port, box, shapes) {
+        if (port.backsUp) {
+            const shape = shapes.get(port.backsUp.cardId);
+            return !(shape && shape.mode === 'manual' && !shape.forced);
+        }
+        if (!box || !(box.backsUpPorts || []).length) return false;
+        // a straddling box's own ports are its primaries, whatever it backs up
+        if (this.boxStraddles(box) && (box.portNumbers || []).includes(port.number)) {
+            return false;
+        }
+        return box.backsUpPorts.some(m => m.number === port.number);
+    }
+
+    // THE TRAY'S n/N FOR A CARD OR A BOX (owner, 2026-11-04, off a beta.5
+    // screenshot: "on this screen we're drawing in the primaries and the
+    // backups are automatic, so we don't need to count the backups"):
+    // primaries placed over the sockets that can carry a primary. It is
+    // socketsTaken with every automatic backup socket in its scope taken
+    // off both sides, read socket by socket off the resolved ports, so an
+    // odd or uneven split reads exactly (an SX40 at 36/40 with A to B, C
+    // to D looped reads 18/20; nine primaries on a looped XD pair read
+    // 9/10). A socket counts as taken on the same rule socketsTaken's
+    // server count uses: anybody on it (_portOccupants, which carries a
+    // placed main's return onto its backup socket). Returns { taken, of,
+    // backups } (`backups`: the automatic backup sockets left out), `of`
+    // null where nobody settled the count, or null where nothing is known
+    // yet. A unit or box that is all backups reads of 0 and draws no
+    // count. `ports` narrows a box to some of its sockets (a loop strip's
+    // far row that backs up one primary box): those are counted directly.
+    // Only the tray reads this; the binder, the gear, the warnings and
+    // the pull list keep counting every socket taken (socketsTaken).
+    trayPrimaryCount(card, box, ports) {
+        if (!card) return null;
+        const shapes = new Map();
+        (this._processorsResolved || []).forEach(p => (p.slots || []).forEach(s => {
+            if (s && s.card) shapes.set(s.card.id, s.card.redundancyShape || null);
+        }));
+        const lit = (n) => this._portOccupants(card.id, n).length > 0;
+        if (ports) {
+            const mains = ports.filter(p => !this._trayAutoBackup(p, box, shapes));
+            return { taken: mains.filter(p => lit(p.number)).length,
+                     of: mains.length, backups: ports.length - mains.length };
+        }
+        const base = this.socketsTaken(card.id, box ? box.id : undefined);
+        if (!base) return null;
+        // The sockets the base counts: a box's whole list (boxSockets), or
+        // the card's sockets plus its mirror sockets (_card_summary).
+        const scope = box ? (box.ports || [])
+            : (card.ports || []).filter(p => !p.beyondCeiling || p.mirrorOf);
+        const backups = scope.filter(p => this._trayAutoBackup(p, box, shapes));
+        // a return lit beyond the ceiling counted in the base's taken too
+        const litBackups = (box ? backups : (card.ports || [])
+            .filter(p => this._trayAutoBackup(p, null, shapes)))
+            .filter(p => lit(p.number)).length;
+        return { taken: Math.max(0, base.taken - litBackups),
+                 of: base.of == null ? null : Math.max(0, base.of - backups.length),
+                 backups: backups.length };
+    }
+
+    // The tray count's tooltip, in words: "9 of 10 primary ports used;
+    // backups ride on XD CL B", or "9 of 10 ports used" where nothing
+    // rides along. `where` names the box the backups ride on, else the
+    // backup sockets of this unit or box are said by number.
+    trayCountTitle(count, where) {
+        if (!count || !count.of) return '';
+        if (where) {
+            return `${count.taken} of ${count.of} primary ports used; `
+                + `backups ride on ${where}.`;
+        }
+        if (count.backups) {
+            return `${count.taken} of ${count.of} primary ports used; `
+                + (count.backups === 1
+                    ? 'the 1 backup socket fills on its own and is not counted here.'
+                    : `the ${count.backups} backup sockets fill on their own `
+                        + 'and are not counted here.');
+        }
+        return `${count.taken} of ${count.of} ports used.`;
     }
 
     // ── THE PROCESSING CANVAS ─────────────────────────────────────────────
