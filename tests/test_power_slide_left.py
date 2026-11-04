@@ -289,3 +289,124 @@ def test_a_redraw_that_changed_its_cabinets_stays(page):
     assert cols_of(s)[3] == [3]
     assert_no_jumps(s)
     assert errors == []
+
+
+# ── Redrawn smaller by clicking (1.6.0 QA, beta.5) ────────────────────────
+#
+# "Clicking an earlier cabinet of the run being drawn cuts it back", on
+# power as on data, and the cabinets cut off stay with the redraw until it
+# ends (the walk does not take them back as the next circuit). Clear
+# Circuit in a redraw frees the circuit's own cabinets to be drawn again,
+# and a redraw that ends with nothing drawn goes back to automatic (no
+# phantom circuits). All by hand: Alt+click, clicks, Esc.
+
+CELL_JS = """([col, row]) => {
+    const a = window.app, r = window.canvasRenderer;
+    const l = a.project.layers.find(x => x.name === 'Wall');
+    const p = l.panels.find(q => q.col === col && q.row === row);
+    const off = a._getLayerWorkspaceOffset(l);
+    const rc = r.canvas.getBoundingClientRect();
+    const sx = rc.width / r.canvas.width;
+    return { x: rc.left + (r.panX + (off.wx + p.x + p.width / 2) * r.zoom) * sx,
+             y: rc.top + (r.panY + (off.wy + p.y + p.height / 2) * r.zoom) * sx };
+}"""
+
+
+def _cell(pg, col, row):
+    return pg.evaluate(CELL_JS, [col, row])
+
+
+def _click(pg, col, row, alt=False):
+    c = _cell(pg, col, row)
+    pg.mouse.move(c['x'], c['y'])
+    if alt:
+        pg.keyboard.down('Alt')
+    pg.mouse.click(c['x'], c['y'])
+    if alt:
+        pg.keyboard.up('Alt')
+    _settle(pg)
+
+
+def _fit(pg):
+    pg.evaluate("() => window.canvasRenderer.fitToView()")
+    pg.wait_for_timeout(200)
+
+
+def _path(pg, num):
+    return pg.evaluate("""(n) => (window.app.project.layers.find(x => x.name === 'Wall')
+        .powerCustomPaths || {})[n] || null""", num)
+
+
+def test_clicking_an_earlier_cabinet_cuts_the_circuit_back_and_the_rest_slide_left(page):
+    """The owner's case end to end: Alt+click S1-2 (columns 2-3), click its
+    first cabinet (the circuit now ends there), draw column 2 down, Esc.
+    S1-2 is one column, and the automatic circuits after it slide left
+    and pair: columns 3-4 a 2fer, 5-6 a 2fer, 7 alone."""
+    pg, errors = page
+    open_show(pg, {}, '1.6.0')
+    _fit(pg)
+    assert cols_of(read(pg)) == {1: [0, 1], 2: [2, 3], 3: [4, 5], 4: [6, 7]}
+    _click(pg, 2, 1, alt=True)
+    assert read(pg)['editing']['num'] == 2
+    assert len(_path(pg, 2)) == 8
+    _click(pg, 2, 0)
+    assert _path(pg, 2) == [{'row': 0, 'col': 2}], _path(pg, 2)
+    assert any('now ends at' in t for t in toasts(pg)), toasts(pg)
+    # the cut cabinets stay with the redraw: column 3 is no circuit yet
+    held = cols_of(read(pg))
+    assert 3 not in [c for cols in held.values() for c in cols], held
+    for r in (1, 2, 3):
+        _click(pg, 2, r)
+    assert not any('already wired' in t for t in toasts(pg)), toasts(pg)
+    pg.keyboard.press('Escape')
+    _settle(pg)
+    s = read(pg)
+    assert s['editing'] is None
+    assert s['overrides'] == [2] and s['serverOverrides'] == [2]
+    assert cols_of(s) == {1: [0, 1], 2: [2], 3: [3, 4], 4: [5, 6], 5: [7]}, s
+    ways = {c['num']: c['ways'] for c in s['circuits']}
+    assert ways[3] == 2 and ways[4] == 2 and ways[5] == 1, ways
+    assert_no_jumps(s)
+    assert errors == []
+
+
+def test_clear_circuit_in_a_redraw_frees_its_own_cabinets_and_an_empty_redraw_goes_back(page):
+    """Redraw S1-2, Clear Circuit: its own cabinets are free to draw again
+    (each click was refused as "already wired to circuit S1-2"). Clear it
+    again and Esc: nothing is drawn, so the circuit goes back to automatic
+    and says so - it is never left taken over with an empty path."""
+    pg, errors = page
+    open_show(pg, {}, '1.6.0')
+    _fit(pg)
+    before = read(pg)
+    _click(pg, 2, 1, alt=True)
+    pg.locator('#power-custom-clear-circuit').click()
+    _settle(pg)
+    for r in range(4):
+        _click(pg, 2, r)
+    assert not any('already wired' in t for t in toasts(pg)), toasts(pg)
+    assert _path(pg, 2) == [{'row': r, 'col': 2} for r in range(4)], _path(pg, 2)
+    pg.locator('#power-custom-clear-circuit').click()
+    _settle(pg)
+    pg.locator('#main-canvas').hover()
+    pg.keyboard.press('Escape')
+    _settle(pg)
+    s = read(pg)
+    assert s['editing'] is None
+    assert s['overrides'] == [] and s['serverOverrides'] == [], s
+    assert _path(pg, 2) is None
+    assert s['circuits'] == before['circuits']
+    assert any('nothing was drawn on circuit' in t for t in toasts(pg)), toasts(pg)
+    assert errors == []
+
+
+def test_an_older_show_with_an_empty_taken_over_circuit_opens_automatic(page):
+    """A show saved in that state (circuit 2 taken over, nothing on it)
+    opens with circuit 2 back to automatic, and the toast says so."""
+    pg, errors = page
+    open_show(pg, {'2': []}, '1.6.0')
+    s = read(pg)
+    assert s['overrides'] == [] and s['serverOverrides'] == [], s
+    assert cols_of(s) == {1: [0, 1], 2: [2, 3], 3: [4, 5], 4: [6, 7]}, s
+    assert any('had nothing drawn on it' in t for t in toasts(pg)), toasts(pg)
+    assert errors == []

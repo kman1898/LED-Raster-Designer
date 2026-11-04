@@ -102,3 +102,17 @@ def test_a_session_does_not_sit_on_the_old_shared_port(e2e_server):
         pytest.skip('LRD_E2E_PORT pins the port for this run')
     port = int(e2e_server.rsplit(':', 1)[1])
     assert port != 15789, e2e_server
+
+
+def test_the_guard_puts_the_unsaved_answer_back():
+    """The page's "unsaved" answer the server keeps beside the project
+    (routes_project.py) is shared state too: a module that leaves an
+    edited show must not hand the next one a page that reads unsaved."""
+    import routes_project
+    before = routes_project.project_unsaved()
+    snapshot = _snapshot_project()
+    try:
+        routes_project.set_project_unsaved(not before)
+    finally:
+        _restore_project(snapshot)
+    assert routes_project.project_unsaved() is before
