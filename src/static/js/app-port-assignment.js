@@ -57,6 +57,9 @@ class _PortAssignment {
         this._occupancyRaw = '';
         this._assignmentError = null;
         this._assignmentNote = null;
+        // The newest reply applied, by the server's number
+        // (_assignmentReplyFresh).
+        this._assignmentStamp = null;
         this.refreshPortAssignment();
     }
 
@@ -340,7 +343,16 @@ class _PortAssignment {
                         && typeof this._dropClearedMirrors === 'function') {
                     this._dropClearedMirrors(data.mirrorsCleared);
                 }
-                if (data.resolution) this._assignment = data.resolution;
+                // AN OLDER ANSWER NEVER PUTS OLDER PINS BACK. The server
+                // numbers every reply before it reads the pins
+                // (routes_port_assignment _stamps), and a reply older than
+                // the newest applied one leaves the resolution and the
+                // stored pins alone: a resolve sent beside a release
+                // chain's next unpin and answered after the chain's last
+                // reply kept the released ports on the not all attached
+                // list until the next release (owner, 2026-11-04).
+                const fresh = this._assignmentReplyFresh(data.assignmentStamp);
+                if (fresh && data.resolution) this._assignment = data.resolution;
                 // Undo audit: the server holds the read-must-not-create-the-
                 // key line (_working/_store in routes_port_assignment.py),
                 // and an unconditional store here once defeated it from the
@@ -353,8 +365,13 @@ class _PortAssignment {
                 // auto-drawn ports were just frozen into pins, and the
                 // client's copy (which has no key at all) has to carry
                 // them or the next snapshot hands the server a project it
-                // must freeze all over again.
+                // must freeze all over again. An older reply stores
+                // nothing, except a mutating one on a project that has no
+                // key yet: the newer reply was a read, which never creates
+                // it, and this edit's pins still have to reach the project.
                 if (data.state && this.project
+                        && (fresh || (action
+                            && this.project.port_assignments === undefined))
                         && (action || data.migrated
                             || this.project.port_assignments !== undefined)) {
                     this.project.port_assignments = data.state;
@@ -387,6 +404,22 @@ class _PortAssignment {
             })
             .catch(err => sendClientLog('port_assignment_request_failed',
                                         { url, method, error: String(err) }));
+    }
+
+    // Whether a reply is at least as new as the newest one applied: true
+    // (and it becomes the newest) unless the same server numbered it lower.
+    // A reply with no number is taken as it always was. A new `boot` is a
+    // restarted server, whose numbers start again.
+    _assignmentReplyFresh(stamp) {
+        if (!stamp || typeof stamp.n !== 'number') return true;
+        const last = this._assignmentStamp;
+        if (last && last.boot === stamp.boot && stamp.n < last.n) {
+            sendClientLog('port_assignment_stale_dropped',
+                          { n: stamp.n, newest: last.n });
+            return false;
+        }
+        this._assignmentStamp = { boot: stamp.boot, n: stamp.n };
+        return true;
     }
 
     // Everything that has to happen when a new resolution lands, in one place

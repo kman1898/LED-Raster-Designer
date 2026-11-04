@@ -2533,3 +2533,36 @@ def test_the_remap_route_moves_the_pins(one_card):
     bad = client.post('/api/port-assignments/remap',
                       json={'layerId': 'Main', 'moves': [['x', 1]]})
     assert bad.status_code == 400
+
+
+def test_every_reply_with_a_resolution_is_numbered_in_order(one_card):
+    """The order of the assignment's answers (owner, 2026-11-04): every
+    reply that carries a resolution - a read, an edit, a release with
+    nothing pinned - carries the server's number for it, taken before the
+    pins are read, and a later reply's number is higher. The page drops an
+    older reply that lands after a newer one (app-port-assignment
+    _assignmentReplyFresh; tests/test_attach_flag_after_release.py has the
+    released ports it kept on the not all attached list)."""
+    client, _pid, card = one_card
+    sc = screens(('Main', 3))
+    got = [client.post('/api/port-assignments/resolve', json={'screens': sc})]
+    got.append(client.post('/api/port-assignments/place-overflow', json={
+        'layerId': 'Main', 'cardId': card, 'screens': sc}))
+    got.append(client.post('/api/port-assignments/unpin', json={
+        'layerId': 'Main', 'index': 0, 'screens': sc}))
+    got.append(client.post('/api/port-assignments/unpin', json={
+        'layerId': 'Main', 'screens': sc}))
+    # nothing pinned now: the release answers without an edit, numbered too
+    got.append(client.post('/api/port-assignments/unpin', json={
+        'layerId': 'Main', 'screens': sc}))
+    stamps = []
+    for resp in got:
+        assert resp.status_code == 200, resp.get_data(as_text=True)
+        body = resp.get_json()
+        assert 'resolution' in body
+        stamps.append(body['assignmentStamp'])
+    assert len({s['boot'] for s in stamps}) == 1, stamps
+    ns = [s['n'] for s in stamps]
+    assert ns == sorted(set(ns)), stamps
+    # the number is the reply's, never the project's
+    assert 'assignmentStamp' not in client.get('/api/project').get_json()
