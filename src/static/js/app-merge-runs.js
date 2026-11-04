@@ -512,15 +512,113 @@ class _MergeRuns {
     // the server has answered, at once for a screen with nothing pinned;
     // it resolves true when pins were sent.
     _closeUpPortPins(owner, removed) {
-        const pins = (this.project && this.project.port_assignments
-            && this.project.port_assignments.pins) || [];
-        const pinned = !!owner && pins.some(p => p && String(p.layerId) === String(owner.id));
-        if (!pinned || !(removed || []).length || typeof this._assignmentRequest !== 'function') {
+        if (!owner || !(removed || []).length || typeof this._assignmentRequest !== 'function') {
             return Promise.resolve(false);
         }
-        return this._assignmentRequest('/api/port-assignments/merge', 'POST',
-            { layerId: owner.id, removed: removed.map(n => n - 1) }, null, null)
-            .then(() => true);
+        // In line behind every pin follow already sent (_queuePinFollow),
+        // and asked then: an earlier one may have released the screen's
+        // last pin.
+        return this._queuePinFollow(() => {
+            const pins = (this.project && this.project.port_assignments
+                && this.project.port_assignments.pins) || [];
+            if (!pins.some(p => p && String(p.layerId) === String(owner.id))) return false;
+            return this._assignmentRequest('/api/port-assignments/merge', 'POST',
+                { layerId: owner.id, removed: removed.map(n => n - 1) }, null, null)
+                .then(() => true);
+        });
+    }
+
+    // ── The pin follows, one at a time ────────────────────────────────────
+    //
+    // Every request that moves or releases a screen's pins because its
+    // port numbers changed (the close-ups, the cabinet follows, the
+    // release of pins on ports that are gone) reads the pins as they are
+    // when it runs, so they run in the order they were asked for, each
+    // after the one before has answered. `task` returns a value or a
+    // promise; the returned promise settles with it (false when it threw).
+    _queuePinFollow(task) {
+        const run = () => {
+            try {
+                return Promise.resolve(task()).catch(() => false);
+            } catch (e) {
+                return Promise.resolve(false);
+            }
+        };
+        const out = (this._pinFollowTail || Promise.resolve()).then(run, run);
+        this._pinFollowTail = out.then(() => undefined, () => undefined);
+        return out;
+    }
+
+    // ── No socket on a port that is gone (QA, 1.6.0 beta 5) ──────────────
+    //
+    // The owner: "no phantom ports, nothing lands on an empty number". A
+    // port number with no cabinets holds no socket: its pin is released
+    // (the tray already shows that socket free), so another screen can
+    // take the socket without a clash coming back later, and a port drawn
+    // on that number later lands on no socket by itself. Two moments:
+    //   a screen's ports drop (it shrank, or its capacity changed): every
+    //     automatic screen a layer commit carries (updateLayers) lets go
+    //     of the pins past its last port, the way removing a processor
+    //     lets go of its pins. Undo puts them back with the screen.
+    //   custom mode turned on (toggleCustomFlowMode, `custom`): after the
+    //     drawing's gaps close up, every number with nothing drawn on it
+    //     lets go of its pin, and so does every number past the drawing.
+    // Left alone: a locked screen (it is unchanged), a mirror (it holds no
+    // pins), a port open for redrawing (its number is the redraw's own),
+    // a screen whose ports cannot be counted (a capacity error, or none),
+    // and a show being opened. The releases ride the commit's own undo
+    // step (_followPinsIntoHistory).
+    _releasePinsOffPorts(layers, { custom = false } = {}) {
+        if (!this.project || this._projectOpening || typeof this._assignmentRequest !== 'function') return;
+        const pins = this.project.port_assignments && this.project.port_assignments.pins;
+        if (!Array.isArray(pins) || !pins.length) return;
+        const ids = [];
+        (layers || []).forEach(l => {
+            if (!l || (l.type || 'screen') !== 'screen' || ids.includes(String(l.id))) return;
+            if (this.isCustomFlow(l) !== custom) return;
+            if (!pins.some(p => p && String(p.layerId) === String(l.id))) return;
+            ids.push(String(l.id));
+        });
+        if (!ids.length) return;
+        const taken = new Set(Array.isArray(this.history) ? this.history : []);
+        this._queuePinFollow(() => {
+            const before = JSON.stringify(this.project.port_assignments || null,
+                this._snapshotReplacer);
+            let chain = Promise.resolve(false);
+            ids.forEach(id => {
+                const layer = (this.project.layers || []).find(l => String(l.id) === id);
+                const off = this._pinsOffPorts(layer, custom);
+                if (!off.length) return;
+                sendClientLog('pins_off_ports_released', {
+                    layerId: id, ports: off.map(i => i + 1), custom,
+                });
+                chain = chain.then(sent => this._assignmentRequest('/api/port-assignments/remap',
+                    'POST', { layerId: layer.id, moves: off.map(i => [i, null]) }, null, null)
+                    .then(() => true, () => sent));
+            });
+            return chain.then(sent => {
+                if (sent) this._followPinsIntoHistory(before, taken);
+                return sent;
+            });
+        });
+    }
+
+    // The 0-based indices of `layer`'s pins on ports that are gone (see
+    // _releasePinsOffPorts): past its last port, and on a custom screen
+    // (`custom`) any number with nothing drawn on it too.
+    _pinsOffPorts(layer, custom = false) {
+        if (!layer || this._layerLocked(layer) || this.isCustomFlow(layer) !== custom) return [];
+        if (typeof this.mirrorSourceOf === 'function' && this.mirrorSourceOf(layer)) return [];
+        if (this._portRedrawOpenOn(layer)) return [];
+        const ports = this.getLayerPortsRequired(layer) || 0;
+        if (!(ports > 0) || layer._capacityError) return [];
+        const empty = new Set(custom && typeof this._emptyPortIndices === 'function'
+            ? this._emptyPortIndices(layer, ports) : []);
+        const pins = (this.project.port_assignments && this.project.port_assignments.pins) || [];
+        return pins.filter(p => p && String(p.layerId) === String(layer.id))
+            .map(p => parseInt(p.index, 10))
+            .filter(i => Number.isFinite(i) && (i >= ports || empty.has(i)))
+            .sort((a, b) => a - b);
     }
 
     // ── Ports that follow their cabinets (QA, 1.6.0) ──────────────────────
@@ -666,8 +764,8 @@ class _MergeRuns {
         if (!sent.length || typeof this._assignmentRequest !== 'function') {
             return Promise.resolve(false);
         }
-        return this._assignmentRequest('/api/port-assignments/remap', 'POST',
-            { layerId: owner.id, moves: sent }, null, null).then(() => true);
+        return this._queuePinFollow(() => this._assignmentRequest('/api/port-assignments/remap',
+            'POST', { layerId: owner.id, moves: sent }, null, null).then(() => true));
     }
 
     // ── A show saved before the column-first Down numbering (QA, 1.6.0) ──
@@ -1000,16 +1098,14 @@ class _MergeRuns {
 
         // The cards follow, one screen after another; every undo step taken
         // since (the shrink's own, or a load's first) carries the moved pins.
-        let chain = Promise.resolve(false);
-        plans.filter(p => p.gone.length).forEach(({ owner, gone }) => {
-            chain = chain.then(moved => this._closeUpPortPins(owner, gone)
-                .then(m => moved || m, () => moved));
+        // Asked now, in this order, so they run ahead of any release this
+        // commit asks for next (_queuePinFollow, _releasePinsOffPorts).
+        const follows = plans.filter(p => p.gone.length)
+            .map(({ owner, gone }) => this._closeUpPortPins(owner, gone))
+            .concat(gapped.map(({ owner, gaps }) => this._closeUpPortPins(owner, gaps)));
+        Promise.all(follows).then(moved => {
+            if (moved.some(Boolean)) this._followPinsIntoHistory(pinsBefore, taken);
         });
-        gapped.forEach(({ owner, gaps }) => {
-            chain = chain.then(moved => this._closeUpPortPins(owner, gaps)
-                .then(m => moved || m, () => moved));
-        });
-        chain.then(moved => { if (moved) this._followPinsIntoHistory(pinsBefore, taken); });
 
         const said = plans.filter(p => p.gone.length);
         sayAll(said.map(({ owner, gone, opening, emptyOnly }) => {
@@ -1106,12 +1202,8 @@ class _MergeRuns {
         if (pullBefore && typeof this._dropPullEditsGoneWith === 'function') {
             this._dropPullEditsGoneWith(pullBefore);
         }
-        let chain = Promise.resolve(false);
-        closing.forEach(({ owner, gaps }) => {
-            chain = chain.then(moved => this._closeUpPortPins(owner, gaps)
-                .then(m => moved || m, () => moved));
-        });
-        chain.then(moved => { if (moved) this._followPinsIntoHistory(pinsBefore, taken); });
+        Promise.all(closing.map(({ owner, gaps }) => this._closeUpPortPins(owner, gaps)))
+            .then(moved => { if (moved.some(Boolean)) this._followPinsIntoHistory(pinsBefore, taken); });
         if (typeof this._toast === 'function') {
             this._toast(closing.map(({ owner, gaps }) => this._customGapNote(owner, gaps)).join(' '),
                 false, 8000);

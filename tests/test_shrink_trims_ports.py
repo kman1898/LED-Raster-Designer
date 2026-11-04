@@ -804,3 +804,140 @@ def test_predates_stack_numbering_reads_the_beta(page):
     got = page.evaluate("""() => ['1.6.0-beta.3', '1.6.0-beta.4', '1.6.0-beta.10', '1.6.0',
         '1.5.4', '1.6.1', '', null].map(v => window.app.predatesStackNumbering({ app_version: v }))""")
     assert got == [True, False, False, False, True, False, True, True]
+
+
+# ── No socket on a port that is gone (QA, 1.6.0 beta 5) ─────────────────
+#
+# "No phantom ports, nothing lands on an empty number": a port number with
+# no cabinets holds no socket. A screen that shrinks lets go of the pins
+# past its last port (undo puts them back), and custom mode turned on lets
+# go of every pin on a number with nothing drawn, after the drawing's gaps
+# close up. Custom ports start at the first free number.
+
+def _settled(page):
+    page.evaluate("async () => { await window.app._pinFollowTail; }")
+    page.wait_for_timeout(300)
+    page.evaluate("async () => { await window.app._pinFollowTail; }")
+
+
+def _custom_on(page, lid):
+    page.evaluate("(id) => { const app = window.app; app.selectLayer(window.__shr.layer(id)); "
+                  "app.toggleCustomFlowMode(true); }", lid)
+    _settled(page)
+
+
+def _draw(page, lid, cells):
+    page.evaluate("""([id, cells]) => { const app = window.app;
+        cells.forEach(([r, c]) => { const l = window.__shr.layer(id);
+            app.addPanelToCustomPath(l.panels.find(p => p.row === r && p.col === c), l,
+                                     { click: true }); }); }""", [lid, cells])
+    _settled(page)
+
+
+def test_a_shrunk_screen_lets_go_of_the_pins_past_its_last_port(page):
+    """90 columns hold 60 ports, 85 hold 55: the pins on P56 and P60 are
+    released with the shrink, so the sockets the tray already showed free
+    are free (another screen taking them never meets a clash when this one
+    grows back). Undo puts them back with the columns; redo lets go
+    again."""
+    pins = [[10, 1], [54, 2], [55, 3], [59, 4]]
+    lid = reset(page, pins=pins)
+    assert st(page, lid)['required'] == 60
+    type_columns(page, 85)
+    _settled(page)
+    s = st(page, lid)
+    assert s['required'] == 55
+    assert s['pins'] == [[10, 1], [54, 2]]
+    assert server_pins(page) == [[10, 1], [54, 2]]
+    assert s['historyAction'] == 'Update Properties'
+    page.evaluate("() => window.app.undo()")
+    page.wait_for_timeout(800)
+    back = st(page, lid)
+    assert back['columns'] == 90
+    assert back['pins'] == pins and server_pins(page) == pins
+    page.evaluate("() => window.app.redo()")
+    page.wait_for_timeout(800)
+    again = st(page, lid)
+    assert again['columns'] == 85
+    assert again['pins'] == [[10, 1], [54, 2]]
+    assert server_pins(page) == [[10, 1], [54, 2]]
+
+
+def test_a_grown_screen_keeps_every_pin(page):
+    pins = [[10, 1], [59, 4]]
+    lid = reset(page, pins=pins)
+    type_columns(page, 92)
+    _settled(page)
+    assert st(page, lid)['pins'] == pins and server_pins(page) == pins
+
+
+def test_custom_on_lets_go_of_the_pins_on_numbers_with_nothing_drawn(page):
+    """The beta.5 repro: P1-P5 on sockets 1-5, Redraw port P2 left open,
+    Custom runs: On. P2's drawing closes up to P1 and keeps socket 2; the
+    pins the automatic P3-P5 had (moved to P2-P4 by the close-up) are on
+    numbers with nothing drawn and let go, and P2 drawn next lands on no
+    socket. Undo puts the automatic screen back with all five."""
+    pins = [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5]]
+    lid = reset(page, pins=pins)
+    _redraw(page, lid, 2)
+    assert page.evaluate("() => !!window.app._overrideEditing"), 'the redraw did not open'
+    _custom_on(page, lid)
+    s = st(page, lid)
+    assert s['pathKeys'] == [1]
+    assert page.evaluate("() => window.app._overrideEditing") is None
+    assert s['pins'] == [[0, 2]]
+    assert server_pins(page) == [[0, 2]]
+    assert s['historyAction'] == 'Custom Mode Toggle'
+    # P2 drawn now lands on no socket by itself
+    page.evaluate("() => window.app.stepCustomPort(1)")
+    assert st(page, lid)['index'] == 2
+    _draw(page, lid, [[1, 0], [1, 1], [1, 2]])
+    s = st(page, lid)
+    assert s['pathKeys'] == [1, 2]
+    assert s['pins'] == [[0, 2]] and server_pins(page) == [[0, 2]]
+    # undone past the toggle, the automatic screen is back with its pins
+    for _ in range(8):
+        if not page.evaluate("(id) => window.app.isCustomFlow(window.__shr.layer(id))", lid):
+            break
+        page.evaluate("() => window.app.undo()")
+        page.wait_for_timeout(500)
+    back = st(page, lid)
+    assert not page.evaluate("(id) => window.app.isCustomFlow(window.__shr.layer(id))", lid)
+    assert back['pins'] == pins and server_pins(page) == pins
+
+
+def test_custom_ports_start_at_the_first_free_number(page):
+    """Redraw port P4, Esc, Port P4 back to auto, Custom runs: On: the
+    active port was left at 4, so the first port drawn was P4 with P1-P3
+    missing and sockets 1-3 still read the screen. Now the drawing starts
+    at P1, and no socket is held by a number with nothing on it."""
+    pins = [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5]]
+    lid = reset(page, pins=pins)
+    _redraw(page, lid, 4)
+    _esc(page)
+    page.evaluate("(id) => window.app.returnRunToAuto(window.__shr.layer(id), 'data', 4)", lid)
+    page.wait_for_timeout(400)
+    s = st(page, lid)
+    assert s['overrides'] == [] and s['index'] == 4
+    _custom_on(page, lid)
+    s = st(page, lid)
+    assert s['index'] == 1
+    assert s['pins'] == [] and server_pins(page) == []
+    _draw(page, lid, [[0, 0], [0, 1], [0, 2]])
+    s = st(page, lid)
+    assert s['pathKeys'] == [1]
+    assert sorted(ports(page, lid)) == [1]
+    assert s['pins'] == []
+
+
+def test_custom_on_keeps_the_pins_of_ports_drawn(page):
+    """A drawing that comes back whole keeps every pin on its numbers."""
+    pins = [[0, 1], [11, 2], [59, 3]]
+    lid = reset(page, custom=True, pins=pins)
+    page.evaluate("""(id) => { const app = window.app, l = window.__shr.layer(id);
+        l.flowPattern = 'tl-h'; app.updateLayers([l]); app.resetHistory('Auto Baseline'); }""", lid)
+    _settled(page)
+    _custom_on(page, lid)
+    s = st(page, lid)
+    assert s['pathKeys'] == list(range(1, 61))
+    assert s['pins'] == pins and server_pins(page) == pins

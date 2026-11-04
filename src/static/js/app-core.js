@@ -163,14 +163,24 @@ export class LEDRasterApp {
                 const edge = edgeNow();
                 const step = stepNow(edge);
                 const rect = sidebar.getBoundingClientRect();
+                // A side tab sits halfway down the canvas, not the window:
+                // the hardware tray drawn tall reaches the window's middle,
+                // and a tab there covered the first letters of the tray's
+                // rows (QA, 1.6.0 beta 5: "creen1 7 of 12 ports"). Where
+                // the canvas cannot be measured, the window's middle.
+                const wrap = document.getElementById('canvas-wrapper');
+                const wr = wrap ? wrap.getBoundingClientRect() : null;
+                const sideTop = (wr && wr.height > 0)
+                    ? `${Math.round(wr.top + wr.height / 2 + step)}px`
+                    : (step ? `calc(50% + ${step}px)` : '');
                 if (edge === 'left') {
                     btn.style.left = `${Math.round(rect.right)}px`;
                     btn.style.right = '';
-                    btn.style.top = step ? `calc(50% + ${step}px)` : '';
+                    btn.style.top = sideTop;
                 } else if (edge === 'right') {
                     btn.style.right = `${Math.round(window.innerWidth - rect.left)}px`;
                     btn.style.left = '';
-                    btn.style.top = step ? `calc(50% + ${step}px)` : '';
+                    btn.style.top = sideTop;
                 } else {
                     // Across the top or bottom: the tab sits on the panel's
                     // inner edge, centred on it - "hug the inner edge" turned
@@ -243,6 +253,9 @@ export class LEDRasterApp {
                 const el = document.getElementById(sidebarId);
                 if (el) all.observe(el);
             });
+            // The side tabs ride the canvas's middle (positionToggle).
+            const wrap = document.getElementById('canvas-wrapper');
+            if (wrap) all.observe(wrap);
         }
     }
 

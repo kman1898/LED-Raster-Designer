@@ -93,13 +93,13 @@ class _DockMenus {
     _clearMenuForDataRun(hit) {
         const run = this._dockBuildDataMap().get(hit.panel);
         if (!run) return null;
-        const layer = (this.project.layers || [])
-            .find(l => l.id === run.ownerId);
-        // The label the run is drawn with, so the menu names what the user
-        // is looking at - SR-3 when a card names it, P3 off the template.
-        const label = (layer && typeof this.getPortLabelText === 'function'
-            && this.getPortLabelText(layer, run.portNum))
-            || `port ${run.portNum}`;
+        // The screen port by its number, "P3", the way the Redraw item
+        // above it and the several-port menu name it (_portNumberText).
+        // The card socket's label beside it ("Clear port 1" on P6) read as
+        // a second numbering on one menu (QA, 1.6.0 beta 5); the clear
+        // releases the screen port, whatever socket it sits on.
+        const label = typeof this._portNumberText === 'function'
+            ? this._portNumberText(run.portNum) : `P${run.portNum}`;
         const scr = ((this._assignment && this._assignment.screens) || [])
             .find(s => s.layerId === String(run.ownerId));
         const port = scr

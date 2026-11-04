@@ -108,6 +108,15 @@ class _PixelSelect {
             this.syncCustomModeControls();
             return;
         }
+        // A port still open for redrawing on a screen turning custom is
+        // finished first, the way Esc finishes it: in custom mode every
+        // port is the drawing, and a redraw left open held its number
+        // apart from the cards (QA, 1.6.0 beta 5).
+        const ed = this._overrideEditing;
+        if (enabled && ed && ed.kind === 'data' && change.some(l => l.id === ed.layerId)
+                && typeof this.endOverrideEdit === 'function') {
+            this.endOverrideEdit();
+        }
         change.forEach(layer => {
             if (enabled) {
                 if (layer.flowPattern && layer.flowPattern !== 'custom') {
@@ -126,6 +135,12 @@ class _PixelSelect {
             // Custom ports run 1..N with no gaps (the owner, 2026-11-03):
             // a drawing kept from an earlier spell closes up as it comes back.
             this._closeCustomGapsOnToggle(change);
+            change.forEach(layer => this._clampCustomPortStart(layer));
+            // A number with nothing drawn on it holds no socket (QA, 1.6.0
+            // beta 5): the pins the automatic ports had there let go.
+            if (typeof this._releasePinsOffPorts === 'function') {
+                this._releasePinsOffPorts(change, { custom: true });
+            }
         }
         this.saveState('Custom Mode Toggle');
         this.saveClientSideProperties();
@@ -136,6 +151,22 @@ class _PixelSelect {
         this.updateLayers(this._persistWith(change));
         this.syncCustomModeControls();
         window.canvasRenderer.render();
+    }
+
+    // The active port of a screen turned custom is never past the first
+    // free number (QA, 1.6.0 beta 5): "Redraw port P4", then "Port P4 back
+    // to auto", left it at 4, and the first port drawn was P4 with P1-P3
+    // missing. Past the drawing (1..N once its gaps close) it starts at
+    // N + 1; a port of the drawing stays the active one.
+    _clampCustomPortStart(layer) {
+        if (!layer) return;
+        const paths = layer.customPortPaths || {};
+        const drawn = Object.keys(paths).map(k => parseInt(k, 10))
+            .filter(n => Number.isFinite(n) && n >= 1
+                && Array.isArray(paths[n]) && paths[n].length > 0);
+        const next = (drawn.length ? Math.max(...drawn) : 0) + 1;
+        const at = parseInt(layer.customPortIndex, 10) || 1;
+        if (at > next) layer.customPortIndex = next;
     }
 
     // Both custom checkboxes and both custom panels, from the shown screen.

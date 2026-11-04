@@ -517,3 +517,75 @@ def test_the_pull_sheet_walks_each_backup_end(mixed_show, third):
         assert all(b[1] == b[0] + 10 for b in backed), backed
     else:
         assert all(b[0] % 2 == 1 and b[1] == b[0] + 1 for b in backed), backed
+
+
+# ── A partner pick with nothing to pick (QA, 1.6.0 beta 5) ───────────────
+#
+# Card 3's "backed up by..." opened on an empty list with no word why:
+# card 1 is backed up by card 2, so neither is free to back card 3 up and
+# there is no other card. The empty pick is not drawn; the reason is said
+# in its place.
+
+SEED_PAIRED_JS = """
+async (n) => {
+    const state = await (await fetch('/api/processors')).json();
+    for (const p of state.processors) {
+        await fetch(`/api/processors/${p.id}`, { method: 'DELETE' });
+    }
+    const send = (url, method, body) => fetch(url, {
+        method, headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    }).then(r => r.json());
+    let st = await send('/api/processors', 'POST',
+                        { deviceId: 'novastar-h9', name: 'SR' });
+    const proc = st.resolved[st.resolved.length - 1];
+    for (let i = 0; i < n; i++) {
+        st = await send(`/api/processors/${proc.id}/slots/${i}`, 'PUT',
+                        { deviceId: 'novastar-card-h-16xrj45-2xfiber' });
+    }
+    const cards = st.resolved.find(p => p.id === proc.id)
+        .slots.filter(s => s.card).map(s => s.card.id);
+    await send(`/api/processors/${proc.id}`, 'PUT', { redundancy: true });
+    if (n > 1) {
+        await send(`/api/processors/${proc.id}/cards/${cards[0]}`, 'PUT',
+                   { backupCardId: cards[1] });
+    }
+    await window.app.refreshProcessors();
+    window.app.saveState('Seed Paired Cards');
+    return { pid: proc.id, cards };
+}
+"""
+
+NO_PARTNER_JS = """(cid) => {
+    const pop = document.getElementById('hw-gear-popover');
+    const pick = pop.querySelector(`[data-lrd-field="processor-card-backup-${cid}"]`);
+    const none = pop.querySelector(`[data-lrd-field="processor-card-nopartner-${cid}"]`);
+    return {
+        pick: pick ? Array.from(pick.options).map(o => o.textContent) : null,
+        text: none ? none.textContent : null,
+        title: none ? none.title : null,
+    };
+}"""
+
+
+def test_a_card_with_no_free_partner_says_why_instead_of_an_empty_pick(page):
+    ids = page.evaluate(SEED_PAIRED_JS, 3)
+    quiet(page)
+    open_gear(page, ids['pid'])
+    first, _second, third = ids['cards']
+    got = page.evaluate(NO_PARTNER_JS, third)
+    assert got['pick'] is None, f'an empty partner pick is drawn: {got}'
+    assert got['text'] == 'no card free to back it up', got
+    assert got['title'].startswith('Every other card already backs one up'), got
+    # card 1 keeps its pick, its partner shown
+    kept = page.evaluate(NO_PARTNER_JS, first)
+    assert kept['pick'] and len(kept['pick']) > 1 and kept['text'] is None, kept
+
+
+def test_a_lone_card_says_there_is_no_other_card(page):
+    ids = page.evaluate(SEED_PAIRED_JS, 1)
+    quiet(page)
+    open_gear(page, ids['pid'])
+    got = page.evaluate(NO_PARTNER_JS, ids['cards'][0])
+    assert got['pick'] is None, got
+    assert got['text'] == 'no other card to back it up', got

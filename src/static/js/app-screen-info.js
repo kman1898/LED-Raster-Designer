@@ -1850,6 +1850,11 @@ class _ScreenInfo {
             if (trimmed.length) layers = layers.concat(trimmed);
         }
 
+        // A screen whose ports dropped (it shrank) lets go of the card pins
+        // past its last port, in this undo step (app-merge-runs.js
+        // _releasePinsOffPorts), after the trim's own close-ups.
+        if (typeof this._releasePinsOffPorts === 'function') this._releasePinsOffPorts(layers);
+
         if (saveHistory) {
             this.saveState(historyAction);
         }

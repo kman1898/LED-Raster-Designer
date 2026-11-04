@@ -2192,7 +2192,10 @@ def test_a_run_on_a_card_clears_and_an_unattached_run_is_disabled_with_the_reaso
     tgt = panel_point(page, ids['aId'], {'port': 2})
     item = right_click(page, tgt['x'], tgt['y'])
     assert item['shown'] and not item['disabled'], item
-    assert item['label'].startswith('Clear port '), item
+    # the screen port by its number, the way Redraw port P2 names it -
+    # never the card socket's label (QA, 1.6.0 beta 5: "Clear port 1" on
+    # P6 mixed two numberings on one menu)
+    assert item['label'] == 'Clear port P2', item
     assert 'stays unattached' in item['title'], item
     close_menu(page)
 
@@ -2207,6 +2210,7 @@ def test_a_run_on_a_card_clears_and_an_unattached_run_is_disabled_with_the_reaso
     landed(page)
     item = right_click(page, tgt['x'], tgt['y'])
     assert item['shown'] and item['disabled'], item
+    assert item['label'] == 'Clear port P2', item
     assert 'not attached' in item['title'], item
     # a click on the disabled item performs NOTHING. The menu itself closes,
     # because this menu closes on every document click - the existing

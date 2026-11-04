@@ -697,6 +697,12 @@ def test_two_screens_on_one_port_are_reported_and_neither_is_moved(one_card):
     assert clash['port'] == 5 and clash['cardId'] == card
     assert sorted(clash['layerIds']) == ['Main', 'Side']
     assert 'Main' in clash['message'] and 'Side' in clash['message']
+    # Two sentences, no spaced hyphen standing in for a dash (QA, 1.6.0
+    # beta 5).
+    assert clash['message'].endswith('Nothing has been renumbered. Move one '
+                                     'of them if the clash is wrong.'), (
+        clash['message'])
+    assert ' - ' not in clash['message'], clash['message']
 
     # Neither was renumbered out of the way, and both draw as clashing.
     assert numbers(res, 'Main')[0] == 5

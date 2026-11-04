@@ -747,10 +747,11 @@ def resolve(processors, screens, state=None, _legacy_auto=False):
             continue
         if pin['index'] >= required.get(pin['layerId'], 0):
             # The screen has no such port any more (it shrank: 8 ports
-            # with 10 pins). The pin is kept - the port comes back with
-            # the cabinets - but it lights no socket, so every n/N reads
-            # what the tiles show (beta.4 QA: "XD A 10/10" over two free
-            # tiles).
+            # with 10 pins). It lights no socket, so every n/N reads what
+            # the tiles show (beta.4 QA: "XD A 10/10" over two free
+            # tiles). The client lets go of such a pin when the screen
+            # shrinks (app-merge-runs.js _releasePinsOffPorts, beta.5);
+            # one an older file still carries is left alone here.
             continue
         claim(card['cardId'], pin['port'], pin['layerId'], pin['index'], 'pin')
 
@@ -1662,7 +1663,7 @@ def _overlap_issues(overlapping, claims, by_id, screens):
                 f'{_and_list(names)} {"both" if len(names) == 2 else "all"} '
                 f'claim port {port} on '
                 f'{_card_title(card) if card else card_id}. Nothing has been '
-                f'renumbered - move one of them if the clash is wrong.'),
+                f'renumbered. Move one of them if the clash is wrong.'),
             'offers': [{'action': 'move-block', 'layerId': lid,
                         'label': f'Move {_screen_name(screens, lid)}'}
                        for lid in layer_ids],

@@ -770,9 +770,18 @@ class _RunOverrides {
                     : 'Take this run over from automatic routing. It keeps the '
                         + 'cabinets it has now; click cabinets to redraw it, and '
                         + 'the rest of the screen re-flows around it.',
-                run: () => (overridden
-                    ? this.beginOverrideEdit(owner, kind, num)
-                    : this.overrideRun(owner, kind, num)),
+                run: () => {
+                    // A locked screen is never opened for redrawing, and
+                    // the menu's Redraw always says why (QA, 1.6.0 beta 5:
+                    // a redrawn port that was already the active one
+                    // opened its edit on a locked screen with no word).
+                    if (this._layerLocked(owner)) {
+                        this._showLockedError([owner]);
+                        return;
+                    }
+                    if (overridden) this.beginOverrideEdit(owner, kind, num);
+                    else this.overrideRun(owner, kind, num);
+                },
             },
             backToAuto: overridden ? {
                 label: `${noun.charAt(0).toUpperCase()}${noun.slice(1)} back to auto`,

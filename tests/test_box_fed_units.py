@@ -583,9 +583,11 @@ def test_a_pin_past_a_shrunk_screens_ports_takes_no_socket(client):
     """Beta.4 QA: a show with 8 ports on XD A read "XD A 10/10" while tiles
     9 and 10 were free - the screen had shrunk from 10 ports, and its two
     stored pins past the 8th still counted. A pin on a port the screen no
-    longer has is kept (the port comes back with the cabinets) but takes
-    no socket: the box's n/N, the card's and the free count read what the
-    tiles show."""
+    longer has takes no socket: the box's n/N, the card's and the free
+    count read what the tiles show. The resolve itself releases nothing
+    (since beta.5 the client lets such pins go when the screen shrinks,
+    tests/test_shrink_trims_ports.py); one an older file carries is read
+    as it is."""
     wall = add_layer(client, 'WALL')
     state = add_processor(client, SX40)
     _proc, card, boxes = unit(state)

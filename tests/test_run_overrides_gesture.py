@@ -613,3 +613,31 @@ def test_the_fill_readout_ignores_an_unused_old_drawing(page):
         return app._customRunCanGrow(l, 'data', hits);
     }""", lid)
     assert grows is True
+
+
+def test_redraw_on_a_locked_screen_always_says_why(page):
+    """QA, 1.6.0 beta 5: on a locked screen, Redraw port on a port already
+    redrawn and active opened its edit with no word. The locked error is
+    said on every Redraw of a locked screen, taken over or not, and
+    nothing opens."""
+    lid = reset(page)
+    base = data_map(page, lid)
+    num = port_of_cabinet(base, 0, 1)
+    page.evaluate("([id, n]) => window.app.overrideRun(window.__ovrg.layer(id), 'data', n)",
+                  [lid, num])
+    page.wait_for_timeout(200)
+    page.keyboard.press('Escape')
+    page.wait_for_timeout(200)
+    assert app_state(page, lid)['editing'] is None
+    page.evaluate("(id) => { window.__ovrg.layer(id).locked = true; }", lid)
+    _watch_toasts(page)
+    for row_col in [(0, 1), (2, 0)]:
+        x, y = world_to_client(page, *cabinet_center(*row_col))
+        page.evaluate("""([x, y]) => { const m = window.app._prepareOverrideMenu(x, y);
+            m.redraw.run(); }""", [x, y])
+        page.wait_for_timeout(200)
+        errs = page.evaluate("() => window.__errs")
+        assert errs and errs[-1] == 'OvrGesture is locked. Unlock it to change it.', errs
+        assert app_state(page, lid)['editing'] is None, 'a redraw opened on a locked screen'
+        page.evaluate("() => { window.__errs = []; window.app._lockedErrorThisTurn = null; }")
+    page.evaluate("(id) => { window.__ovrg.layer(id).locked = false; }", lid)

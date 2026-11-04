@@ -1196,6 +1196,25 @@ class _Processors {
             if (c.id === card.backupCardId) opt.selected = true;
             partner.appendChild(opt);
         });
+        // Nothing to pick: the empty list is not drawn, the reason is said
+        // in its place (QA, 1.6.0 beta 5: Card 3's "backed up by..." opened
+        // on nothing, with no word why).
+        if (partner.options.length === 1) {
+            const word = this.unitWordFor(proc, card);
+            const none = document.createElement('span');
+            none.className = 'hw-pop-red-nopartner';
+            none.dataset.lrdField = `processor-card-nopartner-${card.id}`;
+            none.style.fontSize = '11px';
+            none.style.color = 'var(--ps-dim, #c0c0c0)';
+            const others = this._otherCards(card.id).length;
+            none.textContent = others ? `no ${word} free to back it up`
+                : `no other ${word} to back it up`;
+            none.title = others
+                ? `Every other ${word} already backs one up or has a backup of its own. `
+                    + 'Clear one of those picks to free it.'
+                : `A 1:1 backup is another ${word}, port for port. Add one to pick it here.`;
+            return none;
+        }
         partner.addEventListener('change', () => this._processorRequest(
             `/api/processors/${proc.id}/cards/${card.id}`, 'PUT',
             Object.assign({ backupCardId: partner.value }, extra || {}),
