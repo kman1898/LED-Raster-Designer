@@ -4696,11 +4696,18 @@ def test_alt_drag_sweeps_and_alt_click_stays_takeover(dock_page):
     assert out['over'], (
         f'a click inside 4px must stay the takeover: {out}')
     assert not out['sel'], out
-    page.evaluate("""() => {
-        if (window.app.endOverrideEdit) window.app.endOverrideEdit();
-        window.app.undo();
-    }""")
+    # Ending a redraw that changed nothing hands the circuit back to the
+    # walk as its own step (the owner's ruling, 2026-11-03). An undo after
+    # it would take that step back and leave the circuit taken over for
+    # the tests after this one, so none is made: the circuit is automatic
+    # again on its own.
+    page.evaluate("() => { if (window.app.endOverrideEdit) window.app.endOverrideEdit(); }")
     landed(page)
+    assert not page.evaluate("""(aId) => {
+        const app = window.app;
+        const a = app.project.layers.find(x => x.id === aId);
+        return app.getOverrideNums(a, 'power').length > 0;
+    }""", ids['aId']), 'an unchanged takeover must be automatic again when it ends'
     page.evaluate(RESET_POWER_JS, ids)
     landed(page)
 
