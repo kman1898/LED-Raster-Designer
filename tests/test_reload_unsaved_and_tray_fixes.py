@@ -105,14 +105,17 @@ def test_unsaved_edits_survive_a_reload_and_new_open_recent_ask(e2e_server, pw_b
         _set_columns(pg, 9)
         assert _unsaved(pg) is True
         _settle_unsaved(pg, e2e_server, '1')
-        # the reload: the start page over the edited show, still unsaved
+        # the reload: the edited show, still unsaved (and no start page
+        # over it since 2026-11-04, test_reload_keeps_place.py)
         _reload(pg)
-        _wait_start(pg)
+        pg.wait_for_timeout(2500)
+        assert not _start_up(pg)
         assert pg.evaluate("() => [window.app.project.name, window.app.project.layers[0].columns]") \
             == ['Reload Show', 9]
         assert _unsaved(pg) is True
-        # New on the start page asks first; Cancel keeps the edits
-        pg.locator('#start-page-new').click()
+        # File > New asks first (the start page's New over a show is File
+        # > New); Cancel keeps the edits
+        _menu(pg, 'new')
         _asked(pg)
         _cancel(pg)
         assert pg.evaluate("() => window.app.project.layers[0].columns") == 9
