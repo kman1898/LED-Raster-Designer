@@ -15,7 +15,7 @@ ports feed (app-binder-fiber.js _bfBoxNote) - QA beta.5, 2026-11-03.
 
 Synthetic show: an SX40 whose XD A, B and C all hang on one TAC; a group
 UPSTAGE (UPSTAGE WEST + UPSTAGE EAST, routed as one) with its ports 1-2 on
-XD A, port 3 - all on the east member's cabinets - on XD B and ports 4-6 on
+XD A, port 3 - all on the east member's cabinets - on XD B and ports 4-5 on
 XD C; four one-column TOWER screens on XD A too.
 
 Run locally (each session takes its own free port):
@@ -138,14 +138,16 @@ PAGE_JS = """(opts) => {
 def test_a_box_names_the_member_its_ports_feed(page):
     """XD B carries only port 3 of the group, whose cabinets are all on
     UPSTAGE EAST: it reads UPSTAGE EAST, never the group's first member.
-    XD C carries ports 4-6, on both members: it names both. XD D feeds
-    nothing and says nothing."""
+    XD C carries ports 4-5, on both members: it names both. XD D feeds
+    nothing and says nothing. (Rows cut 5, 5, 2 a port; the two rows'
+    leftovers of 2 on the east member stack into port 3, the owner's
+    ruling of 2026-11-04, so the group is five ports, not six.)"""
     pg, ids = page
     ports = pg.evaluate(PORTS_JS, ids['west'])
     assert [(p['num'], p['box'], p['on']) for p in ports] == [
         (1, 'XD A', ['UPSTAGE WEST']), (2, 'XD A', ['UPSTAGE WEST', 'UPSTAGE EAST']),
         (3, 'XD B', ['UPSTAGE EAST']), (4, 'XD C', ['UPSTAGE WEST']),
-        (5, 'XD C', ['UPSTAGE WEST', 'UPSTAGE EAST']), (6, 'XD C', ['UPSTAGE EAST'])], ports
+        (5, 'XD C', ['UPSTAGE WEST', 'UPSTAGE EAST'])], ports
     notes = pg.evaluate(NOTES_JS)
     assert notes['XD B'] == 'UPSTAGE EAST', notes
     assert notes['XD C'] == 'UPSTAGE WEST, UPSTAGE EAST', notes
