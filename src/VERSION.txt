@@ -880,7 +880,7 @@ FIXES
   of a tall hardware tray.
 - FIX: The Pull Sheet window's tiles wrap when the window is narrow, so
   TOTALS is never cut off.
-- FIX: Cancelling the save dialog says Save canceled, not Export canceled.
+- FIX: Canceling the save dialog says Save canceled, not Export canceled.
 - FIX: Reloading over an empty project opens like a launch.
 - FIX: A drop that goes through clears an earlier refusal from the status
   bar, Save Screen as Preset selects the name it fills in, and after a
