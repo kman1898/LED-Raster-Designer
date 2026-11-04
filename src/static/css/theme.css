@@ -594,6 +594,7 @@ select, .info-select {
 }
 .hw-dock-loop-names { color:var(--ps-text); font-weight:600; }
 .hw-dock-loop-end { color:var(--ps-faint); }
+.hw-dock-fiber-mode { color:var(--ps-dim); }
 /* a folded strip's header carries its near box's ≡ and ⚙; open, the
    rows below carry them */
 .hw-dock-foldctl { display:none; flex:0 0 auto; margin-left:auto;

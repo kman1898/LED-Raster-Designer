@@ -1774,6 +1774,22 @@ class _Processors {
         // A box on a copy OPT that picks per box: Mirror or Backup.
         if (cvt.copyRoleChoice) wrap.appendChild(this._buildBoxCopyRoleStrip(proc, cvt));
 
+        // Its fiber's mode where the catalog states one (owner, 2026-11-04):
+        // the model and "Single mode" / "Multimode", as on its dock header.
+        const mode = this.boxFiberMode(cvt);
+        if (mode) {
+            const modeLine = document.createElement('div');
+            modeLine.dataset.lrdField = `processor-cvt-mode-${cvt.id}`;
+            modeLine.style.fontSize = '11px';
+            modeLine.style.color = 'var(--ps-dim, #c0c0c0)';
+            modeLine.style.marginTop = '4px';
+            modeLine.textContent = `${cvt.deviceName} · ${this.fiberModeWord(mode)} fiber`;
+            modeLine.title = `Single mode and multimode never share a fiber cable: a `
+                + `${this.fiberModeWord(mode === 'single' ? 'multi' : 'single', true)} box `
+                + `cannot take a cable this box is on.`;
+            wrap.appendChild(modeLine);
+        }
+
         const info = document.createElement('div');
         info.style.fontSize = '11px';
         info.style.fontFamily = 'monospace';

@@ -180,7 +180,9 @@ class _BinderFiber {
     }
 
     // The cable's pill: "TAC A · TAC 24 · 500'" - its name, its kind (and
-    // strand count), its length or "no length"; copper its kind and
+    // strand count), its length or "no length", and the mode of its fiber
+    // where its boxes state one ("TAC A · TAC 24 · 500' · Single mode",
+    // its length out of that mode's cable stock); copper its kind and
     // length, "Cat6A · 150'"; a link with nothing picked says so.
     _bfPill(row) {
         const l = row.link;
@@ -196,7 +198,9 @@ class _BinderFiber {
             : this.fiberKindWord(cable.kind);
         const ft = this.parseCableLength(cable.ft);
         const has = Number.isFinite(ft) && ft > 0;
-        const parts = [cable.name || '', kind, has ? this.pullLengthText(ft) : 'no length']
+        const parts = [cable.name || '', kind,
+                       has ? this.pullLengthText(ft, this.fiberStockKind(cable)) : 'no length',
+                       this.fiberModeWord(this.fiberCableMode(cable))]
             .filter((t, i, a) => t && a.indexOf(t) === i);
         return { text: parts.join(' · '), warn: !has };
     }

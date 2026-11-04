@@ -287,8 +287,8 @@ def test_a_bidi_box_keeps_its_one_strand_and_an_mtp_is_not_flipped(page):
     cells = [r['cells'] for r in rows]
     box = pg.evaluate("(id) => window.app._bBoxTitle(window.app._dockFindCvt(id).cvt)", ids['cvt4k'])
     assert cells == [
-        ['OPT 1', 'TAC C (TAC 12)', '1', 'OPT 1 on CVT10 A', '1'],
-        ['OPT 2', 'MTP A (MTP 12)', '1 Blue · Rack A', f'OPT1 on {box}', '1 Blue · Rack A · crosses inside'],
+        ['OPT 1', 'TAC C (TAC 12 · Single mode)', '1', 'OPT 1 on CVT10-S A', '1'],
+        ['OPT 2', 'MTP A (MTP 12 · Single mode)', '1 Blue · Rack A', f'OPT1 on {box}', '1 Blue · Rack A · crosses inside'],
         ['OPT 3', 'MTP A', '3 Green · 4 Brown', f'OPT2 on {box}', '3 Green · 4 Brown · crosses inside'],
         ['OPT 4', 'not used', '', '', ''],
     ], cells
@@ -344,11 +344,11 @@ def test_each_card_of_a_chassis_names_its_own_outputs(page):
     pg, ids = page
     cells = [r['cells'] for r in _rows(pg, ids['dual'])]
     assert cells == [
-        ['SR · OPT 1', 'no fiber picked', '', 'OPT 1 on CVT10 A', ''],
+        ['SR · OPT 1', 'no fiber picked', '', 'OPT 1 on CVT10-S A', ''],
         ['SR · OPT 2', 'not used', '', '', ''],
         ['SR · OPT 3', 'not used', '', '', ''],
         ['SR · OPT 4', 'not used', '', '', ''],
-        ['Card 2 · OPT 1', 'no fiber picked', '', 'OPT 1 on CVT10 A', ''],
+        ['Card 2 · OPT 1', 'no fiber picked', '', 'OPT 1 on CVT10-S A', ''],
         ['Card 2 · OPT 2', 'not used', '', '', ''],
         ['Card 2 · OPT 3', 'not used', '', '', ''],
         ['Card 2 · OPT 4', 'not used', '', '', ''],
