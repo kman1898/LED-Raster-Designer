@@ -962,6 +962,9 @@ FIXES
 - FIX: Clear Circuit while you redraw a circuit no longer gives the next
   circuit the same name. Every other circuit keeps its label while you
   draw the redrawn one again.
+- FIX: Turning Custom on with one port left says the port moved up to
+  port 1 instead of "run 1-1", and a port with nothing drawn and nothing
+  after it is said to be gone.
 
 v1.5.3 - October 21, 2026
 ----------------------------
