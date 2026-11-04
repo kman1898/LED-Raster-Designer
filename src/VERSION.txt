@@ -504,6 +504,8 @@ FIXES
   had to open the pair to reach them.
 - FIX: A box's cable list shows its backup ports' cables with the box
   folded too, not only when it is open.
+- NEW: A processor's ≡ opens the cable list of every box on it at once,
+  folded or open.
 - FIX: Data cable tags show only the length, like 25'. With the connector
   on every tag, a wall of narrow columns had tags wider than a column, so
   they zig-zagged over and under the ports. They now sit in one row. The

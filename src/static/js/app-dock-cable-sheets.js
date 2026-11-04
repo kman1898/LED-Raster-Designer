@@ -441,13 +441,15 @@ class _DockCableSheets {
         const live = new Set();
         if (!all) {
             (resolved || []).forEach(p => (p.slots || []).forEach(s => {
+                // the processor's own cable list (_dockBuildProcCableSheet)
+                live.add(`proc:${p.id}`);
                 if (!s.card) return;
                 live.add(`card:${s.card.id}`);
                 (s.card.cvts || []).forEach(c => live.add(`cvt:${c.id}`));
             }));
         }
         const patterns = [
-            [/^lrd_data_cable_sheet_(card|cvt)_(.+)$/, m => `${m[1]}:${m[2]}`],
+            [/^lrd_data_cable_sheet_(card|cvt|proc)_(.+)$/, m => `${m[1]}:${m[2]}`],
             [/^ledRasterPanelCollapsed_hwdock-(card|box)-(.+)$/,
              m => `${m[1] === 'box' ? 'cvt' : 'card'}:${m[2]}`],
         ];

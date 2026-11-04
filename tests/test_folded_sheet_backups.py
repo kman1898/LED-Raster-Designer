@@ -16,6 +16,11 @@ So, for every redundancy shape with backup copper ports:
     box's own entry, survives a re-render, and reads the same in the open
     sheet and on the pull list
 
+The processor's own ≡ (owner, same day: "when the whole processor is
+collapsed we should have an extension drop down that opens all boxes
+connected in the same way") lists every section's folded list in tray order,
+its fields keyed apart from the boxes' own, each length the same stored entry.
+
 Synthetic hardware only, one scratch project per shape.
 """
 
@@ -99,6 +104,14 @@ SEED_JS = """async (shape) => {
         const c = proc.slots[0].card.id;
         await send(`/api/processors/${proc.id}/cards/${c}`, 'PUT', { mode: '20-port' });
         await box(proc.id, c, { deviceId: 'novastar-cvt10' });
+    } else if (shape === 'novastar-pairs') {
+        proc = await add('novastar-mx40-pro');
+        const c = proc.slots[0].card.id;
+        await send(`/api/processors/${proc.id}/cards/${c}`, 'PUT', { mode: '20-port' });
+        await box(proc.id, c, { deviceId: 'novastar-cvt10' });
+        await box(proc.id, c, { deviceId: 'novastar-cvt10' });
+    } else if (shape === 'no-boxes') {
+        proc = await add('novastar-vx1000');
     } else if (shape === 'straddle') {
         proc = await add('novastar-vx1000');
         await box(proc.id, proc.slots[0].card.id,
@@ -119,7 +132,7 @@ SEED_JS = """async (shape) => {
         .slots[0].card;
     const cvts = card.cvts || [];
     let sec, boxId = null, ports;
-    if (shape === 'own-ports') {
+    if (shape === 'own-ports' || shape === 'no-boxes') {
         sec = `hwdock-card-${card.id}`;
         ports = card.ports.filter(p => !p.cvtId);
     } else {
@@ -143,7 +156,9 @@ SEED_JS = """async (shape) => {
     await app.refreshProcessors();
     await app.refreshPortAssignment();
     const pin = app._screenPortPin(wall, 1);
-    const bb = pin && app._pullBackedBy(pin.cardId, pin.port);
+    // the port's backup end, or (a processor with no backup) the port
+    const bb = pin && (app._pullBackedBy(pin.cardId, pin.port)
+        || (shape === 'no-boxes' ? { cardId: pin.cardId, port: pin.port } : null));
     if (!bb) return { error: 'no backup end', pin, shape };
     const ownerId = bb.cvtId || bb.cardId;
     const storeKey = app.backupCableKey(bb) || String(bb.port);
@@ -316,4 +331,176 @@ def test_a_folded_sheet_lists_the_backup_rows_the_open_one_does(page, shape):
                       f'[data-lrd-field="{seed["field"]}"]').input_value() == '40'
     pg.evaluate(CLEAR_SHEETS_JS)
     landed(pg)
+    assert not errors, errors
+
+
+# ── the processor's ≡: every box's cable list at once ───────────────────
+#
+# The owner, 2026-11-04: "when the whole processor is collapsed we should
+# have an extension drop down that opens all boxes connected in the same
+# way". The processor's strip has a ≡ of its own; its list is each tray
+# section's own folded ≡ list, in tray order, under the section's name.
+
+# The tray's sections of one processor that have a ≡ of their own, in tray
+# order: each card's own ports first where it has any, then its box strips.
+SECTIONS_JS = """(procId) => {
+    const app = window.app;
+    const proc = app._processorsResolved.find(p => p.id === procId);
+    const out = [];
+    proc.slots.forEach(slot => {
+        const card = slot.card;
+        if (!card) return;
+        if (card.ports.some(p => !p.cvtId)) out.push(`hwdock-card-${card.id}`);
+        const unit = document.querySelector(`[data-lrd-sec-id="hwdock-card-${card.id}"]`);
+        unit.querySelectorAll('[data-lrd-sec-id^="hwdock-box-"]').forEach(
+            s => out.push(s.dataset.lrdSecId));
+    });
+    return out;
+}"""
+
+PROC_ROWS_JS = """(procId) => {
+    const list = document.querySelector(`[data-lrd-proc-sheet="${procId}"]`);
+    if (!list) return null;
+    const ns = `proclist-${procId}-`;
+    const shown = (el) => el.getClientRects().length > 0;
+    return {
+        heads: [...list.querySelectorAll('.hw-dock-proc-sheet-head')]
+            .map(h => h.textContent),
+        rows: [...list.querySelectorAll('input.hw-dock-cable-ft')]
+            .filter(f => shown(f)
+                    && f.dataset.lrdField.startsWith(ns + 'data-cable-ft-'))
+            .map(f => [f.dataset.lrdField.slice(ns.length),
+                       f.closest('tr').children[1].textContent]),
+        // every key in the list is its own, never another field's
+        clash: [...list.querySelectorAll('[data-lrd-field]')]
+            .filter(f => !f.dataset.lrdField.startsWith(ns)).length,
+    };
+}"""
+
+# How the tray names each section, for the list's headings: a loop strip
+# by its model and its two ends, a lone box by its name, a card by its
+# header's model text.
+TRAY_NAMES_JS = """(secs) => secs.map(sec => {
+    const app = window.app;
+    const s = document.querySelector(`[data-lrd-sec-id="${sec}"]`);
+    const head = s.querySelector(':scope > .lrd-sec-head');
+    if (sec.startsWith('hwdock-card-')) {
+        const m = head.querySelector('.hw-dock-unit-name');
+        return m ? m.textContent : null;
+    }
+    const box = app._dockFindCvt(sec.slice('hwdock-box-'.length)).cvt;
+    const names = head.querySelector('.hw-dock-loop-names');
+    return names ? `${box.deviceName} ${names.textContent}` : app._dockBoxLabel(box);
+})"""
+
+CARD_OF_JS = """(sec) => document.querySelector(`[data-lrd-sec-id="${sec}"]`)
+    .closest('[data-lrd-sec-id^="hwdock-card-"]').dataset.lrdSecId"""
+
+PULL_PRIMARY_JS = """() => {
+    const list = window.app.buildPullList();
+    const scr = Object.values(list.byScreen || {}).find(s => s.name === 'BIG');
+    return scr && scr.ports[0] ? scr.ports[0].cable : null;
+}"""
+
+
+def proc_rows(page, proc):
+    """Press the processor's ≡ (every sheet closed first), read its list."""
+    page.evaluate(CLEAR_SHEETS_JS)
+    landed(page)
+    btn = page.locator(f'[data-lrd-field="data-cable-sheet-{proc}"]')
+    assert 'hw-dock-cablebtn-proc' in btn.get_attribute('class')
+    btn.click()
+    landed(page)
+    assert 'hw-dock-cablebtn-on' in btn.get_attribute('class')
+    return page.evaluate(PROC_ROWS_JS, proc)
+
+
+def fold_all(page, secs, folded):
+    """Fold or open every section; the boxes before their card on the way
+    down, the card first on the way up, so no arrow is hidden."""
+    boxes = [s for s in secs if s.startswith('hwdock-box-')]
+    cards = list(dict.fromkeys(
+        [page.evaluate(CARD_OF_JS, s) for s in boxes]
+        + [s for s in secs if s.startswith('hwdock-card-')]))
+    for sec in (boxes + cards if folded else cards + boxes):
+        set_fold(page, sec, folded)
+
+
+@pytest.mark.parametrize('shape', ['xd-loop', 'novastar-pairs', 'no-boxes'])
+def test_the_processor_list_is_every_boxs_list_in_tray_order(page, shape):
+    pg, errors = page
+    seed = pg.evaluate(SEED_JS, shape)
+    assert 'error' not in seed, seed
+    landed(pg)
+    proc = seed['proc']
+    secs = pg.evaluate(SECTIONS_JS, proc)
+    boxes = [s for s in secs if s.startswith('hwdock-box-')]
+    if shape == 'xd-loop':
+        assert len(boxes) == 2, secs
+    elif shape == 'novastar-pairs':
+        assert boxes, secs
+    else:
+        assert secs == [f'hwdock-card-{seed["card"]}'], secs
+
+    # Each section's own ≡ list, folded, in tray order.
+    fold_all(pg, secs, False)
+    names = pg.evaluate(TRAY_NAMES_JS, secs)
+    union = []
+    for sec in boxes:
+        union.extend(folded_rows(pg, sec))
+    fold_all(pg, secs, False)
+    for sec in reversed([s for s in secs if s.startswith('hwdock-card-')]):
+        union[0:0] = folded_rows(pg, sec)
+    assert seed['field'] in [k for k, _ in union], union
+
+    # The processor's list with everything open, then everything folded.
+    fold_all(pg, secs, False)
+    got = proc_rows(pg, proc)
+    assert got['rows'] == union, (
+        'the processor list is not the boxes\' lists in order:\n'
+        f'list  {got["rows"]}\nboxes {union}')
+    assert got['clash'] == 0, got
+    assert got['heads'] == names, (got['heads'], names)
+    if shape == 'xd-loop':
+        assert all(h.startswith('XD ') and '↔' in h for h in got['heads']), got
+    fold_all(pg, secs, True)
+    shut = proc_rows(pg, proc)
+    assert shut['rows'] == union and shut['heads'] == names, shut
+
+    # A length typed in the processor list is the box list's entry too.
+    field = pg.locator(f'[data-lrd-proc-sheet="{proc}"] '
+                       f'[data-lrd-field="proclist-{proc}-{seed["field"]}"]')
+    field.click()
+    field.fill('40')
+    pg.keyboard.press('Enter')
+    landed(pg)
+    stored = settled(pg, lambda: pg.evaluate(
+        STORED_JS, [seed['ownerKind'], seed['ownerId'], seed['storeKey']]),
+        lambda v: v == 40)
+    assert stored == 40, stored
+    pg.evaluate("() => window.app.renderHardwareDock()")
+    landed(pg)
+    assert field.input_value() == '40'
+    pull = pg.evaluate(PULL_PRIMARY_JS if shape == 'no-boxes' else PULL_JS)
+    assert pull and pull.startswith("40'"), pull
+    # the processor's ≡ again closes the list
+    pg.locator(f'[data-lrd-field="data-cable-sheet-{proc}"]').click()
+    landed(pg)
+    assert pg.evaluate(PROC_ROWS_JS, proc) is None
+    # ...and the section's own list reads the length on the same row
+    fold_all(pg, secs, False)
+    owner_sec = None
+    for sec in boxes + [s for s in secs if s.startswith('hwdock-card-')]:
+        rows = folded_rows(pg, sec)
+        fold_all(pg, secs, False)
+        if seed['field'] in [k for k, _ in rows]:
+            owner_sec = sec
+            break
+    assert owner_sec, 'no section list shows the typed row'
+    folded_rows(pg, owner_sec)
+    assert pg.locator(f'[data-lrd-sec-id="{owner_sec}"] '
+                      f'[data-lrd-field="{seed["field"]}"]').input_value() == '40'
+    pg.evaluate(CLEAR_SHEETS_JS)
+    landed(pg)
+    fold_all(pg, secs, False)
     assert not errors, errors
