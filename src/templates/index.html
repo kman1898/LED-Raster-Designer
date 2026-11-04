@@ -2281,8 +2281,9 @@
             </div>
 
             <!-- Binder (format binder only): the show as a DRAWING SET - one
-                 sheet per subject on numbered sheets (1.x overview, 2.x power,
-                 3.x data, 4.x pull, 5.x hardware), every sheet with a border
+                 sheet per subject on numbered sheets (1.x overview, 2.x screens,
+                 3.x fiber, 4.x pull, 5.x hardware; 3.x pull and 4.x
+                 hardware without the fiber page), every sheet with a border
                  and a title block down its right edge (app-binder.js). Scope
                  (the whole show, or one screen - the canvas's right-click
                  presets it), the sheet size (a preference; Tabloid 17 x 11 by
@@ -2364,10 +2365,10 @@
                         <span style="flex: none; width: 92px; line-height: 20px;">Sheets</span>
                         <div style="flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 4px 14px;">
                         <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; flex: none; white-space: nowrap; line-height: 20px;" data-tooltip="Sheet 1.1: the show map with the positions, the show totals and the contents."><input type="checkbox" id="export-binder-cover" checked> Overview</label>
-                        <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; flex: none; white-space: nowrap; line-height: 20px;" data-tooltip="A pull sheet per position with tick boxes (3.x), and the show-wide pull list at the back."><input type="checkbox" id="export-binder-pull" checked> Pull sheets</label>
-                        <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; flex: none; white-space: nowrap; line-height: 20px;" data-tooltip="One sheet per distro and per processor at the back (4.x)."><input type="checkbox" id="export-binder-hardware" checked> Hardware</label>
+                        <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; flex: none; white-space: nowrap; line-height: 20px;" data-tooltip="A pull sheet per position with tick boxes (3.x, or 4.x after a Fiber sheet), and the show-wide pull list at the back."><input type="checkbox" id="export-binder-pull" checked> Pull sheets</label>
+                        <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; flex: none; white-space: nowrap; line-height: 20px;" data-tooltip="One sheet per distro and per processor at the back (4.x, or 5.x after a Fiber sheet)."><input type="checkbox" id="export-binder-hardware" checked> Hardware</label>
                         <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; flex: none; white-space: nowrap; line-height: 20px;" data-tooltip="A wiring sheet behind each map (2.x): Power Wiring right after a screen's Power sheet, every circuit wired to its breakout; Data Wiring right after its Data sheet, every port wired to its socket. Each follows its own map: Maps on Power gives no Data Wiring sheet, and the other way round."><input type="checkbox" id="export-binder-wiring" checked> Wiring</label>
-                        <label id="export-binder-fiber-label" style="display: flex; align-items: center; gap: 5px; cursor: pointer; flex: none; white-space: nowrap; line-height: 20px;" data-tooltip="One Fiber sheet at the back (4.x), offered when the show uses fiber: every processor to its breakout boxes, a row per link, with the strand maps and the fiber cables to pull."><input type="checkbox" id="export-binder-fiber" checked> Fiber</label>
+                        <label id="export-binder-fiber-label" style="display: flex; align-items: center; gap: 5px; cursor: pointer; flex: none; white-space: nowrap; line-height: 20px;" data-tooltip="One Fiber sheet right after the screens, before the pull sheets (3.x), offered when the show uses fiber: every processor to its breakout boxes, a row per link, with the strand maps and the fiber cables to pull."><input type="checkbox" id="export-binder-fiber" checked> Fiber</label>
                         </div>
                     </div>
                     <!-- The border, the title block column and the rev line, or

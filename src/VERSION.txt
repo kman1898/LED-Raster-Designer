@@ -243,15 +243,16 @@ does. Shows without extensions open exactly as before.
 
 A FIBER PAGE IN THE BINDER
 
-A show that uses fiber now gets a Fiber page after the processors. It
-draws every processor out to its breakout boxes on one sheet, a row per
-link: the output, the strand colors at the processor, the cable, any
-fan-out or patch, the strand colors at the box and the box itself.
-Beside the drawing are a strand map for each cable and the fiber cables
-to pull. When there's a lot of fiber the drawing splits into two
-columns, and past that it carries on to the next sheet. The Fiber tick
-in the Export dialog and in Preferences > Binder turns the page off. The
-processor pages keep their own Fiber connections tables.
+A show that uses fiber now gets a Fiber page right after the screens,
+before the pull sheets. It draws every processor out to its breakout
+boxes on one sheet, a row per link: the output, the strand colors at the
+processor, the cable, any fan-out or patch, the strand colors at the box
+and the box itself. Beside the drawing are a strand map for each cable
+and the fiber cables to pull. When there's a lot of fiber the drawing
+splits into two columns, and past that it carries on to the next sheet.
+The Fiber tick in the Export dialog and in Preferences > Binder turns
+the page off. The processor pages keep their own Fiber connections
+tables.
 
 SINGLE MODE AND MULTIMODE BOXES
 
@@ -986,6 +987,8 @@ FIXES
   on its canvas that fits it, left to right and then top to bottom,
   instead of landing on top of the screen at the corner. On an empty
   canvas it still starts at the corner.
+- FIX: The binder prints the Fiber page right after the screens, before
+  the pull sheets, and the sheets after it number on from it with no gap.
 
 v1.5.3 - October 21, 2026
 ----------------------------

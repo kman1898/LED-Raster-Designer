@@ -5639,9 +5639,10 @@
             },
             after: closeExport
         },
-        // The Fiber page (1.6.0, app-binder-fiber.js): one sheet after the
-        // processors for a show that uses fiber - the guide's breakout box
-        // took a TAC in Fiber to the box - every processor to its breakout
+        // The Fiber page (1.6.0, app-binder-fiber.js): one sheet right after
+        // the screens, before the pull sheets, for a show that uses fiber -
+        // the guide's breakout box took a TAC in Fiber to the box - every
+        // processor to its breakout
         // boxes, a row per link, with the strand maps and the fiber cables
         // to pull. The tick shows only on a show with fiber; it goes off
         // and on, and the set is planned until the page is in it.
@@ -5649,7 +5650,7 @@
             since: '1.6.0',
             window: 'export:binder',
             target: '#export-binder-fiber-label', place: 'left', title: 'The Fiber page',
-            body: 'A show with fiber gets a Fiber page after the processors: each processor to its breakout boxes, a row per link with its strands at both ends, then the strand maps and the fiber cables to pull.',
+            body: 'A show with fiber gets a Fiber page right after the screens, before the pull sheets: each processor to its breakout boxes, a row per link with its strands at both ends, then the strand maps and the fiber cables to pull.',
             before: openExport,
             act: function (t) {
                 var box = $('#export-binder-fiber');
@@ -5673,7 +5674,7 @@
             check: function (mem) {
                 var box = $('#export-binder-fiber');
                 return box && box.checked && !mem.mid && mem.number
-                    ? 'Fiber is on: the Fiber page prints as sheet ' + mem.number + ', after the processors.' : null;
+                    ? 'Fiber is on: the Fiber page prints as sheet ' + mem.number + ', right after the screens.' : null;
             },
             after: closeExport
         },
