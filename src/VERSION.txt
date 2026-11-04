@@ -962,6 +962,9 @@ FIXES
   Capacity, 2fer packing, or the Circuit numbers switch. When two cables
   land on one circuit, the one plugged into its first cabinet stays and a
   message names the screen and the circuit.
+- FIX: A redrawn circuit left with nothing drawn goes back to automatic
+  and the circuits after it close up, and their typed labels now move
+  with their cabinets, the way data port names do.
 
 v1.5.3 - October 21, 2026
 ----------------------------
