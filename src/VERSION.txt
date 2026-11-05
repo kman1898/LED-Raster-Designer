@@ -976,6 +976,15 @@ FIXES
 - FIX: A redrawn circuit left with nothing drawn goes back to automatic
   and the circuits after it close up, and their typed labels now move
   with their cabinets, the way data port names do.
+- FIX: Undo after a circuit redraw ends opens the redraw again, so the
+  circuits, their cables and their labels all go back together and the
+  cabinets it held can still be clicked. Ending a redraw that hands its
+  circuit back is one undo step.
+- FIX: A show saved or a page reloaded with a circuit redraw still open
+  ends that redraw as it opens, the same as Esc, so each cable and label
+  stays with its cabinets. Save leaves the redraw in hand open.
+- FIX: A circuit picked up during another redraw and left as it was goes
+  back to automatic when its redraw ends.
 - FIX: Clear Circuit while you redraw a circuit no longer gives the next
   circuit the same name. Every other circuit keeps its label while you
   draw the redrawn one again.

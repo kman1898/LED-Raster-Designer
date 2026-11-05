@@ -97,7 +97,10 @@ class _History {
         const state = {
             action: action,
             project: JSON.parse(json),
-            timestamp: Date.now()
+            timestamp: Date.now(),
+            // A circuit redraw open as this entry is taken: the project reads
+            // right only with its hold (app-run-overrides _powerRedrawRecord).
+            redraw: typeof this._powerRedrawRecord === 'function' ? this._powerRedrawRecord() : null
         };
 
 
@@ -193,6 +196,9 @@ class _History {
             
             this._reconcileSelectionAfterRestore();
             this._activeCanvasFollowsSelection(state);
+            // The circuit redraw this entry had open comes back with it, and
+            // one it did not have closes (app-run-overrides).
+            if (typeof this._restorePowerRedraw === 'function') this._restorePowerRedraw(state.redraw);
             // Both, not just the data side. loadLayerToInputs() below happens
             // to refresh the power one too, so this was only exposed on its
             // early-return paths - but an undo in Power view has no business
@@ -440,6 +446,9 @@ class _History {
             
             this._reconcileSelectionAfterRestore();
             this._activeCanvasFollowsSelection(state);
+            // The circuit redraw this entry had open comes back with it, and
+            // one it did not have closes (app-run-overrides).
+            if (typeof this._restorePowerRedraw === 'function') this._restorePowerRedraw(state.redraw);
             // Both, not just the data side. loadLayerToInputs() below happens
             // to refresh the power one too, so this was only exposed on its
             // early-return paths - but an undo in Power view has no business
