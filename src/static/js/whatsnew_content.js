@@ -21,10 +21,8 @@ window.WHATS_NEW_CONTENT = {
     '1.6': {
         title: 'A start page, cables named by their connector, US circuits at 80%, a power in for every distro, your panels on the pull sheet, mixed redundancy, mirror screens, a Fiber page and Z flow patterns',
         items: [
-            { h: 'TRUE1 or powerCON, Cat6 or etherCON',
-              d: 'The pull sheet and the binder say exactly which cable to pull. Power reads TRUE1 or powerCON from each screen\'s breakout, and data reads Cat6 or etherCON from each box\'s own outputs. The ≡ on a processor\'s header opens one cable list of every box on it.' },
-            { h: 'A panel input for Edison and L6-20 screens',
-              d: 'An Edison or L6-20 breakout now asks which connector your panels take, TRUE1 or powerCON, and the jumpers and splitters follow it. Each circuit gets one cable from its Edison or L6-20 plug to that panel input, with the 2fers at the panels.' },
+            { h: 'TRUE1 or powerCON, Cat6 or etherCON, and a panel input',
+              d: 'The pull sheet and the binder say exactly which cable to pull. Power reads TRUE1 or powerCON from each screen\'s breakout, and data reads Cat6 or etherCON from each box\'s own outputs. The ≡ on a processor\'s header opens one cable list of every box on it. An Edison or L6-20 breakout now asks which connector your panels take, TRUE1 or powerCON, and the jumpers and splitters follow it. Each circuit gets one cable from its Edison or L6-20 plug to that panel input, with the 2fers at the panels.' },
             { h: 'US circuits filled to 80%',
               d: 'A circuit on a US distro, or on a screen with no distro at 208 V or below, is now filled to 80% of its breaker unless the distro\'s breakers are 100% rated, so a US screen may need more circuits than before. You still type the breaker size in the Amperage box, and the amps you can use now show beside it.' },
             { h: 'A power in for every distro',
@@ -35,6 +33,8 @@ window.WHATS_NEW_CONTENT = {
               d: 'On a chassis like an H series, the redundancy bar has a Mixed choice, so card 1 can be backed up 1:1 by card 2 while card 3 pairs its own ports. With an H_4xfiber in Copy mode, or an MX40 Pro with a box set to Mirror, drag it onto one screen and then onto a matching second screen, and the second becomes its copy with its runs off the copy OPTs. A show that uses fiber gets a Fiber page in the binder: every processor to its breakout boxes on one sheet, with the strands at both ends, the strand maps and the fiber cables to pull. The CVT10, CVT10 Pro and CVT4K come as single mode and multimode boxes, and each box, fiber cable and cable stock list says which.' },
             { h: 'Z flow patterns, and long rows cut into ports and circuits',
               d: 'Data and power get eight Z flow patterns, where every row starts again from the same side. Organized now cuts a row too long for one port or circuit into whole cabinets, Port numbers and Circuit numbers set the order, and Ports required shows the fewest ports a screen needs.' },
+            { h: 'Names for each group',
+              d: 'Select a group and the Names switch sets how it reads on that tab: Screens, Group or Both. Each group keeps its own choice on every tab, and the binder\'s Data and Power sheets follow it. With several groups selected, one click sets them all, and with none selected the switch is hidden. A show from an earlier version opens with every group named the way it was.' },
             { h: 'Check paperwork you\'ve already ordered from',
               d: 'US screens may need more circuits, powerCON screens listed TRUE1 jumpers, Edison and L6-20 screens had the wrong cables, and saved 2fers and 3fers past 80% now read OVER. If you ordered from an older pull sheet, export it again and compare.' }
         ]
