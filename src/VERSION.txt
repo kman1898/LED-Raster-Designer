@@ -1019,6 +1019,8 @@ FIXES
   no longer dropped, and typed names move with them. Where two leftovers
   became one port, one keeps its processor port and the other is
   released. A locked screen follows when you unlock it.
+- FIX: Zooming or panning right as the app opens stays put. The opening
+  fit could land a moment later and move the view.
 
 v1.5.3 - October 21, 2026
 ----------------------------

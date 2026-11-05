@@ -1135,6 +1135,16 @@ export class LEDRasterApp {
                 // a slow first paint the canvas wrapper can still be 0-height
                 // at +100ms, which computes zoom 0 and leaves the canvas blank
                 // until the user manually hits Fit.
+                //
+                // This fit runs after the load has reported done, so a view
+                // set in that gap (a hand on the wheel, a guide, a test's
+                // seed) is left alone: fitting over it moved the walls off
+                // the canvas under the next drag (CI, 2026-11-04).
+                const viewNow = () => {
+                    const r = window.canvasRenderer;
+                    return `${r.zoom}|${r.panX}|${r.panY}`;
+                };
+                let viewAtLoad = viewNow();
                 const initialFit = (attempt = 0) => {
                     // A panel saved folded folds again as the app starts. A
                     // fit made mid-fold measured a canvas that was still
@@ -1148,9 +1158,12 @@ export class LEDRasterApp {
                             .then(() => initialFit(attempt + 1));
                         return;
                     }
+                    const viewMoved = viewNow() !== viewAtLoad;
                     window.canvasRenderer.setupCanvas();
+                    if (viewMoved) return;
                     window.canvasRenderer.fitToView();
                     if (!window.canvasRenderer.zoom && attempt < 8) {
+                        viewAtLoad = viewNow();
                         setTimeout(() => initialFit(attempt + 1), 250);
                     }
                 };
