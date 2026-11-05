@@ -30,6 +30,16 @@ def _stamp_app_version(project):
     project['app_version'] = get_current_version()
 
 
+def _fold_fiber_stock(project):
+    """A show saved with a fiber list per mode goes on the one fiber list
+    (owner, 2026-11-05; routes_cable_stock.fold_fiber_lists), so the copy
+    the session edits and every save after it never carry the old keys.
+    Logged once: the pass is idempotent."""
+    import routes_cable_stock
+    if routes_cable_stock.fold_fiber_lists(project.get('cableStock')):
+        log_event('cable_stock_fiber_lists_merged', {'name': project.get('name')})
+
+
 # ── Unsaved changes across a reload (1.6.0) ──
 #
 # The page reads "unsaved" off its undo history, and a reload starts a new
@@ -163,6 +173,8 @@ def save_project():
     # So do the services (the same push carries `services` once a show has
     # one): unique ids, and no distro left on a service that is gone.
     app._normalize_services(app.current_project)
+    # A stock saved with the list per mode rides this route too.
+    _fold_fiber_stock(app.current_project)
     # Same funnel duty for the processor tree: a payload can carry a
     # pre-stocking SX40 through this route too, and a boxless one is a
     # legacy shape, never a choice. Idempotent like the pass above it.
@@ -320,6 +332,8 @@ def restore_project():
     # Services (2026-10-20): the same repair the save route runs - see
     # _normalize_services. A file with no services is left as it came.
     app._normalize_services(app.current_project)
+    # A show saved with a fiber list per mode opens on the one list.
+    _fold_fiber_stock(app.current_project)
     # A requires-distribution device saved before new_processor stocked its
     # default boxes arrives with an empty cvts list - a pre-stocking save,
     # not an arrangement. This funnel (file load, undo/redo) is where it is

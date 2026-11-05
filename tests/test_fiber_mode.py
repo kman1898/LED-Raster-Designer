@@ -18,8 +18,12 @@ variants are selected then the fiber will be multimode yes". His rulings:
   - a single mode box and a multimode box never share a fiber cable: the
     server refuses it, and the client refuses it in the same words before
     anything is sent;
-  - the show's cable stock keeps a single mode fiber list and a multimode
-    one, and the pull sheet makes each fiber run from its own mode's list.
+  - the show's cable stock keeps ONE fiber list (owner, 2026-11-05: "we dont
+    need two differnt fiber lenght types. MM and SM can be one box in
+    preferences"): the pull sheet makes every fiber run, either mode, from
+    it, the mode stays on every row, and single mode and multimode rows
+    never merge. A show or preset saved with a list per mode keeps every
+    length of both.
 
 Run locally (each session takes its own free port):
     python -m pytest tests/test_fiber_mode.py -q
@@ -255,15 +259,29 @@ def test_the_refusal_and_the_labels_on_the_server_name_the_mode():
 
 # ── the cable stock, on the server ───────────────────────────────────────
 
-def test_the_stock_keeps_a_single_mode_and_a_multimode_fiber_list():
+def test_the_stock_keeps_one_fiber_list():
     import routes_cable_stock as rcs
-    s = rcs.normalize_stock({'perKind': False, 'ft': {'all': [100], 'fiberSingle': [500, 250],
-                                                       'fiberMulti': [300]}})
-    assert s['ft']['fiberSingle'] == [250, 500] and s['ft']['fiberMulti'] == [300]
-    assert s['m']['fiberSingle'] == [] and s['m']['fiberMulti'] == []
-    # a stock saved before them has none: its fiber is written as typed
+    s = rcs.normalize_stock({'perKind': False, 'ft': {'all': [100], 'fiber': [500, 250]}})
+    assert s['ft']['fiber'] == [250, 500] and s['m']['fiber'] == []
+    # a stock saved before it has none: its fiber is written as typed
     old = rcs.normalize_stock({'perKind': True, 'ft': {'multi': [25]}})
-    assert old['ft']['fiberSingle'] == [] and old['ft']['fiberMulti'] == []
+    assert old['ft']['fiber'] == [] and old['m']['fiber'] == []
+    assert rcs.normalize_stock({'ft': {'fiber': ['x']}}) is None
+
+
+@pytest.mark.parametrize('single,multi,want', [
+    ([500, 250], [500, 250], [250, 500]),       # the same: kept, once
+    ([500, 250], [300], [250, 300, 500]),       # they differ: every length
+    ([500], [], [500]),
+    ([], [300], [300]),
+])
+def test_a_stock_saved_with_a_list_per_mode_reads_as_one(single, multi, want):
+    import routes_cable_stock as rcs
+    s = rcs.normalize_stock({'ft': {'fiberSingle': single, 'fiberMulti': multi},
+                             'm': {'fiberSingle': [10], 'fiberMulti': [20]}})
+    assert s['ft']['fiber'] == want and s['m']['fiber'] == [10, 20], s
+    assert not {'fiberSingle', 'fiberMulti'} & (set(s['ft']) | set(s['m'])), s
+    # a junk list is refused as any other is
     assert rcs.normalize_stock({'ft': {'fiberMulti': ['x']}}) is None
 
 
@@ -509,54 +527,182 @@ def test_the_client_refuses_a_mixed_link_in_the_servers_words_and_sends_nothing(
     assert ids['errors'] == []
 
 
-def test_the_pull_sheet_pulls_each_fiber_from_its_own_modes_stock(page):
+def test_the_pull_sheet_pulls_every_fiber_from_the_one_list(page):
     pg, ids = page
     out = pg.evaluate("""(ids) => {
         const app = window.app;
         const before = app.project.cableStock;
-        app.project.cableStock = { perKind: false,
-            ft: { all: [100], fiberSingle: [500], fiberMulti: [250] }, m: {} };
-        const rows = JSON.parse(JSON.stringify(app.buildPullList())).totals
+        const read = () => JSON.parse(JSON.stringify(app.buildPullList())).totals
             .filter(r => r.type.startsWith('TAC')).map(r => [r.type, r.length, r.qty]).sort();
-        const lists = [app.cableStockList('fiberSingle'), app.cableStockList('fiberMulti'),
-                       app.cableStockList('data')];
+        const lists = () => [app.cableStockList('fiber'), app.cableStockList('data')];
+        app.project.cableStock = { perKind: false, ft: { all: [100], fiber: [250, 500] }, m: {} };
+        const rows = read(), off = lists();
+        // the per-kind switch leaves it its own list either way
+        app.project.cableStock = { perKind: true, ft: { all: [100], data: [50], fiber: [250, 500] }, m: {} };
+        const on = lists(), perKindRows = read();
+        // meters: the show reads the list in its own unit
+        app.project.cableStock = { perKind: false, ft: { fiber: [500] }, m: { fiber: [7] } };
+        const unit = app.project.cableUnit;
+        app.project.cableUnit = 'm';
+        const meters = app.cableStockList('fiber');
+        if (unit === undefined) delete app.project.cableUnit; else app.project.cableUnit = unit;
+        // a show still holding the two lists reads both on the one
+        app.project.cableStock = { perKind: false, ft: { fiberSingle: [500], fiberMulti: [250] }, m: {} };
+        const oldRows = read(), oldList = app.cableStockList('fiber');
         const kinds = [app.fiberStockKind(app.getFiberCable(ids.tacS)),
                        app.fiberStockKind(app.getFiberCable(ids.tacM))];
+        // no list: written as typed
+        app.project.cableStock = { perKind: false, ft: { all: [100] }, m: {} };
+        const none = read();
         app.project.cableStock = before;
-        return { rows, lists, kinds };
+        return { rows, off, on, perKindRows, meters, oldRows, oldList, kinds, none };
     }""", ids)
-    assert out['kinds'] == ['fiberSingle', 'fiberMulti'], out
-    assert out['lists'] == [[500], [250], [100]], out
-    # 600' of multimode from 250s is 250'+250'+250'... the least extra
-    # length first, then the fewest pieces: three 250s (750'); 1000' of
-    # single mode from 500s is two
-    assert out['rows'] == [['TAC 12 · ST · Multimode', "250'", 3],
-                           ['TAC 12 · ST · Single mode', "500'", 2]], out
-    # Preferences > Cable stock: a row for each, shown whichever way the
-    # per-kind switch is set, and a round trip through the fields
-    prefs = pg.evaluate("""() => {
+    assert out['kinds'] == ['fiber', 'fiber'], out
+    assert out['off'] == [[250, 500], [100]] and out['on'] == [[250, 500], [50]], out
+    assert out['meters'] == [7] and out['oldList'] == [250, 500], out
+    # 600' of multimode is 500'+250' (the least extra, then the fewest
+    # pieces); 1000' of single mode two 500s. The modes stay on their rows.
+    want = [['TAC 12 · ST · Multimode', "250'", 1], ['TAC 12 · ST · Multimode', "500'", 1],
+            ['TAC 12 · ST · Single mode', "500'", 2]]
+    assert out['rows'] == want and out['perKindRows'] == want and out['oldRows'] == want, out
+    assert out['none'] == [['TAC 12 · ST · Multimode', "600'", 1],
+                           ['TAC 12 · ST · Single mode', "1000'", 1]], out
+
+
+def test_a_single_mode_row_and_a_multimode_row_of_one_length_never_merge(page):
+    """The lengths are shared, the cable is not: both modes cut to the same
+    pieces stay two rows, on the positions, the totals and the sheet, and
+    each row's key keeps its mode."""
+    pg, ids = page
+    out = pg.evaluate("""(ids) => {
+        const app = window.app;
+        const before = app.project.cableStock;
+        app.project.cableStock = { perKind: false, ft: { fiber: [1000] }, m: {} };
+        const sheet = JSON.parse(JSON.stringify(app.buildPullSheet()));
+        app.project.cableStock = before;
+        const tac = (rows) => rows.filter(r => r.type.startsWith('TAC')).map(r => [r.type, r.length, r.qty]).sort();
+        return { totals: tac(sheet.totals), rows: tac(sheet.positions.flatMap(p => p.rows)) };
+    }""", ids)
+    want = [['TAC 12 · ST · Multimode', "1000'", 1], ['TAC 12 · ST · Single mode', "1000'", 1]]
+    assert out['totals'] == want and out['rows'] == want, out
+
+
+def test_no_text_the_person_reads_still_describes_two_fiber_lists():
+    root = os.path.join(os.path.dirname(__file__), '..', 'src')
+    for name in (os.path.join('static', 'js', 'whatsnew_content.js'), os.path.join('templates', 'index.html')):
+        with open(os.path.join(root, name), encoding='utf-8') as f:
+            text = f.read()
+        for gone in ('cable stock list says which', 'Multimode fiber lengths', 'Single mode fiber lengths'):
+            assert gone not in text, (name, gone)
+
+
+def test_preferences_show_one_fiber_row_in_feet_and_meters(page):
+    """Preferences > Cable stock: one row, shown whichever way the per-kind
+    switch is set, a round trip through its fields, the two lists of a
+    preset saved before filling it, and Reset Defaults leaving it alone."""
+    pg, ids = page
+    prefs = pg.evaluate("""async () => {
         const app = window.app;
         app.openPreferencesModal();
         app.showPreferencesTab && app.showPreferencesTab('stock');
-        const vis = () => ['fiberSingle', 'fiberMulti'].map(k =>
-            document.querySelector(`[data-cable-stock-fiber="${k}"]`).style.display !== 'none');
+        const rows = [...document.querySelectorAll('[data-cable-stock-fiber]')];
+        const vis = () => rows.map(r => r.style.display !== 'none');
         const per = document.getElementById('pref-cable-stock-per-kind');
         per.checked = false; per.dispatchEvent(new Event('change'));
         const off = vis();
         per.checked = true; per.dispatchEvent(new Event('change'));
         const on = vis();
-        app.fillCableStockUI({ perKind: true, ft: { fiberSingle: [500, 1000], fiberMulti: [300] }, m: {} });
+        const ft = document.getElementById('pref-cable-stock-fiber-ft');
+        const m = document.getElementById('pref-cable-stock-fiber-m');
+        app.fillCableStockUI({ perKind: true, ft: { fiber: [500, 1000] }, m: { fiber: [150] } });
         const read = app.readCableStockUI();
-        const fields = [document.getElementById('pref-cable-stock-fiberSingle-ft').value,
-                        document.getElementById('pref-cable-stock-fiberMulti-ft').value];
-        return { off, on, fields, single: read.ft.fiberSingle, multi: read.ft.fiberMulti };
+        const fields = [ft.value, m.value];
+        // a preset saved with the two lists fills the one field
+        app.fillCableStockUI({ perKind: false, ft: { fiberSingle: [500, 1000], fiberMulti: [300] },
+                               m: { fiberSingle: [90], fiberMulti: [90] } });
+        const old = [ft.value, m.value];
+        // what the Preferences read back carries no old key
+        const back = app.readCableStockUI();
+        // Reset Defaults is the preferences': the show's lists stay
+        document.getElementById('preferences-reset').click();
+        for (let i = 0; i < 40 && !document.querySelector('#preferences-reset-modal button'); i++) {
+            await new Promise(r => setTimeout(r, 25));
+        }
+        const dialog = document.getElementById('preferences-reset-modal');
+        [...dialog.querySelectorAll('button')].find(b => b.textContent.trim() === 'Reset').click();
+        await new Promise(r => setTimeout(r, 200));
+        const afterReset = [ft.value, m.value];
+        return { n: rows.length, label: rows[0].querySelector('label').textContent, off, on, read, fields, old,
+                 backKeys: Object.keys(back.ft), afterReset,
+                 gone: ['fiberSingle', 'fiberMulti'].flatMap(k => ['ft', 'm'].map(u =>
+                     document.getElementById(`pref-cable-stock-${k}-${u}`))).filter(Boolean).length };
     }""")
     pg.wait_for_timeout(200)
     pg.screenshot(path=_shot('cable-stock.png'))
-    pg.evaluate("() => { document.getElementById('preferences-modal').style.display = 'none'; }")
-    assert prefs['off'] == [True, True] and prefs['on'] == [True, True], prefs
-    assert (prefs['single'], prefs['multi']) == ([500, 1000], [300]), prefs
+    pg.evaluate("""() => {
+        window.app._prefsResetPending = false;
+        document.getElementById('preferences-modal').style.display = 'none';
+    }""")
+    assert prefs['n'] == 1 and prefs['label'] == 'Fiber' and prefs['gone'] == 0, prefs
+    assert prefs['off'] == [True] and prefs['on'] == [True], prefs
+    assert prefs['fields'] == ['500, 1000', '150'], prefs
+    assert (prefs['read']['ft']['fiber'], prefs['read']['m']['fiber']) == ([500, 1000], [150]), prefs
+    assert prefs['old'] == ['300, 500, 1000', '90'], prefs
+    assert 'fiber' in prefs['backKeys'] and not {'fiberSingle', 'fiberMulti'} & set(prefs['backKeys']), prefs
+    assert prefs['afterReset'] == prefs['old'], prefs
     assert ids['errors'] == []
+
+
+def test_a_show_file_with_the_two_lists_opens_saves_and_undoes_with_one(page):
+    """Through the real open path: the session, the file it saves and the
+    server all hold one list, every length of both, and setting the stock
+    and undoing it never brings the old keys back."""
+    pg, ids = page
+    out = pg.evaluate("""async () => {
+        const app = window.app;
+        const file = JSON.parse(app.serializeProjectForFile());
+        const before = file.cableStock === undefined ? null : file.cableStock;
+        file.cableStock = { perKind: true, ft: { multi: [25], fiberSingle: [500], fiberMulti: [300, 500] },
+                            m: { fiberMulti: [90] } };
+        await app._openProjectData(file);
+        for (let i = 0; i < 100 && JSON.stringify(app.project.cableStock).includes('fiberSingle'); i++) {
+            await new Promise(r => setTimeout(r, 50));
+        }
+        const opened = JSON.parse(JSON.stringify(app.project.cableStock));
+        const saved = JSON.parse(app.serializeProjectForFile()).cableStock;
+        const server = (await (await fetch('/api/project')).json()).cableStock;
+        const stock = app.normalizeCableStock(opened);
+        stock.ft.fiber = [100];
+        app.setCableStock(stock);
+        const set = JSON.parse(JSON.stringify(app.project.cableStock));
+        await app.undo();
+        await new Promise(r => setTimeout(r, 300));
+        const undone = JSON.parse(JSON.stringify(app.project.cableStock));
+        app.project.cableStock = before;
+        await fetch('/api/project', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                      body: JSON.stringify({ cableStock: before }) });
+        return { opened, saved, server, set, undone };
+    }""")
+    for key in ('opened', 'saved', 'server', 'undone'):
+        got = out[key]
+        assert got['ft']['fiber'] == [300, 500] and got['m']['fiber'] == [90], (key, out)
+        assert got['ft']['multi'] == [25] and got['perKind'] is True, (key, out)
+    assert out['set']['ft']['fiber'] == [100], out
+    assert 'fiberSingle' not in json.dumps(out) and 'fiberMulti' not in json.dumps(out), out
+    assert ids['errors'] == []
+
+
+def test_the_client_and_the_server_read_a_stock_alike(page):
+    """routes_cable_stock.py mirrors app-cable-units.js: one stock, one
+    reading, whichever side reads it."""
+    import routes_cable_stock as rcs
+    pg, _ = page
+    for stock in ({'perKind': True, 'ft': {'multi': [25], 'fiberSingle': [500], 'fiberMulti': [250, 500]},
+                   'm': {'fiber': [90], 'fiberMulti': [30]}},
+                  {'ft': {'fiber': [100]}},
+                  {}):
+        assert pg.evaluate("(s) => window.app.normalizeCableStock(s)", stock) == rcs.normalize_stock(stock), stock
+
 
 
 def test_the_binders_short_band_brackets_the_mode_as_sm_or_mm(page):

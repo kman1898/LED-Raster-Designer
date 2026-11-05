@@ -146,11 +146,12 @@
 //     screens, count none. A HALF TILE is a row of its own. The type is
 //     the panel SAVED on the screen (picked from the panel library, or
 //     named in Screen Info - "ROE Black Quartz 3.9 Full Tile"), its half
-//     the library's matching half saved with it, else "<name> half"; a
-//     show saved before is named by the library where its size and weight
-//     find one model (catalogPanelNames). A cabinet nothing names is its
-//     size, always in mm: "500 × 500 mm panel", "500 × 250 mm half
-//     panel" (owner, 2026-10-22). A square
+//     the library's matching half saved with it, else "<name> half". A
+//     screen with no panel name saved on it has NO panel row (owner,
+//     2026-11-05: "most will use a panel type and be auto named. when it
+//     is not names we can leave the panel type off."): never a model
+//     guessed from its figures, never its size, an older show included,
+//     so a show with no named panel has no panel rows at all. A square
 //     cabinet's two halves are one cabinet turned, so one row; on any
 //     other the halves are told apart by their sizes (pullPanelTypes).
 //     These rows are side 'panel': the binder's pull pages print them in
@@ -439,10 +440,10 @@ class _PullList {
     }
 
     // A fiber cable's length cell (pullCableLength): pulled from the
-    // show's single mode or multimode fiber list by the mode its boxes
-    // state (owner, 2026-11-04; app-fiber.js fiberStockKind), else as
-    // typed - a cable on boxes that state no mode, or a show with no
-    // fiber list.
+    // show's one fiber list, either mode (owner, 2026-11-05; app-fiber.js
+    // fiberStockKind), else as typed - a cable on boxes that state no
+    // mode, or a show with no fiber list. The mode rides in the row's
+    // type, so single mode and multimode rows never merge.
     _pullFiberCableLength(cable, ft) {
         const kind = typeof this.fiberStockKind === 'function' ? this.fiberStockKind(cable) : null;
         return kind ? this.pullCableLength(ft, kind) : { text: this.pullLengthText(ft), pieces: null };
@@ -670,9 +671,9 @@ class _PullList {
 
     // ---- panels ------------------------------------------------------------
 
-    // A cabinet's size as a panel row says it: always millimetres, "500 ×
-    // 500 mm", in a feet show too (owner, 2026-10-22) - "128 × 128 px"
-    // where the screen has no size in mm.
+    // A half's size as a panel row tells it apart: always millimetres,
+    // "250 × 1000 mm", in a feet show too (owner, 2026-10-22) - "64 × 128
+    // px" where the screen has no size in mm.
     _pullPanelSizeText(wmm, hmm, wpx, hpx) {
         if (!(wmm > 0) || !(hmm > 0)) return `${wpx} × ${hpx} px`;
         const tidy = (n) => String(Math.round(n * 10) / 10);
@@ -681,58 +682,46 @@ class _PullList {
 
     // One screen's panel types: { none, height, width } - the names of a
     // full cabinet and of a half tile halved along each axis (halfTile
-    // 'height' halves the height, 'width' the width). The panel SAVED on
-    // the screen first (panelModelName, its halves' names saved with it -
-    // app-presets.js catalogPanelModelFields; a name typed in Screen Info
-    // has no halves of its own), so the rows never wait on the library;
-    // a show saved before is named by the library where it knows the
-    // cabinet (catalogPanelNames); a half with no match is "<name> half".
-    // A cabinet nothing names is its
-    // size, "500 × 500 mm panel", its half "500 × 250 mm half panel". A
-    // SQUARE cabinet (in mm and in pixels) halved either way is the same
-    // cabinet turned, so both halves carry one name; on any other the two
-    // halves are different cabinets and a name with no library match says
-    // its size: "<name> half (250 × 1000 mm)".
+    // 'height' halves the height, 'width' the width). Only the panel SAVED
+    // on the screen names them (panelModelName, its halves' names saved
+    // with it - app-presets.js catalogPanelModelFields; a name typed in
+    // Screen Info has no halves of its own), so the rows never wait on the
+    // library. With no name saved all three are '': the screen has no
+    // panel row (the ruling above). A half with no saved name is "<name>
+    // half". A SQUARE cabinet (in mm and in pixels) halved either way is
+    // the same cabinet turned, so both halves carry one name; on any other
+    // the two halves are different cabinets and a name with no library
+    // match says its size: "<name> half (250 × 1000 mm)".
     pullPanelTypes(layer) {
+        const savedName = String((layer && layer.panelModelName) || '').trim();
+        if (!savedName) return { none: '', height: '', width: '' };
         const num = (v) => Number(v) || 0;
         const wmm = num(layer && layer.panel_width_mm), hmm = num(layer && layer.panel_height_mm);
         const wpx = num(layer && layer.cabinet_width), hpx = num(layer && layer.cabinet_height);
         const square = wmm === hmm && wpx === hpx;
-        const size = (w, h, pw, ph) => this._pullPanelSizeText(w, h, pw, ph);
-        const halfH = size(wmm, hmm / 2, wpx, Math.round(hpx / 2));
-        const halfW = size(wmm / 2, hmm, Math.round(wpx / 2), hpx);
-        const savedName = String((layer && layer.panelModelName) || '').trim();
-        let lib = null;
-        if (savedName) {
-            // a library model under its own name keeps the halves saved
-            // with it; renamed, or named by hand, its halves are "<name> half"
-            const own = layer.panelModelId && typeof this.catalogModelIdLabel === 'function'
-                && this.catalogModelIdLabel(layer.panelModelId) === savedName;
-            const halves = own && layer.panelModelHalves && typeof layer.panelModelHalves === 'object'
-                ? layer.panelModelHalves : {};
-            lib = { full: savedName, height: halves.height || null, width: halves.width || null };
-        } else if (typeof this.catalogPanelNames === 'function') {
-            lib = this.catalogPanelNames(layer);
+        // a library model under its own name keeps the halves saved with
+        // it; renamed, or named by hand, its halves are "<name> half"
+        const own = layer.panelModelId && typeof this.catalogModelIdLabel === 'function'
+            && this.catalogModelIdLabel(layer.panelModelId) === savedName;
+        const halves = own && layer.panelModelHalves && typeof layer.panelModelHalves === 'object'
+            ? layer.panelModelHalves : {};
+        if (square) {
+            const one = halves.height || halves.width || `${savedName} half`;
+            return { none: savedName, height: one, width: one };
         }
-        if (lib && lib.full) {
-            if (square) {
-                const one = lib.height || lib.width || `${lib.full} half`;
-                return { none: lib.full, height: one, width: one };
-            }
-            return { none: lib.full,
-                     height: lib.height || `${lib.full} half (${halfH})`,
-                     width: lib.width || `${lib.full} half (${halfW})` };
-        }
-        const full = `${size(wmm, hmm, wpx, hpx)} panel`;
-        if (square) return { none: full, height: `${halfH} half panel`, width: `${halfH} half panel` };
-        return { none: full, height: `${halfH} half panel`, width: `${halfW} half panel` };
+        const halfH = this._pullPanelSizeText(wmm, hmm / 2, wpx, Math.round(hpx / 2));
+        const halfW = this._pullPanelSizeText(wmm / 2, hmm, Math.round(wpx / 2), hpx);
+        return { none: savedName,
+                 height: halves.height || `${savedName} half (${halfH})`,
+                 width: halves.width || `${savedName} half (${halfW})` };
     }
 
     // One screen's panel counts by type: [{ type, qty }] in first-seen
     // order (full, then the halves) - every cabinet that hangs, blank and
-    // hidden ones left out.
+    // hidden ones left out. None for a screen with no panel name saved.
     pullPanelCounts(layer) {
         const types = this.pullPanelTypes(layer);
+        if (!types.none) return [];
         const counts = new Map();
         for (const p of (layer && layer.panels) || []) {
             if (!p || p.blank || p.hidden) continue;
@@ -750,21 +739,11 @@ class _PullList {
         for (const l of ((this.project && this.project.layers) || [])) {
             if (!l || (l.type || 'screen') !== 'screen') continue;
             const t = this.pullPanelTypes(l);
-            for (const k of ['none', 'height', 'width']) out.add(String(t[k]).toLowerCase());
+            for (const k of ['none', 'height', 'width']) {
+                if (t[k]) out.add(String(t[k]).toLowerCase());
+            }
         }
         return out;
-    }
-
-    // The panel library loaded where a panel row still needs it to be
-    // named: a screen with no panel saved on it (a show saved before
-    // 2026-10-22) is named by matching its figures against the library.
-    // What an export and the editor wait on before they read the list; a
-    // show whose every screen saved its panel waits on nothing.
-    async pullPanelCatalogReady() {
-        if (this._panelCatalog || typeof this._ensurePanelCatalogData !== 'function') return;
-        const unsaved = this._pullScreens().some(l => !String(l.panelModelName || '').trim());
-        if (!unsaved) return;
-        try { await this._ensurePanelCatalogData(); } catch (_) {}
     }
 
     // Every location the project knows - the beach names, in beach order.
@@ -3253,7 +3232,6 @@ class _PullList {
             // sure it describes the screens as they stand now.
             try { await this.refreshPortAssignment(); } catch (_) {}
         }
-        await this.pullPanelCatalogReady();
         const pullList = this.buildPullSheet();
         const settings = pullList.settings;
         const body = {

@@ -183,7 +183,7 @@ class _BinderFiber {
     // The cable's pill: "TAC A · TAC 24 · 500'" - its name, its kind (and
     // strand count), its length or "no length", and the mode of its fiber
     // where its boxes state one ("TAC A · TAC 24 · 500' · Single mode",
-    // its length out of that mode's cable stock); copper its kind and
+    // its length out of the show's fiber stock); copper its kind and
     // length, "Cat6A · 150'"; a link with nothing picked says so.
     _bfPill(row) {
         const l = row.link;

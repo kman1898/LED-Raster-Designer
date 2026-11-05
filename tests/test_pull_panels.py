@@ -13,9 +13,12 @@ pull sheet include panel counts").
     change of the cabinet's pixels or mm forgets the saved panel.
   * A half tile is a row of its own, and its name, watts and weight read
     the saved model first - even where other library models share its
-    figures. A show saved before is named by the library where its size
-    and weight find one model; a cabinet nothing names is its size, always
-    in mm ("500 × 500 mm panel"), in a feet show too.
+    figures.
+  * A screen with no panel name saved on it has no panel row (owner,
+    2026-11-05: "most will use a panel type and be auto named. when it is
+    not names we can leave the panel type off."): never a model guessed
+    from its size, pixels and weight, never its size, an older show
+    included. A show with no named panel has no Panels block at all.
   * A half with no library match is "<name> half"; a square cabinet's two
     halves are one cabinet turned, any other's are told apart by their
     sizes.
@@ -49,14 +52,15 @@ def _guard(server_project_guard):
     """Leave the shared server project the way this module found it."""
 
 
-# QUARTZ: the library's ROE Black Quartz 3.9 Full Tile (500 x 1000 mm,
-# 128 x 256 px, 22 kg - no other model has those figures), 4 x 3, its last
-# row half tiles halved in height (the library's Half Tile), one cabinet
-# halved in width (no library match: "<name> half" with its size), one
-# blank and one hidden cabinet. WALL-A (3 x 2) and WALL-B (2 x 2) are a
-# group of 500 x 500 mm cabinets the library cannot name, WALL-B with one
-# half tile; FLOOR (2 x 1) the same cabinet on its own; GHOST a hidden
-# screen.
+# QUARTZ: the library's ROE Black Quartz 3.9 Full Tile saved on the screen
+# (500 x 1000 mm, 128 x 256 px, 22 kg), 4 x 3, its last row half tiles
+# halved in height (the library's Half Tile), one cabinet halved in width
+# (no library match: "<name> half" with its size), one blank and one hidden
+# cabinet. WALL-A (3 x 2) and WALL-B (2 x 2) are a group of 500 x 500 mm
+# cabinets named by hand, WALL-B with one half tile; FLOOR (2 x 1) the same
+# cabinet on its own; GHOST a hidden screen. BARE names no panel, and its
+# cabinet has figures only one library model matches: 500 x 500 mm,
+# 256 x 256 px, 6.3 kg, one half tile.
 SEED_JS = """async () => {
     const app = window.app;
     const j = (method, url, body) => fetch(url, {method,
@@ -69,14 +73,20 @@ SEED_JS = """async () => {
     await j('PUT', '/api/project', proj);
     const add = (body) => j('POST', '/api/layer/add', body);
     const plain = {cabinet_width: 128, cabinet_height: 128, panel_width_mm: 500, panel_height_mm: 500,
-                   panel_weight: 20, weight_unit: 'kg', powerVoltage: 208, powerAmperage: 20, panelWatts: 100};
+                   panel_weight: 20, weight_unit: 'kg', powerVoltage: 208, powerAmperage: 20, panelWatts: 100,
+                   panelModelName: 'House tile'};
     await add({name: 'QUARTZ', columns: 4, rows: 3, cabinet_width: 128, cabinet_height: 256,
                panel_width_mm: 500, panel_height_mm: 1000, panel_weight: 22, weight_unit: 'kg',
-               halfLastRow: true, powerVoltage: 208, powerAmperage: 20, panelWatts: 100});
+               halfLastRow: true, powerVoltage: 208, powerAmperage: 20, panelWatts: 100,
+               panelModelId: 'ROE|Black Quartz 3.9 Full Tile', panelModelName: 'ROE Black Quartz 3.9 Full Tile',
+               panelModelHalves: {height: 'ROE Black Quartz 3.9 Half Tile', width: null}});
     await add({name: 'WALL-A', columns: 3, rows: 2, ...plain});
     await add({name: 'WALL-B', columns: 2, rows: 2, ...plain});
     await add({name: 'FLOOR', columns: 2, rows: 1, ...plain});
     await add({name: 'GHOST', columns: 2, rows: 2, ...plain});
+    await add({name: 'BARE', columns: 2, rows: 2, cabinet_width: 256, cabinet_height: 256,
+               panel_width_mm: 500, panel_height_mm: 500, panel_weight: 6.3, weight_unit: 'kg',
+               powerVoltage: 208, powerAmperage: 20, panelWatts: 100});
     let p = await j('GET', '/api/project');
     const byName = (n) => p.layers.find(l => l.name === n);
     p.groups = [{id: 'g1', name: 'SR Beach', layer_ids: [byName('WALL-A').id, byName('WALL-B').id]}];
@@ -91,11 +101,12 @@ SEED_JS = """async () => {
     at(L('QUARTZ'), 0, 0).blank = true;
     at(L('QUARTZ'), 1, 0).hidden = true;
     at(L('WALL-B'), 1, 1).halfTile = 'height';
-    await app.pullPanelCatalogReady();
+    at(L('BARE'), 1, 1).halfTile = 'height';
+    await app._ensurePanelCatalogData();
     app.renderLayers();
     app.resetHistory('Pull Panels Seed');
     return {quartz: L('QUARTZ').id, a: L('WALL-A').id, b: L('WALL-B').id, floor: L('FLOOR').id,
-            ghost: L('GHOST').id,
+            ghost: L('GHOST').id, bare: L('BARE').id,
             halves: L('QUARTZ').panels.filter(x => x.halfTile === 'height').length};
 }"""
 
@@ -114,8 +125,11 @@ SHEET_JS = """() => {
 FULL = 'ROE Black Quartz 3.9 Full Tile'
 HALF = 'ROE Black Quartz 3.9 Half Tile'
 SIDE_HALF = 'ROE Black Quartz 3.9 Full Tile half (250 × 1000 mm)'
-PLAIN = '500 × 500 mm panel'
-PLAIN_HALF = '500 × 250 mm half panel'
+PLAIN = 'House tile'
+PLAIN_HALF = 'House tile half'
+# What an unnamed cabinet printed before 2026-11-05.
+SIZE_ROW = '500 × 500 mm panel'
+SIZE_HALF_ROW = '500 × 250 mm half panel'
 
 
 @pytest.fixture(scope="module")
@@ -162,7 +176,7 @@ def test_each_screen_counts_its_panels_by_type_under_its_own_position(seeded):
     out = pg.evaluate(LIST_JS)
     by = {p['name']: p for p in out['positions']}
     # GHOST is hidden: no position, no panels
-    assert sorted(by) == ['FLOOR', 'QUARTZ', 'SR Beach'], sorted(by)
+    assert sorted(by) == ['BARE', 'FLOOR', 'QUARTZ', 'SR Beach'], sorted(by)
     # 12 cabinets: 4 half tiles (height), 1 halved in width, 1 blank and
     # 1 hidden - 5 full ones hang
     assert _panels(by['QUARTZ']['rows']) == [
@@ -172,16 +186,15 @@ def test_each_screen_counts_its_panels_by_type_under_its_own_position(seeded):
     ]
     # the group: both members' cabinets of one type on one row, the
     # screens in the label; WALL-B's half tile its own row
-    # (the sheet's natural sort: 250 before 500)
     assert _panels(by['SR Beach']['rows']) == [
-        (PLAIN_HALF, 'EA', 1, 'WALL-B', ''),
         (PLAIN, 'EA', 9, 'WALL-A, WALL-B', ''),
+        (PLAIN_HALF, 'EA', 1, 'WALL-B', ''),
     ]
     assert _panels(by['FLOOR']['rows']) == [(PLAIN, 'EA', 2, 'FLOOR', '')]
     # TOTALS add them up across the show
     assert _panels(out['totals']) == [
-        (PLAIN_HALF, 'EA', 1, 'WALL-B', ''),
         (PLAIN, 'EA', 11, 'WALL-A, WALL-B, FLOOR', ''),
+        (PLAIN_HALF, 'EA', 1, 'WALL-B', ''),
         (FULL, 'EA', 5, 'QUARTZ', ''),
         (SIDE_HALF, 'EA', 1, 'QUARTZ', ''),
         (HALF, 'EA', 4, 'QUARTZ', ''),
@@ -202,11 +215,12 @@ def test_a_square_cabinets_halves_are_one_type_and_the_library_names_its_half(se
         const L = (id) => app.project.layers.find(l => l.id === id);
         return {quartz: app.pullPanelTypes(L(ids.quartz)), wall: app.pullPanelTypes(L(ids.a)),
                 ruby: app.pullPanelTypes({panel_width_mm: 500, panel_height_mm: 500, cabinet_width: 256,
-                                          cabinet_height: 256, panel_weight: 9.2, weight_unit: 'kg'}),
-                bp2: app.pullPanelTypes({panel_width_mm: 500, panel_height_mm: 500, cabinet_width: 176,
-                                         cabinet_height: 176, panel_weight: 9.35, weight_unit: 'kg'}),
+                                          cabinet_height: 256, panel_weight: 9.2, weight_unit: 'kg',
+                                          panelModelId: 'ROE|Ruby 1.9B V2', panelModelName: 'ROE Ruby 1.9B V2',
+                                          panelModelHalves: {height: null, width: null}}),
                 typed: app.pullPanelTypes({panel_width_mm: 600, panel_height_mm: 337.5, cabinet_width: 192,
-                                           cabinet_height: 108, panel_weight: 9, weight_unit: 'kg'})};
+                                           cabinet_height: 108, panel_weight: 9, weight_unit: 'kg',
+                                           panelModelName: 'Long tile'})};
     }""", ids)
     assert got['quartz'] == {'none': FULL, 'height': HALF, 'width': SIDE_HALF}, got['quartz']
     assert got['wall'] == {'none': PLAIN, 'height': PLAIN_HALF, 'width': PLAIN_HALF}, got['wall']
@@ -214,23 +228,19 @@ def test_a_square_cabinets_halves_are_one_type_and_the_library_names_its_half(se
     # one row whichever way it is halved
     assert got['ruby'] == {'none': 'ROE Ruby 1.9B V2', 'height': 'ROE Ruby 1.9B V2 half',
                            'width': 'ROE Ruby 1.9B V2 half'}, got['ruby']
-    # figures four library models share (BP2, BP2V2, ...) name none of them
-    assert got['bp2'] == {'none': PLAIN, 'height': PLAIN_HALF, 'width': PLAIN_HALF}, got['bp2']
-    # a cabinet typed by hand, not square: its halves differ - in mm in
+    # a cabinet named by hand, not square: its halves differ - in mm in
     # this feet show
-    assert got['typed'] == {'none': '600 × 337.5 mm panel', 'height': '600 × 168.8 mm half panel',
-                            'width': '300 × 337.5 mm half panel'}, got['typed']
+    assert got['typed'] == {'none': 'Long tile', 'height': 'Long tile half (600 × 168.8 mm)',
+                            'width': 'Long tile half (300 × 337.5 mm)'}, got['typed']
 
 
-def test_the_size_is_mm_in_a_feet_show_and_a_meters_one(seeded):
-    """The owner, 2026-10-22: the size fallback is always mm."""
+def test_a_halfs_size_is_mm_in_a_feet_show_and_a_meters_one(seeded):
+    """The owner, 2026-10-22: a size on a panel row is always mm."""
     pg, ids, _ = seeded
     assert pg.evaluate("() => window.app.cableUnit()") == 'ft'
     feet = pg.evaluate(LIST_JS)
-    assert _panels(next(p for p in feet['positions'] if p['name'] == 'SR Beach')['rows']) == [
-        (PLAIN_HALF, 'EA', 1, 'WALL-B', ''),
-        (PLAIN, 'EA', 9, 'WALL-A, WALL-B', ''),
-    ]
+    assert (SIDE_HALF, 'EA', 1, 'QUARTZ', '') in _panels(
+        next(p for p in feet['positions'] if p['name'] == 'QUARTZ')['rows'])
     got = pg.evaluate("""(ids) => {
         const app = window.app;
         const was = app.project.cableUnit;
@@ -238,15 +248,209 @@ def test_the_size_is_mm_in_a_feet_show_and_a_meters_one(seeded):
         try {
             app._circuitTailCache = null;
             const list = JSON.parse(JSON.stringify(app.buildPullList()));
-            return list.positions.find(p => p.name === 'SR Beach').rows;
+            return list.positions.find(p => p.name === 'QUARTZ').rows;
         } finally {
             if (was === undefined) delete app.project.cableUnit; else app.project.cableUnit = was;
         }
     }""", ids)
-    assert _panels(got) == [
-        ('500 × 250 mm half panel', 'EA', 1, 'WALL-B', ''),
-        ('500 × 500 mm panel', 'EA', 9, 'WALL-A, WALL-B', ''),
-    ]
+    assert (SIDE_HALF, 'EA', 1, 'QUARTZ', '') in _panels(got)
+
+
+# ── a screen with no panel name (owner, 2026-11-05) ───────────────────────
+
+# A model of the library's that BARE's figures match, read off the library
+# so no brand is spelled here: what the old guess printed.
+GUESSED_JS = """(id) => {
+    const app = window.app;
+    const l = app.project.layers.find(x => x.id === id);
+    const hits = app._panelCatalogFlat.filter(p => p.width_mm === l.panel_width_mm
+        && p.height_mm === l.panel_height_mm && p.pixels_w === l.cabinet_width
+        && p.pixels_h === l.cabinet_height && Math.abs(p.weight_kg - l.panel_weight) <= 0.006);
+    return hits.map(p => app._catalogModelLabel(p._mfr, p));
+}"""
+
+
+def test_a_screen_with_no_panel_name_is_never_named_by_a_guess(seeded):
+    """The friend's show: 500 x 500 mm, 256 x 256 px, 6.3 kg with no panel
+    picked printed the one library model those figures match. Nothing
+    prints now: no model, no size, full or half, on the positions, the
+    totals or the edited sheet."""
+    pg, ids, errors = seeded
+    guessed = pg.evaluate(GUESSED_JS, ids['bare'])
+    assert len(guessed) == 1, guessed
+    got = pg.evaluate("""(id) => {
+        const app = window.app;
+        const l = app.project.layers.find(x => x.id === id);
+        return { types: app.pullPanelTypes(l), counts: app.pullPanelCounts(l),
+                 names: [...app._pullPanelTypeNames()] };
+    }""", ids['bare'])
+    assert got['types'] == {'none': '', 'height': '', 'width': ''}, got
+    assert got['counts'] == [], got
+    # what pullGuessSide reads as a panel holds no blank and no guess
+    assert '' not in got['names'] and guessed[0].lower() not in got['names'], got
+    assert {n.lower() for n in (FULL, HALF, SIDE_HALF, PLAIN, PLAIN_HALF)} <= set(got['names']), got
+    for read in (LIST_JS, SHEET_JS):
+        out = pg.evaluate(read)
+        bare = next(p for p in out['positions'] if p['name'] == 'BARE')
+        assert _panels(bare['rows']) == [], bare['rows']
+        labels = ' '.join(r['label'] for r in out['totals'] if r.get('side') == 'panel')
+        assert 'BARE' not in labels, out['totals']
+        types = [r['type'] for r in out['totals']] + [r['type'] for p in out['positions'] for r in p['rows']]
+        assert guessed[0] not in types and not any(' mm panel' in t or ' mm half panel' in t for t in types), types
+    assert errors == []
+
+
+def test_an_older_show_is_treated_the_same(seeded):
+    """A screen saved before panels were stored has none of the keys."""
+    pg, ids, _ = seeded
+    got = pg.evaluate("""(id) => {
+        const app = window.app;
+        const l = { ...app.project.layers.find(x => x.id === id) };
+        delete l.panelModelId; delete l.panelModelName; delete l.panelModelHalves;
+        const blank = { ...l, panelModelName: '   ' };
+        return { old: app.pullPanelTypes(l), counts: app.pullPanelCounts(l),
+                 blank: app.pullPanelCounts(blank), nothing: app.pullPanelTypes(null) };
+    }""", ids['bare'])
+    empty = {'none': '', 'height': '', 'width': ''}
+    assert got == {'old': empty, 'counts': [], 'blank': [], 'nothing': empty}, got
+
+
+def test_a_group_lists_only_its_named_members(seeded):
+    """A name forgotten on one member of a group takes that member's
+    cabinets and its label off the row, the other member's stay."""
+    pg, ids, _ = seeded
+    rows = pg.evaluate("""(ids) => {
+        const app = window.app;
+        const l = app.project.layers.find(x => x.id === ids.b);
+        const was = l.panelModelName;
+        l.panelModelName = null;
+        try {
+            app._circuitTailCache = null;
+            return JSON.parse(JSON.stringify(app.buildPullList())).positions
+                .find(p => p.name === 'SR Beach').rows;
+        } finally { l.panelModelName = was; }
+    }""", ids)
+    assert _panels(rows) == [(PLAIN, 'EA', 6, 'WALL-A', '')], rows
+
+
+def _strip_names(pg):
+    """Every screen on the page with no panel name; returns the undo."""
+    pg.evaluate("""() => {
+        const app = window.app;
+        app._savedPanelNames = app.project.layers.map(l => [l, l.panelModelName]);
+        app.project.layers.forEach(l => { l.panelModelName = null; });
+        app._circuitTailCache = null;
+    }""")
+
+
+def _restore_names(pg):
+    pg.evaluate("""() => {
+        const app = window.app;
+        app._savedPanelNames.forEach(([l, name]) => { l.panelModelName = name; });
+        delete app._savedPanelNames;
+        app._circuitTailCache = null;
+    }""")
+
+
+def test_a_show_with_no_named_panels_has_no_panels_block_anywhere(seeded, e2e_server):
+    """No side-'panel' row in the list, no PANEL table on the binder's pull
+    pages (the heading "PANELS" that stays is the SCREENS table's column),
+    and nothing panel on the workbook."""
+    pg, _, errors = seeded
+    import urllib.request
+    pages_js = """() => {
+        const app = window.app;
+        const o = app.readBinderOptions();
+        return app.planBinder(o).map((p, i) => ({ title: p.title,
+            texts: app.renderBinderPage(o, i, { bitmaps: false }).texts }))
+            .filter(p => String(p.title).startsWith('Pull'));
+    }"""
+    named = [t for p in pg.evaluate(pages_js) for t in p['texts']]
+    assert 'PANEL' in named, named
+    _strip_names(pg)
+    try:
+        sheet = pg.evaluate(SHEET_JS)
+        pulls = pg.evaluate(pages_js)
+    finally:
+        _restore_names(pg)
+    assert not [r for r in sheet['totals'] if r.get('side') == 'panel'], sheet['totals']
+    assert not [r for p in sheet['positions'] for r in p['rows'] if r.get('side') == 'panel']
+    flat = [t for p in pulls for t in p['texts']]
+    assert pulls and 'PANEL' not in flat, flat
+    assert flat.count('PANELS') < named.count('PANELS'), (flat.count('PANELS'), named.count('PANELS'))
+    assert not [t for t in flat if ' mm panel' in t or ' mm half panel' in t], flat
+    body = json.dumps({'project_name': 'Panels', 'pull_list': sheet}).encode('utf-8')
+    req = urllib.request.Request(f'{e2e_server}/api/export/pull-sheet', data=body,
+                                 headers={'Content-Type': 'application/json'}, method='POST')
+    with urllib.request.urlopen(req) as r:
+        wb = openpyxl.load_workbook(io.BytesIO(r.read()))
+    cells = [str(c.value) for ws in (wb['Pull Sheet'], wb['GEAR LIST']) for row in ws.iter_rows() for c in row
+             if c.value is not None]
+    for gone in (FULL, HALF, PLAIN, SIZE_ROW, SIZE_HALF_ROW):
+        assert gone not in cells, gone
+    assert errors == []
+
+
+def test_an_edit_keyed_on_the_old_row_goes_stale_and_prints_nothing(seeded):
+    """A show whose sheet was edited while the unnamed screen still printed
+    its size or a guess: the row is gone, so the edit is stale - kept and
+    shown in the editor, never exported - and it brings no row back."""
+    pg, ids, _ = seeded
+    guessed = pg.evaluate(GUESSED_JS, ids['bare'])[0]
+    got = pg.evaluate("""([size, half, guess]) => {
+        const app = window.app;
+        const engine = app.buildPullList();
+        const bare = engine.positions.find(p => p.name === 'BARE');
+        const key = app.pullPositionKey(bare);
+        app.project.pullSheetEdits = { positions: { [key]: {
+            rows: [{ key: `${size}|EA`, qty: 12, notes: 'one spare' }, { key: `${guess}|EA`, qty: 9 },
+                   { key: `${half}|EA`, removed: true }], added: [] } } };
+        app._circuitTailCache = null;
+        const sheet = JSON.parse(JSON.stringify(app.buildPullSheet()));
+        const stale = app.pullSheetStaleEdits(engine).map(s => s.key).sort();
+        return { rows: sheet.positions.find(p => p.name === 'BARE').rows, stale,
+                 totals: sheet.totals.map(r => r.type) };
+    }""", [SIZE_ROW, SIZE_HALF_ROW, guessed])
+    assert _panels(got['rows']) == [], got
+    for gone in (SIZE_ROW, SIZE_HALF_ROW, guessed):
+        assert gone not in got['totals'], got['totals']
+    assert got['stale'] == sorted(f'{t}|EA' for t in (SIZE_ROW, SIZE_HALF_ROW, guessed)), got
+
+
+def test_a_free_row_keeps_its_side_when_the_screen_is_unnamed(seeded):
+    """A row somebody typed is theirs: an added row spelled like the old
+    size row stays on the sheet, on the panel side, by its words."""
+    pg, ids, _ = seeded
+    got = pg.evaluate("""([size]) => {
+        const app = window.app;
+        const engine = app.buildPullList();
+        const bare = engine.positions.find(p => p.name === 'BARE');
+        app.project.pullSheetEdits = { positions: { [app.pullPositionKey(bare)]: {
+            rows: [], added: [{ type: size, length: 'EA', qty: 2, label: '', notes: '' }] } } };
+        app._circuitTailCache = null;
+        return JSON.parse(JSON.stringify(app.buildPullSheet())).positions.find(p => p.name === 'BARE').rows;
+    }""", [SIZE_ROW])
+    assert _panels(got) == [(SIZE_ROW, 'EA', 2, '', '')], got
+
+
+def test_the_panel_fields_tooltip_says_the_row_is_left_off():
+    path = os.path.join(HERE, '..', 'src', 'templates', 'index.html')
+    with open(path, encoding='utf-8') as f:
+        html = f.read()
+    assert "the library's name for its size" not in html
+    assert 'A screen with no name here has no panel row on the pull sheet.' in html
+
+
+def test_the_guess_and_its_wait_are_gone_and_the_half_lookups_stay(seeded):
+    pg, ids, _ = seeded
+    got = pg.evaluate("""(id) => {
+        const app = window.app;
+        const l = app.project.layers.find(x => x.id === id);
+        return { names: typeof app.catalogPanelNames, ready: typeof app.pullPanelCatalogReady,
+                 kg: app.catalogHalfWeightKg(l, 'height'), watts: typeof app.catalogHalfWattsRatio };
+    }""", ids['quartz'])
+    assert got['names'] == 'undefined' and got['ready'] == 'undefined', got
+    assert got['watts'] == 'function' and got['kg'] > 0, got
 
 
 def test_an_edit_on_a_panel_row_reaches_the_sheet_and_its_totals(seeded):
@@ -263,7 +467,7 @@ def test_an_edit_on_a_panel_row_reaches_the_sheet_and_its_totals(seeded):
         return JSON.parse(JSON.stringify(app.buildPullSheet()));
     }""", [ids, PLAIN, HALF])
     by = {p['name']: p for p in sheet['positions']}
-    assert _panels(by['SR Beach']['rows'])[1] == (PLAIN, 'EA', 12, 'WALL-A, WALL-B', '')
+    assert _panels(by['SR Beach']['rows'])[0] == (PLAIN, 'EA', 12, 'WALL-A, WALL-B', '')
     assert HALF not in [r['type'] for r in by['QUARTZ']['rows']]
     totals = {r['type']: r for r in sheet['totals'] if r.get('side') == 'panel'}
     assert totals[PLAIN]['qty'] == 14 and HALF not in totals, totals
@@ -476,11 +680,10 @@ def test_the_halves_read_the_saved_model_where_other_models_share_its_figures(pi
     assert s['kg'] == 7.5, s
     assert abs(s['watts'] - 125.4 / 249.7) < 1e-9 and abs(s['load'] - 125.4 / 249.7) < 1e-9, s
     # the same figures with nothing saved (a show saved before): eight
-    # models match, no one name and no one half - its size, 0.65 of the
-    # weight (the caller's) and half the watts
+    # models match, no one half - no panel row, 0.65 of the weight (the
+    # caller's) and half the watts
     o = got['old']
-    assert o['types'] == {'none': '500 × 1000 mm panel', 'height': '500 × 500 mm half panel',
-                          'width': '250 × 1000 mm half panel'}, o
+    assert o['types'] == {'none': '', 'height': '', 'width': ''}, o
     assert o['kg'] is None and o['watts'] is None and o['load'] == 0.5, o
     assert got['bp2v2'] == {'none': 'ROE Black Pearl BP2V2', 'height': 'ROE Black Pearl BP2V2 half',
                             'width': 'ROE Black Pearl BP2V2 half'}, got['bp2v2']
@@ -520,11 +723,11 @@ def test_screen_info_names_the_panel_and_a_hand_edit_of_its_size_forgets_it(pick
                        "window.app.project.layers.find(l => l.id === id), 'height')", air)
     assert abs(half - 7.5 / 11 * 12) < 1e-9, half
     assert pg.evaluate(SERVER_MODEL_JS, air)['name'] == 'Curve wall tile'
-    # a hand change of the cabinet's mm forgets it all; the field then
-    # shows the size the pull sheet falls back to as its placeholder
+    # a hand change of the cabinet's mm forgets it all; the field is then
+    # blank, its placeholder too: nothing names the panel, so no row prints
     got = pg.evaluate(SCREEN_INFO_JS, [air, 'panel-width-mm', '600'])
     assert (got['id'], got['name'], got['halves'], got['shown']) == (None, None, None, ''), got
-    assert got['placeholder'] == '600 × 1000 mm panel', got
+    assert got['placeholder'] == '', got
     assert pg.evaluate(SERVER_MODEL_JS, air) == {'id': None, 'name': None, 'halves': None}
     # a custom panel named by hand: its name, its halves "<name> half"
     got = pg.evaluate(SCREEN_INFO_JS, [air, 'panel-model-name', 'House tile'])

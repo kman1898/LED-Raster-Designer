@@ -80,9 +80,8 @@ keeping the library's split between a full and a half tile.
 The pull sheet counts your panels: a row for each panel type on each
 screen, under the screen's position, and TOTALS adds them up across the
 show. Half tiles get rows of their own, and blank and hidden cabinets
-aren't counted. A screen from an older show uses the library's name for
-a panel that matches its size, pixels and weight, or its size, like
-500 × 500 mm panel.
+aren't counted. A screen with no panel name, like one from an older
+show, has no panel row: the app never guesses a panel from its size.
 
 A START PAGE, THEN A PANEL
 
@@ -277,9 +276,9 @@ The processor pages give it in short, like TAC A (TAC 12 SM) or (TAC 12 MM).
 A single mode box and a multimode box can't share a TAC, an MTP or an
 opticalCON. Picking a cable that a box of the other mode is on is
 refused, and the message says which box is on it. Preferences > Cable
-stock has a Single mode fiber list and a Multimode fiber list of their
-own, so the pull sheet makes each fiber run from the lengths of its own
-mode. A show saved with a CVT10 or CVT10 Pro opens with the CVT10-S or
+stock has one Fiber list, and the pull sheet makes every fiber run from
+it, single mode and multimode alike, with the mode still on each row.
+A show saved with a CVT10 or CVT10 Pro opens with the CVT10-S or
 CVT10 Pro-S, and its fiber cables read Single mode.
 
 OPENING AN OLDER SHOW
@@ -357,9 +356,9 @@ pull sheet again and compare it with anything you've already ordered.
   the main OPT is outputs 1-4 and the backup or copy is 9-12; on a VX600
   Pro, an MCTRL660 Pro or an MX20 it is 1-6 and 9-14. Shows with a
   CVT4K-S on those processors renumber the box's second input that way.
-- CHANGE (IMPORTANT): The pull sheet has a row for each panel type on
-  each screen and a Power in row for each distro, so an older show's pull
-  sheet gets these new rows.
+- CHANGE (IMPORTANT): The pull sheet has a row for each named panel type
+  on each screen and a Power in row for each distro, so an older show's
+  pull sheet gets these new rows.
 - CHANGE (IMPORTANT): Hidden screens keep their multi numbers and outputs
   reserved, so no other screen takes them, but they're left out of distro
   and service loads everywhere, so the distro and Service sheets match
@@ -1041,6 +1040,9 @@ FIXES
   mode box and a multimode box reads both.
 - FIX: A Backup box dropped on a screen on the unit's own ports says its
   backup is already there, instead of telling you to clear the screen.
+- FIX: A screen with no panel name is left off the panel rows on the pull
+  sheet and the binder's pull pages. It used to print a size, or a model
+  nobody chose that happened to match the size, pixels and weight.
 
 v1.5.3 - October 21, 2026
 ----------------------------

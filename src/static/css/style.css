@@ -1162,9 +1162,9 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 }
 #preferences-modal .pm-row > label:first-child { margin: 0; white-space: nowrap; }
 #preferences-modal .pm-row .prefs-row { min-width: 0; }
-/* Cable stock: a list for each kind of cable and the two fiber lists
-   (single mode, multimode) stand in one tab, so its list rows sit a step
-   closer and the tab still fits the body without a scroll */
+/* Cable stock: a list for each kind of cable and the fiber list stand in
+   one tab, so its list rows sit a step closer and the tab still fits the
+   body without a scroll */
 #preferences-modal #pm-sec-stock .pm-row[data-cable-stock-list],
 #preferences-modal #pm-sec-stock .pm-row[data-cable-stock-fiber] { padding: 1px 0; }
 #preferences-modal #pm-sec-stock .pm-row[data-cable-stock-list] input.pm-wide,

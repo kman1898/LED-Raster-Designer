@@ -1623,6 +1623,10 @@ def test_the_service_sheet_numbers_in_sequence_with_the_hardware(page):
 PULL_SPREAD_JS ="""([opts, n]) => {
     const app = window.app;
     const real = app.buildPullSheet;
+    // every screen names its panel, so each position prints a Panels block
+    // (a screen with no name has none, owner 2026-11-05)
+    const named = app.project.layers.map(l => [l, l.panelModelName]);
+    app.project.layers.forEach(l => { l.panelModelName = 'House 500 mm tile'; });
     // the show's positions cut to `n` - one, the sheet a small show prints
     // (3.1 with a single beach) - or copied up to it, four sharing a sheet
     app.buildPullSheet = function () {
@@ -1644,6 +1648,7 @@ PULL_SPREAD_JS ="""([opts, n]) => {
                      .map(o => ({ t: o.text, x: o.x, size: o.size, weight: o.weight })) };
     } finally {
         app.buildPullSheet = real;
+        named.forEach(([l, name]) => { l.panelModelName = name; });
     }
 }"""
 

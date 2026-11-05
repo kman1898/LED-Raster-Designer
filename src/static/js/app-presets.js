@@ -374,13 +374,6 @@ class _Presets {
         // redrawn with the figures it now gives.
         this._halfWeightCache = new Map();
         this._halfWattsCache = new Map();
-        // The pull sheet's panel rows are named from it too
-        // (catalogPanelNames): an open editor reads them afresh.
-        this._panelNamesCache = new Map();
-        if (typeof this.isPullSheetEditorOpen === 'function' && this.isPullSheetEditorOpen()
-                && typeof this.renderPullSheetEditor === 'function') {
-            try { this.renderPullSheetEditor(); } catch (_) {}
-        }
         const layers = (this.project && this.project.layers) || [];
         if (layers.some(l => (l.panels || []).some(q => q && q.halfTile && q.halfTile !== 'none'))) {
             if (window.canvasRenderer && typeof window.canvasRenderer.render === 'function') window.canvasRenderer.render();
@@ -619,52 +612,6 @@ class _Presets {
             names.add(this._catalogModelLabel(mfr, H));
         }
         return names.size === 1 ? [...names][0] : null;
-    }
-
-    // The library's names for a screen's cabinet (owner, 2026-10-22: the
-    // pull sheet counts panels by type): { full, height, width } - the
-    // model ("ROE Visual Black Quartz 3.9 Full Tile") and its perfect half
-    // along each axis ("... Half Tile"), each null where the library has
-    // none. The screen does not store which model it was made from, so it
-    // is FOUND the way catalogHalfWeightKg finds it: every library model
-    // whose size (mm and pixels) and weight are this screen's cabinet's,
-    // and they must all carry one name - a cabinet typed by hand, or one
-    // two models share, has no name here. Null while the library is still
-    // loading (the load is started).
-    catalogPanelNames(layer) {
-        if (!layer) return null;
-        if (!this._panelCatalog) {
-            if (typeof this._ensurePanelCatalogData === 'function') this._ensurePanelCatalogData();
-            return null;
-        }
-        const w = Number(layer.panel_weight) || 20;
-        const kg = (layer.weight_unit || 'kg') === 'lb' ? w / 2.20462 : w;
-        const key = [layer.panel_width_mm, layer.panel_height_mm, layer.cabinet_width, layer.cabinet_height,
-                     kg.toFixed(4)].join('|');
-        if (!this._panelNamesCache) this._panelNamesCache = new Map();
-        if (this._panelNamesCache.has(key)) return this._panelNamesCache.get(key);
-        const num = (v) => (v === null || v === undefined || v === '' ? NaN : Number(v));
-        const same = (a, b) => num(a) > 0 && num(a) === num(b);
-        const found = [];
-        for (const mfr of Object.keys(this._panelCatalog)) {
-            for (const F of this._panelCatalog[mfr] || []) {
-                if (!same(F.width_mm, layer.panel_width_mm) || !same(F.height_mm, layer.panel_height_mm)
-                        || !same(F.pixels_w, layer.cabinet_width) || !same(F.pixels_h, layer.cabinet_height)) continue;
-                if (!(num(F.weight_kg) > 0) || Math.abs(num(F.weight_kg) - kg) > 0.006) continue;
-                found.push({ mfr, F });
-            }
-        }
-        const answer = { full: null, height: null, width: null };
-        const labels = new Set(found.map(({ mfr, F }) => this._catalogModelLabel(mfr, F)));
-        if (labels.size === 1) {
-            answer.full = [...labels][0];
-            for (const axis of ['height', 'width']) {
-                const halves = new Set(found.map(({ mfr, F }) => this._catalogHalfName(mfr, F, axis)));
-                if (halves.size === 1 && !halves.has(null)) answer[axis] = [...halves][0];
-            }
-        }
-        this._panelNamesCache.set(key, answer);
-        return answer;
     }
 
     // A screen's half tile's share of the full cabinet's WATTS from the
@@ -1212,19 +1159,13 @@ class _Presets {
         return data;
     }
 
-    // The last screen's panel in a few words: its saved name, else the
-    // name the pull sheet gives a cabinet of its size, else its pixels.
+    // The last screen's panel in a few words: its saved name, else its
+    // pixels (never a name guessed from its figures).
     _lastScreenPanelText(layer) {
         const l = layer || this._lastScreenLayer();
         if (!l) return '';
         const named = String(l.panelModelName || '').trim();
         if (named) return named;
-        if (typeof this.pullPanelTypes === 'function') {
-            try {
-                const name = this.pullPanelTypes(l).none;
-                if (name) return name;
-            } catch (_) { /* fall through to the pixels */ }
-        }
         return `${l.cabinet_width}×${l.cabinet_height}px`;
     }
 
