@@ -674,15 +674,13 @@ class _PortAssignment {
             '/api/port-assignments/place', 'POST',
             Object.assign({ confirm: !!confirmed }, spot),
             (data) => {
-                if (confirmed || !data.conflict) {
-                    // A flat refusal is said where the drop was made too:
-                    // the tray's line may be folded or scrolled off.
-                    if (data && data.error && !data.canvas
-                            && typeof this._dockSay === 'function') {
-                        this._dockSay(data.error);
-                    }
-                    return false;
+                // A flat refusal is said where the drop was made too: the
+                // tray's line may be folded or scrolled off.
+                if ((confirmed || !data.conflict) && data.error && !data.canvas
+                        && typeof this._dockSay === 'function') {
+                    this._dockSay(data.error);
                 }
+                if (confirmed || !data.conflict) return false;
                 sendClientLog('port_assignment_place_conflict', data.conflict);
                 // Asked in the app's own dialog (app-dialogs.js).
                 this.appConfirm(`${data.error}\n\nPlace it here anyway?`,
