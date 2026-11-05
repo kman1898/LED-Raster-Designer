@@ -569,24 +569,42 @@ class _DockDrag {
     }
 
     // A box on a copy OPT set to Backup delivers the same sockets as the
-    // primary box it backs up (resolve_card's backupOf), so its drop is the
-    // primary's. On a screen already on those sockets there is nothing to
-    // land: its backup already rides on this box, and that is what is said
-    // (not "clear it first"). Null in every other case.
+    // primary it backs up, so its drop is the primary's. On a screen already
+    // on those sockets there is nothing to land: its backup already rides
+    // on this box, and that is what is said (not "clear it first"). The
+    // ports it backs up are the card's resolution's (backsUpPorts): another
+    // box's, or the unit's own, where the primary has no box to name. A box
+    // that backs up nothing (a plain box on OPT 3 of an MX40 Pro in 40-port
+    // mode) has none, and neither does a screen with a port it does not
+    // cover. Null in every other case.
     _dockBackupBoxCovers(unit, scr) {
         if (!unit || unit.type !== 'box' || !scr) return null;
         const found = typeof this._dockFindCard === 'function'
             ? this._dockFindCard(unit.cardId) : null;
         const card = found && found.card;
         const box = card && (card.cvts || []).find(b => b.id === unit.boxId);
-        if (!box || !box.backupOf) return null;
-        const primary = (card.cvts || []).find(b => b.id === box.backupOf);
-        const numbers = new Set(box.portNumbers || []);
+        if (!box) return null;
         const ports = (scr.ports || []).filter(p => p.cardId);
-        if (!primary || !ports.length || !ports.every(p => p.cardId === unit.cardId
-                && numbers.has(Number(p.port)))) return null;
-        return `${scr.name} is on ${primary.displayTitle}, so its backup `
+        if (!ports.length || ports.some(p => p.cardId !== unit.cardId)) return null;
+        const says = (primary) => `${scr.name} is on ${primary}, so its backup `
             + `already rides on ${box.displayTitle}.`;
+        const backed = new Map((box.backsUpPorts || [])
+            .map(m => [Number(m.number), m]));
+        if (ports.every(p => backed.has(Number(p.port)))) {
+            const titles = [...new Set(ports.map(p => {
+                const main = backed.get(Number(p.port)).boxId;
+                const hit = main && (card.cvts || []).find(b => b.id === main);
+                return hit ? hit.displayTitle : this.cardShortName(found.proc, card)
+                    || this.cardTypedName(found.proc, card) || card.unitTitle
+                    || card.deviceName;
+            }))];
+            return says(titles.join(' and '));
+        }
+        const primary = box.backupOf
+            && (card.cvts || []).find(b => b.id === box.backupOf);
+        const numbers = new Set(box.portNumbers || []);
+        if (!primary || !ports.every(p => numbers.has(Number(p.port)))) return null;
+        return says(primary.displayTitle);
     }
 
     // Why one port chip dropped on a screen's run is refused, or null: the

@@ -213,6 +213,13 @@ const PULL_LEGACY_ADAPTER = /^((?:Edison|L6-20) → (?:TRUE1|powerCON)) tail(?=\
 // stays what it is.
 const PULL_LEGACY_FEEDER = /^(?:Feed(?:er)?|(.+) feed(?:er)?)$/;
 
+// A fiber extension printed by its kind and ends alone until 2026-11-05
+// ("Fan-out · ST to LC duplex"); it says its mode now, so an edit keyed on
+// the old row answers to that row with its mode, or to both modes' rows
+// where the position has both (_pullEditHits). An extension whose boxes
+// state no mode still prints the old way, and the key is that row.
+const PULL_LEGACY_EXTENSION = /^(?:Fan-out|Duplex patch)(?! ·.* · (?:Single mode|Multimode)$)(?: · .*)?$/;
+
 // Brompton models as the pull sheet printed them until 2026-10-17 -
 // "Tessera XD", "Tessera SX40" - and as older files key their edits. The
 // catalog dropped the word (owner, 2026-10-17: "tessera is not needed"),
@@ -2297,7 +2304,10 @@ class _PullList {
     //     TRUE1 or powerCON, whichever the position has;
     //   * an old direct output's cable by its plug alone ("CEE 16A|50'",
     //     "Tru-1|25'") is the position's "<plug> → <input>|len" row where
-    //     it is the only one (2026-10-22).
+    //     it is the only one (2026-10-22);
+    //   * a fiber extension with no mode in it ("Fan-out · ST to LC
+    //     duplex|120'") is the position's row of that type with its mode,
+    //     single mode or multimode, or both (2026-11-05).
     // AN OLD ROW THAT IS TWO ROWS NOW (owner, 2026-10-22): "Ether-con|25'"
     // at a position with both a Cat6 and an etherCON 25', "Tru-1 Power
     // Jump|6'" with both a TRUE1 and a powerCON 6' jumper. A HIDE covers
@@ -2419,6 +2429,7 @@ class _PullList {
         const type = text.slice(0, cut);
         const parts = text.slice(cut + 1).split('|');
         if (PULL_LEGACY_DATA_TYPES.has(type)) return true;
+        if (PULL_LEGACY_EXTENSION.test(type)) return true;
         if (/ Snake$/.test(type) && parts.length === 1) return true;
         if (this._pullLegacyJumpNames().includes(type)) return true;
         // (a key already spelled as a panel input - "TRUE1|25'",
@@ -2505,6 +2516,10 @@ class _PullList {
             return [];
         }
         if (types) return all(types.map(t => t + rest));
+        if (PULL_LEGACY_EXTENSION.test(type)) {
+            return all([plain, ...['single', 'multi']
+                .map(mode => `${type} · ${this.fiberModeWord(mode)}${rest}`)]);
+        }
         if (this._pullLegacyJumpNames().includes(type)) {
             return all([plain, `${this.getPullSheetSettings().powerJumpNamePowercon}${rest}`]);
         }

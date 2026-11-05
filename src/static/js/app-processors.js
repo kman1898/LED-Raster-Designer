@@ -200,6 +200,13 @@ class _Processors {
                 if (applied && data.portAssignments && this.project) {
                     this.project.port_assignments = data.portAssignments;
                 }
+                // The mirror screens the removal unplugged, off this copy
+                // of the layers before the resolve below reads them and
+                // before the snapshot takes them: one undo, both back.
+                if (applied && Array.isArray(data.mirrorsCleared)
+                        && typeof this._dropClearedMirrors === 'function') {
+                    this._dropClearedMirrors(data.mirrorsCleared);
+                }
                 this._applyProcessorState(data);
                 if (applied && pullBefore) this._dropPullEditsGoneWith(pullBefore);
                 if (applied && action) this.saveState(action);

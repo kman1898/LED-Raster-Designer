@@ -207,12 +207,15 @@ class _BinderFiber {
     }
 
     // The extension's label over its dashed line, "Fan-out 30'", "Fan-out
-    // · no length" - the processor page's words without their "ext".
+    // · no length" - the processor page's words without their "ext" - and
+    // its mode where the boxes state one: "Fan-out 30' · Single mode".
     _bfExtLabel(row) {
         const ext = row.fiber && row.fiber.ext;
         if (!ext || !ext.length) return null;
         const text = String(ext[0].text).replace(/^ext /, '');
-        return { text, warn: /no length$/.test(text) };
+        const mode = ext.find(p => p.mode);
+        return { text: mode ? `${text} · ${mode.text}` : text,
+                 warn: /no length$/.test(text) };
     }
 
     // A plug's lines: the strands as they plug in there, swatched; MTP and

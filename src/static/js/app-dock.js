@@ -2023,18 +2023,28 @@ class _HardwareDock {
     // A box's fiber mode as a header tag - "Single mode" or "Multimode"
     // (app-fiber.js fiberModeWord) - set right after the model text, or
     // after the name where a row prints no model; nothing for a box whose
-    // catalog entry states no mode (none is inferred).
-    _dockPlaceBoxModeTag(head, box) {
+    // catalog entry states no mode (none is inferred). A loop's strip passes
+    // all its boxes: where they differ the tag says each box's own, as the
+    // sheet under it does.
+    _dockPlaceBoxModeTag(head, box, loop = [box]) {
         const mode = typeof this.boxFiberMode === 'function' ? this.boxFiberMode(box) : null;
-        if (!mode) return null;
+        const words = typeof this.fiberModesText === 'function'
+            ? this.fiberModesText(loop, b => this._dockBoxLabel(b)) : '';
+        if (!words) return null;
         const tag = document.createElement('span');
         tag.className = 'hw-dock-fiber-mode';
         tag.dataset.lrdField = `box-fiber-mode-${box.id}`;
-        tag.dataset.fiberMode = mode;
-        tag.textContent = this.fiberModeWord(mode);
-        tag.title = `${box.deviceName || 'This box'} is a ${this.fiberModeWord(mode, true)} box: `
-            + `its fiber is ${this.fiberModeWord(mode, true)}. Single mode and multimode `
-            + 'never share a fiber cable.';
+        tag.textContent = words;
+        if (mode && words === this.fiberModeWord(mode)) {
+            tag.dataset.fiberMode = mode;
+            tag.title = `${box.deviceName || 'This box'} is a ${this.fiberModeWord(mode, true)} box: `
+                + `its fiber is ${this.fiberModeWord(mode, true)}. Single mode and multimode `
+                + 'never share a fiber cable.';
+        } else {
+            tag.dataset.fiberMode = 'mixed';
+            tag.title = 'Each box of this loop takes its own fiber. Single mode and multimode '
+                + 'never share a fiber cable.';
+        }
         const after = head.querySelector('.hw-dock-unit-name, .hw-dock-name');
         if (after) after.after(tag);
         else head.insertBefore(tag, head.querySelector(
@@ -2131,8 +2141,11 @@ class _HardwareDock {
             '.hw-dock-unit-use, .hw-dock-headbar, .hw-dock-unit-info');
         head.insertBefore(names, before || null);
         head.insertBefore(tag, before || null);
-        // the strip prints the near box's model, so its mode stands there
-        this._dockPlaceBoxModeTag(head, near);
+        // the strip prints the near box's model, so the mode stands there:
+        // the loop's one mode, or each box's where they differ, since the
+        // folded strip is all that shows
+        this._dockPlaceBoxModeTag(head, near, [near, ...slices.map(s => s.box)
+            .filter(b => b && b !== near)]);
         // Folded, the rows' ≡ and ⚙ are out of reach, so the header
         // carries them (owner, 2026-11-02): ONE pair, the near box's, since
         // a loop is one thing ("if backups then just the primary since

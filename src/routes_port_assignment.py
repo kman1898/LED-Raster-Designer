@@ -113,12 +113,12 @@ def _store(state):
     for layer in assignment.mirrors_unplugged(app.current_project,
                                               _processors(), before,
                                               state.get('pins')):
-        _clear_mirror(layer, 'source_unplugged')
+        clear_mirror(layer, 'source_unplugged')
     app.current_project[assignment.STATE_KEY] = state
     return state
 
 
-def _clear_mirror(layer, why):
+def clear_mirror(layer, why):
     """Let one mirror screen go: its dataMirrorOf comes off the layer, and
     the reply names it (`mirrorsCleared`) so the client drops it from its
     own copy of the layer before the history snapshot."""
@@ -149,7 +149,7 @@ def _screens():
                     if isinstance(c, dict)}
     stored = {k: l.get('dataMirrorOf') for k, l in layers.items()
               if l.get('dataMirrorOf') not in (None, '')}
-    # A mirror this very request let go of (_clear_mirror) is no mirror,
+    # A mirror this very request let go of (clear_mirror) is no mirror,
     # whatever the payload - sent before the request - still says.
     cleared = {str(i) for i in (g.get('mirrors_cleared') or [])}
     # The shape each mirrored or mirroring screen has on the client (its
@@ -263,7 +263,7 @@ def _saved(state, status=200, extra=None):
             'fiberCables': catalog.resolved_fiber_cables(app.current_project),
         })
     if g.get('mirrors_cleared'):
-        # The mirror screens this edit unplugged (_clear_mirror): the
+        # The mirror screens this edit unplugged (clear_mirror): the
         # client drops their dataMirrorOf before its snapshot.
         body['mirrorsCleared'] = list(g.mirrors_cleared)
     if extra:
@@ -448,7 +448,7 @@ def unpin_port():
     if layer is not None and (layer.get('dataMirrorOf') not in (None, '')
                               or (sent and sent.get('mirrorOf')
                                   not in (None, ''))):
-        _clear_mirror(layer, 'copy_unplugged')
+        clear_mirror(layer, 'copy_unplugged')
         return _saved(_state())
     _retire()
     if not (app.current_project.get(assignment.STATE_KEY) or {}).get('pins'):

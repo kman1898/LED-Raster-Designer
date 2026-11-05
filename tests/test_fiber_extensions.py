@@ -543,9 +543,11 @@ def test_the_pull_sheet_groups_identical_extensions(page):
     assert 'ext · MTP A' in pat[0][4], pat
     assert [r[:3] for r in out['totals'] if r[0].startswith('MTP')] == [['MTP 12', "300'", 1]], out['totals']
     fan = [r for r in out['totals'] if r[0].startswith('Fan-out')]
-    assert fan == [['Fan-out · ST to LC duplex', "10'", 1, 'CVT10-S A (OPT 1)', 'ext · TAC A']], out['totals']
+    assert fan == [['Fan-out · ST to LC duplex · Single mode', "10'", 1, 'CVT10-S A (OPT 1)',
+                    'ext · TAC A']], out['totals']
     nova = dict(out['hardware'])[ids['nova']]
-    assert ['Fan-out · ST to LC duplex', "10'", 1, 'CVT10-S A (OPT 1)', 'ext · TAC A'] in nova, nova
+    assert ['Fan-out · ST to LC duplex · Single mode', "10'", 1, 'CVT10-S A (OPT 1)',
+            'ext · TAC A'] in nova, nova
     sx = dict(out['hardware'])[ids['sx']]
     assert [r[:3] for r in sx if r[0].startswith('Duplex patch')] == [
         ['Duplex patch · MTP / MPO to LC duplex', "10'", 2]], sx
@@ -583,7 +585,7 @@ def test_the_binder_fiber_connections_shows_it_at_the_breakout(page):
         return app._bFiberConnectionRows(proc).map(r => r.cells);
     }""", ids['nova'])
     assert rows[0] == ['OPT 1', 'TAC A (TAC 12 · ST · Single mode)', '1 Blue · 2 Orange', 'OPT 1 on CVT10-S A',
-                       "2 Orange · 1 Blue · ext Fan-out 10' · ST to LC duplex"], rows
+                       "2 Orange · 1 Blue · ext Fan-out 10' · ST to LC duplex · Single mode"], rows
     assert ids['errors'] == []
 
 

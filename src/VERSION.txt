@@ -1026,6 +1026,21 @@ FIXES
   fit could land a moment later and move the view.
 - FIX: The guide's Pick the strands step carries on when the tray redraws
   as it reaches for a strand, instead of stopping there.
+- FIX: Removing a processor or a card lets a mirror go with its first
+  screen, in the same undo step, so the second screen can take a processor
+  of its own. It used to stay a mirror with nothing plugged in and no way
+  to stop. Removing the Mirror box lets the mirror go too, and the first
+  screen keeps its ports.
+- FIX: A mirror with nothing to plug into, because its box is set to Backup
+  or its card left Copy, says which setting brings it back and offers Stop
+  mirroring in the tray. A drop on it says so too, instead of telling you to
+  unplug a card that isn't there.
+- FIX: A fiber extension names its mode on the pull sheet, in the binder and
+  on the box sheet, like the cable it extends, so a single mode piece and a
+  multimode piece are never counted as one row. A folded loop of a single
+  mode box and a multimode box reads both.
+- FIX: A Backup box dropped on a screen on the unit's own ports says its
+  backup is already there, instead of telling you to clear the screen.
 
 v1.5.3 - October 21, 2026
 ----------------------------

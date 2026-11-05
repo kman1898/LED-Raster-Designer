@@ -1036,12 +1036,8 @@ class _DockCableSheets {
         // The fiber's mode where the boxes state one (owner, 2026-11-04):
         // "Single mode" / "Multimode" after the caption - each box's own
         // where a pair's boxes differ.
-        const modes = members.map(m => this.boxFiberMode(m));
-        if (modes.some(Boolean)) {
-            const same = modes.every(md => md === modes[0]);
-            const words = same ? this.fiberModeWord(modes[0])
-                : members.map((m, i) => (modes[i] ? `${titleOf(m)} ${this.fiberModeWord(modes[i])}` : ''))
-                    .filter(Boolean).join(', ');
+        const words = this.fiberModesText(members, titleOf);
+        if (words) {
             const tag = text('hw-dock-fiber-mode', words);
             tag.dataset.lrdField = `fiber-mode-${box.id}`;
             tag.title = 'The fiber this box takes. Single mode and multimode never share a fiber cable.';
@@ -1160,7 +1156,8 @@ class _DockCableSheets {
         const put = (body) => this.setFiberExtension(box, l.key, body);
         const cap = document.createElement('span');
         cap.className = 'hw-dock-fiber-dim hw-dock-fiber-ext-cap';
-        cap.textContent = `${l.title} extension`;
+        const mode = this.fiberModeWord(this.fiberCableMode(l.cable));
+        cap.textContent = `${l.title} extension` + (mode ? ` · ${mode}` : '');
         line.appendChild(cap);
         const kind = document.createElement('select');
         kind.className = 'hw-dock-cable-connector hw-dock-fiber-select';

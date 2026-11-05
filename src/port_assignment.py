@@ -1173,6 +1173,23 @@ def _mirror_pass(screens, mirrors, by_id, placed, mirror_claims):
                     'offers': [_stop_mirroring_offer(layer_id)],
                 })
             continue
+        # A source with no port placed (a locked mirror kept through the
+        # unplug, a show saved like that): nothing is plugged into the
+        # mirror, so nothing can be unplugged from it, and this line is its
+        # way out. The source's own overflow says the rest.
+        if scr['ports'] and not any((src, i) in placed
+                                    for i in range(scr['ports'])):
+            issues.append({
+                'kind': 'mirror-source-unplaced',
+                'layerId': layer_id,
+                'sourceLayerId': src,
+                'message': (f'{scr["name"]} mirrors {names.get(src, src)}, '
+                            f'but {names.get(src, src)} is not on a '
+                            f'processor, so {scr["name"]} has nowhere to '
+                            f'plug in.'),
+                'offers': [_stop_mirroring_offer(layer_id)],
+            })
+            continue
         missing = {}
         for index in range(scr['ports']):
             spot = placed.get((src, index))
@@ -1205,7 +1222,7 @@ def _mirror_pass(screens, mirrors, by_id, placed, mirror_claims):
                     f'{"ports" if many else "port"} '
                     f'{catalog._number_spans(numbers)} '
                     f'{"have" if many else "has"} nowhere to plug in.'),
-                'offers': [],
+                'offers': [_stop_mirroring_offer(layer_id)],
             })
     return issues
 
@@ -1547,6 +1564,15 @@ def mirror_refusal(screens, layer_id, processors=None, state=None):
         return None
     names = {s['layerId']: s['name'] for s in cleaned}
     name, source = names.get(str(layer_id)), names.get(src, src)
+    if isinstance(state, dict) \
+            and src not in mirror_sources_landed(processors, state.get('pins')):
+        # Nothing is plugged into it, so there is nothing to unplug: the
+        # way out is the tray's line (_mirror_pass), the words the client's
+        # _mirrorErrorText says.
+        return (f'{name} mirrors {source}. Its ports follow {source}\'s and '
+                f'cannot be placed on their own. Nothing is plugged into '
+                f'{name} to unplug: press Stop mirroring on its line in the '
+                f'tray.')
     word = mirror_unit_word(processors, state, src)
     return (f'{name} mirrors {source}. Its ports follow {source}\'s and '
             f'cannot be placed on their own. Place {source}\'s ports, or '
@@ -1577,32 +1603,70 @@ def copy_card_ids(processors):
             if c.get('copyTrunks') in ('mirror', 'per-box')}
 
 
-def mirrors_unplugged(project, processors, before_pins, after_pins):
+def mirror_sources_landed(processors, pins):
+    """The sources (layer ids, as strings) with a pin on a socket that has
+    a copy right now: a mirror of one has somewhere to plug in. A source
+    whose copies went (the box gone, the box on Backup, the card out of
+    Copy) is not here, and neither is one with no pin at all."""
+    copies = {c['cardId']: c.get('mirrorSockets') or {}
+              for c in cards_in(processors or [])}
+    return {p['layerId'] for p in _clean_pins(pins)
+            if int(p['port']) in copies.get(p['cardId'], {})}
+
+
+def _mirror_layers(project):
+    return [l for l in (project or {}).get('layers') or []
+            if isinstance(l, dict)
+            and l.get('dataMirrorOf') not in (None, '')]
+
+
+def mirrors_unplugged(project, processors, before_pins, after_pins,
+                      copy_cards=None):
     """The mirror screens (layers) an edit to the pins unplugs along with
     their source. Owner, 2026-11-01: "If the card is unplugged from the
     FIRST (source) screen, the copy screen unplugs too." A mirror goes when
     its source HAD a port on a card in a copy mode before the edit and has
     none on such a card after it - the source came off the card that fed
-    the copy. Only that transition: an edit that never touched the source,
-    and a show opened with a mirror whose source is not plugged in yet,
-    clear nothing. A LOCKED mirror stays as it is (the locked-screen rule);
-    with its source unplugged it simply has nothing to follow."""
-    layers = [l for l in (project or {}).get('layers') or []
-              if isinstance(l, dict)
-              and l.get('dataMirrorOf') not in (None, '')]
+    the copy - or had a port on any card and has none on any: unplugged is
+    unplugged, whatever mode the card was left in. Only those transitions:
+    an edit that never touched the source, and a show opened with a mirror
+    whose source is not plugged in yet, clear nothing. A LOCKED mirror
+    stays as it is (the locked-screen rule); with its source unplugged it
+    simply has nothing to follow. `copy_cards`, the cards in a copy mode
+    before the edit, is for an edit that takes the card itself away, where
+    `processors` no longer has it to read (routes_processors)."""
+    layers = _mirror_layers(project)
     if not layers:
         return []
-    copy_cards = copy_card_ids(processors)
-    if not copy_cards:
-        return []
+    if copy_cards is None:
+        copy_cards = copy_card_ids(processors)
 
-    def on_copy(pins, src):
-        return any(p['layerId'] == str(src) and p['cardId'] in copy_cards
+    def on(pins, src, cards=None):
+        return any(p['layerId'] == str(src)
+                   and (cards is None or p['cardId'] in cards)
                    for p in _clean_pins(pins))
 
     return [l for l in layers if not l.get('locked')
-            and on_copy(before_pins, l['dataMirrorOf'])
-            and not on_copy(after_pins, l['dataMirrorOf'])]
+            and ((on(before_pins, l['dataMirrorOf'], copy_cards)
+                  and not on(after_pins, l['dataMirrorOf'], copy_cards))
+                 or (on(before_pins, l['dataMirrorOf'])
+                     and not on(after_pins, l['dataMirrorOf'])))]
+
+
+def mirrors_off_their_sockets(project, processors, pins, landed_before):
+    """The mirror screens (layers) a removal left with nowhere to plug in.
+    Owner, 2026-11-01: "Unplugging only the copy screen just removes the
+    copy." The copy rides its box (owner, 2026-11-04: "breakout is the only
+    way mirror works aka copy"), so a box taken away from under it unplugs
+    it, the way a removed box unplugs any screen on its sockets. Only the
+    LAST socket does (`landed_before`, mirror_sources_landed before the
+    edit): a copy with sockets left keeps them, as a source with ports left
+    keeps its copy, and says what the rest are missing. A locked mirror
+    stays (the locked-screen rule)."""
+    landed = mirror_sources_landed(processors, pins)
+    return [l for l in _mirror_layers(project) if not l.get('locked')
+            and str(l['dataMirrorOf']) in landed_before
+            and str(l['dataMirrorOf']) not in landed]
 
 
 # ── Cards that cannot load one screen together ────────────────────────────

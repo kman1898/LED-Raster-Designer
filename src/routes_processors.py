@@ -22,6 +22,7 @@ import app
 import processor_catalog as catalog
 import port_assignment as assignment
 from app import log_event, socketio
+from routes_port_assignment import clear_mirror
 
 processors_bp = Blueprint('processors', __name__)
 
@@ -498,6 +499,10 @@ def _state(status=200, extra=None):
         # shared by several boxes, on several processors.
         'fiberCables': catalog.resolved_fiber_cables(app.current_project),
     }
+    if g.get('mirrors_cleared'):
+        # The mirror screens this edit unplugged: the client drops their
+        # dataMirrorOf before its history snapshot, so one undo holds both.
+        body['mirrorsCleared'] = list(g.mirrors_cleared)
     if extra:
         body.update(extra)
     return jsonify(body), status
@@ -650,16 +655,18 @@ def delete_processor(processor_id):
     if not proc:
         return jsonify({'error': 'Processor not found'}), 404
     removed = [card.get('id') for _slot, card in _cards_of(proc)]
+    mirrors = _mirrors_before()
     _processors_mut().remove(proc)
     _prune_backup_refs(removed)
     # Every port pinned to the machine's cards comes off with it: those
     # screen ports read unplaced again, the way a removed box's do, instead
     # of each one waiting on a "Release pin" (owner, beta.3: 48 of them).
     dropped = _drop_card_pins(removed)
+    gone = _let_mirrors_go(mirrors)
     log_event('processor_delete', {'id': processor_id,
                                    'droppedPins': _pin_log(dropped)})
     return _state(extra=_pins_released(
-        f'Removed {_proc_title(proc)}', dropped))
+        f'Removed {_proc_title(proc)}', dropped, gone))
 
 
 @processors_bp.route('/api/processors/<processor_id>/slots/<int:index>', methods=['PUT'])
@@ -693,15 +700,17 @@ def set_slot_card(processor_id, index):
     # What the outgoing card is called, read while it is still in its slot.
     outgoing_title = catalog.card_display_name(slot['card'], proc) \
         if outgoing else ''
+    mirrors = _mirrors_before()
     if not device_id:
         slot['card'] = None
         _prune_backup_refs([outgoing] if outgoing else [])
         # The card's pins go with it, as a removed processor's do.
         dropped = _drop_card_pins([outgoing] if outgoing else [])
+        gone = _let_mirrors_go(mirrors)
         log_event('processor_slot_clear', {'id': processor_id, 'slot': index,
                                            'droppedPins': _pin_log(dropped)})
         return _state(extra=_pins_released(
-            f'Removed {outgoing_title}', dropped))
+            f'Removed {outgoing_title}', dropped, gone))
     # A QD-S goes on an SQ200's OUT port and nowhere else, and an SQ200's
     # outputs take nothing but a QD-S: where either side is a unit whose
     # outputs are named (the catalog's slot names, a card's unitWord), the
@@ -725,11 +734,12 @@ def set_slot_card(processor_id, index):
     # ...and so do its pins: they named the outgoing card's id, which the
     # new card does not answer to.
     dropped = _drop_card_pins([outgoing] if outgoing else [])
+    gone = _let_mirrors_go(mirrors)
     log_event('processor_slot_card', {'id': processor_id, 'slot': index,
                                       'device': device_id,
                                       'droppedPins': _pin_log(dropped)})
     return _state(extra=_pins_released(
-        f'Replaced {outgoing_title}', dropped))
+        f'Replaced {outgoing_title}', dropped, gone))
 
 
 def _check_ethernet_ports(card, device, value, proc=None):
@@ -1257,6 +1267,7 @@ def delete_cvt(processor_id, cvt_id):
                 {})
     box_title = rbox.get('displayTitle') or rbox.get('name') \
         or rbox.get('deviceName') or cvt.get('deviceId') or cvt_id
+    mirrors = _mirrors_before()
     # The survivors keep their trunks (hold_box_trunks): on a box-fed
     # device the box IS the trunk's sockets, so C must not slide down onto
     # B's trunk when B goes - B's sockets are gone, C's stay 21-30, and a
@@ -1288,9 +1299,11 @@ def delete_cvt(processor_id, cvt_id):
     if rcard.get('boxFed'):
         dropped = assignment.prune_pins_off_sockets(
             app.current_project, card.get('id'), _port_numbers(card.get('id')))
+    gone = _let_mirrors_go(mirrors)
     log_event('processor_cvt_delete', {
         'id': cvt_id, 'box': box_title, 'droppedPins': _pin_log(dropped)})
-    return _state(extra=_pins_released(f'Removed box {box_title}', dropped))
+    return _state(extra=_pins_released(f'Removed box {box_title}', dropped,
+                                       gone))
 
 
 def _drop_card_pins(card_ids):
@@ -1307,23 +1320,64 @@ def _drop_card_pins(card_ids):
     return dropped
 
 
+def _mirrors_before():
+    """What the mirror screens stand on, read before a removal takes the
+    hardware away: the pins, the cards in a copy mode, and the sources whose
+    copies have somewhere to plug in (_let_mirrors_go)."""
+    pins = assignment.pins_of(app.current_project)
+    return {'pins': pins,
+            'copyCards': assignment.copy_card_ids(_processors()),
+            'landed': assignment.mirror_sources_landed(_processors(), pins)}
+
+
+def _let_mirrors_go(before):
+    """The mirror screens a removal unplugged go with it, in the same
+    request and so the same undo step: the source's feed taken away (owner,
+    2026-11-01: "If the card is unplugged from the FIRST (source) screen,
+    the copy screen unplugs too") and the copy's own last socket taken away
+    ("Unplugging only the copy screen just removes the copy"). A locked
+    mirror stays. Returns [(mirror name, source name)] for the note."""
+    project = app.current_project
+    pins = assignment.pins_of(project)
+    source_gone = assignment.mirrors_unplugged(
+        project, None, before['pins'], pins, copy_cards=before['copyCards'])
+    copy_gone = [l for l in assignment.mirrors_off_their_sockets(
+        project, _processors(), pins, before['landed'])
+        if not any(l is s for s in source_gone)]
+    names = {str(l.get('id')): (l.get('name') or f'Screen {l.get("id")}')
+             for l in project.get('layers') or [] if isinstance(l, dict)}
+    gone = []
+    for layers, why in ((source_gone, 'source_unplugged'),
+                        (copy_gone, 'copy_unplugged')):
+        for layer in layers:
+            gone.append((names.get(str(layer.get('id'))),
+                         names.get(str(layer.get('dataMirrorOf')))))
+            clear_mirror(layer, why)
+    return gone
+
+
 def _pin_log(dropped):
     return [{'layerId': p['layerId'], 'index': p['index'],
              'cardId': p['cardId'], 'port': p['port']} for p in dropped]
 
 
-def _pins_released(what, dropped):
-    """The reply's `extra` for an edit that dropped pins, None for one that
-    dropped none. The note says what went and which screen ports it let
-    go of; the pruned state rides the reply so the client's project copy
-    (and the undo snapshot it takes off it) carries the pins as the server
-    now holds them, not the ones it had a moment ago. Undo (the
-    whole-project PUT of the prior snapshot) puts hardware and pins back
-    together."""
-    if not dropped:
+def _pins_released(what, dropped, mirrors=()):
+    """The reply's `extra` for an edit that dropped pins or let mirrors go
+    (_let_mirrors_go), None for one that did neither. The note says what
+    went, which screen ports it let go of and which mirrors stopped; the
+    pruned state rides the reply so the client's project copy (and the undo
+    snapshot it takes off it) carries the pins as the server now holds
+    them, not the ones it had a moment ago. Undo (the whole-project PUT of
+    the prior snapshot) puts hardware, pins and mirrors back together."""
+    if not dropped and not mirrors:
         return None
+    stopped = _and_list([f'{name} no longer mirrors {source}'
+                         for name, source in mirrors])
+    if not dropped:
+        return {'note': f'{what}: {stopped}'}
+    note = _pins_released_note(what, dropped)
     return {
-        'note': _pins_released_note(what, dropped),
+        'note': f'{note}, and {stopped}' if stopped else note,
         'portAssignments': app.current_project.get(assignment.STATE_KEY),
     }
 

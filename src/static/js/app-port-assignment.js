@@ -535,7 +535,15 @@ class _PortAssignment {
         strip.innerHTML = '';
 
         const res = this._assignment;
-        if (!res || !res.configured) return;
+        if (!res) return;
+        if (!res.configured) {
+            // No processor left, so nothing to say about ports, but a mirror
+            // kept through the removal (locked then) still needs its way
+            // out: the Stop mirroring lines stand.
+            (res.issues || []).filter(i => /^mirror-/.test(i.kind || ''))
+                .forEach(issue => strip.appendChild(this._buildIssue(issue)));
+            return;
+        }
 
         if (this._assignmentError) {
             strip.appendChild(this._buildIssue(

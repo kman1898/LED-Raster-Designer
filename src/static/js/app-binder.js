@@ -8917,8 +8917,9 @@ class _Binder {
 
     // A link's EXTENSION at the box end as the binder says it, a line
     // each: its kind and length ("ext Fan-out 10'", "ext Duplex patch ·
-    // no length"), then its two ends ("MTP / MPO to LC duplex") where
-    // either is named. [] for a link with none.
+    // no length"), its two ends ("MTP / MPO to LC duplex") where either is
+    // named, then the mode of its fiber where its boxes state one. [] for a
+    // link with none.
     _bFiberExtensionParts(l) {
         const ext = typeof this.fiberLinkExtension === 'function' ? this.fiberLinkExtension(l) : null;
         if (!ext) return [];
@@ -8927,6 +8928,8 @@ class _Binder {
             + (Number.isFinite(ft) && ft > 0 ? this.pullLengthText(ft) : '· no length'), brk: true }];
         const path = this.fiberExtensionPathText(ext, l.cable);
         if (path) out.push({ text: path, brk: true });
+        const mode = this.fiberModeWord(this.fiberCableMode(l.cable));
+        if (mode) out.push({ text: mode, brk: true, mode: true });
         return out;
     }
 

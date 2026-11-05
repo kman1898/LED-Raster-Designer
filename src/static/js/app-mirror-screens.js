@@ -24,8 +24,13 @@
 // server's reason (port_assignment.mirror_set_refusal). Unplugging the card
 // from the source unplugs the copy too, and unplugging the copy alone just
 // removes the copy - both on the server (routes_port_assignment: _store's
-// mirrors_unplugged, and the unpin route on a mirror), which names the
-// mirrors it let go of in `mirrorsCleared` (_dropClearedMirrors).
+// mirrors_unplugged, and the unpin route on a mirror; routes_processors
+// _let_mirrors_go where a Remove takes the source's feed or the copy's last
+// socket), which names the mirrors it let go of in `mirrorsCleared`
+// (_dropClearedMirrors). A setting that leaves a copy with nothing to ride
+// (a box on Backup, the card out of Copy) keeps the mirror and its tray line,
+// which names the setting and offers Stop mirroring (port_assignment
+// _mirror_pass), so nobody is left with a screen they can't free.
 //
 // The setting is still the layer's `dataMirrorOf` (the screen it copies),
 // validated by the layer PUT, so a show saved with one opens mirrored. Two
@@ -214,15 +219,30 @@ class _MirrorScreens {
     }
 
     // The error a change to a mirror's data map says, naming the source and
-    // the way back (owner, 2026-11-01): unplug the card from the copy.
+    // the way back (owner, 2026-11-01): unplug the card from the copy. A
+    // mirror with nothing plugged in has nothing to unplug, so it says the
+    // way there is: the tray's Stop mirroring (port_assignment _mirror_pass,
+    // and the server's mirror_refusal in the same words).
     _mirrorErrorText(layer) {
         const src = this.mirrorSourceOf(layer);
         const name = layer.name || `Screen ${layer.id}`;
         const from = src ? (src.name || `Screen ${src.id}`) : 'another screen';
-        return `${name} mirrors ${from}. Its data port map follows ${from}'s `
-            + 'and cannot be changed on its own. Change it on '
-            + `${from}, or unplug the ${this._mirrorUnitWord(layer)} from `
-            + `${name} to stop mirroring.`;
+        const head = `${name} mirrors ${from}. Its data port map follows `
+            + `${from}'s and cannot be changed on its own. `;
+        if (this._mirrorPluggedIn(layer) === false) {
+            return `${head}Nothing is plugged into ${name} to unplug: press `
+                + 'Stop mirroring on its line in the tray.';
+        }
+        return `${head}Change it on ${from}, or unplug the `
+            + `${this._mirrorUnitWord(layer)} from ${name} to stop mirroring.`;
+    }
+
+    // Whether any of a mirror's ports landed on a socket (the resolution's
+    // own answer), null where no resolution has said yet.
+    _mirrorPluggedIn(layer) {
+        const scr = ((this._assignment && this._assignment.screens) || [])
+            .find(s => s.layerId === String(layer.id));
+        return scr ? (scr.ports || []).some(p => p.cardId) : null;
     }
 
     // 'card' or 'processor': what feeds a mirror (the unit its first

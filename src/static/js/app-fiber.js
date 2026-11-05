@@ -152,6 +152,17 @@ class _Fiber {
         return FIBER_MODE_WORDS[mode] ? mode : null;
     }
 
+    // The mode of a loop's or a pair's boxes in one line: the one word where
+    // they agree, each box's own where they differ ("CVT10-S A Single mode,
+    // CVT10-M B Multimode"), '' where none states one.
+    fiberModesText(boxes, titleOf) {
+        const modes = boxes.map(b => this.boxFiberMode(b));
+        if (!modes.some(Boolean)) return '';
+        if (modes.every(m => m === modes[0])) return this.fiberModeWord(modes[0]);
+        return boxes.map((b, i) => (modes[i] ? `${titleOf(b)} ${this.fiberModeWord(modes[i])}` : ''))
+            .filter(Boolean).join(', ');
+    }
+
     // The mode of the fiber a cable carries: its boxes' stated mode, else
     // null. A cable never carries both (the server refuses it), so the
     // first box in tray order with a mode says it - processor_catalog
@@ -306,11 +317,16 @@ class _Fiber {
         return box ? `to ${box}` : '';
     }
 
-    // The pull sheet's type for it: "Fan-out · MTP / MPO to LC duplex".
-    // Two extensions of one kind, ends and length are one row, counted.
+    // The pull sheet's type for it: "Fan-out · MTP / MPO to LC duplex", and
+    // the mode of the trunk's fiber where its boxes state one, as a trunk's
+    // own row says it: "Fan-out · ST to LC duplex · Single mode". Two
+    // extensions of one kind, ends, mode and length are one row, counted;
+    // a single mode piece and a multimode piece never are.
     fiberExtensionType(ext, cable) {
-        const path = this.fiberExtensionPathText(ext, cable);
-        return this.fiberExtensionKindWord(ext && ext.kind) + (path ? ` · ${path}` : '');
+        return [this.fiberExtensionKindWord(ext && ext.kind),
+                this.fiberExtensionPathText(ext, cable),
+                this.fiberModeWord(this.fiberCableMode(cable))]
+            .filter(Boolean).join(' · ');
     }
 
     // The whole of it in one line, the length or "no length" last: "Fan-out ·
