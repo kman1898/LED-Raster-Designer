@@ -176,11 +176,15 @@ def test_a_mismatched_second_screen_is_refused_with_the_reason(page):
     pg, ids, errors = page
     pg.evaluate(TOASTS_JS)
     out = drop(pg, ids['cid'], ids['wide'])
-    assert out['pill'] == {'ok': True, 'text': 'Copy of SL'}
+    want = ('WIDE is 5 x 3 cabinets and SL is 4 x 3. A mirror screen must '
+            'match the screen it copies.')
+    # the pill says it before the drop (owner, 2026-11-04: never "ok" for
+    # a drop that is refused), and the release says it again
+    assert out['pill'] == {'ok': False, 'message': want}, out
+    assert out['lit'] == 0
     toasts = pg.evaluate(TOASTS_JS)
-    assert any(t['err'] and t['msg'] == (
-        'WIDE is 5 x 3 cabinets and SL is 4 x 3. A mirror screen must '
-        'match the screen it copies.') for t in toasts), toasts
+    assert any(t['err'] and t['msg'] == want for t in toasts), toasts
+    assert out['said'] == want
     assert out['mirrorOf'] is None
     # refused means nothing changed: WIDE took no ports of its own either
     assert all(p[0] is None for p in out['ports']), out['ports']

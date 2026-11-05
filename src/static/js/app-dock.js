@@ -1261,6 +1261,14 @@ class _HardwareDock {
         });
     }
 
+    // Whether every socket a box delivers copies a primary socket (the
+    // resolved port's mirrorOf): a box set to Mirror, or a box on a copy
+    // OPT of a card in Copy mode. Its drop makes a mirror screen.
+    _dockBoxIsMirror(card, cvt) {
+        const mine = ((card && card.ports) || []).filter(p => p.cvtId === cvt.id);
+        return mine.length > 0 && mine.every(p => p.mirrorOf);
+    }
+
     _dockBuildCard(proc, card) {
         const unit = document.createElement('div');
         unit.className = 'hw-dock-unit';
@@ -1919,9 +1927,16 @@ class _HardwareDock {
             // continued row prints the box's name, having no field for it
             row ? (row.cont ? this._dockBoxLabel(cvt) : '') : cvt.deviceName + tag,
             spanText,
-            'Drag the whole box onto a screen: the screen\'s ports fill '
-            + 'onto this box\'s sockets in order from the first '
-            + 'unassigned.',
+            // A box whose sockets all copy a primary's (a box set to
+            // Mirror, or on a copy OPT of a card in Copy mode) makes a
+            // mirror when dropped (app-mirror-screens _mirrorBoxDropPlan).
+            this._dockBoxIsMirror(card, cvt)
+                ? 'Drag this box onto the screen that should copy the screen '
+                    + 'on the box it copies. That screen becomes the mirror, '
+                    + 'and its run lands on this box.'
+                : 'Drag the whole box onto a screen: the screen\'s ports fill '
+                    + 'onto this box\'s sockets in order from the first '
+                    + 'unassigned.',
             boxCount && boxCount.of
                 ? { frac: boxCount.taken / boxCount.of, over: false,
                     text: `${boxCount.taken}/${boxCount.of}`,

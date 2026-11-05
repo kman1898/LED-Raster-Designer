@@ -11,9 +11,9 @@ panels take, each kind of cable can have its own stock list, and the
 panel you pick is saved on the screen and counted on the pull sheet.
 
 On the data side, Mixed redundancy lets each card on a chassis be backed
-up its own way, and a card in Copy mode feeds a mirror screen: drag it
-onto one screen, then onto a matching second screen, and the second
-becomes its copy.
+up its own way, and a box on a copy OPT feeds a mirror screen: drag the
+card onto one screen, then drag the box onto a matching second screen,
+and the second becomes its copy.
 
 Data and power both get eight Z flow patterns, where every row starts
 again from the same side. Organized now cuts a row that's too long for
@@ -143,8 +143,8 @@ MIRROR SCREENS AND COPY MODE
 An H_4xfiber card now has NovaStar's three modes: Independent, Copy and
 Backup. In Copy, OPT 3 copies OPT 1 and OPT 4 copies OPT 2, and those
 copies feed a second screen. Drag the card onto the first screen as
-usual, then drag the same card onto the second screen, and the second
-screen becomes its copy. Its port map follows the first screen cabinet
+usual, then drag the box on the copy OPT onto the second screen, and the
+second screen becomes its copy. Its port map follows the first screen cabinet
 for cabinet and can't be drawn on its own, and its runs come off the
 boxes on the copy OPTs. Both screens must have the same columns and rows,
 the same pixels per cabinet and their blank, hidden and half cabinets in
@@ -153,8 +153,8 @@ be different models as long as their pixels match. Unplug the card from
 the first screen and the copy unplugs too; unplug it from the copy alone
 and only the copy goes. The enhanced H_4xfiber does the same with OPT 5
 to 8, and on an MX40 Pro in 20-port mode a box going on OPT 3 or 4 asks
-whether it's a Mirror or a Backup. With a Mirror box there, drag the
-processor onto a second screen the same way. The tray, the pull sheet and
+whether it's a Mirror or a Backup. With a Mirror box there, drag that
+box onto a second screen the same way. The tray, the pull sheet and
 the binder list the mirror's runs on its own boxes, and a second card
 backing up the first 1:1 backs up the mirror too. A card saved in the old
 Copy / Backup mode opens as Backup, the way it ran.
@@ -1008,6 +1008,12 @@ FIXES
 - FIX: A project you emptied with the start page's X stays empty, after
   a reload too. A late update could put its first screen back on the
   page a moment later, though the project no longer had it.
+- FIX: Dropping a Mirror box on a screen makes that screen the mirror in
+  one step, with its runs on that box, and one undo takes it back. A drop
+  that can't work says why before you let go: the screens don't match,
+  nothing is on the box it copies yet, or the screen is locked. A Backup
+  box dropped on a screen already on its primary box says its backup is
+  already there.
 
 v1.5.3 - October 21, 2026
 ----------------------------

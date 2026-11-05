@@ -294,21 +294,35 @@ class _MirrorScreens {
     }
 
     // THE ONE DECISION the dock's preview and its release both read for a
-    // whole-card drop on a screen (preview == result): is this the SECOND
-    // screen of a card in Copy mode? Null where it is not - a box, a card
-    // not in Copy, a card with no screen on it yet, a drop on a screen the
-    // card already feeds - and the drop goes on as any card drop. Otherwise
+    // whole-card or whole-box drop on a screen (preview == result): does
+    // this drop make a mirror? Null where it does not - a box that is not a
+    // mirror box, a card not in Copy, a card with no screen on it yet, a
+    // drop on a screen the card already feeds - and the drop goes on as any
+    // card or box drop. Otherwise
     //   { ok: true, sourceId, sourceName, nums, text } - the screen becomes
     //       the copy of `sourceId`, the first screen on the card;
     //   { ok: false, message } - said, and nothing changes.
     // The first screen is the one on the card's lowest socket that has no
     // copy yet (a screen has one mirror, on the copy outputs); where every
     // screen on the card already has one, the first of them, so the
-    // server's "already mirrors" refusal is what is said. Whether the two
-    // screens match is the server's (mirror_set_refusal), said in its own
-    // words when the drop is released.
+    // "already mirrors" refusal is what is said.
+    //
+    // A BOX SET TO MIRROR IS THE COPY (owner, 2026-11-04: "breakout is the
+    // only way mirror works aka copy"): a box whose every socket copies a
+    // primary socket (resolve_card's mirrorOf - a box on a copy OPT set to
+    // Mirror, or any box on the copy OPTs of a card in Copy mode) dropped on
+    // a screen makes that screen the copy of the screen on the sockets it
+    // copies (_mirrorBoxDropPlan). Its run lands on the box's sockets.
+    //
+    // THE PILL TELLS THE TRUTH (owner, 2026-11-04): every refusal the
+    // release would meet is decided here, before the drop - a locked
+    // screen, a mismatch, a second mirror (_mirrorDropRefusal, the
+    // server's mirror_set_refusal in the same words) - so a pill that
+    // says "Copy of" is a drop that lands.
     _copyDropPlan(unit, layerId) {
-        if (!unit || unit.type !== 'card' || !unit.cardId) return null;
+        if (!unit || !unit.cardId) return null;
+        if (unit.type === 'box') return this._mirrorBoxDropPlan(unit, layerId);
+        if (unit.type !== 'card') return null;
         if (!this._cardFeedsMirror(unit.cardId)) {
             return this._copyDropHint(unit, layerId);
         }
@@ -356,10 +370,183 @@ class _MirrorScreens {
             return { ok: false,
                      message: `${name} can't mirror ${source.name}: ${why}.` };
         }
+        return this._copyDropFinish(layer, target, source);
+    }
+
+    // The last word on a copy drop, shared by the card and the box: the
+    // target's lock, then every rule the server's mirror_set_refusal holds
+    // (_mirrorDropRefusal). Ok lights the whole screen and says whose copy.
+    _copyDropFinish(layer, target, source) {
+        if (layer && typeof this._layerLocked === 'function'
+                && this._layerLocked(layer)) {
+            return { ok: false, locked: true,
+                     message: `${target.name} is locked. Unlock it to change it.` };
+        }
+        const srcLayer = ((this.project && this.project.layers) || [])
+            .find(l => String(l.id) === String(source.layerId));
+        const refusal = layer && srcLayer
+            ? this._mirrorDropRefusal(layer, srcLayer) : null;
+        if (refusal) return { ok: false, loud: true, message: refusal };
         const nums = [];
         for (let n = 1; n <= (target.required || 0); n++) nums.push(n);
         return { ok: true, sourceId: source.layerId, sourceName: source.name,
                  nums, text: `Copy of ${source.name}` };
+    }
+
+    // A box dropped on a screen, as a copy: null where the box is not a
+    // mirror box (a primary box, a backup box, a box straddling a main OPT
+    // and its copy) and the drop goes on as any box drop. Otherwise the
+    // plan the card's copy drop returns: the screen on the sockets this box
+    // copies is the source, the lowest of them first that has no copy yet.
+    _mirrorBoxDropPlan(unit, layerId) {
+        const found = typeof this._dockFindCard === 'function'
+            ? this._dockFindCard(unit.cardId) : null;
+        const card = found && found.card;
+        if (!card) return null;
+        const box = (card.cvts || []).find(b => b.id === unit.boxId);
+        if (!box) return null;
+        const mine = (card.ports || []).filter(p => p.cvtId === box.id);
+        if (!mine.length || !mine.every(p => p.mirrorOf)) return null;
+        const screens = (this._assignment && this._assignment.screens) || [];
+        const target = screens.find(s => s.layerId === String(layerId));
+        if (!target) return null;
+        const boxName = box.displayTitle || unit.title || 'This box';
+        const primaries = new Set(mine.map(p => Number(p.mirrorOf)));
+        // What the box copies, by the names on the rack: the boxes that
+        // deliver those sockets, else the unit's own port numbers.
+        const lowest = Math.min(...primaries);
+        const highest = Math.max(...primaries);
+        const fromBoxes = (card.cvts || []).filter(b => b.id !== box.id
+            && !b.copyRole && (card.ports || []).some(p => p.cvtId === b.id
+                && primaries.has(Number(p.number))));
+        const unitTitle = unit.cardTitle || card.deviceName || 'the processor';
+        const copied = fromBoxes.length
+            ? fromBoxes.map(b => b.displayTitle).join(' and ')
+            : `${unitTitle} ports ${lowest}-${highest}`;
+        const own = (s) => (s.ports || []).filter(p => p.cardId
+            && p.source !== 'mirror');
+        const onCopied = (s) => own(s).filter(p => p.cardId === unit.cardId
+            && primaries.has(Number(p.port)));
+        const name = target.name;
+        if (onCopied(target).length) {
+            return { ok: false,
+                     message: `${name} is on ${copied}. Drag ${boxName} onto `
+                        + `the screen that should copy ${name}.` };
+        }
+        const firstSocket = (s) => Math.min(...onCopied(s).map(p => Number(p.port)));
+        const sources = screens
+            .filter(s => s.layerId !== target.layerId && !s.mirrorOf
+                && onCopied(s).length)
+            .sort((a, b) => firstSocket(a) - firstSocket(b));
+        if (!sources.length) {
+            return { ok: false,
+                     message: `Put a screen on ${copied} first. Then drag `
+                        + `${boxName} onto the screen that should copy it.` };
+        }
+        const layer = ((this.project && this.project.layers) || [])
+            .find(l => String(l.id) === target.layerId);
+        const already = sources.find(s => layer
+            && String(layer.dataMirrorOf) === s.layerId);
+        if (already) {
+            return { ok: false,
+                     message: `${name} already mirrors ${already.name}.` };
+        }
+        if (own(target).length) {
+            const word = typeof this.showUnitWord === 'function'
+                ? this.showUnitWord() : 'card';
+            return { ok: false,
+                     message: `${name} already has ports on a ${word}. Clear `
+                        + `them first, then drag ${boxName} onto it again to `
+                        + 'make it a copy.' };
+        }
+        const source = sources.find(s => !screens.some(m =>
+            m.mirrorOf === s.layerId)) || sources[0];
+        // Every socket the source takes on this unit needs a copy socket:
+        // a source on A-B and on another box this one does not copy has
+        // ports with nowhere to land (the card drop's own check).
+        const why = this._copyDropUnfed(unit.cardId, own(source)
+            .filter(p => p.cardId === unit.cardId).map(p => Number(p.port)));
+        if (why) {
+            return { ok: false,
+                     message: `${name} can't mirror ${source.name}: ${why}.` };
+        }
+        return this._copyDropFinish(layer, target, source);
+    }
+
+    // Why `layer` may not mirror `source` (both project layers), or null:
+    // the rules of the server's mirror_set_refusal and mirror_mismatch
+    // (port_assignment.py), in the same words, read off the screens as the
+    // person sees them (_mirrorShape) so the drag's pill can say it before
+    // the drop. The release still asks the server (setLayerMirror), which
+    // stays the authority.
+    _mirrorDropRefusal(layer, source) {
+        const name = layer.name || `Screen ${layer.id}`;
+        const srcName = source.name || `Screen ${source.id}`;
+        if (String(source.id) === String(layer.id)) {
+            return `${name} cannot mirror itself.`;
+        }
+        if (source.dataMirrorOf !== undefined && source.dataMirrorOf !== null
+                && source.dataMirrorOf !== '') {
+            return `${srcName} mirrors another screen itself. Set ${name} to `
+                + `mirror the screen ${srcName} copies.`;
+        }
+        const layers = (this.project && this.project.layers) || [];
+        const copiedBy = layers.find(l => l !== layer
+            && String(l.dataMirrorOf) === String(layer.id));
+        if (copiedBy) {
+            return `${copiedBy.name || 'Another screen'} mirrors ${name}, so `
+                + `${name} cannot mirror another screen.`;
+        }
+        const why = this._mirrorMismatchText(source, layer);
+        if (why) return why;
+        const rival = layers.find(l => l !== layer
+            && String(l.dataMirrorOf) === String(source.id));
+        if (rival) {
+            return `${rival.name || 'Another screen'} already mirrors `
+                + `${srcName}. A screen has one mirror, on its copy outputs.`;
+        }
+        if (typeof this._autoCrossMembers === 'function') {
+            for (const one of [layer, source]) {
+                if (!this._autoCrossMembers(one, 'data')) continue;
+                const group = typeof this.getGroupOfLayer === 'function'
+                    ? this.getGroupOfLayer(one) : null;
+                return `${one.name || 'That screen'} routes its data as one `
+                    + `screen with the group ${group ? (group.name || group.id) : ''}. `
+                    + 'Turn off Route group as one screen first.';
+            }
+        }
+        return null;
+    }
+
+    // The server's mirror_mismatch, off the client's _mirrorShape.
+    _mirrorMismatchText(source, mirror) {
+        const a = this._mirrorShape(source);
+        const b = this._mirrorShape(mirror);
+        const n = (v) => (Number.isFinite(Number(v)) ? Number(v) : v);
+        const aName = source.name || `Screen ${source.id}`;
+        const bName = mirror.name || `Screen ${mirror.id}`;
+        const tail = 'A mirror screen must match the screen it copies.';
+        if (n(a.columns) !== n(b.columns) || n(a.rows) !== n(b.rows)) {
+            return `${bName} is ${n(b.columns)} x ${n(b.rows)} cabinets and `
+                + `${aName} is ${n(a.columns)} x ${n(a.rows)}. ${tail}`;
+        }
+        if (n(a.cabinetWidth) !== n(b.cabinetWidth)
+                || n(a.cabinetHeight) !== n(b.cabinetHeight)) {
+            return `${bName}'s cabinets are ${n(b.cabinetWidth)} x `
+                + `${n(b.cabinetHeight)} px and ${aName}'s are `
+                + `${n(a.cabinetWidth)} x ${n(a.cabinetHeight)} px. ${tail}`;
+        }
+        if (JSON.stringify(a.halves) !== JSON.stringify(b.halves)
+                || JSON.stringify(a.marks) !== JSON.stringify(b.marks)) {
+            return `${bName} and ${aName} have different blank, hidden or `
+                + 'half cabinets, so their ports would not run in the same '
+                + `order. ${tail}`;
+        }
+        if (a.crossRuns) {
+            return `${aName}'s custom runs cross onto another screen. A `
+                + 'mirror screen copies a screen whose runs stay on it.';
+        }
+        return null;
     }
 
     // A FULL CARD THAT COULD FEED A MIRROR, SAID WITH THE WAY TO DO IT
@@ -442,6 +629,24 @@ class _MirrorScreens {
         const layer = ((this.project && this.project.layers) || [])
             .find(l => String(l.id) === String(target.layerId));
         if (!layer) return Promise.resolve(false);
+        if (!plan.ok) {
+            // The pill said it before the drop; the release says it once
+            // more where it stays: a locked screen in the locked error
+            // (the locked-screens rule), a broken rule in the red toast
+            // the server's refusal always wore, anything else in the
+            // status bar.
+            if (plan.locked && typeof this._lockedRefused === 'function') {
+                this._lockedRefused(layer);
+            } else if (plan.loud && typeof this._toast === 'function') {
+                this._toast(plan.message, true, 6000);
+            }
+            if (!plan.locked && typeof this._dockSay === 'function') {
+                this._dockSay(plan.message);
+            }
+            sendClientLog('mirror_screen_drop_refused', { layerId: layer.id,
+                                                          error: plan.message });
+            return Promise.resolve(false);
+        }
         sendClientLog('mirror_screen_drop', { layerId: layer.id,
                                               mirrorOf: plan.sourceId });
         return this.setLayerMirror(layer, plan.sourceId);
@@ -615,8 +820,8 @@ class _MirrorScreens {
         bar.setAttribute('aria-label', 'Copy');
         bar.dataset.lrdField = `processor-cvt-copyrole-${cvt.id}`;
         [['mirror', 'Mirror', 'Feeds a mirror screen: with the first screen '
-            + 'on the processor, drag the processor onto a matching second '
-            + 'screen to make it the copy.'],
+            + 'on the box this one copies, drag this box onto a matching '
+            + 'second screen to make it the copy.'],
          ['backup', 'Backup', 'Backs up the output this box copies.']]
             .forEach(([role, text, tip]) => {
                 // a box straddling a main OPT and its copy picks for its

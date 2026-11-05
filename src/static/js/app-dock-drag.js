@@ -316,7 +316,8 @@ class _DockDrag {
         if (drag.payload.type === 'distro' && typeof this._dockMarkServiceDrop === 'function') {
             this._dockMarkServiceDrop(target, drag.payload);
         }
-        if (drag.payload.type === 'plug' || drag.payload.output
+        if (drag.payload.type === 'plug' || drag.payload.type === 'port'
+                || drag.payload.output
                 || this._dockDropUnit(drag.payload)) {
             this._dockPlugPill(drag, ev, target);
         }
@@ -411,10 +412,15 @@ class _DockDrag {
         if (renderer.viewMode === 'data-flow') {
             if (hit && drag.dataMap && drag.dataMap.has(hit.panel)) {
                 const run = drag.dataMap.get(hit.panel);
-                return whole
-                    ? this._dockDataScreenTarget(drag, run.ownerId,
-                                                 run.portNum)
-                    : { kind: 'run', layerId: run.ownerId, num: run.portNum };
+                if (whole) {
+                    return this._dockDataScreenTarget(drag, run.ownerId,
+                                                      run.portNum);
+                }
+                const target = { kind: 'run', layerId: run.ownerId,
+                                 num: run.portNum };
+                const why = this._dockPortDropRefusal(drag.payload, run.ownerId);
+                if (why) target.pill = { ok: false, message: why };
+                return target;
             }
             if (whole) {
                 // Any layer under the cursor is a target, screen or not: the
@@ -544,6 +550,15 @@ class _DockDrag {
                 : { ok: false, message: copy.message };
             return target;
         }
+        // A pill never says ok for a drop the release refuses (owner,
+        // 2026-11-04): a locked screen and a mirror screen take no ports
+        // of their own, and the release refuses both (_dockDropCardOrBox).
+        const refusal = this._dockDataGateRefusal(layerId);
+        if (refusal) {
+            target.nums = [];
+            target.pill = { ok: false, message: refusal };
+            return target;
+        }
         const plan = this._dockDataTakePlan(unit, layerId, num);
         target.nums = plan.nums.slice();
         if (num != null) target.upTo = num;
@@ -551,6 +566,71 @@ class _DockDrag {
             ? { ok: true, text: plan.text }
             : (plan.message ? { ok: false, message: plan.message } : null);
         return target;
+    }
+
+    // A box on a copy OPT set to Backup delivers the same sockets as the
+    // primary box it backs up (resolve_card's backupOf), so its drop is the
+    // primary's. On a screen already on those sockets there is nothing to
+    // land: its backup already rides on this box, and that is what is said
+    // (not "clear it first"). Null in every other case.
+    _dockBackupBoxCovers(unit, scr) {
+        if (!unit || unit.type !== 'box' || !scr) return null;
+        const found = typeof this._dockFindCard === 'function'
+            ? this._dockFindCard(unit.cardId) : null;
+        const card = found && found.card;
+        const box = card && (card.cvts || []).find(b => b.id === unit.boxId);
+        if (!box || !box.backupOf) return null;
+        const primary = (card.cvts || []).find(b => b.id === box.backupOf);
+        const numbers = new Set(box.portNumbers || []);
+        const ports = (scr.ports || []).filter(p => p.cardId);
+        if (!primary || !ports.length || !ports.every(p => p.cardId === unit.cardId
+                && numbers.has(Number(p.port)))) return null;
+        return `${scr.name} is on ${primary.displayTitle}, so its backup `
+            + `already rides on ${box.displayTitle}.`;
+    }
+
+    // Why one port chip dropped on a screen's run is refused, or null: the
+    // screen's own gate, or a mirror socket, which carries a copy and takes
+    // no port by hand (the server's place_port refuses it too). Null leaves
+    // the chip's drop to the placement, which may ask about a shared socket.
+    _dockPortDropRefusal(payload, layerId) {
+        const gate = this._dockDataGateRefusal(layerId);
+        if (gate) return gate;
+        if (!payload || payload.type !== 'port') return null;
+        const found = typeof this._dockFindCard === 'function'
+            ? this._dockFindCard(payload.cardId) : null;
+        const card = found && found.card;
+        const port = card && (card.ports || [])
+            .find(p => Number(p.number) === Number(payload.port));
+        if (!port || !port.mirrorOf) return null;
+        const box = (card.cvts || []).find(b => b.id === port.cvtId);
+        const name = (box && box.displayTitle) || 'its box';
+        return `Port ${port.localNumber || port.number} of ${name} carries a `
+            + `copy. Drag ${name} onto the screen that should be the mirror.`;
+    }
+
+    // Why a whole-unit data drop on this screen is refused before any port
+    // is counted, or null: the screen is locked (the locked-screens rule),
+    // or it mirrors another screen, whose ports follow the source's and
+    // are never placed on their own. The words the release says.
+    _dockDataGateRefusal(layerId) {
+        const layer = ((this.project && this.project.layers) || [])
+            .find(l => String(l.id) === String(layerId));
+        if (!layer) return null;
+        if (typeof this._layerLocked === 'function' && this._layerLocked(layer)) {
+            const names = typeof this._lockedErrorNames === 'function'
+                ? this._lockedErrorNames([layer]) : [layer.name];
+            const one = names.length <= 1;
+            const list = one ? (names[0] || layer.name)
+                : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
+            return one ? `${list} is locked. Unlock it to change it.`
+                : `${list} are locked. Unlock them to change them.`;
+        }
+        if (typeof this.mirrorSourceOf === 'function' && this.mirrorSourceOf(layer)
+                && typeof this._mirrorErrorText === 'function') {
+            return this._mirrorErrorText(layer);
+        }
+        return null;
     }
 
     // The ONE resolution the preview and the release read for a whole-unit
@@ -591,6 +671,8 @@ class _DockDrag {
         }
         const unplaced = (scr.unplaced || []).map(i => i + 1);
         if (!unplaced.length) {
+            const backed = this._dockBackupBoxCovers(unit, scr);
+            if (backed) return { ok: false, nums: [], message: backed };
             return { ok: false, nums: [],
                      message: `Every port of ${scr.name} is already on a `
                         + 'processor. Clear it first.' };
@@ -604,8 +686,16 @@ class _DockDrag {
         }
         let free = null;
         if (unit.type === 'box') {
+            // A socket held by its role is not free to a fill: a mirror
+            // socket carries the copy of a primary, a backup socket a
+            // main's return (the server's place_overflow skips both).
+            const found = typeof this._dockFindCard === 'function'
+                ? this._dockFindCard(unit.cardId) : null;
+            const roleHeld = new Set(((found && found.card && found.card.ports) || [])
+                .filter(p => p.mirrorOf || p.backsUp).map(p => Number(p.number)));
             free = 0;
             for (let n = unit.first; n <= unit.last; n++) {
+                if (roleHeld.has(n)) continue;
                 if (!this._portOccupants(unit.cardId, n).length) free++;
             }
         } else if (card && card.free != null) {
@@ -1351,13 +1441,15 @@ class _DockDrag {
         // the preview's own plan (_copyDropPlan), so what lit is what lands.
         const copy = typeof this._copyDropPlan === 'function'
             ? this._copyDropPlan(payload, scr.layerId) : null;
-        if (copy) {
-            if (!copy.ok) {
-                this._dockSay(copy.message);
-                return;
-            }
-            return this._dockDropMirror(target, copy);
-        }
+        if (copy) return this._dockDropMirror(target, copy);
+        // The pill's other refusals, met again at the release: a locked
+        // screen and a mirror screen take no ports of their own
+        // (_dockDataGateRefusal - the gate _assignmentRequest holds).
+        const layer = (this.project.layers || [])
+            .find(l => String(l.id) === String(scr.layerId));
+        if (layer && this._lockedRefused(layer)) return;
+        if (layer && typeof this._mirrorRefused === 'function'
+                && this._mirrorRefused(layer)) return;
         const upTo = target.upTo != null ? target.upTo : null;
         const plan = this._dockDataTakePlan(payload, scr.layerId, upTo);
         if (!plan.ok && plan.message) {
@@ -1373,6 +1465,7 @@ class _DockDrag {
             action: 'place-overflow', layerId: scr.layerId,
             cardId: payload.cardId,
             lastIndex: upTo != null ? upTo - 1 : undefined,
+            fromDock: true,
         }, window_));
     }
 
