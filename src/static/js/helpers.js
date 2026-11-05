@@ -622,7 +622,31 @@ function holdDragOff(...els) {
     return () => held.forEach(el => { el.draggable = true; });
 }
 
-export { evaluateMathExpression, isMacOS, sendClientLog, registerGlobalClientLogging, setupColorPickerWithHex, normalizeHex, refreshAllColorSwatches, isTypingTarget, installEnterEndsEdit, installFieldGuard, commitEditOnPress,
+// A drag inside a list name being edited selects text, the first drag too.
+// Opening the edit selects the whole name, so the next press lands on
+// selected text, and a browser takes that for a text drag: the app's own
+// dragstart handlers cancelled it and the highlight fell to a caret (screen,
+// canvas, beach), or the text itself was dragged (group, which has none).
+// holdDragOff above cannot help, it covers the rows' drag and not this one.
+// Letting go of the selection before the browser reads the press makes it an
+// ordinary press in the field: the caret lands under it and the drag selects.
+// A press of a double or triple click is left to pick its word or the line,
+// and Shift to extend the selection.
+const LIST_NAME_FIELDS = '.layer-name-input, .canvas-name-input, .screen-group-name-input, .beach-name-input';
+
+function installNameDragSelects(doc) {
+    doc = doc || document;
+    if (doc.__lrdNameDragSelects) return;
+    doc.__lrdNameDragSelects = true;
+    doc.addEventListener('mousedown', (e) => {
+        if (e.button !== 0 || e.detail > 1 || e.shiftKey) return;
+        const el = e.target;
+        if (!el || !el.matches || !el.matches(LIST_NAME_FIELDS) || el.readOnly) return;
+        if (el.selectionStart !== el.selectionEnd) el.setSelectionRange(el.selectionEnd, el.selectionEnd);
+    }, true);
+}
+
+export { evaluateMathExpression, isMacOS, sendClientLog, registerGlobalClientLogging, setupColorPickerWithHex, normalizeHex, refreshAllColorSwatches, isTypingTarget, installEnterEndsEdit, installNameDragSelects, installFieldGuard, commitEditOnPress,
     FLOW_SNAKE_PATTERNS, FLOW_Z_PATTERNS, FLOW_AUTO_PATTERNS, isZFlowPattern, isVerticalFlowPattern, holdDragOff };
 
 // Classic (non-module) scripts call these by name at runtime

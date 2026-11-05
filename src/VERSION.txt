@@ -894,12 +894,14 @@ FIXES
 - FIX: Renaming a screen by double-clicking its name works in Firefox, and
   dragging inside a name being edited selects its text instead of moving
   the screen. Canvas, group and beach names rename the same way, and a
-  drag inside a canvas or beach name being edited selects text too.
+  drag inside any of them selects text too, the first drag after the
+  double-click included.
 - FIX: Canvases drag to a new place in the list, to the end too, and from
   anywhere on their header.
 - FIX: The raster size shows the canvas of the screen you select,
   wherever you select it from, a group's header in the Screens list or a
-  cabinet on another selected screen in Pixel Map too.
+  cabinet on another selected screen in Pixel Map too, and it stays on
+  that canvas through undo and redo.
 - FIX: The processor picker in the Data tray reads whole in a narrow
   window, and the dates and screen counts in Recent Files are easier to
   read.
@@ -974,6 +976,15 @@ FIXES
 - FIX: A redrawn circuit left with nothing drawn goes back to automatic
   and the circuits after it close up, and their typed labels now move
   with their cabinets, the way data port names do.
+- FIX: Undo after a circuit redraw ends opens the redraw again, so the
+  circuits, their cables and their labels all go back together and the
+  cabinets it held can still be clicked. Ending a redraw that hands its
+  circuit back is one undo step.
+- FIX: A show saved or a page reloaded with a circuit redraw still open
+  ends that redraw as it opens, the same as Esc, so each cable and label
+  stays with its cabinets. Save leaves the redraw in hand open.
+- FIX: A circuit picked up during another redraw and left as it was goes
+  back to automatic when its redraw ends.
 - FIX: Clear Circuit while you redraw a circuit no longer gives the next
   circuit the same name. Every other circuit keeps its label while you
   draw the redrawn one again.
@@ -1006,8 +1017,10 @@ FIXES
 - FIX: The binder prints the Fiber page right after the screens, before
   the pull sheets, and the sheets after it number on from it with no gap.
 - FIX: A project you emptied with the start page's X stays empty, after
-  a reload too. A late update could put its first screen back on the
-  page a moment later, though the project no longer had it.
+  a reload too, whatever you did to it since: named it, added a canvas or
+  a beach, or added a screen and undid it. A late update could put its
+  first screen back on the page a moment later, though the project no
+  longer had it.
 - FIX: Dropping a Mirror box on a screen makes that screen the mirror in
   one step, with its runs on that box, and one undo takes it back. A drop
   that can't work says why before you let go: the screens don't match,
@@ -1041,6 +1054,11 @@ FIXES
   mode box and a multimode box reads both.
 - FIX: A Backup box dropped on a screen on the unit's own ports says its
   backup is already there, instead of telling you to clear the screen.
+- FIX: Ctrl or Cmd on a group's header in the Screens list adds the group
+  to the selection and Shift selects up to it, as on the screen rows, so
+  one click on Names can set several groups.
+- FIX: Delete on the last screen says it can't be deleted instead of
+  doing nothing.
 - FIX: Your browser's AutoFill can no longer change a show. A fill from
   your contacts could write a name or a phone number into fields you
   weren't in, even in a folded panel, and rename multis across screens.

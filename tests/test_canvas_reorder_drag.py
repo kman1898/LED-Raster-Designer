@@ -20,6 +20,12 @@ While a canvas name is edited neither the field nor the header is
 draggable, so a drag in the field selects text and never moves the
 canvas.
 
+Dropped outside every block (1.6.0 QA, beta.6): the space under the last
+canvas is most of a short list, and nothing took a drop there, so the canvas
+stayed put and nothing was said. Owner: canvases drag to a new place, to the
+end too. The list itself takes the drop now, under the last block and in the
+gaps between blocks (app-canvas-ui _wireCanvasListDrop).
+
 Run locally:
     python -m pytest tests/test_canvas_reorder_drag.py -v -n 4 --dist loadfile
 """
@@ -304,6 +310,112 @@ def test_dragging_does_not_activate_the_canvas_mid_drag(seeded):
     _drag(pg, _part(ids['K2'], 'handle'), ids['K3'], 'bottom')
     _expect_order(pg, ['K1', 'K3', 'K2'])
     assert pg.evaluate("() => window.__activations") == 0
+
+
+# ── the list outside the blocks ───────────────────────────────────────────
+
+SPACE_JS = """() => {
+    const list = document.getElementById('layers-list').getBoundingClientRect();
+    const blocks = [...document.querySelectorAll('#layers-list .canvas-group')]
+        .map(el => el.getBoundingClientRect());
+    const last = blocks[blocks.length - 1];
+    return {x: list.left + list.width / 2, below: (last.bottom + list.bottom) / 2,
+            room: list.bottom - last.bottom,
+            gaps: blocks.slice(1).map((b, i) => (blocks[i].bottom + b.top) / 2)};
+}"""
+
+MARKS_JS = """() => [...document.querySelectorAll('#layers-list .canvas-group')]
+    .filter(el => el.classList.contains('drag-before') || el.classList.contains('drag-after'))
+    .map(el => [el.querySelector('.canvas-name-input').value,
+                el.classList.contains('drag-after') ? 'after' : 'before'])"""
+
+
+def _press_and_carry(pg, src_sel, x, y):
+    box = pg.locator(src_sel).bounding_box()
+    sx, sy = box['x'] + box['width'] / 2, box['y'] + box['height'] / 2
+    pg.mouse.move(sx, sy)
+    pg.mouse.down()
+    pg.mouse.move(sx, sy + 12, steps=3)
+    _carry_to(pg, x, y)
+
+
+def _carry_to(pg, x, y):
+    """Playwright's move onto a new element is a dragenter; only the next
+    move there is a dragover, which a held mouse sends by itself."""
+    pg.mouse.move(x, y, steps=6)
+    pg.mouse.move(x + 1, y)
+    pg.wait_for_timeout(100)
+
+
+def _drag_to_space(pg, src_sel, y=None):
+    space = pg.evaluate(SPACE_JS)
+    assert space['room'] > 40, f'no room under the last block: {space}'
+    _press_and_carry(pg, src_sel, space['x'], space['below'] if y is None else y)
+    pg.mouse.up()
+    pg.wait_for_timeout(150)
+
+
+@pytest.mark.parametrize('src, want', [('K1', ['K2', 'K3', 'K1']), ('K2', ['K1', 'K3', 'K2'])])
+def test_a_drop_under_the_last_canvas_moves_it_to_the_end(seeded, src, want):
+    pg, ids = seeded
+    _drag_to_space(pg, _part(ids[src], 'name'))
+    _expect_order(pg, want)
+    assert pg.evaluate("() => window.app.history[window.app.historyIndex].action") == 'Reorder Canvases'
+    # undo, redo, then the server's copy through a reload
+    _undo(pg, ['K1', 'K2', 'K3'])
+    pg.evaluate("() => window.app.redo()")
+    _expect_order(pg, want)
+    pg.reload(wait_until='domcontentloaded')
+    pg.wait_for_function("() => !!(window.app && window.app._initialLoadComplete)", timeout=20000)
+    _expect_order(pg, want)
+    # a saved file holds the same order
+    saved = pg.evaluate("""() => JSON.parse(window.app.serializeProjectForFile(
+        JSON.parse(JSON.stringify(window.app.project)))).canvases.map(c => c.name)""")
+    assert saved == want
+    pg.evaluate(DRAGSTARTS_JS)
+
+
+def test_the_drop_under_the_last_canvas_shows_where_it_lands(seeded):
+    pg, ids = seeded
+    space = pg.evaluate(SPACE_JS)
+    _press_and_carry(pg, _part(ids['K1'], 'name'), space['x'], space['below'])
+    marks = settled(pg, lambda: pg.evaluate(MARKS_JS), lambda v: v == [['K3', 'after']])
+    assert marks == [['K3', 'after']]
+    # over a block the block marks it alone
+    box = pg.locator(_wrap(ids['K2'])).bounding_box()
+    _carry_to(pg, box['x'] + box['width'] / 2, box['y'] + box['height'] * 0.2)
+    marks = settled(pg, lambda: pg.evaluate(MARKS_JS), lambda v: v == [['K2', 'before']])
+    assert marks == [['K2', 'before']]
+    _carry_to(pg, space['x'], space['below'])
+    settled(pg, lambda: pg.evaluate(MARKS_JS), lambda v: v == [['K3', 'after']])
+    pg.mouse.up()
+    _expect_order(pg, ['K2', 'K3', 'K1'])
+    assert pg.evaluate(MARKS_JS) == []
+
+
+def test_a_drop_in_the_gap_between_canvases_lands_there(seeded):
+    pg, ids = seeded
+    gaps = pg.evaluate(SPACE_JS)['gaps']
+    _drag_to_space(pg, _part(ids['K3'], 'name'), gaps[0])
+    _expect_order(pg, ['K1', 'K3', 'K2'])
+
+
+def test_the_last_canvas_dropped_under_itself_sends_nothing(seeded):
+    pg, ids = seeded
+    _drag_to_space(pg, _part(ids['K3'], 'name'))
+    _expect_order(pg, ['K1', 'K2', 'K3'])
+    assert pg.evaluate("() => window.app.historyIndex") == 0
+    assert pg.evaluate(MARKS_JS) == []
+
+
+def test_a_screen_dropped_under_the_last_canvas_goes_nowhere(seeded):
+    pg, ids = seeded
+    before = pg.evaluate("""() => window.app.project.layers.map(l => [l.id, l.canvas_id])""")
+    row = f'{_wrap(ids["K1"])} .layer-item .layer-info'
+    _drag_to_space(pg, row)
+    _expect_order(pg, ['K1', 'K2', 'K3'])
+    assert pg.evaluate("""() => window.app.project.layers.map(l => [l.id, l.canvas_id])""") == before
+    assert pg.evaluate("() => window.app.historyIndex") == 0
 
 
 def test_no_page_errors(page):

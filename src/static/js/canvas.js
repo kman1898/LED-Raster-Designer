@@ -55,6 +55,11 @@ class CanvasRenderer {
         this.zoom = 1.0;
         this.panX = 100;
         this.panY = 100;
+        // The view as it was built. Nothing but a person (or a guide, or a
+        // test's seed) moves it before the opening fit, so the fit can tell
+        // from this whether it has been moved at any time since (app-core
+        // loadProject).
+        this.openingView = this.viewKey();
         this.isDragging = false;
         this.isDraggingLayer = false;
         this.isDraggingScreenName = false;
@@ -2896,6 +2901,7 @@ class CanvasRenderer {
     // device px). This keeps render math unchanged and only adjusts the I/O
     // boundary with the zoom-level input.
     _displayDpr() { return window.devicePixelRatio || 1; }
+    viewKey() { return `${this.zoom}|${this.panX}|${this.panY}`; }
     _zoomToPercent(z) { return Math.round(z * this._displayDpr() * 100); }
     _percentToZoom(p) { return p / 100 / this._displayDpr(); }
 
@@ -3215,9 +3221,13 @@ class CanvasRenderer {
         }
         // An open override edit is a gesture of the view it began in; a tab
         // switch closes it (the override itself stays). The hover highlight
-        // goes with it.
-        if (window.app && window.app._overrideEditing
-                && typeof window.app.endOverrideEdit === 'function') {
+        // goes with it. The exception is coming back to Power to a circuit
+        // redraw that undo opened on another tab: it waits there, the one
+        // place it can go on.
+        const openEdit = window.app && window.app._overrideEditing;
+        const backToRedraw = !!openEdit && openEdit.kind === 'power'
+            && mode === 'power' && this.viewMode !== 'power';
+        if (openEdit && !backToRedraw && typeof window.app.endOverrideEdit === 'function') {
             window.app.endOverrideEdit();
         }
         if (window.app && window.app._overrideHover

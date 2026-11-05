@@ -24,6 +24,12 @@ Each test here is one finding from the beta.4 hand test, held to the fix:
   - With no screen (the start-up picker cancelled), Screen Info is blank
     and takes no typing.
 
+And from the beta.6 hand test:
+
+  - Delete on the last screen says why nothing happened, as the group's
+    Delete does (app-history deleteCurrentLayer).
+  - The Export dialog's tooltips read without " - " for a dash.
+
 Run locally (each session takes its own free port):
     python -m pytest tests/test_shell_qa_fixes.py -v --browser chromium
 """
@@ -348,6 +354,80 @@ def test_user_text_says_screen_not_layer():
 def test_pull_sheet_preferences_have_no_em_dash_placeholders():
     html = _visible_html()
     assert '—' not in html, [l.strip() for l in html.splitlines() if '—' in l]
+
+
+def test_tooltips_use_no_spaced_hyphen_for_a_dash():
+    html = _visible_html()
+    tips = re.findall(r'data-tooltip="([^"]*)"', html)
+    assert len(tips) > 100, 'the tooltips moved'
+    assert [t for t in tips if ' - ' in t or '\u2013' in t or '\u2014' in t] == []
+
+
+def test_the_export_dialog_tooltips_keep_their_sense():
+    tips = dict(re.findall(r'id="(export-binder-screen-order|export-binder-revision-note)"'
+                           r'[^>]*data-tooltip="([^"]*)"', _visible_html()))
+    assert 'this sorts the screens within one, and the CONTENTS and view numbers follow.' in tips['export-binder-screen-order']
+    assert 'adds a row to the REVISIONS table with the date, your initials and this note,' in tips['export-binder-revision-note']
+    assert 'inside a small margin, with no border, column or rev line, and the numbered' in _visible_html()
+
+
+LAST_SCREEN = 'The last screen cannot be deleted.'
+
+
+def _toast_up(pg):
+    pg.wait_for_function("(t) => [...document.querySelectorAll('#app-toast-host > div')]"
+                         ".some(el => el.textContent === t)", arg=LAST_SCREEN, timeout=5000)
+
+
+def test_delete_on_the_last_screen_says_why(e2e_server, pw_browser):
+    _fresh_project(e2e_server)
+    context, pg, problems = _open_page(pw_browser, e2e_server)
+    try:
+        layer = pg.evaluate("() => window.app.project.layers[0].id")
+        pg.locator(f'#layers-list .layer-item[data-layer-id="{layer}"] .layer-info').click()
+        pg.wait_for_function("() => !!window.app.currentLayer")
+        index = pg.evaluate("() => window.app.historyIndex")
+        pg.keyboard.press('Delete')
+        _toast_up(pg)
+        assert _names(pg) == ['Screen1']
+        assert pg.evaluate("() => window.app.deletionInProgress") in (False, None, 0)
+        assert pg.evaluate("() => window.app.historyIndex") == index
+        assert pg.evaluate("() => window.app.currentLayer.id") == layer
+        # nothing is left half done: the screen still edits and undoes
+        pg.locator('#offset-x').click()
+        pg.keyboard.press('Control+A')
+        pg.keyboard.type('64')
+        pg.keyboard.press('Enter')
+        pg.wait_for_function("() => window.app.currentLayer.offset_x === 64")
+        pg.keyboard.press('Control+z')
+        pg.wait_for_function("() => window.app.currentLayer.offset_x === 0")
+        assert _names(pg) == ['Screen1']
+        assert problems == [], problems
+    finally:
+        context.close()
+
+
+def test_delete_with_two_screens_still_deletes(e2e_server, pw_browser):
+    _fresh_project(e2e_server)
+    _post(e2e_server, '/api/layer/add', json.dumps(
+        {'name': 'Second', 'columns': 2, 'rows': 2, 'cabinet_width': 128, 'cabinet_height': 128,
+         'offset_x': 1200, 'offset_y': 0}).encode('utf-8'))
+    context, pg, problems = _open_page(pw_browser, e2e_server)
+    try:
+        layer = pg.evaluate("() => window.app.project.layers[1].id")
+        pg.locator(f'#layers-list .layer-item[data-layer-id="{layer}"] .layer-info').click()
+        pg.wait_for_function("(id) => window.app.currentLayer && window.app.currentLayer.id === id", arg=layer)
+        pg.keyboard.press('Delete')
+        pg.wait_for_function("() => window.app.project.layers.length === 1")
+        assert _names(pg) == ['Screen1']
+        assert pg.evaluate("() => document.querySelectorAll('#app-toast-host > div').length") == 0
+        # and the one left is now the last
+        pg.keyboard.press('Delete')
+        _toast_up(pg)
+        assert _names(pg) == ['Screen1']
+        assert problems == [], problems
+    finally:
+        context.close()
 
 
 def test_recent_files_count_screens(e2e_server, pw_browser):

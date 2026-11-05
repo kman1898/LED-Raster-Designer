@@ -1109,8 +1109,16 @@ def create_text_layer(name, text_content='', offset_x=0, offset_y=0, text_width=
 
 @app.route('/')
 def index():
-    # Initialize default layer if project is empty
-    initialize_default_layer()
+    # A launch's fresh project gets its startup screen here, for the start
+    # page and the picker to stand over. Only that project: one somebody
+    # left empty and went on working on (named it, added a canvas or a beach,
+    # undid the only screen) stays empty. A reload is a page load too, and
+    # this put an 8x5 Screen1 in such a project (owner, 2026-11-05: a project
+    # you left empty stays empty, after a reload too). The pristine project
+    # the start page's X emptied still gets one, and a reload of that tab
+    # takes it out again (app-start-page.js resumeOrLaunch).
+    if current_project.get('is_pristine') is True:
+        initialize_default_layer()
     log_event('page_load', {'path': '/'})
     # Expose the host OS so the client can show the custom (Apple-style) color
     # picker on Windows while leaving the native picker in place on macOS.

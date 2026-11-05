@@ -35,6 +35,13 @@ is turned off for the edit and back on when it ends. The group header sits
 in nothing draggable. WebKit cannot run here either, so the attributes are
 asserted directly beside the drag.
 
+The third (1.6.0 QA, beta.6): the first drag after the double-click selected
+nothing, in all four kinds of name. Opening the edit selects the whole name, so
+the press lands on selected text and the browser starts a text drag: the rows'
+dragstart cancelled it and the highlight fell to a caret, and the group's ran.
+The press now lets go of the selection first (helpers.js
+installNameDragSelects). The drags above set the caret first and missed it.
+
 Run locally:
     python -m pytest tests/test_rename_click_order.py -v -n 4 --dist loadfile
 """
@@ -684,6 +691,135 @@ def test_canvas_drag_inside_the_open_name_selects_text(page):
     pg.keyboard.press('Escape')
     settled(pg, attrs, lambda v: v['readOnly'])
     assert attrs() == {'header': True, 'name': True, 'readOnly': True}
+
+
+# ── the first drag after the double-click ─────────────────────────────────
+
+LONG_NAME = 'A LONG NAME TO DRAG OVER'
+
+
+def _name_sel(ids, kind):
+    return {'screen': lambda: _screen(ids['a']), 'canvas': lambda: _canvas(ids['canvases'][0]),
+            'group': lambda: _group(ids['groups'][0]), 'beach': lambda: _beach(ids['beaches'][0])}[kind]()
+
+
+def _open_long_name(pg, sel):
+    """A real double-click on a long name, with nothing done to the
+    selection it leaves. The name is only on the field: Esc puts it back.
+    A click first, so the double-click rebuilds no row (a read-only field
+    that leaves with its focus commits what it holds)."""
+    pg.locator(sel).click()
+    pg.evaluate("""([s, t]) => {
+        if (document.activeElement) document.activeElement.blur();
+        document.querySelector(s).value = t;
+    }""", [sel, LONG_NAME])
+    pg.locator(sel).dblclick()
+    _assert_editing(pg, sel, cls=False)
+    f = pg.evaluate("(s) => { const el = document.querySelector(s); return [el.selectionStart, el.selectionEnd]; }", sel)
+    assert f == [0, len(LONG_NAME)], f'the double-click left {f} selected'
+
+
+def _selection(pg, sel):
+    return pg.evaluate("""(s) => { const el = document.querySelector(s);
+        return {start: el.selectionStart, end: el.selectionEnd, value: el.value,
+                focused: document.activeElement === el, readOnly: el.readOnly}; }""", sel)
+
+
+def _mouse_drag(pg, sel, x0=0.1, x1=0.6):
+    box = pg.locator(sel).bounding_box()
+    y = box['y'] + box['height'] / 2
+    pg.mouse.move(box['x'] + box['width'] * x0, y)
+    pg.mouse.down()
+    for step in range(1, 9):
+        pg.mouse.move(box['x'] + box['width'] * (x0 + (x1 - x0) * step / 8), y)
+    pg.mouse.up()
+    pg.wait_for_timeout(100)
+
+
+def _end_edit_and_check(pg, sel):
+    pg.keyboard.press('Escape')
+    settled(pg, lambda: _field(pg, sel), lambda v: v['readOnly'])
+    assert _field(pg, sel)['readOnly']
+    assert pg.evaluate("(s) => document.querySelector(s).value", sel) != LONG_NAME
+
+
+@pytest.mark.parametrize('kind', ['screen', 'canvas', 'group', 'beach'])
+def test_the_first_drag_after_the_double_click_selects_text(page, kind):
+    pg, ids = page
+    pg.evaluate(DRAGSTARTS_JS)
+    sel = _name_sel(ids, kind)
+    before = pg.evaluate(LAYERS_JS)
+    _open_long_name(pg, sel)
+    _mouse_drag(pg, sel)
+    got = _selection(pg, sel)
+    assert 0 < got['end'] - got['start'] < len(LONG_NAME), f'the first drag selected {got}'
+    assert got['focused'] and not got['readOnly'], got
+    assert got['value'] == LONG_NAME, got
+    assert pg.evaluate("() => window.__dragstarts") == []
+    # typing replaces just what the drag selected
+    pg.keyboard.type('Z')
+    typed = _selection(pg, sel)
+    assert typed['value'] == LONG_NAME[:got['start']] + 'Z' + LONG_NAME[got['end']:], typed
+    _end_edit_and_check(pg, sel)
+    assert pg.evaluate(LAYERS_JS) == before, 'a drag in the open name moved or reordered something'
+
+
+@pytest.mark.parametrize('kind', ['screen', 'canvas', 'group', 'beach'])
+def test_a_drag_on_text_a_drag_selected_starts_a_new_selection(page, kind):
+    pg, ids = page
+    pg.evaluate(DRAGSTARTS_JS)
+    sel = _name_sel(ids, kind)
+    _open_long_name(pg, sel)
+    _mouse_drag(pg, sel, 0.1, 0.6)
+    first = _selection(pg, sel)
+    _mouse_drag(pg, sel, 0.3, 0.45)
+    second = _selection(pg, sel)
+    assert second['end'] - second['start'] > 0, second
+    assert second['start'] > first['start'] and second['end'] < first['end'], (first, second)
+    assert pg.evaluate("() => window.__dragstarts") == []
+    _end_edit_and_check(pg, sel)
+
+
+def test_double_and_triple_clicks_and_shift_in_an_open_name_keep_their_meaning(page):
+    pg, ids = page
+    sel = _screen(ids['a'])
+    _open_long_name(pg, sel)
+    box = pg.locator(sel).bounding_box()
+    x, y = box['x'] + box['width'] * 0.35, box['y'] + box['height'] / 2
+    pg.mouse.click(x, y, click_count=2)
+    word = _selection(pg, sel)
+    assert 0 < word['end'] - word['start'] < len(LONG_NAME), word
+    assert ' ' not in LONG_NAME[word['start']:word['end']].strip(), word
+    pg.mouse.click(x, y, click_count=3)
+    line = _selection(pg, sel)
+    assert (line['start'], line['end']) == (0, len(LONG_NAME)), line
+    # Shift extends what is there, so a press with it lets nothing go
+    pg.mouse.click(box['x'] + box['width'] * 0.1, y)
+    caret = _selection(pg, sel)
+    assert caret['start'] == caret['end'], caret
+    pg.keyboard.down('Shift')
+    pg.mouse.click(box['x'] + box['width'] * 0.6, y)
+    pg.keyboard.up('Shift')
+    grown = _selection(pg, sel)
+    assert grown['start'] == caret['start'] and grown['end'] > caret['end'], grown
+    _end_edit_and_check(pg, sel)
+
+
+def test_a_rename_after_the_first_drag_saves_and_undoes(page):
+    pg, ids = page
+    sel = _screen(ids['b'])
+    name = pg.evaluate("(s) => document.querySelector(s).value", sel)
+    pg.locator(sel).dblclick()
+    _assert_editing(pg, sel)
+    _mouse_drag(pg, sel, 0.02, 0.5)
+    got = _selection(pg, sel)
+    assert got['end'] > got['start'], got
+    pg.keyboard.type('NEW')
+    pg.keyboard.press('Enter')
+    want = name[:got['start']] + 'NEW' + name[got['end']:]
+    _server_name(pg, 'layers', ids['b'], want)
+    pg.keyboard.press('Control+z')
+    _server_name(pg, 'layers', ids['b'], name)
 
 
 def test_a_group_name_has_nothing_draggable_above_it(page):

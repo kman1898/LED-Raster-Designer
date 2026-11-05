@@ -268,6 +268,7 @@ class _Wiring {
         if (addCanvasBtn) {
             addCanvasBtn.addEventListener('click', () => this.addCanvas());
         }
+        this._wireCanvasListDrop();
         const savePresetBtn = document.getElementById('btn-save-preset');
         if (savePresetBtn) {
             savePresetBtn.addEventListener('click', () => this.openPresetSaveModal());

@@ -1,6 +1,6 @@
 // LEDRasterApp core: constructor, socket wiring, and primary UI setup.
 // Feature areas live in the app-*.js modules, which extend the prototype.
-import { evaluateMathExpression, sendClientLog, setupColorPickerWithHex, isTypingTarget, installEnterEndsEdit } from './helpers.js';
+import { evaluateMathExpression, sendClientLog, setupColorPickerWithHex, isTypingTarget, installEnterEndsEdit, installNameDragSelects } from './helpers.js';
 
 // The tabs the NAMES switch keeps a value for, by the canvas's view mode
 // (setupNameDisplayToggles; owner, 2026-10-01: "Yes, per tab"; per group
@@ -1103,6 +1103,12 @@ export class LEDRasterApp {
                     this.applyPreferencesToDefaultLayerIfMatch(false);
                 }
                 
+                // A circuit redraw the page was reloaded on ends here, the
+                // way Esc ends it (app-run-overrides finishRedrawLeftOpen).
+                if (typeof this.finishRedrawLeftOpen === 'function') {
+                    this.finishRedrawLeftOpen(this._redrawLeftOnReload());
+                }
+
                 // Save initial state for undo/redo
                 this.resetHistory('Initial State');
 
@@ -1136,15 +1142,18 @@ export class LEDRasterApp {
                 // at +100ms, which computes zoom 0 and leaves the canvas blank
                 // until the user manually hits Fit.
                 //
-                // This fit runs after the load has reported done, so a view
-                // set in that gap (a hand on the wheel, a guide, a test's
-                // seed) is left alone: fitting over it moved the walls off
-                // the canvas under the next drag (CI, 2026-11-04).
-                const viewNow = () => {
-                    const r = window.canvasRenderer;
-                    return `${r.zoom}|${r.panX}|${r.panY}`;
-                };
-                let viewAtLoad = viewNow();
+                // A view moved at any time before this fit (a hand on the
+                // wheel, a drag, a guide, a test's seed) is left alone, so
+                // the fit compares with the view the renderer was built
+                // with: the canvas takes input from the moment it is there,
+                // long before this load answers. Compared with the view at
+                // load done, a wheel just before it counted as no move and
+                // the fit landed on it (owner, 2026-11-05: zooming or
+                // panning right as the app opens stays put). Fitting over a
+                // view set after it moved the walls off the canvas under
+                // the next drag (CI, 2026-11-04).
+                const viewNow = () => window.canvasRenderer.viewKey();
+                let viewAtLoad = window.canvasRenderer.openingView;
                 const initialFit = (attempt = 0) => {
                     // A panel saved folded folds again as the app starts. A
                     // fit made mid-fold measured a canvas that was still
@@ -2119,6 +2128,7 @@ export class LEDRasterApp {
         // doesn't complete the process. It doesn't until I click out of the
         // box"). Tab is untouched.
         installEnterEndsEdit(document);
+        installNameDragSelects(document);
         this.setupPixelMapBulkActions();
         this.setupPerspectiveToggles();
         this.setupNameDisplayToggles();

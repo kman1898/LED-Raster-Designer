@@ -14,6 +14,10 @@ need to be able to individually change screens, group or both per group".
   * Each change is one undo step, "Change Name Display".
   * Binder sheets follow each group's own Data and Power value.
 
+Several groups are picked the way several screens are: Cmd/Ctrl adds a group's
+header to the selection and Shift ranges to it (1.6.0 QA, beta.6: the header's
+click replaced the selection whatever was held).
+
 Two 4 x 3 walls make WALL (WALL-L + WALL-R), two more make SIDE (SIDE-L +
 SIDE-R), and LONE stands alone. Each pair routes as one screen on both sides.
 
@@ -26,6 +30,8 @@ import os
 import sys
 
 import pytest
+
+from conftest import settled
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
@@ -273,6 +279,155 @@ def test_groups_that_differ_light_no_button_and_one_click_sets_both(page):
     assert out['after']['pixel-map'] == {'shown': True, 'mixed': False, 'active': ['both']}, out
     assert out['wall']['pixel-map'] == 'both' and out['side']['pixel-map'] == 'both', out
     assert out['steps'] == 1, out
+    assert not errors, errors
+
+
+# ── picking groups from their headers ─────────────────────────────────────
+
+def _header(group_id):
+    return f'#layers-list .screen-group[data-group-id="{group_id}"] .screen-group-info'
+
+
+def _selected(pg):
+    return pg.evaluate("""() => [...window.app.selectedLayerIds]
+        .map(id => window.app.project.layers.find(l => l.id === id).name).sort()""")
+
+
+def _lit(pg):
+    return pg.evaluate("""() => [...document.querySelectorAll('#layers-list .screen-group.active')]
+        .map(el => el.dataset.groupId).sort()""")
+
+
+def _lone_row(pg):
+    lone = pg.evaluate("() => window.__npg.L('LONE').id")
+    return f'#layers-list .layer-item[data-layer-id="{lone}"] .layer-info'
+
+
+def test_ctrl_on_a_group_header_adds_it_and_one_click_sets_both(page):
+    pg, errors = page
+    _reset(pg)
+    pg.locator(_header('g1')).click()
+    assert _selected(pg) == ['WALL-L', 'WALL-R']
+    pg.locator(_header('g2')).click(modifiers=['Control'])
+    assert _selected(pg) == ['SIDE-L', 'SIDE-R', 'WALL-L', 'WALL-R']
+    assert _lit(pg) == ['g1', 'g2']
+    index = pg.evaluate("() => window.app.historyIndex")
+    pg.locator('.name-display-btn[data-name-view="pixel-map"][data-name-display="both"]').click()
+    out = pg.evaluate("() => ({ wall: window.__npg.values('g1'), side: window.__npg.values('g2'),"
+                      " rows: window.__npg.rows(), index: window.app.historyIndex })")
+    assert out['wall']['pixel-map'] == 'both' and out['side']['pixel-map'] == 'both', out
+    assert out['rows']['pixel-map'] == {'shown': True, 'mixed': False, 'active': ['both']}, out
+    assert out['index'] == index + 1, out
+    # one undo takes both back, and the selection stands
+    pg.keyboard.press('Control+z')
+    settled(pg, lambda: pg.evaluate("() => window.__npg.values('g1')['pixel-map']"), lambda v: v != 'both')
+    assert pg.evaluate("() => window.__npg.values('g2')['pixel-map']") != 'both'
+    assert _selected(pg) == ['SIDE-L', 'SIDE-R', 'WALL-L', 'WALL-R']
+    assert not errors, errors
+
+
+def test_ctrl_on_a_selected_group_header_takes_it_out(page):
+    pg, errors = page
+    _reset(pg)
+    pg.locator(_header('g1')).click()
+    pg.locator(_header('g2')).click(modifiers=['Control'])
+    pg.locator(_header('g1')).click(modifiers=['Control'])
+    assert _selected(pg) == ['SIDE-L', 'SIDE-R']
+    assert _lit(pg) == ['g2']
+    assert pg.evaluate("() => window.app.currentLayer.name") in ('SIDE-L', 'SIDE-R')
+    pg.locator(_header('g2')).click(modifiers=['Control'])
+    assert _selected(pg) == []
+    assert pg.evaluate("() => window.app.currentLayer") is None
+    assert pg.evaluate("() => window.__npg.rows()['pixel-map'].shown") is False
+    assert not errors, errors
+
+
+def test_ctrl_on_a_header_finishes_a_group_half_selected(page):
+    pg, errors = page
+    _reset(pg)                              # WALL-L alone
+    pg.locator(_header('g1')).click(modifiers=['Control'])
+    assert _selected(pg) == ['WALL-L', 'WALL-R']
+    assert not errors, errors
+
+
+def test_ctrl_on_a_header_adds_to_a_loose_screen(page):
+    pg, errors = page
+    _reset(pg)
+    pg.locator(_lone_row(pg)).click()
+    pg.locator(_header('g2')).click(modifiers=['Control'])
+    assert _selected(pg) == ['LONE', 'SIDE-L', 'SIDE-R']
+    assert not errors, errors
+
+
+def test_shift_on_a_group_header_ranges_from_the_anchor(page):
+    """The list reads LONE, SIDE-R, SIDE-L, WALL-R, WALL-L from the top."""
+    pg, errors = page
+    _reset(pg)
+    pg.locator(_lone_row(pg)).click()
+    pg.locator(_header('g2')).click(modifiers=['Shift'])
+    assert _selected(pg) == ['LONE', 'SIDE-L', 'SIDE-R']
+    # the anchor holds, as a second Shift on the screen rows does
+    pg.locator(_header('g1')).click(modifiers=['Shift'])
+    assert _selected(pg) == ['LONE', 'SIDE-L', 'SIDE-R', 'WALL-L', 'WALL-R']
+    pg.locator(_header('g2')).click(modifiers=['Shift'])
+    assert _selected(pg) == ['LONE', 'SIDE-L', 'SIDE-R']
+    assert not errors, errors
+
+
+def test_shift_from_header_to_header_takes_both_whole_either_way(page):
+    pg, errors = page
+    _reset(pg)
+    pg.locator(_header('g1')).click()
+    pg.locator(_header('g2')).click(modifiers=['Shift'])
+    assert _selected(pg) == ['SIDE-L', 'SIDE-R', 'WALL-L', 'WALL-R']
+    pg.locator(_header('g2')).click()
+    pg.locator(_header('g1')).click(modifiers=['Shift'])
+    assert _selected(pg) == ['SIDE-L', 'SIDE-R', 'WALL-L', 'WALL-R']
+    assert not errors, errors
+
+
+def test_shift_on_a_header_after_a_ctrl_ranges_like_the_rows(page):
+    """Ctrl leaves the anchor on the first click, as on the screen rows."""
+    pg, errors = page
+    _reset(pg)
+    pg.locator(_lone_row(pg)).click()
+    pg.locator(_header('g1')).click(modifiers=['Control'])
+    assert _selected(pg) == ['LONE', 'WALL-L', 'WALL-R']
+    pg.locator(_header('g2')).click(modifiers=['Shift'])
+    assert _selected(pg) == ['LONE', 'SIDE-L', 'SIDE-R']
+    assert not errors, errors
+
+
+def test_the_read_only_group_name_takes_ctrl_and_shift_but_a_plain_click_stays_the_fields(page):
+    pg, errors = page
+    _reset(pg)
+    name = lambda g: f'#layers-list .screen-group[data-group-id="{g}"] .screen-group-name-input'
+    pg.locator(_header('g1')).click()
+    pg.locator(name('g2')).click(modifiers=['Control'])
+    assert _selected(pg) == ['SIDE-L', 'SIDE-R', 'WALL-L', 'WALL-R']
+    pg.locator(_header('g1')).click()
+    pg.locator(name('g2')).click(modifiers=['Shift'])
+    assert _selected(pg) == ['SIDE-L', 'SIDE-R', 'WALL-L', 'WALL-R']
+    pg.locator(_header('g1')).click()
+    pg.locator(name('g2')).click()
+    pg.wait_for_timeout(100)
+    assert _selected(pg) == ['WALL-L', 'WALL-R']
+    assert pg.evaluate("(s) => document.querySelector(s).readOnly", name('g2')) is True
+    pg.evaluate("() => document.activeElement && document.activeElement.blur()")
+    assert not errors, errors
+
+
+def test_an_open_group_name_keeps_a_ctrl_click_to_itself(page):
+    pg, errors = page
+    _reset(pg)
+    name = '#layers-list .screen-group[data-group-id="g2"] .screen-group-name-input'
+    pg.locator(_header('g1')).click()
+    pg.locator(name).dblclick()
+    settled(pg, lambda: pg.evaluate("(s) => document.querySelector(s).readOnly", name), lambda v: v is False)
+    pg.locator(name).click(modifiers=['Control'])
+    assert _selected(pg) == ['WALL-L', 'WALL-R']
+    assert pg.evaluate("(s) => document.querySelector(s).readOnly", name) is False
+    pg.keyboard.press('Escape')
     assert not errors, errors
 
 

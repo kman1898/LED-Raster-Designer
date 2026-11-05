@@ -27,9 +27,11 @@
 // went: the page itself, the panel picker its New opened, or a launch's
 // page still waiting behind the first-run guide or What's New. A picker
 // File > New opened comes back as that picker. A project the page's X (or
-// the picker's Cancel) left empty stays empty: the server puts a startup
-// screen back on every page load (app.index), and the reload takes it
-// out again.
+// the picker's Cancel) left empty stays empty. Left as it is, it is still
+// the pristine project: the server puts a startup screen in it on the page
+// load (app.index), and the reload takes it out again. Worked on after
+// that (renamed, a canvas or a beach added, a screen added and undone), it
+// is no longer pristine and the server leaves it empty by itself.
 //
 // How a reload is told from a launch: the launcher opens the app in a new
 // browser tab every launch (launcher_settings open_url: `open -a`,
@@ -325,8 +327,8 @@ class _StartPage {
         if (place.pending) {
             if (typeof this.maybeOpenStartupPicker === 'function') this.maybeOpenStartupPicker(place.pending);
         } else if (place.empty && this._isPristineStartupProject()) {
-            // The page load put a startup screen back in the project the
-            // page's X left empty: take it out again.
+            // The page load put a startup screen back in the pristine
+            // project the page's X left empty: take it out again.
             this._startupTargetId = this.project.layers[0].id;
             this._startEmpty();
         }
