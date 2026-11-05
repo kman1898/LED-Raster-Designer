@@ -4171,19 +4171,25 @@
                 // rebuilt the tray just after the click: "the strand pick
                 // did not open" (1.6.0 QA, 1 run in 4 under a loaded
                 // machine). So the hand clicks the chip again, up to three
-                // times, until the strand has moved.
+                // times, until the strand has moved. A rebuild can also
+                // land while the hand is on its way to the chip or the
+                // pick: the first strand's own echo took the second's pick
+                // out from under it ("fiber-strand-pick is not in the
+                // tray", CI, 2026-11-04). That is one more try, not a stop.
                 var move = function (i, to, tries) {
                     tries = tries || 1;
                     var chip = '[data-lrd-field="fiber-strand-' + b.id + '-p1-' + i + '"]';
                     var pick = '[data-lrd-field="fiber-strand-pick-' + b.id + '-p1-' + i + '"]';
                     var moved = function () { var bl = boxLink(); return bl && bl.link.strands[i] === to; };
                     return t.wait(function () { return $(chip) || $(pick); }).then(function () {
-                        return $(pick) ? null : t.click(chip);
+                        return $(pick) ? null : t.click(chip).catch(function () {});
                     }).then(function () {
                         return t.wait(function () { return $(pick); }, 1500);
                     }).then(function (el) {
                         if (!el) return null;
-                        return t.select(pick, String(to)).then(function () { return t.wait(moved, 3000); });
+                        return t.select(pick, String(to)).then(function () {
+                            return t.wait(moved, 3000);
+                        }, function () { return null; });
                     }).then(function (ok) {
                         if (ok || moved()) return true;
                         if (tries >= 3) throw new Error('the strand pick did not open');

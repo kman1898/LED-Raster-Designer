@@ -1021,6 +1021,8 @@ FIXES
   released. A locked screen follows when you unlock it.
 - FIX: Zooming or panning right as the app opens stays put. The opening
   fit could land a moment later and move the view.
+- FIX: The guide's Pick the strands step carries on when the tray redraws
+  as it reaches for a strand, instead of stopping there.
 
 v1.5.3 - October 21, 2026
 ----------------------------

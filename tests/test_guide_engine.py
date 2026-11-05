@@ -310,6 +310,37 @@ def test_pick_the_strands_survives_the_tray_rebuilding_after_the_click(page):
                       "window.__strandRebuild = null; }")
 
 
+def test_pick_the_strands_survives_the_tray_rebuilding_on_the_way_to_the_pick(page):
+    """The other half of the rebuild above: the first strand's own echo can
+    restate the tray while the hand is on its way to the second strand's
+    pick, after the pick was found. The hand's reach then found nothing and
+    the step stopped, and in What's New's apply every step after it was
+    left with no show (CI, 2026-11-04). The tray is rebuilt at the moment
+    the hand reaches for each pick, once per strand."""
+    page.evaluate("""() => {
+        window.__injected = {};
+        window.__realTimeout = window.__realTimeout || window.setTimeout;
+        window.setTimeout = (fn, ms, ...rest) => {
+            const pick = ms === 0 && document.querySelector('[data-lrd-field^="fiber-strand-pick-"]');
+            const f = pick && pick.dataset.lrdField;
+            if (f && !window.__injected[f]) {
+                window.__injected[f] = 1;
+                window.app.renderHardwareDock();
+            }
+            return window.__realTimeout(fn, ms, ...rest);
+        };
+    }""")
+    try:
+        i = _index(page, 'fiberStrands')
+        _open_advanced(page, 3)
+        _go_to(page, i)
+        st = _wait_step(page, i)
+        assert st['state'] == 'done' and not st['fail'], st
+        assert len(page.evaluate("Object.keys(window.__injected)")) == 2
+    finally:
+        page.evaluate("() => { window.setTimeout = window.__realTimeout; }")
+
+
 def test_whats_new_never_carries_on_from_an_entry_it_did_not_reach(page):
     """What's New, with the shipped file stale, applies the Advanced steps
     before each step. When that apply stops on the way, the step still
