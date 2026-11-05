@@ -471,6 +471,9 @@
         if (m) m.style.display = 'none';
     }
     function hideMenus() {
+        // Leaving a guide takes every menu down at once (end). One up while
+        // the world goes back is the person's own.
+        if (S.exiting) return;
         $$('.menu-dropdown').forEach(function (m) { m.style.display = 'none'; });
         $$('#menu-bar .menu-item.active').forEach(function (i) { i.classList.remove('active'); });
     }
@@ -1068,12 +1071,16 @@
     // ── placement ────────────────────────────────────────────────────────
     var spotRect = null;   // the rectangle the spotlight rings right now
 
-    function rectOf(el) {
+    function rectNow(el) {
         if (!el) return null;
-        try { el.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (e) {}
         var r = el.getBoundingClientRect();
         if (r.width === 0 && r.height === 0) return null;
         return r;
+    }
+    function rectOf(el) {
+        if (!el) return null;
+        try { el.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (e) {}
+        return rectNow(el);
     }
     function stepTargetEl(step) {
         if (!step) return null;
@@ -1083,22 +1090,24 @@
     }
     // The ring for a step: its target's rectangle, or - when the step names
     // several controls in `ring` (the two fields of a size, the columns and
-    // the rows) - the one rectangle that holds them all.
-    function stepRect(step, el) {
+    // the rows) - the one rectangle that holds them all. `measure` is how
+    // each is read: rectOf, which scrolls it into view, unless told.
+    function stepRect(step, el, measure) {
         if (!step) return null;
+        var read = measure || rectOf;
         var list = (step.ring || []).map(function (q) {
             if (typeof q === 'function') { try { q = q(); } catch (e) { q = null; } }
             return typeof q === 'string' ? $(q) : q;
         }).filter(Boolean);
-        if (!list.length) return rectOf(el);
+        if (!list.length) return read(el);
         var u = null;
         list.forEach(function (e) {
-            var r = rectOf(e);
+            var r = read(e);
             if (!r) return;
             u = u ? { left: Math.min(u.left, r.left), top: Math.min(u.top, r.top),
                       right: Math.max(u.right, r.right), bottom: Math.max(u.bottom, r.bottom) } : { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
         });
-        if (!u) return rectOf(el);
+        if (!u) return read(el);
         return { left: u.left, top: u.top, right: u.right, bottom: u.bottom, width: u.right - u.left, height: u.bottom - u.top };
     }
     function setSpot(r) {
@@ -1428,6 +1437,54 @@
         if (off ? inside && (better.x !== c.left || better.y !== c.top)
                 : better.clear && (Math.abs(better.x - c.left) > 40 || Math.abs(better.y - c.top) > 40)) place(step);
     }
+    // The ring through an act. It used to be measured when the act began
+    // and again when it ended, and an act changes what is under it: "Mirror
+    // a screen" puts its hardware in and names the box only once the act
+    // runs, so the ring sat for the whole drag where it landed before there
+    // was a box, over whatever the tray then scrolled there (1.6.0 QA,
+    // every run). Each look puts the ring where settle() would. A target
+    // that is another element now is settled for, which brings it into
+    // view and moves the callout off it if it must; the same one that only
+    // moved is followed without scrolling anything, because the act owns
+    // the scroll and its gestures reveal what they reach for. No target to
+    // point at, or one the tray has scrolled out of sight, leaves the ring
+    // where it is.
+    var FOLLOW_EVERY = 50;     // ms between looks
+    function followRing() {
+        var named = null, seen = 0;
+        function look() {
+            var step = S.list[S.idx];
+            if (!step || step.center || !els) return;
+            var keep = S.spotEl && S.spotEl.isConnected && rectNow(S.spotEl) ? S.spotEl : null;
+            var el = keep || stepTargetEl(step);
+            if (!el) return;
+            var name = keep ? null : trayName(el);
+            if (name !== null && named !== null && name !== named) {
+                named = name;
+                settle();
+                return;
+            }
+            if (name !== null) named = name;
+            var r = keep ? rectNow(keep) : stepRect(step, el, rectNow);
+            if (!r) return;
+            var body = $('#hardware-dock-body');
+            var tray = body && body.contains(el) ? body.getBoundingClientRect() : null;
+            if (tray && (r.bottom <= tray.top || r.top >= tray.bottom)) return;
+            var s = spotRect;
+            if (s && Math.abs(s.left - r.left) < 1 && Math.abs(s.top - r.top) < 1
+                  && Math.abs(s.width - r.width) < 1 && Math.abs(s.height - r.height) < 1) return;
+            setSpot(r);
+        }
+        var token = S.token;
+        requestAnimationFrame(function frame(now) {
+            if (token !== S.token || S.phase !== 'act') return;
+            if (now - seen >= FOLLOW_EVERY) {
+                seen = now;
+                try { look(); } catch (e) { /* the next look measures again */ }
+            }
+            requestAnimationFrame(frame);
+        });
+    }
     // A window resize (the app fires one after a view switch re-lays the
     // canvas out) re-measures the ring but moves the callout only if it
     // must - the same rule as after an act.
@@ -1483,7 +1540,7 @@
             // drag begun from the wrong element is worse than no drag.
             var rr = target.getBoundingClientRect();
             var c = centerOf(target);
-            return { el: target, x: c.x, y: c.y, empty: rr.width === 0 && rr.height === 0 };
+            return { el: target, x: c.x, y: c.y, aimed: true, empty: rr.width === 0 && rr.height === 0 };
         }
         if (typeof target.x === 'number' && typeof target.y === 'number') {
             return { el: target.el || null, x: target.x, y: target.y, worldX: target.worldX, worldY: target.worldY };
@@ -1556,6 +1613,27 @@
         });
     }
 
+    // The hand has arrived: the element it set off for may not be where it
+    // was then. A save's echo restates the tray while the hand travels, the
+    // scroll or a column moves, and the press landed on the old spot with
+    // the ring on the new one. One short hop puts the hand on the element.
+    function reaim(p, o) {
+        if (!p || !p.aimed) return Promise.resolve(p);
+        var el = live(p.el);
+        if (!el || !el.isConnected) return Promise.resolve(p);
+        var reveal = dock() && dock().contains(el) ? revealInTray(el).catch(function () { return el; })
+            : Promise.resolve(el);
+        return reveal.then(function (now) {
+            var e = live(now) || el;
+            var r = e.getBoundingClientRect();
+            if (r.width === 0 && r.height === 0) return p;
+            var c = centerOf(e);
+            if (Math.hypot(c.x - p.x, c.y - p.y) < 2) return p;
+            p.el = e; p.x = c.x; p.y = c.y;
+            return animateTo(p.x, p.y, null, o && o.speed).then(function () { return p; });
+        });
+    }
+
     // ── the toolkit a step's act(t) receives ─────────────────────────────
     var T = {
         pause: function (n) { return sleep(ms(n)); },
@@ -1615,7 +1693,7 @@
                 keepClear(p);
                 showCursor();
                 badge(o.badge || '');
-                return animateTo(p.x, p.y, null, o.speed).then(function () { return p; });
+                return animateTo(p.x, p.y, null, o.speed).then(function () { return reaim(p, o); });
             });
         },
         // Open the tray around an element before a gesture on it: the tray
@@ -1648,6 +1726,10 @@
                 press(true);
                 mouse('mousedown', el, p.x, p.y, o.init);
                 return T.pause(70).then(function () {
+                    // The press lasts long enough for the tray to rebuild
+                    // under it, and a click on the copy it took out does
+                    // nothing: the release lands on what is there now.
+                    el = live(el);
                     mouse('mouseup', el, p.x, p.y, Object.assign({}, o.init || {}, { buttons: 0 }));
                     ripple(p.x, p.y);
                     press(false);
@@ -2493,6 +2575,7 @@
             // before the cursor starts, so the act itself never shoves it.
             settle();
             S.phase = 'act';
+            followRing();
             return actOf(step);
         }).catch(function (e) {
             err = e;
@@ -2984,6 +3067,11 @@
         els.spot.style.display = 'none';
         els.callout.style.display = 'none';
         passthrough(false);
+        // The menus go now, not when the world goes back: that lands a beat
+        // later and again after the restore, and shut the menu a person
+        // had just opened (Skip, then Help straight away).
+        hideMenus();
+        S.exiting = true;
         var saved = S.saved;
         S.saved = null;
         S.idx = -1;
@@ -2998,6 +3086,7 @@
             console.warn('QuickStart: restore failed', e);
         }).then(function () {
             S.running = false;
+            S.exiting = false;
             if (S.ending === ending) S.ending = null;
         });
         S.ending = ending;
@@ -4164,18 +4253,15 @@
             before: function () { switchView('data-flow'); closePopover(); openBoxSheet(); },
             act: function (t) {
                 var b = box();
-                // The pick is the chip swapped for a select in place, not
-                // app state: a tray rebuild (a late save's echo restates
-                // the tray) puts the chip back and the pick is gone. The
-                // Go to that lands here restores the show, and its echoes
-                // rebuilt the tray just after the click: "the strand pick
-                // did not open" (1.6.0 QA, 1 run in 4 under a loaded
-                // machine). So the hand clicks the chip again, up to three
-                // times, until the strand has moved. A rebuild can also
-                // land while the hand is on its way to the chip or the
-                // pick: the first strand's own echo took the second's pick
-                // out from under it ("fiber-strand-pick is not in the
-                // tray", CI, 2026-11-04). That is one more try, not a stop.
+                // A tray rebuild no longer costs the hand anything here:
+                // an open pick rides the rebuild (_fiberPickOpenKey), the
+                // click lands on the chip that is there at the release
+                // (T.click), and the select finds the pick that is there
+                // when it arrives. Rebuilds used to take the pick every
+                // time they beat the hand to it ("the strand pick did not
+                // open", 1.6.0 QA; a steady 500 ms redraw failed every
+                // replay). What is left for another try is a pick really
+                // closed: the window losing focus blurs it.
                 var move = function (i, to, tries) {
                     tries = tries || 1;
                     var chip = '[data-lrd-field="fiber-strand-' + b.id + '-p1-' + i + '"]';
@@ -5963,6 +6049,16 @@
                     return a._assignmentRequest('/api/port-assignments/place-overflow', 'POST',
                         { layerId: String(left.id), cardId: cid }, null, 'Place Ports');
                 }).then(function () {
+                    // A request that never got an answer resolves all the
+                    // same, and the drag then read as a refusal of the
+                    // gesture ("Put a screen on CVT10-S A first"). The
+                    // setup not taking is said as what it is.
+                    return t.wait(function () {
+                        var scr = ((a._assignment && a._assignment.screens) || []).find(function (s) { return s.layerId === String(left.id); });
+                        return scr && scr.ports.some(function (p) { return p.cardId === cid; });
+                    });
+                }).then(function (placed) {
+                    if (!placed) throw new Error('IMAG L did not go on the box');
                     frameLayers([a.project.layers.find(function (l) { return l.id === t.mem.left; }),
                                  a.project.layers.find(function (l) { return l.id === t.mem.right; })]);
                     a.saveState('Add Layer');

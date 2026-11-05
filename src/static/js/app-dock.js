@@ -444,6 +444,9 @@ class _HardwareDock {
         const focused = document.activeElement
             && document.activeElement.dataset
             && document.activeElement.dataset.hwdock;
+        // An open strand pick is a chip swapped in place, so nothing in the
+        // model says it is open: the wipe would put the chip back.
+        this._fiberPickOpen = this._fiberPickOpenKey();
         const before = dock.offsetHeight;
         // The rebuild must not move the tray under the reader (2026-09-09:
         // "when i try and open the cable sheet it jumps the whole screen
@@ -493,10 +496,20 @@ class _HardwareDock {
         // the anchor that keeps the clicked unit under the pointer reads
         // its final place, and nothing is painted in a transient one.
         this._dockMasonry(body);
+        this._fiberPickOpen = null;
         // The snake brackets ride under their chips by measurement, so
         // they are placed once the grids have laid out - after the fold
         // state above, which decides what is visible to measure.
-        if (mode === 'data-flow') this._dockPlaceSnakeBrackets(body);
+        if (mode === 'data-flow') {
+            this._dockPlaceSnakeBrackets(body);
+            // A bracket makes its unit taller, and the stack above read the
+            // unit without it. Left to the observer's next frame, every
+            // rebuild drew the column 30 px short for a frame, a reveal
+            // measured in that frame put the box past the tray's edge, and
+            // the anchor below read the short column as drift and walked
+            // the scroll back 30 px a rebuild.
+            if (body.querySelector('.hw-dock-grid-snaked')) this._dockMasonry(body);
+        }
         // Put the scroll back the way it was, then - if a unit anchored
         // this rebuild - slide it so that unit's top sits where it sat.
         body.scrollTop = scrollTop;
