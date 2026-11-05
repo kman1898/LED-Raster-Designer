@@ -732,9 +732,7 @@ class _MergeRuns {
     // being opened), so the pins are moved here, by the same rule as
     // port_assignment.remap_pins, and travel with the project's own PUT.
     _followPortsByCabinet(owner, moves, { local = false } = {}) {
-        const targets = new Set();
-        moves.forEach(to => { if (to !== null) targets.add(to); });
-        const where = n => (moves.has(n) ? moves.get(n) : (targets.has(n) ? null : n));
+        const where = this._portFollowWhere(moves);
         ['portLabelOverridesPrimary', 'portLabelOverridesReturn'].forEach(key => {
             const labels = owner[key];
             if (!labels || typeof labels !== 'object') return;
@@ -747,16 +745,20 @@ class _MergeRuns {
             });
             owner[key] = moved;
         });
-        const pins = (this.project && this.project.port_assignments
-            && this.project.port_assignments.pins) || [];
-        const sent = [];
-        pins.forEach(p => {
-            if (!p || String(p.layerId) !== String(owner.id)) return;
-            const n = (parseInt(p.index, 10) || 0) + 1;
-            const to = where(n);
-            if (to !== n) sent.push([n - 1, to === null ? null : to - 1]);
-        });
+        const pinMoves = () => {
+            const sent = [];
+            ((this.project && this.project.port_assignments
+                && this.project.port_assignments.pins) || []).forEach(p => {
+                if (!p || String(p.layerId) !== String(owner.id)) return;
+                const n = (parseInt(p.index, 10) || 0) + 1;
+                const to = where(n);
+                if (to !== n) sent.push([n - 1, to === null ? null : to - 1]);
+            });
+            return sent;
+        };
         if (local) {
+            const pins = (this.project.port_assignments && this.project.port_assignments.pins) || [];
+            const sent = pinMoves();
             if (!sent.length) return Promise.resolve(false);
             const move = new Map(sent);
             const ranked = [];
@@ -781,11 +783,24 @@ class _MergeRuns {
             this.project.port_assignments.pins = others.concat(kept);
             return Promise.resolve(true);
         }
-        if (!sent.length || typeof this._assignmentRequest !== 'function') {
-            return Promise.resolve(false);
-        }
-        return this._queuePinFollow(() => this._assignmentRequest('/api/port-assignments/remap',
-            'POST', { layerId: owner.id, moves: sent }, null, null).then(() => true));
+        if (typeof this._assignmentRequest !== 'function') return Promise.resolve(false);
+        // In line behind every pin follow already sent, and read then: a
+        // close-up ahead of this one moves the pins these moves apply to.
+        return this._queuePinFollow(() => {
+            const sent = pinMoves();
+            if (!sent.length) return false;
+            return this._assignmentRequest('/api/port-assignments/remap', 'POST',
+                { layerId: owner.id, moves: sent }, null, null).then(() => true);
+        });
+    }
+
+    // Where `moves` (_portMovesByCabinet) puts a number holding a name or a
+    // pin: its own move, or itself on a number `moves` does not know unless
+    // a moved port lands on it (then null: it goes).
+    _portFollowWhere(moves) {
+        const targets = new Set();
+        moves.forEach(to => { if (to !== null) targets.add(to); });
+        return n => (moves.has(n) ? moves.get(n) : (targets.has(n) ? null : n));
     }
 
     // ── A show saved before the column-first Down numbering (QA, 1.6.0) ──
@@ -828,13 +843,21 @@ class _MergeRuns {
         const notes = [];
         layers.forEach(l => {
             let old;
-            this._numberRunsByPlace = true;
+            let now;
+            // Both readings without the stacked leftovers, which came after
+            // this numbering: their own follow goes on from the numbers this
+            // one leaves (followOldLeftoverStacks).
+            this._leftoversUnstacked = true;
             try {
+                this._numberRunsByPlace = true;
                 old = this._portCabinetKeys(l);
+                this._numberRunsByPlace = false;
+                now = this._portCabinetKeys(l);
             } finally {
                 this._numberRunsByPlace = false;
+                this._leftoversUnstacked = false;
             }
-            const moves = this._portMovesByCabinet(old, this._portCabinetKeys(l));
+            const moves = this._portMovesByCabinet(old, now);
             const moved = [...moves].filter(([n, to]) => to !== n);
             if (!moved.length) return;
             const held = () => JSON.stringify([((this.project.port_assignments.pins) || [])
@@ -854,6 +877,168 @@ class _MergeRuns {
                 + 'Their card ports and names moved with their cabinets.');
         });
         return notes;
+    }
+
+    // ── A show saved before the leftovers stacked (the owner, 2026-11-04) ──
+    //
+    // Organized stacks the leftover at the end of each cut line with the
+    // leftovers of the lines after it (_stackLineLeftovers), so a show saved
+    // before that has new numbers the day it is opened: the 84 x 5 wall that
+    // needed 49 ports needs 47, and the ports after each stack close up. The
+    // cabinets did not move, only the numbers, and the cards are pinned by
+    // number, so the pins past the new last port were released
+    // (_releasePinsOffPorts) and the others drove other cabinets. The owner:
+    // "follow like labels do". So on open each automatic screen is read
+    // both ways and its pins and typed names ride their cabinets
+    // (_portMovesByCabinet, _followPortsByCabinet). Two leftovers that are
+    // one port now are that rule's collision: one keeps the number, the
+    // other's name goes and its pin is released.
+    //
+    // This runs on the server's copy, behind the open's own repair
+    // (trimPortsOffWall) and ahead of the load's commit and its release,
+    // not ahead of the PUT the way _followOldStackNumbering does: a pin this
+    // lets go of goes through /remap, so its socket forgets its port cable
+    // the way any release does.
+    //
+    // A locked screen stays as it is. It carries `leftoverFollowDue` from
+    // the open, since the stamp no longer says so after the next save, and
+    // follows in the step that unlocks it (followDueLeftovers).
+    //
+    // A setting that renumbers (Organized or Max Capacity, Port numbers, a
+    // pattern) is not this: there a typed name stays on its number and so
+    // does the pin.
+
+    // Was `project` written by a build from before the stacked leftovers
+    // (1.6.0 beta 6), or one that did not stamp? As redrawsPredateRelease,
+    // the beta read off the stamp.
+    predatesLeftoverStacks(project) {
+        if (this.projectPredatesVersion('1.6.0', project)) return true;
+        const m = /^\s*v?1\.6\.0-beta\.(\d+)/.exec(String((project && project.app_version) || ''));
+        return !!m && Number(m[1]) <= 5;
+    }
+
+    // Can the stacks have moved `l`'s numbers? Not on a custom screen (a
+    // drawing is never rewritten), not on Max Capacity, and not on a mirror
+    // (its map is its source's).
+    _leftoversRenumber(l) {
+        return !!l && (l.type || 'screen') === 'screen' && !this.isCustomFlow(l)
+            && (l.portMappingMode || 'organized') === 'organized'
+            && !(typeof this.mirrorSourceOf === 'function' && this.mirrorSourceOf(l));
+    }
+
+    // _portMovesByCabinet from `l`'s walk without the stacks to its walk now.
+    _leftoverMoves(l) {
+        let old;
+        this._leftoversUnstacked = true;
+        try {
+            old = this._portCabinetKeys(l);
+        } finally {
+            this._leftoversUnstacked = false;
+        }
+        return this._portMovesByCabinet(old, this._portCabinetKeys(l));
+    }
+
+    // What `moves` changes on `owner`: `changed` when a pin or a typed name
+    // moves or goes, `lost` the port numbers whose pins are released.
+    _leftoverHolds(owner, moves) {
+        const where = this._portFollowWhere(moves);
+        const pinned = ((this.project.port_assignments && this.project.port_assignments.pins) || [])
+            .filter(p => p && String(p.layerId) === String(owner.id))
+            .map(p => (parseInt(p.index, 10) || 0) + 1);
+        const named = ['portLabelOverridesPrimary', 'portLabelOverridesReturn']
+            .flatMap(key => Object.keys(owner[key] || {}))
+            .map(k => parseInt(k, 10)).filter(n => Number.isFinite(n));
+        return {
+            changed: pinned.concat(named).some(n => where(n) !== n),
+            lost: pinned.filter(n => where(n) === null),
+        };
+    }
+
+    // The open's half: every automatic screen follows, or waits when it is
+    // locked. A screen with nothing pinned or named on the ports that moved
+    // has nothing to say. Returns the sentences for the toast.
+    followOldLeftoverStacks() {
+        const due = [];
+        const notes = [];
+        ((this.project && this.project.layers) || []).forEach(l => {
+            if (!this._leftoversRenumber(l)) return;
+            const moves = this._leftoverMoves(l);
+            if (!this._leftoverHolds(l, moves).changed) return;
+            if (!this._layerLocked(l)) {
+                due.push({ owner: l, moves });
+                return;
+            }
+            l.leftoverFollowDue = true;
+            sendClientLog('old_leftovers_held', { layerId: l.id,
+                moved: [...moves].filter(([n, to]) => to !== n) });
+            notes.push(`${l.name || 'Screen'}: this show was saved before Organized stacked its `
+                + 'leftovers, so some ports have new numbers. The screen is locked, so its '
+                + 'processor ports and names stay as they are until it is unlocked.');
+        });
+        return notes.concat(this._followLeftovers(due));
+    }
+
+    // The unlock's half, from the commit that carries it (updateLayers),
+    // ahead of that commit's release: every screen owed the follow that is
+    // no longer locked gets it in the commit's own undo step, which an undo
+    // takes back with the lock. Returns the screens it changed.
+    followDueLeftovers() {
+        if (!this.project || this._projectOpening) return [];
+        const owed = this._leftoversOwed();
+        if (!owed.length) return [];
+        const notes = this._followLeftovers(owed.filter(l => this._leftoversRenumber(l))
+            .map(owner => ({ owner, moves: this._leftoverMoves(owner) })));
+        owed.forEach(l => { l.leftoverFollowDue = false; });
+        if (notes.length && typeof this._toast === 'function') {
+            this._toast(notes.join(' '), false, 12000);
+        }
+        return owed;
+    }
+
+    _leftoversOwed() {
+        return ((this.project && this.project.layers) || [])
+            .filter(l => l && l.leftoverFollowDue && !this._layerLocked(l));
+    }
+
+    // `due` ([{ owner, moves }]) follows, each screen's pins in line behind
+    // whatever is already going to the server, and every undo step taken
+    // since holds them (_followPinsIntoHistory). Returns the sentences.
+    _followLeftovers(due) {
+        if (!due.length) return [];
+        const taken = new Set(Array.isArray(this.history) ? this.history : []);
+        let before = null;
+        this._queuePinFollow(() => {
+            before = JSON.stringify(this.project.port_assignments || null, this._snapshotReplacer);
+        });
+        const notes = [];
+        const sent = due.map(({ owner, moves }) => {
+            const { changed, lost } = this._leftoverHolds(owner, moves);
+            const moved = [...moves].filter(([n, to]) => to !== n);
+            const pinned = this._followPortsByCabinet(owner, moves);
+            sendClientLog('old_leftovers_followed', { layerId: owner.id, moved, released: lost });
+            if (changed) notes.push(this._leftoverNote(owner, moved, lost));
+            return pinned;
+        });
+        Promise.all(sent).then(moved => {
+            if (moved.some(Boolean)) this._followPinsIntoHistory(before, taken);
+        });
+        return notes;
+    }
+
+    // "Wall: this show was saved before Organized stacked its leftovers, so
+    // some ports have new numbers (P10 is now P9, ...). Their processor
+    // ports and names moved with their cabinets."
+    _leftoverNote(owner, moved, lost) {
+        const shown = moved.filter(([, to]) => to !== null).slice(0, 3)
+            .map(([n, to]) => `${this._portNumberText(n)} is now ${this._portNumberText(to)}`);
+        const one = lost.length === 1;
+        return `${owner.name || 'Screen'}: this show was saved before Organized stacked its `
+            + `leftovers, so some ports have new numbers (${shown.join(', ')}`
+            + `${moved.length > 3 ? ', ...' : ''}). `
+            + 'Their processor ports and names moved with their cabinets.'
+            + (lost.length ? ` ${this._portNumbersText(lost)} ${one ? 'is' : 'are'} now part of `
+                + `${one ? 'another port' : 'other ports'}, so `
+                + `${one ? 'its processor port was' : 'their processor ports were'} released.` : '');
     }
 
     // The data overrides of `owner` with nothing on them: no cabinet that
@@ -1260,6 +1445,8 @@ class _MergeRuns {
         (layers || []).forEach(l => {
             if (l && done && done.has(String(l.id))) pending.add(String(l.id));
         });
+        // The stacked leftovers' follow rides the same commit.
+        if (this._leftoversOwed().length) return true;
         if (pending.size === 0) return false;
         return (layers || []).some(l => l && pending.has(String(l.id)));
     }
