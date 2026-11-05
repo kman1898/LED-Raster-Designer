@@ -356,6 +356,9 @@ def test_a_field_nobody_has_written_yet_is_covered_when_it_appears(page):
 
 def test_the_burst_from_the_log_writes_nothing_anywhere(page):
     pg, ids = page
+    # The multi name lives in the Power tab's tray.
+    pg.locator('[data-mode="power"]').click()
+    pg.wait_for_timeout(300)
     _open_binder(pg)
     _clear_logs(pg)
     fields = [(key, value) for key, value in _burst_fields(ids['id'])
