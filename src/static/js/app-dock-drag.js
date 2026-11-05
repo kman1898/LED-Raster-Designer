@@ -316,7 +316,8 @@ class _DockDrag {
         if (drag.payload.type === 'distro' && typeof this._dockMarkServiceDrop === 'function') {
             this._dockMarkServiceDrop(target, drag.payload);
         }
-        if (drag.payload.type === 'plug' || drag.payload.output
+        if (drag.payload.type === 'plug' || drag.payload.type === 'port'
+                || drag.payload.output
                 || this._dockDropUnit(drag.payload)) {
             this._dockPlugPill(drag, ev, target);
         }
@@ -411,10 +412,15 @@ class _DockDrag {
         if (renderer.viewMode === 'data-flow') {
             if (hit && drag.dataMap && drag.dataMap.has(hit.panel)) {
                 const run = drag.dataMap.get(hit.panel);
-                return whole
-                    ? this._dockDataScreenTarget(drag, run.ownerId,
-                                                 run.portNum)
-                    : { kind: 'run', layerId: run.ownerId, num: run.portNum };
+                if (whole) {
+                    return this._dockDataScreenTarget(drag, run.ownerId,
+                                                      run.portNum);
+                }
+                const target = { kind: 'run', layerId: run.ownerId,
+                                 num: run.portNum };
+                const why = this._dockPortDropRefusal(drag.payload, run.ownerId);
+                if (why) target.pill = { ok: false, message: why };
+                return target;
             }
             if (whole) {
                 // Any layer under the cursor is a target, screen or not: the
@@ -581,6 +587,26 @@ class _DockDrag {
                 && numbers.has(Number(p.port)))) return null;
         return `${scr.name} is on ${primary.displayTitle}, so its backup `
             + `already rides on ${box.displayTitle}.`;
+    }
+
+    // Why one port chip dropped on a screen's run is refused, or null: the
+    // screen's own gate, or a mirror socket, which carries a copy and takes
+    // no port by hand (the server's place_port refuses it too). Null leaves
+    // the chip's drop to the placement, which may ask about a shared socket.
+    _dockPortDropRefusal(payload, layerId) {
+        const gate = this._dockDataGateRefusal(layerId);
+        if (gate) return gate;
+        if (!payload || payload.type !== 'port') return null;
+        const found = typeof this._dockFindCard === 'function'
+            ? this._dockFindCard(payload.cardId) : null;
+        const card = found && found.card;
+        const port = card && (card.ports || [])
+            .find(p => Number(p.number) === Number(payload.port));
+        if (!port || !port.mirrorOf) return null;
+        const box = (card.cvts || []).find(b => b.id === port.cvtId);
+        const name = (box && box.displayTitle) || 'its box';
+        return `Port ${port.localNumber || port.number} of ${name} carries a `
+            + `copy. Drag ${name} onto the screen that should be the mirror.`;
     }
 
     // Why a whole-unit data drop on this screen is refused before any port

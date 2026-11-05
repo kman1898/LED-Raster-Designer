@@ -294,19 +294,18 @@ class _MirrorScreens {
     }
 
     // THE ONE DECISION the dock's preview and its release both read for a
-    // whole-card drop on a screen (preview == result): is this the SECOND
-    // screen of a card in Copy mode? Null where it is not - a box, a card
-    // not in Copy, a card with no screen on it yet, a drop on a screen the
-    // card already feeds - and the drop goes on as any card drop. Otherwise
+    // whole-card or whole-box drop on a screen (preview == result): does
+    // this drop make a mirror? Null where it does not - a box that is not a
+    // mirror box, a card not in Copy, a card with no screen on it yet, a
+    // drop on a screen the card already feeds - and the drop goes on as any
+    // card or box drop. Otherwise
     //   { ok: true, sourceId, sourceName, nums, text } - the screen becomes
     //       the copy of `sourceId`, the first screen on the card;
     //   { ok: false, message } - said, and nothing changes.
     // The first screen is the one on the card's lowest socket that has no
     // copy yet (a screen has one mirror, on the copy outputs); where every
     // screen on the card already has one, the first of them, so the
-    // server's "already mirrors" refusal is what is said. Whether the two
-    // screens match is the server's (mirror_set_refusal), said in its own
-    // words when the drop is released.
+    // "already mirrors" refusal is what is said.
     //
     // A BOX SET TO MIRROR IS THE COPY (owner, 2026-11-04: "breakout is the
     // only way mirror works aka copy"): a box whose every socket copies a

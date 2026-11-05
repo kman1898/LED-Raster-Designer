@@ -220,11 +220,14 @@ def box_key(pg, box_id):
 
 
 def grip(pg, key):
+    """Where a hand takes a tray handle: a header's grip, a chip's face."""
     pg.evaluate("""(key) => {
         const el = document.querySelector(`[data-hwdock="${key}"]`);
         if (el) el.scrollIntoView({block: 'nearest'});
     }""", key)
-    loc = pg.locator(f'[data-hwdock="{key}"] .hw-dock-grip').first
+    head = pg.locator(f'[data-hwdock="{key}"]')
+    handle = head.locator('.hw-dock-grip')
+    loc = handle.first if handle.count() else head.first
     box = loc.bounding_box()
     assert box, f'no grip on {key}'
     return box['x'] + box['width'] / 2, box['y'] + box['height'] / 2
@@ -465,4 +468,385 @@ def test_a_backup_box_drops_as_its_primary(page):
         'ok': False, 'message': 'Screen1 is on CVT4K-S A-B, so its backup '
                                 'already rides on CVT4K-S C-D.'}, again
     assert not again['changed']
+    assert errors == []
+
+
+# Any payload through the drag's two calls, preview then release.
+PAYLOAD_DROP_JS = """async ([payload, target]) => {
+    const app = window.app;
+    const t = target || app._dockDataScreenTarget({payload},
+                                                  String(payload.onto), null);
+    const before = app.history.length;
+    const status = document.getElementById('status-message');
+    if (status) status.textContent = '';
+    await app._dockPerformDrop(payload, t);
+    await new Promise(r => setTimeout(r, 400));
+    await app.refreshPortAssignment();
+    return {pill: t.pill || null, changed: app.history.length !== before,
+            said: status ? status.textContent : ''};
+}"""
+
+ADD_SCREEN_JS = """async ([name, x, y, extra]) => {
+    const j = (method, url, body) => fetch(url, {method,
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body)}).then(r => r.json());
+    const l = await j('POST', '/api/layer/add', Object.assign({name,
+        columns: 10, rows: 5, cabinet_width: 128, cabinet_height: 128,
+        offset_x: x, offset_y: y}, extra || {}));
+    await j('PUT', `/api/layer/${l.id}`, {processorType: 'novastar-armor',
+                                          bitDepth: 8, frameRate: 60});
+    const app = window.app;
+    app.project = await (await fetch('/api/project')).json();
+    await app.refreshProcessors();
+    app.renderLayers();
+    await app.refreshPortAssignment();
+    return l.id;
+}"""
+
+RELOAD_JS = """async () => {
+    const app = window.app;
+    app.project = await (await fetch('/api/project')).json();
+    await app.refreshProcessors();
+    app.renderLayers();
+    await app.refreshPortAssignment();
+}"""
+
+SERVER_REFUSAL_JS = """async ([id, of]) => (await (await fetch(
+    `/api/layer/${id}/mirror-refusal?of=${of}`)).json()).error"""
+
+
+def mirror_rig(pg):
+    """The owner's rig with Screen1 already on box A-B."""
+    ids = seed(pg, 'api-mirror')
+    boxes = pg.evaluate(BOXES_JS, ids['cid'])
+    primary, mirror = boxes[0]['id'], boxes[1]['id']
+    out = pg.evaluate(DROP_JS, [ids['cid'], primary, ids['s1']])
+    assert out['changed'], out
+    return ids, primary, mirror
+
+
+def test_unplugging_the_copy_or_its_source_follows_the_box_drop(page):
+    pg, errors = page
+    ids, primary, mirror = mirror_rig(pg)
+    assert pg.evaluate(DROP_JS, [ids['cid'], mirror, ids['s2']])['changed']
+    st = pg.evaluate(STATE_JS, ids)
+    assert st['s2'] == [[17, 'mirror'], [18, 'mirror']], st
+
+    # the copy's chip dragged back to the tray: only the copy goes
+    out = pg.evaluate(PAYLOAD_DROP_JS, [
+        {'type': 'port', 'cardId': ids['cid'], 'port': 17, 'title': 'P'},
+        {'kind': 'dock'}])
+    assert out['changed'], out
+    st = pg.evaluate(STATE_JS, ids)
+    assert st['mirrorOf'] is None and st['serverMirrorOf'] is None, st
+    assert st['s2'] == [[None, None], [None, None]], st
+    assert st['s1'] == [[1, 'pin'], [2, 'pin']], st
+
+    # made again, then the SOURCE comes off its box: the copy goes with it
+    assert pg.evaluate(DROP_JS, [ids['cid'], mirror, ids['s2']])['changed']
+    assert pg.evaluate(STATE_JS, ids)['mirrorOf'] == ids['s1']
+    pg.evaluate("""async (ids) => {
+        await window.app._dockReleasePins(
+            [0, 1].map(index => ({layerId: String(ids.s1), index})),
+            'Release Ports');
+    }""", ids)
+    pg.wait_for_timeout(400)
+    st = pg.evaluate(STATE_JS, ids)
+    assert st['mirrorOf'] is None and st['serverMirrorOf'] is None, st
+    assert st['s1'] == [[None, None], [None, None]], st
+    assert st['s2'] == [[None, None], [None, None]], st
+    assert errors == []
+
+
+def test_the_processor_drag_and_the_box_drop_land_the_same(page):
+    """The UHD Jr's catalog mode is copyTrunks per-box: with a box set to
+    Mirror the processor drag already made a mirror. Both gestures end in
+    the same setting on the same sockets."""
+    pg, errors = page
+    ids, primary, mirror = mirror_rig(pg)
+    payload = {'type': 'processor', 'processorId': ids['pid'],
+               'onto': ids['s2']}
+    out = pg.evaluate(PAYLOAD_DROP_JS, [payload, None])
+    assert out['pill'] == {'ok': True, 'text': 'Copy of Screen1'}, out
+    by_processor = pg.evaluate(STATE_JS, ids)
+    pg.evaluate("() => window.app.undo()")
+    pg.wait_for_timeout(900)
+    pg.evaluate("() => window.app.refreshPortAssignment()")
+    pg.wait_for_timeout(300)
+    assert pg.evaluate(STATE_JS, ids)['mirrorOf'] is None
+    out = pg.evaluate(DROP_JS, [ids['cid'], mirror, ids['s2']])
+    assert out['pill'] == {'ok': True, 'text': 'Copy of Screen1'}, out
+    by_box = pg.evaluate(STATE_JS, ids)
+    assert by_box['mirrorOf'] == by_processor['mirrorOf'] == ids['s1']
+    assert by_box['s2'] == by_processor['s2'] == [[17, 'mirror'],
+                                                  [18, 'mirror']]
+    assert errors == []
+
+
+def test_a_backup_box_dragged_from_the_tray_by_a_person(page):
+    """The same backup drop as a real pointer drag from the box's own tray
+    handle, so the payload is the one the tray builds."""
+    pg, errors = page
+    ids = seed(pg, 'api-backup')
+    backup = pg.evaluate(BOXES_JS, ids['cid'])[1]['id']
+    pill = drag(pg, box_key(pg, backup), ids['s1'])
+    assert pill == {'text': '2 ports', 'bad': False}, pill
+    st = pg.evaluate(STATE_JS, ids)
+    assert st['s1'] == [[1, 'pin'], [2, 'pin']], st
+    pill = drag(pg, box_key(pg, backup), ids['s1'])
+    assert pill == {'text': 'Screen1 is on CVT4K-S A-B, so its backup already '
+                            'rides on CVT4K-S C-D.', 'bad': True}, pill
+    assert pg.evaluate(STATE_JS, ids)['history'] == st['history']
+    assert errors == []
+
+
+def _parity_target(pg, ids, mirror, case):
+    """Sets up one of the server's rules; returns (target id, source id)."""
+    if case == 'pixels':
+        return pg.evaluate(ADD_SCREEN_JS, [
+            'ODD', 1500, 900, {'cabinet_height': 64}]), ids['s1']
+    if case == 'blank':
+        target = pg.evaluate(ADD_SCREEN_JS, ['HOLE', 1500, 900, None])
+        pg.evaluate("""async (id) => {
+            const app = window.app;
+            const l = app.project.layers.find(x => x.id === id);
+            app.selectLayer(l);
+            await app.setPanelsBlankBulk(
+                [l.panels.find(x => x.row === 0 && x.col === 3)], true);
+        }""", target)
+        pg.wait_for_timeout(400)
+        pg.evaluate("() => window.app.refreshPortAssignment()")
+        return target, ids['s1']
+    if case == 'second-mirror':
+        assert pg.evaluate(DROP_JS, [ids['cid'], mirror, ids['s2']])['changed']
+        return pg.evaluate(ADD_SCREEN_JS, ['S3', 1500, 900, None]), ids['s1']
+    if case == 'group':
+        third = pg.evaluate(ADD_SCREEN_JS, ['S3', 1500, 900, None])
+        pg.evaluate("""async ([a, b]) => {
+            const proj = await (await fetch('/api/project')).json();
+            proj.groups = [{id: 'g1', name: 'PAIR', layer_ids: [a, b]}];
+            proj.layers.filter(l => l.id === a || l.id === b)
+                .forEach(l => { l.group_id = 'g1'; });
+            await fetch('/api/project', {method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(proj)});
+        }""", [ids['s2'], third])
+        pg.evaluate(RELOAD_JS)
+        return ids['s2'], ids['s1']
+    raise AssertionError(case)
+
+
+@pytest.mark.parametrize('case,needle', [
+    ('pixels', "cabinets are 128 x 64 px"),
+    ('blank', 'different blank, hidden or half cabinets'),
+    ('second-mirror', 'Screen2 already mirrors Screen1.'),
+    ('group', 'routes its data as one screen with the group PAIR'),
+])
+def test_every_rule_of_the_server_reaches_the_pill_in_its_words(page, case,
+                                                                needle):
+    pg, errors = page
+    ids, primary, mirror = mirror_rig(pg)
+    target, source = _parity_target(pg, ids, mirror, case)
+    server = pg.evaluate(SERVER_REFUSAL_JS, [target, source])
+    assert server and needle in server, server
+    out = pg.evaluate(DROP_JS, [ids['cid'], mirror, target])
+    assert out['pill'] == {'ok': False, 'message': server}, (out, server)
+    assert not out['changed']
+    assert errors == []
+
+
+def test_a_screen_copied_by_another_cannot_become_a_mirror(page):
+    """A show saved with a mirror whose source sits unplugged: the source
+    cannot itself become a copy (mirror_set_refusal's chain rule)."""
+    pg, errors = page
+    ids = seed(pg, 'api-mirror')
+    boxes = pg.evaluate(BOXES_JS, ids['cid'])
+    third = pg.evaluate(ADD_SCREEN_JS, ['S3', 1500, 900, None])
+    assert pg.evaluate(DROP_JS, [ids['cid'], boxes[0]['id'], third])['changed']
+    pg.evaluate("""async (ids) => {
+        await fetch(`/api/layer/${ids.s2}`, {method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({dataMirrorOf: ids.s1})});
+    }""", ids)
+    pg.evaluate(RELOAD_JS)
+    server = pg.evaluate(SERVER_REFUSAL_JS, [ids['s1'], third])
+    assert server == ('Screen2 mirrors Screen1, so Screen1 cannot mirror '
+                      'another screen.'), server
+    out = pg.evaluate(DROP_JS, [ids['cid'], boxes[1]['id'], ids['s1']])
+    assert out['pill'] == {'ok': False, 'message': server}, out
+    assert not out['changed']
+    assert errors == []
+
+
+def test_one_port_of_a_mirror_box_says_to_drag_the_box(page):
+    """A single socket of a mirror box dragged onto a screen's run: the
+    pill says why before the drop, and the server's refusal is said in the
+    status bar as well as on the tray's line."""
+    pg, errors = page
+    ids, primary, mirror = mirror_rig(pg)
+    before = pg.evaluate(STATE_JS, ids)
+    pill = drag(pg, f"port-{ids['cid']}-17", ids['s2'])
+    assert pill == {'text': 'Port 1 of CVT4K-S C-D carries a copy. Drag '
+                            'CVT4K-S C-D onto the screen that should be the '
+                            'mirror.', 'bad': True}, pill
+    after = pg.evaluate(STATE_JS, ids)
+    assert after['history'] == before['history']
+    assert after['pins'] == before['pins']
+    said = pg.evaluate(STATUS_JS)
+    assert 'copies CVT4K-S A-B for a mirror screen.' in said, said
+    assert 'Screen Info' not in said
+    assert errors == []
+
+
+# Every shape the catalog gives a copy box: a whole mode (H_4xfiber Copy, the
+# VX Pros), a per-box pick (MCTRL R5, 4K-Prime, MX40 Pro 20-port) and a unit
+# whose copy OPT only copies (MX30). Only the catalog's own settings are used.
+UNIT_SEED_JS = """async ([spec]) => {
+    const j = (method, url, body) => fetch(url, {method,
+        headers: {'Content-Type': 'application/json'},
+        body: body === undefined ? undefined : JSON.stringify(body)})
+        .then(r => r.json());
+    const proj = await j('GET', '/api/project');
+    proj.layers = []; proj.groups = []; proj.processors = [];
+    proj.distros = [];
+    delete proj.port_assignments; delete proj.fiberCables;
+    delete proj.snakes;
+    await j('PUT', '/api/project', proj);
+    const made = {};
+    for (const [n, x] of [['SA', 0], ['SB', 900]]) {
+        const l = await j('POST', '/api/layer/add', {name: n, columns: 4,
+            rows: 2, cabinet_width: 128, cabinet_height: 128, offset_x: x,
+            offset_y: 0});
+        await j('PUT', `/api/layer/${l.id}`, {processorType: spec.platform,
+                                              bitDepth: 8, frameRate: 60});
+        made[n] = l.id;
+    }
+    let st = await j('POST', '/api/processors', {deviceId: spec.device});
+    const pid = st.resolved[st.resolved.length - 1].id;
+    if (spec.card) {
+        st = await j('PUT', `/api/processors/${pid}/slots/0`,
+                     {deviceId: spec.card});
+    }
+    const cid = st.resolved[st.resolved.length - 1].slots[0].card.id;
+    if (spec.mode) {
+        await j('PUT', `/api/processors/${pid}/cards/${cid}`,
+                {mode: spec.mode});
+    }
+    for (const body of spec.boxes) {
+        await j('POST', `/api/processors/${pid}/cards/${cid}/cvts`, body);
+    }
+    const app = window.app;
+    app.project = await j('GET', '/api/project');
+    await app.refreshProcessors();
+    app.renderLayers();
+    await app.refreshPortAssignment();
+    app.resetHistory('Unit Seed');
+    const card = app._dockFindCard(cid).card;
+    const of = (b) => card.ports.filter(p => p.cvtId === b.id);
+    const copy = card.cvts.find(b => of(b).length
+        && of(b).every(p => p.mirrorOf));
+    const first = copy ? of(copy)[0].mirrorOf : null;
+    const primary = copy
+        ? card.cvts.find(b => of(b).some(p => p.number === first))
+        : card.cvts[0];
+    return {cid, sa: made.SA, sb: made.SB,
+            copy: copy ? copy.id : null, primary: primary.id,
+            other: card.cvts.filter(b => b !== primary).map(b => b.id),
+            firstCopy: copy ? of(copy)[0].number : null};
+}"""
+
+CVT10 = {'deviceId': 'novastar-cvt10', 'pair': False}
+CVT10_MIRROR = dict(CVT10, copyRole='mirror')
+CVT4K = {'deviceId': 'novastar-cvt4k-s', 'pair': False}
+ARMOR, COEX = 'novastar-armor', 'novastar-coex-1g'
+COPY_UNITS = {
+    'h-4xfiber-copy': dict(device='novastar-h9', mode='copy', platform=ARMOR,
+                           card='novastar-card-h-4xfiber',
+                           boxes=[CVT10] * 4),
+    'vx1000-pro-copy': dict(device='novastar-vx1000-pro', mode='copy',
+                            platform=ARMOR, boxes=[CVT10] * 2),
+    'vx2000-pro-copy': dict(device='novastar-vx2000-pro', mode='copy',
+                            platform=ARMOR, boxes=[CVT4K] * 2),
+    'mctrl-r5-box': dict(device='novastar-mctrl-r5', platform=ARMOR,
+                         boxes=[CVT10, CVT10_MIRROR]),
+    '4k-prime-box': dict(device='novastar-4k-prime', platform=ARMOR,
+                         boxes=[CVT4K, dict(CVT4K, copyRole='mirror')]),
+    # its first box brings its OPT 3 pair, which the add sets to Mirror
+    'mx40-pro-box': dict(device='novastar-mx40-pro', mode='20-port',
+                         platform=COEX, boxes=[{'deviceId': 'novastar-cvt10',
+                                                'copyRole': 'mirror'}]),
+    'mx30-copy-opt': dict(device='novastar-mx30', platform=COEX,
+                          boxes=[CVT10] * 2),
+}
+
+
+@pytest.mark.parametrize('name', sorted(COPY_UNITS))
+def test_every_catalog_copy_box_makes_the_mirror_the_same_way(page, name):
+    pg, errors = page
+    rig = pg.evaluate(UNIT_SEED_JS, [COPY_UNITS[name]])
+    assert rig['copy'], (name, rig)
+    first = pg.evaluate(DROP_JS, [rig['cid'], rig['primary'], rig['sa']])
+    assert first['changed'], (name, first)
+    out = pg.evaluate(DROP_JS, [rig['cid'], rig['copy'], rig['sb']])
+    assert out['pill'] == {'ok': True, 'text': 'Copy of SA'}, (name, out)
+    assert out['changed'], (name, out)
+    got = pg.evaluate("""(rig) => {
+        const app = window.app;
+        const l = app.project.layers.find(x => x.id === rig.sb);
+        const s = app._assignment.screens
+            .find(x => x.layerId === String(rig.sb));
+        return {mirrorOf: l.dataMirrorOf, ports: s.ports.map(p =>
+            [p.port, p.source])};
+    }""", rig)
+    assert got['mirrorOf'] == rig['sa'], (name, got)
+    assert got['ports'] == [[rig['firstCopy'], 'mirror']], (name, got)
+    assert errors == []
+
+
+def test_a_box_on_an_independent_card_stays_an_ordinary_box(page):
+    """No copy in the mode, no mirror: the catalog's Independent H_4xfiber
+    box drops as any box, and nothing is widened to it."""
+    pg, errors = page
+    rig = pg.evaluate(UNIT_SEED_JS, [dict(
+        COPY_UNITS['h-4xfiber-copy'], mode='independent')])
+    assert rig['copy'] is None, rig
+    assert pg.evaluate(DROP_JS,
+                       [rig['cid'], rig['primary'], rig['sa']])['changed']
+    out = pg.evaluate(DROP_JS, [rig['cid'], rig['other'][0], rig['sb']])
+    assert out['pill'] == {'ok': True, 'text': '1 port'}, out
+    assert out['changed']
+    got = pg.evaluate("""(rig) => {
+        const app = window.app;
+        const l = app.project.layers.find(x => x.id === rig.sb);
+        const s = app._assignment.screens
+            .find(x => x.layerId === String(rig.sb));
+        return [l.dataMirrorOf === undefined ? null : l.dataMirrorOf,
+                s.ports.map(p => p.source)];
+    }""", rig)
+    assert got == [None, ['pin']], got
+    assert errors == []
+
+
+BACKUP_UNITS = {
+    'h-4xfiber-backup': dict(COPY_UNITS['h-4xfiber-copy'], mode='backup'),
+    'vx1000-pro-backup': dict(COPY_UNITS['vx1000-pro-copy'], mode='backup'),
+    'mctrl-r5-backup': dict(COPY_UNITS['mctrl-r5-box'], boxes=[
+        CVT10, dict(CVT10, copyRole='backup')]),
+}
+
+
+@pytest.mark.parametrize('name', sorted(BACKUP_UNITS))
+def test_every_catalog_backup_box_drops_or_says_why(page, name):
+    pg, errors = page
+    rig = pg.evaluate(UNIT_SEED_JS, [BACKUP_UNITS[name]])
+    assert rig['copy'] is None, (name, rig)
+    backups = pg.evaluate("""(cid) => window.app._dockFindCard(cid).card.cvts
+        .filter(b => b.backupOf).map(b => b.id)""", rig['cid'])
+    assert backups, (name, rig)
+    out = pg.evaluate(DROP_JS, [rig['cid'], backups[0], rig['sa']])
+    assert out['pill'] == {'ok': True, 'text': '1 port'}, (name, out)
+    assert out['changed'], (name, out)
+    again = pg.evaluate(DROP_JS, [rig['cid'], backups[0], rig['sa']])
+    assert not again['pill']['ok'] and not again['changed'], (name, again)
+    assert 'already rides on' in again['pill']['message'], (name, again)
     assert errors == []
