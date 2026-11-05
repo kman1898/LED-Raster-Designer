@@ -655,18 +655,23 @@ class _BinderWiring {
         // the box's widest input name, so X1's and X2's strands start alike)
         for (const d of devices) d.inputs = isData && d.box ? this._bwBoxInputs(d.box) : null;
         const inHead = (d) => Math.max(0, ...(d.inputs || []).map(g => measure(g.head, IN_SZ, 700))) + 5;
-        // and each input's cable after it, the column as wide as the box's
-        // widest name
-        const inSub = (d) => {
-            const w = Math.max(0, ...(d.inputs || []).map(g => (g.sub ? measure(g.sub, IN_SZ, 400) : 0)));
-            return w ? w + 6 : 0;
-        };
-        const inLineW = (d, g) => inHead(d) + inSub(d) + g.strands.reduce((s, st) =>
+        // and its cable after it, as wide as its own name: the row beside
+        // the caption is what holds this, and a second input on a cable
+        // says only "TAC A"
+        const inSub = (g) => (g.sub ? measure(g.sub, IN_SZ, 400) + 6 : 0);
+        const inLineW = (d, g) => inHead(d) + inSub(g) + g.strands.reduce((s, st) =>
             s + (st.swatch ? IN_SW + 3 : 0) + measure(st.text, IN_SZ, 400) + 6, 0) - 6;
         const groupW = (d, g) => inLineW(d, g) + IN_PAD * 2;
         // a box is never narrower than its widest group, so a wrapped group
-        // is never cut
-        const inContent = (d) => (d.inputs ? Math.max(...d.inputs.map(g => groupW(d, g))) : 0);
+        // is never cut, and it holds its groups side by side on the one
+        // line under the caption (2026-10-18) as long as two such boxes
+        // still stand on a row: past that a group takes a line of its own
+        const inContent = (d) => {
+            if (!d.inputs) return 0;
+            const ws = d.inputs.map(g => groupW(d, g));
+            const line = ws.reduce((s, w) => s + w, 0) + IN_GAP * (ws.length - 1);
+            return line + PAD * 2 <= (availW - MIN_BOX_GAP) / 2 ? line : Math.max(...ws);
+        };
         // the width that holds the caption and every group on one row
         const inRowW = (d) => (d.inputs ? capW(d) + IN_CAP_GAP + d.inputs.reduce((s, g) =>
             s + groupW(d, g), 0) + IN_GAP * (d.inputs.length - 1) + PAD * 2 : 0);
@@ -993,10 +998,11 @@ class _BinderWiring {
                     socketX.set(d.key, xs);
                     const place = inPlace(d, w);
                     const inputs = place ? {
-                        groups: d.inputs, head: inHead(d) * K, sub: inSub(d) * K, size: IN_SZ * K, line: IN_LINE * K,
+                        groups: d.inputs, head: inHead(d) * K, size: IN_SZ * K, line: IN_LINE * K,
                         sw: IN_SW * K, pad: IN_PAD * K, lines: place.lines,
                         at: place.at.map((a, gi) => ({ x: bx + a.x * K, line: a.line,
-                                                      w: groupW(d, d.inputs[gi]) * K })),
+                                                      w: groupW(d, d.inputs[gi]) * K,
+                                                      sub: inSub(d.inputs[gi]) * K })),
                     } : null;
                     blocks.push({ key: d.key, title: d.title, x: bx, y, w: w * K, h: BOXH * K,
                                   side: bs,
@@ -1745,7 +1751,7 @@ class _BinderWiring {
             const x0 = at.x + I.pad;
             this._bText(book, g.head, x0, base, { size: I.size, weight: 700, color: INK });
             if (g.sub) this._bText(book, g.sub, x0 + I.head, base, { size: I.size, weight: 400, color: INK });
-            let x = x0 + I.head + (I.sub || 0);
+            let x = x0 + I.head + at.sub;
             for (const st of g.strands) {
                 if (st.swatch) {
                     const sy = mid - I.sw / 2;

@@ -1843,7 +1843,8 @@ Object.assign(CanvasRenderer.prototype, {
             if (this._mirror) this.ctx.scale(-1, 1);
             this.ctx.translate(-x, -anchorY);
         }
-        this._noteLabelBox(kind || 'tag', text, left, y - pillH / 2, pillW, pillH);
+        this._noteLabelBox(kind || 'tag', text, left, y - pillH / 2, pillW, pillH,
+                           { rim: this._tagRim(tag) / 2 });
         this.ctx.beginPath();
         if (this.ctx.roundRect) {
             this.ctx.roundRect(left, y - pillH / 2, pillW, pillH, corner);

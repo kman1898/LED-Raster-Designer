@@ -491,6 +491,10 @@ def _wiring_consts(*names):
 
 BOX_H, IN_LINE, PAD = _wiring_consts('BOX_H', 'IN_LINE', 'PAD')
 FIBER_HEXES = {'#f28020', '#1f5fa8', '#1a9a48', '#7a4a2e'}
+# XD A's two inputs on the Data Wiring sheet, in print order: each input, the
+# cable it is on (in full the first time the box says it), then its strands
+# as they plug in at the box.
+ROW = ['X1', 'TAC A (TAC 24)', '2 Orange', '1 Blue', 'X2', 'TAC A', '4 Brown', '3 Green']
 
 
 def _wiring_block(sheet, prefix):
@@ -531,10 +535,12 @@ def test_the_data_wiring_inputs_sit_beside_the_caption_on_its_row(fiber):
     """WALL's DATA WIRING sheet (owner, 2026-10-18: "they dont need to be
     stacked. they can be side by side and on the same row as the name of
     the box"): inside XD A's block, after its caption and on the caption's
-    own baseline, "X1" with 2 Orange and 1 Blue (box-end order, as FIBER
-    CONNECTIONS' AT THE BREAKOUT reads), swatched, then "X2" with 4 Brown
-    and 3 Green beside it - each group outlined, at the caption's size,
-    clear of every socket and every run. The box is two rows again -
+    own baseline, "X1" with its cable (owner, 2026-11-05: "we need to mention
+    which fiber is going on the wiring page") and 2 Orange and 1 Blue
+    (box-end order, as FIBER CONNECTIONS' AT THE BREAKOUT reads), swatched,
+    then "X2", the cable by its name, and 4 Brown and 3 Green beside it -
+    each group outlined, at the caption's size, clear of every socket and
+    every run. The box is two rows again -
     sockets, then caption and inputs - every box on the sheet one height."""
     pg, ids, errors = fiber
     sheet = pg.evaluate(PAGE_JS, ['wiring', 'WALL', True])
@@ -547,18 +553,18 @@ def test_the_data_wiring_inputs_sit_beside_the_caption_on_its_row(fiber):
     words = [t['text'] for t in inside]
     cap = next(t for t in inside if t['text'] == block['title'])
     i = words.index('X1')
-    assert words[i:i + 6] == ['X1', '2 Orange', '1 Blue', 'X2', '4 Brown', '3 Green'], words
+    assert words[i:i + 8] == ROW, words
     cap_w = pg.evaluate("""([text, size]) => { const app = window.app, c = app._binderMeasureCtx
         || document.createElement('canvas').getContext('2d');
         c.font = app._bFont(size, 700); return c.measureText(text).width; }""", [cap['text'], cap['size']])
-    for t in inside[i:i + 6]:
+    for t in inside[i:i + 8]:
         # the caption's own row - the same baseline - and to its right
         assert abs(t['y'] - cap['y']) < 0.6, ('an input off the caption row', t, cap)
         assert t['x'] > cap['x'] + cap_w, ('an input over the caption', t, cap, cap_w)
         assert t['size'] >= cap['size'] - 0.01, (t, cap)
     # X1's group, then X2's, left to right
-    x1, x2 = inside[i], inside[i + 3]
-    assert x1['x'] < inside[i + 2]['x'] < x2['x'], (x1, x2)
+    x1, x2 = inside[i], inside[i + 4]
+    assert x1['x'] < inside[i + 1]['x'] < inside[i + 3]['x'] < x2['x'], (x1, x2)
     groups = block['inputs']
     assert [g['head'] for g in groups] == ['X1', 'X2'] and all(g['line'] == 0 for g in groups), groups
     for g in groups:
@@ -603,8 +609,8 @@ def test_a_narrow_box_wraps_its_inputs_under_the_caption(fiber):
         assert abs(cap['size'] - _texts(sheet, block['title'])[0]['size']) < 0.01
         words = [t['text'] for t in inside]
         i = words.index('X1')
-        assert words[i:i + 6] == ['X1', '2 Orange', '1 Blue', 'X2', '4 Brown', '3 Green'], words
-        for t in inside[i:i + 6]:
+        assert words[i:i + 8] == ROW, words
+        for t in inside[i:i + 8]:
             # one line under the caption
             assert abs(t['y'] - (cap['y'] + IN_LINE * s)) < 0.6, ('not on the line under the caption', t, cap)
             assert t['size'] >= cap['size'] - 0.01, (t, cap)
@@ -622,9 +628,45 @@ def test_a_narrow_box_wraps_its_inputs_under_the_caption(fiber):
     assert errors == []
 
 
+def test_a_box_without_room_on_its_row_keeps_its_inputs_on_one_line(fiber):
+    """XD A keeps its short caption, and XD B's long one takes the row's room:
+    XD A's groups go under its caption, the cable names and all, still side
+    by side on ONE line, the box grown by that line and no more."""
+    pg, ids, errors = fiber
+    sx, box = ids['sx'], ids['xds'][1]
+    put = """async ([sx, box, name]) => {
+        await fetch(`/api/processors/${sx}/cvts/${box}`, {method: 'PUT',
+            headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name})});
+        await window.app.refreshProcessors();
+        await window.app.refreshPortAssignment();
+    }"""
+    before = pg.evaluate("""([sx, box]) => (window.app.project.processors.find(p => p.id === sx)
+        .slots[0].card.cvts.find(b => b.id === box).name) || ''""", [sx, box])
+    pg.evaluate(put, [sx, box, 'XD B UPSTAGE LEFT TRUSS POSITION FOUR OVER THE DECK AND ON THE PIPE'])
+    try:
+        sheet = pg.evaluate(PAGE_JS, ['wiring', 'WALL', True])
+        half, block, inside = _wiring_block(sheet, 'XD A')
+        s = half['scale']
+        cap = next(t for t in inside if t['text'] == block['title'])
+        words = [t['text'] for t in inside]
+        i = words.index('X1')
+        assert words[i:i + 8] == ROW, words
+        for t in inside[i:i + 8]:
+            assert abs(t['y'] - (cap['y'] + IN_LINE * s)) < 0.6, ('not on the line under the caption', t, cap)
+            assert t['size'] >= cap['size'] - 0.01, (t, cap)
+        groups = block['inputs']
+        assert [g['line'] for g in groups] == [1, 1], groups
+        assert groups[0]['x'] + groups[0]['w'] < groups[1]['x'], groups
+        _clear_of_sockets_and_runs(half, block)
+        assert {round(b['h'], 2) for b in half['blocks']} == {round((BOX_H + IN_LINE) * s, 2)}, half['blocks']
+    finally:
+        pg.evaluate(put, [sx, box, before])
+    assert errors == []
+
+
 def test_the_data_wiring_inputs_print_numbers_where_the_cable_reads_in_numbers(fiber):
-    """A cable labelled by number: the same block reads "X1 2 1", no
-    strand swatch."""
+    """A cable labelled by number: the same block reads "X1 TAC A (TAC 24)
+    2 1", no strand swatch."""
     pg, ids, errors = fiber
     pg.evaluate("""async (id) => {
         await fetch(`/api/fiber-cables/${id}`, {method: 'PUT',
@@ -640,7 +682,7 @@ def test_the_data_wiring_inputs_print_numbers_where_the_cable_reads_in_numbers(f
                   and block['y'] <= t['y'] <= block['y'] + block['h']]
         words = [t['text'] for t in inside]
         i = words.index('X1')
-        assert words[i:i + 6] == ['X1', '2', '1', 'X2', '4', '3'], words
+        assert words[i:i + 8] == ['X1', 'TAC A (TAC 24)', '2', '1', 'X2', 'TAC A', '4', '3'], words
         sock = max(s['y'] + s['r'] for s in block['sockets'])
         fiber_hexes = {'#f28020', '#1f5fa8', '#1a9a48', '#7a4a2e'}
         assert not [r for r in sheet['rects'] if str(r.get('fill') or '').lower() in fiber_hexes
@@ -688,8 +730,8 @@ def test_a_box_over_the_wall_keeps_its_inputs_on_the_caption_row(fiber):
         assert cap['y'] < top_of_sockets, ('the caption over the numbers', cap, top_of_sockets)
         words = [t['text'] for t in inside]
         i = words.index('X1')
-        assert words[i:i + 6] == ['X1', '2 Orange', '1 Blue', 'X2', '4 Brown', '3 Green'], words
-        for t in inside[i:i + 6]:
+        assert words[i:i + 8] == ROW, words
+        for t in inside[i:i + 8]:
             assert abs(t['y'] - cap['y']) < 0.6, ('an input off the caption row', t, cap)
             assert t['x'] > cap['x'], (t, cap)
         groups = block['inputs']

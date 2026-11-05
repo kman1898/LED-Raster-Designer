@@ -5484,8 +5484,11 @@ class _Binder {
         ic.globalCompositeOperation = 'destination-in';
         ic.beginPath();
         for (const b of astride) {
-            // past the label's box by its rim, and a colour disc has none
-            const pad = b.kind === 'disc' && !r.printerMode ? 0.75 : Math.max(1.5, b.h * 0.03);
+            // past the label's box by its rim: a tag's as it noted it, half
+            // of it outside the box, the printer disc's stroke, and a colour
+            // disc has none
+            const pad = b.rim ? b.rim * r.zoom + 1
+                : b.kind === 'disc' && !r.printerMode ? 0.75 : Math.max(1.5, b.h * 0.03);
             const x = b.x - pad, y = b.y - pad, w = b.w + pad * 2, h = b.h + pad * 2;
             if (b.kind === 'disc') {
                 ic.moveTo(x + w, y + h / 2);

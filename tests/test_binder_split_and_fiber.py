@@ -208,11 +208,48 @@ SHEET_JS = """([opts, title]) => {
         const seen = parts.map(([x1, y1, x2, y2]) => share(x1 + 1, y1 + 1, x2 - 1, y2 - 1, round));
         return { ...b, shares: seen };
     });
+    // What the map's own bitmap holds past the wall towards the other
+    // member, away from every label astride it. The bitmap alone: the row
+    // ruler, the brackets and the outline are drawn on the page over it,
+    // and a ruler digit's pixels differ by platform. A side-by-side wall
+    // is read left and right along its height, a stacked one over and
+    // under along its width: the grey 2fer bracket under a wall's foot, or
+    // beside a wall of rows, is that wall's own and not on the seam's side.
+    const off = app._binderMapCanvas, oc = off.getContext('2d');
+    const px = oc.getImageData(0, 0, off.width, off.height).data;
+    const X0 = (W.x - area.x) * S, X1 = (W.x + W.w - area.x) * S;
+    const Y0 = (W.y - area.y) * S, Y1 = (W.y + W.h - area.y) * S;
+    const stacked = title.startsWith('STACK');
+    const seamSide = (x, y) => (stacked ? x >= X0 && x <= X1 && (y < Y0 - 4 || y > Y1 + 4)
+                                        : y >= Y0 && y <= Y1 && (x < X0 - 4 || x > X1 + 4));
+    // (past each box by more than any rim: the tag's rim has its own test)
+    const held = astride.map(b => ({ x: (b.x - area.x) * S - 14, y: (b.y - area.y) * S - 14,
+                                     w: b.w * S + 28, h: b.h * S + 28 }));
+    const inLabel = (x, y) => held.some(b => x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h);
+    const stray = [];
+    for (let y = 0; y < off.height; y += 2) for (let x = 0; x < off.width; x += 2) {
+        if (px[(y * off.width + x) * 4 + 3] > 24 && seamSide(x, y) && !inLabel(x, y)) stray.push([x, y]);
+    }
+    // A cable tag's gold rim, read on the bitmap either side of the wall's
+    // edge: the first and last row of it down one column of pixels.
+    const rimRows = (x) => {
+        const rows = [];
+        for (let y = 0; y < off.height; y++) {
+            const i = (y * off.width + Math.round(x)) * 4;
+            if (px[i + 3] > 200 && Math.abs(px[i] - 200) < 6 && Math.abs(px[i + 1] - 160) < 6
+                    && Math.abs(px[i + 2] - 74) < 6) rows.push(y);
+        }
+        return rows.length ? [rows[0], rows[rows.length - 1]] : null;
+    };
+    const rims = astride.filter(b => b.kind === 'tag').map(b => {
+        const out = b.x < W.x ? (b.x + W.x) / 2 : (b.x + b.w + W.x + W.w) / 2;
+        const inn = b.x < W.x ? W.x + 8 : W.x + W.w - 8;
+        return { past: rimRows((out - area.x) * S), inside: rimRows((inn - area.x) * S) };
+    });
     return { title, layout: plan[idx].layout, wall: W, area, labels, astride,
              brackets: res.brackets || [], texts: res.texts, discs: half ? half.discs : null,
              blocks: half ? half.blocks : null, runs: half ? half.runs : null,
-             strip: { left: share(W.x - 22, W.y + W.h * 0.62, W.x - 6, W.y + W.h * 0.92),
-                      right: share(W.x + W.w + 6, W.y + W.h * 0.62, W.x + W.w + 22, W.y + W.h * 0.92) },
+             stray: { count: stray.length, first: stray.slice(0, 5) }, rims,
              seam: astride.map(b => {
                  // on the wall's edge, through the label: never the black
                  // outline, below the lettering of a disc
@@ -304,11 +341,23 @@ def test_the_wide_walls_are_on_the_wrap_layout(page):
 
 @pytest.mark.parametrize('title', [t for t, v in SIDES if 'Wiring' not in t and v == 'front'])
 def test_only_the_labels_come_back(page, title):
-    """Nothing else of the other member comes back with them: the paper
-    beside the wall, clear of the labels, stays paper."""
+    """Nothing else of the other member comes back with them: past the wall
+    towards it, the map's bitmap holds the labels astride and no other ink."""
     pg, _ids, _errors = page
     out = _sheet(pg, title)
-    assert out['strip']['left'] < 0.02 and out['strip']['right'] < 0.02, (title, out['strip'])
+    assert out['stray']['count'] == 0, (title, out['stray'])
+
+
+@pytest.mark.parametrize('name', ['WALL-L', 'WALL-R'])
+def test_a_cable_tag_keeps_its_rim_past_the_wall(page, name):
+    """The tag's gold rim stands half outside the box the registry notes: it
+    comes back at its full depth, level with the rim on the wall."""
+    pg, _ids, _errors = page
+    rims = _sheet(pg, f'{name} - Power - Front View')['rims']
+    assert rims, 'no cable tag on the seam'
+    for r in rims:
+        assert r['past'] and r['inside'], r
+        assert abs(r['past'][0] - r['inside'][0]) <= 1 and abs(r['past'][1] - r['inside'][1]) <= 1, r
 
 
 @pytest.mark.parametrize('title', [t for t, v in SIDES if v == 'front'])

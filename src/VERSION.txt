@@ -1080,7 +1080,7 @@ FIXES
 - FIX: Your browser's AutoFill can no longer change a show. A fill from
   your contacts could write a name or a phone number into fields you
   weren't in, even in a folded panel, and rename multis across screens.
-  Now a field only takes what you type, paste or pick.
+  Now a field only takes what you type or pick.
 
 v1.5.3 - October 21, 2026
 ----------------------------
