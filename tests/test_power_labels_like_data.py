@@ -289,6 +289,7 @@ def test_power_labels_follow_the_cabinets_when_a_cleared_circuit_is_handed_back(
     # One undo: the redraw is open again and every label is back.
     pg.evaluate("() => window.app.undo()")
     _settle(pg)
+    assert pg.evaluate("() => window.app._overrideEditing.num") == 3
     assert _labels(pg, 'power') == l0
     _wait_server(pg, 'power', l0)
     pg.evaluate("() => window.app.redo()")

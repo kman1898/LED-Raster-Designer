@@ -3215,9 +3215,13 @@ class CanvasRenderer {
         }
         // An open override edit is a gesture of the view it began in; a tab
         // switch closes it (the override itself stays). The hover highlight
-        // goes with it.
-        if (window.app && window.app._overrideEditing
-                && typeof window.app.endOverrideEdit === 'function') {
+        // goes with it. The exception is coming back to Power to a circuit
+        // redraw that undo opened on another tab: it waits there, the one
+        // place it can go on.
+        const openEdit = window.app && window.app._overrideEditing;
+        const backToRedraw = !!openEdit && openEdit.kind === 'power'
+            && mode === 'power' && this.viewMode !== 'power';
+        if (openEdit && !backToRedraw && typeof window.app.endOverrideEdit === 'function') {
             window.app.endOverrideEdit();
         }
         if (window.app && window.app._overrideHover

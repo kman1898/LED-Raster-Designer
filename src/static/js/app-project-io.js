@@ -49,7 +49,17 @@ class _ProjectIo {
     // this, so a round trip through File > Open reads the stamp back.
     serializeProjectForFile(project = this.project) {
         project.app_version = this.appVersion();
-        return JSON.stringify(project, null, 2);
+        return JSON.stringify(this._projectWithOpenRedraw(project), null, 2);
+    }
+
+    // `project` as a file holds it: with the circuit redraw still open
+    // written down beside it, for the show to end as it opens
+    // (app-run-overrides _powerRedrawRecord). Never written onto the project
+    // itself.
+    _projectWithOpenRedraw(project) {
+        const open = project === this.project && typeof this._powerRedrawRecord === 'function'
+            ? this._powerRedrawRecord() : null;
+        return open ? { ...project, openPowerRedraw: open } : project;
     }
 
     saveProject() {
@@ -105,7 +115,7 @@ class _ProjectIo {
         // (addToRecentFiles, which never throws).
         if (!result || !result.saved) return result;
         this.markProjectClean();
-        this.addToRecentFiles(project, { path: result.path || null });
+        this.addToRecentFiles(this._projectWithOpenRedraw(project), { path: result.path || null });
         document.getElementById('status-message').textContent = 'Project saved to file';
         setTimeout(() => {
             document.getElementById('status-message').textContent = 'Ready';
@@ -342,6 +352,11 @@ class _ProjectIo {
             // trimPortsOffWall): the repair runs once, on the
             // server's copy, where the cards can follow.
             this._projectOpening = true;
+            // A redraw the file was saved with still open: read off it here
+            // so the server and the undo history never hold it, and ended
+            // below on the server's copy.
+            const leftOpen = projectData.openPowerRedraw || null;
+            delete projectData.openPowerRedraw;
             this.project = projectData;
             if (this.project.layers) {
                 this.project.layers.forEach(layer => {
@@ -467,6 +482,12 @@ class _ProjectIo {
                     if (typeof this.trimPortsOffWall === 'function') {
                         this.trimPortsOffWall({ load: true });
                     }
+                    // A redraw left open ends the way Esc ends it, each
+                    // cable and label with its cabinets, ahead of the
+                    // repair below, which has no hold to read them by.
+                    if (typeof this.finishRedrawLeftOpen === 'function') {
+                        this.finishRedrawLeftOpen(leftOpen);
+                    }
                     // A circuit redrawn without a change goes back to
                     // the walk, so the circuits after a shrunk one
                     // slide left (app-run-overrides).
@@ -573,6 +594,11 @@ class _ProjectIo {
      * sidebar inputs cannot leak old values into the incoming project.
      */
     resetApplicationState() {
+        // A redraw is of the show it was opened on. Left standing, it held
+        // the same cabinets of the next one.
+        this._overrideEditing = null;
+        this._powerHeld = null;
+        if (typeof this._storeRedrawForReload === 'function') this._storeRedrawForReload(null);
         this.selectedLayerIds = new Set();
         this.currentLayer = null;
         this.lastSelectedLayerId = null;

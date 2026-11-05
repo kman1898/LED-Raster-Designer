@@ -422,9 +422,14 @@ def test_a_redraw_cut_back_slides_the_circuits_after_it_with_their_cables(page):
     assert _cables(pg) == {'5': 25, '9': 50}
     _wait_server(pg, {'5': 25, '9': 50})
     assert pg.evaluate("() => window.app.history.slice(-1)[0].action") == 'End Circuit Redraw'
-    # Undo walks back one step at a time: the cables, the cut, the takeover.
-    assert p_open
-    for _ in range(3):
+    # Undo walks back one step at a time: the cables, with the redraw open
+    # again so the plan goes back with them, then the cut, then the takeover.
+    pg.evaluate("() => window.app.undo()")
+    _settle(pg)
+    assert pg.evaluate("() => window.app._overrideEditing.num") == 3
+    assert _plan(pg) == p_open
+    assert _cables(pg) == c0
+    for _ in range(2):
         pg.evaluate("() => window.app.undo()")
         _settle(pg)
     assert _plan(pg) == p0

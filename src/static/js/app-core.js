@@ -1103,6 +1103,12 @@ export class LEDRasterApp {
                     this.applyPreferencesToDefaultLayerIfMatch(false);
                 }
                 
+                // A circuit redraw the page was reloaded on ends here, the
+                // way Esc ends it (app-run-overrides finishRedrawLeftOpen).
+                if (typeof this.finishRedrawLeftOpen === 'function') {
+                    this.finishRedrawLeftOpen(this._redrawLeftOnReload());
+                }
+
                 // Save initial state for undo/redo
                 this.resetHistory('Initial State');
 
