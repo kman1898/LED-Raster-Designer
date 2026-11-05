@@ -550,6 +550,23 @@ def test_the_hand_lands_where_the_element_is_now(page):
     assert abs(aim['hand'][0] - aim['at'][0]) < 2 and abs(aim['hand'][1] - aim['at'][1]) < 2, aim
 
 
+def test_a_menu_opened_right_after_skip_stays_open(page):
+    """Skip puts the person's world back a beat later, and that restore
+    closed every menu, twice: Help opened at once was shut under the hand,
+    and a click on its item waited 30 s on an item that had gone (1.6.0 QA).
+    The guide's own menus go at Skip; one opened after it is left up."""
+    _open_advanced(page, 1)
+    page.locator('#qs-skip').click()
+    page.locator('.menu-item[data-menu="help"]').click()
+    page.wait_for_function("() => !window.QuickStart.state().running", timeout=30000)
+    page.wait_for_timeout(300)
+    try:
+        assert page.evaluate("document.getElementById('menu-help').style.display") == 'block'
+        page.locator('.menu-option[data-action="about"]').wait_for(state='visible', timeout=1000)
+    finally:
+        page.evaluate("() => window.app._hideMenuBarMenus()")
+
+
 def test_whats_new_never_carries_on_from_an_entry_it_did_not_reach(page):
     """What's New, with the shipped file stale, applies the Advanced steps
     before each step. When that apply stops on the way, the step still

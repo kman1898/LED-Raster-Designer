@@ -471,6 +471,9 @@
         if (m) m.style.display = 'none';
     }
     function hideMenus() {
+        // Leaving a guide takes every menu down at once (end). One up while
+        // the world goes back is the person's own.
+        if (S.exiting) return;
         $$('.menu-dropdown').forEach(function (m) { m.style.display = 'none'; });
         $$('#menu-bar .menu-item.active').forEach(function (i) { i.classList.remove('active'); });
     }
@@ -3064,6 +3067,11 @@
         els.spot.style.display = 'none';
         els.callout.style.display = 'none';
         passthrough(false);
+        // The menus go now, not when the world goes back: that lands a beat
+        // later and again after the restore, and shut the menu a person
+        // had just opened (Skip, then Help straight away).
+        hideMenus();
+        S.exiting = true;
         var saved = S.saved;
         S.saved = null;
         S.idx = -1;
@@ -3078,6 +3086,7 @@
             console.warn('QuickStart: restore failed', e);
         }).then(function () {
             S.running = false;
+            S.exiting = false;
             if (S.ending === ending) S.ending = null;
         });
         S.ending = ending;

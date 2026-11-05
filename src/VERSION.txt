@@ -1032,6 +1032,8 @@ FIXES
   the step plays. Mirror a screen ringed the wrong box for the whole drag.
 - FIX: The tray no longer slips a little each time it redraws with a snake
   on a processor, which could leave a box just past its bottom edge.
+- FIX: A menu you open right after leaving a guide stays open. It shut
+  by itself as your project came back.
 
 v1.5.3 - October 21, 2026
 ----------------------------
