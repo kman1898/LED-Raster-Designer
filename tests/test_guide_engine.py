@@ -463,6 +463,23 @@ def test_the_ring_stays_on_the_box_through_the_mirror_drag(page):
     assert heights[0] == heights[1], heights
 
 
+def test_mirror_a_screen_says_so_when_its_setup_does_not_take(page):
+    """The act puts IMAG L on the box before the drag. When that request
+    gets no answer the app logs it and carries on, and the drag was then
+    refused as if the gesture were wrong. The step stops and names what
+    went wrong instead (one stress run, 1 in 18, ended that way)."""
+    page.route('**/api/port-assignments/place-overflow', lambda r: r.abort('addressunreachable'))
+    try:
+        i = _index(page, 'mirrorScreen')
+        _open_advanced(page, 3)
+        _go_to(page, i)
+        st = _wait_step(page, i, timeout=60)
+        assert st['state'] == 'failed', st
+        assert 'IMAG L did not go on the box' in st['note'], st
+    finally:
+        page.unroute('**/api/port-assignments/place-overflow')
+
+
 # A step of the test's own: its act runs `act`, its check is a yes.
 STAND_IN_JS = """(body) => {
     const step = window.QuickStart.steps().cableSheet;

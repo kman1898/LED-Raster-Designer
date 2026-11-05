@@ -6049,6 +6049,16 @@
                     return a._assignmentRequest('/api/port-assignments/place-overflow', 'POST',
                         { layerId: String(left.id), cardId: cid }, null, 'Place Ports');
                 }).then(function () {
+                    // A request that never got an answer resolves all the
+                    // same, and the drag then read as a refusal of the
+                    // gesture ("Put a screen on CVT10-S A first"). The
+                    // setup not taking is said as what it is.
+                    return t.wait(function () {
+                        var scr = ((a._assignment && a._assignment.screens) || []).find(function (s) { return s.layerId === String(left.id); });
+                        return scr && scr.ports.some(function (p) { return p.cardId === cid; });
+                    });
+                }).then(function (placed) {
+                    if (!placed) throw new Error('IMAG L did not go on the box');
                     frameLayers([a.project.layers.find(function (l) { return l.id === t.mem.left; }),
                                  a.project.layers.find(function (l) { return l.id === t.mem.right; })]);
                     a.saveState('Add Layer');
