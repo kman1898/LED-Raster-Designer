@@ -19,6 +19,13 @@ all made the screen's canvas active and the readout followed. Two did not:
 Both now activate the clicked screen's canvas with preserveSelection, so
 the selection stays whole and the readout follows.
 
+Undo and redo too (1.6.0 QA, beta.6): selecting is not a history step, so an
+entry from before the click put the active canvas back with the screen still
+selected, on the page and on the server, and Raster read the wrong canvas.
+Owner: the raster size shows the canvas of the screen you select. The restore
+now leaves the active canvas on the selected screen's
+(app-history _activeCanvasFollowsSelection).
+
 Run locally:
     python -m pytest tests/test_raster_follows_selection.py -v -n 4 --dist loadfile
 """
@@ -330,6 +337,133 @@ def test_pixel_map_cabinet_pick_on_another_selected_screen(page, modifier):
     pg.evaluate("() => window.canvasRenderer.render()")
     _click_screen(pg, 'A1')
     _expect(pg, ids, 'c1', ONE, 'A1', ['A1', 'B1'])
+
+
+# ── undo and redo ────────────────────────────────────────────────────────
+
+def _seed_for_undo(pg, view='pixel-map'):
+    """The seed, with its history starting on Canvas 1 as a session does."""
+    ids = _seed(pg, view)
+    pg.evaluate("() => window.app.resetHistory('Raster Follows Seed')")
+    return ids
+
+
+def _edit_raster_width(pg, value='3333'):
+    pg.locator('#toolbar-raster-width').click()
+    pg.keyboard.press('Control+A')
+    pg.keyboard.type(value)
+    pg.keyboard.press('Enter')
+
+
+def _edit_offset_x(pg, value='250'):
+    pg.locator('#offset-x').click()
+    pg.keyboard.press('Control+A')
+    pg.keyboard.type(value)
+    pg.keyboard.press('Enter')
+
+
+def _steps(pg, want):
+    settled(pg, lambda: pg.evaluate("() => window.app.historyIndex"), lambda v: v == want)
+    assert pg.evaluate("() => window.app.historyIndex") == want
+
+
+def test_undo_of_a_raster_edit_stays_on_the_selected_screens_canvas(page):
+    pg, _ = page
+    ids = _seed_for_undo(pg)
+    pg.locator(_row(ids['B1'])).click()
+    _expect(pg, ids, 'c2', TWO['pixel-map'], 'B1', ['B1'])
+    _edit_raster_width(pg)
+    _expect(pg, ids, 'c2', ('3333', '2160'), 'B1', ['B1'])
+    _steps(pg, 1)
+    pg.keyboard.press('Control+z')
+    _steps(pg, 0)
+    _expect(pg, ids, 'c2', TWO['pixel-map'], 'B1', ['B1'])
+    pg.keyboard.press('Control+Shift+z')
+    _steps(pg, 1)
+    _expect(pg, ids, 'c2', ('3333', '2160'), 'B1', ['B1'])
+    pg.keyboard.press('Control+z')
+    _steps(pg, 0)
+    _expect(pg, ids, 'c2', TWO['pixel-map'], 'B1', ['B1'])
+    # a reload opens where it was left
+    pg.reload(wait_until='domcontentloaded')
+    pg.wait_for_function("() => !!(window.app && window.app._initialLoadComplete)", timeout=20000)
+    _expect(pg, ids, 'c2', TWO['pixel-map'], 'B1', ['B1'])
+
+
+def test_undo_of_a_screen_edit_stays_on_the_selected_screens_canvas(page):
+    pg, _ = page
+    ids = _seed_for_undo(pg)
+    pg.locator(_row(ids['B1'])).click()
+    _expect(pg, ids, 'c2', TWO['pixel-map'], 'B1', ['B1'])
+    _edit_offset_x(pg)
+    _steps(pg, 1)
+    pg.keyboard.press('Control+z')
+    _steps(pg, 0)
+    _expect(pg, ids, 'c2', TWO['pixel-map'], 'B1', ['B1'])
+    assert pg.evaluate("() => window.app.currentLayer.offset_x") == 200
+    # the canvas it reads is the one a saved file keeps
+    saved = pg.evaluate("""() => JSON.parse(window.app.serializeProjectForFile(
+        JSON.parse(JSON.stringify(window.app.project)))).active_canvas_id""")
+    assert saved == ids['c2']
+
+
+def test_undo_with_a_screen_on_the_other_canvas_selected_goes_by_the_selection(page):
+    """B1 edited, A1 selected, undo: the edit goes and the readout stays with
+    A1, though the entry undone to was taken on either canvas."""
+    pg, _ = page
+    ids = _seed_for_undo(pg)
+    pg.locator(_row(ids['B1'])).click()
+    _expect(pg, ids, 'c2', TWO['pixel-map'], 'B1', ['B1'])
+    _edit_offset_x(pg)
+    _steps(pg, 1)
+    pg.locator(_row(ids['A1'])).click()
+    _expect(pg, ids, 'c1', ONE, 'A1', ['A1'])
+    pg.keyboard.press('Control+Shift+z')
+    pg.keyboard.press('Control+z')
+    _steps(pg, 0)
+    _expect(pg, ids, 'c1', ONE, 'A1', ['A1'])
+    assert pg.evaluate("(id) => window.app.project.layers.find(l => l.id === id).offset_x", ids['B1']) == 200
+    pg.keyboard.press('Control+Shift+z')
+    _steps(pg, 1)
+    _expect(pg, ids, 'c1', ONE, 'A1', ['A1'])
+    assert pg.evaluate("(id) => window.app.project.layers.find(l => l.id === id).offset_x", ids['B1']) == 250
+
+
+def test_undo_on_show_look_reads_the_show_raster_of_the_selected_screen(page):
+    pg, _ = page
+    ids = _seed_for_undo(pg, 'show-look')
+    pg.locator(_row(ids['B1'])).click()
+    _expect(pg, ids, 'c2', TWO['show-look'], 'B1', ['B1'])
+    _edit_raster_width(pg, '2800')
+    _expect(pg, ids, 'c2', ('2800', '1500'), 'B1', ['B1'])
+    _steps(pg, 1)
+    pg.keyboard.press('Control+z')
+    _steps(pg, 0)
+    _expect(pg, ids, 'c2', TWO['show-look'], 'B1', ['B1'])
+
+
+def test_undo_with_a_cross_canvas_selection_keeps_the_whole_selection(page):
+    pg, _ = page
+    ids = _seed_for_undo(pg)
+    pg.locator(_row(ids['B1'])).click(modifiers=['Control'])
+    _expect(pg, ids, 'c2', TWO['pixel-map'], 'B1', ['A1', 'B1'])
+    _edit_raster_width(pg)
+    _steps(pg, 1)
+    pg.keyboard.press('Control+z')
+    _steps(pg, 0)
+    _expect(pg, ids, 'c2', TWO['pixel-map'], 'B1', ['A1', 'B1'])
+
+
+def test_ctrl_on_a_group_header_adds_across_canvases(page):
+    pg, _ = page
+    ids = _seed(pg)
+    gid = ids['groups']['BG1+BG2']
+    pg.locator(f'#layers-list .screen-group[data-group-id="{gid}"] .screen-group-info').click(
+        modifiers=['Control'])
+    _expect(pg, ids, 'c2', TWO['pixel-map'], 'BG1', ['A1', 'BG1', 'BG2'])
+    pg.locator(f'#layers-list .screen-group[data-group-id="{gid}"] .screen-group-info').click(
+        modifiers=['Control'])
+    _expect(pg, ids, 'c1', ONE, 'A1', ['A1'])
 
 
 def test_no_page_errors(page):

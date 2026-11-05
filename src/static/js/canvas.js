@@ -55,6 +55,11 @@ class CanvasRenderer {
         this.zoom = 1.0;
         this.panX = 100;
         this.panY = 100;
+        // The view as it was built. Nothing but a person (or a guide, or a
+        // test's seed) moves it before the opening fit, so the fit can tell
+        // from this whether it has been moved at any time since (app-core
+        // loadProject).
+        this.openingView = this.viewKey();
         this.isDragging = false;
         this.isDraggingLayer = false;
         this.isDraggingScreenName = false;
@@ -2896,6 +2901,7 @@ class CanvasRenderer {
     // device px). This keeps render math unchanged and only adjusts the I/O
     // boundary with the zoom-level input.
     _displayDpr() { return window.devicePixelRatio || 1; }
+    viewKey() { return `${this.zoom}|${this.panX}|${this.panY}`; }
     _zoomToPercent(z) { return Math.round(z * this._displayDpr() * 100); }
     _percentToZoom(p) { return p / 100 / this._displayDpr(); }
 

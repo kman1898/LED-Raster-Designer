@@ -1993,11 +1993,26 @@ class _ScreenGroups {
         const downBtn = wrap.querySelector('.screen-group-move-down');
 
         // Click the row anywhere except a control => select the whole wall,
-        // which is what every downstream edit then acts on.
+        // which is what every downstream edit then acts on. Cmd/Ctrl adds
+        // the wall to the selection and Shift ranges to it, as on the screen
+        // rows: the Names switch acts on every selected group, and a plain
+        // click was all there was to pick one (1.6.0 QA, beta.6). The
+        // read-only name counts for those two; a plain click on it stays a
+        // click on the field (the rename's first click).
         row.addEventListener('click', (e) => {
-            if (e.target.closest('button') || e.target.closest('input')) return;
-            const ids = this.getGroupMembers(group).map(l => l.id);
-            if (ids.length) this.setSelectedLayersByIds(ids, ids[0]);
+            if (e.target.closest('button')) return;
+            const isToggle = e.metaKey || e.ctrlKey;
+            const isRange = e.shiftKey;
+            const field = e.target.closest('input');
+            if (field && !(field.readOnly && (isToggle || isRange))) return;
+            if (isRange) {
+                this.selectGroupRange(group);
+            } else if (isToggle) {
+                this.toggleGroupSelection(group);
+            } else {
+                const ids = this.getGroupMembers(group).map(l => l.id);
+                if (ids.length) this.setSelectedLayersByIds(ids, ids[0]);
+            }
         });
 
         toggle.addEventListener('click', (e) => {

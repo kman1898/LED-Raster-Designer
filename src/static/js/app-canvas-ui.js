@@ -68,6 +68,49 @@ class _CanvasUi {
         return wrap;
     }
 
+    // A canvas dropped on the Screens list outside every canvas block: the
+    // space under the last block (the list fills the panel, so it is most of
+    // an empty list), and the gaps between blocks. Nothing took a drop there,
+    // so a canvas let go under the last block stayed put and said nothing
+    // (1.6.0 QA, beta.6; owner: canvases drag to a new place, to the end too).
+    // It goes before the first block below the drop, or last when there is
+    // none. A drop on a block is the block's own (_wireCanvasGroupEl). The
+    // list element outlives its contents, so this is wired once.
+    _canvasDropSpot(list, y) {
+        const blocks = [...list.querySelectorAll('.canvas-group')];
+        const below = blocks.find(el => y < el.getBoundingClientRect().top);
+        if (below) return { el: below, after: false };
+        return blocks.length ? { el: blocks[blocks.length - 1], after: true } : null;
+    }
+
+    _wireCanvasListDrop() {
+        const list = document.getElementById('layers-list');
+        if (!list) return;
+        const clear = () => list.querySelectorAll('.canvas-group.drag-before, .canvas-group.drag-after')
+            .forEach(el => el.classList.remove('drag-before', 'drag-after'));
+        const onABlock = (e) => !!(e.target.closest && e.target.closest('.canvas-group'));
+        list.addEventListener('dragover', (e) => {
+            if (!this._dragCanvasId || onABlock(e)) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            clear();
+            const spot = this._canvasDropSpot(list, e.clientY);
+            if (spot && spot.el.dataset.canvasId !== this._dragCanvasId) {
+                spot.el.classList.add(spot.after ? 'drag-after' : 'drag-before');
+            }
+        });
+        list.addEventListener('dragleave', (e) => {
+            if (e.target === list) clear();
+        });
+        list.addEventListener('drop', (e) => {
+            if (!this._dragCanvasId || onABlock(e)) return;
+            e.preventDefault();
+            clear();
+            const spot = this._canvasDropSpot(list, e.clientY);
+            if (spot) this.reorderCanvasBeforeTarget(this._dragCanvasId, spot.el.dataset.canvasId, spot.after);
+        });
+    }
+
     _escapeAttr(s) {
         return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;')
             .replace(/</g, '&lt;').replace(/>/g, '&gt;');

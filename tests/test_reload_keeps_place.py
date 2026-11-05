@@ -17,6 +17,13 @@ sessionStorage (one per tab, kept by a reload) and only a load the browser
 calls a reload, on the server that wrote it, reads it back
 (app-start-page.js resumeOrLaunch).
 
+A project left empty stays empty (owner, 2026-11-05). The server puts a
+startup screen in the pristine project on every page load, and only the
+reload path took it out again, so an empty project anyone had worked on
+(renamed, a canvas or a beach added, a screen added and undone) got an 8x5
+Screen1 back. The server now leaves a project that is no longer pristine
+as it is (app.index).
+
 Only the host dialogs a page could open here are routed (save-file,
 open-file, select-directory), each answered as unavailable.
 
@@ -303,6 +310,195 @@ def test_a_reload_over_the_project_the_x_emptied_keeps_it_empty(e2e_server, pw_b
             srv = pg.evaluate("async () => (await fetch('/api/project')).json()")
             assert srv['layers'] == [] and srv['is_pristine'] is True, srv['layers']
         assert problems == [], problems
+    finally:
+        context.close()
+
+
+# ── a project left empty stays empty, whatever was done to it since ───────
+
+def _add_screen(pg):
+    """A screen with real gestures: the canvas's + Add, Screen, a panel."""
+    pg.locator('.canvas-add-btn').first.click()
+    pg.locator('.canvas-add-popup button[data-action="screen"]').click()
+    pg.wait_for_function("() => document.getElementById('preset-picker-modal').style.display === 'block'")
+    pg.locator('#panel-catalog-list .panel-catalog-row').first.click()
+    pg.locator('#preset-picker-add').click()
+    pg.wait_for_function("() => window.app.project.layers.length === 1", timeout=10000)
+    pg.wait_for_timeout(300)
+
+
+def _undo_empties(pg):
+    pg.keyboard.press('Control+z')
+    pg.wait_for_function("() => window.app.project.layers.length === 0", timeout=10000)
+    pg.wait_for_function("async () => (await (await fetch('/api/project')).json()).layers.length === 0",
+                         timeout=10000)
+
+
+def _rename_project(pg):
+    pg.locator('#project-name').click()
+    pg.keyboard.press('Control+A')
+    pg.keyboard.type('Named Show')
+    pg.keyboard.press('Enter')
+    pg.wait_for_function("async () => (await (await fetch('/api/project')).json()).name === 'Named Show'",
+                         timeout=10000)
+
+
+def _add_canvas(pg):
+    pg.locator('#btn-add-canvas').click()
+    pg.wait_for_function("async () => (await (await fetch('/api/project')).json()).canvases.length === 2",
+                         timeout=10000)
+
+
+def _add_beach(pg):
+    pg.locator('.beaches-add').click()
+    pg.wait_for_function("() => !!document.querySelector('#beach-name-modal input')")
+    pg.keyboard.type('SR')
+    pg.keyboard.press('Enter')
+    pg.wait_for_function("async () => (await (await fetch('/api/project')).json()).beaches.length === 1",
+                         timeout=10000)
+
+
+def _add_screen_and_undo(pg):
+    _add_screen(pg)
+    _undo_empties(pg)
+
+
+def _worked_on(pg):
+    """What must come back, read from the server."""
+    srv = pg.evaluate("async () => (await fetch('/api/project')).json()")
+    assert srv['layers'] == [] and srv['is_pristine'] is False, srv['layers']
+    return {'name': srv['name'], 'canvases': [c['id'] for c in srv['canvases']],
+            'active': srv['active_canvas_id'], 'beaches': [b['name'] for b in srv['beaches']]}
+
+
+def _stayed_empty(pg, want):
+    pg.wait_for_function("() => window.app.project.layers.length === 0", timeout=10000)
+    _settle(pg)
+    assert not _start_up(pg)
+    assert pg.evaluate("() => window.app.project.layers.length") == 0
+    srv = pg.evaluate("async () => (await fetch('/api/project')).json()")
+    assert srv['layers'] == [], srv['layers']
+    assert {'name': srv['name'], 'canvases': [c['id'] for c in srv['canvases']],
+            'active': srv['active_canvas_id'], 'beaches': [b['name'] for b in srv['beaches']]} == want
+
+
+@pytest.mark.parametrize('gesture', [_rename_project, _add_canvas, _add_beach, _add_screen_and_undo],
+                         ids=['rename', 'add-canvas', 'add-beach', 'add-screen-and-undo'])
+def test_a_project_left_empty_stays_empty_after_work_on_it(e2e_server, pw_browser, gesture):
+    _new_pristine_project(e2e_server)
+    context = _new_context(pw_browser, START_PAGE)
+    try:
+        pg, problems = _open_tab(context, e2e_server)
+        _wait_start(pg)
+        _close_start_page(pg)
+        pg.wait_for_function("() => window.app.project.layers.length === 0", timeout=10000)
+        gesture(pg)
+        want = _worked_on(pg)
+        for _ in range(2):
+            _reload(pg)
+            _stayed_empty(pg, want)
+        # and it is a working project: a screen goes in, undo takes it out,
+        # and the reload after that finds it empty again
+        _add_screen(pg)
+        assert pg.evaluate("() => window.app.currentLayer && window.app.currentLayer.id") is not None
+        _undo_empties(pg)
+        _reload(pg)
+        _stayed_empty(pg, want)
+        assert problems == [], problems
+    finally:
+        context.close()
+
+
+def test_the_tab_comes_back_over_a_project_left_empty(e2e_server, pw_browser):
+    """QA read tabRestored false as the tab being lost. The field says the
+    tab had to be clicked: on Pixel Map, the tab a page starts on, it is
+    false with nothing lost."""
+    _new_pristine_project(e2e_server)
+    context = _new_context(pw_browser, START_PAGE + CLIENT_LOG)
+    try:
+        pg, problems = _open_tab(context, e2e_server)
+        _wait_start(pg)
+        _close_start_page(pg)
+        pg.wait_for_function("() => window.app.project.layers.length === 0", timeout=10000)
+        _add_screen(pg)
+        _click_tab(pg, 'data-flow')
+        _undo_empties(pg)
+        want = _worked_on(pg)
+        _reload(pg)
+        _wait_tab(pg, 'data-flow')
+        _stayed_empty(pg, want)
+        assert _tab(pg) == 'data-flow'
+        assert _logged(pg, 'reload_resume')[-1]['tabRestored'] is True
+        _click_tab(pg, 'pixel-map')
+        _reload(pg)
+        _stayed_empty(pg, want)
+        assert _tab(pg) == 'pixel-map'
+        assert problems == [], problems
+    finally:
+        context.close()
+
+
+def test_an_empty_project_saved_and_reopened_stays_empty(e2e_server, pw_browser):
+    _new_pristine_project(e2e_server)
+    context = _new_context(pw_browser, START_PAGE)
+    try:
+        pg, problems = _open_tab(context, e2e_server)
+        _wait_start(pg)
+        _close_start_page(pg)
+        pg.wait_for_function("() => window.app.project.layers.length === 0", timeout=10000)
+        _rename_project(pg)
+        _add_canvas(pg)
+        want = _worked_on(pg)
+        pg.evaluate("""async () => {
+            const app = window.app;
+            const file = JSON.parse(app.serializeProjectForFile(JSON.parse(JSON.stringify(app.project))));
+            await app._openProjectData(file, { source: 'file' });
+        }""")
+        pg.wait_for_function("() => window.app.project.name === 'Named Show'", timeout=10000)
+        _reload(pg)
+        _stayed_empty(pg, want)
+        assert problems == [], problems
+    finally:
+        context.close()
+
+
+def test_a_launch_over_an_empty_project_opens_on_it(e2e_server, pw_browser):
+    """A new tab is a launch. Worked on, the project is not a startup one:
+    the start page opens over it as it stands, and its X just closes."""
+    _new_pristine_project(e2e_server)
+    context = _new_context(pw_browser, START_PAGE)
+    try:
+        pg, problems = _open_tab(context, e2e_server)
+        _wait_start(pg)
+        _close_start_page(pg)
+        pg.wait_for_function("() => window.app.project.layers.length === 0", timeout=10000)
+        _add_canvas(pg)
+        want = _worked_on(pg)
+        other, more = _open_tab(context, e2e_server)
+        _wait_start(other)
+        assert other.evaluate("() => window.app.project.layers.length") == 0
+        _close_start_page(other)
+        _stayed_empty(other, want)
+        assert problems == [] and more == [], problems + more
+    finally:
+        context.close()
+
+
+def test_a_launch_over_the_pristine_project_the_x_emptied_is_a_launch(e2e_server, pw_browser):
+    """Nothing done since the X: still the launch's project, so a new tab
+    gets the startup screen for its start page to stand over."""
+    _new_pristine_project(e2e_server)
+    context = _new_context(pw_browser, START_PAGE)
+    try:
+        pg, problems = _open_tab(context, e2e_server)
+        _wait_start(pg)
+        _close_start_page(pg)
+        pg.wait_for_function("() => window.app.project.layers.length === 0", timeout=10000)
+        other, more = _open_tab(context, e2e_server)
+        _wait_start(other)
+        assert other.evaluate("() => window.app.project.layers.map(l => l.name)") == ['Screen1']
+        assert other.evaluate("() => window.app._startupTargetId") is not None
+        assert problems == [] and more == [], problems + more
     finally:
         context.close()
 

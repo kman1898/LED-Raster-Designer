@@ -193,6 +193,45 @@ class _Selection {
         window.canvasRenderer.render();
     }
 
+    // A group's header in the Screens list, the twins of toggleLayerSelection
+    // and selectLayerRange. A group is its members, so the header's Cmd/Ctrl
+    // adds them all (or, all selected already, takes them all out), and the
+    // anchor stays where the row clicks leave it.
+    toggleGroupSelection(group) {
+        const ids = this.getGroupMembers(group).map(l => l.id);
+        if (ids.length === 0) return;
+        const anchor = this.selectionAnchorLayerId;
+        const selected = new Set(this.selectedLayerIds || []);
+        const whole = ids.every(id => selected.has(id));
+        ids.forEach(id => (whole ? selected.delete(id) : selected.add(id)));
+        const stays = this.currentLayer && selected.has(this.currentLayer.id);
+        this.setSelectedLayersByIds([...selected], whole && stays ? this.currentLayer.id : ids[0]);
+        if (anchor) this.selectionAnchorLayerId = anchor;
+    }
+
+    // Shift on a group's header: everything from the anchor to the group, in
+    // the order selectLayerRange reads, the group whole. A group the anchor
+    // was selected with stays whole too, so header to header takes both.
+    selectGroupRange(group) {
+        const ids = this.getGroupMembers(group).map(l => l.id);
+        if (ids.length === 0) return;
+        const order = this.layerListOrder || [...this.project.layers].reverse().map(l => l.id);
+        const anchorId = this.selectionAnchorLayerId || (this.currentLayer ? this.currentLayer.id : ids[0]);
+        if (order.indexOf(anchorId) === -1) {
+            this.setSelectedLayersByIds(ids, ids[0]);
+            return;
+        }
+        const anchorLayer = this.project.layers.find(l => l.id === anchorId);
+        const anchorGroup = anchorLayer && anchorLayer.group_id ? this.resolveGroup(anchorLayer.group_id) : null;
+        const anchorWall = anchorGroup ? this.getGroupMembers(anchorGroup).map(l => l.id) : [];
+        const wallSelected = anchorWall.length > 0 && anchorWall.every(id => this.selectedLayerIds.has(id));
+        const spots = [...ids, anchorId, ...(wallSelected ? anchorWall : [])]
+            .map(id => order.indexOf(id)).filter(i => i !== -1);
+        const rangeIds = order.slice(Math.min(...spots), Math.max(...spots) + 1);
+        this.setSelectedLayersByIds(rangeIds, ids[0]);
+        this.selectionAnchorLayerId = anchorId;
+    }
+
     // Cmd/Ctrl+A (app-menubar's handleMenuShortcut). Selects everything in
     // the current view: on Pixel Map with a cabinet selection already open,
     // every cabinet of the selected screens (selectAllPixelMapPanels); otherwise

@@ -2539,7 +2539,14 @@ class _ScreenInfo {
     loadLayerToInputs() {
         const layers = this.getSelectedLayers();
         this._screenInfoNoScreen(layers.length === 0);
-        if (layers.length === 0) return;
+        if (layers.length === 0) {
+            // What follows the selection hides with it: Cmd/Ctrl on the last
+            // selected row or group header left the Names switch up with no
+            // group selected. This pass runs ahead of its own early returns
+            // for that (app-power updatePortCapacityDisplay).
+            if (typeof this.updatePortCapacityDisplay === 'function') this.updatePortCapacityDisplay();
+            return;
+        }
         const primary = this.currentLayer || layers[0];
         // Every read below goes through `primary`, never this.currentLayer:
         // a restore can hand this function a selection with no current

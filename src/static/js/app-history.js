@@ -192,6 +192,7 @@ class _History {
             });
             
             this._reconcileSelectionAfterRestore();
+            this._activeCanvasFollowsSelection(state);
             // Both, not just the data side. loadLayerToInputs() below happens
             // to refresh the power one too, so this was only exposed on its
             // early-return paths - but an undo in Power view has no business
@@ -382,6 +383,28 @@ class _History {
         if (typeof this._screenSelectionChanged === 'function') this._screenSelectionChanged();
     }
 
+    // The active canvas is whichever one the selected screen sits on, however
+    // the selection got there. A history entry holds the active canvas of the
+    // moment it was taken, and selecting is not a step of its own: click B1 on
+    // Canvas 2, change a figure, undo, and the entry from before the click put
+    // the active canvas back on Canvas 1 with B1 still selected, so Raster read
+    // the wrong canvas (1.6.0 QA, beta.6; owner: the raster size shows the
+    // canvas of the screen you select). Called before the restore's PUT, which
+    // carries it to the server. The entry takes it too, so the PUT's answer
+    // does not read as a repair. Nothing selected: the entry's canvas stands.
+    _activeCanvasFollowsSelection(entry) {
+        const layer = this.currentLayer;
+        if (!layer || !this.project) return;
+        const canvases = Array.isArray(this.project.canvases) ? this.project.canvases : [];
+        const r = window.canvasRenderer;
+        const showView = !!(r && r.isShowLookView && r.isShowLookView());
+        const id = (showView && layer.show_canvas_id) ? layer.show_canvas_id : layer.canvas_id;
+        if (!id || id === this.project.active_canvas_id) return;
+        if (!canvases.some(c => c.id === id)) return;
+        this.project.active_canvas_id = id;
+        if (entry && entry.project) entry.project.active_canvas_id = id;
+    }
+
     // Undo/redo's half of the power feature's refresh discipline. Every write
     // to the distro list or a soca field drops _circuitTailCache and restates
     // the three hosts; a restore that swaps the whole project out from under
@@ -416,6 +439,7 @@ class _History {
             });
             
             this._reconcileSelectionAfterRestore();
+            this._activeCanvasFollowsSelection(state);
             // Both, not just the data side. loadLayerToInputs() below happens
             // to refresh the power one too, so this was only exposed on its
             // early-return paths - but an undo in Power view has no business
@@ -468,7 +492,10 @@ class _History {
         // Don't delete if it would remove ALL layers
         if (idsToDelete.length >= this.project.layers.length) {
             // Keep at least one layer
-            if (this.project.layers.length <= 1) return;
+            if (this.project.layers.length <= 1) {
+                this._toast('The last screen cannot be deleted.', true);
+                return;
+            }
             idsToDelete.pop(); // Remove last one from delete list to keep it
         }
         
