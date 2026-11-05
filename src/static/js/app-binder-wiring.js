@@ -655,7 +655,13 @@ class _BinderWiring {
         // the box's widest input name, so X1's and X2's strands start alike)
         for (const d of devices) d.inputs = isData && d.box ? this._bwBoxInputs(d.box) : null;
         const inHead = (d) => Math.max(0, ...(d.inputs || []).map(g => measure(g.head, IN_SZ, 700))) + 5;
-        const inLineW = (d, g) => inHead(d) + g.strands.reduce((s, st) =>
+        // and each input's cable after it, the column as wide as the box's
+        // widest name
+        const inSub = (d) => {
+            const w = Math.max(0, ...(d.inputs || []).map(g => (g.sub ? measure(g.sub, IN_SZ, 400) : 0)));
+            return w ? w + 6 : 0;
+        };
+        const inLineW = (d, g) => inHead(d) + inSub(d) + g.strands.reduce((s, st) =>
             s + (st.swatch ? IN_SW + 3 : 0) + measure(st.text, IN_SZ, 400) + 6, 0) - 6;
         const groupW = (d, g) => inLineW(d, g) + IN_PAD * 2;
         // a box is never narrower than its widest group, so a wrapped group
@@ -791,7 +797,14 @@ class _BinderWiring {
             return { mapArea, geo: this._bMeasureMap(book, spec, mapArea), roomH, room,
                      head, spare, gap: { top: gap.top, bottom: gap.bottom } };
         };
-        const wallOf = (Wc) => (Wc.geo ? Wc.geo.wall : { x: A.x, y: Wc.mapArea.y, w: A.w, h: 0 });
+        // the wall as the runs see it: with whatever stands astride a
+        // member's edge (geo.reach), so a rail never runs through a label
+        // that hangs off the wall
+        const wallOf = (Wc) => {
+            if (!Wc.geo) return { x: A.x, y: Wc.mapArea.y, w: A.w, h: 0 };
+            const { wall: g, reach: o } = Wc.geo;
+            return o ? { x: g.x - o.left, y: g.y - o.top, w: g.w + o.left + o.right, h: g.h + o.top + o.bottom } : g;
+        };
 
         // pass one, every box under the wall in the facts' own order, only
         // to see where each box's own connection points stand on the wall
@@ -980,7 +993,7 @@ class _BinderWiring {
                     socketX.set(d.key, xs);
                     const place = inPlace(d, w);
                     const inputs = place ? {
-                        groups: d.inputs, head: inHead(d) * K, size: IN_SZ * K, line: IN_LINE * K,
+                        groups: d.inputs, head: inHead(d) * K, sub: inSub(d) * K, size: IN_SZ * K, line: IN_LINE * K,
                         sw: IN_SW * K, pad: IN_PAD * K, lines: place.lines,
                         at: place.at.map((a, gi) => ({ x: bx + a.x * K, line: a.line,
                                                       w: groupW(d, d.inputs[gi]) * K })),
@@ -1466,10 +1479,11 @@ class _BinderWiring {
         const outerLen = outer ? outer.length : 0;
         const probe = outer || (typeof r.startLabelProbe === 'function' ? r.startLabelProbe() : null);
         // This sheet gives the map NO gutter, so the bitmap is the wall and
-        // nothing else: the multi band pill and the circuit ruler the map
-        // draws over the wall's head fall outside it and are clipped away.
-        // Ink that never reaches the paper cannot be covered, so it is not
-        // read as lettering here.
+        // what stands astride a member's edge (_bAstride), and nothing else:
+        // the multi band pill and the circuit ruler the map draws over the
+        // wall's head fall outside it and are clipped away. Ink that never
+        // reaches the paper cannot be covered, so it is not read as
+        // lettering here.
         const carry = (used) => {
             if (!probe) return [];
             const boxes = outer ? outer.slice(outerLen) : r.endLabelProbe();
@@ -1499,7 +1513,18 @@ class _BinderWiring {
         };
         r._fillWrappedLabel = function (ls, x, y) {
             if (Array.isArray(ls) && radii.has(ls) && Number.isFinite(x) && Number.isFinite(y)) {
-                seen.push({ key: ls.join('').replace(/\s+/g, ''), x, y, r: radii.get(ls) });
+                // Where the disc landed on the bitmap, carried through the
+                // transform it was painted under, then onto the page. x, y
+                // alone name no place: a screen's own disc is painted in
+                // that screen's frame, and a run across a group's members
+                // in the wall's frame after every member is down
+                // (_renderCrossMemberPaths). Where a member's Show Look
+                // offset is not nil, the two differ by that offset.
+                const m = this.ctx.getTransform();
+                seen.push({ key: ls.join('').replace(/\s+/g, ''),
+                            x: area.x + (m.a * x + m.c * y + m.e) / S,
+                            y: area.y + (m.b * x + m.d * y + m.f) / S,
+                            r: radii.get(ls) * Math.hypot(m.a, m.b) / S });
             }
             return lines.apply(this, arguments);
         };
@@ -1520,7 +1545,9 @@ class _BinderWiring {
     // Each stub against the disc the wall drew for it: the one whose label
     // reads the same (spaces are the wrap's, not the label's) and whose
     // centre is nearest the panel the stub belongs to. A stub the render
-    // never labelled keeps the measured disc.
+    // never labelled keeps the measured disc. `seen` is in page units
+    // (_bwPaintMap), so a disc stands where the bitmap has it, whatever
+    // frame it was painted in.
     _bwSeat(facts, geo, seen) {
         const placed = new Map();
         if (!geo || !seen || !seen.length) return placed;
@@ -1533,22 +1560,20 @@ class _BinderWiring {
             const list = by.get(String(st.text).replace(/\s+/g, ''));
             if (!list || !list.length) continue;
             const p = st.panel;
-            const cx = p.x + p.width / 2, cy = p.y + p.height / 2;
-            const on = st.layer || undefined;
+            const pr = geo.rect(p.x, p.y, p.width, p.height, st.layer || undefined);
+            const cx = pr.x + pr.w / 2, cy = pr.y + pr.h / 2;
             // only a disc this sheet shows: on a member's sheet a crossing
             // port's label can stand on the other member, cut off the map
             // (its stub then keeps the disc measured on this member)
-            let best = null, bestD = Infinity, bestRc = null;
+            let best = null, bestD = Infinity;
             for (const d of list) {
-                const rcd = geo.rect(d.x - d.r, d.y - d.r, 2 * d.r, 2 * d.r, on);
+                const rcd = { x: d.x - d.r, y: d.y - d.r, w: 2 * d.r, h: 2 * d.r };
                 if (typeof geo.keep === 'function' && !geo.keep(rcd)) continue;
                 const v = (d.x - cx) * (d.x - cx) + (d.y - cy) * (d.y - cy);
-                if (v < bestD) { best = d; bestD = v; bestRc = rcd; }
+                if (v < bestD) { best = d; bestD = v; }
             }
             if (!best) continue;
-            const rc = bestRc;
-            const pr = geo.rect(p.x, p.y, p.width, p.height, on);
-            placed.set(st, { x: rc.x + rc.w / 2, y: rc.y + rc.h / 2, r: rc.w / 2,
+            placed.set(st, { x: best.x, y: best.y, r: best.r,
                              panel: { x: pr.x, y: pr.y, w: pr.w, h: pr.h } });
         }
         return placed;
@@ -1676,26 +1701,31 @@ class _BinderWiring {
     // in AT THE BOX (_bStrandsAtBox: a TAC's pair flipped, as FIBER
     // CONNECTIONS' AT THE BREAKOUT reads), named and swatched as the strand
     // map has them (_bStrandPiece - numbers with no swatch on a cable
-    // labelled by number, sub-unit names as it prints them); a copper link
-    // its run's kind. Inputs with no cable and no copper are left out, and
-    // a box with none on either is null.
+    // labelled by number, sub-unit names as it prints them), after the
+    // cable they are on (`sub`, _bBoxCableWords: "TAC A (TAC 12 SM)", the
+    // data sheet's band word for word - "just listing the colors and
+    // numbers makes no sense on a show with multiple fiber runs", owner,
+    // 2026-11-05); a copper link its run's kind. Inputs with no cable and
+    // no copper are left out, and a box with none on either is null.
     _bwBoxInputs(box) {
         const links = typeof this.fiberBoxLinks === 'function' ? this.fiberBoxLinks(box) : [];
         const on = links.filter(l => l.cable || l.copper);
         if (!on.length) return null;
+        const typed = new Set();
         return on.map(l => {
             if (l.copper) return { head: l.title, strands: [{ text: String(l.copper.copper || 'copper'), swatch: null }] };
+            const what = this._bBoxCableWords(l.cable, typed);
             const set = this._bStrandsAtBox(l.link, l.cable);
-            return { head: l.title,
-                     strands: set.length ? set.map(n => this._bStrandPiece(n, l.cable))
-                         : [{ text: l.cable.name || this.fiberCableTypeText(l.cable), swatch: null }] };
+            return set.length
+                ? { head: l.title, sub: what, strands: set.map(n => this._bStrandPiece(n, l.cable)) }
+                : { head: l.title, strands: [{ text: what, swatch: null }] };
         });
     }
 
     // A box's inputs as _bwPlanHalf placed them - side by side on the
     // caption's row, or on the lines it wrapped them to under the caption -
-    // each group outlined: the input bold, then its strands, on the
-    // caption's own baseline (or a wrapped line's). Swatched as the
+    // each group outlined: the input bold, its cable, then its strands, on
+    // the caption's own baseline (or a wrapped line's). Swatched as the
     // binder's strand map swatches, on either palette. Returns each group's
     // outline, for the log.
     _bwDrawInputs(book, ctx, b) {
@@ -1714,7 +1744,8 @@ class _BinderWiring {
             ctx.strokeRect(box.x, box.y, box.w, box.h);
             const x0 = at.x + I.pad;
             this._bText(book, g.head, x0, base, { size: I.size, weight: 700, color: INK });
-            let x = x0 + I.head;
+            if (g.sub) this._bText(book, g.sub, x0 + I.head, base, { size: I.size, weight: 400, color: INK });
+            let x = x0 + I.head + (I.sub || 0);
             for (const st of g.strands) {
                 if (st.swatch) {
                     const sy = mid - I.sw / 2;

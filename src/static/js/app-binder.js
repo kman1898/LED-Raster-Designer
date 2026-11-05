@@ -158,6 +158,12 @@ const LIST_H = 30;
 const LIST_LINES = 3;
 const BAND_H = 46;
 const WRAP_WHOLE = 12;                // a wrap layout never splits a block this short (lines)
+// A wall that nothing reaches past (_bMemberOverhang), and the kinds of
+// lettering in the label registry that are never read as standing astride
+// a member's edge (_bAstride).
+const NO_OVERHANG = Object.freeze({ left: 0, right: 0, top: 0, bottom: 0 });
+const NOT_ASTRIDE = new Set(['wallEdge', 'cabinet', 'cabinetId', 'band', 'rulerTick', 'rulerLabel']);
+const OVERHANG_PROBE_PX = 1600;       // the probe's longest side, in bitmap pixels
 const WRAP_GAIN = 1.1;                // wrap wins only with a wall this much larger than side's or stack's
 const TH_H = 40;
 // A heading too wide for its column wraps at its words, a line this far
@@ -5080,9 +5086,10 @@ class _Binder {
     // would fall apart and the member would draw a routing of its own -
     // getAutoRoutePlan skips a hidden member) and everything of the other
     // members cut off the bitmap: their cabinets, and whatever stands
-    // outside this member's wall and its gutters. The Names switch reads
-    // the sheet's own choice while it paints - 'group' on a group sheet,
-    // 'screens' on a member's.
+    // outside this member's wall and its gutters, but for the labels that
+    // reach this wall, which print whole (_bAstride, _bRestoreLabels). The
+    // Names switch reads the sheet's own choice while it paints - 'group'
+    // on a group sheet, 'screens' on a member's.
     _bPaintMap(book, target, view, area, gutter) {
         const r = window.canvasRenderer;
         const subject = this._bSubject(target);
@@ -5149,6 +5156,12 @@ class _Binder {
                          h: Math.max(wall.y + wall.h, w.y + w.h) - y1 };
             }
             const ww = Math.max(1, wall.w), wh = Math.max(1, wall.h);
+            // What stands astride a member's edge reaches past its wall by
+            // this much, in the wall's own units: the wall is framed with
+            // it, so a label kept whole on the sheet stays on the sheet.
+            const over = subject.kind === 'member'
+                ? this._bMemberOverhang(book, subject, view, ws, wall) : NO_OVERHANG;
+            const fw = ww + over.left + over.right, fh = wh + over.top + over.bottom;
             // A power map's brackets (_bBoxBrackets) get the room they
             // need: where a deep stack or a crowded side will not fit the
             // gutter even at its closest step, the gutter grows that side
@@ -5164,7 +5177,7 @@ class _Binder {
             let bracketCompact = 0;
             let bracketFit = null;
             if (!gutter && view === 'power' && book.list) {
-                const fit = this._bBracketGutter(book, subject, layer, wall, local, area, G, ww, wh);
+                const fit = this._bBracketGutter(book, subject, layer, wall, local, area, G, ww, wh, over);
                 bracketCompact = fit.compact;
                 bracketFit = fit;
                 if (fit.G !== G || fit.hCap) {
@@ -5176,17 +5189,23 @@ class _Binder {
             }
             // One zoom for both axes - the wall is never scaled
             // non-uniformly: it fits the area, and never past the cap.
-            const zoom = Math.min(inner.w / ww, inner.h / wh, MAP_ZOOM_CAP);
+            const zoom = Math.min(inner.w / fw, inner.h / fh, MAP_ZOOM_CAP);
             const drawW = wall.w * zoom, drawH = wall.h * zoom;
+            const reach = { left: over.left * zoom, right: over.right * zoom,
+                            top: over.top * zoom, bottom: over.bottom * zoom };
             const used = { x: area.x, y: area.y, w: area.w,
-                           h: Math.round(drawH + G.top + G.bottom) };
-            const ox = inner.x + (inner.w - drawW) / 2;      // wall's sheet origin
-            const oy = inner.y;
+                           h: Math.round(drawH + reach.top + reach.bottom + G.top + G.bottom) };
+            // the wall's sheet origin, the frame centred across the room
+            const ox = inner.x + (inner.w - fw * zoom) / 2 + reach.left;
+            const oy = inner.y + reach.top;
             const toPage = (lx, ly) => ({ x: ox + (lx - wall.x) * zoom, y: oy + (ly - wall.y) * zoom });
             geo = {
                 zoom, wall: { x: ox, y: oy, w: drawW, h: drawH }, mirrored, area: used,
-                extent: { x: ox - G.left, y: area.y,
-                          w: Math.ceil(drawW) + G.left + G.right, h: used.h },
+                // past the wall on each side, in sheet units, and the
+                // labels standing astride its edge (filled in as it paints)
+                reach, astride: [],
+                extent: { x: ox - reach.left - G.left, y: area.y,
+                          w: Math.ceil(fw * zoom) + G.left + G.right, h: used.h },
                 rect: (px, py, pw, ph, onLayer) => {
                     const l = local(px, py, pw, ph, onLayer || layer);
                     const p = toPage(l.x, l.y);
@@ -5273,6 +5292,7 @@ class _Binder {
                 const probe = outerProbe || ((typeof r.startLabelProbe === 'function')
                     ? r.startLabelProbe() : null);
                 r.render();
+                const boxes = probe ? (outerProbe ? outerProbe.slice(outerLen) : r.endLabelProbe()) : [];
                 if (cut) {
                     // the other members off the bitmap, then everything past
                     // this member's own room
@@ -5296,10 +5316,13 @@ class _Binder {
                     offCtx.globalCompositeOperation = 'destination-in';
                     offCtx.fillRect(...px(cut.keep));
                     offCtx.restore();
+                    // what stands astride the wall's edge comes back whole
+                    const astride = this._bAstride(boxes, px(geo.wall));
+                    this._bRestoreLabels(off, view, astride, px(geo.wall));
+                    geo.astride = astride.map(b => ({ x: area.x + b.x / S, y: area.y + b.y / S,
+                                                      w: b.w / S, h: b.h / S }));
                 }
                 if (probe) {
-                    const boxes = outerProbe ? outerProbe.slice(outerLen)
-                                             : r.endLabelProbe();
                     let minY = Infinity, minX = Infinity;
                     for (const b of boxes) {
                         if (!b) continue;
@@ -5338,6 +5361,163 @@ class _Binder {
             r.panY = saved.panY;
         }
         return geo;
+    }
+
+    // ---- a member's edge -----------------------------------------------------
+
+    // The labels of the map that stand astride a member's wall, from the
+    // label registry's `boxes` (the bitmap's pixels) and the wall's rect
+    // [x, y, w, h] in the same: lettering that reaches the wall and past
+    // it. A circuit or port shared with the next member puts its disc, its
+    // cable tag and its 2fer pill on the seam, so each is half on this
+    // member's wall and half on the next. Rulers, bands and a cabinet's own
+    // lettering are not labels of the wall's cabling, and a wall edge is a
+    // line, not ink.
+    _bAstride(boxes, [wx, wy, ww, wh]) {
+        return (boxes || []).filter(b => {
+            if (!b || NOT_ASTRIDE.has(b.kind)) return false;
+            const meets = Math.min(b.x + b.w, wx + ww) - Math.max(b.x, wx) > 0.5
+                && Math.min(b.y + b.h, wy + wh) - Math.max(b.y, wy) > 0.5;
+            const inside = b.x >= wx - 0.5 && b.y >= wy - 0.5
+                && b.x + b.w <= wx + ww + 0.5 && b.y + b.h <= wy + wh + 0.5;
+            return meets && !inside;
+        });
+    }
+
+    // How far the labels astride a member's wall reach past it on each
+    // side, in the wall's own units, whatever the sheet's zoom: the same
+    // render the sheet paints, read for its label boxes alone at a size of
+    // its own, so a dry plan and the paint frame the wall alike. Quiet: the
+    // caller's label probe and the wiring sheet's disc watch stay as they
+    // were, and nothing it draws reaches a sheet. Kept on the book per
+    // member and side, the layout asking many times over.
+    _bMemberOverhang(book, subject, view, ws, wall) {
+        const r = window.canvasRenderer;
+        const memo = book.memberOverhang || (book.memberOverhang = new Map());
+        const key = `${subject.member && subject.member.id}|${view}`;
+        if (memo.has(key)) return memo.get(key);
+        if (typeof r.startLabelProbe !== 'function') return NO_OVERHANG;
+        const z = Math.min(1, OVERHANG_PROBE_PX / Math.max(1, wall.w, wall.h));
+        const c = document.createElement('canvas');
+        c.width = Math.max(1, Math.ceil(wall.w * z));
+        c.height = Math.max(1, Math.ceil(wall.h * z));
+        const saved = { canvas: r.canvas, ctx: r.ctx, exportMode: r.exportMode, transparent: r.exportTransparentBg,
+                        hideNames: r.hideScreenNames, ignoreRaster: r.ignoreRasterBounds, printer: r.printerMode,
+                        zoom: r.zoom, panX: r.panX, panY: r.panY, probe: r.labelProbe, radii: r._labelProbeRadii };
+        let boxes = [];
+        this._binderQuietPass = true;
+        try {
+            r.canvas = c;
+            r.ctx = c.getContext('2d', { alpha: true });
+            r.exportMode = true;
+            r.exportTransparentBg = true;
+            r.hideScreenNames = true;
+            r.ignoreRasterBounds = true;
+            r.printerMode = book.meta.palette === 'printer';
+            r.zoom = z;
+            r.panX = -(ws.wx + wall.x) * z;
+            r.panY = -(ws.wy + wall.y) * z;
+            r.startLabelProbe();
+            r.render();
+            boxes = r.endLabelProbe();
+        } finally {
+            r.canvas = saved.canvas;
+            r.ctx = saved.ctx;
+            r.exportMode = saved.exportMode;
+            r.exportTransparentBg = saved.transparent;
+            r.hideScreenNames = saved.hideNames;
+            r.ignoreRasterBounds = saved.ignoreRaster;
+            r.printerMode = saved.printer;
+            r.zoom = saved.zoom;
+            r.panX = saved.panX;
+            r.panY = saved.panY;
+            r.labelProbe = saved.probe;
+            r._labelProbeRadii = saved.radii;
+            this._binderQuietPass = false;
+        }
+        const over = { ...NO_OVERHANG };
+        const W = wall.w * z, H = wall.h * z;
+        for (const b of this._bAstride(boxes, [0, 0, W, H])) {
+            over.left = Math.max(over.left, -b.x / z);
+            over.top = Math.max(over.top, -b.y / z);
+            over.right = Math.max(over.right, (b.x + b.w - W) / z);
+            over.bottom = Math.max(over.bottom, (b.y + b.h - H) / z);
+        }
+        memo.set(key, over);
+        return over;
+    }
+
+    // Puts the labels `astride` back on a member's bitmap `off` whole,
+    // after the other members were cut off it. One more render does it:
+    // the side's own stage alone, no cabinet under it, quiet as the split
+    // pair's passes are (_bSplitMapPair) and at the renderer's transform,
+    // so each label's ink lands on the very pixels the whole render gave
+    // it. Only each label's own shape comes across, and only past the wall
+    // (`wallPx` [x, y, w, h], a pixel inside it so the seam leaves no
+    // hairline): another member's runs stay off the sheet.
+    _bRestoreLabels(off, view, astride, wallPx) {
+        if (!astride.length) return;
+        const r = window.canvasRenderer;
+        const stage = view === 'power' ? 'Power' : 'Data';
+        const ink = this._binderInkCanvas || (this._binderInkCanvas = document.createElement('canvas'));
+        ink.width = off.width;
+        ink.height = off.height;
+        const saved = { canvas: r.canvas, ctx: r.ctx, stages: r.renderStages,
+                        probe: r.labelProbe, radii: r._labelProbeRadii };
+        this._binderQuietPass = true;
+        r.labelProbe = null;
+        r._labelProbeRadii = null;
+        try {
+            r.canvas = ink;
+            r.ctx = ink.getContext('2d', { alpha: true });
+            r.renderStages = new Set([stage]);
+            r.render();
+        } finally {
+            r.canvas = saved.canvas;
+            r.ctx = saved.ctx;
+            r.renderStages = saved.stages;
+            r.labelProbe = saved.probe;
+            r._labelProbeRadii = saved.radii;
+            this._binderQuietPass = false;
+        }
+        const ic = ink.getContext('2d');
+        ic.save();
+        ic.setTransform(1, 0, 0, 1, 0, 0);
+        ic.globalCompositeOperation = 'destination-in';
+        ic.beginPath();
+        for (const b of astride) {
+            // past the label's box by its rim, and a colour disc has none
+            const pad = b.kind === 'disc' && !r.printerMode ? 0.75 : Math.max(1.5, b.h * 0.03);
+            const x = b.x - pad, y = b.y - pad, w = b.w + pad * 2, h = b.h + pad * 2;
+            if (b.kind === 'disc') {
+                ic.moveTo(x + w, y + h / 2);
+                ic.arc(x + w / 2, y + h / 2, w / 2, 0, Math.PI * 2);
+            } else {
+                // a cable tag or a pill: a pill's round end, a stacked
+                // tag's modest corner, both inside this
+                const k = Math.min(h / 2, w / 2, b.h * 0.3);
+                ic.moveTo(x + k, y);
+                ic.arcTo(x + w, y, x + w, y + h, k);
+                ic.arcTo(x + w, y + h, x, y + h, k);
+                ic.arcTo(x, y + h, x, y, k);
+                ic.arcTo(x, y, x + w, y, k);
+                ic.closePath();
+            }
+        }
+        ic.fillStyle = '#000000';
+        ic.fill();
+        ic.restore();
+        const oc = off.getContext('2d');
+        oc.save();
+        oc.setTransform(1, 0, 0, 1, 0, 0);
+        oc.beginPath();
+        oc.rect(0, 0, off.width, off.height);
+        oc.rect(wallPx[0] + 1, wallPx[1] + 1, wallPx[2] - 2, wallPx[3] - 2);
+        oc.clip('evenodd');
+        oc.drawImage(ink, 0, 0);
+        oc.restore();
+        ink.width = 0;
+        ink.height = 0;
     }
 
     // A GROUP's rulers number straight through the wall ("both just depends
@@ -5464,7 +5644,41 @@ class _Binder {
         // The wall's own outline, so the map reads as one thing on paper.
         ctx.strokeStyle = INK;
         ctx.lineWidth = 2;
-        ctx.strokeRect(geo.wall.x, geo.wall.y, geo.wall.w, geo.wall.h);
+        this._bWallOutline(ctx, geo);
+    }
+
+    // The wall's outline, its four edges each broken where a label stands
+    // astride it (geo.astride): the line never runs through a label.
+    _bWallOutline(ctx, geo) {
+        const { x, y, w, h } = geo.wall;
+        const astride = geo.astride || [];
+        if (!astride.length) { ctx.strokeRect(x, y, w, h); return; }
+        const edge = (x1, y1, x2, y2) => {
+            const flat = y1 === y2;
+            const at = flat ? y1 : x1;
+            const gaps = astride
+                .filter(b => (flat ? b.y <= at + 1 && b.y + b.h >= at - 1 : b.x <= at + 1 && b.x + b.w >= at - 1))
+                .map(b => (flat ? [b.x - 2, b.x + b.w + 2] : [b.y - 2, b.y + b.h + 2]))
+                .sort((a, b) => a[0] - b[0]);
+            const end = flat ? x2 : y2;
+            let from = flat ? x1 : y1;
+            const piece = (a, b) => {
+                if (b - a < 0.5) return;
+                ctx.beginPath();
+                ctx.moveTo(flat ? a : at, flat ? at : a);
+                ctx.lineTo(flat ? b : at, flat ? at : b);
+                ctx.stroke();
+            };
+            for (const [a, b] of gaps) {
+                piece(from, Math.min(a, end));
+                from = Math.max(from, b);
+            }
+            piece(from, end);
+        };
+        edge(x, y, x + w, y);
+        edge(x + w, y, x + w, y + h);
+        edge(x, y + h, x + w, y + h);
+        edge(x, y, x, y + h);
     }
 
     // The brackets outside the wall: one per soca / L21-30 on the screen,
@@ -5506,7 +5720,8 @@ class _Binder {
         // round 6: a deep stack ran off the sheet and over the title block)
         const ax = geo.area ? geo.area.x : -Infinity;
         const aw = geo.area ? geo.area.w : Infinity;
-        const avail = { R: ax + aw - (geo.wall.x + geo.wall.w) - keyR, L: geo.wall.x - ax };
+        const reach = geo.reach || NO_OVERHANG;
+        const avail = { R: ax + aw - (geo.wall.x + geo.wall.w + reach.right) - keyR, L: geo.wall.x - reach.left - ax };
         const step = { L: this._bBracketStep(L, 'L', avail.L), R: this._bBracketStep(L, 'R', avail.R) };
         for (const side of ['L', 'R']) {
             for (const b of L.placed[side]) {
@@ -5516,8 +5731,8 @@ class _Binder {
                 const mid = (ya + yb) / 2 + (b.shift || 0);
                 const dir = side === 'R' ? 1 : -1;
                 const x = side === 'R'
-                    ? geo.wall.x + geo.wall.w + BR_BASE.R + depth * step.R
-                    : geo.wall.x - BR_BASE.L - depth * step.L;
+                    ? geo.wall.x + geo.wall.w + reach.right + BR_BASE.R + depth * step.R
+                    : geo.wall.x - reach.left - BR_BASE.L - depth * step.L;
                 ctx.strokeStyle = INK;
                 ctx.lineWidth = 3;
                 ctx.setLineDash([]);
@@ -5571,7 +5786,7 @@ class _Binder {
             if (key.place === 'R') {
                 const R = L.placed.R.length
                     ? BR_BASE.R + L.depth.R * step.R + L.off + L.thick.R : 0;
-                kx = geo.wall.x + geo.wall.w + R + KEY_GAP;
+                kx = geo.wall.x + geo.wall.w + reach.right + R + KEY_GAP;
                 ky = geo.wall.y;
             } else {
                 kx = (geo.area ? geo.area.x : geo.wall.x) + 20;
@@ -5631,7 +5846,7 @@ class _Binder {
     //   * the first layout, with `keyShort`: the height a key under the
     //     wall wants, for _bMapSheets to lay the sheet out again.
     // { G, compact, mode: { slide, tags }, key, hCap, keyShort }.
-    _bBracketGutter(book, subject, layer, wall, local, area, G, ww, wh) {
+    _bBracketGutter(book, subject, layer, wall, local, area, G, ww, wh, over = NO_OVERHANG) {
         const scr = book.list && book.list.byScreen ? book.list.byScreen[layer.id] : null;
         const spans = this._bBracketSpans(book, layer, scr, subject, (px, py, pw, ph, on) => {
             const l = local(px, py, pw, ph, on || layer);
@@ -5643,10 +5858,12 @@ class _Binder {
         // planned them (_bMapLayout's fit; the key's height off the wall's
         // room where the sheet was laid out to hold one): a key under the
         // wall never pushes the bubble and the tables further down
-        const z0 = Math.max(0, Math.min((area.w - G.left - G.right) / ww,
-                                        (areaH - G.top - G.bottom - (area.keyH || 0)) / wh, MAP_ZOOM_CAP));
+        // (the wall framed with what stands astride its edges, _bPaintMap)
+        const fw = ww + over.left + over.right, fh = wh + over.top + over.bottom;
+        const z0 = Math.max(0, Math.min((area.w - G.left - G.right) / fw,
+                                        (areaH - G.top - G.bottom - (area.keyH || 0)) / fh, MAP_ZOOM_CAP));
         const hCap = Number.isFinite(area.hMax) ? Math.min(area.hMax, areaH)
-            : Number.isFinite(areaH) ? Math.round(wh * z0 + G.top + G.bottom) : Infinity;
+            : Number.isFinite(areaH) ? Math.round(fh * z0 + G.top + G.bottom) : Infinity;
         // the layout at gutter `g`, and how far each side is short of room
         // (`mode` and `key` past the first pass only)
         const at = (g, compact, mode = null, key = null) => {
@@ -5654,17 +5871,18 @@ class _Binder {
             const innerW = area.w - g.left - g.right;
             let innerH = areaH - g.top - g.bottom;
             if (kB) innerH = Math.min(innerH, hCap - g.top - g.bottom);
-            const z = Math.min(innerW / ww, innerH / wh, MAP_ZOOM_CAP);
-            const slack = Math.max(0, (innerW - wall.w * z) / 2);
-            const oy = area.y + g.top;
+            const z = Math.min(innerW / fw, innerH / fh, MAP_ZOOM_CAP);
+            const slack = Math.max(0, (innerW - fw * z) / 2);
+            const oy = area.y + g.top + over.top * z;
             const items = spans.map(sp => ({ box: sp.box, side: (sp.x1 + sp.x2) / 2 >= wall.w / 2 ? 'R' : 'L',
                                              y1: oy + sp.y1 * z, y2: oy + sp.y2 * z }));
+            const foot = oy + (wall.h + over.bottom) * z + g.bottom;
             const lay = mode
-                ? this._bBracketLayout(book, items, { top: area.y, bottom: oy + wall.h * z + g.bottom - kB }, compact, mode)
-                : this._bBracketLayout(book, items, { top: area.y, bottom: oy + wall.h * z + g.bottom }, compact);
+                ? this._bBracketLayout(book, items, { top: area.y, bottom: foot - kB }, compact, mode)
+                : this._bBracketLayout(book, items, { top: area.y, bottom: foot }, compact);
             let R = this._bBracketNeed(lay, 'R');
             if (key && key.place === 'R') R = (R ? R - BR_MARGIN : 0) + KEY_GAP + key.w + BR_MARGIN;
-            return { L: this._bBracketNeed(lay, 'L'), R, slack, z, lay, drawH: wall.h * z };
+            return { L: this._bBracketNeed(lay, 'L'), R, slack, z, lay, drawH: (wall.h + over.top + over.bottom) * z };
         };
         const fitsAt = (n, g) => n.L <= g.left + n.slack + 0.5 && n.R <= g.right + n.slack + 0.5;
         // past the first pass: a real wall - a key never takes more than
@@ -6779,6 +6997,17 @@ class _Binder {
         return inputs.some(i => i.cable) ? inputs : null;
     }
 
+    // A fiber cable as a box's inputs name it: its name, the cable's kind
+    // and mode in short brackets the first time this box says it ("TAC A
+    // (TAC 12 SM)", then "TAC A"; `typed` holds the cables said so far), or
+    // its kind where it has no name.
+    _bBoxCableWords(cable, typed) {
+        let what = cable.name || this.fiberCableTypeText(cable);
+        if (cable.name && !typed.has(cable.id)) what += ` (${this.fiberCableShortKind(cable)})`;
+        typed.add(cable.id);
+        return what;
+    }
+
     // A BOX'S INPUTS AS GROUPS (owner, 2026-10-17: "group each strand pair
     // with its input" - the input's label centred beside its strands, a thin
     // outline round them, each input its own): one per link in the box's
@@ -6813,9 +7042,7 @@ class _Binder {
                 continue;
             }
             const cable = l.cable;
-            let what = cable.name || this.fiberCableTypeText(cable);
-            if (cable.name && !typed.has(cable.id)) what += ` (${this.fiberCableShortKind(cable)})`;
-            typed.add(cable.id);
+            const what = this._bBoxCableWords(cable, typed);
             // in strand order, as the box's one-line summary lists them
             const set = [...new Set(((l.link && l.link.strands) || []).map(Number))]
                 .filter(Number.isFinite).sort((x, y) => x - y);

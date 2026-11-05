@@ -1067,6 +1067,14 @@ FIXES
   on a processor, which could leave a box just past its bottom edge.
 - FIX: A menu you open right after leaving a guide stays open. It shut
   by itself as your project came back.
+- FIX: Where a group prints screen by screen, a circuit or port shared
+  across the seam keeps its whole label on both sheets. Its circle, 2fer
+  pill and cable tag were cut in half at the edge of the screen.
+- FIX: On a wiring sheet, the circles and the runs stand on the circuits
+  and ports they belong to. On a group whose screens sit in a different
+  place on the processor, they landed beside their labels or off the sheet.
+- FIX: On a Data Wiring sheet, each breakout box names the fiber on each
+  input, like TAC A (TAC 12 SM), before its strand colors and numbers.
 
 v1.5.3 - October 21, 2026
 ----------------------------
