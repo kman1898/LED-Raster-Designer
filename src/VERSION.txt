@@ -986,6 +986,9 @@ FIXES
   on its canvas that fits it, left to right and then top to bottom,
   instead of landing on top of the screen at the corner. On an empty
   canvas it still starts at the corner.
+- FIX: A project you emptied with the start page's X stays empty, after
+  a reload too. A late update could put its first screen back on the
+  page a moment later, though the project no longer had it.
 
 v1.5.3 - October 21, 2026
 ----------------------------

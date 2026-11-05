@@ -838,7 +838,19 @@ export class LEDRasterApp {
                 // something the page does not already hold (a normalized
                 // path, a derived field); the same copy is let go.
                 const mine = (this.project && this.project.layers || []).find(l => l.id === layer.id);
-                if (mine && typeof this._canonicalJson === 'function'
+                // A screen this page has taken out since (deleted, or its
+                // project replaced): the echo landed after the delete.
+                // Applying it put the screen back on this page only, the
+                // server no longer holding it; a reload over the emptied
+                // launch project came back with its startup screen (CI,
+                // 2026-11-04). The server holds socket sends while the
+                // socket upgrades from polling, so an echo can land well
+                // after its PUT's own answer and the DELETE's.
+                if (!mine) {
+                    sendClientLog('socket_layer_updated_suppressed_gone', { id: layer.id });
+                    return;
+                }
+                if (typeof this._canonicalJson === 'function'
                         && this._canonicalJson(mine) === this._canonicalJson(layer)) {
                     sendClientLog('socket_layer_updated_suppressed_same_copy', { id: layer.id });
                     return;
