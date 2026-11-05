@@ -1026,6 +1026,12 @@ FIXES
   fit could land a moment later and move the view.
 - FIX: The guide's Pick the strands step carries on when the tray redraws
   as it reaches for a strand, instead of stopping there.
+- FIX: A strand pick you open on a fiber link stays open when the tray
+  redraws, instead of turning back into the chip.
+- FIX: The guide's ring stays on the control a step is working on while
+  the step plays. Mirror a screen ringed the wrong box for the whole drag.
+- FIX: The tray no longer slips a little each time it redraws with a snake
+  on a processor, which could leave a box just past its bottom edge.
 
 v1.5.3 - October 21, 2026
 ----------------------------

@@ -641,6 +641,59 @@ def test_picking_the_tac_on_other_boxes_fills_the_next_free_strands(page):
     assert ids['errors'] == []
 
 
+def test_an_open_strand_pick_rides_a_tray_rebuild(page):
+    """The pick is a chip swapped for a select in place, so nothing in the
+    model says it is open: a rebuild nobody asked for (a save's late echo)
+    put the chip back under the person. It stays open with the focus in it
+    through any number of rebuilds, shows what is stored, closes when the
+    person leaves it, and a choice closes it with its own save."""
+    pg, ids = page
+    box = ids['boxes'][2]
+    chip = f'[data-lrd-field="fiber-strand-{box}-p1-0"]'
+    field = f'fiber-strand-pick-{box}-p1-0'
+    pick = f'[data-lrd-field="{field}"]'
+    was = _box_links(_served(pg), box)['p1']['strands']
+    _section(pg, box)
+    pg.locator(chip).click()
+    assert pg.evaluate(f"""async () => {{
+        for (let n = 0; n < 3; n++) {{
+            window.app.renderHardwareDock();
+            await Promise.resolve();
+        }}
+        return document.activeElement.dataset.lrdField;
+    }}""") == field
+    assert pg.locator(pick).count() == 1 and pg.locator(chip).count() == 0
+    assert pg.locator(pick).input_value() == str(was[0])
+    # leaving it puts the chip back, and a rebuild does not bring it back
+    pg.evaluate("() => document.activeElement.blur()")
+    assert pg.locator(pick).count() == 0 and pg.locator(chip).count() == 1
+    pg.evaluate("() => window.app.renderHardwareDock()")
+    assert pg.locator(pick).count() == 0 and pg.locator(chip).count() == 1
+    # the rebuilt pick is a working one; its save closes it, and a rebuild
+    # landing before the answer does not hold it open
+    pg.locator(chip).click()
+    pg.evaluate("() => window.app.renderHardwareDock()")
+    free = next(n for n in range(12, 0, -1) if pg.locator(pick).evaluate(
+        "(s, v) => !s.querySelector(`option[value=\"${v}\"]`).disabled", n)
+        and n not in was)
+    pg.evaluate("""([sel, v]) => {
+        const s = document.querySelector(sel);
+        s.value = String(v);
+        s.dispatchEvent(new Event('change', {bubbles: true}));
+        window.app.renderHardwareDock();
+    }""", [pick, free])
+    assert pg.locator(pick).count() == 0
+    st = _wait(pg, lambda s: _box_links(s, box)['p1']['strands'][0] == free)
+    assert _box_links(st, box)['p1']['strands'][0] == free
+    _section(pg, box)
+    assert pg.locator(pick).count() == 0 and pg.locator(chip).count() == 1
+    assert ids['errors'] == []
+    # back as the tests after this one found it
+    pg.locator(chip).click()
+    pg.locator(pick).select_option(str(was[0]))
+    _wait(pg, lambda s: _box_links(s, box)['p1']['strands'] == was)
+
+
 def test_the_bidi_switch_shows_only_for_novastar_and_megapixel(page):
     pg, ids = page
     a = ids['boxes'][0]

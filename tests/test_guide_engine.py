@@ -341,6 +341,215 @@ def test_pick_the_strands_survives_the_tray_rebuilding_on_the_way_to_the_pick(pa
         page.evaluate("() => { window.setTimeout = window.__realTimeout; }")
 
 
+def test_pick_the_strands_takes_with_the_tray_redrawing_on_a_steady_beat(page):
+    """A tray that redraws faster than the hand reaches a pick (1.6.0 QA,
+    the tray on a 350 ms timer: 0 of 3 replays took, "the strand pick did
+    not open"). The rebuild took the pick every time it beat the hand, and
+    each of the three tries lost the same way. At the shipped pace, on a
+    steady beat, the step takes."""
+    i = _index(page, 'fiberStrands')
+    _open_advanced(page, 1)
+    page.evaluate("() => { window.__beat = setInterval(() => window.app.renderHardwareDock(), 350); }")
+    try:
+        _go_to(page, i)
+        st = _wait_step(page, i, timeout=120)
+        assert st['state'] == 'done' and not st['fail'], st
+    finally:
+        page.evaluate("() => clearInterval(window.__beat)")
+
+
+def test_pick_the_strands_takes_when_every_press_is_rebuilt_under_it(page):
+    """The click's press lasts 70 ms, long enough for the tray to rebuild
+    under it. The click then went to the copy the rebuild took out, which
+    swapped nothing for nothing, and no try ever opened the pick."""
+    page.evaluate("""() => {
+        window.__presses = 0;
+        window.__onPress = (e) => {
+            const f = e.target && e.target.dataset && e.target.dataset.lrdField;
+            if (!f || !/^fiber-strand-[^p]/.test(f)) return;
+            window.__presses++;
+            setTimeout(() => window.app.renderHardwareDock(), 0);
+        };
+        document.addEventListener('mousedown', window.__onPress, true);
+    }""")
+    try:
+        i = _index(page, 'fiberStrands')
+        _open_advanced(page, 3)
+        _go_to(page, i)
+        st = _wait_step(page, i)
+        assert st['state'] == 'done' and not st['fail'], st
+        assert page.evaluate("window.__presses") == 2
+    finally:
+        page.evaluate("() => document.removeEventListener('mousedown', window.__onPress, true)")
+
+
+# Every frame between the press on a box's grip and the release, the ring,
+# the box the step names and the tray's body, and where the press landed.
+DRAG_WATCH_JS = """() => {
+    window.__drag = {on: false, rows: [], press: null};
+    const box = (el) => {
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return {left: r.left, top: r.top, right: r.right, bottom: r.bottom};
+    };
+    window.__dragDown = (e) => {
+        if (!e.target || !e.target.closest || !e.target.closest('.hw-dock-grip')) return;
+        window.__drag.on = true;
+        window.__drag.press = {x: e.clientX, y: e.clientY};
+    };
+    window.__dragUp = () => { window.__drag.on = false; };
+    document.addEventListener('mousedown', window.__dragDown, true);
+    document.addEventListener('mouseup', window.__dragUp, true);
+    const tick = () => {
+        if (window.__drag.on) {
+            const q = window.QuickStart.state();
+            const step = window.QuickStart.tours()[q.tour][q.index];
+            const sel = step.target();
+            window.__drag.rows.push({sel, ring: box(document.getElementById('qs-spot')),
+                                     box: box(document.querySelector(sel)),
+                                     tray: box(document.getElementById('hardware-dock-body'))});
+        }
+        window.__dragFrame = requestAnimationFrame(tick);
+    };
+    tick();
+}"""
+DRAG_UNWATCH_JS = """() => {
+    cancelAnimationFrame(window.__dragFrame);
+    document.removeEventListener('mousedown', window.__dragDown, true);
+    document.removeEventListener('mouseup', window.__dragUp, true);
+}"""
+RING_PAD = 6
+
+
+def _ring_is_on(ring, box, slack=2):
+    return all(abs(ring[k] - (box[k] + (RING_PAD if k in ('right', 'bottom') else -RING_PAD))) <= slack
+               for k in ('left', 'top', 'right', 'bottom'))
+
+
+def test_the_ring_stays_on_the_box_through_the_mirror_drag(page):
+    """Mirror a screen names its box only once the act has put the hardware
+    in, so the ring measured before the act sat on another box for the whole
+    drag, and the box was past the tray's bottom edge (1.6.0 QA, every run
+    at 1600x950). From the press to the release the ring is on the box the
+    callout says to drag, the box is in the tray's view, and the press
+    landed on it. A rebuild does not move the stack: the box was revealed
+    in a frame that drew the column short of its snake's bracket."""
+    i = _index(page, 'mirrorScreen')
+    _open_advanced(page, 3)
+    page.evaluate(DRAG_WATCH_JS)
+    try:
+        _go_to(page, i)
+        st = _wait_step(page, i, timeout=120)
+        assert st['state'] == 'done' and not st['fail'], st
+        drag = page.evaluate("window.__drag")
+    finally:
+        page.evaluate(DRAG_UNWATCH_JS)
+    rows = drag['rows']
+    assert len(rows) >= 5, drag
+    for row in rows:
+        assert 'data-hwdock="box-' in row['sel'], row
+        assert _ring_is_on(row['ring'], row['box']), row
+        assert row['box']['top'] >= row['tray']['top'] - 1, row
+        assert row['box']['bottom'] <= row['tray']['bottom'] + 1, row
+    first = rows[0]['box']
+    assert first['left'] <= drag['press']['x'] <= first['right'], drag['press']
+    assert first['top'] <= drag['press']['y'] <= first['bottom'], (drag['press'], first)
+    heights = page.evaluate("""() => {
+        const body = document.getElementById('hardware-dock-body');
+        const before = [body.scrollHeight, body.scrollTop];
+        window.app.renderHardwareDock();
+        return [before, [body.scrollHeight, body.scrollTop]];
+    }""")
+    assert heights[0] == heights[1], heights
+
+
+# A step of the test's own: its act runs `act`, its check is a yes.
+STAND_IN_JS = """(body) => {
+    const step = window.QuickStart.steps().cableSheet;
+    window.__standIn = {act: step.act, check: step.check, after: step.after};
+    step.act = new Function('t', body);
+    step.check = () => 'stood in';
+    step.after = () => {};
+}"""
+STAND_DOWN_JS = """() => {
+    const step = window.QuickStart.steps().cableSheet;
+    Object.assign(step, window.__standIn);
+    document.getElementById('hardware-dock-body').style.paddingTop = '';
+}"""
+
+
+def test_the_ring_follows_a_target_the_act_moves_and_holds_when_it_scrolls_away(page):
+    """The ring through an act, on any step: a target the act moves is
+    followed without anything being scrolled for it, and one the tray has
+    scrolled out of sight leaves the ring where it is, on the tray rather
+    than on whatever lies past its edge."""
+    i = _index(page, 'cableSheet')
+    page.evaluate(STAND_IN_JS, """
+        const body = document.getElementById('hardware-dock-body');
+        const sel = '#hardware-dock-body .hw-dock-cablebtn-data';
+        const box = (el) => { const r = el.getBoundingClientRect();
+            return {left: r.left, top: r.top, right: r.right, bottom: r.bottom}; };
+        const rest = () => new Promise(r => setTimeout(r, 450));
+        window.__ring = {};
+        body.scrollTop = 0;
+        return rest().then(() => {
+            body.style.paddingTop = '40px';
+            return rest();
+        }).then(() => {
+            window.__ring.moved = {ring: box(document.getElementById('qs-spot')),
+                                   target: box(document.querySelector(sel)), scroll: body.scrollTop};
+            body.style.paddingTop = '';
+            body.scrollTop = 400;
+            return rest();
+        }).then(() => {
+            window.__ring.away = {ring: box(document.getElementById('qs-spot')),
+                                  target: box(document.querySelector(sel)),
+                                  tray: box(body)};
+            body.scrollTop = 0;
+        });
+    """)
+    try:
+        _open_advanced(page, 3)
+        _go_to(page, i)
+        st = _wait_step(page, i, timeout=60)
+        assert st['state'] == 'done' and not st['fail'], st
+        ring = page.evaluate("window.__ring")
+    finally:
+        page.evaluate(STAND_DOWN_JS)
+    moved = ring['moved']
+    assert moved['scroll'] == 0, moved
+    assert _ring_is_on(moved['ring'], moved['target']), moved
+    away = ring['away']
+    assert away['target']['bottom'] <= away['tray']['top'], away
+    assert away['ring']['bottom'] > away['tray']['top'], away
+
+
+def test_the_hand_lands_where_the_element_is_now(page):
+    """The tray moves while the hand travels (a save's echo restates it, a
+    column grows): the hand ends on the element, not on where it was when
+    it set off."""
+    i = _index(page, 'cableSheet')
+    page.evaluate(STAND_IN_JS, """
+        const sel = '#hardware-dock-body .hw-dock-cablebtn-data';
+        setTimeout(() => {
+            document.getElementById('hardware-dock-body').style.paddingTop = '40px';
+        }, 30);
+        return t.moveTo(sel).then((p) => {
+            const r = document.querySelector(sel).getBoundingClientRect();
+            window.__aim = {hand: [p.x, p.y], at: [r.left + r.width / 2, r.top + r.height / 2]};
+        });
+    """)
+    try:
+        _open_advanced(page, 3)
+        _go_to(page, i)
+        st = _wait_step(page, i, timeout=60)
+        assert st['state'] == 'done' and not st['fail'], st
+        aim = page.evaluate("window.__aim")
+    finally:
+        page.evaluate(STAND_DOWN_JS)
+    assert abs(aim['hand'][0] - aim['at'][0]) < 2 and abs(aim['hand'][1] - aim['at'][1]) < 2, aim
+
+
 def test_whats_new_never_carries_on_from_an_entry_it_did_not_reach(page):
     """What's New, with the shipped file stale, applies the Advanced steps
     before each step. When that apply stops on the way, the step still

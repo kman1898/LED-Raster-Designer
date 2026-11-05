@@ -1374,6 +1374,19 @@ class _DockCableSheets {
         return sel;
     }
 
+    // Which strand pick a rebuild must draw open: the one the person is
+    // standing in with no choice made yet. A rebuild nobody asked for (a
+    // save's late echo, a peer's edit) put the chip back under them and the
+    // pick was gone before they could use it; _preserveEditorFocus then
+    // hands the focus to the pick drawn in its place. A pick already
+    // answered stays out: its own save closes it.
+    _fiberPickOpenKey() {
+        const a = document.activeElement;
+        const key = a && a.dataset ? a.dataset.lrdField : null;
+        return key && key.startsWith('fiber-strand-pick-')
+            && !a.dataset.lrdPicked ? key : null;
+    }
+
     // A strand as a chip: its swatch (the tracer as a stripe) and its name.
     // A click turns it into a pick of the cable's strands - the ones other
     // links hold are listed, disabled, with who holds them.
@@ -1386,12 +1399,12 @@ class _DockCableSheets {
         chip.title = `Strand ${strand} of ${cable.name}. Click to change it.`;
         chip.appendChild(this._fiberSwatch(strand, cable));
         chip.appendChild(document.createTextNode(this.fiberStrandName(strand, cable)));
-        chip.addEventListener('click', (e) => {
-            e.stopPropagation();
+        const pickKey = `fiber-strand-pick-${box.id}-${l.key}-${i}`;
+        const buildPick = () => {
             const users = this.fiberStrandUsers(cable.id);
             const sel = document.createElement('select');
             sel.className = 'hw-dock-cable-connector hw-dock-fiber-select';
-            sel.dataset.lrdField = `fiber-strand-pick-${box.id}-${l.key}-${i}`;
+            sel.dataset.lrdField = pickKey;
             for (let n = 1; n <= (cable.strands || 0); n++) {
                 const o = document.createElement('option');
                 o.value = String(n);
@@ -1406,15 +1419,21 @@ class _DockCableSheets {
             let changed = false;
             sel.addEventListener('change', () => {
                 changed = true;
+                sel.dataset.lrdPicked = '1';
                 const strands = (l.link.strands || []).slice();
                 strands[i] = parseInt(sel.value, 10);
                 this.setFiberLink(box, l.key, { cable: cable.id, strands }, 'Set Fiber Strands');
             });
             sel.addEventListener('blur', () => { if (!changed) sel.replaceWith(chip); });
+            return sel;
+        };
+        chip.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const sel = buildPick();
             chip.replaceWith(sel);
             sel.focus();
         });
-        return chip;
+        return this._fiberPickOpen === pickKey ? buildPick() : chip;
     }
 
     _fiberSwatch(strand, cable) {
