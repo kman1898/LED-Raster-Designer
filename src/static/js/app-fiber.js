@@ -272,11 +272,10 @@ class _Fiber {
     }
 
     // Which list of the show's cable stock a fiber cable is pulled from:
-    // 'fiberSingle' or 'fiberMulti' by the mode of its fiber, null where
-    // its boxes state none (it is written as typed, as before).
+    // 'fiber', one list for both modes (owner, 2026-11-05), null where its
+    // boxes state no mode (it is written as typed, as before).
     fiberStockKind(cable) {
-        const mode = this.fiberCableMode(cable);
-        return mode === 'single' ? 'fiberSingle' : (mode === 'multi' ? 'fiberMulti' : null);
+        return this.fiberCableMode(cable) ? 'fiber' : null;
     }
 
     // ---- extensions at the box end ----------------------------------------

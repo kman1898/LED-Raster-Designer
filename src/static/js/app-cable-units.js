@@ -54,14 +54,18 @@
 //     a circuit's) and 'feeder' (a distro's feeder, app-services.js).
 //     The copper links and the jumpers do not: the jumpers keep their own
 //     ladder above.
-//   * FIBER (owner, 2026-11-04: single mode and multimode are separate
-//     boxes, so separate cable): 'fiberSingle' and 'fiberMulti', a TAC,
-//     MTP or opticalCON pulled from the list of its fiber's mode (its
-//     boxes' fiberMode, app-fiber.js fiberStockKind). These two are ALWAYS
-//     their own lists, whatever perKind says - a fiber is never pulled
-//     from a copper list, and a show saved before they existed has none,
-//     so its fiber is written as typed, as it always was. A cable whose
-//     boxes state no mode is written as typed too.
+//   * FIBER (owner, 2026-11-05: "we dont need two differnt fiber lenght
+//     types. MM and SM can be one box in preferences"): ONE list, 'fiber',
+//     a TAC, MTP or opticalCON of either mode pulled from it
+//     (app-fiber.js fiberStockKind). The mode stays on every cable, row,
+//     label and refusal: only the lengths are shared. It is ALWAYS its own
+//     list, whatever perKind says - a fiber is never pulled from a copper
+//     list, and a show saved before it has none, so its fiber is written
+//     as typed, as it always was. A cable whose boxes state no mode is
+//     written as typed too. A show or preset saved with the list per mode
+//     1.6.0's betas kept ('fiberSingle', 'fiberMulti') reads as one list
+//     holding every length of both (normalizeCableStock; the server folds
+//     the keys away, routes_cable_stock.py fold_fiber_lists).
 //   * ONE list for all of them, or a list PER KIND (cableStock.perKind),
 //     each kept in feet and in meters like the preferences: a show reads
 //     the list in its own unit. An empty list is no breakdown for that
@@ -118,8 +122,10 @@ const TYPED_LENGTH_KEYS = new Set(['ft', 'ext', 'homeRun', 'fiberFt',
 // list in each unit.
 export const CABLE_STOCK_KINDS = ['multi', 'data', 'circuit', 'l2130', 'harting', 'direct', 'feeder'];
 export const CABLE_STOCK_ALL = 'all';
-// The fiber lists: one per mode, never shared (above).
-export const CABLE_STOCK_FIBER = ['fiberSingle', 'fiberMulti'];
+// The fiber list: both modes', never shared with copper (above).
+export const CABLE_STOCK_FIBER = 'fiber';
+// The list per mode a stock may have been saved with: read into the one.
+const CABLE_STOCK_FIBER_RETIRED = ['fiberSingle', 'fiberMulti'];
 // A kind's list where a saved per-kind stock has none at all (saved
 // before the kind had one): the list its cables were pulled from then.
 export const CABLE_STOCK_FALLBACK = { l2130: 'multi', harting: 'multi', direct: 'circuit' };
@@ -328,10 +334,10 @@ class _CableUnits {
     // ---- the show's cable stock ------------------------------------------
 
     // A stock as stored: { perKind, ft: { all, multi, data, circuit,
-    // l2130, harting, direct, feeder, fiberSingle, fiberMulti }, m: { ... }
-    // }, every list positive
-    // lengths, ascending, once each (empty where nothing in it is a
-    // length; a kind with no list at all reads its CABLE_STOCK_FALLBACK).
+    // l2130, harting, direct, feeder, fiber }, m: { ... } }, every list
+    // positive lengths, ascending, once each (empty where nothing in it is
+    // a length; a kind with no list at all reads its CABLE_STOCK_FALLBACK;
+    // the fiber list holds every length of the retired lists per mode).
     // null for anything that is not a stock at all - a show without one.
     normalizeCableStock(stock) {
         if (!stock || typeof stock !== 'object' || Array.isArray(stock)) return null;
@@ -339,11 +345,14 @@ class _CableUnits {
         for (const u of CABLE_UNITS) {
             const lists = stock[u] && typeof stock[u] === 'object' ? stock[u] : {};
             out[u] = {};
-            for (const k of [CABLE_STOCK_ALL, ...CABLE_STOCK_KINDS, ...CABLE_STOCK_FIBER]) {
+            for (const k of [CABLE_STOCK_ALL, ...CABLE_STOCK_KINDS]) {
                 const from = lists[k] === undefined && CABLE_STOCK_FALLBACK[k]
                     ? lists[CABLE_STOCK_FALLBACK[k]] : lists[k];
                 out[u][k] = this.normalizeJumperStock(from) || [];
             }
+            out[u][CABLE_STOCK_FIBER] = this.normalizeJumperStock(
+                [CABLE_STOCK_FIBER, ...CABLE_STOCK_FIBER_RETIRED]
+                    .flatMap(k => (Array.isArray(lists[k]) ? lists[k] : []))) || [];
         }
         return out;
     }
@@ -355,12 +364,11 @@ class _CableUnits {
 
     // The lengths one kind of cable comes in, in a unit (the show's by
     // default): the shared list, or the kind's own when the show keeps a
-    // list per kind. A fiber kind ('fiberSingle' / 'fiberMulti') always
-    // reads its own list. Empty for no stock, an empty list, or a cable
-    // the stock does not cover (no kind: a jumper, a fiber of no stated
-    // mode).
+    // list per kind. The 'fiber' kind always reads its own list. Empty
+    // for no stock, an empty list, or a cable the stock does not cover
+    // (no kind: a jumper, a fiber of no stated mode).
     cableStockList(kind, unit) {
-        const fiber = CABLE_STOCK_FIBER.includes(kind);
+        const fiber = kind === CABLE_STOCK_FIBER;
         if (!fiber && !CABLE_STOCK_KINDS.includes(kind)) return [];
         const stock = this.cableStock();
         if (!stock) return [];

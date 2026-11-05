@@ -210,10 +210,8 @@ def test_a_distro_at_its_own_beach_pulls_the_power_rows_there(page):
         ('TRUE1 Power Jump', "2'", 1, 'WALL-A', ''),
         ('TRUE1 Power Jump', "6'", 10, 'WALL-B', ''),
     ]
-    # the walls' panels stay with the walls (2026-10-22): a distro's
-    # location moves its rows, never the screens' cabinets
+    # the walls name no panel, so no panel row (owner, 2026-11-05)
     assert _rows(pos['SR Beach']['rows']) == [
-        ('500 × 500 mm panel', 'EA', 24, 'WALL-A, WALL-B', ''),
         ('Cat6 Snake', "100'", 1, 'SR-1, SR-2', 'SNAKE A · 2 channel'),
         ('Data Jump', "1'", 9, 'WALL-A', ''),
         ('Data Jump', "2'", 2, 'WALL-A', ''),
@@ -433,9 +431,8 @@ def test_a_box_at_its_beach_pulls_its_ports_rows_and_two_boxes_list_once(page):
         ('H9', 'EA', 1, '', ''),
     ]
     assert all(r['side'] == 'data' for r in sl['rows'])
-    # the walls' panels stay on their own position, SR Beach (2026-10-22)
+    # the walls name no panel, so no panel row (owner, 2026-11-05)
     assert _rows(pos['SR Beach']['rows']) == [
-        ('500 × 500 mm panel', 'EA', 24, 'WALL-A, WALL-B', ''),
         ('Distro', 'EA', 1, 'SR', ''),
         ('Multi', "100'", 1, 'SR2', ''),
         ('Multi', "125'", 1, 'SR1', ''),
@@ -454,7 +451,6 @@ def test_a_box_at_its_beach_pulls_its_ports_rows_and_two_boxes_list_once(page):
         return app.screenCircuits(c).map(x => app.getPowerCircuitLabel(c, x.num)).join(', ');
     }}""")
     assert _rows(pos['CENTER']['rows']) == [
-        ('500 × 500 mm panel', 'EA', 15, 'CENTER', ''),
         ('Edison → TRUE1 cable', 'EA', 2, tails, ''),
         ('TRUE1 2fer', 'EA', 1, ids['centerLabel'], ''),
         ('TRUE1 Power Jump', "3'", 12, 'CENTER', ''),

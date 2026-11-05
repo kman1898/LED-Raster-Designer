@@ -75,8 +75,8 @@ def test_count_changes_are_listed_under_opening_an_older_show():
     top = _top_entry()
     older = top[top.index('OPENING AN OLDER SHOW'):top.index('\nFIXES\n')]
     flat = _flat(older)
-    for line in ('- CHANGE (IMPORTANT): The pull sheet has a row for each panel type on each screen and a '
-                 'Power in row for each distro',
+    for line in ('- CHANGE (IMPORTANT): The pull sheet has a row for each named panel type on each screen '
+                 'and a Power in row for each distro',
                  '- CHANGE (IMPORTANT): Hidden screens keep their multi numbers and outputs reserved',
                  '- CHANGE (IMPORTANT): The Overview\'s totals in the binder leave out hidden screens.',
                  '- CHANGE (IMPORTANT): A distro with nothing on it, or only hidden screens, is left '

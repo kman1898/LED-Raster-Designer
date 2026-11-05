@@ -288,16 +288,14 @@ def test_the_file_menu_opens_the_editor_laid_out_like_the_workbook(page):
     # TOTALS is a readout block with the engine's totals
     tot = pg.locator('#pull-sheet-totals tr').evaluate_all(
         "els => els.slice(1).map(tr => [...tr.children].map(td => td.textContent))")
-    # the screens' panels head the totals (2026-10-22: one type, the
-    # three screens' cabinets added up), then the Cat6 home runs, then the
-    # jumpers - one row per length (2026-09-25, test_pull_list's seed) -
-    # then the distro's own row, by its Type ("Distro" with none,
-    # 2026-10-18)
-    assert tot[0] == ['500 × 500 mm panel', 'EA', '39', 'WALL-A, WALL-B, CENTER']
-    assert tot[1:3] == [['Cat6', "50'", '1', 'SR-3'], ['Cat6 Snake', "100'", '1', 'SR-1, SR-2']]
-    assert tot[3:7] == [['Data Jump', "1'", '9', 'WALL-A'], ['Data Jump', "1.5'", '4', 'CENTER'],
+    # the screens name no panel, so no panel row (owner, 2026-11-05): the
+    # Cat6 home runs head the totals, then the jumpers - one row per length
+    # (2026-09-25, test_pull_list's seed) - then the distro's own row, by
+    # its Type ("Distro" with none, 2026-10-18)
+    assert tot[0:2] == [['Cat6', "50'", '1', 'SR-3'], ['Cat6 Snake', "100'", '1', 'SR-1, SR-2']]
+    assert tot[2:6] == [['Data Jump', "1'", '9', 'WALL-A'], ['Data Jump', "1.5'", '4', 'CENTER'],
                         ['Data Jump', "2'", '2', 'WALL-A'], ['Data Jump', "6'", '11', 'WALL-B']]
-    assert tot[7] == ['Distro', 'EA', '1', 'SR']
+    assert tot[6] == ['Distro', 'EA', '1', 'SR']
     assert pg.locator('#pull-sheet-totals input').count() == 0
     assert 'tails' not in pg.locator('#pull-sheet-modal').inner_text().lower()
     # the pickers carry the GEAR LIST plus the show's own words
@@ -481,7 +479,7 @@ def test_an_added_row_with_a_new_type_lands_in_the_export_and_the_gear_list(page
     assert (widget['length'], widget['qty'], widget['label'], widget['notes'], widget['side']) == ("12'", 3, 'X', 'new', 'power')
     assert _totals(sheet)[('Widget Cable', "12'")] == (3, 'X', 'new')
     # sorted into place, EA last
-    assert [t for t, *_ in _rows(center['rows'])] == ['500 × 500 mm panel', 'Cat6', 'Data Jump', 'Edison → TRUE1 cable', 'TRUE1 2fer',
+    assert [t for t, *_ in _rows(center['rows'])] == ['Cat6', 'Data Jump', 'Edison → TRUE1 cable', 'TRUE1 2fer',
                                                       'TRUE1 Power Jump', 'Widget Cable']
     assert _rows(sheet['totals'])[-1][0] == 'Widget Cable' or _rows(sheet['totals'])[-1][1] == 'EA'
     # the export: the row in the CENTER block, the type in the GEAR LIST

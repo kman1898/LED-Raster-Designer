@@ -4451,14 +4451,15 @@
         // pullPanelCounts): the Export dialog's Edit rows opens the pull
         // sheet editor, and each screen's position has a row per panel type
         // it hangs, named by the panel saved on it (the Name the panel
-        // step), blank and hidden cabinets left out.
+        // step), blank and hidden cabinets left out. A screen with no panel
+        // name has no row.
         pullPanels: {
             since: '1.6.0',
             target: function () { return pullSheetOpen() ? PANEL_ROW : '#export-pull-sheet-edit-rows'; },
             place: 'left', title: 'Panels on the pull sheet',
             avoid: ['#export-pull-sheet-edit-rows'],
             window: ['export:pull-sheet', 'pull-sheet'],
-            body: 'Edit rows opens the pull sheet. Each screen gets a row for every panel type it hangs, half tiles on rows of their own, and a blank cabinet isn&rsquo;t counted.',
+            body: 'Edit rows opens the pull sheet. Each screen with a named panel gets a row for every panel type it hangs, half tiles on rows of their own, and a blank cabinet isn&rsquo;t counted.',
             before: function () {
                 closePullSheet();
                 var a = A();

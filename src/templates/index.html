@@ -301,7 +301,7 @@
                             <select id="layer-beach" class="info-select" data-lrd-field="layer-beach"></select>
                         </div>
                         <div id="screen-grid-settings" class="screen-only">
-                            <div class="info-row" data-tooltip="Panel, The panel this screen hangs, as the pull sheet names it. It starts as the name of the panel the screen was made with: a pick from the panel library, a preset, or the last screen's panel. Type over it to name a custom panel. Changing the cabinet's pixels or size by hand clears it, and clearing it goes back to the library's name for its size, or its size.">
+                            <div class="info-row" data-tooltip="Panel, The panel this screen hangs, as the pull sheet names it. It starts as the name of the panel the screen was made with: a pick from the panel library, a preset, or the last screen's panel. Type over it to name a custom panel. Changing the cabinet's pixels or size by hand clears it. A screen with no name here has no panel row on the pull sheet.">
                                 <label>Panel</label>
                                 <input type="text" id="panel-model-name" value="" autocomplete="off" spellcheck="false">
                             </div>
@@ -3104,21 +3104,12 @@
                                 <span class="pm-unit">m</span>
                             </div>
                         </div>
-                        <div class="pm-row" data-cable-stock-fiber="fiberSingle">
-                            <label>Single mode fiber</label>
+                        <div class="pm-row" data-cable-stock-fiber="fiber">
+                            <label>Fiber</label>
                             <div class="prefs-row">
-                                <input type="text" id="pref-cable-stock-fiberSingle-ft" placeholder="none" class="pm-wide" data-tooltip="Single mode fiber lengths in feet: the TACs, MTPs and opticalCONs on single mode boxes. Always a list of its own.">
+                                <input type="text" id="pref-cable-stock-fiber-ft" placeholder="none" class="pm-wide" data-tooltip="Fiber lengths in feet: the TACs, MTPs and opticalCONs, single mode and multimode alike. Always a list of its own.">
                                 <span class="pm-unit">ft</span>
-                                <input type="text" id="pref-cable-stock-fiberSingle-m" placeholder="none" class="pm-wide" data-tooltip="Single mode fiber lengths in meters: the TACs, MTPs and opticalCONs on single mode boxes. Always a list of its own.">
-                                <span class="pm-unit">m</span>
-                            </div>
-                        </div>
-                        <div class="pm-row" data-cable-stock-fiber="fiberMulti">
-                            <label>Multimode fiber</label>
-                            <div class="prefs-row">
-                                <input type="text" id="pref-cable-stock-fiberMulti-ft" placeholder="none" class="pm-wide" data-tooltip="Multimode fiber lengths in feet: the TACs, MTPs and opticalCONs on multimode boxes. Always a list of its own.">
-                                <span class="pm-unit">ft</span>
-                                <input type="text" id="pref-cable-stock-fiberMulti-m" placeholder="none" class="pm-wide" data-tooltip="Multimode fiber lengths in meters: the TACs, MTPs and opticalCONs on multimode boxes. Always a list of its own.">
+                                <input type="text" id="pref-cable-stock-fiber-m" placeholder="none" class="pm-wide" data-tooltip="Fiber lengths in meters: the TACs, MTPs and opticalCONs, single mode and multimode alike. Always a list of its own.">
                                 <span class="pm-unit">m</span>
                             </div>
                         </div>

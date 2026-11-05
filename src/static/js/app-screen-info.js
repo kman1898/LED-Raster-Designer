@@ -3197,8 +3197,8 @@ class _ScreenInfo {
     // updateLayerFromInputs compares against to tell an edited field from one
     // merely on display. Taken after every fill and every applied edit.
     // The Panel field (2026-10-22): the saved panel's name, blank on a
-    // mixed selection; with none saved, the name the pull sheet gives the
-    // cabinet stands in as the placeholder ("500 × 500 mm panel").
+    // mixed selection and with none saved: the pull sheet then prints no
+    // panel row, so no name stands in for it.
     _showPanelModelName(layers) {
         const el = document.getElementById('panel-model-name');
         if (!el) return;
@@ -3206,8 +3206,7 @@ class _ScreenInfo {
         const names = [...new Set(screens.map(l => String(l.panelModelName || '')))];
         if (names.length > 1) { el.value = ''; el.placeholder = '-'; return; }
         el.value = names[0] || '';
-        el.placeholder = (!el.value && screens.length && typeof this.pullPanelTypes === 'function')
-            ? this.pullPanelTypes(screens[0]).none : '';
+        el.placeholder = '';
     }
 
     _captureScreenInfoBaseline() {

@@ -1129,8 +1129,6 @@ class _Binder {
         if (typeof this.refreshPortAssignment === 'function') {
             try { await this.refreshPortAssignment(); } catch (_) {}
         }
-        // the pull pages' panel rows are named from the panel library
-        if (typeof this.pullPanelCatalogReady === 'function') await this.pullPanelCatalogReady();
         await this._ensureBinderLogo();
         // The revision this export wears is logged before the sheets
         // render, so the REVISIONS table on every sheet carries it.
