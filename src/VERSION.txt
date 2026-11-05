@@ -1077,6 +1077,10 @@ FIXES
 - FIX: A screen with no panel name is left off the panel rows on the pull
   sheet and the binder's pull pages. It used to print a size, or a model
   nobody chose that happened to match the size, pixels and weight.
+- FIX: Your browser's AutoFill can no longer change a show. A fill from
+  your contacts could write a name or a phone number into fields you
+  weren't in, even in a folded panel, and rename multis across screens.
+  Now a field only takes what you type, paste or pick.
 
 v1.5.3 - October 21, 2026
 ----------------------------

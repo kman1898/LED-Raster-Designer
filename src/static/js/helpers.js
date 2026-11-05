@@ -377,6 +377,192 @@ function installEnterEndsEdit(doc) {
     });
 }
 
+// No autofill reaches a show. Owner, 2026-11-05: "i just had autofill
+// change a bunch of stuff. this cannot happen." With the Export window
+// open, the browser's contact AutoFill filled the Project Manager field
+// being typed in, then a multi name in the folded tray and the Designer
+// and phone fields, all inside a second: eight Rename Multi steps and a
+// name written across screens, undone by hand.
+//
+// One rule for every field the app has or ever builds, in two halves.
+//
+// Asking the browser not to (the hints). `autocomplete="off"` and the
+// ignore hints that extension fillers read go on each text-like field,
+// textarea and select as it appears (a MutationObserver), so no field sets
+// them for itself. They are a request only: contact AutoFill is known to
+// pass over `autocomplete="off"` on a field that reads like a name or a
+// phone, so nothing depends on them.
+//
+// Not trusting the browser (the guard). WebKit's fill writes the value in
+// native code and then fires `input` and `change`, focused or not, so the
+// app's listeners cannot tell it from an edit by the events alone. What
+// the guard knows instead is every value that is supposed to be there:
+//   - page script writes through the value setters, which are watched, so
+//     the app's own code, undo and the guides need no marking at all;
+//   - the person's edits arrive as trusted InputEvents and are noted.
+// A value that came by neither road was written from outside the page.
+// When such a value turns up in an `input` or `change`, one capture
+// listener on the window, ahead of every listener in the app, puts the
+// field back, stops the event dead and logs `autofill_refused` with the
+// field and no value. Nothing reaches a handler, a history step or a save.
+//
+// A value the page does not know is still the person's when:
+//   - the field has focus and the browser says it was typed (a trusted
+//     InputEvent: keys, paste, cut, IME, dictation, spelling, Cmd+Z);
+//   - it is a select, or a number or date kind (stepper, wheel, picker,
+//     which fire plain events), that has focus or was the last thing
+//     pressed: WebKit on the Mac gives a select no focus on a click;
+//   - it is a pick from the field's own datalist (a plain event too);
+//   - it is an undo, redo or drag of text, which can land on a field that
+//     has lost the focus.
+//
+// The field being typed in. WebKit's fill does not look like typing even
+// there: a plain `input` event, not an InputEvent, and the browser's own
+// autofill mark on the field, so it is refused and the text typed so far
+// stays. Only a filler that writes through the text input system (a
+// multi-character insertText, which is also what dictation and scripted
+// typing look like) would pass, and it could reach that one field only.
+const FIELD_NO_FILL_HINTS = [
+    ['autocomplete', 'off'],
+    ['data-form-type', 'other'],
+    ['data-lpignore', 'true'],
+    ['data-1p-ignore', 'true'],
+    ['data-bwignore', 'true'],
+];
+
+// Fields only keys and paste can edit: a plain event in one is never the
+// person. (el.type reads 'textarea' on a textarea.)
+const FREE_TEXT_TYPES = new Set(['text', 'email', 'url', 'tel', 'password', 'textarea']);
+
+const INPUT_FROM_ANYWHERE = /^(historyUndo|historyRedo|insertFromDrop|deleteByDrag)$/;
+
+// A fill fires `input` and `change` back to back. The field is back to its
+// old value by the `change`, which would run its handler with that value.
+const REFUSED_PAIR_MS = 1000;
+
+function isFillableField(el) {
+    if (!el || el.isContentEditable) return false;
+    const tag = el.tagName;
+    if (tag === 'TEXTAREA' || tag === 'SELECT') return true;
+    return tag === 'INPUT' && isTypingTarget(el);
+}
+
+function browserMarkedFilled(el) {
+    return [':autofill', ':-webkit-autofill'].some((mark) => {
+        try { return el.matches(mark); } catch (e) { return false; }
+    });
+}
+
+function installFieldGuard(doc) {
+    doc = doc || document;
+    if (doc.__lrdFieldGuard) return;
+    doc.__lrdFieldGuard = true;
+    const win = doc.defaultView || window;
+    const known = new WeakMap();     // field -> the value that belongs there
+    const refusedAt = new WeakMap(); // field -> when a fill of it was refused
+    let pressed = null;
+
+    // Every script write, read back so a number box's clean-up is what is
+    // remembered. An option's `selected` lands on its select.
+    [[win.HTMLInputElement, 'value'], [win.HTMLTextAreaElement, 'value'],
+        [win.HTMLSelectElement, 'value'], [win.HTMLSelectElement, 'selectedIndex'],
+        [win.HTMLOptionElement, 'selected']].forEach(([type, prop]) => {
+        const native = Object.getOwnPropertyDescriptor(type.prototype, prop);
+        Object.defineProperty(type.prototype, prop, {
+            ...native,
+            set(v) {
+                native.set.call(this, v);
+                const field = this.tagName === 'OPTION' ? this.closest('select') : this;
+                if (!isFillableField(field)) return;
+                known.set(field, field.value);
+                refusedAt.delete(field);
+            },
+        });
+    });
+
+    const stamp = (el) => {
+        FIELD_NO_FILL_HINTS.forEach(([name, value]) => {
+            if (el.getAttribute(name) !== value) el.setAttribute(name, value);
+        });
+        if (!known.has(el)) known.set(el, el.value);
+    };
+    const sweep = (root) => {
+        if (isFillableField(root)) stamp(root);
+        root.querySelectorAll('input, textarea, select').forEach((el) => {
+            if (isFillableField(el)) stamp(el);
+        });
+    };
+    // A select given new options, or a textarea new default text, changes
+    // value with no setter involved.
+    const readMutations = (records) => records.forEach((record) => {
+        record.addedNodes.forEach((node) => { if (node.nodeType === 1) sweep(node); });
+        const owner = record.target.closest && record.target.closest('select, textarea');
+        if (owner) known.set(owner, owner.value);
+    });
+    const observer = new win.MutationObserver(readMutations);
+    observer.observe(doc.documentElement, { childList: true, subtree: true });
+    sweep(doc.documentElement);
+
+    const whyRefused = (e, el) => {
+        // Trusted, so a filler's script cannot claim to be typing. A plain
+        // Event has no inputType, and Firefox's own fill says
+        // insertReplacementText, as a spelling fix does, so its mark decides.
+        const inputType = e.isTrusted && e.type === 'input' ? (e.inputType || '') : '';
+        if (browserMarkedFilled(el) && (!inputType || inputType === 'insertReplacementText')) {
+            return 'marked_autofilled';
+        }
+        if (INPUT_FROM_ANYWHERE.test(inputType)) return '';
+        // An automated browser's select_option writes from a script world
+        // of its own, past the setters. Same rule as the first-run windows:
+        // a test that wants the real thing says so.
+        if (el.tagName === 'SELECT' && !e.isTrusted && win.navigator.webdriver
+            && !win.__lrdFieldGuardLive) return '';
+        if (doc.activeElement !== el && pressed !== el) return 'not_focused';
+        if (inputType || !FREE_TEXT_TYPES.has(el.type)) return '';
+        if (el.list && [...el.list.options].some(o => o.value === el.value)) return '';
+        return 'not_typed';
+    };
+
+    const guard = (e) => {
+        const el = e.target;
+        if (!isFillableField(el)) return;
+        readMutations(observer.takeRecords());
+        if (!known.has(el)) stamp(el);
+        if (el.value === known.get(el)) {
+            const at = refusedAt.get(el);
+            refusedAt.delete(el);
+            if (at !== undefined && Date.now() - at < REFUSED_PAIR_MS) e.stopImmediatePropagation();
+            return;
+        }
+        const reason = whyRefused(e, el);
+        if (!reason) {
+            known.set(el, el.value);
+            refusedAt.delete(el);
+            return;
+        }
+        e.stopImmediatePropagation();
+        el.value = known.get(el);
+        refusedAt.set(el, Date.now());
+        sendClientLog('autofill_refused', {
+            id: clientLogField(el),
+            event: e.type,
+            reason,
+            trusted: e.isTrusted,
+            focused: doc.activeElement === el,
+        });
+    };
+    win.addEventListener('input', guard, true);
+    win.addEventListener('change', guard, true);
+
+    const press = (e) => {
+        const target = e.target;
+        pressed = target && target.closest ? target.closest('input, textarea, select') : null;
+    };
+    win.addEventListener('pointerdown', press, true);
+    win.addEventListener('mousedown', press, true);
+    win.addEventListener('keydown', () => { pressed = null; }, true);
+}
+
 // A press on a dialog's action button commits the field being typed in
 // first. Owner QA, 2026-11-03: Export clicked straight after typing a new
 // Rev did nothing. The field's blur on mouse-down committed the Rev, the
@@ -460,7 +646,7 @@ function installNameDragSelects(doc) {
     }, true);
 }
 
-export { evaluateMathExpression, isMacOS, sendClientLog, registerGlobalClientLogging, setupColorPickerWithHex, normalizeHex, refreshAllColorSwatches, isTypingTarget, installEnterEndsEdit, installNameDragSelects, commitEditOnPress,
+export { evaluateMathExpression, isMacOS, sendClientLog, registerGlobalClientLogging, setupColorPickerWithHex, normalizeHex, refreshAllColorSwatches, isTypingTarget, installEnterEndsEdit, installNameDragSelects, installFieldGuard, commitEditOnPress,
     FLOW_SNAKE_PATTERNS, FLOW_Z_PATTERNS, FLOW_AUTO_PATTERNS, isZFlowPattern, isVerticalFlowPattern, holdDragOff };
 
 // Classic (non-module) scripts call these by name at runtime
