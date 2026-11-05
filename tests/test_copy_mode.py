@@ -37,6 +37,7 @@ other product gains it by resemblance:
 """
 import copy
 import os
+import re
 import sys
 
 import pytest
@@ -945,3 +946,168 @@ def test_the_mirror_refusal_is_asked_for_on_a_200(client):
     assert resp.status_code == 200 and resp.get_json()['error'] is None
     assert client.put(f'/api/layer/{wide}',
                       json={'dataMirrorOf': a}).status_code == 409
+
+
+# ── a copy takes its source's settings (owner, 2026-11-05) ────────────────
+#
+# "this shouldn't let me mirror/copy. or better yet it should say not allowed
+# and give me the option to match them if the size and shape are the same".
+# The offer is the dock's (tests/test_mirror_box_drop.py); this is the server
+# holding the rule where a mirror is SET, and only there.
+
+def settings_rig(client, **sr):
+    pid, cid, a, b, screens = mirror_rig(client)
+    if sr:
+        _ok(client.put(f'/api/layer/{b}', json=sr))
+    return a, b, screens
+
+
+@pytest.mark.parametrize('sr,words', [
+    ({'frameRate': 30}, 'SR runs at 30 fps and SL at 60'),
+    ({'frameRate': 29.97}, 'SR runs at 29.97 fps and SL at 60'),
+    ({'bitDepth': 10}, 'SR is 10-bit and SL is 8-bit'),
+    ({'processorType': 'brompton'},
+     'SR is on Brompton and SL is on NovaStar (Legacy)'),
+    ({'lowLatency': True}, 'SR has Low Latency on and SL has it off'),
+    ({'portMappingMode': 'max-capacity'},
+     "SR's Port Mapping is Max Capacity and SL's is Organized"),
+    ({'flowPattern': 'br-v-z'},
+     "SR's data flow is Bottom-right, vertical first, every column starts "
+     "at the bottom and SL's is Top-left, horizontal first"),
+    ({'customPortOverrides': [1],
+      'customPortPaths': {'1': [{'row': 0, 'col': 0}]}},
+     'SR has 1 custom run and SL has no custom runs'),
+])
+def test_a_setting_that_differs_refuses_the_mirror(client, sr, words):
+    a, b, screens = settings_rig(client, **sr)
+    want = f'Not allowed: {words}'
+    assert client.get(f'/api/layer/{b}/mirror-refusal?of={a}') \
+        .get_json()['error'] == want
+    resp = client.put(f'/api/layer/{b}', json={'dataMirrorOf': a})
+    assert resp.status_code == 409 and resp.get_json()['error'] == want
+    stored = next(l for l in client.get('/api/project').get_json()['layers']
+                  if l['id'] == b)
+    assert stored.get('dataMirrorOf') is None
+
+
+def test_the_flat_refusals_come_before_the_settings(client):
+    """A size mismatch is said as a size mismatch, however the settings
+    stand: it has no offer, so it must not read as one that does."""
+    pid, cid, a, b, screens = mirror_rig(client)
+    wide = screen(client, 'WIDE', columns=5)
+    _ok(client.put(f'/api/layer/{wide}', json={'frameRate': 30}))
+    assert client.get(f'/api/layer/{wide}/mirror-refusal?of={a}') \
+        .get_json()['error'].startswith('WIDE is 5 x 3 cabinets')
+    set_mirror(client, b, a)
+    third = screen(client, 'THIRD')
+    _ok(client.put(f'/api/layer/{third}', json={'frameRate': 30}))
+    assert client.get(f'/api/layer/{third}/mirror-refusal?of={a}') \
+        .get_json()['error'].startswith('SR already mirrors SL.')
+
+
+@pytest.mark.parametrize('sl,sr', [
+    # blanks read as the walk reads them
+    ({'customPortOverrides': []}, {'customPortOverrides': None}),
+    ({'customPortPaths': {}}, {'customPortPaths': None}),
+    ({'portMappingMode': 'organized'}, {'portMappingMode': None}),
+    ({'lowLatency': False}, {'lowLatency': None}),
+    ({'bitDepth': 8, 'frameRate': 60}, {'bitDepth': None, 'frameRate': None}),
+    ({'frameRate': 60}, {'frameRate': '60'}),
+    ({'processorType': 'novastar-armor'}, {'processorType': None}),
+    ({'flowPattern': 'tl-h'}, {'flowPattern': None}),
+    # the order along the lines is what no order at all reads as
+    ({'portNumberOrder': 'across'}, {'portNumberOrder': None}),
+    # paths an automatic screen does not walk: a custom spell left behind
+    ({}, {'customPortPaths': {'1': [{'row': 0, 'col': 0}]}}),
+    # a memory and a cursor
+    ({'lastFlowPattern': 'br-v'}, {'customPortIndex': 7}),
+    # no line cut: the Port numbers row is hidden, and nothing moves
+    ({}, {'portNumberOrder': 'down'}),
+    # a run drawn on a custom screen: its overrides are not read, a step
+    # naming its own screen is that screen, and an emptied run is no run
+    ({'flowPattern': 'custom', 'customPortPaths': {'1': [{'row': 0, 'col': 0}]}},
+     {'flowPattern': 'custom', 'customPortOverrides': [4], 'customPortPaths': {
+         '1': [{'row': 0, 'col': 0, 'layerId': 'SELF'}], '2': []}}),
+])
+def test_blanks_and_dead_settings_are_no_difference(client, sl, sr):
+    pid, cid, a, b, screens = mirror_rig(client)
+    if sl:
+        _ok(client.put(f'/api/layer/{a}', json=sl))
+    for run in (sr.get('customPortPaths') or {}).values():
+        for step in run:
+            if step.get('layerId') == 'SELF':
+                step['layerId'] = b
+    _ok(client.put(f'/api/layer/{b}', json=sr))
+    assert client.get(f'/api/layer/{b}/mirror-refusal?of={a}') \
+        .get_json()['error'] is None
+    set_mirror(client, b, a)
+
+
+def test_a_file_with_a_retired_processor_is_its_successor():
+    """The page folds these on load; the server still holds the file's."""
+    assert assignment.mirror_setting_differences(
+        {'processorType': 'novastar-armor'},
+        {'processorType': 'novastar-armor-1g'}) == []
+    assert assignment.mirror_setting_differences(
+        {'processorType': 'brompton', 'lowLatency': True},
+        {'processorType': 'brompton-ull'}) == []
+
+
+def test_the_port_number_order_counts_where_lines_are_cut(client):
+    """Across or Down is a real difference on a screen whose rows are cut
+    into more than one port, asked on the server's own walk."""
+    pid, cid, a, b, screens = mirror_rig(client)
+    wide = {'columns': 50}    # a row is more than one port at 8-bit 60
+    _ok(client.put(f'/api/layer/{a}', json=wide))
+    _ok(client.put(f'/api/layer/{b}', json=dict(wide, portNumberOrder='down')))
+    assert client.get(f'/api/layer/{b}/mirror-refusal?of={a}') \
+        .get_json()['error'] == ("Not allowed: SR's port numbers run Down and "
+                                 "SL's run Across")
+    # no difference once the source says it too
+    _ok(client.put(f'/api/layer/{a}', json={'portNumberOrder': 'down'}))
+    assert client.get(f'/api/layer/{b}/mirror-refusal?of={a}') \
+        .get_json()['error'] is None
+
+
+def test_a_mirror_already_made_is_never_refused_for_its_settings(client):
+    """The rule is on SETTING a mirror. A mirror whose settings drifted (the
+    source edited, a show saved so) stays one: the same dataMirrorOf again,
+    the check, the source's edit, a file opened with it, and the resolve."""
+    a, b, screens = settings_rig(client)
+    set_mirror(client, b, a)
+    # the source moves first, and the copy's PUT is still to come
+    _ok(client.put(f'/api/layer/{a}', json={'frameRate': 30}))
+    assert client.get(f'/api/layer/{b}/mirror-refusal?of={a}') \
+        .get_json()['error'] is None
+    set_mirror(client, b, a)
+    res = resolve(client, screens)
+    assert not [i for i in res['issues'] if i['kind'] == 'mirror-mismatch']
+    assert [p['source'] for p in scr_of(res, b)['ports']] == ['mirror'] * 3
+    # the sync's own write, and a whole layer PUT carrying the mirror
+    _ok(client.put(f'/api/layer/{b}', json={'frameRate': 30}))
+    project = client.get('/api/project').get_json()
+    layer = next(l for l in project['layers'] if l['id'] == b)
+    _ok(client.put(f'/api/layer/{b}', json=dict(layer, frameRate=25)))
+    # a show saved with it, opened or restored by an undo
+    project = client.get('/api/project').get_json()
+    assert next(l for l in project['layers']
+                if l['id'] == b)['frameRate'] == 25
+    _ok(client.put('/api/project', json=project))
+    project = client.get('/api/project').get_json()
+    assert str(next(l for l in project['layers']
+                    if l['id'] == b)['dataMirrorOf']) == str(a)
+    res = resolve(client, screens)
+    assert [p['source'] for p in scr_of(res, b)['ports']] == ['mirror'] * 3
+
+
+def test_flow_words_are_the_buttons_own_tooltips():
+    """The dialog names a pattern as its button does: every data flow
+    button's title, read off the page, is what the rule says."""
+    html = open(os.path.join(os.path.dirname(__file__), '..', 'src',
+                             'templates', 'index.html'),
+                encoding='utf-8').read()
+    found = re.findall(r'class="flow-pattern-btn[^"]*" data-pattern="([^"]+)"'
+                       r' title="([^"]+)"', html)
+    assert len({p for p, _ in found}) == 16, found
+    for pattern, title in found:
+        assert assignment._mirror_flow_words(pattern) == title, pattern

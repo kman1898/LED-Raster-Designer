@@ -684,7 +684,28 @@ def stack_line_leftovers(runs, cells_of, along_of, join):
 
 # ── the port walk (app-export-io.js calculatePortAssignments) ────────────
 
-def calculate_port_assignments(layer, canvas_height=0, warnings=None):
+def port_number_order_matters(layer):
+    """app-screen-info.js portNumberOrderMatters: does the Port numbers
+    switch change anything on this screen? Only in Organized, outside Low
+    Latency, and only where a row or column is cut into more than one
+    port: an automatic screen asked in its own pattern, a custom one in a
+    horizontal and a vertical pattern."""
+    if not layer or (layer.get('type') or 'screen') != 'screen':
+        return False
+    if (layer.get('portMappingMode') or 'organized') != 'organized':
+        return False
+    if get_low_latency_geometry(layer):
+        return False
+    flow = layer.get('flowPattern') or 'tl-h'
+    for pattern in (('tl-h', 'tl-v') if flow == 'custom' else (flow,)):
+        stats = {}
+        calculate_port_assignments(dict(layer, flowPattern=pattern), stats=stats)
+        if stats.get('split'):
+            return True
+    return False
+
+
+def calculate_port_assignments(layer, canvas_height=0, warnings=None, stats=None):
     """Cabinets to ports, as the app computes them.
 
     Returns a list of {'panel', 'port', 'is_port_start', 'pixel_index'} with
@@ -988,6 +1009,10 @@ def calculate_port_assignments(layer, canvas_height=0, warnings=None):
         if ports:
             stack_line_leftovers(ports, lambda run: run['panels'],
                                  lambda p: _int(p.get(along_key)), join_leftovers)
+        # `stats['split']`: whether the Port numbers switch has anything to
+        # number (port_number_order_matters).
+        if stats is not None:
+            stats['split'] = any(p.get('split') for p in ports)
         # The Port numbers switch: the runs cut from long lines keep their
         # cabinets and only change number (port_numbers_stack).
         if ports and port_numbers_stack(layer, is_horizontal_first):

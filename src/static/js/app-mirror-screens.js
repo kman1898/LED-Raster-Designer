@@ -44,6 +44,18 @@
 // Where the mirror's runs land is the server's (port_assignment's mirror
 // pass): port N of the source on socket S lands port N of the mirror on the
 // copy of S, and the resolution says exactly what is missing where it cannot.
+//
+// ── A copy takes its source's settings (owner, 2026-11-05) ───────────────
+//
+// A drop used to pass on shape alone, and the first history snapshot then
+// turned Screen2's 30 fps into Screen1's 60 without a word: "this shouldn't
+// let me mirror/copy. or better yet it should say not allowed and give me the
+// option to match them if the size and shape are the same". So a drop that
+// passes every other rule but differs in a setting that makes the port map
+// (_mirrorSettingDifferences) says "Not allowed:" on the pill, and its
+// release asks whether to match the target to the source (_mirrorMatchAsk).
+// That rule holds where a mirror is SET: a mirror already made follows its
+// source through _syncMirrorScreens and is never checked against it.
 import { LEDRasterApp } from './app-core.js';
 import { sendClientLog } from './helpers.js';
 
@@ -66,6 +78,11 @@ const MIRROR_LOCKED_CONTROLS = [
     '#custom-next-port', '#custom-clear-port', '#custom-clear-all',
     '#custom-clear-selection',
 ].join(', ');
+
+// A flow pattern's start corner, in its button's tooltip's words.
+const MIRROR_FLOW_CORNERS = {
+    tl: 'Top-left', tr: 'Top-right', bl: 'Bottom-left', br: 'Bottom-right',
+};
 
 class _MirrorScreens {
     // The screen `layer` mirrors, or null: a screen layer of this project
@@ -165,15 +182,7 @@ class _MirrorScreens {
         layers.forEach(layer => {
             const src = this.mirrorSourceOf(layer);
             if (!src || src.dataMirrorOf) return;
-            const body = {};
-            MIRROR_DATA_FIELDS.forEach(k => {
-                const want = src[k] === undefined ? undefined
-                    : JSON.parse(JSON.stringify(src[k]));
-                if (JSON.stringify(layer[k]) === JSON.stringify(want)) return;
-                if (want === undefined) delete layer[k];
-                else layer[k] = want;
-                body[k] = want === undefined ? null : want;
-            });
+            const body = this._takeMirrorFields(layer, src);
             if (Object.keys(body).length) {
                 wrote.push(layer);
                 if (typeof this._putLayer === 'function') this._putLayer(layer.id, body);
@@ -184,6 +193,24 @@ class _MirrorScreens {
                           { layerIds: wrote.map(l => l.id) });
         }
         return wrote;
+    }
+
+    // `layer` takes `src`'s MIRROR_DATA_FIELDS. Returns the PUT body of the
+    // fields that changed. A field the source lacks goes as null, and the
+    // server stores that null and echoes it, so a null here is the same
+    // blank as no field, or each snapshot would write it again.
+    _takeMirrorFields(layer, src) {
+        const body = {};
+        const blank = (v) => (v === undefined ? null : v);
+        MIRROR_DATA_FIELDS.forEach(k => {
+            const want = src[k] === undefined ? undefined
+                : JSON.parse(JSON.stringify(src[k]));
+            if (JSON.stringify(blank(layer[k])) === JSON.stringify(blank(want))) return;
+            if (want === undefined) delete layer[k];
+            else layer[k] = want;
+            body[k] = want === undefined ? null : want;
+        });
+        return body;
     }
 
     // The error a change to a mirror's data map says, naming the source and
@@ -301,7 +328,9 @@ class _MirrorScreens {
     // card or box drop. Otherwise
     //   { ok: true, sourceId, sourceName, nums, text } - the screen becomes
     //       the copy of `sourceId`, the first screen on the card;
-    //   { ok: false, message } - said, and nothing changes.
+    //   { ok: false, message } - said, and nothing changes;
+    //   { ok: false, message, match: true, sourceId, differences } - a copy
+    //       but for its settings: the release offers to match them.
     // The first screen is the one on the card's lowest socket that has no
     // copy yet (a screen has one mirror, on the copy outputs); where every
     // screen on the card already has one, the first of them, so the
@@ -375,7 +404,9 @@ class _MirrorScreens {
 
     // The last word on a copy drop, shared by the card and the box: the
     // target's lock, then every rule the server's mirror_set_refusal holds
-    // (_mirrorDropRefusal). Ok lights the whole screen and says whose copy.
+    // (_mirrorDropRefusal), then the settings, which alone are offered a
+    // way through, so a locked screen or a size mismatch never gets the
+    // offer. Ok lights the whole screen and says whose copy.
     _copyDropFinish(layer, target, source) {
         if (layer && typeof this._layerLocked === 'function'
                 && this._layerLocked(layer)) {
@@ -387,6 +418,12 @@ class _MirrorScreens {
         const refusal = layer && srcLayer
             ? this._mirrorDropRefusal(layer, srcLayer) : null;
         if (refusal) return { ok: false, loud: true, message: refusal };
+        const differences = layer && srcLayer
+            ? this._mirrorSettingDifferences(srcLayer, layer) : [];
+        if (differences.length) {
+            return { ok: false, match: true, sourceId: source.layerId,
+                     differences, message: `Not allowed: ${differences[0]}` };
+        }
         const nums = [];
         for (let n = 1; n <= (target.required || 0); n++) nums.push(n);
         return { ok: true, sourceId: source.layerId, sourceName: source.name,
@@ -549,6 +586,146 @@ class _MirrorScreens {
         return null;
     }
 
+    // A flow pattern as its button's tooltip says it (port_assignment
+    // _mirror_flow_words).
+    _mirrorFlowWords(flow) {
+        if (flow === 'custom') return 'Custom';
+        const [corner, axis, z] = String(flow).split('-');
+        if (!MIRROR_FLOW_CORNERS[corner] || !axis) return String(flow);
+        const vertical = axis === 'v';
+        const words = `${MIRROR_FLOW_CORNERS[corner]}, `
+            + `${vertical ? 'vertical' : 'horizontal'} first`;
+        if (!z) return words;
+        if (vertical) {
+            return `${words}, every column starts at the `
+                + `${corner[0] === 't' ? 'top' : 'bottom'}`;
+        }
+        return `${words}, every row starts at the `
+            + `${corner[1] === 'l' ? 'left' : 'right'}`;
+    }
+
+    // The drawn runs the walk really reads, as {port: steps} (port_assignment
+    // _mirror_runs). Whole-screen custom walks every drawn path and ignores
+    // the overrides; an automatic screen walks only the numbers in
+    // customPortOverrides (an empty one still holds its number). Every
+    // other path is left over from a custom spell and read by nothing. A
+    // step is [row, col, the peer it names], its own screen read as no
+    // peer, so two screens' runs compare.
+    _mirrorRuns(layer) {
+        const stored = layer.customPortPaths;
+        const paths = stored && typeof stored === 'object' ? stored : {};
+        const own = String(layer.id);
+        const steps = (path) => (Array.isArray(path) ? path : [])
+            .filter(s => s && typeof s === 'object')
+            .map(s => {
+                const peer = s.layerId;
+                const none = peer === undefined || peer === null || peer === ''
+                    || String(peer) === own;
+                return [Number(s.row), Number(s.col), none ? null : String(peer)];
+            });
+        const runs = {};
+        if (!this.isCustomFlow(layer)) {
+            this.getOverrideNums(layer, 'data').forEach(n => {
+                runs[n] = steps(paths[n]);
+            });
+            return runs;
+        }
+        Object.keys(paths).forEach(key => {
+            const n = Number(key);
+            const run = steps(paths[key]);
+            if (Number.isInteger(n) && n >= 1 && run.length) runs[n] = run;
+        });
+        return runs;
+    }
+
+    // What the port walk reads off a screen, each blank read as the walk
+    // reads it (port_assignment.mirror_settings): no processor is NovaStar
+    // (Legacy), no bit depth 8, no frame rate 60, no flow 'tl-h', no mapping
+    // Organized, no Low Latency off, and no port number order the one along
+    // the pattern's lines. lastFlowPattern and customPortIndex are not
+    // here: a memory and a cursor, not the map.
+    _mirrorSettings(layer) {
+        return {
+            processor: layer.processorType || 'novastar-armor',
+            bitDepth: Number(layer.bitDepth) || 8,
+            frameRate: Number(layer.frameRate) || 60,
+            lowLatency: !!layer.lowLatency,
+            mapping: (layer.portMappingMode || 'organized') === 'organized'
+                ? 'organized' : 'max-capacity',
+            flow: layer.flowPattern || 'tl-h',
+            order: this.portNumberOrderOf(layer),
+            runs: this._mirrorRuns(layer),
+        };
+    }
+
+    // The Processing dropdown's own name for a processor.
+    _mirrorProcessorWords(processor) {
+        const select = document.getElementById('processor-type');
+        const option = select && Array.from(select.options)
+            .find(o => o.value === processor);
+        return option ? option.textContent.trim() : processor;
+    }
+
+    // Every setting of `mirror` that would have to change to copy `source`
+    // (both project layers), each a sentence with both values, in Screen
+    // Info's order; empty where they agree. The server's
+    // mirror_setting_differences, in the same words. The port number order
+    // counts only between two Organized automatic screens, and only where
+    // the switch changes something on one of them: its row is hidden
+    // everywhere else, and nothing moves.
+    _mirrorSettingDifferences(source, mirror) {
+        const a = this._mirrorSettings(source);
+        const b = this._mirrorSettings(mirror);
+        const aName = source.name || `Screen ${source.id}`;
+        const bName = mirror.name || `Screen ${mirror.id}`;
+        const onOff = (v) => (v ? 'on' : 'off');
+        const out = [];
+        if (a.processor !== b.processor) {
+            out.push(`${bName} is on ${this._mirrorProcessorWords(b.processor)} `
+                + `and ${aName} is on ${this._mirrorProcessorWords(a.processor)}`);
+        }
+        if (a.bitDepth !== b.bitDepth) {
+            out.push(`${bName} is ${b.bitDepth}-bit and ${aName} is `
+                + `${a.bitDepth}-bit`);
+        }
+        if (a.frameRate !== b.frameRate) {
+            out.push(`${bName} runs at ${b.frameRate} fps and ${aName} at `
+                + `${a.frameRate}`);
+        }
+        if (a.lowLatency !== b.lowLatency) {
+            out.push(`${bName} has Low Latency ${onOff(b.lowLatency)} and `
+                + `${aName} has it ${onOff(a.lowLatency)}`);
+        }
+        if (a.mapping !== b.mapping) {
+            const words = { organized: 'Organized', 'max-capacity': 'Max Capacity' };
+            out.push(`${bName}'s Port Mapping is ${words[b.mapping]} and `
+                + `${aName}'s is ${words[a.mapping]}`);
+        }
+        if (a.flow !== b.flow) {
+            out.push(`${bName}'s data flow is ${this._mirrorFlowWords(b.flow)} `
+                + `and ${aName}'s is ${this._mirrorFlowWords(a.flow)}`);
+        }
+        if (a.flow !== 'custom' && b.flow !== 'custom'
+                && a.mapping === 'organized' && b.mapping === 'organized'
+                && a.order !== b.order
+                && (this.portNumberOrderMatters(source)
+                    || this.portNumberOrderMatters(mirror))) {
+            const word = (o) => (o === 'down' ? 'Down' : 'Across');
+            out.push(`${bName}'s port numbers run ${word(b.order)} and `
+                + `${aName}'s run ${word(a.order)}`);
+        }
+        if (JSON.stringify(a.runs) !== JSON.stringify(b.runs)) {
+            const count = (n) => (n ? `${n} custom run${n === 1 ? '' : 's'}`
+                : 'no custom runs');
+            const aN = Object.keys(a.runs).length;
+            const bN = Object.keys(b.runs).length;
+            out.push(aN === bN
+                ? `${bName} and ${aName} have different custom runs`
+                : `${bName} has ${count(bN)} and ${aName} has ${count(aN)}`);
+        }
+        return out;
+    }
+
     // A FULL CARD THAT COULD FEED A MIRROR, SAID WITH THE WAY TO DO IT
     // (beta.4 QA: a copy box on Backup - an MCTRL R5's, a VX600 Pro in
     // Backup - refused the second screen with only "has no free ports").
@@ -629,6 +806,7 @@ class _MirrorScreens {
         const layer = ((this.project && this.project.layers) || [])
             .find(l => String(l.id) === String(target.layerId));
         if (!layer) return Promise.resolve(false);
+        if (plan.match) return this._mirrorMatchAsk(layer, plan);
         if (!plan.ok) {
             // The pill said it before the drop; the release says it once
             // more where it stays: a locked screen in the locked error
@@ -650,6 +828,67 @@ class _MirrorScreens {
         sendClientLog('mirror_screen_drop', { layerId: layer.id,
                                               mirrorOf: plan.sourceId });
         return this.setLayerMirror(layer, plan.sourceId);
+    }
+
+    // The release of a drop that differs only in its settings: every
+    // difference, and the choice. Cancel changes nothing.
+    _mirrorMatchAsk(layer, plan) {
+        const source = ((this.project && this.project.layers) || [])
+            .find(l => String(l.id) === String(plan.sourceId));
+        if (!source) return Promise.resolve(false);
+        const name = layer.name || `Screen ${layer.id}`;
+        const from = source.name || `Screen ${source.id}`;
+        sendClientLog('mirror_screen_drop_differs', {
+            layerId: layer.id, mirrorOf: plan.sourceId,
+            differences: plan.differences,
+        });
+        return this.appConfirm(`${name} can't mirror ${from} while their `
+            + `settings differ:\n\n${plan.differences.join('\n')}\n\nMatching `
+            + `gives ${name} the settings of ${from}, then makes it the copy.`,
+        { id: 'mirror-match-modal', title: 'Not allowed',
+          okLabel: `Match ${name} to ${from}` })
+            .then(yes => {
+                sendClientLog(yes ? 'mirror_screen_match' : 'mirror_screen_match_cancelled',
+                              { layerId: layer.id, mirrorOf: plan.sourceId });
+                return yes ? this._mirrorMatchTo(layer, source) : false;
+            });
+    }
+
+    // Match: `layer` takes `source`'s settings, and then the mirror is made
+    // through setLayerMirror, the server seeing them equal. Nothing here
+    // writes history: setLayerMirror's one step holds both, so one undo
+    // takes back the mirror and the settings. A snapshot still waiting
+    // lands first, or it would take the matched settings in with the edit
+    // before them, and the undo would have nothing to go back to. A refusal
+    // after all (nothing else the page knew of) puts the settings back.
+    _mirrorMatchTo(layer, source) {
+        if (typeof this._flushPendingSaveState === 'function') {
+            this._flushPendingSaveState();
+        }
+        const kept = Object.fromEntries(MIRROR_DATA_FIELDS.map(k => [k, layer[k]]));
+        const body = this._takeMirrorFields(layer, source);
+        const putBack = () => {
+            const back = this._takeMirrorFields(this._liveLayer(layer), kept);
+            if (Object.keys(back).length) this._putLayer(layer.id, back);
+            if (typeof this.loadLayerToInputs === 'function') this.loadLayerToInputs();
+            return false;
+        };
+        return this._putLayer(layer.id, body)
+            .then(r => {
+                if (!r.ok) throw new Error(`settings PUT answered ${r.status}`);
+                return this.setLayerMirror(this._liveLayer(layer), source.id);
+            })
+            .then(done => {
+                if (!done) return putBack();
+                // Screen Info still shows what the screen had.
+                if (typeof this.loadLayerToInputs === 'function') this.loadLayerToInputs();
+                return true;
+            })
+            .catch(err => {
+                sendClientLog('mirror_screen_match_failed',
+                              { layerId: layer.id, error: String(err) });
+                return putBack();
+            });
     }
 
     // The mirrors the server let go of with an edit to the pins (the copy
@@ -699,9 +938,13 @@ class _MirrorScreens {
         // A refusal is an expected answer, so it is ASKED for first, on a
         // 200 (routes_layers mirror_refusal_check): a 409 on the wire is
         // logged by the browser as an error. The PUT's own 409 still
-        // guards a race between the two.
+        // guards a race between the two. A save on its way lands first: the
+        // server compares the settings it holds, and a frame rate set a
+        // moment ago must not read as a difference the pill never saw.
+        const saved = typeof this._layerSavesSettled === 'function'
+            ? this._layerSavesSettled() : Promise.resolve();
         const check = typed === null ? Promise.resolve({ error: null })
-            : fetch(`/api/layer/${layer.id}/mirror-refusal?of=${encodeURIComponent(typed)}`)
+            : saved.then(() => fetch(`/api/layer/${layer.id}/mirror-refusal?of=${encodeURIComponent(typed)}`))
                 .then(r => r.json()).catch(() => ({ error: null }));
         return check.then(pre => (pre && pre.error
             ? { ok: false, data: pre }
@@ -712,8 +955,12 @@ class _MirrorScreens {
             }).then(r => r.json().then(data => ({ ok: r.ok, data })))))
             .then(({ ok, data }) => {
                 if (!ok) return refused(data && data.error);
-                if (typed === null) delete layer.dataMirrorOf;
-                else layer.dataMirrorOf = typed;
+                // A socket echo replaces the object (applyServerLayer), so
+                // the one held across the request may no longer be the
+                // project's, and the history step below reads the project.
+                const live = this._liveLayer(layer);
+                if (typed === null) delete live.dataMirrorOf;
+                else live.dataMirrorOf = typed;
                 if (typed !== null && this.project && this.project.port_assignments
                         && Array.isArray(this.project.port_assignments.pins)) {
                     this.project.port_assignments.pins = this.project

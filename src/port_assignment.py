@@ -1333,12 +1333,159 @@ def mirror_mismatch(source, mirror, shapes=None):
     return None
 
 
+# A COPY TAKES ITS SOURCE'S SETTINGS (owner, 2026-11-05, on Screen2 at 30 fps
+# silently turned to Screen1's 60 by the drop: "this shouldn't let me
+# mirror/copy. or better yet it should say not allowed and give me the option
+# to match them if the size and shape are the same"). The settings that make
+# the port map differ: "Not allowed:", checked LAST, so every flat refusal
+# above it stands, and the dock offers to match (app-mirror-screens.js
+# _mirrorSettingDifferences, the same reading in the same words). This holds
+# where a mirror is SET and nowhere else: an existing mirror's settings are
+# copied from its source (the client's _syncMirrorScreens), never checked.
+
+_MIRROR_FLOW_CORNERS = {'tl': 'Top-left', 'tr': 'Top-right',
+                        'bl': 'Bottom-left', 'br': 'Bottom-right'}
+
+
+def _mirror_flow_words(flow):
+    """A flow pattern as its button's tooltip says it."""
+    if flow == 'custom':
+        return 'Custom'
+    bits = str(flow).split('-')
+    if bits[0] not in _MIRROR_FLOW_CORNERS or len(bits) < 2:
+        return str(flow)
+    vertical = bits[1] == 'v'
+    words = (f'{_MIRROR_FLOW_CORNERS[bits[0]]}, '
+             f'{"vertical" if vertical else "horizontal"} first')
+    if len(bits) < 3:
+        return words
+    if vertical:
+        return (f'{words}, every column starts at the '
+                f'{"top" if bits[0][0] == "t" else "bottom"}')
+    return (f'{words}, every row starts at the '
+            f'{"left" if bits[0][1] == "l" else "right"}')
+
+
+def _mirror_runs(layer):
+    """The drawn runs the walk really reads, as {port: steps}. Whole-screen
+    custom walks every drawn path and ignores the overrides; an automatic
+    screen walks only the numbers in customPortOverrides (an empty one
+    still holds its number). Every other path is left over from a custom
+    spell and read by nothing. A step is (row, col, the peer it names),
+    its own screen read as no peer, so two screens' runs compare."""
+    from scr_project import _drawn_port_number, override_port_numbers
+    paths = layer.get('customPortPaths')
+    paths = paths if isinstance(paths, dict) else {}
+    own = str(layer.get('id'))
+
+    def steps(path):
+        out = []
+        for step in path if isinstance(path, list) else []:
+            if not isinstance(step, dict):
+                continue
+            peer = step.get('layerId')
+            peer = None if peer in (None, '') or str(peer) == own else str(peer)
+            out.append((_num(step.get('row')), _num(step.get('col')), peer))
+        return out
+
+    if layer.get('flowPattern') != 'custom':
+        return {n: steps(paths.get(str(n)))
+                for n in override_port_numbers(layer)}
+    runs = {}
+    for key, path in paths.items():
+        num, run = _drawn_port_number(key), steps(path)
+        if num is not None and run:
+            runs[num] = run
+    return runs
+
+
+def mirror_settings(layer):
+    """What the port walk reads off a screen, each blank read as the walk
+    reads it: no processor is NovaStar (Legacy), no bit depth 8, no frame
+    rate 60, no flow 'tl-h', no mapping Organized, no Low Latency off, and
+    no port number order the one along the pattern's lines. lastFlowPattern
+    and customPortIndex are not here: a memory and a cursor, not the map.
+    A file's retired processor reads as its successor."""
+    a = layer or {}
+    raw = a.get('processorType') or 'novastar-armor'
+    flow = a.get('flowPattern') or 'tl-h'
+    order = a.get('portNumberOrder')
+    if order not in ('across', 'down'):
+        order = 'across' if '-h' in str(flow) else 'down'
+    return {
+        'processor': _PLATFORM_ALIASES.get(raw, raw),
+        'bitDepth': _num(a.get('bitDepth')) or 8,
+        'frameRate': _num(a.get('frameRate')) or 60,
+        'lowLatency': bool(a.get('lowLatency')) or raw == 'brompton-ull',
+        'mapping': ('organized'
+                    if (a.get('portMappingMode') or 'organized') == 'organized'
+                    else 'max-capacity'),
+        'flow': flow,
+        'order': order,
+        'runs': _mirror_runs(a),
+    }
+
+
+def mirror_setting_differences(source, mirror):
+    """Every setting of `mirror` (a layer) that would have to change to copy
+    `source`, each as a sentence with both values, in Screen Info's order;
+    empty where they agree. The port number order counts only between two
+    Organized automatic screens, and only where the switch changes
+    something on one of them (port_number_order_matters): its row is
+    hidden everywhere else, and nothing moves."""
+    from scr_project import port_number_order_matters
+    a, b = mirror_settings(source), mirror_settings(mirror)
+    a_name = (source or {}).get('name') or f'Screen {(source or {}).get("id")}'
+    b_name = (mirror or {}).get('name') or f'Screen {(mirror or {}).get("id")}'
+    out = []
+    if a['processor'] != b['processor']:
+        out.append(f'{b_name} is on '
+                   f'{PLATFORM_LABELS.get(b["processor"], b["processor"])} '
+                   f'and {a_name} is on '
+                   f'{PLATFORM_LABELS.get(a["processor"], a["processor"])}')
+    if a['bitDepth'] != b['bitDepth']:
+        out.append(f'{b_name} is {b["bitDepth"]}-bit and {a_name} is '
+                   f'{a["bitDepth"]}-bit')
+    if a['frameRate'] != b['frameRate']:
+        out.append(f'{b_name} runs at {b["frameRate"]} fps and {a_name} at '
+                   f'{a["frameRate"]}')
+    if a['lowLatency'] != b['lowLatency']:
+        out.append(f'{b_name} has Low Latency {"on" if b["lowLatency"] else "off"}'
+                   f' and {a_name} has it {"on" if a["lowLatency"] else "off"}')
+    if a['mapping'] != b['mapping']:
+        words = {'organized': 'Organized', 'max-capacity': 'Max Capacity'}
+        out.append(f'{b_name}\'s Port Mapping is {words[b["mapping"]]} and '
+                   f'{a_name}\'s is {words[a["mapping"]]}')
+    if a['flow'] != b['flow']:
+        out.append(f'{b_name}\'s data flow is {_mirror_flow_words(b["flow"])} '
+                   f'and {a_name}\'s is {_mirror_flow_words(a["flow"])}')
+    if 'custom' not in (a['flow'], b['flow']) \
+            and a['mapping'] == b['mapping'] == 'organized' \
+            and a['order'] != b['order'] \
+            and (port_number_order_matters(source)
+                 or port_number_order_matters(mirror)):
+        out.append(f'{b_name}\'s port numbers run {b["order"].capitalize()} '
+                   f'and {a_name}\'s run {a["order"].capitalize()}')
+    if a['runs'] != b['runs']:
+        def count(n):
+            if not n:
+                return 'no custom runs'
+            return f'{n} custom run{"" if n == 1 else "s"}'
+        a_n, b_n = len(a['runs']), len(b['runs'])
+        out.append(f'{b_name} and {a_name} have different custom runs'
+                   if a_n == b_n else
+                   f'{b_name} has {count(b_n)} and {a_name} has {count(a_n)}')
+    return out
+
+
 def mirror_set_refusal(project, layer, source_id):
     """Why `layer` may not be set to mirror the layer `source_id`, or None.
     Refused, never warned: not a screen, itself, a mirror of a mirror, a
     screen already copied by another, a size, pixel or port-order mismatch
-    (mirror_mismatch), or a screen whose data routes as one with its group
-    (its port map is the group's, not its own)."""
+    (mirror_mismatch), a screen whose data routes as one with its group
+    (its port map is the group's, not its own), or, last, settings that
+    differ from the source's (mirror_setting_differences). The dock offers
+    to match those and comes back here with them equal."""
     layers = [l for l in (project or {}).get('layers') or []
               if isinstance(l, dict)]
     name = layer.get('name') or f'Screen {layer.get("id")}'
@@ -1378,6 +1525,9 @@ def mirror_set_refusal(project, layer, source_id):
                         f'as one screen with the group '
                         f'{group.get("name") or group.get("id")}. Turn off '
                         f'Route group as one screen first.')
+    differs = mirror_setting_differences(source, layer)
+    if differs:
+        return f'Not allowed: {differs[0]}'
     return None
 
 

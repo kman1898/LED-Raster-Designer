@@ -13,7 +13,9 @@ sockets. A drop that cannot work says why on the drag pill BEFORE the
 release (sizes differ, nothing on the copied sockets yet, a locked screen)
 and changes nothing; the pill never says ok for a drop the app refuses.
 A box set to Backup still drops as its primary: the screen goes on the
-sockets it backs up, and its backup rides on the box.
+sockets it backs up, and its backup rides on the box. A screen that matches
+in size and shape but differs in its settings is not allowed either, and
+its release offers to match them (owner, 2026-11-05).
 
 Run locally:
     python -m pytest tests/test_mirror_box_drop.py -q
@@ -849,4 +851,588 @@ def test_every_catalog_backup_box_drops_or_says_why(page, name):
     again = pg.evaluate(DROP_JS, [rig['cid'], backups[0], rig['sa']])
     assert not again['pill']['ok'] and not again['changed'], (name, again)
     assert 'already rides on' in again['pill']['message'], (name, again)
+    assert errors == []
+
+
+# ── a copy takes its source's settings (owner, 2026-11-05) ────────────────
+#
+# The app log on v1.6.0-beta.6: Screen2 at 30 fps, Screen1 at 60, the same 20
+# x 5. The pill said "Copy of Screen1", the drop landed and the first snapshot
+# wrote frameRate 60 over Screen2 without a word. "this shouldn't let me
+# mirror/copy. or better yet it should say not allowed and give me the option
+# to match them if the size and shape are the same". The server's half is in
+# tests/test_copy_mode.py.
+
+# Writes these layer fields straight into the project, on the server and the
+# page alike, as a file would hold them (a value of '__gone__' takes the key
+# off). {layer id: {field: value}}, then a clean history.
+FIELDS_JS = """async (edits) => {
+    const j = (method, url, body) => fetch(url, {method,
+        headers: {'Content-Type': 'application/json'},
+        body: body === undefined ? undefined : JSON.stringify(body)})
+        .then(r => r.json());
+    const proj = await j('GET', '/api/project');
+    proj.layers.forEach(l => {
+        Object.entries(edits[String(l.id)] || {}).forEach(([k, v]) => {
+            if (v === '__gone__') delete l[k]; else l[k] = v;
+        });
+    });
+    await j('PUT', '/api/project', proj);
+    const app = window.app;
+    app.project = await j('GET', '/api/project');
+    app.currentLayer = app.project.layers[0];
+    app.selectedLayerIds = new Set([app.project.layers[0].id]);
+    await app.refreshProcessors();
+    app.renderLayers();
+    await app.refreshPortAssignment();
+    app.renderHardwareDock();
+    app.resetHistory('Settings Seed');
+}"""
+
+# One screen's map settings on the page and on the server.
+SETTINGS_JS = """async (id) => {
+    const pick = (l) => ({mirrorOf: l.dataMirrorOf === undefined
+                              ? null : l.dataMirrorOf,
+        frameRate: l.frameRate, bitDepth: l.bitDepth,
+        processorType: l.processorType, lowLatency: !!l.lowLatency,
+        flowPattern: l.flowPattern,
+        portMappingMode: l.portMappingMode || 'organized'});
+    const proj = await (await fetch('/api/project')).json();
+    return {page: pick(window.app.project.layers.find(l => l.id === id)),
+            server: pick(proj.layers.find(l => l.id === id))};
+}"""
+
+# The drag's two calls with the release left standing: the question it asks
+# is answered by the test. `done` waits for that answer.
+RELEASE_JS = """([cid, boxId, layerId]) => {
+    const app = window.app;
+    const box = app._dockFindCard(cid).card.cvts.find(b => b.id === boxId);
+    const nums = box.portNumbers || [];
+    const payload = {type: 'box', cardId: cid, boxId,
+        first: Math.min(...nums), last: Math.max(...nums),
+        title: box.displayTitle, beyondTrunks: !!box.beyondTrunks};
+    const target = app._dockDataScreenTarget({payload}, String(layerId), null);
+    window.__drop = Promise.resolve(app._dockPerformDrop(payload, target))
+        .then(() => new Promise(r => setTimeout(r, 400)))
+        .then(() => app.refreshPortAssignment());
+    return target.pill || null;
+}"""
+
+MODAL = '#mirror-match-modal'
+
+
+def released(pg, ids, box, layer):
+    """A drop that asks: the pill, then the dialog's words."""
+    pill = pg.evaluate(RELEASE_JS, [ids['cid'], box, layer])
+    pg.wait_for_selector(MODAL, state='visible')
+    return pill, pg.locator(f'{MODAL} .modal-content').inner_text()
+
+
+def answer(pg, label):
+    pg.locator(f'{MODAL} button', has_text=label).click()
+    pg.evaluate("() => window.__drop")
+    assert pg.locator(MODAL).count() == 0
+
+
+def settled(pg):
+    pg.wait_for_timeout(900)
+    pg.evaluate("() => window.app.refreshPortAssignment()")
+    pg.wait_for_timeout(300)
+
+
+def both(pg, layer_id, **want):
+    """These settings hold on the page and on the server."""
+    got = pg.evaluate(SETTINGS_JS, layer_id)
+    for side in ('page', 'server'):
+        for key, value in want.items():
+            assert got[side][key] == value, (side, key, got)
+
+
+def test_the_logs_drop_says_not_allowed_and_offers_to_match(page):
+    """The log, replayed by hand: same 20 x 5, the Frame Rate control turned
+    to 30 on Screen2 (it needs one port then, Screen1 two), and the Mirror
+    box dragged on with the mouse."""
+    pg, errors = page
+    ids = seed(pg, 'api-mirror')
+    pg.evaluate("""async (ids) => {
+        for (const id of [ids.s1, ids.s2]) {
+            await fetch(`/api/layer/${id}`, {method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({columns: 20, cabinet_width: 64})});
+        }
+    }""", ids)
+    # as in the log: one has the blank list, the other none yet
+    pg.evaluate(FIELDS_JS, {str(ids['s1']): {'customPortOverrides': []},
+                            str(ids['s2']): {'customPortOverrides': '__gone__'}})
+    boxes = pg.evaluate(BOXES_JS, ids['cid'])
+    primary, mirror = boxes[0]['id'], boxes[1]['id']
+    pg.evaluate(TOASTS_JS)
+    logged = []
+
+    def listen(req):
+        if req.url.endswith('/api/log') and req.post_data:
+            logged.append(req.post_data)
+
+    pg.on('request', listen)
+    assert pg.evaluate(DROP_JS, [ids['cid'], primary, ids['s1']])['changed']
+    pg.evaluate("""(id) => {
+        const app = window.app;
+        app.selectLayer(app.project.layers.find(l => l.id === id));
+    }""", ids['s2'])
+    pg.wait_for_timeout(200)
+    pg.locator('#frame-rate').select_option('30')
+    pg.wait_for_timeout(700)
+    pg.evaluate("() => window.app.refreshPortAssignment()")
+    both(pg, ids['s2'], frameRate=30, mirrorOf=None)
+    needs = pg.evaluate("""() => window.app._assignment.screens
+        .map(s => [s.name, s.required])""")
+    assert ['Screen1', 2] in needs and ['Screen2', 1] in needs, needs
+    before = pg.evaluate(STATE_JS, ids)
+
+    pill = drag(pg, box_key(pg, mirror), ids['s2'])
+    want = 'Not allowed: Screen2 runs at 30 fps and Screen1 at 60'
+    assert pill == {'text': want, 'bad': True}, pill
+    # the release asks, and nothing has moved while it does
+    assert pg.locator(MODAL).is_visible()
+    text = pg.locator(f'{MODAL} .modal-content').inner_text()
+    assert 'Not allowed' in text and 'Screen2 runs at 30 fps and Screen1 at 60' \
+        in text, text
+    assert [b.inner_text() for b in pg.locator(f'{MODAL} button').all()] == [
+        'Cancel', 'Match Screen2 to Screen1']
+    both(pg, ids['s2'], frameRate=30, mirrorOf=None)
+
+    # Cancel changes nothing
+    pg.locator(f'{MODAL} button', has_text='Cancel').click()
+    pg.wait_for_timeout(500)
+    assert pg.locator(MODAL).count() == 0
+    both(pg, ids['s2'], frameRate=30, mirrorOf=None)
+    after = pg.evaluate(STATE_JS, ids)
+    assert after['history'] == before['history'], (before, after)
+    assert after['serverPins'] == before['serverPins']
+
+    # Match: Screen2 takes Screen1's 60, then becomes its copy
+    drag(pg, box_key(pg, mirror), ids['s2'])
+    pg.locator(f'{MODAL} button', has_text='Match Screen2 to Screen1').click()
+    pg.wait_for_timeout(900)
+    assert pg.locator(MODAL).count() == 0
+    both(pg, ids['s2'], frameRate=60, mirrorOf=ids['s1'])
+    st = pg.evaluate(STATE_JS, ids)
+    assert st['s2'] == [[17, 'mirror'], [18, 'mirror']], st
+    assert st['history'] == before['history'] + 1, (before, st)
+    assert st['last'] == 'Mirror Screen', st
+    assert pg.locator('#frame-rate').input_value() == '60'
+    assert not [t for t in pg.evaluate(TOASTS_JS) if t['err']]
+
+    # ONE undo takes back both, on the server too
+    pg.evaluate("() => window.app.undo()")
+    settled(pg)
+    both(pg, ids['s2'], frameRate=30, mirrorOf=None)
+    back = pg.evaluate(STATE_JS, ids)
+    assert back['s2'] == [[None, None]], back
+    assert back['s1'] == [[1, 'pin'], [2, 'pin']], back
+    assert back['pins'] == back['serverPins'], back
+    assert pg.locator('#frame-rate').input_value() == '30'
+    # and redo puts both back
+    pg.evaluate("() => window.app.redo()")
+    settled(pg)
+    both(pg, ids['s2'], frameRate=60, mirrorOf=ids['s1'])
+    assert pg.evaluate(STATE_JS, ids)['s2'] == [[17, 'mirror'], [18, 'mirror']]
+    pg.remove_listener('request', listen)
+    said = '\n'.join(logged)
+    assert 'app_dialog_open' in said and 'mirror-match-modal' in said
+    assert 'mirror_screen_match' in said
+    assert 'mirror_screens_synced' not in said, 'the match wrote it, not the sync'
+    assert errors == []
+
+
+DIFFERENCES = {
+    'bit-depth': ({'bitDepth': 10}, 'Screen2 is 10-bit and Screen1 is 8-bit'),
+    'processor': ({'processorType': 'novastar-coex-1g'},
+                  'Screen2 is on NovaStar COEX A10s/A8s (1G) and Screen1 is '
+                  'on NovaStar (Legacy)'),
+    'low-latency': ({'lowLatency': True},
+                    'Screen2 has Low Latency on and Screen1 has it off'),
+    'flow-pattern': ({'flowPattern': 'br-v'},
+                     "Screen2's data flow is Bottom-right, vertical first and "
+                     "Screen1's is Top-left, horizontal first"),
+    'port-mapping': ({'portMappingMode': 'max-capacity'},
+                     "Screen2's Port Mapping is Max Capacity and Screen1's is "
+                     "Organized"),
+}
+
+
+@pytest.mark.parametrize('case', sorted(DIFFERENCES))
+def test_each_difference_is_said_and_matched(page, case):
+    pg, errors = page
+    ids, primary, mirror = mirror_rig(pg)
+    edit, words = DIFFERENCES[case]
+    pg.evaluate(FIELDS_JS, {str(ids['s2']): edit})
+    server = pg.evaluate(SERVER_REFUSAL_JS, [ids['s2'], ids['s1']])
+    assert server == f'Not allowed: {words}', server
+    field = next(iter(edit))
+    source = pg.evaluate(SETTINGS_JS, ids['s1'])['page'][field]
+    pill, text = released(pg, ids, mirror, ids['s2'])
+    assert pill == {'ok': False, 'message': server}, (pill, server)
+    assert words in text, text
+    answer(pg, 'Match Screen2 to Screen1')
+    both(pg, ids['s2'], mirrorOf=ids['s1'], **{field: source})
+    st = pg.evaluate(STATE_JS, ids)
+    assert st['s2'] == [[17, 'mirror'], [18, 'mirror']], st
+    assert st['last'] == 'Mirror Screen', st
+    pg.evaluate("() => window.app.undo()")
+    settled(pg)
+    both(pg, ids['s2'], mirrorOf=None, **edit)
+    assert pg.evaluate(STATE_JS, ids)['s2'][0] == [None, None]
+    assert errors == []
+
+
+def test_the_port_number_order_is_a_difference_where_lines_are_cut(page):
+    """Across or Down moves ports on a screen whose rows are cut, and the
+    page's walk and the server's agree on it."""
+    pg, errors = page
+    ids, primary, mirror = mirror_rig(pg)
+    pg.evaluate("""async (ids) => {
+        for (const id of [ids.s1, ids.s2]) {
+            await fetch(`/api/layer/${id}`, {method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({columns: 50})});
+        }
+    }""", ids)
+    pg.evaluate(FIELDS_JS, {str(ids['s2']): {'portNumberOrder': 'down'}})
+    server = pg.evaluate(SERVER_REFUSAL_JS, [ids['s2'], ids['s1']])
+    assert server == ("Not allowed: Screen2's port numbers run Down and "
+                      "Screen1's run Across"), server
+    pill, text = released(pg, ids, mirror, ids['s2'])
+    assert pill == {'ok': False, 'message': server}, pill
+    answer(pg, 'Match Screen2 to Screen1')
+    both(pg, ids['s2'], mirrorOf=ids['s1'])
+    assert pg.evaluate("""(id) => window.app.project.layers
+        .find(l => l.id === id).portNumberOrder""", ids['s2']) is None
+    assert errors == []
+
+
+def test_the_dialog_lists_every_difference(page):
+    pg, errors = page
+    ids, primary, mirror = mirror_rig(pg)
+    pg.evaluate(FIELDS_JS, {str(ids['s2']): {
+        'frameRate': 30, 'bitDepth': 10, 'lowLatency': True,
+        'flowPattern': 'tr-h-z', 'portMappingMode': 'max-capacity',
+        'customPortOverrides': [1, 2],
+        'customPortPaths': {'1': [{'row': 0, 'col': 0}],
+                            '2': [{'row': 0, 'col': 1}]}}})
+    pill, text = released(pg, ids, mirror, ids['s2'])
+    # the pill has room for the first; the dialog holds them all
+    assert pill['message'] == 'Not allowed: Screen2 is 10-bit and Screen1 is 8-bit'
+    for words in ('Screen2 is 10-bit and Screen1 is 8-bit',
+                  'Screen2 runs at 30 fps and Screen1 at 60',
+                  'Screen2 has Low Latency on and Screen1 has it off',
+                  "Screen2's Port Mapping is Max Capacity and Screen1's is "
+                  "Organized",
+                  "Screen2's data flow is Top-right, horizontal first, every "
+                  "row starts at the right and Screen1's is Top-left, "
+                  "horizontal first",
+                  'Screen2 has 2 custom runs and Screen1 has no custom runs'):
+        assert words in text, (words, text)
+    assert '—' not in text and '–' not in text and ' - ' not in text
+    answer(pg, 'Cancel')
+    both(pg, ids['s2'], frameRate=30, bitDepth=10, mirrorOf=None)
+    assert errors == []
+
+
+def test_custom_runs_compare_as_drawn(page):
+    """Two whole-screen custom screens: the runs the walk reads decide,
+    drawn the same goes straight through."""
+    pg, errors = page
+    ids, primary, mirror = mirror_rig(pg)
+    run = lambda *cols: [{'row': 0, 'col': c} for c in cols]  # noqa: E731
+    pg.evaluate(FIELDS_JS, {
+        str(ids['s1']): {'flowPattern': 'custom',
+                         'customPortPaths': {'1': run(0, 1), '2': run(2)}},
+        str(ids['s2']): {'flowPattern': 'custom',
+                         'customPortPaths': {'1': run(0, 1), '2': run(3)}}})
+    server = pg.evaluate(SERVER_REFUSAL_JS, [ids['s2'], ids['s1']])
+    assert server == ('Not allowed: Screen2 and Screen1 have different custom '
+                      'runs'), server
+    pill, text = released(pg, ids, mirror, ids['s2'])
+    assert pill == {'ok': False, 'message': server}, pill
+    answer(pg, 'Cancel')
+    pg.evaluate(FIELDS_JS, {str(ids['s2']): {
+        'customPortPaths': {'1': run(0, 1), '2': run(2), '3': []},
+        'customPortOverrides': [5]}})
+    out = pg.evaluate(DROP_JS, [ids['cid'], mirror, ids['s2']])
+    assert out['pill']['ok'] and out['changed'], out
+    assert pg.locator(MODAL).count() == 0
+    assert errors == []
+
+
+@pytest.mark.parametrize('s1,s2', [
+    ({'customPortOverrides': []}, {'customPortOverrides': '__gone__'}),
+    ({'portMappingMode': '__gone__'}, {'portMappingMode': 'organized'}),
+    ({'portNumberOrder': '__gone__'}, {'portNumberOrder': 'across'}),
+    ({'lowLatency': '__gone__'}, {'lowLatency': False}),
+    ({'bitDepth': '__gone__', 'frameRate': '__gone__'},
+     {'bitDepth': 8, 'frameRate': '60'}),
+    # a custom spell left behind on an automatic screen
+    ({}, {'customPortPaths': {'1': [{'row': 0, 'col': 0}]}}),
+    # the switch is hidden here: no row is cut
+    ({}, {'portNumberOrder': 'down'}),
+    ({'lastFlowPattern': 'br-v'}, {'customPortIndex': 9}),
+], ids=['overrides', 'mapping', 'order', 'latency', 'rate', 'stale-paths',
+        'hidden-order', 'bookkeeping'])
+def test_blanks_go_straight_through(page, s1, s2):
+    """Screens that only look different to a comparison: no dialog, and the
+    pill says it as ever."""
+    pg, errors = page
+    ids, primary, mirror = mirror_rig(pg)
+    pg.evaluate(FIELDS_JS, {str(ids['s1']): s1, str(ids['s2']): s2})
+    assert pg.evaluate(SERVER_REFUSAL_JS, [ids['s2'], ids['s1']]) is None
+    out = pg.evaluate(DROP_JS, [ids['cid'], mirror, ids['s2']])
+    assert out['pill']['ok'] and out['pill']['text'] == 'Copy of Screen1', out
+    assert out['changed'], out
+    assert pg.locator(MODAL).count() == 0
+    both(pg, ids['s2'], mirrorOf=ids['s1'])
+    assert errors == []
+
+
+def test_the_card_drop_says_it_and_matches_the_same_way(page):
+    """A card in Copy mode dragged onto the second screen ends in the same
+    _copyDropFinish as the box."""
+    pg, errors = page
+    rig = pg.evaluate(UNIT_SEED_JS, [COPY_UNITS['h-4xfiber-copy']])
+    assert pg.evaluate(DROP_JS, [rig['cid'], rig['primary'], rig['sa']])['changed']
+    pg.evaluate(FIELDS_JS, {str(rig['sb']): {'frameRate': 30}})
+    pg.evaluate("""() => {
+        const r = window.canvasRenderer;
+        r.zoom = 0.3; r.panX = 60; r.panY = 40; r.render();
+    }""")
+    pg.wait_for_timeout(200)
+    pill = drag(pg, f"card-{rig['cid']}", rig['sb'])
+    assert pill == {'text': 'Not allowed: SB runs at 30 fps and SA at 60',
+                    'bad': True}, pill
+    assert pg.locator(MODAL).is_visible()
+    pg.locator(f'{MODAL} button', has_text='Match SB to SA').click()
+    pg.wait_for_timeout(900)
+    both(pg, rig['sb'], frameRate=60, mirrorOf=rig['sa'])
+    pg.evaluate("() => window.app.undo()")
+    settled(pg)
+    both(pg, rig['sb'], frameRate=30, mirrorOf=None)
+    assert errors == []
+
+
+@pytest.mark.parametrize('case', ['size', 'locked', 'second-mirror'])
+def test_a_flat_refusal_gets_no_offer(page, case):
+    """A screen that differs in its settings AND breaks another rule hears
+    the other rule, and no dialog opens: only a screen the same size and
+    shape may be matched."""
+    pg, errors = page
+    ids, primary, mirror = mirror_rig(pg)
+    if case == 'second-mirror':
+        target, source = _parity_target(pg, ids, mirror, case)
+        want = ('Screen2 already mirrors Screen1. A screen has one mirror, on '
+                'its copy outputs.')
+    else:
+        target = ids['wide'] if case == 'size' else ids['s2']
+        want = REFUSALS[case]
+    edit = {'frameRate': 30}
+    if case == 'locked':
+        edit['locked'] = True
+    pg.evaluate(FIELDS_JS, {str(target): edit})
+    before = pg.evaluate(STATE_JS, ids)
+    out = pg.evaluate(DROP_JS, [ids['cid'], mirror, target])
+    assert out['pill'] == {'ok': False, 'message': want}, out
+    assert not out['changed']
+    assert pg.locator(MODAL).count() == 0
+    assert pg.evaluate(STATE_JS, ids)['history'] == before['history']
+    both(pg, target, frameRate=30)
+    assert errors == []
+
+
+def test_a_match_the_server_refuses_puts_the_settings_back(page):
+    """The refusal after Match that the page could not foresee: the screen
+    keeps what it had, on both sides, and no history step is left."""
+    pg, errors = page
+    ids, primary, mirror = mirror_rig(pg)
+    pg.evaluate(FIELDS_JS, {str(ids['s2']): {'frameRate': 30, 'bitDepth': 10}})
+    pg.evaluate(TOASTS_JS)
+    before = pg.evaluate(STATE_JS, ids)
+    pg.evaluate("""() => {
+        window.__fetch = window.fetch;
+        window.fetch = (url, opts) => (String(url).includes('/mirror-refusal')
+            ? Promise.resolve(new Response(JSON.stringify({error: 'Refused.'})))
+            : window.__fetch(url, opts));
+    }""")
+    try:
+        released(pg, ids, mirror, ids['s2'])
+        answer(pg, 'Match Screen2 to Screen1')
+    finally:
+        pg.evaluate("() => { window.fetch = window.__fetch; }")
+    pg.wait_for_timeout(500)
+    both(pg, ids['s2'], frameRate=30, bitDepth=10, mirrorOf=None)
+    assert pg.evaluate(STATE_JS, ids)['history'] == before['history']
+    assert any(t['err'] and t['msg'] == 'Refused.'
+               for t in pg.evaluate(TOASTS_JS))
+    assert errors == []
+
+
+def test_one_undo_holds_with_a_snapshot_still_waiting(page):
+    """The edit before the drop still in the debounce when Match lands: it
+    gets its own step, or the undo has no 30 to go back to."""
+    pg, errors = page
+    ids, primary, mirror = mirror_rig(pg)
+    pg.evaluate("""async (id) => {
+        const app = window.app;
+        const l = app.project.layers.find(x => x.id === id);
+        l.frameRate = 30;
+        await app._putLayer(id, {frameRate: 30});
+        await app.refreshPortAssignment();
+        app.debouncedSaveState('Update Properties', 60000, 'frame');
+    }""", ids['s2'])
+    released(pg, ids, mirror, ids['s2'])
+    answer(pg, 'Match Screen2 to Screen1')
+    both(pg, ids['s2'], frameRate=60, mirrorOf=ids['s1'])
+    assert pg.evaluate(STATE_JS, ids)['last'] == 'Mirror Screen'
+    pg.evaluate("() => window.app.undo()")
+    settled(pg)
+    both(pg, ids['s2'], frameRate=30, mirrorOf=None)
+    assert errors == []
+
+
+def test_a_late_echo_cannot_take_the_mirror_out_of_the_history(page):
+    """The settings' own echo replaces the screen's object while the server
+    is being asked (applyServerLayer), and the socket then lags, as it does
+    while it upgrades, so the mirror PUT's broadcast does not repair it: the
+    mirror is written on the project's copy, so the history step holds it."""
+    pg, errors = page
+    ids, primary, mirror = mirror_rig(pg)
+    pg.evaluate(FIELDS_JS, {str(ids['s2']): {'frameRate': 30}})
+    pg.evaluate("""(id) => {
+        const app = window.app;
+        const apply = app.applyServerLayer;
+        app.applyServerLayer = function (layer, reason) {
+            return reason === 'socket_layer_updated' ? false
+                : apply.call(this, layer, reason);
+        };
+        window.__fetch = window.fetch;
+        window.fetch = (url, opts) => {
+            if (String(url).includes('/mirror-refusal')) {
+                app.applyServerLayer(JSON.parse(JSON.stringify(
+                    app.project.layers.find(l => l.id === id))), 'test_echo');
+            }
+            return window.__fetch(url, opts);
+        };
+    }""", ids['s2'])
+    try:
+        released(pg, ids, mirror, ids['s2'])
+        answer(pg, 'Match Screen2 to Screen1')
+    finally:
+        pg.evaluate("""() => {
+            window.fetch = window.__fetch;
+            delete window.app.applyServerLayer;
+        }""")
+    both(pg, ids['s2'], frameRate=60, mirrorOf=ids['s1'])
+    held = pg.evaluate("""(id) => {
+        const app = window.app;
+        const top = app.history[app.historyIndex];
+        return [top.action, top.project.layers.find(l => l.id === id).dataMirrorOf];
+    }""", ids['s2'])
+    assert held == ['Mirror Screen', ids['s1']], held
+    assert errors == []
+
+
+def test_a_save_on_its_way_lands_before_the_server_is_asked(page):
+    """Screen2 just set back to 60 with the PUT still out: the pill reads the
+    page and says ok, so the server is asked only once it holds the same."""
+    pg, errors = page
+    ids, primary, mirror = mirror_rig(pg)
+    pg.evaluate(FIELDS_JS, {str(ids['s2']): {'frameRate': 30}})
+    pg.evaluate(TOASTS_JS)
+    pg.evaluate("""(id) => {
+        const app = window.app;
+        window.__fetch = window.fetch;
+        window.fetch = (url, opts) => (opts && opts.method === 'PUT'
+                && String(url).startsWith(`/api/layer/${id}?`)
+            ? new Promise(r => setTimeout(r, 500))
+                .then(() => window.__fetch(url, opts))
+            : window.__fetch(url, opts));
+        const l = app.project.layers.find(x => x.id === id);
+        l.frameRate = 60;
+        app._putLayer(id, {frameRate: 60});
+    }""", ids['s2'])
+    try:
+        out = pg.evaluate(DROP_JS, [ids['cid'], mirror, ids['s2']])
+    finally:
+        pg.evaluate("() => { window.fetch = window.__fetch; }")
+    assert out['pill']['ok'] and out['changed'], out
+    both(pg, ids['s2'], frameRate=60, mirrorOf=ids['s1'])
+    assert not [t for t in pg.evaluate(TOASTS_JS) if t['err']]
+    assert errors == []
+
+
+def test_a_source_edit_flows_to_its_mirror_without_a_refusal(page):
+    """The rule is on making a mirror: Screen1's frame rate moved by hand
+    after the mirror is made still carries Screen2 with it."""
+    pg, errors = page
+    ids, primary, mirror = mirror_rig(pg)
+    assert pg.evaluate(DROP_JS, [ids['cid'], mirror, ids['s2']])['changed']
+    pg.evaluate(TOASTS_JS)
+    pg.evaluate("""(id) => {
+        const app = window.app;
+        app.selectLayer(app.project.layers.find(l => l.id === id));
+    }""", ids['s1'])
+    pg.wait_for_timeout(200)
+    pg.locator('#frame-rate').select_option('30')
+    pg.wait_for_timeout(900)
+    both(pg, ids['s1'], frameRate=30)
+    both(pg, ids['s2'], frameRate=30, mirrorOf=ids['s1'])
+    pg.evaluate("() => window.app.undo()")
+    settled(pg)
+    both(pg, ids['s1'], frameRate=60)
+    both(pg, ids['s2'], frameRate=60, mirrorOf=ids['s1'])
+    assert not [t for t in pg.evaluate(TOASTS_JS) if t['err']]
+    assert errors == []
+
+
+def test_a_show_saved_with_a_drifted_mirror_stays_a_mirror(page):
+    """Opened with its mirror at another frame rate (a file from before this
+    rule): nothing refuses it, and the first snapshot brings the copy in
+    line as it always did."""
+    pg, errors = page
+    ids, primary, mirror = mirror_rig(pg)
+    pg.evaluate(FIELDS_JS, {str(ids['s2']): {'frameRate': 30,
+                                             'dataMirrorOf': ids['s1']}})
+    assert pg.evaluate(SERVER_REFUSAL_JS, [ids['s2'], ids['s1']]) is None
+    status = pg.evaluate("""async ([id, of]) => (await fetch(`/api/layer/${id}`, {
+        method: 'PUT', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({dataMirrorOf: of})})).status""",
+                         [ids['s2'], ids['s1']])
+    assert status == 200
+    settled(pg)
+    both(pg, ids['s2'], frameRate=60, mirrorOf=ids['s1'])
+    st = pg.evaluate(STATE_JS, ids)
+    assert st['s2'] == [[17, 'mirror'], [18, 'mirror']], st
+    issues = pg.evaluate("""() => window.app._assignment.issues
+        .filter(i => i.kind === 'mirror-mismatch')""")
+    assert issues == [], issues
+    assert errors == []
+
+
+def test_the_pill_and_the_server_read_every_pattern_and_processor_alike(page):
+    """The two copies of the words cannot drift apart unseen: every flow
+    button and every Processing option, through both."""
+    pg, errors = page
+    words = pg.evaluate("""() => {
+        const app = window.app;
+        const flows = [...new Set([...document.querySelectorAll(
+            '.flow-pattern-btn[data-pattern]')].map(b => b.dataset.pattern))];
+        return {
+            flows: flows.map(f => [f, app._mirrorFlowWords(f)]),
+            processors: [...document.getElementById('processor-type').options]
+                .map(o => [o.value, app._mirrorProcessorWords(o.value)]),
+        };
+    }""")
+    import port_assignment
+    assert len(words['flows']) == 16, words
+    for flow, said in words['flows']:
+        assert said == port_assignment._mirror_flow_words(flow), flow
+    assert dict(words['processors']) == port_assignment.PLATFORM_LABELS
     assert errors == []

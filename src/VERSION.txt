@@ -1013,7 +1013,10 @@ FIXES
   that can't work says why before you let go: the screens don't match,
   nothing is on the box it copies yet, or the screen is locked. A Backup
   box dropped on a screen already on its primary box says its backup is
-  already there.
+  already there. A screen the same size and shape but with other settings,
+  a frame rate of 30 against 60 for one, is no longer changed without a
+  word: the drop says Not allowed, lists what differs and offers to match
+  it to the first screen, and one undo takes back the match too.
 - FIX: Opening a show saved before Organized stacked its leftovers keeps
   each processor port on its cabinets. Ports past the new last number are
   no longer dropped, and typed names move with them. Where two leftovers
