@@ -1005,6 +1005,9 @@ FIXES
   show stay as drawn.
 - FIX: The binder prints the Fiber page right after the screens, before
   the pull sheets, and the sheets after it number on from it with no gap.
+- FIX: A project you emptied with the start page's X stays empty, after
+  a reload too. A late update could put its first screen back on the
+  page a moment later, though the project no longer had it.
 
 v1.5.3 - October 21, 2026
 ----------------------------

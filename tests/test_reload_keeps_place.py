@@ -307,6 +307,59 @@ def test_a_reload_over_the_project_the_x_emptied_keeps_it_empty(e2e_server, pw_b
         context.close()
 
 
+# The socket's layer_updated events held until the page's project is empty,
+# then handed over: the echo of the boot's own PUT of the startup screen
+# lands after the DELETE that took it out. The server holds socket sends
+# while the socket upgrades from polling, which brings an echo that late
+# (CI, 2026-11-04). One the page never empties for goes after 3 s, so a
+# page that kept its screen fails on the count.
+# A screen's PUT waits for the socket: one sent before it connected has
+# no echo at all (a busy machine, 2026-11-04).
+LATE_ECHO = (
+    "window.__lateEchoes = 0;"
+    "(function () { const send = window.fetch;"
+    " window.fetch = function (u, o) {"
+    " if (!(o && o.method === 'PUT' && String(u).indexOf('/api/layer/') >= 0)) return send.apply(this, arguments);"
+    " return new Promise(r => { const t = setInterval(() => { const s = window.app && window.app.socket;"
+    " if (s && s.connected) { clearInterval(t); r(); } }, 10); }).then(() => send.call(window, u, o)); }; })();"
+    "(function () { let real; Object.defineProperty(window, 'io', { configurable: true,"
+    " get() { return real; },"
+    " set(v) { real = function () { const s = v.apply(this, arguments); const on = s.on.bind(s);"
+    " s.on = (ev, fn) => on(ev, ev !== 'layer_updated' ? fn : (...a) => {"
+    " const held = Date.now(); const t = setInterval(() => { const app = window.app;"
+    " const empty = !!(app && app.project && Array.isArray(app.project.layers) && !app.project.layers.length);"
+    " if (!empty && Date.now() - held < 3000) return;"
+    " clearInterval(t); fn(...a); window.__lateEchoes += 1; }, 10); });"
+    " return s; }; Object.assign(real, v); } }); })();"
+)
+
+
+def test_a_late_echo_of_the_startup_screen_never_brings_it_back(e2e_server, pw_browser):
+    """The boot's PUT of the startup screen is echoed on the socket. Landing
+    after the reload took that screen out, the echo put it back on the page
+    (the server had none): one screen where the X left none, and the next
+    reload kept it."""
+    _new_pristine_project(e2e_server)
+    context = _new_context(pw_browser, START_PAGE + LATE_ECHO)
+    try:
+        pg, problems = _open_tab(context, e2e_server)
+        _wait_start(pg)
+        _close_start_page(pg)
+        # The launch's X takes the same screen out under the same echo.
+        pg.wait_for_function("() => window.__lateEchoes >= 1", timeout=10000)
+        assert pg.evaluate("() => window.app.project.layers.length") == 0
+        for _ in range(2):
+            _reload(pg)
+            pg.wait_for_function("() => window.__lateEchoes >= 1", timeout=10000)
+            assert pg.evaluate("() => window.app.project.layers.length") == 0
+            assert not _start_up(pg)
+            srv = pg.evaluate("async () => (await fetch('/api/project')).json()")
+            assert srv['layers'] == [] and srv['is_pristine'] is True, srv['layers']
+        assert problems == [], problems
+    finally:
+        context.close()
+
+
 # ── (d) a launch is a new browser tab ─────────────────────────────────────
 
 def test_a_new_tab_is_a_launch_and_never_takes_another_tab_s_place(e2e_server, pw_browser):
