@@ -1873,6 +1873,14 @@ class _ScreenInfo {
             if (trimmed.length) layers = layers.concat(trimmed);
         }
 
+        // A screen an older show opened locked follows the stacked leftovers
+        // now it is unlocked, in this undo step and ahead of the release
+        // below (app-merge-runs.js followDueLeftovers).
+        if (typeof this.followDueLeftovers === 'function') {
+            const followed = this.followDueLeftovers().filter(l => !layers.includes(l));
+            if (followed.length) layers = layers.concat(followed);
+        }
+
         // A screen whose ports dropped (it shrank) lets go of the card pins
         // past its last port, in this undo step (app-merge-runs.js
         // _releasePinsOffPorts), after the trim's own close-ups.
@@ -1943,6 +1951,7 @@ class _ScreenInfo {
                 'customPortIndex', 'customPortOverrides',
                 'processorType', 'lowLatency',
                 'bitDepth', 'frameRate', 'portMappingMode', 'portNumberOrder',
+                'leftoverFollowDue',
                 'powerVoltage', 'powerVoltageCustom', 'powerAmperage',
                 'powerAmperageCustom', 'panelWatts', 'powerMaximize',
                 'powerOrganized', 'powerNumberOrder', 'powerCustomPath',

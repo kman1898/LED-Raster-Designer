@@ -1008,6 +1008,11 @@ FIXES
 - FIX: A project you emptied with the start page's X stays empty, after
   a reload too. A late update could put its first screen back on the
   page a moment later, though the project no longer had it.
+- FIX: Opening a show saved before Organized stacked its leftovers keeps
+  each processor port on its cabinets. Ports past the new last number are
+  no longer dropped, and typed names move with them. Where two leftovers
+  became one port, one keeps its processor port and the other is
+  released. A locked screen follows when you unlock it.
 
 v1.5.3 - October 21, 2026
 ----------------------------
