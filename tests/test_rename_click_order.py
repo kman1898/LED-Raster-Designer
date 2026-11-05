@@ -42,6 +42,15 @@ dragstart cancelled it and the highlight fell to a caret, and the group's ran.
 The press now lets go of the selection first (helpers.js
 installNameDragSelects). The drags above set the caret first and missed it.
 
+The fourth (CI, Linux Chromium, 2026-11-05): the beach name's first drag still
+selected nothing. It had nothing to do with the selection or the beach. Chromium
+loses a drag's start when the press lands close to the middle of a letter and
+off a whole CSS pixel, in a bare text field too, and Linux's font put 10% of
+that field on one. The drag now keeps the press's place itself. Which presses do
+it depends on the font, so the tests below sweep the press across the name
+instead of trusting one point. What a double-click leaves differs by system
+(the word, the word and its space, in an open name), so they set up each shape.
+
 Run locally:
     python -m pytest tests/test_rename_click_order.py -v -n 4 --dist loadfile
 """
@@ -736,6 +745,19 @@ def _mouse_drag(pg, sel, x0=0.1, x1=0.6):
     pg.wait_for_timeout(100)
 
 
+@pytest.fixture
+def closes_the_edit(page):
+    """An edit left open by a failed assert is committed by the next test's
+    click, and that rename rebuilds the list under it: one failure on CI read
+    as a second, unrelated one (the double-click left [0, 7], ALPHA-3's length).
+    """
+    yield
+    pg, _ = page
+    pg.evaluate("""() => { const el = document.activeElement;
+        if (el && el.matches('input') && !el.readOnly) el.dispatchEvent(
+            new KeyboardEvent('keydown', {key: 'Escape', bubbles: true})); }""")
+
+
 def _end_edit_and_check(pg, sel):
     pg.keyboard.press('Escape')
     settled(pg, lambda: _field(pg, sel), lambda v: v['readOnly'])
@@ -744,7 +766,7 @@ def _end_edit_and_check(pg, sel):
 
 
 @pytest.mark.parametrize('kind', ['screen', 'canvas', 'group', 'beach'])
-def test_the_first_drag_after_the_double_click_selects_text(page, kind):
+def test_the_first_drag_after_the_double_click_selects_text(page, closes_the_edit, kind):
     pg, ids = page
     pg.evaluate(DRAGSTARTS_JS)
     sel = _name_sel(ids, kind)
@@ -765,7 +787,7 @@ def test_the_first_drag_after_the_double_click_selects_text(page, kind):
 
 
 @pytest.mark.parametrize('kind', ['screen', 'canvas', 'group', 'beach'])
-def test_a_drag_on_text_a_drag_selected_starts_a_new_selection(page, kind):
+def test_a_drag_on_text_a_drag_selected_starts_a_new_selection(page, closes_the_edit, kind):
     pg, ids = page
     pg.evaluate(DRAGSTARTS_JS)
     sel = _name_sel(ids, kind)
@@ -776,6 +798,186 @@ def test_a_drag_on_text_a_drag_selected_starts_a_new_selection(page, kind):
     second = _selection(pg, sel)
     assert second['end'] - second['start'] > 0, second
     assert second['start'] > first['start'] and second['end'] < first['end'], (first, second)
+    assert pg.evaluate("() => window.__dragstarts") == []
+    _end_edit_and_check(pg, sel)
+
+
+# What the name holds selected as the press comes down. Which of the two word
+# shapes a double-click in an open name leaves depends on the system.
+SHAPES = {'whole': (0, len(LONG_NAME)), 'word': (2, 6), 'word-and-space': (2, 7), 'caret': (0, 0)}
+
+
+def _sweep_drags(pg, sel, start, end, first=3, last=33, step=0.5):
+    """A real drag from every press point along the first letters, each one
+    starting from the shape given. Returns the presses that selected nothing."""
+    box = pg.locator(sel).bounding_box()
+    y = round(box['y'] + box['height'] / 2)
+    missed = []
+    x = first
+    while x <= last:
+        pg.evaluate("([s, a, b]) => document.querySelector(s).setSelectionRange(a, b)", [sel, start, end])
+        px = box['x'] + x
+        pg.mouse.move(px, y)
+        pg.mouse.down()
+        for hop in range(1, 5):
+            pg.mouse.move(px + hop * 11, y)
+        pg.mouse.up()
+        got = pg.evaluate("(s) => { const el = document.querySelector(s); return [el.selectionStart, el.selectionEnd]; }", sel)
+        if got[1] - got[0] < 2:
+            missed.append((x, got))
+        x += step
+    return missed
+
+
+@pytest.mark.parametrize('shape', list(SHAPES))
+@pytest.mark.parametrize('kind', ['screen', 'canvas', 'group', 'beach'])
+def test_a_drag_selects_text_from_any_press_point_and_any_selection(page, closes_the_edit, kind, shape):
+    pg, ids = page
+    pg.evaluate(DRAGSTARTS_JS)
+    sel = _name_sel(ids, kind)
+    _open_long_name(pg, sel)
+    start, end = SHAPES[shape]
+    assert _sweep_drags(pg, sel, start, end) == []
+    assert pg.evaluate("() => window.__dragstarts") == []
+    _end_edit_and_check(pg, sel)
+
+
+def test_a_drag_right_to_left_keeps_its_start_too(page, closes_the_edit):
+    pg, ids = page
+    sel = _screen(ids['a'])
+    _open_long_name(pg, sel)
+    box = pg.locator(sel).bounding_box()
+    y = round(box['y'] + box['height'] / 2)
+    x = 40.0
+    while x < 60:
+        pg.evaluate("(s) => document.querySelector(s).select()", sel)
+        pg.mouse.move(box['x'] + x, y)
+        pg.mouse.down()
+        for hop in range(1, 5):
+            pg.mouse.move(box['x'] + x - hop * 8, y)
+        pg.mouse.up()
+        got = _selection(pg, sel)
+        assert got['end'] - got['start'] >= 2, (x, got)
+        x += 0.25
+    _end_edit_and_check(pg, sel)
+
+
+def test_a_drag_selects_text_on_a_scaled_screen(e2e_server, pw_browser, page):
+    """A device pixel is half a CSS pixel here, so a real mouse can press off a
+    whole CSS pixel, which is where the browser loses the drag's start."""
+    _, ids = page
+    context = pw_browser.new_context(viewport={'width': 1700, 'height': 1100}, device_scale_factor=2)
+    context.add_init_script(
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
+    pg = context.new_page()
+    try:
+        for path in ('save-file', 'open-file', 'select-directory'):
+            pg.route(f'**/api/native-dialog/{path}', _cancelled)
+        pg.goto(e2e_server, wait_until='domcontentloaded')
+        pg.wait_for_function("() => !!(window.app && window.app._initialLoadComplete)", timeout=20000)
+        pg.wait_for_timeout(800)
+        sel = _beach(ids['beaches'][0])
+        _open_long_name(pg, sel)
+        assert _sweep_drags(pg, sel, 0, len(LONG_NAME)) == []
+        pg.keyboard.press('Escape')
+    finally:
+        context.close()
+
+
+@pytest.mark.parametrize('kind', ['screen', 'canvas', 'group', 'beach'])
+def test_a_drag_let_go_past_the_end_of_the_name_keeps_the_edit(page, closes_the_edit, kind):
+    """The release lands on the row, or on a button in it, and the browser
+    clicks the row. That click ended a group's rename."""
+    pg, ids = page
+    pg.evaluate(DRAGSTARTS_JS)
+    sel = _name_sel(ids, kind)
+    _open_long_name(pg, sel)
+    held = pg.evaluate(HOLD_JS, sel)
+    assert held
+    selected = pg.evaluate("() => [...window.app.selectedLayerIds].sort()")
+    box = pg.locator(sel).bounding_box()
+    y = round(box['y'] + box['height'] / 2)
+    x = round(box['x'] + box['width'] / 2)
+    pg.mouse.move(x, y)
+    pg.mouse.down()
+    for hop in range(1, 9):
+        pg.mouse.move(x + hop * (box['width'] / 2 + 12) / 8, y)
+    pg.mouse.up()
+    pg.wait_for_timeout(150)
+    assert pg.evaluate(HELD_JS, sel) == {'connected': True, 'same': True}, 'the list was rebuilt under the edit'
+    got = _selection(pg, sel)
+    assert got['end'] > got['start'] and got['focused'] and not got['readOnly'], got
+    assert pg.evaluate("() => [...window.app.selectedLayerIds].sort()") == selected
+    pg.keyboard.press('Escape')
+    settled(pg, lambda: _field(pg, sel), lambda v: v['readOnly'])
+    assert _field(pg, sel)['readOnly']
+    assert pg.evaluate("() => window.__dragstarts") == []
+
+
+def test_the_click_after_a_drag_let_go_on_the_row_still_works(page, closes_the_edit):
+    pg, ids = page
+    sel = _group(ids['groups'][0])
+    _open_long_name(pg, sel)
+    box = pg.locator(sel).bounding_box()
+    y = round(box['y'] + box['height'] / 2)
+    x = round(box['x'] + box['width'] / 2)
+    pg.mouse.move(x, y)
+    pg.mouse.down()
+    pg.mouse.move(x + box['width'] / 2 + 12, y, steps=6)
+    pg.mouse.up()
+    pg.keyboard.press('Escape')
+    settled(pg, lambda: _field(pg, sel), lambda v: v['readOnly'])
+    info = f'#layers-list .screen-group[data-group-id="{ids["groups"][0]}"] .screen-group-info'
+    pg.locator(info).click()
+    members = pg.evaluate("(g) => window.app.getGroupMembers(window.app.resolveGroup(g)).map(l => l.id).sort()",
+                          ids['groups'][0])
+    got = settled(pg, lambda: pg.evaluate("() => [...window.app.selectedLayerIds].sort()"), lambda v: v == members)
+    assert got == members
+
+
+def test_a_real_double_click_in_an_open_name_then_a_drag_on_that_word(page, closes_the_edit):
+    """Whatever this system's double-click picked, the press on it starts a
+    new selection and no text drag."""
+    pg, ids = page
+    pg.evaluate(DRAGSTARTS_JS)
+    sel = _screen(ids['a'])
+    _open_long_name(pg, sel)
+    box = pg.locator(sel).bounding_box()
+    y = round(box['y'] + box['height'] / 2)
+    x = round(box['x'] + box['width'] * 0.3)
+    pg.mouse.click(x, y, click_count=2)
+    word = _selection(pg, sel)
+    assert 0 < word['end'] - word['start'] < len(LONG_NAME), word
+    pg.mouse.move(x, y)
+    pg.mouse.down()
+    for hop in range(1, 5):
+        pg.mouse.move(x + hop * 10, y)
+    pg.mouse.up()
+    got = _selection(pg, sel)
+    assert got['end'] - got['start'] >= 2 and got['end'] > word['end'], (word, got)
+    assert pg.evaluate("() => window.__dragstarts") == []
+    _end_edit_and_check(pg, sel)
+
+
+def test_a_press_still_inside_the_double_click_starts_no_text_drag(page, closes_the_edit):
+    """Pressing again at once makes it the third click of a row. That press is
+    the browser's own, and what it selects is its business; it starts no text
+    drag and the name stays open with text selected."""
+    pg, ids = page
+    pg.evaluate(DRAGSTARTS_JS)
+    sel = _beach(ids['beaches'][0])
+    _open_long_name(pg, sel)
+    box = pg.locator(sel).bounding_box()
+    y = round(box['y'] + box['height'] / 2)
+    x = round(box['x'] + box['width'] / 2)
+    pg.mouse.move(x, y)
+    pg.mouse.down(click_count=3)
+    for hop in range(1, 5):
+        pg.mouse.move(x + hop * 6, y)
+    pg.mouse.up(click_count=3)
+    got = _selection(pg, sel)
+    assert got['end'] > got['start'], got
+    assert got['focused'] and not got['readOnly'], got
     assert pg.evaluate("() => window.__dragstarts") == []
     _end_edit_and_check(pg, sel)
 

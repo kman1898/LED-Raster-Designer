@@ -630,19 +630,67 @@ function holdDragOff(...els) {
 // holdDragOff above cannot help, it covers the rows' drag and not this one.
 // Letting go of the selection before the browser reads the press makes it an
 // ordinary press in the field: the caret lands under it and the drag selects.
-// A press of a double or triple click is left to pick its word or the line,
-// and Shift to extend the selection.
+// Any selection counts, whole name or one word: what a double-click leaves
+// differs by system. A press of a double or triple click is left to pick its
+// word or the line, and Shift to extend the selection.
+//
+// Then the drag itself. Chromium loses a drag's start when the press lands
+// close to the middle of a letter and off a whole CSS pixel, in any text field
+// with none of this code on the page: the caret follows the mouse and nothing
+// is selected. Which presses depends on the font and the field's position
+// (CI, Linux, beach name, 2026-11-05); on a scaled screen about 1 press in 20
+// did it in Chromium's emulation. So the place the press put the caret is kept,
+// and a caret that has left it while the button is held goes back to being a
+// selection from there. In a drag that works the selection is never a caret
+// anywhere else, so this does nothing.
+//
+// And its end. Let go past the end of the name and the browser clicks whatever
+// holds both ends of the drag, the row: a group's header took that as a click
+// on the group, rebuilt the list and ended the rename. That click is the
+// drag's, so it stops here.
 const LIST_NAME_FIELDS = '.layer-name-input, .canvas-name-input, .screen-group-name-input, .beach-name-input';
 
 function installNameDragSelects(doc) {
     doc = doc || document;
     if (doc.__lrdNameDragSelects) return;
     doc.__lrdNameDragSelects = true;
+    // The field being pressed, and where the press put its caret.
+    let held = null;
+    let anchor = null;
+    let dragsClick = false;
+    const keepTheStart = () => {
+        if (!held || anchor === null || doc.activeElement !== held) return;
+        const at = held.selectionStart;
+        if (at === held.selectionEnd && at !== anchor) {
+            held.setSelectionRange(Math.min(at, anchor), Math.max(at, anchor), at < anchor ? 'backward' : 'forward');
+        }
+    };
     doc.addEventListener('mousedown', (e) => {
+        held = null;
+        anchor = null;
+        dragsClick = false;
         if (e.button !== 0 || e.detail > 1 || e.shiftKey) return;
         const el = e.target;
         if (!el || !el.matches || !el.matches(LIST_NAME_FIELDS) || el.readOnly) return;
         if (el.selectionStart !== el.selectionEnd) el.setSelectionRange(el.selectionEnd, el.selectionEnd);
+        held = el;
+    }, true);
+    doc.addEventListener('mousemove', (e) => {
+        if (!held) return;
+        if (!(e.buttons & 1)) held = null;
+        else if (anchor === null) anchor = held.selectionStart;   // the press has landed by now
+    }, true);
+    doc.addEventListener('selectionchange', keepTheStart);
+    doc.addEventListener('mouseup', (e) => {
+        keepTheStart();
+        dragsClick = !!held && e.target !== held;
+        held = null;
+    }, true);
+    doc.addEventListener('click', (e) => {
+        if (!dragsClick) return;
+        dragsClick = false;
+        e.stopPropagation();
+        e.preventDefault();
     }, true);
 }
 
