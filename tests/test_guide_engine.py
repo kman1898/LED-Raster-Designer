@@ -467,7 +467,7 @@ def test_mirror_a_screen_says_so_when_its_setup_does_not_take(page):
     """The act puts IMAG L on the box before the drag. When that request
     gets no answer the app logs it and carries on, and the drag was then
     refused as if the gesture were wrong. The step stops and names what
-    went wrong instead (one stress run, 1 in 18, ended that way)."""
+    went wrong instead."""
     page.route('**/api/port-assignments/place-overflow', lambda r: r.abort('addressunreachable'))
     try:
         i = _index(page, 'mirrorScreen')
