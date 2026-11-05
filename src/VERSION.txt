@@ -1041,6 +1041,10 @@ FIXES
   mode box and a multimode box reads both.
 - FIX: A Backup box dropped on a screen on the unit's own ports says its
   backup is already there, instead of telling you to clear the screen.
+- FIX: Your browser's AutoFill can no longer change a show. A fill from
+  your contacts could write a name or a phone number into fields you
+  weren't in, even in a folded panel, and rename multis across screens.
+  Now a field only takes what you type, paste or pick.
 
 v1.5.3 - October 21, 2026
 ----------------------------

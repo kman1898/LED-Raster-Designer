@@ -187,6 +187,10 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 .image-only { display: none; }
 .info-row { margin-bottom: 10px; }
 .info-row label { display: block; color: #888; font-size: 11px; margin-bottom: 4px; text-transform: uppercase; }
+/* No fill offers itself inside a field (helpers.js installFieldGuard). One rule each:
+   a browser drops a whole list over a pseudo-element it does not know. */
+input::-webkit-contacts-auto-fill-button { visibility: hidden; display: none !important; }
+input::-webkit-credentials-auto-fill-button { visibility: hidden; display: none !important; }
 .info-row input[type="number"], .info-row input[type="text"] { width: 100%; background: #1a1a1a; border: 1px solid #3a3a3a; color: #e0e0e0; padding: 6px; border-radius: 4px; font-size: 12px; }
 .info-row input[type="number"] { 
     -webkit-appearance: none; 

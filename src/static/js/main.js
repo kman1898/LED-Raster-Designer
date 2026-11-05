@@ -53,9 +53,11 @@ import './app-dock-drag.js';
 import './app-dock-menus.js';
 import './app-history.js';
 import './app-clipboard.js';
-import { registerGlobalClientLogging, sendClientLog } from './helpers.js';
+import { registerGlobalClientLogging, sendClientLog, installFieldGuard } from './helpers.js';
 
 document.addEventListener('DOMContentLoaded', () => {
+    // First, so it has seen every value the app writes from here on.
+    installFieldGuard(document);
     registerGlobalClientLogging();
     sendClientLog('client_ready', { ua: navigator.userAgent });
     window.app = new LEDRasterApp();
