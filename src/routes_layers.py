@@ -461,6 +461,10 @@ def update_layer(layer_id):
                 # would drop the flag on every per-layer PUT.
                 'flowPattern', 'bitDepth', 'frameRate', 'processorType', 'lowLatency',
                 'portMappingMode', 'portNumberOrder',
+                # A locked screen an older show opened with, still owed its
+                # pins' follow of the stacked leftovers (app-merge-runs.js
+                # followOldLeftoverStacks). It outlives the file's stamp.
+                'leftoverFollowDue',
                 'dataFlowColor', 'dataFlowLabelSize', 'randomDataColors',
                 'portLabelTemplatePrimary', 'portLabelTemplateReturn',
                 'portLabelOverridesPrimary', 'portLabelOverridesReturn',

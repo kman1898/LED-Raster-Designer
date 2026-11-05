@@ -1044,7 +1044,12 @@ class _PortRouting {
     // runs folded into others. The automatic walk and the custom Apply
     // Pattern fill both stack here, so the two cannot drift apart;
     // scr_project.py stack_line_leftovers is the same rule.
+    //
+    // `_leftoversUnstacked` (set only for the length of one reading, by
+    // _leftoverMoves and _followOldStackNumbering) gives the walk builds
+    // before 1.6.0 beta 6 had: every leftover is a port of its own.
     _stackLineLeftovers(runs, { cellsOf, alongOf, join }) {
+        if (this._leftoversUnstacked) return 0;
         const cuts = new Map();
         const last = new Map();
         runs.forEach((run, i) => {

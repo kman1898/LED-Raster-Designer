@@ -364,6 +364,11 @@ class _ProjectIo {
             const stackNotes = (typeof this.predatesStackNumbering === 'function'
                 && this.predatesStackNumbering(this.project))
                 ? this._followOldStackNumbering() : [];
+            // A show saved before Organized stacked its leftovers,
+            // read off the same stamp and followed on the server's
+            // copy below.
+            const olderLeftovers = typeof this.predatesLeftoverStacks === 'function'
+                && this.predatesLeftoverStacks(this.project);
             // A show saved before an unchanged redraw went back to
             // the walk (app-run-overrides dropUnchangedRedrawsOnOpen),
             // read off the same stamp.
@@ -471,6 +476,12 @@ class _ProjectIo {
                             this._toast(freed.notes.join(' '), false, 8000);
                         }
                     }
+                    // A show saved before Organized stacked its leftovers:
+                    // its pins and port names ride their cabinets to the
+                    // new numbers, behind the repair above and ahead of
+                    // the commit below, which lets go of the pins past the
+                    // last port (app-merge-runs.js followOldLeftoverStacks).
+                    if (olderLeftovers) stackNotes.push(...this.followOldLeftoverStacks());
                     // A distro with multis in use and no output rows
                     // opens with the rows that cover them: no multi is
                     // ever off its distro's face (app-distro-systems).
