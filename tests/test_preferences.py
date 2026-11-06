@@ -1,4 +1,4 @@
-"""The Preferences dialog: eight tabs, every field once, Save / Cancel /
+"""The Preferences dialog: nine tabs, every field once, Save / Cancel /
 Reset Defaults at the foot - and every new default honoured only where the
 app CREATES something (a distro, a binder block on a project with no
 values of its own, a snake, a loose port cable, a power cable).
@@ -18,7 +18,7 @@ def _guard(server_project_guard):
     module found them."""
 
 
-# The eight tabs, in the order the strip shows them, with the field ids
+# The nine tabs, in the order the strip shows them, with the field ids
 # each holds. Every id today's dialog had keeps its id; the new ones are
 # the mock's (mocks/preferences-mock.html?layout=tabs).
 TABS = {
@@ -337,7 +337,7 @@ def _save(pg):
 # ── the dialog ────────────────────────────────────────────────────────────
 
 def test_every_field_is_there_once_and_one_tab_shows_at_a_time(page):
-    """All 65 field ids, no id twice, today's 36 among them; eight tabs in
+    """All 65 field ids, no id twice, today's 36 among them; nine tabs in
     the mock's order, one section up at a time, the strip switching them;
     Reset Defaults / Cancel / Save at the foot."""
     pg, ids = page

@@ -17,7 +17,8 @@ the colors the screen already has. Thanks to kcikcreative33 for this one.
 
 - NEW: Tonal, Bold and Split styles, and a Shuffle button for a fresh eight.
 - NEW: A Hue slider turns the eight and the selected screens together, one
-  degree at a time, and a drag is one undo step.
+  degree at a time. A drag or a run of arrow keys is one undo step, and
+  clicking the degrees puts it back to 0.
 - NEW: Preferences > Palettes keeps eight pairs of your own instead.
 
 v1.6.0 - November 6, 2026

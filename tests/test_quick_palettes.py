@@ -984,3 +984,50 @@ def test_a_real_palette_source_pick_passes_the_field_guard(page):
             if (c) c.click();
         }""")
     assert errors == []
+
+
+# ── the guide and What's New ─────────────────────────────────────────────
+
+def test_the_guide_step_shows_the_palettes(page):
+    """The Advanced Guide's step, played on its own the way What's New's
+    Show me plays it: the wall takes a pair, Hue turns it, and leaving the
+    guide puts back the person's colors with the slider at 0."""
+    pg, errors = page
+    a, _ = _two_screens(pg)
+    _mouse_drag(pg, 25)
+    mine, shift = _pair_of(pg, a), _hue(pg)
+    assert pg.evaluate("""() => {
+        const q = window.QuickStart, keys = q.tours().advanced
+            .map(s => Object.keys(q.steps()).find(k => q.steps()[k] === s));
+        return keys[keys.indexOf('blankCabinet') + 1] === 'quickPalettes'
+            && q.steps().quickPalettes.since === '1.7.0';
+    }""")
+    assert pg.evaluate("() => window.QuickStart.newSteps('1.6.0', '1.7.0')") == ['quickPalettes']
+    pg.evaluate("() => { window.QuickStart.setSpeed(6); window.QuickStart.startSteps(['quickPalettes']); }")
+    pg.wait_for_function("""() => {
+        const c = document.getElementById('qs-callout');
+        return c && c.getAttribute('data-qs-state') === 'done';
+    }""", timeout=30000)
+    note = pg.locator('#qs-callout .qs-result').text_content()
+    assert 'Hue turned it' in note and '60°' in note, note
+    assert _hue(pg) == 60 and _readout(pg) == '+60°'
+    assert pg.locator('#quick-palette-swatches [aria-pressed="true"]').count() == 1
+    assert _steps(pg)[-1] == 'Adjust Palette Hue'
+    pg.evaluate("() => window.QuickStart.end()")
+    pg.wait_for_function("() => !window.QuickStart.state().running && !window.QuickStart.state().visible")
+    pg.wait_for_timeout(500)
+    assert _pair_of(pg, a) == mine
+    assert _hue(pg) == 0, 'the slider kept the guide\'s offset'
+    assert _swatches(pg)[0] == mine
+    # the slider measures from the person's colors again
+    _mouse_drag(pg, 30)
+    assert _pair_of(pg, a) == _turned(pg, mine, _hue(pg))
+    assert errors == []
+
+
+def test_whats_new_offers_the_step_for_1_7(page):
+    pg, errors = page
+    got = pg.evaluate("() => window.WhatsNew.decide('1.7.0', '1.6.0')")
+    assert got['show'] and got['window']['key'] == '1.7', got
+    assert got['window']['steps'] == ['quickPalettes'], got
+    assert errors == []

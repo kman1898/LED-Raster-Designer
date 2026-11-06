@@ -26,7 +26,7 @@ window.WHATS_NEW_CONTENT = {
             { h: 'Tonal, Bold, Split and Shuffle',
               d: 'The eight are built around the selected screen\'s color and are all equally bright, so white cabinet IDs stay easy to read. Tonal matches the shipped colors, Bold carries more color, Split pairs two nearby hues, and Shuffle builds a new eight from a random hue.' },
             { h: 'A Hue slider',
-              d: 'Drag Hue to turn the eight and the selected screens together, one degree at a time. A drag is one undo step, the arrow keys move one degree, and clicking the degrees puts it back to 0.' },
+              d: 'Drag Hue to turn the eight and the selected screens together, one degree at a time. A drag or a run of arrow keys is one undo step, and clicking the degrees puts it back to 0.' },
             { h: 'Your own eight',
               d: 'Preferences > Palettes keeps eight pairs of your own, and the Pixel Map tab shows them instead of the built set.' }
         ]

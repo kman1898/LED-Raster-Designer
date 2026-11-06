@@ -2835,6 +2835,8 @@
         a.dedupeProjectLayers('tutorial_restore');
         // The restored world's multi numbers are the ones in force again.
         try { if (a._resetMultiBaseline) a._resetMultiBaseline(); } catch (e) {}
+        // The Hue slider is measured from the colors being replaced.
+        try { if (a._qpProjectChanged) a._qpProjectChanged(); } catch (e) {}
         var cur = a.currentLayer ? a.project.layers.find(function (l) { return l.id === a.currentLayer.id; }) : null;
         a.currentLayer = cur || a.project.layers[0] || null;
         a.selectedLayerIds = new Set(a.currentLayer ? [a.currentLayer.id] : []);
@@ -3348,6 +3350,55 @@
                 var w = wall();
                 var n = w ? w.panels.filter(function (p) { return p.hidden; }).length : 0;
                 return n === 1 ? 'One cabinet is blanked; the wall keeps its numbering around it.' : null;
+            }
+        },
+        // Quick Palettes (1.7.0, app-quick-palettes.js): a pair on the wall,
+        // then a press on the Hue slider. A native slider does not move for
+        // the guide's mouse events, so the press plays the slider's own:
+        // the pointer down, the value as the cursor glides, the release.
+        quickPalettes: {
+            since: '1.7.0',
+            target: '#quick-palettes-panel', place: 'right', title: 'Quick Palettes',
+            avoid: ['#quick-palette-swatches', '#quick-palette-hue'],
+            body: 'Eight checkerboard pairs built around the screen&rsquo;s own color. Click one to color the selected screens, and drag Hue to turn the pairs and the screens together. Preferences &gt; Palettes keeps eight of your own.',
+            before: function () {
+                switchView('pixel-map');
+                var a = A(), w = wall();
+                if (w && (!a.currentLayer || a.currentLayer.id !== w.id)) a.selectLayer(w);
+            },
+            act: function (t) {
+                return t.click('#quick-palette-4').then(function () {
+                    return t.hover('#quick-palette-hue');
+                }).then(function (p) {
+                    var s = $('#quick-palette-hue');
+                    var from = parseInt(s.value, 10) || 0;
+                    var to = t.mem.hue = from + 60;
+                    var box = s.getBoundingClientRect();
+                    var dx = (box.width - 10) * 60 / 360;
+                    var moveTo = function (v) {
+                        if (String(v) === s.value) return;
+                        s.value = String(v);
+                        s.dispatchEvent(new Event('input', { bubbles: true }));
+                    };
+                    press(true);
+                    s.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+                    return t.pause(PACE.dragPress).then(function () {
+                        return animateTo(p.x + dx, p.y, function (x) {
+                            moveTo(from + Math.round((x - p.x) / dx * 60));
+                        }, PACE.dragTravel);
+                    }).then(function () {
+                        moveTo(to);
+                        s.dispatchEvent(new Event('change', { bubbles: true }));
+                        s.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
+                        press(false);
+                        return t.pause(PACE.dragRest);
+                    });
+                });
+            },
+            check: function (mem) {
+                var s = $('#quick-palette-hue');
+                return s && Number(s.value) === mem.hue && $('#quick-palette-swatches [aria-pressed="true"]')
+                    ? 'The wall took a pair, and Hue turned it and the eight by ' + mem.hue + '\u00b0.' : null;
             }
         },
         cabinetIdStyle: {
@@ -5960,7 +6011,7 @@
         preferences: {
             target: '#btn-preferences', place: 'bottom', title: 'Preferences',
             avoid: ['#btn-preferences', '#preferences-modal .pm-tabstrip'],
-            body: 'App-wide defaults in eight tabs. The Binder tab holds the sheet size, the logo, the screen order and the title block default.',
+            body: 'App-wide defaults in nine tabs. The Binder tab holds the sheet size, the logo, the screen order and the title block default.',
             before: function () { closeExport(); },
             act: function (t) {
                 return t.click('#btn-preferences').then(function () {
@@ -6483,7 +6534,7 @@
         advanced: {
             title: 'Advanced Guide',
             seed: { name: 'New Show', layer: { panelWatts: 100, powerBreakoutType: 'soca-powercon' } },
-            steps: ['introAdvanced', 'projectName', 'cabinetSize', 'panelName', 'startPage', 'startPanel', 'sameAsLast', 'avgPower', 'gridSize', 'fit', 'blankCabinet',
+            steps: ['introAdvanced', 'projectName', 'cabinetSize', 'panelName', 'startPage', 'startPanel', 'sameAsLast', 'avgPower', 'gridSize', 'fit', 'blankCabinet', 'quickPalettes',
                     'cabinetIdStyle', 'showLook', 'processing', 'flowPattern', 'zPattern', 'addProcessor',
                     'nameProcessor', 'redundancy', 'backupProcessor', 'mixedRedundancy', 'cardNames', 'dropProcessor', 'releasePort', 'attachmentFlag', 'pinPort',
                     'clearPortByMenu', 'clearCard', 'dropProcessorAgain',
