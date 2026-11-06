@@ -19,7 +19,7 @@
  */
 window.WHATS_NEW_CONTENT = {
     '1.7': {
-        title: 'Quick Palettes: your screens colored in one click',
+        title: 'Quick Palettes, and header and footer bars',
         items: [
             { h: 'Quick Palettes',
               d: 'The Pixel Map tab has a new Quick Palettes section under Colors: eight Color 1 and Color 2 checkerboard pairs. Select your screens and click one. In Tonal, Palette 1 is the screen\'s own colors, so there\'s always a way back.' },
@@ -28,7 +28,9 @@ window.WHATS_NEW_CONTENT = {
             { h: 'A Hue slider',
               d: 'Drag Hue to turn the eight and the selected screens together, one degree at a time. A drag or a run of arrow keys is one undo step, and clicking the degrees puts it back to 0.' },
             { h: 'Your own eight',
-              d: 'Preferences > Palettes keeps eight pairs of your own, and the Pixel Map tab shows them instead of the built set.' }
+              d: 'Preferences > Palettes keeps eight pairs of your own, and the Pixel Map tab shows them instead of the built set.' },
+            { h: 'Header and footer bars',
+              d: 'The new Header/Footer tab, right of Power, builds the bars above and below each wall. Light the sizes you stock and Auto fits the fewest bars across it, then drag a bar or the edge between two. The counts go on the pull sheet, and the binder prints a sheet for each screen or group with bars.' }
         ]
     },
     '1.6': {

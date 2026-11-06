@@ -772,3 +772,139 @@ def test_an_older_show_with_none_of_the_fields_reads_empty(pg):
     assert p.evaluate("() => window.app.riggingFitWarning()") == ''
     auto(p, 'A')
     assert lay(p, 'A', 'riggingBars')['riggingBars'] == [2] * 6
+
+
+# ── The exports say so too ───────────────────────────────────────────────
+
+SAVES_JS = """async ([how]) => { const a = window.app; const keep = [a.saveBlobWithPicker, a.saveMultipleFiles];
+    const files = [];
+    a.saveBlobWithPicker = async (b, name) => { const blob = typeof b === 'function' ? await b() : b;
+        files.push({ name, text: name.endsWith('.svg') ? await blob.text() : '' }); };
+    a.saveMultipleFiles = async (list) => { for (const f of list)
+        files.push({ name: f.filename, text: f.filename.endsWith('.svg') ? await f.blob.text() : '' }); };
+    try {
+        if (how === 'binder') { a.openExportModal('binder'); await a.exportBinder('Show'); }
+        else if (how === 'pull') await a.exportPullSheet('Show');
+        else await a.performExport('Show', how, ['rigging'], a.project.canvases.map(c => c.id));
+    } finally { [a.saveBlobWithPicker, a.saveMultipleFiles] = keep;
+        document.getElementById('export-modal').style.display = 'none'; }
+    return files; }"""
+
+
+@pytest.mark.parametrize('how', ['binder', 'pull'])
+def test_the_paper_exports_go_ahead_and_warn(pg, how):
+    p = pg
+    tab(p)
+    auto(p, 'A')
+    resize(p, 'A', 16)
+    clear_toasts(p)
+    files = p.evaluate(SAVES_JS, [how])
+    assert files, 'nothing saved'
+    assert any('Header/Footer bars no longer fit' in t and 'cover 12 panels' in t for t in toasts(p)), toasts(p)
+
+
+def test_paper_exports_say_nothing_when_every_bar_fits(pg):
+    p = pg
+    tab(p)
+    auto(p, 'A')
+    clear_toasts(p)
+    assert p.evaluate(SAVES_JS, ['pull'])
+    assert not any('no longer fit' in t for t in toasts(p)), toasts(p)
+
+
+def test_the_svg_draws_the_mark_and_the_bars_at_their_true_width(pg):
+    p = pg
+    tab(p)
+    p.evaluate("""(id) => { const a = window.app; const l = a.project.layers.find(x => x.id === id);
+        l.riggingBars = [2, 2]; a.updateLayers([l], false); }""", p.ids['A'])
+    p.wait_for_timeout(300)
+    [svg] = p.evaluate(SAVES_JS, ['svg'])
+    assert 'No longer fits' in svg['text'] and 'stroke-dasharray' in svg['text']
+
+
+# ── With the rest of 1.6.0 ───────────────────────────────────────────────
+
+def test_a_hex_field_saves_on_enter_lets_go_and_undoes_in_one_step(pg):
+    p = pg
+    tab(p)
+    sel(p, 'A')
+    n = steps(p)
+    typed(p, '#rigging-color-hex', '#336699')
+    assert lay(p, 'A', 'riggingColor')['riggingColor'].lower() == '#336699'
+    assert p.evaluate("() => document.activeElement.id") != 'rigging-color-hex'
+    assert steps(p) == n + 1
+    p.evaluate("() => window.app.undo()")
+    p.wait_for_timeout(500)
+    assert p.locator('#rigging-color-hex').input_value().lower() == '#000000'
+
+
+def test_a_fill_the_field_guard_refuses_changes_nothing(pg):
+    # A write past the app's setters, the way a browser's filler lands: the
+    # guard puts the field back before the color or the size handler runs.
+    p = pg
+    tab(p)
+    sel(p, 'A')
+    n = steps(p)
+    out = p.evaluate("""() => {
+        const frame = document.createElement('iframe');
+        frame.style.display = 'none';
+        document.body.appendChild(frame);
+        const fill = (el, value) => {
+            Object.getOwnPropertyDescriptor(frame.contentWindow.HTMLInputElement.prototype, 'value').set.call(el, value);
+            el.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+        };
+        document.activeElement && document.activeElement.blur();
+        const hex = document.getElementById('rigging-color-hex');
+        const size = document.getElementById('screen-name-size-rigging');
+        fill(hex, '#ff0000');
+        fill(size, '99');
+        frame.remove();
+        return [hex.value, size.value]; }""")
+    p.wait_for_timeout(200)
+    assert out[0].lower() == '#000000' and out[1] == '30', out
+    assert lay(p, 'A', 'riggingColor', 'screenNameSizeRigging') == {'riggingColor': None, 'screenNameSizeRigging': None}
+    assert steps(p) == n
+
+
+def test_bars_ride_the_wall_in_show_look_and_stay_out_of_it(pg):
+    p = pg
+    tab(p)
+    auto(p, 'A')
+    before = p.evaluate("(id) => window.canvasRenderer._riggingHits.filter(h => h.layerId === id)[0].x0", p.ids['A'])
+    p.evaluate("""(id) => { const a = window.app; const l = a.project.layers.find(x => x.id === id);
+        l.showOffsetX = (l.showOffsetX || 0) + 400; a.updateLayers([l], true, 'Move'); }""", p.ids['A'])
+    p.wait_for_timeout(300)
+    bars = hits(p, 'A')
+    wall = wall_px(p, 'A')
+    assert bars[0]['x0'] != before and abs(bars[0]['x0'] - wall['x']) < 1.5
+    tab(p, 'show-look')
+    drawn = p.evaluate("() => { const r = window.canvasRenderer; r.render(); return r.viewMode; }")
+    assert drawn == 'show-look'
+    assert not p.locator('#rigging-auto-btn').is_visible()
+
+
+def test_auto_on_a_grouped_wall_writes_each_member_and_undoes_as_one(pg):
+    p = pg
+    tab(p)
+    auto(p, 'L', 'R')
+    assert lay(p, 'L', 'riggingBars')['riggingBars'] == [2, 2]
+    assert lay(p, 'R', 'riggingBars')['riggingBars'] == [2, 2]
+    assert total(p) == 4
+    p.evaluate("() => window.app.undo()")
+    p.wait_for_timeout(500)
+    assert not lay(p, 'L', 'riggingBars')['riggingBars']
+    assert not lay(p, 'R', 'riggingBars')['riggingBars']
+
+
+def test_a_mirror_screen_keeps_its_own_bars_and_is_counted(pg):
+    p = pg
+    tab(p)
+    auto(p, 'A')
+    p.evaluate("""(ids) => { const a = window.app; const b = a.project.layers.find(x => x.id === ids.B);
+        b.dataMirrorOf = ids.A; a.updateLayers([b], true, 'Mirror'); }""", p.ids)
+    p.wait_for_timeout(400)
+    assert not lay(p, 'B', 'riggingBars')['riggingBars']     # a data mirror, not a bar mirror
+    auto(p, 'B')
+    assert lay(p, 'B', 'dataMirrorOf')['dataMirrorOf'] == p.ids['A']
+    assert total(p) == 12 and pull_rig(p)[0]['qty'] == 12

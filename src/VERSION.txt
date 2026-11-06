@@ -5,7 +5,9 @@ v1.7.0 - November 6, 2026
 ----------------------------
 
 Quick Palettes color a screen in one click: eight checkerboard pairs built
-around the screen's own color, and a Hue slider that turns them all.
+around the screen's own color, and a Hue slider that turns them all. A new
+Header/Footer tab builds the bars above and below each wall and counts them
+on the pull sheet.
 
 QUICK PALETTES
 
@@ -20,6 +22,23 @@ the colors the screen already has. Thanks to kcikcreative33 for this one.
   degree at a time. A drag or a run of arrow keys is one undo step, and
   clicking the degrees puts it back to 0.
 - NEW: Preferences > Palettes keeps eight pairs of your own instead.
+
+HEADER AND FOOTER BARS
+
+The new Header/Footer tab, right of Power, builds the bars above and below
+each wall. Light the bar sizes you stock and Auto fits the fewest bars
+across the wall. The bars go on the pull sheet and print on a Header/Footer
+binder sheet, and the PNG, SVG, PSD and PDF exports have a Header/Footer
+view. Thanks to kcikcreative33 for this one.
+
+- NEW: Drag a bar to move it, or the edge between two bars to widen one and
+  shorten the other. Each screen keeps its own bar and text colors.
+- NEW: A group's binder sheet follows the tab's Names switch: one sheet for
+  the group, a sheet per screen, or Both to ask at export. A Rear View
+  binder mirrors the sheet.
+- NEW: Resize or turn a wall and its bars stay as they are. The tab, the
+  pull sheet, the binder and the exports say they no longer fit, and Auto
+  fits them again.
 
 v1.6.0 - November 6, 2026
 ----------------------------
