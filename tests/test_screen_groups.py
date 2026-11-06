@@ -804,7 +804,7 @@ def test_a_fresh_project_has_no_name_display_field(client):
 # Cabinet ID, Data, Power and Show Look each keep their own value in
 # groupNameDisplayByView. An old show's single groupNameDisplay starts every
 # tab on it - migrated on load, idempotently, the old field left in place.
-NAME_VIEWS = ('pixel-map', 'cabinet-id', 'data-flow', 'power', 'show-look')
+NAME_VIEWS = ('pixel-map', 'cabinet-id', 'data-flow', 'power', 'show-look', 'rigging')
 
 
 def test_an_old_show_starts_every_tab_on_its_single_value(client):

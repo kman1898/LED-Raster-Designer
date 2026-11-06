@@ -122,6 +122,8 @@ body, #app {
    (.lrd-sec-arrow, app-core.js initSectionCollapse) - the decorative glyph
    would double it */
 .panel-header.lrd-sec-click::after { content:none !important; }
+/* a header that opts out of folding (.no-fold) has no arrow at all */
+.panel-header.no-fold::after { content:none !important; }
 /* inner header text (was blue) → white, NO second bar/chevron (prevents doubling) */
 .panel-header h2, .panel-header h3, .sidebar-section-header h2,
 #left-sidebar h2, #left-sidebar h3, #right-sidebar h2, #right-sidebar h3 {
@@ -182,12 +184,12 @@ input[type="radio"] { accent-color:var(--ps-accent) !important; }
 /* v0.11.0: .text-style-btn (Bold/Italic/Underline) joined the group - it was
    the only toggle left hard-coded blue instead of following the accent. */
 .perspective-btn, .name-display-btn, .binder-group-btn, .mapping-mode-btn, .flow-pattern-btn, .color-mode-btn,
-.pref-flow-pattern-btn, .power-flow-pattern-btn, .text-style-btn {
+.pref-flow-pattern-btn, .power-flow-pattern-btn, .text-style-btn, .rigging-size-btn, .rigging-mode-btn {
   font-family:var(--font-ps) !important; background:linear-gradient(#3e3e3e,#343434) !important;
   color:var(--ps-dim) !important; border:1px solid var(--ps-dark) !important; box-shadow:inset 0 1px 0 #4d4d4d !important; }
 .perspective-btn.active, .name-display-btn.active, .binder-group-btn.active, .mapping-mode-btn.active, .color-mode-btn.active,
 .flow-pattern-btn.active, .pref-flow-pattern-btn.active, .power-flow-pattern-btn.active,
-.text-style-btn.active {
+.text-style-btn.active, .rigging-size-btn.active, .rigging-mode-btn.active {
   background:linear-gradient(var(--ps-accent-hi),var(--ps-accent)) !important; color:var(--ps-on-accent) !important;
   border-color:var(--ps-accent-deep) !important; box-shadow:inset 0 1px 0 rgba(255,255,255,0.2) !important; }
 

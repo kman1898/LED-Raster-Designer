@@ -1358,6 +1358,11 @@ class _PullList {
                 for (const r of scr.rows) {
                     land((r._at && locationKey(r._at)) || base.key, r, layer.id);
                 }
+                // The screen's header bars (Rigging tab): gear, EA, in the
+                // screen's own position, one row per header bar size.
+                if (typeof this.riggingPullRows === 'function') {
+                    for (const r of this.riggingPullRows(layer)) land(base.key, r, layer.id);
+                }
                 // PANELS, EA: one row per type the screen hangs, under its
                 // own position and its name (pullPanelCounts). No screen's
                 // walk made them, so they are on no CABLES THIS SCREEN

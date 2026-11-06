@@ -373,7 +373,7 @@ def test_names_switch_is_per_group_per_tab(page):
             delete app.project.groupNameDisplayByView;
             delete g.nameDisplayByView;
             app.project.groupNameDisplay = 'both';
-            const VIEWS = ['pixel-map', 'cabinet-id', 'data-flow', 'power', 'show-look'];
+            const VIEWS = ['pixel-map', 'cabinet-id', 'data-flow', 'power', 'show-look', 'rigging'];
             app.migrateGroupNameDisplay();
             const migrated = VIEWS.map(v => app.groupNameDisplayFor(v, g));
             const showWide = { ...app.project.groupNameDisplayByView };
@@ -398,15 +398,15 @@ def test_names_switch_is_per_group_per_tab(page):
         }
     }""", ids)
     all_both = {'pixel-map': 'both', 'cabinet-id': 'both', 'data-flow': 'both',
-                'power': 'both', 'show-look': 'both'}
-    assert out['migrated'] == ['both'] * 5, out
+                'power': 'both', 'show-look': 'both', 'rigging': 'both'}
+    assert out['migrated'] == ['both'] * 6, out
     assert out['showWide'] == all_both, out
-    assert out['after'] == ['both', 'both', 'both', 'screens', 'both'], out
+    assert out['after'] == ['both', 'both', 'both', 'screens', 'both', 'both'], out
     assert out['stored'] == {**all_both, 'power': 'screens'}, out
     assert out['showWideAfter'] == all_both, out
     assert out['entry'] == {'steps': 1, 'action': 'Change Name Display'}, out
     assert out['active'] == ['cabinet-id:both', 'data-flow:both', 'pixel-map:both',
-                             'power:screens', 'show-look:both'], out
+                             'power:screens', 'rigging:both', 'show-look:both'], out
     assert out['modes'] == {**all_both, 'power': 'screens'}, out
     assert not errors, errors
 

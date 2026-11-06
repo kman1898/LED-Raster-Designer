@@ -127,6 +127,7 @@ class _Preferences {
             binderHardware: true,
             binderWiring: true,
             binderFiber: true,
+            binderRigging: true,
             binderDesigner: '',
             binderPmName: '',
             binderPmPhone: '',
@@ -849,6 +850,7 @@ class _Preferences {
         setChecked('pref-binder-hardware', prefs.binderHardware !== false);
         setChecked('pref-binder-wiring', prefs.binderWiring !== false);
         setChecked('pref-binder-fiber', prefs.binderFiber !== false);
+        setChecked('pref-binder-rigging', prefs.binderRigging !== false);
         setChecked('pref-binder-title-block', prefs.binderTitleBlock !== false);
         setVal('pref-binder-designer', prefs.binderDesigner);
         setVal('pref-binder-pm-name', prefs.binderPmName);
@@ -1022,6 +1024,7 @@ class _Preferences {
             binderHardware: readBool('pref-binder-hardware', defaults.binderHardware),
             binderWiring: readBool('pref-binder-wiring', defaults.binderWiring),
             binderFiber: readBool('pref-binder-fiber', defaults.binderFiber),
+            binderRigging: readBool('pref-binder-rigging', defaults.binderRigging),
             binderTitleBlock: readBool('pref-binder-title-block', defaults.binderTitleBlock),
             binderDesigner: readText('pref-binder-designer', stored.binderDesigner != null ? stored.binderDesigner : defaults.binderDesigner),
             binderPmName: readText('pref-binder-pm-name', stored.binderPmName != null ? stored.binderPmName : defaults.binderPmName),

@@ -5,7 +5,7 @@ import { evaluateMathExpression, sendClientLog, setupColorPickerWithHex, isTypin
 // The tabs the NAMES switch keeps a value for, by the canvas's view mode
 // (setupNameDisplayToggles; owner, 2026-10-01: "Yes, per tab"; per group
 // since 2026-11-04), and the values it takes.
-export const NAME_DISPLAY_VIEWS = ['pixel-map', 'cabinet-id', 'data-flow', 'power', 'show-look'];
+export const NAME_DISPLAY_VIEWS = ['pixel-map', 'cabinet-id', 'data-flow', 'power', 'show-look', 'rigging'];
 export const NAME_DISPLAY_VALUES = ['screens', 'group', 'both'];
 
 export class LEDRasterApp {
@@ -305,6 +305,7 @@ export class LEDRasterApp {
     _wireSectionCollapse(scope) {
         scope.querySelectorAll('.panel-header, .lrd-sec-head').forEach(head => {
             if (head.dataset.lrdSecWired) return;
+            if (head.classList.contains('no-fold')) return;   // sits open in the page (the Rigging panel)
             const container = head.parentElement;
             if (!container) return;
             const generated = head.classList.contains('lrd-sec-head');
@@ -2139,6 +2140,7 @@ export class LEDRasterApp {
         // body registered its listeners in this order.
         this._wireProjectChrome();
         this._wireViewTabs();
+        this._wireRigging();
         this._wireLayerToolbar();
         this._wireCanvasControls();
         this._wireScreenInfo();
