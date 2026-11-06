@@ -130,6 +130,38 @@ def test_bar_name_is_the_pull_list_type():
     assert _node("R.barName(2, 'footer')") == 'Footer Bar - Double'
 
 
+@needs_node
+@pytest.mark.parametrize('rotation, panels', [(0, 12), (90, 6), (180, 12), (270, 6), (-90, 6), (450, 6), (None, 12)])
+def test_the_wall_is_its_rows_wide_once_turned_a_quarter(rotation, panels):
+    assert _node(f"R.wallPanels(12, 6, {json.dumps(rotation)})") == panels
+
+
+@needs_node
+@pytest.mark.parametrize('bars, width, fits', [
+    ([], 16, True),             # no bars are no claim on the wall
+    ([2, 2, 2], 6, True),
+    ([2, 2, 2], 8, False),      # short
+    ([2, 2, 2], 4, False),      # long
+])
+def test_bars_fit_only_when_they_add_up_to_the_wall(bars, width, fits):
+    assert _node(f"R.barsFit({json.dumps(bars)}, {width})") is fits
+
+
+def test_a_row_that_no_longer_fits_carries_its_note_into_the_workbook():
+    openpyxl = pytest.importorskip('openpyxl')
+    import io
+    import pull_sheet
+    note = 'Header bars cover 12 panels, the wall is 16. Press Auto on the Header/Footer tab.'
+    pull_list = {'positions': [{'name': 'Wall', 'rows': [
+        {'type': 'Header Bar - Double', 'length': 'EA', 'qty': 6, 'label': 'Wall (bars no longer fit)',
+         'notes': note, 'side': 'rigging'},
+    ]}]}
+    xlsx, _warnings = pull_sheet.build_workbook(pull_list, {'project_name': 'Show'})
+    wb = openpyxl.load_workbook(io.BytesIO(xlsx))
+    seen = {str(c.value) for ws in wb.worksheets for row in ws.iter_rows() for c in row if c.value is not None}
+    assert 'Wall (bars no longer fit)' in seen and note in seen
+
+
 def test_header_bar_rows_reach_the_pull_sheet_workbook():
     """The client's pull list carries one EA row per header bar size; the
     workbook writes it and adds the type to the GEAR LIST like any new gear."""

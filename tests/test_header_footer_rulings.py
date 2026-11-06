@@ -42,6 +42,7 @@ SEED_JS = """async () => {
         body: body === undefined ? undefined : JSON.stringify(body)}).then(r => r.json());
     const proj = await j('GET', '/api/project');
     proj.layers = []; proj.groups = []; proj.processors = []; proj.distros = [];
+    proj.canvases = proj.canvases.slice(0, 1); proj.active_canvas_id = proj.canvases[0].id;
     delete proj.port_assignments; delete proj.pullSheet; delete proj.pullSheetEdits;
     delete proj.binder; delete proj.groupNameDisplay; delete proj.groupNameDisplayByView;
     await j('PUT', '/api/project', proj);
