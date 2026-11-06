@@ -18,6 +18,19 @@
  *   h: short heading, d: one or two plain sentences. No markup, no emoji.
  */
 window.WHATS_NEW_CONTENT = {
+    '1.7': {
+        title: 'Quick Palettes: your screens colored in one click',
+        items: [
+            { h: 'Quick Palettes',
+              d: 'The Pixel Map tab has a new Quick Palettes section under Colors: eight Color 1 and Color 2 checkerboard pairs. Select your screens and click one. In Tonal, Palette 1 is the screen\'s own colors, so there\'s always a way back.' },
+            { h: 'Tonal, Bold, Split and Shuffle',
+              d: 'The eight are built around the selected screen\'s color and are all equally bright, so white cabinet IDs stay easy to read. Tonal matches the shipped colors, Bold carries more color, Split pairs two nearby hues, and Shuffle builds a new eight from a random hue.' },
+            { h: 'A Hue slider',
+              d: 'Drag Hue to turn the eight and the selected screens together, one degree at a time. A drag is one undo step, the arrow keys move one degree, and clicking the degrees puts it back to 0.' },
+            { h: 'Your own eight',
+              d: 'Preferences > Palettes keeps eight pairs of your own, and the Pixel Map tab shows them instead of the built set.' }
+        ]
+    },
     '1.6': {
         title: 'A start page, cables named by their connector, US circuits at 80%, a power in for every distro, your panels on the pull sheet, mixed redundancy, mirror screens, a Fiber page and Z flow patterns',
         items: [

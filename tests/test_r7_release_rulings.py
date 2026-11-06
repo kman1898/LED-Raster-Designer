@@ -28,10 +28,13 @@ def _read(*parts):
         return f.read()
 
 
-def _top_entry():
+def _entry_160():
+    """These rulings are about what 1.6.0 shipped, so they read its entry
+    by version, wherever it sits in the file."""
     text = _read(VERSION_TXT)
     starts = [m.start() for m in re.finditer(r'^v\d[\w.]* - ', text, re.M)]
-    return text[starts[0]:starts[1]]
+    at = next(i for i, s in enumerate(starts) if text.startswith('v1.6.0 - ', s))
+    return text[starts[at]:starts[at + 1]]
 
 
 def _flat(text):
@@ -39,7 +42,7 @@ def _flat(text):
 
 
 def _section(start, end):
-    top = _top_entry()
+    top = _entry_160()
     return _flat(top[top.index(start):top.index(end) if end else len(top)])
 
 
@@ -73,14 +76,14 @@ def test_a_half_locked_group_still_hides_and_shows():
 
 
 def test_the_new_lines_change_no_counts():
-    top = _top_entry()
+    top = _entry_160()
     older = top[top.index('OPENING AN OLDER SHOW'):top.index('\nFIXES\n')]
     assert len(re.findall(r'^- ', older, re.M)) == 20   # the short notes share near-duplicates on a line
     assert 'short tags' not in older and 'more circuits than it takes' not in older
 
 
 def test_the_new_lines_read_plainly():
-    top = _top_entry()
+    top = _entry_160()
     body = top[top.index('\n', top.index('\n') + 1):]
     assert '—' not in body and '–' not in body and ' - ' not in body
     assert 'tail' not in body.lower()

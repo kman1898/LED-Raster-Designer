@@ -31,10 +31,13 @@ def _read(*parts):
         return f.read()
 
 
-def _top_entry():
+def _entry_160():
+    """These rulings are about what 1.6.0 shipped, so they read its entry
+    by version, wherever it sits in the file."""
     text = _read(VERSION_TXT)
     starts = [m.start() for m in re.finditer(r'^v\d[\w.]* - ', text, re.M)]
-    return text[starts[0]:starts[1]]
+    at = next(i for i, s in enumerate(starts) if text.startswith('v1.6.0 - ', s))
+    return text[starts[at]:starts[at + 1]]
 
 
 def _flat(text):
@@ -42,12 +45,12 @@ def _flat(text):
 
 
 def _older():
-    top = _top_entry()
+    top = _entry_160()
     return top[top.index('OPENING AN OLDER SHOW'):top.index('\nFIXES\n')]
 
 
 def _fixes():
-    top = _top_entry()
+    top = _entry_160()
     return _flat(top[top.index('\nFIXES\n'):])
 
 
@@ -91,7 +94,7 @@ def test_hidden_screens_keep_their_outputs_and_leave_the_loads():
 
 
 def test_hiding_joins_the_locked_screen_refusal():
-    flat = _flat(_top_entry())
+    flat = _flat(_entry_160())
     assert 'A change that would repack a locked screen is refused, and the message names the screen.' in flat
     # a half-locked group hides and shows only where no locked circuit changes
     assert ('- CHANGE (IMPORTANT): A group saved half locked in an older show now counts as '
@@ -102,7 +105,7 @@ def test_hiding_joins_the_locked_screen_refusal():
 
 
 def test_the_new_lines_read_plainly():
-    top = _top_entry()
+    top = _entry_160()
     body = top[top.index('\n', top.index('\n') + 1):]
     assert '—' not in body and '–' not in body and ' - ' not in body
     assert 'tail' not in body.lower()

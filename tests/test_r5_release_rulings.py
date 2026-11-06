@@ -30,10 +30,13 @@ def _read(*parts):
         return f.read()
 
 
-def _top_entry():
+def _entry_160():
+    """These rulings are about what 1.6.0 shipped, so they read its entry
+    by version, wherever it sits in the file."""
     text = _read(VERSION_TXT)
     starts = [m.start() for m in re.finditer(r'^v\d[\w.]* - ', text, re.M)]
-    return text[starts[0]:starts[1]]
+    at = next(i for i, s in enumerate(starts) if text.startswith('v1.6.0 - ', s))
+    return text[starts[at]:starts[at + 1]]
 
 
 def _flat(text):
@@ -43,7 +46,7 @@ def _flat(text):
 # ── the v1.6.0 notes (written as 1.5.4) ──────────────────────────────────
 
 def test_the_notes_say_what_160_does():
-    top = _top_entry()
+    top = _entry_160()
     assert top.startswith('v1.6.0 - ')
     flat = _flat(top)
     # the fix to code new in this release is gone; the refusal is one sentence of
@@ -62,7 +65,7 @@ def test_the_notes_say_what_160_does():
 
 
 def test_count_changes_are_listed_under_opening_an_older_show():
-    top = _top_entry()
+    top = _entry_160()
     older = top[top.index('OPENING AN OLDER SHOW'):top.index('\nFIXES\n')]
     flat = _flat(older)
     for line in ('- CHANGE (IMPORTANT): The pull sheet has a row for each named panel type on each screen '

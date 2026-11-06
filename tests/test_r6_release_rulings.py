@@ -28,10 +28,13 @@ def _read(*parts):
         return f.read()
 
 
-def _top_entry():
+def _entry_160():
+    """These rulings are about what 1.6.0 shipped, so they read its entry
+    by version, wherever it sits in the file."""
     text = _read(VERSION_TXT)
     starts = [m.start() for m in re.finditer(r'^v\d[\w.]* - ', text, re.M)]
-    return text[starts[0]:starts[1]]
+    at = next(i for i, s in enumerate(starts) if text.startswith('v1.6.0 - ', s))
+    return text[starts[at]:starts[at + 1]]
 
 
 def _flat(text):
@@ -39,7 +42,7 @@ def _flat(text):
 
 
 def _older():
-    top = _top_entry()
+    top = _entry_160()
     return top[top.index('OPENING AN OLDER SHOW'):top.index('\nFIXES\n')]
 
 
@@ -48,18 +51,18 @@ def _bullets(section):
 
 
 def test_the_date():
-    assert _top_entry().startswith('v1.6.0 - November 6, 2026\n')
+    assert _entry_160().startswith('v1.6.0 - November 6, 2026\n')
 
 
 def test_the_refusal_lists_only_what_the_app_refuses():
-    flat = _flat(_top_entry())
+    flat = _flat(_entry_160())
     assert 'pasting power settings' not in flat and 'paste' not in flat.lower()
     # the short notes say the refusal once, without the list of gestures
     assert 'A change that would repack a locked screen is refused, and the message names the screen.' in flat
 
 
 def test_the_feeder_example_is_the_fed_from_line():
-    top = _top_entry()
+    top = _entry_160()
     feeders = _flat(top[top.index('\nA POWER IN FOR EVERY DISTRO\n'):top.index('\nA START PAGE, THEN A PANEL\n')])
     assert 'The binder says what each distro is powered from' in feeders
     assert "Power in: 50'" not in feeders
@@ -115,7 +118,7 @@ def test_the_graphite_figures_match_the_library():
 
 
 def test_the_notes_read_plainly():
-    top = _top_entry()
+    top = _entry_160()
     body = top[top.index('\n', top.index('\n') + 1):]
     assert '—' not in body and '–' not in body
     assert ' - ' not in body
