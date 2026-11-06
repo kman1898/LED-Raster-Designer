@@ -620,10 +620,15 @@ def _toasts(pg):
 
 
 def _lock(pg, *ids):
-    pg.evaluate("""(ids) => {
+    """Lock the way the app does: the step is taken as the PUT goes out, so
+    the server's echo lands on the screens after it, as it does in a show."""
+    pg.evaluate("""async (ids) => {
         const app = window.app;
-        ids.forEach(id => { app.project.layers.find(l => l.id === id).locked = true; });
+        const layers = ids.map(id => app.project.layers.find(l => l.id === id));
+        layers.forEach(l => { l.locked = true; });
+        app.updateLayers(layers);
         app.resetHistory('Palette Seed');
+        await Promise.all([...(app._inflightLayerPuts || [])]);
     }""", list(ids))
     pg.wait_for_timeout(200)
 
@@ -676,6 +681,43 @@ def test_a_drag_on_a_locked_screen_changes_nothing_and_the_slider_goes_back(page
     assert _steps(pg)[-1] == 'Adjust Palette Hue'
     _undo(pg)
     assert _pair_of(pg, a) == SHIPPED and _hue(pg) == 0
+    assert errors == []
+
+
+def test_a_locked_drag_leaves_no_step_on_a_screen_as_it_was_loaded(page):
+    """The first PUT of a screen as the server loaded it comes back with
+    fields tidied, so a refused drag that still sent one read as a change
+    in history: an Adjust Palette Hue step with nothing in it. A refused
+    drag sends nothing."""
+    pg, errors = page
+    _two_screens(pg)
+    # a screen the server made and no edit has PUT since
+    fresh = pg.evaluate("""async () => {
+        const res = await fetch('/api/layer/add', {method: 'POST',
+            headers: {'Content-Type': 'application/json'}, body: '{}'});
+        return (await res.json()).id;
+    }""")
+    pg.reload(wait_until='domcontentloaded')
+    pg.wait_for_function("() => window.app && window.app.project && window.app.project.layers.length > 0")
+    pg.wait_for_timeout(800)
+    try:
+        _select(pg, fresh)
+        pair = _pair_of(pg, fresh)
+        pg.evaluate("() => window.app.setLockOnSelected(true)")
+        pg.wait_for_timeout(300)
+        before = _steps(pg)
+        assert before[-1] == 'Lock Layers'
+        _mouse_drag(pg, 158)
+        pg.wait_for_timeout(700)            # past the 400 ms the step used to wait
+        assert _steps(pg) == before, 'an empty undo step'
+        assert _hue(pg) == 0 and _pair_of(pg, fresh) == pair
+    finally:
+        _unlock_all(pg)
+        pg.evaluate("""async (id) => {
+            await fetch(`/api/layer/${id}`, {method: 'DELETE'});
+            await window.app.loadProject();
+        }""", fresh)
+        pg.wait_for_timeout(500)
     assert errors == []
 
 
