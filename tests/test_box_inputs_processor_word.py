@@ -386,10 +386,11 @@ FIBER_SEED_JS = """async () => {
     return {sx: sx.id, h9: h9.id, jr: jr.id, xds, big, one, tacA};
 }"""
 
-PAGE_JS = """([kind, title, wiring]) => {
+PAGE_JS = """([kind, title, wiring, view]) => {
     const app = window.app;
     const opts = { sheet: 'tabloid', palette: 'colour', sides: {power: false, data: true},
-                   scope: {kind: 'show'}, cover: false, pull: false, hardware: true, wiring: !!wiring };
+                   scope: {kind: 'show'}, cover: false, pull: false, hardware: true, wiring: !!wiring,
+                   ...(view ? {view} : {}) };
     const plan = app.planBinder(opts);
     const i = plan.findIndex(p => p.kind === kind && (!title || p.title.includes(title)));
     if (i < 0) return null;
@@ -510,6 +511,16 @@ def _rects_meet(a, b, pad=0.0):
             and min(a['y'] + a['h'], b['y'] + b['h']) - max(a['y'], b['y']) > -pad)
 
 
+def _no_wider_than_it_needs(block, cap, cap_w, s):
+    """The box ends PAD past the furthest of its last socket's pitch, its
+    caption and its line of inputs: no empty paper past them."""
+    groups = block['inputs']
+    sk = block['sockets']
+    sockets = sk[-1]['x'] + (sk[1]['x'] - sk[0]['x']) / 2
+    needs = max(sockets, cap['x'] + cap_w, *[g['x'] + g['w'] for g in groups])
+    assert abs(block['x'] + block['w'] - PAD * s - needs) < 1.5, (block['w'], needs, cap_w)
+
+
 def _clear_of_sockets_and_runs(half, block):
     """No input outline touches a socket circle or overlaps another, all
     stay inside the box, and no run passes through one."""
@@ -531,17 +542,19 @@ def _clear_of_sockets_and_runs(half, block):
                 assert not _rects_meet(seg, g), ('a run through an input outline', r['from'], g)
 
 
-def test_the_data_wiring_inputs_sit_beside_the_caption_on_its_row(fiber):
-    """WALL's DATA WIRING sheet (owner, 2026-10-18: "they dont need to be
-    stacked. they can be side by side and on the same row as the name of
-    the box"): inside XD A's block, after its caption and on the caption's
-    own baseline, "X1" with its cable (owner, 2026-11-05: "we need to mention
-    which fiber is going on the wiring page") and 2 Orange and 1 Blue
-    (box-end order, as FIBER CONNECTIONS' AT THE BREAKOUT reads), swatched,
-    then "X2", the cable by its name, and 4 Brown and 3 Green beside it -
-    each group outlined, at the caption's size, clear of every socket and
-    every run. The box is two rows again -
-    sockets, then caption and inputs - every box on the sheet one height."""
+def test_the_data_wiring_inputs_sit_on_their_line_under_the_caption(fiber):
+    """WALL's DATA WIRING sheet (owner, 2026-11-05, of the boxes with their
+    inputs beside the name and those with them under it: "the right two are
+    smaller and the left two are bigger. i like the smaller look"; this
+    replaces 2026-10-18's "on the same row as the name of the box"): inside
+    XD A's block, on the line directly under its caption and from its left
+    edge, "X1" with its cable ("we need to mention which fiber is going on
+    the wiring page") and 2 Orange and 1 Blue (box-end order, as FIBER
+    CONNECTIONS' AT THE BREAKOUT reads), swatched, then "X2", the cable by
+    its name, and 4 Brown and 3 Green beside it - each group outlined, at the
+    caption's size, clear of every socket and every run. Sockets, caption,
+    inputs: every box on the sheet one height, and none wider than those
+    three need."""
     pg, ids, errors = fiber
     sheet = pg.evaluate(PAGE_JS, ['wiring', 'WALL', True])
     assert sheet and sheet['wiring'], 'no WALL data wiring sheet'
@@ -558,24 +571,23 @@ def test_the_data_wiring_inputs_sit_beside_the_caption_on_its_row(fiber):
         || document.createElement('canvas').getContext('2d');
         c.font = app._bFont(size, 700); return c.measureText(text).width; }""", [cap['text'], cap['size']])
     for t in inside[i:i + 8]:
-        # the caption's own row - the same baseline - and to its right
-        assert abs(t['y'] - cap['y']) < 0.6, ('an input off the caption row', t, cap)
-        assert t['x'] > cap['x'] + cap_w, ('an input over the caption', t, cap, cap_w)
+        # the one line directly under the caption
+        assert abs(t['y'] - (cap['y'] + IN_LINE * s)) < 0.6, ('not on the line under the caption', t, cap)
         assert t['size'] >= cap['size'] - 0.01, (t, cap)
     # X1's group, then X2's, left to right
     x1, x2 = inside[i], inside[i + 4]
     assert x1['x'] < inside[i + 1]['x'] < inside[i + 3]['x'] < x2['x'], (x1, x2)
     groups = block['inputs']
-    assert [g['head'] for g in groups] == ['X1', 'X2'] and all(g['line'] == 0 for g in groups), groups
-    for g in groups:
-        # the outline is the caption's band: round the baseline, past the
-        # caption's right end
-        assert g['y'] < cap['y'] - cap['size'] * 0.7 and cap['y'] < g['y'] + g['h'], (g, cap)
-        assert g['x'] > cap['x'] + cap_w, (g, cap)
+    assert [g['head'] for g in groups] == ['X1', 'X2'] and all(g['line'] == 1 for g in groups), groups
+    # from the caption's left edge, under its baseline
+    assert abs(groups[0]['x'] - (block['x'] + PAD * s)) < 0.6, (groups[0], block)
+    assert all(g['y'] > cap['y'] for g in groups), (groups, cap)
     assert groups[0]['x'] + groups[0]['w'] < groups[1]['x'], groups
     _clear_of_sockets_and_runs(half, block)
-    # two rows: the box no taller than a box with no inputs, all alike
-    assert {round(b['h'], 2) for b in half['blocks']} == {round(BOX_H * s, 2)}, half['blocks']
+    # one line added, to every box alike
+    assert {round(b['h'], 2) for b in half['blocks']} == {round((BOX_H + IN_LINE) * s, 2)}, half['blocks']
+    # and no wider than the sockets, the caption and that line need
+    _no_wider_than_it_needs(block, cap, cap_w, s)
     sock = max(sk['y'] + sk['r'] for sk in block['sockets'])
     fills = {str(r.get('fill') or '').lower() for r in sheet['rects']
              if block['x'] <= r['x'] <= block['x'] + block['w'] and sock < r['y'] < block['y'] + block['h']}
@@ -583,12 +595,10 @@ def test_the_data_wiring_inputs_sit_beside_the_caption_on_its_row(fiber):
     assert errors == []
 
 
-def test_a_narrow_box_wraps_its_inputs_under_the_caption(fiber):
-    """Where the caption's row cannot hold the caption and every group -
-    a long box name, and no room on the sheet's bottom row to widen the
-    box - the groups wrap, all of them, to a line under the caption, from
-    its left edge, still side by side and outlined; the caption is not
-    shrunk; every box on the sheet grows by that one line, alike."""
+def test_a_long_box_name_keeps_its_inputs_under_the_caption(fiber):
+    """A long box name changes nothing: the groups stand on the line under
+    the caption, from its left edge, still side by side and outlined; the
+    caption is not shrunk; every box on the sheet has that one line, alike."""
     pg, ids, errors = fiber
     sx, box = ids['sx'], ids['xds'][0]
     long_name = 'XD A UPSTAGE LEFT TRUSS POSITION FOUR OVER THE DECK'
@@ -628,10 +638,10 @@ def test_a_narrow_box_wraps_its_inputs_under_the_caption(fiber):
     assert errors == []
 
 
-def test_a_box_without_room_on_its_row_keeps_its_inputs_on_one_line(fiber):
-    """XD A keeps its short caption, and XD B's long one takes the row's room:
-    XD A's groups go under its caption, the cable names and all, still side
-    by side on ONE line, the box grown by that line and no more."""
+def test_a_long_name_next_door_leaves_a_box_as_it_is(fiber):
+    """XD A keeps its short caption beside XD B's long one: its groups stay
+    under its caption, the cable names and all, side by side on ONE line, the
+    box the same height as its neighbour."""
     pg, ids, errors = fiber
     sx, box = ids['sx'], ids['xds'][1]
     put = """async ([sx, box, name]) => {
@@ -642,7 +652,7 @@ def test_a_box_without_room_on_its_row_keeps_its_inputs_on_one_line(fiber):
     }"""
     before = pg.evaluate("""([sx, box]) => (window.app.project.processors.find(p => p.id === sx)
         .slots[0].card.cvts.find(b => b.id === box).name) || ''""", [sx, box])
-    pg.evaluate(put, [sx, box, 'XD B UPSTAGE LEFT TRUSS POSITION FOUR OVER THE DECK AND ON THE PIPE'])
+    pg.evaluate(put, [sx, box, 'XD B FRONT TRUSS POSITION FOUR OVER THE DECK AND ON THE PIPE'])
     try:
         sheet = pg.evaluate(PAGE_JS, ['wiring', 'WALL', True])
         half, block, inside = _wiring_block(sheet, 'XD A')
@@ -661,6 +671,46 @@ def test_a_box_without_room_on_its_row_keeps_its_inputs_on_one_line(fiber):
         assert {round(b['h'], 2) for b in half['blocks']} == {round((BOX_H + IN_LINE) * s, 2)}, half['blocks']
     finally:
         pg.evaluate(put, [sx, box, before])
+    assert errors == []
+
+
+def test_the_inputs_stand_under_the_caption_on_a_rear_view(fiber):
+    """The Rear view draws the same boxes: every input on its line under the
+    caption, every box one height."""
+    pg, _ids, errors = fiber
+    sheet = pg.evaluate(PAGE_JS, ['wiring', 'WALL', True, 'rear'])
+    half = sheet['wiring']['halves'][0]
+    s = half['scale']
+    boxes = [b for b in half['blocks'] if b.get('inputs')]
+    assert boxes, half['blocks']
+    assert all(g['line'] == 1 for b in boxes for g in b['inputs']), boxes
+    assert {round(b['h'], 2) for b in half['blocks']} == {round((BOX_H + IN_LINE) * s, 2)}, half['blocks']
+    assert errors == []
+
+
+def test_a_very_long_cable_name_takes_a_line_per_group(fiber):
+    """Two groups too long for a box that still shares a row: each takes a
+    line of its own under the caption, none cut, every box on the sheet grown
+    by those lines alike."""
+    pg, ids, errors = fiber
+    put = """async ([id, name]) => {
+        await fetch(`/api/fiber-cables/${id}`, {method: 'PUT',
+            headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name})});
+        await window.app.refreshProcessors();
+        await window.app.refreshPortAssignment();
+    }"""
+    pg.evaluate(put, [ids['tacA'], 'TAC A FRONT TRUSS TO THE BACK OF THE ROOM'])
+    try:
+        sheet = pg.evaluate(PAGE_JS, ['wiring', 'WALL', True])
+        half, block, _inside = _wiring_block(sheet, 'XD A')
+        s = half['scale']
+        groups = block['inputs']
+        assert [g['line'] for g in groups] == [1, 2], groups
+        assert all(abs(g['x'] - (block['x'] + PAD * s)) < 0.6 for g in groups), (groups, block)
+        _clear_of_sockets_and_runs(half, block)
+        assert {round(b['h'], 2) for b in half['blocks']} == {round((BOX_H + 2 * IN_LINE) * s, 2)}, half['blocks']
+    finally:
+        pg.evaluate(put, [ids['tacA'], 'TAC A'])
     assert errors == []
 
 
@@ -696,14 +746,14 @@ def test_the_data_wiring_inputs_print_numbers_where_the_cable_reads_in_numbers(f
     assert errors == []
 
 
-def test_a_box_over_the_wall_keeps_its_inputs_on_the_caption_row(fiber):
+def test_a_box_over_the_wall_keeps_its_inputs_under_the_caption(fiber):
     """WALL with only its first two ports placed: both start on the wall's
     upper rows, so XD A and XD B stand OVER the wall (2026-10-18, "put the
     breakouts up top"). A box there is the same box turned over - its runs
     come up into its sockets, so the sockets are at its foot and the caption
     at its head - and the inputs stay where they were asked for: side by
-    side on the caption's own row, after the caption, outlined and
-    swatched, clear of every socket and every run."""
+    side on the line under the caption, between it and the sockets, outlined
+    and swatched, clear of every socket and every run."""
     pg, ids, errors = fiber
     layer = pg.evaluate("() => String(window.app.project.layers[0].id)")
     move = """async ([layer, index, card]) => {
@@ -732,14 +782,13 @@ def test_a_box_over_the_wall_keeps_its_inputs_on_the_caption_row(fiber):
         i = words.index('X1')
         assert words[i:i + 8] == ROW, words
         for t in inside[i:i + 8]:
-            assert abs(t['y'] - cap['y']) < 0.6, ('an input off the caption row', t, cap)
-            assert t['x'] > cap['x'], (t, cap)
+            assert abs(t['y'] - (cap['y'] + IN_LINE * s)) < 0.6, ('not on the line under the caption', t, cap)
         groups = block['inputs']
-        assert [g['head'] for g in groups] == ['X1', 'X2'] and all(g['line'] == 0 for g in groups), groups
+        assert [g['head'] for g in groups] == ['X1', 'X2'] and all(g['line'] == 1 for g in groups), groups
         for g in groups:
             assert g['y'] + g['h'] < top_of_sockets, ('an input outline down among the sockets', g)
         _clear_of_sockets_and_runs(half, block)
-        assert {round(b['h'], 2) for b in half['blocks']} == {round(BOX_H * s, 2)}, half['blocks']
+        assert {round(b['h'], 2) for b in half['blocks']} == {round((BOX_H + IN_LINE) * s, 2)}, half['blocks']
         fills = {str(r.get('fill') or '').lower() for r in sheet['rects']
                  if block['x'] <= r['x'] <= block['x'] + block['w'] and block['y'] < r['y'] < top_of_sockets}
         assert {'#f28020', '#1f5fa8'} <= fills, fills

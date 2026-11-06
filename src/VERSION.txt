@@ -1073,7 +1073,9 @@ FIXES
   and ports they belong to. On a group whose screens sit in a different
   place on the processor, they landed beside their labels or off the sheet.
 - FIX: On a Data Wiring sheet, each breakout box names the fiber on each
-  input, like TAC A (TAC 12 SM), before its strand colors and numbers.
+  input, like TAC A (TAC 12 SM), before its strand colors and numbers. The
+  inputs sit on their own line under the box's name, so every box is drawn
+  the same way and no wider than it needs to be.
 - FIX: A screen with no panel name is left off the panel rows on the pull
   sheet and the binder's pull pages. It used to print a size, or a model
   nobody chose that happened to match the size, pixels and weight.

@@ -180,17 +180,18 @@ const TITLE_DY = 50, NOTE_DY = 13, SOCKET_DY = 26, TOP_TITLE_DY = 18;
 const CAPTION_SZ = 10, NUMBER_SZ = 8, NOTE_SZ = 7.5, NOTE_PAD = 8;
 // A breakout box's INPUTS on the data side (owner, 2026-10-17: "X1 and X2
 // can go under the numbers in wiring diagram"; 2026-10-18: "they dont need
-// to be stacked. they can be side by side and on the same row as the name
-// of the box"): each input a group - "X1" then its strands, each strand's
-// swatch where the cable reads in colours - in the thin outline the
-// Breakout boxes table groups an input in, set at the caption's size, the
-// groups side by side on the caption's own row, to its right. Where that
-// row cannot hold the caption and every group, the groups wrap to lines
-// under the caption (_bwPlanHalf says when, and the box grows by those
-// lines - every box on the sheet alike, so a row stays one height). Its
-// type, the pitch of a wrapped line, the swatch, the outline's pad, the
-// gap between two groups and the gap after the caption.
-const IN_SZ = CAPTION_SZ, IN_LINE = 16, IN_SW = 9, IN_PAD = 3, IN_GAP = 6, IN_CAP_GAP = 12;
+// to be stacked"; 2026-11-05, of the row beside the name: "the right two
+// are smaller and the left two are bigger. i like the smaller look"): each
+// input a group - "X1", the cable it is on, then its strands, each
+// strand's swatch where the cable reads in colours - in the thin outline
+// the Breakout boxes table groups an input in, set at the caption's size,
+// the groups side by side on their own line directly under the caption,
+// never beside it, so no box is wider than its sockets, its caption and
+// that line need. Names too long for one line take a line per group
+// (_bwPlanHalf says when), and the box grows by its lines - every box on
+// the sheet alike, so a row stays one height. Its type, the pitch of a
+// line, the swatch, the outline's pad and the gap between two groups.
+const IN_SZ = CAPTION_SZ, IN_LINE = 16, IN_SW = 9, IN_PAD = 3, IN_GAP = 6;
 // The runs: their pen, the white casing under them, the rims.
 const RUN_W = 1.4, CASE_EXTRA = 3.2;
 const BOX_RIM = 1.8, SOCKET_RIM = 1.3, DISC_RIM = 1.6;
@@ -655,40 +656,31 @@ class _BinderWiring {
         // the box's widest input name, so X1's and X2's strands start alike)
         for (const d of devices) d.inputs = isData && d.box ? this._bwBoxInputs(d.box) : null;
         const inHead = (d) => Math.max(0, ...(d.inputs || []).map(g => measure(g.head, IN_SZ, 700))) + 5;
-        // and its cable after it, as wide as its own name: the row beside
-        // the caption is what holds this, and a second input on a cable
-        // says only "TAC A"
+        // and its cable after it, as wide as its own name: a second input
+        // on a cable says only "TAC A", and the box is no wider for it
         const inSub = (g) => (g.sub ? measure(g.sub, IN_SZ, 400) + 6 : 0);
         const inLineW = (d, g) => inHead(d) + inSub(g) + g.strands.reduce((s, st) =>
             s + (st.swatch ? IN_SW + 3 : 0) + measure(st.text, IN_SZ, 400) + 6, 0) - 6;
         const groupW = (d, g) => inLineW(d, g) + IN_PAD * 2;
         // a box is never narrower than its widest group, so a wrapped group
         // is never cut, and it holds its groups side by side on the one
-        // line under the caption (2026-10-18) as long as two such boxes
-        // still stand on a row: past that a group takes a line of its own
+        // line under the caption as long as two such boxes still stand on
+        // a row: past that a group takes a line of its own
         const inContent = (d) => {
             if (!d.inputs) return 0;
             const ws = d.inputs.map(g => groupW(d, g));
             const line = ws.reduce((s, w) => s + w, 0) + IN_GAP * (ws.length - 1);
             return line + PAD * 2 <= (availW - MIN_BOX_GAP) / 2 ? line : Math.max(...ws);
         };
-        // the width that holds the caption and every group on one row
-        const inRowW = (d) => (d.inputs ? capW(d) + IN_CAP_GAP + d.inputs.reduce((s, g) =>
-            s + groupW(d, g), 0) + IN_GAP * (d.inputs.length - 1) + PAD * 2 : 0);
-        // WHERE THE GROUPS GO in a box w wide: all on the caption's row,
-        // after it, when the caption and every group fit there; otherwise
-        // none of them - they wrap to lines under the caption, from its
-        // left edge, each line taking groups in order while they fit (a
-        // group is never split). `lines` is the lines added under the
-        // caption; `at` each group's left edge and line, in box units.
+        // WHERE THE GROUPS GO in a box w wide: on the lines under the
+        // caption, from its left edge, each line taking groups in order
+        // while they fit (a group is never split). `lines` is the lines
+        // added under the caption; `at` each group's left edge and line,
+        // in box units.
         const inPlace = (d, w) => {
             if (!d.inputs) return null;
             const ws = d.inputs.map(g => groupW(d, g));
             const right = w - PAD + 0.01;
-            if (inRowW(d) <= w + 0.01) {
-                let x = PAD + capW(d) + IN_CAP_GAP;
-                return { lines: 0, at: ws.map(v => { const a = { x, line: 0 }; x += v + IN_GAP; return a; }) };
-            }
             let line = 1, x = PAD;
             const at = ws.map(v => {
                 if (x > PAD && x + v > right) { line += 1; x = PAD; }
@@ -706,32 +698,10 @@ class _BinderWiring {
         while (fit > MIN_PITCH && rowWidthAt(fit) > availW) fit -= 1;
         const pitchOf = (d) => Math.max(fit, noteFloor(d));
         const boxW = (d) => Math.max(d.n * pitchOf(d) + PAD * 2, capW(d) + PAD * 2, inContent(d) + PAD * 2);
-        // A box in the row FURTHEST FROM THE WALL on its side is widened to
-        // put its groups on the caption's row where that row has the room:
-        // the pitch and the rows are settled first, so the inputs never
-        // squeeze the sockets or push a box onto another row, and only that
-        // row - no run passes through it on its way to a socket - so a wider
-        // box never stands in a run's way. The cheapest widening goes first.
-        const wide = new Map();
-        const widen = (farRows) => {
-            wide.clear();
-            for (const last of farRows) {
-                let room = availW - last.reduce((s, d) => s + boxW(d), 0) - MIN_BOX_GAP * Math.max(0, last.length - 1);
-                const want = last.map(d => ({ d, more: inRowW(d) - boxW(d) }))
-                    .filter(o => o.d.inputs && o.more > 0).sort((a, b) => a.more - b.more);
-                for (const o of want) {
-                    if (o.more > room + 0.01) break;
-                    wide.set(o.d.key, boxW(o.d) + o.more);
-                    room -= o.more;
-                }
-            }
-        };
-        const widthOf = (d) => wide.get(d.key) || boxW(d);
         // the lines under the caption: the most any box needs sets every
         // box's height on the sheet
-        const heightOf = () => BOX_H + IN_LINE * Math.max(0,
-            ...devices.map(d => { const pl = inPlace(d, widthOf(d)); return pl ? pl.lines : 0; }));
-        let BOXH = heightOf();
+        const BOXH = BOX_H + IN_LINE * Math.max(0,
+            ...devices.map(d => { const pl = inPlace(d, boxW(d)); return pl ? pl.lines : 0; }));
 
         // the block rows, greedily; the row count is what the wall's room
         // is measured against
@@ -814,8 +784,6 @@ class _BinderWiring {
         // pass one, every box under the wall in the facts' own order, only
         // to see where each box's own connection points stand on the wall
         let rows = pack(devices);
-        widen([rows[rows.length - 1] || []]);
-        BOXH = heightOf();
         rowsOn = { top: 0, bottom: rows.length };
         let W = wallAt(gapFor(0, 0));
         const discOf = new Map();
@@ -919,13 +887,9 @@ class _BinderWiring {
             }
             const n = { top: 0, bottom: 0 };
             for (const v of at.values()) n[v.side] = Math.max(n[v.side], v.ri + 1);
-            const far = all.length <= 1 ? xRows
-                : xRows.filter(row => { const v = at.get(row[0].key); return v.ri === n[v.side] - 1; });
-            return { xRows, at, n, far };
+            return { xRows, at, n };
         };
         const arr = arrange();
-        widen(arr.far);
-        BOXH = heightOf();
         rowsOn = { ...arr.n };
         const gap0 = gapFor(0, 0);
         W = wallAt(gap0);
@@ -960,7 +924,7 @@ class _BinderWiring {
             const blocks = [];
             const socketX = new Map();
             arr.xRows.forEach((row) => {
-                const sum = row.reduce((s, d) => s + widthOf(d), 0);
+                const sum = row.reduce((s, d) => s + boxW(d), 0);
                 // spread across the width - and never past it: a crowded row
                 // takes the room it really has rather than a fixed gap and a
                 // block hanging off the sheet's edge
@@ -968,24 +932,18 @@ class _BinderWiring {
                     ? Math.max(MIN_BOX_GAP, (availW - sum) / (row.length - 1)) : 0;
                 const span = sum + gp * (row.length - 1);
                 let x = MARGIN + Math.max(0, (availW - span) / 2);
-                row.forEach((d, di) => {
+                row.forEach((d) => {
                     const { side: bs, ri } = arr.at.get(d.key);
                     const over = bs === 'top';
                     const y = rowYOf(bs, ri);
-                    const w = widthOf(d), p = pitchOf(d);
+                    const w = boxW(d), p = pitchOf(d);
                     const bx = A.x + x * K;
-                    // A box widened for its inputs keeps its sockets towards the
-                    // sheet's edge on its own side - the first box's at its left
-                    // end, the last box's at its right, a lone box's centred - so
-                    // its outer sockets stand where they stood and the runs to
-                    // them still clear the wall.
-                    const slide = (w - boxW(d)) * (row.length > 1 ? di / (row.length - 1) : 0.5);
                     const used = new Map(wiresOf(d.key).map(w2 => [w2.socket, w2]));
                     const xs = new Map();
                     const sockets = [];
                     const sy = y + (over ? BOXH - SOCKET_DY : SOCKET_DY) * K;
                     for (let k = 1; k <= d.n; k++) {
-                        const sx = A.x + (x + slide + PAD + p / 2 + (k - 1) * p) * K;
+                        const sx = A.x + (x + PAD + p / 2 + (k - 1) * p) * K;
                         xs.set(k, sx);
                         const on = used.get(k) || null;
                         const state = on ? (on.kind === 'power' ? 'power' : on.kind)
@@ -1728,10 +1686,10 @@ class _BinderWiring {
         });
     }
 
-    // A box's inputs as _bwPlanHalf placed them - side by side on the
-    // caption's row, or on the lines it wrapped them to under the caption -
+    // A box's inputs as _bwPlanHalf placed them - side by side on the line
+    // under the caption, or a line each where they are too long for one -
     // each group outlined: the input bold, its cable, then its strands, on
-    // the caption's own baseline (or a wrapped line's). Swatched as the
+    // that line's baseline. Swatched as the
     // binder's strand map swatches, on either palette. Returns each group's
     // outline, for the log.
     _bwDrawInputs(book, ctx, b) {
