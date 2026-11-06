@@ -6288,7 +6288,7 @@
       "weight_kg": 13.0,
       "weight_lb": 28.660059999999998,
       "proc_type": null,
-      "watts_max": 449.9,
+      "watts_max": 400.0,
       "watts_ave": 100.0,
       "source": "catalog"
     },
@@ -6334,7 +6334,7 @@
       "weight_kg": 13.0,
       "weight_lb": 28.660059999999998,
       "proc_type": null,
-      "watts_max": 330.0,
+      "watts_max": 219.0,
       "watts_ave": 104.0,
       "source": "catalog"
     },
@@ -7676,7 +7676,7 @@
       "weight_kg": 2.2,
       "weight_lb": 4.850164,
       "proc_type": null,
-      "watts_max": 49.5,
+      "watts_max": 32.0,
       "watts_ave": 16.0,
       "source": "catalog"
     },
@@ -7691,7 +7691,7 @@
       "weight_kg": 2.2,
       "weight_lb": 4.850164,
       "proc_type": null,
-      "watts_max": 49.5,
+      "watts_max": 43.0,
       "watts_ave": 25.0,
       "source": "catalog"
     },
@@ -11823,7 +11823,7 @@
       "source": "official: DVS ViuSite-5X model page dvsledsystems.com (read 2026-10-30)"
     },
     {
-      "name": "Vizra 3XT",
+      "name": "Vizra 3 X-Tour 3.9",
       "connector": null,
       "width_mm": 500.0,
       "height_mm": 1000.0,
@@ -11835,10 +11835,10 @@
       "proc_type": null,
       "watts_max": 340.0,
       "watts_ave": 120.0,
-      "source": "official: DVS Vizra 3XT product page dvsledsystems.com (read 2026-10-30)"
+      "source": "official: DVS Vizra 3 X-Tour 3.9 product page dvsledsystems.com (read 2026-10-30)"
     },
     {
-      "name": "Vizra 4XT",
+      "name": "Vizra 4 X-Tour 4.8",
       "connector": null,
       "width_mm": 500.0,
       "height_mm": 1000.0,
@@ -11850,10 +11850,10 @@
       "proc_type": null,
       "watts_max": 340.0,
       "watts_ave": 120.0,
-      "source": "official: DVS Vizra 4XT product page dvsledsystems.com (read 2026-10-30)"
+      "source": "official: DVS Vizra 4 X-Tour 4.8 product page dvsledsystems.com (read 2026-10-30)"
     },
     {
-      "name": "Vizra 5XT",
+      "name": "Vizra 5 X-Tour 5.9",
       "connector": null,
       "width_mm": 500.0,
       "height_mm": 1000.0,
@@ -11865,7 +11865,7 @@
       "proc_type": null,
       "watts_max": 340.0,
       "watts_ave": 120.0,
-      "source": "official: DVS Vizra 5XT product page dvsledsystems.com (read 2026-10-30)"
+      "source": "official: DVS Vizra 5 X-Tour 5.9 product page dvsledsystems.com (read 2026-10-30)"
     },
     {
       "name": "Vizra-2",
@@ -23215,8 +23215,8 @@
       "weight_kg": 3.8,
       "weight_lb": 8.377555999999998,
       "proc_type": null,
-      "watts_max": 149.6,
-      "watts_ave": null,
+      "watts_max": 300.0,
+      "watts_ave": 150.0,
       "source": "official: planar.com CarbonLight CLI Series brochure"
     },
     {
@@ -23740,7 +23740,7 @@
       "weight_kg": 6.94,
       "weight_lb": 15.3000628,
       "proc_type": null,
-      "watts_max": 180.4,
+      "watts_max": 130.0,
       "watts_ave": 43.0,
       "source": "catalog"
     },
@@ -23755,10 +23755,10 @@
       "weight_kg": 6.94,
       "weight_lb": 15.3000628,
       "proc_type": null,
-      "watts_max": 140.0,
+      "watts_max": 130.0,
       "watts_ave": 43.0,
       "source": "official: planar.com Leyard TVF data sheet",
-      "amps_max_110v": 1.27
+      "amps_max_110v": 1.18
     },
     {
       "name": "TVF1.8",
@@ -23771,9 +23771,9 @@
       "weight_kg": 6.94,
       "weight_lb": 15.3000628,
       "proc_type": null,
-      "watts_max": 180.4,
+      "watts_max": 130.0,
       "watts_ave": 43.0,
-      "source": "catalog"
+      "source": "official: Planar TVF1.8 spec PDF planar.com (read 2026-10-30)"
     },
     {
       "name": "TVF2.5",
@@ -23786,9 +23786,9 @@
       "weight_kg": 6.94,
       "weight_lb": 15.3000628,
       "proc_type": null,
-      "watts_max": 180.4,
+      "watts_max": 130.0,
       "watts_ave": 43.0,
-      "source": "catalog"
+      "source": "official: Planar TVF2.5 spec PDF planar.com (read 2026-10-30)"
     },
     {
       "name": "V-Rhea-2.5",
@@ -31921,7 +31921,7 @@
       "weight_kg": 6.4,
       "weight_lb": 14.109568,
       "proc_type": null,
-      "watts_max": 190.3,
+      "watts_max": 200.0,
       "watts_ave": 100.0,
       "source": "catalog"
     },
@@ -31936,7 +31936,7 @@
       "weight_kg": 18.9,
       "weight_lb": 41.667317999999995,
       "proc_type": null,
-      "watts_max": 190.3,
+      "watts_max": 200.0,
       "watts_ave": 100.0,
       "source": "catalog"
     },
@@ -32011,7 +32011,7 @@
       "weight_kg": 16.1,
       "weight_lb": 35.494382,
       "proc_type": null,
-      "watts_max": 709.5,
+      "watts_max": 720.0,
       "watts_ave": 360.0,
       "source": "catalog"
     },
@@ -32026,7 +32026,7 @@
       "weight_kg": 39.1,
       "weight_lb": 86.200642,
       "proc_type": null,
-      "watts_max": 709.5,
+      "watts_max": 720.0,
       "watts_ave": 360.0,
       "source": "catalog"
     },
@@ -32041,7 +32041,7 @@
       "weight_kg": 30.6,
       "weight_lb": 67.461372,
       "proc_type": null,
-      "watts_max": 709.5,
+      "watts_max": 720.0,
       "watts_ave": 360.0,
       "source": "catalog"
     },
@@ -32101,7 +32101,7 @@
       "weight_kg": 6.5,
       "weight_lb": 14.330029999999999,
       "proc_type": null,
-      "watts_max": 184.8,
+      "watts_max": 180.0,
       "watts_ave": 90.0,
       "source": "catalog"
     },
@@ -32116,7 +32116,7 @@
       "weight_kg": 19.2,
       "weight_lb": 42.328703999999995,
       "proc_type": null,
-      "watts_max": 184.8,
+      "watts_max": 180.0,
       "watts_ave": 90.0,
       "source": "catalog"
     },
@@ -32131,7 +32131,7 @@
       "weight_kg": 14.3,
       "weight_lb": 31.526066,
       "proc_type": null,
-      "watts_max": 184.8,
+      "watts_max": 180.0,
       "watts_ave": 90.0,
       "source": "catalog"
     },
@@ -32191,7 +32191,7 @@
       "weight_kg": 13.3,
       "weight_lb": 29.321445999999998,
       "proc_type": null,
-      "watts_max": 479.6,
+      "watts_max": 570.0,
       "watts_ave": 285.0,
       "source": "catalog"
     },
@@ -32206,7 +32206,7 @@
       "weight_kg": 35.8,
       "weight_lb": 78.92539599999999,
       "proc_type": null,
-      "watts_max": 479.6,
+      "watts_max": 570.0,
       "watts_ave": 285.0,
       "source": "catalog"
     },
@@ -32221,7 +32221,7 @@
       "weight_kg": 27.3,
       "weight_lb": 60.186125999999994,
       "proc_type": null,
-      "watts_max": 479.6,
+      "watts_max": 570.0,
       "watts_ave": 285.0,
       "source": "catalog"
     },
@@ -32236,7 +32236,7 @@
       "weight_kg": 8.1,
       "weight_lb": 17.857421999999996,
       "proc_type": null,
-      "watts_max": 284.9,
+      "watts_max": 290.0,
       "watts_ave": 145.0,
       "source": "catalog"
     },
@@ -32251,7 +32251,7 @@
       "weight_kg": 24.8,
       "weight_lb": 54.674575999999995,
       "proc_type": null,
-      "watts_max": 284.9,
+      "watts_max": 290.0,
       "watts_ave": 145.0,
       "source": "catalog"
     },
@@ -32266,7 +32266,7 @@
       "weight_kg": 18.3,
       "weight_lb": 40.344546,
       "proc_type": null,
-      "watts_max": 284.9,
+      "watts_max": 290.0,
       "watts_ave": 145.0,
       "source": "catalog"
     },
@@ -32281,7 +32281,7 @@
       "weight_kg": 9.0,
       "weight_lb": 19.841579999999997,
       "proc_type": null,
-      "watts_max": 284.9,
+      "watts_max": 300.0,
       "watts_ave": 150.0,
       "source": "catalog"
     },
@@ -32296,7 +32296,7 @@
       "weight_kg": 25.7,
       "weight_lb": 56.658733999999995,
       "proc_type": null,
-      "watts_max": 284.9,
+      "watts_max": 300.0,
       "watts_ave": 150.0,
       "source": "catalog"
     },
@@ -32311,7 +32311,7 @@
       "weight_kg": 21.7,
       "weight_lb": 47.840253999999995,
       "proc_type": null,
-      "watts_max": 284.9,
+      "watts_max": 300.0,
       "watts_ave": 150.0,
       "source": "catalog"
     },
@@ -32596,9 +32596,9 @@
       "weight_kg": 4.8,
       "weight_lb": 10.582175999999999,
       "proc_type": null,
-      "watts_max": 129.8,
+      "watts_max": 160.0,
       "watts_ave": 80.0,
-      "source": "catalog"
+      "source": "official: ROE Linx9 spec PDF roevisual.com (read 2026-10-30)"
     },
     {
       "name": "Linx-9M",
@@ -32626,7 +32626,7 @@
       "weight_kg": 7.5,
       "weight_lb": 16.53465,
       "proc_type": null,
-      "watts_max": 359.7,
+      "watts_max": 320.0,
       "watts_ave": 160.0,
       "source": "catalog"
     },
@@ -32641,7 +32641,7 @@
       "weight_kg": 7.25,
       "weight_lb": 15.983494999999998,
       "proc_type": null,
-      "watts_max": 359.7,
+      "watts_max": 250.0,
       "watts_ave": 125.0,
       "source": "catalog"
     },
@@ -32686,7 +32686,7 @@
       "weight_kg": 16.0,
       "weight_lb": 35.27392,
       "proc_type": null,
-      "watts_max": 449.9,
+      "watts_max": 420.0,
       "watts_ave": 210.0,
       "source": "catalog"
     },
@@ -32701,7 +32701,7 @@
       "weight_kg": 8.05,
       "weight_lb": 17.747191,
       "proc_type": null,
-      "watts_max": 359.7,
+      "watts_max": 320.0,
       "watts_ave": 160.0,
       "source": "catalog"
     },
@@ -33196,7 +33196,7 @@
       "weight_kg": 9.6,
       "weight_lb": 21.164351999999997,
       "proc_type": null,
-      "watts_max": 350,
+      "watts_max": 650.0,
       "watts_ave": 325.0,
       "source": "calc (3.18A × 110V)"
     },
@@ -33271,7 +33271,7 @@
       "weight_kg": 9.6,
       "weight_lb": 21.164351999999997,
       "proc_type": null,
-      "watts_max": 300,
+      "watts_max": 460.0,
       "watts_ave": 230.0,
       "source": "roevisual Vanish V8S MKII - 62% transparent, 3500 nits"
     },
@@ -33301,7 +33301,7 @@
       "weight_kg": 18.6,
       "weight_lb": 41.005932,
       "proc_type": null,
-      "watts_max": 530.2,
+      "watts_max": 480.0,
       "watts_ave": 240.0,
       "source": "catalog"
     },
@@ -33928,9 +33928,9 @@
       "weight_kg": 8.6,
       "weight_lb": 18.959732,
       "proc_type": null,
-      "watts_max": 25.3,
-      "watts_ave": null,
-      "source": "catalog"
+      "watts_max": 120.0,
+      "watts_ave": 55.0,
+      "source": "official: Sony ZRD-BH12D spec PDF sony.jp (read 2026-10-30)"
     },
     {
       "name": "ZRD-BH15D",
@@ -33943,9 +33943,9 @@
       "weight_kg": 8.6,
       "weight_lb": 18.959732,
       "proc_type": null,
-      "watts_max": 25.3,
-      "watts_ave": null,
-      "source": "catalog"
+      "watts_max": 120.0,
+      "watts_ave": 55.0,
+      "source": "official: Sony ZRD-BH15D spec PDF sony.jp (read 2026-10-30)"
     },
     {
       "name": "ZRD-C12A",
@@ -33988,9 +33988,9 @@
       "weight_kg": 8.6,
       "weight_lb": 18.959732,
       "proc_type": null,
-      "watts_max": 25.3,
-      "watts_ave": null,
-      "source": "catalog"
+      "watts_max": 120.0,
+      "watts_ave": 55.0,
+      "source": "official: Sony ZRD-CH12D spec PDF sony.jp (read 2026-10-30)"
     },
     {
       "name": "ZRD-CH15D",
@@ -34003,9 +34003,9 @@
       "weight_kg": 8.6,
       "weight_lb": 18.959732,
       "proc_type": null,
-      "watts_max": 25.3,
-      "watts_ave": null,
-      "source": "catalog"
+      "watts_max": 120.0,
+      "watts_ave": 55.0,
+      "source": "official: Sony ZRD-CH15D spec PDF sony.jp (read 2026-10-30)"
     },
     {
       "name": "ZRD-S12G",
@@ -34812,7 +34812,7 @@
       "weight_kg": 14.5,
       "weight_lb": 31.966989999999996,
       "proc_type": null,
-      "watts_max": 249.7,
+      "watts_max": 200.0,
       "watts_ave": 85.0,
       "source": "catalog"
     },
@@ -34827,9 +34827,9 @@
       "weight_kg": 12.7,
       "weight_lb": 27.998673999999998,
       "proc_type": null,
-      "watts_max": 225.5,
+      "watts_max": 255.0,
       "watts_ave": 135.0,
-      "source": "catalog"
+      "source": "official: Theatrixx XVT-HRR4.0SMD-IN spec PDF theatrixx.com (read 2026-10-30)"
     },
     {
       "name": "xVision - 5mm Indoors",
