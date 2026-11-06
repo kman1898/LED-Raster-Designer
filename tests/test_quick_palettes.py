@@ -1038,6 +1038,11 @@ def test_a_real_palette_source_pick_passes_the_field_guard(page):
 
 # ── the guide and What's New ─────────────────────────────────────────────
 
+# Every Advanced Guide step 1.7.0 brings, in guide order.
+NEW_IN_1_7 = ['quickPalettes', 'riggingTab', 'riggingSizes', 'riggingAuto', 'riggingDrag',
+              'riggingTotals', 'riggingSheet']
+
+
 def test_the_guide_step_shows_the_palettes(page):
     """The Advanced Guide's step, played on its own the way What's New's
     Show me plays it: the wall takes a pair, Hue turns it, and leaving the
@@ -1052,7 +1057,7 @@ def test_the_guide_step_shows_the_palettes(page):
         return keys[keys.indexOf('blankCabinet') + 1] === 'quickPalettes'
             && q.steps().quickPalettes.since === '1.7.0';
     }""")
-    assert pg.evaluate("() => window.QuickStart.newSteps('1.6.0', '1.7.0')") == ['quickPalettes']
+    assert pg.evaluate("() => window.QuickStart.newSteps('1.6.0', '1.7.0')") == NEW_IN_1_7
     pg.evaluate("() => { window.QuickStart.setSpeed(6); window.QuickStart.startSteps(['quickPalettes']); }")
     pg.wait_for_function("""() => {
         const c = document.getElementById('qs-callout');
@@ -1079,5 +1084,5 @@ def test_whats_new_offers_the_step_for_1_7(page):
     pg, errors = page
     got = pg.evaluate("() => window.WhatsNew.decide('1.7.0', '1.6.0')")
     assert got['show'] and got['window']['key'] == '1.7', got
-    assert got['window']['steps'] == ['quickPalettes'], got
+    assert got['window']['steps'] == NEW_IN_1_7, got
     assert errors == []
