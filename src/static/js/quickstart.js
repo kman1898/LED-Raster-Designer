@@ -3360,7 +3360,7 @@
             since: '1.7.0',
             target: '#quick-palettes-panel', place: 'right', title: 'Quick Palettes',
             avoid: ['#quick-palette-swatches', '#quick-palette-hue'],
-            body: 'Eight checkerboard pairs built around the screen&rsquo;s own color. Click one to color the selected screens, and drag Hue to turn the pairs and the screens together. Preferences &gt; Palettes keeps eight of your own.',
+            body: 'Click a pair to color the selected screens, and drag Hue to turn the pairs and the screens together. Preferences &gt; Palettes keeps eight of your own.',
             before: function () {
                 switchView('pixel-map');
                 var a = A(), w = wall();
