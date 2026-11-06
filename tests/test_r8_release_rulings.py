@@ -71,7 +71,7 @@ def test_the_overfull_box_note_is_listed_for_older_shows():
     # among the ones that were wrong before: after the 80% lines, before
     # the last five
     assert 3 <= bullets.index(line) < len(bullets) - 5
-    assert len(bullets) == 19   # the short notes share near-duplicates on a line
+    assert len(bullets) == 20   # the short notes share near-duplicates on a line
     assert all(b.startswith('- CHANGE (IMPORTANT): ') for b in bullets[-5:])
 
 

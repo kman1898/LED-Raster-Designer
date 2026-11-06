@@ -111,8 +111,9 @@ opens with every group named the way it was.
 NEW TILES AND A NEW PROCESSOR
 
 The panel library now has every Graphite model from ROE's spec sheets,
-with corrected weights and power, and the NovaStar 4K-Prime is in the
-processor list.
+with corrected weights and power. It also adds DVS's panels, including
+the Vizra X-Tour, and INFiLED's RS series, and many more panels show
+average power. The NovaStar 4K-Prime is in the processor list.
 
 OPENING AN OLDER SHOW
 
@@ -171,6 +172,10 @@ ordered.
   screens saved at 8.5 kg no longer match the library, which now lists 9.0
   kg, so their half tiles weigh 65% of a full tile. Pick the panel from
   the library again to get the new figures.
+- CHANGE (IMPORTANT): A grouped wall now runs its circuits across its
+  screens, even on different processor canvases, so its circuits can
+  change. One that's locked, or that has circuits plugged in, labeled,
+  cabled or redrawn on a later screen, keeps them screen by screen.
 - CHANGE (IMPORTANT): A group saved half locked in an older show now
   counts as locked. You can still hide and show its screens when that
   doesn't change their circuits, but any other edit waits until you pick
@@ -198,8 +203,6 @@ FIXES
 - FIX: The tray and the distro checks now warn you when an output carries
   more circuits than it takes.
 - FIX: A crowded Power sheet gives its multis short tags and a key.
-- FIX: A grouped wall runs its circuits across its screens, even on
-  different processor canvases.
 - FIX: Amperage offers 16A beside 15A and 20A.
 - FIX: A length typed in the other unit, like 30m in a feet show, converts
   wherever you type a home run, cable, power in, snake or fiber length.

@@ -75,7 +75,7 @@ def test_a_half_locked_group_still_hides_and_shows():
 def test_the_new_lines_change_no_counts():
     top = _top_entry()
     older = top[top.index('OPENING AN OLDER SHOW'):top.index('\nFIXES\n')]
-    assert len(re.findall(r'^- ', older, re.M)) == 19   # the short notes share near-duplicates on a line
+    assert len(re.findall(r'^- ', older, re.M)) == 20   # the short notes share near-duplicates on a line
     assert 'short tags' not in older and 'more circuits than it takes' not in older
 
 

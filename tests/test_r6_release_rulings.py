@@ -73,10 +73,10 @@ def test_opening_an_older_show_lists_the_round_6_changes():
     older = _older()
     bullets = _bullets(older)
     # the short notes: near-duplicates share a line, every count change is still here
-    assert len(bullets) == 19, bullets
+    assert len(bullets) == 20, bullets
     assert '80%' in bullets[2] and '16 A breaker · 12.8 A usable' in bullets[2], bullets[2]
-    assert all(b.startswith('- CHANGE (IMPORTANT): ') for b in bullets[-5:]), bullets[-5:]
-    assert not any(b.startswith('- CHANGE') for b in bullets[:2] + bullets[3:-5])
+    assert all(b.startswith('- CHANGE (IMPORTANT): ') for b in bullets[-6:]), bullets[-6:]
+    assert not any(b.startswith('- CHANGE') for b in bullets[:2] + bullets[3:-6])
     flat = _flat(older)
     # (e) the 16 A box, short
     assert ('- CHANGE (IMPORTANT): A screen you set to 16 A in an older show to allow for the '
