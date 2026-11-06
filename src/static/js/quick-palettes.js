@@ -1,13 +1,13 @@
-// quick-palettes: the colour maths behind the Pixel Map tab's Quick
+// quick-palettes: the color math behind the Pixel Map tab's Quick
 // Palettes section (app-quick-palettes.js) and its Preferences defaults
 // (app-preferences.js). Pure functions only, no DOM, so the browser tests
 // can drive them directly.
 //
 // A quick palette is one checkerboard pair: Color 1 a dark shade, Color 2 a
-// light tint. Eight of them are built round the colour wheel, 45 degrees
-// apart, in OKLCH (a perceptual colour space) so every pair reads equally
+// light tint. Eight of them are built around the color wheel, 45 degrees
+// apart, in OKLCH (a perceptual color space) so every pair reads equally
 // bright: in plain HSL a yellow at the same "lightness" as a blue glows. A
-// colour the screen cannot show is brought back in by lowering its chroma
+// color the screen cannot show is brought back in by lowering its chroma
 // (saturation) and keeping its lightness and hue.
 
 export const QUICK_PALETTE_COUNT = 8;
@@ -16,9 +16,9 @@ export const QUICK_PALETTE_STEP = 360 / QUICK_PALETTE_COUNT;
 // The pair a new screen ships with (getPreferencesDefaults color1/color2).
 export const SHIPPED_PAIR = ['#404680', '#959CB8'];
 
-// Lightness and chroma for each colour of a pair, and how far Color 2's hue
+// Lightness and chroma for each color of a pair, and how far Color 2's hue
 // turns from Color 1's. Tonal is the shipped pair's own look (its OKLCH
-// figures, rounded); Bold carries more colour; Split turns Color 2 40
+// figures, rounded); Bold carries more color; Split turns Color 2 40
 // degrees for a two-hue pair.
 export const QUICK_PALETTE_STYLES = {
     tonal: { l1: 0.42, c1: 0.085, l2: 0.71, c2: 0.045, dh: 0 },
@@ -76,7 +76,7 @@ function oklchToLinear(L, C, H) {
 
 const inGamut = (lin) => lin.every(x => x >= -1e-4 && x <= 1 + 1e-4);
 
-// [L, C, H] -> '#RRGGBB', lowering C until the colour fits the screen.
+// [L, C, H] -> '#RRGGBB', lowering C until the color fits the screen.
 export function oklchToHex(L, C, H) {
     let lin = oklchToLinear(L, C, H);
     if (!inGamut(lin)) {
@@ -90,8 +90,8 @@ export function oklchToHex(L, C, H) {
     return toHex(lin.map(v => fromLinear(Math.max(0, Math.min(1, v)))));
 }
 
-// The OKLCH hue of a colour, in whole degrees; a grey (no hue to speak
-// of) and a value that is not a colour read as the shipped pair's hue.
+// The OKLCH hue of a color, in whole degrees; a gray (no hue to speak
+// of) and a value that is not a color read as the shipped pair's hue.
 export function hueOf(hex) {
     const rgb = parseHex(hex);
     const shipped = rgbToOklch(parseHex(SHIPPED_PAIR[0]))[2];
@@ -100,8 +100,8 @@ export function hueOf(hex) {
     return Math.round(C < 0.02 ? shipped : H);
 }
 
-// Turn a colour's hue by `degrees`, keeping its lightness and chroma.
-// 0 hands the colour back exactly as given (upper case).
+// Turn a color's hue by `degrees`, keeping its lightness and chroma.
+// 0 hands the color back exactly as given (upper case).
 export function rotateHue(hex, degrees) {
     const rgb = parseHex(hex);
     if (!rgb) return hex;
@@ -111,9 +111,9 @@ export function rotateHue(hex, degrees) {
     return oklchToHex(L, C, ((H + d) % 360 + 360) % 360);
 }
 
-// The eight pairs round the wheel from `baseHue`, in `style`. With
+// The eight pairs around the wheel from `baseHue`, in `style`. With
 // `current` (a [c1, c2] pair), slot 1 is that pair exactly: the screen's
-// own colours, so the set always offers a way back.
+// own colors, so the set always offers a way back.
 export function generateQuickPalettes(baseHue, style, current) {
     const s = QUICK_PALETTE_STYLES[style] || QUICK_PALETTE_STYLES.tonal;
     const base = Number.isFinite(Number(baseHue)) ? Number(baseHue) : hueOf(SHIPPED_PAIR[0]);
@@ -132,14 +132,14 @@ export function generateQuickPalettes(baseHue, style, current) {
     return out;
 }
 
-// The eight pairs the Preferences dialog ships with: the Tonal set round
+// The eight pairs the Preferences dialog ships with: the Tonal set around
 // the shipped pair, slot 1 the shipped pair itself.
 export function shippedQuickPalettes() {
     return generateQuickPalettes(hueOf(SHIPPED_PAIR[0]), 'tonal', SHIPPED_PAIR);
 }
 
 // A stored list of pairs as eight checked [c1, c2] pairs: an entry that
-// is not a pair of colours falls back to the shipped pair in its slot.
+// is not a pair of colors falls back to the shipped pair in its slot.
 export function normalizeQuickPalettes(list) {
     const shipped = shippedQuickPalettes();
     const src = Array.isArray(list) ? list : [];
@@ -150,7 +150,7 @@ export function normalizeQuickPalettes(list) {
     });
 }
 
-// WCAG contrast ratio between two colours (1 to 21).
+// WCAG contrast ratio between two colors (1 to 21).
 export function contrastRatio(hexA, hexB) {
     const lum = (hex) => {
         const [r, g, b] = (parseHex(hex) || [0, 0, 0]).map(toLinear);

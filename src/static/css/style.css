@@ -2833,7 +2833,7 @@ body.lrd-panel-dragging, body.lrd-panel-dragging * { cursor: grabbing !important
 .qp-swatch:focus-visible { outline: 2px solid var(--ps-accent, #e22330); outline-offset: 1px; }
 .qp-hue { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; }
 /* The track is painted inline (renderQuickPalettes): the screen's Color 1
-   carried round the wheel, so the slider shows where each position lands. */
+   carried around the wheel, so the slider shows where each position lands. */
 #quick-palette-hue {
     flex: 1; min-width: 0; height: 14px; border-radius: 4px; -webkit-appearance: none; appearance: none;
     border: 1px solid var(--ps-dark, #131313); box-shadow: none;

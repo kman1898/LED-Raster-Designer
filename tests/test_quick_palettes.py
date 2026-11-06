@@ -1,6 +1,6 @@
 """Quick Palettes: the Pixel Map tab's eight one-click Color 1 / Color 2
 pairs, the style switch, Shuffle and the Hue slider (app-quick-palettes.js),
-the colour maths behind them (quick-palettes.js), and the Preferences
+the color math behind them (quick-palettes.js), and the Preferences
 Palettes tab that lets the user keep their own eight.
 
 Run locally:
@@ -45,6 +45,42 @@ def test_the_section_sits_under_colors_on_the_pixel_map_tab():
     assert 'min="-180" max="180" step="1"' in block
 
 
+# US spelling, in everything the person reads. The two modules are new, so
+# all of their text is held to it; the template's identifiers and comments
+# are older than the rule, so only what renders is read there.
+BRITISH = re.compile(r'colour|neighbour|favour|behaviour|\bcentre|\bgrey\b|customis|organis|maths\b', re.I)
+SHOWN_ATTRS = re.compile(r'\b(?:data-tooltip|title|aria-label|placeholder|alt|label)="([^"]*)"')
+
+
+def _shown_in_template(html):
+    """The text and the display attributes of a template, line by line."""
+    html = re.sub(r'<!--.*?-->', lambda m: '\n' * m.group(0).count('\n'), html, flags=re.S)
+    html = re.sub(r'<(script|style)\b.*?</\1>', lambda m: '\n' * m.group(0).count('\n'), html, flags=re.S)
+    for number, line in enumerate(html.split('\n'), 1):
+        shown = SHOWN_ATTRS.findall(line) + [re.sub(r'<[^>]*>', ' ', line)]
+        for text in shown:
+            yield number, text
+
+
+def test_the_display_text_is_us_spelling():
+    hits = [f'index.html:{n}: {text.strip()}' for n, text in _shown_in_template(_read(INDEX_HTML))
+            if BRITISH.search(text)]
+    for name in ('app-quick-palettes.js', 'quick-palettes.js'):
+        text = _read(os.path.join(ROOT, 'src', 'static', 'js', name))
+        hits += [f'{name}:{n}: {line.strip()}' for n, line in enumerate(text.split('\n'), 1)
+                 if BRITISH.search(line)]
+    assert not hits, 'British spelling:\n' + '\n'.join(hits)
+
+
+def test_the_spelling_guard_reads_tooltips_and_text():
+    """The guard above has to be able to fail: a tooltip, a label and a note
+    each say it, a comment and an id do not."""
+    sample = ('<div data-tooltip="Hue, Turn the colour wheel">\n<label>Colour</label>\n'
+              '<input id="pref-binder-colour" value="colour">\n<!-- the colour -->\n')
+    said = [n for n, text in _shown_in_template(sample) if BRITISH.search(text)]
+    assert sorted(set(said)) == [1, 2], said
+
+
 # ── the browser ───────────────────────────────────────────────────────────
 
 @pytest.fixture(scope="module", autouse=True)
@@ -56,7 +92,7 @@ def _guard(server_project_guard):
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1440, 'height': 900})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');"
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');"
         "localStorage.removeItem('ledRasterQuickPaletteStyle');}catch(e){}")
     pg = context.new_page()
     errors = []
@@ -83,7 +119,7 @@ def _fresh_screen(pg):
         s.transparentFill = false;
         a.updateLayers([s]);
         a._quickPalette = null;
-        a.selectLayer(s.id);
+        a.selectLayer(s);
         a.loadQuickPalettes();
     }""")
     pg.wait_for_timeout(300)
@@ -283,4 +319,668 @@ def test_my_own_eight_from_preferences(page):
     pg.evaluate("(d) => { window.app.fillPreferencesUI(d); }", shipped)
     assert pg.locator('#pref-quick-palette-source').input_value() == 'auto'
     assert pg.locator('#pref-quick-palette-2a').input_value().upper() == shipped['quickPaletteColors'][1][0]
+    assert errors == []
+
+
+# ── the Hue slider under a real mouse and real keys ──────────────────────
+#
+# page.mouse and page.keyboard are trusted input: the slider moves the way
+# it does for a person, so `change` fires only when the browser fires it.
+
+THUMB = 10   # #quick-palette-hue::-webkit-slider-thumb, style.css
+
+
+def _x_of(pg, value):
+    """The x of the thumb's center at `value`, and the slider's y."""
+    box = pg.locator('#quick-palette-hue').bounding_box()
+    span = box['width'] - THUMB
+    return box['x'] + THUMB / 2 + (value + 180) / 360 * span, box['y'] + box['height'] / 2
+
+
+def _hue(pg):
+    return int(pg.locator('#quick-palette-hue').input_value())
+
+
+def _readout(pg):
+    return pg.locator('#quick-palette-hue-reset').text_content()
+
+
+def _mouse_drag(pg, to):
+    """Press on the thumb where it sits, drag to `to`, let go."""
+    pg.locator('#quick-palette-hue').scroll_into_view_if_needed()
+    x, y = _x_of(pg, _hue(pg))
+    pg.mouse.move(x, y)
+    pg.mouse.down()
+    x2, _ = _x_of(pg, to)
+    pg.mouse.move(x2, y, steps=12)
+    pg.mouse.up()
+    pg.wait_for_timeout(100)
+
+
+def _mouse_click_thumb(pg):
+    """Press and let go on the thumb without moving: no input, no change."""
+    pg.locator('#quick-palette-hue').scroll_into_view_if_needed()
+    x, y = _x_of(pg, _hue(pg))
+    pg.mouse.move(x, y)
+    pg.mouse.down()
+    pg.mouse.up()
+    pg.wait_for_timeout(100)
+
+
+def _steps(pg):
+    return pg.evaluate("""() => window.app.history.slice(0, window.app.historyIndex + 1)
+        .map(h => h.action)""")
+
+
+def _undo(pg):
+    pg.evaluate("() => window.app.undo()")
+    pg.wait_for_timeout(300)
+
+
+def _redo(pg):
+    pg.evaluate("() => window.app.redo()")
+    pg.wait_for_timeout(300)
+
+
+def _turned(pg, pair, degrees):
+    return pg.evaluate("""async ([pair, d]) => {
+        const m = await import('/static/js/quick-palettes.js');
+        return pair.map(c => m.rotateHue(c, d));
+    }""", [pair, degrees])
+
+
+def _pair_of(pg, layer_id):
+    return pg.evaluate("""(id) => {
+        const l = window.app.project.layers.find(x => x.id === id);
+        const hex = (c) => window.app.rgbToHex(c.r, c.g, c.b).toUpperCase();
+        return [hex(l.color1), hex(l.color2)];
+    }""", layer_id)
+
+
+OTHER_PAIR = ['#603A2C', '#B79F92']
+
+
+def _two_screens(pg):
+    """Screen A on the shipped pair selected, screen B on its own pair, a
+    clean history, preferences shipped. Returns the two ids."""
+    _fresh_screen(pg)
+    a = pg.evaluate("() => window.app.currentLayer.id")
+    count = pg.evaluate("""() => window.app.project.layers
+        .filter(l => (l.type || 'screen') === 'screen').length""")
+    if count < 2:
+        pg.evaluate("() => window.app.addLayer()")
+        pg.wait_for_function("""() => window.app.project.layers
+            .filter(l => (l.type || 'screen') === 'screen').length >= 2""")
+        pg.wait_for_timeout(300)
+    b = pg.evaluate("""async ([a, pair]) => {
+        const app = window.app;
+        const b = app.project.layers.find(l => (l.type || 'screen') === 'screen' && l.id !== a);
+        const rgb = (h) => app.hexToRgb(h);
+        b.color1 = rgb(pair[0]);
+        b.color2 = rgb(pair[1]);
+        b.locked = false;
+        b.panelColorMode = 'checker';
+        b.transparentFill = false;
+        app.updateLayers([b]);
+        const first = app.project.layers.find(l => l.id === a);
+        first.locked = false;
+        first.color1 = rgb('#404680');
+        first.color2 = rgb('#959CB8');
+        app.updateLayers([first]);
+        await Promise.all([...(app._inflightLayerPuts || [])]);
+        app._quickPalette = null;
+        app.selectLayer(app.project.layers.find(l => l.id === a));
+        app.loadQuickPalettes();
+        app.resetHistory('Palette Seed');
+        return b.id;
+    }""", [a, OTHER_PAIR])
+    pg.wait_for_timeout(300)
+    return a, b
+
+
+def _select(pg, layer_id):
+    pg.evaluate("""(id) => window.app.selectLayer(
+        window.app.project.layers.find(l => l.id === id))""", layer_id)
+    pg.wait_for_timeout(200)
+
+
+def _unlock_all(pg):
+    pg.evaluate("""() => {
+        const app = window.app;
+        app.project.layers.forEach(l => { l.locked = false; });
+        app.updateLayers(app.project.layers.filter(l => (l.type || 'screen') === 'screen'));
+    }""")
+    pg.wait_for_timeout(200)
+
+
+def test_a_click_on_the_thumb_leaves_nothing_open(page):
+    """A click that does not move the thumb is no gesture: the next
+    selection rebuilds the set round the new screen, and the next drag
+    turns the new screen, undoes in one step and leaves the first screen
+    alone."""
+    pg, errors = page
+    a, b = _two_screens(pg)
+    _mouse_click_thumb(pg)
+    assert _hue(pg) == 0 and _steps(pg) == ['Palette Seed']
+    _select(pg, b)
+    assert _swatches(pg)[0] == OTHER_PAIR, 'the set was not rebuilt for B'
+    _mouse_drag(pg, 158)
+    shift = _hue(pg)
+    assert shift > 100, shift
+    want = _turned(pg, OTHER_PAIR, shift)
+    assert _pair_of(pg, b) == want
+    assert _pair_of(pg, a) == SHIPPED
+    assert _swatches(pg)[0] == want
+    assert pg.locator('#color1-hex').input_value() == want[0]
+    assert _steps(pg) == ['Palette Seed', 'Adjust Palette Hue']
+    _undo(pg)
+    assert _pair_of(pg, b) == OTHER_PAIR
+    assert _hue(pg) == 0
+    # back on A: its own set, and the slider works there too
+    _select(pg, a)
+    assert _swatches(pg)[0] == SHIPPED
+    _mouse_drag(pg, -40)
+    shift = _hue(pg)
+    assert _pair_of(pg, a) == _turned(pg, SHIPPED, shift)
+    assert _pair_of(pg, b) == OTHER_PAIR
+    assert errors == []
+
+
+def test_a_drag_back_to_where_it_began_leaves_nothing_open(page):
+    """Out and back in one press: the browser need not fire `change`, the
+    screen is as it was, there is no step, and the next selection still
+    rebuilds."""
+    pg, errors = page
+    a, b = _two_screens(pg)
+    pg.locator('#quick-palette-hue').scroll_into_view_if_needed()
+    x, y = _x_of(pg, 0)
+    pg.mouse.move(x, y)
+    pg.mouse.down()
+    pg.mouse.move(_x_of(pg, 90)[0], y, steps=6)
+    assert _hue(pg) > 30
+    pg.mouse.move(x, y, steps=6)
+    pg.mouse.up()
+    pg.wait_for_timeout(200)
+    assert _hue(pg) == 0
+    assert _pair_of(pg, a) == SHIPPED
+    assert _steps(pg) == ['Palette Seed']
+    _select(pg, b)
+    assert _swatches(pg)[0] == OTHER_PAIR
+    assert errors == []
+
+
+def test_undo_and_redo_leave_the_slider_true(page):
+    """Undo a drag: the screen, the slider, the readout and the swatches
+    all go back, and the readout has nothing left to reset. Redo brings all
+    of it forward, and a reset from there lands on the first colors
+    exactly."""
+    pg, errors = page
+    a, _ = _two_screens(pg)
+    set_before = _swatches(pg)
+    _mouse_drag(pg, 158)
+    shift = _hue(pg)
+    assert shift > 100, shift
+    turned = _pair_of(pg, a)
+    assert turned != SHIPPED
+    set_turned = _swatches(pg)
+
+    _undo(pg)
+    assert _pair_of(pg, a) == SHIPPED
+    assert (_hue(pg), _readout(pg)) == (0, '0°')
+    assert _swatches(pg) == set_before
+    # the readout now has nothing to do
+    pg.locator('#quick-palette-hue-reset').click()
+    pg.wait_for_timeout(200)
+    assert _pair_of(pg, a) == SHIPPED
+    assert _steps(pg) == ['Palette Seed']
+
+    _redo(pg)
+    assert _pair_of(pg, a) == turned
+    assert (_hue(pg), _readout(pg)) == (shift, f'+{shift}°')
+    assert _swatches(pg) == set_turned
+    # reset from a redo: the screen's first colors, to the digit, one step
+    pg.locator('#quick-palette-hue-reset').click()
+    pg.wait_for_timeout(200)
+    assert _pair_of(pg, a) == SHIPPED
+    assert _hue(pg) == 0
+    assert _steps(pg) == ['Palette Seed', 'Adjust Palette Hue', 'Adjust Palette Hue']
+    _undo(pg)
+    assert _pair_of(pg, a) == turned and _hue(pg) == shift
+    # and the slider drags on from where it now says it is
+    _mouse_drag(pg, shift - 30)
+    moved = _hue(pg)
+    assert _pair_of(pg, a) == _turned(pg, SHIPPED, moved)
+    assert errors == []
+
+
+def test_undo_walks_the_slider_back_through_each_drag(page):
+    pg, errors = page
+    a, _ = _two_screens(pg)
+    _mouse_drag(pg, 30)
+    first, first_pair = _hue(pg), _pair_of(pg, a)
+    _mouse_drag(pg, 70)
+    second, second_pair = _hue(pg), _pair_of(pg, a)
+    assert 0 < first < second
+    _undo(pg)
+    assert (_hue(pg), _pair_of(pg, a)) == (first, first_pair)
+    _undo(pg)
+    assert (_hue(pg), _pair_of(pg, a)) == (0, SHIPPED)
+    _redo(pg)
+    assert (_hue(pg), _pair_of(pg, a)) == (first, first_pair)
+    _redo(pg)
+    assert (_hue(pg), _pair_of(pg, a)) == (second, second_pair)
+    assert errors == []
+
+
+def test_undo_past_another_edit_keeps_the_slider_true(page):
+    """A step that has nothing to do with the slider carries the slider as
+    it stood, and a step taken on another screen's set reads 0 for the set
+    on show: 0 always means the colors the screen has now."""
+    pg, errors = page
+    a, b = _two_screens(pg)
+    _mouse_drag(pg, 45)
+    shift, turned = _hue(pg), _pair_of(pg, a)
+    pg.evaluate("""() => { const a = window.app; a.currentLayer.name = 'Renamed';
+        a.updateLayers([a.currentLayer]); a.saveState('Rename'); }""")
+    _undo(pg)
+    assert (_hue(pg), _pair_of(pg, a)) == (shift, turned)
+    _redo(pg)
+    assert (_hue(pg), _pair_of(pg, a)) == (shift, turned)
+    # another screen: its own set at 0, then undo while it is selected
+    _select(pg, b)
+    assert _hue(pg) == 0
+    _mouse_drag(pg, 60)
+    assert _pair_of(pg, b) != OTHER_PAIR
+    _undo(pg)
+    assert _pair_of(pg, b) == OTHER_PAIR and _hue(pg) == 0
+    _undo(pg)              # the rename, on A, with B selected
+    assert _hue(pg) == 0
+    _mouse_drag(pg, 20)
+    assert _pair_of(pg, b) == _turned(pg, OTHER_PAIR, _hue(pg))
+    assert _pair_of(pg, a) == turned
+    assert errors == []
+
+
+def _catch_toasts(pg):
+    pg.evaluate("""() => {
+        const app = window.app;
+        window.__toasts = [];
+        if (!app.__qpToast) {
+            app.__qpToast = app._toast;
+            app._toast = function (msg) {
+                window.__toasts.push(String(msg));
+                return app.__qpToast.apply(this, arguments);
+            };
+        }
+    }""")
+
+
+def _toasts(pg):
+    return pg.evaluate("() => window.__toasts")
+
+
+def _lock(pg, *ids):
+    pg.evaluate("""(ids) => {
+        const app = window.app;
+        ids.forEach(id => { app.project.layers.find(l => l.id === id).locked = true; });
+        app.resetHistory('Palette Seed');
+    }""", list(ids))
+    pg.wait_for_timeout(200)
+
+
+def test_a_drag_on_a_locked_screen_changes_nothing_and_the_slider_goes_back(page):
+    pg, errors = page
+    a, _ = _two_screens(pg)
+    _catch_toasts(pg)
+    _lock(pg, a)
+    set_before = _swatches(pg)
+    try:
+        _mouse_drag(pg, 158)
+        pg.wait_for_timeout(600)            # past any debounce that might land a step
+        said = _toasts(pg)
+        assert len(said) == 1 and 'is locked' in said[0], said
+        assert _pair_of(pg, a) == SHIPPED
+        assert _steps(pg) == ['Palette Seed'], 'an empty undo step'
+        assert (_hue(pg), _readout(pg)) == (0, '0°')
+        assert _swatches(pg) == set_before
+        # a second try says it again, and still changes nothing
+        pg.evaluate("() => { window.__toasts = []; }")
+        _mouse_drag(pg, -90)
+        pg.wait_for_timeout(300)
+        assert len(_toasts(pg)) == 1, _toasts(pg)
+        assert _pair_of(pg, a) == SHIPPED and _hue(pg) == 0
+        # the keys and a click on the track are refused the same way
+        pg.evaluate("() => { window.__toasts = []; }")
+        pg.locator('#quick-palette-hue').focus()
+        pg.keyboard.press('ArrowRight')
+        pg.wait_for_timeout(200)
+        assert len(_toasts(pg)) == 1, _toasts(pg)
+        assert _hue(pg) == 0 and _pair_of(pg, a) == SHIPPED
+        pg.evaluate("() => { window.__toasts = []; }")
+        x, y = _x_of(pg, 120)
+        pg.mouse.click(x, y)
+        pg.wait_for_timeout(200)
+        assert len(_toasts(pg)) == 1, _toasts(pg)
+        assert _hue(pg) == 0 and _pair_of(pg, a) == SHIPPED
+        assert _steps(pg) == ['Palette Seed']
+        # nothing is left waiting to land
+        pg.evaluate("() => window.app._flushPendingSaveState()")
+        assert _steps(pg) == ['Palette Seed']
+    finally:
+        _unlock_all(pg)
+    # unlocked, the very next drag works and undoes in one step
+    _mouse_drag(pg, 50)
+    shift = _hue(pg)
+    assert shift > 20
+    assert _pair_of(pg, a) == _turned(pg, SHIPPED, shift)
+    assert _steps(pg)[-1] == 'Adjust Palette Hue'
+    _undo(pg)
+    assert _pair_of(pg, a) == SHIPPED and _hue(pg) == 0
+    assert errors == []
+
+
+def test_a_swatch_on_a_locked_screen_leaves_no_step(page):
+    pg, errors = page
+    a, _ = _two_screens(pg)
+    _catch_toasts(pg)
+    _lock(pg, a)
+    try:
+        pg.locator('#quick-palette-4').click()
+        pg.wait_for_timeout(300)
+        assert len(_toasts(pg)) == 1, _toasts(pg)
+        assert _pair_of(pg, a) == SHIPPED
+        assert _steps(pg) == ['Palette Seed']
+    finally:
+        _unlock_all(pg)
+    assert errors == []
+
+
+def test_a_slider_locked_after_it_moved_keeps_its_place(page):
+    """Reset on a screen locked at +N is refused too: the screen keeps its
+    colors, so the slider keeps saying +N."""
+    pg, errors = page
+    a, _ = _two_screens(pg)
+    _catch_toasts(pg)
+    _mouse_drag(pg, 40)
+    shift, turned = _hue(pg), _pair_of(pg, a)
+    pg.evaluate("(id) => { window.app.project.layers.find(l => l.id === id).locked = true; }", a)
+    try:
+        before = _steps(pg)
+        pg.locator('#quick-palette-hue-reset').click()
+        pg.wait_for_timeout(200)
+        assert len(_toasts(pg)) == 1, _toasts(pg)
+        assert _pair_of(pg, a) == turned and _hue(pg) == shift
+        assert _steps(pg) == before
+    finally:
+        _unlock_all(pg)
+    pg.locator('#quick-palette-hue-reset').click()
+    pg.wait_for_timeout(200)
+    assert _pair_of(pg, a) == SHIPPED and _hue(pg) == 0
+    assert errors == []
+
+
+def test_a_mixed_selection_turns_the_unlocked_screen_only(page):
+    """The app's rule for any edit: the unlocked screens take it, the
+    locked ones are named in one error. The slider moves, it is true of
+    the screen that took it, and the locked screen joins from where it is
+    once unlocked."""
+    pg, errors = page
+    a, b = _two_screens(pg)
+    _catch_toasts(pg)
+    pg.evaluate("""([a, b]) => {
+        const app = window.app;
+        app.project.layers.find(l => l.id === b).locked = true;
+        app.setSelectedLayersByIds([a, b], a);
+        app.resetHistory('Palette Seed');
+    }""", [a, b])
+    pg.wait_for_timeout(200)
+    try:
+        _mouse_drag(pg, 60)
+        pg.wait_for_timeout(200)
+        shift = _hue(pg)
+        assert shift > 20
+        assert len(_toasts(pg)) == 1, _toasts(pg)
+        assert _pair_of(pg, a) == _turned(pg, SHIPPED, shift)
+        assert _pair_of(pg, b) == OTHER_PAIR
+        assert _steps(pg) == ['Palette Seed', 'Adjust Palette Hue']
+    finally:
+        _unlock_all(pg)
+    pg.locator('#quick-palette-hue').focus()
+    pg.keyboard.press('ArrowRight')
+    pg.wait_for_timeout(200)
+    assert _hue(pg) == shift + 1
+    assert _pair_of(pg, a) == _turned(pg, SHIPPED, shift + 1)
+    assert _pair_of(pg, b) == _turned(pg, OTHER_PAIR, 1)
+    pg.locator('#quick-palette-hue').blur()
+    assert errors == []
+
+
+def test_a_run_of_arrow_keys_is_one_undo_step_however_slow(page):
+    """Tap, look at the wall, tap: one adjustment, the same as a drag. The
+    step lands when the person leaves the slider; a tap after that is a new
+    adjustment."""
+    pg, errors = page
+    a, _ = _two_screens(pg)
+    hue = pg.locator('#quick-palette-hue')
+    offset = pg.evaluate("() => [window.app.currentLayer.offset_x, window.app.currentLayer.offset_y]")
+    hue.focus()
+    for _ in range(3):
+        pg.keyboard.press('ArrowRight')
+        pg.wait_for_timeout(500)            # past the 400 ms a pause used to end it
+    assert _hue(pg) == 3
+    assert _pair_of(pg, a) == _turned(pg, SHIPPED, 3)
+    # the arrows belong to the slider: the screen did not nudge
+    assert pg.evaluate(
+        "() => [window.app.currentLayer.offset_x, window.app.currentLayer.offset_y]") == offset
+    # Undo with the slider still focused takes the whole run back
+    pg.keyboard.press('Control+z')
+    pg.wait_for_timeout(300)
+    assert _pair_of(pg, a) == SHIPPED and _hue(pg) == 0
+    assert _steps(pg) == ['Palette Seed']
+    _redo(pg)
+    assert _hue(pg) == 3 and _pair_of(pg, a) == _turned(pg, SHIPPED, 3)
+    _undo(pg)
+
+    # leaving the slider ends the run; a later run is its own step
+    hue.focus()
+    pg.keyboard.press('ArrowRight')
+    pg.wait_for_timeout(450)
+    pg.keyboard.press('ArrowRight')
+    hue.blur()
+    pg.wait_for_timeout(100)
+    assert _steps(pg) == ['Palette Seed', 'Adjust Palette Hue']
+    hue.focus()
+    pg.keyboard.press('ArrowLeft')
+    pg.wait_for_timeout(450)
+    pg.keyboard.press('ArrowLeft')
+    pg.wait_for_timeout(450)
+    pg.keyboard.press('ArrowLeft')
+    hue.blur()
+    pg.wait_for_timeout(100)
+    assert _hue(pg) == -1
+    assert _steps(pg) == ['Palette Seed', 'Adjust Palette Hue', 'Adjust Palette Hue']
+    _undo(pg)
+    assert _hue(pg) == 2 and _pair_of(pg, a) == _turned(pg, SHIPPED, 2)
+    _undo(pg)
+    assert _hue(pg) == 0 and _pair_of(pg, a) == SHIPPED
+    # out and back in one run changes nothing and takes no step
+    hue.focus()
+    pg.keyboard.press('ArrowRight')
+    pg.wait_for_timeout(450)
+    pg.keyboard.press('ArrowLeft')
+    hue.blur()
+    pg.wait_for_timeout(100)
+    assert _hue(pg) == 0 and _pair_of(pg, a) == SHIPPED
+    assert _steps(pg) == ['Palette Seed']
+    assert errors == []
+
+
+def test_a_key_run_stays_its_own_step_beside_a_drag_and_a_new_selection(page):
+    pg, errors = page
+    a, b = _two_screens(pg)
+    hue = pg.locator('#quick-palette-hue')
+    hue.focus()
+    pg.keyboard.press('ArrowRight')
+    pg.keyboard.press('ArrowRight')
+    # a drag straight after: the keys are one step, the drag another
+    _mouse_drag(pg, 40)
+    shift = _hue(pg)
+    assert _steps(pg) == ['Palette Seed', 'Adjust Palette Hue', 'Adjust Palette Hue']
+    _undo(pg)
+    assert _hue(pg) == 2 and _pair_of(pg, a) == _turned(pg, SHIPPED, 2)
+    _redo(pg)
+    assert _hue(pg) == shift
+    # keys, then another screen with focus still on the slider
+    hue.focus()
+    pg.keyboard.press('ArrowRight')
+    _select(pg, b)
+    assert len(_steps(pg)) == 4
+    assert _swatches(pg)[0] == OTHER_PAIR and _hue(pg) == 0
+    hue.focus()
+    pg.keyboard.press('ArrowRight')
+    pg.wait_for_timeout(100)
+    assert _pair_of(pg, b) == _turned(pg, OTHER_PAIR, 1)
+    assert _pair_of(pg, a) == _turned(pg, SHIPPED, shift + 1)
+    hue.blur()
+    assert errors == []
+
+
+def test_a_swatch_at_an_offset_then_the_slider_turns_from_the_swatch(page):
+    """The slider measures from the colors the screen has: a swatch picked
+    at +N is the new start, and a move runs from it."""
+    pg, errors = page
+    a, _ = _two_screens(pg)
+    _mouse_drag(pg, 30)
+    shift = _hue(pg)
+    pair = _swatches(pg)[3]
+    pg.locator('#quick-palette-4').click()
+    pg.wait_for_timeout(200)
+    assert _pair_of(pg, a) == pair and _hue(pg) == shift
+    _mouse_drag(pg, shift + 40)
+    moved = _hue(pg)
+    assert _pair_of(pg, a) == _turned(pg, pair, moved - shift)
+    # Shuffle starts a new set at 0 from the colors the screen has now
+    now = _pair_of(pg, a)
+    pg.locator('#quick-palette-shuffle').click()
+    pg.wait_for_timeout(200)
+    assert _hue(pg) == 0 and _pair_of(pg, a) == now
+    _mouse_drag(pg, 25)
+    assert _pair_of(pg, a) == _turned(pg, now, _hue(pg))
+    assert errors == []
+
+
+def test_a_project_opened_at_an_offset_starts_the_slider_at_0(page):
+    pg, errors = page
+    a, _ = _two_screens(pg)
+    _mouse_drag(pg, 80)
+    assert _hue(pg) != 0
+    pg.evaluate("() => { window.app.resetHistory('Palette Seed'); }")
+    pg.wait_for_timeout(200)
+    assert (_hue(pg), _readout(pg)) == (0, '0°')
+    assert _swatches(pg)[0] == _pair_of(pg, a)
+    assert errors == []
+
+
+# ── the field guard (helpers.js installFieldGuard) ───────────────────────
+
+def test_the_field_guard_leaves_the_slider_and_its_fields_alone(page):
+    """The guard refuses a value neither page script nor the person put in
+    a field. A range is a control, not a field, so it never comes into it:
+    with the guard running as it does for a person, a real drag and the
+    app's own writes go through, a refused log never appears, and the Hex
+    fields the slider writes to still take typing afterwards."""
+    pg, errors = page
+    a, _ = _two_screens(pg)
+    pg.evaluate("""() => {
+        window.__lrdFieldGuardLive = true;
+        window.__logs = [];
+        window.__beacon = navigator.sendBeacon;
+        navigator.sendBeacon = (url, blob) => {
+            blob.text().then(t => window.__logs.push(JSON.parse(t)));
+            return true;
+        };
+    }""")
+
+    def refused():
+        return [e for e in pg.evaluate("() => window.__logs")
+                if e['action'] == 'autofill_refused']
+
+    try:
+        assert pg.evaluate("() => document.__lrdFieldGuard === true")
+        _mouse_drag(pg, 100)
+        shift = _hue(pg)
+        assert shift > 50
+        turned = _turned(pg, SHIPPED, shift)
+        assert _pair_of(pg, a) == turned
+        assert pg.locator('#color1-hex').input_value() == turned[0]
+        assert pg.locator('#color2-hex').input_value() == turned[1]
+        # the app's own value writes on the slider: Undo, and the readout
+        _undo(pg)
+        assert _hue(pg) == 0
+        _redo(pg)
+        assert _hue(pg) == shift
+        pg.locator('#quick-palette-hue-reset').click()
+        pg.wait_for_timeout(200)
+        assert _hue(pg) == 0 and _pair_of(pg, a) == SHIPPED
+        # the keys, and the guide's scripted write and events
+        pg.locator('#quick-palette-hue').focus()
+        pg.keyboard.press('ArrowRight')
+        pg.locator('#quick-palette-hue').blur()
+        assert _hue(pg) == 1
+        pg.evaluate("""() => {
+            const s = document.getElementById('quick-palette-hue');
+            s.value = '9';
+            s.dispatchEvent(new Event('input', {bubbles: true}));
+            s.dispatchEvent(new Event('change', {bubbles: true}));
+        }""")
+        assert _hue(pg) == 9 and _pair_of(pg, a) == _turned(pg, SHIPPED, 9)
+        # a real typed edit in the field the slider wrote to
+        hexbox = pg.locator('#color1-hex')
+        hexbox.click()
+        hexbox.press('Control+a')
+        hexbox.press_sequentially('#123456')
+        pg.keyboard.press('Enter')
+        pg.wait_for_timeout(300)
+        assert _pair_of(pg, a)[0] == '#123456'
+        pg.wait_for_timeout(300)
+        assert refused() == []
+    finally:
+        pg.evaluate("""() => {
+            delete window.__lrdFieldGuardLive;
+            navigator.sendBeacon = window.__beacon;
+        }""")
+    assert errors == []
+
+
+def test_a_real_palette_source_pick_passes_the_field_guard(page):
+    """The Palettes tab's one guarded field: a real pick on the select, and
+    the app's own write to it when a color changes."""
+    pg, errors = page
+    _fresh_screen(pg)
+    pg.evaluate("() => { window.__lrdFieldGuardLive = true; }")
+    try:
+        pg.evaluate("() => window.app.openPreferencesModal()")
+        pg.wait_for_timeout(300)
+        pg.locator('#preferences-modal .pm-tabstrip .view-tab[data-key="palettes"]').click()
+        src = pg.locator('#pref-quick-palette-source')
+        src.focus()
+        pg.keyboard.press('ArrowDown')
+        pg.wait_for_timeout(100)
+        assert src.input_value() == 'custom'
+        assert not pg.evaluate("""() => document.getElementById('pref-quick-palette-grid')
+            .classList.contains('pm-qp-auto')""")
+        pg.keyboard.press('ArrowUp')
+        pg.wait_for_timeout(100)
+        assert src.input_value() == 'auto'
+        pg.evaluate("""() => {
+            const el = document.getElementById('pref-quick-palette-3b');
+            el.value = '#abcdef'; el.dispatchEvent(new Event('input', {bubbles: true}));
+        }""")
+        assert src.input_value() == 'custom'
+    finally:
+        pg.evaluate("""() => {
+            delete window.__lrdFieldGuardLive;
+            const c = document.getElementById('preferences-cancel');
+            if (c) c.click();
+        }""")
     assert errors == []

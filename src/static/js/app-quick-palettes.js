@@ -1,7 +1,7 @@
 // app-quick-palettes: the Pixel Map tab's Quick Palettes section - eight
 // one-click Color 1 / Color 2 pairs for the selected screens, a style
 // switch, Shuffle, and a Hue slider that fine-tunes the set and the
-// screens together. The colour maths is quick-palettes.js; the eight pairs
+// screens together. The color math is quick-palettes.js; the eight pairs
 // a user keeps for themselves are a preference (app-preferences.js,
 // quickPaletteSource / quickPaletteColors).
 import { LEDRasterApp } from './app-core.js';
@@ -11,13 +11,28 @@ import {
 
 const STYLE_KEY = 'ledRasterQuickPaletteStyle';
 
+const HUE_STEP = 'Adjust Palette Hue';
+const HUE_STEP_KEY = 'quick-palette-hue';
+// A run of arrow keys is one undo step however slowly it is tapped, and it
+// ends when the person leaves the slider. This only bounds a run that never
+// ends that way: a minute's pause closes it too.
+const HUE_RUN_MS = 60000;
+
 class _QuickPalettes {
     // ── state ─────────────────────────────────────────────────────────
     // Per session, not per screen: the style the user last picked (kept
-    // across launches), the hue the auto set is built round, whether the
+    // across launches), the hue the auto set is built around, whether the
     // set was shuffled, and the Hue slider's offset. The set is rebuilt
-    // round a screen's own colour when the selection changes to another
+    // around a screen's own color when the selection changes to another
     // screen, so picking a swatch never moves the set out from under you.
+    //
+    // The slider is measured against the set on show (`set` numbers it), so
+    // 0 always means the colors the screens have now. `anchors` holds, per
+    // screen the slider has moved, the pair it started from, the slider
+    // position it started at, and the pair last written: every move turns
+    // from the start, so many small moves never drift and a reset lands on
+    // the first colors exactly. A screen whose colors no longer match the
+    // last write was changed some other way, and starts again from there.
     _qpState() {
         if (!this._quickPalette) {
             let style = 'tonal';
@@ -27,15 +42,20 @@ class _QuickPalettes {
             } catch (e) { /* storage blocked: the default style */ }
             this._quickPalette = {
                 style, baseHue: null, current: null, shuffled: false,
-                shift: 0, selectionKey: null, drag: null,
+                shift: 0, selectionKey: null, set: 0, anchors: new Map(),
+                moved: null, pressed: false,
             };
         }
         return this._quickPalette;
     }
 
-    // The selected screens (image and text layers carry no tile colours).
+    // The selected screens (image and text layers carry no tile colors).
     _qpScreens() {
         return (this.getSelectedLayers() || []).filter(l => l && (l.type || 'screen') === 'screen');
+    }
+
+    _qpSelectionKey() {
+        return this._qpScreens().map(l => l.id).join(',');
     }
 
     _qpPairOf(layer) {
@@ -54,7 +74,7 @@ class _QuickPalettes {
     }
 
     // The eight pairs as the swatches show them: the user's own set or
-    // the one built round the screen's colour, turned by the Hue slider.
+    // the one built around the screen's color, turned by the Hue slider.
     getQuickPalettes() {
         const st = this._qpState();
         let pairs;
@@ -85,60 +105,173 @@ class _QuickPalettes {
         $('quick-palette-shuffle').addEventListener('click', () => {
             // Shuffle builds a fresh set from a random hue and puts the
             // slider back to 0, so the eight it shows are the new set.
+            this._qpNewSet();
             const st = S();
             st.baseHue = Math.floor(Math.random() * 360);
             st.shuffled = true;
-            st.shift = 0;
             this.renderQuickPalettes();
         });
 
+        // The slider follows `input`. Nothing starts until the thumb really
+        // moves, so a press that moves nothing leaves nothing open. An undo
+        // step lands when the adjustment ends: a press of the mouse when it
+        // is let go (the browser need not fire `change`, say after a drag
+        // back to where it began), a run of arrow keys when the person
+        // leaves the slider, undoes, or does anything else that takes a
+        // step: each tap is a degree, too small to be worth an Undo of its
+        // own, so a run is one adjustment like a drag.
         const hue = $('quick-palette-hue');
-        // A drag (or a run of arrow-key steps) turns each selected screen
-        // from the colours it had when the drag started, so many small
-        // moves never drift, and records one undo step when it ends.
-        const startDrag = () => {
+        const follow = () => {
             const st = S();
-            if (st.drag) return;
-            st.drag = {
-                from: st.shift,
-                layers: this._qpScreens().map(l => ({ id: l.id, pair: this._qpPairOf(l) })),
-            };
-        };
-        const follow = (isFinal) => {
-            const st = S();
-            startDrag();
-            st.shift = Math.max(-180, Math.min(180, parseInt(hue.value, 10) || 0));
-            const delta = st.shift - st.drag.from;
-            const byId = new Map(st.drag.layers.map(x => [x.id, x.pair]));
-            this.applyToSelectedLayers(layer => {
-                const pair = byId.get(layer.id);
-                if (!pair) return;
-                layer.color1 = this.hexToRgb(rotateHue(pair[0], delta));
-                layer.color2 = this.hexToRgb(rotateHue(pair[1], delta));
-            });
-            if (window.canvasRenderer) window.canvasRenderer.render();
-            this.renderQuickPalettes();
-            this._qpSyncColorInputs();
-            if (isFinal) {
-                st.drag = null;
-                this.updateLayers(this.getSelectedLayers());
-                this.debouncedSaveState('Adjust Palette Hue', 400, 'quick-palette-hue');
+            const to = Math.max(-180, Math.min(180, parseInt(hue.value, 10) || 0));
+            if (to === st.shift) return;
+            const screens = this._qpScreens();
+            if (screens.length && screens.every(l => this._layerLocked(l))) {
+                // Nothing changes, so the slider goes back and no step is
+                // taken. A mixed selection goes to the funnel, which holds
+                // the locked screens back and turns the others.
+                hue.value = String(st.shift);
+                this._reportLockedEdit(screens);
+                return;
             }
+            // The pairs this adjustment began on, to tell a real change.
+            if (!st.moved) st.moved = new Map(screens.map(l => [l.id, this._qpPairOf(l).join('|')]));
+            this._qpTurn(to);
         };
-        hue.addEventListener('pointerdown', startDrag);
-        hue.addEventListener('input', () => follow(false));
-        hue.addEventListener('change', () => follow(true));
-        hue.addEventListener('dblclick', () => { hue.value = '0'; follow(true); });
-        $('quick-palette-hue-reset').addEventListener('click', () => {
-            if (S().shift === 0) return;
+        const commit = (run) => {
+            const st = S();
+            const began = st.moved;
+            if (!began) return;
+            st.moved = null;
+            // Out and back to where it began: nothing to record.
+            if (this._qpScreens().every(l => began.get(l.id) === this._qpPairOf(l).join('|'))) return;
+            this.updateLayers(this.getSelectedLayers());
+            if (run) this.debouncedSaveState(HUE_STEP, HUE_RUN_MS, HUE_STEP_KEY);
+            else this.saveState(HUE_STEP);
+        };
+        // One adjustment made in one go: a double-click, or the readout.
+        const resetHue = () => {
+            this._qpEndKeyRun();
             hue.value = '0';
-            follow(true);
+            follow();
+            commit(false);
+        };
+        const release = () => {
+            const st = S();
+            if (!st.pressed) return;
+            st.pressed = false;
+            commit(false);
+            // A refused drag ends here: the next one says its error again.
+            this._reportLockedEdit([]);
+        };
+        hue.addEventListener('pointerdown', () => {
+            this._qpEndKeyRun();
+            commit(false);
+            S().pressed = true;
+        });
+        window.addEventListener('pointerup', release, true);
+        window.addEventListener('pointercancel', release, true);
+        hue.addEventListener('input', follow);
+        hue.addEventListener('change', () => {
+            follow();
+            if (S().pressed) return;
+            commit(true);
+            this._reportLockedEdit([]);
+        });
+        hue.addEventListener('blur', () => {
+            commit(false);
+            this._qpEndKeyRun();
+        });
+        hue.addEventListener('dblclick', resetHue);
+        $('quick-palette-hue-reset').addEventListener('click', () => {
+            if (S().shift !== 0) resetHue();
         });
 
         this.renderQuickPalettes();
     }
 
-    // Colour the selected screens with pair `index` of the set on show.
+    // Where a screen's colors start from for the slider (see _qpState).
+    _qpAnchor(layer) {
+        const st = this._qpState();
+        const pair = this._qpPairOf(layer);
+        const held = st.anchors.get(layer.id);
+        if (held && held.shown === pair.join('|')) return held;
+        return { pair, from: st.shift, shown: pair.join('|') };
+    }
+
+    // Move the slider to `to`, turning the selected screens with it. The
+    // anchors are written after the funnel: a screen it held back did not
+    // move, so it starts again from where it is when it next can.
+    _qpTurn(to) {
+        const st = this._qpState();
+        const plan = new Map(this._qpScreens().map(l => {
+            const anchor = this._qpAnchor(l);
+            return [l.id, { anchor, pair: anchor.pair.map(c => rotateHue(c, to - anchor.from)) }];
+        }));
+        st.shift = to;
+        this.applyToSelectedLayers(layer => {
+            const turn = plan.get(layer.id);
+            if (!turn) return;
+            // Over the old object, keeping its key order, so a screen
+            // turned back to where it began reads as unchanged in history.
+            layer.color1 = { ...layer.color1, ...this.hexToRgb(turn.pair[0]) };
+            layer.color2 = { ...layer.color2, ...this.hexToRgb(turn.pair[1]) };
+        });
+        this._qpScreens().forEach(l => {
+            const turn = plan.get(l.id);
+            const shown = this._qpPairOf(l).join('|');
+            if (turn && shown === turn.pair.join('|')) st.anchors.set(l.id, { ...turn.anchor, shown });
+            else st.anchors.delete(l.id);
+        });
+        if (window.canvasRenderer) window.canvasRenderer.render();
+        this.renderQuickPalettes();
+        this._qpSyncColorInputs();
+    }
+
+    // A run of arrow keys still waiting on its step lands now.
+    _qpEndKeyRun() {
+        if (this._pendingSaveKey === HUE_STEP_KEY) this._flushPendingSaveState();
+    }
+
+    // A new set on show: the slider starts at 0 from the colors the
+    // screens have now. What it was doing lands first, on the old set.
+    _qpNewSet() {
+        this._qpEndKeyRun();
+        const st = this._qpState();
+        st.set += 1;
+        st.shift = 0;
+        st.anchors = new Map();
+    }
+
+    // ── undo and redo ─────────────────────────────────────────────────
+    // A history entry carries the slider as it stood (saveState), so undo
+    // and redo put it back with the colors it was measured from. An entry
+    // taken on another set says nothing about this one: the slider reads 0.
+    _qpHistoryRecord() {
+        const st = this._qpState();
+        return { set: st.set, shift: st.shift, anchors: [...st.anchors] };
+    }
+
+    _qpRestoreHistory(record) {
+        const st = this._qpState();
+        st.moved = null;
+        this.loadQuickPalettes();
+        const same = !!record && record.set === st.set;
+        st.shift = same ? record.shift : 0;
+        st.anchors = new Map(same ? record.anchors : []);
+        this.renderQuickPalettes();
+    }
+
+    // A project opened or made new (resetHistory): whatever the ids say,
+    // these are other screens, so they get their own set.
+    _qpProjectChanged() {
+        if (!this._quickPalette) return;
+        this._quickPalette.moved = null;
+        this._quickPalette.selectionKey = null;
+        this.loadQuickPalettes();
+    }
+
+    // Color the selected screens with pair `index` of the set on show.
     applyQuickPalette(index) {
         const pair = this.getQuickPalettes()[index];
         if (!pair) return;
@@ -148,7 +281,7 @@ class _QuickPalettes {
             if ((layer.type || 'screen') !== 'screen') return;
             layer.color1 = { ...c1 };
             layer.color2 = { ...c2 };
-            // A pair is a checkerboard: a screen on a multi-colour pattern
+            // A pair is a checkerboard: a screen on a multi-color pattern
             // or drawn see-through would not show it, so both go back to
             // the plain checkerboard.
             if (layer.panelColorMode && layer.panelColorMode !== 'checker') layer.panelColorMode = 'checker';
@@ -184,19 +317,19 @@ class _QuickPalettes {
     }
 
     // Called when Screen Info fills for a selection (loadLayerToInputs). A
-    // selection of other screens rebuilds the auto set round the first
-    // one's colour, slider at 0; the same selection only repaints.
+    // selection of other screens rebuilds the auto set around the first
+    // one's color, slider at 0; the same selection only repaints.
     loadQuickPalettes() {
         const st = this._qpState();
-        const screens = this._qpScreens();
-        const key = screens.map(l => l.id).join(',');
-        if (key !== st.selectionKey && !st.drag) {
+        const key = this._qpSelectionKey();
+        if (key !== st.selectionKey) {
+            this._qpNewSet();
             st.selectionKey = key;
+            const screens = this._qpScreens();
             const pair = screens.length ? this._qpPairOf(screens[0]) : null;
             st.current = pair;
             st.baseHue = hueOf(pair ? pair[0] : null);
             st.shuffled = false;
-            st.shift = 0;
         }
         this.renderQuickPalettes();
     }
@@ -256,9 +389,9 @@ class _QuickPalettes {
 
         const note = document.getElementById('quick-palette-note');
         if (note) {
-            if (disabled) note.textContent = 'Select a screen to colour it.';
+            if (disabled) note.textContent = 'Select a screen to color it.';
             else if (custom) note.textContent = 'Your palettes, from Preferences.';
-            else if (active === 0 && !st.shuffled && st.style === 'tonal' && st.shift === 0) note.textContent = 'Palette 1 is this screen’s colours.';
+            else if (active === 0 && !st.shuffled && st.style === 'tonal' && st.shift === 0) note.textContent = 'Palette 1 is this screen’s colors.';
             else note.textContent = active >= 0 ? `Palette ${active + 1}` : '';
         }
     }

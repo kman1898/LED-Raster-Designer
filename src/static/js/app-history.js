@@ -17,6 +17,7 @@ class _History {
         // (app-naming _commitMultiNumbers).
         this._multiBaseline = null;
         this._multiHoldsDirty = false;
+        if (typeof this._qpProjectChanged === 'function') this._qpProjectChanged();
         this.saveState(initialAction);
         if (initialAction === 'Initial State' && typeof this.markProjectClean === 'function') {
             this.markProjectClean();
@@ -100,7 +101,9 @@ class _History {
             timestamp: Date.now(),
             // A circuit redraw open as this entry is taken: the project reads
             // right only with its hold (app-run-overrides _powerRedrawRecord).
-            redraw: typeof this._powerRedrawRecord === 'function' ? this._powerRedrawRecord() : null
+            redraw: typeof this._powerRedrawRecord === 'function' ? this._powerRedrawRecord() : null,
+            // The Hue slider as this entry leaves it (app-quick-palettes).
+            quickPalette: typeof this._qpHistoryRecord === 'function' ? this._qpHistoryRecord() : null
         };
 
 
@@ -199,6 +202,8 @@ class _History {
             // The circuit redraw this entry had open comes back with it, and
             // one it did not have closes (app-run-overrides).
             if (typeof this._restorePowerRedraw === 'function') this._restorePowerRedraw(state.redraw);
+            // The Hue slider stays true of the colors put back.
+            if (typeof this._qpRestoreHistory === 'function') this._qpRestoreHistory(state.quickPalette);
             // Both, not just the data side. loadLayerToInputs() below happens
             // to refresh the power one too, so this was only exposed on its
             // early-return paths - but an undo in Power view has no business
@@ -449,6 +454,8 @@ class _History {
             // The circuit redraw this entry had open comes back with it, and
             // one it did not have closes (app-run-overrides).
             if (typeof this._restorePowerRedraw === 'function') this._restorePowerRedraw(state.redraw);
+            // The Hue slider stays true of the colors put back.
+            if (typeof this._qpRestoreHistory === 'function') this._qpRestoreHistory(state.quickPalette);
             // Both, not just the data side. loadLayerToInputs() below happens
             // to refresh the power one too, so this was only exposed on its
             // early-return paths - but an undo in Power view has no business
