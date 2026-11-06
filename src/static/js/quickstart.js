@@ -5410,7 +5410,11 @@
             before: function () {
                 switchView('rigging');
                 var w = wall();
+                // The + is a toggle kept on the app, not in the show: an
+                // earlier run left open would close here and hide the 5.
+                A()._riggingMoreOpen = false;
                 if (w) A().setSelectedLayersByIds([w.id], w.id);
+                A().refreshRiggingPanel();
             },
             act: function (t) {
                 var picks = ['1', '#rigging-size-more', '5'];

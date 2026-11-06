@@ -908,3 +908,11 @@ def test_a_mirror_screen_keeps_its_own_bars_and_is_counted(pg):
     auto(p, 'B')
     assert lay(p, 'B', 'dataMirrorOf')['dataMirrorOf'] == p.ids['A']
     assert total(p) == 12 and pull_rig(p)[0]['qty'] == 12
+
+
+def test_the_sheet_takes_its_number_in_the_screens_series(pg):
+    p = pg
+    tab(p)
+    auto(p, 'A')
+    numbers = p.evaluate("""(o) => window.app.planBinder(o).filter(x => x.kind === 'rigging').map(x => x.number)""", OPTS)
+    assert numbers == ['2.1'], numbers

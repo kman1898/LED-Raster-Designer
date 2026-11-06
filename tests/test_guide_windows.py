@@ -97,12 +97,13 @@ QUICK_RUNS = []
 # is not new and A list for each kind of cable runs alone.
 WHATS_NEW_RUNS = {
     '1.5.0': [['sameAsLast', 'avgPower'], ['jumperNames', 'pullPanels'],
-              ['cableStock', 'cableStockPerKind']],
+              ['cableStock', 'cableStockPerKind'], ['riggingSheet', 'fiberPage']],
     '1.5.1': [['sameAsLast', 'avgPower'], ['jumperNames', 'pullPanels'],
-              ['cableStock', 'cableStockPerKind']],
+              ['cableStock', 'cableStockPerKind'], ['riggingSheet', 'fiberPage']],
     '1.5.2': [['sameAsLast', 'avgPower'], ['jumperNames', 'pullPanels'],
-              ['cableStock', 'cableStockPerKind']],
-    '1.5.3': [['sameAsLast', 'avgPower'], ['jumperNames', 'pullPanels']],
+              ['cableStock', 'cableStockPerKind'], ['riggingSheet', 'fiberPage']],
+    '1.5.3': [['sameAsLast', 'avgPower'], ['jumperNames', 'pullPanels'],
+              ['riggingSheet', 'fiberPage']],
 }
 
 # Each step's declared windows as a token the page can compare without
