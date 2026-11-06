@@ -6199,7 +6199,7 @@
       "weight_lb": 14.109568,
       "proc_type": null,
       "watts_max": 104.5,
-      "watts_ave": null,
+      "watts_ave": 35.2,
       "source": "catalog"
     },
     {
@@ -6214,7 +6214,7 @@
       "weight_lb": 14.109568,
       "proc_type": null,
       "watts_max": 104.5,
-      "watts_ave": null,
+      "watts_ave": 35.2,
       "source": "catalog"
     },
     {
@@ -6229,7 +6229,7 @@
       "weight_lb": 15.432339999999998,
       "proc_type": null,
       "watts_max": 104.5,
-      "watts_ave": null,
+      "watts_ave": 35.2,
       "source": "catalog"
     },
     {
@@ -6259,7 +6259,7 @@
       "weight_lb": 28.660059999999998,
       "proc_type": null,
       "watts_max": 400.4,
-      "watts_ave": null,
+      "watts_ave": 100.0,
       "source": "catalog"
     },
     {
@@ -6274,7 +6274,7 @@
       "weight_lb": 28.660059999999998,
       "proc_type": null,
       "watts_max": 400.4,
-      "watts_ave": null,
+      "watts_ave": 100.0,
       "source": "catalog"
     },
     {
@@ -6288,8 +6288,8 @@
       "weight_kg": 13.0,
       "weight_lb": 28.660059999999998,
       "proc_type": null,
-      "watts_max": 449.9,
-      "watts_ave": null,
+      "watts_max": 400.0,
+      "watts_ave": 100.0,
       "source": "catalog"
     },
     {
@@ -6319,7 +6319,7 @@
       "weight_lb": 28.660059999999998,
       "proc_type": null,
       "watts_max": 244.0,
-      "watts_ave": null,
+      "watts_ave": 99.0,
       "source": "official: barco.com NX4 spec sheet",
       "amps_max_110v": 2.22
     },
@@ -6334,8 +6334,8 @@
       "weight_kg": 13.0,
       "weight_lb": 28.660059999999998,
       "proc_type": null,
-      "watts_max": 330.0,
-      "watts_ave": null,
+      "watts_max": 219.0,
+      "watts_ave": 104.0,
       "source": "catalog"
     },
     {
@@ -6350,7 +6350,7 @@
       "weight_lb": 127.86795999999998,
       "proc_type": null,
       "watts_max": 970.2,
-      "watts_ave": null,
+      "watts_ave": 275.0,
       "source": "catalog"
     },
     {
@@ -6365,7 +6365,7 @@
       "weight_lb": 127.86795999999998,
       "proc_type": null,
       "watts_max": 799.7,
-      "watts_ave": null,
+      "watts_ave": 240.0,
       "source": "catalog"
     },
     {
@@ -6380,7 +6380,7 @@
       "weight_lb": 88.1848,
       "proc_type": null,
       "watts_max": 679.8,
-      "watts_ave": null,
+      "watts_ave": 170.0,
       "source": "catalog"
     },
     {
@@ -6395,7 +6395,7 @@
       "weight_lb": 21.605276,
       "proc_type": null,
       "watts_max": 90.2,
-      "watts_ave": null,
+      "watts_ave": 77.64,
       "source": "catalog"
     },
     {
@@ -6410,7 +6410,7 @@
       "weight_lb": 21.605276,
       "proc_type": null,
       "watts_max": 91.3,
-      "watts_ave": null,
+      "watts_ave": 83.64,
       "source": "catalog"
     },
     {
@@ -6425,7 +6425,7 @@
       "weight_lb": 14.550491999999998,
       "proc_type": null,
       "watts_max": 189.2,
-      "watts_ave": null,
+      "watts_ave": 90.0,
       "source": "catalog"
     },
     {
@@ -6440,6 +6440,7 @@
       "weight_lb": 14.55,
       "proc_type": null,
       "watts_max": 165.0,
+      "watts_ave": 75.6,
       "amps_max_110v": 1.5,
       "source": "official: barco.com X1.9 Spec Sheet PDF"
     },
@@ -6455,7 +6456,7 @@
       "weight_lb": 14.550491999999998,
       "proc_type": null,
       "watts_max": 165.0,
-      "watts_ave": null,
+      "watts_ave": 75.6,
       "source": "official: barco.com X1.9 Spec Sheet PDF"
     },
     {
@@ -6470,7 +6471,7 @@
       "weight_lb": 13.227719999999998,
       "proc_type": null,
       "watts_max": 130.9,
-      "watts_ave": null,
+      "watts_ave": 63.68,
       "source": "catalog"
     },
     {
@@ -6485,7 +6486,7 @@
       "weight_lb": 16.975573999999998,
       "proc_type": null,
       "watts_max": 70.4,
-      "watts_ave": null,
+      "watts_ave": 59.9,
       "source": "catalog"
     },
     {
@@ -6500,7 +6501,7 @@
       "weight_lb": 15.432339999999998,
       "proc_type": null,
       "watts_max": 130.9,
-      "watts_ave": null,
+      "watts_ave": 56.22,
       "source": "catalog"
     },
     {
@@ -6515,7 +6516,7 @@
       "weight_lb": 16.975573999999998,
       "proc_type": null,
       "watts_max": 188.9,
-      "watts_ave": null,
+      "watts_ave": 50.0,
       "source": "official: barco.com X4 Spec Sheet PDF",
       "amps_max_110v": 1.72
     },
@@ -6531,7 +6532,7 @@
       "weight_lb": 16.53465,
       "proc_type": null,
       "watts_max": 137.5,
-      "watts_ave": null,
+      "watts_ave": 53.57,
       "source": "official: barco.com XT1.5 Spec Sheet PDF"
     }
   ],
@@ -7601,7 +7602,7 @@
       "weight_lb": 15.652801999999998,
       "proc_type": null,
       "watts_max": 235.4,
-      "watts_ave": null,
+      "watts_ave": 78.0,
       "source": "catalog"
     },
     {
@@ -7616,7 +7617,7 @@
       "weight_lb": 15.652801999999998,
       "proc_type": null,
       "watts_max": 181.5,
-      "watts_ave": null,
+      "watts_ave": 61.0,
       "source": "catalog"
     },
     {
@@ -7631,7 +7632,7 @@
       "weight_lb": 15.652801999999998,
       "proc_type": null,
       "watts_max": 176.0,
-      "watts_ave": null,
+      "watts_ave": 59.0,
       "source": "catalog"
     },
     {
@@ -7646,7 +7647,7 @@
       "weight_lb": 15.652801999999998,
       "proc_type": null,
       "watts_max": 173.8,
-      "watts_ave": null,
+      "watts_ave": 58.0,
       "source": "catalog"
     },
     {
@@ -7661,7 +7662,7 @@
       "weight_lb": 15.652801999999998,
       "proc_type": null,
       "watts_max": 96.8,
-      "watts_ave": null,
+      "watts_ave": 32.0,
       "source": "catalog"
     },
     {
@@ -7675,8 +7676,8 @@
       "weight_kg": 2.2,
       "weight_lb": 4.850164,
       "proc_type": null,
-      "watts_max": 49.5,
-      "watts_ave": null,
+      "watts_max": 32.0,
+      "watts_ave": 16.0,
       "source": "catalog"
     },
     {
@@ -7690,8 +7691,8 @@
       "weight_kg": 2.2,
       "weight_lb": 4.850164,
       "proc_type": null,
-      "watts_max": 49.5,
-      "watts_ave": null,
+      "watts_max": 43.0,
+      "watts_ave": 25.0,
       "source": "catalog"
     },
     {
@@ -7706,7 +7707,7 @@
       "weight_lb": 4.850164,
       "proc_type": null,
       "watts_max": 74.8,
-      "watts_ave": null,
+      "watts_ave": 23.0,
       "source": "catalog"
     },
     {
@@ -7721,7 +7722,7 @@
       "weight_lb": 4.850164,
       "proc_type": null,
       "watts_max": 74.8,
-      "watts_ave": null,
+      "watts_ave": 23.0,
       "source": "catalog"
     },
     {
@@ -7736,7 +7737,7 @@
       "weight_lb": 4.850164,
       "proc_type": null,
       "watts_max": 74.8,
-      "watts_ave": null,
+      "watts_ave": 23.0,
       "source": "catalog"
     }
   ],
@@ -10884,27 +10885,282 @@
       "pixels_w": 128,
       "pixels_h": 256,
       "pitch_mm": 3.906,
-      "weight_kg": 15.86,
-      "weight_lb": 34.9652732,
+      "weight_kg": 15.88,
+      "weight_lb": 35.0093656,
       "proc_type": null,
-      "watts_max": 449.9,
-      "watts_ave": null,
-      "source": "catalog"
+      "watts_max": 450.0,
+      "watts_ave": 230.0,
+      "source": "official: DVS DioPlex HD-3 model page dvsledsystems.com (read 2026-10-30)"
     },
     {
-      "name": "Optic - 4IPL",
+      "name": "DioPlex HD-2",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 1000.0,
+      "pixels_w": 168,
+      "pixels_h": 336,
+      "pitch_mm": 2.976,
+      "weight_kg": 15.88,
+      "weight_lb": 35.0093656,
+      "proc_type": null,
+      "watts_max": 500.0,
+      "watts_ave": 270.0,
+      "source": "official: DVS DioPlex HD-2 product page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "DioPlex HD-4",
       "connector": null,
       "width_mm": 500.0,
       "height_mm": 1000.0,
       "pixels_w": 104,
       "pixels_h": 208,
       "pitch_mm": 4.808,
-      "weight_kg": 13.15,
-      "weight_lb": 28.990752999999998,
+      "weight_kg": 15.88,
+      "weight_lb": 35.0093656,
       "proc_type": null,
-      "watts_max": 239.8,
-      "watts_ave": null,
-      "source": "catalog"
+      "watts_max": 450.0,
+      "watts_ave": 230.0,
+      "source": "official: DVS DioPlex HD-4 product page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "DioPlex HX-1.2",
+      "connector": null,
+      "width_mm": 960.0,
+      "height_mm": 540.0,
+      "pixels_w": 768,
+      "pixels_h": 432,
+      "pitch_mm": 1.25,
+      "weight_kg": 17.69,
+      "weight_lb": 38.9997278,
+      "proc_type": null,
+      "watts_max": 360.0,
+      "watts_ave": 120.0,
+      "source": "official: DVS DioPlex HX-1.2 product page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "DioPlex HX-1.5",
+      "connector": null,
+      "width_mm": 960.0,
+      "height_mm": 540.0,
+      "pixels_w": 640,
+      "pixels_h": 360,
+      "pitch_mm": 1.5,
+      "weight_kg": 17.69,
+      "weight_lb": 38.9997278,
+      "proc_type": null,
+      "watts_max": 360.0,
+      "watts_ave": 120.0,
+      "source": "official: DVS DioPlex HX-1.5 product page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "DioPlex HX-1.8",
+      "connector": null,
+      "width_mm": 960.0,
+      "height_mm": 540.0,
+      "pixels_w": 512,
+      "pixels_h": 288,
+      "pitch_mm": 1.875,
+      "weight_kg": 17.69,
+      "weight_lb": 38.9997278,
+      "proc_type": null,
+      "watts_max": 360.0,
+      "watts_ave": 120.0,
+      "source": "official: DVS DioPlex HX-1.8 product page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "DioPlex HX-2.5",
+      "connector": null,
+      "width_mm": 960.0,
+      "height_mm": 540.0,
+      "pixels_w": 384,
+      "pixels_h": 216,
+      "pitch_mm": 2.5,
+      "weight_kg": 17.69,
+      "weight_lb": 38.9997278,
+      "proc_type": null,
+      "watts_max": 360.0,
+      "watts_ave": 120.0,
+      "source": "official: DVS DioPlex HX-2.5 product page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "DioPlex UHD-1",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 500.0,
+      "pixels_w": 256,
+      "pixels_h": 256,
+      "pitch_mm": 1.953,
+      "weight_kg": 8.98,
+      "weight_lb": 19.7974876,
+      "proc_type": null,
+      "watts_max": 190.0,
+      "watts_ave": 105.0,
+      "source": "official: DVS DioPlex UHD-1 legacy page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "DioPlex-10",
+      "connector": null,
+      "width_mm": 960.0,
+      "height_mm": 960.0,
+      "pixels_w": 96,
+      "pixels_h": 96,
+      "pitch_mm": 10.0,
+      "weight_kg": 20.87,
+      "weight_lb": 46.0104194,
+      "proc_type": null,
+      "watts_max": 560.0,
+      "watts_ave": 200.0,
+      "source": "official: DVS DioPlex-10 model page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "DioPlex-10 HO",
+      "connector": null,
+      "width_mm": 960.0,
+      "height_mm": 960.0,
+      "pixels_w": 96,
+      "pixels_h": 96,
+      "pitch_mm": 10.0,
+      "weight_kg": 20.87,
+      "weight_lb": 46.0104194,
+      "proc_type": null,
+      "watts_max": 640.0,
+      "watts_ave": 320.0,
+      "source": "official: DVS DioPlex-10 model page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "DioPlex-10+",
+      "connector": null,
+      "width_mm": 960.0,
+      "height_mm": 960.0,
+      "pixels_w": 96,
+      "pixels_h": 96,
+      "pitch_mm": 10.0,
+      "weight_kg": 20.87,
+      "weight_lb": 46.0104194,
+      "proc_type": null,
+      "watts_max": 560.0,
+      "watts_ave": 200.0,
+      "source": "official: DVS DioPlex-10 model page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "DioPlex-6",
+      "connector": null,
+      "width_mm": 960.0,
+      "height_mm": 960.0,
+      "pixels_w": 144,
+      "pixels_h": 144,
+      "pitch_mm": 6.667,
+      "weight_kg": 20.87,
+      "weight_lb": 46.0104194,
+      "proc_type": null,
+      "watts_max": 560.0,
+      "watts_ave": 200.0,
+      "source": "official: DVS DioPlex-6 model page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "DioPlex-6 HO",
+      "connector": null,
+      "width_mm": 960.0,
+      "height_mm": 960.0,
+      "pixels_w": 144,
+      "pixels_h": 144,
+      "pitch_mm": 6.667,
+      "weight_kg": 20.87,
+      "weight_lb": 46.0104194,
+      "proc_type": null,
+      "watts_max": 640.0,
+      "watts_ave": 320.0,
+      "source": "official: DVS DioPlex-6 model page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "DioPlex-6+",
+      "connector": null,
+      "width_mm": 960.0,
+      "height_mm": 960.0,
+      "pixels_w": 144,
+      "pixels_h": 144,
+      "pitch_mm": 6.667,
+      "weight_kg": 20.87,
+      "weight_lb": 46.0104194,
+      "proc_type": null,
+      "watts_max": 560.0,
+      "watts_ave": 200.0,
+      "source": "official: DVS DioPlex-6 model page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "DioPlex-8",
+      "connector": null,
+      "width_mm": 960.0,
+      "height_mm": 960.0,
+      "pixels_w": 120,
+      "pixels_h": 120,
+      "pitch_mm": 8.0,
+      "weight_kg": 20.87,
+      "weight_lb": 46.0104194,
+      "proc_type": null,
+      "watts_max": 560.0,
+      "watts_ave": 200.0,
+      "source": "official: DVS DioPlex-8 model page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "DioPlex-8 HO",
+      "connector": null,
+      "width_mm": 960.0,
+      "height_mm": 960.0,
+      "pixels_w": 120,
+      "pixels_h": 120,
+      "pitch_mm": 8.0,
+      "weight_kg": 20.87,
+      "weight_lb": 46.0104194,
+      "proc_type": null,
+      "watts_max": 640.0,
+      "watts_ave": 320.0,
+      "source": "official: DVS DioPlex-8 model page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "DioPlex-8+",
+      "connector": null,
+      "width_mm": 960.0,
+      "height_mm": 960.0,
+      "pixels_w": 120,
+      "pixels_h": 120,
+      "pitch_mm": 8.0,
+      "weight_kg": 20.87,
+      "weight_lb": 46.0104194,
+      "proc_type": null,
+      "watts_max": 560.0,
+      "watts_ave": 200.0,
+      "source": "official: DVS DioPlex-8 model page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "Exon-2",
+      "connector": null,
+      "width_mm": 1000.0,
+      "height_mm": 250.0,
+      "pixels_w": 384,
+      "pixels_h": 96,
+      "pitch_mm": 2.604,
+      "weight_kg": 4.99,
+      "weight_lb": 11.0010538,
+      "proc_type": null,
+      "watts_max": 170.0,
+      "watts_ave": 80.0,
+      "source": "official: DVS Exon-2 legacy page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "Exon-3",
+      "connector": null,
+      "width_mm": 1000.0,
+      "height_mm": 250.0,
+      "pixels_w": 256,
+      "pixels_h": 64,
+      "pitch_mm": 3.906,
+      "weight_kg": 4.99,
+      "weight_lb": 11.0010538,
+      "proc_type": null,
+      "watts_max": 170.0,
+      "watts_ave": 80.0,
+      "source": "official: DVS Exon-3 legacy page dvsledsystems.com (read 2026-10-30)"
     },
     {
       "name": "Optic - 5IP",
@@ -10914,12 +11170,12 @@
       "pixels_w": 84,
       "pixels_h": 84,
       "pitch_mm": 5.952,
-      "weight_kg": 6.81,
-      "weight_lb": 15.013462199999998,
+      "weight_kg": 6.8,
+      "weight_lb": 14.991416,
       "proc_type": null,
-      "watts_max": 210.1,
-      "watts_ave": null,
-      "source": "catalog"
+      "watts_max": 210.0,
+      "watts_ave": 100.0,
+      "source": "official: DVS Optic-5IP legacy page dvsledsystems.com (read 2026-10-30)"
     },
     {
       "name": "Optic - 5IPX",
@@ -10937,6 +11193,36 @@
       "source": "catalog"
     },
     {
+      "name": "Optic-2",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 500.0,
+      "pixels_w": 168,
+      "pixels_h": 168,
+      "pitch_mm": 2.976,
+      "weight_kg": 6.8,
+      "weight_lb": 14.991416,
+      "proc_type": null,
+      "watts_max": 170.0,
+      "watts_ave": 68.0,
+      "source": "official: DVS Optic-2 legacy page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "Optic-2X",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 1000.0,
+      "pixels_w": 168,
+      "pixels_h": 336,
+      "pitch_mm": 2.976,
+      "weight_kg": 12.25,
+      "weight_lb": 27.006595,
+      "proc_type": null,
+      "watts_max": 320.0,
+      "watts_ave": 120.0,
+      "source": "official: DVS Optic-2X legacy page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
       "name": "Optic-3",
       "connector": null,
       "width_mm": 500.0,
@@ -10947,9 +11233,39 @@
       "weight_kg": 6.8,
       "weight_lb": 14.991415999999997,
       "proc_type": null,
-      "watts_max": 170.5,
-      "watts_ave": null,
-      "source": "catalog"
+      "watts_max": 170.0,
+      "watts_ave": 68.0,
+      "source": "official: DVS Optic-3 legacy page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "Optic-3IP",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 500.0,
+      "pixels_w": 128,
+      "pixels_h": 128,
+      "pitch_mm": 3.906,
+      "weight_kg": 6.8,
+      "weight_lb": 14.991416,
+      "proc_type": null,
+      "watts_max": 190.0,
+      "watts_ave": 90.0,
+      "source": "official: DVS Optic-3IP legacy page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "Optic-3IPX",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 1000.0,
+      "pixels_w": 128,
+      "pixels_h": 256,
+      "pitch_mm": 3.906,
+      "weight_kg": 12.25,
+      "weight_lb": 27.006595,
+      "proc_type": null,
+      "watts_max": 350.0,
+      "watts_ave": 130.0,
+      "source": "official: DVS Optic-3IPX legacy page dvsledsystems.com (read 2026-10-30)"
     },
     {
       "name": "Optic-3X",
@@ -10962,9 +11278,114 @@
       "weight_kg": 12.25,
       "weight_lb": 27.006594999999997,
       "proc_type": null,
-      "watts_max": 359.7,
-      "watts_ave": null,
-      "source": "catalog"
+      "watts_max": 320.0,
+      "watts_ave": 120.0,
+      "source": "official: DVS Optic-3X legacy page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "Optic-4IP",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 500.0,
+      "pixels_w": 104,
+      "pixels_h": 104,
+      "pitch_mm": 4.808,
+      "weight_kg": 6.8,
+      "weight_lb": 14.991416,
+      "proc_type": null,
+      "watts_max": 190.0,
+      "watts_ave": 90.0,
+      "source": "official: DVS Optic-4IP legacy page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "Optic-4IPX",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 1000.0,
+      "pixels_w": 104,
+      "pixels_h": 208,
+      "pitch_mm": 4.808,
+      "weight_kg": 12.25,
+      "weight_lb": 27.006595,
+      "proc_type": null,
+      "watts_max": 350.0,
+      "watts_ave": 130.0,
+      "source": "official: DVS Optic-4IPX legacy page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "Optic-6IP",
+      "connector": null,
+      "width_mm": 576.0,
+      "height_mm": 576.0,
+      "pixels_w": 96,
+      "pixels_h": 96,
+      "pitch_mm": 6.0,
+      "weight_kg": 7.71,
+      "weight_lb": 16.9976202,
+      "proc_type": null,
+      "watts_max": 320.0,
+      "watts_ave": 120.0,
+      "source": "official: DVS Optic-6IP legacy page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "Optic-ER2",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 500.0,
+      "pixels_w": 168,
+      "pixels_h": 168,
+      "pitch_mm": 2.976,
+      "weight_kg": 7.26,
+      "weight_lb": 16.0055412,
+      "proc_type": null,
+      "watts_max": 170.0,
+      "watts_ave": 80.0,
+      "source": "official: DVS Optic-ER2 product page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "Optic-ER2X",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 1000.0,
+      "pixels_w": 168,
+      "pixels_h": 336,
+      "pitch_mm": 2.976,
+      "weight_kg": 13.15,
+      "weight_lb": 28.990753,
+      "proc_type": null,
+      "watts_max": 240.0,
+      "watts_ave": 120.0,
+      "source": "official: DVS Optic-ER2X product page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "Optic-ER3",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 500.0,
+      "pixels_w": 128,
+      "pixels_h": 128,
+      "pitch_mm": 3.906,
+      "weight_kg": 7.26,
+      "weight_lb": 16.0055412,
+      "proc_type": null,
+      "watts_max": 170.0,
+      "watts_ave": 80.0,
+      "source": "official: DVS Optic-ER3 product page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "Optic-ER3IP",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 500.0,
+      "pixels_w": 128,
+      "pixels_h": 128,
+      "pitch_mm": 3.906,
+      "weight_kg": 7.26,
+      "weight_lb": 16.0055412,
+      "proc_type": null,
+      "watts_max": 170.0,
+      "watts_ave": 80.0,
+      "source": "official: DVS Optic-ER3IP product page dvsledsystems.com (read 2026-10-30)"
     },
     {
       "name": "Retina ONE 1.5",
@@ -10977,9 +11398,9 @@
       "weight_kg": 8.16,
       "weight_lb": 17.9896992,
       "proc_type": null,
-      "watts_max": 149.6,
-      "watts_ave": null,
-      "source": "catalog"
+      "watts_max": 150.0,
+      "watts_ave": 50.0,
+      "source": "official: DVS Retina-ONE 1.5 model page dvsledsystems.com (read 2026-10-30)"
     },
     {
       "name": "Retina ONE 1.9",
@@ -10992,9 +11413,9 @@
       "weight_kg": 8.16,
       "weight_lb": 17.9896992,
       "proc_type": null,
-      "watts_max": 149.6,
-      "watts_ave": null,
-      "source": "catalog"
+      "watts_max": 150.0,
+      "watts_ave": 50.0,
+      "source": "official: DVS Retina-ONE 1.9 model page dvsledsystems.com (read 2026-10-30)"
     },
     {
       "name": "Retina ONE 2.3",
@@ -11007,9 +11428,9 @@
       "weight_kg": 8.16,
       "weight_lb": 17.9896992,
       "proc_type": null,
-      "watts_max": 149.6,
-      "watts_ave": null,
-      "source": "catalog"
+      "watts_max": 150.0,
+      "watts_ave": 50.0,
+      "source": "official: DVS Retina-ONE 2.3 model page dvsledsystems.com (read 2026-10-30)"
     },
     {
       "name": "Retina ONE 2.6",
@@ -11022,9 +11443,9 @@
       "weight_kg": 8.16,
       "weight_lb": 17.9896992,
       "proc_type": null,
-      "watts_max": 149.6,
-      "watts_ave": null,
-      "source": "catalog"
+      "watts_max": 150.0,
+      "watts_ave": 50.0,
+      "source": "official: DVS Retina-ONE 2.6 model page dvsledsystems.com (read 2026-10-30)"
     },
     {
       "name": "Retina-2.6i",
@@ -11034,12 +11455,12 @@
       "pixels_w": 192,
       "pixels_h": 192,
       "pitch_mm": 2.604,
-      "weight_kg": 7.26,
-      "weight_lb": 16.0055412,
+      "weight_kg": 7.71,
+      "weight_lb": 16.9976202,
       "proc_type": null,
-      "watts_max": 170.5,
-      "watts_ave": null,
-      "source": "catalog"
+      "watts_max": 140.0,
+      "watts_ave": 75.0,
+      "source": "official: DVS Retina-2.6i model page dvsledsystems.com (read 2026-10-30)"
     },
     {
       "name": "Retina-2.6X",
@@ -11052,9 +11473,9 @@
       "weight_kg": 12.25,
       "weight_lb": 27.006594999999997,
       "proc_type": null,
-      "watts_max": 300.3,
-      "watts_ave": null,
-      "source": "catalog"
+      "watts_max": 300.0,
+      "watts_ave": 100.0,
+      "source": "official: DVS Retina-2.6X model page dvsledsystems.com (read 2026-10-30)"
     },
     {
       "name": "Retina-2.9i",
@@ -11067,9 +11488,9 @@
       "weight_kg": 7.26,
       "weight_lb": 16.0055412,
       "proc_type": null,
-      "watts_max": 170.5,
-      "watts_ave": null,
-      "source": "catalog"
+      "watts_max": 170.0,
+      "watts_ave": 75.0,
+      "source": "official: DVS Retina-2.9i legacy page dvsledsystems.com (read 2026-10-30)"
     },
     {
       "name": "Retina-2.9X",
@@ -11082,9 +11503,369 @@
       "weight_kg": 12.25,
       "weight_lb": 27.006594999999997,
       "proc_type": null,
-      "watts_max": 210.1,
-      "watts_ave": null,
-      "source": "catalog"
+      "watts_max": 210.0,
+      "watts_ave": 97.0,
+      "source": "official: DVS Retina-2.9X legacy page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "Retina-2IP",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 500.0,
+      "pixels_w": 168,
+      "pixels_h": 168,
+      "pitch_mm": 2.976,
+      "weight_kg": 7.7,
+      "weight_lb": 16.975574,
+      "proc_type": null,
+      "watts_max": 190.0,
+      "watts_ave": 97.0,
+      "source": "official: DVS Retina-2IP spec PDF V5.0"
+    },
+    {
+      "name": "Retina-2IPX",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 1000.0,
+      "pixels_w": 168,
+      "pixels_h": 336,
+      "pitch_mm": 2.976,
+      "weight_kg": 12.1,
+      "weight_lb": 26.675902,
+      "proc_type": null,
+      "watts_max": 360.0,
+      "watts_ave": 137.0,
+      "source": "official: DVS Retina-2IPX spec PDF V5.0"
+    },
+    {
+      "name": "Retina-3IP",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 500.0,
+      "pixels_w": 128,
+      "pixels_h": 128,
+      "pitch_mm": 3.906,
+      "weight_kg": 7.7,
+      "weight_lb": 16.975574,
+      "proc_type": null,
+      "watts_max": 190.0,
+      "watts_ave": 97.0,
+      "source": "official: DVS Retina-3IP spec PDF V5.0"
+    },
+    {
+      "name": "Retina-3IPX",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 1000.0,
+      "pixels_w": 128,
+      "pixels_h": 256,
+      "pitch_mm": 3.906,
+      "weight_kg": 12.1,
+      "weight_lb": 26.675902,
+      "proc_type": null,
+      "watts_max": 350.0,
+      "watts_ave": 120.0,
+      "source": "official: DVS Retina-3IPX spec PDF V5.0"
+    },
+    {
+      "name": "ViuCOB-0.9",
+      "connector": null,
+      "width_mm": 600.0,
+      "height_mm": 337.5,
+      "pixels_w": 640,
+      "pixels_h": 360,
+      "pitch_mm": 0.938,
+      "weight_kg": 3.99,
+      "weight_lb": 8.7964338,
+      "proc_type": null,
+      "watts_max": 210.0,
+      "watts_ave": 25.0,
+      "source": "official: DVS ViuCOB-0.9 product page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "ViuCOB-1.2",
+      "connector": null,
+      "width_mm": 600.0,
+      "height_mm": 337.5,
+      "pixels_w": 480,
+      "pixels_h": 270,
+      "pitch_mm": 1.25,
+      "weight_kg": 3.99,
+      "weight_lb": 8.7964338,
+      "proc_type": null,
+      "watts_max": 210.0,
+      "watts_ave": 25.0,
+      "source": "official: DVS ViuCOB-1.2 product page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "ViuCOB-1.5",
+      "connector": null,
+      "width_mm": 600.0,
+      "height_mm": 337.5,
+      "pixels_w": 384,
+      "pixels_h": 216,
+      "pitch_mm": 1.562,
+      "weight_kg": 3.99,
+      "weight_lb": 8.7964338,
+      "proc_type": null,
+      "watts_max": 210.0,
+      "watts_ave": 25.0,
+      "source": "official: DVS ViuCOB-1.5 product page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "ViuPanel-1.5",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 1000.0,
+      "pixels_w": 320,
+      "pixels_h": 640,
+      "pitch_mm": 1.562,
+      "weight_kg": 10.0,
+      "weight_lb": 22.0462,
+      "proc_type": null,
+      "watts_max": 225.0,
+      "watts_ave": 60.0,
+      "source": "official: DVS ViuPanel series page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "ViuPanel-1.9",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 1000.0,
+      "pixels_w": 256,
+      "pixels_h": 512,
+      "pitch_mm": 1.953,
+      "weight_kg": 10.0,
+      "weight_lb": 22.0462,
+      "proc_type": null,
+      "watts_max": 225.0,
+      "watts_ave": 60.0,
+      "source": "official: DVS ViuPanel series page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "ViuPanel-2.6",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 1000.0,
+      "pixels_w": 192,
+      "pixels_h": 384,
+      "pitch_mm": 2.604,
+      "weight_kg": 10.0,
+      "weight_lb": 22.0462,
+      "proc_type": null,
+      "watts_max": 225.0,
+      "watts_ave": 60.0,
+      "source": "official: DVS ViuPanel series page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "ViuPanel-3.9",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 1000.0,
+      "pixels_w": 128,
+      "pixels_h": 256,
+      "pitch_mm": 3.906,
+      "weight_kg": 10.0,
+      "weight_lb": 22.0462,
+      "proc_type": null,
+      "watts_max": 225.0,
+      "watts_ave": 60.0,
+      "source": "official: DVS ViuPanel series page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "ViuPlex-0.7",
+      "connector": null,
+      "width_mm": 600.0,
+      "height_mm": 337.5,
+      "pixels_w": 768,
+      "pixels_h": 432,
+      "pitch_mm": 0.781,
+      "weight_kg": 7.71,
+      "weight_lb": 16.9976202,
+      "proc_type": null,
+      "watts_max": 180.0,
+      "watts_ave": 82.0,
+      "source": "official: DVS ViuPlex-0.7 product page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "ViuPlex-0.9",
+      "connector": null,
+      "width_mm": 600.0,
+      "height_mm": 337.5,
+      "pixels_w": 640,
+      "pixels_h": 360,
+      "pitch_mm": 0.938,
+      "weight_kg": 6.35,
+      "weight_lb": 13.999337,
+      "proc_type": null,
+      "watts_max": 180.0,
+      "watts_ave": 82.0,
+      "source": "official: DVS ViuPlex-0.9 product page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "ViuPlex-1.2",
+      "connector": null,
+      "width_mm": 600.0,
+      "height_mm": 337.5,
+      "pixels_w": 480,
+      "pixels_h": 270,
+      "pitch_mm": 1.25,
+      "weight_kg": 6.35,
+      "weight_lb": 13.999337,
+      "proc_type": null,
+      "watts_max": 180.0,
+      "watts_ave": 82.0,
+      "source": "official: DVS ViuPlex-1.2 product page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "ViuPlex-1.5",
+      "connector": null,
+      "width_mm": 600.0,
+      "height_mm": 337.5,
+      "pixels_w": 384,
+      "pixels_h": 216,
+      "pitch_mm": 1.562,
+      "weight_kg": 6.35,
+      "weight_lb": 13.999337,
+      "proc_type": null,
+      "watts_max": 180.0,
+      "watts_ave": 82.0,
+      "source": "official: DVS ViuPlex-1.5 product page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "ViuPlex-1.8",
+      "connector": null,
+      "width_mm": 600.0,
+      "height_mm": 337.5,
+      "pixels_w": 320,
+      "pixels_h": 180,
+      "pitch_mm": 1.875,
+      "weight_kg": 6.35,
+      "weight_lb": 13.999337,
+      "proc_type": null,
+      "watts_max": 180.0,
+      "watts_ave": 82.0,
+      "source": "official: DVS ViuPlex-1.8 legacy page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "ViuSite-1X",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 1000.0,
+      "pixels_w": 256,
+      "pixels_h": 512,
+      "pitch_mm": 1.953,
+      "weight_kg": 10.89,
+      "weight_lb": 24.0083118,
+      "proc_type": null,
+      "watts_max": 240.0,
+      "watts_ave": 100.0,
+      "source": "official: DVS ViuSite-1X product page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "ViuSite-2.9X",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 1000.0,
+      "pixels_w": 168,
+      "pixels_h": 336,
+      "pitch_mm": 2.976,
+      "weight_kg": 10.89,
+      "weight_lb": 24.0083118,
+      "proc_type": null,
+      "watts_max": 240.0,
+      "watts_ave": 100.0,
+      "source": "official: DVS ViuSite-2.9X model page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "ViuSite-2X",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 1000.0,
+      "pixels_w": 192,
+      "pixels_h": 384,
+      "pitch_mm": 2.604,
+      "weight_kg": 10.89,
+      "weight_lb": 24.0083118,
+      "proc_type": null,
+      "watts_max": 240.0,
+      "watts_ave": 100.0,
+      "source": "official: DVS ViuSite-2X product page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "ViuSite-3X",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 1000.0,
+      "pixels_w": 128,
+      "pixels_h": 256,
+      "pitch_mm": 3.906,
+      "weight_kg": 10.89,
+      "weight_lb": 24.0083118,
+      "proc_type": null,
+      "watts_max": 240.0,
+      "watts_ave": 100.0,
+      "source": "official: DVS ViuSite-3X product page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "ViuSite-5X",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 1000.0,
+      "pixels_w": 84,
+      "pixels_h": 168,
+      "pitch_mm": 5.952,
+      "weight_kg": 10.89,
+      "weight_lb": 24.0083118,
+      "proc_type": null,
+      "watts_max": 240.0,
+      "watts_ave": 100.0,
+      "source": "official: DVS ViuSite-5X model page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "Vizra 3 X-Tour 3.9",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 1000.0,
+      "pixels_w": 128,
+      "pixels_h": 256,
+      "pitch_mm": 3.906,
+      "weight_kg": 13.47,
+      "weight_lb": 29.6962314,
+      "proc_type": null,
+      "watts_max": 340.0,
+      "watts_ave": 120.0,
+      "source": "official: DVS Vizra 3 X-Tour 3.9 product page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "Vizra 4 X-Tour 4.8",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 1000.0,
+      "pixels_w": 104,
+      "pixels_h": 208,
+      "pitch_mm": 4.808,
+      "weight_kg": 13.47,
+      "weight_lb": 29.6962314,
+      "proc_type": null,
+      "watts_max": 340.0,
+      "watts_ave": 120.0,
+      "source": "official: DVS Vizra 4 X-Tour 4.8 product page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "Vizra 5 X-Tour 5.9",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 1000.0,
+      "pixels_w": 84,
+      "pixels_h": 168,
+      "pitch_mm": 5.952,
+      "weight_kg": 13.47,
+      "weight_lb": 29.6962314,
+      "proc_type": null,
+      "watts_max": 340.0,
+      "watts_ave": 120.0,
+      "source": "official: DVS Vizra 5 X-Tour 5.9 product page dvsledsystems.com (read 2026-10-30)"
     },
     {
       "name": "Vizra-2",
@@ -11097,24 +11878,24 @@
       "weight_kg": 7.0,
       "weight_lb": 15.432339999999998,
       "proc_type": null,
-      "watts_max": 129.8,
-      "watts_ave": null,
-      "source": "catalog"
+      "watts_max": 130.0,
+      "watts_ave": 50.0,
+      "source": "official: DVS Vizra-2 spec PDF V1.1"
     },
     {
       "name": "Vizra-2 Plus+",
       "connector": null,
       "width_mm": 500.0,
       "height_mm": 500.0,
-      "pixels_w": 192,
-      "pixels_h": 192,
-      "pitch_mm": 2.604,
+      "pixels_w": 168,
+      "pixels_h": 168,
+      "pitch_mm": 2.976,
       "weight_kg": 7.0,
       "weight_lb": 15.432339999999998,
       "proc_type": null,
-      "watts_max": 129.8,
-      "watts_ave": null,
-      "source": "catalog"
+      "watts_max": 130.0,
+      "watts_ave": 50.0,
+      "source": "official: DVS Vizra-2 Plus+ spec PDF V1.0"
     },
     {
       "name": "Vizra-2X",
@@ -11127,9 +11908,9 @@
       "weight_kg": 12.1,
       "weight_lb": 26.675901999999997,
       "proc_type": null,
-      "watts_max": 239.8,
-      "watts_ave": null,
-      "source": "catalog"
+      "watts_max": 240.0,
+      "watts_ave": 120.0,
+      "source": "official: DVS Vizra-2X spec PDF V1.1"
     },
     {
       "name": "Vizra-2X Plus+",
@@ -11142,9 +11923,9 @@
       "weight_kg": 12.1,
       "weight_lb": 26.675901999999997,
       "proc_type": null,
-      "watts_max": 239.8,
-      "watts_ave": null,
-      "source": "catalog"
+      "watts_max": 240.0,
+      "watts_ave": 120.0,
+      "source": "official: DVS Vizra-2X Plus+ spec PDF V1.0"
     },
     {
       "name": "Vizra-3",
@@ -11157,9 +11938,9 @@
       "weight_kg": 7.0,
       "weight_lb": 15.432339999999998,
       "proc_type": null,
-      "watts_max": 129.8,
-      "watts_ave": null,
-      "source": "catalog"
+      "watts_max": 130.0,
+      "watts_ave": 50.0,
+      "source": "official: DVS Vizra-3 spec PDF V1.1"
     },
     {
       "name": "Vizra-3 Plus+",
@@ -11172,9 +11953,39 @@
       "weight_kg": 7.0,
       "weight_lb": 15.432339999999998,
       "proc_type": null,
-      "watts_max": 129.8,
-      "watts_ave": null,
-      "source": "catalog"
+      "watts_max": 130.0,
+      "watts_ave": 50.0,
+      "source": "official: DVS Vizra-3 Plus+ spec PDF V1.0"
+    },
+    {
+      "name": "Vizra-3IP",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 500.0,
+      "pixels_w": 128,
+      "pixels_h": 128,
+      "pitch_mm": 3.906,
+      "weight_kg": 7.0,
+      "weight_lb": 15.43234,
+      "proc_type": null,
+      "watts_max": 130.0,
+      "watts_ave": 50.0,
+      "source": "official: DVS Vizra-3IP spec PDF V1.1"
+    },
+    {
+      "name": "Vizra-3IP Plus+",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 500.0,
+      "pixels_w": 128,
+      "pixels_h": 128,
+      "pitch_mm": 3.906,
+      "weight_kg": 7.0,
+      "weight_lb": 15.43234,
+      "proc_type": null,
+      "watts_max": 130.0,
+      "watts_ave": 50.0,
+      "source": "official: DVS Vizra Plus+ series page dvsledsystems.com (read 2026-10-30)"
     },
     {
       "name": "Vizra-3X",
@@ -11187,9 +11998,9 @@
       "weight_kg": 12.1,
       "weight_lb": 26.675901999999997,
       "proc_type": null,
-      "watts_max": 239.8,
-      "watts_ave": null,
-      "source": "catalog"
+      "watts_max": 240.0,
+      "watts_ave": 120.0,
+      "source": "official: DVS Vizra-3X spec PDF V1.1"
     },
     {
       "name": "Vizra-3X Plus+",
@@ -11202,9 +12013,399 @@
       "weight_kg": 12.1,
       "weight_lb": 26.675901999999997,
       "proc_type": null,
-      "watts_max": 239.8,
-      "watts_ave": null,
-      "source": "catalog"
+      "watts_max": 240.0,
+      "watts_ave": 120.0,
+      "source": "official: DVS Vizra-3X Plus+ spec PDF V1.0"
+    },
+    {
+      "name": "Vizra-3XIP",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 1000.0,
+      "pixels_w": 128,
+      "pixels_h": 256,
+      "pitch_mm": 3.906,
+      "weight_kg": 12.1,
+      "weight_lb": 26.675902,
+      "proc_type": null,
+      "watts_max": 340.0,
+      "watts_ave": 120.0,
+      "source": "official: DVS Vizra-3XIP spec PDF V1.1"
+    },
+    {
+      "name": "Vizra-3XIP Plus+",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 1000.0,
+      "pixels_w": 128,
+      "pixels_h": 256,
+      "pitch_mm": 3.906,
+      "weight_kg": 12.1,
+      "weight_lb": 26.675902,
+      "proc_type": null,
+      "watts_max": 240.0,
+      "watts_ave": 120.0,
+      "source": "official: DVS Vizra Plus+ series page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "Vizra-4IP",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 500.0,
+      "pixels_w": 104,
+      "pixels_h": 104,
+      "pitch_mm": 4.808,
+      "weight_kg": 7.0,
+      "weight_lb": 15.43234,
+      "proc_type": null,
+      "watts_max": 130.0,
+      "watts_ave": 50.0,
+      "source": "official: DVS Vizra-4IP spec PDF V1.1"
+    },
+    {
+      "name": "Vizra-4IP Plus+",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 500.0,
+      "pixels_w": 104,
+      "pixels_h": 104,
+      "pitch_mm": 4.808,
+      "weight_kg": 7.0,
+      "weight_lb": 15.43234,
+      "proc_type": null,
+      "watts_max": 130.0,
+      "watts_ave": 50.0,
+      "source": "official: DVS Vizra Plus+ series page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "Vizra-4XIP",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 1000.0,
+      "pixels_w": 104,
+      "pixels_h": 208,
+      "pitch_mm": 4.808,
+      "weight_kg": 12.1,
+      "weight_lb": 26.675902,
+      "proc_type": null,
+      "watts_max": 340.0,
+      "watts_ave": 120.0,
+      "source": "official: DVS Vizra-4XIP spec PDF V1.1"
+    },
+    {
+      "name": "Vizra-4XIP Plus+",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 1000.0,
+      "pixels_w": 104,
+      "pixels_h": 208,
+      "pitch_mm": 4.808,
+      "weight_kg": 12.1,
+      "weight_lb": 26.675902,
+      "proc_type": null,
+      "watts_max": 240.0,
+      "watts_ave": 120.0,
+      "source": "official: DVS Vizra Plus+ series page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "VR-2i",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 1000.0,
+      "pixels_w": 176,
+      "pixels_h": 352,
+      "pitch_mm": 2.841,
+      "weight_kg": 9.98,
+      "weight_lb": 22.0021076,
+      "proc_type": null,
+      "watts_max": 290.0,
+      "watts_ave": 120.0,
+      "source": "official: DVS VR-2i model page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "VR-3",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 1000.0,
+      "pixels_w": 128,
+      "pixels_h": 256,
+      "pitch_mm": 3.906,
+      "weight_kg": 9.98,
+      "weight_lb": 22.0021076,
+      "proc_type": null,
+      "watts_max": 290.0,
+      "watts_ave": 120.0,
+      "source": "official: DVS VR-3 model page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "VR-3i",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 1000.0,
+      "pixels_w": 128,
+      "pixels_h": 256,
+      "pitch_mm": 3.906,
+      "weight_kg": 9.98,
+      "weight_lb": 22.0021076,
+      "proc_type": null,
+      "watts_max": 260.0,
+      "watts_ave": 120.0,
+      "source": "official: DVS VR-3i model page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "VR-4",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 1000.0,
+      "pixels_w": 104,
+      "pixels_h": 208,
+      "pitch_mm": 4.808,
+      "weight_kg": 9.98,
+      "weight_lb": 22.0021076,
+      "proc_type": null,
+      "watts_max": 290.0,
+      "watts_ave": 120.0,
+      "source": "official: DVS VR-4 model page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "VR-6 AIR",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 1000.0,
+      "pixels_w": 72,
+      "pixels_h": 144,
+      "pitch_mm": 6.944,
+      "weight_kg": 9.98,
+      "weight_lb": 22.0021076,
+      "proc_type": null,
+      "watts_max": 350.0,
+      "watts_ave": 134.0,
+      "source": "official: DVS VR-6 AIR model page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "ZERA-1.5",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 1000.0,
+      "pixels_w": 320,
+      "pixels_h": 640,
+      "pitch_mm": 1.562,
+      "weight_kg": 9.48,
+      "weight_lb": 20.8997976,
+      "proc_type": null,
+      "watts_max": 330.0,
+      "watts_ave": 109.0,
+      "source": "official: DVS ZERA-1.5 product page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "ZERA-1.5 XP",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 1000.0,
+      "pixels_w": 320,
+      "pixels_h": 640,
+      "pitch_mm": 1.562,
+      "weight_kg": 10.89,
+      "weight_lb": 24.0083118,
+      "proc_type": null,
+      "watts_max": 300.0,
+      "watts_ave": 90.0,
+      "source": "official: DVS ZERA-1.5 XP product page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "ZERA-1.5S",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 500.0,
+      "pixels_w": 320,
+      "pixels_h": 320,
+      "pitch_mm": 1.562,
+      "weight_kg": 4.5,
+      "weight_lb": 9.92079,
+      "proc_type": null,
+      "watts_max": 125.0,
+      "watts_ave": 54.0,
+      "source": "official: DVS ZERA series page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "ZERA-1.5XPS",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 500.0,
+      "pixels_w": 320,
+      "pixels_h": 320,
+      "pitch_mm": 1.562,
+      "weight_kg": null,
+      "weight_lb": null,
+      "proc_type": null,
+      "watts_max": 125.0,
+      "watts_ave": 54.0,
+      "source": "official: DVS ZERA XP series page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "ZERA-1.9",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 1000.0,
+      "pixels_w": 256,
+      "pixels_h": 512,
+      "pitch_mm": 1.953,
+      "weight_kg": 9.48,
+      "weight_lb": 20.8997976,
+      "proc_type": null,
+      "watts_max": 330.0,
+      "watts_ave": 109.0,
+      "source": "official: DVS ZERA-1.9 product page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "ZERA-1.9 XP",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 1000.0,
+      "pixels_w": 256,
+      "pixels_h": 512,
+      "pitch_mm": 1.953,
+      "weight_kg": 10.89,
+      "weight_lb": 24.0083118,
+      "proc_type": null,
+      "watts_max": 300.0,
+      "watts_ave": 90.0,
+      "source": "official: DVS ZERA-1.9 XP product page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "ZERA-1.9S",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 500.0,
+      "pixels_w": 256,
+      "pixels_h": 256,
+      "pitch_mm": 1.953,
+      "weight_kg": 4.5,
+      "weight_lb": 9.92079,
+      "proc_type": null,
+      "watts_max": 125.0,
+      "watts_ave": 54.0,
+      "source": "official: DVS ZERA series page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "ZERA-1.9XPS",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 500.0,
+      "pixels_w": 256,
+      "pixels_h": 256,
+      "pitch_mm": 1.953,
+      "weight_kg": null,
+      "weight_lb": null,
+      "proc_type": null,
+      "watts_max": 125.0,
+      "watts_ave": 54.0,
+      "source": "official: DVS ZERA XP series page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "ZERA-2.3",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 1000.0,
+      "pixels_w": 216,
+      "pixels_h": 432,
+      "pitch_mm": 2.315,
+      "weight_kg": 9.48,
+      "weight_lb": 20.8997976,
+      "proc_type": null,
+      "watts_max": 330.0,
+      "watts_ave": 109.0,
+      "source": "official: DVS ZERA-2.3 product page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "ZERA-2.3S",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 500.0,
+      "pixels_w": 216,
+      "pixels_h": 216,
+      "pitch_mm": 2.315,
+      "weight_kg": 4.5,
+      "weight_lb": 9.92079,
+      "proc_type": null,
+      "watts_max": 125.0,
+      "watts_ave": 54.0,
+      "source": "official: DVS ZERA series page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "ZERA-2.6",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 1000.0,
+      "pixels_w": 192,
+      "pixels_h": 384,
+      "pitch_mm": 2.604,
+      "weight_kg": 9.48,
+      "weight_lb": 20.8997976,
+      "proc_type": null,
+      "watts_max": 330.0,
+      "watts_ave": 109.0,
+      "source": "official: DVS ZERA-2.6 product page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "ZERA-2.6 XP",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 1000.0,
+      "pixels_w": 192,
+      "pixels_h": 384,
+      "pitch_mm": 2.604,
+      "weight_kg": 10.89,
+      "weight_lb": 24.0083118,
+      "proc_type": null,
+      "watts_max": 300.0,
+      "watts_ave": 90.0,
+      "source": "official: DVS ZERA-2.6 XP product page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "ZERA-2.6S",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 500.0,
+      "pixels_w": 192,
+      "pixels_h": 192,
+      "pitch_mm": 2.604,
+      "weight_kg": 4.5,
+      "weight_lb": 9.92079,
+      "proc_type": null,
+      "watts_max": 125.0,
+      "watts_ave": 54.0,
+      "source": "official: DVS ZERA series page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "ZERA-2XIP",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 1000.0,
+      "pixels_w": 168,
+      "pixels_h": 336,
+      "pitch_mm": 2.976,
+      "weight_kg": 9.48,
+      "weight_lb": 20.8997976,
+      "proc_type": null,
+      "watts_max": 340.0,
+      "watts_ave": 125.0,
+      "source": "official: DVS ZERA-2XIP product page dvsledsystems.com (read 2026-10-30)"
+    },
+    {
+      "name": "ZERA-3XIP",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 1000.0,
+      "pixels_w": 128,
+      "pixels_h": 256,
+      "pitch_mm": 3.906,
+      "weight_kg": 9.48,
+      "weight_lb": 20.8997976,
+      "proc_type": null,
+      "watts_max": 340.0,
+      "watts_ave": 125.0,
+      "source": "official: DVS ZERA-3XIP product page dvsledsystems.com (read 2026-10-30)"
     }
   ],
   "EKTA": [
@@ -18507,12 +19708,13 @@
       "pixels_w": 200,
       "pixels_h": 400,
       "pitch_mm": 2.5,
-      "weight_kg": 8.5,
-      "weight_lb": 18.739269999999998,
+      "weight_kg": 9.45,
+      "weight_lb": 20.83366,
       "proc_type": null,
-      "watts_max": 269.5,
-      "watts_ave": null,
-      "source": "catalog"
+      "watts_max": 270.0,
+      "watts_ave": 90.0,
+      "source": "official: INFiLED RS Series spec PDF V2025-07",
+      "amps_max_110v": 2.45
     },
     {
       "name": "IL-RSS-IRRS2.5 Ultra-mini",
@@ -18522,12 +19724,45 @@
       "pixels_w": 200,
       "pixels_h": 200,
       "pitch_mm": 2.5,
-      "weight_kg": 5.7,
-      "weight_lb": 12.566334,
+      "weight_kg": 6.1,
+      "weight_lb": 13.44818,
       "proc_type": null,
-      "watts_max": 135.3,
-      "watts_ave": null,
-      "source": "catalog"
+      "watts_max": 135.0,
+      "watts_ave": 45.0,
+      "source": "official: infiled.com IL-RSS-IRRS2.5-Ultra-mini product page",
+      "amps_max_110v": 1.23
+    },
+    {
+      "name": "IL-RSS-IRRS2.5-Lite",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 1000.0,
+      "pixels_w": 200,
+      "pixels_h": 400,
+      "pitch_mm": 2.5,
+      "weight_kg": 9.2,
+      "weight_lb": 20.2825,
+      "proc_type": null,
+      "watts_max": 270.0,
+      "watts_ave": 90.0,
+      "source": "official: infiled.com IL-RSS-IRRS2.5-Lite product page",
+      "amps_max_110v": 2.45
+    },
+    {
+      "name": "IL-RSS-IRRS2.5-Lite-mini",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 500.0,
+      "pixels_w": 200,
+      "pixels_h": 200,
+      "pitch_mm": 2.5,
+      "weight_kg": 6.1,
+      "weight_lb": 13.44818,
+      "proc_type": null,
+      "watts_max": 135.0,
+      "watts_ave": 45.0,
+      "source": "official: infiled.com IL-RSS-IRRS2.5-Lite-mini product page",
+      "amps_max_110v": 1.23
     },
     {
       "name": "IL-RSS-IRRS2.6 Ultra",
@@ -18536,13 +19771,14 @@
       "height_mm": 1000.0,
       "pixels_w": 192,
       "pixels_h": 384,
-      "pitch_mm": 2.604,
-      "weight_kg": 8.9,
-      "weight_lb": 19.621118,
+      "pitch_mm": 2.6,
+      "weight_kg": 9.45,
+      "weight_lb": 20.83366,
       "proc_type": null,
-      "watts_max": 269.5,
-      "watts_ave": null,
-      "source": "catalog"
+      "watts_max": 270.0,
+      "watts_ave": 90.0,
+      "source": "official: INFiLED RS Series spec PDF V2025-07",
+      "amps_max_110v": 2.45
     },
     {
       "name": "IL-RSS-IRRS2.6 Ultra Mini",
@@ -18551,13 +19787,46 @@
       "height_mm": 500.0,
       "pixels_w": 192,
       "pixels_h": 192,
-      "pitch_mm": 2.604,
-      "weight_kg": 5.7,
-      "weight_lb": 12.566334,
+      "pitch_mm": 2.6,
+      "weight_kg": 6.1,
+      "weight_lb": 13.44818,
       "proc_type": null,
-      "watts_max": 135.3,
-      "watts_ave": null,
-      "source": "catalog"
+      "watts_max": 135.0,
+      "watts_ave": 45.0,
+      "source": "official: infiled.com IL-RSS-IRRS2.6-Ultra-mini product page",
+      "amps_max_110v": 1.23
+    },
+    {
+      "name": "IL-RSS-IRRS2.9 Lite",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 1000.0,
+      "pixels_w": 168,
+      "pixels_h": 336,
+      "pitch_mm": 2.97,
+      "weight_kg": 9.2,
+      "weight_lb": 20.2825,
+      "proc_type": null,
+      "watts_max": 270.0,
+      "watts_ave": 90.0,
+      "source": "official: INFiLED RS Series spec PDF V2025-07",
+      "amps_max_110v": 2.45
+    },
+    {
+      "name": "IL-RSS-IRRS2.9-Lite-mini",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 500.0,
+      "pixels_w": 168,
+      "pixels_h": 168,
+      "pitch_mm": 2.97,
+      "weight_kg": 6.1,
+      "weight_lb": 13.44818,
+      "proc_type": null,
+      "watts_max": 135.0,
+      "watts_ave": 45.0,
+      "source": "official: infiled.com IL-RSS-IRRS2.9-Lite-mini product page",
+      "amps_max_110v": 1.23
     },
     {
       "name": "IL-RSS-IRS1.8",
@@ -19428,6 +20697,134 @@
       "watts_max": 210.1,
       "watts_ave": null,
       "source": "catalog"
+    },
+    {
+      "name": "IL-RSS-ORRS3.9 Lite",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 1000.0,
+      "pixels_w": 128,
+      "pixels_h": 256,
+      "pitch_mm": 3.91,
+      "weight_kg": 8.7,
+      "weight_lb": 19.18019,
+      "proc_type": null,
+      "watts_max": 300.0,
+      "watts_ave": 100.0,
+      "source": "official: INFiLED RS Series spec PDF V2025-07",
+      "amps_max_110v": 2.73
+    },
+    {
+      "name": "IL-RSS-ORRS3.91-Lite-mini",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 500.0,
+      "pixels_w": 128,
+      "pixels_h": 128,
+      "pitch_mm": 3.91,
+      "weight_kg": 5.9,
+      "weight_lb": 13.00726,
+      "proc_type": null,
+      "watts_max": 150.0,
+      "watts_ave": 50.0,
+      "source": "official: infiled.com IL-RSS-ORRS3.91-Lite-mini product page",
+      "amps_max_110v": 1.36
+    },
+    {
+      "name": "IL-RSS-ORRS3.91-Turbo",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 1000.0,
+      "pixels_w": 128,
+      "pixels_h": 256,
+      "pitch_mm": 3.91,
+      "weight_kg": 8.7,
+      "weight_lb": 19.18019,
+      "proc_type": null,
+      "watts_max": 300.0,
+      "watts_ave": 100.0,
+      "source": "official: infiled.com IL-RSS-ORRS3.91-Turbo product page",
+      "amps_max_110v": 2.73
+    },
+    {
+      "name": "IL-RSS-ORRS3.91-Turbo-mini",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 500.0,
+      "pixels_w": 128,
+      "pixels_h": 128,
+      "pitch_mm": 3.91,
+      "weight_kg": 5.9,
+      "weight_lb": 13.00726,
+      "proc_type": null,
+      "watts_max": 150.0,
+      "watts_ave": 50.0,
+      "source": "official: infiled.com IL-RSS-ORRS3.91-Turbo-mini product page",
+      "amps_max_110v": 1.36
+    },
+    {
+      "name": "IL-RSS-ORRS4.8 Lite",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 1000.0,
+      "pixels_w": 104,
+      "pixels_h": 208,
+      "pitch_mm": 4.81,
+      "weight_kg": 8.7,
+      "weight_lb": 19.18019,
+      "proc_type": null,
+      "watts_max": 300.0,
+      "watts_ave": 100.0,
+      "source": "official: INFiLED RS Series spec PDF V2025-07",
+      "amps_max_110v": 2.73
+    },
+    {
+      "name": "IL-RSS-ORRS4.81-Lite-mini",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 500.0,
+      "pixels_w": 104,
+      "pixels_h": 104,
+      "pitch_mm": 4.81,
+      "weight_kg": 5.9,
+      "weight_lb": 13.00726,
+      "proc_type": null,
+      "watts_max": 150.0,
+      "watts_ave": 50.0,
+      "source": "official: infiled.com IL-RSS-ORRS4.81-Lite-mini product page",
+      "amps_max_110v": 1.36
+    },
+    {
+      "name": "IL-RSS-ORRS6.9 Lite",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 1000.0,
+      "pixels_w": 72,
+      "pixels_h": 144,
+      "pitch_mm": 6.94,
+      "weight_kg": 8.7,
+      "weight_lb": 19.18019,
+      "proc_type": null,
+      "watts_max": 300.0,
+      "watts_ave": 100.0,
+      "source": "official: INFiLED RS Series spec PDF V2025-07",
+      "amps_max_110v": 2.73
+    },
+    {
+      "name": "IL-RSS-ORRS6.94-Lite-mini",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 500.0,
+      "pixels_w": 72,
+      "pixels_h": 72,
+      "pitch_mm": 6.94,
+      "weight_kg": 5.9,
+      "weight_lb": 13.00726,
+      "proc_type": null,
+      "watts_max": 150.0,
+      "watts_ave": 50.0,
+      "source": "official: infiled.com IL-RSS-ORRS6.94-Lite-mini product page",
+      "amps_max_110v": 1.36
     },
     {
       "name": "IL-RSS-ORX6",
@@ -21729,7 +23126,7 @@
       "weight_lb": 4.629702,
       "proc_type": null,
       "watts_max": 74.8,
-      "watts_ave": null,
+      "watts_ave": 36.0,
       "source": "catalog"
     },
     {
@@ -21744,7 +23141,7 @@
       "weight_lb": 4.40924,
       "proc_type": null,
       "watts_max": 74.8,
-      "watts_ave": null,
+      "watts_ave": 36.0,
       "source": "official: eanixter.com Leyard CLA1.9 spec PDF"
     },
     {
@@ -21759,7 +23156,7 @@
       "weight_lb": 17.63696,
       "proc_type": null,
       "watts_max": 300.3,
-      "watts_ave": null,
+      "watts_ave": 150.0,
       "source": "catalog"
     },
     {
@@ -21774,7 +23171,7 @@
       "weight_lb": 17.63696,
       "proc_type": null,
       "watts_max": 300.3,
-      "watts_ave": null,
+      "watts_ave": 150.0,
       "source": "catalog"
     },
     {
@@ -21804,7 +23201,7 @@
       "weight_lb": 9.038941999999999,
       "proc_type": null,
       "watts_max": 300.3,
-      "watts_ave": null,
+      "watts_ave": 150.0,
       "source": "official: planar.com CarbonLight CLI Series brochure"
     },
     {
@@ -21818,8 +23215,8 @@
       "weight_kg": 3.8,
       "weight_lb": 8.377555999999998,
       "proc_type": null,
-      "watts_max": 149.6,
-      "watts_ave": null,
+      "watts_max": 300.0,
+      "watts_ave": 150.0,
       "source": "official: planar.com CarbonLight CLI Series brochure"
     },
     {
@@ -21834,7 +23231,7 @@
       "weight_lb": 8.598018,
       "proc_type": null,
       "watts_max": 149.6,
-      "watts_ave": null,
+      "watts_ave": 75.0,
       "source": "catalog"
     },
     {
@@ -21849,7 +23246,7 @@
       "weight_lb": 8.598018,
       "proc_type": null,
       "watts_max": 149.6,
-      "watts_ave": null,
+      "watts_ave": 75.0,
       "source": "catalog"
     },
     {
@@ -21864,7 +23261,7 @@
       "weight_lb": 10.582175999999999,
       "proc_type": null,
       "watts_max": 300.3,
-      "watts_ave": null,
+      "watts_ave": 150.0,
       "source": "catalog"
     },
     {
@@ -21879,7 +23276,7 @@
       "weight_lb": 10.582175999999999,
       "proc_type": null,
       "watts_max": 300.3,
-      "watts_ave": null,
+      "watts_ave": 150.0,
       "source": "catalog"
     },
     {
@@ -21894,7 +23291,7 @@
       "weight_lb": 10.582175999999999,
       "proc_type": null,
       "watts_max": 300.3,
-      "watts_ave": null,
+      "watts_ave": 150.0,
       "source": "official: planar.com CarbonLight CLM69 spec page"
     },
     {
@@ -21909,7 +23306,7 @@
       "weight_lb": 11.0231,
       "proc_type": null,
       "watts_max": 300.3,
-      "watts_ave": null,
+      "watts_ave": 150.0,
       "source": "official: eanixter.com Leyard CLO3.9 spec PDF"
     },
     {
@@ -21924,7 +23321,7 @@
       "weight_lb": 11.0231,
       "proc_type": null,
       "watts_max": 300.3,
-      "watts_ave": null,
+      "watts_ave": 150.0,
       "source": "catalog"
     },
     {
@@ -21939,7 +23336,7 @@
       "weight_lb": 11.0231,
       "proc_type": null,
       "watts_max": 300.3,
-      "watts_ave": null,
+      "watts_ave": 150.0,
       "source": "catalog"
     },
     {
@@ -21969,7 +23366,7 @@
       "weight_lb": 16.53465,
       "proc_type": null,
       "watts_max": 149.6,
-      "watts_ave": null,
+      "watts_ave": 50.0,
       "source": "catalog"
     },
     {
@@ -21984,7 +23381,7 @@
       "weight_lb": 17.63696,
       "proc_type": null,
       "watts_max": 149.6,
-      "watts_ave": null,
+      "watts_ave": 50.0,
       "source": "catalog"
     },
     {
@@ -21999,7 +23396,7 @@
       "weight_lb": 14.330029999999999,
       "proc_type": null,
       "watts_max": 149.6,
-      "watts_ave": null,
+      "watts_ave": 50.0,
       "source": "catalog"
     },
     {
@@ -22014,7 +23411,7 @@
       "weight_lb": 16.53465,
       "proc_type": null,
       "watts_max": 149.6,
-      "watts_ave": null,
+      "watts_ave": 50.0,
       "source": "catalog"
     },
     {
@@ -22029,7 +23426,7 @@
       "weight_lb": 17.63696,
       "proc_type": null,
       "watts_max": 149.6,
-      "watts_ave": null,
+      "watts_ave": 50.0,
       "source": "catalog"
     },
     {
@@ -22044,7 +23441,7 @@
       "weight_lb": 14.330029999999999,
       "proc_type": null,
       "watts_max": 149.6,
-      "watts_ave": null,
+      "watts_ave": 50.0,
       "source": "catalog"
     },
     {
@@ -22059,7 +23456,7 @@
       "weight_lb": 29.762369999999997,
       "proc_type": null,
       "watts_max": 300.3,
-      "watts_ave": null,
+      "watts_ave": 100.0,
       "source": "catalog"
     },
     {
@@ -22074,7 +23471,7 @@
       "weight_lb": 16.53465,
       "proc_type": null,
       "watts_max": 149.6,
-      "watts_ave": null,
+      "watts_ave": 50.0,
       "source": "catalog"
     },
     {
@@ -22104,7 +23501,7 @@
       "weight_lb": 14.330029999999999,
       "proc_type": null,
       "watts_max": 149.6,
-      "watts_ave": null,
+      "watts_ave": 50.0,
       "source": "catalog"
     },
     {
@@ -22119,7 +23516,7 @@
       "weight_lb": 29.762369999999997,
       "proc_type": null,
       "watts_max": 300.3,
-      "watts_ave": null,
+      "watts_ave": 100.0,
       "source": "catalog"
     },
     {
@@ -22134,7 +23531,7 @@
       "weight_lb": 16.53465,
       "proc_type": null,
       "watts_max": 149.6,
-      "watts_ave": null,
+      "watts_ave": 50.0,
       "source": "catalog"
     },
     {
@@ -22149,7 +23546,7 @@
       "weight_lb": 14.330029999999999,
       "proc_type": null,
       "watts_max": 149.6,
-      "watts_ave": null,
+      "watts_ave": 50.0,
       "source": "catalog"
     },
     {
@@ -22164,7 +23561,7 @@
       "weight_lb": 29.762369999999997,
       "proc_type": null,
       "watts_max": 300.3,
-      "watts_ave": null,
+      "watts_ave": 100.0,
       "source": "catalog"
     },
     {
@@ -22179,7 +23576,7 @@
       "weight_lb": 16.53465,
       "proc_type": null,
       "watts_max": 149.6,
-      "watts_ave": null,
+      "watts_ave": 50.0,
       "source": "catalog"
     },
     {
@@ -22194,7 +23591,7 @@
       "weight_lb": 17.63696,
       "proc_type": null,
       "watts_max": 149.6,
-      "watts_ave": null,
+      "watts_ave": 50.0,
       "source": "catalog"
     },
     {
@@ -22209,7 +23606,7 @@
       "weight_lb": 14.330029999999999,
       "proc_type": null,
       "watts_max": 149.6,
-      "watts_ave": null,
+      "watts_ave": 50.0,
       "source": "catalog"
     },
     {
@@ -22224,7 +23621,7 @@
       "weight_lb": 29.762369999999997,
       "proc_type": null,
       "watts_max": 300.3,
-      "watts_ave": null,
+      "watts_ave": 100.0,
       "source": "catalog"
     },
     {
@@ -22239,7 +23636,7 @@
       "weight_lb": 16.53465,
       "proc_type": null,
       "watts_max": 149.6,
-      "watts_ave": null,
+      "watts_ave": 50.0,
       "source": "catalog"
     },
     {
@@ -22254,7 +23651,7 @@
       "weight_lb": 14.330029999999999,
       "proc_type": null,
       "watts_max": 149.6,
-      "watts_ave": null,
+      "watts_ave": 50.0,
       "source": "catalog"
     },
     {
@@ -22269,7 +23666,7 @@
       "weight_lb": 29.762369999999997,
       "proc_type": null,
       "watts_max": 300.3,
-      "watts_ave": null,
+      "watts_ave": 100.0,
       "source": "catalog"
     },
     {
@@ -22284,7 +23681,7 @@
       "weight_lb": 16.53465,
       "proc_type": null,
       "watts_max": 149.6,
-      "watts_ave": null,
+      "watts_ave": 50.0,
       "source": "catalog"
     },
     {
@@ -22299,7 +23696,7 @@
       "weight_lb": 14.330029999999999,
       "proc_type": null,
       "watts_max": 149.6,
-      "watts_ave": null,
+      "watts_ave": 50.0,
       "source": "catalog"
     },
     {
@@ -22343,8 +23740,8 @@
       "weight_kg": 6.94,
       "weight_lb": 15.3000628,
       "proc_type": null,
-      "watts_max": 180.4,
-      "watts_ave": null,
+      "watts_max": 130.0,
+      "watts_ave": 43.0,
       "source": "catalog"
     },
     {
@@ -22358,10 +23755,10 @@
       "weight_kg": 6.94,
       "weight_lb": 15.3000628,
       "proc_type": null,
-      "watts_max": 140.0,
-      "watts_ave": null,
+      "watts_max": 130.0,
+      "watts_ave": 43.0,
       "source": "official: planar.com Leyard TVF data sheet",
-      "amps_max_110v": 1.27
+      "amps_max_110v": 1.18
     },
     {
       "name": "TVF1.8",
@@ -22374,9 +23771,9 @@
       "weight_kg": 6.94,
       "weight_lb": 15.3000628,
       "proc_type": null,
-      "watts_max": 180.4,
-      "watts_ave": null,
-      "source": "catalog"
+      "watts_max": 130.0,
+      "watts_ave": 43.0,
+      "source": "official: Planar TVF1.8 spec PDF planar.com (read 2026-10-30)"
     },
     {
       "name": "TVF2.5",
@@ -22389,9 +23786,9 @@
       "weight_kg": 6.94,
       "weight_lb": 15.3000628,
       "proc_type": null,
-      "watts_max": 180.4,
-      "watts_ave": null,
-      "source": "catalog"
+      "watts_max": 130.0,
+      "watts_ave": 43.0,
+      "source": "official: Planar TVF2.5 spec PDF planar.com (read 2026-10-30)"
     },
     {
       "name": "V-Rhea-2.5",
@@ -27889,7 +29286,7 @@
       "weight_lb": 18.077883999999997,
       "proc_type": null,
       "watts_max": 104.5,
-      "watts_ave": null,
+      "watts_ave": 40.0,
       "source": "catalog"
     },
     {
@@ -27919,7 +29316,7 @@
       "weight_lb": 18.077883999999997,
       "proc_type": null,
       "watts_max": 104.5,
-      "watts_ave": null,
+      "watts_ave": 40.0,
       "source": "catalog"
     },
     {
@@ -27964,7 +29361,7 @@
       "weight_lb": 18.077883999999997,
       "proc_type": null,
       "watts_max": 104.5,
-      "watts_ave": null,
+      "watts_ave": 40.0,
       "source": "catalog"
     },
     {
@@ -30524,8 +31921,8 @@
       "weight_kg": 6.4,
       "weight_lb": 14.109568,
       "proc_type": null,
-      "watts_max": 190.3,
-      "watts_ave": null,
+      "watts_max": 200.0,
+      "watts_ave": 100.0,
       "source": "catalog"
     },
     {
@@ -30539,8 +31936,8 @@
       "weight_kg": 18.9,
       "weight_lb": 41.667317999999995,
       "proc_type": null,
-      "watts_max": 190.3,
-      "watts_ave": null,
+      "watts_max": 200.0,
+      "watts_ave": 100.0,
       "source": "catalog"
     },
     {
@@ -30570,7 +31967,7 @@
       "weight_lb": 22.266661999999997,
       "proc_type": null,
       "watts_max": 400.4,
-      "watts_ave": null,
+      "watts_ave": 200.0,
       "source": "catalog"
     },
     {
@@ -30585,7 +31982,7 @@
       "weight_lb": 59.083816,
       "proc_type": null,
       "watts_max": 400.4,
-      "watts_ave": null,
+      "watts_ave": 200.0,
       "source": "catalog"
     },
     {
@@ -30600,7 +31997,7 @@
       "weight_lb": 50.265336,
       "proc_type": null,
       "watts_max": 400.4,
-      "watts_ave": null,
+      "watts_ave": 200.0,
       "source": "catalog"
     },
     {
@@ -30614,8 +32011,8 @@
       "weight_kg": 16.1,
       "weight_lb": 35.494382,
       "proc_type": null,
-      "watts_max": 709.5,
-      "watts_ave": null,
+      "watts_max": 720.0,
+      "watts_ave": 360.0,
       "source": "catalog"
     },
     {
@@ -30629,8 +32026,8 @@
       "weight_kg": 39.1,
       "weight_lb": 86.200642,
       "proc_type": null,
-      "watts_max": 709.5,
-      "watts_ave": null,
+      "watts_max": 720.0,
+      "watts_ave": 360.0,
       "source": "catalog"
     },
     {
@@ -30644,8 +32041,8 @@
       "weight_kg": 30.6,
       "weight_lb": 67.461372,
       "proc_type": null,
-      "watts_max": 709.5,
-      "watts_ave": null,
+      "watts_max": 720.0,
+      "watts_ave": 360.0,
       "source": "catalog"
     },
     {
@@ -30660,7 +32057,7 @@
       "weight_lb": 20.94389,
       "proc_type": null,
       "watts_max": 359.7,
-      "watts_ave": null,
+      "watts_ave": 180.0,
       "source": "catalog"
     },
     {
@@ -30675,7 +32072,7 @@
       "weight_lb": 57.320119999999996,
       "proc_type": null,
       "watts_max": 359.7,
-      "watts_ave": null,
+      "watts_ave": 180.0,
       "source": "catalog"
     },
     {
@@ -30690,7 +32087,7 @@
       "weight_lb": 44.0924,
       "proc_type": null,
       "watts_max": 359.7,
-      "watts_ave": null,
+      "watts_ave": 180.0,
       "source": "catalog"
     },
     {
@@ -30704,8 +32101,8 @@
       "weight_kg": 6.5,
       "weight_lb": 14.330029999999999,
       "proc_type": null,
-      "watts_max": 184.8,
-      "watts_ave": null,
+      "watts_max": 180.0,
+      "watts_ave": 90.0,
       "source": "catalog"
     },
     {
@@ -30719,8 +32116,8 @@
       "weight_kg": 19.2,
       "weight_lb": 42.328703999999995,
       "proc_type": null,
-      "watts_max": 184.8,
-      "watts_ave": null,
+      "watts_max": 180.0,
+      "watts_ave": 90.0,
       "source": "catalog"
     },
     {
@@ -30734,8 +32131,8 @@
       "weight_kg": 14.3,
       "weight_lb": 31.526066,
       "proc_type": null,
-      "watts_max": 184.8,
-      "watts_ave": null,
+      "watts_max": 180.0,
+      "watts_ave": 90.0,
       "source": "catalog"
     },
     {
@@ -30750,7 +32147,7 @@
       "weight_lb": 22.266661999999997,
       "proc_type": null,
       "watts_max": 359.7,
-      "watts_ave": null,
+      "watts_ave": 180.0,
       "source": "catalog"
     },
     {
@@ -30765,7 +32162,7 @@
       "weight_lb": 59.745202,
       "proc_type": null,
       "watts_max": 359.7,
-      "watts_ave": null,
+      "watts_ave": 180.0,
       "source": "catalog"
     },
     {
@@ -30780,7 +32177,7 @@
       "weight_lb": 50.926722,
       "proc_type": null,
       "watts_max": 359.7,
-      "watts_ave": null,
+      "watts_ave": 180.0,
       "source": "catalog"
     },
     {
@@ -30794,8 +32191,8 @@
       "weight_kg": 13.3,
       "weight_lb": 29.321445999999998,
       "proc_type": null,
-      "watts_max": 479.6,
-      "watts_ave": null,
+      "watts_max": 570.0,
+      "watts_ave": 285.0,
       "source": "catalog"
     },
     {
@@ -30809,8 +32206,8 @@
       "weight_kg": 35.8,
       "weight_lb": 78.92539599999999,
       "proc_type": null,
-      "watts_max": 479.6,
-      "watts_ave": null,
+      "watts_max": 570.0,
+      "watts_ave": 285.0,
       "source": "catalog"
     },
     {
@@ -30824,8 +32221,8 @@
       "weight_kg": 27.3,
       "weight_lb": 60.186125999999994,
       "proc_type": null,
-      "watts_max": 479.6,
-      "watts_ave": null,
+      "watts_max": 570.0,
+      "watts_ave": 285.0,
       "source": "catalog"
     },
     {
@@ -30839,8 +32236,8 @@
       "weight_kg": 8.1,
       "weight_lb": 17.857421999999996,
       "proc_type": null,
-      "watts_max": 284.9,
-      "watts_ave": null,
+      "watts_max": 290.0,
+      "watts_ave": 145.0,
       "source": "catalog"
     },
     {
@@ -30854,8 +32251,8 @@
       "weight_kg": 24.8,
       "weight_lb": 54.674575999999995,
       "proc_type": null,
-      "watts_max": 284.9,
-      "watts_ave": null,
+      "watts_max": 290.0,
+      "watts_ave": 145.0,
       "source": "catalog"
     },
     {
@@ -30869,8 +32266,8 @@
       "weight_kg": 18.3,
       "weight_lb": 40.344546,
       "proc_type": null,
-      "watts_max": 284.9,
-      "watts_ave": null,
+      "watts_max": 290.0,
+      "watts_ave": 145.0,
       "source": "catalog"
     },
     {
@@ -30884,8 +32281,8 @@
       "weight_kg": 9.0,
       "weight_lb": 19.841579999999997,
       "proc_type": null,
-      "watts_max": 284.9,
-      "watts_ave": null,
+      "watts_max": 300.0,
+      "watts_ave": 150.0,
       "source": "catalog"
     },
     {
@@ -30899,8 +32296,8 @@
       "weight_kg": 25.7,
       "weight_lb": 56.658733999999995,
       "proc_type": null,
-      "watts_max": 284.9,
-      "watts_ave": null,
+      "watts_max": 300.0,
+      "watts_ave": 150.0,
       "source": "catalog"
     },
     {
@@ -30914,8 +32311,8 @@
       "weight_kg": 21.7,
       "weight_lb": 47.840253999999995,
       "proc_type": null,
-      "watts_max": 284.9,
-      "watts_ave": null,
+      "watts_max": 300.0,
+      "watts_ave": 150.0,
       "source": "catalog"
     },
     {
@@ -31185,7 +32582,7 @@
       "weight_lb": 7.9366319999999995,
       "proc_type": null,
       "watts_max": 159.5,
-      "watts_ave": null,
+      "watts_ave": 80.0,
       "source": "catalog"
     },
     {
@@ -31199,9 +32596,9 @@
       "weight_kg": 4.8,
       "weight_lb": 10.582175999999999,
       "proc_type": null,
-      "watts_max": 129.8,
-      "watts_ave": null,
-      "source": "catalog"
+      "watts_max": 160.0,
+      "watts_ave": 80.0,
+      "source": "official: ROE Linx9 spec PDF roevisual.com (read 2026-10-30)"
     },
     {
       "name": "Linx-9M",
@@ -31229,8 +32626,8 @@
       "weight_kg": 7.5,
       "weight_lb": 16.53465,
       "proc_type": null,
-      "watts_max": 359.7,
-      "watts_ave": null,
+      "watts_max": 320.0,
+      "watts_ave": 160.0,
       "source": "catalog"
     },
     {
@@ -31244,8 +32641,8 @@
       "weight_kg": 7.25,
       "weight_lb": 15.983494999999998,
       "proc_type": null,
-      "watts_max": 359.7,
-      "watts_ave": null,
+      "watts_max": 250.0,
+      "watts_ave": 125.0,
       "source": "catalog"
     },
     {
@@ -31275,7 +32672,7 @@
       "weight_lb": 37.478539999999995,
       "proc_type": null,
       "watts_max": 400.4,
-      "watts_ave": null,
+      "watts_ave": 200.0,
       "source": "catalog"
     },
     {
@@ -31289,8 +32686,8 @@
       "weight_kg": 16.0,
       "weight_lb": 35.27392,
       "proc_type": null,
-      "watts_max": 449.9,
-      "watts_ave": null,
+      "watts_max": 420.0,
+      "watts_ave": 210.0,
       "source": "catalog"
     },
     {
@@ -31304,8 +32701,8 @@
       "weight_kg": 8.05,
       "weight_lb": 17.747191,
       "proc_type": null,
-      "watts_max": 359.7,
-      "watts_ave": null,
+      "watts_max": 320.0,
+      "watts_ave": 160.0,
       "source": "catalog"
     },
     {
@@ -31410,7 +32807,7 @@
       "weight_lb": 9.920789999999998,
       "proc_type": null,
       "watts_max": 100,
-      "watts_ave": null,
+      "watts_ave": 50.0,
       "source": "showtechapp SP1.5"
     },
     {
@@ -31425,7 +32822,7 @@
       "weight_lb": 12.125409999999999,
       "proc_type": null,
       "watts_max": 100,
-      "watts_ave": null,
+      "watts_ave": 50.0,
       "source": "SP1.5 + frame ~1kg"
     },
     {
@@ -31620,7 +33017,7 @@
       "weight_lb": 76.05939,
       "proc_type": null,
       "watts_max": 700,
-      "watts_ave": null,
+      "watts_ave": 350.0,
       "source": "showtechapp ROE Vanish"
     },
     {
@@ -31635,7 +33032,7 @@
       "weight_lb": 80.46862999999999,
       "proc_type": null,
       "watts_max": 700,
-      "watts_ave": null,
+      "watts_ave": 350.0,
       "source": "V4ST + rigging ladder ~2kg"
     },
     {
@@ -31650,7 +33047,7 @@
       "weight_lb": 76.05939,
       "proc_type": null,
       "watts_max": 700,
-      "watts_ave": null,
+      "watts_ave": 350.0,
       "source": "base V4ST (no ladder)"
     },
     {
@@ -31665,7 +33062,7 @@
       "weight_lb": 47.39933,
       "proc_type": null,
       "watts_max": 350,
-      "watts_ave": null,
+      "watts_ave": 175.0,
       "source": "showtechapp"
     },
     {
@@ -31680,7 +33077,7 @@
       "weight_lb": 31.966989999999996,
       "proc_type": null,
       "watts_max": 180,
-      "watts_ave": null,
+      "watts_ave": 90.0,
       "source": "showtechapp"
     },
     {
@@ -31695,7 +33092,7 @@
       "weight_lb": 49.60395,
       "proc_type": null,
       "watts_max": 350,
-      "watts_ave": null,
+      "watts_ave": 175.0,
       "source": "showtechapp"
     },
     {
@@ -31710,7 +33107,7 @@
       "weight_lb": 75.61846599999998,
       "proc_type": null,
       "watts_max": 700,
-      "watts_ave": null,
+      "watts_ave": 350.0,
       "source": "showtechapp"
     },
     {
@@ -31725,7 +33122,7 @@
       "weight_lb": 80.02770599999998,
       "proc_type": null,
       "watts_max": 700,
-      "watts_ave": null,
+      "watts_ave": 350.0,
       "source": "V6ST + rigging ladder ~2kg"
     },
     {
@@ -31740,7 +33137,7 @@
       "weight_lb": 75.61846599999998,
       "proc_type": null,
       "watts_max": 700,
-      "watts_ave": null,
+      "watts_ave": 350.0,
       "source": "base V6ST"
     },
     {
@@ -31755,7 +33152,7 @@
       "weight_lb": 46.73794399999999,
       "proc_type": null,
       "watts_max": 350,
-      "watts_ave": null,
+      "watts_ave": 175.0,
       "source": "showtechapp"
     },
     {
@@ -31770,7 +33167,7 @@
       "weight_lb": 31.526066,
       "proc_type": null,
       "watts_max": 180,
-      "watts_ave": null,
+      "watts_ave": 90.0,
       "source": "showtechapp"
     },
     {
@@ -31785,7 +33182,7 @@
       "weight_lb": 48.942564,
       "proc_type": null,
       "watts_max": 350,
-      "watts_ave": null,
+      "watts_ave": 175.0,
       "source": "showtechapp"
     },
     {
@@ -31799,8 +33196,8 @@
       "weight_kg": 9.6,
       "weight_lb": 21.164351999999997,
       "proc_type": null,
-      "watts_max": 350,
-      "watts_ave": null,
+      "watts_max": 650.0,
+      "watts_ave": 325.0,
       "source": "calc (3.18A × 110V)"
     },
     {
@@ -31815,7 +33212,7 @@
       "weight_lb": 38.139925999999996,
       "proc_type": null,
       "watts_max": 600,
-      "watts_ave": null,
+      "watts_ave": 300.0,
       "source": "showtechapp V18"
     },
     {
@@ -31860,7 +33257,7 @@
       "weight_lb": 14.330029999999999,
       "proc_type": null,
       "watts_max": 320.1,
-      "watts_ave": null,
+      "watts_ave": 160.0,
       "source": "catalog"
     },
     {
@@ -31874,8 +33271,8 @@
       "weight_kg": 9.6,
       "weight_lb": 21.164351999999997,
       "proc_type": null,
-      "watts_max": 300,
-      "watts_ave": null,
+      "watts_max": 460.0,
+      "watts_ave": 230.0,
       "source": "roevisual Vanish V8S MKII - 62% transparent, 3500 nits"
     },
     {
@@ -31904,8 +33301,8 @@
       "weight_kg": 18.6,
       "weight_lb": 41.005932,
       "proc_type": null,
-      "watts_max": 530.2,
-      "watts_ave": null,
+      "watts_max": 480.0,
+      "watts_ave": 240.0,
       "source": "catalog"
     },
     {
@@ -31920,7 +33317,7 @@
       "weight_lb": 26.675901999999997,
       "proc_type": null,
       "watts_max": 650,
-      "watts_ave": null,
+      "watts_ave": 325.0,
       "source": "calc (5.91A × 110V)"
     }
   ],
@@ -32487,7 +33884,7 @@
       "weight_lb": 22.0462,
       "proc_type": null,
       "watts_max": 200.2,
-      "watts_ave": null,
+      "watts_ave": 100.0,
       "source": "catalog"
     },
     {
@@ -32502,7 +33899,7 @@
       "weight_lb": 20.94389,
       "proc_type": null,
       "watts_max": 157.3,
-      "watts_ave": null,
+      "watts_ave": 64.0,
       "source": "catalog"
     },
     {
@@ -32517,7 +33914,7 @@
       "weight_lb": 20.94389,
       "proc_type": null,
       "watts_max": 149.6,
-      "watts_ave": null,
+      "watts_ave": 58.0,
       "source": "catalog"
     },
     {
@@ -32531,9 +33928,9 @@
       "weight_kg": 8.6,
       "weight_lb": 18.959732,
       "proc_type": null,
-      "watts_max": 25.3,
-      "watts_ave": null,
-      "source": "catalog"
+      "watts_max": 120.0,
+      "watts_ave": 55.0,
+      "source": "official: Sony ZRD-BH12D spec PDF sony.jp (read 2026-10-30)"
     },
     {
       "name": "ZRD-BH15D",
@@ -32546,9 +33943,9 @@
       "weight_kg": 8.6,
       "weight_lb": 18.959732,
       "proc_type": null,
-      "watts_max": 25.3,
-      "watts_ave": null,
-      "source": "catalog"
+      "watts_max": 120.0,
+      "watts_ave": 55.0,
+      "source": "official: Sony ZRD-BH15D spec PDF sony.jp (read 2026-10-30)"
     },
     {
       "name": "ZRD-C12A",
@@ -32562,7 +33959,7 @@
       "weight_lb": 20.94389,
       "proc_type": null,
       "watts_max": 157.3,
-      "watts_ave": null,
+      "watts_ave": 64.0,
       "source": "catalog"
     },
     {
@@ -32577,7 +33974,7 @@
       "weight_lb": 20.94389,
       "proc_type": null,
       "watts_max": 149.6,
-      "watts_ave": null,
+      "watts_ave": 58.0,
       "source": "catalog"
     },
     {
@@ -32591,9 +33988,9 @@
       "weight_kg": 8.6,
       "weight_lb": 18.959732,
       "proc_type": null,
-      "watts_max": 25.3,
-      "watts_ave": null,
-      "source": "catalog"
+      "watts_max": 120.0,
+      "watts_ave": 55.0,
+      "source": "official: Sony ZRD-CH12D spec PDF sony.jp (read 2026-10-30)"
     },
     {
       "name": "ZRD-CH15D",
@@ -32606,9 +34003,9 @@
       "weight_kg": 8.6,
       "weight_lb": 18.959732,
       "proc_type": null,
-      "watts_max": 25.3,
-      "watts_ave": null,
-      "source": "catalog"
+      "watts_max": 120.0,
+      "watts_ave": 55.0,
+      "source": "official: Sony ZRD-CH15D spec PDF sony.jp (read 2026-10-30)"
     },
     {
       "name": "ZRD-S12G",
@@ -32622,7 +34019,7 @@
       "weight_lb": 12.566334,
       "proc_type": null,
       "watts_max": 97.9,
-      "watts_ave": null,
+      "watts_ave": 34.0,
       "source": "catalog"
     },
     {
@@ -32637,7 +34034,7 @@
       "weight_lb": 12.566334,
       "proc_type": null,
       "watts_max": 97.9,
-      "watts_ave": null,
+      "watts_ave": 28.0,
       "source": "catalog"
     },
     {
@@ -32652,7 +34049,7 @@
       "weight_lb": 22.266661999999997,
       "proc_type": null,
       "watts_max": 145.2,
-      "watts_ave": null,
+      "watts_ave": 60.0,
       "source": "catalog"
     },
     {
@@ -32667,7 +34064,7 @@
       "weight_lb": 22.266661999999997,
       "proc_type": null,
       "watts_max": 145.2,
-      "watts_ave": null,
+      "watts_ave": 62.0,
       "source": "catalog"
     },
     {
@@ -32682,7 +34079,7 @@
       "weight_lb": 22.266661999999997,
       "proc_type": null,
       "watts_max": 145.2,
-      "watts_ave": null,
+      "watts_ave": 56.0,
       "source": "catalog"
     },
     {
@@ -32697,7 +34094,7 @@
       "weight_lb": 22.266661999999997,
       "proc_type": null,
       "watts_max": 145.2,
-      "watts_ave": null,
+      "watts_ave": 63.0,
       "source": "catalog"
     },
     {
@@ -32712,7 +34109,7 @@
       "weight_lb": 22.266661999999997,
       "proc_type": null,
       "watts_max": 165.0,
-      "watts_ave": null,
+      "watts_ave": 64.0,
       "source": "catalog"
     },
     {
@@ -32727,7 +34124,7 @@
       "weight_lb": 22.266661999999997,
       "proc_type": null,
       "watts_max": 165.0,
-      "watts_ave": null,
+      "watts_ave": 64.0,
       "source": "catalog"
     }
   ],
@@ -33386,7 +34783,7 @@
       "weight_lb": 28.439597999999997,
       "proc_type": null,
       "watts_max": 225.5,
-      "watts_ave": null,
+      "watts_ave": 135.0,
       "source": "catalog"
     },
     {
@@ -33401,7 +34798,7 @@
       "weight_lb": 28.439597999999997,
       "proc_type": null,
       "watts_max": 300.3,
-      "watts_ave": null,
+      "watts_ave": 195.0,
       "source": "catalog"
     },
     {
@@ -33415,8 +34812,8 @@
       "weight_kg": 14.5,
       "weight_lb": 31.966989999999996,
       "proc_type": null,
-      "watts_max": 249.7,
-      "watts_ave": null,
+      "watts_max": 200.0,
+      "watts_ave": 85.0,
       "source": "catalog"
     },
     {
@@ -33430,9 +34827,9 @@
       "weight_kg": 12.7,
       "weight_lb": 27.998673999999998,
       "proc_type": null,
-      "watts_max": 225.5,
-      "watts_ave": null,
-      "source": "catalog"
+      "watts_max": 255.0,
+      "watts_ave": 135.0,
+      "source": "official: Theatrixx XVT-HRR4.0SMD-IN spec PDF theatrixx.com (read 2026-10-30)"
     },
     {
       "name": "xVision - 5mm Indoors",
@@ -33446,7 +34843,7 @@
       "weight_lb": 27.998673999999998,
       "proc_type": null,
       "watts_max": 225.5,
-      "watts_ave": null,
+      "watts_ave": 135.0,
       "source": "catalog"
     },
     {
@@ -33506,7 +34903,7 @@
       "weight_lb": 18.739269999999998,
       "proc_type": null,
       "watts_max": 249.7,
-      "watts_ave": null,
+      "watts_ave": 150.0,
       "source": "catalog"
     },
     {
@@ -33521,7 +34918,7 @@
       "weight_lb": 23.9862656,
       "proc_type": null,
       "watts_max": 265.1,
-      "watts_ave": null,
+      "watts_ave": 180.0,
       "source": "catalog"
     },
     {
@@ -33536,7 +34933,7 @@
       "weight_lb": 23.9862656,
       "proc_type": null,
       "watts_max": 265.1,
-      "watts_ave": null,
+      "watts_ave": 180.0,
       "source": "catalog"
     },
     {
@@ -33551,7 +34948,7 @@
       "weight_lb": 37.478539999999995,
       "proc_type": null,
       "watts_max": 500.5,
-      "watts_ave": null,
+      "watts_ave": 280.0,
       "source": "catalog"
     },
     {
@@ -33581,7 +34978,7 @@
       "weight_lb": 28.439597999999997,
       "proc_type": null,
       "watts_max": 200.2,
-      "watts_ave": null,
+      "watts_ave": 85.0,
       "source": "catalog"
     },
     {
@@ -33596,7 +34993,7 @@
       "weight_lb": 28.439597999999997,
       "proc_type": null,
       "watts_max": 200.2,
-      "watts_ave": null,
+      "watts_ave": 85.0,
       "source": "catalog"
     },
     {
@@ -33611,7 +35008,7 @@
       "weight_lb": 27.998673999999998,
       "proc_type": null,
       "watts_max": 255.2,
-      "watts_ave": null,
+      "watts_ave": 135.0,
       "source": "catalog"
     },
     {
@@ -33626,7 +35023,7 @@
       "weight_lb": 27.998673999999998,
       "proc_type": null,
       "watts_max": 225.5,
-      "watts_ave": null,
+      "watts_ave": 135.0,
       "source": "catalog"
     },
     {
