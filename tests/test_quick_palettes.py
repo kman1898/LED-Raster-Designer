@@ -949,9 +949,17 @@ def test_the_field_guard_leaves_the_slider_and_its_fields_alone(page):
 
     try:
         assert pg.evaluate("() => document.__lrdFieldGuard === true")
+        pg.evaluate("""() => {
+            window.__trusted = [];
+            document.getElementById('quick-palette-hue').addEventListener(
+                'input', (e) => window.__trusted.push(e.isTrusted));
+        }""")
         _mouse_drag(pg, 100)
         shift = _hue(pg)
         assert shift > 50
+        # the browser's own input, the kind the guard reads as the person's
+        trusted = pg.evaluate("() => window.__trusted")
+        assert trusted and all(trusted), trusted
         turned = _turned(pg, SHIPPED, shift)
         assert _pair_of(pg, a) == turned
         assert pg.locator('#color1-hex').input_value() == turned[0]

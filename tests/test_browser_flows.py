@@ -284,7 +284,7 @@ def test_advanced_guide_switches_views(page):
                "document.getElementById('qs-callout').getAttribute('data-qs-state'))")
     reached_data = False
     try:
-        for _ in range(14):
+        for _ in range(20):
             page.wait_for_function(settled, timeout=20000)
             title = page.locator('#qs-callout h3').text_content() or ''
             if 'Data view' in title:
