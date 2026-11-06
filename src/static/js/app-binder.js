@@ -623,7 +623,8 @@ class _Binder {
             // whatever the scope
             wiring: on('export-binder-wiring', true),
             // the Header/Footer sheets - a screen's header and footer bars, one sheet per
-            // screen that has any - on whatever the scope
+            // screen that has any, or one per group where the Header/Footer
+            // tab's Names switch says Group - on whatever the scope
             rigging: on('export-binder-rigging', true),
             // the border, the title block column and the rev line: on
             // unless the box says otherwise (a preference, so the dialog
@@ -637,8 +638,9 @@ class _Binder {
 
     // The dialog's Groups row: one line per grouped wall whose Power or Data
     // tab says Both on the Names switch, routed as one on that side - "WALL
-    // Data: [Group] [Screens]", both sides on the line where both ask. The
-    // buttons show the saved answer, Group where there is none.
+    // Data: [Group] [Screens]", both sides on the line where both ask - or
+    // whose Header/Footer tab says Both and has bars to print. The buttons
+    // show the saved answer, Group where there is none.
     _renderBinderGroupRows() {
         const box = document.getElementById('export-binder-groups');
         const row = document.getElementById('export-binder-groups-row');
@@ -646,8 +648,23 @@ class _Binder {
         box.innerHTML = '';
         const answers = this.getBinderInfo().groupSheets;
         let n = 0;
-        for (const gp of this._bGroupPlans({ groupSheets: answers }).values()) {
-            const sides = ['power', 'data'].filter(side => gp.asks[side]);
+        const plans = this._bGroupPlans({ groupSheets: answers });
+        const rigPlans = this._bRigGroupPlans({ groupSheets: answers });
+        const lines = [];
+        for (const gp of plans.values()) {
+            lines.push({ id: gp.id, name: gp.name, sides: ['power', 'data'].filter(side => gp.asks[side]),
+                         mode: { ...gp.mode } });
+        }
+        for (const rp of rigPlans.values()) {
+            if (!rp.asks) continue;
+            let line = lines.find(l => String(l.id) === String(rp.id));
+            if (!line) { line = { id: rp.id, name: rp.name, sides: [], mode: {} }; lines.push(line); }
+            line.sides.push('rigging');
+            line.mode.rigging = rp.mode;
+        }
+        const WORD = { power: 'Power', data: 'Data', rigging: 'Header/Footer' };
+        for (const gp of lines) {
+            const sides = gp.sides;
             if (!sides.length) continue;
             n++;
             const line = document.createElement('div');
@@ -663,7 +680,7 @@ class _Binder {
                 const part = document.createElement('span');
                 part.style.cssText = 'display: flex; gap: 4px; align-items: center; flex: none;';
                 const word = document.createElement('span');
-                word.textContent = side === 'power' ? 'Power:' : 'Data:';
+                word.textContent = `${WORD[side]}:`;
                 part.appendChild(word);
                 for (const mode of ['group', 'screens']) {
                     const btn = document.createElement('button');
@@ -675,8 +692,8 @@ class _Binder {
                     btn.style.cssText = 'padding: 3px 8px; font-size: 11px;';
                     btn.classList.toggle('active', gp.mode[side] === mode);
                     btn.setAttribute('data-tooltip', mode === 'group'
-                        ? `One ${side === 'power' ? 'Power' : 'Data'} sheet for ${gp.name}, every screen in it on one map.`
-                        : `A ${side === 'power' ? 'Power' : 'Data'} sheet for each screen in ${gp.name}.`);
+                        ? `One ${WORD[side]} sheet for ${gp.name}, every screen in it on one map.`
+                        : `A ${WORD[side]} sheet for each screen in ${gp.name}.`);
                     part.appendChild(btn);
                 }
                 line.appendChild(part);
@@ -775,7 +792,7 @@ class _Binder {
         for (const [gid, v] of Object.entries(raw)) {
             if (!v || typeof v !== 'object') continue;
             const one = {};
-            for (const side of ['power', 'data']) {
+            for (const side of ['power', 'data', 'rigging']) {
                 if (v[side] === 'group' || v[side] === 'screens') one[side] = v[side];
             }
             if (Object.keys(one).length) out[gid] = one;
@@ -788,7 +805,7 @@ class _Binder {
     // settings so the next export remembers it: one undo entry, the same
     // POST as the title block's fields. Returns true when it changed.
     setBinderGroupSheet(groupId, side, mode) {
-        if (!this.project || !['power', 'data'].includes(side) || !['group', 'screens'].includes(mode)) return false;
+        if (!this.project || !['power', 'data', 'rigging'].includes(side) || !['group', 'screens'].includes(mode)) return false;
         const all = this.getBinderInfo().groupSheets;
         if ((all[groupId] || {})[side] === mode) return false;
         all[groupId] = { ...(all[groupId] || {}), [side]: mode };
@@ -1340,11 +1357,33 @@ class _Binder {
         const order = sheets.map(e => e.layer);
         const posOf = new Map(sheets.map(e => [e.layer, e.pos]));
         const printed = new Set();
-        // The Header/Footer sheet: one per SCREEN with header or footer bars, after that
-        // screen's own sheets (a group's members each get theirs, after the
-        // group's sheets - the bars belong to a screen, not to a group).
+        // The Header/Footer sheet: one per SCREEN with header or footer
+        // bars, after that screen's own sheets - or, for a group whose
+        // Header/Footer tab names it by GROUP (the same Names switch the
+        // Power and Data sheets follow, _bRigGroupPlans), ONE sheet for the
+        // whole group: every member and its bars on one map, the bars
+        // tallied together. It stands after the group's last screen's
+        // sheets (a group routed as one prints its sheets together, so
+        // that is right after them).
+        const rigPlans = opts.rigging !== false ? this._bRigGroupPlans(opts) : new Map();
+        const rigLast = new Map();
+        for (const rp of rigPlans.values()) {
+            if (rp.mode !== 'group') continue;
+            let last = null, at = -1;
+            for (const m of rp.members) {
+                const i = order.indexOf(m);
+                if (i > at) { at = i; last = m; }
+            }
+            if (last) rigLast.set(last, rp);
+        }
         const rig = (screen, pos) => {
-            if (opts.rigging !== false && this._bHasRigging(screen)) this._bRiggingPage(book, screen, pos);
+            if (opts.rigging === false) return;
+            const rp = screen && screen.group_id != null ? rigPlans.get(String(screen.group_id)) : null;
+            if (rp && rp.mode === 'group') {
+                if (rigLast.get(screen) === rp) this._bRiggingPage(book, this._bRigGroupSubject(rp), pos);
+                return;
+            }
+            if (this._bHasRigging(screen)) this._bRiggingPage(book, screen, pos);
         };
         for (const { layer, pos } of sheets) {
             const gp = this._bGroupPlanOf(book, layer);
@@ -1670,6 +1709,46 @@ class _Binder {
             }
         }
         return false;
+    }
+
+    // The Header/Footer sheets of a group follow the Header/Footer tab's
+    // NAMES switch, the way the Power and Data sheets follow theirs:
+    //   group    ONE sheet for the group, titled by the group's name, its
+    //            map every member with its bars as it sits on the canvas,
+    //            its tables the bars of every member tallied together
+    //   screens  a sheet per member with bars, as before
+    //   both     asked per group at export, saved beside the Power and
+    //            Data answers in project.binder.groupSheets (`rigging`)
+    // Bars hang on each screen of their own, so there is no "routed as one"
+    // test here: any group of two or more shown screens on one canvas with
+    // a bar on any of them qualifies.
+    // { id, name, group, members, mode, asks } per group, by id.
+    _bRigGroupPlans(opts) {
+        const out = new Map();
+        const groups = (this.project && this.project.groups) || [];
+        if (!groups.length || typeof this.getGroupMembers !== 'function') return out;
+        const shown = new Set(this._pullScreens());
+        const answers = (opts && opts.groupSheets && typeof opts.groupSheets === 'object')
+            ? opts.groupSheets : this.getBinderInfo().groupSheets;
+        const canvasOf = (l) => l.show_canvas_id || l.canvas_id || null;
+        const tab = this.groupNameDisplayFor('rigging');
+        for (const g of groups) {
+            if (!g || g.id == null) continue;
+            const members = this.getGroupMembers(g).filter(m => shown.has(m));
+            if (members.length < 2 || !members.every(m => canvasOf(m) === canvasOf(members[0]))) continue;
+            if (!members.some(m => this._bHasRigging(m))) continue;
+            const asked = (answers[g.id] || {}).rigging;
+            const mode = tab === 'both' ? (asked === 'screens' ? 'screens' : 'group') : tab;
+            out.set(String(g.id), { id: g.id, name: g.name || String(g.id), group: g, members,
+                                    mode, asks: tab === 'both' });
+        }
+        return out;
+    }
+
+    _bRigGroupSubject(rp) {
+        return { kind: 'group', name: rp.name, id: rp.members[0].id, groupId: rp.id,
+                 layers: rp.members, carriers: rp.members, members: rp.members,
+                 member: null, anchor: null };
     }
 
     _bGroupPlanOf(book, layer) {
@@ -6674,8 +6753,9 @@ class _Binder {
     // The map's gutters for a header/footer sheet: the default's room above
     // the wall for the header bars, and - only on a screen that has footer
     // bars - room below it for them too.
-    _bRiggingGutter(layer) {
-        const footer = Array.isArray(layer.riggingFooterBars) && layer.riggingFooterBars.length > 0;
+    _bRiggingGutter(target) {
+        const footer = this._bSubject(target).layers
+            .some(l => Array.isArray(l.riggingFooterBars) && l.riggingFooterBars.length > 0);
         return footer ? { ...MAP_GUTTER, bottom: MAP_GUTTER.top } : MAP_GUTTER;
     }
 
@@ -6685,28 +6765,38 @@ class _Binder {
     // column or row rulers - the header bars take the strip above the wall
     // the rulers use on the Power and Data sheets, and each bar says its own
     // panel count.
-    _bRiggingPage(book, layer, pos) {
+    //
+    // `target` is a screen, or a group subject (_bRigGroupSubject) when the
+    // group prints as one: its map every member, its tables every member's
+    // bars together.
+    _bRiggingPage(book, target, pos) {
+        const s = this._bSubject(target);
         const view = this._bViewName(book);
-        const title = `${layer.name} - Header/Footer - ${view}`;
-        const sheetTitle = `${layer.name} · HEADER/FOOTER · ${view.toUpperCase()}`;
-        const gutter = this._bRiggingGutter(layer);
+        const title = `${s.name} - Header/Footer - ${view}`;
+        const sheetTitle = `${s.name} · HEADER/FOOTER · ${view.toUpperCase()}`;
+        const gutter = this._bRiggingGutter(s);
+        const layer = s.kind === 'layer' ? s.layers[0] : s;
         this._bMapSheets(book, {
             kind: 'rigging', title, sheetTitle, viewName: sheetTitle,
-            layerId: layer.id, subject: layer.name, position: pos.name,
+            layerId: s.id, subject: s.name, position: pos.name,
+            ...(s.groupId != null ? { groupId: s.groupId, layerIds: s.layers.map(l => l.id) } : {}),
             gutter,
             measure: (area) => this._bMap(book, layer, 'rigging', area, gutter),
             draw: (area) => {
                 const geo = this._bMap(book, layer, 'rigging', area, gutter);
                 return geo ? geo.area : null;
             },
-        }, this._bRiggingBlocks(book, layer));
+        }, this._bRiggingBlocks(book, s));
     }
 
-    _bRiggingBlocks(book, layer) {
-        const rows = [['Header', layer.riggingBars], ['Footer', layer.riggingFooterBars]]
-            .map(([word, bars]) => [word, Array.isArray(bars) ? bars : []]).filter(([, bars]) => bars.length);
-        const blocks = rows.map(([word, bars]) => {
-            const { total, bySize } = RiggingMath.tally([bars]);
+    _bRiggingBlocks(book, target) {
+        const layers = this._bSubject(target).layers;
+        const list = (l, field) => (Array.isArray(l[field]) ? l[field] : []);
+        const rows = [['Header', layers.map(l => list(l, 'riggingBars'))],
+                      ['Footer', layers.map(l => list(l, 'riggingFooterBars'))]]
+            .filter(([, lists]) => lists.some(bars => bars.length));
+        const blocks = rows.map(([word, lists]) => {
+            const { total, bySize } = RiggingMath.tally(lists.filter(bars => bars.length));
             const kind = word === 'Footer' ? 'footer' : 'header';
             const lines = Object.keys(bySize).map(Number).sort((a, b) => b - a)
                 .map(size => ({ cells: [RiggingMath.barName(size, kind), String(size), this._bQty(bySize[size])] }));
